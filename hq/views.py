@@ -149,6 +149,8 @@ from hub.view_as import fog_admin_required, has_events_admin_access
 from membership.models import Guild, Member
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from django.forms import BaseInlineFormSet
 
     # The shifts formset's type: the factory's result is a value, so the view names the generic it builds.
@@ -1338,115 +1340,138 @@ def vendor_pull(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpRe
 
 @dataclass(frozen=True)
 class DiscordPanel:
-    """Check Discord's answer: the channel as it is named, who is new there, or why it could not be read."""
+    """Check Discord's answer: the channel as it is named, who is new there, whether nicknames could be read, or the
+    one line that says why there is no list."""
 
     label: str
     posters: list[vendor_discord.Poster] = field(default_factory=list)
     error: str = ""
+    nicknames_read: bool = True
 
 
 # The toast when a poster was dealt with in another tab (or is on the list) by the time Add or Skip was pressed.
 DISCORD_POSTER_GONE = "Someone already added or skipped them. The list is up to date."
+DISCORD_NO_CHANNEL = "There is no Discord channel to check. An admin sets it on this page."
+# Add or Skip with no kept read: the check ran out (or the channel changed), so nothing is written.
+DISCORD_STALE = "This list is out of date. Press Check Discord to read the channel again."
 # A plain post's message level for each toast level.
 _MESSAGE_LEVELS = {"success": messages.SUCCESS, "info": messages.INFO, "error": messages.ERROR}
 
 
-def _check_discord(hub: EventHub) -> tuple[vendor_discord.ChannelRead | None, DiscordPanel]:
+def _discord_panel(hub: EventHub, read: vendor_discord.ChannelRead) -> DiscordPanel:
+    return DiscordPanel(
+        label=read.label, posters=services.discord_posters(hub, read), nicknames_read=read.nicknames_read
+    )
+
+
+def _check_discord(hub: EventHub) -> DiscordPanel:
     """Read ``hub``'s Discord channel once (``vendor_discord.read_channel``, through the module so specs can replace
-    it): what was read, or None when it could not be, and the panel either way."""
+    it) and keep the read for Add and Skip; the panel, or why the channel could not be read."""
     channel_id = services.vendor_sheet_state(hub).discord_channel_id
     if not channel_id:
-        return None, DiscordPanel(
-            label="", error="There is no Discord channel to check. An admin sets it on this page."
-        )
+        return DiscordPanel(label="", error=DISCORD_NO_CHANNEL)
     try:
         read = vendor_discord.read_channel(channel_id)
     except vendor_discord.DiscordUnreadable as exc:
-        return None, DiscordPanel(label=f"#{channel_id}", error=str(exc))
-    return read, DiscordPanel(label=read.label, posters=services.discord_posters(hub, read))
-
-
-def _vendor_discord_url(hub: EventHub) -> str:
-    return reverse("hq:vendor_discord_check", args=[hub.slug])
+        return DiscordPanel(label=f"#{channel_id}", error=f"Discord could not be read. {exc}")
+    services.keep_discord_read(hub, read)
+    return _discord_panel(hub, read)
 
 
 @require_GET
 @organizer_required(HubCard.Kind.VENDOR_TABLES)
 def vendor_discord_check(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
     """Check Discord, by the actual role: read the hub's channel now and list each new poster with Add as Request
-    and Skip. Over htmx the panel alone comes back into the list; without it, the page with the panel."""
-    _read, panel = _check_discord(hub)
+    and Skip. Over htmx the panel alone comes back into the list; without it, the page with the panel. The list's
+    filter rides along, so Add's answer keeps it."""
+    show = services.vendor_filter(request.GET.get("filter", ""))
+    panel = _check_discord(hub)
     if wants_fragment(request):
-        return render(request, "hq/partials/_vendor_discord.html", {"hub": hub, "discord": panel, "show": "all"})
-    context = _vendors_context(request, hub, card, show=services.VENDOR_FILTER_ALL, discord=panel)
-    return render(request, "hq/vendors.html", context)
+        return render(request, "hq/partials/_vendor_discord.html", {"hub": hub, "discord": panel, "show": show})
+    return render(request, "hq/vendors.html", _vendors_context(request, hub, card, show=show, discord=panel))
 
 
-def _discord_choice(request: HttpRequest) -> tuple[str, list[str]]:
-    """The poster an Add or Skip names, and the ids of the posts that person saw."""
-    return request.POST.get("author", ""), request.POST.getlist("message")
+@dataclass(frozen=True)
+class _DiscordPress:
+    """What an Add or Skip did: the panel after it, the toast, and the service's answer (None when nothing was
+    written)."""
+
+    panel: DiscordPanel
+    message: str
+    level: str
+    result: Any = None
+
+
+def _discord_press(
+    request: HttpRequest, hub: EventHub, press: Callable[[vendor_discord.ChannelRead, str, list[str]], Any]
+) -> _DiscordPress:
+    """Run ``press`` (Add or Skip) on the read the last Check Discord kept, never reading Discord again, with the
+    poster and the post ids the form sent. With no kept read of the hub's channel nothing is written and the panel
+    says to check again; a poster someone else dealt with first is :data:`DISCORD_POSTER_GONE`."""
+    channel_id = services.vendor_sheet_state(hub).discord_channel_id
+    read = services.kept_discord_read(hub, channel_id)
+    if read is None:
+        label = f"#{channel_id}" if channel_id else ""
+        return _DiscordPress(DiscordPanel(label=label, error=DISCORD_STALE), DISCORD_STALE, "info")
+    services.keep_discord_read(hub, read)
+    try:
+        result = press(read, request.POST.get("author", ""), request.POST.getlist("message"))
+    except services.DiscordPosterGone:
+        return _DiscordPress(_discord_panel(hub, read), DISCORD_POSTER_GONE, "info")
+    return _DiscordPress(_discord_panel(hub, read), "", "success", result)
 
 
 @require_POST
 @organizer_required(HubCard.Kind.VENDOR_TABLES)
 def vendor_discord_add(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """Add as Request, by the actual role: the channel is read again and the poster becomes a table request (+ Add's
-    capacity rule), unless they were added or skipped first. Over htmx the board comes back with the new row in
-    view, the counts moved and the panel without them, and a toast; a plain post lands on Check Discord's page."""
+    """Add as Request, by the actual role: on the read the check kept, the poster becomes a table request (+ Add's
+    capacity rule), unless they were added or skipped first. Over htmx the board comes back with the list's filter,
+    the new row in view, the counts moved and the panel without them, and a toast; a plain post renders the page."""
     show = _vendor_posted_filter(request)
-    author_id, message_ids = _discord_choice(request)
-    read, panel = _check_discord(hub)
-    table = None
-    if read is None:
-        message, level = f"Discord could not be read. {panel.error}", "error"
-    else:
-        try:
-            table = services.add_discord_poster(
-                hub, read, author_id=author_id, message_ids=message_ids, member=actual_member(request)
-            )
-        except services.DiscordPosterGone:
-            message, level = DISCORD_POSTER_GONE, "info"
-        else:
-            waitlisted = table.status == VendorTable.Status.WAITLIST
-            message = f"{table.name} added to the waitlist (tables are full)." if waitlisted else f"{table.name} added."
-            level = "success"
-        panel = DiscordPanel(label=panel.label, posters=services.discord_posters(hub, read))
-    if not wants_fragment(request):
-        messages.add_message(request, _MESSAGE_LEVELS[level], message)
-        return redirect(_vendor_discord_url(hub))
+    member = actual_member(request)
+    done = _discord_press(
+        request,
+        hub,
+        lambda read, author_id, message_ids: services.add_discord_poster(
+            hub, read, author_id=author_id, message_ids=message_ids, member=member
+        ),
+    )
+    table: VendorTable | None = done.result
+    message = done.message
+    if table is not None:
+        waitlisted = table.status == VendorTable.Status.WAITLIST
+        message = f"{table.name} added to the waitlist (tables are full)." if waitlisted else f"{table.name} added."
     keep_pk = table.pk if table is not None else None
-    context = _vendors_context(request, hub, card, show=show, keep_pk=keep_pk, discord=panel)
+    context = _vendors_context(request, hub, card, show=show, keep_pk=keep_pk, discord=done.panel)
+    if not wants_fragment(request):
+        messages.add_message(request, _MESSAGE_LEVELS[done.level], message)
+        return render(request, "hq/vendors.html", context)
     response = render(request, "hq/partials/_vendor_board.html", context)
-    trigger_toast(response, message, level)
+    trigger_toast(response, message, done.level)
     return response
 
 
 @require_POST
 @organizer_required(HubCard.Kind.VENDOR_TABLES)
 def vendor_discord_skip(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """Skip, by the actual role: the poster's posts that were shown are recorded as skipped, so they leave Check
-    Discord until they post again. Over htmx the panel comes back without them, with a toast; a plain post lands on
-    Check Discord's page."""
-    author_id, message_ids = _discord_choice(request)
-    read, panel = _check_discord(hub)
-    if read is None:
-        message, level = f"Discord could not be read. {panel.error}", "error"
-    else:
-        try:
-            poster = services.skip_discord_poster(
-                hub, read, author_id=author_id, message_ids=message_ids, member=actual_member(request)
-            )
-        except services.DiscordPosterGone:
-            message, level = DISCORD_POSTER_GONE, "info"
-        else:
-            message, level = f"Skipped {poster.name}.", "success"
-        panel = DiscordPanel(label=panel.label, posters=services.discord_posters(hub, read))
+    """Skip, by the actual role: on the read the check kept, the poster's posts that were shown are recorded as
+    skipped, so they leave Check Discord until they post again. Over htmx the panel comes back without them, with a
+    toast; a plain post renders the page."""
+    show = _vendor_posted_filter(request)
+    member = actual_member(request)
+    done = _discord_press(
+        request,
+        hub,
+        lambda read, author_id, message_ids: services.skip_discord_poster(
+            hub, read, author_id=author_id, message_ids=message_ids, member=member
+        ),
+    )
+    message = f"Skipped {done.result.name}." if done.result is not None else done.message
     if not wants_fragment(request):
-        messages.add_message(request, _MESSAGE_LEVELS[level], message)
-        return redirect(_vendor_discord_url(hub))
-    context = {"hub": hub, "discord": panel, "show": _vendor_posted_filter(request)}
-    response = render(request, "hq/partials/_vendor_discord.html", context)
-    trigger_toast(response, message, level)
+        messages.add_message(request, _MESSAGE_LEVELS[done.level], message)
+        return render(request, "hq/vendors.html", _vendors_context(request, hub, card, show=show, discord=done.panel))
+    response = render(request, "hq/partials/_vendor_discord.html", {"hub": hub, "discord": done.panel, "show": show})
+    trigger_toast(response, message, done.level)
     return response
 
 

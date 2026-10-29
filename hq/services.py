@@ -39,6 +39,7 @@ from typing import Any
 from urllib.parse import quote
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from django.db.models import (
@@ -123,7 +124,7 @@ from hq.models import (
     format_money,
 )
 from hq import vendor_discord, vendor_sheet
-from hq.vendor_import import ImportRefused, ImportResult, apply_pull, apply_upload, parse_rows, read_csv
+from hq.vendor_import import ImportRefused, ImportResult, apply_pull, apply_upload, hub_lock, parse_rows, read_csv
 from membership.models import CommunityEvent, Guild, GuildMembership, Member
 
 logger = logging.getLogger(__name__)
@@ -1389,12 +1390,40 @@ def set_vendor_discord_channel(hub: EventHub, channel_id: str) -> VendorFloor:
     return floor
 
 
+# How long the read a check made is kept for Add and Skip; each of them keeps it this long again.
+DISCORD_READ_SECONDS = 30 * 60
+
+
+def _discord_read_key(hub: EventHub) -> str:
+    return f"hq_vendor_discord_read:{hub.pk}"
+
+
+def keep_discord_read(hub: EventHub, read: vendor_discord.ChannelRead) -> None:
+    """Keep ``read`` (what Check Discord just read) for ``hub``'s Add and Skip, in the shared cache (the database
+    cache in production, so every worker sees it), for :data:`DISCORD_READ_SECONDS`."""
+    cache.set(_discord_read_key(hub), read, DISCORD_READ_SECONDS)
+
+
+def kept_discord_read(hub: EventHub, channel_id: str) -> vendor_discord.ChannelRead | None:
+    """The read ``hub``'s last Check Discord kept, if it is of ``channel_id`` and has not run out; None otherwise."""
+    read = cache.get(_discord_read_key(hub))
+    if not isinstance(read, vendor_discord.ChannelRead) or read.channel_id != channel_id:
+        return None
+    return read
+
+
 def discord_posters(hub: EventHub, read: vendor_discord.ChannelRead) -> list[vendor_discord.Poster]:
     """Who Check Discord lists on ``hub`` from what was read: ``vendor_discord.new_posters`` against the hub's
-    tables (by name and Discord handle) and the posts already added or skipped, in two queries."""
+    tables (by name and Discord handle), the posts already added or skipped, and the people already added from here
+    (by Discord id, so a changed nickname never lists them twice), in two queries."""
     listed = vendor_discord.listed_keys(hub.vendor_tables.values_list("name", "discord_handle"))
-    handled = set(hub.vendor_discord_decisions.values_list("message_id", flat=True))
-    return vendor_discord.new_posters(read, listed=listed, handled=handled)
+    handled: set[str] = set()
+    added: set[str] = set()
+    for message_id, author_id, action in hub.vendor_discord_decisions.values_list("message_id", "author_id", "action"):
+        handled.add(message_id)
+        if action == VendorDiscordAction.ADDED:
+            added.add(author_id)
+    return vendor_discord.new_posters(read, listed=listed, handled=handled, added=added)
 
 
 def add_discord_poster(
@@ -1454,7 +1483,7 @@ def _claim_poster(
     """Inside the caller's transaction, under a lock on ``hub``'s row, so two presses for one poster (two tabs, or
     an Add and a Skip) run one after the other and the second sees the first's rows: the poster as listed now, with
     only the posts in ``message_ids``, recorded with ``action``."""
-    list(EventHub.objects.select_for_update().filter(pk=hub.pk))
+    hub_lock(hub)
     listed = {poster.author_id: poster for poster in discord_posters(hub, read)}
     if author_id not in listed:
         raise DiscordPosterGone(author_id)

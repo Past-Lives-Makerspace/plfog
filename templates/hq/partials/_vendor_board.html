@@ -68,6 +68,7 @@ view. Delete is a plain post through the confirm modal.
         {% endif %}
         {% if sheet.discord_channel_id %}
         <form method="get" action="{% url 'hq:vendor_discord_check' hub.slug %}" hx-get="{% url 'hq:vendor_discord_check' hub.slug %}" hx-target="#hq-vt-discord" hx-swap="outerHTML" hx-disabled-elt="find button" class="pl-hq-vt__pull" data-hq-vt-discord-form>
+          <input type="hidden" name="filter" value="{{ show }}">
           <button type="submit" class="pl-hq-vt__csv pl-hq-vt__csv--button" data-hq-vt-discord-check>Check Discord</button>
         </form>
         {% endif %}

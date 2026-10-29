@@ -2,19 +2,24 @@
 Check Discord (#1014): who posted in the hub's Discord channel and is not on the list yet, newest post first, each with
 their posts and two buttons. Add as Request posts over htmx and swaps the whole board, so the new row and the counts
 show; Skip swaps this panel alone. Each form names the poster and the posts shown, so a post that arrived since is
-never added or skipped unseen. Loaded by Check Discord into the list; a read failure says why in red.
+never added or skipped unseen. Loaded by Check Discord into the list; a read failure says why in red. Add and Skip
+act on the read the check kept and never read Discord again.
 
   hub     — required, the EventHub
-  discord — required, a hq.views.DiscordPanel (label, posters, error)
+  discord — required, a hq.views.DiscordPanel (label, posters, error, nicknames_read)
   show    — required, the list's filter, kept by Add's answer
 {% endcomment %}
 <section id="hq-vt-discord" class="pl-hq-vt__import-answer pl-hq-vt__discord{% if discord.error %} pl-hq-vt__import-answer--refused{% endif %}" aria-labelledby="hq-vt-discord-title" data-hq-vt-discord>
   <h3 class="pl-hq-vt__discord-title" id="hq-vt-discord-title">New in {{ discord.label|default:"Discord" }}</h3>
   {% if discord.error %}
-  <p class="pl-hq-vt__import-summary pl-hq-vt__pull-error" role="alert" data-hq-vt-discord-error>Discord could not be read. {{ discord.error }}</p>
+  <p class="pl-hq-vt__import-summary pl-hq-vt__pull-error" role="alert" data-hq-vt-discord-error>{{ discord.error }}</p>
   {% elif not discord.posters %}
   <p class="pl-hq-vt__import-summary" role="status" data-hq-vt-discord-empty>Nothing new in {{ discord.label }}.</p>
-  {% else %}
+  {% endif %}
+  {% if not discord.error and not discord.nicknames_read %}
+  <p class="pl-hq-vt__muted pl-hq-vt__discord-lede" data-hq-vt-discord-no-nicks>Server nicknames could not be read, so people are matched to the list by their Discord names only.</p>
+  {% endif %}
+  {% if discord.posters %}
   <p class="pl-hq-vt__muted pl-hq-vt__discord-lede" data-hq-vt-discord-lede>{% with count=discord.posters|length %}{{ count }} {% if count == 1 %}person has{% else %}people have{% endif %}{% endwith %} posted here and {{ discord.posters|length|pluralize:"is,are" }} not on the list. Add each table request; skip chat and cancellations.</p>
   <ul class="pl-hq-vt__posters" data-hq-vt-posters>
     {% for poster in discord.posters %}

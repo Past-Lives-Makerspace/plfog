@@ -278,3 +278,45 @@ def describe_reading_a_channel_for_check_discord():
             dc.channel_messages_newest(CHANNEL_ID, limit=500)
 
         assert raised.value.status_code is None
+
+
+def describe_a_read_with_a_deadline():
+    @respx.mock
+    def it_starts_no_request_after_the_deadline(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        route = respx.get(_MESSAGES_URL).mock(return_value=httpx.Response(200, json=_page_of(500, 100)))
+
+        with patch.object(dc.time, "monotonic", side_effect=[0.0, 20.0]), pytest.raises(dc.DiscordTimeUpError):
+            dc.channel_messages_newest(CHANNEL_ID, limit=500, deadline=15.0)
+
+        assert route.call_count == 1
+
+    @respx.mock
+    def it_stops_the_member_list_and_the_channel_read_at_the_deadline_too(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        route = respx.get(url__startswith="https://discord.com/api/v10/").mock(
+            return_value=httpx.Response(200, json=[])
+        )
+
+        with patch.object(dc.time, "monotonic", return_value=20.0):
+            with pytest.raises(dc.DiscordTimeUpError):
+                dc.server_members("g1", deadline=15.0)
+            with pytest.raises(dc.DiscordTimeUpError):
+                dc.channel_info(CHANNEL_ID, deadline=15.0)
+
+        assert not route.called
+
+    @respx.mock
+    def it_skips_a_rate_limit_retry_that_would_end_past_the_deadline(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        route = respx.get(_MESSAGES_URL).mock(return_value=httpx.Response(429, json={}, headers={"Retry-After": "5"}))
+
+        with (
+            patch.object(dc.time, "monotonic", return_value=12.0),
+            patch.object(dc.time, "sleep") as sleep,
+            pytest.raises(dc.DiscordRateLimitedError),
+        ):
+            dc.channel_messages_newest(CHANNEL_ID, limit=500, deadline=15.0)
+
+        assert not sleep.called
+        assert route.call_count == 1

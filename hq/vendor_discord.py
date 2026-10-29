@@ -2,18 +2,21 @@
 
 The vendor team presses Check Discord; nothing reads Discord on a schedule and nothing writes to it. The channel
 mixes requests with organiser chat and cancellations, so a person decides each poster: Add as Request or Skip
-(``hq.services.add_discord_poster`` and ``skip_discord_poster``).
+(``hq.services.add_discord_poster`` and ``skip_discord_poster``), which act on the read the check made and never
+read Discord again.
 
 :func:`read_channel` is the one read, and the only network call: the channel's name, its newest
 :data:`MAX_MESSAGES` messages, and the server's members for their nicknames, through the Fog Bot
-(``core.integrations.discord_channel``, so a 429 is retried once and any other failure raises). Specs replace it
-(``patch.object(vendor_discord, "read_channel", ...)``; callers reach it through the module, so the patch reaches
-the e2e live server too). :func:`new_posters` is the pure rule over what it read.
+(``core.integrations.discord_channel``, so a 429 is retried once and any other failure raises), all within
+:data:`READ_SECONDS`. Specs replace it (``patch.object(vendor_discord, "read_channel", ...)``; callers reach it
+through the module, so the patch reaches the e2e live server too). :func:`new_posters` is the pure rule over what it
+read.
 """
 
 from __future__ import annotations
 
 import re
+import time
 from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -21,28 +24,36 @@ from typing import Any
 
 from django.utils import timezone
 
-from core.discord_pings import PERSON_MESSAGE_TYPES
+from core.discord_pings import PERSON_MESSAGE_TYPES, readable_time
 from core.events.discord_dm import bot_token
 from core.integrations import discord_channel
-from core.integrations.discord_channel import DiscordChannelError, DiscordRateLimitedError
+from core.integrations.discord_channel import DiscordChannelError, DiscordRateLimitedError, DiscordTimeUpError
 from hq.vendor_import import _max_length, clean, normalise
 
 # The most messages one check reads, newest first.
 MAX_MESSAGES = 500
+# The longest a check may spend reading Discord; no request starts after it, well inside the 30 second worker timeout.
+READ_SECONDS = 15.0
 # Between a poster's posts in the note a request is added with.
 NOTE_JOIN = " · "
 NOTE_MAX = _max_length("note")
+# Channels whose messages can be read: text, announcement, and the three kinds of thread.
+TEXT_CHANNEL_TYPES = (0, 5, 10, 11, 12)
 
 # Why the channel could not be read, in the vendor team's words.
 NO_BOT = "The Fog Bot is not set up on this site, so Discord cannot be read."
 CANNOT_SEE = "The Fog Bot cannot read that channel. In Discord, let it view the channel and read its history."
 NO_CHANNEL = "Discord has no channel with that id. An admin can check it under Discord Channel on this page."
-NO_MEMBER_LIST = "The Fog Bot cannot read the server's member list, so nicknames cannot be matched."
+NOT_TEXT = "That id is not a text channel on the server. An admin can check it under Discord Channel on this page."
+TOO_SLOW = "Discord was slow to answer. Try again in a minute."
 SLOW_DOWN = "Discord asked us to slow down. Try again in a minute."
 NO_ANSWER = "Discord did not answer. Try again in a minute."
 
 _MENTION = re.compile(r"<@!?([0-9]+)>")
+_ROLE = re.compile(r"<@&[0-9]+>")
+_CHANNEL = re.compile(r"<#([0-9]+)>")
 _EMOJI = re.compile(r"<a?:(\w+):[0-9]+>")
+_TIMESTAMP = re.compile(r"<t:(-?[0-9]+)(?::[tTdDfFR])?>")
 
 
 class DiscordUnreadable(Exception):
@@ -51,13 +62,15 @@ class DiscordUnreadable(Exception):
 
 @dataclass(frozen=True)
 class ChannelRead:
-    """What one check read: the channel's id and name, its newest messages as Discord sent them (newest first),
-    and each server member's nickname by their Discord id (only members who set one)."""
+    """What one check read: the channel's id and name, its newest messages (newest first, only the fields the rule
+    reads, so the read is small enough to keep for Add and Skip), each server member's nickname by their Discord id
+    (only members who set one), and whether the nicknames could be read at all."""
 
     channel_id: str
     name: str
     messages: tuple[dict[str, Any], ...]
     nicks: Mapping[str, str]
+    nicknames_read: bool = True
 
     @property
     def label(self) -> str:
@@ -66,32 +79,61 @@ class ChannelRead:
 
 
 def read_channel(channel_id: str) -> ChannelRead:
-    """Read the channel through the Fog Bot: its name, its newest :data:`MAX_MESSAGES` messages, and the server's
-    nicknames. The only network call here.
+    """Read the channel through the Fog Bot within :data:`READ_SECONDS`: its name, its newest :data:`MAX_MESSAGES`
+    messages, and the server's nicknames. The only network call here. A member list Discord refuses (no Server
+    Members intent) or that runs past the time leaves the nicknames out (``nicknames_read`` False) rather than
+    failing the check.
 
     Raises:
-        DiscordUnreadable: no bot token on this site, Discord refused or could not find the channel or the member
-            list, rate limited after the one retry, or no answer.
+        DiscordUnreadable: no bot token on this site, Discord refused or could not find the channel, the id is not
+            a text channel, rate limited after the one retry, the messages ran past the time, or no answer.
     """
     if not bot_token():
         raise DiscordUnreadable(NO_BOT)
+    deadline = time.monotonic() + READ_SECONDS
     try:
-        info = discord_channel.channel_info(channel_id)
-        messages = discord_channel.channel_messages_newest(channel_id, limit=MAX_MESSAGES)
-        try:
-            members = discord_channel.server_members(info["guild_id"])
-        except DiscordRateLimitedError:
-            raise
-        except DiscordChannelError as exc:
-            raise DiscordUnreadable(NO_MEMBER_LIST) from exc
+        info = discord_channel.channel_info(channel_id, deadline=deadline)
+        if info.get("type") not in TEXT_CHANNEL_TYPES or not info.get("guild_id"):
+            raise DiscordUnreadable(NOT_TEXT)
+        messages = discord_channel.channel_messages_newest(channel_id, limit=MAX_MESSAGES, deadline=deadline)
     except DiscordChannelError as exc:
         raise DiscordUnreadable(_why(exc)) from exc
+    try:
+        members = discord_channel.server_members(info["guild_id"], deadline=deadline)
+    except DiscordRateLimitedError as exc:
+        raise DiscordUnreadable(SLOW_DOWN) from exc
+    except DiscordChannelError:
+        members, nicknames_read = [], False
+    else:
+        nicknames_read = True
     nicks = {member["user"]["id"]: member["nick"] for member in members if member.get("nick")}
-    return ChannelRead(channel_id=channel_id, name=info.get("name") or "", messages=tuple(messages), nicks=nicks)
+    return ChannelRead(
+        channel_id=channel_id,
+        name=info.get("name") or "",
+        messages=tuple(_slim(message) for message in messages),
+        nicks=nicks,
+        nicknames_read=nicknames_read,
+    )
+
+
+def _user(user: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: user[key] for key in ("id", "username", "global_name", "bot") if key in user}
+
+
+def _slim(message: Mapping[str, Any]) -> dict[str, Any]:
+    """A message with only what the rule reads, so a kept read stays small."""
+    slim = {key: message[key] for key in ("id", "type", "content", "timestamp")}
+    slim["author"] = _user(message["author"])
+    slim["mentions"] = [_user(user) for user in message.get("mentions") or []]
+    if message.get("webhook_id"):
+        slim["webhook_id"] = message["webhook_id"]
+    return slim
 
 
 def _why(exc: DiscordChannelError) -> str:
     """A failed read in the vendor team's words, by Discord's answer."""
+    if isinstance(exc, DiscordTimeUpError):
+        return TOO_SLOW
     if exc.status_code == 429:
         return SLOW_DOWN
     if exc.status_code == 403:
@@ -103,15 +145,25 @@ def _why(exc: DiscordChannelError) -> str:
 
 def display_name(user: Mapping[str, Any], nicks: Mapping[str, str]) -> str:
     """How the server shows a Discord user, as Kate's sheet writes their handle: their server nickname, else their
-    display name, else their username; cleaned as a table's name is (``hq.vendor_import.clean``)."""
-    return clean(nicks.get(user["id"]) or user.get("global_name") or user["username"])
+    display name, else their username, the first that is not blank once cleaned as a table's name is
+    (``hq.vendor_import.clean``), so a name of invisible characters alone falls through to the next."""
+    for candidate in (nicks.get(user["id"]), user.get("global_name"), user["username"]):
+        name = clean(candidate or "")
+        if name:
+            return name
+    return user["username"]
 
 
-def readable(content: str, mentions: Iterable[Mapping[str, Any]], nicks: Mapping[str, str]) -> str:
+def readable(content: str, mentions: Iterable[Mapping[str, Any]], read: ChannelRead) -> str:
     """A message's text as people read it in Discord: a ``<@id>`` mention as @name (from the message's own
-    ``mentions``, "@someone" for anyone it does not carry) and a custom emoji as :name:."""
-    names = {user["id"]: display_name(user, nicks) for user in mentions}
+    ``mentions``, "@someone" for anyone it does not carry), a role mention as "@role" (a message carries no role
+    names), a channel mention as this channel's name or "#channel", a custom emoji as :name: and a ``<t:...>``
+    timestamp as a Pacific date and time."""
+    names = {user["id"]: display_name(user, read.nicks) for user in mentions}
     text = _MENTION.sub(lambda match: f"@{names.get(match.group(1), 'someone')}", content)
+    text = _ROLE.sub("@role", text)
+    text = _CHANNEL.sub(lambda match: read.label if match.group(1) == read.channel_id else "#channel", text)
+    text = _TIMESTAMP.sub(readable_time, text)
     return _EMOJI.sub(r":\1:", text).strip()
 
 
@@ -171,11 +223,14 @@ def listed_keys(tables: Iterable[tuple[str, str]]) -> set[str]:
     return keys
 
 
-def new_posters(read: ChannelRead, *, listed: set[str], handled: Collection[str]) -> list[Poster]:
+def new_posters(
+    read: ChannelRead, *, listed: set[str], handled: Collection[str], added: Collection[str] = ()
+) -> list[Poster]:
     """The people Check Discord lists, by their newest listed post, newest first: every author who is a person (no
     bot, webhook or system message such as a join), is not on the list (their username, display name or server
-    nickname, normalised, is none of ``listed``), and has a post whose id is not in ``handled``. Each carries only
-    those posts."""
+    nickname, a leading @ dropped and normalised, is none of ``listed``; and their Discord id is none of ``added``,
+    the people once added from here, so a changed nickname never lists them twice), and has a post whose id is not
+    in ``handled``. Each carries only those posts."""
     messages: dict[str, list[dict[str, Any]]] = {}
     for message in read.messages:
         author = message["author"]
@@ -187,13 +242,13 @@ def new_posters(read: ChannelRead, *, listed: set[str], handled: Collection[str]
     for author_id, theirs in messages.items():
         user = theirs[0]["author"]
         names = (user["username"], user.get("global_name") or "", read.nicks.get(author_id, ""))
-        if any(normalise(name) in listed for name in names):
+        if author_id in added or any(normalise(name.removeprefix("@")) in listed for name in names):
             continue
         posts = tuple(
             Post(
                 message_id=message["id"],
                 posted_at=datetime.fromisoformat(message["timestamp"]),
-                text=readable(message["content"], message["mentions"], read.nicks),
+                text=readable(message["content"], message["mentions"], read),
             )
             for message in sorted(theirs, key=lambda message: int(message["id"]), reverse=True)
         )

@@ -1,11 +1,12 @@
 """Check Discord (#1014): the Team reads the Holiday Bizarre channel on demand and adds or skips each new poster.
 
-Covers the one read (``hq.vendor_discord.read_channel``, through respx, never the network) and why a read fails, the
-pure rule (bots, webhooks and joins left out, people already on the list left out by username, display name or
-server nickname against a table's name or Discord handle, grouping and order, mentions as @name, the note and the
-date), Add as Request and Skip with the double press guard, the page and the panel, and the gates (an admin sets the
-channel; the Team checks, adds and skips). Every other spec replaces ``read_channel``. Every name, id and post is
-made up (this repo is public)."""
+Covers the one read (``hq.vendor_discord.read_channel``, through respx, never the network) with its deadline, its
+fallback when the member list is refused and why a read fails; the pure rule (bots, webhooks and joins left out,
+people already on the list left out by username, display name or server nickname against a table's name or Discord
+handle, people once added left out by their Discord id, grouping and order, mentions, the note and the date); Add as
+Request and Skip, which act on the read the check kept and never read Discord again, with the double press guard;
+the page and the panel; and the gates (an admin sets the channel; the Team checks, adds and skips). Every other spec
+replaces ``read_channel``. Every name, id and post is made up (this repo is public)."""
 
 from __future__ import annotations
 
@@ -19,9 +20,12 @@ import httpx
 import pytest
 import respx
 from django.contrib.messages import get_messages
+from django.core.cache import cache
 from django.test import Client
 from django.urls import reverse
 
+from core.integrations import discord_channel
+from core.integrations.discord_channel import DiscordTimeUpError
 from hq import services, vendor_discord
 from hq.models import HubCard, VendorDiscordDecision, VendorFloor, VendorTable
 from hq.vendor_discord import (
@@ -29,17 +33,19 @@ from hq.vendor_discord import (
     NO_ANSWER,
     NO_BOT,
     NO_CHANNEL,
-    NO_MEMBER_LIST,
+    NOT_TEXT,
     NOTE_MAX,
     SLOW_DOWN,
+    TOO_SLOW,
     ChannelRead,
     DiscordUnreadable,
+    display_name,
     listed_keys,
     new_posters,
     read_channel,
     readable,
 )
-from hq.views import DISCORD_POSTER_GONE
+from hq.views import DISCORD_NO_CHANNEL, DISCORD_POSTER_GONE, DISCORD_STALE
 from hub.view_as import ROLE_MEMBER
 from tests.hq.conftest import signed_in
 from tests.hq.factories import EventHubFactory, HubCardFactory, VendorFloorFactory, VendorTableFactory
@@ -47,6 +53,7 @@ from tests.hq.factories import EventHubFactory, HubCardFactory, VendorFloorFacto
 pytestmark = pytest.mark.django_db
 
 CHANNEL = "1234567890123456789"
+OTHER_CHANNEL = "1234567890123456000"
 SERVER = "9876543210987654321"
 API = "https://discord.com/api/v10"
 
@@ -97,6 +104,14 @@ def _toast(response: Any) -> dict[str, str]:
     return json.loads(response["HX-Trigger"])["showToast"]
 
 
+@pytest.fixture(autouse=True)
+def _fresh_cache() -> Iterator[None]:
+    """A kept read lives in the cache, which outlives each spec's database rollback."""
+    cache.clear()
+    yield
+    cache.clear()
+
+
 @pytest.fixture
 def kate(make_member):
     return make_member(preferred_name="Kate Lindqvist")
@@ -138,13 +153,20 @@ class FakeDiscord:
         self.nicks: dict[str, str] = {}
         self.name = "holiday-bizarre"
         self.error = ""
+        self.nicknames_read = True
         self.reads: list[str] = []
 
     def __call__(self, channel_id: str) -> ChannelRead:
         self.reads.append(channel_id)
         if self.error:
             raise DiscordUnreadable(self.error)
-        return ChannelRead(channel_id=channel_id, name=self.name, messages=tuple(self.messages), nicks=self.nicks)
+        return ChannelRead(
+            channel_id=channel_id,
+            name=self.name,
+            messages=tuple(self.messages),
+            nicks=dict(self.nicks),
+            nicknames_read=self.nicknames_read,
+        )
 
 
 @pytest.fixture
@@ -174,11 +196,16 @@ def _page(hub: Any) -> str:
     return reverse("hq:vendors", args=[hub.slug])
 
 
-def _choice(author: dict[str, Any], *message_ids: int) -> dict[str, Any]:
-    return {"author": author["id"], "message": [str(message_id) for message_id in message_ids], "filter": "all"}
+def _choice(author: dict[str, Any], *message_ids: int, show: str = "all") -> dict[str, Any]:
+    return {"author": author["id"], "message": [str(message_id) for message_id in message_ids], "filter": show}
 
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
+
+
+def _check(client: Client, hub: Any, **params: str) -> str:
+    """Press Check Discord over htmx; the panel."""
+    return client.get(_check_url(hub), params, **HTMX).content.decode()
 
 
 def describe_reading_the_channel():
@@ -186,16 +213,20 @@ def describe_reading_the_channel():
     def token(settings):
         settings.DISCORD_BOT_TOKEN = "tok"
 
-    def _channel_route(status: int = 200) -> respx.Route:
-        return respx.get(f"{API}/channels/{CHANNEL}").mock(
-            return_value=httpx.Response(status, json={"id": CHANNEL, "name": "holiday-bizarre", "guild_id": SERVER})
+    def _channel_route(status: int = 200, **info: Any) -> respx.Route:
+        body = {"id": CHANNEL, "name": "holiday-bizarre", "type": 0, "guild_id": SERVER, **info}
+        return respx.get(f"{API}/channels/{CHANNEL}").mock(return_value=httpx.Response(status, json=body))
+
+    def _messages_route(*messages: dict[str, Any]) -> respx.Route:
+        return respx.get(f"{API}/channels/{CHANNEL}/messages").mock(
+            return_value=httpx.Response(200, json=list(messages))
         )
 
     @respx.mock
     def it_reads_the_name_the_newest_messages_and_the_nicknames(token):
         _channel_route()
-        respx.get(f"{API}/channels/{CHANNEL}/messages").mock(
-            return_value=httpx.Response(200, json=[_message(2, WREN, "Table please")])
+        _messages_route(
+            _message(2, {**WREN, "avatar": "abc"}, "Table please", mentions=({**MOSS, "avatar": "x"},), pinned=False)
         )
         respx.get(f"{API}/guilds/{SERVER}/members").mock(
             return_value=httpx.Response(
@@ -205,9 +236,17 @@ def describe_reading_the_channel():
 
         read = read_channel(CHANNEL)
 
-        assert (read.name, read.label) == ("holiday-bizarre", "#holiday-bizarre")
-        assert [message["id"] for message in read.messages] == ["2"]
+        assert (read.name, read.label, read.nicknames_read) == ("holiday-bizarre", "#holiday-bizarre", True)
+        assert read.messages == (_message(2, WREN, "Table please", mentions=(MOSS,)),)
         assert read.nicks == {WREN["id"]: WREN_NICK}
+
+    @respx.mock
+    def it_keeps_a_webhooks_mark_on_its_messages(token):
+        _channel_route()
+        _messages_route(_message(2, ORGANISER, "From the website", webhook_id="555"))
+        respx.get(f"{API}/guilds/{SERVER}/members").mock(return_value=httpx.Response(200, json=[]))
+
+        assert read_channel(CHANNEL).messages[0]["webhook_id"] == "555"
 
     def it_names_a_channel_without_a_name_by_its_id():
         assert _read(name="").label == f"#{CHANNEL}"
@@ -232,6 +271,14 @@ def describe_reading_the_channel():
 
         assert str(raised.value) == why
 
+    @pytest.mark.parametrize("info", [{"type": 2}, {"type": 1, "guild_id": None}, {"type": 4}])
+    @respx.mock
+    def it_says_an_id_that_is_no_text_channel_is_not_one(token, info):
+        _channel_route(**info)
+
+        with pytest.raises(DiscordUnreadable, match=NOT_TEXT):
+            read_channel(CHANNEL)
+
     @respx.mock
     def it_says_discord_did_not_answer_on_a_network_error(token):
         respx.get(f"{API}/channels/{CHANNEL}").mock(side_effect=httpx.ConnectError("boom"))
@@ -239,17 +286,52 @@ def describe_reading_the_channel():
         with pytest.raises(DiscordUnreadable, match=NO_ANSWER):
             read_channel(CHANNEL)
 
-    @pytest.mark.parametrize(("status", "why"), [(403, NO_MEMBER_LIST), (429, SLOW_DOWN)])
     @respx.mock
-    def it_says_why_when_the_member_list_cannot_be_read(token, status, why):
+    def it_matches_without_nicknames_when_the_member_list_is_refused(token):
         _channel_route()
-        respx.get(f"{API}/channels/{CHANNEL}/messages").mock(return_value=httpx.Response(200, json=[]))
-        respx.get(f"{API}/guilds/{SERVER}/members").mock(return_value=httpx.Response(status, json={}))
+        _messages_route(_message(2, WREN, "Table please"))
+        respx.get(f"{API}/guilds/{SERVER}/members").mock(return_value=httpx.Response(403, json={}))
 
-        with pytest.raises(DiscordUnreadable) as raised:
+        read = read_channel(CHANNEL)
+
+        assert (read.nicknames_read, read.nicks, len(read.messages)) == (False, {}, 1)
+
+    @respx.mock
+    def it_says_slow_down_when_the_member_list_is_rate_limited(token):
+        _channel_route()
+        _messages_route()
+        respx.get(f"{API}/guilds/{SERVER}/members").mock(return_value=httpx.Response(429, json={}))
+
+        with pytest.raises(DiscordUnreadable, match=SLOW_DOWN):
             read_channel(CHANNEL)
 
-        assert str(raised.value) == why
+    @respx.mock
+    def it_says_discord_was_slow_once_the_read_runs_past_its_time(token, monkeypatch):
+        monkeypatch.setattr(vendor_discord, "READ_SECONDS", 0.0)
+        route = _channel_route()
+
+        with pytest.raises(DiscordUnreadable, match=TOO_SLOW):
+            read_channel(CHANNEL)
+
+        assert not route.called
+
+    @respx.mock
+    def it_hands_every_call_the_same_deadline_and_matches_without_nicknames_past_it(token):
+        info = {"name": "holiday-bizarre", "type": 0, "guild_id": SERVER}
+        with (
+            patch.object(discord_channel, "channel_info", return_value=info) as channel_info,
+            patch.object(discord_channel, "channel_messages_newest", return_value=[]) as messages,
+            patch.object(discord_channel, "server_members", side_effect=DiscordTimeUpError("late")) as members,
+            patch.object(vendor_discord.time, "monotonic", return_value=1000.0),
+        ):
+            read = read_channel(CHANNEL)
+
+        deadlines = {
+            call.kwargs["deadline"] for call in (channel_info.call_args, messages.call_args, members.call_args)
+        }
+        assert deadlines == {1000.0 + vendor_discord.READ_SECONDS}
+        assert vendor_discord.READ_SECONDS <= 20
+        assert read.nicknames_read is False
 
 
 def describe_who_is_listed():
@@ -296,6 +378,13 @@ def describe_who_is_listed():
 
         assert len(names) == 2
 
+    def it_drops_a_leading_at_on_the_posters_names_too():
+        spec_mel = {"id": "7010", "username": "specmel", "global_name": "@Spec Mel"}
+        read = _read(_message(10, spec_mel, "Table please"), nicks={"7010": "@mel"})
+
+        assert new_posters(read, listed=listed_keys([("Mel", "")]), handled=set()) == []
+        assert new_posters(read, listed=listed_keys([("Spec Mel", "")]), handled=set()) == []
+
     def it_never_matches_a_blank_handle():
         assert listed_keys([("Spec Vendor", ""), ("Spec Other", "@")]) == {"spec vendor", "spec other"}
 
@@ -307,6 +396,11 @@ def describe_who_is_listed():
         assert _names(posters) == ["Moss Studio"]
         assert [post.text for post in posters[0].posts] == ["new"]
 
+    def it_leaves_out_someone_once_added_whatever_their_name_now():
+        read = _read(_message(10, WREN, "One more thing"), nicks={"7002": "Wren | Prints"})
+
+        assert new_posters(read, listed=set(), handled=set(), added={"7002"}) == []
+
     def it_names_a_poster_by_nickname_then_display_name_then_username():
         read = _read(
             _message(10, WREN, "a"), _message(11, MOSS, "b"), _message(12, FERN, "c"), nicks={"7002": WREN_NICK}
@@ -317,15 +411,27 @@ def describe_who_is_listed():
         assert _names(posters) == ["spec_fern", "Moss Studio", WREN_NICK]
         assert posters[2].username == "specwren"
 
+    def it_passes_over_a_name_of_invisible_characters():
+        assert display_name(WREN, {"7002": "​‎"}) == "Wren"
+        assert display_name({**FERN, "global_name": "​"}, {}) == "spec_fern"
+        assert display_name({"id": "7020", "username": "​"}, {}) == "​"
+
 
 def describe_a_posts_text():
     def it_shows_a_mention_as_the_name_the_server_shows():
-        text = readable("Ask <@7002> or <@!7001> about <@7333>", [WREN, MOSS], {"7002": WREN_NICK})
+        read = _read(nicks={"7002": WREN_NICK})
+
+        text = readable("Ask <@7002> or <@!7001> about <@7333>", [WREN, MOSS], read)
 
         assert text == f"Ask @{WREN_NICK} or @Moss Studio about @someone"
 
     def it_shows_a_custom_emoji_by_its_name():
-        assert readable("Yes please <:pl_heart:123> <a:spin:456>", [], {}) == "Yes please :pl_heart: :spin:"
+        assert readable("Yes please <:pl_heart:123> <a:spin:456>", [], _read()) == "Yes please :pl_heart: :spin:"
+
+    def it_shows_roles_channels_and_timestamps_as_plain_words():
+        text = readable(f"<@&555> see <#{CHANNEL}> and <#42>, doors <t:1793840400:F>", [], _read())
+
+        assert text == "@role see #holiday-bizarre and #channel, doors Wed Nov 4, 5 PM"
 
 
 def describe_a_posters_request():
@@ -361,9 +467,10 @@ def describe_the_page():
         assert 'id="hq-vt-discord"' not in body
 
     def it_offers_the_team_check_discord_once_a_channel_is_set(hub, channel, kate_client, discord):
-        body = kate_client.get(_page(hub)).content.decode()
+        body = kate_client.get(_page(hub), {"filter": "confirmed"}).content.decode()
 
         assert f'hx-get="{_check_url(hub)}"' in body
+        assert '<input type="hidden" name="filter" value="confirmed">' in body.split("data-hq-vt-discord-form")[1]
         assert '<div id="hq-vt-discord" hidden></div>' in body
         assert discord.reads == []
 
@@ -398,14 +505,22 @@ def describe_check_discord():
         assert 'aria-label="Add Moss Studio as a request"' in body
         assert 'aria-label="Skip Moss Studio"' in body
         assert 'name="message" value="10"' in body
+        assert "data-hq-vt-discord-no-nicks" not in body
         assert discord.reads == [CHANNEL]
 
     def it_says_nothing_is_new_in_the_channel(hub, channel, kate_client, discord):
         discord.messages = [_message(10, FOG_BOT, "New class posted")]
 
-        body = kate_client.get(_check_url(hub), **HTMX).content.decode()
+        assert "Nothing new in #holiday-bizarre." in _check(kate_client, hub)
 
-        assert "Nothing new in #holiday-bizarre." in body
+    def it_says_when_nicknames_could_not_be_read(hub, channel, kate_client, discord):
+        discord.messages = [_message(10, MOSS, "Table please")]
+        discord.nicknames_read = False
+
+        body = _check(kate_client, hub)
+
+        assert "data-hq-vt-discord-no-nicks" in body
+        assert 'data-hq-vt-poster="7001"' in body
 
     def it_says_why_the_channel_could_not_be_read_without_a_server_error(hub, channel, kate_client, discord):
         discord.error = CANNOT_SEE
@@ -419,10 +534,17 @@ def describe_check_discord():
         assert f"New in #{CHANNEL}" in body
 
     def it_says_there_is_no_channel_to_check(hub, kate_client, discord):
-        body = kate_client.get(_check_url(hub), **HTMX).content.decode()
+        body = _check(kate_client, hub)
 
-        assert "There is no Discord channel to check." in body
+        assert DISCORD_NO_CHANNEL in body
         assert discord.reads == []
+
+    def it_keeps_the_lists_filter_for_add(hub, channel, kate_client, discord):
+        discord.messages = [_message(10, MOSS, "Table please")]
+
+        body = _check(kate_client, hub, filter="confirmed")
+
+        assert '<input type="hidden" name="filter" value="confirmed">' in body
 
     def it_renders_the_page_with_the_panel_without_htmx(hub, channel, kate_client, discord):
         discord.messages = [_message(10, MOSS, "Table please")]
@@ -451,6 +573,7 @@ def describe_add_as_request():
             _message(12, MOSS, "Me too"),
         ]
         discord.nicks = {"7002": WREN_NICK}
+        _check(kate_client, hub)
 
         response = kate_client.post(_add_url(hub), _choice(WREN, 10, 11), **HTMX)
 
@@ -471,11 +594,31 @@ def describe_add_as_request():
             ("11", "7002", "added", kate),
         ]
 
+    def it_never_reads_discord_again(hub, channel, kate_client, discord):
+        discord.messages = [_message(10, MOSS, "Table please"), _message(11, WREN, "Hi")]
+        _check(kate_client, hub)
+
+        kate_client.post(_add_url(hub), _choice(MOSS, 10), **HTMX)
+        kate_client.post(_skip_url(hub), _choice(WREN, 11), **HTMX)
+
+        assert discord.reads == [CHANNEL]
+        assert VendorDiscordDecision.objects.count() == 2
+
+    def it_keeps_the_lists_filter_in_its_answer(hub, channel, kate_client, discord):
+        discord.messages = [_message(10, MOSS, "Table please")]
+        _check(kate_client, hub, filter="confirmed")
+
+        body = kate_client.post(_add_url(hub), _choice(MOSS, 10, show="confirmed"), **HTMX).content.decode()
+
+        assert 'data-hq-vt-filter="confirmed" aria-current="true"' in body
+        assert f'data-hq-vt-row="{VendorTable.objects.get().pk}"' in body
+
     def it_waitlists_the_request_when_the_map_is_full(hub, channel, kate_client, discord):
         channel.capacity = 1
         channel.save()
         VendorTableFactory(hub=hub, status=VendorTable.Status.CONFIRMED)
         discord.messages = [_message(10, MOSS, "Table please")]
+        _check(kate_client, hub)
 
         response = kate_client.post(_add_url(hub), _choice(MOSS, 10), **HTMX)
 
@@ -484,6 +627,7 @@ def describe_add_as_request():
 
     def it_adds_only_the_posts_that_were_shown(hub, channel, kate_client, discord):
         discord.messages = [_message(10, MOSS, "Table please"), _message(11, MOSS, "Posted after the check")]
+        _check(kate_client, hub)
 
         kate_client.post(_add_url(hub), _choice(MOSS, 10), **HTMX)
 
@@ -492,12 +636,27 @@ def describe_add_as_request():
 
     def it_adds_one_table_when_pressed_twice(hub, channel, kate_client, discord):
         discord.messages = [_message(10, MOSS, "Table please")]
+        _check(kate_client, hub)
 
         kate_client.post(_add_url(hub), _choice(MOSS, 10), **HTMX)
         response = kate_client.post(_add_url(hub), _choice(MOSS, 10), **HTMX)
 
         assert VendorTable.objects.count() == 1
         assert _toast(response) == {"message": DISCORD_POSTER_GONE, "type": "info"}
+
+    def it_never_adds_someone_twice_after_a_nickname_change(hub, channel, kate_client, discord):
+        discord.messages = [_message(10, WREN, "Table please")]
+        _check(kate_client, hub)
+        kate_client.post(_add_url(hub), _choice(WREN, 10), **HTMX)
+
+        discord.messages.append(_message(11, WREN, "Can I bring a rack?"))
+        discord.nicks = {"7002": "Wren | Prints"}
+        body = _check(kate_client, hub)
+        response = kate_client.post(_add_url(hub), _choice(WREN, 11), **HTMX)
+
+        assert 'data-hq-vt-poster="7002"' not in body
+        assert _toast(response)["message"] == DISCORD_POSTER_GONE
+        assert VendorTable.objects.count() == 1
 
     def it_refuses_posts_that_are_no_longer_listed(hub, channel, kate, discord):
         discord.messages = [_message(10, MOSS, "Table please")]
@@ -512,26 +671,47 @@ def describe_add_as_request():
         assert VendorTable.objects.count() == 0
         assert VendorDiscordDecision.objects.count() == 1
 
-    def it_writes_nothing_when_the_channel_cannot_be_read(hub, channel, kate_client, discord):
-        discord.error = NO_ANSWER
+    def it_writes_nothing_without_a_kept_check(hub, channel, kate_client, discord):
+        discord.messages = [_message(10, MOSS, "Table please")]
 
         response = kate_client.post(_add_url(hub), _choice(MOSS, 10), **HTMX)
 
         assert VendorTable.objects.count() == 0
-        assert _toast(response) == {"message": f"Discord could not be read. {NO_ANSWER}", "type": "error"}
+        assert discord.reads == []
+        assert _toast(response) == {"message": DISCORD_STALE, "type": "info"}
         assert "data-hq-vt-discord-error" in response.content.decode()
 
-    def it_lands_on_check_discord_after_a_plain_post(hub, channel, kate_client, discord):
+    def it_writes_nothing_once_the_channel_changed_since_the_check(hub, channel, kate_client, discord):
         discord.messages = [_message(10, MOSS, "Table please")]
+        _check(kate_client, hub)
+        services.set_vendor_discord_channel(hub, OTHER_CHANNEL)
+
+        response = kate_client.post(_add_url(hub), _choice(MOSS, 10), **HTMX)
+
+        assert VendorTable.objects.count() == 0
+        assert _toast(response)["message"] == DISCORD_STALE
+
+    def it_says_to_check_again_when_the_channel_was_removed(hub, channel, kate_client, discord):
+        services.set_vendor_discord_channel(hub, "")
+
+        body = kate_client.post(_add_url(hub), _choice(MOSS, 10), **HTMX).content.decode()
+
+        assert "New in Discord" in body
+
+    def it_renders_the_page_with_the_panel_after_a_plain_post(hub, channel, kate_client, discord):
+        discord.messages = [_message(10, MOSS, "Table please"), _message(11, WREN, "Hi")]
+        _check(kate_client, hub)
 
         response = kate_client.post(_add_url(hub), _choice(MOSS, 10))
 
-        assert response.status_code == 302
-        assert response["Location"] == _check_url(hub)
+        assert response.status_code == 200
         assert _messages(response) == [("success", "Moss Studio added.")]
+        assert 'data-hq-vt-poster="7002"' in response.content.decode()
+        assert discord.reads == [CHANNEL]
 
-    def it_is_the_teams_only(hub, channel, make_member, discord):
+    def it_is_the_teams_only(hub, channel, make_member, kate_client, discord):
         discord.messages = [_message(10, MOSS, "Table please")]
+        _check(kate_client, hub)
         stranger = signed_in(make_member())
 
         assert stranger.post(_add_url(hub), _choice(MOSS, 10)).status_code == 403
@@ -551,6 +731,7 @@ def describe_add_as_request():
 def describe_skip():
     def it_hides_the_poster_until_they_post_again(hub, channel, kate, kate_client, discord):
         discord.messages = [_message(10, MOSS, "Lovely market last year!"), _message(11, WREN, "Table please")]
+        _check(kate_client, hub)
 
         response = kate_client.post(_skip_url(hub), _choice(MOSS, 10), **HTMX)
 
@@ -565,7 +746,7 @@ def describe_skip():
         assert str(decision) == "10: Skipped"
 
         discord.messages.append(_message(12, MOSS, "Actually, can I get a table?"))
-        body = kate_client.get(_check_url(hub), **HTMX).content.decode()
+        body = _check(kate_client, hub)
 
         assert 'data-hq-vt-poster="7001"' in body
         assert 'data-hq-vt-post="12"' in body
@@ -573,6 +754,7 @@ def describe_skip():
 
     def it_says_so_when_someone_else_got_there_first(hub, channel, kate_client, discord):
         discord.messages = [_message(10, MOSS, "Hi")]
+        _check(kate_client, hub)
         kate_client.post(_skip_url(hub), _choice(MOSS, 10), **HTMX)
 
         response = kate_client.post(_skip_url(hub), _choice(MOSS, 10), **HTMX)
@@ -580,24 +762,25 @@ def describe_skip():
         assert _toast(response) == {"message": DISCORD_POSTER_GONE, "type": "info"}
         assert VendorDiscordDecision.objects.count() == 1
 
-    def it_writes_nothing_when_the_channel_cannot_be_read(hub, channel, kate_client, discord):
-        discord.error = SLOW_DOWN
-
+    def it_writes_nothing_without_a_kept_check(hub, channel, kate_client, discord):
         response = kate_client.post(_skip_url(hub), _choice(MOSS, 10), **HTMX)
 
-        assert _toast(response)["type"] == "error"
+        assert _toast(response) == {"message": DISCORD_STALE, "type": "info"}
         assert VendorDiscordDecision.objects.count() == 0
 
-    def it_lands_on_check_discord_after_a_plain_post(hub, channel, kate_client, discord):
+    def it_renders_the_page_with_the_panel_after_a_plain_post(hub, channel, kate_client, discord):
         discord.messages = [_message(10, MOSS, "Hi")]
+        _check(kate_client, hub)
 
         response = kate_client.post(_skip_url(hub), _choice(MOSS, 10))
 
-        assert response["Location"] == _check_url(hub)
+        assert response.status_code == 200
         assert _messages(response) == [("success", "Skipped Moss Studio.")]
+        assert "data-hq-vt-discord-empty" in response.content.decode()
 
-    def it_is_the_teams_only(hub, channel, make_member, discord):
+    def it_is_the_teams_only(hub, channel, make_member, kate_client, discord):
         discord.messages = [_message(10, MOSS, "Hi")]
+        _check(kate_client, hub)
         stranger = signed_in(make_member())
 
         assert stranger.post(_skip_url(hub), _choice(MOSS, 10)).status_code == 403
