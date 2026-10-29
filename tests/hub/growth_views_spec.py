@@ -163,7 +163,11 @@ def describe_page():
 
 
 def describe_query_count():
-    def it_does_not_grow_with_the_rows(client: Client, django_assert_num_queries):
+    def it_does_not_grow_with_the_rows(client: Client, django_assert_num_queries, monkeypatch):
+        # The sidebar's New! badges (#1007) add one roles query while a fragment in the window names a sidebar key
+        # the admin has not seen; that cost is pinned in tests/core/guidance_tags_spec.py, so the changelog is
+        # emptied here to keep this count the dashboard's own.
+        monkeypatch.setattr("plfog.version.CHANGELOG", [])
         _login_admin(client)
         _seed(1)
         client.get(URL)  # warm the per-request caches the hub shell reads

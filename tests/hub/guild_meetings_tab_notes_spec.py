@@ -30,7 +30,7 @@ from tests.membership.factories import (
 
 pytestmark = pytest.mark.django_db
 
-TAB_BUTTON = "@click=\"section = 'meetings'\">Meetings</button>"
+TAB_BUTTON = "@click=\"section = 'meetings'\">Meetings"
 FEATURE_PARTS = 'class="pl-guild-section pl-guild-meetings"'
 NOTES_SECTION = "data-guild-meeting-notes"
 DEEP_LINK = "if (t === 'notes' || t === 'meetings') section = 'meetings';"
