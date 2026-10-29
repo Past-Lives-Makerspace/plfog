@@ -53,7 +53,7 @@ for major features; a level of how much teaching a PR owes, declared in the PR; 
   one query however many badges it holds.
 - D10. The badge rides inside the tab label; `core/templatetags/tab_picker.py` carries `.pl-new` into the
   phone picker's item label and shows a dot on its summary when any item has one. No second tab component.
-- D11. Animations (Felix, 2026-10-29: "once every 10s is enough"): the badge pops in once and sweeps its light once per 10 s; the button pulses and wiggles once per 10 s, only while unseen; everything is off under `prefers-reduced-motion`. Look approved from the mockup on #1007: gold pill tilted left-up, 88% opaque, sparkles button labelled on Home and an icon elsewhere.
+- D11. Animations (Felix, 2026-10-29: "once every 10s is enough"): the badge pops in once and sweeps its light once per 10 s; the button pulses and wiggles once per 10 s, only while unseen; everything is off under `prefers-reduced-motion`. Look approved from the mockup on #1007: gold pill tilted left-up, 88% opaque, sparkles button labelled on Home and an icon elsewhere. Home uses the utility row (approved 2026-10-29 from `mockups/1007-home-desktop.html?option=a`): above the greeting, What's New and Show Me Around on the left and the Door Code as a one line chip on the right from 1200px, the greeting full width under it, the quick links before Get Started.
 - D12. The current changelog modal, the version card and the Discord announcement are untouched.
 - D13. No new Help Center articles at any level (#1009). `tour` means tour plus clip.
 - D14. Backfill: fragments still in `changelog.d/` dated 2026-10-15 or later (56 files) get `feature`, `audience` and
