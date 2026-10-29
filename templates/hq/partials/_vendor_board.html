@@ -16,6 +16,8 @@ view. Delete is a plain post through the confirm modal.
   show         — required, the filter in view
   filters      — required, the (value, label) filter buttons
   floor_form   — required, a VendorFloorForm
+  import_answer — optional, the last import's answer for this hub (summary, refused, problems, more), on the
+                 one page load after it; the Import CSV modal itself is on hq/vendors.html
 {% endcomment %}
 {% url 'hq:vendors' hub.slug as page_url %}
 <div class="pl-hq-vt__board" data-hq-vt-board>
@@ -51,8 +53,22 @@ view. Delete is a plain post through the confirm modal.
   <section class="pl-hq-vt__section" aria-labelledby="hq-vt-list-title" data-hq-vt-list>
     <div class="pl-hq-vt__list-head">
       <h2 class="pl-hq-vt__h2" id="hq-vt-list-title">Table Requests</h2>
-      <a href="{% url 'hq:vendors_csv' hub.slug %}" class="pl-hq-vt__csv" hx-boost="false" data-pl-download data-hq-vt-csv>Download CSV</a>
+      <div class="pl-hq-vt__csv-links">
+        <button type="button" class="pl-hq-vt__csv pl-hq-vt__csv--button" @click="$dispatch('open-modal', 'hq-vt-import')" data-hq-vt-import-open>Import CSV</button>
+        <a href="{% url 'hq:vendors_csv' hub.slug %}" class="pl-hq-vt__csv" hx-boost="false" data-pl-download data-hq-vt-csv>Download CSV</a>
+      </div>
     </div>
+    {% if import_answer %}
+    <div class="pl-hq-vt__import-answer{% if import_answer.refused %} pl-hq-vt__import-answer--refused{% endif %}" role="status" data-hq-vt-import-answer>
+      <p class="pl-hq-vt__import-summary" data-hq-vt-import-summary>{{ import_answer.summary }}</p>
+      {% if import_answer.problems %}
+      <ul class="pl-hq-vt__import-problems" data-hq-vt-import-problems>
+        {% for problem in import_answer.problems %}<li>{{ problem }}</li>{% endfor %}
+        {% if import_answer.more %}<li data-hq-vt-import-more>And {{ import_answer.more }} more.</li>{% endif %}
+      </ul>
+      {% endif %}
+    </div>
+    {% endif %}
     <nav class="pl-hq-vt__filters" aria-label="Filter the table requests" data-hq-vt-filters>
       {% for value, label in filters %}
       <a href="{{ page_url }}{% if value != 'all' %}?filter={{ value }}{% endif %}" class="pl-hq-vt__filter" data-hq-vt-filter="{{ value }}"{% if value == show %} aria-current="true"{% endif %}>{{ label }}</a>
@@ -70,6 +86,7 @@ view. Delete is a plain post through the confirm modal.
             <th scope="col">Table #</th>
             <th scope="col">Setup</th>
             <th scope="col">Contact</th>
+            <th scope="col">Source</th>
             <th scope="col"><span class="pl-hq-vt__sr">Save or delete</span></th>
           </tr>
         </thead>
@@ -77,7 +94,7 @@ view. Delete is a plain post through the confirm modal.
           {% for row in rows %}
           {% include "hq/partials/_vendor_row.html" %}
           {% empty %}
-          <tr><td colspan="9" class="pl-hq-vt__empty" data-hq-vt-empty>{% if has_tables %}Nothing in this group.{% else %}No table requests yet. Add the first one above.{% endif %}</td></tr>
+          <tr><td colspan="10" class="pl-hq-vt__empty" data-hq-vt-empty>{% if has_tables %}Nothing in this group.{% else %}No table requests yet. Add the first one above.{% endif %}</td></tr>
           {% endfor %}
         </tbody>
       </table>

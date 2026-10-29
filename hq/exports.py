@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from hq.models import BarPay
 from hq.services import _plural, ledger_kind_short
+from hq.vendor_import import COLUMNS as VENDOR_IMPORT_COLUMNS
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -188,24 +189,13 @@ def stream_sponsors_csv(sponsors: QuerySet[Sponsor], *, filename_stem: str) -> S
     return response
 
 
-VENDOR_TABLES_CSV_HEADERS = [
-    "Artist or group",
-    "Guild",
-    "What they sell",
-    "Table size",
-    "Status",
-    "Table #",
-    "Setup day",
-    "Email",
-    "Phone",
-    "Needs",
-    "Added by",
-    "Added",
-]
+# The sheet's columns in the sheet's order (hq.vendor_import.COLUMNS, so an export imports back unchanged), then the
+# page's own: who entered the request and when.
+VENDOR_TABLES_CSV_HEADERS = [*(header for _key, header in VENDOR_IMPORT_COLUMNS), "Added by", "Added"]
 
 
 def stream_vendor_tables_csv(tables: QuerySet[VendorTable], *, filename_stem: str) -> StreamingHttpResponse:
-    """Stream ``tables`` as CSV, one row per table request in list order."""
+    """Stream ``tables`` as CSV, one row per table request in list order, in the columns of Kate's sheet."""
     pseudo = _Echo()
     writer = csv.writer(pseudo)
 
@@ -215,13 +205,17 @@ def stream_vendor_tables_csv(tables: QuerySet[VendorTable], *, filename_stem: st
             row = [
                 table.name,
                 table.guild_display,
-                table.sells,
                 table.get_size_display(),
                 table.get_status_display(),
-                table.table_no,
+                table.sells,
                 table.get_setup_display(),
+                table.table_no,
                 table.email,
                 table.phone,
+                table.note,
+                table.requested_on.isoformat() if table.requested_on is not None else "",
+                table.request_source,
+                table.discord_handle,
                 table.needs,
                 table.created_by.display_name if table.created_by is not None else "",
                 timezone.localtime(table.created_at).strftime("%Y-%m-%d %H:%M"),

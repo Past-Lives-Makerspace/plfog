@@ -50,6 +50,7 @@ urlpatterns = [
     path("<slug:slug>/vendors/", views.vendors, name="vendors"),
     path("<slug:slug>/vendors.csv", views.vendors_csv, name="vendors_csv"),
     path("<slug:slug>/vendors/add/", views.vendor_add, name="vendor_add"),
+    path("<slug:slug>/vendors/import/", views.vendor_import, name="vendor_import"),
     path("<slug:slug>/vendors/floor/", views.vendor_floor, name="vendor_floor"),
     path("<slug:slug>/vendors/<int:pk>/edit/", views.vendor_edit, name="vendor_edit"),
     path("<slug:slug>/vendors/<int:pk>/delete/", views.vendor_delete, name="vendor_delete"),

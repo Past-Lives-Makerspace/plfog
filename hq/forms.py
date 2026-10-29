@@ -66,6 +66,7 @@ from hq.services import (
     VolunteerInfo,
     drink_price_cents,
 )
+from hq.vendor_import import MAX_IMPORT_BYTES, TOO_LARGE, ImportRefused, read_csv
 from membership.models import CommunityEvent, Guild, Member
 
 # Path segments under /hq/ that are routes, not hubs.
@@ -811,8 +812,24 @@ class VendorTableEditForm(VendorTableForm):
     updated_at = forms.CharField(required=False, widget=forms.HiddenInput)
 
     class Meta(VendorTableForm.Meta):
-        fields = [*VendorTableForm.Meta.fields, "status", "table_no"]
-        labels = {**VendorTableForm.Meta.labels, "status": "Status", "table_no": "Table #"}
+        fields = [
+            *VendorTableForm.Meta.fields,
+            "status",
+            "table_no",
+            "note",
+            "requested_on",
+            "request_source",
+            "discord_handle",
+        ]
+        labels = {
+            **VendorTableForm.Meta.labels,
+            "status": "Status",
+            "table_no": "Table #",
+            "note": "Source",
+            "requested_on": "Requested on",
+            "request_source": "Request source",
+            "discord_handle": "Discord handle",
+        }
         widgets: dict[str, forms.Widget] = {
             **VendorTableForm.Meta.widgets,
             "name": forms.TextInput(),
@@ -821,6 +838,10 @@ class VendorTableEditForm(VendorTableForm):
             "email": forms.EmailInput(attrs={"autocomplete": "off", "placeholder": "Email"}),
             "phone": forms.TextInput(attrs={"type": "tel", "autocomplete": "off", "placeholder": "Phone"}),
             "table_no": forms.TextInput(attrs={"placeholder": "#"}),
+            "note": forms.TextInput(attrs={"placeholder": "Source"}),
+            "requested_on": forms.DateInput(format="%Y-%m-%d", attrs=_DATE_PICKER),
+            "request_source": forms.TextInput(attrs={"placeholder": "How it came in"}),
+            "discord_handle": forms.TextInput(attrs={"autocomplete": "off", "placeholder": "Discord"}),
         }
 
     def __init__(self, *args: Any, form_id: str, **kwargs: Any) -> None:
@@ -841,6 +862,32 @@ class VendorTableEditForm(VendorTableForm):
     def is_stale(self) -> bool:
         """Whether the posted stamp differs from the row's: someone saved it after this page loaded."""
         return self.is_bound and self.data.get(self.add_prefix("updated_at"), "") != self._stamp
+
+
+class VendorImportForm(forms.Form):
+    """Import CSV: one file in the columns of Kate's sheet (or the page's own export), read whole or refused whole.
+
+    ``clean_file`` reads it into rows (``hq.vendor_import.read_csv``), so a file over 1 MB, not UTF-8, not a CSV or
+    over 1000 rows is a form error with nothing written; the view parses the rows against the active guilds.
+    """
+
+    file = forms.FileField(
+        label="CSV file",
+        error_messages={
+            "required": "Choose a CSV file to import.",
+            "empty": "That file is empty. Nothing was imported.",
+        },
+    )
+
+    def clean_file(self) -> list[list[str]]:
+        upload = self.cleaned_data["file"]
+        # Refused on its declared size before a byte is read, so a huge upload is never pulled into memory.
+        if upload.size > MAX_IMPORT_BYTES:
+            raise forms.ValidationError(TOO_LARGE)
+        try:
+            return read_csv(upload.read())
+        except ImportRefused as exc:
+            raise forms.ValidationError(str(exc)) from exc
 
 
 class VendorFloorForm(forms.Form):
