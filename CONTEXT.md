@@ -104,6 +104,38 @@ _Avoid_: locker, slot, storage space; never call a house cubby a guild cubby.
 The line of members waiting for any cubby in a guild whose cubbies are all taken (`membership.CubbyWaitlistEntry`, #980). Each cubby that opens tells the member first in line and takes them off it; it is a heads up, never a hold, so whoever rents first gets the cubby.
 _Avoid_: queue, reservation, hold.
 
+**What's New**:
+The modal at `/whats-new/` (#1007) that lists what shipped, by role: three tabs, For Members, For Guild Staff and For Admins, every entry newest first with Open it when it has a feature the viewer may reach. Opened from a button in Home's header, or filtered to one feature by that feature's own button. Its entries are the changelog fragments and `changelog/history.json`, nothing else; the older changelog modal and the Spotlight version card stay as they are.
+_Avoid_: release notes, announcements, changelog (for the modal itself), a Release model.
+
+**New! badge**:
+The small mark after a label (a tab, a card, a quick link, a sidebar link) saying that thing shipped something in the last 30 days the viewer has not looked at. `{% new_badge "<feature key>" %}`.
+_Avoid_: new pill, notification dot (that is the bell's), unread.
+
+**Guidance**:
+How much teaching a change ships, declared once in the fragment (`guidance`) and once in the PR body (`**Guidance:**`): `none`, `link` (a What's New entry with Open it), `clip` (plus a clip), `tour` (plus a Guided Tour and a clip). The registry of what never changes between releases is `core/guidance.py`; `docs/GUIDANCE.md` is the contract.
+_Avoid_: tutorial level, onboarding, help level, documentation.
+
+**Feature key**:
+A feature's name in the registry, `<area>.<slug>` under `core.help_registry.KEY_PATTERN` (`guild.cubbies`, `admin.email-members`). A fragment's `feature` names one; a badge or button names one or an area (`guild` covers `guild.*`).
+_Avoid_: feature slug, feature id, module.
+
+**Audience**:
+Who a changelog entry is for: `members`, `guild-staff` or `admins`, the three What's New tabs, or a finer key that rolls up to one (`guild-leads`, `orientors`, `treasurers`, `class-reviewers`, `equipment-managers` to Guild Staff; `instructors` to Members). A fragment's `audience` lists them. `internal` is not an audience: it is no entry at all.
+_Avoid_: role (for the entry; a member has roles, an entry has audiences), target, recipients.
+
+**Clip**:
+A short recorded walkthrough of one feature, registered on its feature key by slug (#1008) and played from a What's New entry at level `clip` or `tour`.
+_Avoid_: video, Loom, screencast, tutorial.
+
+**Tour**:
+In this context, a Guided Tour from `core/tours.py`: the in-app driven walkthrough a feature key may register, shipped at guidance level `tour`. Not a facility tour.
+_Avoid_: walkthrough, onboarding flow, Show me around (the button, not the thing).
+
+**Seen**:
+A member has looked at a What's New entry: they opened What's New while it was listed, or clicked the badge or button for its feature. Kept per member as a list of entry slugs, pruned to the 30 day window.
+_Avoid_: read (that is a notification), dismissed, acknowledged.
+
 **Kiln ticket**:
 One piece, or a set of identical pieces, a maker puts on the Ceramics Guild's shelf to be fired (`kiln.KilnTicket`, #691): photos with one cover, the guild's questions, and its status (Draft, In the queue, In the kiln, Ready for pickup). The **kiln crew** is the Ceramics Guild's lead and staff; a **flag** asks the crew to double check a ticket and never blocks it.
 _Avoid_: slip (the paper form it replaces), order, job.

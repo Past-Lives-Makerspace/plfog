@@ -199,6 +199,8 @@ Root `conftest.py` provides:
 
 Every PR adds one fragment to `changelog.d/` declaring `bump = "patch" | "minor" | "major"` (`changelog.d/README.md` is the contract); CI fails a PR without one. `release.yml` folds the version, pushes the tag, and announces the fragments that push **added**.
 
+A member-facing fragment also names its `audience` list, its `feature` and its `guidance` level (#1007). `core/guidance.py` is the registry of feature keys (title, where it lives, steps, clip, tour, help key), beside `core/help_registry.py` (Info View keys) and `core/tours.py` (Guided Tours); `docs/GUIDANCE.md` is the contract for the levels and the PR's `**Guidance:**` line.
+
 ## Deployment
 
 - **Production**: Render.com (`DATABASE_URL` points to PostgreSQL)

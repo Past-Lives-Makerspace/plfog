@@ -27,12 +27,56 @@ changes = [
 | key | required | meaning |
 |---|---|---|
 | `bump` | yes | `patch`, `minor` or `major`. See below. |
-| `audience` | no (`members`) | `members` or `internal`. |
+| `audience` | no (`members`) | `members`, `internal`, or a list of who the change is for. See below. |
 | `date` | for `members` | `YYYY-MM-DD`. Today's date when you write it; a day's drift on a slow PR is invisible to members and nothing computes off it but sort order. |
 | `title` | for `members` | The Discord headline and the changelog heading. |
 | `changes` | for `members` | The bullets. Plain member-facing language: no jargon, no PR numbers, no commit hashes. |
+| `feature` | for `guidance` past `none` | The feature this change belongs to, a key in `core/guidance.py` like `guild.cubbies`. See below. |
+| `guidance` | no (`none`) | How much teaching ships with it: `none`, `link`, `clip` or `tour`. See below. |
 | `screenshot` | no | A feature-shot slug for the release email's card. |
 | `requests` | no | Feedback request numbers this change delivers, like `[12, 15]`. See below. |
+
+## `audience`, `feature` and `guidance`: who it is for and where it lives
+
+What's New (#1007) sorts entries by role and links each one to its feature, so a member-facing
+fragment says both:
+
+```toml
+audience = ["members", "guild-staff"]
+feature = "guild.cubbies"
+guidance = "link"
+```
+
+`audience` as a list names who the change is for. The three What's New tabs are `members`,
+`guild-staff` and `admins`; the finer keys show as a chip on the entry and roll up to a tab:
+
+| key | rolls up to |
+|---|---|
+| `guild-leads`, `orientors`, `treasurers`, `class-reviewers`, `equipment-managers` | `guild-staff` |
+| `instructors` | `members` |
+
+Name every role the change touches: a tool for admins and the thing members see from it is
+`["members", "admins"]`. The plain string `audience = "members"` still means `["members"]`, and
+`"internal"` is still an internal fragment; `internal` never sits in a list.
+
+`feature` is the key registered in `core/guidance.py` for the thing the change belongs to. The
+registry holds what does not change between releases (the title, where it lives, the steps, a
+clip and a tour); the fragment holds what did. A change with no feature of its own (a copy fix
+across the portal, a sign in bug) names none.
+
+`guidance` is how much teaching the PR ships, and it is also the `**Guidance:**` line of the PR
+body; CI fails the two when they differ.
+
+| level | what ships |
+|---|---|
+| `none` | The entry. Nothing to open. |
+| `link` | The entry with Open it, which goes where `feature` lives. |
+| `clip` | `link`, plus a short recorded walkthrough registered on the feature (#1008). |
+| `tour` | `clip`, plus a Guided Tour registered on the feature (`core/tours.py`). |
+
+Anything past `none` needs a `feature`. `clip` needs the feature to register a clip slug and
+`tour` a tour key, or the `fragment` check fails. A `tour` means a tour plus a clip, never a Help
+Center article: no level adds one (#1009). `docs/GUIDANCE.md` says how to pick.
 
 ## `requests`: telling the people who asked
 
