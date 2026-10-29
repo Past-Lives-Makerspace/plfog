@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
-from core.guidance import GUIDANCE, url_for
+from core.guidance import GUIDANCE, covers, url_for
 from plfog.changelog import AUDIENCES
 
 if TYPE_CHECKING:
@@ -87,7 +87,7 @@ class Entry:
 
     def under(self, feature: str) -> bool:
         """Whether this entry belongs to ``feature`` or a key under it (``guild`` covers ``guild.*``)."""
-        return self.feature == feature or self.feature.startswith(feature + ".")
+        return covers(feature, self.feature)
 
     def chips(self, tab: str) -> list[str]:
         """The finer audiences of this entry that roll up to ``tab``, as chip labels, in label order."""
@@ -305,6 +305,21 @@ class WhatsNew:
     def unseen(self) -> bool:
         """The Home button's dot."""
         return any(self.is_unseen(entry) for entry in self.entries)
+
+    def has_unseen(self, feature: str) -> bool:
+        """Whether the viewer has an unseen entry under ``feature``: its badge shows and its button pulses (part 3)."""
+        return any(self.is_unseen(entry) for entry in self.entries_for(feature=feature))
+
+    @staticmethod
+    def has_entries(feature: str) -> bool:
+        """Whether any entry, of any age, belongs to ``feature`` or a key under it: its button renders at all.
+
+        The whole changelog, not the window, so a feature's button stays where members learned
+        to find it once a release has named the feature; opened after the window it says so.
+        """
+        from plfog import version
+
+        return any(covers(feature, raw.get("feature", "")) for raw in version.CHANGELOG)
 
     def default_tab(self) -> str:
         """The tab the modal opens on: the first with something unseen for the viewer, else For Members."""

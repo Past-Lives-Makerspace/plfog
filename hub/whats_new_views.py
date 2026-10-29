@@ -18,7 +18,7 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
-from core.guidance import GUIDANCE
+from core.guidance import registered, title_for
 from core.htmx import wants_fragment
 from core.whats_new import TAB_LABELS, TABS, WhatsNew, whats_new_for
 from hub.spotlight import sees_spotlight
@@ -45,17 +45,14 @@ def _feature(request: HttpRequest) -> str:
     feature = request.GET.get("feature", "")
     if not feature:
         return ""
-    if not _FEATURE.match(feature) or not any(key == feature or key.startswith(feature + ".") for key in GUIDANCE):
+    if not _FEATURE.match(feature) or not registered(feature):
         raise Http404(f"No feature {feature!r}")
     return feature
 
 
 def _title(feature: str) -> str:
     """The modal's title: "What's New", or "What's New · <feature>" when opened on one (D7)."""
-    if not feature:
-        return "What's New"
-    name = GUIDANCE[feature].title if feature in GUIDANCE else feature.rsplit(".", 1)[-1].replace("-", " ").title()
-    return f"What's New · {name}"
+    return f"What's New · {title_for(feature)}" if feature else "What's New"
 
 
 def _body_context(news: WhatsNew, tab: str, feature: str) -> dict[str, Any]:
