@@ -48,6 +48,11 @@ def _waiting(maker: Member) -> KilnTicket:
     return ticket
 
 
+def _photo(i: int) -> dict[str, str]:
+    """A crew photo on a message (#1026), by name alone: the page reads only its URL."""
+    return {"image": f"kiln/replies/photos/{i}.jpg", "tile": f"kiln/replies/tiles/{i}.jpg"}
+
+
 def describe_load_the_kiln():
     def it_names_nameless_makers_without_a_query_per_tile(crew_client, nameless):
         url = reverse("kiln:load")
@@ -67,15 +72,31 @@ def describe_the_crew_ticket_view():
         maker = nameless()
         ticket = _waiting(maker)
         url = reverse("kiln:detail", args=[ticket.pk])
-        KilnReply.objects.create(ticket=ticket, author=nameless(), body="message 0")
+        KilnReply.objects.create(ticket=ticket, author=nameless(), body="message 0", **_photo(0))
         one = _queries(crew_client, url)
         for i in range(14):
-            KilnReply.objects.create(ticket=ticket, author=nameless(), body=f"message {i + 1}")
+            KilnReply.objects.create(ticket=ticket, author=nameless(), body=f"message {i + 1}", **_photo(i + 1))
 
         fifteen = _queries(crew_client, url)
 
         assert fifteen == one
-        assert maker.primary_email in crew_client.get(url).content.decode()
+        body = crew_client.get(url).content.decode()
+        assert maker.primary_email in body
+        assert body.count("data-kiln-reply-photo") == 15  # every message's photo (#1026), read with the reply
+
+    def it_shows_the_maker_message_photos_without_a_query_per_message(crew, nameless):
+        from tests.kiln.conftest import signed_in
+
+        maker = nameless()
+        ticket = _waiting(maker)
+        url = reverse("kiln:detail", args=[ticket.pk])
+        client = signed_in(maker)
+        KilnReply.objects.create(ticket=ticket, author=nameless(), body="message 0", **_photo(0))
+        one = _queries(client, url)
+        for i in range(14):
+            KilnReply.objects.create(ticket=ticket, author=nameless(), body=f"message {i + 1}", **_photo(i + 1))
+
+        assert _queries(client, url) == one
 
     def it_names_the_nameless_loader_in_the_history(crew_client, nameless):
         from kiln.services import load_kiln

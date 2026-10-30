@@ -1,7 +1,11 @@
+{% load static %}
 {% comment %}
 A ticket's messages between the maker and the crew (#691), and the box to add one. The maker
 sees every message; a message from anyone but the maker carries the Kiln crew tag. Posting
 notifies the other side. Expects ticket, replies, viewer, reply_form and as_crew.
+A crew message or unload note may carry one photo (#1026), shown under it for both sides; tapping
+it opens the full size photo. Only the crew's box on another maker's ticket takes one, so it is
+multipart and not boosted (file uploads); the maker's box is unchanged.
 {% endcomment %}
 <div class="hub-card" id="kiln-messages" data-kiln-thread>
     <h2 class="pl-kiln-card-title"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-msg"/></svg>Messages</h2>
@@ -12,20 +16,26 @@ notifies the other side. Expects ticket, replies, viewer, reply_form and as_crew
             <div class="pl-kiln-msg__who"><strong>{% if reply.author_id == viewer.pk %}You{% else %}{{ reply.author_name }}{% endif %}</strong>{% if reply.from_crew %}<span class="pl-kiln-msg__role">Kiln crew</span>{% endif %}<span>{{ reply.created_at|date:"D, M j · g:i a" }}</span></div>
             {% if reply.is_unload_note %}<div class="pl-kiln-msg__unload" data-kiln-unload-note><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-{% if reply.outcome == 'back_to_queue' %}undo{% else %}flame{% endif %}"/></svg>{{ reply.get_what_happened_display }} · {{ reply.firing.name }} · {% if reply.outcome == "back_to_queue" %}back to the queue{% else %}fired{% endif %}</div>{% endif %}
             <div class="pl-kiln-msg__body">{{ reply.body|linebreaksbr }}</div>
+            {% if reply.has_photo %}<a class="pl-kiln-msg__photo" href="{{ reply.image.url }}" target="_blank" rel="noopener" hx-boost="false" data-kiln-reply-photo><img src="{{ reply.tile.url }}" alt="Photo from {{ reply.author_name }}" loading="lazy"><span class="sr-only">, opens full size</span></a>{% endif %}
         </li>
         {% endfor %}
     </ol>
     {% else %}
     <p class="pl-kiln-thread__empty">{% if as_crew %}No messages yet. Ask {{ ticket.maker_name }} about anything on this piece.{% else %}No messages yet. Ask the crew about anything on this piece, or answer them here.{% endif %}</p>
     {% endif %}
+    {% if as_crew and ticket.maker_id != viewer.pk %}
+    <form method="post" action="{% url 'kiln:reply' ticket.pk %}" class="pl-kiln-reply" enctype="multipart/form-data" hx-boost="false">
+        {% csrf_token %}
+        {% include "components/form_field.html" with field=reply_form.body field_label="Message "|add:ticket.maker_name field_hint_off=True %}
+        {% include "kiln/partials/_photo_pick.html" with photo_name="photo" photo_hint="Add a photo if it helps show what you mean." %}
+        <div class="pl-kiln-reply__row"><span class="pl-kiln-reply__note">{{ ticket.maker_name }} gets it in the app and by email, per their settings.</span><button type="submit" class="hub-btn hub-btn--primary">Send</button></div>
+    </form>
+    <script src="{% static 'js/kiln_photo_pick.js' %}"></script>
+    {% else %}
     <form method="post" action="{% url 'kiln:reply' ticket.pk %}" class="pl-kiln-reply">
         {% csrf_token %}
-        {% if as_crew and ticket.maker_id != viewer.pk %}
-        {% include "components/form_field.html" with field=reply_form.body field_label="Message "|add:ticket.maker_name field_hint_off=True %}
-        <div class="pl-kiln-reply__row"><span class="pl-kiln-reply__note">{{ ticket.maker_name }} gets it in the app and by email, per their settings.</span><button type="submit" class="hub-btn hub-btn--primary">Send</button></div>
-        {% else %}
         {% include "components/form_field.html" with field=reply_form.body field_label="Reply to the crew" field_hint_off=True %}
         <div class="pl-kiln-reply__row"><span class="pl-kiln-reply__note">The kiln crew gets a notification.</span><button type="submit" class="hub-btn hub-btn--primary">Send</button></div>
-        {% endif %}
     </form>
+    {% endif %}
 </div>

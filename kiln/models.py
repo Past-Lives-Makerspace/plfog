@@ -21,8 +21,10 @@ from django.utils import timezone
 from core.images import normalize_image
 
 if TYPE_CHECKING:
-    from django.core.files.storage import Storage
+    from collections.abc import Iterable
+
     from django.core.files.uploadedfile import UploadedFile
+    from django.db.models.fields.files import FieldFile
 
     from membership.models import Member
 
@@ -616,12 +618,7 @@ class KilnTicket(models.Model):
         constraint still holds: the loser of the race is saved as an ordinary photo.
         """
         photo = KilnTicketPhoto(ticket=self)
-        photo.image.save(
-            "photo.jpg",
-            normalize_image(upload, max_long_edge=settings.IMAGE_MAX_LONG_EDGE_GALLERY),
-            save=False,
-        )
-        photo.tile.save("tile.jpg", normalize_image(upload, max_long_edge=TILE_LONG_EDGE), save=False)
+        store_photo(photo.image, photo.tile, upload)
         with transaction.atomic():
             list(KilnTicket.objects.select_for_update().filter(pk=self.pk).values_list("pk", flat=True))
             photo.is_cover = not self._has_cover()
@@ -659,10 +656,10 @@ class KilnTicket(models.Model):
         """
         photo = self.photos.get(pk=photo_pk)
         was_cover = photo.is_cover
-        storage, names = photo.image.storage, [name for name in (photo.image.name, photo.tile.name) if name]
+        files: list[FieldFile] = [photo.image, photo.tile]
         photo.delete()
         # The files go only once the row is gone for good: a rolled back save keeps both.
-        transaction.on_commit(lambda: _delete_files(storage, names), robust=True)
+        delete_files_after_commit(files)
         if was_cover:
             successor = self.photos.order_by("sort_order", "pk").first()
             if successor is not None:
@@ -677,23 +674,40 @@ class KilnTicket(models.Model):
     def delete_with_photos(self) -> None:
         """Delete the ticket with its photos, flags and replies, at any status.
 
-        The photo files go only once the delete commits, like :meth:`remove_photo`: a rolled
-        back delete keeps every file. The firing the piece was in stays; it simply has one
-        ticket fewer (``KilnTicket.firing`` and ``KilnReply.firing`` protect the firing, not
-        the ticket).
+        The files of the ticket's photos and of any photo on a crew message (#1026) go only
+        once the delete commits, like :meth:`remove_photo`: a rolled back delete keeps every
+        file. The firing the piece was in stays; it simply has one ticket fewer
+        (``KilnTicket.firing`` and ``KilnReply.firing`` protect the firing, not the ticket).
         """
-        photos = list(self.photos.all())
-        names = [name for photo in photos for name in (photo.image.name, photo.tile.name) if name]
+        files: list[FieldFile] = [file for photo in self.photos.all() for file in (photo.image, photo.tile)]
+        files += [file for reply in self.replies.all() for file in reply.photo_files]
         self.delete()
-        if names:
-            storage = photos[0].image.storage
-            transaction.on_commit(lambda: _delete_files(storage, names), robust=True)
+        delete_files_after_commit(files)
 
 
-def _delete_files(storage: Storage, names: list[str]) -> None:
-    """Remove stored files once the rows that named them are gone for good."""
-    for name in names:
-        storage.delete(name)
+def store_photo(image: FieldFile, tile: FieldFile, upload: UploadedFile) -> None:
+    """Write one upload as a kiln photo: ``image`` at the gallery size and ``tile`` at :data:`TILE_LONG_EDGE`.
+
+    The one resize path for every kiln photo, a ticket's and a crew message's (#1026). The
+    files are written now and the row is left unsaved for the caller to save. The upload is
+    checked first by the form (``kiln.forms.PHOTO_CHECKS``).
+    """
+    image.save("photo.jpg", normalize_image(upload, max_long_edge=settings.IMAGE_MAX_LONG_EDGE_GALLERY), save=False)
+    tile.save("tile.jpg", normalize_image(upload, max_long_edge=TILE_LONG_EDGE), save=False)
+
+
+def delete_files_now(files: Iterable[FieldFile]) -> None:
+    """Remove stored files whose rows were never saved (or are already gone for good)."""
+    for file in files:
+        if file.name:
+            file.storage.delete(file.name)
+
+
+def delete_files_after_commit(files: Iterable[FieldFile]) -> None:
+    """Remove stored files once the delete of the rows that named them commits; a rollback keeps them."""
+    named = [file for file in files if file.name]
+    if named:
+        transaction.on_commit(lambda: delete_files_now(named), robust=True)
 
 
 def _yes_no(value: bool | None) -> str:
@@ -985,6 +999,18 @@ class KilnReply(models.Model):
         blank=True,
         help_text="Whether the piece was fired anyway or went back to the queue; blank for an ordinary message.",
     )
+    image = models.ImageField(
+        upload_to="kiln/replies/photos/",
+        null=True,
+        blank=True,
+        help_text="A photo the crew attached to the message or unload note, at the gallery size; blank for none.",
+    )
+    tile = models.ImageField(
+        upload_to="kiln/replies/tiles/",
+        null=True,
+        blank=True,
+        help_text="A small copy of the attached photo for the thread; blank for none.",
+    )
 
     class Meta:
         ordering = ["created_at", "pk"]
@@ -1014,3 +1040,15 @@ class KilnReply(models.Model):
     def from_crew(self) -> bool:
         """Anyone but the maker writing on a ticket is the crew (only the crew can open another's ticket)."""
         return self.author_id != self.ticket.maker_id
+
+    @property
+    def has_photo(self) -> bool:
+        return bool(self.image)
+
+    @property
+    def photo_files(self) -> list[FieldFile]:
+        return [self.image, self.tile]
+
+    def attach_photo(self, upload: UploadedFile) -> None:
+        """Store ``upload`` as this message's one photo (#1026), resized like a ticket photo; the row is not saved."""
+        store_photo(self.image, self.tile, upload)

@@ -29,6 +29,20 @@ ACTION_SUBMIT = "submit"
 ACTION_COVER = "cover"
 ACTION_REMOVE = "remove"
 
+# The checks every kiln photo upload gets, a ticket's and a crew message's (#1026): under the
+# size cap (10 MB), and an image we can open.
+PHOTO_CHECKS = (validate_image_size, validate_image_content)
+
+
+def check_photo(upload: UploadedFile) -> None:
+    """Run :data:`PHOTO_CHECKS` on one upload.
+
+    Raises:
+        ValidationError: The file is too large, or not a photo we can open.
+    """
+    for check in PHOTO_CHECKS:
+        check(upload)
+
 
 def _to_bool(value: str) -> bool | None:
     return {"yes": True, "no": False}.get(value)
@@ -179,8 +193,7 @@ class KilnTicketForm(forms.ModelForm):
         """Validate every new upload: an image we can open, under the size cap."""
         for upload in self.files.getlist("photos") if self.files else []:
             try:
-                validate_image_size(upload)
-                validate_image_content(upload)
+                check_photo(upload)
             except ValidationError as error:
                 self.add_error(None, error)
                 continue
@@ -303,8 +316,22 @@ class DeleteTicketForm(ToastForm):
             self.fields["note"].error_messages["required"] = "Say why the ticket is being deleted."
 
 
+def photo_field() -> forms.FileField:
+    """An optional photo on a crew message or unload note (#1026); checked like a ticket photo."""
+    return forms.FileField(
+        required=False,
+        label="Add a photo",
+        error_messages={"empty": "That photo file is empty. Take or choose it again."},
+    )
+
+
 class ReplyForm(ToastForm):
-    """A message on a ticket's thread."""
+    """A message on a ticket's thread, and for the crew on someone else's ticket an optional photo (#1026).
+
+    Args:
+        takes_photo: The writer is the crew on another maker's ticket. Otherwise the form has
+            no photo field, so a photo in a maker's post is never read.
+    """
 
     body = forms.CharField(
         max_length=2000,
@@ -312,6 +339,24 @@ class ReplyForm(ToastForm):
         label="Message",
         error_messages={"required": "Write a message first.", "max_length": "Keep it under 2000 characters."},
     )
+    photo = photo_field()
+
+    def __init__(self, *args: Any, takes_photo: bool = False, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if not takes_photo:
+            del self.fields["photo"]
+
+    def clean_photo(self) -> UploadedFile | None:
+        upload: UploadedFile | None = self.cleaned_data.get("photo")
+        if upload is not None:
+            check_photo(upload)
+        return upload
+
+    @property
+    def attached_photo(self) -> UploadedFile | None:
+        """The checked photo once the form is valid, or None (always None when it takes no photo)."""
+        upload: UploadedFile | None = self.cleaned_data.get("photo")
+        return upload
 
 
 class ManualFlagForm(ToastForm):
@@ -335,6 +380,7 @@ class ExceptionNote:
     what_happened: str
     note: str
     outcome: str
+    photo: UploadedFile | None = None
 
     @property
     def back_to_queue(self) -> bool:
@@ -350,6 +396,7 @@ class UnloadRow:
     what: BoundField
     note: BoundField
     next: BoundField
+    photo: BoundField
 
 
 class UnloadForm(ToastForm):
@@ -357,7 +404,8 @@ class UnloadForm(ToastForm):
 
     ``fired`` holds the ticked tickets. Each unticked one is an exception and needs its
     ``what-<pk>`` (what happened), ``note-<pk>`` (the message to its maker) and ``next-<pk>``
-    (fired with the note, or back to the queue). The fields of a ticked ticket are ignored.
+    (fired with the note, or back to the queue), and may carry one ``photo-<pk>`` (#1026).
+    The fields of a ticked ticket are ignored, its photo too, even one that would not pass.
 
     Args:
         tickets: The firing's tickets, in page order.
@@ -400,6 +448,7 @@ class UnloadForm(ToastForm):
                 widget=forms.RadioSelect,
                 label="What happens to the ticket?",
             )
+            self.fields[f"photo-{ticket.pk}"] = photo_field()
 
     def _posted(self, name: str) -> list[str]:
         return [str(value) for value in cast("MultiValueDict[str, Any]", self.data).getlist(name)]
@@ -434,6 +483,7 @@ class UnloadForm(ToastForm):
                 what=self[f"what-{t.pk}"],
                 note=self[f"note-{t.pk}"],
                 next=self[f"next-{t.pk}"],
+                photo=self[f"photo-{t.pk}"],
             )
             for t in self.tickets
         ]
@@ -442,9 +492,13 @@ class UnloadForm(ToastForm):
         cleaned = super().clean() or {}
         ticked = set(cleaned.get("fired") or [])
         for ticket in self.tickets:
-            if ticket.pk in ticked:
-                continue
             pk = ticket.pk
+            if pk in ticked:
+                # A fired piece's photo is ignored, so a bad file there never blocks the unload.
+                self.errors.pop(f"photo-{pk}", None)
+                cleaned.pop(f"photo-{pk}", None)
+                continue
+            self._check_photo(pk, cleaned)
             if not cleaned.get(f"what-{pk}"):
                 self.add_error(f"what-{pk}", f"Say what happened to ticket {pk}.")
             if not cleaned.get(f"note-{pk}", "").strip() and f"note-{pk}" not in self.errors:
@@ -452,6 +506,15 @@ class UnloadForm(ToastForm):
             if not cleaned.get(f"next-{pk}"):
                 self.add_error(f"next-{pk}", f"Choose fired or back to the queue for ticket {pk}.")
         return cleaned
+
+    def _check_photo(self, pk: int, cleaned: dict[str, Any]) -> None:
+        upload = cleaned.get(f"photo-{pk}")
+        if upload is None:
+            return
+        try:
+            check_photo(upload)
+        except ValidationError as error:
+            self.add_error(f"photo-{pk}", error)
 
     @property
     def exception_notes(self) -> dict[int, ExceptionNote]:
@@ -463,6 +526,7 @@ class UnloadForm(ToastForm):
                 what_happened=self.cleaned_data[f"what-{t.pk}"],
                 note=self.cleaned_data[f"note-{t.pk}"].strip(),
                 outcome=self.cleaned_data[f"next-{t.pk}"],
+                photo=self.cleaned_data.get(f"photo-{t.pk}"),
             )
             for t in self.tickets
             if t.pk not in ticked
