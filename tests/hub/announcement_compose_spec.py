@@ -413,6 +413,45 @@ def describe_hub_compose_send():
         assert _delivered(mailoutbox) == sent_once
         assert client.get(second.url).content.decode().count('data-announcement-state="sent"') == 1
 
+    def it_sends_once_when_the_same_compose_is_posted_while_the_first_send_is_running(
+        client: Client, mailoutbox, monkeypatch
+    ):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        _guild_member(guild, "weaver@example.com")
+        data = _valid_send_data(audience=f"guild:{guild.pk}", send_email="on")
+        real_send = AnnouncementDraft.send
+        repeats: list = []
+
+        def send_with_a_repeat_mid_flight(self: AnnouncementDraft) -> tuple[int, int]:
+            # The repeat lands while this row's fan-out is still to run: saved seconds ago, unsent, unqueued.
+            repeats.append(client.post(reverse("hub_compose_send"), data))
+            return real_send(self)
+
+        monkeypatch.setattr(AnnouncementDraft, "send", send_with_a_repeat_mid_flight)
+        first = client.post(reverse("hub_compose_send"), data)
+        assert first.status_code == 302
+        assert first.url == _sent_tab()
+        [second] = repeats
+        assert second.status_code == 302
+        assert second.url == _sent_tab()
+        assert "This announcement was already sent." in [m.message for m in get_messages(second.wsgi_request)]
+        assert AnnouncementDraft.objects.count() == 1
+        assert GuildAnnouncement.objects.count() == 1
+        assert _delivered(mailoutbox)[1] >= 1, "the first send should have emailed the guild, once"
+        draft = AnnouncementDraft.objects.get()
+        assert (draft.sent_at is not None, draft.send_requested_at, draft.send_attempts) == (True, None, 1)
+
+    def it_sends_a_fresh_compose_that_only_matches_a_draft_someone_saved(client: Client):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        data = _valid_send_data(audience=f"guild:{guild.pk}")
+        assert client.post(reverse("hub_compose_save_draft"), data).status_code == 200
+        response = client.post(reverse("hub_compose_send"), data)
+        assert response.url == _sent_tab()
+        states = sorted(AnnouncementDraft.objects.values_list("sent_at", flat=True), key=lambda s: s is not None)
+        assert states[0] is None and states[1] is not None  # the saved draft stays a draft; the send went out
+
     def it_queues_a_fresh_site_compose_posted_twice_once(client: Client):
         _login_admin(client)
         first = client.post(reverse("hub_compose_send"), _valid_send_data())

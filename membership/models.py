@@ -6481,11 +6481,14 @@ class AnnouncementSendGaveUpError(Exception):
 # the site send's period is stable, a later send reaches only the members still not reached.
 MAX_ANNOUNCEMENT_SEND_ATTEMPTS = 3
 
-# How long after a fresh compose is sent the same sender posting the same target and body again is
-# a repeat of that send (a second tap that beat the lock, a retry, a browser resubmit) rather than a
-# new announcement (:meth:`AnnouncementDraftQuerySet.recent_twin`). The Writers Guild double send of
-# 2026-10-24 was 3.5 seconds apart; a web worker's timeout is 30.
+# How long after a fresh compose starts sending the same sender posting the same target and body
+# again is a repeat of that send (a second tap that beat the lock, a retry, a browser resubmit)
+# rather than a new announcement (:meth:`AnnouncementDraftQuerySet.recent_twin`). The Writers Guild
+# double send of 2026-10-24 was 3.5 seconds apart, behind a send that took 5; a worker's timeout is 30.
 ANNOUNCEMENT_RESEND_WINDOW = timedelta(minutes=1)
+
+# What a send that already went out, or is going out in another request, says to a repeat.
+ANNOUNCEMENT_ALREADY_SENT = "This announcement was already sent."
 
 # The longest failure text kept on a draft (``send_error``); exception text can be a page long.
 _SEND_ERROR_LIMIT = 500
@@ -6532,14 +6535,17 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
         class_offering: "ClassOffering | None",
         body: str,
     ) -> "AnnouncementDraft | None":
-        """The row ``author`` sent or queued within the resend window with this target and body, else ``None``.
+        """The row ``author`` sent, queued or started sending within the resend window with this target and body.
 
         The composer's Send posts a fresh compose with no ``draft_pk``, so a repeat of that POST (a
         second tap that beat the lock, a retry, a browser resubmit) would make and send a second
         row. A row the same sender made within :data:`ANNOUNCEMENT_RESEND_WINDOW` with the same
-        audience, guild, class and body, and already sent or queued, is what the repeat meant, so
-        the composer treats the repeat as that row's resend and the send guards refuse it. A row
-        still unsent and unqueued is left out: that is a draft, not a send.
+        audience, guild, class and body is what the repeat meant, so the composer treats the repeat
+        as that row's resend and :meth:`AnnouncementDraft.send_in_request` refuses it. That covers a
+        row whose send is still running in another request (:attr:`AnnouncementDraft.sending_in_request`):
+        the 2026-10-24 repeat arrived 3.5 seconds into a 5 second send. The one row left out is a
+        plain saved draft, never sent, queued or started: someone who saves and then writes the same
+        message afresh is not repeating a send.
 
         Args:
             author: Whoever pressed Send.
@@ -6547,11 +6553,13 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
             guild: The guild of a ``GUILD`` audience, else ``None``.
             class_offering: The class of a ``CLASS`` audience, else ``None``.
             body: The body as the form sanitizes it, which is how the row stores it.
+
+        Returns:
+            The newest such row, or ``None``.
         """
         since = timezone.now() - ANNOUNCEMENT_RESEND_WINDOW
         return (
-            self.sent_or_sending()
-            .filter(
+            self.filter(
                 author=author,
                 audience=audience,
                 guild=guild,
@@ -6559,6 +6567,7 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
                 body=body,
                 created_at__gte=since,
             )
+            .exclude(sent_at__isnull=True, send_requested_at__isnull=True, send_attempts=0)
             .order_by("-created_at", "-pk")
             .first()
         )
@@ -6973,6 +6982,17 @@ class AnnouncementDraft(models.Model):
     def is_resumable(self) -> bool:
         """Whether the composer may still open, save over, send or delete this row (unsent, not queued)."""
         return self.sent_at is None and self.send_requested_at is None
+
+    @property
+    def sending_in_request(self) -> bool:
+        """Whether a guild or class send of this row is running inside a web request right now.
+
+        :meth:`send_in_request` counts ``send_attempts`` up before its fan-out and :meth:`send` never
+        touches the count, so an unsent, unqueued row that is not given up on and carries an attempt
+        is one whose send started and has not finished: the state a repeat of the same compose meets
+        when it arrives seconds behind the first (#1038).
+        """
+        return self.state == self.DraftState.DRAFT and self.send_attempts > 0
 
     @property
     def audience_value(self) -> str:
@@ -7908,7 +7928,7 @@ class AnnouncementDraft(models.Model):
         from core.html_sanitize import sanitize_rich_html
 
         if self.sent_at is not None:
-            raise AlreadySentError("This announcement was already sent.")
+            raise AlreadySentError(ANNOUNCEMENT_ALREADY_SENT)
         body_html = sanitize_rich_html(self.body)
         if not body_html:
             raise ValidationError("Add a message before sending.")
@@ -7922,6 +7942,38 @@ class AnnouncementDraft(models.Model):
             if FundingSnapshot.objects.filter(pk=self.funding_snapshot_id, results_sent_at__isnull=False).exists():
                 raise ResultsAlreadySentError("These results were already sent.")
         return body_html
+
+    def send_in_request(self) -> tuple[int, int]:
+        """:meth:`send` for a guild or class send that runs inside the web request, marked in flight while it runs.
+
+        A repeat of the same compose can arrive while the fan-out is still running (the 2026-10-24
+        double send was 3.5 seconds behind a 5 second send), so the composer has to tell a row whose
+        send is running from a draft someone merely saved. ``send_attempts`` is counted up before
+        the fan-out, as :meth:`send_from_queue` counts the job's attempts, and
+        :attr:`sending_in_request` reads it back. ``send_requested_at`` is not used for this: it
+        would hand the row to ``send_queued_announcements`` and show it as queued. A failure that
+        reaches Python puts the count back, so the row is the plain draft it was; a worker killed
+        outright leaves it, which matters only within :data:`ANNOUNCEMENT_RESEND_WINDOW`.
+
+        Returns:
+            :meth:`send`'s ``(emailed, total)`` pair.
+
+        Raises:
+            AlreadySentError: If this row was already sent, or its send is running in another request.
+            ValidationError: If the body sanitizes empty, or the audience has no target.
+            ResultsAlreadySentError: If this is a results announcement whose results were already sent.
+        """
+        if self.sent_at is not None or self.sending_in_request:
+            raise AlreadySentError(ANNOUNCEMENT_ALREADY_SENT)
+        attempts_before = self.send_attempts
+        self.send_attempts = attempts_before + 1
+        self.save(update_fields=["send_attempts", "updated_at"])
+        try:
+            return self.send()
+        except Exception:
+            self.send_attempts = attempts_before
+            self.save(update_fields=["send_attempts", "updated_at"])
+            raise
 
     def queue_send(self) -> None:
         """Hand this draft to the background job instead of sending it in the request.

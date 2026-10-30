@@ -5109,7 +5109,9 @@ def _compose_send_refused(request: HttpRequest, draft: AnnouncementDraft, exc: E
 
     A results announcement lands on its snapshot's page, which says whether the results went out.
     A draft still resumable (it was saved before the send was refused) reopens in the composer, so
-    the work typed is kept. Anything else lands on the Sent tab of the Announcements page.
+    the work typed is kept, unless its send is running in another request right now (a repeat that
+    arrived mid-send, #1038): nothing was typed that the row does not hold, and it lands on the
+    Sent tab like a sent one. Anything else lands on the Sent tab of the Announcements page.
     """
     from django.core.exceptions import ValidationError
 
@@ -5117,7 +5119,7 @@ def _compose_send_refused(request: HttpRequest, draft: AnnouncementDraft, exc: E
     messages.error(request, reason)
     if draft.funding_snapshot_id is not None:
         return redirect("hub_admin_voting_history_detail", pk=draft.funding_snapshot_id)
-    if draft.is_resumable:
+    if draft.is_resumable and not draft.sending_in_request:
         return redirect("hub_compose_resume", draft_pk=draft.pk)
     return redirect(_announcements_sent_url())
 
@@ -5722,9 +5724,9 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
     A fresh compose (no ``draft_pk``) that repeats a send this sender made within the last minute,
     same audience target and body (:meth:`AnnouncementDraft.recent_twin_of`), is that send's repeat:
     a second tap that beat the modal's lock, a retry, a browser resubmit. Nothing is saved; the row
-    takes the send branch and refuses itself (already sent, or a queued site send that
-    :meth:`AnnouncementDraft.queue_send` leaves as it is), so the repeat lands on the Sent tab with
-    the existing message and no second announcement goes out (#1038).
+    takes the send branch and refuses itself (already sent, still sending in the first request, or
+    a queued site send that :meth:`AnnouncementDraft.queue_send` leaves as it is), so the repeat
+    lands on the Sent tab with the existing message and no second announcement goes out (#1038).
     """
     from django.core.exceptions import ValidationError
 
@@ -5778,7 +5780,7 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
         )
         return redirect(_announcements_sent_url())
     try:
-        emailed, total = draft.send()
+        emailed, total = draft.send_in_request()
     except refusals as exc:
         return _compose_send_refused(request, draft, exc)
     messages.success(request, f"Email sent to {total} recipient(s).")
