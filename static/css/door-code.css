@@ -1,63 +1,95 @@
-/* The Door Code on Home (#813, hub/partials/_door_code.html). Wide screens show a compact box in
-   the page header beside the title; narrower screens show a full width card under the quick
-   links instead. Either way the code sits behind Tap to reveal on every load. Loaded by Home alone. */
+/* The Door Code on Home (#813, hub/partials/_door_code.html) and the header row around it. From
+   1200px the code is a one line chip at the right of Home's utility row (#1007, the layout Felix
+   picked on 2026-10-29, hub/partials/_home_utility_row.html): What's New and Show Me Around on the
+   row's left, the chip on its right, and the greeting with its description running the full width
+   under the row. Narrower screens hide the chip and show a full width card under the quick links
+   instead. Either way the code sits behind Tap to reveal on every load. Loaded by Home alone. */
 
-.pl-home-header-actions {
+.pl-home-utility {
     display: flex;
-    flex-shrink: 0;
-    align-items: flex-start;
+    align-items: center;
+    justify-content: space-between;
     gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.25rem;
+}
+.pl-home-utility__left {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+/* Show Me Around stands as tall as the What's New button beside it. */
+.pl-home-utility .hub-btn--sm {
+    height: 2.4rem;
+    display: inline-flex;
+    align-items: center;
+}
+
+/* The greeting under the row: the title closer to its description, and from 1200px the description
+   on one line rather than wrapping at 65 characters, as it did beside the old header box. */
+.pl-home-greeting .hub-page-title {
+    margin-bottom: 0.4rem;
+}
+@media (min-width: 1200px) {
+    .pl-home-greeting p.hub-text-muted {
+        max-width: none !important;
+    }
 }
 
 .pl-door-code {
     min-width: 0;
 }
 
-/* Show Me Around sits in its own row under the header description. */
-.pl-home-tour-link {
-    margin-top: 1rem;
-}
-.pl-door-code--header {
+/* The chip: the label, the dots behind Tap to reveal and, for an admin, Change, on one line. Below
+   1200px the card takes over. */
+.pl-door-code--chip {
     display: none;
-    width: 15rem;
-    padding: 0.75rem 1rem;
+    align-items: center;
+    gap: 0.75rem;
+    height: 2.4rem;
+    max-width: 100%;
+    padding: 0 0.9rem 0 0.8rem;
     border: 1px solid var(--hub-card-border);
-    border-radius: 10px;
+    border-radius: 999px;
     background: var(--hub-card-bg);
 }
 @media (min-width: 1200px) {
-    .pl-door-code--header {
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
+    .pl-door-code--chip {
+        display: inline-flex;
     }
     .pl-door-code--card {
         display: none;
     }
-    /* Keep the box beside the title, and make the two sides one height: the box stretches to the
-       title column, and Show Me Around sits at the column's foot, level with the box's bottom. Once
-       the tour is taken there is no Show Me Around; the box, then taller, sets the row's height. */
-    .hub-page-header:has(.pl-home-header-actions) {
-        flex-wrap: nowrap !important;
-        align-items: stretch !important;
-    }
-    .hub-page-header:has(.pl-home-header-actions) > div:first-child {
-        display: flex;
-        flex-direction: column;
-        flex: 1 1 0;
-        min-width: 0;
-    }
-    /* The description stays on one line beside the box rather than wrapping at 65 characters. */
-    .hub-page-header:has(.pl-home-header-actions) > div:first-child > p {
-        max-width: none !important;
-    }
-    .hub-page-header:has(.pl-home-header-actions) .pl-home-tour-link {
-        margin-top: auto;
-        padding-top: 1rem;
-    }
-    .pl-home-header-actions {
-        align-items: stretch;
-    }
+}
+.pl-door-code--chip .pl-door-code__label {
+    font-size: 0.7rem;
+    white-space: nowrap;
+}
+.pl-door-code--chip .pl-door-code__reveal {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: auto;
+    margin: 0;
+}
+.pl-door-code--chip .pl-door-code__value {
+    font-size: 0.95rem;
+    line-height: 1;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+    overflow-wrap: normal;
+}
+.pl-door-code--chip .pl-door-code__mask {
+    font-size: 0.8rem;
+    letter-spacing: 0.35em;
+}
+.pl-door-code--chip .pl-door-code__hint {
+    font-size: 0.78rem;
+}
+.pl-door-code--chip .pl-door-code__empty {
+    margin: 0;
+    font-size: 0.8125rem;
 }
 
 .pl-door-code__top {
@@ -155,4 +187,3 @@
 .pl-door-code--card .pl-door-code__value {
     font-size: 2rem;
 }
-

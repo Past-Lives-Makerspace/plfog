@@ -199,7 +199,7 @@ Root `conftest.py` provides:
 
 Every PR adds one fragment to `changelog.d/` declaring `bump = "patch" | "minor" | "major"` (`changelog.d/README.md` is the contract); CI fails a PR without one. `release.yml` folds the version, pushes the tag, and announces the fragments that push **added**.
 
-A member-facing fragment also names its `audience` list, its `feature` and its `guidance` level (#1007). `core/guidance.py` is the registry of feature keys (title, where it lives, steps, clip, tour, help key), beside `core/help_registry.py` (Info View keys) and `core/tours.py` (Guided Tours); `docs/GUIDANCE.md` is the contract for the levels and the PR's `**Guidance:**` line.
+A member-facing fragment also names its `audience` list, its `feature` and its `guidance` level (#1007). `core/guidance.py` is the registry of feature keys (title, where it lives, steps, clip, tour, help key), beside `core/help_registry.py` (Info View keys) and `core/tours.py` (Guided Tours); `docs/GUIDANCE.md` is the contract for the levels and the PR's `**Guidance:**` line. `core/whats_new.py` reads the composed changelog for one viewer (#1007, part 2): the audience keys `request.view_as` puts them in (one query), every entry by tab and by feature 20 a page, the last 30 days as what can be unseen, and the seen state on `Member.whats_new_seen`; `hub/whats_new_views.py` serves it as the What's New modal (`hub/AGENTS.md`).
 
 ## Deployment
 

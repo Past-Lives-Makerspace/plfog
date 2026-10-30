@@ -172,7 +172,7 @@ def describe_home_tour_banner():
         _login_member(client, "banner-order")
         content = client.get(reverse("hub_home")).content.decode()
         assert content.index(BANNER) < content.index('data-help-key="home.get-started"')
-        assert content.index('class="hub-page-header"') < content.index(BANNER)
+        assert content.index("data-home-greeting") < content.index(BANNER)
 
     def it_never_renders_the_floating_card_beside_the_banner(client):
         _login_member(client, "banner-alone")

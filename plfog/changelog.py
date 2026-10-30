@@ -410,8 +410,23 @@ def load_history(path: pathlib.Path) -> list[dict[str, Any]]:
     """Every release frozen by the last sweep, newest first.
 
     Read-only history. New changes are fragments; this file is appended to only by a sweep.
+
+    A swept entry keeps the ``feature``, ``guidance`` and ``audiences`` its fragment declared
+    (#1007), and they are checked here the way :func:`parse_fragment` checks a fragment's: a
+    feature key the registry has since dropped, a level or an audience key nobody knows, fails
+    at import, where a release is noticed, rather than in a member's What's New.
     """
     entries: list[dict[str, Any]] = json.loads(path.read_text(encoding="utf-8"))
+    for entry in entries:
+        where = f"{path}: entry {entry['title']!r} ({entry['date']})"
+        feature = entry.get("feature", "")
+        if feature and feature not in GUIDANCE:
+            raise FragmentError(f"{where} names feature {feature!r}, which core/guidance.py does not register")
+        if entry.get("guidance", "none") not in GUIDANCE_LEVELS:
+            raise FragmentError(f"{where}: 'guidance' must be one of {', '.join(GUIDANCE_LEVELS)}")
+        for key in entry.get("audiences", ()):
+            if key not in AUDIENCES:
+                raise FragmentError(f"{where} names audience {key!r}, not one of {', '.join(AUDIENCES)}")
     return entries
 
 

@@ -3,8 +3,9 @@
 Covers who sees the code (active members and admins only; never an unlinked account, a guest,
 an invited, former or suspended member, nor an admin previewing as Guest), the Change control
 for admins alone, the save recording who and when, a crafted POST from anyone else, the 1 to 20
-character trimmed validation and the no code state. Home renders the code twice, a compact box in
-the header (wide screens) and a card under the quick links (narrower screens); CSS shows one.
+character trimmed validation and the no code state. Home renders the code twice, a one line chip in
+the utility row above the greeting (wide screens) and a card under the quick links (narrower
+screens); CSS shows one. The card says when the code changed; the chip does not.
 
 The repo is public: every code here is an obviously fake value.
 """
@@ -84,14 +85,15 @@ def _setter() -> User:
 
 
 def describe_an_active_member():
-    def it_sees_the_code_and_when_it_changed_in_both_boxes(client: Client):
+    def it_sees_the_code_in_both_and_when_it_changed_on_the_card_alone(client: Client):
         _set_code(by=_setter())
         _login(client, "doormember")
 
         content = client.get(HOME).content
 
         assert content.count(CODE_MARKUP) == 2
-        assert content.count(b"data-door-code-changed>Changed Oct 3, 2026</p>") == 2
+        assert content.count(b"data-door-code-changed>Changed Oct 3, 2026</p>") == 1
+        assert b"data-door-code-changed" not in _box(content.decode(), "chip").encode()
 
     def it_does_not_see_the_change_control_or_who_changed_it(client: Client):
         _set_code(by=_setter())
@@ -144,7 +146,8 @@ def describe_an_admin():
         assert CHANGE in content
         assert b">Change</button>" in content
         assert b'id="door-code-change-title"' in content
-        assert content.count(b"Changed Oct 3, 2026 by Quillon Setter</p>") == 2
+        # The card alone says when and by whom; the one line chip leaves that out (#1007).
+        assert content.count(b"Changed Oct 3, 2026 by Quillon Setter</p>") == 1
         assert b'value="4242#"' in content
 
     def it_sees_the_date_alone_when_the_changer_account_is_gone(client: Client):
@@ -228,7 +231,7 @@ def _box(content: str, variant: str) -> str:
 
 
 def describe_the_two_boxes():
-    @pytest.mark.parametrize("variant", ["header", "card"])
+    @pytest.mark.parametrize("variant", ["chip", "card"])
     def it_hides_the_code_on_every_load_in_each(client: Client, variant: str):
         _set_code()
         _login(client, "doorbox")
@@ -245,7 +248,7 @@ def describe_the_two_boxes():
         assert 'x-show="!open"' in mask
         assert FAKE_CODE not in mask
 
-    @pytest.mark.parametrize("variant", ["header", "card"])
+    @pytest.mark.parametrize("variant", ["chip", "card"])
     def it_wires_each_toggle_for_assistive_tech(client: Client, variant: str):
         _set_code()
         _login(client, "doorbox")
@@ -265,30 +268,34 @@ def describe_the_two_boxes():
 
         content = client.get(HOME).content.decode()
 
-        assert content.count('id="door-code-value-header"') == 1
+        assert content.count('id="door-code-value-chip"') == 1
         assert content.count('id="door-code-value-card"') == 1
 
-    def it_puts_the_header_box_in_the_page_header_and_show_me_around_under_the_description(client: Client):
+    def it_puts_the_chip_and_show_me_around_in_the_utility_row_above_the_greeting(client: Client):
         _set_code()
         _login(client, "doorbox")
 
-        header = _element(client.get(HOME).content.decode(), 'class="hub-page-header"')
+        content = client.get(HOME).content.decode()
 
-        actions = _element(header, 'class="pl-home-header-actions"')
-        assert 'data-door-code-box="header"' in actions
-        assert "Show Me Around" not in actions
-        tour_row = _element(header, 'class="pl-home-tour-link"')
-        assert header.index("Your home base") < header.index(tour_row)
-        assert ">Show Me Around</a>" in tour_row
-        assert 'data-door-code-box="card"' not in header
+        row = _element(content, "data-home-utility")
+        left = _element(row, 'class="pl-home-utility__left"')
+        assert "data-whats-new-button" in left
+        assert left.index("data-whats-new-button") < left.index(">Show Me Around</a>")
+        assert 'data-door-code-box="chip"' in row
+        assert row.index(left) < row.index('data-door-code-box="chip"')
+        assert 'data-door-code-box="card"' not in row
+        greeting = _element(content, "data-home-greeting")
+        assert content.index(row) < content.index(greeting)
+        assert "Welcome back" in greeting and "Your home base" in greeting
+        assert "data-door-code" not in greeting and "Show Me Around" not in greeting
 
-    def it_keeps_show_me_around_in_the_header_without_a_door_code(client: Client):
+    def it_keeps_show_me_around_in_the_row_without_a_door_code(client: Client):
         _login(client, "doorbox")
 
-        header = _element(client.get(HOME).content.decode(), 'class="hub-page-header"')
+        row = _element(client.get(HOME).content.decode(), "data-home-utility")
 
-        assert '<a href="?tour=member-welcome" class="hub-btn hub-btn--sm">Show Me Around</a>' in header
-        assert "data-door-code" not in header
+        assert '<a href="?tour=member-welcome" class="hub-btn hub-btn--sm">Show Me Around</a>' in row
+        assert "data-door-code" not in row
 
     def it_puts_the_card_under_the_quick_links_and_none_inside_them(client: Client):
         _set_code()
@@ -301,8 +308,8 @@ def describe_the_two_boxes():
         assert content.index('data-door-code-box="card"') > content.index(quicklinks) + len(quicklinks)
         assert 'class="pl-door-code pl-door-code--card hub-card pl-home-block"' in _box(content, "card")
 
-    @pytest.mark.parametrize("variant", ["header", "card"])
-    def it_puts_the_admins_change_and_name_in_each(client: Client, variant: str):
+    @pytest.mark.parametrize("variant", ["chip", "card"])
+    def it_puts_the_admins_change_in_each_and_the_changers_name_on_the_card(client: Client, variant: str):
         _set_code(by=_setter())
         _admin(client)
 
@@ -310,9 +317,9 @@ def describe_the_two_boxes():
 
         assert "data-door-code-edit>Change</button>" in box
         assert "@click=\"$dispatch('open-modal', 'door-code-change')\"" in box
-        assert "by Quillon Setter</p>" in box
+        assert ("by Quillon Setter</p>" in box) is (variant == "card")
 
-    @pytest.mark.parametrize("variant", ["header", "card"])
+    @pytest.mark.parametrize("variant", ["chip", "card"])
     def it_shows_an_admin_no_code_set_yet_with_set_code_in_each(client: Client, variant: str):
         _admin(client)
 

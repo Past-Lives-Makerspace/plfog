@@ -1,13 +1,13 @@
-"""The Door Code on Home in a real browser (#813).
+"""The Door Code on Home in a real browser (#813, in the utility row since #1007).
 
-Home renders the code twice: a compact box in the header beside the title from 1200px, and a
-card under the quick links below that; CSS shows exactly one. Either starts masked on every load:
-tapping it reveals the code, tapping again hides it, and the keyboard does the same. An admin sets
-a code through Change at desktop and phone width. A revealed 20 character code pushes nothing
-sideways at any width, and at 1280px the header box stays on the greeting's row. From 1200px the
-box is as tall as the title column, so Show Me Around ends level with its bottom; once the tour is
-taken there is no Show Me Around and the box stays level with the title. The repo is
-public, so every code is an obviously fake value. Run with ``pytest -m e2e`` on PostgreSQL.
+Home renders the code twice: a one line chip at the right of the utility row above the greeting from
+1200px, and a card under the quick links below that; CSS shows exactly one. Either starts masked on
+every load: tapping it reveals the code, tapping again hides it, and the keyboard does the same. An
+admin sets a code through Change at desktop and phone width. A revealed 20 character code pushes
+nothing sideways at any width. From 1200px the chip sits on the row's right, above the greeting, and
+Show Me Around stands on the row's left level with it, the greeting's description on one line under
+the row; once the tour is taken there is no Show Me Around and the chip stays level with What's New.
+The repo is public, so every code is an obviously fake value. Run with ``pytest -m e2e`` on PostgreSQL.
 """
 
 from __future__ import annotations
@@ -27,8 +27,10 @@ from membership.models import Member
 from tests.membership.factories import MembershipPlanFactory
 
 LONG_CODE = "1234567890#ABCDEFGH#"
-HEADER = '[data-door-code-box="header"]'
+CHIP = '[data-door-code-box="chip"]'
 CARD = '[data-door-code-box="card"]'
+ROW = "[data-home-utility]"
+GREETING = "[data-home-greeting]"
 
 
 def _viewport(width: int) -> dict[str, int]:
@@ -64,7 +66,7 @@ def _home(page, live_server, width: int) -> None:
 
 
 def _shown_box(width: int) -> str:
-    return HEADER if width >= 1200 else CARD
+    return CHIP if width >= 1200 else CARD
 
 
 def _overflow(page) -> int:
@@ -72,24 +74,24 @@ def _overflow(page) -> int:
 
 
 def describe_which_box_shows():
-    def it_shows_the_header_box_and_not_the_card_at_1440(page, live_server, login_via_code):
+    def it_shows_the_chip_and_not_the_card_at_1440(page, live_server, login_via_code):
         _set_code("4242#")
         _sign_in(login_via_code, "door-1440-e2e@example.com")
         _home(page, live_server, 1440)
 
-        expect(page.locator(HEADER)).to_be_visible()
+        expect(page.locator(CHIP)).to_be_visible()
         expect(page.locator(CARD)).to_be_hidden()
-        expect(page.locator(".hub-page-header").get_by_role("link", name="Show Me Around")).to_be_visible()
+        expect(page.locator(ROW).get_by_role("link", name="Show Me Around")).to_be_visible()
 
     @pytest.mark.parametrize("width", [390, 1199])
-    def it_shows_the_card_and_not_the_header_box_below_1200(page, live_server, login_via_code, width):
+    def it_shows_the_card_and_not_the_chip_below_1200(page, live_server, login_via_code, width):
         _set_code("4242#")
         _sign_in(login_via_code, f"door-{width}-e2e@example.com")
         _home(page, live_server, width)
 
         expect(page.locator(CARD)).to_be_visible()
-        expect(page.locator(HEADER)).to_be_hidden()
-        expect(page.locator(".hub-page-header").get_by_role("link", name="Show Me Around")).to_be_visible()
+        expect(page.locator(CHIP)).to_be_hidden()
+        expect(page.locator(ROW).get_by_role("link", name="Show Me Around")).to_be_visible()
 
 
 @pytest.mark.parametrize("width", [390, 1440])
@@ -114,7 +116,11 @@ def describe_tap_to_reveal():
         expect(box.locator("[data-door-code]")).to_have_text("4242#")
         expect(box.locator("[data-door-code]")).to_be_visible()
         expect(toggle).to_contain_text("Tap to hide")
-        expect(box.locator("[data-door-code-changed]")).to_have_text("Changed Oct 3, 2026")
+        # The card says when the code changed; the one line chip leaves that out.
+        if width < 1200:
+            expect(box.locator("[data-door-code-changed]")).to_have_text("Changed Oct 3, 2026")
+        else:
+            expect(box.locator("[data-door-code-changed]")).to_have_count(0)
         expect(box.locator("[data-door-code-edit]")).to_have_count(0)
 
         toggle.click()
@@ -164,7 +170,8 @@ def describe_tap_to_reveal():
         expect(box.locator("[data-door-code]")).to_be_hidden()
         box.locator("[data-door-code-toggle]").click()
         expect(box.locator("[data-door-code]")).to_have_text("4242#")
-        expect(box.locator("[data-door-code-changed]")).to_contain_text("Changed")
+        if width < 1200:
+            expect(box.locator("[data-door-code-changed]")).to_contain_text("Changed")
         expect(box.locator("[data-door-code-edit]")).to_have_text("Change")
         assert SiteConfiguration.load().door_code == "4242#"
 
@@ -189,66 +196,73 @@ def it_keeps_a_revealed_twenty_character_code_from_pushing_the_page_sideways(pag
     assert code_rect["x"] + code_rect["width"] <= box_rect["x"] + box_rect["width"] + 0.5
 
 
-def it_keeps_the_header_box_on_the_greetings_row_at_1280(page, live_server, login_via_code):
+def it_puts_the_chip_at_the_rows_right_above_the_greeting_at_1280(page, live_server, login_via_code):
     _set_code(LONG_CODE)
     _sign_in(login_via_code, "door-row-1280-e2e@example.com", fog_role=Member.FogRole.ADMIN)
     _home(page, live_server, 1280)
 
-    header = page.locator(".hub-page-header")
-    title = header.locator(".hub-page-title").bounding_box()
-    description = header.locator("p.hub-text-muted").first.bounding_box()
-    box = page.locator(HEADER).bounding_box()
+    row = page.locator(ROW).bounding_box()
+    button = page.locator("[data-whats-new-button]").bounding_box()
+    title = page.locator(f"{GREETING} .hub-page-title").bounding_box()
+    chip = page.locator(CHIP).bounding_box()
+    assert row is not None
+    assert button is not None
     assert title is not None
-    assert description is not None
-    assert box is not None
-    # On the greeting's first line, to its right: not wrapped under the description.
-    assert box["y"] < title["y"] + title["height"]
-    assert box["y"] < description["y"]
-    assert box["x"] >= title["x"] + 1
-    assert box["x"] >= description["x"] + description["width"] - 1
+    assert chip is not None
+    # At the row's right edge, on What's New's line, and the whole row above the greeting.
+    assert abs((chip["x"] + chip["width"]) - (row["x"] + row["width"])) <= 1
+    assert abs((chip["y"] + chip["height"] / 2) - (button["y"] + button["height"] / 2)) <= 1
+    assert chip["y"] + chip["height"] <= title["y"]
 
 
 @pytest.mark.parametrize("width", [1200, 1366, 1440, 1920])
-def it_lines_show_me_around_up_with_the_bottom_of_the_header_box(page, live_server, login_via_code, width):
+def it_lines_show_me_around_up_with_the_chip_in_the_row(page, live_server, login_via_code, width):
     _set_code("4242#")
     _sign_in(login_via_code, f"door-align-{width}-e2e@example.com", fog_role=Member.FogRole.ADMIN)
     _home(page, live_server, width)
 
-    header = page.locator(".hub-page-header")
-    row = header.bounding_box()
-    description = header.locator("p.hub-text-muted").first.bounding_box()
-    tour = header.get_by_role("link", name="Show Me Around").bounding_box()
-    box = page.locator(HEADER).bounding_box()
+    row = page.locator(ROW).bounding_box()
+    button = page.locator("[data-whats-new-button]").bounding_box()
+    tour = page.locator(ROW).get_by_role("link", name="Show Me Around").bounding_box()
+    chip = page.locator(CHIP).bounding_box()
+    title = page.locator(f"{GREETING} .hub-page-title").bounding_box()
+    description = page.locator(f"{GREETING} p.hub-text-muted").first.bounding_box()
     assert row is not None
-    assert description is not None
+    assert button is not None
     assert tour is not None
-    assert box is not None
-    # The description stays on one line, and the two sides share a top and a bottom edge.
+    assert chip is not None
+    assert title is not None
+    assert description is not None
+    # One row: What's New, then Show Me Around as tall as it, the chip level with both on the right;
+    # the greeting under the row with its description on one line.
+    assert abs(tour["y"] - button["y"]) <= 0.5
+    assert abs(tour["height"] - button["height"]) <= 0.5
+    assert tour["x"] >= button["x"] + button["width"]
+    assert abs((chip["y"] + chip["height"] / 2) - (tour["y"] + tour["height"] / 2)) <= 1
+    assert chip["x"] >= tour["x"] + tour["width"]
+    assert row["y"] + row["height"] <= title["y"]
     assert description["height"] < 30
-    assert abs(box["y"] - row["y"]) <= 0.5
-    assert abs((tour["y"] + tour["height"]) - (box["y"] + box["height"])) <= 0.5
 
 
 @pytest.mark.parametrize("width", [1200, 1440, 1920])
-def it_keeps_the_header_box_level_with_the_title_once_the_tour_is_taken(page, live_server, login_via_code, width):
+def it_keeps_the_chip_level_with_whats_new_once_the_tour_is_taken(page, live_server, login_via_code, width):
     _set_code("4242#")
     _sign_in(login_via_code, f"door-taken-{width}-e2e@example.com", fog_role=Member.FogRole.ADMIN, tour_done=True)
     _home(page, live_server, width)
 
-    header = page.locator(".hub-page-header")
-    expect(header.get_by_role("link", name="Show Me Around")).to_have_count(0)
-    row = header.bounding_box()
-    title = header.locator(".hub-page-title").bounding_box()
-    description = header.locator("p.hub-text-muted").first.bounding_box()
-    box = page.locator(HEADER).bounding_box()
+    expect(page.locator(ROW).get_by_role("link", name="Show Me Around")).to_have_count(0)
+    row = page.locator(ROW).bounding_box()
+    button = page.locator("[data-whats-new-button]").bounding_box()
+    chip = page.locator(CHIP).bounding_box()
+    title = page.locator(f"{GREETING} .hub-page-title").bounding_box()
+    description = page.locator(f"{GREETING} p.hub-text-muted").first.bounding_box()
     assert row is not None
+    assert button is not None
+    assert chip is not None
     assert title is not None
     assert description is not None
-    assert box is not None
-    # The box and the title start on one line; the box, taller than title and description, sets the
-    # header's height, so nothing below it rides up under the box.
+    # Without Show Me Around the row is What's New and the chip, still one line, still above the greeting.
+    assert abs((chip["y"] + chip["height"] / 2) - (button["y"] + button["height"] / 2)) <= 1
+    assert abs(row["height"] - chip["height"]) <= 1
+    assert row["y"] + row["height"] <= title["y"]
     assert description["height"] < 30
-    assert abs(box["y"] - row["y"]) <= 0.5
-    assert abs(title["y"] - row["y"]) <= 0.5
-    assert abs((box["y"] + box["height"]) - (row["y"] + row["height"])) <= 0.5
-    assert description["y"] + description["height"] <= box["y"] + box["height"]

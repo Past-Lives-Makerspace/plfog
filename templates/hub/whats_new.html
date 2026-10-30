@@ -1,0 +1,15 @@
+{% extends "hub/base.html" %}
+{% comment %}
+What's New as a page (#1007): what a direct link to /whats-new/ lands on, and where the phone
+picker's tab links go. The body renders inline into the same modal Home includes, opened as the
+page arrives, so the member sees exactly what the Home button shows.
+{% endcomment %}
+
+{% block title %}What's New{% endblock %}
+
+{% block content %}
+{% include "components/page_header.html" with title="What's New" description="What shipped for you, by role. Open it from the Home header any time." %}
+<a href="{% url 'hub_home' %}" class="hub-btn hub-btn--sm hub-btn--ghost">Back to Home</a>
+{% include "components/modal.html" with modal_id="whats-new" modal_title=modal_title modal_size="lg" modal_body_include="hub/whats_new/_body.html" %}
+<div x-data x-init="$dispatch('open-modal', 'whats-new')"></div>
+{% endblock %}

@@ -999,6 +999,19 @@ class Member(StaffRequestMixin, models.Model):
         default=True,
         help_text="When off, tours are never auto-offered. Manual starts from the Help page still work.",
     )
+    whats_new_seen = models.JSONField(
+        default=list,
+        # The literal the database writes when a row arrives without the column (STANDARDS §10: the
+        # release still serving during the deploy, and every historical model in a migration spec).
+        # Compiled to SQL once and never shared or mutated, unlike a Python default.
+        db_default=[],
+        blank=True,
+        help_text=(
+            "The changelog entries this member has looked at in What's New (#1007): a list of entry "
+            "slugs, pruned on every write to the last 30 days (core.whats_new.NEW_DAYS). Nothing here "
+            "is new to them; everything else in the window is."
+        ),
+    )
     instructor_oriented_at = models.DateTimeField(
         null=True,
         blank=True,
