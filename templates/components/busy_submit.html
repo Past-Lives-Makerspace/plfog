@@ -3,7 +3,9 @@ Busy submit buttons (#713). A form marked data-pl-busy-submit disables every [da
 button inside it once it really submits, sets aria-busy="true" (components.css draws the
 spinner) and swaps the label to "Saving..." (or the form's data-pl-busy-label) until the page
 leaves. A boosted save is caught on htmx:beforeRequest, a plain one on an uncancelled submit.
-A failed request or a page restored from the back-forward cache gets its buttons back.
+A failed request or a page restored from the back-forward cache gets its buttons back. A button
+marked data-pl-busy="hold" (a confirm modal's Cancel, #1038) is disabled with the rest but keeps
+its label, so one button says what is happening and nothing beside it can still be pressed.
 
 A body script, so it re-runs on every boosted arrival: guarded on window and delegated on
 document (FRONTEND.md, Scripts under hx-boost). The original label is kept in an element
@@ -23,9 +25,11 @@ property, never an attribute.
     var label = form.getAttribute('data-pl-busy-label') || 'Saving...';
     buttons(form).forEach(function (btn) {
       if (btn.plBusyLabel === undefined) btn.plBusyLabel = btn.innerHTML;
-      btn.textContent = label;
+      if (btn.getAttribute('data-pl-busy') !== 'hold') {
+        btn.textContent = label;
+        btn.setAttribute('aria-busy', 'true');
+      }
       btn.disabled = true;
-      btn.setAttribute('aria-busy', 'true');
     });
   }
 

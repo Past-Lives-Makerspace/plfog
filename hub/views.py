@@ -5718,6 +5718,13 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
     someone else's audience lands on the Announcements page with a message, and nothing is saved.
     A send lands on the Sent tab with the existing message; saving names the sender, so the
     email's From line and the send actor are whoever pressed Send.
+
+    A fresh compose (no ``draft_pk``) that repeats a send this sender made within the last minute,
+    same audience target and body (:meth:`AnnouncementDraft.recent_twin_of`), is that send's repeat:
+    a second tap that beat the modal's lock, a retry, a browser resubmit. Nothing is saved; the row
+    takes the send branch and refuses itself (already sent, or a queued site send that
+    :meth:`AnnouncementDraft.queue_send` leaves as it is), so the repeat lands on the Sent tab with
+    the existing message and no second announcement goes out (#1038).
     """
     from django.core.exceptions import ValidationError
 
@@ -5754,7 +5761,10 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
             compose_heading=heading,
             compose_lead=lead,
         )
-    draft = AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
+    sender = cast(User, request.user)
+    draft = None if instance is not None else AnnouncementDraft.recent_twin_of(form, sender)
+    if draft is None:
+        draft = AnnouncementDraft.save_from_form(form, sender, instance=instance)
     refusals = (AlreadySentError, ResultsAlreadySentError, ValidationError)
     if draft.audience == AnnouncementDraft.Audience.SITE:
         try:

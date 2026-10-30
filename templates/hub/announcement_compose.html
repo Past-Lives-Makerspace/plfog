@@ -84,7 +84,9 @@
   </div>
   {% endtab_picker %}
 
-  <form method="post" action="{% url 'hub_compose_send' %}" x-ref="wizardForm" data-help-key="announcements.compose">
+  {# Send is a plain, unvalidated full page POST (hx-boost off, novalidate), as form.submit() made it; requestSubmit() keeps that and fires the submit busy_submit.html locks on. #}
+  <form method="post" action="{% url 'hub_compose_send' %}" x-ref="wizardForm" data-help-key="announcements.compose"
+        hx-boost="false" novalidate data-pl-busy-submit data-pl-busy-label="Sending...">
     {% csrf_token %}
     <input type="hidden" id="compose-draft-pk" name="draft_pk" value="{{ draft.pk|default:'' }}">
 
@@ -270,25 +272,27 @@
         </button>
       </div>
     </div>
-  </form>
 
-  <div x-show="sendModalOpen" x-cloak class="pl-modal-backdrop" style="display: none;"
-       @keydown.escape.window="sendModalOpen = false" role="dialog" aria-modal="true">
-    <div class="pl-modal pl-modal--sm" @click.outside="sendModalOpen = false">
-      <div class="pl-modal__header">
-        <h2 class="pl-modal__title">Ready to Send?</h2>
-        <button type="button" @click="sendModalOpen = false" class="pl-modal__close" aria-label="Close">&times;</button>
-      </div>
-      <div class="pl-modal__body">
-        <p style="margin: 0 0 1.5rem;">This will send the email to <strong x-text="recipientCount"></strong> recipient(s) <span data-send-timing x-text="audience === 'site' ? 'within 15 minutes' : 'right now'">right now</span>. This can't be undone.</p>
-        <div class="pl-modal__actions">
-          <button type="button" class="hub-btn hub-btn--primary" @click="$refs.wizardForm.submit()">Yes, send it</button>
-          <button type="button" class="hub-btn hub-btn--ghost" @click="sendModalOpen = false">Cancel</button>
+    {# The Ready to Send modal sits inside the form so busy_submit.html finds its buttons: the first tap on Yes, send it locks both until the page moves on (#1038). #}
+    <div x-show="sendModalOpen" x-cloak class="pl-modal-backdrop" style="display: none;"
+         @keydown.escape.window="sendModalOpen = false" role="dialog" aria-modal="true">
+      <div class="pl-modal pl-modal--sm" @click.outside="sendModalOpen = false">
+        <div class="pl-modal__header">
+          <h2 class="pl-modal__title">Ready to Send?</h2>
+          <button type="button" @click="sendModalOpen = false" class="pl-modal__close" aria-label="Close">&times;</button>
+        </div>
+        <div class="pl-modal__body">
+          <p style="margin: 0 0 1.5rem;">This will send the email to <strong x-text="recipientCount"></strong> recipient(s) <span data-send-timing x-text="audience === 'site' ? 'within 15 minutes' : 'right now'">right now</span>. This can't be undone.</p>
+          <div class="pl-modal__actions">
+            <button type="button" class="hub-btn hub-btn--primary" data-pl-busy @click="$refs.wizardForm.requestSubmit()">Yes, send it</button>
+            <button type="button" class="hub-btn hub-btn--ghost" data-pl-busy="hold" @click="sendModalOpen = false">Cancel</button>
+          </div>
         </div>
       </div>
     </div>
-  </div>
+  </form>
 </div>
+{% include "components/busy_submit.html" %}
 
 <script>
 (function () {

@@ -6481,6 +6481,12 @@ class AnnouncementSendGaveUpError(Exception):
 # the site send's period is stable, a later send reaches only the members still not reached.
 MAX_ANNOUNCEMENT_SEND_ATTEMPTS = 3
 
+# How long after a fresh compose is sent the same sender posting the same target and body again is
+# a repeat of that send (a second tap that beat the lock, a retry, a browser resubmit) rather than a
+# new announcement (:meth:`AnnouncementDraftQuerySet.recent_twin`). The Writers Guild double send of
+# 2026-10-24 was 3.5 seconds apart; a web worker's timeout is 30.
+ANNOUNCEMENT_RESEND_WINDOW = timedelta(minutes=1)
+
 # The longest failure text kept on a draft (``send_error``); exception text can be a page long.
 _SEND_ERROR_LIMIT = 500
 
@@ -6516,6 +6522,46 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
     def queued(self) -> "AnnouncementDraftQuerySet":
         """Drafts waiting for ``send_queued_announcements``, oldest request first."""
         return self.filter(sent_at__isnull=True, send_requested_at__isnull=False).order_by("send_requested_at", "pk")
+
+    def recent_twin(
+        self,
+        *,
+        author: "User",
+        audience: str,
+        guild: "Guild | None",
+        class_offering: "ClassOffering | None",
+        body: str,
+    ) -> "AnnouncementDraft | None":
+        """The row ``author`` sent or queued within the resend window with this target and body, else ``None``.
+
+        The composer's Send posts a fresh compose with no ``draft_pk``, so a repeat of that POST (a
+        second tap that beat the lock, a retry, a browser resubmit) would make and send a second
+        row. A row the same sender made within :data:`ANNOUNCEMENT_RESEND_WINDOW` with the same
+        audience, guild, class and body, and already sent or queued, is what the repeat meant, so
+        the composer treats the repeat as that row's resend and the send guards refuse it. A row
+        still unsent and unqueued is left out: that is a draft, not a send.
+
+        Args:
+            author: Whoever pressed Send.
+            audience: The :class:`AnnouncementDraft.Audience` value the form cleaned.
+            guild: The guild of a ``GUILD`` audience, else ``None``.
+            class_offering: The class of a ``CLASS`` audience, else ``None``.
+            body: The body as the form sanitizes it, which is how the row stores it.
+        """
+        since = timezone.now() - ANNOUNCEMENT_RESEND_WINDOW
+        return (
+            self.sent_or_sending()
+            .filter(
+                author=author,
+                audience=audience,
+                guild=guild,
+                class_offering=class_offering,
+                body=body,
+                created_at__gte=since,
+            )
+            .order_by("-created_at", "-pk")
+            .first()
+        )
 
     def reach_for(self, rows: "Iterable[AnnouncementDraft]") -> dict[int, int]:
         """How many people each of ``rows`` reached, read from the delivery ledger in one query.
@@ -7553,6 +7599,23 @@ class AnnouncementDraft(models.Model):
         draft.title = draft.announcement_category
         draft.save()
         return draft
+
+    @classmethod
+    def recent_twin_of(cls, form: Any, author: "User") -> "AnnouncementDraft | None":
+        """The sent or queued row a fresh compose repeats, read from a validated form, else ``None``.
+
+        The composer calls this before :meth:`save_from_form` on a POST with no ``draft_pk``, so a
+        repeat of a send that already went out is refused by that row's own guards instead of
+        becoming a second row and a second send (:meth:`AnnouncementDraftQuerySet.recent_twin`).
+        """
+        cd = form.cleaned_data
+        return cls.objects.recent_twin(
+            author=author,
+            audience=cd["audience"],
+            guild=cd["guild"],
+            class_offering=cd["class_offering"],
+            body=cd["body"],
+        )
 
     def send(self) -> tuple[int, int]:
         """Send the announcement and mark it sent — the wizard's one "fat" transition.
