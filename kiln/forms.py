@@ -91,7 +91,7 @@ class KilnTicketForm(forms.ModelForm):
             "height_in": "Height",
             "width_in": "Width",
             "length_in": "Length",
-            "quantity": "Quantity of identical pieces",
+            "quantity": "How many pieces are on this ticket?",
             "clay_other_name": "Which clay?",
             "clay_other_cone6": "I confirm that this clay can be safely fired to a minimum of Cone 6",
             "glaze_studio": "Studio glaze",
@@ -100,6 +100,9 @@ class KilnTicketForm(forms.ModelForm):
             "glaze_self_made": "Self-made/other",
             "self_made_glaze_description": "What is the glaze?",
             "glaze_cone6": "I confirm that this clay and all glazes used can be safely fired to a minimum of Cone 6",
+        }
+        help_texts = {
+            "quantity": "Several pieces can share one ticket when they are the same clay, glaze and firing. Blank means one piece.",
         }
         widgets = {
             "height_in": forms.NumberInput(attrs={"inputmode": "decimal", "step": "any", "min": "0"}),

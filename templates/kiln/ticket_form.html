@@ -79,8 +79,9 @@ Alpine only shows and hides the branches; the server decides everything.
 
     <div class="hub-card">
         <h2 class="pl-kiln-step">About The Piece</h2>
+        {% include "components/form_field.html" with field=form.quantity %}
         <div class="pl-kiln-q">
-            <span class="pl-kiln-q__label" id="kiln-size">Piece size</span>
+            <span class="pl-kiln-q__label" id="kiln-size">Size of one piece</span>
             <div class="pl-kiln-size" role="group" aria-labelledby="kiln-size">
                 {% include "components/form_field.html" with field=form.height_in field_hint_off=True %}
                 {% include "components/form_field.html" with field=form.width_in field_hint_off=True %}
@@ -88,7 +89,6 @@ Alpine only shows and hides the branches; the server decides everything.
                 <span class="pl-kiln-size__unit">inches</span>
             </div>
         </div>
-        {% include "components/form_field.html" with field=form.quantity field_hint_off=True %}
         <div class="pl-form-group">
             <label class="pl-form-label" for="{{ form.clay_choice.id_for_label }}">{{ form.clay_choice.label }}</label>
             <select name="{{ form.clay_choice.html_name }}" id="{{ form.clay_choice.id_for_label }}" x-model="clay">

@@ -59,7 +59,7 @@ unticked row (kiln.forms.UnloadForm) and does the unload under a lock (kiln.serv
                 <span class="pl-kiln-unload__photo">{% if cover %}<img src="{{ cover.tile.url }}" alt="Cover photo of ticket {{ ticket.pk }}" loading="lazy">{% else %}<span class="pl-kiln-row__photo--empty pl-kiln-tile__nophoto"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-camera"/></svg><span class="sr-only">No photo</span></span>{% endif %}</span>
                 <span>
                     <span class="pl-kiln-unload__who">{{ ticket.maker_name }}{% if ticket.maker_type == "student" %} · {{ ticket.get_maker_type_display }}{% endif %}</span>
-                    <span class="pl-kiln-unload__sub">Ticket {{ ticket.pk }} · {{ ticket.summary }}{% if ticket.glaze_names %} · {{ ticket.glaze_names }}{% elif ticket.clay_label %} · {{ ticket.clay_label }}{% endif %}</span>
+                    <span class="pl-kiln-unload__sub">Ticket {{ ticket.pk }} · {{ ticket.summary }}{% if ticket.size_label %} · {{ ticket.size_label }}{% endif %}{% if ticket.glaze_names %} · {{ ticket.glaze_names }}{% elif ticket.clay_label %} · {{ ticket.clay_label }}{% endif %}</span>
                     <span class="pl-kiln-unload__out" x-show="ticked"{% if not row.ticked %} x-cloak{% endif %}><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-check"/></svg>Ready for pickup</span>
                     <span class="pl-kiln-unload__out" x-show="!ticked"{% if row.ticked %} x-cloak{% endif %}><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-msg"/></svg>Gets your message instead</span>
                 </span>

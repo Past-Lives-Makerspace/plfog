@@ -142,7 +142,7 @@ def describe_filing_kiln_tickets():
         page.get_by_label("Height", exact=True).fill("4")
         page.get_by_label("Width", exact=True).fill("6")
         page.get_by_label("Length", exact=True).fill("6")
-        page.get_by_label("Quantity of identical pieces").fill("3")
+        page.get_by_label("How many pieces are on this ticket?").fill("3")
         page.get_by_label("Type of clay").select_option("other")
         expect(page.locator('[data-follow="clay-other"]')).to_be_visible()
         page.get_by_label("Which clay?").fill("Standard 266 Dark Brown")
