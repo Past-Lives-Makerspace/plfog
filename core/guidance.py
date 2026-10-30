@@ -405,7 +405,7 @@ _GUIDANCE_LIST = (
     Guidance(
         key="admin.site-activity",
         title="Site Activity",
-        url_name="classes:admin_activity",
+        url_name="manage_activity",
         help_key="admin.activity",
         steps=(
             "Open Site Activity from Admin Tools.",
@@ -450,6 +450,27 @@ _GUIDANCE_LIST = (
 #: ``KEY_PATTERN``, each ``tour`` to ``TOURS``, each ``help_key`` to ``HELP_KEYS`` and each
 #: ``url_name`` to the URLconf.
 GUIDANCE: dict[str, Guidance] = {guidance.key: guidance for guidance in _GUIDANCE_LIST}
+
+
+def covers(key: str, feature: str) -> bool:
+    """Whether ``key`` is ``feature`` or an area over it (``guild`` covers ``guild.cubbies``)."""
+    return feature == key or feature.startswith(key + ".")
+
+
+def registered(key: str) -> bool:
+    """Whether ``key`` is a registered feature or an area with one under it: what a badge or a button may name."""
+    return any(covers(key, found) for found in GUIDANCE)
+
+
+#: What an area key is called where a title is needed (a button's label, the modal's title); any other area keeps its own name.
+AREA_TITLES = {"admin": "Admin Tools", "guild": "Guilds", "home": "Home", "classes": "Classes"}
+
+
+def title_for(key: str) -> str:
+    """What ``key`` is called: the registered title, :data:`AREA_TITLES` for an area, else the key's last segment in Title Case."""
+    if key in GUIDANCE:
+        return GUIDANCE[key].title
+    return AREA_TITLES.get(key) or key.rsplit(".", 1)[-1].replace("-", " ").title()
 
 
 def url_for(key: str, member: Member) -> str:

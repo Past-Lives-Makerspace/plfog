@@ -27,7 +27,7 @@ from tests.membership.factories import (
 
 pytestmark = pytest.mark.django_db
 
-TAB_BUTTON = ">Reservations</button>"
+TAB_BUTTON = "@click=\"section = 'reservations'\">Reservations"
 PANE = "data-guild-reservations"
 
 
@@ -76,10 +76,12 @@ def describe_the_tab_gate():
         OrientationTypeFactory(guild=guild)
         EquipmentFactory(name="Quillwood Bandsaw", guild=guild)
         content = _page(client, guild)
-        after_orientations = content.split(">Orientations</button>", 1)[1].lstrip()
+        # A New! badge (#1007) may sit inside either label, so the cut is at the Orientations button's own close.
+        orientations_at = content.index("@click=\"section = 'orientations'\">Orientations")
+        after_orientations = content[content.index("</button>", orientations_at) + len("</button>") :].lstrip()
         next_button = after_orientations[: after_orientations.index("</button>") + len("</button>")]
         assert next_button.startswith("<button")
-        assert next_button.endswith(TAB_BUTTON)
+        assert TAB_BUTTON in next_button
 
     def it_honors_the_reservations_deep_link(client: Client):
         _login(client, "rt_deep")

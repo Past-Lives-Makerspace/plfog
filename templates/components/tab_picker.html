@@ -6,9 +6,11 @@ and on a tap outside. A row of links lists links that keep aria-current="page". 
 buttons lists buttons that press the row's own button, so the pane switches exactly as a desktop
 click would, and its label, count, marks and list follow the row as Alpine changes it (a composer's
 step bar shows its done tick and error dot here too, in place of the current one's check, which
-the highlight already marks).
+the highlight already marks). A tab's New! badge (#1007) follows into its item, and the summary
+carries a dot while a tab other than the current one has it; a button row's dot and badges are
+Alpine's from the mirror (x-cloak until it runs), a link row's are rendered here.
 
-Context: eyebrow, tabs (PickerTab), buttons, current, position, total.{% endcomment %}
+Context: eyebrow, tabs (PickerTab), buttons, current, position, total, dot.{% endcomment %}
 <details class="pl-tab-picker" x-data="plTabPicker"{% if buttons %} data-tab-picker-buttons{% endif %} @click.outside="close()" @keydown.escape.window="escape()">
     <summary class="pl-tab-picker__summary" aria-label="{{ eyebrow }}: {% if current %}{{ current.label }}, section {{ position }} of {{ total }}{% else %}{{ total }} sections{% endif %}"{% if buttons %} :aria-label="summaryLabel()"{% endif %}>
         <span class="pl-tab-picker__text">
@@ -16,13 +18,14 @@ Context: eyebrow, tabs (PickerTab), buttons, current, position, total.{% endcomm
             <span class="pl-tab-picker__current"{% if buttons %} x-text="currentText()"{% endif %}>{% if current %}{{ current.label }}{% if current.count %} ({{ current.count }}){% endif %}{% else %}Choose a section{% endif %}</span>
         </span>
         <span class="pl-tab-picker__count"{% if buttons %} x-text="positionText()"{% endif %}>{% if current %}{{ position }} of {{ total }}{% else %}{{ total }}{% endif %}</span>
+        {% if buttons %}<span class="pl-new-dot" aria-hidden="true" x-show="newElsewhere()"{% if not dot %} x-cloak{% endif %} data-tab-picker-dot></span>{% elif dot %}<span class="pl-new-dot" aria-hidden="true" data-tab-picker-dot></span>{% endif %}
         <span class="pl-tab-picker__chevron" aria-hidden="true"></span>
     </summary>
     {% if buttons %}
     <div class="pl-tab-picker__menu" role="group" aria-label="{{ eyebrow }}">
         <template x-for="(item, i) in items" :key="i">
             <button type="button" class="pl-tab-picker__item" :aria-current="item.active ? 'true' : null" @click="choose(i)">
-                <span class="pl-tab-picker__item-label" x-text="item.label"></span>
+                <span class="pl-tab-picker__item-label"><span x-text="item.label"></span><template x-if="item.new"><span class="pl-new">New!</span></template></span>
                 <span class="pl-tab-picker__item-count" x-show="item.count" x-text="item.count" :aria-hidden="item.countLabel ? 'true' : null"></span>
                 <span class="sr-only" x-show="item.countLabel" x-text="item.countLabel"></span>
                 <span class="pl-tab-picker__item-mark" :class="{ 'pl-tab-picker__item-mark--error': item.error }" x-show="item.mark" x-text="item.mark" aria-hidden="true"></span>
@@ -35,7 +38,7 @@ Context: eyebrow, tabs (PickerTab), buttons, current, position, total.{% endcomm
     <nav class="pl-tab-picker__menu" aria-label="{{ eyebrow }}">
         {% for tab in tabs %}
         <a href="{{ tab.href }}" class="pl-tab-picker__item"{% if tab.active %} aria-current="page"{% endif %}{% for name, value in tab.hx %} {{ name }}="{{ value }}"{% endfor %} @click="close()">
-            <span class="pl-tab-picker__item-label">{{ tab.label }}</span>
+            <span class="pl-tab-picker__item-label">{{ tab.label }}{% if tab.new %}<span class="pl-new" data-new-key="{{ tab.new }}">New!</span>{% endif %}</span>
             {% if tab.count %}<span class="pl-tab-picker__item-count"{% if tab.count_label %} aria-hidden="true"{% endif %}>{{ tab.count }}</span>{% if tab.count_label %}<span class="sr-only">{{ tab.count_label }}</span>{% endif %}{% endif %}
             {% if tab.active %}<svg class="pl-tab-picker__check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>{% endif %}
         </a>

@@ -1012,6 +1012,16 @@ class Member(StaffRequestMixin, models.Model):
             "is new to them; everything else in the window is."
         ),
     )
+    whats_new_opened = models.JSONField(
+        default=list,
+        db_default=[],
+        blank=True,
+        help_text=(
+            "The changelog entries What's New had on offer when this member last opened it (#1007): a list "
+            "of entry slugs, pruned like whats_new_seen. The What's New button pulses only while an entry "
+            "in their audiences is missing here, so one open quiets it until the next release."
+        ),
+    )
     instructor_oriented_at = models.DateTimeField(
         null=True,
         blank=True,

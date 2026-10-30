@@ -10,6 +10,8 @@ a member block), and a gate added to only one of them does nothing for half the 
   active   — optional. "active" when this entry owns the current page, else "".
   help_key — optional. data-help-key value.
   nav_key  — optional. data-nav value.
+  new_key  — optional. The feature key (core/guidance.py) whose New! badge (#1007) sits at the
+             link's right while something there is unseen; only the On state carries it.
 
 Hidden renders nothing at all — no entry, no placeholder, no whitespace that reads as one.
 
@@ -19,10 +21,11 @@ opens on :hover AND :focus-within, so the message is reachable by keyboard witho
 here, and static/js/pl_help.js lifts a shown bubble out of clipping ancestors, which is what
 lets a bubble inside the scrolling sidebar be read at all.
 {% endcomment %}
+{% load guidance %}
 {% if feature.is_on %}
 <a href="{{ url }}" class="hub-sidebar__link {{ active }}"{% if help_key %} data-help-key="{{ help_key }}"{% endif %}{% if nav_key %} data-nav="{{ nav_key }}"{% endif %}>
     {% include icon %}
-    {{ label }}
+    {{ label }}{% if new_key %}{% new_badge new_key %}{% endif %}
 </a>
 {% elif feature.is_soon %}
 {# aria-disabled, not `disabled`: a span cannot be disabled, and the entry must stay in the tab order for the bubble to be reachable by keyboard. #}

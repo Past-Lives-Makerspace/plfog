@@ -1,5 +1,5 @@
 {% extends guilds_page_base %}
-{% load static tab_picker %}
+{% load static tab_picker guidance %}
 {% load classes_tags %}
 {% load membership_md %}
 {% block title %}{{ guild.name }}{% endblock %}
@@ -114,7 +114,7 @@
     </div>
 </div>
 
-{# ── STAT CHIPS + Join/Member CTA — chips left, CTA right (wraps on mobile). ── #}
+{# ── STAT CHIPS + What's New button + Join/Member CTA — chips left, the button and CTA right as one (wraps on mobile). ── #}
 <div class="pl-guild-statbar">
     <div class="pl-guild-statbar__chips">
         {% include "hub/partials/_guild_member_count.html" %}
@@ -122,8 +122,14 @@
         {% if current_class_count %}<span class="hub-badge">{{ current_class_count }} current class{{ current_class_count|pluralize:"es" }}</span>{% endif %}
         {% if next_meeting %}<span class="hub-badge">{% if next_meeting.is_meeting %}Next meeting{% else %}Next up{% endif %} {{ next_meeting.when|date:"M j" }}</span>{% endif %}
     </div>
-    {% include "hub/partials/_guild_join_cta.html" %}
+    <div class="pl-guild-statbar__actions">
+        {# Members surface only, as the CTA is: the guilds host serves no hub_whats_new, so the button would open an empty modal there. #}
+        {% if not is_guilds_surface %}{% whats_new_button "guild" %}{% endif %}
+        {% include "hub/partials/_guild_join_cta.html" %}
+    </div>
 </div>
+{# What's New (#1007): the statbar button loads /whats-new/?feature=guild into this modal's body on open. #}
+{% if not is_guilds_surface %}{% include "components/modal.html" with modal_id="whats-new" modal_title="What's New" modal_size="lg" %}{% endif %}
 {% include "hub/partials/_guild_location_status.html" %}
 
 {% comment %} Legacy ?tab=notes deep links land on the renamed Meetings tab (spec §6.4); only the two known values map, so a garbage ?tab can't blank every pane. {% endcomment %}
@@ -134,15 +140,15 @@
     <button type="button" class="vote-tab" :class="section === 'overview' ? 'vote-tab--active' : ''" @click="section = 'overview'">Overview</button>
     <button type="button" class="vote-tab" :class="section === 'schedule' ? 'vote-tab--active' : ''" @click="section = 'schedule'">Guild Calendar</button>
     {% if kiln_home %}<button type="button" class="vote-tab" :class="section === 'kiln' ? 'vote-tab--active' : ''" @click="section = 'kiln'" data-guild-tab="kiln">Kiln Tickets</button>{% endif %}
-    {% if show_orientation %}<button type="button" class="vote-tab" :class="section === 'orientations' ? 'vote-tab--active' : ''" @click="section = 'orientations'">Orientations</button>{% endif %}
-    {% if show_reservations %}<button type="button" class="vote-tab" :class="section === 'reservations' ? 'vote-tab--active' : ''" @click="section = 'reservations'">Reservations</button>{% endif %}
-    {% if cubby_tab %}<button type="button" class="vote-tab" :class="section === 'cubbies' ? 'vote-tab--active' : ''" @click="section = 'cubbies'" data-guild-tab="cubbies">Cubbies</button>{% endif %}
-    {% if wiki_tab_enabled %}<button type="button" class="vote-tab" :class="section === 'wiki' ? 'vote-tab--active' : ''" @click="section = 'wiki'">Wiki</button>{% endif %}
+    {% if show_orientation %}<button type="button" class="vote-tab" :class="section === 'orientations' ? 'vote-tab--active' : ''" @click="section = 'orientations'">Orientations{% new_badge "guild.orientations" %}</button>{% endif %}
+    {% if show_reservations %}<button type="button" class="vote-tab" :class="section === 'reservations' ? 'vote-tab--active' : ''" @click="section = 'reservations'">Reservations{% new_badge "guild.reservations" %}</button>{% endif %}
+    {% if cubby_tab %}<button type="button" class="vote-tab" :class="section === 'cubbies' ? 'vote-tab--active' : ''" @click="section = 'cubbies'" data-guild-tab="cubbies">Cubbies{% new_badge "guild.cubbies" %}</button>{% endif %}
+    {% if wiki_tab_enabled %}<button type="button" class="vote-tab" :class="section === 'wiki' ? 'vote-tab--active' : ''" @click="section = 'wiki'">Wiki{% new_badge "guild.wiki" %}</button>{% endif %}
     {% if features.my_tab.is_on and not is_guilds_surface %}<button type="button" class="vote-tab" :class="section === 'buyables' ? 'vote-tab--active' : ''" @click="section = 'buyables'">Buyables</button>{% endif %}
     {% if faq_items %}<button type="button" class="vote-tab" :class="section === 'faq' ? 'vote-tab--active' : ''" @click="section = 'faq'">{{ guild.faq_label|default:"FAQ" }}</button>{% endif %}
     {% if guild.wishlist or guild.donate_url %}<button type="button" class="vote-tab" :class="section === 'wishlist' ? 'vote-tab--active' : ''" @click="section = 'wishlist'">Wishlist</button>{% endif %}
-    {% if show_meetings_tab %}<button type="button" class="vote-tab" :class="section === 'meetings' ? 'vote-tab--active' : ''" @click="section = 'meetings'">Meetings</button>{% endif %}
-    {% if show_polls_tab %}<button type="button" class="vote-tab" :class="section === 'polls' ? 'vote-tab--active' : ''" @click="section = 'polls'" data-guild-tab="polls">Polls</button>{% endif %}
+    {% if show_meetings_tab %}<button type="button" class="vote-tab" :class="section === 'meetings' ? 'vote-tab--active' : ''" @click="section = 'meetings'">Meetings{% new_badge "guild.meetings" %}</button>{% endif %}
+    {% if show_polls_tab %}<button type="button" class="vote-tab" :class="section === 'polls' ? 'vote-tab--active' : ''" @click="section = 'polls'" data-guild-tab="polls">Polls{% new_badge "guild.polls" %}</button>{% endif %}
     {% if gallery_images %}<button type="button" class="vote-tab" :class="section === 'gallery' ? 'vote-tab--active' : ''" @click="section = 'gallery'">Gallery</button>{% endif %}
 </nav>
 {% endtab_picker %}

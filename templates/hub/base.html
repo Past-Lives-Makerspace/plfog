@@ -1,4 +1,4 @@
-{% load static hub_tags %}
+{% load static hub_tags guidance %}
 {% static 'img/favicon.png' as fallback_logo %}
 <!DOCTYPE html>
 <html lang="en" data-pl-user="{% if user.is_authenticated %}{{ user.pk }}{% endif %}">
@@ -103,6 +103,7 @@
     <script defer src="{% static 'js/inquiry_member_picker.js' %}"></script>
     <script defer src="{% static 'js/hq_people_picker.js' %}"></script>
     <script defer src="{% static 'js/tab_picker.js' %}"></script>
+    <script defer src="{% static 'js/guidance.js' %}"></script>
     <script defer src="{% static 'js/pl-rotator.js' %}"></script>
     <script defer src="{% static 'js/pl-upcoming-queue.js' %}"></script>
     <script defer src="{% static 'js/alpine.min.js' %}"></script>
@@ -173,7 +174,7 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
                 </svg>
-                {{ tools_page_title }}
+                {{ tools_page_title }}{% new_badge "admin.tools" %}
             </a>
             {% endif %}
 
@@ -189,7 +190,7 @@
             this entry now shares the three-state partial with every other switchable feature.
             {% endcomment %}
             {% url 'classes:public_list' as catalog_url %}
-            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.catalog url=catalog_url label="Classes" icon="hub/partials/nav_icons/_catalog.html" active=classes_catalog_active_class %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.catalog url=catalog_url label="Classes" icon="hub/partials/nav_icons/_catalog.html" active=classes_catalog_active_class new_key="classes.catalog" %}
 
             {% if teach_nav %}{% if teach_nav.teaches %}
             {# An instructor keeps Teaching and the whole portal in ALL three states (#405): this switch is the recruiting invitation, not the door to somebody's own classes. #}
@@ -209,7 +210,7 @@
                     <line x1="8" y1="2" x2="8" y2="6"/>
                     <line x1="3" y1="10" x2="21" y2="10"/>
                 </svg>
-                Calendar
+                Calendar{% new_badge "calendar.events" %}
             </a>
 
             {% include "hub/partials/_sidebar_hq_link.html" %}
@@ -217,7 +218,7 @@
             {# active_nav can't reverse the pk'd workspace route, so the whole /meetings/ section matches by path prefix (the Classes entry idiom). #}
             {% active_path '/meetings/' as meetings_active %}
             {% url 'hub_meetings' as meetings_url %}
-            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.meetings url=meetings_url label="Meetings" icon="hub/partials/nav_icons/_meetings.html" active=meetings_active %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.meetings url=meetings_url label="Meetings" icon="hub/partials/nav_icons/_meetings.html" active=meetings_active new_key="guild.meetings" %}
 
             {% active_nav 'hub_member_directory' as directory_active %}
             {% url 'hub_member_directory' as directory_url %}
@@ -237,11 +238,11 @@
 
             {% active_nav 'hub_orientations' as orientations_active %}
             {% url 'hub_orientations' as orientations_url %}
-            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.orientations url=orientations_url label="Orientations" icon="hub/partials/nav_icons/_orientations.html" active=orientations_active help_key="nav.orientations" %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.orientations url=orientations_url label="Orientations" icon="hub/partials/nav_icons/_orientations.html" active=orientations_active help_key="nav.orientations" new_key="guild.orientations" %}
 
             {% active_nav 'hub_equipment_index' as equipment_active %}
             {% url 'hub_equipment_index' as equipment_url %}
-            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.equipment url=equipment_url label="Reservations" icon="hub/partials/nav_icons/_equipment.html" active=equipment_active %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.equipment url=equipment_url label="Reservations" icon="hub/partials/nav_icons/_equipment.html" active=equipment_active new_key="guild.reservations" %}
 
             {% if manage_bookings_nav %}
             {# One home for everyone who runs orientations or equipment (#768): gated by role in hub_sidebar, never by a feature switch, so an admin keeps it with both switches above off. #}
@@ -254,7 +255,7 @@
             {# The admin destination. The member block below points the same switch at hub_guild_voting. #}
             {% active_nav 'hub_admin_voting_overview' as voting_active %}
             {% url 'hub_admin_voting_overview' as voting_url %}
-            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.voting url=voting_url label="Guild Voting" icon="hub/partials/nav_icons/_voting.html" active=voting_active %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.voting url=voting_url label="Guild Voting" icon="hub/partials/nav_icons/_voting.html" active=voting_active new_key="guild.voting" %}
 
             <hr class="hub-sidebar__divider" />
 
@@ -294,7 +295,7 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
                 </svg>
-                {{ tools_page_title }}
+                {{ tools_page_title }}{% new_badge "admin.tools" %}
             </a>
             {% endif %}
 
@@ -310,7 +311,7 @@
             this entry now shares the three-state partial with every other switchable feature.
             {% endcomment %}
             {% url 'classes:public_list' as catalog_url %}
-            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.catalog url=catalog_url label="Classes" icon="hub/partials/nav_icons/_catalog.html" active=classes_catalog_active_class %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.catalog url=catalog_url label="Classes" icon="hub/partials/nav_icons/_catalog.html" active=classes_catalog_active_class new_key="classes.catalog" %}
 
             {% if teach_nav %}{% if teach_nav.teaches %}
             {# An instructor keeps Teaching and the whole portal in ALL three states (#405): this switch is the recruiting invitation, not the door to somebody's own classes. #}
@@ -330,7 +331,7 @@
                     <line x1="8" y1="2" x2="8" y2="6"/>
                     <line x1="3" y1="10" x2="21" y2="10"/>
                 </svg>
-                Calendar
+                Calendar{% new_badge "calendar.events" %}
             </a>
 
             {% include "hub/partials/_sidebar_hq_link.html" %}
@@ -338,13 +339,13 @@
             {% if request.view_as.is_member %}
             {% active_nav 'hub_guild_voting' as voting_active %}
             {% url 'hub_guild_voting' as voting_url %}
-            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.voting url=voting_url label="Guild Voting" icon="hub/partials/nav_icons/_voting.html" active=voting_active help_key="voting.rank-guilds" %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.voting url=voting_url label="Guild Voting" icon="hub/partials/nav_icons/_voting.html" active=voting_active help_key="voting.rank-guilds" new_key="guild.voting" %}
             {% endif %}
 
             {# active_nav can't reverse the pk'd workspace route, so the whole /meetings/ section matches by path prefix (the Classes entry idiom). #}
             {% active_path '/meetings/' as meetings_active %}
             {% url 'hub_meetings' as meetings_url %}
-            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.meetings url=meetings_url label="Meetings" icon="hub/partials/nav_icons/_meetings.html" active=meetings_active %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.meetings url=meetings_url label="Meetings" icon="hub/partials/nav_icons/_meetings.html" active=meetings_active new_key="guild.meetings" %}
 
             {% active_nav 'hub_member_directory' as directory_active %}
             {% url 'hub_member_directory' as directory_url %}
@@ -364,11 +365,11 @@
 
             {% active_nav 'hub_orientations' as orientations_active %}
             {% url 'hub_orientations' as orientations_url %}
-            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.orientations url=orientations_url label="Orientations" icon="hub/partials/nav_icons/_orientations.html" active=orientations_active help_key="nav.orientations" %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.orientations url=orientations_url label="Orientations" icon="hub/partials/nav_icons/_orientations.html" active=orientations_active help_key="nav.orientations" new_key="guild.orientations" %}
 
             {% active_nav 'hub_equipment_index' as equipment_active %}
             {% url 'hub_equipment_index' as equipment_url %}
-            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.equipment url=equipment_url label="Reservations" icon="hub/partials/nav_icons/_equipment.html" active=equipment_active %}
+            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.equipment url=equipment_url label="Reservations" icon="hub/partials/nav_icons/_equipment.html" active=equipment_active new_key="guild.reservations" %}
 
             {% if manage_bookings_nav %}
             {# The same entry as the admin block above (#768): a lead, staffer or equipment manager who runs something. #}
@@ -472,7 +473,7 @@
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                 </svg>
-                <span>Feedback</span>
+                <span>Feedback</span>{% new_badge "feedback.requests" %}
             </a>
         </div>
         {% endif %}

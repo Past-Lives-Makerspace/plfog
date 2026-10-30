@@ -27,6 +27,7 @@ from playwright.sync_api import expect
 
 from membership.models import Guild, GuildFAQItem, GuildLink, GuildOrientationSettings, OrientationType
 from tests.membership.factories import EquipmentFactory, GuildFactory, GuildLinkFactory, MembershipPlanFactory
+from tests.e2e.names import exact
 
 ADMIN_EMAIL = "guild-autosave-admin@example.com"
 _PNG = (
@@ -373,7 +374,7 @@ def describe_guild_settings_autosave():
         assert guild.show_reservations_tab is True
 
         page.goto(f"{live_server.url}{reverse('hub_guild_detail', args=[guild.slug])}")
-        page.get_by_role("button", name="Reservations", exact=True).click()
+        page.get_by_role("button", name=exact("Reservations")).click()
         card = page.locator("[data-guild-reservations] .pl-equip-card", has_text="Pottery Wheel Seven")
         expect(card).to_be_visible()
 

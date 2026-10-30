@@ -7,7 +7,7 @@ Core domain models for Past Lives Makerspace.
 | Model | Key fields | Notes |
 |-------|-----------|-------|
 | `MembershipPlan` | name, monthly_price, deposit_required | Tiers (e.g. "Standard $50/mo") |
-| `Member` | `_pre_signup_email`, status, member_type, fog_role, membership_plan, whats_new_seen | Primary actor; links 1:1 to User. Read emails via `member.primary_email` — see the Email Model section below. `whats_new_seen` (#1007) is the list of changelog entry slugs the member has looked at in What's New, written only by `core.whats_new.mark_seen`, which prunes it to the last 30 days (`NEW_DAYS`) on every write. |
+| `Member` | `_pre_signup_email`, status, member_type, fog_role, membership_plan, whats_new_seen | Primary actor; links 1:1 to User. Read emails via `member.primary_email` — see the Email Model section below. `whats_new_seen` (#1007) is the list of changelog entry slugs the member has looked at in What's New, written only by `core.whats_new.mark_seen`, which prunes it to the last 30 days (`NEW_DAYS`) on every write; `whats_new_opened` is the entries What's New had on offer when they last opened it, written only by `core.whats_new.mark_opened` and pruned the same way, and the What's New button pulses only while an entry in their audiences is missing from it. |
 | `MemberEmail` | member FK, email | Pre-signup staging table; migrated to allauth EmailAddress on User link |
 | `Guild` | name, is_active, guild_lead FK, about | Interest guild; receives funding votes |
 | `VotePreference` | member 1:1, guild_1st/2nd/3rd FK | One per member; auto-syncs to Airtable |

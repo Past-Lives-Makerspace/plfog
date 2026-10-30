@@ -41,7 +41,12 @@ for major features; a level of how much teaching a PR owes, declared in the PR; 
   finer keys from `GuildStaffMembership.role`, `can_review_classes`, `EquipmentStaffMembership`,
   `Member.is_instructor`. One function, `core/whats_new.py: audiences_for(request)`.
 - D6. Seen state is `Member.whats_new_seen` (`JSONField`, list of entry slugs, default list), pruned on
-  every write to slugs inside the window. The window is `core/whats_new.py: NEW_DAYS = 30`.
+  every write to slugs inside the window. The window is `core/whats_new.py: NEW_DAYS = 30`. It drives
+  the badges and the modal's default tab. The What's New buttons read their own list,
+  `Member.whats_new_opened` (0257): the window entries on offer at the viewer's last open, listed on
+  the page shown or not, so one open quiets the button until a release adds an entry (Felix,
+  2026-10-29: "we should remember when they press it and not annoy them, and then it only updates
+  again with a new code update"). A badge the member has neither read nor clicked stays after the open.
 - D7. What's New loads on demand: `GET /whats-new/` (members only, guests excluded) returns the modal body;
   `?tab=` picks the tab, `?feature=<key>` limits to the key and its children (`guild` covers `guild.*`).
   The body is htmx-swapped into `components/modal.html`'s body, as FRONTEND.md shows. Rendering the body

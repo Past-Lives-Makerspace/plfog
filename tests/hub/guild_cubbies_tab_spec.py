@@ -65,7 +65,7 @@ def describe_the_guild_page_tab():
         guild = GuildFactory(show_cubbies_tab=True)
         _shelf(guild)
         content = _page(client, guild)
-        assert '@click="section = \'cubbies\'" data-guild-tab="cubbies">Cubbies</button>' in content
+        assert '@click="section = \'cubbies\'" data-guild-tab="cubbies">Cubbies' in content
         assert "if (t === 'cubbies') section = 'cubbies';" in content
         assert "css/cubbies.css" in content
         nav = content.split('class="pl-tabs"', 1)[1].split("</nav>", 1)[0]

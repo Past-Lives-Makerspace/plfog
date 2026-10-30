@@ -10,16 +10,19 @@ only two things: whether Open it shows on an entry and whether the entry counts 
 
 Unseen is bounded by the window: an entry dated inside the last :data:`NEW_DAYS` days, in the
 viewer's audiences, that they have not looked at. Seen state is ``Member.whats_new_seen``, a
-list of entry slugs pruned to the window on every write (D6). One :class:`WhatsNew` per
-request, built on first use by :func:`whats_new_for`, so the Home button's dot, the modal and
-part 3's badges share the roles query (D9).
+list of entry slugs pruned to the window on every write (D6); it drives the badges and the
+modal's default tab. The What's New button has its own list, ``Member.whats_new_opened``: the
+entries What's New had on offer when the viewer last opened it, listed on the page shown or not,
+so one open quiets the button and a release lights it again (Felix, 2026-10-29). One
+:class:`WhatsNew` per request, built on first use by :func:`whats_new_for`, so the Home button's
+dot, the modal and part 3's badges share the roles query (D9).
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import hashlib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from functools import cached_property
 from itertools import groupby
@@ -27,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
 
-from core.guidance import GUIDANCE, url_for
+from core.guidance import GUIDANCE, covers, url_for
 from plfog.changelog import AUDIENCES
 
 if TYPE_CHECKING:
@@ -101,7 +104,7 @@ class Entry:
 
     def under(self, feature: str) -> bool:
         """Whether this entry belongs to ``feature`` or a key under it (``guild`` covers ``guild.*``)."""
-        return self.feature == feature or self.feature.startswith(feature + ".")
+        return covers(feature, self.feature)
 
     def chips(self, tab: str) -> list[str]:
         """The finer audiences of this entry that roll up to ``tab``, as chip labels, in label order."""
@@ -204,20 +207,39 @@ def tour_url(entry: Entry, member: Member) -> str:
     return entry_url_for(tour, member) if tour.audience(member) else ""
 
 
-def mark_seen(member: Member, slugs: list[str]) -> bool:
-    """Record ``slugs`` as seen, pruning to the window, and say whether anything was written.
+def record(member: Member, *, seen: Iterable[str] = (), opened: Iterable[str] = ()) -> bool:
+    """Add ``seen`` and ``opened`` to the member's two lists in one write, and say whether anything was written.
 
-    The stored list is the union, kept to slugs still inside the window (D6), so it stays at
-    about the size of one month's releases. No write when the result is what is stored already.
+    ``seen`` is what the member has looked at (``Member.whats_new_seen``, the badges' state);
+    ``opened`` is what What's New had on offer at an open (``Member.whats_new_opened``, the
+    buttons' state: the whole window from Home or a feature's entries from its button, listed on
+    the page shown or not, so one open quiets the button until a release adds an entry). Each
+    stored list is the union, kept to slugs still inside the window (D6), so it stays at about
+    the size of one month's releases. No write when neither changes, one UPDATE when either does:
+    a Member save costs a lookup as well, so the modal's two writes travel together.
     """
     keep = {entry.slug for entry in window_entries()}
-    stored = set(member.whats_new_seen or [])  # a NULL from an older row reads as nothing seen
-    seen = (stored | set(slugs)) & keep
-    if seen == stored:
+    changed: list[str] = []
+    for field, slugs in (("whats_new_seen", seen), ("whats_new_opened", opened)):
+        stored = set(getattr(member, field) or [])  # a NULL from an older row reads as nothing
+        merged = (stored | set(slugs)) & keep
+        if merged != stored:
+            setattr(member, field, sorted(merged))
+            changed.append(field)
+    if not changed:
         return False
-    member.whats_new_seen = sorted(seen)
-    member.save(update_fields=["whats_new_seen"])
+    member.save(update_fields=changed)
     return True
+
+
+def mark_seen(member: Member, slugs: Iterable[str]) -> bool:
+    """Record ``slugs`` as looked at: the badges' state."""
+    return record(member, seen=slugs)
+
+
+def mark_opened(member: Member, slugs: Iterable[str]) -> bool:
+    """Record ``slugs`` as on offer at an open of What's New: the buttons' state."""
+    return record(member, opened=slugs)
 
 
 class WhatsNew:
@@ -376,18 +398,50 @@ class WhatsNew:
         return self._urls[entry.feature]
 
     def is_unseen(self, entry: Entry) -> bool:
-        """Whether the viewer has an unseen entry here: inside the window, in their audiences and not yet looked at."""
+        """Whether the viewer has an unseen entry here: inside the window, not yet looked at, and in their audiences.
+
+        The window and the seen list are asked first, since they cost nothing: a member who has
+        looked at everything in the window pays no roles query on a page whose only readers are badges.
+        """
         return (
             self.member is not None
             and entry.date >= window_start().isoformat()
-            and can_open(entry, self.audiences)
             and entry.slug not in (self.member.whats_new_seen or [])
+            and can_open(entry, self.audiences)
+        )
+
+    def has_unseen(self, feature: str) -> bool:
+        """Whether the viewer has an unseen entry under ``feature``: its badge shows (part 3)."""
+        return any(self.is_unseen(entry) for entry in self.window if entry.under(feature))
+
+    def is_unopened(self, entry: Entry) -> bool:
+        """Whether What's New has not been opened over this entry: inside the window, not in the opened list, in their audiences."""
+        return (
+            self.member is not None
+            and entry.date >= window_start().isoformat()
+            and entry.slug not in (self.member.whats_new_opened or [])
+            and can_open(entry, self.audiences)
         )
 
     @cached_property
-    def unseen(self) -> bool:
-        """The Home button's dot."""
-        return any(self.is_unseen(entry) for entry in self.window)
+    def unopened(self) -> bool:
+        """Home's button: its dot and pulse, until the viewer opens What's New or a release adds an entry."""
+        return any(self.is_unopened(entry) for entry in self.window)
+
+    def has_unopened(self, feature: str) -> bool:
+        """A feature's button: its dot and pulse, while an entry under ``feature`` is one no open has covered."""
+        return any(self.is_unopened(entry) for entry in self.window if entry.under(feature))
+
+    @staticmethod
+    def has_entries(feature: str) -> bool:
+        """Whether any entry, of any age, belongs to ``feature`` or a key under it: its button renders at all.
+
+        The whole changelog, not the window, so a feature's button stays where members learned
+        to find it once a release has named the feature; opened after the window it says so.
+        """
+        from plfog import version
+
+        return any(covers(feature, raw.get("feature", "")) for raw in version.CHANGELOG)
 
     def default_tab(self) -> str:
         """The tab the modal opens on: the first with something unseen for the viewer, else For Members."""
@@ -396,9 +450,13 @@ class WhatsNew:
                 return tab
         return TABS[0]
 
-    def mark_seen(self, slugs: list[str]) -> bool:
+    def record(self, *, seen: Iterable[str] = (), opened: Iterable[str] = ()) -> bool:
+        """Record what the viewer looked at and what this open had on offer, in one write; nothing for an account with no member."""
+        return self.member is not None and record(self.member, seen=seen, opened=opened)
+
+    def mark_seen(self, slugs: Iterable[str]) -> bool:
         """Record ``slugs`` as seen for the viewer; nothing for an account with no member."""
-        return self.member is not None and mark_seen(self.member, slugs)
+        return self.record(seen=slugs)
 
 
 def whats_new_for(request: HttpRequest) -> WhatsNew:
@@ -420,6 +478,6 @@ def entries_for(request: HttpRequest, *, tab: str | None = None, feature: str | 
     return whats_new_for(request).entries_for(tab=tab, feature=feature)
 
 
-def unseen(request: HttpRequest) -> bool:
-    """Whether the request's viewer has an unseen entry in their audiences."""
-    return whats_new_for(request).unseen
+def unopened(request: HttpRequest) -> bool:
+    """Whether the request's viewer has an entry in their audiences no open of What's New has covered: Home's dot."""
+    return whats_new_for(request).unopened

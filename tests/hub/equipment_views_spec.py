@@ -428,7 +428,13 @@ def describe_equipment_index():
                 ("Woodshop Saw", Equipment.AccessState.OK, ("muted", "Not taking reservations yet")),
             ]
 
-        def it_keeps_the_query_count_it_had_before_the_extraction(client: Client, django_assert_num_queries):
+        def it_keeps_the_query_count_it_had_before_the_extraction(
+            client: Client, django_assert_num_queries, monkeypatch
+        ):
+            # The sidebar's New! badges (#1007) add one roles query to any hub page while a fragment in the
+            # window names a sidebar key the member has not seen; that cost is pinned in
+            # tests/core/guidance_tags_spec.py, so the changelog is emptied here to keep this count the grid's own.
+            monkeypatch.setattr("plfog.version.CHANGELOG", [])
             _grid(client)
             url = reverse("hub_equipment_index")
             client.get(url)  # warm the session and per-request caches

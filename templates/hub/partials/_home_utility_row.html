@@ -5,9 +5,10 @@ one line chip from 1200px (door-code.css hides the chip below that, where the ca
 links shows the code instead). The row renders at every width; Show Me Around leaves it once the
 member tour is behind them (_home_tour_link.html).
 {% endcomment %}
+{% load guidance %}
 <div class="pl-home-utility" data-home-utility>
     <div class="pl-home-utility__left">
-        {% include "hub/partials/_whats_new_button.html" %}
+        {% whats_new_button labelled=True %}
         {% include "hub/partials/_home_tour_link.html" %}
     </div>
     {% include "hub/partials/_door_code.html" with variant="chip" %}

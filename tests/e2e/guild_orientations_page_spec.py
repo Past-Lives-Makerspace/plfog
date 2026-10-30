@@ -30,6 +30,7 @@ from tests.membership.factories import (
     OrientationSlotFactory,
     OrientationTypeFactory,
 )
+from tests.e2e.names import exact
 
 LEAD_EMAIL = "orientations-page-lead@example.com"
 ORIENTER_EMAIL = "orientations-page-orienter@example.com"
@@ -118,7 +119,7 @@ def describe_the_orientations_page():
         # The link reads as one of the tabs: same colour, weight and no underline as its neighbour.
         tab_style = "(el) => { const s = getComputedStyle(el); return [s.color, s.fontSize, s.textDecorationLine, s.paddingTop]; }"
         link = page.locator("[data-orientations-tab-link]")
-        neighbour = page.get_by_role("button", name="Reservations", exact=True)
+        neighbour = page.get_by_role("button", name=exact("Reservations"))
         assert link.evaluate(tab_style) == neighbour.evaluate(tab_style)
         link.click()
         expect(page).to_have_url(page_url)

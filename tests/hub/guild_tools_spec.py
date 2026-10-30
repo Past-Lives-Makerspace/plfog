@@ -61,7 +61,12 @@ def _sections(client: Client, query: str = "") -> list[tuple[str, str, list[str]
 
 def _sidebar_label(body: str) -> str | None:
     """The tools entry's label in the sidebar, or None when the sidebar has no entry."""
-    found = re.search(rf'<a href="{_TOOLS}" class="hub-sidebar__link[^"]*">.*?</svg>\s*([^<]+?)\s*</a>', body, re.S)
+    # The label may carry a New! badge (#1007) before the link closes.
+    found = re.search(
+        rf'<a href="{_TOOLS}" class="hub-sidebar__link[^"]*">.*?</svg>\s*([^<]+?)\s*(?:<span class="pl-new"[^>]*>New!</span>)?\s*</a>',
+        body,
+        re.S,
+    )
     return found.group(1) if found else None
 
 
@@ -170,7 +175,7 @@ def describe_guild_tools():
             assert _page_title(body) == "Guild Tools"
             assert "<title>Guild Tools" in body
             home = client.get(reverse("hub_home")).content.decode()
-            assert '<span class="pl-quicklink__label">Guild Tools</span>' in home
+            assert '<span class="pl-quicklink__label">Guild Tools' in home
 
         def it_shows_its_guild_s_cards_under_its_name_with_no_picker(client: Client):
             member = _login(client, "gt_lead_cards")

@@ -18,6 +18,7 @@ from playwright.sync_api import Page, expect
 
 from membership.models import Member
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, MembershipPlanFactory
+from tests.e2e.names import exact
 
 
 def _sign_in(login_via_code, email: str) -> Member:
@@ -38,10 +39,10 @@ def describe_guild_tools_in_the_browser():
         GuildStaffMembershipFactory(guild=staffed, member=member)
 
         page.goto(f"{live_server.url}{reverse('hub_home')}")
-        _sidebar(page).get_by_role("link", name="Guild Tools", exact=True).click()
+        _sidebar(page).get_by_role("link", name=exact("Guild Tools")).click()
         expect(page).to_have_url(re.compile(re.escape(reverse("hub_admin_tools")) + "$"))
         expect(page.get_by_role("heading", name="Guild Tools", level=1)).to_be_visible()
-        expect(_sidebar(page).get_by_role("link", name="Admin Tools", exact=True)).to_have_count(0)
+        expect(_sidebar(page).get_by_role("link", name=exact("Admin Tools"))).to_have_count(0)
 
         guild_section = page.locator('[data-tools-section="guild"]')
         expect(guild_section.get_by_role("heading", name="Aa Browser Guild")).to_be_visible()
@@ -70,7 +71,7 @@ def describe_guild_tools_in_the_browser():
         user.save(update_fields=["is_staff", "is_superuser"])
 
         page.goto(f"{live_server.url}{reverse('hub_home')}")
-        _sidebar(page).get_by_role("link", name="Admin Tools", exact=True).click()
+        _sidebar(page).get_by_role("link", name=exact("Admin Tools")).click()
         expect(page.get_by_role("heading", name="Admin Tools", level=1)).to_be_visible()
         expect(page.locator('[data-tools-section="guild"]')).to_have_count(0)
 

@@ -44,7 +44,7 @@ def describe_the_admin_tools_cards():
     def it_names_the_email_members_card_with_its_formerly_badge(client: Client):
         _login_admin(client)
         html = client.get(reverse("hub_admin_tools")).content.decode()
-        assert '<span class="pl-tool-card__title">Email Members</span>' in html
+        assert '<span class="pl-tool-card__title">Email Members' in html
         assert "Email a class, a guild or everyone, post it to Discord and send an app notification." in html
         assert "data-formerly-announcements>Formerly called Announcements</span>" in html
 

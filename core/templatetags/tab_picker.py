@@ -20,6 +20,10 @@ step bar is a picker on a phone too rather than a row sliding off the edge. Its 
 marks (a direct child with a ``__mark`` class, ``pl-phase-tab__mark``) are not part of the label; the browser mirror
 carries them into the list.
 
+A New! badge (``{% new_badge %}``, a ``.pl-new`` anywhere inside the tab, #1007) is not part of
+the label either: the picker lists it after the item's label and shows a dot on its summary while
+a tab other than the current one has it (D10), so a phone sees what the desktop row says.
+
 Usage::
 
     {% load tab_picker %}
@@ -72,6 +76,8 @@ class PickerTab:
     active: bool
     #: The count element's own aria-label ("3 waiting"), so a screen reader hears what it counts.
     count_label: str = ""
+    #: The key of the New! badge inside the tab (``data-new-key``), or "" with no badge.
+    new: str = ""
     #: The link's :data:`HX_ATTRIBUTES`, in that order, those it carries; rendered on the item as written.
     hx: tuple[tuple[str, str], ...] = ()
 
@@ -85,6 +91,7 @@ class _Reading:
     label: list[str] = field(default_factory=list)
     count: list[str] = field(default_factory=list)
     count_label: str = ""
+    new: str = ""
     hx: tuple[tuple[str, str], ...] = ()
 
 
@@ -93,8 +100,8 @@ class _RowReader(HTMLParser):
 
     Only the row's direct children are tabs. Text inside a direct child of a tab whose class names
     a count (``pl-kiln-count``, ``vote-tab__count``) is the tab's count, everything else its
-    label, and text inside one with a ``__mark`` class (a step's done tick) is neither; the same
-    reading as ``readTab`` in ``static/js/tab_picker.js``.
+    label, and text inside one with a ``__mark`` class (a step's done tick) or a ``.pl-new``
+    badge at any depth is neither; the same reading as ``readTab`` in ``static/js/tab_picker.js``.
     """
 
     def __init__(self) -> None:
@@ -108,6 +115,7 @@ class _RowReader(HTMLParser):
         self._tab_depth = 0
         self._count_depth: int | None = None
         self._mark_depth: int | None = None
+        self._new_depth: int | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = {name: value or "" for name, value in attrs}
@@ -122,6 +130,10 @@ class _RowReader(HTMLParser):
         if self._tab is None:
             if self._depth == self._row_depth + 1 and TAB_CLASSES.intersection(classes):
                 self._start_tab(tag, values, classes)
+            return
+        if "pl-new" in classes and self._new_depth is None:
+            self._tab.new = values.get("data-new-key", "")
+            self._new_depth = self._depth
             return
         if self._depth != self._tab_depth + 1 or self._count_depth is not None or self._mark_depth is not None:
             return
@@ -156,6 +168,8 @@ class _RowReader(HTMLParser):
             self._count_depth = None
         if self._mark_depth == self._depth:
             self._mark_depth = None
+        if self._new_depth == self._depth:
+            self._new_depth = None
         if self._tab is not None and self._depth == self._tab_depth:
             self.tabs.append(_finish(self._tab))
             self._tab = None
@@ -164,7 +178,7 @@ class _RowReader(HTMLParser):
         self._depth -= 1
 
     def handle_data(self, data: str) -> None:
-        if self._tab is None or self._mark_depth is not None:
+        if self._tab is None or self._mark_depth is not None or self._new_depth is not None:
             return
         (self._tab.label if self._count_depth is None else self._tab.count).append(data)
 
@@ -181,6 +195,7 @@ def _finish(reading: _Reading) -> PickerTab:
         href=reading.href,
         active=reading.active,
         count_label=reading.count_label,
+        new=reading.new,
         hx=reading.hx,
     )
 
@@ -225,6 +240,8 @@ class TabPickerNode(template.Node):
                 "current": tabs[current] if current is not None else None,
                 "position": current + 1 if current is not None else None,
                 "total": len(tabs),
+                # The summary's dot: something is new on a tab the summary does not already name.
+                "dot": any(tab.new for i, tab in enumerate(tabs) if i != current),
             },
         )
         # Both halves are rendered templates, already safe, and safe plus safe stays safe.

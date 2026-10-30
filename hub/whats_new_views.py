@@ -2,9 +2,10 @@
 
 ``GET /whats-new/`` renders ``hub/whats_new/_body.html`` into the ``whats-new`` modal Home
 includes (an htmx request gets the body alone; a plain GET, a direct link, gets a page that
-opens the modal on it) and records every entry it listed as seen; ``?after=<slug>`` is Show
-older, the next page of entries alone. ``POST /whats-new/seen/<key>/`` records one feature's
-entries seen, for part 3's badge click. Both are members only, by the rule the Spotlight's
+opens the modal on it), records every entry it listed as seen (the badges) and the open itself
+over everything it could show (the button, ``Member.whats_new_opened``: the whole window, or a
+feature's entries when opened on one); ``?after=<slug>`` is Show older, the next page of entries
+alone. ``POST /whats-new/seen/<key>/`` records one feature's entries seen, for part 3's badge click. Both are members only, by the rule the Spotlight's
 version card uses and the preview's, so a guest, a former member or a Guest preview is sent Home.
 """
 
@@ -19,7 +20,7 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_POST
 
-from core.guidance import GUIDANCE
+from core.guidance import registered, title_for
 from core.htmx import wants_fragment
 from core.whats_new import TAB_LABELS, TAB_NOUNS, TABS, Page, WhatsNew, whats_new_for
 from hub.spotlight import sees_spotlight
@@ -42,17 +43,14 @@ def _feature_key(value: str) -> str:
     """``value`` as a feature key, ``""`` for none; a key neither registered nor an area of one is a 404."""
     if not value:
         return ""
-    if not _FEATURE.match(value) or not any(key == value or key.startswith(value + ".") for key in GUIDANCE):
+    if not _FEATURE.match(value) or not registered(value):
         raise Http404(f"No feature {value!r}")
     return value
 
 
 def _title(feature: str) -> str:
     """The modal's title: "What's New", or "What's New · <feature>" when opened on one (D7)."""
-    if not feature:
-        return "What's New"
-    name = GUIDANCE[feature].title if feature in GUIDANCE else feature.rsplit(".", 1)[-1].replace("-", " ").title()
-    return f"What's New · {name}"
+    return f"What's New · {title_for(feature)}" if feature else "What's New"
 
 
 def _href(tab: str, feature: str, after: str = "") -> str:
@@ -99,7 +97,9 @@ def _body_context(news: WhatsNew, tab: str, feature: str, page: Page) -> dict[st
 def hub_whats_new(request: HttpRequest) -> HttpResponse:
     """The What's New modal body, on ``?tab=`` (default: the viewer's first tab with something unseen) and ``?feature=``.
 
-    Rendering it marks every entry on the page as seen (D7). An htmx request gets the body alone,
+    Rendering it marks every entry on the page as seen (D7), and a first page (not Show older)
+    marks the open over everything the modal could show, so the button goes quiet until a
+    release adds an entry. An htmx request gets the body alone,
     or with ``?after=<slug>`` the next page of entries alone (Show older); a plain GET gets
     ``hub/whats_new.html``, a page that opens the modal on the first page, so a direct link lands
     somewhere.
@@ -114,7 +114,11 @@ def hub_whats_new(request: HttpRequest) -> HttpResponse:
     fragment = wants_fragment(request)
     after = request.GET.get("after", "") if fragment else ""
     page = _page(news, tab, feature, after)
-    news.mark_seen(page.slugs)
+    news.record(
+        seen=page.slugs,
+        # The open itself quiets the button: everything it could show, on this page or any tab, listed or not.
+        opened=[] if after else [entry.slug for entry in news.window if not feature or entry.under(feature)],
+    )
     context = _body_context(news, tab, feature, page)
     if after:
         return render(request, "hub/whats_new/_page.html", context)

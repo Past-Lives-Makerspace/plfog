@@ -23,6 +23,16 @@ BUTTONS = (
     "</nav></div>"
 )
 
+BADGED = (
+    '<nav class="pl-tabs"><a href="/a/" class="vote-tab vote-tab--active">Overview</a>'
+    '<a href="/b/" class="vote-tab"><span class="vote-tab__label">Cubbies'
+    '<span class="pl-new" data-new-key="guild.cubbies">New!</span></span></a>'
+    '<a href="/c/" class="vote-tab">Wiki</a></nav>'
+)
+BADGED_BUTTONS = (
+    '<nav class="pl-tabs"><button class="vote-tab vote-tab--active">Overview</button>'
+    '<button class="vote-tab">Cubbies<span class="pl-new" data-new-key="guild.cubbies">New!</span></button></nav>'
+)
 #: A row of links that swap a pane in place rather than navigate (What's New's tabs inside its modal).
 SWAPPING = (
     '<nav class="pl-tabs">'
@@ -115,6 +125,12 @@ def describe_read_tabs():
         assert buttons
         assert [tab.label for tab in tabs] == ["Basics", "Photos"]
         assert [tab.count for tab in tabs] == ["", ""]
+
+    def it_reads_a_new_badge_as_the_tabs_key_and_keeps_it_out_of_the_label():
+        tabs, _ = read_tabs(BADGED)
+        assert [(tab.label, tab.new) for tab in tabs] == [("Overview", ""), ("Cubbies", "guild.cubbies"), ("Wiki", "")]
+        tabs, _ = read_tabs(BADGED_BUTTONS)
+        assert [(tab.label, tab.new) for tab in tabs] == [("Overview", ""), ("Cubbies", "guild.cubbies")]
 
     def it_refuses_markup_with_no_row():
         with pytest.raises(ValueError, match="wraps no .pl-tabs or .pl-phase-tabs row"):
@@ -210,6 +226,33 @@ def describe_the_tab_picker_tag():
     def it_paints_a_button_rows_server_marked_tab():
         row = '<nav class="pl-tabs"><button class="vote-tab">A</button><button class="vote-tab vote-tab--active">B</button></nav>'
         assert 'x-text="positionText()">2 of 2</span>' in _render(row)
+
+    def it_carries_a_link_rows_badge_into_its_item_and_dots_the_summary_while_another_tab_is_new():
+        picker = _render(BADGED, '"Guild Sections"')[len(BADGED) :]
+        assert '<span class="pl-new-dot" aria-hidden="true" data-tab-picker-dot></span>' in picker
+        assert (
+            '<span class="pl-tab-picker__item-label">Cubbies<span class="pl-new" data-new-key="guild.cubbies">New!</span></span>'
+            in picker
+        )
+        assert picker.count('class="pl-new"') == 1
+        assert 'aria-label="Guild Sections: Overview, section 1 of 3"' in picker
+
+    def it_leaves_the_summary_dot_off_while_the_new_tab_is_the_current_one():
+        row = BADGED.replace(' vote-tab--active">Overview', '">Overview').replace(
+            'class="vote-tab"><span class="vote-tab__label">',
+            'class="vote-tab vote-tab--active"><span class="vote-tab__label">',
+        )
+        picker = _render(row, '"Guild Sections"')[len(row) :]
+        assert "data-tab-picker-dot" not in picker
+        assert 'aria-label="Guild Sections: Cubbies, section 2 of 3"' in picker
+
+    def it_hands_a_button_rows_badge_and_dot_to_the_mirror():
+        html = _render(BADGED_BUTTONS, '"Guild Sections"')
+        assert '<span class="pl-new-dot" aria-hidden="true" x-show="newElsewhere()" data-tab-picker-dot></span>' in html
+        assert '<template x-if="item.new"><span class="pl-new">New!</span></template>' in html
+        assert "data-new-key" not in html[len(BADGED_BUTTONS) :]
+        # With no badge the dot waits under x-cloak for the mirror, so nothing flashes before Alpine runs.
+        assert 'x-show="newElsewhere()" x-cloak data-tab-picker-dot' in _render(BUTTONS, '"Guild Sections"')
 
     def it_takes_the_eyebrow_from_a_variable():
         assert '<span class="pl-tab-picker__eyebrow">Manage Lathe</span>' in _render(LINKS, "name", name="Manage Lathe")

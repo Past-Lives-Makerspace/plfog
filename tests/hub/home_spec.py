@@ -400,7 +400,7 @@ def describe_hub_home_view():
             response = client.get(reverse("hub_home"))
 
             content = response.content.decode()
-            assert '<span class="pl-quicklink__label">Admin Tools</span>' in content
+            assert '<span class="pl-quicklink__label">Admin Tools' in content
             assert f'href="{reverse("hub_admin_tools")}"' in content
 
         def it_hides_the_admin_tools_quicklink_for_a_plain_member(client: Client):
@@ -409,7 +409,7 @@ def describe_hub_home_view():
 
             response = client.get(reverse("hub_home"))
 
-            assert '<span class="pl-quicklink__label">Admin Tools</span>' not in response.content.decode()
+            assert '<span class="pl-quicklink__label">Admin Tools' not in response.content.decode()
 
 
 def describe_build_home_context():
@@ -600,7 +600,7 @@ def describe_the_class_catalog_quick_link():
     route gate, and these specs deliberately assert on the TILE rather than on the URL.
     """
 
-    CATALOG_TILE = b'<span class="pl-quicklink__label">Classes</span>'
+    CATALOG_TILE = b'<span class="pl-quicklink__label">Classes'
 
     def _home(client: Client) -> bytes:
         return client.get(reverse("hub_home")).content

@@ -22,9 +22,10 @@ from core.whats_new import (
     can_open,
     entries_for,
     history_slug,
+    mark_opened,
     mark_seen,
     open_url,
-    unseen,
+    unopened,
     whats_new_for,
     window_start,
 )
@@ -376,10 +377,11 @@ def describe_unseen_and_mark_seen():
     def it_is_unseen_until_marked_and_only_for_an_entry_in_the_viewers_audiences(changelog):
         changelog([_entry("for-members"), _entry("for-staff", audiences=("guild-staff",))])
         member = _member()
-        assert unseen(_request(member.user)) is True
+        news = whats_new_for(_request(member.user))
+        assert news.is_unseen(news.entries[0]) is True
         assert mark_seen(member, ["for-members"]) is True
         assert member.whats_new_seen == ["for-members"]
-        assert unseen(_request(member.user)) is False
+        assert whats_new_for(_request(member.user)).is_unseen(news.entries[0]) is False
         staff_entry = Entry.from_changelog(_entry("for-staff", audiences=("guild-staff",)))
         assert whats_new_for(_request(member.user)).is_unseen(staff_entry) is False
 
@@ -429,6 +431,47 @@ def describe_unseen_and_mark_seen():
         assert news.is_unseen(news.entries[0]) is True
         assert mark_seen(member, ["fresh"]) is True
         assert Member.objects.get(pk=member.pk).whats_new_seen == ["fresh"]
+
+
+def describe_unopened_and_mark_opened():
+    def it_is_unopened_until_an_open_covers_it_whatever_the_seen_list_says(changelog):
+        changelog([_entry("for-members"), _entry("for-staff", audiences=("guild-staff",))])
+        member = _member(whats_new_seen=["for-members"])
+        assert unopened(_request(member.user)) is True  # seen is the badges' list, not the button's
+        assert mark_opened(member, ["for-members"]) is True
+        assert member.whats_new_opened == ["for-members"]
+        news = whats_new_for(_request(member.user))
+        assert news.unopened is False
+        assert news.is_unopened(news.entries[1]) is False  # not in the viewer's audiences
+
+    def it_lights_again_only_for_an_entry_a_release_adds(changelog):
+        changelog([_entry("first")])
+        member = _member(whats_new_opened=["first"])
+        assert unopened(_request(member.user)) is False
+        changelog([_entry("second", feature="guild.cubbies"), _entry("first")])
+        news = whats_new_for(_request(member.user))
+        assert news.unopened is True
+        assert news.has_unopened("guild") is True
+        assert news.has_unopened("admin") is False
+
+    def it_prunes_and_skips_a_write_like_the_seen_list(changelog, django_assert_num_queries):
+        changelog([_entry("new"), _entry("old", days_ago=NEW_DAYS + 1)])
+        member = _member(whats_new_opened=["old", "vanished"])
+        assert mark_opened(member, ["new", "old"]) is True
+        stored = Member.objects.get(pk=member.pk)
+        assert stored.whats_new_opened == ["new"]
+        assert stored.whats_new_seen == []
+        with django_assert_num_queries(0):
+            assert mark_opened(member, ["new"]) is False
+
+    def it_reads_a_null_opened_list_as_nothing_opened(changelog):
+        changelog([_entry("fresh")])
+        member = _member()
+        member.whats_new_opened = None
+        news = whats_new_for(_request(member.user))
+        assert news.is_unopened(news.entries[0]) is True
+        assert mark_opened(member, ["fresh"]) is True
+        assert Member.objects.get(pk=member.pk).whats_new_opened == ["fresh"]
 
     def it_starts_the_window_thirty_days_back():
         assert window_start(dt.date(2026, 10, 29)) == dt.date(2026, 9, 29)
