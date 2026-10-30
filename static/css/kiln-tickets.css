@@ -352,3 +352,5 @@ a.pl-kiln-row__title { color: var(--hub-link); text-decoration: none; }
 .pl-kiln-photopick__preview .hub-btn { min-height: 44px; }
 .pl-kiln-photopick__buttons[hidden], .pl-kiln-photopick__preview[hidden] { display: none; }
 .pl-kiln-photopick .pl-kiln-q__hint { display: block; margin-top: 0.5rem; }
+.pl-kiln-photopick .pl-field-error { margin-top: 0.5rem; }
+.pl-kiln-photopick .pl-field-error[hidden] { display: none; }

@@ -417,3 +417,184 @@ def describe_deleting_the_ticket():
 
         assert not KilnTicket.objects.filter(pk=ticket.pk).exists()
         assert not any(file.storage.exists(file.name) for file in reply.photo_files)
+
+
+def _too_many_pixels() -> SimpleUploadedFile:
+    """A small file that declares a huge bitmap: 8000 by 7000 pixels, over the 50 million cap."""
+    import io
+
+    buffer = io.BytesIO()
+    Image.new("1", (8000, 7000)).save(buffer, format="PNG")
+    assert len(buffer.getvalue()) < 1_000_000
+    return SimpleUploadedFile("huge.png", buffer.getvalue(), content_type="image/png")
+
+
+def describe_an_image_with_too_many_pixels():
+    def it_is_refused_on_a_crew_message_before_it_is_resized(crew_client, maker, monkeypatch):
+        ticket = _ticket(maker)
+        before = _reply_files()
+        resized: list[object] = []
+        monkeypatch.setattr("kiln.models.normalize_image", lambda *a, **k: resized.append(a))
+
+        response = crew_client.post(_reply_url(ticket), {"body": "Look", "photo": _too_many_pixels()}, follow=True)
+
+        assert _toasts(response)[0].startswith("That image is 8,000 by 7,000 pixels, too large to open.")
+        assert resized == [] and not KilnReply.objects.exists() and _reply_files() == before
+
+    def it_is_refused_as_a_ticket_photo_too(maker, maker_client, monkeypatch):
+        resized: list[object] = []
+        monkeypatch.setattr("kiln.models.normalize_image", lambda *a, **k: resized.append(a))
+
+        response = maker_client.post(reverse("kiln:new"), {"action": "draft", "photos": [_too_many_pixels()]})
+
+        assert response.status_code == 200
+        errors = [str(e) for e in response.context["form"].errors["__all__"]]
+        assert any(e.startswith("That image is 8,000 by 7,000 pixels") for e in errors)
+        assert resized == [] and not KilnTicket.objects.filter(maker=maker).exists()
+
+    def it_is_refused_on_an_unload_note(crew, crew_client, maker, kiln_guild):
+        ticket = _ticket(maker)
+        firing = _loaded(crew, ticket)
+
+        response = crew_client.post(
+            reverse("kiln:unload", args=[firing.pk]),
+            {
+                f"what-{ticket.pk}": "cracked",
+                f"note-{ticket.pk}": "Cracked.",
+                f"next-{ticket.pk}": "fired",
+                f"photo-{ticket.pk}": _too_many_pixels(),
+            },
+        )
+
+        assert response.status_code == 200 and "too large to open" in response.content.decode()
+        assert not KilnReply.objects.exists()
+
+
+def describe_a_refused_photo_on_the_message_box():
+    def it_keeps_the_typed_message_in_the_box(crew_client, maker):
+        ticket = _ticket(maker)
+
+        response = crew_client.post(
+            _reply_url(ticket), {"body": "The foot looks <thick> here.", "photo": _not_a_photo()}, follow=True
+        )
+
+        assert response.redirect_chain[-1][0] == f"{_detail(ticket)}#kiln-messages"
+        assert "That file is not a photo we can open." in _toasts(response)[0]
+        assert response.context["reply_form"]["body"].value() == "The foot looks <thick> here."
+        assert "The foot looks &lt;thick&gt; here.</textarea>" in response.content.decode()
+        # Put back once: opening the ticket again starts with an empty box.
+        assert crew_client.get(_detail(ticket)).context["reply_form"]["body"].value() == ""
+
+    def it_starts_empty_after_a_message_is_sent(crew_client, maker):
+        ticket = _ticket(maker)
+
+        response = crew_client.post(_reply_url(ticket), {"body": "Sent fine."}, follow=True)
+
+        assert response.context["reply_form"]["body"].value() == ""
+
+    def it_gives_the_photo_control_the_size_cap_for_the_check_on_pick(crew, crew_client, maker):
+        ticket = _ticket(maker)
+        firing = _loaded(crew, ticket)
+        cap = f'data-max-bytes="{settings.MAX_UPLOAD_IMAGE_BYTES}"'
+
+        assert cap in crew_client.get(_detail(ticket)).content.decode()
+        assert cap in crew_client.get(reverse("kiln:unload", args=[firing.pk])).content.decode()
+
+
+def describe_unload_photos_and_the_locks():
+    def it_resizes_every_photo_before_locking_the_firing(crew, maker, kiln_guild, monkeypatch):
+        import kiln.models
+        from kiln.models import KilnFiring
+
+        ticket = _ticket(maker)
+        firing = _loaded(crew, ticket)
+        order: list[str] = []
+        store, lock = kiln.models.store_photo, KilnFiring.objects.select_for_update
+
+        def storing(*args, **kwargs):
+            order.append("resize")
+            return store(*args, **kwargs)
+
+        def locking(*args, **kwargs):
+            order.append("lock")
+            return lock(*args, **kwargs)
+
+        monkeypatch.setattr(kiln.models, "store_photo", storing)
+        monkeypatch.setattr(KilnFiring.objects, "select_for_update", locking)
+        note = ExceptionNote(
+            ticket_pk=ticket.pk, what_happened="cracked", note="Cracked.", outcome="fired", photo=photo_upload()
+        )
+
+        unload_kiln(firing_pk=firing.pk, exceptions={ticket.pk: note}, by=crew)
+
+        assert order == ["resize", "lock"]
+        reply = KilnReply.objects.get()
+        assert reply.has_photo and _exists(reply) and reply.firing_id == firing.pk
+
+    def it_removes_the_photos_when_the_firing_was_already_unloaded(crew, maker, kiln_guild):
+        from kiln.services import FiringAlreadyUnloaded
+
+        ticket = _ticket(maker)
+        firing = _loaded(crew, ticket)
+        unload_kiln(firing_pk=firing.pk, exceptions={}, by=crew)
+        before = _reply_files()
+        note = ExceptionNote(
+            ticket_pk=ticket.pk, what_happened="cracked", note="Cracked.", outcome="fired", photo=photo_upload()
+        )
+
+        with pytest.raises(FiringAlreadyUnloaded):
+            unload_kiln(firing_pk=firing.pk, exceptions={ticket.pk: note}, by=crew)
+
+        assert _reply_files() == before and not KilnReply.objects.exists()
+
+    def it_removes_a_photo_whose_ticket_left_the_firing(crew, maker, kiln_guild):
+        inside, gone = _ticket(maker), _ticket(maker)
+        firing = _loaded(crew, inside, gone)
+        KilnTicket.objects.filter(pk=gone.pk).delete()
+        before = _reply_files()
+        note = ExceptionNote(
+            ticket_pk=gone.pk, what_happened="cracked", note="Cracked.", outcome="fired", photo=photo_upload()
+        )
+
+        unload_kiln(firing_pk=firing.pk, exceptions={gone.pk: note}, by=crew)
+
+        assert KilnTicket.objects.get(pk=inside.pk).status == Status.FIRED
+        assert not KilnReply.objects.exists() and _reply_files() == before
+
+
+def describe_an_unload_page_sent_back_with_errors():
+    def it_tells_each_row_whose_photo_was_not_kept(crew, crew_client, maker, make_member, kiln_guild):
+        with_photo, without, missing_note = _ticket(maker), _ticket(make_member()), _ticket(make_member())
+        firing = _loaded(crew, with_photo, without, missing_note)
+
+        response = crew_client.post(
+            reverse("kiln:unload", args=[firing.pk]),
+            {
+                f"what-{with_photo.pk}": "cracked",
+                f"note-{with_photo.pk}": "Cracked.",
+                f"next-{with_photo.pk}": "fired",
+                f"photo-{with_photo.pk}": photo_upload(),
+                f"what-{without.pk}": "stuck",
+                f"note-{without.pk}": "Stuck.",
+                f"next-{without.pk}": "fired",
+                # The error is on another row: no note for this one.
+                f"what-{missing_note.pk}": "stuck",
+                f"next-{missing_note.pk}": "fired",
+            },
+        )
+
+        assert response.status_code == 200
+        rows = {row.ticket.pk: row for row in response.context["form"].rows}
+        assert [rows[t.pk].photo_dropped for t in (with_photo, without, missing_note)] == [True, False, False]
+        body = response.content.decode()
+        assert body.count("data-kiln-photo-dropped") == 1
+        row = body[body.index(f'data-ticket="{with_photo.pk}"') :]
+        assert "Pick the photo again, it was not kept." in row[: row.index("</li>")]
+        assert not KilnReply.objects.exists()
+
+    def it_says_nothing_on_a_fresh_page(crew, crew_client, maker, kiln_guild):
+        firing = _loaded(crew, _ticket(maker))
+
+        body = crew_client.get(reverse("kiln:unload", args=[firing.pk])).content.decode()
+
+        assert "data-kiln-photo-dropped" not in body

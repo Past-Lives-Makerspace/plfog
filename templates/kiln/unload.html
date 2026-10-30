@@ -62,7 +62,7 @@ ticked row's photo is ignored.
             x-data="{ ticked: {{ row.ticked|yesno:'true,false' }} }" :class="ticked ? 'pl-kiln-unload__row--ok' : 'pl-kiln-unload__row--except'">
             <input type="hidden" name="shown" value="{{ ticket.pk }}">
             <label class="pl-kiln-unload__main">
-                <input type="checkbox" name="fired" value="{{ ticket.pk }}" x-model="ticked"{% if row.ticked %} checked{% endif %} aria-label="Ticket {{ ticket.pk }}, {{ ticket.maker_name }}, came out right">
+                <input type="checkbox" name="fired" value="{{ ticket.pk }}" x-model="ticked" data-kiln-photo-pick-reset{% if row.ticked %} checked{% endif %} aria-label="Ticket {{ ticket.pk }}, {{ ticket.maker_name }}, came out right">
                 <span class="pl-kiln-unload__photo">{% if cover %}<img src="{{ cover.tile.url }}" alt="Cover photo of ticket {{ ticket.pk }}" loading="lazy">{% else %}<span class="pl-kiln-row__photo--empty pl-kiln-tile__nophoto"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-camera"/></svg><span class="sr-only">No photo</span></span>{% endif %}</span>
                 <span>
                     <span class="pl-kiln-unload__who">{{ ticket.maker_name }}{% if ticket.maker_type == "student" %} · {{ ticket.get_maker_type_display }}{% endif %}</span>
@@ -78,7 +78,7 @@ ticked row's photo is ignored.
                 </div>
                 {% if row.what.errors %}<ul class="pl-field-errors">{% for error in row.what.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>{% endif %}
                 <div class="pl-btn--spaced">{% include "components/form_field.html" with field=row.note field_hint_off=True %}</div>
-                {% include "kiln/partials/_photo_pick.html" with photo_name=row.photo.html_name photo_errors=row.photo.errors photo_hint="Add a photo if it helps show what happened." %}
+                {% include "kiln/partials/_photo_pick.html" with photo_name=row.photo.html_name photo_errors=row.photo.errors photo_dropped=row.photo_dropped photo_hint="Add a photo if it helps show what happened." %}
                 <p class="pl-kiln-q__label" id="kiln-next-{{ ticket.pk }}">What happens to the ticket?</p>
                 <div role="radiogroup" aria-labelledby="kiln-next-{{ ticket.pk }}">
                     {% for radio in row.next %}

@@ -510,41 +510,51 @@ def unload_kiln(
         FiringAlreadyUnloaded: The firing was unloaded before this request got the lock.
         KilnFiring.DoesNotExist: No such firing.
     """
-    replies: list[KilnReply] = []
-    with _photo_files_kept_on_success(replies), transaction.atomic():
-        firing = KilnFiring.objects.select_for_update().get(pk=firing_pk)
-        if firing.is_unloaded:
-            raise FiringAlreadyUnloaded(_with_unloader(firing))
-        # Lock the rows on their own: a select_related join through the maker's nullable user
-        # would be an outer join, which PostgreSQL refuses to lock.
-        tickets = list(firing.tickets.select_for_update().filter(status=KilnTicket.Status.LOADED).order_by("pk"))
-        shown_pks = set(shown)
-        deleted = len(shown_pks - set(KilnTicket.objects.filter(pk__in=shown_pks).values_list("pk", flat=True)))
-        now = timezone.now()
-        notes = [exceptions[t.pk] for t in tickets if t.pk in exceptions]
-        returned = [n.ticket_pk for n in notes if n.back_to_queue]
-        fired = [t.pk for t in tickets if t.pk not in returned]
-        KilnTicket.objects.filter(pk__in=fired).update(status=KilnTicket.Status.FIRED, fired_at=now, updated_at=now)
-        KilnTicket.objects.filter(pk__in=returned).update(
-            status=KilnTicket.Status.SUBMITTED, firing=None, updated_at=now
-        )
-        for n in notes:
-            reply = KilnReply(
-                ticket_id=n.ticket_pk,
-                author=by,
-                body=n.note,
-                firing=firing,
-                what_happened=n.what_happened,
-                outcome=n.outcome,
+    # Photos are resized and written before any lock is taken, so a slow resize never holds the
+    # firing and its tickets (#1026). Every file written here is removed if the unload is refused
+    # or rolls back, and a photo whose ticket left the firing meanwhile is removed afterwards.
+    written: list[KilnReply] = []
+    with _photo_files_kept_on_success(written):
+        photos: dict[int, KilnReply] = {}
+        for pk, exception in exceptions.items():
+            if exception.photo is not None:
+                photos[pk] = KilnReply()
+                written.append(photos[pk])
+                photos[pk].attach_photo(exception.photo)
+        with transaction.atomic():
+            firing = KilnFiring.objects.select_for_update().get(pk=firing_pk)
+            if firing.is_unloaded:
+                raise FiringAlreadyUnloaded(_with_unloader(firing))
+            # Lock the rows on their own: a select_related join through the maker's nullable user
+            # would be an outer join, which PostgreSQL refuses to lock.
+            tickets = list(firing.tickets.select_for_update().filter(status=KilnTicket.Status.LOADED).order_by("pk"))
+            shown_pks = set(shown)
+            deleted = len(shown_pks - set(KilnTicket.objects.filter(pk__in=shown_pks).values_list("pk", flat=True)))
+            now = timezone.now()
+            notes = [exceptions[t.pk] for t in tickets if t.pk in exceptions]
+            returned = [n.ticket_pk for n in notes if n.back_to_queue]
+            fired = [t.pk for t in tickets if t.pk not in returned]
+            KilnTicket.objects.filter(pk__in=fired).update(status=KilnTicket.Status.FIRED, fired_at=now, updated_at=now)
+            KilnTicket.objects.filter(pk__in=returned).update(
+                status=KilnTicket.Status.SUBMITTED, firing=None, updated_at=now
             )
-            replies.append(reply)
-            # An unticked piece's photo only: the form drops a ticked piece's (#1026).
-            if n.photo is not None:
-                reply.attach_photo(n.photo)
-        KilnReply.objects.bulk_create(replies)
-        firing.unloaded_by = by
-        firing.unloaded_at = now
-        firing.save(update_fields=["unloaded_by", "unloaded_at"])
+            replies: list[KilnReply] = []
+            for n in notes:
+                # The note takes the photo already stored for it, if any (an unticked piece's only).
+                reply = photos.pop(n.ticket_pk, None) or KilnReply()
+                reply.ticket_id = n.ticket_pk
+                reply.author = by
+                reply.body = n.note
+                reply.firing = firing
+                reply.what_happened = n.what_happened
+                reply.outcome = n.outcome
+                replies.append(reply)
+            KilnReply.objects.bulk_create(replies)
+            firing.unloaded_by = by
+            firing.unloaded_at = now
+            firing.save(update_fields=["unloaded_by", "unloaded_at"])
+    # A photo for a ticket no longer in the firing (deleted or moved meanwhile) has no note to go on.
+    delete_files_now([file for reply in photos.values() for file in reply.photo_files])
     notified = _notify_makers(firing, [t.pk for t in tickets], {r.ticket_id: r for r in replies}, by)
     return UnloadResult(firing=firing, fired=len(fired), returned=len(returned), notified=notified, deleted=deleted)
 

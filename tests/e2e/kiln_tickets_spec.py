@@ -318,7 +318,16 @@ def describe_loading_the_kiln():
         expect(page.get_by_role("heading", level=1)).to_contain_text(f"Ticket {bowls.pk}")
         page.get_by_label(f"Message {maker.display_name}").fill("They are on the middle shelf. Is this a thick spot?")
         pick = page.locator("[data-kiln-thread] [data-kiln-photo-pick]")
+        # A photo over 10 MB is refused on pick, before it is sent, with a message under the control.
+        too_big = {"name": "huge.jpg", "mimeType": "image/jpeg", "buffer": b"\xff" * (10 * 1024 * 1024 + 1)}
+        pick.locator("input[capture]").set_input_files(too_big)
+        expect(pick.locator("[data-kiln-photo-pick-error]")).to_have_text(
+            "That photo is too large. A photo can be up to 10 MB."
+        )
+        expect(pick.locator("[data-kiln-photo-pick-preview]")).to_be_hidden()
+        assert pick.locator("input[capture]").evaluate("input => input.files.length") == 0
         pick.locator("input[capture]").set_input_files(_jpeg((196, 120, 84)))
+        expect(pick.locator("[data-kiln-photo-pick-error]")).to_be_hidden()
         expect(pick.locator("[data-kiln-photo-pick-preview] img")).to_be_visible()
         expect(pick.get_by_role("button", name="Remove the photo")).to_be_visible()
         expect(pick.get_by_text("Take a photo")).to_be_hidden()
@@ -423,6 +432,15 @@ def describe_unloading_the_kiln():
             expect(row.locator('input[name="fired"]')).not_to_be_checked()
             expect(row.locator("[data-kiln-except]")).to_be_visible()
             expect(row).to_contain_text("Gets your message instead")
+            # A photo picked on the row is cleared when the row is ticked again, so a fired piece uploads nothing.
+            choose = row.locator("[data-kiln-photo-pick-input]:not([capture])")
+            choose.set_input_files(_jpeg())
+            expect(row.locator("[data-kiln-photo-pick-preview] img")).to_be_visible()
+            row.locator(".pl-kiln-unload__photo").click()
+            expect(row.locator('input[name="fired"]')).to_be_checked()
+            assert choose.evaluate("input => input.files.length") == 0
+            row.locator(".pl-kiln-unload__photo").click()
+            expect(row.locator("[data-kiln-photo-pick-preview]")).to_be_hidden()
             row.locator("label.pl-chip", has_text="Cracked").click()
             row.get_by_label("Message to Ben Carter").fill(
                 "Hi Ben, your vase cracked near the base before the glaze matured. It goes in the next glaze firing."

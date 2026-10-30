@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 from django import forms
 from django.core.exceptions import ValidationError
 
-from core.validators import validate_image_content, validate_image_size
+from core.validators import validate_image_content, validate_image_pixels, validate_image_size
 from kiln.models import ClayOption, GlazeOption, KilnReply, KilnTicket, ListOption
 
 if TYPE_CHECKING:
@@ -29,9 +29,11 @@ ACTION_SUBMIT = "submit"
 ACTION_COVER = "cover"
 ACTION_REMOVE = "remove"
 
-# The checks every kiln photo upload gets, a ticket's and a crew message's (#1026): under the
-# size cap (10 MB), and an image we can open.
-PHOTO_CHECKS = (validate_image_size, validate_image_content)
+# The checks every kiln photo upload gets, a ticket's and a crew message's (#1026), in order:
+# under the size cap (10 MB), an image we can open, and few enough pixels to decode (a tiny
+# file can declare a huge bitmap, so it is refused before store_photo resizes it). The pixel
+# check reads what the content check leaves on the upload, so it comes last.
+PHOTO_CHECKS = (validate_image_size, validate_image_content, validate_image_pixels)
 
 
 def check_photo(upload: UploadedFile) -> None:
@@ -397,6 +399,7 @@ class UnloadRow:
     note: BoundField
     next: BoundField
     photo: BoundField
+    photo_dropped: bool = False
 
 
 class UnloadForm(ToastForm):
@@ -472,6 +475,10 @@ class UnloadForm(ToastForm):
         """The ticked tickets as posted (or all of them on a fresh page), garbled values left out."""
         return {int(pk) for pk in self["fired"].value() or [] if str(pk).isdigit()}
 
+    def _photo_dropped(self, pk: int) -> bool:
+        """A photo was posted for this row but the page came back with errors, so the browser no longer has it."""
+        return self.is_bound and bool(self.errors) and bool(self.files) and f"photo-{pk}" in self.files
+
     @property
     def rows(self) -> list[UnloadRow]:
         """Each ticket with whether it is ticked and its exception fields, for the page."""
@@ -484,6 +491,7 @@ class UnloadForm(ToastForm):
                 note=self[f"note-{t.pk}"],
                 next=self[f"next-{t.pk}"],
                 photo=self[f"photo-{t.pk}"],
+                photo_dropped=self._photo_dropped(t.pk),
             )
             for t in self.tickets
         ]

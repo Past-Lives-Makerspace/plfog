@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import Http404, HttpRequest, HttpResponse
@@ -210,7 +211,11 @@ def ticket_detail(request: HttpRequest, pk: int) -> HttpResponse:
         "photos": list(ticket.photos.all()),
         "replies": list(ticket.replies.all()),
         "viewer": member,
-        "reply_form": ReplyForm(takes_photo=_takes_photo(ticket, member)),
+        # A message refused a moment ago (a photo that did not pass) comes back in the box.
+        "reply_form": ReplyForm(
+            initial={"body": request.session.pop(_unsent_key(ticket), "")}, takes_photo=_takes_photo(ticket, member)
+        ),
+        "photo_max_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
     }
     if crew:
         context["flag_form"] = ManualFlagForm()
@@ -221,6 +226,11 @@ def ticket_detail(request: HttpRequest, pk: int) -> HttpResponse:
 def _takes_photo(ticket: KilnTicket, member: Member) -> bool:
     """Only the crew writing on another maker's ticket may attach a photo (#1026); the maker's box is text only."""
     return ticket.maker_id != member.pk
+
+
+def _unsent_key(ticket: KilnTicket) -> str:
+    """Where a refused message waits in the session for the ticket page to put it back in the box."""
+    return f"kiln-unsent-{ticket.pk}"
 
 
 def _to_messages(ticket: KilnTicket) -> HttpResponse:
@@ -238,6 +248,8 @@ def ticket_reply(request: HttpRequest, pk: int) -> HttpResponse:
     form = ReplyForm(request.POST, request.FILES, takes_photo=_takes_photo(ticket, member))
     if not form.is_valid():
         messages.error(request, form.first_error)
+        # Keep what was typed: the page fills the box again, so only the photo needs picking again.
+        request.session[_unsent_key(ticket)] = request.POST.get("body", "")
         return _to_messages(ticket)
     try:
         post_reply(ticket, member, form.cleaned_data["body"], photo=form.attached_photo)
@@ -395,7 +407,13 @@ def unload(request: HttpRequest, pk: int) -> HttpResponse:
             return redirect("kiln:firing", pk=firing.pk)
         messages.success(request, result.message)
         return redirect("kiln:log")
-    context = {"firing": firing, "form": form, "kiln_tab": "unload", **_crew_tabs()}
+    context = {
+        "firing": firing,
+        "form": form,
+        "kiln_tab": "unload",
+        "photo_max_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
+        **_crew_tabs(),
+    }
     return render(request, "kiln/unload.html", context)
 
 

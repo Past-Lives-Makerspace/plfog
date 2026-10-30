@@ -1,10 +1,12 @@
 {% comment %}
 One optional photo on a crew message or unload note (#1026): take one with the camera or choose
 one, like the ticket form's photo control. static/js/kiln_photo_pick.js shows the pick with a
-Remove and clears the other input, so one photo posts. Expects photo_name (the field's name) and
-photo_hint; photo_errors (a bound field's errors) is optional.
+Remove, clears the other input so one photo posts, and refuses a file over photo_max_bytes
+before it is sent. Expects photo_name (the field's name), photo_hint and photo_max_bytes;
+photo_errors (a bound field's errors) and photo_dropped (a photo the page could not keep after
+an error) are optional.
 {% endcomment %}
-<div class="pl-kiln-photopick" data-kiln-photo-pick>
+<div class="pl-kiln-photopick" data-kiln-photo-pick data-max-bytes="{{ photo_max_bytes }}">
     <div class="pl-kiln-photopick__buttons" data-kiln-photo-pick-buttons>
         <label class="hub-btn hub-btn--sm hub-btn--ghost pl-kiln-photopick__btn">
             <input type="file" name="{{ photo_name }}" accept="image/*" capture="environment" data-kiln-photo-pick-input>
@@ -20,5 +22,7 @@ photo_hint; photo_errors (a bound field's errors) is optional.
         <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" data-kiln-photo-pick-remove>Remove the photo</button>
     </div>
     <p class="pl-kiln-q__hint">{{ photo_hint }} Optional, one photo up to 10 MB.</p>
+    <p class="pl-field-error" data-kiln-photo-pick-error role="alert" hidden></p>
+    {% if photo_dropped %}<p class="pl-field-error" data-kiln-photo-dropped>Pick the photo again, it was not kept.</p>{% endif %}
     {% if photo_errors %}<ul class="pl-field-errors">{% for error in photo_errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}</ul>{% endif %}
 </div>
