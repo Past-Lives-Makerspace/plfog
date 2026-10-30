@@ -7,6 +7,6 @@
 {% include "components/confirm_modal.html" with confirm_id="kiln-delete" confirm_title="Delete this ticket?" confirm_message="Its photos and messages go too. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete ticket" %}
 {% else %}
 {% with note_hint=ticket.maker_name|add:" gets this note with a description of the piece." %}
-{% include "components/confirm_modal.html" with confirm_id="kiln-delete" confirm_title="Delete this ticket?" confirm_message="Its photos and messages go too. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete ticket" confirm_note_name="note" confirm_note_label="Why is it being deleted?" confirm_note_required=True confirm_note_hint=note_hint %}
+{% include "components/confirm_modal.html" with confirm_id="kiln-delete" confirm_title="Delete this ticket?" confirm_message="Its photos and messages go too. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete ticket" confirm_note_name="note" confirm_note_label="Why is it being deleted?" confirm_note_required=True confirm_note_hint=note_hint confirm_note_maxlength=500 %}
 {% endwith %}
 {% endif %}

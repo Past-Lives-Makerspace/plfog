@@ -30,6 +30,8 @@ from kiln.services import (
     FiringAlreadyUnloaded,
     TicketDeleted,
     TicketNotEditable,
+    add_crew_flag,
+    clear_flag,
     delete_ticket,
     firing_sheet,
     in_kiln_firings,
@@ -232,9 +234,20 @@ def ticket_reply(request: HttpRequest, pk: int) -> HttpResponse:
     if not form.is_valid():
         messages.error(request, form.first_error)
         return _to_messages(ticket)
-    post_reply(ticket, member, form.cleaned_data["body"])
+    try:
+        post_reply(ticket, member, form.cleaned_data["body"])
+    except TicketDeleted:
+        return _deleted_meanwhile(request, ticket, "your message was not sent")
     messages.success(request, "Message sent.")
     return _to_messages(ticket)
+
+
+def _deleted_meanwhile(request: HttpRequest, ticket: KilnTicket, what: str) -> HttpResponse:
+    """The ticket was deleted while the page was open: say so, and go where the ticket would have been."""
+    member = _member(request)
+    messages.info(request, f"Ticket {ticket.pk} was deleted, so {what}.")
+    # A maker goes back to My Tickets; the crew on someone else's ticket to the queue.
+    return redirect(KilnNav(member).home_url if ticket.maker_id == member.pk else "kiln:load")
 
 
 @login_required
@@ -275,7 +288,10 @@ def flag_add(request: HttpRequest, pk: int) -> HttpResponse:
     if not form.is_valid():
         messages.error(request, form.first_error)
     else:
-        ticket.add_flag(form.cleaned_data["note"], by=_member(request))
+        try:
+            add_crew_flag(ticket, form.cleaned_data["note"], by=_member(request))
+        except TicketDeleted:
+            return _deleted_meanwhile(request, ticket, "the flag was not added")
         messages.success(request, "Flag added. Only the crew can see it.")
     return redirect("kiln:detail", pk=ticket.pk)
 
@@ -286,8 +302,14 @@ def flag_add(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def flag_clear(request: HttpRequest, pk: int, flag_pk: int) -> HttpResponse:
     """The crew checked a flag, automatic or by hand, and clear it."""
-    flag = get_object_or_404(KilnFlag, pk=flag_pk, ticket_id=pk)
-    flag.clear(by=_member(request))
+    flag = get_object_or_404(KilnFlag.objects.select_related("ticket"), pk=flag_pk, ticket_id=pk)
+    try:
+        clear_flag(ticket_pk=pk, flag_pk=flag.pk, by=_member(request))
+    except TicketDeleted:
+        return _deleted_meanwhile(request, flag.ticket, "the flag was not cleared")
+    except KilnFlag.DoesNotExist:
+        # A maker's edit dropped the automatic flag while the page was open.
+        raise Http404("No such flag.") from None
     messages.success(request, "Flag cleared.")
     return redirect("kiln:detail", pk=pk)
 

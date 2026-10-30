@@ -2344,8 +2344,8 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
-    # kiln.ticket_deleted — the crew deleted a maker's ticket with a note (#1025). The ticket
-    # is gone, so nothing links to it: ticket_description is the piece in words ("Glaze · 3
+    # kiln.ticket_deleted — the crew or a site admin deleted a maker's ticket with a note
+    # (#1025), so the copy names the person and never calls an admin crew. The ticket is gone, so nothing links to it: ticket_description is the piece in words ("Glaze · 3
     # pieces · Standard 266"), note is the crew's reason, and tickets_url opens My Tickets.
     "kiln.ticket_deleted": EventCopy(
         placeholders=("author_name", "ticket_label", "ticket_description", "note", "tickets_url"),
@@ -2358,20 +2358,20 @@ _CURATED: dict[str, EventCopy] = {
         },
         channels={
             Channel.IN_APP: ChannelCopy(
-                subject="The kiln crew deleted {{ ticket_label }}",
+                subject="{{ ticket_label }} was deleted",
                 body_text="{{ ticket_description }}. {{ author_name }}: {{ note }}",
             ),
             Channel.EMAIL: ChannelCopy(
-                subject="The kiln crew deleted your {{ ticket_label }}",
+                subject="Your kiln {{ ticket_label }} was deleted",
                 body_text=(
-                    "{{ author_name }} from the Ceramics Guild kiln crew deleted your "
+                    "{{ author_name }} deleted your kiln "
                     "{{ ticket_label }} ({{ ticket_description }}) and said why:\n\n"
                     "{{ note }}\n\n"
                     "The ticket, its photos and its messages are gone. If the piece still needs a firing, "
                     "start a new ticket from My Tickets: {{ tickets_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
-                    "<p>{{ author_name }} from the Ceramics Guild kiln crew deleted your "
+                    "<p>{{ author_name }} deleted your kiln "
                     "<strong>{{ ticket_label }}</strong> ({{ ticket_description }}) and said why:</p>"
                     '<p style="white-space:pre-line;">{{ note }}</p>'
                     "<p>The ticket, its photos and its messages are gone. If the piece still needs a firing, "

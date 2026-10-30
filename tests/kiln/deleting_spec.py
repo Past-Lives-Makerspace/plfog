@@ -227,12 +227,12 @@ def describe_the_makers_notice():
 
         assert result == DeletedTicket(pk=ticket.pk, maker_name=maker.display_name, notified=True)
         [bell] = _bells(maker)
-        assert bell.title == f"The kiln crew deleted Ticket {ticket.pk}"
+        assert bell.title == f"Ticket {ticket.pk} was deleted"
         assert bell.body == f"Glaze · 3 pieces · Standard 266. {crew.display_name}: One bowl cracked on the cart."
         assert bell.url == reverse("kiln:mine")
         [email] = mail.outbox
         assert email.to == [maker.user.email]
-        assert email.subject == f"The kiln crew deleted your Ticket {ticket.pk}"
+        assert email.subject == f"Your kiln Ticket {ticket.pk} was deleted"
         assert "Glaze · 3 pieces · Standard 266" in email.body
         assert "One bowl cracked on the cart." in email.body
         assert f"{settings.MEMBER_BASE_URL}{reverse('kiln:mine')}" in email.body
@@ -526,3 +526,139 @@ def describe_a_maker_saving_a_ticket_deleted_meanwhile():
             save_ticket(form, maker)
 
         assert _gone(ticket)
+
+
+def describe_a_write_on_a_ticket_deleted_while_the_page_was_open():
+    """The reply and flag writes lock the ticket row, so a delete landing first is a toast, never a 500."""
+
+    def _stale(ticket: KilnTicket, by: Member) -> KilnTicket:
+        """The ticket as the request read it, after someone deleted it."""
+        stale = KilnTicket.objects.get(pk=ticket.pk)
+        delete_ticket(ticket_pk=ticket.pk, by=by, note="It broke.")
+        return stale
+
+    def it_sends_no_message_and_says_why(maker, maker_client, crew):
+        stale = _stale(_waiting(maker), crew)
+        Notification.objects.all().delete()
+
+        with patch("kiln.views._visible_ticket", return_value=stale):
+            response = maker_client.post(reverse("kiln:reply", args=[stale.pk]), {"body": "Hello?"}, follow=True)
+
+        assert response.status_code == 200
+        assert response.redirect_chain[0][0] == kiln_home_url()
+        assert f"Ticket {stale.pk} was deleted, so your message was not sent." in _toasts(response)
+        assert not KilnReply.objects.exists() and not Notification.objects.exists()
+
+    def it_sends_the_crew_back_to_the_queue(crew_client, crew, maker):
+        stale = _stale(_waiting(maker), maker)
+
+        with patch("kiln.views._visible_ticket", return_value=stale):
+            response = crew_client.post(reverse("kiln:reply", args=[stale.pk]), {"body": "Hi"}, follow=True)
+
+        assert response.redirect_chain[0][0] == reverse("kiln:load")
+        assert not KilnReply.objects.exists()
+
+    def it_adds_no_flag_and_says_why(crew_client, maker):
+        stale = _stale(_waiting(maker), maker)
+
+        with patch("kiln.views.get_object_or_404", return_value=stale):
+            response = crew_client.post(reverse("kiln:flag_add", args=[stale.pk]), {"note": "Check"}, follow=True)
+
+        assert response.status_code == 200
+        assert response.redirect_chain[0][0] == reverse("kiln:load")
+        assert f"Ticket {stale.pk} was deleted, so the flag was not added." in _toasts(response)
+        assert not KilnFlag.objects.exists()
+
+    def it_clears_no_flag_and_says_why(crew_client, maker):
+        ticket = _waiting(maker)
+        flag = KilnFlag.objects.select_related("ticket").get(ticket=ticket)
+        _stale(ticket, maker)
+
+        with patch("kiln.views.get_object_or_404", return_value=flag):
+            response = crew_client.post(reverse("kiln:flag_clear", args=[ticket.pk, flag.pk]), follow=True)
+
+        assert response.status_code == 200
+        assert response.redirect_chain[0][0] == reverse("kiln:load")
+        assert f"Ticket {ticket.pk} was deleted, so the flag was not cleared." in _toasts(response)
+        assert not KilnFlag.objects.exists()
+
+    def it_answers_404_when_a_makers_edit_dropped_the_flag_meanwhile(crew_client, maker):
+        ticket = _waiting(maker)
+        flag = KilnFlag.objects.select_related("ticket").get(ticket=ticket)
+        KilnFlag.objects.filter(pk=flag.pk).delete()
+
+        with patch("kiln.views.get_object_or_404", return_value=flag):
+            response = crew_client.post(reverse("kiln:flag_clear", args=[ticket.pk, flag.pk]))
+
+        assert response.status_code == 404
+
+    def it_raises_from_each_service_and_writes_nothing(crew, maker):
+        from kiln.services import add_crew_flag, clear_flag, post_reply
+
+        ticket = _waiting(maker)
+        flag_pk = KilnFlag.objects.get(ticket=ticket).pk
+        stale = _stale(ticket, maker)
+
+        with pytest.raises(TicketDeleted):
+            post_reply(stale, crew, "Hello?")
+        with pytest.raises(TicketDeleted):
+            add_crew_flag(stale, "Check", by=crew)
+        with pytest.raises(TicketDeleted):
+            clear_flag(ticket_pk=stale.pk, flag_pk=flag_pk, by=crew)
+        assert not KilnReply.objects.exists() and not KilnFlag.objects.exists()
+
+    @pytest.mark.parametrize("write", ["reply", "add_flag", "clear_flag"])
+    def it_locks_the_ticket_row_before_writing(write, crew, maker):
+        from kiln.services import add_crew_flag, clear_flag, post_reply
+
+        ticket = _waiting(maker)
+        flag_pk = KilnFlag.objects.get(ticket=ticket).pk
+
+        with patch("kiln.models.KilnTicketQuerySet.select_for_update", autospec=True) as lock:
+            lock.side_effect = lambda qs, *a, **k: qs
+            if write == "reply":
+                post_reply(ticket, crew, "Hi")
+            elif write == "add_flag":
+                add_crew_flag(ticket, "Check", by=crew)
+            else:
+                clear_flag(ticket_pk=ticket.pk, flag_pk=flag_pk, by=crew)
+
+        lock.assert_called_once()
+
+    def it_never_writes_a_cleared_flag_back_as_a_new_row(crew, maker):
+        from django.db import DatabaseError
+
+        ticket = _waiting(maker)
+        flag = KilnFlag.objects.get(ticket=ticket)
+        _stale(ticket, maker)
+
+        with pytest.raises(DatabaseError), transaction.atomic():
+            flag.clear(by=crew)
+
+        assert not KilnFlag.objects.exists()
+
+
+def describe_the_delete_dialog_and_wording():
+    def it_stops_the_note_at_500_characters_in_the_browser(crew_client, maker):
+        ticket = _waiting(maker)
+
+        body = crew_client.get(reverse("kiln:detail", args=[ticket.pk])).content.decode()
+
+        assert 'id="kiln-delete-note"' in body
+        assert 'maxlength="500"' in body
+
+    def it_never_calls_a_site_admin_crew(make_member, maker, kiln_guild):
+        admin = make_member(fog_role=Member.FogRole.ADMIN, preferred_name="Ari Admin")
+        ticket = _waiting(maker)
+
+        delete_ticket(ticket_pk=ticket.pk, by=admin, note="Duplicate ticket.")
+
+        [bell] = _bells(maker)
+        [email] = mail.outbox
+        assert bell.title == f"Ticket {ticket.pk} was deleted"
+        assert bell.body.endswith("Ari Admin: Duplicate ticket.")
+        assert email.subject == f"Your kiln Ticket {ticket.pk} was deleted"
+        assert f"Ari Admin deleted your kiln Ticket {ticket.pk}" in email.body
+        assert "crew" not in f"{bell.title} {bell.body} {email.subject} {email.body}".lower()
+        html = email.alternatives[0][0]
+        assert "Ari Admin deleted your kiln" in html and "kiln crew" not in html

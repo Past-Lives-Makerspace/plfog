@@ -22,7 +22,7 @@ from django.utils.safestring import SafeString
 
 from kiln.access import can_file_tickets, can_run_kiln, is_crew, kiln_home_url, kiln_is_open, maker_type_for
 from kiln.forms import ACTION_COVER, ACTION_REMOVE, ExceptionNote, KilnTicketForm
-from kiln.models import KilnFiring, KilnReply, KilnTicket, member_name
+from kiln.models import KilnFiring, KilnFlag, KilnReply, KilnTicket, member_name
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -39,6 +39,16 @@ class TicketNotEditable(Exception):
 
 class TicketDeleted(Exception):
     """The ticket was deleted (by its maker or the crew) before this request got to it."""
+
+
+def _lock_ticket(ticket_pk: int) -> None:
+    """Lock a ticket's row for the rest of the transaction, so a delete cannot land mid-write.
+
+    Raises:
+        TicketDeleted: The ticket is gone.
+    """
+    if not list(KilnTicket.objects.select_for_update().filter(pk=ticket_pk).values_list("pk", flat=True)):
+        raise TicketDeleted(ticket_pk)
 
 
 def save_ticket(form: KilnTicketForm, maker: Member) -> KilnTicket:
@@ -221,10 +231,43 @@ def post_reply(ticket: KilnTicket, author: Member, body: str) -> KilnReply:
     The maker writing tells the crew (the kiln guild's lead and staff, minus the author when
     the maker is crew too); anyone else writing is the crew and tells the maker, who may be
     a class guest. Bell, push and email follow each person's own switches. No Discord.
+
+    The ticket row is locked while the message is written, so a delete committing at the
+    same moment either waits or has already won.
+
+    Raises:
+        TicketDeleted: The ticket was deleted since the page opened; nothing is written or sent.
     """
-    reply = KilnReply.objects.create(ticket=ticket, author=author, body=body)
+    with transaction.atomic():
+        _lock_ticket(ticket.pk)
+        reply = KilnReply.objects.create(ticket=ticket, author=author, body=body)
     _notify_reply(reply)
     return reply
+
+
+def add_crew_flag(ticket: KilnTicket, note: str, by: Member) -> KilnFlag:
+    """The crew flag a ticket by hand, under the ticket's row lock.
+
+    Raises:
+        TicketDeleted: The ticket was deleted since the page opened.
+    """
+    with transaction.atomic():
+        _lock_ticket(ticket.pk)
+        return ticket.add_flag(note, by=by)
+
+
+def clear_flag(*, ticket_pk: int, flag_pk: int, by: Member) -> KilnFlag:
+    """The crew clear a flag on a ticket, under the ticket's row lock.
+
+    Raises:
+        TicketDeleted: The ticket (and so the flag) was deleted since the page opened.
+        KilnFlag.DoesNotExist: The ticket exists but has no such flag.
+    """
+    with transaction.atomic():
+        _lock_ticket(ticket_pk)
+        flag = KilnFlag.objects.get(pk=flag_pk, ticket_id=ticket_pk)
+        flag.clear(by=by)
+    return flag
 
 
 def _notify_reply(reply: KilnReply) -> None:
@@ -307,8 +350,7 @@ def delete_ticket(*, ticket_pk: int, by: Member, note: str = "") -> DeletedTicke
         TicketDeleted: Someone else deleted it first.
     """
     with transaction.atomic():
-        if not list(KilnTicket.objects.select_for_update().filter(pk=ticket_pk).values_list("pk", flat=True)):
-            raise TicketDeleted(ticket_pk)
+        _lock_ticket(ticket_pk)
         ticket = KilnTicket.objects.select_related("clay", "maker__user").get(pk=ticket_pk)
         maker, description = ticket.maker, ticket.description
         ticket.delete_with_photos()

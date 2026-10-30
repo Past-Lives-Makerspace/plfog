@@ -515,5 +515,5 @@ def describe_deleting_a_ticket():
         expect(page).to_have_url(f"{live_server.url}{reverse('kiln:load')}")
         assert not KilnTicket.objects.filter(pk=bowls.pk).exists()
         bell = Notification.objects.get(user=maker.user, trigger=KILN_TICKET_DELETED)
-        assert bell.title == f"The kiln crew deleted Ticket {bowls.pk}"
+        assert bell.title == f"Ticket {bowls.pk} was deleted"
         assert "One of the bowls cracked on the cart." in bell.body
