@@ -1,8 +1,8 @@
 {# Every answer on a ticket, plus the dates the system recorded. Expects ticket. #}
 <dl class="pl-kiln-answers">
     <dt>Firing</dt><dd>{{ ticket.get_firing_type_display|default:"Not answered" }}</dd>
+    <dt>Pieces</dt><dd>{{ ticket.piece_count }}</dd>
     <dt>Size</dt><dd>{{ ticket.size_label|default:"Not answered" }}</dd>
-    <dt>Quantity</dt><dd>{{ ticket.piece_count }}</dd>
     <dt>Clay</dt><dd>{{ ticket.clay_label|default:"Not answered" }}{% if ticket.clay_other and ticket.clay_other_cone6 %}<br>Confirmed safe to Cone 6{% endif %}</dd>
     {% if ticket.firing_type == "bisque" %}
     <dt>All walls under 1 inch</dt><dd>{% if ticket.walls_under_inch is None %}Not answered{% else %}{{ ticket.walls_under_inch|yesno:"Yes,No" }}{% endif %}</dd>
