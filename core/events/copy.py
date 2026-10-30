@@ -2273,14 +2273,31 @@ _CURATED: dict[str, EventCopy] = {
     # message itself is the content, so the email shows it whole (escaped, line breaks kept).
     # ticket_label is "Ticket 412"; ticket_summary is "Glaze · 3 pieces"; ticket_url opens
     # the ticket's messages on the members site, where a class guest can reach it too.
+    # photo_text / photo_block (crew only, #1026) say a photo is attached and link the ticket,
+    # never the image; both are blank for a message without one.
     "kiln.crew_replied": EventCopy(
-        placeholders=("author_name", "ticket_label", "ticket_summary", "reply_body", "ticket_url"),
+        placeholders=(
+            "author_name",
+            "ticket_label",
+            "ticket_summary",
+            "reply_body",
+            "ticket_url",
+            "photo_text",
+            "photo_block",
+        ),
         sample_context={
             "author_name": "Dana Reyes",
             "ticket_label": "Ticket 412",
             "ticket_summary": "Glaze · 3 pieces",
-            "reply_body": "Hi Maya! Quick check before these go in: is the Standard 266 the Cone 6 one?",
+            "reply_body": "Hi Maya! Quick check before these go in: is the bottom of the bowl glazed? See the photo.",
             "ticket_url": "https://pastlives.example/kiln/412/#kiln-messages",
+            "photo_text": (
+                "A photo is attached. Open the ticket to see it: https://pastlives.example/kiln/412/#kiln-messages\n\n"
+            ),
+            "photo_block": mark_safe(  # trusted app-built markup, like kiln.services._photo_lines builds it
+                '<p><a href="https://pastlives.example/kiln/412/#kiln-messages">'
+                "A photo is attached. Open the ticket to see it</a>.</p>"
+            ),
         },
         channels={
             Channel.IN_APP: ChannelCopy(
@@ -2293,12 +2310,14 @@ _CURATED: dict[str, EventCopy] = {
                     "{{ author_name }} from the Ceramics Guild kiln crew wrote on your "
                     "{{ ticket_label }} ({{ ticket_summary }}):\n\n"
                     "{{ reply_body }}\n\n"
+                    "{{ photo_text }}"
                     "Read it and reply: {{ ticket_url }}\n\nPast Lives Makerspace"
                 ),
                 body_html=(
                     "<p>{{ author_name }} from the Ceramics Guild kiln crew wrote on your "
                     '<strong><a href="{{ ticket_url }}">{{ ticket_label }}</a></strong> ({{ ticket_summary }}):</p>'
                     '<p style="white-space:pre-line;">{{ reply_body }}</p>'
+                    "{{ photo_block }}"
                     '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ ticket_url }}" '
                     'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
                     'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
@@ -2344,10 +2363,53 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # kiln.ticket_deleted — the crew or a site admin deleted a maker's ticket with a note
+    # (#1025), so the copy names the person and never calls an admin crew. The ticket is gone,
+    # so nothing links to it: ticket_description is the piece in words ("Glaze · 3 pieces ·
+    # Standard 266"), note is the reason given, and tickets_url opens My Tickets.
+    "kiln.ticket_deleted": EventCopy(
+        placeholders=("author_name", "ticket_label", "ticket_description", "note", "tickets_url"),
+        sample_context={
+            "author_name": "Dana Reyes",
+            "ticket_label": "Ticket 412",
+            "ticket_description": "Glaze · 3 pieces · Standard 266",
+            "note": "One of the bowls cracked on the cart, so I took the ticket down. Sorry, Maya!",
+            "tickets_url": "https://pastlives.example/kiln/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ ticket_label }} was deleted",
+                body_text="{{ ticket_description }}. {{ author_name }}: {{ note }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Your kiln {{ ticket_label }} was deleted",
+                body_text=(
+                    "{{ author_name }} deleted your kiln "
+                    "{{ ticket_label }} ({{ ticket_description }}) and said why:\n\n"
+                    "{{ note }}\n\n"
+                    "The ticket, its photos and its messages are gone. If the piece still needs a firing, "
+                    "start a new ticket from My Tickets: {{ tickets_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>{{ author_name }} deleted your kiln "
+                    "<strong>{{ ticket_label }}</strong> ({{ ticket_description }}) and said why:</p>"
+                    '<p style="white-space:pre-line;">{{ note }}</p>'
+                    "<p>The ticket, its photos and its messages are gone. If the piece still needs a firing, "
+                    "start a new ticket from My Tickets.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ tickets_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Open My Tickets</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     # kiln.ready_for_pickup — one notice per maker per unloaded firing (#691 part 3). Built by
     # kiln.services.PickupNotice: headline says ready, back in the queue, or some of each;
     # summary is the bell's line; pieces_text / pieces_block list every piece with the crew's
-    # note under one that did not come out right (pieces_block is escaped where it is built).
+    # note under one that did not come out right, and a link to the ticket when the note has a
+    # photo (#1026) (pieces_block is escaped where it is built).
     "kiln.ready_for_pickup": EventCopy(
         placeholders=(
             "headline",

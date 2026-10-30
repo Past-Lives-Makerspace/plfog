@@ -47,5 +47,7 @@
         {% if ticket.is_editable %}<a href="{% url 'kiln:edit' ticket.pk %}" class="hub-btn hub-btn--primary pl-kiln-new"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-pencil"/></svg>{% if ticket.status == "draft" %}Finish and submit{% else %}Change answers{% endif %}</a>{% endif %}
         <a href="{% url 'kiln:new' %}?from={{ ticket.pk }}" class="hub-btn hub-btn--ghost pl-kiln-new"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-copy"/></svg>Make another like this</a>
     </div>
+
+    {% include "kiln/partials/_delete_ticket.html" %}
 </div>
 {% endblock %}

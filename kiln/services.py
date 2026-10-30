@@ -8,7 +8,8 @@ Tickets tab, or a guest's ``/kiln/``) and the crew's Unload, Kiln Log and firing
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -22,9 +23,18 @@ from django.utils.safestring import SafeString
 
 from kiln.access import can_file_tickets, can_run_kiln, is_crew, kiln_home_url, kiln_is_open, maker_type_for
 from kiln.forms import ACTION_COVER, ACTION_REMOVE, ExceptionNote, KilnTicketForm
-from kiln.models import KilnFiring, KilnReply, KilnTicket, member_name
+from kiln.models import (
+    KilnFiring,
+    KilnFlag,
+    KilnReply,
+    KilnTicket,
+    delete_files_after_commit,
+    delete_files_now,
+    member_name,
+)
 
 if TYPE_CHECKING:
+    from django.core.files.uploadedfile import UploadedFile
     from django.db.models import QuerySet
 
     from membership.models import Guild, Member
@@ -35,6 +45,20 @@ HISTORY_PAGE = 10
 
 class TicketNotEditable(Exception):
     """The crew loaded the piece while the maker was editing it, so the edit is refused."""
+
+
+class TicketDeleted(Exception):
+    """The ticket was deleted (by its maker or the crew) before this request got to it."""
+
+
+def _lock_ticket(ticket_pk: int) -> None:
+    """Lock a ticket's row for the rest of the transaction, so a delete cannot land mid-write.
+
+    Raises:
+        TicketDeleted: The ticket is gone.
+    """
+    if not list(KilnTicket.objects.select_for_update().filter(pk=ticket_pk).values_list("pk", flat=True)):
+        raise TicketDeleted(ticket_pk)
 
 
 def save_ticket(form: KilnTicketForm, maker: Member) -> KilnTicket:
@@ -57,6 +81,8 @@ def save_ticket(form: KilnTicketForm, maker: Member) -> KilnTicket:
 
     Raises:
         TicketNotEditable: The ticket was loaded since the maker opened it.
+        TicketDeleted: The ticket was deleted since the maker opened it (a save would
+            otherwise write it back as a new row).
     """
     with transaction.atomic():
         ticket = form.save(commit=False)
@@ -64,6 +90,8 @@ def save_ticket(form: KilnTicketForm, maker: Member) -> KilnTicket:
             ticket.maker = maker
         else:
             status = list(KilnTicket.objects.select_for_update().filter(pk=ticket.pk).values_list("status", flat=True))
+            if not status:
+                raise TicketDeleted(ticket.pk)
             if status[0] not in (KilnTicket.Status.DRAFT, KilnTicket.Status.SUBMITTED):
                 raise TicketNotEditable(ticket.pk)
         ticket.maker_type = maker_type_for(ticket.maker)
@@ -143,6 +171,7 @@ class LoadResult:
     firing: KilnFiring | None
     loaded: int
     skipped: int
+    deleted: int = 0
 
     @property
     def message(self) -> str:
@@ -154,10 +183,20 @@ class LoadResult:
                 f" {self.skipped} {noun} left out: already loaded by someone else, changed by the maker, "
                 "or not this firing's type."
             )
+        skipped += deleted_note(self.deleted)
         if self.firing is None:
             return f"Nothing was loaded.{skipped}"
         noun = "ticket" if self.loaded == 1 else "tickets"
         return f"{self.firing.name} is loaded with {self.loaded} {noun}.{skipped}"
+
+
+def deleted_note(count: int) -> str:
+    """The toast's line for tickets deleted while the page was open, or blank when none were."""
+    if not count:
+        return ""
+    if count == 1:
+        return " 1 ticket was deleted while this page was open, so it was left out."
+    return f" {count} tickets were deleted while this page was open, so they were left out."
 
 
 def load_kiln(*, firing_type: str, ticket_pks: Iterable[int], by: Member) -> LoadResult:
@@ -166,8 +205,9 @@ def load_kiln(*, firing_type: str, ticket_pks: Iterable[int], by: Member) -> Loa
     Every ticked row is locked before it is read, so two crew members confirming at once
     cannot both load a piece: the second one waits, then sees it already loaded and skips
     it. A ticket the maker changed to the other firing type, or that is no longer in the
-    queue, is skipped the same way. No firing is made when nothing goes in. Makers are not
-    notified; their ticket simply reads In the kiln.
+    queue, is skipped the same way, and a ticket deleted since the page opened is counted
+    apart. No firing is made when nothing goes in. Makers are not notified; their ticket
+    simply reads In the kiln.
 
     Args:
         firing_type: ``KilnTicket.FiringType`` of the firing.
@@ -175,34 +215,102 @@ def load_kiln(*, firing_type: str, ticket_pks: Iterable[int], by: Member) -> Loa
         by: The crew member confirming the load.
 
     Returns:
-        The firing (or None) and how many tickets went in and were left out.
+        The firing (or None), how many tickets went in, were left out, and were deleted.
     """
     wanted = set(ticket_pks)
     with transaction.atomic():
-        locked = KilnTicket.objects.select_for_update().filter(pk__in=wanted).order_by("pk")
+        locked = list(KilnTicket.objects.select_for_update().filter(pk__in=wanted).order_by("pk"))
+        deleted = len(wanted) - len(locked)
         going_in = [t.pk for t in locked if t.status == KilnTicket.Status.SUBMITTED and t.firing_type == firing_type]
+        skipped = len(locked) - len(going_in)
         if not going_in:
-            return LoadResult(firing=None, loaded=0, skipped=len(wanted))
+            return LoadResult(firing=None, loaded=0, skipped=skipped, deleted=deleted)
         firing = KilnFiring.start(firing_type, by)
         KilnTicket.objects.filter(pk__in=going_in).update(
             status=KilnTicket.Status.LOADED, firing=firing, updated_at=timezone.now()
         )
-    return LoadResult(firing=firing, loaded=len(going_in), skipped=len(wanted) - len(going_in))
+    return LoadResult(firing=firing, loaded=len(going_in), skipped=skipped, deleted=deleted)
 
 
 # ---- replies ---------------------------------------------------------------------------
 
 
-def post_reply(ticket: KilnTicket, author: Member, body: str) -> KilnReply:
+def post_reply(ticket: KilnTicket, author: Member, body: str, photo: UploadedFile | None = None) -> KilnReply:
     """Add a message to a ticket's thread and tell the other side.
 
     The maker writing tells the crew (the kiln guild's lead and staff, minus the author when
     the maker is crew too); anyone else writing is the crew and tells the maker, who may be
     a class guest. Bell, push and email follow each person's own switches. No Discord.
+
+    The crew may attach one photo (#1026), checked by ``kiln.forms.ReplyForm`` and resized
+    like a ticket photo. A photo from the maker is never stored, whatever was posted.
+
+    The ticket row is locked while the message is written, so a delete committing at the
+    same moment either waits or has already won; the photo's files are then removed again.
+
+    Raises:
+        TicketDeleted: The ticket was deleted since the page opened; nothing is written or sent.
     """
-    reply = KilnReply.objects.create(ticket=ticket, author=author, body=body)
+    reply = KilnReply(ticket=ticket, author=author, body=body)
+    with _photo_files_kept_on_success([reply]):
+        if photo is not None and author.pk != ticket.maker_id:
+            reply.attach_photo(photo)
+        with transaction.atomic():
+            _lock_ticket(ticket.pk)
+            reply.save()
     _notify_reply(reply)
     return reply
+
+
+@contextmanager
+def _photo_files_kept_on_success(replies: list[KilnReply]) -> Iterator[None]:
+    """Remove the photo files written for ``replies`` when the block fails, so no file is left without its row."""
+    try:
+        yield
+    except BaseException:
+        delete_files_now([file for reply in replies for file in reply.photo_files])
+        raise
+
+
+PHOTO_ATTACHED = "A photo is attached. Open the ticket to see it"
+
+
+def _photo_lines(reply: KilnReply, url: str) -> dict[str, object]:
+    """The crew message email's photo line (#1026): blank without a photo, else a line linking the ticket.
+
+    The email never carries the image itself, only the link to the ticket where it shows.
+    """
+    if not reply.has_photo:
+        return {"photo_text": "", "photo_block": SafeString("")}
+    return {
+        "photo_text": f"{PHOTO_ATTACHED}: {url}\n\n",
+        "photo_block": format_html('<p><a href="{}">{}</a>.</p>', url, PHOTO_ATTACHED),
+    }
+
+
+def add_crew_flag(ticket: KilnTicket, note: str, by: Member) -> KilnFlag:
+    """The crew flag a ticket by hand, under the ticket's row lock.
+
+    Raises:
+        TicketDeleted: The ticket was deleted since the page opened.
+    """
+    with transaction.atomic():
+        _lock_ticket(ticket.pk)
+        return ticket.add_flag(note, by=by)
+
+
+def clear_flag(*, ticket_pk: int, flag_pk: int, by: Member) -> KilnFlag:
+    """The crew clear a flag on a ticket, under the ticket's row lock.
+
+    Raises:
+        TicketDeleted: The ticket (and so the flag) was deleted since the page opened.
+        KilnFlag.DoesNotExist: The ticket exists but has no such flag.
+    """
+    with transaction.atomic():
+        _lock_ticket(ticket_pk)
+        flag = KilnFlag.objects.get(pk=flag_pk, ticket_id=ticket_pk)
+        flag.clear(by=by)
+    return flag
 
 
 def _notify_reply(reply: KilnReply) -> None:
@@ -217,6 +325,7 @@ def _notify_reply(reply: KilnReply) -> None:
         "ticket_summary": ticket.summary,
         "reply_body": reply.body,
         "ticket_url": ticket.member_url,
+        **_photo_lines(reply, ticket.member_url),
     }
     # The period is the message itself: each one notifies once, and a retry never twice.
     period = f"reply-{reply.pk}"
@@ -239,6 +348,83 @@ def _notify_reply(reply: KilnReply) -> None:
         period=period,
         recipient_user_ids=crew_user_ids,
     )
+
+
+# ---- deleting a ticket -----------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DeletedTicket:
+    """What Delete ticket did: which ticket went, whose it was, and whether the maker was told."""
+
+    pk: int
+    maker_name: str
+    notified: bool
+
+    @property
+    def message(self) -> str:
+        """The toast the person who deleted it sees."""
+        if self.notified:
+            return f"Ticket {self.pk} is deleted. {self.maker_name} got your note."
+        return f"Ticket {self.pk} is deleted."
+
+
+def delete_ticket(*, ticket_pk: int, by: Member, note: str = "") -> DeletedTicket:
+    """Delete a ticket at any status, with its photos, flags and replies, and tell its maker when the crew did it.
+
+    The ticket row is locked first (as :func:`load_kiln` and :func:`unload_kiln` lock it), so a
+    load or an unload that already holds the row finishes before the delete reads it, and one
+    arriving after finds it gone and skips it. The photo files go once the delete commits
+    (:meth:`KilnTicket.delete_with_photos`). The firing the piece was in is kept.
+
+    A maker deleting their own ticket (crew or not) is not notified. Anyone else is the crew
+    (the view lets only the crew and site admins reach another maker's ticket), and the maker
+    gets one ``kiln.ticket_deleted`` notice with ``note`` and a description of the piece, since
+    the ticket is gone.
+
+    Args:
+        ticket_pk: The ticket to delete.
+        by: Who is deleting it.
+        note: Why, for the maker; required by the form when ``by`` is not the maker.
+
+    Returns:
+        The deleted ticket's number, maker and whether the maker was told.
+
+    Raises:
+        TicketDeleted: Someone else deleted it first.
+    """
+    with transaction.atomic():
+        _lock_ticket(ticket_pk)
+        ticket = KilnTicket.objects.select_related("clay", "maker__user").get(pk=ticket_pk)
+        maker, description = ticket.maker, ticket.description
+        ticket.delete_with_photos()
+    notified = False
+    if maker.pk != by.pk:
+        notified = _notify_deleted(ticket_pk, maker, by, description, note)
+    return DeletedTicket(pk=ticket_pk, maker_name=member_name(maker), notified=notified)
+
+
+def _notify_deleted(ticket_pk: int, maker: Member, by: Member, description: str, note: str) -> bool:
+    """Tell the maker the crew deleted their ticket, and say whether it reached anyone."""
+    from core.events.emit import emit
+    from core.events.registry import KILN_TICKET_DELETED
+
+    tickets_url = f"{settings.MEMBER_BASE_URL}{reverse('kiln:mine')}"
+    sent = emit(
+        KILN_TICKET_DELETED,
+        context={
+            "user": maker.user,
+            "author_name": member_name(by),
+            "ticket_label": f"Ticket {ticket_pk}",
+            "ticket_description": description,
+            "note": note,
+            "tickets_url": tickets_url,
+        },
+        url=tickets_url,
+        # The ticket is gone, so its number is the period: one notice per ticket.
+        period=f"ticket-{ticket_pk}",
+    )
+    return sent.recipient_count > 0
 
 
 # ---- unloading -------------------------------------------------------------------------
@@ -290,6 +476,7 @@ class UnloadResult:
     fired: int
     returned: int
     notified: int
+    deleted: int = 0
 
     @property
     def message(self) -> str:
@@ -297,10 +484,12 @@ class UnloadResult:
         fired = f"{self.fired} ticket{'' if self.fired == 1 else 's'} ready for pickup"
         returned = f", {self.returned} back in the queue" if self.returned else ""
         makers = f"{self.notified} maker{'' if self.notified == 1 else 's'} notified"
-        return f"{self.firing.name} is unloaded: {fired}{returned}. {makers}."
+        return f"{self.firing.name} is unloaded: {fired}{returned}. {makers}.{deleted_note(self.deleted)}"
 
 
-def unload_kiln(*, firing_pk: int, exceptions: dict[int, ExceptionNote], by: Member) -> UnloadResult:
+def unload_kiln(
+    *, firing_pk: int, exceptions: dict[int, ExceptionNote], by: Member, shown: Iterable[int] = ()
+) -> UnloadResult:
     """Unload a firing: mark its tickets fired or send them back, record the notes, tell each maker once.
 
     One transaction locks the firing row first, so a second crew member pressing Mark fired
@@ -313,10 +502,14 @@ def unload_kiln(*, firing_pk: int, exceptions: dict[int, ExceptionNote], by: Mem
     notification of its own: the maker reads it in the one ready for pickup notice
     (:func:`_notify_makers`), sent after the transaction commits.
 
+    A ticket deleted while the page was open is simply not in the firing any more: it is
+    skipped and counted in the toast. A firing whose tickets were all deleted still unloads.
+
     Args:
         firing_pk: The firing being unloaded.
         exceptions: The unticked tickets by pk. A pk that is not in the firing is ignored.
         by: The crew member unloading.
+        shown: The tickets the Unload page listed, to count the ones deleted since.
 
     Returns:
         How many tickets were fired and sent back, and how many makers were notified.
@@ -325,39 +518,55 @@ def unload_kiln(*, firing_pk: int, exceptions: dict[int, ExceptionNote], by: Mem
         FiringAlreadyUnloaded: The firing was unloaded before this request got the lock.
         KilnFiring.DoesNotExist: No such firing.
     """
-    with transaction.atomic():
-        firing = KilnFiring.objects.select_for_update().get(pk=firing_pk)
-        if firing.is_unloaded:
-            raise FiringAlreadyUnloaded(_with_unloader(firing))
-        # Lock the rows on their own: a select_related join through the maker's nullable user
-        # would be an outer join, which PostgreSQL refuses to lock.
-        tickets = list(firing.tickets.select_for_update().filter(status=KilnTicket.Status.LOADED).order_by("pk"))
-        now = timezone.now()
-        notes = [exceptions[t.pk] for t in tickets if t.pk in exceptions]
-        returned = [n.ticket_pk for n in notes if n.back_to_queue]
-        fired = [t.pk for t in tickets if t.pk not in returned]
-        KilnTicket.objects.filter(pk__in=fired).update(status=KilnTicket.Status.FIRED, fired_at=now, updated_at=now)
-        KilnTicket.objects.filter(pk__in=returned).update(
-            status=KilnTicket.Status.SUBMITTED, firing=None, updated_at=now
-        )
-        replies = KilnReply.objects.bulk_create(
-            [
-                KilnReply(
-                    ticket_id=n.ticket_pk,
-                    author=by,
-                    body=n.note,
-                    firing=firing,
-                    what_happened=n.what_happened,
-                    outcome=n.outcome,
-                )
-                for n in notes
-            ]
-        )
-        firing.unloaded_by = by
-        firing.unloaded_at = now
-        firing.save(update_fields=["unloaded_by", "unloaded_at"])
+    # Photos are resized and written before any lock is taken, so a slow resize never holds the
+    # firing and its tickets (#1026). Every file written here is removed if the unload is refused
+    # or rolls back, and a photo whose ticket left the firing meanwhile is removed afterwards.
+    written: list[KilnReply] = []
+    with _photo_files_kept_on_success(written):
+        photos: dict[int, KilnReply] = {}
+        for pk, exception in exceptions.items():
+            if exception.photo is not None:
+                photos[pk] = KilnReply()
+                written.append(photos[pk])
+                photos[pk].attach_photo(exception.photo)
+        with transaction.atomic():
+            firing = KilnFiring.objects.select_for_update().get(pk=firing_pk)
+            if firing.is_unloaded:
+                raise FiringAlreadyUnloaded(_with_unloader(firing))
+            # Lock the rows on their own: a select_related join through the maker's nullable user
+            # would be an outer join, which PostgreSQL refuses to lock.
+            tickets = list(firing.tickets.select_for_update().filter(status=KilnTicket.Status.LOADED).order_by("pk"))
+            shown_pks = set(shown)
+            deleted = len(shown_pks - set(KilnTicket.objects.filter(pk__in=shown_pks).values_list("pk", flat=True)))
+            now = timezone.now()
+            notes = [exceptions[t.pk] for t in tickets if t.pk in exceptions]
+            returned = [n.ticket_pk for n in notes if n.back_to_queue]
+            fired = [t.pk for t in tickets if t.pk not in returned]
+            KilnTicket.objects.filter(pk__in=fired).update(status=KilnTicket.Status.FIRED, fired_at=now, updated_at=now)
+            KilnTicket.objects.filter(pk__in=returned).update(
+                status=KilnTicket.Status.SUBMITTED, firing=None, updated_at=now
+            )
+            replies: list[KilnReply] = []
+            for n in notes:
+                # The note takes the photo already stored for it, if any (an unticked piece's only).
+                reply = photos.pop(n.ticket_pk, None) or KilnReply()
+                reply.ticket_id = n.ticket_pk
+                reply.author = by
+                reply.body = n.note
+                reply.firing = firing
+                reply.what_happened = n.what_happened
+                reply.outcome = n.outcome
+                replies.append(reply)
+            KilnReply.objects.bulk_create(replies)
+            firing.unloaded_by = by
+            firing.unloaded_at = now
+            firing.save(update_fields=["unloaded_by", "unloaded_at"])
     notified = _notify_makers(firing, [t.pk for t in tickets], {r.ticket_id: r for r in replies}, by)
-    return UnloadResult(firing=firing, fired=len(fired), returned=len(returned), notified=notified)
+    # A photo for a ticket no longer in the firing (deleted or moved meanwhile) has no note to go
+    # on. The unload has committed and the makers are told, so a storage error here is logged,
+    # never raised (on_commit runs it at once, robust, outside a transaction).
+    delete_files_after_commit([file for reply in photos.values() for file in reply.photo_files])
+    return UnloadResult(firing=firing, fired=len(fired), returned=len(returned), notified=notified, deleted=deleted)
 
 
 def _with_unloader(firing: KilnFiring) -> KilnFiring:
@@ -416,7 +625,8 @@ class PickupNotice:
             verb = "was" if len(self.returned) == 1 else "were"
             parts.append(f"{_ticket_numbers(self.returned)} {verb} not fired and {verb} put back in the queue.")
         if self.notes:
-            parts.append("The kiln crew left you a note.")
+            photo = " with a photo" if any(note.has_photo for note in self.notes.values()) else ""
+            parts.append(f"The kiln crew left you a note{photo}.")
         return " ".join(parts)
 
     def _outcome(self, ticket: KilnTicket) -> str:
@@ -427,6 +637,10 @@ class PickupNotice:
         if note is None:
             return ""
         return f"{note.get_what_happened_display()}. {member_name(self.unloaded_by)}: {note.body}"
+
+    def _has_photo(self, ticket: KilnTicket) -> bool:
+        note = self.notes.get(ticket.pk)
+        return note is not None and note.has_photo
 
     @property
     def tickets(self) -> list[KilnTicket]:
@@ -441,6 +655,8 @@ class PickupNotice:
             note = self._note_text(ticket)
             if note:
                 lines.append(f"  {note}")
+            if self._has_photo(ticket):
+                lines.append(f"  {PHOTO_ATTACHED}: {ticket_url(ticket)}")
         return "\n".join(lines)
 
     @property
@@ -450,7 +666,7 @@ class PickupNotice:
             "",
             '<tr><td style="padding:12px;border-top:1px solid #e3e7ec;">'
             '<a href="{}" style="color:#092E4C;font-weight:700;">{}</a> '
-            '<span style="font-size:14px;color:#5B6B77;">{} · {}</span>{}</td></tr>',
+            '<span style="font-size:14px;color:#5B6B77;">{} · {}</span>{}{}</td></tr>',
             (
                 (
                     ticket_url(ticket),
@@ -459,6 +675,9 @@ class PickupNotice:
                     self._outcome(ticket),
                     format_html('<br><span style="white-space:pre-line;">{}</span>', self._note_text(ticket))
                     if ticket.pk in self.notes
+                    else "",
+                    format_html('<br><a href="{}" style="color:#092E4C;">{}</a>.', ticket_url(ticket), PHOTO_ATTACHED)
+                    if self._has_photo(ticket)
                     else "",
                 )
                 for ticket in self.tickets

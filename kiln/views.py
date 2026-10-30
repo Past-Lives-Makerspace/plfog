@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import Http404, HttpRequest, HttpResponse
@@ -17,6 +18,7 @@ from kiln.forms import (
     ACTION_COVER,
     ACTION_DRAFT,
     ACTION_REMOVE,
+    DeleteTicketForm,
     KilnTicketForm,
     ListOptionForm,
     LoadKilnForm,
@@ -27,7 +29,11 @@ from kiln.forms import (
 from kiln.models import ClayOption, GlazeOption, KilnFiring, KilnFlag, KilnTicket, ListOption, ListOptionNameTaken
 from kiln.services import (
     FiringAlreadyUnloaded,
+    TicketDeleted,
     TicketNotEditable,
+    add_crew_flag,
+    clear_flag,
+    delete_ticket,
     firing_sheet,
     in_kiln_firings,
     kiln_home,
@@ -127,6 +133,8 @@ def _handle_form(request: HttpRequest, ticket: KilnTicket | None, copied_from: K
                 saved = save_ticket(form, member)
             except TicketNotEditable:
                 return _already_loaded(request, instance)
+            except TicketDeleted:
+                return _already_deleted(request, instance.pk)
             return _after_save(request, form, saved, was_draft)
     else:
         initial = copied_from.copy_initial() if copied_from is not None else None
@@ -164,6 +172,11 @@ def _already_loaded(request: HttpRequest, ticket: KilnTicket) -> HttpResponse:
     return redirect("kiln:detail", pk=ticket.pk)
 
 
+def _already_deleted(request: HttpRequest, pk: int) -> HttpResponse:
+    messages.info(request, f"Ticket {pk} was deleted, so nothing was saved.")
+    return redirect(KilnNav(_member(request)).home_url)
+
+
 def _visible_ticket(member: Member, pk: int, *, crew: bool) -> KilnTicket:
     """A ticket the viewer may open (any, for the crew; their own, for a maker), or a 404."""
     tickets = (
@@ -198,12 +211,26 @@ def ticket_detail(request: HttpRequest, pk: int) -> HttpResponse:
         "photos": list(ticket.photos.all()),
         "replies": list(ticket.replies.all()),
         "viewer": member,
-        "reply_form": ReplyForm(),
+        # A message refused a moment ago (a photo that did not pass) comes back in the box.
+        "reply_form": ReplyForm(
+            initial={"body": request.session.pop(_unsent_key(ticket), "")}, takes_photo=_takes_photo(ticket, member)
+        ),
+        "photo_max_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
     }
     if crew:
         context["flag_form"] = ManualFlagForm()
         return render(request, "kiln/ticket_detail_crew.html", context)
     return render(request, "kiln/ticket_detail.html", context)
+
+
+def _takes_photo(ticket: KilnTicket, member: Member) -> bool:
+    """Only the crew writing on another maker's ticket may attach a photo (#1026); the maker's box is text only."""
+    return ticket.maker_id != member.pk
+
+
+def _unsent_key(ticket: KilnTicket) -> str:
+    """Where a refused message waits in the session for the ticket page to put it back in the box."""
+    return f"kiln-unsent-{ticket.pk}"
 
 
 def _to_messages(ticket: KilnTicket) -> HttpResponse:
@@ -218,13 +245,53 @@ def ticket_reply(request: HttpRequest, pk: int) -> HttpResponse:
     """Post to a ticket's thread: the maker on their own ticket, the crew on any."""
     member = _member(request)
     ticket = _visible_ticket(member, pk, crew=can_run_kiln(member))
-    form = ReplyForm(request.POST)
+    form = ReplyForm(request.POST, request.FILES, takes_photo=_takes_photo(ticket, member))
     if not form.is_valid():
         messages.error(request, form.first_error)
+        # Keep what was typed: the page fills the box again, so only the photo needs picking again.
+        request.session[_unsent_key(ticket)] = request.POST.get("body", "")
         return _to_messages(ticket)
-    post_reply(ticket, member, form.cleaned_data["body"])
+    try:
+        post_reply(ticket, member, form.cleaned_data["body"], photo=form.attached_photo)
+    except TicketDeleted:
+        return _deleted_meanwhile(request, ticket, "your message was not sent")
     messages.success(request, "Message sent.")
     return _to_messages(ticket)
+
+
+def _deleted_meanwhile(request: HttpRequest, ticket: KilnTicket, what: str) -> HttpResponse:
+    """The ticket was deleted while the page was open: say so, and go where the ticket would have been."""
+    member = _member(request)
+    messages.info(request, f"Ticket {ticket.pk} was deleted, so {what}.")
+    # A maker goes back to My Tickets; the crew on someone else's ticket to the queue.
+    return redirect(KilnNav(member).home_url if ticket.maker_id == member.pk else "kiln:load")
+
+
+@login_required
+@kiln_open_required
+@maker_required
+@require_POST
+def ticket_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    """Delete a ticket at any status: the maker their own, the crew and site admins any.
+
+    Another maker's ticket answers 404, like every page of it. Deleting someone else's ticket
+    needs a note, which reaches its maker (:func:`kiln.services.delete_ticket`).
+    """
+    member = _member(request)
+    ticket = get_object_or_404(KilnTicket.objects.visible_to(member, crew=can_run_kiln(member)), pk=pk)
+    own = ticket.maker_id == member.pk
+    form = DeleteTicketForm(request.POST, needs_note=not own)
+    if not form.is_valid():
+        messages.error(request, form.first_error)
+        return redirect("kiln:detail", pk=ticket.pk)
+    try:
+        deleted = delete_ticket(ticket_pk=ticket.pk, by=member, note=form.cleaned_data["note"].strip())
+    except TicketDeleted:
+        messages.info(request, f"Ticket {ticket.pk} was already deleted.")
+    else:
+        messages.success(request, deleted.message)
+    # The crew deleting a maker's ticket go back to the queue they came from; a maker to My Tickets.
+    return redirect(KilnNav(member).home_url if own else "kiln:load")
 
 
 @login_required
@@ -238,7 +305,10 @@ def flag_add(request: HttpRequest, pk: int) -> HttpResponse:
     if not form.is_valid():
         messages.error(request, form.first_error)
     else:
-        ticket.add_flag(form.cleaned_data["note"], by=_member(request))
+        try:
+            add_crew_flag(ticket, form.cleaned_data["note"], by=_member(request))
+        except TicketDeleted:
+            return _deleted_meanwhile(request, ticket, "the flag was not added")
         messages.success(request, "Flag added. Only the crew can see it.")
     return redirect("kiln:detail", pk=ticket.pk)
 
@@ -249,8 +319,14 @@ def flag_add(request: HttpRequest, pk: int) -> HttpResponse:
 @require_POST
 def flag_clear(request: HttpRequest, pk: int, flag_pk: int) -> HttpResponse:
     """The crew checked a flag, automatic or by hand, and clear it."""
-    flag = get_object_or_404(KilnFlag, pk=flag_pk, ticket_id=pk)
-    flag.clear(by=_member(request))
+    flag = get_object_or_404(KilnFlag.objects.select_related("ticket"), pk=flag_pk, ticket_id=pk)
+    try:
+        clear_flag(ticket_pk=pk, flag_pk=flag.pk, by=_member(request))
+    except TicketDeleted:
+        return _deleted_meanwhile(request, flag.ticket, "the flag was not cleared")
+    except KilnFlag.DoesNotExist:
+        # A maker's edit dropped the automatic flag while the page was open.
+        raise Http404("No such flag.") from None
     messages.success(request, "Flag cleared.")
     return redirect("kiln:detail", pk=pk)
 
@@ -271,7 +347,7 @@ def load(request: HttpRequest) -> HttpResponse:
         firing_type = form.cleaned_data["firing_type"]
         result = load_kiln(
             firing_type=firing_type,
-            ticket_pks=[t.pk for t in form.cleaned_data["tickets"]],
+            ticket_pks=form.cleaned_data["tickets"],
             by=_member(request),
         )
         if result.firing is None:
@@ -318,16 +394,26 @@ def unload(request: HttpRequest, pk: int) -> HttpResponse:
         messages.info(request, f"{firing.name} is already unloaded.")
         return redirect("kiln:firing", pk=firing.pk)
     tickets = unload_sheet(firing)
-    form = UnloadForm(request.POST or None, tickets=tickets)
-    if request.method == "POST" and form.is_valid():
+    # Bound on the method, not on the data: a firing whose tickets were all deleted posts no rows.
+    posted = request.method == "POST"
+    form = UnloadForm(request.POST if posted else None, request.FILES if posted else None, tickets=tickets)
+    if posted and form.is_valid():
         try:
-            result = unload_kiln(firing_pk=firing.pk, exceptions=form.exception_notes, by=_member(request))
+            result = unload_kiln(
+                firing_pk=firing.pk, exceptions=form.exception_notes, by=_member(request), shown=form.shown
+            )
         except FiringAlreadyUnloaded as refused:
             messages.error(request, refused.message)
             return redirect("kiln:firing", pk=firing.pk)
         messages.success(request, result.message)
         return redirect("kiln:log")
-    context = {"firing": firing, "form": form, "kiln_tab": "unload", **_crew_tabs()}
+    context = {
+        "firing": firing,
+        "form": form,
+        "kiln_tab": "unload",
+        "photo_max_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
+        **_crew_tabs(),
+    }
     return render(request, "kiln/unload.html", context)
 
 

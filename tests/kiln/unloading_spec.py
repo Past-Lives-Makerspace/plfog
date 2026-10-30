@@ -370,8 +370,10 @@ def describe_the_unload_page():
     def it_refuses_a_ticked_ticket_from_another_firing(crew, crew_client, maker, kiln_guild):
         ticket = _waiting(maker)
         firing = _loaded(crew, ticket)
+        elsewhere = _waiting(maker)
+        _loaded(crew, elsewhere)
 
-        response = crew_client.post(reverse("kiln:unload", args=[firing.pk]), {"fired": [ticket.pk, 99999]})
+        response = crew_client.post(reverse("kiln:unload", args=[firing.pk]), {"fired": [ticket.pk, elsewhere.pk]})
 
         assert "A ticked ticket is not in this firing." in response.content.decode()
         assert not KilnFiring.objects.get(pk=firing.pk).is_unloaded
