@@ -489,6 +489,23 @@ def describe_hub_compose_send():
         client.post(reverse("hub_compose_send"), _valid_send_data(audience=f"guild:{other.pk}"))
         assert AnnouncementDraft.objects.filter(sent_at__isnull=False).count() == 4
 
+    def it_sends_a_resumed_draft_whose_earlier_send_died_mid_way(client: Client):
+        guild = GuildFactory()
+        user, _member = _login_lead(client, guild)
+        # A worker killed mid-send leaves the attempt counted and the row unsent: resuming it must still send.
+        stranded = AnnouncementDraftFactory(
+            author=user, audience=AnnouncementDraft.Audience.GUILD, guild=guild, send_attempts=1
+        )
+        assert stranded.sending_in_request
+        response = client.post(
+            reverse("hub_compose_send"), _valid_send_data(audience=f"guild:{guild.pk}", draft_pk=str(stranded.pk))
+        )
+        assert response.status_code == 302
+        assert response.url == _sent_tab()
+        stranded.refresh_from_db()
+        assert (stranded.sent_at is not None, stranded.send_attempts) == (True, 1)
+        assert GuildAnnouncement.objects.count() == 1
+
     def it_sends_a_resumed_draft_posted_twice_once(client: Client, mailoutbox):
         guild = GuildFactory()
         user, _member = _login_lead(client, guild)

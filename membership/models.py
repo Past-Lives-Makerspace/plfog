@@ -6987,10 +6987,12 @@ class AnnouncementDraft(models.Model):
     def sending_in_request(self) -> bool:
         """Whether a guild or class send of this row is running inside a web request right now.
 
-        :meth:`send_in_request` counts ``send_attempts`` up before its fan-out and :meth:`send` never
-        touches the count, so an unsent, unqueued row that is not given up on and carries an attempt
-        is one whose send started and has not finished: the state a repeat of the same compose meets
-        when it arrives seconds behind the first (#1038).
+        :meth:`send_in_request` counts ``send_attempts`` up before its fan-out, :meth:`send` never
+        touches the count and :meth:`save_from_form` starts it afresh, so an unsent, unqueued row
+        that is not given up on and carries an attempt is one whose send started and has not
+        finished: the state a repeat of the same compose meets when it arrives seconds behind the
+        first (#1038). A send whose worker was killed leaves the same state until the draft is
+        saved over, which is why only the window bounded twin lookup acts on it for a fresh compose.
         """
         return self.state == self.DraftState.DRAFT and self.send_attempts > 0
 
@@ -7608,6 +7610,10 @@ class AnnouncementDraft(models.Model):
         # The form offers it only to a sender who linked Discord; anyone else saves it off.
         draft.discord_post_as_me = cd.get("discord_post_as_me", False)
         draft.expires_at = cd.get("expires_at")
+        # A draft saved over starts its send attempts afresh, as queueing it again does
+        # (:meth:`queue_send`): a count left by a send whose worker was killed mid-way
+        # (:meth:`send_in_request`) must not refuse the resend of the draft it stranded.
+        draft.send_attempts = 0
         if draft.audience == cls.Audience.GUILD and draft.guild is None:
             raise ValidationError("Choose a guild for this announcement.")
         if draft.audience == cls.Audience.CLASS and draft.class_offering is None:
@@ -7952,8 +7958,11 @@ class AnnouncementDraft(models.Model):
         the fan-out, as :meth:`send_from_queue` counts the job's attempts, and
         :attr:`sending_in_request` reads it back. ``send_requested_at`` is not used for this: it
         would hand the row to ``send_queued_announcements`` and show it as queued. A failure that
-        reaches Python puts the count back, so the row is the plain draft it was; a worker killed
-        outright leaves it, which matters only within :data:`ANNOUNCEMENT_RESEND_WINDOW`.
+        reaches Python puts the count back, so the row is the plain draft it was. A worker killed
+        outright leaves it: the row then refuses a fresh compose that matches it, which
+        :meth:`AnnouncementDraftQuerySet.recent_twin` bounds to :data:`ANNOUNCEMENT_RESEND_WINDOW`,
+        and nothing else, because every save over the row (:meth:`save_from_form`, which Send and
+        Save draft both go through) starts the count afresh, so resuming it from Drafts sends it.
 
         Returns:
             :meth:`send`'s ``(emailed, total)`` pair.
