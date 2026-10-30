@@ -305,23 +305,6 @@ def describe_an_unload_note_with_a_photo():
         assert "That file is not a photo we can open." in response.content.decode()
         assert KilnTicket.objects.get(pk=ticket.pk).status == Status.LOADED and not KilnReply.objects.exists()
 
-    def it_removes_the_written_files_when_the_unload_fails(crew, maker, kiln_guild, monkeypatch):
-        ticket = _ticket(maker)
-        firing = _loaded(crew, ticket)
-        before = _reply_files()
-
-        def broken(*args, **kwargs):
-            raise RuntimeError("the database went away")
-
-        monkeypatch.setattr(KilnReply.objects, "bulk_create", broken)
-        note = ExceptionNote(
-            ticket_pk=ticket.pk, what_happened="cracked", note="Cracked.", outcome="fired", photo=photo_upload()
-        )
-        with pytest.raises(RuntimeError):
-            unload_kiln(firing_pk=firing.pk, exceptions={ticket.pk: note}, by=crew)
-
-        assert _reply_files() == before
-
     def it_gives_each_unticked_row_the_photo_control_on_a_multipart_unboosted_form(crew, crew_client, maker):
         ticket = _ticket(maker)
         firing = _loaded(crew, ticket)

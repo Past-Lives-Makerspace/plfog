@@ -349,7 +349,7 @@ class ReplyForm(ToastForm):
             del self.fields["photo"]
 
     def clean_photo(self) -> UploadedFile | None:
-        upload: UploadedFile | None = self.cleaned_data.get("photo")
+        upload: UploadedFile | None = self.cleaned_data["photo"]
         if upload is not None:
             check_photo(upload)
         return upload
@@ -534,7 +534,7 @@ class UnloadForm(ToastForm):
                 what_happened=self.cleaned_data[f"what-{t.pk}"],
                 note=self.cleaned_data[f"note-{t.pk}"].strip(),
                 outcome=self.cleaned_data[f"next-{t.pk}"],
-                photo=self.cleaned_data.get(f"photo-{t.pk}"),
+                photo=self.cleaned_data[f"photo-{t.pk}"],
             )
             for t in self.tickets
             if t.pk not in ticked
