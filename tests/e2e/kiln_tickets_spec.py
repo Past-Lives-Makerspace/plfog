@@ -11,7 +11,7 @@ form's branches (Alpine shows and hides them), a photo picked through the camera
 the tab again with the ticket In the queue (``/kiln/`` sends a member there). "Make another like this" carries every answer but
 the photo and the Cone 6 confirmations into a bisque ticket. On Load the Kiln the crew filter the
 tiles, cannot tick the other firing's tile, tick one glaze ticket and confirm; the maker then sees
-it In the kiln and answers the crew's message. On Unload every piece starts ticked; unticking one
+it In the kiln, sees the photo the crew attached to their message (#1026) and answers it. On Unload every piece starts ticked; unticking one
 opens what happened, the note and the choice, and the action bar says who gets which note. Waits
 are on what the page shows, never a snapshot
 after it. Every spec makes the guild, list options and members it uses, because an earlier
@@ -84,6 +84,14 @@ def _capture(page, name: str, *, full_page: bool = True) -> None:
     if os.environ.get("CAPTURE_691_SCREENSHOTS"):
         SHOTS.mkdir(parents=True, exist_ok=True)
         page.screenshot(path=str(SHOTS / name), full_page=full_page)
+
+
+def _capture_both_themes(page, name: str) -> None:
+    """Write a viewport screenshot in the dark theme and a ``-light`` copy (FRONTEND.md Rule 26)."""
+    _capture(page, f"{name}.png", full_page=False)
+    page.evaluate("document.documentElement.setAttribute('data-theme', 'light')")
+    _capture(page, f"{name}-light.png", full_page=False)
+    page.evaluate("document.documentElement.removeAttribute('data-theme')")
 
 
 def _clear_of_the_feedback_bubble(page, button) -> None:
@@ -304,13 +312,33 @@ def describe_loading_the_kiln():
         assert KilnTicket.objects.get(pk=mug.pk).status == KilnTicket.Status.SUBMITTED
         assert KilnTicket.objects.get(pk=vase.pk).status == KilnTicket.Status.SUBMITTED
 
-        # The crew asks the maker something from the ticket.
-        page.set_viewport_size({"width": 1280, "height": 900})
+        # The crew asks the maker something from the ticket on a phone, with a photo taken
+        # through the camera input (#1026); the pick shows with a Remove before Send.
         page.goto(f"{live_server.url}{reverse('kiln:detail', args=[bowls.pk])}")
         expect(page.get_by_role("heading", level=1)).to_contain_text(f"Ticket {bowls.pk}")
-        page.get_by_label(f"Message {maker.display_name}").fill("They are on the middle shelf. Lovely glaze!")
+        page.get_by_label(f"Message {maker.display_name}").fill("They are on the middle shelf. Is this a thick spot?")
+        pick = page.locator("[data-kiln-thread] [data-kiln-photo-pick]")
+        # A photo over 10 MB is refused on pick, before it is sent, with a message under the control.
+        too_big = {"name": "huge.jpg", "mimeType": "image/jpeg", "buffer": b"\xff" * (10 * 1024 * 1024 + 1)}
+        pick.locator("input[capture]").set_input_files(too_big)
+        expect(pick.locator("[data-kiln-photo-pick-error]")).to_have_text(
+            "That photo is too large. A photo can be up to 10 MB."
+        )
+        expect(pick.locator("[data-kiln-photo-pick-preview]")).to_be_hidden()
+        assert pick.locator("input[capture]").evaluate("input => input.files.length") == 0
+        pick.locator("input[capture]").set_input_files(_jpeg((196, 120, 84)))
+        expect(pick.locator("[data-kiln-photo-pick-error]")).to_be_hidden()
+        expect(pick.locator("[data-kiln-photo-pick-preview] img")).to_be_visible()
+        expect(pick.get_by_role("button", name="Remove the photo")).to_be_visible()
+        expect(pick.get_by_text("Take a photo")).to_be_hidden()
+        assert page.evaluate(NO_SIDEWAYS_SCROLL)
+        pick.scroll_into_view_if_needed()
+        _capture_both_themes(page, "kiln-tickets-1026-message-photo-phone")
         page.locator("[data-kiln-thread]").get_by_role("button", name="Send").click()
         expect(page.locator("[data-kiln-thread] .pl-kiln-msg")).to_have_count(1)
+        expect(page.locator("[data-kiln-thread] [data-kiln-reply-photo] img")).to_be_visible()
+        sent = KilnReply.objects.get(ticket=bowls)
+        assert sent.has_photo and not sent.is_unload_note
         page.context.clear_cookies()
 
         # The maker sees it In the kiln, reads the message and answers.
@@ -324,6 +352,20 @@ def describe_loading_the_kiln():
         thread = page.locator("[data-kiln-thread]")
         expect(thread).to_contain_text("They are on the middle shelf.")
         expect(thread).to_contain_text("Kiln crew")
+        # The maker sees the crew's photo under the message, and a tap opens it full size.
+        photo = thread.locator("[data-kiln-reply-photo]")
+        expect(photo.locator("img")).to_have_attribute("alt", "Photo from Dana Reyes")
+        expect(photo.locator("img")).to_have_js_property("complete", True)
+        assert photo.locator("img").evaluate("img => img.naturalWidth") > 0
+        expect(page.locator(".hub-sidebar")).not_to_be_in_viewport()  # the drawer has finished sliding away
+        photo.scroll_into_view_if_needed()
+        _capture_both_themes(page, "kiln-tickets-1026-thread-photo-phone")
+        with page.context.expect_page() as opened:
+            photo.click()
+        full = opened.value
+        full.wait_for_load_state()
+        assert full.url.endswith(sent.image.url)
+        full.close()
         page.get_by_label("Reply to the crew").fill("Thank you! Can't wait to see them.")
         thread.get_by_role("button", name="Send").click()
         expect(page.locator("[data-kiln-thread] .pl-kiln-msg")).to_have_count(2)
@@ -390,6 +432,15 @@ def describe_unloading_the_kiln():
             expect(row.locator('input[name="fired"]')).not_to_be_checked()
             expect(row.locator("[data-kiln-except]")).to_be_visible()
             expect(row).to_contain_text("Gets your message instead")
+            # A photo picked on the row is cleared when the row is ticked again, so a fired piece uploads nothing.
+            choose = row.locator("[data-kiln-photo-pick-input]:not([capture])")
+            choose.set_input_files(_jpeg())
+            expect(row.locator("[data-kiln-photo-pick-preview] img")).to_be_visible()
+            row.locator(".pl-kiln-unload__photo").click()
+            expect(row.locator('input[name="fired"]')).to_be_checked()
+            assert choose.evaluate("input => input.files.length") == 0
+            row.locator(".pl-kiln-unload__photo").click()
+            expect(row.locator("[data-kiln-photo-pick-preview]")).to_be_hidden()
             row.locator("label.pl-chip", has_text="Cracked").click()
             row.get_by_label("Message to Ben Carter").fill(
                 "Hi Ben, your vase cracked near the base before the glaze matured. It goes in the next glaze firing."

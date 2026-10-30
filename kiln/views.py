@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import Http404, HttpRequest, HttpResponse
@@ -210,12 +211,26 @@ def ticket_detail(request: HttpRequest, pk: int) -> HttpResponse:
         "photos": list(ticket.photos.all()),
         "replies": list(ticket.replies.all()),
         "viewer": member,
-        "reply_form": ReplyForm(),
+        # A message refused a moment ago (a photo that did not pass) comes back in the box.
+        "reply_form": ReplyForm(
+            initial={"body": request.session.pop(_unsent_key(ticket), "")}, takes_photo=_takes_photo(ticket, member)
+        ),
+        "photo_max_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
     }
     if crew:
         context["flag_form"] = ManualFlagForm()
         return render(request, "kiln/ticket_detail_crew.html", context)
     return render(request, "kiln/ticket_detail.html", context)
+
+
+def _takes_photo(ticket: KilnTicket, member: Member) -> bool:
+    """Only the crew writing on another maker's ticket may attach a photo (#1026); the maker's box is text only."""
+    return ticket.maker_id != member.pk
+
+
+def _unsent_key(ticket: KilnTicket) -> str:
+    """Where a refused message waits in the session for the ticket page to put it back in the box."""
+    return f"kiln-unsent-{ticket.pk}"
 
 
 def _to_messages(ticket: KilnTicket) -> HttpResponse:
@@ -230,12 +245,14 @@ def ticket_reply(request: HttpRequest, pk: int) -> HttpResponse:
     """Post to a ticket's thread: the maker on their own ticket, the crew on any."""
     member = _member(request)
     ticket = _visible_ticket(member, pk, crew=can_run_kiln(member))
-    form = ReplyForm(request.POST)
+    form = ReplyForm(request.POST, request.FILES, takes_photo=_takes_photo(ticket, member))
     if not form.is_valid():
         messages.error(request, form.first_error)
+        # Keep what was typed: the page fills the box again, so only the photo needs picking again.
+        request.session[_unsent_key(ticket)] = request.POST.get("body", "")
         return _to_messages(ticket)
     try:
-        post_reply(ticket, member, form.cleaned_data["body"])
+        post_reply(ticket, member, form.cleaned_data["body"], photo=form.attached_photo)
     except TicketDeleted:
         return _deleted_meanwhile(request, ticket, "your message was not sent")
     messages.success(request, "Message sent.")
@@ -378,8 +395,9 @@ def unload(request: HttpRequest, pk: int) -> HttpResponse:
         return redirect("kiln:firing", pk=firing.pk)
     tickets = unload_sheet(firing)
     # Bound on the method, not on the data: a firing whose tickets were all deleted posts no rows.
-    form = UnloadForm(request.POST if request.method == "POST" else None, tickets=tickets)
-    if request.method == "POST" and form.is_valid():
+    posted = request.method == "POST"
+    form = UnloadForm(request.POST if posted else None, request.FILES if posted else None, tickets=tickets)
+    if posted and form.is_valid():
         try:
             result = unload_kiln(
                 firing_pk=firing.pk, exceptions=form.exception_notes, by=_member(request), shown=form.shown
@@ -389,7 +407,13 @@ def unload(request: HttpRequest, pk: int) -> HttpResponse:
             return redirect("kiln:firing", pk=firing.pk)
         messages.success(request, result.message)
         return redirect("kiln:log")
-    context = {"firing": firing, "form": form, "kiln_tab": "unload", **_crew_tabs()}
+    context = {
+        "firing": firing,
+        "form": form,
+        "kiln_tab": "unload",
+        "photo_max_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
+        **_crew_tabs(),
+    }
     return render(request, "kiln/unload.html", context)
 
 

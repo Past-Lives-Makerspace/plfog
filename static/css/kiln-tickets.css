@@ -337,3 +337,20 @@ a.pl-kiln-row__title { color: var(--hub-link); text-decoration: none; }
 @media (max-width: 768px) {
     body:has(.hub-feedback-fab) .pl-kiln-actionbar { padding-right: calc(env(safe-area-inset-right, 0px) + 1rem + 52px + 0.75rem); }
 }
+
+/* ---- A photo on a crew message or unload note (#1026): the thumbnail under the message
+   that opens full size, and the take or choose control in the crew's boxes ---- */
+.pl-kiln-msg__photo { display: block; width: min(240px, 100%); margin-top: 0.5rem; border-radius: 10px; overflow: hidden; border: 1px solid var(--hub-border-strong); }
+.pl-kiln-msg__photo img { display: block; width: 100%; height: auto; max-height: 260px; object-fit: cover; }
+.pl-kiln-photopick { margin: 0.75rem 0 1rem; }
+.pl-kiln-photopick__buttons { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.pl-kiln-photopick__btn { position: relative; display: inline-flex; align-items: center; gap: 0.4rem; min-height: 44px; cursor: pointer; }
+.pl-kiln-photopick__btn input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.pl-kiln-photopick__btn:has(input:focus-visible) { outline: 3px solid var(--hub-blue); outline-offset: 2px; }
+.pl-kiln-photopick__preview { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
+.pl-kiln-photopick__preview img { display: block; width: 96px; height: 96px; object-fit: cover; border-radius: 10px; border: 1px solid var(--hub-border-strong); }
+.pl-kiln-photopick__preview .hub-btn { min-height: 44px; }
+.pl-kiln-photopick__buttons[hidden], .pl-kiln-photopick__preview[hidden] { display: none; }
+.pl-kiln-photopick .pl-kiln-q__hint { display: block; margin-top: 0.5rem; }
+.pl-kiln-photopick .pl-field-error { margin-top: 0.5rem; }
+.pl-kiln-photopick .pl-field-error[hidden] { display: none; }
