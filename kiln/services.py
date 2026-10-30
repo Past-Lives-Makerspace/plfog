@@ -23,7 +23,15 @@ from django.utils.safestring import SafeString
 
 from kiln.access import can_file_tickets, can_run_kiln, is_crew, kiln_home_url, kiln_is_open, maker_type_for
 from kiln.forms import ACTION_COVER, ACTION_REMOVE, ExceptionNote, KilnTicketForm
-from kiln.models import KilnFiring, KilnFlag, KilnReply, KilnTicket, delete_files_now, member_name
+from kiln.models import (
+    KilnFiring,
+    KilnFlag,
+    KilnReply,
+    KilnTicket,
+    delete_files_after_commit,
+    delete_files_now,
+    member_name,
+)
 
 if TYPE_CHECKING:
     from django.core.files.uploadedfile import UploadedFile
@@ -553,9 +561,11 @@ def unload_kiln(
             firing.unloaded_by = by
             firing.unloaded_at = now
             firing.save(update_fields=["unloaded_by", "unloaded_at"])
-    # A photo for a ticket no longer in the firing (deleted or moved meanwhile) has no note to go on.
-    delete_files_now([file for reply in photos.values() for file in reply.photo_files])
     notified = _notify_makers(firing, [t.pk for t in tickets], {r.ticket_id: r for r in replies}, by)
+    # A photo for a ticket no longer in the firing (deleted or moved meanwhile) has no note to go
+    # on. The unload has committed and the makers are told, so a storage error here is logged,
+    # never raised (on_commit runs it at once, robust, outside a transaction).
+    delete_files_after_commit([file for reply in photos.values() for file in reply.photo_files])
     return UnloadResult(firing=firing, fired=len(fired), returned=len(returned), notified=notified, deleted=deleted)
 
 

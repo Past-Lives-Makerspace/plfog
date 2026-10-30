@@ -8,6 +8,8 @@ to the ticket. The maker's own message box takes no photo, whatever is posted.
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from pathlib import Path
 
 import pytest
@@ -547,7 +549,7 @@ def describe_unload_photos_and_the_locks():
 
         assert _reply_files() == before and not KilnReply.objects.exists()
 
-    def it_removes_a_photo_whose_ticket_left_the_firing(crew, maker, kiln_guild):
+    def it_removes_a_photo_whose_ticket_left_the_firing(crew, maker, kiln_guild, django_capture_on_commit_callbacks):
         inside, gone = _ticket(maker), _ticket(maker)
         firing = _loaded(crew, inside, gone)
         KilnTicket.objects.filter(pk=gone.pk).delete()
@@ -556,10 +558,33 @@ def describe_unload_photos_and_the_locks():
             ticket_pk=gone.pk, what_happened="cracked", note="Cracked.", outcome="fired", photo=photo_upload()
         )
 
-        unload_kiln(firing_pk=firing.pk, exceptions={gone.pk: note}, by=crew)
+        with django_capture_on_commit_callbacks(execute=True):
+            unload_kiln(firing_pk=firing.pk, exceptions={gone.pk: note}, by=crew)
 
         assert KilnTicket.objects.get(pk=inside.pk).status == Status.FIRED
         assert not KilnReply.objects.exists() and _reply_files() == before
+
+    def it_still_tells_the_makers_when_removing_a_leftover_photo_fails(
+        crew, maker, kiln_guild, django_capture_on_commit_callbacks
+    ):
+        inside, gone = _ticket(maker), _ticket(maker)
+        firing = _loaded(crew, inside, gone)
+        KilnTicket.objects.filter(pk=gone.pk).delete()
+        note = ExceptionNote(
+            ticket_pk=gone.pk, what_happened="cracked", note="Cracked.", outcome="fired", photo=photo_upload()
+        )
+
+        with (
+            patch(
+                "django.core.files.storage.FileSystemStorage.delete", side_effect=OSError("storage down")
+            ) as deleting,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            result = unload_kiln(firing_pk=firing.pk, exceptions={gone.pk: note}, by=crew)
+
+        assert deleting.called
+        assert result.fired == 1 and result.notified == 1
+        assert KilnTicket.objects.get(pk=inside.pk).status == Status.FIRED
 
 
 def describe_an_unload_page_sent_back_with_errors():
