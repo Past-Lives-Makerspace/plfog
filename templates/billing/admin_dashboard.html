@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load classes_tags %}
+{% load classes_tags guidance %}
 
 {% block title %}Payments — Past Lives{% endblock %}
 
@@ -114,7 +114,7 @@
 <div class="pl-dashboard">
 
   <div>
-    <h1 class="pl-card__title">Payments Dashboard</h1>
+    <div style="display:flex;align-items:center;gap:0.625rem;"><h1 class="pl-card__title">Payments Dashboard</h1>{% whats_new_button "admin.reconciliation" %}</div>
     {% if features.my_tab.is_on %}
     <p class="pl-text-muted">Tab billing, charge history, and Stripe configuration.</p>
     {% elif viewer_is_fog_admin %}

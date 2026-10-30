@@ -13,9 +13,9 @@ none()-on-empty search all three of them would have dead-ended on a blank page.
 {% endcomment %}
 {% if can_write %}
 {% url 'hub_wiki_new' as new_url %}
-{% include "components/page_header.html" with title="Wiki" description="How the space, the machines, and the materials actually work. Written by members." action_url=new_url action_label="+ New Page" action_class="pl-btn pl-btn--primary" %}
+{% include "components/page_header.html" with title="Wiki" description="How the space, the machines, and the materials actually work. Written by members." new_key="wiki.home" action_url=new_url action_label="+ New Page" action_class="pl-btn pl-btn--primary" %}
 {% else %}
-{% include "components/page_header.html" with title="Wiki" description="How the space, the machines, and the materials actually work. Written by members." %}
+{% include "components/page_header.html" with title="Wiki" description="How the space, the machines, and the materials actually work. Written by members." new_key="wiki.home" %}
 {% endif %}
 
 {% if can_review %}

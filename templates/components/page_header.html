@@ -20,19 +20,27 @@ Parameters (pass via {% include "components/page_header.html" with … %}):
                    action that is more than one link (the Orientations page's guild menu, #637).
   lead_include — optional. A template rendered under the description, in the title column (Home's
                  Show Me Around row).
+  new_key      — optional. A guidance key (core/guidance.py). Renders that key's What's New button (#1007)
+                 in the action slot, before the action when there is one, and only while an entry names
+                 the key; every page a New! badge can lead to passes its key here.
 
 Examples:
   {% include "components/page_header.html" with title="Member Directory" description="Find other members and connect." %}
   {% include "components/page_header.html" with title="Orientations" description="Track requests for the guilds you lead or staff." action_url=export_url action_label="Export CSV" %}
 {% endcomment %}
-{% if action_url or action_include %}
+{% load guidance %}
+{% if new_key %}{% whats_new_button new_key as whats_new_btn %}{% endif %}
+{% if action_url or action_include or whats_new_btn %}
 <div class="hub-page-header" style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem;">
     <div>
         <h1 class="hub-page-title"{% if description %} style="margin-bottom:0.5rem;"{% endif %}>{{ title }}</h1>
         {% if description %}<p class="hub-text-muted" style="margin:0;max-width:65ch;">{{ description }}</p>{% endif %}
         {% if lead_include %}{% include lead_include %}{% endif %}
     </div>
-    {% if action_include %}{% include action_include %}{% else %}<a href="{{ action_url }}" class="{{ action_class|default:'hub-btn hub-btn--sm' }}"{% if action_help_key %} data-help-key="{{ action_help_key }}"{% endif %}>{{ action_label }}</a>{% endif %}
+    <span class="hub-page-header__actions" style="display:inline-flex;align-items:center;gap:0.625rem;flex-wrap:wrap;">
+        {% if whats_new_btn %}{{ whats_new_btn }}{% endif %}
+        {% if action_include %}{% include action_include %}{% elif action_url %}<a href="{{ action_url }}" class="{{ action_class|default:'hub-btn hub-btn--sm' }}"{% if action_help_key %} data-help-key="{{ action_help_key }}"{% endif %}>{{ action_label }}</a>{% endif %}
+    </span>
 </div>
 {% else %}
 <h1 class="hub-page-title">{{ title }}</h1>

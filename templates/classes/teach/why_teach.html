@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load membership_md static %}
+{% load membership_md static guidance %}
 {% block title %}Host a Class{% endblock %}
 
 {% block extra_head %}
@@ -76,6 +76,7 @@ the application page (classes:teach_apply, #793); there is no modal here any mor
             <p class="pl-guild-hero__lead">{{ teach_page.teach_page_lead }}</p>
             {% endif %}
             <div class="pl-teach-hero__actions">
+                {% whats_new_button "classes.teach" %}
                 {% if application_state == 'pending' %}
                     <span class="pl-lifecycle-badge pl-lifecycle-badge--awaiting_admin">Application Sent</span>
                     {% if example_url %}

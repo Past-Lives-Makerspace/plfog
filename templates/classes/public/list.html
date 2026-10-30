@@ -1,5 +1,5 @@
 {% extends "classes/base_public.html" %}
-{% load classes_tags %}
+{% load classes_tags guidance %}
 
 {% block title %}Classes — Past Lives Makerspace{% endblock %}
 
@@ -13,6 +13,7 @@
     <div><div class="hs-n">{{ total_instructors }}</div><div class="hs-l">Instructors</div></div>
   </div>
   <div id="hero-cta">
+    {% if not is_public_surface %}{% whats_new_button "classes.catalog" %}{% endif %}
     {% if request.view_as.is_admin %}
       <a class="cta-secondary" href="{% if is_public_surface %}{{ MEMBER_BASE_URL }}{% endif %}{% url 'classes:admin_overview' %}">Manage All Classes</a>
     {% elif request.view_as.is_member %}

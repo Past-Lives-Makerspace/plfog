@@ -443,11 +443,24 @@ class WhatsNew:
 
         return any(covers(feature, raw.get("feature", "")) for raw in version.CHANGELOG)
 
-    def default_tab(self) -> str:
-        """The tab the modal opens on: the first with something unseen for the viewer, else For Members."""
+    def default_tab(self, feature: str | None = None) -> str:
+        """The tab the modal opens on: the first with something unseen for the viewer, else For Members.
+
+        Opened on a feature (its button), only that feature's entries count, and with nothing
+        unseen the first tab with any entry of the feature's, so the button never lands on an
+        empty tab beside a tab that has what it promised (#1030).
+        """
         for tab in TABS:
-            if any(self.is_unseen(entry) for entry in self.window if entry.on_tab(tab)):
+            if any(
+                self.is_unseen(entry)
+                for entry in self.window
+                if entry.on_tab(tab) and (feature is None or entry.under(feature))
+            ):
                 return tab
+        if feature is not None:
+            for tab in TABS:
+                if any(entry.on_tab(tab) for entry in self.entries if entry.under(feature)):
+                    return tab
         return TABS[0]
 
     def record(self, *, seen: Iterable[str] = (), opened: Iterable[str] = ()) -> bool:

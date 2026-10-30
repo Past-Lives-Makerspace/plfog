@@ -8,7 +8,7 @@
 
 {% block content %}
 <div class="hub-card">
-    <h1 class="hub-page-title">Send Feedback</h1>
+    {% include "components/page_header.html" with title="Send Feedback" new_key="feedback.requests" %}
     <p class="hub-text-muted pl-feedback-lead">
         Found a bug? Have an idea? Let us know. <a href="#your-requests">Follow your requests below.</a>
     </p>

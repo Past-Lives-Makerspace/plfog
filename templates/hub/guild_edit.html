@@ -1,4 +1,5 @@
 {% extends "hub/base.html" %}
+{% load guidance %}
 {% load hub_tags static %}
 {% block title %}{{ guild.name }} Settings{% endblock %}
 {% block extra_head %}{{ block.super }}
@@ -23,6 +24,7 @@ way back in: the modals are teleported to <body>, outside this root.
     <p class="pl-guild-settings__lead">Every change saves as you make it.</p>
   </div>
   <span class="pl-guild-settings__actions">
+    {% whats_new_button "guild.staff" %}
     <span class="pl-meeting-savestate" data-save-pill
           :class="'pl-meeting-savestate--' + (pending > 0 ? 'saving' : state)"
           :data-saves="saves"

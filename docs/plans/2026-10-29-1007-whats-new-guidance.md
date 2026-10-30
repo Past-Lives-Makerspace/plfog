@@ -63,6 +63,11 @@ for major features; a level of how much teaching a PR owes, declared in the PR; 
 - D13. No new Help Center articles at any level (#1009). `tour` means tour plus clip.
 - D14. Backfill: fragments still in `changelog.d/` dated 2026-10-15 or later (56 files) get `feature`, `audience` and
   `guidance`; `release_plan.py` diffs added files only, so the edits announce nothing.
+- D15 (follow-up #1030, 2026-10-30). Every page a feature key lives on (`GUIDANCE[key].url_name`) carries
+  the key's What's New button in its header; `components/page_header.html` takes `new_key=`, the classes
+  shells a `portal_whats_new` block, and the modal lives in `hub/base.html` once.
+  `tests/hub/whats_new_on_feature_pages_spec.py` walks the registry. Felix: a badge that leads to a page
+  with no way to see what is new "should basically never happen".
 
 ## Parts
 

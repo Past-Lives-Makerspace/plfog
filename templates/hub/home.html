@@ -87,7 +87,6 @@
 {% include "components/modal.html" with modal_id="door-code-change" modal_title="Change the Door Code" modal_size="sm" modal_body_include="hub/partials/_door_code_form.html" %}
 {% endif %}
 {# What's New (#1007): the header button loads /whats-new/ into this modal's body on open, so the page carries none of it. #}
-{% include "components/modal.html" with modal_id="whats-new" modal_title="What's New" modal_size="lg" %}
 
 {# --- Take the tour banner (#824): while the member tour is on offer, in place of the floating card --- #}
 {% if show_tour_offer and tour.offer_banner %}

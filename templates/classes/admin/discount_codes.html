@@ -1,5 +1,6 @@
 {% extends "classes/admin/base.html" %}
-{% load classes_tags %}
+{% load classes_tags guidance %}
+{% block portal_whats_new %}{% whats_new_button "admin.discount-codes" %}{% endblock %}
 {% block tab_content %}
 <div class="admin-toolbar" data-help-key="admin.discount-codes">
     {% include "components/table_search.html" with q=q placeholder="Search codes…" %}

@@ -1,5 +1,6 @@
 {% extends "classes/admin/base.html" %}
-{% load static classes_tags %}
+{% load static classes_tags guidance %}
+{% block portal_whats_new %}{% whats_new_button "admin.payment-report" %}{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/registrations-admin.css' %}">
 {% endblock %}
