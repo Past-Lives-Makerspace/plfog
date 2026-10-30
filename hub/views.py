@@ -5109,7 +5109,9 @@ def _compose_send_refused(request: HttpRequest, draft: AnnouncementDraft, exc: E
 
     A results announcement lands on its snapshot's page, which says whether the results went out.
     A draft still resumable (it was saved before the send was refused) reopens in the composer, so
-    the work typed is kept. Anything else lands on the Sent tab of the Announcements page.
+    the work typed is kept, unless its send is running in another request right now (a repeat that
+    arrived mid-send, #1038): nothing was typed that the row does not hold, and it lands on the
+    Sent tab like a sent one. Anything else lands on the Sent tab of the Announcements page.
     """
     from django.core.exceptions import ValidationError
 
@@ -5117,7 +5119,7 @@ def _compose_send_refused(request: HttpRequest, draft: AnnouncementDraft, exc: E
     messages.error(request, reason)
     if draft.funding_snapshot_id is not None:
         return redirect("hub_admin_voting_history_detail", pk=draft.funding_snapshot_id)
-    if draft.is_resumable:
+    if draft.is_resumable and not draft.sending_in_request:
         return redirect("hub_compose_resume", draft_pk=draft.pk)
     return redirect(_announcements_sent_url())
 
@@ -5718,11 +5720,21 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
     someone else's audience lands on the Announcements page with a message, and nothing is saved.
     A send lands on the Sent tab with the existing message; saving names the sender, so the
     email's From line and the send actor are whoever pressed Send.
+
+    A fresh compose (no ``draft_pk``) that repeats a send this sender made within the last minute,
+    same audience target, body and recipients (:meth:`AnnouncementDraft.recent_twin_of`), is that
+    send's repeat: a second tap that beat the modal's lock, a retry, a browser resubmit. Nothing is
+    saved; the row takes the send branch and refuses itself (already sent, still sending in the
+    first request, or a queued site send that :meth:`AnnouncementDraft.queue_send` leaves as it
+    is), so the repeat lands on the Sent tab with the existing message and no second announcement
+    goes out (#1038). A ``draft_pk`` whose send is running right now
+    (:attr:`AnnouncementDraft.sending_in_request`) is refused the same way before anything is
+    saved, because saving it over would clear the in-flight mark.
     """
     from django.core.exceptions import ValidationError
 
     from hub.forms import AnnouncementComposeForm
-    from membership.models import AlreadySentError, ResultsAlreadySentError
+    from membership.models import ANNOUNCEMENT_ALREADY_SENT, AlreadySentError, ResultsAlreadySentError
 
     raw = request.POST.get("audience") or ""
     forbidden = _compose_audience_forbidden(request, raw)
@@ -5735,6 +5747,10 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
         if instance is None:
             messages.error(request, _DRAFT_GONE_MESSAGE)
             return redirect("hub_announcements")
+        if instance.sending_in_request:
+            # The same draft posted again while its send runs in another request: saving it over
+            # would wipe the in-flight mark and send it twice, so it is refused before any save.
+            return _compose_send_refused(request, instance, AlreadySentError(ANNOUNCEMENT_ALREADY_SENT))
     results_lock = _results_compose_lock(instance)
     form = AnnouncementComposeForm(
         request.POST,
@@ -5754,7 +5770,10 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
             compose_heading=heading,
             compose_lead=lead,
         )
-    draft = AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
+    sender = cast(User, request.user)
+    draft = None if instance is not None else AnnouncementDraft.recent_twin_of(form, sender)
+    if draft is None:
+        draft = AnnouncementDraft.save_from_form(form, sender, instance=instance)
     refusals = (AlreadySentError, ResultsAlreadySentError, ValidationError)
     if draft.audience == AnnouncementDraft.Audience.SITE:
         try:
@@ -5768,7 +5787,7 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
         )
         return redirect(_announcements_sent_url())
     try:
-        emailed, total = draft.send()
+        emailed, total = draft.send_in_request()
     except refusals as exc:
         return _compose_send_refused(request, draft, exc)
     messages.success(request, f"Email sent to {total} recipient(s).")

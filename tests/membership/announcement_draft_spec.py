@@ -8,7 +8,7 @@ the branded email override + the opt-in @mention. Mark-sent (sent_at), never del
 from __future__ import annotations
 
 import types
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -23,6 +23,7 @@ from classes.factories import ClassOfferingFactory, RegistrationFactory
 from classes.models import Registration
 from core.models import EventDelivery, Notification, SiteConfiguration
 from membership.models import (
+    ANNOUNCEMENT_RESEND_WINDOW,
     AlreadySentError,
     AnnouncementDraft,
     AnnouncementReach,
@@ -1023,3 +1024,93 @@ def describe_delivery_period_and_sender():
     def it_renders_the_email_with_no_from_line_for_a_blank_author():
         draft = AnnouncementDraftFactory(author=None, show_sender=True)
         assert "From " not in draft.build_email_message("https://x/").body
+
+
+def describe_send_in_request():
+    """A guild or class send inside the request is marked in flight while it runs (#1038)."""
+
+    def _lead_and_guild():
+        guild = GuildFactory()
+        _activated_member(guild=guild, username="in-flight-member")
+        return _author("in-flight-lead"), guild
+
+    def it_counts_an_attempt_before_the_fan_out_and_leaves_it_once_sent(monkeypatch):
+        author, guild = _lead_and_guild()
+        draft = AnnouncementDraftFactory(author=author, audience=_GUILD, guild=guild)
+        seen: list[tuple[bool, int]] = []
+        real_send = AnnouncementDraft.send
+
+        def send_recording_the_state(self: AnnouncementDraft) -> tuple[int, int]:
+            seen.append((AnnouncementDraft.objects.get(pk=self.pk).sending_in_request, self.send_attempts))
+            return real_send(self)
+
+        monkeypatch.setattr(AnnouncementDraft, "send", send_recording_the_state)
+        draft.send_in_request()
+        assert seen == [(True, 1)]
+        draft.refresh_from_db()
+        assert (draft.state, draft.send_attempts, draft.sending_in_request) == (
+            AnnouncementDraft.DraftState.SENT,
+            1,
+            False,
+        )
+
+    def it_puts_the_attempt_back_when_the_send_fails(monkeypatch):
+        author, guild = _lead_and_guild()
+        draft = AnnouncementDraftFactory(author=author, audience=_GUILD, guild=guild)
+
+        def send_that_dies(self: AnnouncementDraft) -> tuple[int, int]:
+            raise RuntimeError("provider down")
+
+        monkeypatch.setattr(AnnouncementDraft, "send", send_that_dies)
+        with pytest.raises(RuntimeError):
+            draft.send_in_request()
+        draft.refresh_from_db()
+        assert (draft.state, draft.send_attempts, draft.sending_in_request) == (
+            AnnouncementDraft.DraftState.DRAFT,
+            0,
+            False,
+        )
+        assert draft.is_resumable
+
+    def it_refuses_a_row_whose_send_is_running_in_another_request():
+        author, guild = _lead_and_guild()
+        draft = AnnouncementDraftFactory(author=author, audience=_GUILD, guild=guild, send_attempts=1)
+        assert draft.sending_in_request
+        with pytest.raises(AlreadySentError, match="already sent"):
+            draft.send_in_request()
+        draft.refresh_from_db()
+        assert (draft.sent_at, draft.send_attempts) == (None, 1)
+        assert not GuildAnnouncement.objects.exists()
+
+    def it_refuses_a_sent_row_without_touching_it():
+        author, guild = _lead_and_guild()
+        draft = AnnouncementDraftFactory(author=author, audience=_GUILD, guild=guild, sent=True)
+        before = AnnouncementDraft.objects.get(pk=draft.pk).updated_at
+        with pytest.raises(AlreadySentError):
+            draft.send_in_request()
+        draft.refresh_from_db()
+        assert (draft.updated_at, draft.send_attempts) == (before, 0)
+
+    def it_is_in_flight_only_for_a_plain_row_that_carries_an_attempt():
+        author, guild = _lead_and_guild()
+        rows = {
+            "draft": AnnouncementDraftFactory(author=author, audience=_GUILD, guild=guild),
+            "queued": AnnouncementDraftFactory(author=author, queued=True, send_attempts=1),
+            "given_up": AnnouncementDraftFactory(author=author, given_up=True, send_attempts=3),
+            "sent": AnnouncementDraftFactory(author=author, audience=_GUILD, guild=guild, sent=True, send_attempts=1),
+            "in_flight": AnnouncementDraftFactory(author=author, audience=_GUILD, guild=guild, send_attempts=1),
+            "stale": AnnouncementDraftFactory(author=author, audience=_GUILD, guild=guild, send_attempts=1),
+        }
+        # A mark older than the window is a send whose worker died, not one still running.
+        AnnouncementDraft.objects.filter(pk=rows["stale"].pk).update(
+            updated_at=timezone.now() - ANNOUNCEMENT_RESEND_WINDOW - timedelta(seconds=1)
+        )
+        rows["stale"].refresh_from_db()
+        assert {name: row.sending_in_request for name, row in rows.items()} == {
+            "draft": False,
+            "queued": False,
+            "given_up": False,
+            "sent": False,
+            "in_flight": True,
+            "stale": False,
+        }

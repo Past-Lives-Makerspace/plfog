@@ -6,13 +6,15 @@ propose); shared drafts (anyone who may address a draft's stored audience may re
 send or delete it; anyone else gets a 404 or a refusal, never the row); Save draft's upsert, its
 HX-Replace-Url and toasts; the recipient-count HTMX endpoint; the direct test-send (never the
 spine); send permission re-checks, the guild materialization and the landing on the Sent tab;
-delete as a full-page POST from the Announcements page.
+the Ready to Send modal's busy_submit lock and a repeated send going out once (#1038); delete as a
+full-page POST from the Announcements page.
 """
 
 from __future__ import annotations
 
 import json
 import types
+from datetime import timedelta
 
 import pytest
 from django.contrib.auth.models import User
@@ -30,10 +32,18 @@ from classes.models import ClassOffering, Registration
 from core.models import EventDelivery, Notification
 from hub.forms import AnnouncementComposeForm, discord_channel_choices, split_audience
 from hub.views import _compose_count_for, _compose_editable_guilds, _compose_first_error
-from membership.models import AnnouncementDraft, GuildAnnouncement
-from tests.membership.factories import AnnouncementDraftFactory, GuildFactory, MemberFactory, MembershipPlanFactory
+from membership.models import ANNOUNCEMENT_RESEND_WINDOW, AnnouncementDraft, GuildAnnouncement, Member
+from tests.membership.factories import (
+    AnnouncementDraftFactory,
+    GuildFactory,
+    GuildMembershipFactory,
+    MemberFactory,
+    MembershipPlanFactory,
+)
 
 pytestmark = pytest.mark.django_db
+
+_seq = {"n": 0}
 
 
 def _login_admin(client: Client, username: str = "admin") -> User:
@@ -86,6 +96,23 @@ def _valid_send_data(**overrides) -> dict:
     }
     data.update(overrides)
     return data
+
+
+def _guild_member(guild, email: str) -> Member:
+    """A guild member with a signed in account at ``email``, so a guild send reaches someone."""
+    _seq["n"] += 1
+    member = MemberFactory()
+    with mute_signals(post_save):
+        user = User.objects.create_user(username=f"gm_{_seq['n']}", email=email, last_login=timezone.now())
+    member.user = user
+    member.save(update_fields=["user"])
+    GuildMembershipFactory(guild=guild, member=member)
+    return member
+
+
+def _delivered(mailoutbox: list) -> tuple[int, int]:
+    """How many bell entries and emails exist right now: one send moves it, a repeat must not."""
+    return Notification.objects.count(), len(mailoutbox)
 
 
 def describe_hub_compose_page():
@@ -179,6 +206,21 @@ def describe_hub_compose_page():
         form_html = content[start : content.index("</form>", start)]
         # Send opens a confirm modal (the button is type=button), so no submit lives in the form.
         assert form_html.count('type="submit"') == 0
+
+    def it_locks_the_ready_to_send_modal_through_busy_submit(client: Client):
+        _login_admin(client)
+        content = client.get(reverse("hub_compose")).content.decode()
+        start = content.index(f'action="{reverse("hub_compose_send")}"')
+        form_tag = content[content.rindex("<form", 0, start) : content.index(">", start) + 1]
+        for marker in ("data-pl-busy-submit", 'data-pl-busy-label="Sending..."', 'hx-boost="false"', "novalidate"):
+            assert marker in form_tag, form_tag
+        form_html = content[start : content.index("</form>", start)]
+        # The modal sits inside the form, so the component's lock reaches both of its buttons: the
+        # first tap relabels Yes, send it and disables both; Cancel holds its label.
+        assert form_html.count('class="pl-modal pl-modal--sm"') == 1
+        assert 'data-pl-busy @click="$refs.wizardForm.requestSubmit()">Yes, send it</button>' in form_html
+        assert 'data-pl-busy="hold" @click="sendModalOpen = false">Cancel</button>' in form_html
+        assert content.count("window.plBusySubmitBound") == 2, "busy_submit.html should be included exactly once"
 
     def it_pre_scopes_from_the_audience_query_param(client: Client):
         guild = GuildFactory()
@@ -351,6 +393,189 @@ def describe_hub_compose_send():
         _login_lead(client, guild)
         response = client.post(reverse("hub_compose_send"), _valid_send_data(audience=f"guild:{guild.pk}"))
         assert response.url == _sent_tab()
+
+    def it_sends_a_fresh_guild_compose_posted_twice_once(client: Client, mailoutbox):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        _guild_member(guild, "weaver@example.com")
+        data = _valid_send_data(audience=f"guild:{guild.pk}", send_email="on")
+        first = client.post(reverse("hub_compose_send"), data)
+        assert first.status_code == 302
+        client.get(first.url)  # renders the first send's message away
+        sent_once = _delivered(mailoutbox)
+        assert sent_once[1] >= 1, "the first send should have emailed the guild"
+        second = client.post(reverse("hub_compose_send"), data)
+        assert second.status_code == 302
+        assert second.url == _sent_tab()
+        assert [m.message for m in get_messages(second.wsgi_request)] == ["This announcement was already sent."]
+        assert AnnouncementDraft.objects.count() == 1
+        assert GuildAnnouncement.objects.count() == 1
+        assert _delivered(mailoutbox) == sent_once
+        assert client.get(second.url).content.decode().count('data-announcement-state="sent"') == 1
+
+    def it_sends_once_when_the_same_compose_is_posted_while_the_first_send_is_running(
+        client: Client, mailoutbox, monkeypatch
+    ):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        _guild_member(guild, "weaver@example.com")
+        data = _valid_send_data(audience=f"guild:{guild.pk}", send_email="on")
+        real_send = AnnouncementDraft.send
+        repeats: list = []
+
+        def send_with_a_repeat_mid_flight(self: AnnouncementDraft) -> tuple[int, int]:
+            # The repeat lands while this row's fan-out is still to run: saved seconds ago, unsent, unqueued.
+            repeats.append(client.post(reverse("hub_compose_send"), data))
+            return real_send(self)
+
+        monkeypatch.setattr(AnnouncementDraft, "send", send_with_a_repeat_mid_flight)
+        first = client.post(reverse("hub_compose_send"), data)
+        assert first.status_code == 302
+        assert first.url == _sent_tab()
+        [second] = repeats
+        assert second.status_code == 302
+        assert second.url == _sent_tab()
+        assert "This announcement was already sent." in [m.message for m in get_messages(second.wsgi_request)]
+        assert AnnouncementDraft.objects.count() == 1
+        assert GuildAnnouncement.objects.count() == 1
+        assert len(mailoutbox) == 1  # the one member, from the first send alone
+        draft = AnnouncementDraft.objects.get()
+        assert (draft.sent_at is not None, draft.send_requested_at, draft.send_attempts) == (True, None, 1)
+
+    def it_sends_once_when_the_same_draft_is_posted_again_while_its_send_is_running(
+        client: Client, mailoutbox, monkeypatch
+    ):
+        guild = GuildFactory()
+        user, _member = _login_lead(client, guild)
+        _guild_member(guild, "weaver@example.com")
+        draft = AnnouncementDraftFactory(author=user, audience=AnnouncementDraft.Audience.GUILD, guild=guild)
+        data = _valid_send_data(audience=f"guild:{guild.pk}", draft_pk=str(draft.pk), send_email="on")
+        real_send = AnnouncementDraft.send
+        repeats: list = []
+
+        def send_with_a_repeat_mid_flight(self: AnnouncementDraft) -> tuple[int, int]:
+            # Save draft or a resume put the pk in the form, so the repeat carries draft_pk while the send runs.
+            repeats.append(client.post(reverse("hub_compose_send"), data))
+            return real_send(self)
+
+        monkeypatch.setattr(AnnouncementDraft, "send", send_with_a_repeat_mid_flight)
+        first = client.post(reverse("hub_compose_send"), data)
+        assert first.status_code == 302
+        assert first.url == _sent_tab()
+        [second] = repeats
+        assert second.status_code == 302
+        assert second.url == _sent_tab()
+        assert "This announcement was already sent." in [m.message for m in get_messages(second.wsgi_request)]
+        assert AnnouncementDraft.objects.count() == 1
+        assert GuildAnnouncement.objects.count() == 1
+        assert len(mailoutbox) == 1  # the one member, from the first send alone
+        draft.refresh_from_db()
+        assert (draft.sent_at is not None, draft.send_requested_at, draft.send_attempts) == (True, None, 1)
+
+    def it_sends_a_fresh_compose_that_only_matches_a_draft_someone_saved(client: Client):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        data = _valid_send_data(audience=f"guild:{guild.pk}")
+        assert client.post(reverse("hub_compose_save_draft"), data).status_code == 200
+        response = client.post(reverse("hub_compose_send"), data)
+        assert response.url == _sent_tab()
+        states = sorted(AnnouncementDraft.objects.values_list("sent_at", flat=True), key=lambda s: s is not None)
+        assert states[0] is None and states[1] is not None  # the saved draft stays a draft; the send went out
+
+    def it_queues_a_fresh_site_compose_posted_twice_once(client: Client):
+        _login_admin(client)
+        first = client.post(reverse("hub_compose_send"), _valid_send_data())
+        client.get(first.url)  # renders the first send's message away
+        queued_at = AnnouncementDraft.objects.get().send_requested_at
+        second = client.post(reverse("hub_compose_send"), _valid_send_data())
+        assert second.status_code == 302
+        assert second.url == _sent_tab()
+        draft = AnnouncementDraft.objects.get()
+        assert (draft.send_requested_at, draft.sent_at) == (queued_at, None)
+        assert [m.message for m in get_messages(second.wsgi_request)] == [
+            "Your email is sending in the background. "
+            f"It reaches {draft.recipient_count()} recipient(s) within 15 minutes."
+        ]
+
+    def it_sends_again_once_the_resend_window_has_passed(client: Client):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        data = _valid_send_data(audience=f"guild:{guild.pk}")
+        client.post(reverse("hub_compose_send"), data)
+        AnnouncementDraft.objects.update(created_at=timezone.now() - ANNOUNCEMENT_RESEND_WINDOW - timedelta(seconds=1))
+        response = client.post(reverse("hub_compose_send"), data)
+        assert response.url == _sent_tab()
+        assert AnnouncementDraft.objects.filter(sent_at__isnull=False).count() == 2
+        assert GuildAnnouncement.objects.count() == 2
+
+    def it_treats_a_different_body_sender_or_target_as_its_own_send(client: Client):
+        guild, other = GuildFactory(), GuildFactory()
+        _login_lead(client, guild)
+        client.post(reverse("hub_compose_send"), _valid_send_data(audience=f"guild:{guild.pk}"))
+        client.post(reverse("hub_compose_send"), _valid_send_data(audience=f"guild:{guild.pk}", body="<p>Other.</p>"))
+        assert AnnouncementDraft.objects.filter(sent_at__isnull=False).count() == 2
+        _login_admin(client)  # another sender, the same text
+        client.post(reverse("hub_compose_send"), _valid_send_data(audience=f"guild:{guild.pk}"))
+        client.post(reverse("hub_compose_send"), _valid_send_data(audience=f"guild:{other.pk}"))
+        assert AnnouncementDraft.objects.filter(sent_at__isnull=False).count() == 4
+
+    def it_treats_the_same_message_to_other_people_as_its_own_send(client: Client, mailoutbox):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        a = _guild_member(guild, "a@example.com")
+        b = _guild_member(guild, "b@example.com")
+        to_a = _valid_send_data(audience=f"guild:{guild.pk}", send_email="on", recipients=[f"user:{a.user_id}"])
+        to_b = _valid_send_data(audience=f"guild:{guild.pk}", send_email="on", recipients=[f"user:{b.user_id}"])
+        first = client.post(reverse("hub_compose_send"), to_a)
+        second = client.post(reverse("hub_compose_send"), to_b)
+        assert (first.url, second.url) == (_sent_tab(), _sent_tab())
+        assert AnnouncementDraft.objects.filter(sent_at__isnull=False).count() == 2
+        assert GuildAnnouncement.objects.count() == 2
+        assert sorted(addr for message in mailoutbox for addr in message.to) == ["a@example.com", "b@example.com"]
+
+    def it_sends_a_resumed_draft_whose_earlier_send_died_mid_way(client: Client):
+        guild = GuildFactory()
+        user, _member = _login_lead(client, guild)
+        # A worker killed mid-send leaves the attempt counted and the row unsent. Once the window has
+        # passed the mark means nothing, and resuming the draft must still send it.
+        stranded = AnnouncementDraftFactory(
+            author=user, audience=AnnouncementDraft.Audience.GUILD, guild=guild, send_attempts=1
+        )
+        assert stranded.sending_in_request
+        AnnouncementDraft.objects.filter(pk=stranded.pk).update(
+            updated_at=timezone.now() - ANNOUNCEMENT_RESEND_WINDOW - timedelta(seconds=1)
+        )
+        stranded.refresh_from_db()
+        assert not stranded.sending_in_request
+        response = client.post(
+            reverse("hub_compose_send"), _valid_send_data(audience=f"guild:{guild.pk}", draft_pk=str(stranded.pk))
+        )
+        assert response.status_code == 302
+        assert response.url == _sent_tab()
+        stranded.refresh_from_db()
+        assert (stranded.sent_at is not None, stranded.send_attempts) == (True, 1)
+        assert GuildAnnouncement.objects.count() == 1
+
+    def it_sends_a_resumed_draft_posted_twice_once(client: Client, mailoutbox):
+        guild = GuildFactory()
+        user, _member = _login_lead(client, guild)
+        _guild_member(guild, "weaver@example.com")
+        draft = AnnouncementDraftFactory(author=user, audience=AnnouncementDraft.Audience.GUILD, guild=guild)
+        data = _valid_send_data(audience=f"guild:{guild.pk}", draft_pk=str(draft.pk), send_email="on")
+        first = client.post(reverse("hub_compose_send"), data)
+        assert first.url == _sent_tab()
+        client.get(first.url)  # renders the first send's message away
+        sent_once = _delivered(mailoutbox)
+        assert sent_once[1] == 1, "the first send should have emailed the one member"
+        second = client.post(reverse("hub_compose_send"), data)
+        assert second.status_code == 302
+        assert second.url == reverse("hub_announcements")
+        assert [m.message for m in get_messages(second.wsgi_request)] == [
+            "This draft can no longer be edited. It may have been sent or deleted."
+        ]
+        assert AnnouncementDraft.objects.count() == 1
+        assert GuildAnnouncement.objects.count() == 1
+        assert _delivered(mailoutbox) == sent_once
 
     def it_refuses_a_draft_that_can_no_longer_be_edited_and_saves_nothing(client: Client):
         admin = _login_admin(client)

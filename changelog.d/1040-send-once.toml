@@ -1,0 +1,10 @@
+bump = "patch"
+date = "2026-10-30"
+audience = ["guild-staff", "instructors", "admins"]
+feature = "admin.email-members"
+guidance = "none"
+title = "Email Members sends once, however many times you tap Send"
+changes = [
+  "Tapping Yes, send it locks the button and shows Sending... until the email is on its way, so a second tap cannot send it again.",
+  "If the same email is sent again within a minute, by a retry or a page refresh, it still goes out once.",
+]
