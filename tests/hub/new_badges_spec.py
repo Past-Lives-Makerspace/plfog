@@ -73,9 +73,9 @@ def describe_the_guild_page():
         # The button row's picker gets its badge and dot from the mirror; the server paints the dot for the first tab.
         assert 'x-show="newElsewhere()" data-tab-picker-dot' in html and "x-cloak data-tab-picker-dot" not in html
 
-    def it_shows_neither_once_the_entry_is_seen_and_no_entry_names_the_guild(client: Client, changelog):
+    def it_shows_neither_once_the_entry_is_seen_and_opened_and_no_entry_names_the_guild(client: Client, changelog):
         changelog([_entry("cubbies", feature="guild.cubbies")])
-        _login(client, whats_new_seen=["cubbies"])
+        _login(client, whats_new_seen=["cubbies"], whats_new_opened=["cubbies"])
         guild = GuildFactory(show_cubbies_tab=True)
         html = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
         assert "data-new-key" not in html

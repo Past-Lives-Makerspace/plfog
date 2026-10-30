@@ -28,7 +28,7 @@ pytestmark = pytest.mark.django_db
 #: Queries one htmx GET of the first page costs for a member in a guild, every entry on one guild tab:
 #: the session, the user, the member, View As, every context processor the hub runs for a partial,
 #: the roles query, the guild lookup behind Open it (once per resolver, however many keys share it)
-#: and the seen write. Never one per entry.
+#: and the one write of the seen and opened lists. Never one per entry.
 _BODY_QUERY_BUDGET = 23
 
 
@@ -187,13 +187,33 @@ def describe_hub_whats_new():
             _body(client, "?tab=guild-staff")
             assert Member.objects.get(pk=member.pk).whats_new_seen == ["a", "b", "staff"]
 
-        def it_leaves_the_dot_off_on_the_next_home_load_until_a_new_entry_arrives(client: Client, changelog):
-            changelog([_entry("a")])
-            _login(client)
-            assert "data-whats-new-dot" in client.get(reverse("hub_home")).content.decode()
+        def it_marks_the_open_over_everything_it_could_show_listed_or_not(client: Client, changelog):
+            # The buttons' list, not the badges': every tab and every page, so one open quiets the button.
+            rows = [_entry(f"row-{i:02d}", days_ago=i + 1) for i in range(PAGE_SIZE + 2)]
+            changelog([_entry("cubbies", feature="guild.cubbies"), *rows, _entry("staff", audiences=("guild-staff",))])
+            member = _login(client)
+            _body(client, "?feature=guild")
+            assert Member.objects.get(pk=member.pk).whats_new_opened == ["cubbies"]
             _body(client)
+            member.refresh_from_db()
+            assert member.whats_new_opened == sorted(
+                ["cubbies", "staff", *(f"row-{i:02d}" for i in range(PAGE_SIZE + 2))]
+            )
+            assert len(member.whats_new_seen) == PAGE_SIZE and "staff" not in member.whats_new_seen
+            # Show older lists more, and writes seen alone.
+            _body(client, f"?tab=members&after={member.whats_new_seen[-1]}")
+            member.refresh_from_db()
+            assert len(member.whats_new_seen) == PAGE_SIZE + 3 and "staff" not in member.whats_new_seen
+
+        def it_leaves_the_dot_off_on_the_next_home_load_until_a_new_entry_arrives(client: Client, changelog):
+            # One open covers a tab the body did not show and entries past its first page (Felix, 2026-10-29).
+            rows = [_entry(f"row-{i:02d}", days_ago=i) for i in range(PAGE_SIZE + 1)]
+            changelog([*rows, _entry("for-admins", audiences=("admins",))])
+            _login(client, fog_role=Member.FogRole.ADMIN)
+            assert "data-whats-new-dot" in client.get(reverse("hub_home")).content.decode()
+            _body(client, "?tab=members")
             assert "data-whats-new-dot" not in client.get(reverse("hub_home")).content.decode()
-            changelog([_entry("b"), _entry("a")])
+            changelog([_entry("b"), *rows, _entry("for-admins", audiences=("admins",))])
             assert "data-whats-new-dot" in client.get(reverse("hub_home")).content.decode()
 
     def describe_show_older():
@@ -316,7 +336,7 @@ def describe_hub_whats_new_seen():
         assert response["Location"] == reverse("hub_home")
 
 
-def describe_the_whats_new_unseen_flag():
+def describe_the_whats_new_unopened_flag():
     def _request(user, picked=None):
         request = RequestFactory().get("/")
         request.user = user
@@ -328,29 +348,29 @@ def describe_the_whats_new_unseen_flag():
 
         request = rf.get("/")
         request.user = AnonymousUser()
-        assert hub_sidebar(request)["whats_new_unseen"] is False
+        assert hub_sidebar(request)["whats_new_unopened"] is False
 
     def it_is_lazy_and_costs_one_query_when_read(changelog, django_assert_num_queries):
         changelog([_entry("fresh")])
         MembershipPlanFactory()
         user = User.objects.create_user(username="lazy", password="pass")
         user.member
-        flag = hub_sidebar(_request(user))["whats_new_unseen"]
+        flag = hub_sidebar(_request(user))["whats_new_unopened"]
         assert isinstance(flag, SimpleLazyObject)
         with django_assert_num_queries(1):
             assert bool(flag) is True
 
-    def it_follows_the_seen_list_and_the_preview(changelog):
+    def it_follows_the_opened_list_and_the_preview(changelog):
         changelog([_entry("fresh")])
         MembershipPlanFactory()
-        user = User.objects.create_user(username="seen", password="pass")
+        user = User.objects.create_user(username="opened", password="pass")
         user.member.fog_role = Member.FogRole.ADMIN
-        user.member.whats_new_seen = ["fresh"]
-        user.member.save(update_fields=["fog_role", "whats_new_seen"])
-        assert bool(hub_sidebar(_request(user))["whats_new_unseen"]) is False
+        user.member.whats_new_opened = ["fresh"]
+        user.member.save(update_fields=["fog_role", "whats_new_opened"])
+        assert bool(hub_sidebar(_request(user))["whats_new_unopened"]) is False
         changelog([_entry("fresh"), _entry("newer")])
-        assert bool(hub_sidebar(_request(user))["whats_new_unseen"]) is True
-        assert bool(hub_sidebar(_request(user, picked=ROLE_GUEST))["whats_new_unseen"]) is False
+        assert bool(hub_sidebar(_request(user))["whats_new_unopened"]) is True
+        assert bool(hub_sidebar(_request(user, picked=ROLE_GUEST))["whats_new_unopened"]) is False
 
 
 def describe_the_home_button():
@@ -363,12 +383,19 @@ def describe_the_home_button():
         assert 'hx-get="/whats-new/"' in html and 'hx-target="#whats-new-body"' in html
         assert 'id="whats-new-body"' in html
 
-    def it_shows_without_the_dot_once_everything_is_seen(client: Client, changelog):
+    def it_shows_without_the_dot_once_an_open_has_covered_everything(client: Client, changelog):
         changelog([_entry("fresh")])
-        _login(client, whats_new_seen=["fresh"])
+        _login(client, whats_new_opened=["fresh"])
         html = client.get(reverse("hub_home")).content.decode()
         assert "data-whats-new-button" in html
         assert "pl-whats-new-btn--unseen" not in html and "data-whats-new-dot" not in html
+
+    def it_keeps_the_dot_while_the_entry_is_only_seen_through_a_badge(client: Client, changelog):
+        # A badge click marks the entry seen; the button settles only on an open of What's New.
+        changelog([_entry("fresh")])
+        _login(client, whats_new_seen=["fresh"])
+        html = client.get(reverse("hub_home")).content.decode()
+        assert "pl-whats-new-btn--unseen" in html and "data-whats-new-dot" in html
 
     def it_hides_from_an_admin_previewing_as_a_guest(client: Client, changelog):
         changelog([_entry("fresh")])

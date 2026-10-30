@@ -145,11 +145,16 @@ def describe_whats_new_button():
         assert "sr-only" not in html
         assert "data-whats-new-dot" in html and "What's New<" not in html
 
-    def it_renders_still_once_everything_under_the_key_is_seen(changelog):
+    def it_renders_still_once_an_open_has_covered_everything_under_the_key(changelog):
         changelog([_entry("cubbies", feature="guild.cubbies")])
-        html = _render('{% whats_new_button "guild" %}', _request(_member(whats_new_seen=["cubbies"]).user))
+        html = _render('{% whats_new_button "guild" %}', _request(_member(whats_new_opened=["cubbies"]).user))
         assert "data-whats-new-button" in html and 'aria-label="What\'s new in Guilds"' in html
         assert "pl-whats-new-btn--unseen" not in html and "data-whats-new-dot" not in html
+
+    def it_keeps_pulsing_while_the_entry_is_only_seen_through_its_badge(changelog):
+        changelog([_entry("cubbies", feature="guild.cubbies")])
+        html = _render('{% whats_new_button "guild" %}', _request(_member(whats_new_seen=["cubbies"]).user))
+        assert "pl-whats-new-btn--unseen" in html and "data-whats-new-dot" in html
 
     def it_renders_nothing_for_a_key_no_entry_names(changelog):
         changelog([_entry("cubbies", feature="guild.cubbies")])

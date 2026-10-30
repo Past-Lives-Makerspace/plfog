@@ -70,9 +70,11 @@ def whats_new_button(context: dict[str, Any], key: str | None = None, labelled: 
     """The What's New button, for a viewer the modal is for.
 
     With ``key``, the icon button that opens What's New filtered to the key and everything under
-    it: it renders only while an entry of any age names the key, and pulses while one is unseen.
-    Without a key, Home's button over every entry, ``labelled`` with its wordmark. The page
-    includes the ``whats-new`` modal the button loads into.
+    it: it renders only while an entry of any age names the key, and pulses while one is there
+    that no open of What's New has covered (``Member.whats_new_opened``, not the badges' seen
+    list: one open quiets it until the next release). Without a key, Home's button over every
+    entry, ``labelled`` with its wordmark. The page includes the ``whats-new`` modal the button
+    loads into.
     """
     news = _news(context)
     if news is None or not news.audiences:
@@ -85,6 +87,6 @@ def whats_new_button(context: dict[str, Any], key: str | None = None, labelled: 
             "key": key or "",
             "title": title_for(key) if key else "",
             "labelled": labelled,
-            "unseen": news.has_unseen(key) if key else news.unseen,
+            "unopened": news.has_unopened(key) if key else news.unopened,
         },
     )

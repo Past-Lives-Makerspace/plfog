@@ -11,9 +11,10 @@
 // mirror of a button row follows the row by itself (plTabPicker's observer); its copy of a link
 // row's badge carries the key, so a tap there is this same click.
 //
-// The What's New button ({% whats_new_button %}) opens the modal, whose body marks everything it
-// lists seen on the server, so the button drops its pulse, its dot and its "something is new"
-// wording at once rather than on the next load.
+// The What's New button ({% whats_new_button %}) opens the modal, whose body records the open
+// over everything it could show (Member.whats_new_opened, listed or not), so the button drops its
+// pulse, its dot and its "something is new" wording at once rather than on the next load, and
+// stays quiet until a release adds an entry.
 (function () {
   function csrfToken() {
     var meta = document.querySelector('meta[name="csrf-token"]');

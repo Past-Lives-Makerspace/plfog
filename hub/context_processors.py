@@ -9,7 +9,7 @@ from typing import Any
 from django.http import HttpRequest
 from django.utils.functional import SimpleLazyObject
 
-from core.whats_new import unseen
+from core.whats_new import unopened
 from hub.spotlight import LatestUpdate, sees_spotlight
 from kiln.access import KilnNav
 from membership.models import AdminCapability, Guild, Member
@@ -52,7 +52,7 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
             "version_card": False,
             "latest_update": None,
             "hq_nav": False,
-            "whats_new_unseen": False,
+            "whats_new_unopened": False,
         }
 
     initials = ""
@@ -93,8 +93,8 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "latest_update": LatestUpdate.newest() if version_card else None,
         # The Holiday Bizarre entry: one query, run only when the sidebar renders it.
         "hq_nav": SimpleLazyObject(partial(_hq_nav, request, member)),
-        # The What's New button's dot (#1007): one query, run only on a page that draws the button (Home).
-        "whats_new_unseen": SimpleLazyObject(partial(unseen, request)),
+        # The What's New button's dot (#1007): one query, run only on a page that draws the button (Home). Off once the viewer has opened What's New, until a release adds an entry.
+        "whats_new_unopened": SimpleLazyObject(partial(unopened, request)),
     }
 
 

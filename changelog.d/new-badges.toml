@@ -7,4 +7,5 @@ title = "New! marks what just shipped, and every tools page has a What's New but
 changes = [
   "A small New! mark sits on a tab, a card, a quick link or a sidebar link while something there is new for you. Open the thing and the mark goes away.",
   "A sparkles button on your guild's page, beside the Join or Member button, and beside the title of Admin Tools and Guild Tools opens What's New for just that part of the portal. It pulses while something there is waiting for you.",
+  "Open What's New once and its button settles down, whichever tab you read, until the next release brings something new.",
 ]
