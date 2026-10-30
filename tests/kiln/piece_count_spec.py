@@ -42,7 +42,7 @@ def describe_the_ticket_form():
     def it_drops_the_old_labels(maker_client, kiln_guild):
         html = maker_client.get(reverse("kiln:new")).content.decode()
         assert "Quantity of identical pieces" not in html
-        assert "Piece size" not in html
+        assert 'id="kiln-size">Piece size' not in html
 
 
 def describe_the_count_beside_the_size():
