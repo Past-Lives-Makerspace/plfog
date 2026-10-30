@@ -13,7 +13,7 @@ digits comes back with its error, open. Blank hides Check Discord.
   </summary>
   <form method="post" action="{% url 'hq:vendor_discord_channel' hub.slug %}" hx-boost="false" class="pl-disclosure__body pl-hq-vt__form" data-hq-vt-discord-channel-form>
     {% csrf_token %}
-    <p class="pl-hq-vt__muted pl-hq-vt__helper" data-hq-vt-discord-channel-helper>The channel where members ask for tables. The Team's Check Discord reads it through the Fog Bot, which must be able to see it. To copy the id, turn on Developer Mode in Discord's Advanced settings, then right click the channel and choose Copy Channel ID. Leave it blank to hide Check Discord.</p>
+    <p class="pl-hq-vt__muted pl-hq-vt__helper" data-hq-vt-discord-channel-helper>The channel where members ask for tables. The Team's Check Discord reads it through the Past Lives Bot, which must be able to see it. To copy the id, turn on Developer Mode in Discord's Advanced settings, then right click the channel and choose Copy Channel ID. Leave it blank to hide Check Discord.</p>
     <div class="pl-hq-vt__channel-field">
       {% include "components/form_field.html" with field=discord_form.discord_channel_id field_hint_off=True %}
     </div>

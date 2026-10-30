@@ -236,7 +236,7 @@ Your settings are a grid: every kind of event runs down the side, and each colum
 - **In-app (Bell)** — always on. Most notices land in the bell and you can't switch it off. A few reach you only by email.
 - **Email** — a message to your inbox.
 - **Push** — a notification on your phone. Android only for now; iOS is coming soon.
-- **Discord** — a direct message from the Fog Bot. This column only works once you've connected Discord.
+- **Discord** — a direct message from the Past Lives Bot. This column only works once you've connected Discord.
 
 Some events also offer a **Scheduled** or **Digest** column — a weekly round-up instead of one message at a time.
 
@@ -2129,7 +2129,7 @@ There are no release days. When a change merges to the main branch on GitHub (af
 ## What the Member Portal Talks To
 
 - **Airtable** — the membership roster lives there; the Member Portal pulls members, spaces, and space agreements in on a schedule, and pushes guild-voting results back out.
-- **Discord** — the Fog Bot mirrors calendar events into Discord's event list, posts guild announcements and new classes, and links member accounts (see [Discord and the Member Portal](/help/contributing/discord-and-fog/)).
+- **Discord** — the Past Lives Bot mirrors calendar events into Discord's event list, posts guild announcements and new classes, and links member accounts (see [Discord and the Member Portal](/help/contributing/discord-and-fog/)).
 - **Google Calendar** — events are pushed to the shared calendars automatically: the public one, or the members one for guild meetings and the like.
 
 ## Scheduled Jobs
@@ -2176,11 +2176,11 @@ You don't have one — at least not one you ever need to know. Internally the sy
         "title": "Discord and the Member Portal",
         "sort_order": 50,
         "related": ["logins-and-usernames", "community-calendar"],
-        "body": """Past Lives runs on two systems that talk to each other: the Member Portal (this app) for the official record — membership, classes, voting, events — and Discord for the day-to-day conversation. The Fog Bot is the bridge.
+        "body": """Past Lives runs on two systems that talk to each other: the Member Portal (this app) for the official record — membership, classes, voting, events — and Discord for the day-to-day conversation. The Past Lives Bot is the bridge.
 
 ## What the Bot Does on Its Own
 
-Without you doing anything, the Fog Bot:
+Without you doing anything, the Past Lives Bot:
 
 - Mirrors the calendar into **Discord's event list**, so events show up where you already hang out.
 - Posts **guild announcements** to Discord channels (for guilds that turn that on).

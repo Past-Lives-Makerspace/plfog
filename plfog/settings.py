@@ -526,7 +526,7 @@ INVITE_EXPIRY_DAYS = int(os.environ.get("INVITE_EXPIRY_DAYS", "14"))
 DISCORD_NOTIFY_WEBHOOK_URL = os.environ.get("DISCORD_NOTIFY_WEBHOOK_URL", "").strip()
 
 # Discord bot + OAuth credentials for the per-member Discord DM channel. The bot
-# ("FOG Bot") DMs a member who has linked their Discord account; OAuth (identify
+# ("Past Lives Bot") DMs a member who has linked their Discord account; OAuth (identify
 # scope) is how a member links it. Each is blank by default so the app and tests run
 # without real credentials — a blank bot token makes the DM channel a no-op and blank
 # client credentials disable the account-linking flow (the "disabled when blank" idiom).
