@@ -77,9 +77,12 @@ def whats_new_button(context: dict[str, Any], key: str | None = None, labelled: 
     loads into.
     """
     news = _news(context)
-    if news is None or not news.audiences:
+    if news is None:
         return ""
+    # The registry and the changelog first (no query): a page whose key no entry names pays no roles query.
     if key is not None and (not _known(key) or not news.has_entries(key)):
+        return ""
+    if not news.audiences:
         return ""
     return render_to_string(
         "hub/partials/_whats_new_button.html",

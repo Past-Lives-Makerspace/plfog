@@ -675,8 +675,8 @@
     {% include "includes/changelog_modal.html" %}
     {% endif %}
     {% if show_welcome_modal %}{% include "includes/welcome_modal.html" %}{% endif %}
-    {# The What's New modal (#1007), once for every hub page: any page's {% whats_new_button %} loads hub_whats_new into it. #}
-    {% include "components/modal.html" with modal_id="whats-new" modal_title="What's New" modal_size="lg" %}
+    {# The What's New modal (#1007), once for every hub page: any page's {% whats_new_button %} loads hub_whats_new into it. Not on the guilds host, which serves no hub_whats_new and draws no button. #}
+    {% if not is_guilds_surface %}{% include "components/modal.html" with modal_id="whats-new" modal_title="What's New" modal_size="lg" %}{% endif %}
     {# HTMX fires HX-Trigger JSON keys as events plus a kebab alias, so trigger_toast's #}
     {# `showToast` key reaches the toast script (components/toast.html) as `show-toast`. #}
     <script>
