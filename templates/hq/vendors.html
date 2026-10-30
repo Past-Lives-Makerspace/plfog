@@ -4,7 +4,8 @@
 Vendor Tables (Track D, part 3), in the look of Lee's page: a header with the hub's name, its date
 and who manages the door, then the board (hq/partials/_vendor_board.html: the band, + Add a table
 request, the table requests and the space map's capacity). Organisers only: the view's gate is the
-card's audience and then a 403 for anyone who does not organise it, because every row is a contact.
+card's audience and then a 403 for anyone who does not organise it, because every row is a contact. The
+Import CSV modal (hq/partials/_vendor_import.html) sits after the board, which only opens it.
 {% endcomment %}
 {% block title %}{{ card.title }}{% endblock %}
 {% block extra_head %}
@@ -22,5 +23,7 @@ card's audience and then a 403 for anyone who does not organise it, because ever
   </header>
 
   {% include "hq/partials/_vendor_board.html" %}
+  {# Import CSV, outside the board so an add's redraw never resets a chosen file; the board's button opens it. #}
+  {% include "components/modal.html" with modal_id="hq-vt-import" modal_title="Import CSV" modal_size="md" modal_body_include="hq/partials/_vendor_import.html" %}
 </div>
 {% endblock %}

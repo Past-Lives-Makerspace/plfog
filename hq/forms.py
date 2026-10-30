@@ -7,6 +7,8 @@ guild demos (D6c)."""
 
 from __future__ import annotations
 
+import re
+
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
@@ -66,6 +68,8 @@ from hq.services import (
     VolunteerInfo,
     drink_price_cents,
 )
+from hq.vendor_import import MAX_IMPORT_BYTES, TOO_LARGE, ImportRefused, read_csv
+from hq.vendor_sheet import sheet_link
 from membership.models import CommunityEvent, Guild, Member
 
 # Path segments under /hq/ that are routes, not hubs.
@@ -811,8 +815,24 @@ class VendorTableEditForm(VendorTableForm):
     updated_at = forms.CharField(required=False, widget=forms.HiddenInput)
 
     class Meta(VendorTableForm.Meta):
-        fields = [*VendorTableForm.Meta.fields, "status", "table_no"]
-        labels = {**VendorTableForm.Meta.labels, "status": "Status", "table_no": "Table #"}
+        fields = [
+            *VendorTableForm.Meta.fields,
+            "status",
+            "table_no",
+            "note",
+            "requested_on",
+            "request_source",
+            "discord_handle",
+        ]
+        labels = {
+            **VendorTableForm.Meta.labels,
+            "status": "Status",
+            "table_no": "Table #",
+            "note": "Source",
+            "requested_on": "Requested on",
+            "request_source": "Request source",
+            "discord_handle": "Discord handle",
+        }
         widgets: dict[str, forms.Widget] = {
             **VendorTableForm.Meta.widgets,
             "name": forms.TextInput(),
@@ -821,6 +841,10 @@ class VendorTableEditForm(VendorTableForm):
             "email": forms.EmailInput(attrs={"autocomplete": "off", "placeholder": "Email"}),
             "phone": forms.TextInput(attrs={"type": "tel", "autocomplete": "off", "placeholder": "Phone"}),
             "table_no": forms.TextInput(attrs={"placeholder": "#"}),
+            "note": forms.TextInput(attrs={"placeholder": "Source"}),
+            "requested_on": forms.DateInput(format="%Y-%m-%d", attrs=_DATE_PICKER),
+            "request_source": forms.TextInput(attrs={"placeholder": "How it came in"}),
+            "discord_handle": forms.TextInput(attrs={"autocomplete": "off", "placeholder": "Discord"}),
         }
 
     def __init__(self, *args: Any, form_id: str, **kwargs: Any) -> None:
@@ -843,6 +867,32 @@ class VendorTableEditForm(VendorTableForm):
         return self.is_bound and self.data.get(self.add_prefix("updated_at"), "") != self._stamp
 
 
+class VendorImportForm(forms.Form):
+    """Import CSV: one file in the columns of Kate's sheet (or the page's own export), read whole or refused whole.
+
+    ``clean_file`` reads it into rows (``hq.vendor_import.read_csv``), so a file over 1 MB, not UTF-8, not a CSV or
+    over 1000 rows is a form error with nothing written; the view parses the rows against the active guilds.
+    """
+
+    file = forms.FileField(
+        label="CSV file",
+        error_messages={
+            "required": "Choose a CSV file to import.",
+            "empty": "That file is empty. Nothing was imported.",
+        },
+    )
+
+    def clean_file(self) -> list[list[str]]:
+        upload = self.cleaned_data["file"]
+        # Refused on its declared size before a byte is read, so a huge upload is never pulled into memory.
+        if upload.size > MAX_IMPORT_BYTES:
+            raise forms.ValidationError(TOO_LARGE)
+        try:
+            return read_csv(upload.read())
+        except ImportRefused as exc:
+            raise forms.ValidationError(str(exc)) from exc
+
+
 class VendorFloorForm(forms.Form):
     """Space Map Capacity: how many tables fit (blank while the map is not ready) and the mapper's note."""
 
@@ -861,6 +911,48 @@ class VendorFloorForm(forms.Form):
         label="Map notes",
         widget=forms.TextInput(attrs={"placeholder": "e.g. 18 in the gallery, 6 in the shop"}),
     )
+
+
+class VendorSheetForm(forms.Form):
+    """The vendor sheet's link (#1013): a Google Sheets link from its Share button, or blank to stop pulling."""
+
+    sheet_url = forms.CharField(
+        max_length=500,
+        required=False,
+        label="Sheet link",
+        widget=forms.URLInput(attrs={"placeholder": "https://docs.google.com/spreadsheets/d/..."}),
+    )
+
+    def clean_sheet_url(self) -> str:
+        url = self.cleaned_data["sheet_url"].strip()
+        if url:
+            try:
+                sheet_link(url)
+            except ValueError as exc:
+                raise forms.ValidationError(str(exc)) from exc
+        return url
+
+
+# A Discord channel id is digits alone (Discord's snowflake).
+_CHANNEL_ID = re.compile(r"[0-9]{1,32}")
+NOT_A_CHANNEL_ID = "Paste the channel's id: digits only, like 1234567890123456789."
+
+
+class VendorDiscordChannelForm(forms.Form):
+    """The Discord channel Check Discord reads (#1014), by its id, or blank to hide the button."""
+
+    discord_channel_id = forms.CharField(
+        max_length=32,
+        required=False,
+        label="Channel id",
+        widget=forms.TextInput(attrs={"inputmode": "numeric", "autocomplete": "off"}),
+    )
+
+    def clean_discord_channel_id(self) -> str:
+        channel_id = self.cleaned_data["discord_channel_id"].strip()
+        if channel_id and not _CHANNEL_ID.fullmatch(channel_id):
+            raise forms.ValidationError(NOT_A_CHANNEL_ID)
+        return channel_id
 
 
 # ---- Market Check-in (Track D, part 4) ----

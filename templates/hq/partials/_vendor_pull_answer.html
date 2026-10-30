@@ -1,0 +1,23 @@
+{% comment %}
+The vendor sheet's last pull, over the list while a sheet link is set: when it ran (Portland time), what it did and
+the first problems by row, or in red why the sheet could not be read. Before the first pull it says the sheet is
+pulled every morning. Read from the hub's floor row, so it stays until the next pull.
+
+  sheet          — required, a hq.services.VendorSheetState with a link
+  sheet_problems — required, the first problems to list
+  sheet_more     — required, how many more problems there are
+{% endcomment %}
+<div class="pl-hq-vt__import-answer{% if sheet.error %} pl-hq-vt__import-answer--refused{% endif %}" role="status" data-hq-vt-pull-answer>
+  <p class="pl-hq-vt__pull-when" data-hq-vt-pull-when>Vendor sheet{% if sheet.pulled_at %} · Last pulled {{ sheet.pulled_at|date:"M j, g:i A" }}{% else %} · Pulled every morning, not pulled yet{% endif %} · <a href="{{ sheet.url }}" target="_blank" rel="noopener" class="pl-hq-vt__pull-link" data-hq-vt-sheet-link>Open the Sheet</a></p>
+  {% if sheet.error %}
+  <p class="pl-hq-vt__import-summary pl-hq-vt__pull-error" data-hq-vt-pull-error>The sheet could not be read. {{ sheet.error }} Nothing changed.</p>
+  {% elif sheet.summary %}
+  <p class="pl-hq-vt__import-summary" data-hq-vt-pull-summary>{{ sheet.summary }}</p>
+  {% if sheet_problems %}
+  <ul class="pl-hq-vt__import-problems" data-hq-vt-pull-problems>
+    {% for problem in sheet_problems %}<li>{{ problem }}</li>{% endfor %}
+    {% if sheet_more %}<li data-hq-vt-pull-more>And {{ sheet_more }} more.</li>{% endif %}
+  </ul>
+  {% endif %}
+  {% endif %}
+</div>

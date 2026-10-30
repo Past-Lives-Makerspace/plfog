@@ -32,14 +32,34 @@ _RECENT_MESSAGES_LIMIT = 50
 MAX_EMBEDS_PER_MESSAGE = 10
 # The most messages one ``GET /channels/{id}/messages`` returns.
 MESSAGES_PAGE_LIMIT = 100
+# The most members one ``GET /guilds/{id}/members`` returns, and how many pages a read takes at most.
+MEMBERS_PAGE_LIMIT = 1000
+MEMBERS_MAX_PAGES = 10
 
 
 class DiscordChannelError(Exception):
-    """A Discord channel-message API call failed (transport error or non-2xx response)."""
+    """A Discord channel-message API call failed (transport error or non-2xx response).
+
+    ``status_code`` is Discord's answer (403, 404, ...), or None for a transport error.
+    """
+
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class DiscordRateLimitedError(DiscordChannelError):
     """Discord still answered 429 after the one bounded retry: the caller stops and tries next tick."""
+
+
+class DiscordTimeUpError(DiscordChannelError):
+    """A paged read passed the caller's deadline (a ``time.monotonic()`` value) before its next request."""
+
+
+def _before_deadline(deadline: float | None) -> None:
+    """Raise :class:`DiscordTimeUpError` once ``deadline`` has passed; nothing without one."""
+    if deadline is not None and time.monotonic() >= deadline:
+        raise DiscordTimeUpError("Discord took too long; the read stopped at its deadline.")
 
 
 def discord_message_url(server_id: str, channel_id: str, message_id: str) -> str:
@@ -63,6 +83,50 @@ def channel_messages_after(channel_id: str, after: str) -> list[dict[str, Any]]:
         "GET", f"{API_BASE}/channels/{channel_id}/messages", params={"after": after, "limit": MESSAGES_PAGE_LIMIT}
     ).json()
     return sorted(messages, key=lambda message: int(message["id"]))
+
+
+def channel_info(channel_id: str, *, deadline: float | None = None) -> dict[str, Any]:
+    """One channel (``GET /channels/{id}``): its ``name``, ``type`` and the ``guild_id`` of its server."""
+    _before_deadline(deadline)
+    return _request("GET", f"{API_BASE}/channels/{channel_id}", deadline=deadline).json()
+
+
+def channel_messages_newest(channel_id: str, *, limit: int, deadline: float | None = None) -> list[dict[str, Any]]:
+    """The channel's newest ``limit`` messages at most, newest first, read a page of
+    :data:`MESSAGES_PAGE_LIMIT` at a time going back with ``before``; a short page is the channel's start.
+
+    With a ``deadline`` (a ``time.monotonic()`` value) no request starts after it (:class:`DiscordTimeUpError`)."""
+    found: list[dict[str, Any]] = []
+    params: dict[str, Any] = {"limit": MESSAGES_PAGE_LIMIT}
+    while len(found) < limit:
+        _before_deadline(deadline)
+        page = _request("GET", f"{API_BASE}/channels/{channel_id}/messages", params=params, deadline=deadline).json()
+        found.extend(page)
+        if len(page) < MESSAGES_PAGE_LIMIT:
+            break
+        params = {"limit": MESSAGES_PAGE_LIMIT, "before": min(page, key=lambda message: int(message["id"]))["id"]}
+    return found[:limit]
+
+
+def server_members(server_id: str, *, deadline: float | None = None) -> list[dict[str, Any]]:
+    """The server's members (``GET /guilds/{id}/members``, which needs the Server Members intent), each with its
+    ``user`` and server ``nick``, :data:`MEMBERS_PAGE_LIMIT` a page up to :data:`MEMBERS_MAX_PAGES` pages; with a
+    ``deadline``, as :func:`channel_messages_newest`."""
+    found: list[dict[str, Any]] = []
+    after = "0"
+    for _page in range(MEMBERS_MAX_PAGES):
+        _before_deadline(deadline)
+        page = _request(
+            "GET",
+            f"{API_BASE}/guilds/{server_id}/members",
+            params={"limit": MEMBERS_PAGE_LIMIT, "after": after},
+            deadline=deadline,
+        ).json()
+        found.extend(page)
+        if len(page) < MEMBERS_PAGE_LIMIT:
+            break
+        after = page[-1]["user"]["id"]
+    return found
 
 
 def post_channel_message(
@@ -191,19 +255,31 @@ def _send_payload(method: str, url: str, payload: dict[str, Any], embed_count: i
 
 
 def _request(
-    method: str, url: str, payload: dict[str, Any] | None = None, *, params: dict[str, Any] | None = None
+    method: str,
+    url: str,
+    payload: dict[str, Any] | None = None,
+    *,
+    params: dict[str, Any] | None = None,
+    deadline: float | None = None,
 ) -> httpx.Response:
-    """One bot REST call with the single bounded 429 retry; raises on anything but a 2xx."""
+    """One bot REST call with the single bounded 429 retry; raises on anything but a 2xx. With a ``deadline`` (a
+    ``time.monotonic()`` value) the retry is skipped when its wait would end past it."""
     response = _send(method, url, payload, params=params)
     if response.status_code == 429:
         retry_after = _retry_after_seconds(response)
-        if retry_after is not None and retry_after <= _RATE_LIMIT_MAX_WAIT_SECONDS:
+        if (
+            retry_after is not None
+            and retry_after <= _RATE_LIMIT_MAX_WAIT_SECONDS
+            and (deadline is None or time.monotonic() + retry_after < deadline)
+        ):
             time.sleep(retry_after)
             response = _send(method, url, payload, params=params)
     if response.status_code == 429:
-        raise DiscordRateLimitedError(f"Discord API 429: {response.text[:300]}")
+        raise DiscordRateLimitedError(f"Discord API 429: {response.text[:300]}", status_code=429)
     if not response.is_success:
-        raise DiscordChannelError(f"Discord API {response.status_code}: {response.text[:300]}")
+        raise DiscordChannelError(
+            f"Discord API {response.status_code}: {response.text[:300]}", status_code=response.status_code
+        )
     return response
 
 

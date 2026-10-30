@@ -1,0 +1,66 @@
+{% comment %}
+Import CSV, the body of the hq-vt-import modal on hq/vendors.html: Lee's rule for the file in plain words, a drop
+zone that takes one CSV (the .cls-image-upload-zone pattern; the script below names the chosen file and refuses one
+over 1 MB before the post), and Import. A multipart plain post (hx-boost="false") to hq:vendor_import, which lands
+back on the page with the answer over the list.
+
+  hub — required, the EventHub
+{% endcomment %}
+<form method="post" action="{% url 'hq:vendor_import' hub.slug %}" enctype="multipart/form-data" hx-boost="false" class="pl-hq-vt__import" data-hq-vt-import-form>
+  {% csrf_token %}
+  <p class="pl-hq-vt__import-lede">Rows match the tables here by name. A match takes the cells the file fills, and a blank cell changes nothing. A new name is added. Nothing is deleted.</p>
+  <div class="pl-form-group">
+    <span class="pl-hq-vt__import-head">
+      <label class="pl-form-label" for="hq-vt-import-file">CSV file</label>
+      <span class="pl-help">
+        <span class="pl-help__icon" tabindex="0" role="img" aria-label="The columns of the vendor sheet or of Download CSV: Name, Guild, Table size, Status, What they sell, Setup time, Table #, Email, Phone, Source, Requested on, Request source, Discord handle, Needs. Other columns are skipped. Up to 1 MB and 1000 rows.">?</span>
+        <span class="pl-help__bubble">The columns of the vendor sheet or of Download CSV: Name, Guild, Table size, Status, What they sell, Setup time, Table #, Email, Phone, Source, Requested on, Request source, Discord handle, Needs. Other columns are skipped. Up to 1 MB and 1000 rows.</span>
+      </span>
+    </span>
+    <label class="cls-image-upload-zone" data-hq-vt-import-zone data-max-bytes="1048576">
+      <input type="file" name="file" id="hq-vt-import-file" accept=".csv,text/csv" required>
+      <span class="cls-image-upload-label" data-hq-vt-import-label>Choose a CSV file</span>
+      <span class="cls-image-upload-hint">Click or drag a file here</span>
+    </label>
+    <p class="pl-field-error pl-hq-vt__import-error" role="alert" data-hq-vt-import-error hidden></p>
+  </div>
+  <div class="pl-hq-vt__actions">
+    <button type="submit" class="pl-hq-vt__btn" data-hq-vt-import-submit>Import</button>
+  </div>
+</form>
+{# The zone's file name, size check and drag and drop; claimed by a property, so a boosted re-run binds nothing twice. #}
+<script>
+(function () {
+  document.querySelectorAll('[data-hq-vt-import-zone]').forEach(function (zone) {
+    if (zone.plVendorImportReady) return;
+    zone.plVendorImportReady = true;
+    var input = zone.querySelector('input[type="file"]');
+    var label = zone.querySelector('[data-hq-vt-import-label]');
+    var error = zone.parentNode.querySelector('[data-hq-vt-import-error]');
+    var check = function () {
+      var file = input.files[0];
+      if (!file) return;
+      if (file.size > Number(zone.dataset.maxBytes)) {
+        error.textContent = 'That file is over 1 MB.';
+        error.hidden = false;
+        input.value = '';
+        return;
+      }
+      error.hidden = true;
+      error.textContent = '';
+      label.textContent = file.name;
+    };
+    input.addEventListener('change', check);
+    zone.addEventListener('dragover', function (e) { e.preventDefault(); zone.classList.add('drag-hover'); });
+    zone.addEventListener('dragleave', function () { zone.classList.remove('drag-hover'); });
+    zone.addEventListener('drop', function (e) {
+      e.preventDefault();
+      zone.classList.remove('drag-hover');
+      if (e.dataTransfer.files.length) {
+        input.files = e.dataTransfer.files;
+        check();
+      }
+    });
+  });
+})();
+</script>

@@ -29,6 +29,7 @@ ledger's goals (:func:`ledger_goals`), each reading every other door from its on
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
@@ -38,6 +39,7 @@ from typing import Any
 from urllib.parse import quote
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from django.db.models import (
@@ -105,6 +107,8 @@ from hq.models import (
     StaffTime,
     SponsorLogEntry,
     SponsorStatus,
+    VendorDiscordAction,
+    VendorDiscordDecision,
     VendorFloor,
     VendorTable,
     VendorTableStatus,
@@ -119,7 +123,11 @@ from hq.models import (
     hours_words,
     format_money,
 )
+from hq import vendor_discord, vendor_sheet
+from hq.vendor_import import ImportRefused, ImportResult, apply_pull, apply_upload, hub_lock, parse_rows, read_csv
 from membership.models import CommunityEvent, Guild, GuildMembership, Member
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -1188,9 +1196,305 @@ def filtered_vendor_tables(hub: EventHub, show: str, *, keep_pk: int | None = No
 
 
 def add_vendor_table(hub: EventHub, fields: Mapping[str, Any], *, member: Member | None) -> VendorTable:
-    """Put a table request on ``hub`` from the form's fields: requested, or waitlisted while the map is full."""
+    """Put a table request on ``hub`` from the form's fields: requested, or waitlisted while the map is full, and
+    requested on the Portland date it was added unless ``fields`` names the date."""
     status = VendorTableStatus.WAITLIST if vendor_band(hub).is_full else VendorTableStatus.REQUESTED
-    return VendorTable.objects.create(hub=hub, created_by=member, status=status, **fields)
+    return VendorTable.objects.create(
+        hub=hub, created_by=member, status=status, **{"requested_on": timezone.localdate(), **fields}
+    )
+
+
+def import_vendor_tables(hub: EventHub, rows: Sequence[Sequence[str]], *, member: Member | None) -> ImportResult:
+    """Import CSV: read ``rows`` (the header first) against the guilds a table may name and write them to ``hub``
+    by the upload's rule (``hq.vendor_import.apply_upload``).
+
+    Raises:
+        ImportRefused: the header has no Name column; nothing is written.
+    """
+    sheet = parse_rows(rows, guilds=_import_guilds(hub))
+    return apply_upload(hub, sheet, member=member)
+
+
+def _import_guilds(hub: EventHub) -> list[Guild]:
+    """The guilds an import may name: every active guild, and any inactive one a table on ``hub`` still names, as
+    the row's guild select keeps it, so an export of that row imports back unchanged. One query."""
+    named = Q(is_active=True) | Q(pk__in=hub.vendor_tables.exclude(guild=None).values("guild"))
+    return list(Guild.objects.filter(named).order_by("name"))
+
+
+def import_summary(result: ImportResult) -> str:
+    """The one line an import answers with: "Import done: 2 added, 1 updated, 9 unchanged." and the problems' count."""
+    line = f"Import done: {result.added} added, {result.updated} updated, {result.unchanged} unchanged."
+    if result.problems:
+        line += f" {_plural(len(result.problems), 'problem', 'problems')} to check."
+    return line
+
+
+# ---- The vendor sheet pull (#1013) ----
+
+
+@dataclass(frozen=True)
+class VendorSheetState:
+    """The vendor sheet's link and its last pull, as the page shows them: when it ran (None before the first), what
+    it did and its problems, or why it could not read the sheet."""
+
+    url: str = ""
+    pulled_at: datetime | None = None
+    summary: str = ""
+    problems: tuple[str, ...] = ()
+    error: str = ""
+    # The Discord channel Check Discord reads (#1014), read in the same query; blank hides the button.
+    discord_channel_id: str = ""
+
+
+def vendor_sheet_state(hub: EventHub) -> VendorSheetState:
+    """``hub``'s vendor sheet link and last pull, and its Discord channel, in one query; blanks while there is no
+    floor row."""
+    row = (
+        VendorFloor.objects.filter(hub=hub)
+        .values(
+            "sheet_url",
+            "sheet_pulled_at",
+            "sheet_pull_summary",
+            "sheet_pull_problems",
+            "sheet_pull_error",
+            "discord_channel_id",
+        )
+        .first()
+    )
+    if row is None:
+        return VendorSheetState()
+    return VendorSheetState(
+        url=row["sheet_url"],
+        pulled_at=row["sheet_pulled_at"],
+        summary=row["sheet_pull_summary"],
+        problems=tuple(row["sheet_pull_problems"]),
+        error=row["sheet_pull_error"],
+        discord_channel_id=row["discord_channel_id"],
+    )
+
+
+class NoVendorSheet(Exception):
+    """The hub has no vendor sheet link, so there is nothing to pull."""
+
+
+def set_vendor_sheet(hub: EventHub, url: str) -> VendorFloor:
+    """Save ``url`` (a link ``hq.vendor_sheet.sheet_link`` takes, stored as its ``edit_url``, or blank to clear it)
+    as ``hub``'s vendor sheet. A new link forgets the last pull's answer, which was about the old one; the tables keep their remembered
+    cells, so a copy of the same sheet pulls only what changed."""
+    # Stored as the address built from the sheet's id, never as pasted, so the page only ever links to Google.
+    url = vendor_sheet.sheet_link(url).edit_url if url else ""
+    floor, _created = VendorFloor.objects.get_or_create(hub=hub)
+    if url != floor.sheet_url:
+        floor.sheet_url = url
+        floor.sheet_pulled_at = None
+        floor.sheet_pull_summary = ""
+        floor.sheet_pull_problems = []
+        floor.sheet_pull_error = ""
+        floor.save()
+    return floor
+
+
+def pull_vendor_sheet(hub: EventHub) -> ImportResult:
+    """Read ``hub``'s vendor sheet and write it to the table requests by the pull's rule
+    (``hq.vendor_import.apply_pull``), recording on the floor when it ran and what it did, in one transaction.
+
+    A sheet that cannot be read writes no table: the floor records why (``sheet_pull_error``) and the error is
+    raised. A pull that works clears the last error.
+
+    Raises:
+        NoVendorSheet: the hub has no sheet link.
+        SheetUnreadable: the sheet could not be fetched or read as the vendor list.
+    """
+    floor = VendorFloor.objects.filter(hub=hub).exclude(sheet_url="").first()
+    if floor is None:
+        raise NoVendorSheet(f"{hub.title} has no vendor sheet link.")
+    try:
+        rows = read_csv(vendor_sheet.fetch_sheet_csv(vendor_sheet.sheet_link(floor.sheet_url)))
+        sheet = parse_rows(rows, guilds=_import_guilds(hub))
+    except (vendor_sheet.SheetUnreadable, ImportRefused) as exc:
+        floor.sheet_pulled_at = timezone.now()
+        floor.sheet_pull_error = str(exc)
+        floor.sheet_pull_summary = ""
+        floor.sheet_pull_problems = []
+        floor.save()
+        raise vendor_sheet.SheetUnreadable(str(exc)) from exc
+    with transaction.atomic():
+        result = apply_pull(hub, sheet)
+        floor.sheet_pulled_at = timezone.now()
+        floor.sheet_pull_error = ""
+        floor.sheet_pull_summary = pull_summary(result)
+        floor.sheet_pull_problems = [str(problem) for problem in result.problems]
+        floor.save()
+    return result
+
+
+# What a hub's floor records when its pull failed for a reason other than the sheet (a bug, the database).
+PULL_FAILED = "The pull failed. It will try again tomorrow."
+
+
+def pull_every_vendor_sheet() -> list[tuple[EventHub, str]]:
+    """Pull every hub with a vendor sheet link whose event has not ended (or that has no event), each on its own,
+    so one failure of any kind never stops the rest; the hubs whose pull failed, each with why.
+
+    A sheet that cannot be read records its own error (``pull_vendor_sheet``); anything else is logged with its
+    traceback and recorded on the hub as :data:`PULL_FAILED`.
+    """
+    failed: list[tuple[EventHub, str]] = []
+    floors = (
+        VendorFloor.objects.exclude(sheet_url="")
+        .filter(Q(hub__event__isnull=True) | Q(hub__event__ends_at__gte=timezone.now()))
+        .select_related("hub")
+        .order_by("pk")
+    )
+    for floor in floors:
+        try:
+            pull_vendor_sheet(floor.hub)
+        except vendor_sheet.SheetUnreadable as exc:
+            failed.append((floor.hub, str(exc)))
+        except Exception:
+            logger.exception("Vendor sheet pull failed for hub %s", floor.hub.pk)
+            VendorFloor.objects.filter(pk=floor.pk).update(
+                sheet_pulled_at=timezone.now(),
+                sheet_pull_error=PULL_FAILED,
+                sheet_pull_summary="",
+                sheet_pull_problems=[],
+            )
+            failed.append((floor.hub, PULL_FAILED))
+    return failed
+
+
+def pull_summary(result: ImportResult) -> str:
+    """The one line a pull answers with: "Pulled from the sheet: 2 added, 1 updated, 9 unchanged." and the
+    problems' count."""
+    line = f"Pulled from the sheet: {result.added} added, {result.updated} updated, {result.unchanged} unchanged."
+    if result.problems:
+        line += f" {_plural(len(result.problems), 'problem', 'problems')} to check."
+    return line
+
+
+# ---- Check Discord (#1014) ----
+
+
+# The Request source a request added from Check Discord carries, as Kate's sheet writes it.
+DISCORD_SOURCE = "Discord"
+
+
+class DiscordPosterGone(Exception):
+    """The poster is no longer on Check Discord: someone added or skipped them first, or they are on the list."""
+
+
+def set_vendor_discord_channel(hub: EventHub, channel_id: str) -> VendorFloor:
+    """Save ``channel_id`` (digits, already checked; blank clears it) as the channel ``hub``'s Check Discord reads."""
+    floor, _created = VendorFloor.objects.update_or_create(hub=hub, defaults={"discord_channel_id": channel_id})
+    return floor
+
+
+# How long the read a check made is kept for Add and Skip; each of them keeps it this long again.
+DISCORD_READ_SECONDS = 30 * 60
+
+
+def _discord_read_key(hub: EventHub) -> str:
+    return f"hq_vendor_discord_read:{hub.pk}"
+
+
+def keep_discord_read(hub: EventHub, read: vendor_discord.ChannelRead) -> None:
+    """Keep ``read`` (what Check Discord just read) for ``hub``'s Add and Skip, in the shared cache (the database
+    cache in production, so every worker sees it), for :data:`DISCORD_READ_SECONDS`."""
+    cache.set(_discord_read_key(hub), read, DISCORD_READ_SECONDS)
+
+
+def kept_discord_read(hub: EventHub, channel_id: str) -> vendor_discord.ChannelRead | None:
+    """The read ``hub``'s last Check Discord kept, if it is of ``channel_id`` and has not run out; None otherwise."""
+    read = cache.get(_discord_read_key(hub))
+    if not isinstance(read, vendor_discord.ChannelRead) or read.channel_id != channel_id:
+        return None
+    return read
+
+
+def discord_posters(hub: EventHub, read: vendor_discord.ChannelRead) -> list[vendor_discord.Poster]:
+    """Who Check Discord lists on ``hub`` from what was read: ``vendor_discord.new_posters`` against the hub's
+    tables (by name and Discord handle), the posts already added or skipped, and the people already added from here
+    (by Discord id, so a changed nickname never lists them twice), in two queries."""
+    listed = vendor_discord.listed_keys(hub.vendor_tables.values_list("name", "discord_handle"))
+    handled: set[str] = set()
+    added: set[str] = set()
+    for message_id, author_id, action in hub.vendor_discord_decisions.values_list("message_id", "author_id", "action"):
+        handled.add(message_id)
+        if action == VendorDiscordAction.ADDED:
+            added.add(author_id)
+    return vendor_discord.new_posters(read, listed=listed, handled=handled, added=added)
+
+
+def add_discord_poster(
+    hub: EventHub,
+    read: vendor_discord.ChannelRead,
+    *,
+    author_id: str,
+    message_ids: Sequence[str],
+    member: Member | None,
+) -> VendorTable:
+    """Add as Request: a table request on ``hub`` for the poster ``author_id``, from the posts in ``message_ids``
+    that are still listed (what the person pressing saw), by + Add's capacity rule: their name as the server shows
+    it, the same as their Discord handle, Request source Discord, Requested on their first post's Portland date and
+    their posts as the note. Those posts are recorded as added.
+
+    Raises:
+        DiscordPosterGone: none of those posts is still listed (a second tab's Add, or a Skip, came first).
+    """
+    with transaction.atomic():
+        poster = _claim_poster(hub, read, author_id, message_ids, VendorDiscordAction.ADDED, member)
+        fields = {
+            "name": poster.name,
+            "discord_handle": poster.name,
+            "request_source": DISCORD_SOURCE,
+            "requested_on": poster.first_posted_on,
+            "note": poster.note,
+        }
+        return add_vendor_table(hub, fields, member=member)
+
+
+def skip_discord_poster(
+    hub: EventHub,
+    read: vendor_discord.ChannelRead,
+    *,
+    author_id: str,
+    message_ids: Sequence[str],
+    member: Member | None,
+) -> vendor_discord.Poster:
+    """Skip: record the poster's posts in ``message_ids`` that are still listed as skipped, so they leave Check
+    Discord until they post again; the poster with those posts.
+
+    Raises:
+        DiscordPosterGone: none of those posts is still listed.
+    """
+    with transaction.atomic():
+        return _claim_poster(hub, read, author_id, message_ids, VendorDiscordAction.SKIPPED, member)
+
+
+def _claim_poster(
+    hub: EventHub,
+    read: vendor_discord.ChannelRead,
+    author_id: str,
+    message_ids: Sequence[str],
+    action: str,
+    member: Member | None,
+) -> vendor_discord.Poster:
+    """Inside the caller's transaction, under a lock on ``hub``'s row, so two presses for one poster (two tabs, or
+    an Add and a Skip) run one after the other and the second sees the first's rows: the poster as listed now, with
+    only the posts in ``message_ids``, recorded with ``action``."""
+    hub_lock(hub)
+    listed = {poster.author_id: poster for poster in discord_posters(hub, read)}
+    if author_id not in listed:
+        raise DiscordPosterGone(author_id)
+    poster = listed[author_id].only(set(message_ids))
+    if not poster.posts:
+        raise DiscordPosterGone(author_id)
+    VendorDiscordDecision.objects.bulk_create(
+        VendorDiscordDecision(hub=hub, message_id=message_id, author_id=author_id, action=action, decided_by=member)
+        for message_id in poster.message_ids
+    )
+    return poster
 
 
 def update_vendor_table(table: VendorTable, fields: Mapping[str, Any]) -> VendorTable:

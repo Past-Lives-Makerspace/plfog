@@ -3,6 +3,8 @@ One table request as a row of its own edit form: every field is a control tied t
 (in the last cell) by its form attribute, since a form cannot wrap a table row. Save swaps this
 row alone over htmx, with the band out of band; Delete goes through the confirm modal. Under the name, Lee's "Added
 by" with who entered the request (the page is for organisers only, so it shows to everyone who sees the row).
+Contact carries the Discord handle under the email and phone; Source carries the sheet's Source note, how the
+request came in and the day it was asked for.
 
   hub  — required, the EventHub
   row  — required, a hq.views.VendorRow (the request, its edit form, and any refusal the form lacks)
@@ -24,6 +26,12 @@ by" with who entered the request (the page is for organisers only, so it shows t
   <td class="pl-hq-vt__cell pl-hq-vt__cell--contact">
     {% include "components/form_field.html" with field=form.email field_hint_off=True %}
     {% include "components/form_field.html" with field=form.phone field_hint_off=True %}
+    {% include "components/form_field.html" with field=form.discord_handle field_hint_off=True %}
+  </td>
+  <td class="pl-hq-vt__cell pl-hq-vt__cell--source">
+    {% include "components/form_field.html" with field=form.note field_hint_off=True %}
+    {% include "components/form_field.html" with field=form.request_source field_hint_off=True %}
+    {% include "components/form_field.html" with field=form.requested_on field_hint_off=True %}
   </td>
   <td class="pl-hq-vt__cell pl-hq-vt__cell--actions">
     {% if row.error %}<p class="pl-field-error" role="alert" data-hq-vt-row-error>{{ row.error }}</p>{% endif %}

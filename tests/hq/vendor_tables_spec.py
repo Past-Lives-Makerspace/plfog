@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
@@ -15,6 +16,7 @@ from django.db import connection
 from django.test import Client
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 
 from hq import services
 from hq.exports import VENDOR_TABLES_CSV_HEADERS
@@ -394,6 +396,14 @@ def describe_adding_a_request():
         assert "open data-hq-vt-add" in body
         assert f'data-hq-vt-row="{table.pk}"' in body
 
+    def it_records_the_portland_date_it_was_requested_on(hub, kate_client, monkeypatch):
+        # 3 AM UTC on the 29th is still the evening of the 28th in Portland.
+        monkeypatch.setattr(timezone, "now", lambda: datetime(2026, 10, 29, 3, 0, tzinfo=UTC))
+
+        kate_client.post(_add(hub), _add_post(), **HTMX)
+
+        assert VendorTable.objects.get().requested_on == date(2026, 10, 28)
+
     def it_puts_a_new_request_on_the_waitlist_once_the_confirmed_tables_fill_the_map(hub, kate_client):
         VendorTableFactory.create_batch(2, hub=hub, status=S.CONFIRMED)
         VendorTableFactory(hub=hub, status=S.REQUESTED)
@@ -582,6 +592,10 @@ def describe_the_list():
             needs="Power",
             status=S.CONFIRMED,
             table_no="12",
+            note="Spec from the sign-up doc",
+            requested_on=date(2026, 10, 1),
+            request_source="Asked Lee",
+            discord_handle="spec_glass",
         )
 
         body = kate_client.get(_page(hub)).content.decode()
@@ -591,7 +605,13 @@ def describe_the_list():
         assert 'value="Spec Glassworks"' in name_cell
         assert 'value="Power"' in name_cell
         form_id = f"hq-vt-row-{table.pk}"
-        assert row.count(f'form="{form_id}"') == 10
+        assert row.count(f'form="{form_id}"') == 14
+        contact = row.split("pl-hq-vt__cell--contact")[1].split("</td>")[0]
+        assert 'value="spec_glass"' in contact
+        source = row.split("pl-hq-vt__cell--source")[1].split("</td>")[0]
+        assert 'value="Spec from the sign-up doc"' in source
+        assert 'value="Asked Lee"' in source
+        assert 'type="date"' in source and 'value="2026-10-01"' in source
         assert f'<option value="{guild.pk}" selected>Glass Guild</option>' in row
         assert '<option value="half" selected>Half table (share)</option>' in row
         assert '<option value="confirmed" selected>Confirmed</option>' in row
@@ -609,7 +629,8 @@ def describe_the_list():
 
         name = "Spec O&#x27;Kiln"
         labels = ("Artist or group", "Needs", "Guild", "What they sell", "Table size", "Status", "Table #", "Setup day")
-        for label in (*labels, "Email", "Phone"):
+        sheet = ("Source", "Requested on", "Request source", "Discord handle")
+        for label in (*labels, "Email", "Phone", *sheet):
             assert f"{label} for {name}" in row
         assert f'aria-label="Save {name}"' in row
         assert f'aria-label="Delete {name}"' in row
@@ -946,6 +967,10 @@ def describe_the_csv():
             email="studio@spec.example",
             phone="503-555-0100",
             needs="Power",
+            note="+ from the sign-up doc",
+            requested_on=date(2026, 9, 22),
+            request_source="Kate's sign-up doc",
+            discord_handle="Z | SpecPotter",
             created_by=kate,
         )
         VendorTableFactory(hub=hub, name="Spec Requested")
@@ -956,7 +981,28 @@ def describe_the_csv():
         rows = list(csv.reader(io.StringIO(b"".join(response.streaming_content).decode())))
         assert response["Content-Type"] == "text/csv"
         assert response["Content-Disposition"].startswith(f'attachment; filename="{hub.slug}-vendor-tables-')
-        assert rows[0] == VENDOR_TABLES_CSV_HEADERS
+        assert (
+            rows[0]
+            == VENDOR_TABLES_CSV_HEADERS
+            == [
+                "Name",
+                "Guild",
+                "Table size",
+                "Status",
+                "What they sell",
+                "Setup time",
+                "Table #",
+                "Email",
+                "Phone",
+                "Source",
+                "Requested on",
+                "Request source",
+                "Discord handle",
+                "Needs",
+                "Added by",
+                "Added",
+            ]
+        )
         assert [row[0] for row in rows[1:]] == ["Spec Requested", "Spec Studio"]
         studio = dict(zip(VENDOR_TABLES_CSV_HEADERS, rows[2], strict=True))
         assert studio == {
@@ -966,16 +1012,21 @@ def describe_the_csv():
             "Table size": "4 ft",
             "Status": "Confirmed",
             "Table #": "4",
-            "Setup day": "Thu Dec 3, 3 to 7 PM",
+            "Setup time": "Thu Dec 3, 3 to 7 PM",
             "Email": "studio@spec.example",
             "Phone": "503-555-0100",
+            "Source": "'+ from the sign-up doc",
+            "Requested on": "2026-09-22",
+            "Request source": "Kate's sign-up doc",
+            "Discord handle": "Z | SpecPotter",
             "Needs": "Power",
             "Added by": "Kate Lindqvist",
         }
         requested = dict(zip(VENDOR_TABLES_CSV_HEADERS, rows[1], strict=True))
-        assert (requested["Guild"], requested["Setup day"], requested["Added by"]) == (
+        assert (requested["Guild"], requested["Setup time"], requested["Requested on"], requested["Added by"]) == (
             "Not in a guild",
             "Not chosen",
+            "",
             "",
         )
 

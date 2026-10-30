@@ -2572,6 +2572,149 @@ a.pl-hq-card:focus-visible {
   font-weight: 700;
   color: var(--pl-hq-vol-gold);
 }
+/* Import CSV and Download CSV side by side; Import is a button that reads as the link beside it. */
+.pl-hq-vt__csv-links {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.pl-hq-vt__csv--button {
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+.pl-hq-vt__csv--button:hover {
+  text-decoration: underline;
+}
+.pl-hq-vt__csv--button:focus-visible {
+  outline: 2px solid var(--pl-hq-vol-gold-hi);
+  outline-offset: 2px;
+}
+/* The last import's answer over the list: the counts, then each problem by row. A refusal is red. */
+.pl-hq-vt__import-answer {
+  padding: 12px 16px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-left: 4px solid var(--pl-hq-vol-gold-hi);
+  border-radius: 10px;
+  background: var(--pl-hq-vol-surface);
+}
+.pl-hq-vt__import-answer--refused {
+  border-left-color: var(--pl-hq-vt-bad);
+}
+.pl-hq-vt__import-summary {
+  margin: 0;
+  font-weight: 700;
+}
+.pl-hq-vt__import-problems {
+  margin: 0.75rem 0 0;
+  padding-left: 1.25rem;
+  font-size: 0.9rem;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-vt__import-problems li + li {
+  margin-top: 0.25rem;
+}
+/* The vendor sheet (#1013): Pull From Sheet Now beside Import CSV, the last pull over the list, and the admins' link
+   field, held to a readable width. */
+.pl-hq-vt__pull {
+  display: inline;
+  margin: 0;
+}
+.pl-hq-vt__pull-when {
+  margin: 0 0 0.75rem;
+  font-size: 0.88rem;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-vt__pull-link {
+  font-weight: 700;
+  color: var(--pl-hq-vol-gold);
+}
+.pl-hq-vt__pull-error {
+  color: var(--pl-hq-vt-bad);
+}
+.pl-hq-vt__sheet-field {
+  max-width: 520px;
+}
+/* Check Discord (#1014): the panel over the list, a card per new poster with their posts and two buttons, and the
+   admins' channel id field, sized to an id. */
+.pl-hq-vt__discord-title {
+  margin: 0;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--pl-hq-vol-ink);
+  overflow-wrap: anywhere;
+}
+.pl-hq-vt__discord .pl-hq-vt__import-summary,
+.pl-hq-vt__discord-lede {
+  margin-top: 0.75rem;
+}
+.pl-hq-vt__discord-lede {
+  margin-bottom: 0;
+  font-size: 0.92rem;
+}
+.pl-hq-vt__posters,
+.pl-hq-vt__posts {
+  display: grid;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.pl-hq-vt__posters {
+  gap: 0.75rem;
+}
+.pl-hq-vt__posts {
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+.pl-hq-vt__poster {
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--pl-hq-vol-rule);
+  border-radius: 10px;
+  background: var(--pl-hq-vol-field);
+}
+.pl-hq-vt__poster-head {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.pl-hq-vt__poster-name {
+  font-weight: 900;
+}
+.pl-hq-vt__post-when {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.pl-hq-vt__post-text {
+  margin: 0.25rem 0 0;
+  font-size: 0.92rem;
+  overflow-wrap: anywhere;
+}
+.pl-hq-vt__channel-field {
+  max-width: 16rem;
+}
+/* The Import CSV modal's form: Lee's rule, the drop zone with its help bubble, then Import. */
+.pl-hq-vt__import {
+  display: grid;
+  gap: 0.75rem;
+}
+.pl-hq-vt__import-lede {
+  margin: 0;
+  color: var(--pl-hq-vol-muted);
+}
+.pl-hq-vt__import-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+.pl-hq-vt__import-error {
+  margin: 0.75rem 0 0;
+}
 .pl-hq-vt__filters {
   display: flex;
   flex-wrap: wrap;
@@ -2605,7 +2748,7 @@ a.pl-hq-card:focus-visible {
 }
 .pl-hq-vt__table {
   width: 100%;
-  min-width: 1240px;
+  min-width: 1440px;
   border-collapse: collapse;
   color: var(--pl-hq-vol-ink);
 }
@@ -2666,6 +2809,17 @@ a.pl-hq-card:focus-visible {
 }
 .pl-hq-vt__cell--contact {
   min-width: 190px;
+}
+.pl-hq-vt__cell--source {
+  min-width: 190px;
+}
+/* The date picker's icon is black by default: light it on the dark palette (FRONTEND rule 14). */
+.pl-hq-vt input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  cursor: pointer;
+}
+[data-theme="light"] .pl-hq-vt input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: none;
 }
 .pl-hq-vt__cell--actions {
   white-space: nowrap;

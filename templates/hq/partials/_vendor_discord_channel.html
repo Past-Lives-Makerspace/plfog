@@ -1,0 +1,24 @@
+{% comment %}
+Discord Channel: the channel Check Discord reads (#1014), by its id, beside the vendor sheet link and, like it, admins
+only. A plain post (hx-boost="false") to hq:vendor_discord_channel that lands back on the page; an id that is not
+digits comes back with its error, open. Blank hides Check Discord.
+
+  hub          — required, the EventHub
+  discord_form — required, a VendorDiscordChannelForm
+{% endcomment %}
+<details class="pl-disclosure pl-hq-vt__disclosure" {% if discord_form.errors %}open{% endif %} data-hq-vt-discord-channel>
+  <summary class="pl-disclosure__summary">
+    <span class="pl-disclosure__title">Discord Channel</span>
+    <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+  </summary>
+  <form method="post" action="{% url 'hq:vendor_discord_channel' hub.slug %}" hx-boost="false" class="pl-disclosure__body pl-hq-vt__form" data-hq-vt-discord-channel-form>
+    {% csrf_token %}
+    <p class="pl-hq-vt__muted pl-hq-vt__helper" data-hq-vt-discord-channel-helper>The channel where members ask for tables. The Team's Check Discord reads it through the Fog Bot, which must be able to see it. To copy the id, turn on Developer Mode in Discord's Advanced settings, then right click the channel and choose Copy Channel ID. Leave it blank to hide Check Discord.</p>
+    <div class="pl-hq-vt__channel-field">
+      {% include "components/form_field.html" with field=discord_form.discord_channel_id field_hint_off=True %}
+    </div>
+    <div class="pl-hq-vt__actions">
+      <button type="submit" class="pl-hq-vt__btn pl-hq-vt__btn--ghost" data-hq-vt-discord-channel-submit>Save</button>
+    </div>
+  </form>
+</details>
