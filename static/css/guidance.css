@@ -38,7 +38,10 @@
     flex-shrink: 0; /* a flex item with overflow hidden would shrink and clip its own text */
     animation: pl-new-pop 0.55s cubic-bezier(0.2, 1.5, 0.4, 1) both;
 }
-.pl-new::before { content: "\2726"; font-size: 0.95em; line-height: 1; }
+/* The sparkle is decoration: the second `content` gives it empty alternative text so it stays out of
+   the accessible name ("Reservations New!", not "Reservations ✦ New!"); a browser without the
+   slash syntax keeps the first line and draws it anyway. */
+.pl-new::before { content: "\2726"; content: "\2726" / ""; font-size: 0.95em; line-height: 1; }
 .pl-new::after {
     content: "";
     position: absolute;
