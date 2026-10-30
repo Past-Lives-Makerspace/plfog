@@ -2345,8 +2345,9 @@ _CURATED: dict[str, EventCopy] = {
         },
     ),
     # kiln.ticket_deleted — the crew or a site admin deleted a maker's ticket with a note
-    # (#1025), so the copy names the person and never calls an admin crew. The ticket is gone, so nothing links to it: ticket_description is the piece in words ("Glaze · 3
-    # pieces · Standard 266"), note is the crew's reason, and tickets_url opens My Tickets.
+    # (#1025), so the copy names the person and never calls an admin crew. The ticket is gone,
+    # so nothing links to it: ticket_description is the piece in words ("Glaze · 3 pieces ·
+    # Standard 266"), note is the reason given, and tickets_url opens My Tickets.
     "kiln.ticket_deleted": EventCopy(
         placeholders=("author_name", "ticket_label", "ticket_description", "note", "tickets_url"),
         sample_context={
