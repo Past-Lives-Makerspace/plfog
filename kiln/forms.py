@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     from django.core.files.uploadedfile import UploadedFile
     from django.db.models import QuerySet
     from django.forms import BoundField
+    from django.utils.datastructures import MultiValueDict
 
 OTHER = "other"
 YES_NO = [("yes", "Yes"), ("no", "No")]
@@ -250,26 +252,55 @@ class ToastForm(forms.Form):
         return str(next(iter(self.errors.values()))[0])
 
 
+class TicketNumbersField(forms.MultipleChoiceField):
+    """Ticked ticket numbers as ints. Any number is accepted, so one whose ticket was deleted
+    since the page opened does not refuse the rest; the service skips and counts it."""
+
+    def valid_value(self, value: Any) -> bool:
+        return str(value).isdigit()
+
+    def clean(self, value: Any) -> list[int]:
+        return [int(pk) for pk in super().clean(value)]
+
+
 class LoadKilnForm(ToastForm):
     """Confirm loaded: the firing's type and the tickets ticked on Load the Kiln.
 
-    A ticked ticket is any ticket that exists; whether it can still go in (in the queue, of
-    this firing's type) is decided under a row lock when the load runs
-    (:func:`kiln.services.load_kiln`), never here, where it could change a moment later.
+    Whether a ticked ticket can still go in (it exists, is in the queue, of this firing's
+    type) is decided under a row lock when the load runs (:func:`kiln.services.load_kiln`),
+    never here, where it could change a moment later.
     """
 
     firing_type = forms.ChoiceField(
         choices=KilnTicket.FiringType.choices,
         error_messages={"required": "Choose bisque or glaze.", "invalid_choice": "Choose bisque or glaze."},
     )
-    tickets = forms.ModelMultipleChoiceField(
-        queryset=KilnTicket.objects.all(),
+    tickets = TicketNumbersField(
         error_messages={
             "required": "Tick at least one ticket to load.",
             "invalid_choice": "One of the ticked tickets no longer exists.",
-            "invalid_pk_value": "One of the ticked tickets no longer exists.",
         },
     )
+
+
+class DeleteTicketForm(ToastForm):
+    """Delete ticket: the crew's note to the maker, required unless the ticket is the deleter's own.
+
+    Args:
+        needs_note: The person deleting is not the maker, so the maker is told why.
+    """
+
+    note = forms.CharField(
+        max_length=500,
+        required=False,
+        error_messages={"max_length": "Keep the note under 500 characters."},
+    )
+
+    def __init__(self, *args: Any, needs_note: bool, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        if needs_note:
+            self.fields["note"].required = True
+            self.fields["note"].error_messages["required"] = "Say why the ticket is being deleted."
 
 
 class ReplyForm(ToastForm):
@@ -341,7 +372,11 @@ class UnloadForm(ToastForm):
     def __init__(self, *args: Any, tickets: list[KilnTicket], **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.tickets = tickets
-        cast("forms.TypedMultipleChoiceField", self.fields["fired"]).choices = [(t.pk, t.pk) for t in tickets]
+        choices = [(t.pk, t.pk) for t in tickets]
+        # A ticked ticket deleted since the page opened is accepted and ignored, so it never
+        # blocks the rest; kiln.services.unload_kiln counts it in the toast.
+        choices += [(pk, pk) for pk in self.deleted_since_shown]
+        cast("forms.TypedMultipleChoiceField", self.fields["fired"]).choices = choices
         if not self.is_bound:
             self.initial["fired"] = [t.pk for t in tickets]
         for ticket in tickets:
@@ -365,6 +400,24 @@ class UnloadForm(ToastForm):
                 widget=forms.RadioSelect,
                 label="What happens to the ticket?",
             )
+
+    def _posted(self, name: str) -> list[str]:
+        return [str(value) for value in cast("MultiValueDict[str, Any]", self.data).getlist(name)]
+
+    @property
+    def shown(self) -> list[int]:
+        """The tickets the page listed when it was opened (its ``shown`` hidden fields); none on a fresh page."""
+        return [int(pk) for pk in self._posted("shown") if pk.isdigit()]
+
+    @cached_property
+    def deleted_since_shown(self) -> list[int]:
+        """Posted ticket numbers no ticket carries any more: deleted while the page was open."""
+        posted = {int(pk) for pk in self._posted("fired") if pk.isdigit()} | set(self.shown)
+        posted -= {t.pk for t in self.tickets}
+        if not posted:
+            return []
+        existing = set(KilnTicket.objects.filter(pk__in=posted).values_list("pk", flat=True))
+        return sorted(posted - existing)
 
     def _ticked(self) -> set[int]:
         """The ticked tickets as posted (or all of them on a fresh page), garbled values left out."""

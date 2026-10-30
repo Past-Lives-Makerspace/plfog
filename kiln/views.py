@@ -17,6 +17,7 @@ from kiln.forms import (
     ACTION_COVER,
     ACTION_DRAFT,
     ACTION_REMOVE,
+    DeleteTicketForm,
     KilnTicketForm,
     ListOptionForm,
     LoadKilnForm,
@@ -27,7 +28,9 @@ from kiln.forms import (
 from kiln.models import ClayOption, GlazeOption, KilnFiring, KilnFlag, KilnTicket, ListOption, ListOptionNameTaken
 from kiln.services import (
     FiringAlreadyUnloaded,
+    TicketDeleted,
     TicketNotEditable,
+    delete_ticket,
     firing_sheet,
     in_kiln_firings,
     kiln_home,
@@ -127,6 +130,8 @@ def _handle_form(request: HttpRequest, ticket: KilnTicket | None, copied_from: K
                 saved = save_ticket(form, member)
             except TicketNotEditable:
                 return _already_loaded(request, instance)
+            except TicketDeleted:
+                return _already_deleted(request, instance.pk)
             return _after_save(request, form, saved, was_draft)
     else:
         initial = copied_from.copy_initial() if copied_from is not None else None
@@ -162,6 +167,11 @@ def ticket_edit(request: HttpRequest, pk: int) -> HttpResponse:
 def _already_loaded(request: HttpRequest, ticket: KilnTicket) -> HttpResponse:
     messages.info(request, "This piece is already in the kiln, so the ticket can no longer change.")
     return redirect("kiln:detail", pk=ticket.pk)
+
+
+def _already_deleted(request: HttpRequest, pk: int) -> HttpResponse:
+    messages.info(request, f"Ticket {pk} was deleted, so nothing was saved.")
+    return redirect(KilnNav(_member(request)).home_url)
 
 
 def _visible_ticket(member: Member, pk: int, *, crew: bool) -> KilnTicket:
@@ -229,6 +239,33 @@ def ticket_reply(request: HttpRequest, pk: int) -> HttpResponse:
 
 @login_required
 @kiln_open_required
+@maker_required
+@require_POST
+def ticket_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    """Delete a ticket at any status: the maker their own, the crew and site admins any.
+
+    Another maker's ticket answers 404, like every page of it. Deleting someone else's ticket
+    needs a note, which reaches its maker (:func:`kiln.services.delete_ticket`).
+    """
+    member = _member(request)
+    ticket = get_object_or_404(KilnTicket.objects.visible_to(member, crew=can_run_kiln(member)), pk=pk)
+    own = ticket.maker_id == member.pk
+    form = DeleteTicketForm(request.POST, needs_note=not own)
+    if not form.is_valid():
+        messages.error(request, form.first_error)
+        return redirect("kiln:detail", pk=ticket.pk)
+    try:
+        deleted = delete_ticket(ticket_pk=ticket.pk, by=member, note=form.cleaned_data["note"].strip())
+    except TicketDeleted:
+        messages.info(request, f"Ticket {ticket.pk} was already deleted.")
+    else:
+        messages.success(request, deleted.message)
+    # The crew deleting a maker's ticket go back to the queue they came from; a maker to My Tickets.
+    return redirect(KilnNav(member).home_url if own else "kiln:load")
+
+
+@login_required
+@kiln_open_required
 @crew_required
 @require_POST
 def flag_add(request: HttpRequest, pk: int) -> HttpResponse:
@@ -271,7 +308,7 @@ def load(request: HttpRequest) -> HttpResponse:
         firing_type = form.cleaned_data["firing_type"]
         result = load_kiln(
             firing_type=firing_type,
-            ticket_pks=[t.pk for t in form.cleaned_data["tickets"]],
+            ticket_pks=form.cleaned_data["tickets"],
             by=_member(request),
         )
         if result.firing is None:
@@ -318,10 +355,13 @@ def unload(request: HttpRequest, pk: int) -> HttpResponse:
         messages.info(request, f"{firing.name} is already unloaded.")
         return redirect("kiln:firing", pk=firing.pk)
     tickets = unload_sheet(firing)
-    form = UnloadForm(request.POST or None, tickets=tickets)
+    # Bound on the method, not on the data: a firing whose tickets were all deleted posts no rows.
+    form = UnloadForm(request.POST if request.method == "POST" else None, tickets=tickets)
     if request.method == "POST" and form.is_valid():
         try:
-            result = unload_kiln(firing_pk=firing.pk, exceptions=form.exception_notes, by=_member(request))
+            result = unload_kiln(
+                firing_pk=firing.pk, exceptions=form.exception_notes, by=_member(request), shown=form.shown
+            )
         except FiringAlreadyUnloaded as refused:
             messages.error(request, refused.message)
             return redirect("kiln:firing", pk=firing.pk)

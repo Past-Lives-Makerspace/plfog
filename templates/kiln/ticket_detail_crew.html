@@ -82,6 +82,7 @@ answers and the history on the right (stacked on a phone).
             <a href="{% url 'kiln:new' %}?from={{ ticket.pk }}" class="hub-btn hub-btn--ghost pl-kiln-new"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-copy"/></svg>Make another like this</a>
         </div>
         {% endif %}
+        {% include "kiln/partials/_delete_ticket.html" %}
     </div>
 </div>
 {% endblock %}

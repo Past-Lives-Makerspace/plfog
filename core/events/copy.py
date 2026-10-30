@@ -2344,6 +2344,47 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # kiln.ticket_deleted — the crew deleted a maker's ticket with a note (#1025). The ticket
+    # is gone, so nothing links to it: ticket_description is the piece in words ("Glaze · 3
+    # pieces · Standard 266"), note is the crew's reason, and tickets_url opens My Tickets.
+    "kiln.ticket_deleted": EventCopy(
+        placeholders=("author_name", "ticket_label", "ticket_description", "note", "tickets_url"),
+        sample_context={
+            "author_name": "Dana Reyes",
+            "ticket_label": "Ticket 412",
+            "ticket_description": "Glaze · 3 pieces · Standard 266",
+            "note": "One of the bowls cracked on the cart, so I took the ticket down. Sorry, Maya!",
+            "tickets_url": "https://pastlives.example/kiln/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="The kiln crew deleted {{ ticket_label }}",
+                body_text="{{ ticket_description }}. {{ author_name }}: {{ note }}",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="The kiln crew deleted your {{ ticket_label }}",
+                body_text=(
+                    "{{ author_name }} from the Ceramics Guild kiln crew deleted your "
+                    "{{ ticket_label }} ({{ ticket_description }}) and said why:\n\n"
+                    "{{ note }}\n\n"
+                    "The ticket, its photos and its messages are gone. If the piece still needs a firing, "
+                    "start a new ticket from My Tickets: {{ tickets_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>{{ author_name }} from the Ceramics Guild kiln crew deleted your "
+                    "<strong>{{ ticket_label }}</strong> ({{ ticket_description }}) and said why:</p>"
+                    '<p style="white-space:pre-line;">{{ note }}</p>'
+                    "<p>The ticket, its photos and its messages are gone. If the piece still needs a firing, "
+                    "start a new ticket from My Tickets.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ tickets_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Open My Tickets</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     # kiln.ready_for_pickup — one notice per maker per unloaded firing (#691 part 3). Built by
     # kiln.services.PickupNotice: headline says ready, back in the queue, or some of each;
     # summary is the bell's line; pieces_text / pieces_block list every piece with the crew's
