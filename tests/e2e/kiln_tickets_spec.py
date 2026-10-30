@@ -3,6 +3,7 @@
 Part 1: a member files a glaze ticket and a bisque copy of it. Part 2: the crew loads the kiln
 and the maker and crew talk on the ticket. Part 3: the crew unloads a firing of two makers'
 pieces, sends one back to the queue with a note, and the other maker reads Ready for pickup.
+Deleting (#1025): a maker deletes their own ticket, and the crew delete another with a note.
 
 In a real browser on a phone sized viewport: the Ceramics Guild page's Kiln Tickets tab, the New ticket
 form's branches (Alpine shows and hides them), a photo picked through the camera input
@@ -34,7 +35,7 @@ from playwright.sync_api import expect
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 
-from core.events.registry import KILN_READY_FOR_PICKUP
+from core.events.registry import KILN_READY_FOR_PICKUP, KILN_TICKET_DELETED
 from core.models import Notification, SiteConfiguration
 from kiln.access import kiln_home_url
 from kiln.models import ClayOption, GlazeOption, KilnFiring, KilnFlag, KilnReply, KilnTicket
@@ -78,10 +79,11 @@ def _queued_ticket(maker, firing_type: str, color: tuple[int, int, int], **answe
     return ticket
 
 
-def _capture(page, name: str) -> None:
+def _capture(page, name: str, *, full_page: bool = True) -> None:
+    """Write a PR screenshot; a dialog is taken at the viewport, where the phone shows it."""
     if os.environ.get("CAPTURE_691_SCREENSHOTS"):
         SHOTS.mkdir(parents=True, exist_ok=True)
-        page.screenshot(path=str(SHOTS / name), full_page=True)
+        page.screenshot(path=str(SHOTS / name), full_page=full_page)
 
 
 def _clear_of_the_feedback_bubble(page, button) -> None:
@@ -455,3 +457,63 @@ def describe_unloading_the_kiln():
         expect(page.get_by_text("Your piece is ready for pickup")).to_be_visible()
         page.goto(f"{live_server.url}{reverse('kiln:detail', args=[bowls.pk])}")
         expect(page.locator("[data-kiln-timeline]")).to_contain_text("unloaded by Dana Reyes")
+
+
+def describe_deleting_a_ticket():
+    def it_lets_the_maker_delete_their_own_and_the_crew_delete_one_with_a_note(
+        live_server, page, login_via_code, serve_media
+    ):
+        MembershipPlanFactory()
+        _open_the_kiln()
+        guild = GuildFactory(name="Ceramics Guild", slug="ceramics-guild")
+
+        login_via_code(EMAIL)
+        maker = get_user_model().objects.get(username=EMAIL).member
+        maker.preferred_name = "Maya Okafor"
+        maker.save(update_fields=["preferred_name"])
+        GuildMembershipFactory(guild=guild, member=maker)
+        mug = _queued_ticket(maker, "bisque", (163, 93, 44), walls_under_inch=True)
+        bowls = _queued_ticket(maker, "glaze", (110, 45, 77), bottom_free_of_glaze=True, glaze_cone6=True)
+
+        # The maker opens the mug's ticket on a phone and deletes it behind the confirm.
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.goto(f"{live_server.url}{reverse('kiln:detail', args=[mug.pk])}")
+        page.locator("[data-kiln-delete]").get_by_role("button", name="Delete ticket").click()
+        dialog = page.locator(".pl-modal-backdrop").filter(visible=True)
+        expect(dialog.get_by_role("heading", name="Delete this ticket?")).to_be_visible()
+        expect(dialog).to_contain_text("Its photos and messages go too. This cannot be undone.")
+        expect(dialog.get_by_label("Why is it being deleted?")).to_have_count(0)
+        assert page.evaluate(NO_SIDEWAYS_SCROLL)
+        _capture(page, "kiln-tickets-1025-delete-maker-phone.png", full_page=False)
+        dialog.get_by_role("button", name="Delete ticket").click()
+        expect(page.locator(".plt-msg", has_text=f"Ticket {mug.pk} is deleted.")).to_be_visible()
+        expect(page).to_have_url(re.compile(r"tab=kiln"))
+        expect(page.locator("[data-guild-kiln]")).not_to_contain_text(f"Ticket {mug.pk}")
+        assert not KilnTicket.objects.filter(pk=mug.pk).exists()
+        page.context.clear_cookies()
+
+        # The crew delete the bowls, which broke on the cart: the note is required and reaches Maya.
+        login_via_code(CREW_EMAIL)
+        crew = get_user_model().objects.get(username=CREW_EMAIL).member
+        crew.preferred_name = "Dana Reyes"
+        crew.save(update_fields=["preferred_name"])
+        GuildStaffMembershipFactory(guild=guild, member=crew)
+        page.goto(f"{live_server.url}{reverse('kiln:detail', args=[bowls.pk])}")
+        page.locator("[data-kiln-delete]").get_by_role("button", name="Delete ticket").click()
+        dialog = page.locator(".pl-modal-backdrop").filter(visible=True)
+        confirm = dialog.get_by_role("button", name="Delete ticket")
+        expect(confirm).to_be_disabled()
+        expect(dialog).to_contain_text("Maya Okafor gets this note with a description of the piece.")
+        dialog.get_by_label("Why is it being deleted?").fill("One of the bowls cracked on the cart. Sorry, Maya!")
+        expect(confirm).to_be_enabled()
+        assert page.evaluate(NO_SIDEWAYS_SCROLL)
+        _capture(page, "kiln-tickets-1025-delete-crew-phone.png", full_page=False)
+        confirm.click()
+        expect(
+            page.locator(".plt-msg", has_text=f"Ticket {bowls.pk} is deleted. Maya Okafor got your note.")
+        ).to_be_visible()
+        expect(page).to_have_url(f"{live_server.url}{reverse('kiln:load')}")
+        assert not KilnTicket.objects.filter(pk=bowls.pk).exists()
+        bell = Notification.objects.get(user=maker.user, trigger=KILN_TICKET_DELETED)
+        assert bell.title == f"Ticket {bowls.pk} was deleted"
+        assert "One of the bowls cracked on the cart." in bell.body

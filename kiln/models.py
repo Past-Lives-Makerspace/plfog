@@ -668,6 +668,27 @@ class KilnTicket(models.Model):
             if successor is not None:
                 self.set_cover(successor.pk)
 
+    @property
+    def description(self) -> str:
+        """The piece in words for a notice sent once the ticket is gone: "Glaze · 3 pieces · Standard 266"."""
+        clay = self.clay_label
+        return f"{self.summary} · {clay}" if clay else self.summary
+
+    def delete_with_photos(self) -> None:
+        """Delete the ticket with its photos, flags and replies, at any status.
+
+        The photo files go only once the delete commits, like :meth:`remove_photo`: a rolled
+        back delete keeps every file. The firing the piece was in stays; it simply has one
+        ticket fewer (``KilnTicket.firing`` and ``KilnReply.firing`` protect the firing, not
+        the ticket).
+        """
+        photos = list(self.photos.all())
+        names = [name for photo in photos for name in (photo.image.name, photo.tile.name) if name]
+        self.delete()
+        if names:
+            storage = photos[0].image.storage
+            transaction.on_commit(lambda: _delete_files(storage, names), robust=True)
+
 
 def _delete_files(storage: Storage, names: list[str]) -> None:
     """Remove stored files once the rows that named them are gone for good."""

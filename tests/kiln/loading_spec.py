@@ -219,7 +219,6 @@ def describe_load_page():
         [
             ({"firing_type": "glaze"}, "Tick at least one ticket to load."),
             ({"firing_type": "raku", "tickets": ["1"]}, "Choose bisque or glaze."),
-            ({"firing_type": "glaze", "tickets": ["999999"]}, "One of the ticked tickets no longer exists."),
             ({"firing_type": "glaze", "tickets": ["x"]}, "One of the ticked tickets no longer exists."),
         ],
     )

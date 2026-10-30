@@ -263,6 +263,8 @@ _PUSH_ON_BY_DEFAULT: frozenset[str] = frozenset(
         "kiln.crew_replied",
         # ...and your piece came out of the kiln, or went back to the queue with a note (#691)
         "kiln.ready_for_pickup",
+        # ...or the crew deleted your ticket (a broken piece) and said why (#1025)
+        "kiln.ticket_deleted",
         # Facility tours: a visitor booked a tour you give (#948)
         "tour.booked",
         # ...and your visitor is at the front desk now (#950)
@@ -564,6 +566,7 @@ CLASS_MESSAGE_TO_REVIEWERS = "class.message_to_reviewers"  # an instructor wrote
 KILN_CREW_REPLIED = "kiln.crew_replied"  # the kiln crew wrote on your kiln ticket (#691)
 KILN_MAKER_REPLIED = "kiln.maker_replied"  # a maker wrote on a kiln ticket (the kiln crew, #691)
 KILN_READY_FOR_PICKUP = "kiln.ready_for_pickup"  # your pieces came out of a firing (#691 part 3)
+KILN_TICKET_DELETED = "kiln.ticket_deleted"  # the crew or a site admin deleted your kiln ticket (#1025)
 TOUR_BOOKED = "tour.booked"  # a visitor booked one of your facility tours (#948)
 TOUR_VISITOR_CHANGED = "tour.visitor_changed"  # a visitor moved or cancelled your tour from their email (#948)
 TOUR_VISITOR_UPDATE = "tour.visitor_update"  # the visitor's own tour emails, by address only (#948)
@@ -1695,6 +1698,20 @@ _NEW_EVENTS: list[EventType] = [
         key=KILN_READY_FOR_PICKUP,
         label="Ready for pickup",
         description="Your kiln pieces came out of a firing, or went back to the queue with a note from the crew.",
+        category="Kiln tickets",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # kiln.ticket_deleted — a crew member or site admin deleted a maker's kiln ticket (#1025),
+    # usually a piece that broke, with a note saying why. The ticket is gone, so the notice
+    # carries the note and the piece in words (firing, count, clay) and links to My Tickets.
+    # A maker deleting their own ticket is never told. The period is the ticket's number, so
+    # it notifies once. Reaches class guests (the maker's account is the User). No activity row.
+    EventType(
+        key=KILN_TICKET_DELETED,
+        label="Deleted kiln tickets",
+        description="The kiln crew or a site admin deleted one of your kiln tickets and told you why.",
         category="Kiln tickets",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),

@@ -14,6 +14,7 @@ urlpatterns = [
     path("<int:pk>/", views.ticket_detail, name="detail"),
     path("<int:pk>/edit/", views.ticket_edit, name="edit"),
     path("<int:pk>/reply/", views.ticket_reply, name="reply"),
+    path("<int:pk>/delete/", views.ticket_delete, name="delete"),
     path("<int:pk>/flags/add/", views.flag_add, name="flag_add"),
     path("<int:pk>/flags/<int:flag_pk>/clear/", views.flag_clear, name="flag_clear"),
     path("load/", views.load, name="load"),

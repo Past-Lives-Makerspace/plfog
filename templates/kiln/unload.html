@@ -47,13 +47,18 @@ unticked row (kiln.forms.UnloadForm) and does the unload under a lock (kiln.serv
     </div>
     {% endif %}
 
+    {% if form.tickets %}
     <p class="hub-text-muted">Everything is ticked. Untick a piece that did not come out right, and tell its maker what happened.</p>
+    {% else %}
+    <p class="hub-text-muted" data-kiln-empty>Every ticket in this firing was deleted. Mark it fired to take it off Unload. Nobody is notified.</p>
+    {% endif %}
 
     <ul class="pl-kiln-unload">
         {% for row in form.rows %}
         {% with ticket=row.ticket cover=row.ticket.cover_photo %}
         <li class="pl-kiln-unload__row {% if row.ticked %}pl-kiln-unload__row--ok{% else %}pl-kiln-unload__row--except{% endif %}" data-unload-row data-ticket="{{ ticket.pk }}" data-maker="{{ ticket.maker_name }}"
             x-data="{ ticked: {{ row.ticked|yesno:'true,false' }} }" :class="ticked ? 'pl-kiln-unload__row--ok' : 'pl-kiln-unload__row--except'">
+            <input type="hidden" name="shown" value="{{ ticket.pk }}">
             <label class="pl-kiln-unload__main">
                 <input type="checkbox" name="fired" value="{{ ticket.pk }}" x-model="ticked"{% if row.ticked %} checked{% endif %} aria-label="Ticket {{ ticket.pk }}, {{ ticket.maker_name }}, came out right">
                 <span class="pl-kiln-unload__photo">{% if cover %}<img src="{{ cover.tile.url }}" alt="Cover photo of ticket {{ ticket.pk }}" loading="lazy">{% else %}<span class="pl-kiln-row__photo--empty pl-kiln-tile__nophoto"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-camera"/></svg><span class="sr-only">No photo</span></span>{% endif %}</span>
