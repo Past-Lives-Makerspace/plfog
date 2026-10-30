@@ -6,7 +6,7 @@ mixes requests with organiser chat and cancellations, so a person decides each p
 read Discord again.
 
 :func:`read_channel` is the one read, and the only network call: the channel's name, its newest
-:data:`MAX_MESSAGES` messages, and the server's members for their nicknames, through the Fog Bot
+:data:`MAX_MESSAGES` messages, and the server's members for their nicknames, through the Past Lives Bot
 (``core.integrations.discord_channel``, so a 429 is retried once and any other failure raises), all within
 :data:`READ_SECONDS`. Specs replace it (``patch.object(vendor_discord, "read_channel", ...)``; callers reach it
 through the module, so the patch reaches the e2e live server too). :func:`new_posters` is the pure rule over what it
@@ -41,8 +41,8 @@ NOTE_MAX = _max_length("note")
 TEXT_CHANNEL_TYPES = (0, 5, 10, 11, 12)
 
 # Why the channel could not be read, in the vendor team's words.
-NO_BOT = "The Fog Bot is not set up on this site, so Discord cannot be read."
-CANNOT_SEE = "The Fog Bot cannot read that channel. In Discord, let it view the channel and read its history."
+NO_BOT = "The Past Lives Bot is not set up on this site, so Discord cannot be read."
+CANNOT_SEE = "The Past Lives Bot cannot read that channel. In Discord, let it view the channel and read its history."
 NO_CHANNEL = "Discord has no channel with that id. An admin can check it under Discord Channel on this page."
 NOT_TEXT = "That id is not a text channel on the server. An admin can check it under Discord Channel on this page."
 TOO_SLOW = "Discord was slow to answer. Try again in a minute."
@@ -79,7 +79,7 @@ class ChannelRead:
 
 
 def read_channel(channel_id: str) -> ChannelRead:
-    """Read the channel through the Fog Bot within :data:`READ_SECONDS`: its name, its newest :data:`MAX_MESSAGES`
+    """Read the channel through the Past Lives Bot within :data:`READ_SECONDS`: its name, its newest :data:`MAX_MESSAGES`
     messages, and the server's nicknames. The only network call here. A member list Discord refuses (no Server
     Members intent) or that runs past the time leaves the nicknames out (``nicknames_read`` False) rather than
     failing the check.

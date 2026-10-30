@@ -61,7 +61,7 @@ MOSS = {"id": "7001", "username": "spec.moss", "global_name": "Moss Studio"}
 WREN = {"id": "7002", "username": "specwren", "global_name": "Wren"}
 FERN = {"id": "7003", "username": "spec_fern", "global_name": None}
 ORGANISER = {"id": "7004", "username": "spec.organiser", "global_name": "Spec Organiser"}
-FOG_BOT = {"id": "7999", "username": "Fog Bot", "bot": True}
+FOG_BOT = {"id": "7999", "username": "Past Lives Bot", "bot": True}
 # Wren's server nickname, as the sheet writes her handle.
 WREN_NICK = "Ⓦren 🎃 [PRNT]"
 
@@ -145,7 +145,7 @@ def kate_client(kate) -> Client:
 
 
 class FakeDiscord:
-    """The channel as the Fog Bot would read it: replaces ``hq.vendor_discord.read_channel`` so no spec reaches
+    """The channel as the Past Lives Bot would read it: replaces ``hq.vendor_discord.read_channel`` so no spec reaches
     Discord. ``messages`` and ``nicks`` are what the next read sees; ``error`` makes it fail with that reason."""
 
     def __init__(self) -> None:
