@@ -361,6 +361,103 @@ def describe_AnnouncementDraft():
             assert draft.audience == _CLASS
             assert draft.class_offering == offering
 
+        def it_stores_a_written_subject_as_the_title():
+            guild = GuildFactory(name="Writers Guild")
+            draft = AnnouncementDraft.save_from_form(
+                _cleaned(audience="guild", guild=guild, subject="Reading night moved to Thursday"), _author()
+            )
+            draft.refresh_from_db()
+            assert draft.title == "Reading night moved to Thursday"
+
+        def it_keeps_the_automatic_title_with_subject_blank_or_absent():
+            author = _author()
+            guild = GuildFactory(name="Writers Guild")
+            blank = AnnouncementDraft.save_from_form(_cleaned(audience="guild", guild=guild, subject="   "), author)
+            assert blank.title == "Writers Guild Announcement"
+            # A results form carries no subject key at all (the field is dropped).
+            absent = AnnouncementDraft.save_from_form(_cleaned(audience="guild", guild=guild), author)
+            assert absent.title == "Writers Guild Announcement"
+
+        def it_leads_a_written_subject_with_urgent_when_marked():
+            draft = AnnouncementDraft.save_from_form(
+                _cleaned(subject="Reading night moved to Thursday", mark_as_urgent=True), _author()
+            )
+            assert draft.title == "Urgent: Reading night moved to Thursday"
+
+        def it_keeps_the_voting_results_title_on_a_results_announcement_whatever_was_posted():
+            author = _author()
+            existing = AnnouncementDraft.objects.create(
+                author=author, funding_snapshot=FundingSnapshotFactory(cycle_label="October 2026"), title="Old"
+            )
+            result = AnnouncementDraft.save_from_form(_cleaned(subject="Retitled"), author, instance=existing)
+            assert result.title == "October 2026 Voting Results"
+
+    def describe_title_from_subject():
+        def it_uses_the_written_subject_else_the_guild_title_for_a_guild():
+            draft = AnnouncementDraft(audience=_GUILD, guild=GuildFactory(name="Writers Guild"))
+            assert draft.title_from_subject("Reading night moved to Thursday") == "Reading night moved to Thursday"
+            assert draft.title_from_subject("") == "Writers Guild Announcement"
+
+        def it_uses_the_written_subject_else_class_announcement_for_a_class():
+            draft = AnnouncementDraft(audience=_CLASS)
+            assert draft.title_from_subject("Bring your own clay") == "Bring your own clay"
+            assert draft.title_from_subject("") == "Class Announcement"
+
+        def it_uses_the_written_subject_else_makerspace_announcement_for_a_site_send():
+            draft = AnnouncementDraft(audience=_SITE)
+            assert draft.title_from_subject("Closed Monday") == "Closed Monday"
+            assert draft.title_from_subject("") == "Makerspace Announcement"
+
+        def it_reads_spaces_alone_as_blank_and_trims_a_subject():
+            draft = AnnouncementDraft(audience=_SITE)
+            assert draft.title_from_subject("   ") == "Makerspace Announcement"
+            assert draft.title_from_subject("  Closed Monday  ") == "Closed Monday"
+
+        def it_leads_either_with_urgent_when_marked():
+            draft = AnnouncementDraft(audience=_GUILD, guild=GuildFactory(name="Glass Guild"), mark_as_urgent=True)
+            assert draft.title_from_subject("Kiln is down") == "Urgent: Kiln is down"
+            assert draft.title_from_subject("") == "Urgent: Glass Guild Announcement"
+
+        def it_keeps_the_voting_results_title_for_a_results_announcement():
+            snapshot = FundingSnapshotFactory(cycle_label="October 2026")
+            draft = AnnouncementDraft(audience=_SITE, funding_snapshot=snapshot)
+            assert draft.title_from_subject("Retitled") == "October 2026 Voting Results"
+            assert draft.title_from_subject("") == "October 2026 Voting Results"
+
+    def describe_written_subject():
+        def it_reads_blank_when_the_title_is_the_automatic_one():
+            guild = GuildFactory(name="Writers Guild")
+            assert AnnouncementDraftFactory(audience=_GUILD, guild=guild).written_subject == ""
+            urgent = AnnouncementDraftFactory(audience=_GUILD, guild=guild, mark_as_urgent=True)
+            urgent.title = urgent.announcement_category
+            assert urgent.written_subject == ""
+
+        def it_reads_the_written_subject_back():
+            draft = AnnouncementDraftFactory(audience=_SITE, title="Closed Monday")
+            assert draft.written_subject == "Closed Monday"
+
+        def it_drops_the_urgent_lead_only_when_the_send_is_marked_urgent():
+            urgent = AnnouncementDraftFactory(audience=_SITE, mark_as_urgent=True, title="Urgent: Closed Monday")
+            assert urgent.written_subject == "Closed Monday"
+            # A subject the sender wrote starting "Urgent: " on a send not marked urgent is theirs as typed.
+            typed = AnnouncementDraftFactory(audience=_SITE, title="Urgent: Closed Monday")
+            assert typed.written_subject == "Urgent: Closed Monday"
+
+        def it_round_trips_through_save_from_form():
+            author = _author()
+            guild = GuildFactory(name="Writers Guild")
+            saved = AnnouncementDraft.save_from_form(
+                _cleaned(audience="guild", guild=guild, subject="Reading night moved to Thursday", mark_as_urgent=True),
+                author,
+            )
+            assert saved.written_subject == "Reading night moved to Thursday"
+            again = AnnouncementDraft.save_from_form(
+                _cleaned(audience="guild", guild=guild, subject=saved.written_subject, mark_as_urgent=True),
+                author,
+                instance=saved,
+            )
+            assert again.title == "Urgent: Reading night moved to Thursday"
+
     def describe_announcement_category():
         def it_uses_the_guild_name_for_a_guild():
             guild = GuildFactory(name="Ceramics Guild")

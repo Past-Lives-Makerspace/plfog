@@ -34,6 +34,19 @@
 }
 
 /* ----------------------------------------------------------------------------
+   The Subject above the message (#1039): a one line title stops at a readable width
+   (FRONTEND rule 28); below that width the column itself caps it, so a phone gets it full.
+   The wrapper is the swap target, so its one field group is a last child and loses the
+   group's own gap; the wrapper carries it instead (rule 26).
+   ------------------------------------------------------------------------- */
+.pl-compose-subject {
+    margin-bottom: 1rem;
+}
+.pl-compose-subject input[type="text"] {
+    max-width: 520px;
+}
+
+/* ----------------------------------------------------------------------------
    The way back to the Announcements page, and the line about the draft you opened
    (who saved it last, or that the snapshot job made it, and why a send gave up).
    ------------------------------------------------------------------------- */

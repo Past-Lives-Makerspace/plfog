@@ -40,6 +40,7 @@
        hasBody: {% if form.body.value %}true{% else %}false{% endif %},
        sendModalOpen: false,
        category: '{{ announcement_category|escapejs }}',
+       subject: '{{ form.subject.value|default:""|escapejs }}',
        urgentOn: {{ form.mark_as_urgent.value|yesno:'true,false' }},
        includeWaitlist: {{ form.include_waitlist.value|yesno:'true,false' }},
        siteReach: { loggedIn: {{ site_reach.logged_in|default:0 }}, everyone: {{ site_reach.everyone|default:0 }} },
@@ -101,6 +102,7 @@
       {% include "components/form_field.html" with field=form.audience field_label="Who is this for?" %}
       {% endif %}
 
+      {% include "hub/partials/_compose_subject_field.html" with oob=False %}
       {% include "components/form_field.html" with field=form.body %}
 
       <div class="pl-compose-section" x-show="audience.startsWith('guild') || audience.startsWith('class')" x-cloak>
@@ -207,7 +209,7 @@
             <div class="pl-push-preview__icon" aria-hidden="true">&#128276;</div>
             <div class="pl-push-preview__meta">
               <div class="pl-push-preview__app">Past Lives Makerspace</div>
-              <div id="pl-push-preview-title" class="pl-push-preview__title" x-text="(urgentOn ? 'Urgent: ' : '') + category"></div>
+              <div id="pl-push-preview-title" class="pl-push-preview__title" x-text="(urgentOn ? 'Urgent: ' : '') + (subject.trim() || category)"></div>
               <div id="pl-push-preview-body" class="pl-push-preview__body">Your message will show here.</div>
             </div>
           </div>
@@ -306,7 +308,7 @@
   // field that is empty or still the auto-fill keeps following the message body.
   var pushEdited = !!(push && push.value.trim() && push.value.trim() !== truncate(bodyText()));
   function sync() {
-    // The push preview TITLE is the auto category (Alpine-driven). Here we keep the body/hasBody live.
+    // The push preview TITLE is the written subject, else the auto category (Alpine-driven). Here we keep the body/hasBody live.
     window.dispatchEvent(new CustomEvent("compose-body", { detail: { has: bodyText().length > 0 } }));
     if (!outBody) { return; }
     // The push field auto-fills from the message body (truncated to 180) until the sender edits it.

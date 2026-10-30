@@ -4949,6 +4949,8 @@ def _draft_initial(draft: AnnouncementDraft) -> dict[str, Any]:
     """Form ``initial`` for resuming a draft — the combined audience value + the saved fields."""
     initial = {
         "audience": draft.audience_value,
+        # The subject read back out of the title: blank when the title is the automatic one (#1039).
+        "subject": draft.written_subject,
         "body": draft.body,
         "push_message": draft.push_message,
         "push_enabled": draft.push_enabled,
@@ -5001,7 +5003,8 @@ def _render_compose(
             {
                 "hx-get": count_url,
                 "hx-trigger": "change",
-                "hx-include": "[name=audience],[name=include_waitlist],[name=include_never_logged_in]",
+                # The subject rides along so the re-rendered Subject field keeps what was typed (#1039).
+                "hx-include": "[name=audience],[name=include_waitlist],[name=include_never_logged_in],[name=subject]",
                 "hx-swap": "none",
             }
         )
@@ -5223,7 +5226,13 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
         # unauthorized GET has no business making the server assemble one.
         initial.update(_compose_preselection(request, requested))
 
-    form = AnnouncementComposeForm(initial=initial, draft=draft, **_compose_form_kwargs(request, requested=requested))
+    form = AnnouncementComposeForm(
+        initial=initial,
+        draft=draft,
+        # A results draft offers no Subject (#1039), on the first GET as on its saves.
+        results_announcement=_results_compose_lock(draft) is not None,
+        **_compose_form_kwargs(request, requested=requested),
+    )
     return _render_compose(
         request,
         form=form,
@@ -5238,10 +5247,12 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
 def _compose_preview_draft(request: HttpRequest) -> AnnouncementDraft:
     """An unsaved draft built from the posted composer form: what the preview and both tests render.
 
-    The title is the auto category, so a results announcement reads "<cycle> Voting Results".
-    The snapshot that makes it one comes only from the posted ``draft_pk``, resolved to a resumable
-    draft this request may handle (:func:`_handled_draft`), never from a posted snapshot id: the
-    ``draft_pk`` of a draft the requester may not handle gets the plain category.
+    The title is the posted subject, else the auto category, built the way the save builds it
+    (:meth:`AnnouncementDraft.title_from_subject`), so a results announcement reads "<cycle> Voting
+    Results" whatever was posted. The snapshot that makes it one comes only from the posted
+    ``draft_pk``, resolved to a resumable draft this request may handle (:func:`_handled_draft`),
+    never from a posted snapshot id: the ``draft_pk`` of a draft the requester may not handle gets
+    the plain category.
     """
     from core.html_sanitize import RICH_TEXT_MAX_CHARS, sanitize_rich_html
     from hub.forms import split_audience
@@ -5263,16 +5274,16 @@ def _compose_preview_draft(request: HttpRequest) -> AnnouncementDraft:
         discord_post_as_me=bool(request.POST.get("discord_post_as_me")),
         funding_snapshot=handled.funding_snapshot if handled is not None else None,
     )
-    draft.title = draft.announcement_category
+    draft.title = draft.title_from_subject(request.POST.get("subject") or "")
     return draft
 
 
 @login_required
 @require_POST
 def hub_compose_preview(request: HttpRequest) -> HttpResponse:
-    """HTMX: render the category-led announcement email preview — byte-faithful to what sends.
+    """HTMX: render the announcement email preview — byte-faithful to what sends.
 
-    There is no member-typed subject: the title is the auto category (audience + urgency), the
+    The title is the written subject, else the auto category (audience + urgency), and the
     email carries the class subline + optional "From <sender>". Building an unsaved draft and
     reusing its own :meth:`AnnouncementDraft.build_email_message` keeps the preview identical to
     the sent email. The same response refreshes the Discord preview card out of band, from
@@ -5295,7 +5306,9 @@ def hub_compose_count(request: HttpRequest) -> HttpResponse:
 
     The re-scope also OOB-swaps the email recipient checklist so a multi-guild lead who switches
     guilds gets the new guild's roster (all checked) instead of the previous guild's — otherwise
-    the checklist would send the wrong subset.
+    the checklist would send the wrong subset. It re-renders the Subject field too (#1039): the
+    placeholder and hint name the new audience's automatic title, and the typed subject, posted
+    with the audience, is kept.
     """
     from hub.forms import AnnouncementComposeForm, split_audience
 
@@ -5311,8 +5324,10 @@ def hub_compose_count(request: HttpRequest) -> HttpResponse:
     count = _compose_count_for(
         audience, guild, offering, include_waitlist=include_waitlist, include_never_logged_in=include_never_logged_in
     )
+    subject = request.GET.get("subject") or request.POST.get("subject") or ""
     form = AnnouncementComposeForm(
-        initial={"audience": raw, "include_waitlist": include_waitlist}, **_compose_form_kwargs(request)
+        initial={"audience": raw, "include_waitlist": include_waitlist, "subject": subject},
+        **_compose_form_kwargs(request),
     )
     response = render(request, "hub/partials/_compose_oob_refresh.html", {"form": form})
     response["HX-Trigger"] = json.dumps({"compose-count": {"count": count}})

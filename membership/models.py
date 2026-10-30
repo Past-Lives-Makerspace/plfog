@@ -7266,28 +7266,64 @@ class AnnouncementDraft(models.Model):
         ]
 
     @property
-    def announcement_category(self) -> str:
-        """The auto-derived headline used as the title everywhere (email + push + bell + Discord).
+    def automatic_title(self) -> str:
+        """The headline the audience alone gives, without the ``"Urgent: "`` lead: the Subject field's placeholder.
 
         Guild → ``"<Guild> Announcement"``; class → ``"Class Announcement"`` (the class title rides
-        as a subline in the email); site → ``"Makerspace Announcement"``. A results announcement
-        (linked to a :class:`FundingSnapshot`) is ``"<cycle> Voting Results"`` whatever the
-        audience. When the send is marked urgent, ``"Urgent: "`` leads the title. There is no
-        member-typed subject — this is it.
+        as a subline in the email); guild leads → ``"Guild Leads Announcement"``; instructors →
+        ``"Instructors Announcement"``; site → ``"Makerspace Announcement"``. A results announcement
+        (linked to a :class:`FundingSnapshot`) is ``"<cycle> Voting Results"`` whatever the audience.
         """
         if self.funding_snapshot is not None:
-            base = f"{self.funding_snapshot.cycle_label} Voting Results"
-        elif self.audience == self.Audience.CLASS:
-            base = "Class Announcement"
-        elif self.audience == self.Audience.GUILD and self.guild is not None:
-            base = f"{self.guild.name} Announcement"
-        elif self.audience == self.Audience.LEADS:
-            base = "Guild Leads Announcement"
-        elif self.audience == self.Audience.INSTRUCTORS:
-            base = "Instructors Announcement"
-        else:
-            base = "Makerspace Announcement"
+            return f"{self.funding_snapshot.cycle_label} Voting Results"
+        if self.audience == self.Audience.CLASS:
+            return "Class Announcement"
+        if self.audience == self.Audience.GUILD and self.guild is not None:
+            return f"{self.guild.name} Announcement"
+        if self.audience == self.Audience.LEADS:
+            return "Guild Leads Announcement"
+        if self.audience == self.Audience.INSTRUCTORS:
+            return "Instructors Announcement"
+        return "Makerspace Announcement"
+
+    @property
+    def announcement_category(self) -> str:
+        """The auto-derived headline used as the title when the sender wrote no subject.
+
+        :attr:`automatic_title` with ``"Urgent: "`` in front when the send is marked urgent: the
+        title of every row saved before the Subject field existed (#1039), and of every save with
+        Subject left blank, so those read exactly as they always did.
+        """
+        return self.title_from_subject("")
+
+    def title_from_subject(self, subject: str) -> str:
+        """The title everywhere (email subject, push, bell, Discord embed, Sent row, guild post) for a written subject.
+
+        The subject when one was written, else :attr:`automatic_title`; ``"Urgent: "`` leads either
+        when the send is marked urgent. A results announcement keeps ``"<cycle> Voting Results"``
+        whatever was posted, which is why the composer offers it no Subject field (#1039).
+
+        Args:
+            subject: What the sender typed into Subject; blank or spaces alone means none.
+        """
+        written = subject.strip()
+        base = written if written and self.funding_snapshot is None else self.automatic_title
         return f"Urgent: {base}" if self.mark_as_urgent else base
+
+    @property
+    def written_subject(self) -> str:
+        """The subject the sender wrote, read back out of :attr:`title` for a resumed draft's Subject field.
+
+        ``""`` when the title is the automatic one (a row saved before #1039, or a save with Subject
+        blank), so re-saving it yields the same title. Otherwise the title, less its ``"Urgent: "``
+        lead when the send is marked urgent, since the lead is added again on save.
+        """
+        if self.title == self.announcement_category:
+            return ""
+        prefix = "Urgent: "
+        if self.mark_as_urgent and self.title.startswith(prefix):
+            return self.title[len(prefix) :]
+        return self.title
 
     def _email_subline(self) -> str:
         """The line under the category in the email — the class title for a class announcement."""
@@ -7421,13 +7457,14 @@ class AnnouncementDraft(models.Model):
     def _channel_overrides(
         self, base_url: str, discord_identity: "DiscordIdentity | None" = None
     ) -> "dict[Channel, Message]":
-        """Per-channel Message overrides handed to ``emit`` — every channel leads with the category.
+        """Per-channel Message overrides handed to ``emit`` — every channel leads with the title.
 
-        With no member-typed subject, the auto category is the title on the in-app bell, push,
-        Discord embed, and email, so nothing falls back to the copy catalogue's guild-name-prefixed
-        default. Email additionally carries the class subline + optional "From" line, and a results
-        announcement's email and Discord post carry the results visual. ``discord_identity`` puts the
-        sender's Discord name and picture on the Discord post (:meth:`build_discord_message`).
+        The title (the written subject, else the auto category) is the title on the in-app bell,
+        push, Discord embed, and email, so nothing falls back to the copy catalogue's
+        guild-name-prefixed default. Email additionally carries the class subline + optional "From"
+        line, and a results announcement's email and Discord post carry the results visual.
+        ``discord_identity`` puts the sender's Discord name and picture on the Discord post
+        (:meth:`build_discord_message`).
         """
         from core.events.channels import Channel
 
@@ -7548,9 +7585,10 @@ class AnnouncementDraft(models.Model):
             raise ValidationError("Choose a class for this announcement.")
         if draft.funding_snapshot_id is not None and draft.audience != cls.Audience.SITE:
             raise ValidationError(RESULTS_ANNOUNCEMENT_AUDIENCE_ERROR)
-        # There is no member-typed subject: the title IS the auto category (audience + urgency),
-        # computed here once every field it depends on (audience/guild/class/urgent) is set.
-        draft.title = draft.announcement_category
+        # The title is the written subject, else the auto category (audience + urgency), computed here
+        # once every field it depends on (audience/guild/class/urgent) is set (#1039). The form drops
+        # the Subject field on a results announcement, so its cleaned data carries none.
+        draft.title = draft.title_from_subject(cd.get("subject", ""))
         draft.save()
         return draft
 
