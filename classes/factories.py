@@ -92,6 +92,17 @@ READY_DESCRIPTION = "A hands-on class where you build a real project, learn the 
 BRACKETED_DESCRIPTION = "Wear <closed toe shoes> and bring <safety glasses> to the shop."
 
 
+def daytime(moment):
+    """``moment`` at 10:00 local time, for a seeded session that must read the same at any hour (#1033).
+
+    A session seeded at the current time of day sits two hours from midnight every night and,
+    two nights before clocks fall back, ends or starts inside the 1 AM hour that happens twice,
+    which the composer's ``datetime-local`` round trip cannot place. Ten in the morning is never
+    in a transition and never crosses a date.
+    """
+    return timezone.localtime(moment).replace(hour=10, minute=0, second=0, microsecond=0)
+
+
 class ClassOfferingFactory(DjangoModelFactory):
     class Meta:
         model = models.ClassOffering
@@ -148,7 +159,7 @@ class ClassOfferingFactory(DjangoModelFactory):
             return
         obj.description = READY_DESCRIPTION
         obj.save(update_fields=["description"])
-        start = timezone.now() + timedelta(days=2)
+        start = daytime(timezone.now() + timedelta(days=2))
         ClassSessionFactory(class_offering=obj, starts_at=start, ends_at=start + timedelta(hours=2))
 
 
@@ -167,7 +178,7 @@ class SeriesClassOfferingFactory(ClassOfferingFactory):
             return
         # Start one week out so every session is upcoming (views filter on
         # ``starts_at >= now``); spacing one week apart mirrors a real course.
-        base = timezone.now() + timedelta(days=7)
+        base = daytime(timezone.now() + timedelta(days=7))
         for i in range(extracted):
             ClassSessionFactory(
                 class_offering=self,

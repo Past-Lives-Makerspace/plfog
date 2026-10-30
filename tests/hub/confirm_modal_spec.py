@@ -155,7 +155,7 @@ def describe_the_three_existing_callers():
         # assertion fragile. Every caller collects a reason a person will read later: why a
         # wiki page was removed, why a discount request was turned down, why a
         # reservation was cancelled, why a reservation request was declined (#754), and why a
-        # guild ended a member's cubby rental (#980). A new name here wants that same justification, which is
+        # guild ended a member's cubby rental (#980), and why a kiln ticket was deleted (#1025). A new name here wants that same justification, which is
         # why the list stays explicit.
         root = Path(settings.BASE_DIR) / "templates"
         callers = sorted(
@@ -164,6 +164,7 @@ def describe_the_three_existing_callers():
             if path.name != "confirm_modal.html" and "confirm_note_required" in path.read_text()
         )
         assert callers == [
+            "_delete_ticket.html",
             "_rentals.html",
             "_wiki_moderation_actions.html",
             "discount_code_request_review.html",
