@@ -1,0 +1,11 @@
+bump = "minor"
+date = "2026-10-30"
+audience = ["members", "guild-staff", "admins"]
+feature = "admin.email-members"
+guidance = "link"
+title = "Write the subject line of an email to members"
+changes = [
+  "Email Members has a Subject box above the message. What you write there is the email's subject, the notification's title and the Discord post's title, so three emails in a week no longer all read \"Writers Guild Announcement\".",
+  "Leave it blank and the usual title is used, exactly as before.",
+]
+requests = [6]

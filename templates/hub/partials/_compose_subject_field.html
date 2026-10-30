@@ -1,0 +1,20 @@
+{% comment %}
+The composer's Subject (#1039), above the message: optional, with the automatic title for the
+audience in play as its placeholder and in its hint. Wrapped in the OOB target (#compose-subject)
+so an audience change re-renders it for the new audience: the placeholder and hint follow, and a
+typed subject is kept because the count refresh posts it. The x-init hands the automatic title to
+the Alpine `category` var, so the push preview's title names the same audience as the placeholder
+after a re-scope. A results announcement has no Subject: the form drops the field, so this renders
+nothing.
+
+Params:
+  form — the AnnouncementComposeForm (its subject field and automatic_title)
+  oob  — when truthy, marks this as an out-of-band swap
+{% endcomment %}
+{% if form.subject %}
+<div id="compose-subject" class="pl-compose-subject"{% if oob %} hx-swap-oob="true"{% endif %}
+     data-compose-subject data-compose-category="{{ form.automatic_title }}"
+     x-init="category = $el.dataset.composeCategory">
+  {% include "components/form_field.html" with field=form.subject %}
+</div>
+{% endif %}

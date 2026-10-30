@@ -5844,6 +5844,14 @@ class AnnouncementComposeForm(forms.Form):
     """
 
     audience = forms.ChoiceField(label="Who is this for?")
+    subject = forms.CharField(
+        required=False,
+        max_length=200,
+        label="Subject",
+        widget=forms.TextInput(attrs={"maxlength": "200", "autocomplete": "off"}),
+        # The placeholder and this hint name the audience's automatic title in __init__.
+        help_text="Leave blank to use the automatic title.",
+    )
     body = forms.CharField(
         widget=RichTextEditorWidget(attrs={"rows": 10}),
         required=False,
@@ -5954,6 +5962,18 @@ class AnnouncementComposeForm(forms.Form):
         self.audience_value = self._raw_audience(choices)
         self.current_audience, self.current_guild, self.current_class = split_audience(self.audience_value)
 
+        # The Subject (#1039) is optional: blank, the audience's automatic title stands in, and the
+        # placeholder and hint name it. The count refresh re-renders this field on an audience
+        # change, so both follow the audience while a typed subject is kept. A results announcement
+        # keeps "<cycle> Voting Results" and offers no Subject at all, so a crafted POST cannot retitle it.
+        if results_announcement:
+            del self.fields["subject"]
+        else:
+            subject_field = self.fields["subject"]
+            subject_field.widget.attrs["placeholder"] = self.automatic_title
+            subject_field.help_text = f"Leave blank to use {self.automatic_title}."
+            subject_field.widget.attrs.setdefault("x-model", "subject")
+
         # Recipient checklist (bell + push + email), scoped to the audience (empty for site).
         # Everyone is checked by default; a resumed draft's initial wins. ``add_member_choices``
         # is every member, for the "add anyone" search datalist. For a class, the "also include
@@ -6034,6 +6054,21 @@ class AnnouncementComposeForm(forms.Form):
         self.fields["expires_at"].widget.attrs.setdefault(
             "@click", "try { $event.currentTarget.showPicker() } catch (e) {}"
         )
+
+    @property
+    def automatic_title(self) -> str:
+        """The title the audience in play gets with Subject blank, without the "Urgent: " lead (#1039).
+
+        The Subject field's placeholder, and what its hint names. Read from the model so the
+        composer and the send can never word it differently.
+        """
+        from membership.models import AnnouncementDraft
+
+        return AnnouncementDraft(
+            audience=self.current_audience or AnnouncementDraft.Audience.SITE.value,
+            guild=self.current_guild,
+            class_offering=self.current_class,
+        ).automatic_title
 
     def _raw_audience(self, choices: list[tuple[str, str]]) -> str:
         """The combined audience value to scope by: bound data, else initial, else first choice."""
