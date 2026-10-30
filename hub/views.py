@@ -5722,16 +5722,19 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
     email's From line and the send actor are whoever pressed Send.
 
     A fresh compose (no ``draft_pk``) that repeats a send this sender made within the last minute,
-    same audience target and body (:meth:`AnnouncementDraft.recent_twin_of`), is that send's repeat:
-    a second tap that beat the modal's lock, a retry, a browser resubmit. Nothing is saved; the row
-    takes the send branch and refuses itself (already sent, still sending in the first request, or
-    a queued site send that :meth:`AnnouncementDraft.queue_send` leaves as it is), so the repeat
-    lands on the Sent tab with the existing message and no second announcement goes out (#1038).
+    same audience target, body and recipients (:meth:`AnnouncementDraft.recent_twin_of`), is that
+    send's repeat: a second tap that beat the modal's lock, a retry, a browser resubmit. Nothing is
+    saved; the row takes the send branch and refuses itself (already sent, still sending in the
+    first request, or a queued site send that :meth:`AnnouncementDraft.queue_send` leaves as it
+    is), so the repeat lands on the Sent tab with the existing message and no second announcement
+    goes out (#1038). A ``draft_pk`` whose send is running right now
+    (:attr:`AnnouncementDraft.sending_in_request`) is refused the same way before anything is
+    saved, because saving it over would clear the in-flight mark.
     """
     from django.core.exceptions import ValidationError
 
     from hub.forms import AnnouncementComposeForm
-    from membership.models import AlreadySentError, ResultsAlreadySentError
+    from membership.models import ANNOUNCEMENT_ALREADY_SENT, AlreadySentError, ResultsAlreadySentError
 
     raw = request.POST.get("audience") or ""
     forbidden = _compose_audience_forbidden(request, raw)
@@ -5744,6 +5747,10 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
         if instance is None:
             messages.error(request, _DRAFT_GONE_MESSAGE)
             return redirect("hub_announcements")
+        if instance.sending_in_request:
+            # The same draft posted again while its send runs in another request: saving it over
+            # would wipe the in-flight mark and send it twice, so it is refused before any save.
+            return _compose_send_refused(request, instance, AlreadySentError(ANNOUNCEMENT_ALREADY_SENT))
     results_lock = _results_compose_lock(instance)
     form = AnnouncementComposeForm(
         request.POST,

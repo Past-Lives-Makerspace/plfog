@@ -8,7 +8,7 @@ the branded email override + the opt-in @mention. Mark-sent (sent_at), never del
 from __future__ import annotations
 
 import types
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -23,6 +23,7 @@ from classes.factories import ClassOfferingFactory, RegistrationFactory
 from classes.models import Registration
 from core.models import EventDelivery, Notification, SiteConfiguration
 from membership.models import (
+    ANNOUNCEMENT_RESEND_WINDOW,
     AlreadySentError,
     AnnouncementDraft,
     AnnouncementReach,
@@ -1098,11 +1099,18 @@ def describe_send_in_request():
             "given_up": AnnouncementDraftFactory(author=author, given_up=True, send_attempts=3),
             "sent": AnnouncementDraftFactory(author=author, audience=_GUILD, guild=guild, sent=True, send_attempts=1),
             "in_flight": AnnouncementDraftFactory(author=author, audience=_GUILD, guild=guild, send_attempts=1),
+            "stale": AnnouncementDraftFactory(author=author, audience=_GUILD, guild=guild, send_attempts=1),
         }
+        # A mark older than the window is a send whose worker died, not one still running.
+        AnnouncementDraft.objects.filter(pk=rows["stale"].pk).update(
+            updated_at=timezone.now() - ANNOUNCEMENT_RESEND_WINDOW - timedelta(seconds=1)
+        )
+        rows["stale"].refresh_from_db()
         assert {name: row.sending_in_request for name, row in rows.items()} == {
             "draft": False,
             "queued": False,
             "given_up": False,
             "sent": False,
             "in_flight": True,
+            "stale": False,
         }

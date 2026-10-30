@@ -6534,18 +6534,23 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
         guild: "Guild | None",
         class_offering: "ClassOffering | None",
         body: str,
+        recipient_selection: dict[str, Any],
+        added_recipients: dict[str, Any],
     ) -> "AnnouncementDraft | None":
-        """The row ``author`` sent, queued or started sending within the resend window with this target and body.
+        """The row ``author`` sent, queued or started sending within the resend window as this same send.
 
         The composer's Send posts a fresh compose with no ``draft_pk``, so a repeat of that POST (a
         second tap that beat the lock, a retry, a browser resubmit) would make and send a second
         row. A row the same sender made within :data:`ANNOUNCEMENT_RESEND_WINDOW` with the same
-        audience, guild, class and body is what the repeat meant, so the composer treats the repeat
-        as that row's resend and :meth:`AnnouncementDraft.send_in_request` refuses it. That covers a
-        row whose send is still running in another request (:attr:`AnnouncementDraft.sending_in_request`):
-        the 2026-10-24 repeat arrived 3.5 seconds into a 5 second send. The one row left out is a
-        plain saved draft, never sent, queued or started: someone who saves and then writes the same
-        message afresh is not repeating a send.
+        audience, guild, class, body and recipients is what the repeat meant, so the composer treats
+        the repeat as that row's resend and :meth:`AnnouncementDraft.send_in_request` refuses it.
+        That covers a row whose send is still running in another request
+        (:attr:`AnnouncementDraft.sending_in_request`): the 2026-10-24 repeat arrived 3.5 seconds
+        into a 5 second send. The recipients are part of the match because the same message to
+        other people is another send; the channel switches (email, push, Discord) are not, because a
+        resend with only those changed is still a resend. The one row left out is a plain saved
+        draft, never sent, queued or started: someone who saves and then writes the same message
+        afresh is not repeating a send.
 
         Args:
             author: Whoever pressed Send.
@@ -6553,12 +6558,14 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
             guild: The guild of a ``GUILD`` audience, else ``None``.
             class_offering: The class of a ``CLASS`` audience, else ``None``.
             body: The body as the form sanitizes it, which is how the row stores it.
+            recipient_selection: The chosen recipients as the row stores them (``{}`` for everyone).
+            added_recipients: The people added on top, as the row stores them (``{}`` for none).
 
         Returns:
             The newest such row, or ``None``.
         """
         since = timezone.now() - ANNOUNCEMENT_RESEND_WINDOW
-        return (
+        candidates = (
             self.filter(
                 author=author,
                 audience=audience,
@@ -6569,7 +6576,16 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
             )
             .exclude(sent_at__isnull=True, send_requested_at__isnull=True, send_attempts=0)
             .order_by("-created_at", "-pk")
-            .first()
+        )
+        # The two recipient fields are JSON, compared here as values: a JSON text comparison in
+        # the database would read the same selection in another key order as a different one.
+        return next(
+            (
+                row
+                for row in candidates
+                if row.recipient_selection == recipient_selection and row.added_recipients == added_recipients
+            ),
+            None,
         )
 
     def reach_for(self, rows: "Iterable[AnnouncementDraft]") -> dict[int, int]:
@@ -6987,14 +7003,18 @@ class AnnouncementDraft(models.Model):
     def sending_in_request(self) -> bool:
         """Whether a guild or class send of this row is running inside a web request right now.
 
-        :meth:`send_in_request` counts ``send_attempts`` up before its fan-out, :meth:`send` never
-        touches the count and :meth:`save_from_form` starts it afresh, so an unsent, unqueued row
-        that is not given up on and carries an attempt is one whose send started and has not
-        finished: the state a repeat of the same compose meets when it arrives seconds behind the
-        first (#1038). A send whose worker was killed leaves the same state until the draft is
-        saved over, which is why only the window bounded twin lookup acts on it for a fresh compose.
+        :meth:`send_in_request` counts ``send_attempts`` up before its fan-out and :meth:`send` never
+        touches the count, so an unsent, unqueued row that is not given up on and carries an attempt
+        is one whose send started and has not finished: the state a repeat meets when it arrives
+        seconds behind the first (#1038), whether as a fresh compose or as the same ``draft_pk``. A
+        send whose worker was killed leaves the same marks, so they count only within
+        :data:`ANNOUNCEMENT_RESEND_WINDOW` of the row's last save, which the stamp itself is; after
+        that the row is a plain draft again, and saving it over (:meth:`save_from_form`) resets the
+        count before its own send.
         """
-        return self.state == self.DraftState.DRAFT and self.send_attempts > 0
+        if self.state != self.DraftState.DRAFT or self.send_attempts == 0 or self.updated_at is None:
+            return False
+        return self.updated_at >= timezone.now() - ANNOUNCEMENT_RESEND_WINDOW
 
     @property
     def audience_value(self) -> str:
@@ -7612,7 +7632,8 @@ class AnnouncementDraft(models.Model):
         draft.expires_at = cd.get("expires_at")
         # A draft saved over starts its send attempts afresh, as queueing it again does
         # (:meth:`queue_send`): a count left by a send whose worker was killed mid-way
-        # (:meth:`send_in_request`) must not refuse the resend of the draft it stranded.
+        # (:meth:`send_in_request`) must not refuse the resend of the draft it stranded. The
+        # composer refuses a row whose send is running before it gets here (``sending_in_request``).
         draft.send_attempts = 0
         if draft.audience == cls.Audience.GUILD and draft.guild is None:
             raise ValidationError("Choose a guild for this announcement.")
@@ -7641,6 +7662,9 @@ class AnnouncementDraft(models.Model):
             guild=cd["guild"],
             class_offering=cd["class_offering"],
             body=cd["body"],
+            # Normalized as save_from_form stores them, so a stored row compares equal to its repeat.
+            recipient_selection=cd["recipient_selection"] or {},
+            added_recipients=cd["added_recipients"] or {},
         )
 
     def send(self) -> tuple[int, int]:
@@ -7959,10 +7983,8 @@ class AnnouncementDraft(models.Model):
         :attr:`sending_in_request` reads it back. ``send_requested_at`` is not used for this: it
         would hand the row to ``send_queued_announcements`` and show it as queued. A failure that
         reaches Python puts the count back, so the row is the plain draft it was. A worker killed
-        outright leaves it: the row then refuses a fresh compose that matches it, which
-        :meth:`AnnouncementDraftQuerySet.recent_twin` bounds to :data:`ANNOUNCEMENT_RESEND_WINDOW`,
-        and nothing else, because every save over the row (:meth:`save_from_form`, which Send and
-        Save draft both go through) starts the count afresh, so resuming it from Drafts sends it.
+        outright leaves it, and the mark expires with :data:`ANNOUNCEMENT_RESEND_WINDOW`
+        (:attr:`sending_in_request`), after which resuming the draft from Drafts sends it.
 
         Returns:
             :meth:`send`'s ``(emailed, total)`` pair.
