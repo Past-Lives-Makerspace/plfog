@@ -261,6 +261,20 @@ def describe_hub_whats_new():
             assert 'data-whats-new-entry="a"' in response.content.decode()
 
     def describe_feature_mode():
+        def it_opens_on_the_features_own_first_tab_with_something_unseen(client: Client, changelog):
+            # A feature button (#1030) must not land on an empty For Members tab because a members entry elsewhere is unseen.
+            changelog(
+                [
+                    _entry("cal", feature="calendar.events"),
+                    _entry("events", feature="admin.events", audiences=("admins",)),
+                ]
+            )
+            _login(client, fog_role=Member.FogRole.ADMIN)
+            html = _body(client, "?feature=admin.events")
+            assert 'data-whats-new-tab="admins"' in html and 'data-whats-new-entry="events"' in html
+            assert html.index('class="vote-tab vote-tab--active"') < html.index('data-whats-new-entry="events"')
+            assert 'aria-current="page" hx-get="/whats-new/?tab=admins&amp;feature=admin.events"' in html
+
         def it_limits_the_body_to_the_key_and_its_children_with_counts_and_a_title(client: Client, changelog):
             changelog(
                 [

@@ -422,6 +422,23 @@ def describe_unseen_and_mark_seen():
         assert whats_new_for(_request(admin.user)).default_tab() == "admins"
         assert whats_new_for(_request(_member("plain").user)).default_tab() == "members"
 
+    def it_opens_a_feature_on_its_own_first_tab_with_something_unseen_else_its_first_tab_with_anything(changelog):
+        # Opened on a feature (#1030): a members entry elsewhere must not pull the modal onto an empty tab.
+        changelog(
+            [
+                _entry("for-members"),
+                _entry("events", feature="admin.events", audiences=("admins",)),
+                _entry("old-events", feature="admin.events", audiences=("admins",), days_ago=NEW_DAYS + 1),
+            ]
+        )
+        admin = _member("admin", fog_role=Member.FogRole.ADMIN)
+        assert whats_new_for(_request(admin.user)).default_tab() == "members"
+        assert whats_new_for(_request(admin.user)).default_tab("admin.events") == "admins"
+        assert whats_new_for(_request(admin.user)).default_tab("admin") == "admins"
+        read = _member("read", fog_role=Member.FogRole.ADMIN, whats_new_seen=["events"])
+        assert whats_new_for(_request(read.user)).default_tab("admin.events") == "admins"
+        assert whats_new_for(_request(read.user)).default_tab("guild") == "members"
+
     def it_reads_a_null_seen_list_as_nothing_seen(changelog):
         # The column is NOT NULL with a database default, but a row from somewhere else is read, not trusted.
         changelog([_entry("fresh")])

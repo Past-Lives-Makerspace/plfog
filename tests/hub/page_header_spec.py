@@ -53,6 +53,53 @@ def describe_page_header_component():
         assert "hub-btn" not in html
         assert "<a " not in html
 
+    def describe_with_a_guidance_key():
+        # new_key= (#1030): the What's New button for the key sits in the action slot, before the action.
+        def _request(monkeypatch):
+            from django.test import RequestFactory
+
+            from hub.view_as import ViewAs, compute_actual_roles
+
+            monkeypatch.setattr(
+                "plfog.version.CHANGELOG",
+                [
+                    {
+                        "date": "2026-10-30",
+                        "title": "Calendar",
+                        "changes": ["x"],
+                        "slug": "cal",
+                        "audiences": ["members"],
+                        "feature": "calendar.events",
+                        "guidance": "none",
+                    }
+                ],
+            )
+            MembershipPlanFactory()
+            user = User.objects.create_user(username="ph_key", password="pw")
+            request = RequestFactory().get("/")
+            request.user = user
+            request.view_as = ViewAs(actual=compute_actual_roles(user), picked=None)
+            return request
+
+        def it_renders_the_keys_button_alone_in_the_action_slot(monkeypatch):
+            html = _render(title="Calendar", new_key="calendar.events", request=_request(monkeypatch))
+            assert 'data-whats-new-key="calendar.events"' in html
+            assert 'class="hub-page-header__actions"' in html and "<a " not in html
+
+        def it_puts_the_button_before_the_action(monkeypatch):
+            html = _render(
+                title="Calendar",
+                new_key="calendar.events",
+                action_url="/x/",
+                action_label="Go",
+                request=_request(monkeypatch),
+            )
+            assert html.index('data-whats-new-key="calendar.events"') < html.index('href="/x/"')
+
+        def it_renders_nothing_for_a_key_no_entry_names(monkeypatch):
+            html = _render(title="Teaching", new_key="classes.teach", request=_request(monkeypatch))
+            assert "data-whats-new-button" not in html and "hub-page-header__actions" not in html
+
 
 def describe_page_header_rollout():
     def it_shows_the_purpose_blurb_on_the_orientations_bookings_tab(client: Client):

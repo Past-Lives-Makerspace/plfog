@@ -3,7 +3,7 @@
 {% block title %}Guild Voting{% endblock %}
 
 {% block content %}
-<h1 class="hub-page-title">Guild Voting</h1>
+{% include "components/page_header.html" with title="Guild Voting" new_key="guild.voting" %}
 {% include "hub/admin/_voting_tabs.html" %}
 <p class="hub-text-muted" style="margin-bottom: 2rem;">
     Rank three guilds. All three choices are required, and each must be a different guild. Your votes determine how the monthly funding pool is distributed.

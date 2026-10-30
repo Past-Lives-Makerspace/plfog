@@ -129,7 +129,6 @@
     </div>
 </div>
 {# What's New (#1007): the statbar button loads /whats-new/?feature=guild into this modal's body on open. #}
-{% if not is_guilds_surface %}{% include "components/modal.html" with modal_id="whats-new" modal_title="What's New" modal_size="lg" %}{% endif %}
 {% include "hub/partials/_guild_location_status.html" %}
 
 {% comment %} Legacy ?tab=notes deep links land on the renamed Meetings tab (spec §6.4); only the two known values map, so a garbage ?tab can't blank every pane. {% endcomment %}

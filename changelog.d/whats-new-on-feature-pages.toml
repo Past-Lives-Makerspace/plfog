@@ -1,0 +1,9 @@
+bump = "patch"
+date = "2026-10-30"
+audience = ["members", "guild-staff", "admins"]
+feature = "home.whats-new"
+guidance = "link"
+title = "Every page a New! mark leads to has its own What's New button"
+changes = [
+  "Follow a New! mark to the Calendar, Classes, Guild Voting, your guild's settings, the Wiki, Feedback, your Settings or any Admin Tools page and the sparkles button is in the page header, so what is new there is one click away.",
+]

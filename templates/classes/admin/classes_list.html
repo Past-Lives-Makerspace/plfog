@@ -1,5 +1,6 @@
 {% extends "classes/admin/base.html" %}
-{% load classes_tags %}
+{% load classes_tags guidance %}
+{% block portal_whats_new %}{% whats_new_button "classes.review" %}{% endblock %}
 {% block tab_content %}
 <div class="admin-toolbar">
     {% include "components/table_search.html" with q=q placeholder="Search classes…" preserved_fields=search_preserved_fields clear_url=search_clear_url %}

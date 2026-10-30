@@ -21,9 +21,9 @@ drafts_count, sent_count, can_send_release (the admin only Release Update card, 
 {% endcomment %}
 {% url 'hub_compose' as compose_url %}
 {% if can_open %}
-{% include "components/page_header.html" with title="Email Members" description="Emails waiting to go out and the ones already sent. Each one can also post to Discord and sends an app notification. Open a draft to finish it." action_url=compose_url action_label="New email" action_class="hub-btn hub-btn--primary" action_help_key="announcements.new" %}
+{% include "components/page_header.html" with title="Email Members" new_key="admin.email-members" description="Emails waiting to go out and the ones already sent. Each one can also post to Discord and sends an app notification. Open a draft to finish it." action_url=compose_url action_label="New email" action_class="hub-btn hub-btn--primary" action_help_key="announcements.new" %}
 {% else %}
-{% include "components/page_header.html" with title="Email Members" description="Who each guild's emails reach: its members, plus the addresses added or imported." %}
+{% include "components/page_header.html" with title="Email Members" new_key="admin.email-members" description="Who each guild's emails reach: its members, plus the addresses added or imported." %}
 {% endif %}
 
 {% tab_picker "Email Members" %}

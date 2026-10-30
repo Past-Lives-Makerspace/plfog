@@ -1,5 +1,6 @@
 {% extends "classes/teach/base.html" %}
-{% load classes_tags %}
+{% load classes_tags guidance %}
+{% block portal_whats_new %}{% whats_new_button "classes.teach" %}{% endblock %}
 
 {% comment %}The page's own "Teaching" heading and its "+ New Class" button used to sit one
 line under the portal <h1>, which made two headings for one page. Both move up into the portal

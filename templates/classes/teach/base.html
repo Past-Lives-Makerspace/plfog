@@ -10,6 +10,7 @@
             {% block portal_lead %}{% endblock %}
         </div>
         <span class="pl-class-header__actions">
+            {% block portal_whats_new %}{% endblock %}
             {% block portal_action %}{% endblock %}
             {% if instructor.instructor_slug %}
             <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:public_instructor' slug=instructor.instructor_slug %}" target="_blank" rel="noopener">View public profile ↗</a>

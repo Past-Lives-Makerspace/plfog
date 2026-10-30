@@ -110,7 +110,7 @@ def hub_whats_new(request: HttpRequest) -> HttpResponse:
     feature = _feature_key(request.GET.get("feature", ""))
     tab = request.GET.get("tab", "")
     if tab not in TABS:
-        tab = news.default_tab()
+        tab = news.default_tab(feature or None)
     fragment = wants_fragment(request)
     after = request.GET.get("after", "") if fragment else ""
     page = _page(news, tab, feature, after)
