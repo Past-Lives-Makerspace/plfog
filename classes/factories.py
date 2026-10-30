@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import factory
 from django.contrib.auth import get_user_model
@@ -92,7 +92,7 @@ READY_DESCRIPTION = "A hands-on class where you build a real project, learn the 
 BRACKETED_DESCRIPTION = "Wear <closed toe shoes> and bring <safety glasses> to the shop."
 
 
-def daytime(moment):
+def daytime(moment: datetime) -> datetime:
     """``moment`` at 10:00 local time, for a seeded session that must read the same at any hour (#1033).
 
     A session seeded at the current time of day sits two hours from midnight every night and,
