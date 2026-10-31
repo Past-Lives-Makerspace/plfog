@@ -44,19 +44,25 @@ NEW_DAYS = 30
 #: How many entries a tab shows at a time; Show older loads the next page.
 PAGE_SIZE = 20
 
-#: The three tabs, in the order they are drawn, what each is called, and who it is for in a sentence.
-TABS = ("members", "guild-staff", "admins")
-TAB_LABELS = {"members": "For Members", "guild-staff": "For Guild Staff", "admins": "For Admins"}
-TAB_NOUNS = {"members": "members", "guild-staff": "guild staff", "admins": "admins"}
+#: The four tabs (For Instructors since #1052), in the order they are drawn, what each is called,
+#: and who it is for in a sentence. Every tab shows to every member; the viewer's audiences decide
+#: only Open it and the unseen state.
+TABS = ("members", "instructors", "guild-staff", "admins")
+TAB_LABELS = {
+    "members": "For Members",
+    "instructors": "For Instructors",
+    "guild-staff": "For Guild Staff",
+    "admins": "For Admins",
+}
+TAB_NOUNS = {"members": "members", "instructors": "instructors", "guild-staff": "guild staff", "admins": "admins"}
 
-#: What the chip on an entry says for a finer audience key. The three tabs get no chip.
+#: What the chip on an entry says for a finer audience key. The four tabs get no chip.
 AUDIENCE_LABELS = {
     "guild-leads": "Guild Leads",
     "orientors": "Orientors",
     "treasurers": "Treasurers",
     "class-reviewers": "Class Reviewers",
     "equipment-managers": "Equipment Managers",
-    "instructors": "Instructors",
 }
 
 

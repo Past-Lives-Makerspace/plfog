@@ -125,7 +125,7 @@ _GUIDANCE_LIST = (
         url_name="hub_home",
         steps=(
             "On Home, press What's New in the header.",
-            "Pick the tab for your role: For Members, For Guild Staff or For Admins.",
+            "Pick the tab for your role: For Members, For Instructors, For Guild Staff or For Admins.",
             "Press Open it on an entry to go to that feature.",
         ),
     ),

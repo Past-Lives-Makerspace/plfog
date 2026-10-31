@@ -47,13 +47,13 @@ feature = "guild.cubbies"
 guidance = "link"
 ```
 
-`audience` as a list names who the change is for. The three What's New tabs are `members`,
-`guild-staff` and `admins`; the finer keys show as a chip on the entry and roll up to a tab:
+`audience` as a list names who the change is for. The four What's New tabs are `members`,
+`instructors`, `guild-staff` and `admins`; the finer keys show as a chip on the entry and roll up
+to a tab:
 
 | key | rolls up to |
 |---|---|
 | `guild-leads`, `orientors`, `treasurers`, `class-reviewers`, `equipment-managers` | `guild-staff` |
-| `instructors` | `members` |
 
 Name every role the change touches: a tool for admins and the thing members see from it is
 `["members", "admins"]`. The plain string `audience = "members"` still means `["members"]`, and

@@ -1,0 +1,10 @@
+bump = "minor"
+date = "2026-10-31"
+audience = ["members", "instructors", "guild-staff", "admins"]
+feature = "home.whats-new"
+guidance = "link"
+title = "What's New has a For Instructors tab"
+changes = [
+  "What's New now has four tabs: For Members, For Instructors, For Guild Staff and For Admins. Everyone sees all four.",
+  "Changes made for teaching sit on For Instructors instead of under For Members with an Instructors label.",
+]
