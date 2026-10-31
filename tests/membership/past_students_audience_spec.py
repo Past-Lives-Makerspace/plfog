@@ -86,7 +86,7 @@ def describe_AnnouncementDraft_students_audience():
         assert draft.audience_value == "students"
         assert draft.audience_label == "Past students of Kay"
         assert draft.announcement_category == "Class Announcement"
-        assert AnnouncementDraft.Audience.STUDENTS.label == "My past students"
+        assert AnnouncementDraft.Audience.STUDENTS.label == "My Past Students"
 
     def it_never_posts_to_discord_whatever_the_switch_says():
         draft = AnnouncementDraft(
