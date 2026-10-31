@@ -1,8 +1,8 @@
 {% comment %}
 Vendor Tables' board, and the htmx answer to + Add a table request: the band, the add form, the
-table requests with their filters, and the space map's capacity. A row's Save and the capacity
-form swap only themselves and send the band out of band, so what is typed in another row is never
-lost; only an add redraws the list. Each form carries the filter, so the answer keeps the group in
+table requests with their filters, and the space map's capacity. A row saves itself on each change
+(its state slot and the band out of band) and the capacity form swaps only itself, so what is typed
+in another row is never lost; only an add redraws the list. Each form carries the filter, so the answer keeps the group in
 view. Delete is a plain post through the confirm modal.
 
   hub          — required, the EventHub
@@ -108,7 +108,7 @@ view. Delete is a plain post through the confirm modal.
             <th scope="col">Setup</th>
             <th scope="col">Contact</th>
             <th scope="col">Source</th>
-            <th scope="col"><span class="pl-hq-vt__sr">Save or delete</span></th>
+            <th scope="col"><span class="pl-hq-vt__sr">Delete</span></th>
           </tr>
         </thead>
         <tbody data-hq-vt-rows>

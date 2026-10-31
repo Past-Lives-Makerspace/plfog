@@ -6436,7 +6436,14 @@ def resolve_channel_webhook(channel: str, guild: "Guild | None" = None) -> str:
 
 
 def build_announcement_email_html(
-    title: str, body: str, *, subline: str = "", sender: str = "", results_html: str = "", footer_html: str = ""
+    title: str,
+    body: str,
+    *,
+    subline: str = "",
+    sender: str = "",
+    card_html: str = "",
+    results_html: str = "",
+    footer_html: str = "",
 ) -> str:
     """Branded announcement email HTML — one builder for the preview and the real send.
 
@@ -6446,8 +6453,9 @@ def build_announcement_email_html(
     rich-text editor's sanitized HTML, inline-styled for the light card. ``results_html`` is an
     app-built block placed under the message (a results announcement's heading and bar chart,
     :meth:`FundingSnapshot.results_visual_html`); it is never author input, and neither is
-    ``footer_html``, the last line of the message (a past students email's stop line). The branded shell wraps
-    the whole fragment. Shared by the compose wizard's live preview and the EMAIL override handed
+    ``card_html`` (a featured class's card, right under the message) nor ``footer_html``, the
+    last line of the message (a past students email's stop line). The branded shell wraps the
+    whole fragment. Shared by the compose wizard's live preview and the EMAIL override handed
     to the spine, so the two are byte-faithful.
     """
     from django.utils.html import escape
@@ -6463,6 +6471,7 @@ def build_announcement_email_html(
     if sender:
         fragment += f'<p style="margin:0 0 20px;color:#5b6b78;font-size:14px;">From {escape(sender)}</p>'
     fragment += render_rich_email_body(body)
+    fragment += card_html
     fragment += results_html
     fragment += footer_html
     return wrap_email_html(fragment)
@@ -6538,18 +6547,20 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
         body: str,
         recipient_selection: dict[str, Any],
         added_recipients: dict[str, Any],
+        featured_class: "ClassOffering | None" = None,
     ) -> "AnnouncementDraft | None":
         """The row ``author`` sent, queued or started sending within the resend window as this same send.
 
         The composer's Send posts a fresh compose with no ``draft_pk``, so a repeat of that POST (a
         second tap that beat the lock, a retry, a browser resubmit) would make and send a second
         row. A row the same sender made within :data:`ANNOUNCEMENT_RESEND_WINDOW` with the same
-        audience, guild, class, body and recipients is what the repeat meant, so the composer treats
+        audience, guild, class, body, featured class and recipients is what the repeat meant, so the composer treats
         the repeat as that row's resend and :meth:`AnnouncementDraft.send_in_request` refuses it.
         That covers a row whose send is still running in another request
         (:attr:`AnnouncementDraft.sending_in_request`): the 2026-10-24 repeat arrived 3.5 seconds
         into a 5 second send. The recipients are part of the match because the same message to
-        other people is another send; the channel switches (email, push, Discord) are not, because a
+        other people is another send, and so is the featured class (#1042): the same message with
+        another class's card, or a card added, is a new send; the channel switches (email, push, Discord) are not, because a
         resend with only those changed is still a resend. The one row left out is a plain saved
         draft, never sent, queued or started: someone who saves and then writes the same message
         afresh is not repeating a send.
@@ -6562,6 +6573,7 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
             body: The body as the form sanitizes it, which is how the row stores it.
             recipient_selection: The chosen recipients as the row stores them (``{}`` for everyone).
             added_recipients: The people added on top, as the row stores them (``{}`` for none).
+            featured_class: The class a past students email features, else ``None``.
 
         Returns:
             The newest such row, or ``None``.
@@ -6573,6 +6585,7 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
                 audience=audience,
                 guild=guild,
                 class_offering=class_offering,
+                featured_class=featured_class,
                 body=body,
                 created_at__gte=since,
             )
@@ -6767,7 +6780,7 @@ class AnnouncementDraft(models.Model):
         CLASS = "class", "A class you teach"
         LEADS = "leads", "Guild leads"
         INSTRUCTORS = "instructor", "All Instructors"
-        STUDENTS = "students", "My past students"
+        STUDENTS = "students", "My Past Students"
 
     class Mention(models.TextChoices):
         NONE = "none", "No ping"
@@ -6819,6 +6832,17 @@ class AnnouncementDraft(models.Model):
         on_delete=models.CASCADE,
         related_name="announcement_drafts",
         help_text="The target class — set only when the audience is a class you teach.",
+    )
+    featured_class = models.ForeignKey(
+        "classes.ClassOffering",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="featured_in_announcements",
+        help_text=(
+            "Past students emails only: the sender's class shown as a card under the message, with its "
+            "photo, dates, price and a Register button. Blank sends no card."
+        ),
     )
     title = models.CharField(
         max_length=300,
@@ -7584,8 +7608,9 @@ class AnnouncementDraft(models.Model):
         site send and the guild-detail URL for a guild send. The text part is the rich body as
         lines, paragraphs and bullets kept (matching the bell / Discord render). A results announcement adds the results
         visual under the message: the heading and bar chart in the HTML, the heading and one line
-        per guild in the text part. A past students email ends with the stop line
-        (:func:`classes.past_students.stop_line`) in both parts.
+        per guild in the text part. A past students email shows its :attr:`featured_class` as a
+        card under the message (:class:`classes.past_students.ClassCard`) and ends with the stop
+        line (:func:`classes.past_students.stop_line`), each in both parts.
         """
         from core.events.channels import Message
         from core.html_sanitize import rich_html_to_lines
@@ -7605,7 +7630,14 @@ class AnnouncementDraft(models.Model):
             text_parts.append(snapshot.results_heading + "\n" + "\n".join(snapshot.allocation_lines()))
             results_html = snapshot.results_visual_html()
         footer_html = ""
+        card_html = ""
         text_tail = ""
+        if self.audience == self.Audience.STUDENTS and self.featured_class is not None:
+            from classes.past_students import ClassCard
+
+            card = ClassCard.for_offering(self.featured_class)
+            card_html = card.html()
+            text_parts.append(card.text())
         stop_link = None
         instructor = self._students_instructor() if self.audience == self.Audience.STUDENTS else None
         if instructor is not None:
@@ -7626,6 +7658,7 @@ class AnnouncementDraft(models.Model):
                 self.body,
                 subline=subline,
                 sender=sender,
+                card_html=card_html,
                 results_html=results_html,
                 footer_html=footer_html,
             ),
@@ -7686,6 +7719,8 @@ class AnnouncementDraft(models.Model):
         draft.audience = cd["audience"]
         draft.guild = cd.get("guild")
         draft.class_offering = cd.get("class_offering")
+        # Only a past students email features a class; the form clears it for any other audience.
+        draft.featured_class = cd.get("featured_class")
         draft.body = cd["body"]  # already sanitized by the form's clean_body
         draft.push_message = cd.get("push_message") or ""
         draft.push_enabled = cd.get("push_enabled", True)
@@ -7739,6 +7774,7 @@ class AnnouncementDraft(models.Model):
             # Normalized as save_from_form stores them, so a stored row compares equal to its repeat.
             recipient_selection=cd["recipient_selection"] or {},
             added_recipients=cd["added_recipients"] or {},
+            featured_class=cd["featured_class"],
         )
 
     def send(self) -> tuple[int, int]:

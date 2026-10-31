@@ -1,0 +1,19 @@
+{% comment %}
+A featured class under a past students email's message (#1042). The release email's feature card
+shell (_feature_card.html) with its _screenshot and _button partials, so it reads like the cards
+members already get. Legible with images off: the title, when, price and Register carry it.
+Param: card — a classes.past_students.ClassCard (title, blurb, when, price, image_url, url).
+{% endcomment %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 24px 0 8px;" data-class-card>
+<tr>
+<td style="background-color: #FFFFFF; border: 1px solid #e3e7ec; border-radius: 10px;">
+    {% include "membership/emails/_screenshot.html" with url=card.image_url alt=card.title link=card.url %}
+    <div style="padding: 18px 20px 4px;">
+        <a href="{{ card.url }}" style="font-size: 18px; font-weight: 700; color: #092E4C; text-decoration: none;">{{ card.title }}</a>
+        <p style="margin: 6px 0 0; font-size: 14px; font-weight: 600; color: #33424f;">{{ card.when }} · {{ card.price }}</p>
+        {% if card.blurb %}<p style="margin: 10px 0 0; font-size: 14px; line-height: 1.6; color: #33424f;">{{ card.blurb }}</p>{% endif %}
+    </div>
+    {% include "membership/emails/_button.html" with href=card.url label="Register" %}
+</td>
+</tr>
+</table>

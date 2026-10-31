@@ -1,0 +1,13 @@
+bump = "minor"
+date = "2026-10-30"
+audience = ["instructors"]
+feature = "classes.email-past-students"
+guidance = "link"
+requests = [7]
+title = "Show one of your classes in an email to past students"
+changes = [
+  "Teaching, My Classes has an Email Students button. It opens the email on My Past Students, and each of your classes is listed right under it to email that class instead.",
+  "When you email My Past Students, pick a class under Feature a class.",
+  "The email shows its photo, short description, next date (or Flexible scheduling), price and a Register button.",
+  "Only your published classes with an upcoming date or flexible scheduling are listed. Leave it blank to send no card.",
+]

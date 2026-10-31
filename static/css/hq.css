@@ -2827,21 +2827,28 @@ a.pl-hq-card:focus-visible {
 .pl-hq-vt__cell--actions form {
   display: inline;
 }
-/* Lee's status stripe down the first cell: green confirmed, gold requested, blue waitlist; cancelled fades. */
-.pl-hq-vt__row--confirmed td:first-child {
+/* Lee's status stripe down the first cell: green confirmed, gold requested, blue waitlist; cancelled fades.
+   The saved status sits on the row's state slot, swapped after each autosave, so the stripe follows a save
+   without the row (and the box being typed in) being replaced. */
+.pl-hq-vt__row:has([data-hq-vt-state][data-hq-vt-status="confirmed"]) td:first-child {
   box-shadow: inset 4px 0 0 var(--pl-hq-vol-ok);
 }
-.pl-hq-vt__row--requested td:first-child {
+.pl-hq-vt__row:has([data-hq-vt-state][data-hq-vt-status="requested"]) td:first-child {
   box-shadow: inset 4px 0 0 var(--pl-hq-vol-gold-hi);
 }
-.pl-hq-vt__row--waitlist td:first-child {
+.pl-hq-vt__row:has([data-hq-vt-state][data-hq-vt-status="waitlist"]) td:first-child {
   box-shadow: inset 4px 0 0 var(--pl-hq-vt-info);
 }
-.pl-hq-vt__row--cancelled td {
+.pl-hq-vt__row:has([data-hq-vt-state][data-hq-vt-status="cancelled"]) td {
   opacity: 0.55;
 }
-.pl-hq-vt__row--cancelled td:last-child {
+.pl-hq-vt__row:has([data-hq-vt-state][data-hq-vt-status="cancelled"]) td:last-child {
   opacity: 1;
+}
+/* A refusal wraps in the nowrap actions cell rather than widening the table. */
+.pl-hq-vt__state .pl-field-error {
+  max-width: 16rem;
+  white-space: normal;
 }
 .pl-hq-vt__delete {
   margin-left: 8px;
