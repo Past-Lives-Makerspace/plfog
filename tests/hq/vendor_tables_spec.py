@@ -605,7 +605,7 @@ def describe_the_list():
         assert 'value="Spec Glassworks"' in name_cell
         assert 'value="Power"' in name_cell
         form_id = f"hq-vt-row-{table.pk}"
-        assert row.count(f'form="{form_id}"') == 14
+        assert row.count(f'form="{form_id}"') == 15  # the 14 boxes and the stamp
         contact = row.split("pl-hq-vt__cell--contact")[1].split("</td>")[0]
         assert 'value="spec_glass"' in contact
         source = row.split("pl-hq-vt__cell--source")[1].split("</td>")[0]
@@ -618,10 +618,25 @@ def describe_the_list():
         assert '<option value="fri" selected>Fri Dec 4, 3 to 5 PM</option>' in row
         assert 'value="12"' in row and 'value="glass@spec.example"' in row and 'value="503-555-0111"' in row
         assert f'<form id="{form_id}" method="post" action="{_edit(table)}"' in row
-        assert 'data-hq-vt-status="confirmed"' in body
-        assert "pl-hq-vt__row--confirmed" in body
+        assert f'id="hq-vt-state-{table.pk}" data-hq-vt-state data-hq-vt-status="confirmed">' in row
 
-    def it_names_the_row_in_every_label_and_on_save_and_delete(hub, kate_client):
+    def it_saves_a_row_on_every_change_with_no_save_button(hub, kate_client):
+        table = VendorTableFactory(hub=hub, name="Spec Autosave")
+
+        body = kate_client.get(_page(hub)).content.decode()
+        row = body.split(f'data-hq-vt-row="{table.pk}"')[1].split("</tr>")[0]
+
+        assert (
+            f'hx-post="{_edit(table)}" hx-trigger="change from:closest tr" hx-sync="this:queue last" '
+            'hx-swap="none" novalidate data-autosave data-hq-vt-edit-form>'
+        ) in row
+        form = row.split("data-hq-vt-edit-form>")[1].split("</form>")[0]
+        assert "<button" not in form and 'type="submit"' not in form
+        assert "data-hq-vt-save" not in body
+        assert ">Save<" not in row
+        assert "data-hq-vt-delete>Delete</button>" in row
+
+    def it_names_the_row_in_every_label_and_on_delete(hub, kate_client):
         table = VendorTableFactory(hub=hub, name="Spec O'Kiln")
 
         body = kate_client.get(_page(hub)).content.decode()
@@ -632,7 +647,7 @@ def describe_the_list():
         sheet = ("Source", "Requested on", "Request source", "Discord handle")
         for label in (*labels, "Email", "Phone", *sheet):
             assert f"{label} for {name}" in row
-        assert f'aria-label="Save {name}"' in row
+        assert f'aria-label="Save {name}"' not in row
         assert f'aria-label="Delete {name}"' in row
 
     def it_runs_a_fixed_number_of_queries_however_many_requests(hub, kate_client):
@@ -676,16 +691,18 @@ def describe_the_list():
         assert names == ["Kate Lindqvist"] * 3
         assert len(queries) == 1
 
-    def it_keeps_added_by_on_the_row_a_save_sends_back(hub, kate, kate_client):
+    def it_keeps_added_by_on_the_row_a_stale_save_sends_back(hub, kate, kate_client):
         table = VendorTableFactory(hub=hub, name="Spec Saved", created_by=kate)
+        stale = _row_post(table, sells="Mugs")
+        table.save()
 
-        response = kate_client.post(_edit(table), _row_post(table, sells="Mugs"), **HTMX)
+        response = kate_client.post(_edit(table), stale, **HTMX)
 
         assert "data-hq-vt-added-by>Added by Kate Lindqvist</p>" in response.content.decode()
 
 
 def describe_editing_a_row():
-    def it_saves_every_field_and_sends_back_only_the_row_and_the_band(hub, kate_client):
+    def it_saves_every_field_and_sends_back_only_the_rows_state_and_the_band(hub, kate_client):
         guild = GuildFactory(name="Metal Guild")
         table = VendorTableFactory(hub=hub, name="Spec Forge", email="old@forge.example")
 
@@ -725,12 +742,42 @@ def describe_editing_a_row():
             S.CONFIRMED,
             "7",
         )
-        assert f'<tr class="pl-hq-vt__row pl-hq-vt__row--confirmed" data-hq-vt-row="{table.pk}"' in body
+        assert (
+            f'id="hq-vt-state-{table.pk}" data-hq-vt-state data-hq-vt-status="confirmed" hx-swap-oob="true">'
+        ) in body
+        assert f'name="vendor-{table.pk}-updated_at" value="{table.updated_at.isoformat()}"' in body
         assert 'id="hq-vt-band" aria-label="Table capacity" data-hq-vt-band hx-swap-oob="true"' in body
         assert "data-hq-vt-figure>1</strong>" in body
+        # No box is sent back, so nothing being typed in the row is replaced.
+        assert "<tr" not in body and '<input type="text"' not in body and "<select" not in body
         assert "data-hq-vt-board" not in body
         assert "data-hq-vt-add-form" not in body
-        assert '<input type="hidden" name="filter" value="requested">' in body
+        assert "data-hq-vt-field-error" not in body
+
+    def it_counts_a_status_autosave_on_the_band_and_the_hqs_member_tables_goal(hub, kate_client):
+        HubGoalFactory(hub=hub, label="Member tables", kind=HubGoal.Kind.MEMBER_TABLES, target=0, sort_order=0)
+        VendorTableFactory(hub=hub, status=S.CONFIRMED)
+        table = VendorTableFactory(hub=hub, name="Spec Moss", status=S.REQUESTED)
+
+        response = kate_client.post(_edit(table), _row_post(table, status=S.CONFIRMED), **HTMX)
+
+        table.refresh_from_db()
+        band = response.content.decode().split('data-hq-vt-tile="confirmed"')[1].split("</div>")[0]
+        hq_page = kate_client.get(hub.get_absolute_url()).content.decode()
+        goal = hq_page.split("Member tables</span>")[1].split("</div>")[0]
+        assert table.status == S.CONFIRMED
+        assert "data-hq-vt-figure>2</strong>" in band
+        assert '<strong class="pl-hq-goal__value" data-hq-goal-count>2</strong>' in goal
+
+    def it_saves_a_text_box_on_its_own(hub, kate_client):
+        table = VendorTableFactory(hub=hub, sells="Mugs", status=S.WAITLIST)
+
+        response = kate_client.post(_edit(table), _row_post(table, sells="Mugs and bowls"), **HTMX)
+
+        table.refresh_from_db()
+        assert _toast(response) == "Saved."
+        assert (table.sells, table.status) == ("Mugs and bowls", S.WAITLIST)
+        assert 'data-hq-vt-status="waitlist" hx-swap-oob="true"' in response.content.decode()
 
     def it_clears_the_guild_to_not_in_a_guild(hub, kate_client):
         table = VendorTableFactory(hub=hub, guild=GuildFactory())
@@ -756,7 +803,7 @@ def describe_editing_a_row():
         assert _toast(response) == "Saved."
         assert (table.guild, table.needs) == (sleeping, "Shade")
 
-    def it_brings_back_a_refused_row_with_its_errors_and_saves_nothing(hub, kate_client):
+    def it_shows_a_refused_values_error_in_the_row_and_saves_nothing(hub, kate_client):
         table = VendorTableFactory(hub=hub, name="Spec Kept", email="ok@spec.example")
 
         response = kate_client.post(
@@ -768,10 +815,17 @@ def describe_editing_a_row():
         assert response.status_code == 200
         assert "HX-Trigger" not in response
         assert (table.email, table.status, table.name) == ("ok@spec.example", S.REQUESTED, "Spec Kept")
-        assert f'<tr class="pl-hq-vt__row pl-hq-vt__row--requested" data-hq-vt-row="{table.pk}"' in body
-        assert 'class="pl-field-errors"' in body
-        assert 'value="nope"' in body
-        assert 'value="Spec Changed"' in body
+        assert (
+            f'id="hq-vt-state-{table.pk}" data-hq-vt-state data-hq-vt-status="requested" hx-swap-oob="true">'
+        ) in body
+        assert (
+            '<p class="pl-field-error" role="alert" data-hq-vt-field-error="email">'
+            "Email for Spec Kept: Enter a valid email address.</p>"
+        ) in body
+        # The boxes stay as typed: none is sent back, and the stamp is the one the page holds.
+        assert "<tr" not in body and 'value="nope"' not in body
+        assert f'name="vendor-{table.pk}-updated_at" value="{table.updated_at.isoformat()}"' in body
+        assert 'id="hq-vt-band" aria-label="Table capacity" data-hq-vt-band hx-swap-oob="true"' in body
 
     def it_lands_a_plain_post_back_on_the_page_with_a_message(hub, kate_client):
         table = VendorTableFactory(hub=hub, name="Spec Studio")
@@ -791,6 +845,7 @@ def describe_editing_a_row():
         assert "data-hq-vt-subline" in body
         assert 'value="nope"' in body
         assert 'class="pl-field-errors"' in body
+        assert "data-hq-vt-field-error" not in body
         table.refresh_from_db()
         assert table.email == ""
 
@@ -823,7 +878,10 @@ def describe_a_stale_save():
             "data-hq-vt-row-error>Someone else changed this table. Your page has been refreshed; "
             "make your change again.</p>"
         ) in body
-        assert f'<tr class="pl-hq-vt__row pl-hq-vt__row--requested" data-hq-vt-row="{table.pk}"' in body
+        assert (
+            f'<tr class="pl-hq-vt__row" id="hq-vt-line-{table.pk}" data-hq-vt-row="{table.pk}" hx-swap-oob="true">'
+        ) in body
+        assert 'data-hq-vt-status="requested">' in body and body.count("hx-swap-oob") == 2  # the row, the band
         assert 'value="A wall"' in body and 'value="Shade"' not in body
         assert f'value="{table.updated_at.isoformat()}"' in body
         assert 'id="hq-vt-band" aria-label="Table capacity" data-hq-vt-band hx-swap-oob="true"' in body
@@ -839,17 +897,22 @@ def describe_a_stale_save():
         assert table.needs == "Power"
         assert "data-hq-vt-row-error>Someone else changed this table." in body
 
-    def it_saves_again_from_the_row_it_sent_back(hub, kate_client):
+    def it_saves_twice_in_a_row_from_the_stamp_each_save_sends_back(hub, kate_client):
         table = VendorTableFactory(hub=hub, needs="Power")
+        name = f'name="vendor-{table.pk}-updated_at" value="'
+        page_stamp = table.updated_at.isoformat()
+
         first = kate_client.post(_edit(table), _row_post(table, needs="Shade"), **HTMX)
-        table.refresh_from_db()
+        stamp = first.content.decode().split(name)[1].split('"')[0]
+        data = _row_post(table, needs="Shade", status=S.CONFIRMED)
+        data[f"vendor-{table.pk}-updated_at"] = stamp
+        second = kate_client.post(_edit(table), data, **HTMX)
 
-        second = kate_client.post(_edit(table), _row_post(table, needs="Shade and a wall"), **HTMX)
-
         table.refresh_from_db()
+        assert stamp != page_stamp
         assert _toast(first) == _toast(second) == "Saved."
-        assert table.needs == "Shade and a wall"
-        assert f'value="{table.updated_at.isoformat()}"' in second.content.decode()
+        assert (table.needs, table.status) == ("Shade", S.CONFIRMED)
+        assert f"{name}{table.updated_at.isoformat()}" in second.content.decode()
 
     def it_renders_the_page_with_the_row_as_saved_and_the_message_for_a_plain_post(hub, kate_client):
         table = VendorTableFactory(hub=hub, name="Spec Plain", needs="Power", status=S.REQUESTED)

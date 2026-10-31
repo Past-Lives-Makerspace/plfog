@@ -802,7 +802,7 @@ class VendorTableForm(forms.ModelForm):
 
 
 class VendorTableEditForm(VendorTableForm):
-    """One row of the list: every field of the add form plus the status and the table number, saved with one Save.
+    """One row of the list: every field of the add form plus the status and the table number, saved as each changes.
 
     Rendered across the row's cells, each control tied to the row's form by its ``form`` attribute
     (``form_id``), since a form cannot wrap a table row. Each label names the row ("Email for Riverbend
@@ -851,6 +851,8 @@ class VendorTableEditForm(VendorTableForm):
         super().__init__(*args, **kwargs)
         self.form_id = form_id
         self.fields["updated_at"].initial = self._stamp
+        # The stamp sits in the row's state slot, outside the <form>, so it is tied to the form like every control.
+        self.fields["updated_at"].widget.attrs["form"] = form_id
         for name in self._meta.fields or ():
             field = self.fields[name]
             field.widget.attrs["form"] = form_id
