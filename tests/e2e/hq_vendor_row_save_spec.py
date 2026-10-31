@@ -11,6 +11,8 @@ shows (the row's state slot carries the saved status and stamp). Run with ``pyte
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page, expect
@@ -180,6 +182,13 @@ def it_refuses_a_change_from_an_older_page_and_shows_the_saved_row(page, live_se
     expect(row.get_by_label("Status for Spec Moss")).to_have_value("requested")
     table.refresh_from_db()
     assert (table.needs, table.status) == ("A wall", VendorTable.Status.REQUESTED)
+
+    # The whole row came back out of band; once htmx has settled it, a change saves again from the fresh row.
+    expect(row).not_to_have_class(re.compile(r"htmx-settling"))
+    row.get_by_label("Status for Spec Moss").select_option("confirmed")
+    expect(page.locator(f'#hq-vt-state-{table.pk}[data-hq-vt-status="confirmed"]')).to_be_attached()
+    table.refresh_from_db()
+    assert (table.needs, table.status) == ("A wall", VendorTable.Status.CONFIRMED)
 
 
 def it_shows_an_invalid_email_in_the_row_and_saves_nothing(page, live_server, hub, organiser):
