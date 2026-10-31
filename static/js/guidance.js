@@ -53,14 +53,21 @@
     window.plTour.show({ selector: '[data-guidance-target="' + key + '"]', title: title, body: body });
   }
 
-  function stripShow() {
+  var consumed = ''; // the ?show= key this page's payload named, until the URL has been stripped of it
+
+  function stripShow(key) {
+    // Only our own key leaves the URL: the Bookings tabs carry ?show= for their chips (show=reply,
+    // show=all) and keep it. A key always has a dot, so the two can never be the same value.
     try {
       var url = new URL(window.location.href);
-      if (!url.searchParams.has('show')) return;
+      if (!key || url.searchParams.get('show') !== key) return false;
       url.searchParams.delete('show');
       var qs = url.searchParams.toString();
       window.history.replaceState(window.history.state, '', url.pathname + (qs ? '?' + qs : '') + url.hash);
-    } catch (e) { /* the param stays; a reload rings the control once more */ }
+      return true;
+    } catch (e) {
+      return false; // the param stays; a reload rings the control once more
+    }
   }
 
   function showFromPage() {
@@ -69,8 +76,10 @@
     var payload = null;
     try { payload = JSON.parse(data.textContent); } catch (e) { payload = null; }
     data.parentNode.removeChild(data); // once per arrival
-    stripShow();
-    if (payload && payload.target) highlight(payload.target, payload.title, payload.body);
+    if (!payload || !payload.target) return;
+    consumed = payload.target;
+    if (stripShow(consumed)) consumed = '';
+    highlight(payload.target, payload.title, payload.body);
   }
 
   function showHere(button) {
@@ -93,5 +102,8 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', showFromPage);
   else showFromPage();
   document.addEventListener('htmx:afterSettle', showFromPage); // a boosted arrival swaps the body, payload included
-  document.addEventListener('htmx:pushedIntoHistory', stripShow); // htmx pushes the URL after the swap; strip it then too
+  document.addEventListener('htmx:pushedIntoHistory', function () {
+    // htmx pushes the URL after the swap, so on a boosted arrival the key is still to be stripped here.
+    if (consumed && stripShow(consumed)) consumed = '';
+  });
 })();
