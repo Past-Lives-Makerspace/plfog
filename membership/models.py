@@ -6780,7 +6780,7 @@ class AnnouncementDraft(models.Model):
         CLASS = "class", "A class you teach"
         LEADS = "leads", "Guild leads"
         INSTRUCTORS = "instructor", "All Instructors"
-        STUDENTS = "students", "My past students"
+        STUDENTS = "students", "My Past Students"
 
     class Mention(models.TextChoices):
         NONE = "none", "No ping"

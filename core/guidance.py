@@ -331,8 +331,8 @@ _GUIDANCE_LIST = (
         url_name="hub_compose",
         query={"audience": "students"},
         steps=(
-            "Open Teaching, then My Classes, and press Email past students.",
-            "Write your email. Everyone who took any of your classes gets it once, and you can uncheck anyone first.",
+            "Open Teaching, then My Classes, and press Email Students. It starts on My Past Students.",
+            "Everyone who took any of your classes gets it once, and you can uncheck anyone first. To email one class instead, pick it under Your students.",
             "Under Feature a class, pick one of your classes to show its photo, date, price and a Register button.",
             "Each email ends with a link that stops your emails to that person.",
         ),
@@ -390,7 +390,7 @@ _GUIDANCE_LIST = (
         steps=(
             "Open Email Members from Admin Tools or Guild Tools, or the Email Members button on a guild page.",
             "Write one email for a class, a guild, the guild leads, all instructors or everyone. It also sends an app notification and, for a guild or everyone, a Discord post.",
-            "Instructors can pick My past students to email everyone who took any of their classes.",
+            "Instructors can pick My Past Students to email everyone who took any of their classes.",
             "The Mailing Lists tab opens your guild's mailing list.",
         ),
     ),

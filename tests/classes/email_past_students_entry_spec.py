@@ -32,7 +32,7 @@ def describe_my_classes_button():
 
         assert "data-email-past-students" in html
         assert f'href="{_COMPOSE_STUDENTS}"' in html
-        assert "Email past students" in html
+        assert "Email Students" in html
 
     def it_hides_the_button_from_an_instructor_with_no_classes(client):
         instructor = _instructor()
@@ -48,7 +48,7 @@ def describe_whats_new_entry():
         assert GUIDANCE["classes.email-past-students"].url({}) == _COMPOSE_STUDENTS
 
     def it_names_past_students_in_the_email_members_steps():
-        assert any("My past students" in step for step in GUIDANCE["admin.email-members"].steps)
+        assert any("My Past Students" in step for step in GUIDANCE["admin.email-members"].steps)
 
 
 def describe_compose_entry_for_past_students():
@@ -79,3 +79,45 @@ def describe_compose_entry_for_past_students():
         response = client.get(_COMPOSE_STUDENTS)
 
         assert response.status_code == 302
+
+
+def describe_composer_audience_menu():
+    def it_starts_an_instructor_who_also_runs_a_guild_on_my_past_students():
+        from hub.forms import AnnouncementComposeForm
+        from tests.membership.factories import GuildFactory
+
+        instructor = _instructor()
+        offering = ClassOfferingFactory(
+            instructor=instructor, image="", gallery=0, status=ClassOffering.Status.PUBLISHED
+        )
+
+        form = AnnouncementComposeForm(
+            is_admin=False, editable_guilds=[GuildFactory()], editable_classes=[offering], teaching_member=instructor
+        )
+
+        assert form.audience_value == "students"
+
+    def it_groups_my_past_students_with_each_class_under_your_students():
+        from hub.forms import AnnouncementComposeForm
+
+        instructor = _instructor()
+        offering = ClassOfferingFactory(
+            instructor=instructor, image="", gallery=0, status=ClassOffering.Status.PUBLISHED, title="Bookbinding"
+        )
+
+        form = AnnouncementComposeForm(is_admin=False, editable_classes=[offering], teaching_member=instructor)
+        html = str(form["audience"])
+
+        assert '<optgroup label="Your students">' in html
+        assert '<option value="students">My Past Students</option>' in html
+        assert form.audience_value == "students"
+        assert f'<option value="class:{offering.pk}">Students in Bookbinding</option>' in html
+
+    def it_keeps_everyone_first_for_an_admin():
+        from hub.forms import AnnouncementComposeForm
+
+        instructor = _instructor()
+
+        form = AnnouncementComposeForm(is_admin=True, teaching_member=instructor)
+
+        assert form.audience_value == "site"

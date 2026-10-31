@@ -10,7 +10,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from collections.abc import Collection
+from collections.abc import Collection, Iterable
 from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
 from django.db import transaction
@@ -5497,6 +5497,43 @@ class PushTestForm(forms.Form):
         return cleaned
 
 
+def _audience_choices(
+    *,
+    is_admin: bool,
+    editable_guilds: "Iterable[Guild]",
+    editable_classes: "Iterable[ClassOffering]",
+    teaching_member: "Member | None",
+) -> tuple[list[tuple[str, str]], list[tuple[str, Any]]]:
+    """The composer's audience options, flat (for the first choice and checks) and as the menu shows them.
+
+    "site", "leads" and "instructor" for admins, one per editable guild, then Your students:
+    My Past Students for a sender who teaches any class (#1042, admins too, as themselves) and one
+    "Students in <class>" per class they teach, grouped so an instructor switches between all their
+    students and one class's in one place. For anyone but an admin the group leads, so an instructor
+    starts on My Past Students, the first choice.
+    """
+    from membership.models import AnnouncementDraft
+
+    audience = AnnouncementDraft.Audience
+    top: list[tuple[str, str]] = []
+    if is_admin:
+        top += [
+            (audience.SITE.value, "Everyone (site-wide)"),
+            (audience.LEADS.value, audience.LEADS.label),
+            (audience.INSTRUCTORS.value, audience.INSTRUCTORS.label),
+        ]
+    guilds = [(f"guild:{guild.pk}", guild.name) for guild in editable_guilds]
+    students = [(audience.STUDENTS.value, audience.STUDENTS.label)] if teaching_member is not None else []
+    students += [(f"class:{offering.pk}", f"Students in {offering.title}") for offering in editable_classes]
+    if is_admin:
+        flat = [*top, *guilds, *students]
+        grouped: list[tuple[str, Any]] = [*top, *guilds, *([("Your students", students)] if students else [])]
+    else:
+        flat = [*students, *guilds]
+        grouped = [*([("Your students", students)] if students else []), *guilds]
+    return flat, grouped
+
+
 def split_audience(raw: str) -> "tuple[str, Guild | None, ClassOffering | None]":
     """Split the combined compose audience value into ``(audience, guild, class_offering)``.
 
@@ -5983,16 +6020,14 @@ class AnnouncementComposeForm(forms.Form):
         # "students" for a sender who teaches any class (#1042, admins too, as themselves) + one per
         # class you teach. ``teaching_member`` is that sender's member, whose roster it reaches.
         self._teaching_member = teaching_member
-        choices: list[tuple[str, str]] = []
-        if is_admin:
-            choices.append((AnnouncementDraft.Audience.SITE.value, "Everyone (site-wide)"))
-            choices.append((AnnouncementDraft.Audience.LEADS.value, AnnouncementDraft.Audience.LEADS.label))
-            choices.append((AnnouncementDraft.Audience.INSTRUCTORS.value, AnnouncementDraft.Audience.INSTRUCTORS.label))
-        choices.extend((f"guild:{guild.pk}", guild.name) for guild in (editable_guilds or []))
-        if teaching_member is not None:
-            choices.append((AnnouncementDraft.Audience.STUDENTS.value, AnnouncementDraft.Audience.STUDENTS.label))
-        choices.extend((f"class:{offering.pk}", f"Class: {offering.title}") for offering in (editable_classes or []))
-        cast(forms.ChoiceField, self.fields["audience"]).choices = choices
+        choices, grouped = _audience_choices(
+            is_admin=is_admin,
+            editable_guilds=editable_guilds or [],
+            editable_classes=editable_classes or [],
+            teaching_member=teaching_member,
+        )
+        self._flat_audience_choices = choices
+        cast(forms.ChoiceField, self.fields["audience"]).choices = grouped
 
         # "Feature a class" (#1042): the sender's published classes with an upcoming session or
         # flexible scheduling, offered on a past students email only (the template shows it there).
