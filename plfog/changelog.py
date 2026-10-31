@@ -72,9 +72,21 @@ AUDIENCES: dict[str, str] = {
     "instructors": "members",
 }
 
-#: How much teaching a change ships (#1007), least first. Anything past ``none`` names a
-#: ``feature`` registered in :mod:`core.guidance`; ``docs/GUIDANCE.md`` says what each ships.
-GUIDANCE_LEVELS = ("none", "link", "clip", "tour")
+#: How much teaching a change ships (#1007, #1050), least first. Anything past ``none`` names a
+#: ``feature`` registered in :mod:`core.guidance`; ``shots`` and ``tour`` list their ``[[shots]]``.
+#: ``docs/GUIDANCE.md`` says what each ships.
+GUIDANCE_LEVELS = ("none", "link", "shots", "tour")
+
+#: The levels whose fragment walks through the change in captioned screenshots: ``tour`` means a
+#: tour plus shots.
+SHOT_LEVELS = ("shots", "tour")
+
+#: The frames a shot is taken to (#1050): ``desktop`` (1280 by 800, dark) unless the fragment says
+#: ``phone`` (390 wide, dark) for phone-only UI.
+SHOT_FRAMES = ("desktop", "phone")
+
+#: Where the shots live on the media bucket, outside the 30-day rule on ``pr-screenshots/``.
+GUIDANCE_PREFIX = "guidance"
 
 _VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -87,6 +99,27 @@ class FragmentError(ValueError):
     a fragment silently dropped for a typo is a release that ships and announces nothing,
     which is the exact failure (#348) that started this whole line of work.
     """
+
+
+@dataclass(frozen=True)
+class Shot:
+    """One captioned screenshot of a change (#1050), numbered by its place in the fragment's ``[[shots]]``.
+
+    The file is not named here: :func:`shot_key` derives it from the position, so a step cannot
+    be misnumbered. ``frame`` is one of :data:`SHOT_FRAMES`.
+    """
+
+    caption: str
+    frame: str = "desktop"
+
+
+def shot_key(slug: str, number: int) -> str:
+    """The storage key of a fragment's ``number``-th shot: ``guidance/<slug>/step-<number>.png``.
+
+    One function names the file the upload script writes, the URL the ``fragment`` check HEADs
+    and the picture What's New shows, so the three can never disagree.
+    """
+    return f"{GUIDANCE_PREFIX}/{slug}/step-{number}.png"
 
 
 @dataclass(frozen=True)
@@ -111,11 +144,18 @@ class Fragment:
     feature: str = ""
     #: How much teaching ships with it, one of :data:`GUIDANCE_LEVELS`.
     guidance: str = "none"
+    #: The captioned screenshots a ``shots`` or ``tour`` fragment walks through, in order (#1050).
+    shots: tuple[Shot, ...] = ()
 
     @property
     def slug(self) -> str:
         """The fragment's filename stem: the stable id of its changelog entry."""
         return self.path.stem
+
+    @property
+    def shot_keys(self) -> tuple[str, ...]:
+        """The storage key of every shot, in step order: what the ``fragment`` check HEADs."""
+        return tuple(shot_key(self.slug, number) for number in range(1, len(self.shots) + 1))
 
     @property
     def is_member_facing(self) -> bool:
@@ -132,6 +172,7 @@ class Fragment:
         ``requests`` is deliberately absent: request numbers are bookkeeping, not news.
         ``audiences``, ``feature`` and ``guidance`` are what What's New sorts and links by
         (#1007); a frozen entry from before them has none, so a reader treats them as optional.
+        ``shots`` (#1050) is written only when the fragment lists some, for the same reason.
         """
         entry: dict[str, Any] = {
             "date": self.date,
@@ -144,6 +185,8 @@ class Fragment:
         }
         if self.screenshot:
             entry["screenshot"] = self.screenshot
+        if self.shots:
+            entry["shots"] = [{"caption": shot.caption, "frame": shot.frame} for shot in self.shots]
         return entry
 
 
@@ -198,6 +241,7 @@ def parse_fragment(source: str, path: pathlib.Path) -> Fragment:
         "requests",
         "feature",
         "guidance",
+        "shots",
     }
     if unknown:
         # A misspelled key is a bullet that silently never reaches members. Cheaper to
@@ -205,7 +249,7 @@ def parse_fragment(source: str, path: pathlib.Path) -> Fragment:
         raise FragmentError(f"{path}: unknown key(s) {', '.join(sorted(unknown))}")
 
     if audience == "internal":
-        for key in ("requests", "feature", "guidance"):
+        for key in ("requests", "feature", "guidance", "shots"):
             if key in data:
                 # An internal release is announced nowhere, so it has no changelog entry to
                 # link, sort or point at a feature.
@@ -226,6 +270,7 @@ def parse_fragment(source: str, path: pathlib.Path) -> Fragment:
         audiences=audiences,
         feature=feature,
         guidance=guidance,
+        shots=_shots(data, path, guidance),
     )
 
 
@@ -266,9 +311,9 @@ def _guidance(data: dict[str, Any], path: pathlib.Path) -> tuple[str, str]:
 
     ``feature`` must be registered in :data:`core.guidance.GUIDANCE`, so an entry can never
     offer Open it on a page that does not exist. ``guidance`` defaults to ``none`` and needs a
-    feature past that, because a link, a clip or a tour has to belong to something. Whether a
-    registered clip or tour actually exists for the level is ``check_changelog_fragment.py``'s
-    question, not this one's: this runs at app import, and a missing clip must not stop the app.
+    feature past that, because a link, shots or a tour has to belong to something. Whether a
+    registered tour actually exists for the level is ``check_changelog_fragment.py``'s question,
+    not this one's: this runs at app import, and a missing tour must not stop the app.
     """
     feature = data.get("feature", "")
     if not isinstance(feature, str) or (feature and feature not in GUIDANCE):
@@ -279,6 +324,46 @@ def _guidance(data: dict[str, Any], path: pathlib.Path) -> tuple[str, str]:
     if guidance != "none" and not feature:
         raise FragmentError(f"{path}: 'guidance' = {guidance!r} needs a 'feature' to point at")
     return feature, guidance
+
+
+def _shots(data: dict[str, Any], path: pathlib.Path, guidance: str) -> tuple[Shot, ...]:
+    """The ``[[shots]]`` a ``shots`` or ``tour`` fragment walks through, in order (#1050).
+
+    Each is a table with a ``caption`` (required, plain text) and at most a ``frame`` from
+    :data:`SHOT_FRAMES`; the file comes from the position (:func:`shot_key`), so nothing here
+    names one. Shots on a fragment at ``none`` or ``link`` are refused, and so is a level that
+    promises them with none listed: the level is what the entry draws by. Whether the pictures
+    are on the bucket is ``check_changelog_fragment.py``'s question, because this runs at app
+    import and a missing picture must not stop the app.
+    """
+    raw = data.get("shots")
+    if raw is None:
+        if guidance in SHOT_LEVELS:
+            raise FragmentError(f"{path}: 'guidance' = {guidance!r} needs at least one [[shots]] block with a caption")
+        return ()
+    if guidance not in SHOT_LEVELS:
+        raise FragmentError(f'{path}: [[shots]] needs \'guidance\' = "shots" or "tour" (got {guidance!r})')
+    if not isinstance(raw, list) or not raw:
+        raise FragmentError(f"{path}: 'shots' must be one or more [[shots]] blocks, each with a caption")
+    return tuple(_shot(table, path, number) for number, table in enumerate(raw, start=1))
+
+
+def _shot(table: Any, path: pathlib.Path, number: int) -> Shot:
+    """One ``[[shots]]`` table, validated; ``number`` names it in the message."""
+    if not isinstance(table, dict):
+        raise FragmentError(f"{path}: shot {number} must be a [[shots]] table with a caption")
+    unknown = set(table) - {"caption", "frame"}
+    if unknown:
+        raise FragmentError(
+            f"{path}: shot {number} has unknown key(s) {', '.join(sorted(unknown))}; a shot takes 'caption' and 'frame'"
+        )
+    caption = table.get("caption")
+    if not isinstance(caption, str) or not caption.strip():
+        raise FragmentError(f"{path}: shot {number} needs a non-empty 'caption'")
+    frame = table.get("frame", "desktop")
+    if frame not in SHOT_FRAMES:
+        raise FragmentError(f"{path}: shot {number}: 'frame' must be one of {', '.join(SHOT_FRAMES)} (got {frame!r})")
+    return Shot(caption=caption.strip(), frame=frame)
 
 
 def _requests(data: dict[str, Any], path: pathlib.Path) -> tuple[int, ...]:

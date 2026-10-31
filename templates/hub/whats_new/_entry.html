@@ -1,14 +1,17 @@
 {% comment %}
 One entry on a What's New tab (#1007). Context: row (core.whats_new.Row): the entry, the chips for
 a finer audience on this tab, and open_url and tour_url, each empty when the viewer may not follow
-it. At level clip or tour the registry's How it works lines show; the clip itself arrives with #1008.
+it. An entry with shots (#1050, level shots or tour) walks through them in the stepper of
+_shots.html; a frozen entry at tour from before shots shows the registry's How it works lines.
 {% endcomment %}
 <article class="pl-wn-entry" data-whats-new-entry="{{ row.entry.slug }}">
     <h3 class="pl-wn-entry__title">{{ row.entry.title }}{% for chip in row.chips %} <span class="pl-wn-chip" data-whats-new-chip>{{ chip }}</span>{% endfor %}</h3>
     <ul class="pl-wn-entry__changes">
         {% for change in row.entry.changes %}<li>{{ change }}</li>{% endfor %}
     </ul>
-    {% if row.entry.steps %}
+    {% if row.entry.shots %}
+    {% include "hub/whats_new/_shots.html" with entry=row.entry pictures=row.entry.pictures %}
+    {% elif row.entry.steps %}
     <div class="pl-wn-clip pl-wn-clip--steps" data-whats-new-steps>
         <div>
             <p class="pl-wn-steps__eyebrow">How it works</p>

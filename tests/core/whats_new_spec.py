@@ -18,6 +18,7 @@ from core.whats_new import (
     NEW_DAYS,
     PAGE_SIZE,
     Entry,
+    Picture,
     audiences_for,
     can_open,
     entries_for,
@@ -31,6 +32,7 @@ from core.whats_new import (
 )
 from hub.view_as import ROLE_GUEST, ROLE_MEMBER, ViewAs, compute_actual_roles
 from membership.models import AdminCapability, GuildStaffMembership, Member
+from plfog.changelog import Shot
 from tests.membership.factories import (
     EquipmentStaffMembershipFactory,
     GuildFactory,
@@ -47,8 +49,8 @@ def _day(days_ago: int = 0) -> str:
 
 
 def _entry(slug: str, *, days_ago: int = 0, audiences: tuple[str, ...] = ("members",), **keys: Any) -> dict[str, Any]:
-    """A changelog entry as ``Fragment.as_entry`` writes one."""
-    return {
+    """A changelog entry as ``Fragment.as_entry`` writes one; ``shots`` only when given, as the fragment writes it."""
+    entry = {
         "date": _day(days_ago),
         "title": slug.replace("-", " ").capitalize(),
         "changes": [f"{slug} changed"],
@@ -57,6 +59,9 @@ def _entry(slug: str, *, days_ago: int = 0, audiences: tuple[str, ...] = ("membe
         "feature": keys.get("feature", ""),
         "guidance": keys.get("guidance", "none"),
     }
+    if "shots" in keys:
+        entry["shots"] = keys["shots"]
+    return entry
 
 
 @pytest.fixture
@@ -255,6 +260,7 @@ def describe_entries_for():
         )
         assert entry.on_tab("members") and not entry.on_tab("guild-staff")
         assert entry.steps == ()
+        assert entry.shots == () and entry.pictures == []
 
     def it_groups_the_body_by_date_with_chips_for_a_finer_audience(changelog):
         changelog(
@@ -351,10 +357,23 @@ def describe_can_open_and_open_url():
             rows = [row for group in news.groups_for("members") for row in group.rows]
         assert [row.open_url for row in rows] == [f"/guilds/ceramics/?tab={key.split('.')[1]}" for key in keys] + [""]
 
-    def it_lists_the_steps_at_clip_and_tour_and_not_at_link():
-        for level in ("clip", "tour"):
+    def it_lists_the_registry_steps_at_shots_and_tour_without_shots_and_not_at_link():
+        # Only a frozen entry from before #1050 reaches this: a fragment at either level lists its own shots.
+        for level in ("shots", "tour"):
             assert Entry.from_changelog(_entry("x", feature="guild.cubbies", guidance=level)).steps
         assert Entry.from_changelog(_entry("x", feature="guild.cubbies", guidance="link")).steps == ()
+
+    def it_reads_the_shots_and_finds_each_picture_on_the_storage_by_slug_and_step(settings):
+        shots = [
+            {"caption": "Open the Cubbies tab.", "frame": "desktop"},
+            {"caption": "Pick a cubby.", "frame": "phone"},
+        ]
+        entry = Entry.from_changelog(_entry("1050-cubbies", feature="guild.cubbies", guidance="shots", shots=shots))
+        assert entry.shots == (Shot(caption="Open the Cubbies tab."), Shot(caption="Pick a cubby.", frame="phone"))
+        assert entry.pictures == [
+            Picture(1, "Open the Cubbies tab.", "desktop", f"{settings.MEDIA_URL}guidance/1050-cubbies/step-1.png"),
+            Picture(2, "Pick a cubby.", "phone", f"{settings.MEDIA_URL}guidance/1050-cubbies/step-2.png"),
+        ]
 
     def it_offers_the_tour_at_level_tour_to_a_member_the_tour_is_for(changelog):
         changelog(

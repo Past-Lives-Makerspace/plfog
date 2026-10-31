@@ -14,7 +14,7 @@ an earlier part must not. PR #514, the last of three parts of #505, said neither
 issue open after the work shipped.
 
 Every description also declares how much teaching the change ships, ``**Guidance:** none``,
-``link``, ``clip`` or ``tour`` (#1007, ``docs/GUIDANCE.md``), and when the PR adds one fragment
+``link``, ``shots`` or ``tour`` (#1007, #1050, ``docs/GUIDANCE.md``), and when the PR adds one fragment
 under ``changelog.d/`` the two must agree: the fragment is what What's New reads, the line is
 what the reviewer reads, and a PR that says ``tour`` while its fragment says ``none`` is one or
 the other lying.
@@ -139,7 +139,7 @@ def guidance_error(text: str) -> str | None:
     """Why the ``**Guidance:**`` line fails, if it does."""
     match = _GUIDANCE.search(text)
     if match is None:
-        return "Missing the `**Guidance:**` line: none, link, clip or tour, how much teaching this ships (docs/GUIDANCE.md)."
+        return "Missing the `**Guidance:**` line: none, link, shots or tour, how much teaching this ships (docs/GUIDANCE.md)."
     if declared_guidance(text) is None:
         return f"`**Guidance:** {match.group(1).strip()}` is not a level; use one of {', '.join(GUIDANCE_LEVELS)}."
     return None

@@ -22,6 +22,8 @@ import importlib.util
 import json
 import pathlib
 import subprocess
+import urllib.error
+import urllib.request
 from types import ModuleType
 
 import pytest
@@ -33,6 +35,13 @@ _HEAD = "b" * 40
 
 #: A member-facing fragment up to the two #1007 keys a spec appends.
 _FRAGMENT_PREFIX = 'bump = "minor"\ndate = "2026-10-29"\ntitle = "A guided thing"\nchanges = ["It does the thing."]\n'
+#: One ``[[shots]]`` block (#1050): a fragment at ``shots`` or ``tour`` must list at least one.
+_SHOT = '\n[[shots]]\ncaption = "Open it."\n'
+#: A ``shots`` fragment with two pictures, the shape the HEAD check walks.
+_TWO_SHOTS = (
+    _FRAGMENT_PREFIX + 'feature = "home.whats-new"\nguidance = "shots"\n'
+    '\n[[shots]]\ncaption = "One."\n\n[[shots]]\ncaption = "Two."\n'
+)
 
 
 def _load_script() -> ModuleType:
@@ -66,11 +75,16 @@ def _fake_diff(monkeypatch, result: _Completed) -> list[list[str]]:
     return calls
 
 
-def _env(monkeypatch, *, labels: list[str] | None = None) -> None:
+def _env(monkeypatch, *, labels: list[str] | None = None, public_url: str | None = None) -> None:
     monkeypatch.setenv("BASE_SHA", _BASE)
     monkeypatch.setenv("HEAD_SHA", _HEAD)
     monkeypatch.setenv("PR_NUMBER", "394")
     monkeypatch.setenv("TODAY", "2026-09-13")
+    # Unset unless a spec hands one over: the HEAD step then skips, as it does on a fork.
+    if public_url is None:
+        monkeypatch.delenv("R2_PUBLIC_URL", raising=False)
+    else:
+        monkeypatch.setenv("R2_PUBLIC_URL", public_url)
     if labels is None:
         monkeypatch.delenv("PR_LABELS", raising=False)
     else:
@@ -125,6 +139,10 @@ def describe_the_workflow_wiring():
     def it_does_not_live_in_ci_yml_where_a_label_cannot_reach_it():
         ci = (pathlib.Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml").read_text()
         assert "check_changelog_fragment" not in ci
+
+    def it_hands_the_check_the_buckets_public_url_from_a_repository_variable():
+        # A public address, so a variable rather than a secret (#1050); a fork has none and the check says so.
+        assert "R2_PUBLIC_URL: ${{ vars.R2_PUBLIC_URL }}" in _workflow()
 
 
 def describe_labels():
@@ -240,26 +258,27 @@ def describe_main():
             assert "no-changelog' label present" in capsys.readouterr().out
 
     def describe_when_a_fragment_promises_materials_its_feature_lacks():
-        """``guidance = "clip"`` needs a registered clip and ``"tour"`` a registered tour (#1007)."""
+        """``guidance = "tour"`` needs a registered tour (#1007); ``clip`` is no level since #1050."""
 
-        def it_fails_a_clip_no_feature_has_yet(monkeypatch, tmp_path):
-            # No clip slug is registered until #1008 lands, so this level cannot ship today.
+        def it_fails_the_retired_clip_level_naming_shots(monkeypatch, tmp_path):
+            # The clips of #1008 were never built; a fragment that still says clip is told the level is shots.
             module = _load_script()
             _env(monkeypatch, labels=[])
-            _fake_diff(monkeypatch, _Completed(0, "changelog.d/1-guided.toml\n"))
             (tmp_path / "1-guided.toml").write_text(_FRAGMENT_PREFIX + 'feature = "guild.cubbies"\nguidance = "clip"\n')
             monkeypatch.setattr(module, "FRAGMENTS_PATH", tmp_path)
             with pytest.raises(SystemExit) as exit_info:
                 module.main()
             message = str(exit_info.value)
-            assert "changelog.d/1-guided.toml" in message
-            assert "'guild.cubbies' has no clip registered" in message
+            assert "Invalid changelog fragment" in message
+            assert "'guidance' must be one of none, link, shots, tour (got 'clip')" in message
 
         def it_fails_a_tour_on_a_feature_with_none(monkeypatch, tmp_path):
             module = _load_script()
             _env(monkeypatch, labels=[])
             _fake_diff(monkeypatch, _Completed(0, "changelog.d/1-guided.toml\n"))
-            (tmp_path / "1-guided.toml").write_text(_FRAGMENT_PREFIX + 'feature = "guild.cubbies"\nguidance = "tour"\n')
+            (tmp_path / "1-guided.toml").write_text(
+                _FRAGMENT_PREFIX + 'feature = "guild.cubbies"\nguidance = "tour"\n' + _SHOT
+            )
             monkeypatch.setattr(module, "FRAGMENTS_PATH", tmp_path)
             with pytest.raises(SystemExit) as exit_info:
                 module.main()
@@ -269,7 +288,9 @@ def describe_main():
             module = _load_script()
             _env(monkeypatch, labels=[])
             _fake_diff(monkeypatch, _Completed(0, "changelog.d/1-guided.toml\n"))
-            (tmp_path / "1-guided.toml").write_text(_FRAGMENT_PREFIX + 'feature = "classes.teach"\nguidance = "tour"\n')
+            (tmp_path / "1-guided.toml").write_text(
+                _FRAGMENT_PREFIX + 'feature = "classes.teach"\nguidance = "tour"\n' + _SHOT
+            )
             monkeypatch.setattr(module, "FRAGMENTS_PATH", tmp_path)
             module.main()
             assert "changelog.d/1-guided.toml" in capsys.readouterr().out
@@ -287,13 +308,99 @@ def describe_main():
             module = _load_script()
             _env(monkeypatch, labels=[])
             _fake_diff(monkeypatch, _Completed(0, "changelog.d/1-a.toml\n"))
-            (tmp_path / "1-a.toml").write_text(_FRAGMENT_PREFIX + 'feature = "guild.cubbies"\nguidance = "clip"\n')
-            (tmp_path / "2-b.toml").write_text(_FRAGMENT_PREFIX + 'feature = "guild.cubbies"\nguidance = "tour"\n')
+            (tmp_path / "1-a.toml").write_text(
+                _FRAGMENT_PREFIX + 'feature = "guild.cubbies"\nguidance = "tour"\n' + _SHOT
+            )
+            (tmp_path / "2-b.toml").write_text(_FRAGMENT_PREFIX + 'feature = "guild.page"\nguidance = "tour"\n' + _SHOT)
             monkeypatch.setattr(module, "FRAGMENTS_PATH", tmp_path)
             with pytest.raises(SystemExit) as exit_info:
                 module.main()
             message = str(exit_info.value)
             assert "changelog.d/1-a.toml" in message and "changelog.d/2-b.toml" in message
+
+    def describe_when_a_fragment_lists_shots():
+        """Every shot of a ``shots`` or ``tour`` fragment is HEADed on the bucket (#1050), once CI hands over the public URL."""
+
+        _ONE = "https://pub.example/guidance/1050-guidance-shots/step-1.png"
+        _TWO = "https://pub.example/guidance/1050-guidance-shots/step-2.png"
+
+        def _heads(monkeypatch, statuses: dict[str, int]) -> list[str]:
+            """Answer ``urllib.request.urlopen`` from ``statuses`` by URL, recording each HEAD; a 4xx is the HTTPError urllib raises."""
+            seen: list[str] = []
+
+            class _Response:
+                def __init__(self, status: int) -> None:
+                    self.status = status
+
+                def __enter__(self) -> "_Response":
+                    return self
+
+                def __exit__(self, *exc: object) -> bool:
+                    return False
+
+            def _urlopen(request, timeout=None):
+                assert request.get_method() == "HEAD"
+                seen.append(request.full_url)
+                status = statuses[request.full_url]
+                if status >= 400:
+                    raise urllib.error.HTTPError(request.full_url, status, "nope", {}, None)  # type: ignore[arg-type]
+                return _Response(status)
+
+            monkeypatch.setattr(urllib.request, "urlopen", _urlopen)
+            return seen
+
+        def _tree(monkeypatch, tmp_path, text: str) -> ModuleType:
+            module = _load_script()
+            _fake_diff(monkeypatch, _Completed(0, "changelog.d/1050-guidance-shots.toml\n"))
+            (tmp_path / "1050-guidance-shots.toml").write_text(text)
+            monkeypatch.setattr(module, "FRAGMENTS_PATH", tmp_path)
+            return module
+
+        def it_fails_naming_the_first_picture_the_bucket_does_not_have(monkeypatch, tmp_path):
+            module = _tree(monkeypatch, tmp_path, _TWO_SHOTS)
+            _env(monkeypatch, labels=[], public_url="https://pub.example/")
+            seen = _heads(monkeypatch, {_ONE: 200, _TWO: 404})
+            with pytest.raises(SystemExit) as exit_info:
+                module.main()
+            message = str(exit_info.value)
+            assert "A fragment promises shots that are not on the bucket" in message
+            assert f"changelog.d/1050-guidance-shots.toml: {_TWO} answered 404" in message
+            assert "--guidance 1050-guidance-shots" in message
+            assert seen == [_ONE, _TWO]  # the trailing slash of the variable is trimmed, so the URL has one
+
+        def it_passes_when_every_picture_answers_200(monkeypatch, tmp_path, capsys):
+            module = _tree(monkeypatch, tmp_path, _TWO_SHOTS)
+            _env(monkeypatch, labels=[], public_url="https://pub.example")
+            seen = _heads(monkeypatch, {_ONE: 200, _TWO: 200})
+            module.main()
+            assert "changelog.d/1050-guidance-shots.toml" in capsys.readouterr().out
+            assert seen == [_ONE, _TWO]
+
+        def it_skips_the_bucket_check_out_loud_when_the_variable_is_unset(monkeypatch, tmp_path, capsys):
+            # A fork or a local run has no repository variable; the skip is said, never silent.
+            module = _tree(monkeypatch, tmp_path, _TWO_SHOTS)
+            _env(monkeypatch, labels=[])
+            monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: pytest.fail("no HEAD without the variable"))
+            module.main()
+            assert "R2_PUBLIC_URL is unset; not checking" in capsys.readouterr().out
+
+        def it_heads_nothing_for_a_fragment_at_link(monkeypatch, tmp_path, capsys):
+            module = _tree(monkeypatch, tmp_path, _FRAGMENT_PREFIX + 'feature = "guild.cubbies"\nguidance = "link"\n')
+            _env(monkeypatch, labels=[], public_url="https://pub.example")
+            monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: pytest.fail("a link fragment has no shots"))
+            module.main()
+            assert "folding to" in capsys.readouterr().out
+
+        def it_exits_naming_a_host_it_cannot_reach(monkeypatch):
+            # Neither "missing" nor "fine" answers a network failure.
+            module = _load_script()
+
+            def _down(request, timeout=None):
+                raise urllib.error.URLError("no route")
+
+            monkeypatch.setattr(urllib.request, "urlopen", _down)
+            with pytest.raises(SystemExit, match=f"Could not reach {_ONE}"):
+                module._head(_ONE)
 
     def describe_when_a_fragment_is_malformed():
         def it_fails_with_the_parse_error_and_points_at_the_readme(monkeypatch, tmp_path):
