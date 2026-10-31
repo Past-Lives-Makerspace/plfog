@@ -1,6 +1,6 @@
 """What's New in a real browser (#1007, part 2).
 
-A member presses What's New in Home's header: the body loads into the modal, the three tabs are
+A member presses What's New in Home's header: the body loads into the modal, the four tabs are
 there with an entry, a tab switch loads that tab, and after a reload the button's dot is gone,
 because opening the modal marked what it listed as seen. The changelog is patched for the live
 server (same process), so the spec does not depend on the repo's fragments or the calendar.
@@ -39,6 +39,15 @@ def _entries() -> list[dict]:
             "feature": "",
             "guidance": "none",
         },
+        {
+            "date": today,
+            "title": "E2E instructors entry",
+            "changes": ["Something for instructors."],
+            "slug": "e2e-instructors",
+            "audiences": ["instructors"],
+            "feature": "",
+            "guidance": "none",
+        },
     ]
 
 
@@ -66,7 +75,10 @@ def it_opens_from_home_switches_a_tab_and_clears_the_dot_on_the_next_load(
     button.click()
     body = page.locator("#whats-new-body")
     expect(body).to_be_visible()
-    expect(body.locator("[data-whats-new-tab]")).to_have_count(3)
+    expect(body.locator("[data-whats-new-tab]")).to_have_count(4)
+    expect(body.locator("[data-whats-new-tab]")).to_have_text(
+        ["For Members", "For Instructors", "For Guild Staff", "For Admins"]
+    )
     expect(body.locator('[data-whats-new-pane="members"]')).to_be_visible()
     expect(body.locator('[data-whats-new-entry="e2e-members"]')).to_be_visible()
     expect(page.locator("#whats-new-title")).to_have_text("What's New")
@@ -92,11 +104,13 @@ def it_switches_a_tab_through_the_phone_picker_without_leaving_home(page, live_s
     expect(body.locator("nav.pl-wn-tabs")).to_be_hidden()
 
     body.locator(".pl-tab-picker__summary").click()
-    body.locator(".pl-tab-picker__menu").get_by_role("link", name="For Guild Staff").click()
+    menu = body.locator(".pl-tab-picker__menu")
+    expect(menu.get_by_role("link")).to_have_text(["For Members", "For Instructors", "For Guild Staff", "For Admins"])
+    menu.get_by_role("link", name="For Instructors").click()
 
-    expect(body.locator('[data-whats-new-pane="guild-staff"]')).to_be_visible()
-    expect(body.locator('[data-whats-new-entry="e2e-staff"]')).to_be_visible()
-    expect(body.locator(".pl-tab-picker__current")).to_have_text("For Guild Staff")
+    expect(body.locator('[data-whats-new-pane="instructors"]')).to_be_visible()
+    expect(body.locator('[data-whats-new-entry="e2e-instructors"]')).to_be_visible()
+    expect(body.locator(".pl-tab-picker__current")).to_have_text("For Instructors")
     # Swapped in place: still Home, with the modal open, not the stub page a direct link lands on.
     assert page.url.endswith(reverse("hub_home"))
     expect(page.locator("#whats-new-title")).to_have_text("What's New")

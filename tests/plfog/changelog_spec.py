@@ -455,10 +455,13 @@ def describe_audience_lists():
         fragment = parse_fragment(_toml(audience=sorted(AUDIENCES)), _PATH)
         assert set(fragment.audiences) == set(AUDIENCES)
 
-    def it_rolls_every_finer_key_up_to_one_of_the_three_tabs():
-        assert set(AUDIENCES.values()) == {"members", "guild-staff", "admins"}
-        for tab in ("members", "guild-staff", "admins"):
+    def it_rolls_every_finer_key_up_to_one_of_the_four_tabs():
+        tabs = ("members", "instructors", "guild-staff", "admins")
+        assert set(AUDIENCES.values()) == set(tabs)
+        for tab in tabs:
             assert AUDIENCES[tab] == tab
+        # Only the finer guild roles roll up; instructors is a tab of its own since #1052.
+        assert {AUDIENCES[key] for key in AUDIENCES if key not in tabs} == {"guild-staff"}
 
     def it_keeps_the_order_written_and_drops_a_repeat():
         fragment = parse_fragment(_toml(audience=["admins", "members", "admins"]), _PATH)
