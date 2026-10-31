@@ -8,6 +8,8 @@ each email, and the no login page itself.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from allauth.account.models import EmailAddress
 from django.contrib.auth.models import User
@@ -18,9 +20,9 @@ from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory, RegistrationFactory
 from classes.models import ClassOffering, PastStudentOptOut, Registration
-from classes.past_students import past_students, stop_line
+from classes.past_students import instructor_name, past_students, stop_line
 from core.email import send as send_email
-from core.email_prefs import STOP_TOKEN_PLACEHOLDER, finalize_stop_link, make_stop_token, read_stop_token
+from core.email_prefs import finalize_stop_link, make_stop_token, read_stop_token, stop_token_placeholder, stop_url
 from membership.models import Member
 from tests.membership.factories import MemberFactory, MembershipPlanFactory
 
@@ -57,6 +59,11 @@ def _took(
         first_name=first_name,
         last_name="Student",
     )
+
+
+def _token_in(url: str) -> str:
+    """The stop token inside a stop page URL."""
+    return re.search(r"/classes/stop-emails/([^/]+)/", url).group(1)
 
 
 def _stop(instructor: Member, email: str) -> PastStudentOptOut:
@@ -218,95 +225,187 @@ def describe_PastStudentOptOut():
             )
 
 
+def describe_stopped_member_aliases():
+    def it_skips_a_guest_registration_at_a_verified_alias_of_a_member_who_stopped():
+        teacher = _user("teacher").member
+        member = _user("member")
+        EmailAddress.objects.create(user=member, email="Alias@Example.com", verified=True)
+        _stop(teacher, member.email)
+        _took(_class(teacher), email="alias@example.com")
+        assert past_students(teacher).guests == []
+
+    def it_skips_it_though_the_member_took_no_class_of_theirs():
+        teacher = _user("teacher").member
+        member = _user("member")
+        member.member.notification_email = "notify@example.com"
+        member.member.save(update_fields=["notification_email"])
+        _stop(teacher, member.email)
+        _took(_class(teacher), email="notify@example.com")
+        assert member.pk not in past_students(teacher).user_ids
+        assert past_students(teacher).guests == []
+
+    def it_still_emails_an_unverified_alias():
+        teacher = _user("teacher").member
+        member = _user("member")
+        EmailAddress.objects.create(user=member, email="maybe@example.com", verified=False)
+        _stop(teacher, member.email)
+        _took(_class(teacher), email="maybe@example.com")
+        assert past_students(teacher).addresses == ["maybe@example.com"]
+
+
 def describe_stop_tokens():
-    def it_round_trips_a_lowercased_address():
-        assert read_stop_token(make_stop_token(" Me@Example.com ")) == "me@example.com"
+    def it_round_trips_the_instructor_and_a_lowercased_address():
+        assert read_stop_token(make_stop_token(7, " Me@Example.com ")) == (7, "me@example.com")
 
     def it_refuses_a_token_this_site_did_not_sign():
         assert read_stop_token("not-a-token") is None
         assert read_stop_token("") is None
 
-    def it_refuses_a_signed_payload_that_is_not_an_address():
-        assert read_stop_token(signing.dumps(5, salt="past-students-stop")) is None
+    @pytest.mark.parametrize("payload", [5, [5], ["5", "a@b.co"], [5, ""], [5, 6]])
+    def it_refuses_a_signed_payload_of_the_wrong_shape(payload: object):
+        assert read_stop_token(signing.dumps(payload, salt="past-students-stop")) is None
 
     def describe_finalize_stop_link():
-        def it_puts_the_one_recipients_token_in_both_parts():
-            text, html = finalize_stop_link(
-                f"stop {STOP_TOKEN_PLACEHOLDER}", f"<a href='{STOP_TOKEN_PLACEHOLDER}'>", ["me@example.com"]
-            )
-            token = make_stop_token("me@example.com")
-            assert text == f"stop {token}"
+        def it_puts_the_one_recipients_token_in_both_parts_and_returns_the_link():
+            placeholder = stop_token_placeholder(7)
+            text, html, url = finalize_stop_link(f"stop {placeholder}", f"<a href='{placeholder}'>", ["me@example.com"])
+            token = text.removeprefix("stop ")
+            assert read_stop_token(token) == (7, "me@example.com")
             assert html == f"<a href='{token}'>"
+            assert read_stop_token(_token_in(url)) == (7, "me@example.com")
 
-        def it_leaves_the_token_empty_for_several_recipients():
-            text, html = finalize_stop_link(f"x{STOP_TOKEN_PLACEHOLDER}y", None, ["a@example.com", "b@example.com"])
-            assert (text, html) == ("xy", None)
+        def it_leaves_the_token_empty_and_no_link_for_several_recipients():
+            text, html, url = finalize_stop_link(
+                f"x{stop_token_placeholder(7)}y", None, ["a@example.com", "b@example.com"]
+            )
+            assert (text, html, url) == ("xy", None, "")
 
         def it_fills_an_html_part_alone():
-            text, html = finalize_stop_link("plain", f"<a href='{STOP_TOKEN_PLACEHOLDER}'>", ["me@example.com"])
-            assert (text, html) == ("plain", f"<a href='{make_stop_token('me@example.com')}'>")
+            text, html, url = finalize_stop_link("plain", f"<a href='{stop_token_placeholder(7)}'>", ["me@example.com"])
+            assert text == "plain"
+            assert read_stop_token(html.removeprefix("<a href='").removesuffix("'>")) == (7, "me@example.com")
+            assert url
 
         def it_changes_nothing_without_the_placeholder():
-            assert finalize_stop_link("plain", "<p>plain</p>", ["a@example.com"]) == ("plain", "<p>plain</p>")
+            assert finalize_stop_link("plain", "<p>plain</p>", ["a@example.com"]) == ("plain", "<p>plain</p>", "")
 
-        def it_runs_inside_core_email_send():
-            send_email(
-                to="me@example.com",
-                subject="Hi",
-                trigger_kind="test",
-                text_body=f"stop {STOP_TOKEN_PLACEHOLDER}",
-                html_body=f"<p>{STOP_TOKEN_PLACEHOLDER}</p>",
-            )
-            token = make_stop_token("me@example.com")
-            assert mail.outbox[0].body == f"stop {token}"
-            assert token in mail.outbox[0].alternatives[0][0]
+        def describe_inside_core_email_send():
+            def it_sends_the_token_and_the_one_click_unsubscribe_headers():
+                placeholder = stop_token_placeholder(7)
+                send_email(
+                    to="me@example.com",
+                    subject="Hi",
+                    trigger_kind="test",
+                    text_body=f"stop {placeholder}",
+                    html_body=f"<p>{placeholder}</p>",
+                )
+                message = mail.outbox[0]
+                token = message.body.removeprefix("stop ")
+                assert read_stop_token(token) == (7, "me@example.com")
+                assert token in message.alternatives[0][0]
+                header = message.extra_headers["List-Unsubscribe"]
+                assert header.startswith("<http") and header.endswith("/>")
+                assert read_stop_token(_token_in(header)) == (7, "me@example.com")
+                assert message.extra_headers["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
+
+            def it_adds_no_headers_to_any_other_email():
+                send_email(
+                    to="me@example.com", subject="Hi", trigger_kind="test", text_body="hi", html_body="<p>hi</p>"
+                )
+                assert "List-Unsubscribe" not in mail.outbox[0].extra_headers
+
+
+def describe_instructor_name():
+    def it_is_the_name_their_profile_and_classes_show():
+        teacher = _user("teacher").member
+        Member.objects.filter(pk=teacher.pk).update(preferred_name="Kay")
+        teacher.refresh_from_db()
+        assert instructor_name(teacher) == "Kay"
+
+    def it_falls_back_to_your_instructor_never_an_address():
+        teacher = _user("teacher").member
+        Member.objects.filter(pk=teacher.pk).update(preferred_name="", full_legal_name="")
+        teacher.refresh_from_db()
+        assert instructor_name(teacher) == "your instructor"
 
 
 def describe_stop_line():
     def it_names_the_instructor_and_links_their_stop_page():
         teacher = _user("teacher").member
-        html, text = stop_line(teacher, "Kay <b>")
-        url = reverse("classes:stop_past_student_emails", args=[teacher.pk, STOP_TOKEN_PLACEHOLDER])
+        Member.objects.filter(pk=teacher.pk).update(preferred_name="Kay <b>")
+        teacher.refresh_from_db()
+        html, text = stop_line(teacher)
+        url = stop_url(stop_token_placeholder(teacher.pk))
         assert "You took a class with Kay &lt;b&gt;." in html
         assert "Stop emails from Kay &lt;b&gt;</a>" in html
         assert url in html
-        assert text.startswith("You took a class with Kay <b>. Stop emails from Kay <b>: http")
-        assert text.endswith(url)
+        assert text == f"You took a class with Kay <b>. Stop emails from Kay <b>: {url}"
+
+    def it_never_shows_the_instructors_email():
+        teacher = _user("teacher").member
+        Member.objects.filter(pk=teacher.pk).update(preferred_name="", full_legal_name="")
+        teacher.refresh_from_db()
+        html, text = stop_line(teacher)
+        assert "teacher@example.com" not in html + text
+        assert "Stop emails from your instructor</a>" in html
 
 
 def describe_stop_page():
     def _url(instructor: Member, email: str) -> str:
-        return reverse("classes:stop_past_student_emails", args=[instructor.pk, make_stop_token(email)])
+        return reverse("classes:stop_past_student_emails", args=[make_stop_token(instructor.pk, email)])
 
-    def it_stops_the_emails_for_a_visitor_who_is_not_signed_in():
-        teacher = _user("teacher")
-        Member.objects.filter(pk=teacher.member.pk).update(preferred_name="Kay")
-        response = Client().get(_url(teacher.member, "guest@example.com"))
+    def _kay() -> Member:
+        teacher = _user("teacher").member
+        Member.objects.filter(pk=teacher.pk).update(preferred_name="Kay")
+        teacher.refresh_from_db()
+        return teacher
+
+    def it_only_shows_a_stop_button_on_a_get_or_head():
+        teacher = _kay()
+        client = Client()
+        response = client.get(_url(teacher, "guest@example.com"))
+        assert response.status_code == 200
+        assert b"data-past-students-stop-confirm" in response.content
+        assert b"Stop emails from Kay</button>" in response.content
+        assert client.head(_url(teacher, "guest@example.com")).status_code == 200
+        assert not PastStudentOptOut.objects.exists()
+
+    def it_stops_the_emails_on_a_post_from_a_visitor_who_is_not_signed_in():
+        teacher = _kay()
+        response = Client(enforce_csrf_checks=True).post(_url(teacher, "guest@example.com"))
         assert response.status_code == 200
         assert b"data-past-students-stopped" in response.content
         assert b"You won't get any more emails from Kay about their classes." in response.content
-        assert PastStudentOptOut.objects.filter(instructor=teacher.member, email="guest@example.com").exists()
+        assert PastStudentOptOut.objects.filter(instructor=teacher, email="guest@example.com").exists()
 
-    def it_names_an_instructor_with_no_account_by_their_member_name():
-        teacher = MemberFactory(full_legal_name="Rae Rivers")
-        response = Client().get(_url(teacher, "guest@example.com"))
-        assert f"emails from {teacher.display_name} about".encode() in response.content
+    def it_takes_a_mail_clients_one_click_post():
+        teacher = _kay()
+        response = Client(enforce_csrf_checks=True).post(
+            _url(teacher, "guest@example.com"), {"List-Unsubscribe": "One-Click"}
+        )
+        assert response.status_code == 200
+        assert PastStudentOptOut.objects.count() == 1
+
+    def it_stops_only_the_instructor_the_token_was_signed_for():
+        teacher, other = _kay(), _user("other").member
+        Client().post(_url(teacher, "guest@example.com"))
+        assert list(PastStudentOptOut.objects.values_list("instructor_id", flat=True)) == [teacher.pk]
+        forged = signing.dumps([other.pk, "guest@example.com"], key="not-the-site-key", salt="past-students-stop")
+        url = reverse("classes:stop_past_student_emails", args=[forged])
+        assert Client().post(url).status_code == 404
+        assert not PastStudentOptOut.objects.filter(instructor=other).exists()
 
     def it_is_a_404_for_a_link_this_site_did_not_sign():
-        teacher = _user("teacher").member
-        url = reverse("classes:stop_past_student_emails", args=[teacher.pk, "forged"])
+        url = reverse("classes:stop_past_student_emails", args=["forged"])
         assert Client().get(url).status_code == 404
+        assert Client().post(url).status_code == 404
         assert not PastStudentOptOut.objects.exists()
 
     def it_is_a_404_for_an_instructor_no_longer_here():
-        assert (
-            Client()
-            .get(reverse("classes:stop_past_student_emails", args=[999999, make_stop_token("a@b.co")]))
-            .status_code
-            == 404
-        )
+        url = reverse("classes:stop_past_student_emails", args=[make_stop_token(999999, "a@b.co")])
+        assert Client().post(url).status_code == 404
 
-    def it_records_nothing_on_a_post():
-        teacher = _user("teacher").member
-        assert Client().post(_url(teacher, "guest@example.com")).status_code == 405
+    def it_refuses_other_methods():
+        teacher = _kay()
+        assert Client().put(_url(teacher, "guest@example.com")).status_code == 405
         assert not PastStudentOptOut.objects.exists()

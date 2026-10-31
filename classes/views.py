@@ -44,7 +44,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.clickjacking import xframe_options_sameorigin
-from django.views.decorators.http import require_POST, require_safe
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods, require_POST
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser, User
@@ -146,7 +147,6 @@ from classes.models import (
     readiness_items,
 )
 from core.files import delete_if_unreferenced
-from membership.names import user_name_or_email
 from core.htmx import wants_fragment
 from core.integrations.eventbrite import EVENTBRITE_RULE_PARTS, EventbriteClient, EventbriteSync, fee_breakdown
 from core.models import SiteConfiguration
@@ -1299,25 +1299,35 @@ def my_registration_finish(request: HttpRequest, token: str) -> HttpResponse:
     return redirect("classes:my_registration", token=token)
 
 
-@require_safe
-def stop_past_student_emails(request: HttpRequest, instructor_pk: int, token: str) -> HttpResponse:
-    """The one click, no login page a past students email links to (#1042).
+@csrf_exempt
+@require_http_methods(["GET", "HEAD", "POST"])
+def stop_past_student_emails(request: HttpRequest, token: str) -> HttpResponse:
+    """The no login stop page a past students email links to (#1042).
 
-    The token names the address the email went to (:func:`core.email_prefs.read_stop_token`) and
-    the path names the instructor; opening it records a :class:`PastStudentOptOut`, so that
-    instructor's later past students sends skip the address and its account. A link that is not
-    one this site signed, or names an instructor no longer here, is a 404.
+    The token signs the instructor and the address the email went to together
+    (:func:`core.email_prefs.read_stop_token`). A GET or HEAD only shows a Stop emails button,
+    so a mail scanner that opens links stops nothing; a POST records a
+    :class:`PastStudentOptOut`, so that instructor's later past students sends skip the address
+    and its account, and says so in one sentence. The POST is also the one click unsubscribe
+    mail clients send from the ``List-Unsubscribe`` header (RFC 8058), which carries no CSRF
+    token: the signed token is the authority, and all it can do is stop that instructor's
+    emails to that one address. A link this site did not sign, or one naming an instructor no
+    longer here, is a 404.
     """
+    from classes.past_students import instructor_name
     from core.email_prefs import read_stop_token
     from membership.models import Member
 
-    email = read_stop_token(token)
-    instructor = Member.objects.filter(pk=instructor_pk).select_related("user").first()
-    if email is None or instructor is None:
+    payload = read_stop_token(token)
+    instructor = Member.objects.filter(pk=payload[0]).first() if payload is not None else None
+    if payload is None or instructor is None:
         raise Http404("This link is not valid.")
-    PastStudentOptOut.objects.record(instructor=instructor, email=email)
-    name = user_name_or_email(instructor.user) if instructor.user is not None else instructor.display_name
-    return render(request, "classes/public/stop_emails.html", {"instructor_name": name})
+    stopped = request.method == "POST"
+    if stopped:
+        PastStudentOptOut.objects.record(instructor=instructor, email=payload[1])
+    return render(
+        request, "classes/public/stop_emails.html", {"instructor_name": instructor_name(instructor), "stopped": stopped}
+    )
 
 
 def my_registration_cancel(request: HttpRequest, token: str) -> HttpResponse:

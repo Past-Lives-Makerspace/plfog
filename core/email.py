@@ -32,6 +32,7 @@ def _deliver(
     attachments: list[Attachment] | None,
     bcc: list[str] | None = None,
     category: str | None = None,
+    headers: dict[str, str] | None = None,
 ) -> None:
     """Hand the message to Django's mail backend.
 
@@ -41,9 +42,10 @@ def _deliver(
     present, since ``send_mail`` cannot carry any of the three. The BCC list
     preserves recipient privacy for bulk sends (instructor/admin class emails BCC
     every registrant); the category rides an ``X-Category`` header so the ESP and
-    mail-client rules can filter by workflow.
+    mail-client rules can filter by workflow. ``headers`` are any further headers
+    (a past students email's ``List-Unsubscribe``), which also take that path.
     """
-    if not attachments and not bcc and not category:
+    if not attachments and not bcc and not category and not headers:
         send_mail(
             subject=subject,
             message=text_body,
@@ -57,6 +59,7 @@ def _deliver(
     )
     if category:
         message.extra_headers["X-Category"] = category
+    message.extra_headers.update(headers or {})
     if html_body:
         message.attach_alternative(html_body, "text/html")
     for filename, content, mimetype in attachments or []:
@@ -134,8 +137,14 @@ def send(
     from core.email_prefs import finalize_manage_prefs_link, finalize_stop_link
 
     text_body, html_body = finalize_manage_prefs_link(text_body, html_body, recipients)
-    # And the past students stop link (#1042), with a token of this recipient's own address.
-    text_body, html_body = finalize_stop_link(text_body, html_body, recipients)
+    # And the past students stop link (#1042), with a token of its instructor and this recipient's
+    # address; the same link rides the one click unsubscribe headers mail clients offer (RFC 8058).
+    text_body, html_body, unsubscribe_url = finalize_stop_link(text_body, html_body, recipients)
+    headers = (
+        {"List-Unsubscribe": f"<{unsubscribe_url}>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"}
+        if unsubscribe_url
+        else None
+    )
     try:
         _deliver(
             subject=subject,
@@ -146,6 +155,7 @@ def send(
             attachments=attachments,
             bcc=bcc_list or None,
             category=category,
+            headers=headers,
         )
     except Exception as exc:  # noqa: BLE001 — we log then re-raise unless best_effort
         log = TransactionalEmailLog.objects.create(

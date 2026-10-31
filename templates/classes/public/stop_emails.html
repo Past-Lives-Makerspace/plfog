@@ -1,19 +1,26 @@
 {% extends "classes/base_public.html" %}
-{# The no login page a past students email's stop link opens (#1042); the opt out is already saved. #}
-{% block title %}Emails stopped{% endblock %}
+{# The no login stop page a past students email links to (#1042): a button first, so opening the link stops nothing; the POST saves it. #}
+{% block title %}{% if stopped %}Emails stopped{% else %}Stop emails{% endif %}{% endblock %}
 {% block portal_content %}
 <div class="view">
   <div class="cp-container">
-    <div class="detail-card" data-past-students-stopped>
+    <div class="detail-card"{% if stopped %} data-past-students-stopped{% else %} data-past-students-stop-confirm{% endif %}>
       <div class="detail-head">
         <div>
-          <div class="dc-cat">Emails stopped</div>
-          <div class="dc-title">You're off the list</div>
+          <div class="dc-cat">{% if stopped %}Emails stopped{% else %}Stop emails{% endif %}</div>
+          <div class="dc-title">{% if stopped %}You're off the list{% else %}Emails from {{ instructor_name }}{% endif %}</div>
         </div>
         <a class="back-link" href="{% url 'classes:public_list' %}">All Classes →</a>
       </div>
       <div class="detail-body">
+        {% if stopped %}
         <p>You won't get any more emails from {{ instructor_name }} about their classes.</p>
+        {% else %}
+        <p>You get these because you took a class with {{ instructor_name }}.</p>
+        <form method="post">
+          <button type="submit" class="btn-reg" data-past-students-stop-button>Stop emails from {{ instructor_name }}</button>
+        </form>
+        {% endif %}
       </div>
     </div>
   </div>

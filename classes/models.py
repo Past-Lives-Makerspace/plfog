@@ -6879,13 +6879,43 @@ class PastStudentOptOutManager(models.Manager["PastStudentOptOut"]):
         return row
 
     def skipped_by(self, instructor: Member) -> tuple[set[int], set[str]]:
-        """``(user pks, lowercased addresses)`` an instructor's past students sends leave out, in one query."""
+        """``(user pks, lowercased addresses)`` an instructor's past students sends leave out.
+
+        The addresses are every stopped address plus every address of every stopped account: its
+        account email, its chosen notification email and each verified alias, so a guest
+        registration made at any of them is skipped too. Four queries at most.
+        """
+        from allauth.account.models import EmailAddress
+        from django.contrib.auth import get_user_model
+        from django.db.models.functions import Lower
+
+        from membership.models import Member
+
         user_ids: set[int] = set()
         emails: set[str] = set()
         for user_id, email in self.filter(instructor=instructor).values_list("user_id", "email"):
             emails.add(email)
             if user_id is not None:
                 user_ids.add(user_id)
+        if not user_ids:
+            return user_ids, emails
+        emails |= set(
+            EmailAddress.objects.filter(user_id__in=user_ids, verified=True)
+            .annotate(address=Lower("email"))
+            .values_list("address", flat=True)
+        )
+        emails |= set(
+            get_user_model()
+            .objects.filter(pk__in=user_ids)
+            .annotate(address=Lower("email"))
+            .values_list("address", flat=True)
+        )
+        emails |= set(
+            Member.objects.filter(user_id__in=user_ids)
+            .annotate(address=Lower("notification_email"))
+            .values_list("address", flat=True)
+        )
+        emails.discard("")
         return user_ids, emails
 
 
