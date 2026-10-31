@@ -5,7 +5,7 @@
 **Area:** 
 
 **Guidance:** 
-<!-- How much teaching this ships, matching the fragment's guidance: none (nothing to show), link (a What's New entry with Open it), clip (plus a short recorded walkthrough), tour (plus a Guided Tour and a clip). docs/GUIDANCE.md -->
+<!-- How much teaching this ships, matching the fragment's guidance: none (nothing to show), link (a What's New entry with Open it), shots (plus captioned screenshots the entry walks through), tour (plus a Guided Tour and shots). docs/GUIDANCE.md -->
 
 ### Problem
 <!-- One sentence: what happens now and what should happen, or "Closes #123". A split issue: "#123, part 1 of 3", and only the last part says "Closes #123, part 3 of 3". -->

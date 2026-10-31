@@ -115,20 +115,20 @@ def describe_description_errors():
         def it_requires_it(script):
             body = GOOD.replace("**Guidance:** none\n", "")
             assert script.description_errors(body) == [
-                "Missing the `**Guidance:**` line: none, link, clip or tour, how much teaching this ships (docs/GUIDANCE.md)."
+                "Missing the `**Guidance:**` line: none, link, shots or tour, how much teaching this ships (docs/GUIDANCE.md)."
             ]
 
         def it_rejects_a_blank_value(script):
             body = GOOD.replace("**Guidance:** none", "**Guidance:** ")
             assert script.description_errors(body) == [
-                "`**Guidance:** ` is not a level; use one of none, link, clip, tour."
+                "`**Guidance:** ` is not a level; use one of none, link, shots, tour."
             ]
 
         def it_rejects_a_value_outside_the_four_levels(script):
             errors = script.description_errors(GOOD.replace("**Guidance:** none", "**Guidance:** video"))
-            assert errors == ["`**Guidance:** video` is not a level; use one of none, link, clip, tour."]
+            assert errors == ["`**Guidance:** video` is not a level; use one of none, link, shots, tour."]
 
-        @pytest.mark.parametrize("level", ["none", "link", "clip", "tour", "Link"])
+        @pytest.mark.parametrize("level", ["none", "link", "shots", "tour", "Link"])
         def it_accepts_each_level_in_any_case(script, level: str):
             assert script.description_errors(GOOD.replace("**Guidance:** none", f"**Guidance:** {level}")) == []
 

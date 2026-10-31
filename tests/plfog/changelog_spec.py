@@ -24,6 +24,7 @@ from plfog.changelog import (
     AUDIENCES,
     Fragment,
     FragmentError,
+    Shot,
     compose_changelog,
     fold_version,
     load_base,
@@ -32,9 +33,12 @@ from plfog.changelog import (
     load_history,
     parse_fragment,
     parse_version,
+    shot_key,
 )
 
 _PATH = pathlib.Path("changelog.d/1-example.toml")
+#: One ``[[shots]]`` block, appended to a fragment's text (#1050): a level past ``link`` must list at least one.
+_SHOT = '\n[[shots]]\ncaption = "Open the Cubbies tab."\n'
 
 
 def _toml(**fields: object) -> str:
@@ -355,7 +359,7 @@ def describe_load_history():
         ("keys", "message"),
         [
             ({"feature": "guild.gone"}, "entry 'T' (2026-01-01) names feature 'guild.gone'"),
-            ({"guidance": "video"}, "'guidance' must be one of none, link, clip, tour"),
+            ({"guidance": "video"}, "'guidance' must be one of none, link, shots, tour"),
             ({"audiences": ["members", "everyone"]}, "names audience 'everyone'"),
         ],
     )
@@ -520,11 +524,14 @@ def describe_feature_and_guidance():
         assert fragment.feature == "guild.cubbies"
         assert fragment.guidance == "none"
 
-    @pytest.mark.parametrize("level", ["link", "clip", "tour"])
+    @pytest.mark.parametrize("level", ["link", "shots", "tour"])
     def it_accepts_every_level_on_a_feature(level: str):
-        # Whether the clip or tour exists is check_changelog_fragment.py's question: this runs
-        # at app import, and a missing clip must not stop the app booting.
-        assert parse_fragment(_toml(feature="guild.cubbies", guidance=level), _PATH).guidance == level
+        # Whether the tour exists, or the pictures are on the bucket, is check_changelog_fragment.py's
+        # question: this runs at app import, and a missing one must not stop the app booting.
+        source = _toml(feature="guild.cubbies", guidance=level)
+        if level != "link":
+            source += _SHOT
+        assert parse_fragment(source, _PATH).guidance == level
 
     def it_refuses_an_unregistered_feature():
         with pytest.raises(
@@ -537,7 +544,7 @@ def describe_feature_and_guidance():
             parse_fragment(_toml(feature=5), _PATH)
 
     def it_refuses_an_unknown_level():
-        with pytest.raises(FragmentError, match="'guidance' must be one of none, link, clip, tour \\(got 'video'\\)"):
+        with pytest.raises(FragmentError, match="'guidance' must be one of none, link, shots, tour \\(got 'video'\\)"):
             parse_fragment(_toml(feature="guild.cubbies", guidance="video"), _PATH)
 
     def it_refuses_guidance_without_a_feature():
@@ -558,6 +565,8 @@ def describe_feature_and_guidance():
         stripped = []
         for path in sorted(FRAGMENTS_PATH.glob("*.toml")):
             lines = path.read_text(encoding="utf-8").splitlines()
+            if "[[shots]]" in lines:
+                lines = lines[: lines.index("[[shots]]")]  # the shots describe the entry too (#1050)
             kept = [line for line in lines if not line.startswith(("feature = ", "guidance = ", "audience = ["))]
             stripped.append(parse_fragment("\n".join(kept) + "\n", path))
         assert fold_version(BASE_VERSION, stripped) == VERSION
@@ -604,3 +613,80 @@ def describe_requests():
 
     def it_names_the_entry_by_the_fragment_filename():
         assert parse_fragment(_toml(), _PATH).slug == "1-example"
+
+
+def describe_shots():
+    """``[[shots]]`` (#1050): the captioned screenshots a ``shots`` or ``tour`` fragment walks through."""
+
+    _TWO = _toml(feature="guild.cubbies", guidance="shots") + (
+        '\n[[shots]]\ncaption = "  Open the Cubbies tab.  "\n\n[[shots]]\ncaption = "Pick a cubby."\nframe = "phone"\n'
+    )
+
+    def it_reads_each_caption_and_frame_in_order():
+        fragment = parse_fragment(_TWO, _PATH)
+        assert fragment.shots == (Shot(caption="Open the Cubbies tab."), Shot(caption="Pick a cubby.", frame="phone"))
+        assert fragment.shots[0].frame == "desktop"
+
+    def it_derives_each_files_key_from_the_slug_and_the_position():
+        # The fragment never names a file, so a step cannot be misnumbered.
+        assert parse_fragment(_TWO, _PATH).shot_keys == (
+            "guidance/1-example/step-1.png",
+            "guidance/1-example/step-2.png",
+        )
+        assert shot_key("1050-guidance-shots", 3) == "guidance/1050-guidance-shots/step-3.png"
+
+    def it_writes_the_shots_into_the_entry_and_leaves_the_key_out_without_them():
+        assert parse_fragment(_TWO, _PATH).as_entry()["shots"] == [
+            {"caption": "Open the Cubbies tab.", "frame": "desktop"},
+            {"caption": "Pick a cubby.", "frame": "phone"},
+        ]
+        assert "shots" not in parse_fragment(_toml(feature="guild.cubbies", guidance="link"), _PATH).as_entry()
+
+    def it_accepts_shots_at_level_tour():
+        assert len(parse_fragment(_toml(feature="classes.teach", guidance="tour") + _SHOT, _PATH).shots) == 1
+
+    def it_has_none_at_link_or_none():
+        assert parse_fragment(_toml(feature="guild.cubbies", guidance="link"), _PATH).shots == ()
+        assert parse_fragment(_toml(), _PATH).shot_keys == ()
+
+    def describe_rejections():
+        @pytest.mark.parametrize("level", ["shots", "tour"])
+        def it_refuses_the_level_with_no_shots(level: str):
+            with pytest.raises(FragmentError, match=rf"'guidance' = '{level}' needs at least one \[\[shots\]\] block"):
+                parse_fragment(_toml(feature="classes.teach", guidance=level), _PATH)
+
+        @pytest.mark.parametrize("level", ["none", "link"])
+        def it_refuses_shots_on_a_level_that_shows_none(level: str):
+            message = f'[[shots]] needs \'guidance\' = "shots" or "tour" (got {level!r})'
+            with pytest.raises(FragmentError, match=re.escape(message)):
+                parse_fragment(_toml(feature="guild.cubbies", guidance=level) + _SHOT, _PATH)
+
+        def it_refuses_an_empty_list():
+            with pytest.raises(FragmentError, match="'shots' must be one or more"):
+                parse_fragment(_toml(feature="guild.cubbies", guidance="shots", shots=[]), _PATH)
+
+        def it_refuses_a_shot_that_is_not_a_table():
+            with pytest.raises(FragmentError, match=r"shot 1 must be a \[\[shots\]\] table"):
+                parse_fragment(_toml(feature="guild.cubbies", guidance="shots", shots=["just a string"]), _PATH)
+
+        def it_refuses_a_missing_or_blank_caption():
+            head = _toml(feature="guild.cubbies", guidance="shots")
+            with pytest.raises(FragmentError, match="shot 1 needs a non-empty 'caption'"):
+                parse_fragment(head + '\n[[shots]]\nframe = "phone"\n', _PATH)
+            with pytest.raises(FragmentError, match="shot 2 needs a non-empty 'caption'"):
+                parse_fragment(head + _SHOT + '\n[[shots]]\ncaption = "  "\n', _PATH)
+
+        def it_refuses_any_key_but_caption_and_frame():
+            # A file name or a step number in the fragment is how a step gets misnumbered; the position decides.
+            head = _toml(feature="guild.cubbies", guidance="shots")
+            with pytest.raises(FragmentError, match=r"shot 1 has unknown key\(s\) file, step"):
+                parse_fragment(head + '\n[[shots]]\ncaption = "c"\nfile = "x.png"\nstep = 1\n', _PATH)
+
+        def it_refuses_a_frame_outside_desktop_and_phone():
+            head = _toml(feature="guild.cubbies", guidance="shots")
+            with pytest.raises(FragmentError, match=r"'frame' must be one of desktop, phone \(got 'tablet'\)"):
+                parse_fragment(head + '\n[[shots]]\ncaption = "c"\nframe = "tablet"\n', _PATH)
+
+        def it_refuses_shots_on_an_internal_fragment():
+            with pytest.raises(FragmentError, match="'shots' needs a members fragment"):
+                parse_fragment('bump = "patch"\naudience = "internal"\n' + _SHOT, _PATH)

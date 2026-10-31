@@ -69,11 +69,6 @@ def describe_GUIDANCE():
         unknown = [g.key for g in GUIDANCE.values() if g.help_key is not None and g.help_key not in HELP_KEYS]
         assert not unknown, unknown
 
-    def it_has_no_clips_until_1008_lands():
-        # Recording and playing clips is #1008. A slug registered before a clip exists would let
-        # a fragment declare guidance = "clip" and ship nothing.
-        assert [g.key for g in GUIDANCE.values() if g.clip is not None] == []
-
     def it_reverses_every_url_without_arguments():
         for guidance in GUIDANCE.values():
             if guidance.url_kwargs is None:
@@ -174,10 +169,4 @@ def describe_url_for():
 def describe_Guidance():
     def it_defaults_the_optional_materials_to_none():
         guidance = Guidance(key="a.b", title="T", url_name="hub_home", steps=("One.", "Two."))
-        assert (guidance.url_kwargs, guidance.query, guidance.clip, guidance.tour, guidance.help_key) == (
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        assert (guidance.url_kwargs, guidance.query, guidance.tour, guidance.help_key) == (None, None, None, None)
