@@ -4,7 +4,7 @@ One table request as a row of its own edit form: every field is a control tied t
 control saves the row over htmx (hx-trigger "change" from the row, hx-swap none), so the box being
 typed in is never replaced (novalidate, so htmx posts a refused value and the server's error shows
 in the row rather than the browser silently holding the save): the answer swaps the row's state slot (its stamp, status stripe and
-errors) and the band out of band. A refused stale save swaps the whole row back as the database
+errors), any contact box the save filled from a member vendor's record, and the band out of band. A refused stale save swaps the whole row back as the database
 holds it. Delete goes through the confirm modal. Under the name, Lee's "Added by" with who entered
 the request (the page is for organisers only, so it shows to everyone who sees the row).
 Contact carries the Discord handle under the email and phone; Source carries the sheet's Source note, how the

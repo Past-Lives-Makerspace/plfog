@@ -199,6 +199,8 @@ class ImportResult:
     updated: int = 0
     unchanged: int = 0
     problems: list[ImportProblem] = field(default_factory=list)
+    # The tables the upload added or updated, for the contacts fill after it (hq.services.fill_vendor_contacts).
+    tables: list[VendorTable] = field(default_factory=list, compare=False, repr=False)
 
 
 # ---- Reading the file ----
@@ -469,9 +471,10 @@ def apply_upload(hub: EventHub, sheet: ParsedSheet, *, member: Member | None) ->
             first_line[row.key] = row.line
             match = existing.get(row.key)
             if match is None:
-                VendorTable.objects.create(hub=hub, created_by=member, **row.values)
+                result.tables.append(VendorTable.objects.create(hub=hub, created_by=member, **row.values))
                 result.added += 1
             elif _update(match, row.values):
+                result.tables.append(match)
                 result.updated += 1
             else:
                 result.unchanged += 1
