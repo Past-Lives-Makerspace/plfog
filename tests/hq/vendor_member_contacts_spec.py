@@ -237,6 +237,16 @@ def describe_who_matches_nobody():
         assert shared.phone == ""
         assert named.phone == ""  # the name is Odile's, but her handle is not the row's
 
+    def it_fills_nothing_by_name_when_members_hold_the_rows_handle(hub, make_member):
+        make_member(discord_handle="twin", phone="503-555-0141")
+        make_member(discord_handle="twin", phone="503-555-0142")
+        make_member(preferred_name="Cleo Brand", phone="503-555-0143")
+        table = VendorTableFactory(hub=hub, name="Cleo Brand", discord_handle="twin")
+
+        _fill(table)
+
+        assert table.phone == ""
+
     @pytest.mark.parametrize("status", [status for status in Member.Status if status != Member.Status.ACTIVE])
     def it_fills_nothing_from_a_member_who_is_not_active(hub, make_member, status):
         make_member(status=status, preferred_name="Wynn Calder", phone="503-555-0151", discord_handle="wynn")

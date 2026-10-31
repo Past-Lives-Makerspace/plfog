@@ -1594,7 +1594,7 @@ def fill_vendor_contacts(tables: Iterable[VendorTable], *, save: bool = True) ->
 def _member_matches(tables: Sequence[VendorTable]) -> list[tuple[VendorTable, int]]:
     """Each of ``tables`` that is one active member's row, with that member's pk, from one query of the active
     members' handles and names. A name match does not count when the row and the member both have a handle and the
-    two differ."""
+    two differ, nor when the row's handle is any active member's."""
     by_handle: dict[str, set[int]] = defaultdict(set)
     by_name: dict[str, set[int]] = defaultdict(set)
     member_handles: dict[int, str] = {}
@@ -1615,8 +1615,10 @@ def _member_matches(tables: Sequence[VendorTable]) -> list[tuple[VendorTable, in
         pk = handles.get(row_handle)
         if pk is None:
             pk = names.get(normalise(table.name))
-            # A namesake whose handle differs from the row's is someone else, so their contacts never land here.
-            if pk is not None and row_handle and member_handles[pk] and member_handles[pk] != row_handle:
+            # A namesake whose handle differs from the row's is someone else, and a row whose handle a member holds
+            # (two, so it matched nobody) is one of theirs, so a name match never lands either way.
+            claimed = row_handle in by_handle
+            if pk is not None and row_handle and (claimed or member_handles[pk] and member_handles[pk] != row_handle):
                 pk = None
         if pk is not None:
             matched.append((table, pk))
