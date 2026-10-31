@@ -117,7 +117,9 @@ def it_never_scrolls_the_page_sideways_and_the_modal_fits(page, live_server, log
 
     assert page.evaluate(NO_SIDEWAYS_SCROLL)
     page.locator("[data-hq-vt-import-open]").click()
-    box = page.locator("[data-hq-vt-import-form]").bounding_box()
+    form = page.locator("[data-hq-vt-import-form]")
+    expect(form).to_be_visible()
+    box = form.bounding_box()
     assert box is not None
     assert box["x"] >= 0 and box["x"] + box["width"] <= width
     assert page.evaluate(NO_SIDEWAYS_SCROLL)
