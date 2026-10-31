@@ -103,13 +103,18 @@ def missing_materials(fragments: list[Fragment]) -> list[str]:
     return problems
 
 
+#: What the HEAD calls itself. The bucket's public host answers Python's default agent with a
+#: 403 whatever the key (its bot filter), so the check names itself the way a browser would.
+_USER_AGENT = "Mozilla/5.0 (compatible; plfog-fragment-check/1; +https://github.com/Past-Lives-Makerspace/plfog)"
+
+
 def _head(url: str) -> int:
     """The status a HEAD of ``url`` answers; a 4xx or 5xx is returned as its code, not raised.
 
     A host that cannot be reached at all exits naming it: neither "missing" nor "fine" is an
     answer to a network failure.
     """
-    request = urllib.request.Request(url, method="HEAD")
+    request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": _USER_AGENT})
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
             return int(response.status)

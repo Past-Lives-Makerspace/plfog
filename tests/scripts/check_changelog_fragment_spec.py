@@ -340,6 +340,8 @@ def describe_main():
 
             def _urlopen(request, timeout=None):
                 assert request.get_method() == "HEAD"
+                # Python's default agent is answered 403 by the bucket's bot filter; the check names itself.
+                assert request.get_header("User-agent", "").startswith("Mozilla/5.0 (compatible; plfog-fragment-check")
                 seen.append(request.full_url)
                 status = statuses[request.full_url]
                 if status >= 400:
