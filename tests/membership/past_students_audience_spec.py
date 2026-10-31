@@ -22,7 +22,7 @@ from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory, RegistrationFactory
 from classes.models import ClassOffering, PastStudentOptOut, Registration
-from core.email_prefs import STOP_TOKEN_PLACEHOLDER
+from core.email_prefs import stop_token_placeholder, stop_url
 from core.models import EventDelivery, Notification
 from membership.models import AnnouncementDraft, GuildAnnouncement, Member
 from tests.membership.factories import MembershipPlanFactory
@@ -30,7 +30,7 @@ from tests.membership.factories import MembershipPlanFactory
 pytestmark = pytest.mark.django_db
 
 _STUDENTS = AnnouncementDraft.Audience.STUDENTS
-_STOP_LINK = re.compile(r"https?://[^\s\"'<>]+/classes/stop-emails/\d+/[^\s\"'<>/]+/")
+_STOP_LINK = re.compile(r"https?://[^\s\"'<>]+/classes/stop-emails/[^\s\"'<>/]+/")
 
 
 def _user(username: str) -> User:
@@ -129,8 +129,9 @@ def describe_AnnouncementDraft_students_audience():
             ).build_email_message("https://example.com/")
             assert "You took a class with Kay. <a href=" in message.html_body
             assert "Stop emails from Kay</a>" in message.html_body
-            assert f"/classes/stop-emails/{teacher.member.pk}/{STOP_TOKEN_PLACEHOLDER}/" in message.html_body
-            assert message.body.endswith(f"/classes/stop-emails/{teacher.member.pk}/{STOP_TOKEN_PLACEHOLDER}/")
+            url = stop_url(stop_token_placeholder(teacher.member.pk))
+            assert url in message.html_body
+            assert message.body.endswith(url)
 
         def it_leaves_other_audiences_without_it():
             teacher, _student = _teacher_with_students()
@@ -162,7 +163,10 @@ def describe_AnnouncementDraft_students_audience():
             _draft(teacher).send_in_request()
             links = {message.to[0]: _STOP_LINK.search(message.body).group(0) for message in mail.outbox}
             assert len(set(links.values())) == 2
-            assert STOP_TOKEN_PLACEHOLDER not in "".join(message.body for message in mail.outbox)
+            assert "__PL_STOP_TOKEN_" not in "".join(message.body for message in mail.outbox)
+            assert all(
+                message.extra_headers["List-Unsubscribe"] == f"<{links[message.to[0]]}>" for message in mail.outbox
+            )
 
         def it_counts_nobody_emailed_with_email_off():
             teacher, _student = _teacher_with_students()
@@ -192,6 +196,8 @@ def describe_AnnouncementDraft_students_audience():
             _draft(teacher).send_in_request()
             link = _STOP_LINK.search(next(m for m in mail.outbox if m.to == [student.email]).body).group(0)
             assert Client().get(urlparse(link).path).status_code == 200
+            assert not PastStudentOptOut.objects.exists()
+            assert Client().post(urlparse(link).path).status_code == 200
             assert PastStudentOptOut.objects.filter(instructor=teacher.member, user=student).exists()
             mail.outbox.clear()
             EventDelivery.objects.all().delete()

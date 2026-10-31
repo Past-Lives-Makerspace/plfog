@@ -49,8 +49,9 @@ def past_students(instructor: Member) -> PastStudents:
     took. One with no account is its lowercased address, once, and left out when a listed
     account already uses it (its email, chosen notification email or a verified alias), so
     nobody gets the email twice. Anyone who stopped this instructor's emails is left out
-    (:meth:`~classes.models.PastStudentOptOutManager.skipped_by`): by account, and by address.
-    Three queries, however many classes and registrations.
+    (:meth:`~classes.models.PastStudentOptOutManager.skipped_by`): by account, and by every
+    address of that account, so a guest registration at a stopped member's alias is skipped too.
+    A fixed number of queries, however many classes and registrations.
 
     Args:
         instructor: The member whose classes' students are wanted.
@@ -103,25 +104,32 @@ def past_students(instructor: Member) -> PastStudents:
     )
 
 
-def stop_line(instructor: Member, name: str) -> tuple[str, str]:
+def instructor_name(instructor: Member) -> str:
+    """What a past students email and its stop page call the instructor: their name, never an address.
+
+    The name their instructor profile and every class shows (:attr:`Member.display_name`, the
+    preferred name, else the legal name), else "your instructor".
+    """
+    return instructor.display_name.strip() or "your instructor"
+
+
+def stop_line(instructor: Member) -> tuple[str, str]:
     """The ``(html, text)`` line that ends every past students email from ``instructor``.
 
-    "You took a class with <name>. Stop emails from <name>", linking to the no login stop page.
-    The link carries a placeholder that ``core.email.send`` swaps for a token of each
-    recipient's own address (:func:`core.email_prefs.finalize_stop_link`), so one built message
-    serves every recipient and the preview shows the same line.
+    "You took a class with <name>. Stop emails from <name>" (:func:`instructor_name`), linking to
+    the no login stop page. The link carries a placeholder naming the instructor that
+    ``core.email.send`` swaps for a token of the instructor and each recipient's own address
+    (:func:`core.email_prefs.finalize_stop_link`), so one built message serves every recipient.
 
     Args:
         instructor: The instructor sending; their emails are the ones the link stops.
-        name: What the email calls them.
     """
-    from django.urls import reverse
     from django.utils.html import escape
 
-    from core.email_prefs import STOP_TOKEN_PLACEHOLDER
-    from membership.orientations import _absolute_url
+    from core.email_prefs import stop_token_placeholder, stop_url
 
-    url = _absolute_url(reverse("classes:stop_past_student_emails", args=[instructor.pk, STOP_TOKEN_PLACEHOLDER]))
+    name = instructor_name(instructor)
+    url = stop_url(stop_token_placeholder(instructor.pk))
     html = (
         '<p style="margin:28px 0 0;padding-top:14px;border-top:1px solid #e3e7ec;color:#5b6b78;'
         'font-size:13px;line-height:1.5;" data-past-students-stop>'

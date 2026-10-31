@@ -215,4 +215,5 @@ def describe_the_preview():
         response = _post(client, "hub_compose_preview", show_sender="on")
         assert response.status_code == 200
         assert "Stop emails from" in response.content.decode()
-        assert f"/classes/stop-emails/{teacher.member.pk}/" in response.content.decode()
+        assert "/classes/stop-emails/__PL_STOP_TOKEN_" in response.content.decode()
+        assert teacher.email not in response.content.decode().split("data-past-students-stop", 1)[1].split("</p>", 1)[0]

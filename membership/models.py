@@ -7638,7 +7638,7 @@ class AnnouncementDraft(models.Model):
         if instructor is not None:
             from classes.past_students import stop_line
 
-            footer_html, stop_text = stop_line(instructor, user_name_or_email(cast("User", self.author)))
+            footer_html, stop_text = stop_line(instructor)
             text_tail = f"\n\n{stop_text}"
         return Message(
             title=self.title,

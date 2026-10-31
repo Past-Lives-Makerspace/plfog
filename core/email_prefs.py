@@ -13,8 +13,10 @@ in ``core.email.send`` — the one place that knows who each message is going to
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
+from django.conf import settings
 from django.core import signing
 
 if TYPE_CHECKING:
@@ -92,43 +94,69 @@ def finalize_manage_prefs_link(text_body: str, html_body: str | None, recipients
 
 # The past students stop link (#1042): an instructor's email to everyone who took their classes
 # links to a no login page that stops that instructor's emails to the address it went to. The
-# token proves the address; which instructor rides in the link's path. Built once per email with
-# this placeholder, then swapped for the recipient's own token in ``core.email.send``.
+# token signs the instructor and the address together, so a link stops one instructor for one
+# address and nothing else. The email is built once with a placeholder naming the instructor
+# (:func:`stop_token_placeholder`); ``core.email.send`` swaps it for the recipient's own token.
 _STOP_SALT = "past-students-stop"
-STOP_TOKEN_PLACEHOLDER = "__PL_STOP_TOKEN__"
+_STOP_PLACEHOLDER = re.compile(r"__PL_STOP_TOKEN_(\d+)__")
 
 
-def make_stop_token(email: str) -> str:
-    """A signed token naming ``email`` (lowercased) for the past students stop page."""
-    return signing.dumps(email.strip().lower(), salt=_STOP_SALT)
+def stop_token_placeholder(instructor_pk: int) -> str:
+    """The placeholder a past students email carries where its stop token goes."""
+    return f"__PL_STOP_TOKEN_{instructor_pk}__"
 
 
-def read_stop_token(token: str) -> str | None:
-    """The address a stop token names, or ``None`` when it is not one this site signed.
+def make_stop_token(instructor_pk: int, email: str) -> str:
+    """A signed token naming one instructor and one address (lowercased) for the stop page."""
+    return signing.dumps([instructor_pk, email.strip().lower()], salt=_STOP_SALT)
+
+
+def read_stop_token(token: str) -> tuple[int, str] | None:
+    """The ``(instructor pk, address)`` a stop token names, or ``None`` when this site did not sign it.
 
     No ``max_age``, as with the prefs token: the link must keep working however long the email
-    sits in an inbox, and it can only stop emails to the address it names.
+    sits in an inbox, and it can only stop one instructor's emails to the address it names.
     """
     try:
-        email = signing.loads(token, salt=_STOP_SALT)
+        payload = signing.loads(token, salt=_STOP_SALT)
     except signing.BadSignature:
         return None
-    return email if isinstance(email, str) and email else None
+    if not (isinstance(payload, list) and len(payload) == 2):
+        return None
+    instructor_pk, email = payload
+    if not isinstance(instructor_pk, int) or not isinstance(email, str) or not email:
+        return None
+    return instructor_pk, email
 
 
-def finalize_stop_link(text_body: str, html_body: str | None, recipients: list[str]) -> tuple[str, str | None]:
-    """Swap the stop link's placeholder for a token of the one recipient's address.
+def stop_url(token: str) -> str:
+    """The absolute stop page URL for ``token``, on the members site."""
+    from django.urls import reverse
 
-    A send to several addresses at once gets an empty token, so its link is refused rather than
-    stopping someone else's emails. A no-op when the placeholder is absent.
+    return settings.MEMBER_BASE_URL.rstrip("/") + reverse("classes:stop_past_student_emails", args=[token])
+
+
+def finalize_stop_link(text_body: str, html_body: str | None, recipients: list[str]) -> tuple[str, str | None, str]:
+    """Swap the stop link's placeholder for a token of its instructor and the one recipient's address.
+
+    Returns the bodies and the stop URL for the ``List-Unsubscribe`` header, ``""`` when the
+    email carries no stop link. A send to several addresses at once gets an empty token, so its
+    link is refused rather than stopping someone else's emails, and no header.
     """
-    has_text = STOP_TOKEN_PLACEHOLDER in text_body
-    has_html = html_body is not None and STOP_TOKEN_PLACEHOLDER in html_body
-    if not has_text and not has_html:
-        return text_body, html_body
-    token = make_stop_token(recipients[0]) if len(recipients) == 1 else ""
-    if has_text:
-        text_body = text_body.replace(STOP_TOKEN_PLACEHOLDER, token)
-    if has_html and html_body is not None:
-        html_body = html_body.replace(STOP_TOKEN_PLACEHOLDER, token)
-    return text_body, html_body
+    found = _STOP_PLACEHOLDER.search(text_body) or (_STOP_PLACEHOLDER.search(html_body) if html_body else None)
+    if found is None:
+        return text_body, html_body, ""
+    single = len(recipients) == 1
+    # One token per instructor, so the link in the body and the header are the same link.
+    tokens: dict[int, str] = {}
+
+    def token(match: re.Match[str]) -> str:
+        if not single:
+            return ""
+        instructor_pk = int(match.group(1))
+        return tokens.setdefault(instructor_pk, make_stop_token(instructor_pk, recipients[0]))
+
+    text_body = _STOP_PLACEHOLDER.sub(token, text_body)
+    if html_body is not None:
+        html_body = _STOP_PLACEHOLDER.sub(token, html_body)
+    return text_body, html_body, stop_url(token(found)) if single else ""
