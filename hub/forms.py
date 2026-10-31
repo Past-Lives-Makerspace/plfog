@@ -5849,6 +5849,15 @@ class _RecipientChoiceField(forms.MultipleChoiceField):
         return True
 
 
+def _featurable_by_pk(teaching_member: Member | None) -> dict[str, ClassOffering]:
+    """``{pk: class}`` a sender may feature on a past students email (#1042), ``{}`` for one who teaches nothing."""
+    if teaching_member is None:
+        return {}
+    from classes.past_students import featurable_classes
+
+    return {str(offering.pk): offering for offering in featurable_classes(teaching_member)}
+
+
 class AnnouncementComposeForm(forms.Form):
     """The compose wizard's single form — audience + message + email + Discord + @mention.
 
@@ -5876,6 +5885,11 @@ class AnnouncementComposeForm(forms.Form):
         label="Message",
         help_text="Format with the toolbar — the formatted version goes out by email; "
         "the bell and Discord get a plain-text version.",
+    )
+    featured_class = forms.ChoiceField(
+        required=False,
+        label="Feature a class",
+        help_text="Optional. The email shows its photo, next date, price and a Register button under your message.",
     )
     push_message = forms.CharField(
         required=False,
@@ -5979,6 +5993,13 @@ class AnnouncementComposeForm(forms.Form):
             choices.append((AnnouncementDraft.Audience.STUDENTS.value, AnnouncementDraft.Audience.STUDENTS.label))
         choices.extend((f"class:{offering.pk}", f"Class: {offering.title}") for offering in (editable_classes or []))
         cast(forms.ChoiceField, self.fields["audience"]).choices = choices
+
+        # "Feature a class" (#1042): the sender's published classes with an upcoming session or
+        # flexible scheduling, offered on a past students email only (the template shows it there).
+        self._featurable = _featurable_by_pk(teaching_member)
+        cast(forms.ChoiceField, self.fields["featured_class"]).choices = [("", "No class")] + [
+            (pk, offering.title) for pk, offering in self._featurable.items()
+        ]
 
         # The raw audience currently in play (bound data > initial > first choice), split so
         # the Discord picker + target validation are scoped correctly on both GET and POST.
@@ -6265,6 +6286,14 @@ class AnnouncementComposeForm(forms.Form):
         )
         cleaned["recipient_selection"] = self._clean_recipients(cleaned, audience)
         cleaned["added_recipients"] = self._clean_added(audience)
+        # The choice field has already refused a class not on the sender's list; any other audience
+        # features none, whatever was left chosen before the audience changed.
+        chosen_class = cleaned.get("featured_class") or ""
+        cleaned["featured_class"] = (
+            self._featurable[chosen_class]
+            if chosen_class and audience == AnnouncementDraft.Audience.STUDENTS.value
+            else None
+        )
         return cleaned
 
     def _clean_added(self, audience: str) -> dict[str, list[Any]]:

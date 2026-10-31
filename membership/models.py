@@ -6436,7 +6436,14 @@ def resolve_channel_webhook(channel: str, guild: "Guild | None" = None) -> str:
 
 
 def build_announcement_email_html(
-    title: str, body: str, *, subline: str = "", sender: str = "", results_html: str = "", footer_html: str = ""
+    title: str,
+    body: str,
+    *,
+    subline: str = "",
+    sender: str = "",
+    card_html: str = "",
+    results_html: str = "",
+    footer_html: str = "",
 ) -> str:
     """Branded announcement email HTML — one builder for the preview and the real send.
 
@@ -6446,8 +6453,9 @@ def build_announcement_email_html(
     rich-text editor's sanitized HTML, inline-styled for the light card. ``results_html`` is an
     app-built block placed under the message (a results announcement's heading and bar chart,
     :meth:`FundingSnapshot.results_visual_html`); it is never author input, and neither is
-    ``footer_html``, the last line of the message (a past students email's stop line). The branded shell wraps
-    the whole fragment. Shared by the compose wizard's live preview and the EMAIL override handed
+    ``card_html`` (a featured class's card, right under the message) nor ``footer_html``, the
+    last line of the message (a past students email's stop line). The branded shell wraps the
+    whole fragment. Shared by the compose wizard's live preview and the EMAIL override handed
     to the spine, so the two are byte-faithful.
     """
     from django.utils.html import escape
@@ -6463,6 +6471,7 @@ def build_announcement_email_html(
     if sender:
         fragment += f'<p style="margin:0 0 20px;color:#5b6b78;font-size:14px;">From {escape(sender)}</p>'
     fragment += render_rich_email_body(body)
+    fragment += card_html
     fragment += results_html
     fragment += footer_html
     return wrap_email_html(fragment)
@@ -6819,6 +6828,17 @@ class AnnouncementDraft(models.Model):
         on_delete=models.CASCADE,
         related_name="announcement_drafts",
         help_text="The target class — set only when the audience is a class you teach.",
+    )
+    featured_class = models.ForeignKey(
+        "classes.ClassOffering",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="featured_in_announcements",
+        help_text=(
+            "Past students emails only: the sender's class shown as a card under the message, with its "
+            "photo, dates, price and a Register button. Blank sends no card."
+        ),
     )
     title = models.CharField(
         max_length=300,
@@ -7584,8 +7604,9 @@ class AnnouncementDraft(models.Model):
         site send and the guild-detail URL for a guild send. The text part is the rich body as
         lines, paragraphs and bullets kept (matching the bell / Discord render). A results announcement adds the results
         visual under the message: the heading and bar chart in the HTML, the heading and one line
-        per guild in the text part. A past students email ends with the stop line
-        (:func:`classes.past_students.stop_line`) in both parts.
+        per guild in the text part. A past students email shows its :attr:`featured_class` as a
+        card under the message (:class:`classes.past_students.ClassCard`) and ends with the stop
+        line (:func:`classes.past_students.stop_line`), each in both parts.
         """
         from core.events.channels import Message
         from core.html_sanitize import rich_html_to_lines
@@ -7605,7 +7626,14 @@ class AnnouncementDraft(models.Model):
             text_parts.append(snapshot.results_heading + "\n" + "\n".join(snapshot.allocation_lines()))
             results_html = snapshot.results_visual_html()
         footer_html = ""
+        card_html = ""
         text_tail = ""
+        if self.audience == self.Audience.STUDENTS and self.featured_class is not None:
+            from classes.past_students import ClassCard
+
+            card = ClassCard.for_offering(self.featured_class)
+            card_html = card.html()
+            text_parts.append(card.text())
         instructor = self._students_instructor() if self.audience == self.Audience.STUDENTS else None
         if instructor is not None:
             from classes.past_students import stop_line
@@ -7621,6 +7649,7 @@ class AnnouncementDraft(models.Model):
                 self.body,
                 subline=subline,
                 sender=sender,
+                card_html=card_html,
                 results_html=results_html,
                 footer_html=footer_html,
             ),
@@ -7680,6 +7709,8 @@ class AnnouncementDraft(models.Model):
         draft.audience = cd["audience"]
         draft.guild = cd.get("guild")
         draft.class_offering = cd.get("class_offering")
+        # Only a past students email features a class; the form clears it for any other audience.
+        draft.featured_class = cd.get("featured_class")
         draft.body = cd["body"]  # already sanitized by the form's clean_body
         draft.push_message = cd.get("push_message") or ""
         draft.push_enabled = cd.get("push_enabled", True)

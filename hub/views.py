@@ -4969,6 +4969,7 @@ def _draft_initial(draft: AnnouncementDraft) -> dict[str, Any]:
         # The subject read back out of the title: blank when the title is the automatic one (#1039).
         "subject": draft.written_subject,
         "body": draft.body,
+        "featured_class": str(draft.featured_class_id or ""),
         "push_message": draft.push_message,
         "push_enabled": draft.push_enabled,
         "send_email": draft.send_email,
@@ -5280,14 +5281,25 @@ def _compose_preview_draft(request: HttpRequest) -> AnnouncementDraft:
     from core.html_sanitize import RICH_TEXT_MAX_CHARS, sanitize_rich_html
     from hub.forms import split_audience
 
+    from classes.past_students import featurable_classes
+
     user = cast(User, request.user)
     audience, guild, offering = split_audience(request.POST.get("audience") or "")
     handled = _handled_draft(request, request.POST.get("draft_pk"))
+    # A featured class only on a past students email, and only one the sender may feature (#1042).
+    teacher = _teaching_member(_get_member(request))
+    featured_pk = request.POST.get("featured_class") or ""
+    featured = (
+        featurable_classes(teacher).filter(pk=int(featured_pk)).first()
+        if teacher is not None and audience == AnnouncementDraft.Audience.STUDENTS.value and featured_pk.isdigit()
+        else None
+    )
     draft = AnnouncementDraft(
         author=user,
         audience=audience or AnnouncementDraft.Audience.SITE.value,
         guild=guild,
         class_offering=offering,
+        featured_class=featured,
         mark_as_urgent=bool(request.POST.get("mark_as_urgent")),
         show_sender=bool(request.POST.get("show_sender")),
         # Clipped to the size limit: a preview never saves, and the save itself refuses a longer
