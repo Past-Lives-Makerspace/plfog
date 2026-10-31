@@ -136,3 +136,30 @@ def describe_the_email():
         _post(client, "hub_compose_send", featured_class="")
         assert "data-class-card" not in mail.outbox[0].alternatives[0][0]
         assert "Register:" not in mail.outbox[0].body
+
+
+def describe_send_once():
+    def it_refuses_the_same_send_with_the_same_card_as_a_repeat():
+        client = Client()
+        _teacher, upcoming, _student = _setup(client)
+        _post(client, "hub_compose_send", featured_class=str(upcoming.pk))
+        _post(client, "hub_compose_send", featured_class=str(upcoming.pk))
+        assert AnnouncementDraft.objects.count() == 1
+        assert len(mail.outbox) == 1
+
+    def it_sends_the_same_message_again_with_a_card_added():
+        client = Client()
+        _teacher, upcoming, _student = _setup(client)
+        _post(client, "hub_compose_send")
+        _post(client, "hub_compose_send", featured_class=str(upcoming.pk))
+        assert AnnouncementDraft.objects.filter(sent_at__isnull=False).count() == 2
+        assert len(mail.outbox) == 2
+
+    def it_sends_the_same_message_again_with_another_card():
+        client = Client()
+        teacher, upcoming, _student = _setup(client)
+        other = _class(teacher.member, "Resin Printing Basics")
+        _post(client, "hub_compose_send", featured_class=str(upcoming.pk))
+        _post(client, "hub_compose_send", featured_class=str(other.pk))
+        assert [row.featured_class for row in AnnouncementDraft.objects.order_by("pk")] == [upcoming, other]
+        assert len(mail.outbox) == 2

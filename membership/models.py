@@ -6547,18 +6547,20 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
         body: str,
         recipient_selection: dict[str, Any],
         added_recipients: dict[str, Any],
+        featured_class: "ClassOffering | None" = None,
     ) -> "AnnouncementDraft | None":
         """The row ``author`` sent, queued or started sending within the resend window as this same send.
 
         The composer's Send posts a fresh compose with no ``draft_pk``, so a repeat of that POST (a
         second tap that beat the lock, a retry, a browser resubmit) would make and send a second
         row. A row the same sender made within :data:`ANNOUNCEMENT_RESEND_WINDOW` with the same
-        audience, guild, class, body and recipients is what the repeat meant, so the composer treats
+        audience, guild, class, body, featured class and recipients is what the repeat meant, so the composer treats
         the repeat as that row's resend and :meth:`AnnouncementDraft.send_in_request` refuses it.
         That covers a row whose send is still running in another request
         (:attr:`AnnouncementDraft.sending_in_request`): the 2026-10-24 repeat arrived 3.5 seconds
         into a 5 second send. The recipients are part of the match because the same message to
-        other people is another send; the channel switches (email, push, Discord) are not, because a
+        other people is another send, and so is the featured class (#1042): the same message with
+        another class's card, or a card added, is a new send; the channel switches (email, push, Discord) are not, because a
         resend with only those changed is still a resend. The one row left out is a plain saved
         draft, never sent, queued or started: someone who saves and then writes the same message
         afresh is not repeating a send.
@@ -6571,6 +6573,7 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
             body: The body as the form sanitizes it, which is how the row stores it.
             recipient_selection: The chosen recipients as the row stores them (``{}`` for everyone).
             added_recipients: The people added on top, as the row stores them (``{}`` for none).
+            featured_class: The class a past students email features, else ``None``.
 
         Returns:
             The newest such row, or ``None``.
@@ -6582,6 +6585,7 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
                 audience=audience,
                 guild=guild,
                 class_offering=class_offering,
+                featured_class=featured_class,
                 body=body,
                 created_at__gte=since,
             )
@@ -7764,6 +7768,7 @@ class AnnouncementDraft(models.Model):
             # Normalized as save_from_form stores them, so a stored row compares equal to its repeat.
             recipient_selection=cd["recipient_selection"] or {},
             added_recipients=cd["added_recipients"] or {},
+            featured_class=cd["featured_class"],
         )
 
     def send(self) -> tuple[int, int]:
