@@ -46,6 +46,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from core.guidance import GUIDANCE
+from core.help_registry import KEY_PATTERN
 
 #: The bump levels a fragment may declare, weakest first. A PR picks exactly one.
 BUMPS = ("patch", "minor", "major")
@@ -111,6 +112,10 @@ class Fragment:
     feature: str = ""
     #: How much teaching ships with it, one of :data:`GUIDANCE_LEVELS`.
     guidance: str = "none"
+    #: The control the change lands on (#1051): a :data:`core.help_registry.KEY_PATTERN` key the
+    #: same PR places on it as ``data-guidance-target``, or ``""``. Open <feature> adds it as
+    #: ``?show=<key>`` and the page rings the control on arrival.
+    target: str = ""
 
     @property
     def slug(self) -> str:
@@ -132,6 +137,7 @@ class Fragment:
         ``requests`` is deliberately absent: request numbers are bookkeeping, not news.
         ``audiences``, ``feature`` and ``guidance`` are what What's New sorts and links by
         (#1007); a frozen entry from before them has none, so a reader treats them as optional.
+        ``target`` (#1051) is written only when set, like ``screenshot``.
         """
         entry: dict[str, Any] = {
             "date": self.date,
@@ -144,6 +150,8 @@ class Fragment:
         }
         if self.screenshot:
             entry["screenshot"] = self.screenshot
+        if self.target:
+            entry["target"] = self.target
         return entry
 
 
@@ -198,6 +206,7 @@ def parse_fragment(source: str, path: pathlib.Path) -> Fragment:
         "requests",
         "feature",
         "guidance",
+        "target",
     }
     if unknown:
         # A misspelled key is a bullet that silently never reaches members. Cheaper to
@@ -205,7 +214,7 @@ def parse_fragment(source: str, path: pathlib.Path) -> Fragment:
         raise FragmentError(f"{path}: unknown key(s) {', '.join(sorted(unknown))}")
 
     if audience == "internal":
-        for key in ("requests", "feature", "guidance"):
+        for key in ("requests", "feature", "guidance", "target"):
             if key in data:
                 # An internal release is announced nowhere, so it has no changelog entry to
                 # link, sort or point at a feature.
@@ -226,6 +235,7 @@ def parse_fragment(source: str, path: pathlib.Path) -> Fragment:
         audiences=audiences,
         feature=feature,
         guidance=guidance,
+        target=_target(data, path, feature),
     )
 
 
@@ -279,6 +289,21 @@ def _guidance(data: dict[str, Any], path: pathlib.Path) -> tuple[str, str]:
     if guidance != "none" and not feature:
         raise FragmentError(f"{path}: 'guidance' = {guidance!r} needs a 'feature' to point at")
     return feature, guidance
+
+
+def _target(data: dict[str, Any], path: pathlib.Path, feature: str) -> str:
+    """The optional ``target`` key (#1051): the control the change lands on, a :data:`KEY_PATTERN` key.
+
+    The same PR places the key on that control as ``data-guidance-target``; whether a template
+    carries it is ``tests/hub/guidance_targets_spec.py``'s question, as help keys are held. It
+    needs a ``feature``, because the feature's page is where ``?show=<key>`` is added.
+    """
+    target = data.get("target", "")
+    if not isinstance(target, str) or (target and not KEY_PATTERN.match(target)):
+        raise FragmentError(f"{path}: 'target' must be a key like area.control (got {target!r})")
+    if target and not feature:
+        raise FragmentError(f"{path}: 'target' = {target!r} needs a 'feature' whose page it is on")
+    return target
 
 
 def _requests(data: dict[str, Any], path: pathlib.Path) -> tuple[int, ...]:
@@ -414,7 +439,8 @@ def load_history(path: pathlib.Path) -> list[dict[str, Any]]:
     A swept entry keeps the ``feature``, ``guidance`` and ``audiences`` its fragment declared
     (#1007), and they are checked here the way :func:`parse_fragment` checks a fragment's: a
     feature key the registry has since dropped, a level or an audience key nobody knows, fails
-    at import, where a release is noticed, rather than in a member's What's New.
+    at import, where a release is noticed, rather than in a member's What's New. A ``target``
+    (#1051) is held to :data:`KEY_PATTERN` the same way.
     """
     entries: list[dict[str, Any]] = json.loads(path.read_text(encoding="utf-8"))
     for entry in entries:
@@ -427,6 +453,9 @@ def load_history(path: pathlib.Path) -> list[dict[str, Any]]:
         for key in entry.get("audiences", ()):
             if key not in AUDIENCES:
                 raise FragmentError(f"{where} names audience {key!r}, not one of {', '.join(AUDIENCES)}")
+        target = entry.get("target", "")
+        if target and not KEY_PATTERN.match(target):
+            raise FragmentError(f"{where} names target {target!r}, not a key like area.control")
     return entries
 
 

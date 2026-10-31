@@ -1,0 +1,12 @@
+bump = "minor"
+date = "2026-10-31"
+audience = ["members", "guild-staff", "admins"]
+feature = "home.whats-new"
+guidance = "link"
+target = "home.whats-new-button"
+title = "Open buttons say where they go"
+changes = [
+  "Every Open button in What's New now names its destination, like Open Email Members or Open Teaching, so you know where you are headed before you press it.",
+  "When a change names the exact control, Open takes you to that page and rings the control in gold with a short note. Press anywhere or Esc to clear it.",
+  "An entry about the page you are already on says Show me instead, which closes What's New and rings the control right there.",
+]

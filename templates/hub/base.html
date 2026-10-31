@@ -746,6 +746,8 @@
         guarded IIFE. Scripts that must run exactly once belong in <head> above.
     {% endcomment %}
     {% block extra_js %}{% endblock %}
+    {# A ?show=<key> arrival (#1051): the entry guidance.js rings, read once and removed; core.context_processors.guidance_show. #}
+    {% if guidance_show %}{{ guidance_show|json_script:"pl-guidance-show" }}{% endif %}
     {% block tour_runtime %}{% include "hub/partials/_tour.html" %}{% endblock %}
 </body>
 </html>

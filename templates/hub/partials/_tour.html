@@ -2,10 +2,11 @@
 {% comment %}
 Guided-tour runtime plumbing (Spec C §6.2) — included on every member page via
 hub/base.html's tour_runtime block. The PAYLOAD block (root, json_script, offer card,
-advancing scrim) renders only when tour_json is present. The pause/resume pill and
-pl_tour.js itself (~2 KB) render UNCONDITIONALLY, so a paused tour can be resumed even
-on a page that carries no payload. Driver.js assets are NOT referenced here — pl_tour.js
-injects them lazily (from the data-driver-* URLs below) only when a tour actually starts.
+advancing scrim) renders only when tour_json is present. The pause/resume pill, the Driver.js
+asset URLs and pl_tour.js itself (~2 KB) render UNCONDITIONALLY, so a paused tour can be
+resumed, and a one step highlight (#1051, ?show=<key> or Show me) can run, on a page that
+carries no payload. Driver.js assets are NOT loaded here — pl_tour.js injects them lazily
+(from the data-driver-* URLs on #pl-tour-assets) only when a tour or a highlight starts.
 Boosted swaps re-execute the script; it is a guarded window.plTour IIFE, safe to re-run.
 {% endcomment %}
 {% if tour_json %}
@@ -29,6 +30,7 @@ run, which is what lets the presenter wander onto pages that carry no tour paylo
 and still resume. The script is likewise loaded unconditionally (it is a tiny,
 inert-when-idle guarded IIFE) so the pill has a controller everywhere.
 {% endcomment %}
+<div id="pl-tour-assets" hidden data-driver-css="{% static 'css/driver.css' %}" data-driver-js="{% static 'js/driver.min.js' %}"></div>
 <div id="pl-tour-resume" class="pl-tour-resume" role="region" aria-label="Paused tour" hidden>
     <span class="pl-tour-resume__label">Tour paused</span>
     <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" data-tour-resume>Resume tour</button>

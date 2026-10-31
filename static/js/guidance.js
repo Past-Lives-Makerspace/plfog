@@ -15,6 +15,14 @@
 // over everything it could show (Member.whats_new_opened, listed or not), so the button drops its
 // pulse, its dot and its "something is new" wording at once rather than on the next load, and
 // stays quiet until a release adds an entry.
+//
+// Open <feature> and Show me (#1051). An entry's Open <feature> link lands on the feature's page
+// with ?show=<key>; hub/base.html carries the entry it names as #pl-guidance-show (its target,
+// title and first bullet), read once here on the load or the boosted arrival, then removed, and
+// the param is stripped so a reload does not ring the control again. Show me, on the page the
+// entry lives on, carries the same three on its button (data-whats-new-show), closes the modal
+// and rings in place. Both hand them to pl_tour.js's one step mode, which does nothing at all
+// when no element carries data-guidance-target="<key>".
 (function () {
   function csrfToken() {
     var meta = document.querySelector('meta[name="csrf-token"]');
@@ -40,13 +48,50 @@
     if (label) button.setAttribute('aria-label', label.replace(/, something is new for you$/, ''));
   }
 
+  function highlight(key, title, body) {
+    if (!window.plTour || !window.plTour.show) return;
+    window.plTour.show({ selector: '[data-guidance-target="' + key + '"]', title: title, body: body });
+  }
+
+  function stripShow() {
+    try {
+      var url = new URL(window.location.href);
+      if (!url.searchParams.has('show')) return;
+      url.searchParams.delete('show');
+      var qs = url.searchParams.toString();
+      window.history.replaceState(window.history.state, '', url.pathname + (qs ? '?' + qs : '') + url.hash);
+    } catch (e) { /* the param stays; a reload rings the control once more */ }
+  }
+
+  function showFromPage() {
+    var data = document.getElementById('pl-guidance-show');
+    if (!data) return;
+    var payload = null;
+    try { payload = JSON.parse(data.textContent); } catch (e) { payload = null; }
+    data.parentNode.removeChild(data); // once per arrival
+    stripShow();
+    if (payload && payload.target) highlight(payload.target, payload.title, payload.body);
+  }
+
+  function showHere(button) {
+    window.dispatchEvent(new CustomEvent('close-modal', { detail: 'whats-new' }));
+    highlight(button.getAttribute('data-whats-new-show'), button.getAttribute('data-show-title'), button.getAttribute('data-show-body'));
+  }
+
   document.addEventListener('click', function (event) {
     var target = event.target;
     if (!target || !target.closest) return;
     var button = target.closest('[data-whats-new-button]');
     if (button) settle(button);
+    var show = target.closest('[data-whats-new-show]');
+    if (show) showHere(show);
     var element = target.closest('a, button');
     var badge = element && element.querySelector('.pl-new[data-new-key]');
     if (badge) markSeen(badge.getAttribute('data-new-key'));
   });
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', showFromPage);
+  else showFromPage();
+  document.addEventListener('htmx:afterSettle', showFromPage); // a boosted arrival swaps the body, payload included
+  document.addEventListener('htmx:pushedIntoHistory', stripShow); // htmx pushes the URL after the swap; strip it then too
 })();
