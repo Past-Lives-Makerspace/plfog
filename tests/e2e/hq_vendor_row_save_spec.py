@@ -3,7 +3,8 @@
 An organiser picks Confirmed in one row's Status and nothing else; the row is confirmed in the database, the band
 counts it, and the HQ's Member tables goal shows it, at desktop width and at 390 px with no sideways scroll. A text
 box saves when it is left, while the next box keeps its focus and what is half typed in it; two saves of one row
-both land; a stale page and an invalid email are refused in the row.
+both land; a stale page and an invalid email are refused in the row. A row renamed to an active member fills its blank
+contacts from their record (#1049), and only those boxes come back.
 
 The service worker is blocked because it fetches navigations past ``page.route``; every wait is on what the page
 shows (the row's state slot carries the saved status and stamp). Run with ``pytest -m e2e`` on PostgreSQL.
@@ -20,7 +21,7 @@ from playwright.sync_api import Page, expect
 from hq.models import EventHub, HubCard, HubGoal, VendorTable
 from membership.models import Member
 from tests.hq.factories import EventHubFactory, HubCardFactory, VendorTableFactory
-from tests.membership.factories import MembershipPlanFactory
+from tests.membership.factories import MemberFactory, MembershipPlanFactory
 
 ADMIN_EMAIL = "hq-vendor-row-admin@example.com"
 PHONE = {"width": 390, "height": 844}
@@ -205,3 +206,40 @@ def it_shows_an_invalid_email_in_the_row_and_saves_nothing(page, live_server, hu
     expect(email).to_have_value("nope")
     table.refresh_from_db()
     assert table.email == "ok@spec.example"
+
+
+def it_shows_a_member_vendors_filled_contacts_and_keeps_the_box_being_typed_in(page, live_server, hub, organiser):
+    """#1049: renaming a row to an active member's name fills its blank phone and Discord handle from their record;
+    the answer swaps those two boxes alone, so the box typed in meanwhile keeps its focus and text, and its save
+    carries the new stamp and is taken."""
+    MemberFactory(full_legal_name="Spec Odile Farrow", phone="503-555-0161", discord_handle="odie.makes", user=None)
+    table = VendorTableFactory(hub=hub, name="Spec Placeholder", email="typed@odie.example")
+
+    _open(page, live_server, hub)
+    row = page.locator(f'[data-hq-vt-row="{table.pk}"]')
+    page_stamp = _stamp(page, table).input_value()
+    row.get_by_label("Artist or group for Spec Placeholder").fill("Spec Odile Farrow")
+    sells = row.get_by_label("What they sell for Spec Placeholder")
+    sells.click()  # leaving Name saves the row; Sells is typed in while the fill lands
+    sells.press_sequentially("Rin")
+
+    expect(row.get_by_label("Phone for Spec Placeholder")).to_have_value("503-555-0161")
+    expect(row.get_by_label("Discord handle for Spec Placeholder")).to_have_value("odie.makes")
+    expect(row.get_by_label("Email for Spec Placeholder")).to_have_value("typed@odie.example")
+    expect(_stamp(page, table)).not_to_have_value(page_stamp)
+    expect(sells).to_be_focused()
+    expect(sells).to_have_value("Rin")
+
+    stamp = _stamp(page, table).input_value()
+    sells.press_sequentially("gs")
+    sells.press("Tab")
+    expect(_stamp(page, table)).not_to_have_value(stamp)
+    expect(row.locator("[data-hq-vt-row-error]")).to_have_count(0)
+    table.refresh_from_db()
+    assert (table.name, table.sells, table.email, table.phone, table.discord_handle) == (
+        "Spec Odile Farrow",
+        "Rings",
+        "typed@odie.example",
+        "503-555-0161",
+        "odie.makes",
+    )
