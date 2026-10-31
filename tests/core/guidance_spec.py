@@ -69,6 +69,12 @@ def describe_GUIDANCE():
         unknown = [g.key for g in GUIDANCE.values() if g.help_key is not None and g.help_key not in HELP_KEYS]
         assert not unknown, unknown
 
+    def it_only_names_targets_in_the_key_grammar():
+        # A default target (#1051) is a data-guidance-target key; tests/hub/guidance_targets_spec.py
+        # holds it to a template, this holds it to the grammar.
+        bad = [g.key for g in GUIDANCE.values() if g.target is not None and not KEY_PATTERN.match(g.target)]
+        assert not bad, bad
+
     def it_has_no_clips_until_1008_lands():
         # Recording and playing clips is #1008. A slug registered before a clip exists would let
         # a fragment declare guidance = "clip" and ship nothing.
@@ -174,10 +180,11 @@ def describe_url_for():
 def describe_Guidance():
     def it_defaults_the_optional_materials_to_none():
         guidance = Guidance(key="a.b", title="T", url_name="hub_home", steps=("One.", "Two."))
-        assert (guidance.url_kwargs, guidance.query, guidance.clip, guidance.tour, guidance.help_key) == (
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        assert (
+            guidance.url_kwargs,
+            guidance.query,
+            guidance.clip,
+            guidance.tour,
+            guidance.help_key,
+            guidance.target,
+        ) == (None, None, None, None, None, None)

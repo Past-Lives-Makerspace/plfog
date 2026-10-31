@@ -377,6 +377,7 @@ TEMPLATES = [
                 "hub.context_processors.hub_sidebar",
                 "core.context_processors.notification_badge",
                 "core.context_processors.tour_runtime",
+                "core.context_processors.guidance_show",
             ],
         },
     },

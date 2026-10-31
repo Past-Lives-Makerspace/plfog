@@ -27,10 +27,11 @@ from dataclasses import dataclass
 from functools import cached_property
 from itertools import groupby
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlencode, urlsplit
 
 from django.utils import timezone
 
-from core.guidance import GUIDANCE, covers, url_for
+from core.guidance import GUIDANCE, covers, title_for, url_for
 from plfog.changelog import AUDIENCES
 
 if TYPE_CHECKING:
@@ -80,6 +81,9 @@ class Entry:
     audiences: frozenset[str]
     feature: str
     guidance: str
+    #: The control the entry lands on (#1051): its fragment's ``target``, else the registry's
+    #: default for its feature, else ``""``. Open <feature> adds ``?show=<target>``.
+    target: str = ""
 
     @classmethod
     def from_changelog(cls, raw: dict[str, Any]) -> Entry:
@@ -88,14 +92,16 @@ class Entry:
         A ``history.json`` row has no ``slug`` (the sweep drops it) and, from before the keys,
         no ``audiences``, ``feature`` or ``guidance``: it is for members and opens nothing.
         """
+        feature = raw.get("feature", "")
         return cls(
             slug=raw.get("slug") or history_slug(raw["date"], raw["title"]),
             date=raw["date"],
             title=raw["title"],
             changes=tuple(raw["changes"]),
             audiences=frozenset(raw.get("audiences") or ("members",)),
-            feature=raw.get("feature", ""),
+            feature=feature,
             guidance=raw.get("guidance", "none"),
+            target=raw.get("target") or _default_target(feature),
         )
 
     def on_tab(self, tab: str) -> bool:
@@ -119,14 +125,53 @@ class Entry:
             return ()
         return GUIDANCE[self.feature].steps
 
+    @property
+    def open_label(self) -> str:
+        """What the entry's button says: "Open <feature title>", never a bare Open it (#1051)."""
+        return f"Open {title_for(self.feature)}"
+
+
+def _default_target(feature: str) -> str:
+    """The registry's default control for ``feature``, or ``""`` (no feature, or none registered)."""
+    guidance = GUIDANCE.get(feature)
+    return (guidance.target if guidance is not None else None) or ""
+
+
+def show_url(url: str, target: str) -> str:
+    """``url`` with ``?show=<target>`` added, so the page rings the control on arrival; ``url`` itself without one."""
+    if not url or not target:
+        return url
+    return f"{url}{'&' if '?' in url else '?'}{urlencode({'show': target})}"
+
+
+def show_payload(key: str) -> dict[str, str] | None:
+    """What a page rings for ``?show=<key>`` (#1051): the newest entry naming ``key`` as its target.
+
+    Its title and first bullet fill the popover. ``None`` for a key no entry names (a stale link);
+    whether the control is on the page at all is the page's own gate, in ``guidance.js``.
+    """
+    for entry in all_entries():
+        if entry.target == key:
+            return {"target": key, "title": entry.title, "body": entry.changes[0]}
+    return None
+
 
 @dataclass(frozen=True)
 class Row:
-    """An entry as the modal body draws it on one tab: its chips and the links the viewer may follow."""
+    """An entry as the modal body draws it on one tab: its chips and the links the viewer may follow.
+
+    ``open_url`` is where Open <feature> goes, with ``?show=<target>`` when the entry names a
+    control, or ``""`` when there is nothing to open or the entry lives on the page the modal is
+    open on; ``open_label`` is that button's text. ``show`` is the target to ring in place (Show
+    me) when the entry lives on this page and names one. An entry on this page with no target
+    draws no button at all: a button that links to the page it is on is impossible (#1051).
+    """
 
     entry: Entry
     chips: list[str]
     open_url: str
+    open_label: str
+    show: str
     tour_url: str
 
 
@@ -178,16 +223,16 @@ def can_open(entry: Entry, audiences: frozenset[str]) -> bool:
 
 
 def open_url(entry: Entry, member: Member) -> str:
-    """Where the entry's feature lives for ``member``, or ``""`` when there is nothing to open.
+    """Where the entry's feature lives for ``member``, with ``?show=<target>`` when it names a control, or ``""``.
 
     Empty for an entry with no feature, and for a member the feature's page cannot be resolved
-    for (a guild tab for a member in no guild raises ``ValueError``): Open it is hidden, never
-    broken. :meth:`WhatsNew._open_url` is the same answer with the guild resolved once per page.
+    for (a guild tab for a member in no guild raises ``ValueError``): the button is hidden, never
+    broken. :meth:`WhatsNew._open_url` is the same page with the guild resolved once per page.
     """
     if not entry.feature:
         return ""
     try:
-        return url_for(entry.feature, member)
+        return show_url(url_for(entry.feature, member), entry.target)
     except ValueError:
         return ""
 
@@ -364,12 +409,27 @@ class WhatsNew:
         """The tab's first page, grouped by date, newest first, with the viewer's links."""
         return self.page_for(tab, feature).groups
 
+    @cached_property
+    def here(self) -> str:
+        """The path of the page the modal is open on (#1051).
+
+        htmx sends the page's address as ``HX-Current-URL`` with every request from the modal; a
+        plain GET is the ``/whats-new/`` page itself, so its own path. An entry whose feature
+        lives here gets Show me (with a target) or no button, never a link to this page.
+        """
+        current = self.request.headers.get("HX-Current-URL", "")
+        return urlsplit(current).path if current else self.request.path
+
     def _row(self, entry: Entry, tab: str) -> Row:
         opens = self.member is not None and can_open(entry, self.audiences)
+        url = self._open_url(entry) if opens else ""
+        here = bool(url) and urlsplit(url).path == self.here
         return Row(
             entry=entry,
             chips=entry.chips(tab),
-            open_url=self._open_url(entry) if opens else "",
+            open_url="" if here else show_url(url, entry.target),
+            open_label=entry.open_label,
+            show=entry.target if here else "",
             tour_url=tour_url(entry, self.member) if opens and self.member is not None else "",
         )
 

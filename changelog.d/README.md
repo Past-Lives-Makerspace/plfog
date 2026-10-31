@@ -35,6 +35,7 @@ changes = [
 | `guidance` | no (`none`) | How much teaching ships with it: `none`, `link`, `clip` or `tour`. See below. |
 | `screenshot` | no | A feature-shot slug for the release email's card. |
 | `requests` | no | Feedback request numbers this change delivers, like `[12, 15]`. See below. |
+| `target` | no | The control the change lands on, a key the same PR places on it as `data-guidance-target`. See below. |
 
 ## `audience`, `feature` and `guidance`: who it is for and where it lives
 
@@ -79,6 +80,32 @@ Anything past `none` needs a `feature`. `clip` needs the feature to register a c
 Center article: no level adds one (#1009). The check holds `tour` to the tour key today and
 to the clip as well from #1008, when a feature can register one. `docs/GUIDANCE.md` says how
 to pick.
+
+## `target`: landing on the control that changed
+
+Open <feature> on a What's New entry goes where `feature` lives: a page, or a tab. A change to one
+control on an existing page names that control, so the button lands on it rather than on the page
+around it (#1051):
+
+```toml
+feature = "admin.email-members"
+guidance = "link"
+target = "announcements.feature-class"
+```
+
+`target` is a key in the help key grammar (`core.help_registry.KEY_PATTERN`, `area.control`), and
+the same PR puts it on the control as `data-guidance-target="announcements.feature-class"`. The
+button then reads "Open Email Members" and adds `?show=announcements.feature-class` to the URL; on
+arrival the control is scrolled into view and ringed in gold under a popover with the entry's title
+and first bullet, cleared by a click anywhere or Esc. A viewer whose role does not render the control
+sees nothing. With the modal open on that very page the button reads "Show me" and rings the control
+in place; an entry for the page it is on with no `target` draws no button at all.
+
+Rules: a `link` or `shots` fragment for a change to an existing page names a `target`; the
+`fragment` check rejects a `target` outside the grammar or without a `feature`;
+`tests/hub/guidance_targets_spec.py` fails a `target` no template carries. A new feature whose page
+is itself new needs none: the page is the destination. The field applies from #1051 on; nothing
+backfills it onto merged fragments.
 
 ## `requests`: telling the people who asked
 

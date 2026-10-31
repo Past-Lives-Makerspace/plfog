@@ -215,6 +215,12 @@ def describe_as_entry():
         # keeps treating it as genuinely optional.
         assert "screenshot" not in parse_fragment(_toml(), _PATH).as_entry()
 
+    def it_includes_the_target_when_set_and_omits_it_otherwise():
+        # #1051: like screenshot, written only when the fragment names a control.
+        named = parse_fragment(_toml(feature="home.whats-new", target="home.whats-new-button"), _PATH).as_entry()
+        assert named["target"] == "home.whats-new-button"
+        assert "target" not in parse_fragment(_toml(feature="home.whats-new"), _PATH).as_entry()
+
 
 def describe_load_fragments():
     def it_returns_nothing_when_the_directory_is_absent(tmp_path: pathlib.Path):
@@ -357,6 +363,7 @@ def describe_load_history():
             ({"feature": "guild.gone"}, "entry 'T' (2026-01-01) names feature 'guild.gone'"),
             ({"guidance": "video"}, "'guidance' must be one of none, link, clip, tour"),
             ({"audiences": ["members", "everyone"]}, "names audience 'everyone'"),
+            ({"target": "Whats New Button"}, "names target 'Whats New Button', not a key like area.control"),
         ],
     )
     def it_refuses_a_swept_entry_the_registry_no_longer_knows(tmp_path: pathlib.Path, keys, message):
@@ -544,24 +551,54 @@ def describe_feature_and_guidance():
         with pytest.raises(FragmentError, match="'guidance' = 'link' needs a 'feature'"):
             parse_fragment(_toml(guidance="link"), _PATH)
 
-    @pytest.mark.parametrize("key", ["feature", "guidance"])
+    @pytest.mark.parametrize("key", ["feature", "guidance", "target"])
     def it_refuses_either_key_on_an_internal_fragment(key: str):
         source = f'bump = "patch"\naudience = "internal"\n{key} = "x"\n'
         with pytest.raises(FragmentError, match=f"'{key}' needs a members fragment"):
             parse_fragment(source, _PATH)
 
     def it_leaves_the_version_where_it_was():
-        # The three keys describe an entry; none of them is a bump. Fold the repo's own
+        # The four keys describe an entry; none of them is a bump. Fold the repo's own
         # fragments with and without them and the version must agree.
         from plfog.version import BASE_VERSION, FRAGMENTS_PATH, VERSION
 
         stripped = []
         for path in sorted(FRAGMENTS_PATH.glob("*.toml")):
             lines = path.read_text(encoding="utf-8").splitlines()
-            kept = [line for line in lines if not line.startswith(("feature = ", "guidance = ", "audience = ["))]
+            kept = [
+                line
+                for line in lines
+                if not line.startswith(("feature = ", "guidance = ", "target = ", "audience = ["))
+            ]
             stripped.append(parse_fragment("\n".join(kept) + "\n", path))
         assert fold_version(BASE_VERSION, stripped) == VERSION
         assert len(stripped) == len(load_fragments(FRAGMENTS_PATH))
+
+
+def describe_target():
+    """``target`` (#1051): the control the change lands on, which Open <feature> rings on arrival."""
+
+    def it_reads_a_key_in_the_help_key_grammar():
+        fragment = parse_fragment(_toml(feature="home.whats-new", target="home.whats-new-button"), _PATH)
+        assert fragment.target == "home.whats-new-button"
+
+    def it_defaults_to_no_target():
+        assert parse_fragment(_toml(feature="home.whats-new"), _PATH).target == ""
+
+    @pytest.mark.parametrize("bad", ["Whats New", "home", "home.", ".button", "home.whats_new", "a.b.c"])
+    def it_refuses_a_target_outside_the_grammar(bad: str):
+        # The same grammar as help keys, guidance keys and tour targets: one dot, lowercase, hyphens.
+        with pytest.raises(FragmentError, match=f"'target' must be a key like area.control \\(got {bad!r}\\)"):
+            parse_fragment(_toml(feature="home.whats-new", target=bad), _PATH)
+
+    def it_refuses_a_target_that_is_not_a_string():
+        with pytest.raises(FragmentError, match="'target' must be a key like area.control"):
+            parse_fragment(_toml(feature="home.whats-new", target=5), _PATH)
+
+    def it_refuses_a_target_without_a_feature():
+        # The feature's page is where ?show=<key> is added; with no page there is nowhere to land.
+        with pytest.raises(FragmentError, match="'target' = 'home.whats-new-button' needs a 'feature'"):
+            parse_fragment(_toml(target="home.whats-new-button"), _PATH)
 
 
 def describe_requests():
