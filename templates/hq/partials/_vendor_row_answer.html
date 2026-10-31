@@ -1,9 +1,16 @@
 {% comment %}
-The htmx answer to a row's Save: the row (saved, or refused with its errors) for the target, and the
-band swapped out of band so the counts follow the row's status.
+The htmx answer to a row's autosave, all of it out of band (the form posts with hx-swap none, so the
+box being typed in is never replaced): the row's state slot (the new stamp and status, or a refused
+value's errors) or, for a refused stale save, the whole row as the database holds it; then the band,
+so the counts follow the row's status.
 
   hub, row, show — as hq/partials/_vendor_row.html
   band           — required, a hq.services.VendorBand
+  whole          — optional, True sends the whole row (a refused stale save)
 {% endcomment %}
-{% include "hq/partials/_vendor_row.html" %}
+{% if whole %}
+{% include "hq/partials/_vendor_row.html" with row_oob=True %}
+{% else %}
+{% with table=row.table form=row.form %}{% include "hq/partials/_vendor_row_state.html" with state_oob=True %}{% endwith %}
+{% endif %}
 {% include "hq/partials/_vendor_band.html" with oob=True %}

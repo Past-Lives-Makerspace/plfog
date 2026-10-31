@@ -1020,11 +1020,11 @@ class VendorRow:
 
     table: VendorTable
     form: VendorTableEditForm
-    # A refusal the form does not carry: a Save from a page older than the row (``VENDOR_STALE_SAVE``).
+    # A refusal the form does not carry: a save from a page older than the row (``VENDOR_STALE_SAVE``).
     error: str = ""
 
 
-# A row's Save whose ``updated_at`` no longer matches the database: someone else saved it since the page loaded.
+# A row's save whose ``updated_at`` no longer matches the database: someone else saved it since the page loaded.
 VENDOR_STALE_SAVE = "Someone else changed this table. Your page has been refreshed; make your change again."
 
 
@@ -1164,11 +1164,13 @@ def vendor_add(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpRes
 @require_POST
 @organizer_required(HubCard.Kind.VENDOR_TABLES)
 def vendor_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
-    """Save one row, by the actual role. Over htmx only that row comes back (with the band out of band), so
-    what is typed in any other row stays put; a refused Save comes back with its errors and saves nothing.
+    """Save one row, by the actual role: the row's form posts itself over htmx on every change (no Save button).
+    The answer is all out of band, so no box is replaced while someone types: the row's state slot (the new
+    ``updated_at`` stamp and the saved status) and the band, with a toast. A refused value comes back as the slot
+    with its errors, and nothing is saved.
 
-    A Save from a page older than the row (its ``updated_at`` no longer matches) is refused whole: the row comes
-    back as the database holds it, with :data:`VENDOR_STALE_SAVE`, so one organiser never overwrites another.
+    A save from a page older than the row (its ``updated_at`` no longer matches) is refused whole: the whole row
+    comes back as the database holds it, with :data:`VENDOR_STALE_SAVE`, so one organiser never overwrites another.
     """
     show = _vendor_posted_filter(request)
     guilds = services.active_guilds()
@@ -1184,7 +1186,7 @@ def vendor_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) 
                 context = _vendors_context(request, hub, card, show=show, keep_pk=table.pk, row_error=VENDOR_STALE_SAVE)
                 return render(request, "hq/vendors.html", context)
             fresh = VendorRow(table=table, form=_vendor_edit_form(table, guilds), error=VENDOR_STALE_SAVE)
-            return _vendor_row_answer(request, hub, card, fresh)
+            return _vendor_row_answer(request, hub, card, fresh, whole=True)
         if not form.is_valid():
             if not fragment:
                 context = _vendors_context(request, hub, card, show=show, keep_pk=table.pk, row_form=form)
@@ -1201,9 +1203,18 @@ def vendor_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) 
     return response
 
 
-def _vendor_row_answer(request: HttpRequest, hub: EventHub, card: HubCard, row: VendorRow) -> HttpResponse:
-    """The row for an htmx Save, with the band swapped out of band so the counts follow the row's status."""
-    context = {**_vendor_band_context(hub, card), "hub": hub, "row": row, "show": _vendor_posted_filter(request)}
+def _vendor_row_answer(
+    request: HttpRequest, hub: EventHub, card: HubCard, row: VendorRow, *, whole: bool = False
+) -> HttpResponse:
+    """The answer to a row's htmx autosave, all out of band: the row's state slot (or, with ``whole``, the whole row
+    for a refused stale save), then the band so the counts follow the row's status."""
+    context = {
+        **_vendor_band_context(hub, card),
+        "hub": hub,
+        "row": row,
+        "show": _vendor_posted_filter(request),
+        "whole": whole,
+    }
     return render(request, "hq/partials/_vendor_row_answer.html", context)
 
 

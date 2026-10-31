@@ -1,17 +1,22 @@
 {% comment %}
 One table request as a row of its own edit form: every field is a control tied to the row's form
-(in the last cell) by its form attribute, since a form cannot wrap a table row. Save swaps this
-row alone over htmx, with the band out of band; Delete goes through the confirm modal. Under the name, Lee's "Added
-by" with who entered the request (the page is for organisers only, so it shows to everyone who sees the row).
+(in the last cell) by its form attribute, since a form cannot wrap a table row. A change to any
+control saves the row over htmx (hx-trigger "change" from the row, hx-swap none), so the box being
+typed in is never replaced (novalidate, so htmx posts a refused value and the server's error shows
+in the row rather than the browser silently holding the save): the answer swaps the row's state slot (its stamp, status stripe and
+errors) and the band out of band. A refused stale save swaps the whole row back as the database
+holds it. Delete goes through the confirm modal. Under the name, Lee's "Added by" with who entered
+the request (the page is for organisers only, so it shows to everyone who sees the row).
 Contact carries the Discord handle under the email and phone; Source carries the sheet's Source note, how the
 request came in and the day it was asked for.
 
-  hub  — required, the EventHub
-  row  — required, a hq.views.VendorRow (the request, its edit form, and any refusal the form lacks)
-  show — required, the filter in view, carried by Save and Delete
+  hub     — required, the EventHub
+  row     — required, a hq.views.VendorRow (the request, its edit form, and any refusal the form lacks)
+  show    — required, the filter in view, carried by each save and Delete
+  row_oob — optional, True renders the hx-swap-oob attribute (a refused stale save)
 {% endcomment %}
 {% with table=row.table form=row.form %}
-<tr class="pl-hq-vt__row pl-hq-vt__row--{{ table.status }}" data-hq-vt-row="{{ table.pk }}" data-hq-vt-status="{{ table.status }}">
+<tr class="pl-hq-vt__row" id="hq-vt-line-{{ table.pk }}" data-hq-vt-row="{{ table.pk }}"{% if row_oob %} hx-swap-oob="true"{% endif %}>
   <td class="pl-hq-vt__cell pl-hq-vt__cell--name">
     {% include "components/form_field.html" with field=form.name field_hint_off=True %}
     {% if table.created_by and table.created_by.display_name.strip %}<p class="pl-hq-vt__muted pl-hq-vt__added" data-hq-vt-added-by>Added by {{ table.created_by.display_name }}</p>{% endif %}
@@ -34,13 +39,10 @@ request came in and the day it was asked for.
     {% include "components/form_field.html" with field=form.requested_on field_hint_off=True %}
   </td>
   <td class="pl-hq-vt__cell pl-hq-vt__cell--actions">
-    {% if row.error %}<p class="pl-field-error" role="alert" data-hq-vt-row-error>{{ row.error }}</p>{% endif %}
-    {% for error in form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
-    <form id="{{ form.form_id }}" method="post" action="{% url 'hq:vendor_edit' hub.slug table.pk %}" hx-post="{% url 'hq:vendor_edit' hub.slug table.pk %}" hx-target="closest [data-hq-vt-row]" hx-swap="outerHTML" data-hq-vt-edit-form>
+    {% include "hq/partials/_vendor_row_state.html" %}
+    <form id="{{ form.form_id }}" method="post" action="{% url 'hq:vendor_edit' hub.slug table.pk %}" hx-post="{% url 'hq:vendor_edit' hub.slug table.pk %}" hx-trigger="change from:closest tr" hx-sync="this:queue last" hx-swap="none" novalidate data-autosave data-hq-vt-edit-form>
       {% csrf_token %}
       <input type="hidden" name="filter" value="{{ show }}">
-      {{ form.updated_at }}
-      <button type="submit" class="pl-hq-vt__btn pl-hq-vt__btn--sm" aria-label="Save {{ table.name }}" data-hq-vt-save>Save</button>
     </form>
     <button type="button" class="pl-hq-vt__delete" aria-label="Delete {{ table.name }}" @click="$dispatch('open-confirm', 'delete-vendor-{{ table.pk }}')" data-hq-vt-delete>Delete</button>
     {% url 'hq:vendor_delete' hub.slug table.pk as delete_url %}
