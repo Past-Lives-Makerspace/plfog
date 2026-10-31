@@ -12,11 +12,16 @@ staging box. Outside staging the policy is a no-op.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives, send_mail
 
 from core import email_policy
 from core.models import TransactionalEmailLog
+
+if TYPE_CHECKING:
+    from core.email_prefs import StopLink
 
 # An attachment as (filename, content, mimetype) — e.g. ("orientation.ics", ics_bytes, "text/calendar").
 Attachment = tuple[str, str | bytes, str]
@@ -79,6 +84,7 @@ def send(
     attachments: list[Attachment] | None = None,
     bcc: str | list[str] | None = None,
     category: str | None = None,
+    stop_link: StopLink | None = None,
 ) -> TransactionalEmailLog:
     """Send a transactional email and log the attempt.
 
@@ -101,6 +107,9 @@ def send(
             like "Billing" or "Voting"). When set, it rides an ``X-Category``
             header — and forces the multipart send path — so ESP and mail-client
             rules can filter by workflow.
+        stop_link: A past students email's stop link (#1042): which instructor it stops and the
+            placeholder to fill with this recipient's token. Also adds the one click
+            ``List-Unsubscribe`` headers. Nothing else in the body is ever read for it.
 
     Returns:
         The TransactionalEmailLog row written for this attempt. On staging, when the
@@ -139,7 +148,7 @@ def send(
     text_body, html_body = finalize_manage_prefs_link(text_body, html_body, recipients)
     # And the past students stop link (#1042), with a token of its instructor and this recipient's
     # address; the same link rides the one click unsubscribe headers mail clients offer (RFC 8058).
-    text_body, html_body, unsubscribe_url = finalize_stop_link(text_body, html_body, recipients)
+    text_body, html_body, unsubscribe_url = finalize_stop_link(text_body, html_body, recipients, stop_link)
     headers = (
         {"List-Unsubscribe": f"<{unsubscribe_url}>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"}
         if unsubscribe_url

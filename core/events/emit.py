@@ -513,6 +513,7 @@ def _explicit_email_fan_out(
                     best_effort=True,
                     attachments=attachments,
                     category=category,
+                    stop_link=message.stop_link,
                 )
             except BaseException:  # see _per_recipient_fan_out — shutdown must not strand a slot
                 _release_explicit_email(event_key, address, period)

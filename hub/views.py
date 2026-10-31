@@ -5455,6 +5455,7 @@ def hub_compose_test(request: HttpRequest) -> HttpResponse:
         text_body=message.body,
         html_body=message.html_body,
         best_effort=True,
+        stop_link=message.stop_link,
     )
     response = HttpResponse(status=204)
     trigger_toast(response, f"Test sent to {to}.")
