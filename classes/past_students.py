@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
+    from core.email_prefs import StopLink
     from membership.models import Member
 
 
@@ -111,23 +112,22 @@ def instructor_name(instructor: Member) -> str:
     return instructor.display_name.strip() or "your instructor"
 
 
-def stop_line(instructor: Member) -> tuple[str, str]:
+def stop_line(instructor: Member, stop_link: StopLink) -> tuple[str, str]:
     """The ``(html, text)`` line that ends every past students email from ``instructor``.
 
     "You took a class with <name>. Stop emails from <name>" (:func:`instructor_name`), linking to
-    the no login stop page. The link carries a placeholder naming the instructor that
-    ``core.email.send`` swaps for a token of the instructor and each recipient's own address
+    the no login stop page at ``stop_link``'s placeholder, which ``core.email.send`` fills with a
+    token of the instructor and each recipient's own address
     (:func:`core.email_prefs.finalize_stop_link`), so one built message serves every recipient.
 
     Args:
         instructor: The instructor sending; their emails are the ones the link stops.
+        stop_link: The message's stop link, built for ``instructor``.
     """
     from django.utils.html import escape
 
-    from core.email_prefs import stop_token_placeholder, stop_url
-
     name = instructor_name(instructor)
-    url = stop_url(stop_token_placeholder(instructor.pk))
+    url = stop_link.url
     html = (
         '<p style="margin:28px 0 0;padding-top:14px;border-top:1px solid #e3e7ec;color:#5b6b78;'
         'font-size:13px;line-height:1.5;" data-past-students-stop>'

@@ -7606,11 +7606,16 @@ class AnnouncementDraft(models.Model):
             results_html = snapshot.results_visual_html()
         footer_html = ""
         text_tail = ""
+        stop_link = None
         instructor = self._students_instructor() if self.audience == self.Audience.STUDENTS else None
         if instructor is not None:
             from classes.past_students import stop_line
+            from core.email_prefs import StopLink
 
-            footer_html, stop_text = stop_line(instructor)
+            # The instructor is the sender, named here and carried on the message; the send never
+            # reads it from the email's text (#1042).
+            stop_link = StopLink.for_instructor(instructor.pk)
+            footer_html, stop_text = stop_line(instructor, stop_link)
             text_tail = f"\n\n{stop_text}"
         return Message(
             title=self.title,
@@ -7625,6 +7630,7 @@ class AnnouncementDraft(models.Model):
                 footer_html=footer_html,
             ),
             trigger_kind=self._trigger_kind(),
+            stop_link=stop_link,
         )
 
     def recipient_count(self) -> int:

@@ -13,7 +13,8 @@ in ``core.email.send`` — the one place that knows who each message is going to
 
 from __future__ import annotations
 
-import re
+import secrets
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from django.conf import settings
@@ -94,16 +95,32 @@ def finalize_manage_prefs_link(text_body: str, html_body: str | None, recipients
 
 # The past students stop link (#1042): an instructor's email to everyone who took their classes
 # links to a no login page that stops that instructor's emails to the address it went to. The
-# token signs the instructor and the address together, so a link stops one instructor for one
-# address and nothing else. The email is built once with a placeholder naming the instructor
-# (:func:`stop_token_placeholder`); ``core.email.send`` swaps it for the recipient's own token.
+# token signs the instructor and the address together. Which instructor is never read from the
+# email's text: the send names it in a :class:`StopLink`, whose placeholder is random per message
+# and carries no pk, and ``core.email.send`` fills only that placeholder, for only that instructor.
+# Anything an author types into the message renders as typed and is never signed.
 _STOP_SALT = "past-students-stop"
-_STOP_PLACEHOLDER = re.compile(r"__PL_STOP_TOKEN_(\d+)__")
 
 
-def stop_token_placeholder(instructor_pk: int) -> str:
-    """The placeholder a past students email carries where its stop token goes."""
-    return f"__PL_STOP_TOKEN_{instructor_pk}__"
+@dataclass(frozen=True)
+class StopLink:
+    """Which instructor a past students email's stop link stops, and where its token goes.
+
+    Built once per message by :meth:`for_instructor`; the message carries it to every send.
+    """
+
+    instructor_pk: int
+    placeholder: str
+
+    @classmethod
+    def for_instructor(cls, instructor_pk: int) -> StopLink:
+        """A stop link for ``instructor_pk`` with a fresh placeholder no author can guess."""
+        return cls(instructor_pk=instructor_pk, placeholder=f"__PL_STOP_{secrets.token_hex(16)}__")
+
+    @property
+    def url(self) -> str:
+        """The stop page URL with the placeholder where each recipient's token goes."""
+        return stop_url(self.placeholder)
 
 
 def make_stop_token(instructor_pk: int, email: str) -> str:
@@ -136,27 +153,22 @@ def stop_url(token: str) -> str:
     return settings.MEMBER_BASE_URL.rstrip("/") + reverse("classes:stop_past_student_emails", args=[token])
 
 
-def finalize_stop_link(text_body: str, html_body: str | None, recipients: list[str]) -> tuple[str, str | None, str]:
-    """Swap the stop link's placeholder for a token of its instructor and the one recipient's address.
+def finalize_stop_link(
+    text_body: str, html_body: str | None, recipients: list[str], stop_link: StopLink | None
+) -> tuple[str, str | None, str]:
+    """Fill ``stop_link``'s placeholder with a token of its instructor and the one recipient's address.
 
-    Returns the bodies and the stop URL for the ``List-Unsubscribe`` header, ``""`` when the
-    email carries no stop link. A send to several addresses at once gets an empty token, so its
-    link is refused rather than stopping someone else's emails, and no header.
+    Returns the bodies and the stop URL for the ``List-Unsubscribe`` header, ``""`` with no stop
+    link. Without a ``stop_link`` the bodies are returned untouched, whatever they contain. A send
+    to several addresses at once gets an empty token (its link is refused) and no header.
     """
-    found = _STOP_PLACEHOLDER.search(text_body) or (_STOP_PLACEHOLDER.search(html_body) if html_body else None)
-    if found is None:
+    if stop_link is None:
         return text_body, html_body, ""
-    single = len(recipients) == 1
-    # One token per instructor, so the link in the body and the header are the same link.
-    tokens: dict[int, str] = {}
-
-    def token(match: re.Match[str]) -> str:
-        if not single:
-            return ""
-        instructor_pk = int(match.group(1))
-        return tokens.setdefault(instructor_pk, make_stop_token(instructor_pk, recipients[0]))
-
-    text_body = _STOP_PLACEHOLDER.sub(token, text_body)
+    if len(recipients) != 1:
+        token = ""
+    else:
+        token = make_stop_token(stop_link.instructor_pk, recipients[0])
+    text_body = text_body.replace(stop_link.placeholder, token)
     if html_body is not None:
-        html_body = _STOP_PLACEHOLDER.sub(token, html_body)
-    return text_body, html_body, stop_url(token(found)) if single else ""
+        html_body = html_body.replace(stop_link.placeholder, token)
+    return text_body, html_body, stop_url(token) if token else ""

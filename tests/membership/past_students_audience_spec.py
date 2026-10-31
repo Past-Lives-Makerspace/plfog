@@ -22,7 +22,7 @@ from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory, RegistrationFactory
 from classes.models import ClassOffering, PastStudentOptOut, Registration
-from core.email_prefs import stop_token_placeholder, stop_url
+from core.email_prefs import read_stop_token
 from core.models import EventDelivery, Notification
 from membership.models import AnnouncementDraft, GuildAnnouncement, Member
 from tests.membership.factories import MembershipPlanFactory
@@ -129,7 +129,8 @@ def describe_AnnouncementDraft_students_audience():
             ).build_email_message("https://example.com/")
             assert "You took a class with Kay. <a href=" in message.html_body
             assert "Stop emails from Kay</a>" in message.html_body
-            url = stop_url(stop_token_placeholder(teacher.member.pk))
+            url = message.stop_link.url
+            assert message.stop_link.instructor_pk == teacher.member.pk
             assert url in message.html_body
             assert message.body.endswith(url)
 
@@ -163,7 +164,7 @@ def describe_AnnouncementDraft_students_audience():
             _draft(teacher).send_in_request()
             links = {message.to[0]: _STOP_LINK.search(message.body).group(0) for message in mail.outbox}
             assert len(set(links.values())) == 2
-            assert "__PL_STOP_TOKEN_" not in "".join(message.body for message in mail.outbox)
+            assert "__PL_STOP_" not in "".join(message.body for message in mail.outbox)
             assert all(
                 message.extra_headers["List-Unsubscribe"] == f"<{links[message.to[0]]}>" for message in mail.outbox
             )
@@ -189,6 +190,23 @@ def describe_AnnouncementDraft_students_audience():
             failed = {r.address: r.email_error for r in draft.recipient_list().recipients if r.email == "failed"}
             assert failed["guest@example.com"] == "mailbox full"
             assert draft._email_only_audience() == {"guest@example.com"}
+
+        def it_signs_only_the_senders_link_whatever_the_author_typed():
+            teacher, _student = _teacher_with_students()
+            other = _user("other").member
+            typed = f"<p>__PL_STOP_TOKEN_{other.pk}__ and __PL_STOP_0123456789abcdef0123456789abcdef__</p>"
+            _draft(teacher, body=typed).send_in_request()
+            for message in mail.outbox:
+                assert f"__PL_STOP_TOKEN_{other.pk}__" in message.body
+                assert "__PL_STOP_0123456789abcdef0123456789abcdef__" in message.body
+                tokens = re.findall(r"/classes/stop-emails/([^/\s\"'<>]+)/", message.body + message.alternatives[0][0])
+                assert tokens
+                assert {read_stop_token(token)[0] for token in tokens} == {teacher.member.pk}
+                header = message.extra_headers["List-Unsubscribe"]
+                assert read_stop_token(re.search(r"/classes/stop-emails/([^/]+)/", header).group(1)) == (
+                    teacher.member.pk,
+                    message.to[0],
+                )
 
     def describe_stop_round_trip():
         def it_skips_whoever_opened_their_link_on_the_same_instructors_next_send():

@@ -22,7 +22,7 @@ from classes.factories import ClassOfferingFactory, RegistrationFactory
 from classes.models import ClassOffering, PastStudentOptOut, Registration
 from classes.past_students import instructor_name, past_students, stop_line
 from core.email import send as send_email
-from core.email_prefs import finalize_stop_link, make_stop_token, read_stop_token, stop_token_placeholder, stop_url
+from core.email_prefs import StopLink, finalize_stop_link, make_stop_token, read_stop_token, stop_url
 from membership.models import Member
 from tests.membership.factories import MemberFactory, MembershipPlanFactory
 
@@ -265,53 +265,77 @@ def describe_stop_tokens():
     def it_refuses_a_signed_payload_of_the_wrong_shape(payload: object):
         assert read_stop_token(signing.dumps(payload, salt="past-students-stop")) is None
 
+    def describe_StopLink():
+        def it_makes_a_fresh_placeholder_that_names_no_instructor():
+            first, second = StopLink.for_instructor(7), StopLink.for_instructor(7)
+            assert first.instructor_pk == 7
+            assert first.placeholder != second.placeholder
+            assert re.fullmatch(r"__PL_STOP_[0-9a-f]{32}__", first.placeholder)
+            assert first.url == stop_url(first.placeholder)
+
     def describe_finalize_stop_link():
         def it_puts_the_one_recipients_token_in_both_parts_and_returns_the_link():
-            placeholder = stop_token_placeholder(7)
-            text, html, url = finalize_stop_link(f"stop {placeholder}", f"<a href='{placeholder}'>", ["me@example.com"])
+            link = StopLink.for_instructor(7)
+            text, html, url = finalize_stop_link(
+                f"stop {link.placeholder}", f"<a href='{link.placeholder}'>", ["me@example.com"], link
+            )
             token = text.removeprefix("stop ")
             assert read_stop_token(token) == (7, "me@example.com")
             assert html == f"<a href='{token}'>"
-            assert read_stop_token(_token_in(url)) == (7, "me@example.com")
+            assert url == stop_url(token)
 
         def it_leaves_the_token_empty_and_no_link_for_several_recipients():
+            link = StopLink.for_instructor(7)
             text, html, url = finalize_stop_link(
-                f"x{stop_token_placeholder(7)}y", None, ["a@example.com", "b@example.com"]
+                f"x{link.placeholder}y", None, ["a@example.com", "b@example.com"], link
             )
             assert (text, html, url) == ("xy", None, "")
 
         def it_fills_an_html_part_alone():
-            text, html, url = finalize_stop_link("plain", f"<a href='{stop_token_placeholder(7)}'>", ["me@example.com"])
+            link = StopLink.for_instructor(7)
+            text, html, url = finalize_stop_link("plain", f"<a href='{link.placeholder}'>", ["me@example.com"], link)
             assert text == "plain"
             assert read_stop_token(html.removeprefix("<a href='").removesuffix("'>")) == (7, "me@example.com")
             assert url
 
-        def it_changes_nothing_without_the_placeholder():
-            assert finalize_stop_link("plain", "<p>plain</p>", ["a@example.com"]) == ("plain", "<p>plain</p>", "")
+        def it_touches_nothing_without_a_stop_link_whatever_the_body_says():
+            body = "__PL_STOP_TOKEN_99__ __PL_STOP_0123456789abcdef__"
+            assert finalize_stop_link(body, f"<p>{body}</p>", ["a@example.com"], None) == (body, f"<p>{body}</p>", "")
+
+        def it_signs_only_its_own_placeholder_never_text_that_looks_like_one():
+            link = StopLink.for_instructor(7)
+            other = StopLink.for_instructor(99).placeholder
+            body = f"__PL_STOP_TOKEN_99__ {other} {link.placeholder}"
+            text, _html, url = finalize_stop_link(body, None, ["me@example.com"], link)
+            literal, forged, token = text.split(" ")
+            assert (literal, forged) == ("__PL_STOP_TOKEN_99__", other)
+            assert read_stop_token(token) == (7, "me@example.com")
+            assert read_stop_token(_token_in(url)) == (7, "me@example.com")
 
         def describe_inside_core_email_send():
             def it_sends_the_token_and_the_one_click_unsubscribe_headers():
-                placeholder = stop_token_placeholder(7)
+                link = StopLink.for_instructor(7)
                 send_email(
                     to="me@example.com",
                     subject="Hi",
                     trigger_kind="test",
-                    text_body=f"stop {placeholder}",
-                    html_body=f"<p>{placeholder}</p>",
+                    text_body=f"stop {link.placeholder}",
+                    html_body=f"<p>{link.placeholder}</p>",
+                    stop_link=link,
                 )
                 message = mail.outbox[0]
                 token = message.body.removeprefix("stop ")
                 assert read_stop_token(token) == (7, "me@example.com")
                 assert token in message.alternatives[0][0]
-                header = message.extra_headers["List-Unsubscribe"]
-                assert header.startswith("<http") and header.endswith("/>")
-                assert read_stop_token(_token_in(header)) == (7, "me@example.com")
+                assert message.extra_headers["List-Unsubscribe"] == f"<{stop_url(token)}>"
                 assert message.extra_headers["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
 
-            def it_adds_no_headers_to_any_other_email():
+            def it_gives_any_other_email_no_stop_link_whatever_its_body_says():
+                body = f"__PL_STOP_TOKEN_99__ {StopLink.for_instructor(99).placeholder}"
                 send_email(
-                    to="me@example.com", subject="Hi", trigger_kind="test", text_body="hi", html_body="<p>hi</p>"
+                    to="me@example.com", subject="Hi", trigger_kind="test", text_body=body, html_body=f"<p>{body}</p>"
                 )
+                assert mail.outbox[0].body == body
                 assert "List-Unsubscribe" not in mail.outbox[0].extra_headers
 
 
@@ -334,8 +358,9 @@ def describe_stop_line():
         teacher = _user("teacher").member
         Member.objects.filter(pk=teacher.pk).update(preferred_name="Kay <b>")
         teacher.refresh_from_db()
-        html, text = stop_line(teacher)
-        url = stop_url(stop_token_placeholder(teacher.pk))
+        link = StopLink.for_instructor(teacher.pk)
+        html, text = stop_line(teacher, link)
+        url = link.url
         assert "You took a class with Kay &lt;b&gt;." in html
         assert "Stop emails from Kay &lt;b&gt;</a>" in html
         assert url in html
@@ -345,7 +370,7 @@ def describe_stop_line():
         teacher = _user("teacher").member
         Member.objects.filter(pk=teacher.pk).update(preferred_name="", full_legal_name="")
         teacher.refresh_from_db()
-        html, text = stop_line(teacher)
+        html, text = stop_line(teacher, StopLink.for_instructor(teacher.pk))
         assert "teacher@example.com" not in html + text
         assert "Stop emails from your instructor</a>" in html
 
