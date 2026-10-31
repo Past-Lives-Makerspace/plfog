@@ -4640,6 +4640,10 @@ def _can_enter_compose(request: HttpRequest, member: Member | None, raw_audience
         return True
     if not raw_audience:
         return False
+    if raw_audience == AnnouncementDraft.Audience.STUDENTS.value:
+        # My Classes links here for anyone who teaches a class, published or not (#1042), so the
+        # link never lands on a refusal; whose students it reaches is decided by _teaching_member.
+        return _teaching_member(member) is not None
     from hub.forms import split_audience
 
     _audience, _guild, offering = split_audience(raw_audience)

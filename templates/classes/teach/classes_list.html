@@ -1,7 +1,11 @@
 {% extends "classes/teach/base.html" %}
-{% load classes_tags %}
+{% load classes_tags guidance %}
 {% block tab_content %}
-<div style="display:flex; justify-content:flex-end; margin-bottom:1rem;">
+<div style="display:flex; justify-content:flex-end; flex-wrap:wrap; gap:0.5rem; margin-bottom:1rem;">
+    {# Shown on the same rule the composer offers My past students by: any class with this instructor on it (#1042). #}
+    {% if has_any_classes %}
+    <a class="hub-btn hub-btn--ghost hub-btn--sm" href="{% url 'hub_compose' %}?audience=students" data-email-past-students>Email past students{% new_badge "classes.email-past-students" %}</a>
+    {% endif %}
     <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_class_create' %}" data-help-key="teach.create-class">+ New Class</a>
 </div>
 {% if has_any_classes %}
