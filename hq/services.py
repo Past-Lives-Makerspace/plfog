@@ -1593,12 +1593,15 @@ def fill_vendor_contacts(tables: Iterable[VendorTable], *, save: bool = True) ->
 
 def _member_matches(tables: Sequence[VendorTable]) -> list[tuple[VendorTable, int]]:
     """Each of ``tables`` that is one active member's row, with that member's pk, from one query of the active
-    members' handles and names."""
+    members' handles and names. A name match does not count when the row and the member both have a handle and the
+    two differ."""
     by_handle: dict[str, set[int]] = defaultdict(set)
     by_name: dict[str, set[int]] = defaultdict(set)
+    member_handles: dict[int, str] = {}
     keys = Member.objects.active().values_list("pk", "discord_handle", "preferred_name", "full_legal_name")
     for pk, handle, preferred_name, full_legal_name in keys:
-        by_handle[_handle_key(handle)].add(pk)
+        member_handles[pk] = _handle_key(handle)
+        by_handle[member_handles[pk]].add(pk)
         by_name[normalise(preferred_name)].add(pk)
         by_name[normalise(full_legal_name)].add(pk)
     # A blank handle or name is nobody's key.
@@ -1608,9 +1611,13 @@ def _member_matches(tables: Sequence[VendorTable]) -> list[tuple[VendorTable, in
     names = {key: next(iter(pks)) for key, pks in by_name.items() if len(pks) == 1}
     matched: list[tuple[VendorTable, int]] = []
     for table in tables:
-        pk = handles.get(_handle_key(table.discord_handle))
+        row_handle = _handle_key(table.discord_handle)
+        pk = handles.get(row_handle)
         if pk is None:
             pk = names.get(normalise(table.name))
+            # A namesake whose handle differs from the row's is someone else, so their contacts never land here.
+            if pk is not None and row_handle and member_handles[pk] and member_handles[pk] != row_handle:
+                pk = None
         if pk is not None:
             matched.append((table, pk))
     return matched

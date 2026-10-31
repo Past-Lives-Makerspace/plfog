@@ -121,7 +121,23 @@ def describe_the_match():
 
         assert table.phone == "503-555-0188"
 
-    def it_falls_back_on_the_name_when_the_handle_matches_nobody(hub, odile):
+    def it_falls_back_on_the_name_when_the_row_has_no_handle(hub, odile):
+        table = VendorTableFactory(hub=hub, name="Odie Farrow")
+
+        _fill(table)
+
+        assert _contacts(table)[:2] == ("odile.primary@farrow.example", "503-555-0161")
+
+    def it_never_fills_from_a_namesake_whose_handle_differs_from_the_rows(hub, odile):
+        table = VendorTableFactory(hub=hub, name="Odie Farrow", discord_handle="not.a.member")
+
+        _fill(table)
+
+        assert _contacts(table) == ("", "", "not.a.member")
+
+    def it_falls_back_on_the_name_when_the_member_has_no_handle(hub, odile):
+        odile.discord_handle = ""
+        odile.save(update_fields=["discord_handle"])
         table = VendorTableFactory(hub=hub, name="Odie Farrow", discord_handle="not.a.member")
 
         _fill(table)
@@ -210,7 +226,7 @@ def describe_who_matches_nobody():
 
         assert _contacts(table) == ("", "", "")
 
-    def it_fills_nothing_for_a_handle_two_active_members_share_and_tries_the_name(hub, make_member, odile):
+    def it_fills_nothing_for_a_shared_handle_nor_from_a_namesake_with_another_handle(hub, make_member, odile):
         make_member(discord_handle="twin", phone="503-555-0141")
         make_member(discord_handle="@Twin", phone="503-555-0142")
         shared = VendorTableFactory(hub=hub, name="Twin Studio", discord_handle="twin")
@@ -219,7 +235,7 @@ def describe_who_matches_nobody():
         _fill(shared, named)
 
         assert shared.phone == ""
-        assert named.phone == "503-555-0161"
+        assert named.phone == ""  # the name is Odile's, but her handle is not the row's
 
     @pytest.mark.parametrize("status", [status for status in Member.Status if status != Member.Status.ACTIVE])
     def it_fills_nothing_from_a_member_who_is_not_active(hub, make_member, status):
