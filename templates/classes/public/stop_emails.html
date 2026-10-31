@@ -1,0 +1,21 @@
+{% extends "classes/base_public.html" %}
+{# The no login page a past students email's stop link opens (#1042); the opt out is already saved. #}
+{% block title %}Emails stopped{% endblock %}
+{% block portal_content %}
+<div class="view">
+  <div class="cp-container">
+    <div class="detail-card" data-past-students-stopped>
+      <div class="detail-head">
+        <div>
+          <div class="dc-cat">Emails stopped</div>
+          <div class="dc-title">You're off the list</div>
+        </div>
+        <a class="back-link" href="{% url 'classes:public_list' %}">All Classes →</a>
+      </div>
+      <div class="detail-body">
+        <p>You won't get any more emails from {{ instructor_name }} about their classes.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

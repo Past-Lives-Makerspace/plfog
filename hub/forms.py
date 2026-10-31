@@ -5502,7 +5502,7 @@ def split_audience(raw: str) -> "tuple[str, Guild | None, ClassOffering | None]"
 
     The wizard's single ``<select name="audience">`` carries one value per option —
     ``"site"`` for everyone, ``"leads"`` for every guild lead, ``"instructor"`` for every instructor,
-    ``"guild:<pk>"`` for a guild's members, or ``"class:<pk>"``
+    ``"students"`` for everyone who took a class the sender teaches, ``"guild:<pk>"`` for a guild's members, or ``"class:<pk>"``
     for a class's confirmed roster — so the UI stays one control while the model keeps its
     separate ``audience`` / ``guild`` / ``class_offering`` fields. A ``"guild:<pk>"`` or
     ``"class:<pk>"`` whose pk doesn't resolve returns the audience with a ``None`` target
@@ -5513,7 +5513,11 @@ def split_audience(raw: str) -> "tuple[str, Guild | None, ClassOffering | None]"
 
     if raw == AnnouncementDraft.Audience.SITE.value:
         return AnnouncementDraft.Audience.SITE.value, None, None
-    if raw in (AnnouncementDraft.Audience.LEADS.value, AnnouncementDraft.Audience.INSTRUCTORS.value):
+    if raw in (
+        AnnouncementDraft.Audience.LEADS.value,
+        AnnouncementDraft.Audience.INSTRUCTORS.value,
+        AnnouncementDraft.Audience.STUDENTS.value,
+    ):
         return raw, None, None
     if raw.startswith("guild:"):
         pk = raw.split(":", 1)[1]
@@ -5536,9 +5540,9 @@ def discord_channel_choices(audience: str) -> list[tuple[str, str]]:
     channels = GuildAnnouncement.DiscordChannel
     from membership.models import AnnouncementDraft
 
-    if audience == AnnouncementDraft.Audience.CLASS.value:
-        # A class announcement is a direct notice to enrolled students — it never posts to
-        # Discord, so the picker is absent (the send path ignores the channel for this audience).
+    if audience in (AnnouncementDraft.Audience.CLASS.value, AnnouncementDraft.Audience.STUDENTS.value):
+        # A class or past students announcement is a direct notice to students — it never posts to
+        # Discord, so the picker is absent (the send path ignores the channel for these audiences).
         return []
     if audience == AnnouncementDraft.Audience.GUILD.value:
         return list(channels.choices)
@@ -5560,7 +5564,12 @@ def _by_label(choices: list[tuple[str, str]]) -> list[tuple[str, str]]:
 
 
 def announcement_recipient_choices(
-    audience: str, guild: Guild | None, offering: Any = None, *, include_waitlist: bool = False
+    audience: str,
+    guild: Guild | None,
+    offering: Any = None,
+    *,
+    include_waitlist: bool = False,
+    sender: Member | None = None,
 ) -> list[tuple[str, str]]:
     """The recipient checklist choices for an audience — who gets the bell + push + email.
 
@@ -5570,8 +5579,10 @@ def announcement_recipient_choices(
     **class** audience yields one row per confirmed registrant (plus waitlisted ones when
     ``include_waitlist`` is set): a registrant with a linked account is a ``user:<pk>`` row (bell +
     push + email); an email-only registrant (guest checkout, no account) is a ``custom:<addr>`` row
-    (email only). A **site** audience yields ``[]`` — every member, too many to render as a
-    checklist (the recipient card is absent there).
+    (email only). A **past students** audience yields ``sender``'s roster
+    (:func:`classes.past_students.past_students`), accounts as ``user:<pk>`` rows and addresses with
+    no account as ``custom:<addr>`` rows, ``[]`` with no ``sender``. A **site** audience yields
+    ``[]`` — every member, too many to render as a checklist (the recipient card is absent there).
     """
     from membership.models import AnnouncementDraft
 
@@ -5606,6 +5617,13 @@ def announcement_recipient_choices(
             display = f"{name} · {registration.email}" if name else registration.email
             class_choices.append((f"custom:{address}", f"{display}{suffix}"))
         return class_choices
+    if audience == AnnouncementDraft.Audience.STUDENTS.value and sender is not None:
+        from classes.past_students import past_students
+
+        roster = past_students(sender)
+        return [_member_choice(user) for user in roster.users] + [
+            (f"custom:{address}", label) for address, label in roster.guests
+        ]
     return []
 
 
@@ -5923,6 +5941,7 @@ class AnnouncementComposeForm(forms.Form):
         results_announcement: bool = False,
         draft: AnnouncementDraft | None = None,
         sender_discord_linked: bool = False,
+        teaching_member: Member | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -5947,13 +5966,17 @@ class AnnouncementComposeForm(forms.Form):
         self._results_announcement = results_announcement
         self._config = config or SiteConfiguration.load()
         # Audience choices: "site", "leads" and "instructor" (admins only) + one per editable guild +
-        # one per class you teach.
+        # "students" for a sender who teaches any class (#1042, admins too, as themselves) + one per
+        # class you teach. ``teaching_member`` is that sender's member, whose roster it reaches.
+        self._teaching_member = teaching_member
         choices: list[tuple[str, str]] = []
         if is_admin:
             choices.append((AnnouncementDraft.Audience.SITE.value, "Everyone (site-wide)"))
             choices.append((AnnouncementDraft.Audience.LEADS.value, AnnouncementDraft.Audience.LEADS.label))
             choices.append((AnnouncementDraft.Audience.INSTRUCTORS.value, AnnouncementDraft.Audience.INSTRUCTORS.label))
         choices.extend((f"guild:{guild.pk}", guild.name) for guild in (editable_guilds or []))
+        if teaching_member is not None:
+            choices.append((AnnouncementDraft.Audience.STUDENTS.value, AnnouncementDraft.Audience.STUDENTS.label))
         choices.extend((f"class:{offering.pk}", f"Class: {offering.title}") for offering in (editable_classes or []))
         cast(forms.ChoiceField, self.fields["audience"]).choices = choices
 
@@ -5984,7 +6007,11 @@ class AnnouncementComposeForm(forms.Form):
         self.waitlist_included = self._raw_flag("include_waitlist")
         self.never_logged_in_included = self._raw_flag("include_never_logged_in")
         self.recipient_choices = announcement_recipient_choices(
-            self.current_audience, self.current_guild, self.current_class, include_waitlist=self.waitlist_included
+            self.current_audience,
+            self.current_guild,
+            self.current_class,
+            include_waitlist=self.waitlist_included,
+            sender=teaching_member,
         )
         self.add_member_choices = announcement_add_member_choices()
         self._addable_users = {value for value, _label in self.add_member_choices}
@@ -6080,7 +6107,15 @@ class AnnouncementComposeForm(forms.Form):
         return choices[0][0] if choices else ""
 
     def _addable_off_roster(self, value: str) -> bool:
-        """Whether a ``user:<pk>`` off the roster may be kept: on the "add anyone" list, or already saved."""
+        """Whether a ``user:<pk>`` off the roster may be kept: on the "add anyone" list, or already saved.
+
+        Never on a past students announcement, which reaches only people who took the sender's
+        classes (#1042): its checklist can be narrowed, not added to.
+        """
+        from membership.models import AnnouncementDraft
+
+        if self.current_audience == AnnouncementDraft.Audience.STUDENTS.value:
+            return False
         return value in self._addable_users or value in self._saved_recipient_users
 
     def _added_member_rows(self) -> list[tuple[str, str]]:

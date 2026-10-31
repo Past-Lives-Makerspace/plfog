@@ -88,3 +88,47 @@ def finalize_manage_prefs_link(text_body: str, html_body: str | None, recipients
     if has_html and html_body is not None:
         html_body = html_body.replace(PREFS_TOKEN_PLACEHOLDER, token)
     return text_body, html_body
+
+
+# The past students stop link (#1042): an instructor's email to everyone who took their classes
+# links to a no login page that stops that instructor's emails to the address it went to. The
+# token proves the address; which instructor rides in the link's path. Built once per email with
+# this placeholder, then swapped for the recipient's own token in ``core.email.send``.
+_STOP_SALT = "past-students-stop"
+STOP_TOKEN_PLACEHOLDER = "__PL_STOP_TOKEN__"
+
+
+def make_stop_token(email: str) -> str:
+    """A signed token naming ``email`` (lowercased) for the past students stop page."""
+    return signing.dumps(email.strip().lower(), salt=_STOP_SALT)
+
+
+def read_stop_token(token: str) -> str | None:
+    """The address a stop token names, or ``None`` when it is not one this site signed.
+
+    No ``max_age``, as with the prefs token: the link must keep working however long the email
+    sits in an inbox, and it can only stop emails to the address it names.
+    """
+    try:
+        email = signing.loads(token, salt=_STOP_SALT)
+    except signing.BadSignature:
+        return None
+    return email if isinstance(email, str) and email else None
+
+
+def finalize_stop_link(text_body: str, html_body: str | None, recipients: list[str]) -> tuple[str, str | None]:
+    """Swap the stop link's placeholder for a token of the one recipient's address.
+
+    A send to several addresses at once gets an empty token, so its link is refused rather than
+    stopping someone else's emails. A no-op when the placeholder is absent.
+    """
+    has_text = STOP_TOKEN_PLACEHOLDER in text_body
+    has_html = html_body is not None and STOP_TOKEN_PLACEHOLDER in html_body
+    if not has_text and not has_html:
+        return text_body, html_body
+    token = make_stop_token(recipients[0]) if len(recipients) == 1 else ""
+    if has_text:
+        text_body = text_body.replace(STOP_TOKEN_PLACEHOLDER, token)
+    if has_html and html_body is not None:
+        html_body = html_body.replace(STOP_TOKEN_PLACEHOLDER, token)
+    return text_body, html_body

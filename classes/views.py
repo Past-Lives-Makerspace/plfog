@@ -44,7 +44,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.clickjacking import xframe_options_sameorigin
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_safe
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser, User
@@ -137,6 +137,7 @@ from classes.models import (
     DiscountCodeRequest,
     DiscountCodeRequestAlreadyDecided,
     InstructorResource,
+    PastStudentOptOut,
     ReadinessItem,
     Registration,
     RegistrationQuestion,
@@ -145,6 +146,7 @@ from classes.models import (
     readiness_items,
 )
 from core.files import delete_if_unreferenced
+from membership.names import user_name_or_email
 from core.htmx import wants_fragment
 from core.integrations.eventbrite import EVENTBRITE_RULE_PARTS, EventbriteClient, EventbriteSync, fee_breakdown
 from core.models import SiteConfiguration
@@ -1295,6 +1297,27 @@ def my_registration_finish(request: HttpRequest, token: str) -> HttpResponse:
         return redirect("classes:my_registration", token=token)
     messages.success(request, "You're all set. Your waiver is signed.")
     return redirect("classes:my_registration", token=token)
+
+
+@require_safe
+def stop_past_student_emails(request: HttpRequest, instructor_pk: int, token: str) -> HttpResponse:
+    """The one click, no login page a past students email links to (#1042).
+
+    The token names the address the email went to (:func:`core.email_prefs.read_stop_token`) and
+    the path names the instructor; opening it records a :class:`PastStudentOptOut`, so that
+    instructor's later past students sends skip the address and its account. A link that is not
+    one this site signed, or names an instructor no longer here, is a 404.
+    """
+    from core.email_prefs import read_stop_token
+    from membership.models import Member
+
+    email = read_stop_token(token)
+    instructor = Member.objects.filter(pk=instructor_pk).select_related("user").first()
+    if email is None or instructor is None:
+        raise Http404("This link is not valid.")
+    PastStudentOptOut.objects.record(instructor=instructor, email=email)
+    name = user_name_or_email(instructor.user) if instructor.user is not None else instructor.display_name
+    return render(request, "classes/public/stop_emails.html", {"instructor_name": name})
 
 
 def my_registration_cancel(request: HttpRequest, token: str) -> HttpResponse:

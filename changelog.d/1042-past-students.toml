@@ -1,0 +1,11 @@
+bump = "minor"
+date = "2026-10-30"
+audience = ["instructors"]
+feature = "admin.email-members"
+guidance = "link"
+title = "Email everyone who took your classes"
+changes = [
+  "In Email Members, instructors can pick My past students to email everyone who took any of their classes, once each.",
+  "You can uncheck anyone before sending. It never posts to Discord.",
+  "Every email ends with a link that stops your emails to that person. Other instructors can still reach them.",
+]

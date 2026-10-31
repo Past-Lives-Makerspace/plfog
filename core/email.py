@@ -131,9 +131,11 @@ def send(
     joined = ", ".join(recipients + bcc_list)
     # Personalize the footer's "manage preferences / unsubscribe" link with this
     # recipient's no-login token (a no-op when the footer placeholder is absent).
-    from core.email_prefs import finalize_manage_prefs_link
+    from core.email_prefs import finalize_manage_prefs_link, finalize_stop_link
 
     text_body, html_body = finalize_manage_prefs_link(text_body, html_body, recipients)
+    # And the past students stop link (#1042), with a token of this recipient's own address.
+    text_body, html_body = finalize_stop_link(text_body, html_body, recipients)
     try:
         _deliver(
             subject=subject,

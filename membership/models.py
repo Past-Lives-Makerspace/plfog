@@ -6436,7 +6436,7 @@ def resolve_channel_webhook(channel: str, guild: "Guild | None" = None) -> str:
 
 
 def build_announcement_email_html(
-    title: str, body: str, *, subline: str = "", sender: str = "", results_html: str = ""
+    title: str, body: str, *, subline: str = "", sender: str = "", results_html: str = "", footer_html: str = ""
 ) -> str:
     """Branded announcement email HTML — one builder for the preview and the real send.
 
@@ -6445,7 +6445,8 @@ def build_announcement_email_html(
     for a class announcement). ``sender`` is an optional "From <name>" line. ``body`` is the
     rich-text editor's sanitized HTML, inline-styled for the light card. ``results_html`` is an
     app-built block placed under the message (a results announcement's heading and bar chart,
-    :meth:`FundingSnapshot.results_visual_html`); it is never author input. The branded shell wraps
+    :meth:`FundingSnapshot.results_visual_html`); it is never author input, and neither is
+    ``footer_html``, the last line of the message (a past students email's stop line). The branded shell wraps
     the whole fragment. Shared by the compose wizard's live preview and the EMAIL override handed
     to the spine, so the two are byte-faithful.
     """
@@ -6463,6 +6464,7 @@ def build_announcement_email_html(
         fragment += f'<p style="margin:0 0 20px;color:#5b6b78;font-size:14px;">From {escape(sender)}</p>'
     fragment += render_rich_email_body(body)
     fragment += results_html
+    fragment += footer_html
     return wrap_email_html(fragment)
 
 
@@ -6765,6 +6767,7 @@ class AnnouncementDraft(models.Model):
         CLASS = "class", "A class you teach"
         LEADS = "leads", "Guild leads"
         INSTRUCTORS = "instructor", "All Instructors"
+        STUDENTS = "students", "My past students"
 
     class Mention(models.TextChoices):
         NONE = "none", "No ping"
@@ -6797,7 +6800,8 @@ class AnnouncementDraft(models.Model):
         default=Audience.SITE,
         help_text=(
             "Who hears it: everyone site-wide, one guild's joined members, a class's registrants, "
-            "every guild lead, officer and staffer, or every active instructor."
+            "every guild lead, officer and staffer, every active instructor, or everyone who took a "
+            "class the sender teaches."
         ),
     )
     guild = models.ForeignKey(
@@ -7018,7 +7022,7 @@ class AnnouncementDraft(models.Model):
 
     @property
     def audience_value(self) -> str:
-        """The composer's combined audience value: ``"site"``, ``"leads"``, ``"instructor"``, ``"guild:<pk>"`` or ``"class:<pk>"``.
+        """The composer's combined audience value: ``"site"``, ``"leads"``, ``"instructor"``, ``"students"``, ``"guild:<pk>"`` or ``"class:<pk>"``.
 
         The value the composer's picker posts and :func:`hub.views._compose_audience_forbidden`
         judges, so asking that gate with it asks exactly what the composer would let a request
@@ -7028,13 +7032,18 @@ class AnnouncementDraft(models.Model):
             return f"class:{self.class_offering_id}"
         if self.audience == self.Audience.GUILD:
             return f"guild:{self.guild_id}"
-        if self.audience in (self.Audience.LEADS, self.Audience.INSTRUCTORS):
+        if self.audience in (self.Audience.LEADS, self.Audience.INSTRUCTORS, self.Audience.STUDENTS):
             return str(self.audience)
         return self.Audience.SITE.value
 
     @property
     def audience_label(self) -> str:
-        """Who it is for, as the Announcements page shows it: everyone, the guild leads, all instructors, the guild's name or the class title."""
+        """Who it is for, as the Announcements page shows it: everyone, the guild leads, all instructors, the guild's name or the class title.
+
+        Past students are named by whose they are, since the page lists everyone's rows.
+        """
+        if self.audience == self.Audience.STUDENTS:
+            return f"Past students of {self.author_label}"
         if self.audience == self.Audience.CLASS:
             return cast("ClassOffering", self.class_offering).title
         if self.audience == self.Audience.GUILD:
@@ -7050,11 +7059,11 @@ class AnnouncementDraft(models.Model):
 
     @property
     def discord_on(self) -> bool:
-        """Whether this send posts to Discord: switched on, a channel chosen, and not a class audience."""
+        """Whether this send posts to Discord: switched on, a channel chosen, and not a class or past students audience."""
         return (
             self.discord_enabled
             and self.discord_channel != GuildAnnouncement.DiscordChannel.NONE
-            and self.audience != self.Audience.CLASS
+            and self.audience not in (self.Audience.CLASS, self.Audience.STUDENTS)
         )
 
     @property
@@ -7256,8 +7265,9 @@ class AnnouncementDraft(models.Model):
         """The addresses with no account this announcement was meant to email.
 
         A class's guests (:meth:`_class_recipients`), a guild's mailing list (the saved selection,
-        else the whole list), a site announcement's typed addresses and the instructors with no
-        account (:meth:`_instructor_recipients`). A typed address that turned out to be a member's
+        else the whole list), a site announcement's typed addresses, the instructors with no
+        account (:meth:`_instructor_recipients`) and a past students send's guests
+        (:meth:`_student_recipients`). A typed address that turned out to be a member's
         goes out as that member, whose row already shows its failure.
         """
         if self.audience == self.Audience.SITE:
@@ -7269,6 +7279,8 @@ class AnnouncementDraft(models.Model):
             return set(selected) if selected is not None else set(self.guild.mailing_list_emails_deduped(set()))
         if self.audience == self.Audience.INSTRUCTORS:
             return set(self._instructor_recipients()[1])
+        if self.audience == self.Audience.STUDENTS:
+            return set(self._student_recipients()[1])
         return set()
 
     def _email_failures(self) -> dict[str, str]:
@@ -7357,14 +7369,14 @@ class AnnouncementDraft(models.Model):
     def automatic_title(self) -> str:
         """The headline the audience alone gives, without the ``"Urgent: "`` lead: the Subject field's placeholder.
 
-        Guild → ``"<Guild> Announcement"``; class → ``"Class Announcement"`` (the class title rides
-        as a subline in the email); guild leads → ``"Guild Leads Announcement"``; instructors →
+        Guild → ``"<Guild> Announcement"``; class and past students → ``"Class Announcement"`` (the
+        class title rides as a subline in a class's email); guild leads → ``"Guild Leads Announcement"``; instructors →
         ``"Instructors Announcement"``; site → ``"Makerspace Announcement"``. A results announcement
         (linked to a :class:`FundingSnapshot`) is ``"<cycle> Voting Results"`` whatever the audience.
         """
         if self.funding_snapshot is not None:
             return f"{self.funding_snapshot.cycle_label} Voting Results"
-        if self.audience == self.Audience.CLASS:
+        if self.audience in (self.Audience.CLASS, self.Audience.STUDENTS):
             return "Class Announcement"
         if self.audience == self.Audience.GUILD and self.guild is not None:
             return f"{self.guild.name} Announcement"
@@ -7572,7 +7584,8 @@ class AnnouncementDraft(models.Model):
         site send and the guild-detail URL for a guild send. The text part is the rich body as
         lines, paragraphs and bullets kept (matching the bell / Discord render). A results announcement adds the results
         visual under the message: the heading and bar chart in the HTML, the heading and one line
-        per guild in the text part.
+        per guild in the text part. A past students email ends with the stop line
+        (:func:`classes.past_students.stop_line`) in both parts.
         """
         from core.events.channels import Message
         from core.html_sanitize import rich_html_to_lines
@@ -7591,12 +7604,25 @@ class AnnouncementDraft(models.Model):
         if snapshot is not None:
             text_parts.append(snapshot.results_heading + "\n" + "\n".join(snapshot.allocation_lines()))
             results_html = snapshot.results_visual_html()
+        footer_html = ""
+        text_tail = ""
+        instructor = self._students_instructor() if self.audience == self.Audience.STUDENTS else None
+        if instructor is not None:
+            from classes.past_students import stop_line
+
+            footer_html, stop_text = stop_line(instructor, user_name_or_email(cast("User", self.author)))
+            text_tail = f"\n\n{stop_text}"
         return Message(
             title=self.title,
-            body="\n\n".join(text_parts) + f"\n\n{base_url}",
+            body="\n\n".join(text_parts) + f"\n\n{base_url}" + text_tail,
             url=base_url,
             html_body=build_announcement_email_html(
-                self.title, self.body, subline=subline, sender=sender, results_html=results_html
+                self.title,
+                self.body,
+                subline=subline,
+                sender=sender,
+                results_html=results_html,
+                footer_html=footer_html,
             ),
             trigger_kind=self._trigger_kind(),
         )
@@ -7608,8 +7634,9 @@ class AnnouncementDraft(models.Model):
         anyone the sender added (:attr:`added_recipients`; a typed address only while Email is on);
         ``GUILD`` → the guild's joined-member audience; ``LEADS`` → every guild lead (the
         ``all_guild_leads`` resolver); ``INSTRUCTORS`` → every instructor's account, plus each
-        instructor with no account but an address on file while Email is on — the exact sets the
-        send fans out to, so the count matches delivery.
+        instructor with no account but an address on file while Email is on; ``STUDENTS`` → the
+        sender's past students (:meth:`_student_recipients`), counted as a class roster is — the
+        exact sets the send fans out to, so the count matches delivery.
         """
         from core.events import resolvers
         from core.events.registry import Recipients
@@ -7619,6 +7646,9 @@ class AnnouncementDraft(models.Model):
         if self.audience == self.Audience.INSTRUCTORS:
             instructor_ids, instructor_emails = self._instructor_recipients()
             return len(instructor_ids) + (len(instructor_emails) if self.send_email else 0)
+        if self.audience == self.Audience.STUDENTS:
+            student_ids, student_emails = self._student_recipients()
+            return len(student_ids) + len(student_emails)
         if self.audience == self.Audience.GUILD:
             return len(cast(Guild, self.guild).announcement_member_ids())
         if self.audience == self.Audience.CLASS:
@@ -7850,6 +7880,38 @@ class AnnouncementDraft(models.Model):
             )
             total = result.recipient_count + len(extra_emails)
             counts = (total if self.send_email else 0, total)
+        elif self.audience == self.Audience.STUDENTS:
+            # Everyone who took a class the sender teaches (#1042), less anyone who stopped their
+            # emails: passed explicitly, as All Instructors is, so the site_announcement key's
+            # everyone audience never receives it. Never posted to Discord. Sent in the request,
+            # as a class send is: a few dozen people.
+            students_url = _absolute_url("/")
+            period = self._site_delivery_period()
+            student_ids, student_emails = self._student_recipients()
+            # A guest gets only the email, so with Email off they get nothing (as All Instructors).
+            guest_emails = student_emails if self.send_email else []
+            result = emit(
+                "site_announcement",
+                actor=self.author,
+                context={
+                    "member_name": "there",
+                    "announcement_title": self.title,
+                    "announcement_body": rich_html_to_lines(body_html),
+                    "site_url": students_url,
+                    "discord_broadcast_webhook": "",
+                },
+                url=students_url,
+                period=period,
+                messages=self._channel_overrides(students_url),
+                suppress_broadcast=True,
+                suppress_email=not self.send_email,
+                suppress_push=suppress_push,
+                recipient_user_ids=student_ids,
+                extra_emails=guest_emails or None,
+                override_preferences=self.mark_as_urgent,
+            )
+            total = len(student_ids) + len(student_emails)
+            counts = (total if self.send_email else 0, total)
         elif self.audience == self.Audience.CLASS:
             # Scoped to the class roster: confirmed registrants (and waitlisted ones when the
             # sender opted in). A registrant with a linked account gets the in-app bell + push +
@@ -7969,6 +8031,40 @@ class AnnouncementDraft(models.Model):
         )
         return user_ids, [addr for addr in typed if addr not in taken]
 
+    def _students_instructor(self) -> Member | None:
+        """The member whose past students a ``STUDENTS`` row addresses: the sender's own, else ``None``.
+
+        The composer offers the audience only to a sender who teaches, and saving names them
+        the author, so whoever saved last is whose students it reaches (#1042). ``None`` (no
+        sender, or a sender with no member) reaches nobody, and :meth:`_check_sendable` refuses it.
+        """
+        if self.author is None:
+            return None
+        return Member.objects.filter(user=self.author).first()
+
+    def _student_recipients(self) -> "tuple[set[int], list[str]]":
+        """A ``STUDENTS`` send's ``(user pks, email only addresses)``.
+
+        The sender's roster (:func:`classes.past_students.past_students`: every confirmed
+        registrant of a class they teach, deduped, less anyone who stopped their emails), narrowed
+        by the saved ``recipient_selection`` when there is one. A selection only ever narrows: a
+        pk or address off the roster is dropped, so someone who stopped the emails after the
+        draft was saved is still skipped.
+        """
+        from classes.past_students import past_students
+
+        instructor = self._students_instructor()
+        if instructor is None:
+            return set(), []
+        roster = past_students(instructor)
+        user_ids, addresses = roster.user_ids, roster.addresses
+        selection = self.recipient_selection or {}
+        if not selection:
+            return user_ids, addresses
+        chosen_ids = {int(pk) for pk in selection.get("users") or []}
+        chosen = {str(addr).strip().lower() for addr in selection.get("custom") or []}
+        return user_ids & chosen_ids, [addr for addr in addresses if addr in chosen]
+
     def _site_delivery_period(self) -> str:
         """The delivery ledger period a site send claims its slots under, the same on every attempt.
 
@@ -8004,6 +8100,8 @@ class AnnouncementDraft(models.Model):
             raise ValidationError("Choose a guild for this announcement.")
         if self.audience == self.Audience.CLASS and self.class_offering is None:
             raise ValidationError("Choose a class for this announcement.")
+        if self.audience == self.Audience.STUDENTS and self._students_instructor() is None:
+            raise ValidationError("Only an instructor can email their past students.")
         if self.funding_snapshot_id is not None:
             if self.audience != self.Audience.SITE:
                 raise ValidationError(RESULTS_ANNOUNCEMENT_AUDIENCE_ERROR)

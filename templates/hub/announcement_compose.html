@@ -107,9 +107,10 @@
       {% include "hub/partials/_compose_subject_field.html" with oob=False %}
       {% include "components/form_field.html" with field=form.body %}
 
-      <div class="pl-compose-section" x-show="audience.startsWith('guild') || audience.startsWith('class')" x-cloak>
+      <div class="pl-compose-section" x-show="audience.startsWith('guild') || audience.startsWith('class') || audience === 'students'" x-cloak>
         <h2 class="pl-compose-section__title">Recipients</h2>
-        <p class="pl-compose-section__note">Everyone below is included. Uncheck anyone you don't want to reach, or add people who are not on the list.</p>
+        <p class="pl-compose-section__note" x-show="audience !== 'students'">Everyone below is included. Uncheck anyone you don't want to reach, or add people who are not on the list.</p>
+        <p class="pl-compose-section__note" x-show="audience === 'students'" x-cloak data-compose-students-note>Everyone who took one of your classes is included, once each. Uncheck anyone you don't want to reach. Each email ends with a link to stop your emails.</p>
         <div x-show="audience.startsWith('class')" x-cloak>
           {% include "components/toggle.html" with field=form.include_waitlist toggle_label="Also include the waitlist" toggle_help="Send this to waitlisted registrants too, not just confirmed ones." %}
         </div>
@@ -164,10 +165,10 @@
         <h2 class="pl-compose-section__title">Delivery</h2>
         {% include "components/toggle.html" with field=form.push_enabled toggle_label="Push notification" toggle_description="Send it to recipients' phones as a push notification." %}
         {% include "components/toggle.html" with field=form.send_email toggle_label="Email" toggle_description="Also send the branded email. You'll preview it on the next step." %}
-        <div x-show="!audience.startsWith('class')" x-cloak>
+        <div x-show="!audience.startsWith('class') &amp;&amp; audience !== 'students'" x-cloak>
           {% include "components/toggle.html" with field=form.discord_enabled toggle_label="Post to Discord" toggle_description="Post it to a Discord channel. You'll pick the channel on the next step." %}
         </div>
-        <p class="pl-field-hint pl-compose-hint" x-show="audience.startsWith('class')" x-cloak>Class emails go straight to your students. They don't post to Discord.</p>
+        <p class="pl-field-hint pl-compose-hint" x-show="audience.startsWith('class') || audience === 'students'" x-cloak>Class emails go straight to your students. They don't post to Discord.</p>
         <div class="pl-toggle-row">
           <div class="pl-toggle-info">
             <div class="pl-toggle-label">Mark as urgent
@@ -245,7 +246,7 @@
         </div>
       </div>
 
-      <div class="pl-compose-channel" x-show="discordOn &amp;&amp; !audience.startsWith('class')" x-cloak>
+      <div class="pl-compose-channel" x-show="discordOn &amp;&amp; !audience.startsWith('class') &amp;&amp; audience !== 'students'" x-cloak>
         <h3 class="pl-compose-channel__title">Discord</h3>
         {% include "hub/partials/_compose_channel_picker.html" %}
         {% if form.offers_discord_post_as_me %}
@@ -258,7 +259,7 @@
       </div>
 
       <p class="pl-wizard-reach">
-        Reaching <strong x-text="recipientCount"></strong> recipient(s) in the app<span x-show="pushOn"> and by push</span><span x-show="emailOn">, plus email</span>.<span x-show="discordOn &amp;&amp; !audience.startsWith('class')"> Also posting to Discord.</span>
+        Reaching <strong x-text="recipientCount"></strong> recipient(s) in the app<span x-show="pushOn"> and by push</span><span x-show="emailOn">, plus email</span>.<span x-show="discordOn &amp;&amp; !audience.startsWith('class') &amp;&amp; audience !== 'students'"> Also posting to Discord.</span>
       </p>
 
       <div class="pl-wizard-actions">
