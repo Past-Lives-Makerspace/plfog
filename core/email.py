@@ -12,11 +12,16 @@ staging box. Outside staging the policy is a no-op.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives, send_mail
 
 from core import email_policy
 from core.models import TransactionalEmailLog
+
+if TYPE_CHECKING:
+    from core.email_prefs import StopLink
 
 # An attachment as (filename, content, mimetype) — e.g. ("orientation.ics", ics_bytes, "text/calendar").
 Attachment = tuple[str, str | bytes, str]
@@ -32,6 +37,7 @@ def _deliver(
     attachments: list[Attachment] | None,
     bcc: list[str] | None = None,
     category: str | None = None,
+    headers: dict[str, str] | None = None,
 ) -> None:
     """Hand the message to Django's mail backend.
 
@@ -41,9 +47,10 @@ def _deliver(
     present, since ``send_mail`` cannot carry any of the three. The BCC list
     preserves recipient privacy for bulk sends (instructor/admin class emails BCC
     every registrant); the category rides an ``X-Category`` header so the ESP and
-    mail-client rules can filter by workflow.
+    mail-client rules can filter by workflow. ``headers`` are any further headers
+    (a past students email's ``List-Unsubscribe``), which also take that path.
     """
-    if not attachments and not bcc and not category:
+    if not attachments and not bcc and not category and not headers:
         send_mail(
             subject=subject,
             message=text_body,
@@ -57,6 +64,7 @@ def _deliver(
     )
     if category:
         message.extra_headers["X-Category"] = category
+    message.extra_headers.update(headers or {})
     if html_body:
         message.attach_alternative(html_body, "text/html")
     for filename, content, mimetype in attachments or []:
@@ -76,6 +84,7 @@ def send(
     attachments: list[Attachment] | None = None,
     bcc: str | list[str] | None = None,
     category: str | None = None,
+    stop_link: StopLink | None = None,
 ) -> TransactionalEmailLog:
     """Send a transactional email and log the attempt.
 
@@ -98,6 +107,9 @@ def send(
             like "Billing" or "Voting"). When set, it rides an ``X-Category``
             header — and forces the multipart send path — so ESP and mail-client
             rules can filter by workflow.
+        stop_link: A past students email's stop link (#1042): which instructor it stops and the
+            placeholder to fill with this recipient's token. Also adds the one click
+            ``List-Unsubscribe`` headers. Nothing else in the body is ever read for it.
 
     Returns:
         The TransactionalEmailLog row written for this attempt. On staging, when the
@@ -131,9 +143,17 @@ def send(
     joined = ", ".join(recipients + bcc_list)
     # Personalize the footer's "manage preferences / unsubscribe" link with this
     # recipient's no-login token (a no-op when the footer placeholder is absent).
-    from core.email_prefs import finalize_manage_prefs_link
+    from core.email_prefs import finalize_manage_prefs_link, finalize_stop_link
 
     text_body, html_body = finalize_manage_prefs_link(text_body, html_body, recipients)
+    # And the past students stop link (#1042), with a token of its instructor and this recipient's
+    # address; the same link rides the one click unsubscribe headers mail clients offer (RFC 8058).
+    text_body, html_body, unsubscribe_url = finalize_stop_link(text_body, html_body, recipients, stop_link)
+    headers = (
+        {"List-Unsubscribe": f"<{unsubscribe_url}>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"}
+        if unsubscribe_url
+        else None
+    )
     try:
         _deliver(
             subject=subject,
@@ -144,6 +164,7 @@ def send(
             attachments=attachments,
             bcc=bcc_list or None,
             category=category,
+            headers=headers,
         )
     except Exception as exc:  # noqa: BLE001 — we log then re-raise unless best_effort
         log = TransactionalEmailLog.objects.create(

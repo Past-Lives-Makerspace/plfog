@@ -13,8 +13,11 @@ in ``core.email.send`` — the one place that knows who each message is going to
 
 from __future__ import annotations
 
+import secrets
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from django.conf import settings
 from django.core import signing
 
 if TYPE_CHECKING:
@@ -88,3 +91,84 @@ def finalize_manage_prefs_link(text_body: str, html_body: str | None, recipients
     if has_html and html_body is not None:
         html_body = html_body.replace(PREFS_TOKEN_PLACEHOLDER, token)
     return text_body, html_body
+
+
+# The past students stop link (#1042): an instructor's email to everyone who took their classes
+# links to a no login page that stops that instructor's emails to the address it went to. The
+# token signs the instructor and the address together. Which instructor is never read from the
+# email's text: the send names it in a :class:`StopLink`, whose placeholder is random per message
+# and carries no pk, and ``core.email.send`` fills only that placeholder, for only that instructor.
+# Anything an author types into the message renders as typed and is never signed.
+_STOP_SALT = "past-students-stop"
+
+
+@dataclass(frozen=True)
+class StopLink:
+    """Which instructor a past students email's stop link stops, and where its token goes.
+
+    Built once per message by :meth:`for_instructor`; the message carries it to every send.
+    """
+
+    instructor_pk: int
+    placeholder: str
+
+    @classmethod
+    def for_instructor(cls, instructor_pk: int) -> StopLink:
+        """A stop link for ``instructor_pk`` with a fresh placeholder no author can guess."""
+        return cls(instructor_pk=instructor_pk, placeholder=f"__PL_STOP_{secrets.token_hex(16)}__")
+
+    @property
+    def url(self) -> str:
+        """The stop page URL with the placeholder where each recipient's token goes."""
+        return stop_url(self.placeholder)
+
+
+def make_stop_token(instructor_pk: int, email: str) -> str:
+    """A signed token naming one instructor and one address (lowercased) for the stop page."""
+    return signing.dumps([instructor_pk, email.strip().lower()], salt=_STOP_SALT)
+
+
+def read_stop_token(token: str) -> tuple[int, str] | None:
+    """The ``(instructor pk, address)`` a stop token names, or ``None`` when this site did not sign it.
+
+    No ``max_age``, as with the prefs token: the link must keep working however long the email
+    sits in an inbox, and it can only stop one instructor's emails to the address it names.
+    """
+    try:
+        payload = signing.loads(token, salt=_STOP_SALT)
+    except signing.BadSignature:
+        return None
+    if not (isinstance(payload, list) and len(payload) == 2):
+        return None
+    instructor_pk, email = payload
+    if not isinstance(instructor_pk, int) or not isinstance(email, str) or not email:
+        return None
+    return instructor_pk, email
+
+
+def stop_url(token: str) -> str:
+    """The absolute stop page URL for ``token``, on the members site."""
+    from django.urls import reverse
+
+    return settings.MEMBER_BASE_URL.rstrip("/") + reverse("classes:stop_past_student_emails", args=[token])
+
+
+def finalize_stop_link(
+    text_body: str, html_body: str | None, recipients: list[str], stop_link: StopLink | None
+) -> tuple[str, str | None, str]:
+    """Fill ``stop_link``'s placeholder with a token of its instructor and the one recipient's address.
+
+    Returns the bodies and the stop URL for the ``List-Unsubscribe`` header, ``""`` with no stop
+    link. Without a ``stop_link`` the bodies are returned untouched, whatever they contain. A send
+    to several addresses at once gets an empty token (its link is refused) and no header.
+    """
+    if stop_link is None:
+        return text_body, html_body, ""
+    if len(recipients) != 1:
+        token = ""
+    else:
+        token = make_stop_token(stop_link.instructor_pk, recipients[0])
+    text_body = text_body.replace(stop_link.placeholder, token)
+    if html_body is not None:
+        html_body = html_body.replace(stop_link.placeholder, token)
+    return text_body, html_body, stop_url(token) if token else ""

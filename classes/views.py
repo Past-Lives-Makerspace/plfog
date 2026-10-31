@@ -44,7 +44,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.clickjacking import xframe_options_sameorigin
-from django.views.decorators.http import require_POST
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods, require_POST
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractUser, User
@@ -137,6 +138,7 @@ from classes.models import (
     DiscountCodeRequest,
     DiscountCodeRequestAlreadyDecided,
     InstructorResource,
+    PastStudentOptOut,
     ReadinessItem,
     Registration,
     RegistrationQuestion,
@@ -1295,6 +1297,37 @@ def my_registration_finish(request: HttpRequest, token: str) -> HttpResponse:
         return redirect("classes:my_registration", token=token)
     messages.success(request, "You're all set. Your waiver is signed.")
     return redirect("classes:my_registration", token=token)
+
+
+@csrf_exempt
+@require_http_methods(["GET", "HEAD", "POST"])
+def stop_past_student_emails(request: HttpRequest, token: str) -> HttpResponse:
+    """The no login stop page a past students email links to (#1042).
+
+    The token signs the instructor and the address the email went to together
+    (:func:`core.email_prefs.read_stop_token`). A GET or HEAD only shows a Stop emails button,
+    so a mail scanner that opens links stops nothing; a POST records a
+    :class:`PastStudentOptOut`, so that instructor's later past students sends skip the address
+    and its account, and says so in one sentence. The POST is also the one click unsubscribe
+    mail clients send from the ``List-Unsubscribe`` header (RFC 8058), which carries no CSRF
+    token: the signed token is the authority, and all it can do is stop that instructor's
+    emails to that one address. A link this site did not sign, or one naming an instructor no
+    longer here, is a 404.
+    """
+    from classes.past_students import instructor_name
+    from core.email_prefs import read_stop_token
+    from membership.models import Member
+
+    payload = read_stop_token(token)
+    instructor = Member.objects.filter(pk=payload[0]).first() if payload is not None else None
+    if payload is None or instructor is None:
+        raise Http404("This link is not valid.")
+    stopped = request.method == "POST"
+    if stopped:
+        PastStudentOptOut.objects.record(instructor=instructor, email=payload[1])
+    return render(
+        request, "classes/public/stop_emails.html", {"instructor_name": instructor_name(instructor), "stopped": stopped}
+    )
 
 
 def my_registration_cancel(request: HttpRequest, token: str) -> HttpResponse:

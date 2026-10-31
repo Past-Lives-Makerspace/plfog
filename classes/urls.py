@@ -57,6 +57,8 @@ urlpatterns = [
     path("my/<str:token>/finish/", views.my_registration_finish, name="my_registration_finish"),
     path("my/<str:token>/cancel/", views.my_registration_cancel, name="my_registration_cancel"),
     path("my/<str:token>/pay/", views.my_registration_pay, name="my_registration_pay"),
+    # No login stop link at the foot of every past students email (#1042); the token names the instructor
+    path("stop-emails/<str:token>/", views.stop_past_student_emails, name="stop_past_student_emails"),
     # Teaching portal (member self-serve for instructors)
     path("teach/", views.teach_overview, name="teach_overview"),
     # Teach at Past Lives — the marketing page and apply-to-teach front door. Open to

@@ -62,6 +62,7 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
     from core.email import Attachment
+    from core.email_prefs import StopLink
 
 
 class ChannelNotImplemented(NotImplementedError):
@@ -85,6 +86,9 @@ class Message:
     ``discord_username`` / ``discord_avatar_url`` are the name and picture a Discord webhook
     post shows instead of the webhook's own (an announcement posted "as me", #730); blank
     leaves the webhook's default, and every other channel ignores them.
+
+    ``stop_link`` is a past students email's stop link (#1042): the email channel hands it to
+    ``core.email.send``, which fills its placeholder per recipient; every other channel ignores it.
     """
 
     title: str
@@ -95,6 +99,7 @@ class Message:
     discord_mention: str = ""
     discord_username: str = ""
     discord_avatar_url: str = ""
+    stop_link: StopLink | None = None
 
 
 @runtime_checkable
@@ -291,6 +296,7 @@ class EmailAdapter:
             best_effort=True,
             attachments=attachments,
             category=email_category_for(message.trigger_kind),
+            stop_link=message.stop_link,
         )
         # best_effort swallows the exception but still logs the outcome, and that log row
         # is the only signal a provider rejection (e.g. a 429 daily-quota reply) produces.

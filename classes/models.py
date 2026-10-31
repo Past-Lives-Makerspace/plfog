@@ -6850,6 +6850,111 @@ class InstructorMessageRecipient(models.Model):
         return f"{self.email} on message #{self.message_id}"
 
 
+class PastStudentOptOutManager(models.Manager["PastStudentOptOut"]):
+    """Who asked to stop an instructor's emails to their past students (#1042)."""
+
+    def record(self, *, instructor: Member, email: str) -> PastStudentOptOut:
+        """Remember that ``email`` wants no more past students emails from ``instructor``.
+
+        Idempotent: a second click on the same link finds the row it made. The account that owns
+        the address (a verified alias or the account email) is stored with it, so every address
+        of that member is skipped, not only the one the email went to.
+
+        Args:
+            instructor: The instructor whose emails stop.
+            email: The address the email went to.
+
+        Returns:
+            The opt out row, new or already there.
+        """
+        from core.email_prefs import user_for_email
+
+        address = email.strip().lower()
+        # The project's user model is Django's User; user_for_email is typed for any auth model.
+        user = cast("User | None", user_for_email(address))
+        row, created = self.get_or_create(instructor=instructor, email=address, defaults={"user": user})
+        if not created and row.user_id is None and user is not None:
+            row.user = user
+            row.save(update_fields=["user"])
+        return row
+
+    def skipped_by(self, instructor: Member) -> tuple[set[int], set[str]]:
+        """``(user pks, lowercased addresses)`` an instructor's past students sends leave out.
+
+        The addresses are every stopped address plus every address of every stopped account: its
+        account email, its chosen notification email and each verified alias, so a guest
+        registration made at any of them is skipped too. Four queries at most.
+        """
+        from allauth.account.models import EmailAddress
+        from django.contrib.auth import get_user_model
+        from django.db.models.functions import Lower
+
+        from membership.models import Member
+
+        user_ids: set[int] = set()
+        emails: set[str] = set()
+        for user_id, email in self.filter(instructor=instructor).values_list("user_id", "email"):
+            emails.add(email)
+            if user_id is not None:
+                user_ids.add(user_id)
+        if not user_ids:
+            return user_ids, emails
+        emails |= set(
+            EmailAddress.objects.filter(user_id__in=user_ids, verified=True)
+            .annotate(address=Lower("email"))
+            .values_list("address", flat=True)
+        )
+        emails |= set(
+            get_user_model()
+            .objects.filter(pk__in=user_ids)
+            .annotate(address=Lower("email"))
+            .values_list("address", flat=True)
+        )
+        emails |= set(
+            Member.objects.filter(user_id__in=user_ids)
+            .annotate(address=Lower("notification_email"))
+            .values_list("address", flat=True)
+        )
+        emails.discard("")
+        return user_ids, emails
+
+
+class PastStudentOptOut(models.Model):
+    """One person who asked to stop one instructor's emails to their past students (#1042).
+
+    Written by the no login page every such email links to (``classes:stop_past_student_emails``).
+    It covers that instructor only: a send from anyone else still reaches the person.
+    """
+
+    instructor = models.ForeignKey(
+        "membership.Member",
+        on_delete=models.CASCADE,
+        related_name="past_student_opt_outs",
+        help_text="The instructor whose emails to past students this person stopped.",
+    )
+    email = models.EmailField(help_text="The address the stopped email went to, lowercased.")
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="past_student_opt_outs",
+        help_text="The account that owns the address when it was stopped, so every address of theirs is skipped.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the person stopped the emails.")
+
+    objects = PastStudentOptOutManager()
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["instructor", "email"], name="uq_pastoptout_instr_email"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.email} stopped emails from member #{self.instructor_id}"
+
+
 class CmsActivity(models.Model):
     """Append-only event log for every meaningful CMS happening.
 

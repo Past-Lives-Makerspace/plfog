@@ -4594,6 +4594,17 @@ def _can_announce_to_class(request: HttpRequest, offering: ClassOffering) -> boo
     return access is not None and access.can_send_email
 
 
+def _teaching_member(member: Member | None) -> Member | None:
+    """``member`` when they teach any class (an instructors row on it, any status), else ``None`` (#1042).
+
+    Who may address My past students, and whose students it reaches: an admin only when they
+    teach too, and then as themselves.
+    """
+    if member is None or not ClassOffering.objects.for_instructor(member).exists():
+        return None
+    return member
+
+
 def _can_compose(request: HttpRequest, member: Member | None) -> bool:
     """True when the user can compose *something* — an admin, a guild lead/staff, or an instructor.
 
@@ -4762,6 +4773,7 @@ def _compose_form_kwargs(request: HttpRequest, requested: str | None = None) -> 
         "editable_classes": editable_classes,
         # The sender is the signed in account (the save names it the author), never a viewed-as member.
         "sender_discord_linked": bool(discord_user_id_for(cast(User, request.user))),
+        "teaching_member": _teaching_member(member),
     }
 
 
@@ -4778,6 +4790,9 @@ def _compose_audience_forbidden(request: HttpRequest, raw_audience: str) -> Http
     )
     if audience in admin_only:
         return None if _viewing_as_admin(request) else HttpResponse("Forbidden", status=403)
+    if audience == AnnouncementDraft.Audience.STUDENTS.value:
+        # Anyone who teaches, admins included and only when they teach (#1042).
+        return None if _teaching_member(_get_member(request)) is not None else HttpResponse("Forbidden", status=403)
     if audience == AnnouncementDraft.Audience.GUILD.value and guild is not None and _can_edit_guild(request, guild):
         return None
     if (
@@ -4923,12 +4938,13 @@ def _compose_count_for(
     *,
     include_waitlist: bool = False,
     include_never_logged_in: bool = False,
+    sender: User | None = None,
 ) -> int:
     """Live recipient count for an audience (reuses the model's roster-backed count).
 
     ``include_waitlist`` widens a class count to its waitlisted registrants too, and
     ``include_never_logged_in`` a site count to members who have never logged in, matching what
-    each toggle will actually send.
+    each toggle will actually send. ``sender`` is whose past students a ``students`` count counts.
     """
     from membership.models import AnnouncementDraft
 
@@ -4938,6 +4954,7 @@ def _compose_count_for(
         return 0
     return AnnouncementDraft(
         audience=audience or AnnouncementDraft.Audience.SITE.value,
+        author=sender,
         guild=guild,
         class_offering=offering,
         include_waitlist=include_waitlist,
@@ -5035,7 +5052,11 @@ def _render_compose(
         count = instructor_reach["users"] + (instructor_reach["email_only"] if email_on else 0)
     else:
         count = _compose_count_for(
-            form.current_audience, form.current_guild, form.current_class, include_waitlist=form.waitlist_included
+            form.current_audience,
+            form.current_guild,
+            form.current_class,
+            include_waitlist=form.waitlist_included,
+            sender=cast(User, request.user),
         )
     # The auto category (title) for the current audience, without the client-side "Urgent: " lead.
     # A resumed results announcement keeps its "<cycle> Voting Results" title.
@@ -5157,7 +5178,7 @@ def _compose_preselection(request: HttpRequest, requested: str | None) -> dict[s
     roster = {
         value
         for value, _label in announcement_recipient_choices(
-            audience, guild, offering, include_waitlist=include_waitlist
+            audience, guild, offering, include_waitlist=include_waitlist, sender=_teaching_member(_get_member(request))
         )
     }
     picked = [token for token in wanted if token in roster]
@@ -5324,7 +5345,12 @@ def hub_compose_count(request: HttpRequest) -> HttpResponse:
         request.GET.get("include_never_logged_in") or request.POST.get("include_never_logged_in")
     )
     count = _compose_count_for(
-        audience, guild, offering, include_waitlist=include_waitlist, include_never_logged_in=include_never_logged_in
+        audience,
+        guild,
+        offering,
+        include_waitlist=include_waitlist,
+        include_never_logged_in=include_never_logged_in,
+        sender=cast(User, request.user),
     )
     subject = request.GET.get("subject") or request.POST.get("subject") or ""
     form = AnnouncementComposeForm(
@@ -5417,6 +5443,7 @@ def hub_compose_test(request: HttpRequest) -> HttpResponse:
         text_body=message.body,
         html_body=message.html_body,
         best_effort=True,
+        stop_link=message.stop_link,
     )
     response = HttpResponse(status=204)
     trigger_toast(response, f"Test sent to {to}.")
