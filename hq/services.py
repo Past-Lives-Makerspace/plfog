@@ -14,7 +14,8 @@ received and committed), the Follow up list (:func:`follow_ups`), the pipeline's
 three writes (:func:`add_sponsor`, :func:`update_sponsor`, :func:`log_contact`). The Vendor Tables half holds
 the band (:func:`vendor_band`, the one source of the confirmed tables the Member tables goal and the ledger read),
 the list's filters and the three writes (:func:`add_vendor_table`, :func:`update_vendor_table`,
-:func:`set_vendor_floor`). The flyer half holds the page's content (:func:`flyer_page`), the link members share
+:func:`set_vendor_floor`), and the fill of a member vendor's blank contacts from their record
+(:func:`fill_vendor_contacts`). The flyer half holds the page's content (:func:`flyer_page`), the link members share
 (:func:`share_link`, :func:`facebook_share_url`) and the three writes (:func:`set_flyer`, :func:`remove_flyer`,
 :func:`save_flyer_links`). The ledger half (D6a) holds the budget's figures (:func:`ledger_band`, the one source of
 the approval used and left, the sponsored value, each line's totals and the bar's cost), Lee's board summary
@@ -30,7 +31,8 @@ ledger's goals (:func:`ledger_goals`), each reading every other door from its on
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping, Sequence
+from collections import defaultdict
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -50,6 +52,7 @@ from django.db.models import (
     Max,
     Min,
     OuterRef,
+    Prefetch,
     Q,
     QuerySet,
     Subquery,
@@ -124,7 +127,16 @@ from hq.models import (
     format_money,
 )
 from hq import vendor_discord, vendor_sheet
-from hq.vendor_import import ImportRefused, ImportResult, apply_pull, apply_upload, hub_lock, parse_rows, read_csv
+from hq.vendor_import import (
+    ImportRefused,
+    ImportResult,
+    apply_pull,
+    apply_upload,
+    hub_lock,
+    normalise,
+    parse_rows,
+    read_csv,
+)
 from membership.models import CommunityEvent, Guild, GuildMembership, Member
 
 logger = logging.getLogger(__name__)
@@ -1197,22 +1209,29 @@ def filtered_vendor_tables(hub: EventHub, show: str, *, keep_pk: int | None = No
 
 def add_vendor_table(hub: EventHub, fields: Mapping[str, Any], *, member: Member | None) -> VendorTable:
     """Put a table request on ``hub`` from the form's fields: requested, or waitlisted while the map is full, and
-    requested on the Portland date it was added unless ``fields`` names the date."""
+    requested on the Portland date it was added unless ``fields`` names the date. A member vendor's blank contact
+    boxes are filled from their member record (:func:`fill_vendor_contacts`)."""
     status = VendorTableStatus.WAITLIST if vendor_band(hub).is_full else VendorTableStatus.REQUESTED
-    return VendorTable.objects.create(
-        hub=hub, created_by=member, status=status, **{"requested_on": timezone.localdate(), **fields}
-    )
+    table = VendorTable(hub=hub, created_by=member, status=status, **{"requested_on": timezone.localdate(), **fields})
+    # A member vendor's blank contact boxes are filled before the one insert (#1049).
+    fill_vendor_contacts([table], save=False)
+    table.save(force_insert=True)
+    return table
 
 
 def import_vendor_tables(hub: EventHub, rows: Sequence[Sequence[str]], *, member: Member | None) -> ImportResult:
     """Import CSV: read ``rows`` (the header first) against the guilds a table may name and write them to ``hub``
-    by the upload's rule (``hq.vendor_import.apply_upload``).
+    by the upload's rule (``hq.vendor_import.apply_upload``), then fill the blank contact boxes of the member vendors
+    among the rows it added or updated (:func:`fill_vendor_contacts`), in one transaction.
 
     Raises:
         ImportRefused: the header has no Name column; nothing is written.
     """
     sheet = parse_rows(rows, guilds=_import_guilds(hub))
-    return apply_upload(hub, sheet, member=member)
+    with transaction.atomic():
+        result = apply_upload(hub, sheet, member=member)
+        fill_vendor_contacts(result.tables)
+    return result
 
 
 def _import_guilds(hub: EventHub) -> list[Guild]:
@@ -1297,7 +1316,9 @@ def set_vendor_sheet(hub: EventHub, url: str) -> VendorFloor:
 
 def pull_vendor_sheet(hub: EventHub) -> ImportResult:
     """Read ``hub``'s vendor sheet and write it to the table requests by the pull's rule
-    (``hq.vendor_import.apply_pull``), recording on the floor when it ran and what it did, in one transaction.
+    (``hq.vendor_import.apply_pull``), then fill the blank contact boxes of every member vendor on the hub, the rows
+    the sheet left alone included (:func:`fill_vendor_contacts`), recording on the floor when it ran and what it did,
+    in one transaction.
 
     A sheet that cannot be read writes no table: the floor records why (``sheet_pull_error``) and the error is
     raised. A pull that works clears the last error.
@@ -1321,6 +1342,8 @@ def pull_vendor_sheet(hub: EventHub) -> ImportResult:
         raise vendor_sheet.SheetUnreadable(str(exc)) from exc
     with transaction.atomic():
         result = apply_pull(hub, sheet)
+        # The whole list, not only the rows the sheet changed, so rows already on it fill on the next pull (#1049).
+        fill_vendor_contacts(hub.vendor_tables.all())
         floor.sheet_pulled_at = timezone.now()
         floor.sheet_pull_error = ""
         floor.sheet_pull_summary = pull_summary(result)
@@ -1498,11 +1521,105 @@ def _claim_poster(
 
 
 def update_vendor_table(table: VendorTable, fields: Mapping[str, Any]) -> VendorTable:
-    """Save the row's edited fields on ``table``."""
+    """Save the row's edited fields on ``table``, with a member vendor's blank contact boxes filled from their member
+    record (:func:`fill_vendor_contacts`) in the same save."""
     for name, value in fields.items():
         setattr(table, name, value)
+    fill_vendor_contacts([table], save=False)
     table.save()
     return table
+
+
+# ---- Member vendors' contacts (#1049) ----
+
+# The contact boxes a member vendor's record fills while they are blank; never one that holds a value.
+VENDOR_CONTACT_FIELDS = ("email", "phone", "discord_handle")
+
+
+def fill_vendor_contacts(tables: Iterable[VendorTable], *, save: bool = True) -> list[VendorTable]:
+    """Fill the blank email, phone and Discord handle of each of ``tables`` that is one active member's row from that
+    member's record (any active member, whatever their directory settings); the tables it changed.
+
+    A row is a member's when its Discord handle matches theirs (:func:`_handle_key`), or, with no handle match, when
+    its name matches their preferred or full legal name (``hq.vendor_import.normalise``). A handle or a name two or
+    more active members share matches nobody. A box that holds a value is never changed and the name is never
+    rewritten. The email is the member's ``primary_email``, lowercased as the row stores it.
+
+    With ``save`` (rows already in the database) the changed rows are written in one ``bulk_update`` with a new
+    ``updated_at``, which ``bulk_update`` would not set, so an organiser's open form of a filled row is stale and its
+    blank boxes never undo the fill. Without it the tables are only changed in memory, for a caller about to save
+    them. A fixed number of queries however many tables: none when no table has a blank box, else the active
+    members' keys, then the matched members with their primary email rows (two), then the one update.
+    """
+    wanting = [table for table in tables if not all(getattr(table, name) for name in VENDOR_CONTACT_FIELDS)]
+    if not wanting:
+        return []
+    matched = _member_matches(wanting)
+    if not matched:
+        return []
+    from allauth.account.models import EmailAddress
+
+    members = (
+        Member.objects.select_related("user")
+        .prefetch_related(
+            Prefetch(
+                "user__emailaddress_set",
+                queryset=EmailAddress.objects.filter(primary=True),
+                to_attr="_primary_emailaddresses",
+            )
+        )
+        .in_bulk({pk for _table, pk in matched})
+    )
+    filled: list[VendorTable] = []
+    for table, pk in matched:
+        member = members[pk]
+        record = {
+            "email": member.primary_email.strip().lower(),
+            "phone": member.phone.strip(),
+            "discord_handle": member.discord_handle.strip(),
+        }
+        blanks = [name for name, value in record.items() if value and not getattr(table, name)]
+        for name in blanks:
+            setattr(table, name, record[name])
+        if blanks:
+            filled.append(table)
+    if save and filled:
+        now = timezone.now()
+        for table in filled:
+            table.updated_at = now
+        VendorTable.objects.bulk_update(filled, [*VENDOR_CONTACT_FIELDS, "updated_at"])
+    return filled
+
+
+def _member_matches(tables: Sequence[VendorTable]) -> list[tuple[VendorTable, int]]:
+    """Each of ``tables`` that is one active member's row, with that member's pk, from one query of the active
+    members' handles and names."""
+    by_handle: dict[str, set[int]] = defaultdict(set)
+    by_name: dict[str, set[int]] = defaultdict(set)
+    keys = Member.objects.active().values_list("pk", "discord_handle", "preferred_name", "full_legal_name")
+    for pk, handle, preferred_name, full_legal_name in keys:
+        by_handle[_handle_key(handle)].add(pk)
+        by_name[normalise(preferred_name)].add(pk)
+        by_name[normalise(full_legal_name)].add(pk)
+    # A blank handle or name is nobody's key.
+    by_handle.pop("", None)
+    by_name.pop("", None)
+    handles = {key: next(iter(pks)) for key, pks in by_handle.items() if len(pks) == 1}
+    names = {key: next(iter(pks)) for key, pks in by_name.items() if len(pks) == 1}
+    matched: list[tuple[VendorTable, int]] = []
+    for table in tables:
+        pk = handles.get(_handle_key(table.discord_handle))
+        if pk is None:
+            pk = names.get(normalise(table.name))
+        if pk is not None:
+            matched.append((table, pk))
+    return matched
+
+
+def _handle_key(handle: str) -> str:
+    """A Discord handle as a row and a member match on it: trimmed, casefolded and without a leading @, so "@Moss"
+    is "moss"."""
+    return normalise(handle).removeprefix("@").strip()
 
 
 def set_vendor_floor(hub: EventHub, *, capacity: int | None, map_note: str) -> VendorFloor:

@@ -6,6 +6,7 @@ the Market Check-in (Track D, part 4), the event flyer and sharing page (Track D
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -1167,7 +1168,8 @@ def vendor_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) 
     """Save one row, by the actual role: the row's form posts itself over htmx on every change (no Save button).
     The answer is all out of band, so no box is replaced while someone types: the row's state slot (the new
     ``updated_at`` stamp and the saved status) and the band, with a toast. A refused value comes back as the slot
-    with its errors, and nothing is saved.
+    with its errors, and nothing is saved. A save that filled a member vendor's blank contact boxes from their record
+    (``services.fill_vendor_contacts``) also sends back those boxes' inputs alone, so the row shows what was saved.
 
     A save from a page older than the row (its ``updated_at`` no longer matches) is refused whole: the whole row
     comes back as the database holds it, with :data:`VENDOR_STALE_SAVE`, so one organiser never overwrites another.
@@ -1194,24 +1196,38 @@ def vendor_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) 
             # The refused form changed the row in memory; the row's own words come from the database.
             saved = hub.vendor_tables.select_related("guild", "created_by").get(pk=table.pk)
             return _vendor_row_answer(request, hub, card, VendorRow(table=saved, form=form))
-        services.update_vendor_table(table, form.to_fields())
+        fields = form.to_fields()
+        services.update_vendor_table(table, fields)
     if not fragment:
         messages.success(request, f"{table.name} saved.")
         return redirect(_vendors_url(hub, show))
-    response = _vendor_row_answer(request, hub, card, VendorRow(table=table, form=_vendor_edit_form(table, guilds)))
+    # The boxes posted blank that the save filled from a member vendor's record (#1049).
+    filled = [name for name in services.VENDOR_CONTACT_FIELDS if not fields[name] and getattr(table, name)]
+    row = VendorRow(table=table, form=_vendor_edit_form(table, guilds))
+    response = _vendor_row_answer(request, hub, card, row, filled=filled)
     trigger_toast(response, "Saved.", "success")
     return response
 
 
 def _vendor_row_answer(
-    request: HttpRequest, hub: EventHub, card: HubCard, row: VendorRow, *, whole: bool = False
+    request: HttpRequest,
+    hub: EventHub,
+    card: HubCard,
+    row: VendorRow,
+    *,
+    whole: bool = False,
+    filled: Sequence[str] = (),
 ) -> HttpResponse:
     """The answer to a row's htmx autosave, all out of band: the row's state slot (or, with ``whole``, the whole row
-    for a refused stale save), then the band so the counts follow the row's status."""
+    for a refused stale save), each box in ``filled`` (the contact boxes the save filled from a member vendor's
+    record) as its input alone, then the band so the counts follow the row's status."""
+    for name in filled:
+        row.form.fields[name].widget.attrs["hx-swap-oob"] = "true"
     context = {
         **_vendor_band_context(hub, card),
         "hub": hub,
         "row": row,
+        "filled": [row.form[name] for name in filled],
         "show": _vendor_posted_filter(request),
         "whole": whole,
     }
