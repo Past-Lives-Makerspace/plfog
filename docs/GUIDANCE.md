@@ -37,6 +37,11 @@ feature = "guild.cubbies"
 guidance = "link"
 ```
 
+`audience` names the What's New tabs the change is for, `members`, `instructors`, `guild-staff`
+and `admins`, and any finer guild staff key (`guild-leads`, `orientors`, `treasurers`,
+`class-reviewers`, `equipment-managers`), which lists under For Guild Staff with a chip;
+`changelog.d/README.md` has the table.
+
 **The PR body** carries one line under `**Area:**`:
 
 ```
