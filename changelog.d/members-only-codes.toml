@@ -1,0 +1,16 @@
+bump = "minor"
+date = "2026-11-01"
+audience = ["admins"]
+title = "Discount codes can be for members only"
+changes = [
+  "Turn on Members only when you make or edit a class discount code, and only signed in members with an active membership can use it.",
+  "Anyone else who types it is told the code is for members and pays the regular price.",
+]
+feature = "admin.discount-codes"
+guidance = "shots"
+
+[[shots]]
+caption = "On a discount code, turn on Members only and press Save."
+
+[[shots]]
+caption = "Someone who is not signed in as a member is told the code is for members."

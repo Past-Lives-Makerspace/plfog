@@ -94,7 +94,7 @@ def describe_DiscountCode():
     def describe_best_auto_apply_for():
         def it_returns_none_when_no_auto_apply_codes(db):
             offering = ClassOfferingFactory()
-            assert DiscountCode.objects.best_auto_apply_for(offering, 10_000) is None
+            assert DiscountCode.objects.best_auto_apply_for(offering, 10_000, member=None) is None
 
         def it_picks_the_code_that_drops_price_furthest(db):
             offering = ClassOfferingFactory()
@@ -102,23 +102,23 @@ def describe_DiscountCode():
             deepest = DiscountCodeFactory(
                 class_offering=offering, auto_apply=True, discount_pct=40, discount_fixed_cents=None
             )
-            assert DiscountCode.objects.best_auto_apply_for(offering, 10_000) == deepest
+            assert DiscountCode.objects.best_auto_apply_for(offering, 10_000, member=None) == deepest
 
         def it_ignores_codes_scoped_to_other_offerings(db):
             offering = ClassOfferingFactory()
             other = ClassOfferingFactory()
             DiscountCodeFactory(class_offering=other, auto_apply=True)
-            assert DiscountCode.objects.best_auto_apply_for(offering, 10_000) is None
+            assert DiscountCode.objects.best_auto_apply_for(offering, 10_000, member=None) is None
 
         def it_skips_currently_invalid_codes(db):
             offering = ClassOfferingFactory()
             DiscountCodeFactory(class_offering=offering, auto_apply=True, is_active=False)
-            assert DiscountCode.objects.best_auto_apply_for(offering, 10_000) is None
+            assert DiscountCode.objects.best_auto_apply_for(offering, 10_000, member=None) is None
 
         def it_ignores_non_auto_apply_codes(db):
             offering = ClassOfferingFactory()
             DiscountCodeFactory(class_offering=offering, auto_apply=False)
-            assert DiscountCode.objects.best_auto_apply_for(offering, 10_000) is None
+            assert DiscountCode.objects.best_auto_apply_for(offering, 10_000, member=None) is None
 
     def describe_site_wide_live():
         def it_lists_the_active_approved_codes_with_no_class_scope_by_code(db):
@@ -380,9 +380,15 @@ def describe_DiscountCode_instructor_scope():
         def it_auto_applies_an_instructors_code_on_their_classes_only(db):
             teacher = InstructorFactory()
             code = DiscountCodeFactory(class_offering=None, instructor=teacher, auto_apply=True, discount_pct=30)
-            assert DiscountCode.objects.best_auto_apply_for(ClassOfferingFactory(instructor=teacher), 10_000) == code
-            assert DiscountCode.objects.best_auto_apply_for(ClassOfferingFactory(), 10_000) is None
-            assert DiscountCode.objects.best_auto_apply_for(ClassOfferingFactory(instructor=None), 10_000) is None
+            assert (
+                DiscountCode.objects.best_auto_apply_for(ClassOfferingFactory(instructor=teacher), 10_000, member=None)
+                == code
+            )
+            assert DiscountCode.objects.best_auto_apply_for(ClassOfferingFactory(), 10_000, member=None) is None
+            assert (
+                DiscountCode.objects.best_auto_apply_for(ClassOfferingFactory(instructor=None), 10_000, member=None)
+                is None
+            )
 
     def describe_teaching_members():
         def it_lists_members_with_a_class_by_name_once_each(db):

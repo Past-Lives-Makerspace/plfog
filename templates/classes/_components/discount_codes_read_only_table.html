@@ -25,7 +25,7 @@ input, select and textarea inside a pane, so a read only table must contribute n
     <tbody>
     {% for c in codes %}
         <tr>
-            <td><code>{{ c.code }}</code></td>
+            <td><code>{{ c.code }}</code>{% if c.members_only %} <span class="hub-pill hub-pill--neutral" data-members-only>Members only</span>{% endif %}</td>
             <td>{% if c.discount_pct %}{{ c.discount_pct }}% off{% else %}{{ c.discount_fixed_cents|cents_as_dollars }} off{% endif %}</td>
             <td>{% if c.valid_from and c.valid_until %}From {{ c.valid_from|date:"M j, Y" }} until {{ c.valid_until|date:"M j, Y" }}{% elif c.valid_from %}From {{ c.valid_from|date:"M j, Y" }}{% elif c.valid_until %}Until {{ c.valid_until|date:"M j, Y" }}{% else %}No date limit{% endif %}</td>
             <td>{{ c.use_count }}{% if c.max_uses %} / {{ c.max_uses }}{% endif %}</td>

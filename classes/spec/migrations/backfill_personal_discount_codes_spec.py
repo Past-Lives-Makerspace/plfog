@@ -59,11 +59,12 @@ def describe_migration_0099_backfill_personal_discount_codes():
             patty = _teacher("Patricia Lane", preferred_name="Patty")
             locked = MemberFactory(full_legal_name="Locked Out", instructor_oriented_at=None)
             _migrate(_BEFORE)
-            _migrate(_AFTER)
+            apps = _migrate(_AFTER)
             assert _codes(alex) == [("ALEX25", True)]
             assert _codes(patty) == [("PATTY25", True)]
             assert _codes(locked) == []
-            made = DiscountCode.objects.get(instructor=alex)
+            # The historical model: the live one names columns later migrations add (#1072).
+            made = apps.get_model(_APP, "DiscountCode").objects.get(instructor_id=alex.pk)
             assert (made.discount_pct, made.is_approved, made.is_active, made.auto_apply) == (25, True, True, False)
             assert (made.max_uses, made.valid_from, made.valid_until, made.class_offering_id) == (
                 None,
@@ -99,11 +100,12 @@ def describe_migration_0099_backfill_personal_discount_codes():
             kit = _teacher("Kit Pending")
             DiscountCodeFactory(code="KITPENDING", class_offering=None, instructor=kit, is_approved=False)
             _migrate(_BEFORE)
-            _migrate(_AFTER)
+            apps = _migrate(_AFTER)
             assert _codes(dana) == [("DANALIVE", True), ("DANAOFF", False)]
-            assert live.pk == DiscountCode.objects.get(instructor=dana, is_personal=True).pk
+            codes_then = apps.get_model(_APP, "DiscountCode").objects
+            assert live.pk == codes_then.get(instructor_id=dana.pk, is_personal=True).pk
             assert _codes(kit) == [("KIT10", True), ("KITPENDING", False)]
-            pending = DiscountCode.objects.get(code="KITPENDING")
+            pending = codes_then.get(code="KITPENDING")
             assert (pending.is_approved, pending.is_active) == (False, True)
         finally:
             _migrate(_HEAD)

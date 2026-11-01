@@ -59,7 +59,7 @@
         {% concat "del-code-" c.pk as code_modal_id %}
         {% concat "Actions for " c.code as code_menu_label %}
         <tr id="code-{{ c.pk }}"{% if not c.is_approved %} style="background:rgba(248,180,75,0.06);"{% endif %}>
-            <td>{{ c.code }}</td>
+            <td>{{ c.code }}{% if c.members_only %} <span class="hub-pill hub-pill--neutral" data-members-only>Members only</span>{% endif %}</td>
             <td>{{ c.discount_pct|default:"—" }}</td>
             <td>{% if c.discount_fixed_cents %}{{ c.discount_fixed_cents|cents_as_dollars }}{% else %}—{% endif %}</td>
             <td>{{ c.valid_from|default:"—" }} → {{ c.valid_until|default:"—" }}</td>
