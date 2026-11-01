@@ -32,7 +32,8 @@ changes = [
 | `title` | for `members` | The Discord headline and the changelog heading. |
 | `changes` | for `members` | The bullets. Plain member-facing language: no jargon, no PR numbers, no commit hashes. |
 | `feature` | for `guidance` past `none` | The feature this change belongs to, a key in `core/guidance.py` like `guild.cubbies`. See below. |
-| `guidance` | no (`none`) | How much teaching ships with it: `none`, `link`, `clip` or `tour`. See below. |
+| `guidance` | no (`none`) | How much teaching ships with it: `none`, `link`, `shots` or `tour`. See below. |
+| `shots` | for `guidance` `shots` or `tour` | The `[[shots]]` blocks, one captioned screenshot per step, in order. See below. |
 | `screenshot` | no | A feature-shot slug for the release email's card. |
 | `requests` | no | Feedback request numbers this change delivers, like `[12, 15]`. See below. |
 
@@ -60,8 +61,8 @@ Name every role the change touches: a tool for admins and the thing members see 
 `"internal"` is still an internal fragment; `internal` never sits in a list.
 
 `feature` is the key registered in `core/guidance.py` for the thing the change belongs to. The
-registry holds what does not change between releases (the title, where it lives, the steps, a
-clip and a tour); the fragment holds what did. A change with no feature of its own (a copy fix
+registry holds what does not change between releases (the title, where it lives, the steps and
+a tour); the fragment holds what did. A change with no feature of its own (a copy fix
 across the portal, a sign in bug) names none.
 
 `guidance` is how much teaching the PR ships, and it is also the `**Guidance:**` line of the PR
@@ -71,14 +72,30 @@ body; CI fails the two when they differ.
 |---|---|
 | `none` | The entry. Nothing to open. |
 | `link` | The entry with Open it, which goes where `feature` lives. |
-| `clip` | `link`, plus a short recorded walkthrough registered on the feature (#1008). |
-| `tour` | `clip`, plus a Guided Tour registered on the feature (`core/tours.py`). |
+| `shots` | `link`, plus the captioned screenshots the entry walks through, listed below as `[[shots]]` (#1050). |
+| `tour` | `shots`, plus a Guided Tour registered on the feature (`core/tours.py`). |
 
-Anything past `none` needs a `feature`. `clip` needs the feature to register a clip slug and
-`tour` a tour key, or the `fragment` check fails. A `tour` means a tour plus a clip, never a Help
-Center article: no level adds one (#1009). The check holds `tour` to the tour key today and
-to the clip as well from #1008, when a feature can register one. `docs/GUIDANCE.md` says how
-to pick.
+Anything past `none` needs a `feature`. `shots` and `tour` list their steps as `[[shots]]`
+blocks, one per picture, in order; `tour` also needs the feature to register a tour key. A
+`tour` means a tour plus shots, never a Help Center article: no level adds one (#1009).
+
+```toml
+guidance = "shots"
+
+[[shots]]
+caption = "On the Write step, pick a class under Feature a class."
+
+[[shots]]
+caption = "The preview shows the card under your message, with a Register button."
+frame = "phone"
+```
+
+The pictures are `guidance/<fragment-slug>/step-1.png`, `step-2.png` and so on on the media
+bucket, numbered by position, so a shot names no file; `frame = "phone"` is the one other key,
+for phone-only UI. The `fragment` check HEADs each one and fails naming the first that is
+missing. `docs/GUIDANCE.md` says how to pick the level, take the shots to the standard frame and
+upload them (`scripts/upload_screenshot.py --guidance <slug>`), and that a screen change remakes
+its shots in the same PR.
 
 ## `requests`: telling the people who asked
 

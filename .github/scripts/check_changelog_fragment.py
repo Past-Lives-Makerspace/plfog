@@ -14,10 +14,14 @@ Validating every fragment in the tree (not only the added ones) is deliberate: a
 *edits* an unshipped fragment can break it just as thoroughly as one that adds a broken one,
 and the release workflow parses the whole directory to fold the version.
 
-A fragment's ``guidance`` is held to the registry here rather than in ``parse_fragment``
-(#1007): ``clip`` needs a clip slug and ``tour`` a tour key on the feature's
-``core.guidance`` entry. The parser runs at app import, and a missing clip must cost a red X
-on the branch, never a production that does not boot.
+A fragment's ``guidance`` is held to what exists here rather than in ``parse_fragment``
+(#1007, #1050): ``tour`` needs a tour key on the feature's ``core.guidance`` entry, and every
+``[[shots]]`` block of a ``shots`` or ``tour`` fragment needs its picture on the media bucket,
+proved by a HEAD of ``R2_PUBLIC_URL/guidance/<slug>/step-N.png``. The parser runs at app
+import, and a missing tour or picture must cost a red X on the branch, never a production that
+does not boot. ``R2_PUBLIC_URL`` is a repository variable (a public address). In CI
+(``GITHUB_ACTIONS`` set) it is required, so a deleted variable can never turn a missing picture
+into a green run; on a local run the HEAD step is skipped and says so.
 
 Stdlib only, and no Django: this runs in ci.yml's own `changelog` job, which installs
 nothing beyond the interpreter so a missing fragment is reported in seconds rather than
@@ -31,10 +35,12 @@ import os
 import pathlib
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 
 sys.path.insert(0, ".")
 from core.guidance import GUIDANCE  # noqa: E402
-from plfog.changelog import Fragment, FragmentError, load_fragments  # noqa: E402
+from plfog.changelog import SHOT_LEVELS, Fragment, FragmentError, load_fragments  # noqa: E402
 from plfog.version import FRAGMENTS_PATH, VERSION  # noqa: E402
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -82,23 +88,63 @@ def _changed_fragments(base: str, head: str) -> list[str]:
 
 
 def missing_materials(fragments: list[Fragment]) -> list[str]:
-    """One line per fragment whose ``guidance`` promises a clip or a tour its feature has not got.
+    """One line per fragment whose ``guidance = "tour"`` names a feature with no tour registered.
 
-    The parser already proved ``feature`` is registered and that a level past ``none`` has one,
-    so only the registered entry's ``clip`` and ``tour`` are in question here. A level of
-    ``tour`` ships a tour and a clip (``docs/GUIDANCE.md``), but only the tour key is required
-    until #1008 gives a feature a clip to register.
+    The parser already proved ``feature`` is registered, that a level past ``none`` has one and
+    that ``shots`` and ``tour`` list their ``[[shots]]`` (#1050), so only the registered entry's
+    ``tour`` is in question here; whether the pictures exist is :func:`missing_shots`' question.
     """
     problems: list[str] = []
     for fragment in fragments:
-        if fragment.guidance not in ("clip", "tour"):
-            continue
-        entry = GUIDANCE[fragment.feature]
-        if (fragment.guidance == "clip" and entry.clip is None) or (fragment.guidance == "tour" and entry.tour is None):
+        if fragment.guidance == "tour" and GUIDANCE[fragment.feature].tour is None:
             problems.append(
-                f"changelog.d/{fragment.path.name}: guidance = \"{fragment.guidance}\" but '{fragment.feature}' "
-                f"has no {fragment.guidance} registered in core/guidance.py."
+                f"changelog.d/{fragment.path.name}: guidance = \"tour\" but '{fragment.feature}' "
+                f"has no tour registered in core/guidance.py."
             )
+    return problems
+
+
+#: What the HEAD calls itself. The bucket's public host answers Python's default agent with a
+#: 403 whatever the key (its bot filter), so the check names itself the way a browser would.
+_USER_AGENT = "Mozilla/5.0 (compatible; plfog-fragment-check/1; +https://github.com/Past-Lives-Makerspace/plfog)"
+
+
+def _head(url: str) -> int:
+    """The status a HEAD of ``url`` answers; a 4xx or 5xx is returned as its code, not raised.
+
+    A host that cannot be reached at all exits naming it: neither "missing" nor "fine" is an
+    answer to a network failure.
+    """
+    request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": _USER_AGENT})
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return int(response.status)
+    except urllib.error.HTTPError as error:
+        return int(error.code)
+    except urllib.error.URLError as error:
+        sys.exit(f"Could not reach {url}: {error.reason}")
+
+
+def missing_shots(fragments: list[Fragment], public_url: str) -> list[str]:
+    """One line per fragment at ``shots`` or ``tour`` naming its first picture the bucket does not answer 200 for (#1050).
+
+    Every fragment in the tree is checked, not only the added ones: the pictures are permanent,
+    so a fragment that passed once keeps passing, and one whose shots were deleted by hand is
+    caught before the entry shows a broken picture.
+    """
+    problems: list[str] = []
+    for fragment in fragments:
+        if fragment.guidance not in SHOT_LEVELS:
+            continue
+        for key in fragment.shot_keys:
+            url = f"{public_url}/{key}"
+            status = _head(url)
+            if status != 200:
+                problems.append(
+                    f"changelog.d/{fragment.path.name}: {url} answered {status}. Upload the shots with "
+                    f"scripts/upload_screenshot.py --guidance {fragment.slug} step-1.png ... (docs/GUIDANCE.md)."
+                )
+                break
     return problems
 
 
@@ -126,6 +172,22 @@ def main() -> None:
     materials = missing_materials(fragments)
     if materials:
         sys.exit("A fragment promises guidance its feature has not registered.\n\n" + "\n".join(materials))
+
+    # Defaulted on purpose, like PR_LABELS: a local run has no repository variable, and skipping
+    # the HEAD step out loud there is the documented behaviour. In CI the default is refused, so
+    # a variable someone deleted can never turn a missing picture into a green run.
+    public_url = os.environ.get("R2_PUBLIC_URL", "").rstrip("/")
+    if public_url:
+        shots = missing_shots(fragments, public_url)
+        if shots:
+            sys.exit("A fragment promises shots that are not on the bucket.\n\n" + "\n".join(shots))
+    elif os.environ.get("GITHUB_ACTIONS"):
+        sys.exit(
+            "R2_PUBLIC_URL is unset in CI. Set the repository variable R2_PUBLIC_URL to the media bucket's public "
+            "host (a public address, not a secret) so every fragment's shots can be checked on the bucket."
+        )
+    else:
+        print("R2_PUBLIC_URL is unset; not checking that each fragment's shots are on the bucket (CI requires it).")
 
     if _SKIP_LABEL in _labels():
         print(f"'{_SKIP_LABEL}' label present; not requiring a fragment.")

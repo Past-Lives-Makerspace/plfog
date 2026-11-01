@@ -1,7 +1,8 @@
 """BDD specs for ``scripts/upload_screenshot.py``.
 
 The upload itself talks to R2 and is not exercised here; what is pinned is where an object
-lands (only under ``pr-screenshots/``) and that a non-image never reaches the bucket.
+lands (only under ``pr-screenshots/``, or ``guidance/<slug>/`` for a walkthrough's shots, #1050),
+that a non-image never reaches the bucket, and what the guidance mode refuses and prints.
 """
 
 from __future__ import annotations
@@ -209,3 +210,112 @@ def describe_running_the_file():
         with pytest.raises(SystemExit) as exit_info:
             runpy.run_path(str(_SCRIPT), run_name="__main__")
         assert "not an image file" in str(exit_info.value)
+
+
+#: The eight byte PNG signature and a little body: what the sniff reads before the size is weighed.
+_PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 64
+_JPEG = b"\xff\xd8\xff" + b"\0" * 64
+
+
+def _steps(tmp_path, count: int = 2) -> list[pathlib.Path]:
+    paths = []
+    for number in range(1, count + 1):
+        path = tmp_path / f"step-{number}.png"
+        path.write_bytes(_PNG)
+        paths.append(path)
+    return paths
+
+
+def describe_guidance_shots():
+    """``--guidance <slug>`` (#1050): a walkthrough's pictures under guidance/<slug>/step-N.png, outside the 30-day rule."""
+
+    def it_uploads_each_step_under_the_fragments_prefix_and_prints_the_markdown_and_the_toml(tmp_path, fake_r2, capsys):
+        client = fake_r2(_FakeS3())
+        upload.main(["--guidance", "1050-guidance-shots", *map(str, _steps(tmp_path))])
+        assert client.uploads == [
+            ("plfog", "guidance/1050-guidance-shots/step-1.png", "image/png"),
+            ("plfog", "guidance/1050-guidance-shots/step-2.png", "image/png"),
+        ]
+        out = capsys.readouterr().out
+        assert out.startswith(
+            "### Step 1\n\n![step-1](https://pub.example/guidance/1050-guidance-shots/step-1.png)\n\n"
+            "### Step 2\n\n![step-2](https://pub.example/guidance/1050-guidance-shots/step-2.png)\n"
+        )
+        assert out.rstrip().endswith('guidance = "shots"\n\n[[shots]]\ncaption = ""\n\n[[shots]]\ncaption = ""')
+
+    def it_takes_the_steps_in_any_order_and_uploads_them_by_number(tmp_path, fake_r2):
+        one, two = _steps(tmp_path)
+        client = fake_r2(_FakeS3())
+        upload.main(["--guidance", "slug-x", str(two), str(one)])
+        assert [key for _, key, _ in client.uploads] == ["guidance/slug-x/step-1.png", "guidance/slug-x/step-2.png"]
+
+    def it_refuses_a_second_run_without_replace_and_uploads_nothing(tmp_path, fake_r2):
+        client = fake_r2(_FakeS3(existing={"guidance/1050-guidance-shots/step-2.png"}))
+        with pytest.raises(SystemExit) as exit_info:
+            upload.main(["--guidance", "1050-guidance-shots", *map(str, _steps(tmp_path))])
+        message = str(exit_info.value)
+        assert "guidance/1050-guidance-shots/step-2.png already exists" in message and "--replace" in message
+        assert client.uploads == []
+
+    def it_replaces_a_remake_when_told(tmp_path, fake_r2):
+        client = fake_r2(_FakeS3(existing={"guidance/1050-guidance-shots/step-1.png"}))
+        upload.main(["--guidance", "1050-guidance-shots", "--replace", *map(str, _steps(tmp_path))])
+        assert len(client.uploads) == 2
+
+    def it_refuses_a_file_over_500_kb_with_its_size(tmp_path):
+        one, two = _steps(tmp_path)
+        two.write_bytes(_PNG + b"\0" * (600 * 1024))
+        with pytest.raises(SystemExit) as exit_info:
+            upload.main(["--guidance", "slug-x", str(one), str(two)])
+        message = str(exit_info.value)
+        assert "step-2.png is 600 KB" in message and "at most 500 KB" in message
+
+    def it_refuses_a_jpg_with_its_type(tmp_path):
+        jpg = tmp_path / "step-1.jpg"
+        jpg.write_bytes(_JPEG)
+        with pytest.raises(SystemExit) as exit_info:
+            upload.main(["--guidance", "slug-x", str(jpg)])
+        assert "step-1.jpg is image/jpeg, not a PNG" in str(exit_info.value)
+
+    def it_refuses_a_png_whose_bytes_are_not_a_png(tmp_path):
+        fake = tmp_path / "step-1.png"
+        fake.write_bytes(_JPEG)
+        with pytest.raises(SystemExit) as exit_info:
+            upload.main(["--guidance", "slug-x", str(fake)])
+        assert "step-1.png is image/jpeg, not a PNG" in str(exit_info.value)
+
+    def it_refuses_names_that_are_not_steps_running_from_1(tmp_path):
+        one, _two = _steps(tmp_path)
+        three = tmp_path / "step-3.png"
+        three.write_bytes(_PNG)
+        with pytest.raises(SystemExit) as exit_info:
+            upload.main(["--guidance", "slug-x", str(one), str(three)])
+        assert "none missing or repeated (got step-1.png, step-3.png)" in str(exit_info.value)
+        home = tmp_path / "home.png"
+        home.write_bytes(_PNG)
+        with pytest.raises(SystemExit) as exit_info:
+            upload.main(["--guidance", "slug-x", str(home)])
+        assert "home.png is not a step name" in str(exit_info.value)
+
+    def it_refuses_a_slug_outside_the_fragment_grammar(tmp_path):
+        with pytest.raises(SystemExit) as exit_info:
+            upload.main(["--guidance", "Bad_Slug", *map(str, _steps(tmp_path))])
+        assert "'Bad_Slug' is not a fragment slug" in str(exit_info.value)
+
+    def it_refuses_replace_without_guidance(tmp_path, capsys):
+        (one,) = _steps(tmp_path, 1)
+        with pytest.raises(SystemExit) as exit_info:
+            upload.main(["--replace", str(one)])
+        assert exit_info.value.code == 2
+        assert "--replace only applies with --guidance" in capsys.readouterr().err
+
+    def it_sniffs_webp_and_gif_and_falls_back_to_the_name(tmp_path):
+        webp = tmp_path / "a.webp"
+        webp.write_bytes(b"RIFF" + b"\0" * 4 + b"WEBP" + b"\0" * 8)
+        gif = tmp_path / "b.gif"
+        gif.write_bytes(b"GIF89a" + b"\0" * 8)
+        unknown = tmp_path / "c.svg"
+        unknown.write_bytes(b"<svg/>")
+        assert upload.sniff_type(webp) == "image/webp"
+        assert upload.sniff_type(gif) == "image/gif"
+        assert upload.sniff_type(unknown) == "image/svg+xml"

@@ -2,7 +2,9 @@
    lifted from mockups/1007-whats-new.html as Felix approved it. Tokens only; the badge gradient
    mixes the theme's tuscan yellow with a warm orange. Loaded by hub/base.html on every hub page.
    Part 2 ships the button and the modal; the badge classes wait here for part 3's tag. Every
-   animation runs once per 10 s at most and is off under prefers-reduced-motion. */
+   animation runs once per 10 s at most and is off under prefers-reduced-motion. The shots
+   stepper (#1050) fills the media slot: a 16:10 picture that slides between steps, the captions
+   listed beside it, and a lightbox kept inside the modal. */
 
 :root {
     --pl-new-from: #ffd36a;
@@ -138,7 +140,7 @@
 .pl-wn-entry__changes { margin: 0.2rem 0 0.7rem 1.15rem; padding: 0; font-size: 0.92rem; line-height: 1.5; }
 .pl-wn-entry__changes li + li { margin-top: 0.2rem; }
 .pl-wn-clip { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 1rem; margin: 0.4rem 0 0.8rem; }
-.pl-wn-clip--steps { grid-template-columns: 1fr; } /* the steps alone, until #1008 puts the clip beside them */
+.pl-wn-clip--steps { grid-template-columns: 1fr; } /* a frozen entry's How it works lines alone, with no shots beside them */
 .pl-wn-clip__video {
     aspect-ratio: 16 / 9; border-radius: 0.6rem; overflow: hidden; position: relative;
     background: var(--hub-surface); border: 1px solid var(--hub-border);
@@ -154,10 +156,81 @@
     display: block; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
     color: var(--hub-text-muted); margin: 0 0 0.35rem;
 }
+/* ---- The shots stepper (#1050): the picture, Step N of M and its caption, the captions listed beside it ---- */
+.pl-wn-shots { align-items: start; border-radius: 0.6rem; }
+.pl-wn-shots:focus-visible { outline: 2px solid var(--hub-blue); outline-offset: 4px; }
+.pl-wn-shots__media { margin: 0; min-width: 0; }
+.pl-wn-shots__frame {
+    aspect-ratio: 16 / 10; border-radius: 0.6rem; overflow: hidden; position: relative;
+    background: var(--hub-surface); border: 1px solid var(--hub-border);
+}
+.pl-wn-shots__track { display: flex; height: 100%; transition: transform 0.3s ease; }
+.pl-wn-shots__slide {
+    flex: 0 0 100%; width: 100%; height: 100%; display: block;
+    padding: 0; margin: 0; border: 0; background: transparent; cursor: zoom-in;
+}
+.pl-wn-shots__slide:focus-visible { outline: 2px solid var(--hub-blue); outline-offset: -2px; }
+.pl-wn-shots__img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.pl-wn-shots__caption { margin: 0.6rem 0 0; }
+.pl-wn-shots__count {
+    display: block; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+.pl-wn-shots__text { margin: 0.25rem 0 0; font-size: 0.9rem; line-height: 1.5; }
+.pl-wn-shots__nav { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+.pl-wn-shots__list { list-style: none; margin: 0; padding: 0; counter-reset: pl-wn-step; }
+.pl-wn-shots__list li { counter-increment: pl-wn-step; }
+.pl-wn-shots__list li + li { margin-top: 0.35rem; }
+.pl-wn-shots__step {
+    display: flex; gap: 0.6rem; align-items: flex-start; width: 100%; text-align: left;
+    padding: 0.4rem 0.6rem; border-radius: 0.5rem; border: 1px solid transparent;
+    background: transparent; color: var(--hub-text); font: inherit; font-size: 0.9rem; line-height: 1.45; cursor: pointer;
+}
+.pl-wn-shots__step::before {
+    content: counter(pl-wn-step); flex: 0 0 1.5rem; height: 1.5rem; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: var(--font-heading); font-size: 0.72rem; font-weight: 700;
+    background: var(--hub-surface); color: var(--hub-text-muted);
+}
+.pl-wn-shots__step:hover { border-color: var(--hub-border-strong); }
+.pl-wn-shots__step:focus-visible { outline: 2px solid var(--hub-blue); outline-offset: 2px; }
+.pl-wn-shots__list .is-current .pl-wn-shots__step { background: var(--hub-surface); border-color: var(--hub-border-strong); }
+.pl-wn-shots__list .is-current .pl-wn-shots__step::before {
+    background: linear-gradient(135deg, var(--pl-new-from), var(--pl-new-to)); color: var(--pl-new-text);
+}
+/* The lightbox: full screen inside the modal's stacking context, in the class gallery's shape */
+.pl-wn-lightbox {
+    position: fixed; inset: 0; z-index: 600; display: flex; align-items: center; justify-content: center;
+    padding: 2rem; background: rgba(4, 16, 28, 0.92);
+}
+.pl-wn-lightbox__img { max-width: 92vw; max-height: 88vh; object-fit: contain; border-radius: 6px; box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6); }
+.pl-wn-lightbox__close, .pl-wn-lightbox__nav {
+    position: absolute; width: 44px; height: 44px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(7, 30, 50, 0.85); color: var(--color-cream, #f4efdd); border: 1px solid rgba(238, 180, 75, 0.3);
+    font-size: 28px; line-height: 1; cursor: pointer; transition: background 0.15s ease;
+}
+.pl-wn-lightbox__close { top: 18px; right: 18px; font-size: 22px; }
+.pl-wn-lightbox__nav--prev { left: 24px; top: 50%; transform: translateY(-50%); }
+.pl-wn-lightbox__nav--next { right: 24px; top: 50%; transform: translateY(-50%); }
+.pl-wn-lightbox__close:hover, .pl-wn-lightbox__nav:hover:not(:disabled) {
+    background: var(--color-tuscan-yellow); color: var(--color-navy); border-color: var(--color-tuscan-yellow);
+}
+.pl-wn-lightbox__nav:disabled { opacity: 0.35; cursor: default; }
+.pl-wn-lightbox__counter {
+    position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+    color: var(--hub-text-muted); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+}
 .pl-wn-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
 .pl-wn-older { display: block; margin: 0.75rem auto 0.25rem; } /* Show older, centred under the last entry of the page */
 .pl-wn-empty { padding: 2rem 0; text-align: center; color: var(--hub-text-muted); font-size: 0.92rem; }
 @media (max-width: 639.98px) {
-    .pl-wn-clip { grid-template-columns: 1fr; }
+    .pl-wn-clip { grid-template-columns: 1fr; } /* the picture above the list */
     .pl-wn-tabs { margin-top: 0; }
+    .pl-wn-lightbox { padding: 1rem; }
+    .pl-wn-lightbox__nav--prev { left: 8px; }
+    .pl-wn-lightbox__nav--next { right: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .pl-wn-shots__track { transition: none; } /* the next step appears; nothing slides */
 }

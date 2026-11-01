@@ -58,6 +58,10 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          # The media bucket's public host, a repository variable (it is a public address, not a
+          # secret): the check HEADs every shot a fragment lists there (#1050). In CI the script
+          # fails without it, naming the variable, so a deleted variable never reads as green.
+          R2_PUBLIC_URL: ${{ vars.R2_PUBLIC_URL }}
         run: |
           export TODAY="$(date -u +%F)"
           python .github/scripts/check_changelog_fragment.py

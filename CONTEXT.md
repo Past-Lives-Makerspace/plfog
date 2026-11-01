@@ -113,7 +113,7 @@ The small mark after a label (a tab, a card, a quick link, a sidebar link) sayin
 _Avoid_: new pill, notification dot (that is the bell's), unread.
 
 **Guidance**:
-How much teaching a change ships, declared once in the fragment (`guidance`) and once in the PR body (`**Guidance:**`): `none`, `link` (a What's New entry with Open it), `clip` (plus a clip), `tour` (plus a Guided Tour and a clip). The registry of what never changes between releases is `core/guidance.py`; `docs/GUIDANCE.md` is the contract.
+How much teaching a change ships, declared once in the fragment (`guidance`) and once in the PR body (`**Guidance:**`): `none`, `link` (a What's New entry with Open it), `shots` (plus the shots), `tour` (plus a Guided Tour and the shots). The registry of what never changes between releases is `core/guidance.py`; `docs/GUIDANCE.md` is the contract.
 _Avoid_: tutorial level, onboarding, help level, documentation.
 
 **Feature key**:
@@ -124,9 +124,9 @@ _Avoid_: feature slug, feature id, module.
 Who a changelog entry is for: `members`, `guild-staff` or `admins`, the three What's New tabs, or a finer key that rolls up to one (`guild-leads`, `orientors`, `treasurers`, `class-reviewers`, `equipment-managers` to Guild Staff; `instructors` to Members). A fragment's `audience` lists them. `internal` is not an audience: it is no entry at all.
 _Avoid_: role (for the entry; a member has roles, an entry has audiences), target, recipients.
 
-**Clip**:
-A short recorded walkthrough of one feature, registered on its feature key by slug (#1008) and played from a What's New entry at level `clip` or `tour`.
-_Avoid_: video, Loom, screencast, tutorial.
+**Shots**:
+The captioned screenshots a What's New entry walks through, listed as `[[shots]]` on its fragment (#1050), each taken to the standard frame and kept at `guidance/<slug>/step-N.png` on the media bucket. The entry shows them in a stepper at level `shots` or `tour`; one shot is a step.
+_Avoid_: clip, video, screencast, gallery, tutorial.
 
 **Tour**:
 In this context, a Guided Tour from `core/tours.py`: the in-app driven walkthrough a feature key may register, shipped at guidance level `tour`. Not a facility tour.
