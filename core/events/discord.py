@@ -207,6 +207,9 @@ def build_embed_payload(message: Message) -> dict[str, object]:
     ``username`` / ``avatar_url`` (an announcement posted under its sender's Discord name, #730);
     each is added only when set, so a message without them posts under the webhook's own name.
 
+    ``message.discord_image_url`` becomes the embed's ``image`` (an announcement's picture, #1064),
+    added only when set, so a message without one posts the embed it always did.
+
     Args:
         message: The rendered :class:`core.events.channels.Message`.
 
@@ -220,6 +223,8 @@ def build_embed_payload(message: Message) -> dict[str, object]:
     }
     if message.url:
         embed["url"] = message.url
+    if message.discord_image_url:
+        embed["image"] = {"url": message.discord_image_url}
     payload: dict[str, object] = {"embeds": [embed]}
     if message.discord_mention:
         payload["content"] = message.discord_mention

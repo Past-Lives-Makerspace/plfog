@@ -23,6 +23,17 @@
     color: var(--hub-text-muted, inherit);
 }
 
+/* The post's picture (#1064): full width of the card, never taller than a screenful. */
+.pl-guild-announcement__image {
+    display: block;
+    width: 100%;
+    max-height: 32rem;
+    margin-top: 0.75rem;
+    object-fit: contain;
+    border-radius: 6px;
+    background: var(--hub-surface, transparent);
+}
+
 /* Smaller than the page's body text, so a long post reads as a note, not the page. */
 .pl-guild-announcement__body {
     margin-top: 0.75rem;

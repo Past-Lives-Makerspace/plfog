@@ -32,7 +32,12 @@ if TYPE_CHECKING:
     from membership.models import AnnouncementDraft, GuildStaffMembership, OrientationBooking
 
 from core.html_sanitize import clean_rich_body, clean_rich_html, limit_rich_text
-from core.validators import ALLOWED_WIKI_IMAGE_EXTENSIONS, validate_image_size, validate_wiki_upload
+from core.validators import (
+    ALLOWED_WIKI_IMAGE_EXTENSIONS,
+    validate_image_pixels,
+    validate_image_size,
+    validate_wiki_upload,
+)
 from core.features import DEFAULT_SOON_MESSAGE
 from core.events.scheduling import next_tick
 from core.models import CalendarFeed, FeatureSwitch, FeedbackRequest, ScheduledJobState, SiteConfiguration
@@ -5895,6 +5900,37 @@ def _featurable_by_pk(teaching_member: Member | None) -> dict[str, ClassOffering
     return {str(offering.pk): offering for offering in featurable_classes(teaching_member)}
 
 
+#: What an announcement's image upload says when the file is not a picture Pillow can open (#1064).
+ANNOUNCEMENT_IMAGE_INVALID = "That file is not an image we can open. Choose a JPG, PNG, WEBP or HEIC image."
+
+
+class AnnouncementImageField(forms.ImageField):
+    """The composer's one optional image (#1064): Pillow must open it, within the size and pixel caps.
+
+    Django's extension check is left out on purpose: its refusal lists every format Pillow knows,
+    and the save re-encodes whatever opens as a JPEG anyway (:meth:`AnnouncementDraft.save`).
+    """
+
+    default_validators = []
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault("validators", [validate_image_size, validate_image_pixels])
+        kwargs.setdefault("error_messages", {"invalid_image": ANNOUNCEMENT_IMAGE_INVALID})
+        super().__init__(**kwargs)
+
+
+def clean_announcement_image(upload: Any) -> Any:
+    """Validate a posted announcement image outside the form, as the form's own field would.
+
+    The composer's preview and test build an unsaved draft without binding the whole form, and
+    still refuse what Save draft and Send would refuse, with the same words.
+
+    Raises:
+        forms.ValidationError: The file is not an image, or it is over a cap.
+    """
+    return AnnouncementImageField(required=False).clean(upload)
+
+
 class AnnouncementComposeForm(forms.Form):
     """The compose wizard's single form — audience + message + email + Discord + @mention.
 
@@ -5980,6 +6016,10 @@ class AnnouncementComposeForm(forms.Form):
         label="Hide after (optional)",
         help_text="Guild emails only: the day its post leaves your guild page. Leave blank to keep it up.",
     )
+    # One optional picture (#1064). The composer draws its own drop zone (_compose_image_field.html);
+    # an empty post keeps the draft's saved image, and remove_image takes it off.
+    image = AnnouncementImageField(required=False, label="Image (optional)", widget=forms.FileInput)
+    remove_image = forms.BooleanField(required=False, widget=forms.HiddenInput)
 
     def __init__(
         self,

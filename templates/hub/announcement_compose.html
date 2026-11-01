@@ -89,7 +89,9 @@
   {% endtab_picker %}
 
   {# Send is a plain, unvalidated full page POST (hx-boost off, novalidate), as form.submit() made it; requestSubmit() keeps that and fires the submit busy_submit.html locks on. #}
+  {# Multipart for the image (#1064): enctype for the Send POST, hx-encoding for every hx-post button inside (htmx reads it from the closest ancestor, never a form's enctype). #}
   <form method="post" action="{% url 'hub_compose_send' %}" x-ref="wizardForm" data-help-key="announcements.compose"
+        enctype="multipart/form-data" hx-encoding="multipart/form-data"
         hx-boost="false" novalidate data-pl-busy-submit data-pl-busy-label="Sending...">
     {% csrf_token %}
     <input type="hidden" id="compose-draft-pk" name="draft_pk" value="{{ draft.pk|default:'' }}">
@@ -109,6 +111,7 @@
 
       {% include "hub/partials/_compose_subject_field.html" with oob=False %}
       {% include "components/form_field.html" with field=form.body %}
+      {% include "hub/partials/_compose_image_field.html" with current_image=compose_image errors=form.image.errors max_bytes=max_upload_image_bytes oob=False %}
       {% if form.featured_class.field.choices|length > 1 %}
       <div class="pl-wizard-field" x-show="audience === 'students'" x-cloak data-compose-featured-class>
         {% include "components/form_field.html" with field=form.featured_class %}

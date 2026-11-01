@@ -287,15 +287,16 @@ def describe_hub_compose_save_draft():
         assert AnnouncementDraft.objects.filter(author=admin, title="Makerspace Announcement").exists()
         assert _trigger(response)["showToast"] == {"message": "Draft saved.", "type": "success"}
 
-    def it_returns_only_the_draft_pk_out_of_band_and_replaces_the_url(client: Client):
+    def it_returns_only_the_draft_pk_and_the_image_field_out_of_band_and_replaces_the_url(client: Client):
         _login_admin(client)
         response = client.post(reverse("hub_compose_save_draft"), _valid_send_data(body="<p>v1</p>"))
         draft = AnnouncementDraft.objects.get()
         content = response.content.decode().strip()
-        assert (
-            content
-            == f'<input type="hidden" id="compose-draft-pk" name="draft_pk" value="{draft.pk}" hx-swap-oob="true">'
-        )
+        pk_input = f'<input type="hidden" id="compose-draft-pk" name="draft_pk" value="{draft.pk}" hx-swap-oob="true">'
+        assert content.startswith(pk_input)
+        # The image field (#1064) comes back with the stored image, so the next save does not upload it again.
+        assert content[len(pk_input) :].strip().startswith('<div id="compose-image"')
+        assert content.count('hx-swap-oob="true"') == 2
         assert "compose-drafts" not in content
         assert response["HX-Replace-Url"] == reverse("hub_compose_resume", args=[draft.pk])
 

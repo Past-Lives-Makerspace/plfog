@@ -4930,6 +4930,7 @@ def _announcement_previews(draft: AnnouncementDraft) -> dict[str, Any]:
         "discord_description_html": discord_markdown_html(embeds[0]["description"]),
         "discord_sender_name": payload.get("username", ""),
         "discord_sender_avatar_url": payload.get("avatar_url", ""),
+        "discord_image_url": cast(dict[str, Any], embeds[0]).get("image", {}).get("url", ""),
         "push_title": push.title,
         "push_body": push.body,
     }
@@ -5072,6 +5073,7 @@ def _render_compose(
         funding_snapshot=draft.funding_snapshot if draft is not None else None,
     )
     ctx = _get_hub_context(request)
+    remove_posted = form.is_bound and bool(form.data.get("remove_image"))
     return render(
         request,
         "hub/announcement_compose.html",
@@ -5089,6 +5091,9 @@ def _render_compose(
             "locked_label": locked_label,
             "compose_heading": compose_heading,
             "compose_lead": compose_lead,
+            "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
+            # The saved image the field shows (#1064); a re-render after Remove shows none.
+            "compose_image": draft.image if draft is not None and draft.image and not remove_posted else None,
         },
     )
 
@@ -5317,6 +5322,39 @@ def _compose_preview_draft(request: HttpRequest) -> AnnouncementDraft:
     return draft
 
 
+def _compose_attach_image(request: HttpRequest, draft: AnnouncementDraft, *, store: bool) -> str:
+    """Give the preview or test ``draft`` the image the composer holds right now (#1064).
+
+    A file just chosen wins, checked as Save draft checks it (:func:`hub.forms.clean_announcement_image`)
+    and shown through :meth:`AnnouncementDraft.show_unsaved_image`: stored for a test email
+    (``store``), carried in the page for the preview. With none chosen, the posted draft's saved
+    image shows, unless the sender pressed Remove. Push is text only, so the push test never calls
+    this.
+
+    Returns:
+        The refusal to show the sender when the chosen file is not an image or is too large, with
+        the draft left without an image; ``""`` otherwise.
+    """
+    from django.core.exceptions import ValidationError
+
+    from hub.forms import clean_announcement_image
+
+    upload = request.FILES.get("image")
+    if upload is not None:
+        try:
+            cleaned = clean_announcement_image(upload)
+        except ValidationError as exc:
+            return str(exc.messages[0])
+        draft.show_unsaved_image(cleaned, store=store)
+        return ""
+    if request.POST.get("remove_image"):
+        return ""
+    handled = _handled_draft(request, request.POST.get("draft_pk"))
+    if handled is not None and handled.image:
+        draft.image = handled.image.name
+    return ""
+
+
 @login_required
 @require_POST
 def hub_compose_preview(request: HttpRequest) -> HttpResponse:
@@ -5332,10 +5370,12 @@ def hub_compose_preview(request: HttpRequest) -> HttpResponse:
     """
     if not _can_enter_compose(request, _get_member(request), request.POST.get("audience")):
         return _compose_refused(request)
+    draft = _compose_preview_draft(request)
+    image_error = _compose_attach_image(request, draft, store=False)
     return render(
         request,
         "hub/partials/_compose_email_preview.html",
-        _announcement_previews(_compose_preview_draft(request)),
+        {**_announcement_previews(draft), "image_error": image_error},
     )
 
 
@@ -5451,6 +5491,11 @@ def hub_compose_test(request: HttpRequest) -> HttpResponse:
         trigger_toast(response, "Your account has no email address to send a test to.", "error")
         return response
     draft = _compose_preview_draft(request)
+    image_error = _compose_attach_image(request, draft, store=True)
+    if image_error:
+        refused = HttpResponse(status=204)
+        trigger_toast(refused, image_error, "error")
+        return refused
     message = draft.build_email_message(_absolute_url("/"))
     send_email(
         to=to,
@@ -5746,6 +5791,7 @@ def hub_compose_save_draft(request: HttpRequest) -> HttpResponse:
             return gone
     form = AnnouncementComposeForm(
         request.POST,
+        request.FILES,
         results_announcement=_results_compose_lock(instance) is not None,
         draft=instance,
         **_compose_form_kwargs(request),
@@ -5755,7 +5801,11 @@ def hub_compose_save_draft(request: HttpRequest) -> HttpResponse:
         trigger_toast(response, _compose_first_error(form), "error")
         return response
     draft = AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
-    response = render(request, "hub/partials/_compose_save_result.html", {"draft": draft})
+    response = render(
+        request,
+        "hub/partials/_compose_save_result.html",
+        {"draft": draft, "max_upload_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES},
+    )
     response["HX-Replace-Url"] = reverse("hub_compose_resume", args=[draft.pk])
     trigger_toast(response, "Draft saved.")
     return response
@@ -5812,6 +5862,7 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
     results_lock = _results_compose_lock(instance)
     form = AnnouncementComposeForm(
         request.POST,
+        request.FILES,
         require_body=True,
         results_announcement=results_lock is not None,
         draft=instance,

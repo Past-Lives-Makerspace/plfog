@@ -89,6 +89,9 @@ class Message:
 
     ``stop_link`` is a past students email's stop link (#1042): the email channel hands it to
     ``core.email.send``, which fills its placeholder per recipient; every other channel ignores it.
+
+    ``discord_image_url`` is an absolute picture URL the Discord embed shows (an announcement's
+    image, #1064); blank leaves the embed as it was, and every other channel ignores it.
     """
 
     title: str
@@ -100,6 +103,7 @@ class Message:
     discord_username: str = ""
     discord_avatar_url: str = ""
     stop_link: StopLink | None = None
+    discord_image_url: str = ""
 
 
 @runtime_checkable
