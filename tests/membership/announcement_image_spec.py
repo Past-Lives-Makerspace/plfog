@@ -11,16 +11,25 @@ throwaway MEDIA_ROOT the root conftest sets, never object storage.
 from __future__ import annotations
 
 import io
+import struct
+import zlib
 
 import pytest
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from PIL import Image
 
 from core.events.channels import Message
 from core.events.discord import build_embed_payload
-from membership.models import AnnouncementDraft, GuildAnnouncement, build_announcement_email_html
+from membership.models import (
+    ANNOUNCEMENT_IMAGE_INVALID,
+    AnnouncementDraft,
+    GuildAnnouncement,
+    build_announcement_email_html,
+    reencode_announcement_image,
+)
 from tests.membership.factories import AnnouncementDraftFactory, GuildFactory, MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
@@ -30,6 +39,38 @@ def _upload(name: str = "zine-call.png", size: tuple[int, int] = (40, 20), fmt: 
     buffer = io.BytesIO()
     Image.new("RGB", size, "teal").save(buffer, format=fmt)
     return SimpleUploadedFile(name, buffer.getvalue(), content_type=f"image/{fmt.lower()}")
+
+
+def _chunk(kind: bytes, data: bytes) -> bytes:
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+
+#: An IDAT that is HTML, not zlib: every chunk checksum is valid, so Pillow's verify() passes it.
+_HTML_IDAT = b"<html><body><script>alert(1)</script></body></html>"
+
+
+def _truncated_idat() -> bytes:
+    """A real 4 by 4 RGB image's zlib stream with its end cut off (checksums still valid)."""
+    return zlib.compress(b"".join(b"\x00" + b"\x10" * 12 for _ in range(4)))[:-6]
+
+
+def _crafted(idat: bytes, name: str = "crafted.png") -> SimpleUploadedFile:
+    """A PNG that passes verify() but cannot be decoded: valid signature, header and checksums."""
+    header = struct.pack(">IIBBBBB", 4, 4, 8, 2, 0, 0, 0)
+    data = b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", header) + _chunk(b"IDAT", idat) + _chunk(b"IEND", b"")
+    return SimpleUploadedFile(name, data, content_type="image/png")
+
+
+def _stored_named(stem: str) -> list[str]:
+    """Every stored announcement file whose name starts with ``stem``, across the year and month folders."""
+    found: list[str] = []
+    if not default_storage.exists("announcements"):
+        return found
+    for year in default_storage.listdir("announcements")[0]:
+        for month in default_storage.listdir(f"announcements/{year}")[0]:
+            folder = f"announcements/{year}/{month}"
+            found += [f"{folder}/{name}" for name in default_storage.listdir(folder)[1] if name.startswith(stem)]
+    return found
 
 
 def _guild_draft(**fields) -> AnnouncementDraft:
@@ -136,17 +177,35 @@ def describe_image_url():
 def describe_show_unsaved_image():
     def it_carries_a_preview_in_the_page_and_stores_nothing():
         draft = AnnouncementDraft(title="x")
-        draft.show_unsaved_image(_upload(), store=False)
+        draft.show_unsaved_image(_upload())
         assert draft.image_url.startswith("data:image/jpeg;base64,")
         assert not draft.image
 
-    def it_stores_the_file_for_a_test_email_without_saving_the_draft():
+    def it_refuses_a_file_that_will_not_decode():
         draft = AnnouncementDraft(title="x")
-        draft.show_unsaved_image(_upload(), store=True)
-        assert draft.pk is None
-        assert draft.image.name.startswith("announcements/")
-        assert default_storage.exists(draft.image.name)
-        assert draft.image_url.startswith(settings.MEMBER_BASE_URL.rstrip("/"))
+        with pytest.raises(ValidationError) as refused:
+            draft.show_unsaved_image(_crafted(_HTML_IDAT))
+        assert refused.value.messages == [ANNOUNCEMENT_IMAGE_INVALID]
+        assert draft.preview_image_url is None
+
+
+def describe_refusing_a_file_that_will_not_decode():
+    @pytest.mark.parametrize("idat", [_HTML_IDAT, _truncated_idat()], ids=["html-in-idat", "truncated-zlib"])
+    def it_refuses_the_save_and_stores_nothing(idat):
+        draft = _guild_draft()
+        draft.image = _crafted(idat, name="payload.png")
+        with pytest.raises(ValidationError):
+            draft.save()
+        draft.refresh_from_db()
+        assert not draft.image
+        assert not _stored_named("payload")
+
+    def it_stores_any_accepted_format_under_a_jpg_name():
+        draft = _guild_draft()
+        draft.image = _upload("poster.gif", fmt="GIF")
+        draft.save()
+        assert draft.image.name.endswith(".jpg")
+        assert reencode_announcement_image(_upload("flyer.webp", fmt="WEBP")).name == "flyer.jpg"
 
 
 def describe_the_email_html():
@@ -254,3 +313,43 @@ def describe_a_guild_send():
         draft = _guild_draft(push_enabled=False, send_email=False, discord_enabled=False)
         draft.send()
         assert not GuildAnnouncement.objects.get(guild=draft.guild).image
+
+
+def describe_a_file_a_guild_post_shares():
+    def it_is_kept_when_the_resumed_draft_moves_off_it():
+        # A send that failed after the post was made leaves the draft resumable, naming the post's file.
+        draft = _guild_draft()
+        draft.image = _upload()
+        draft.save()
+        shared = draft.image.name
+        GuildAnnouncement.objects.create(guild=draft.guild, title=draft.title, body="x", image=shared)
+        draft.image = _upload("replacement.png")
+        draft.save()
+        assert default_storage.exists(shared)
+        draft.image = None
+        draft.save()
+        assert default_storage.exists(shared)
+
+
+def describe_a_queued_site_send():
+    def it_carries_the_image_into_the_email(mailoutbox):
+        from django.core.management import call_command
+
+        MembershipPlanFactory()
+        draft = AnnouncementDraftFactory(
+            audience=AnnouncementDraft.Audience.SITE,
+            title="Open house",
+            body="<p>Come by.</p>",
+            send_email=True,
+            push_enabled=False,
+            discord_channel="none",
+            added_recipients={"users": [], "custom": ["visitor@example.com"]},
+        )
+        draft.image = _upload()
+        draft.save()
+        draft.queue_send()
+        call_command("send_queued_announcements")
+        draft.refresh_from_db()
+        assert draft.sent_at is not None
+        [email] = [message for message in mailoutbox if "visitor@example.com" in message.to]
+        assert f'src="{draft.image_url}"' in email.alternatives[0][0]

@@ -111,7 +111,7 @@
 
       {% include "hub/partials/_compose_subject_field.html" with oob=False %}
       {% include "components/form_field.html" with field=form.body %}
-      {% include "hub/partials/_compose_image_field.html" with current_image=compose_image errors=form.image.errors max_bytes=max_upload_image_bytes oob=False %}
+      {% include "hub/partials/_compose_image_field.html" with current_image=compose_image errors=form.image.errors lost=compose_image_lost max_bytes=max_upload_image_bytes oob=False %}
       {% if form.featured_class.field.choices|length > 1 %}
       <div class="pl-wizard-field" x-show="audience === 'students'" x-cloak data-compose-featured-class>
         {% include "components/form_field.html" with field=form.featured_class %}
@@ -230,7 +230,7 @@
         </div>
         <div class="pl-compose-channel__actions">
           <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
-                  hx-post="{% url 'hub_compose_push_test' %}" hx-include="closest form" hx-swap="none">
+                  hx-post="{% url 'hub_compose_push_test' %}" hx-include="closest form" hx-params="not image" hx-swap="none">
             <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Send a Push Notification test to me
           </button>
         </div>

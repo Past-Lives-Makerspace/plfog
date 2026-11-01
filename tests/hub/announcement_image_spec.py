@@ -29,6 +29,7 @@ from PIL import Image
 
 from hub.forms import ANNOUNCEMENT_IMAGE_INVALID
 from membership.models import AnnouncementDraft, GuildAnnouncement
+from tests.membership.announcement_image_spec import _HTML_IDAT, _crafted, _stored_named, _truncated_idat
 from tests.membership.factories import GuildFactory, GuildMembershipFactory, MemberFactory, MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
@@ -285,15 +286,45 @@ def describe_the_preview():
 
 
 def describe_send_a_test_to_me():
-    def it_stores_a_just_chosen_file_and_mails_it_by_absolute_url(client: Client, mailoutbox):
+    def it_saves_a_just_chosen_file_onto_the_draft_and_mails_it_by_absolute_url(client: Client, mailoutbox):
         guild = _zine_guild()
         lead = _login_lead(client, guild)
-        client.post(reverse("hub_compose_test"), _data(guild, image=_png()))
+        response = client.post(reverse("hub_compose_test"), _data(guild, image=_png()))
+        draft = AnnouncementDraft.objects.get(guild=guild)
+        assert draft.image.name.startswith("announcements/")
         [email] = [message for message in mailoutbox if lead.email in message.to]
         html = _html(email)
-        assert "data-announcement-image" in html
+        assert f'src="{draft.image_url}"' in html
         assert "data:image" not in html
-        assert "/announcements/" in html
+        # The field swaps back holding the stored image, and the toast says the draft was saved.
+        content = response.content.decode()
+        assert 'id="compose-draft-pk"' in content and 'id="compose-image"' in content
+        assert response["HX-Replace-Url"] == reverse("hub_compose_resume", args=[draft.pk])
+        assert _toast(response)["message"] == f"Test sent to {lead.email}. Your draft is saved with the image."
+
+    def it_leaves_one_stored_file_after_two_presses(client: Client, mailoutbox):
+        guild = _zine_guild()
+        _login_lead(client, guild)
+        client.post(reverse("hub_compose_test"), _data(guild, image=_png("two-presses.png")))
+        draft = AnnouncementDraft.objects.get(guild=guild)
+        first = draft.image.name
+        # The browser's input is empty after the swap, so the second press reuses the stored file.
+        client.post(reverse("hub_compose_test"), _data(guild, draft_pk=str(draft.pk)))
+        draft.refresh_from_db()
+        assert draft.image.name == first
+        # Even the same file pressed again replaces rather than adds.
+        client.post(reverse("hub_compose_test"), _data(guild, draft_pk=str(draft.pk), image=_png("two-presses.png")))
+        draft.refresh_from_db()
+        assert _stored_named("two-presses") == [draft.image.name]
+        assert len(mailoutbox) == 3
+
+    def it_sends_nothing_when_the_draft_cannot_be_saved(client: Client, mailoutbox):
+        guild = _zine_guild()
+        _login_lead(client, guild)
+        response = client.post(reverse("hub_compose_test"), _data(guild, image=_png(), subject="x" * 201))
+        assert response.status_code == 204
+        assert _toast(response)["type"] == "error"
+        assert mailoutbox == []
         assert not AnnouncementDraft.objects.exists()
 
     def it_mails_the_saved_image(client: Client, mailoutbox):
@@ -326,3 +357,94 @@ def describe_send_a_test_to_me():
         monkeypatch.setattr(push_admin, "send_test_push", fake_send)
         client.post(reverse("hub_compose_push_test"), _data(guild, image=_png()))
         assert seen["body"] == _BODY
+
+
+@pytest.mark.parametrize("idat", [_HTML_IDAT, _truncated_idat()], ids=["html-in-idat", "truncated-zlib"])
+def describe_a_png_that_passes_verify_but_will_not_decode():
+    def it_is_refused_by_save_draft_and_nothing_is_stored(client: Client, idat):
+        guild = _zine_guild()
+        _login_lead(client, guild)
+        response = client.post(reverse("hub_compose_save_draft"), _data(guild, image=_crafted(idat, "evil.png")))
+        assert response.status_code == 204
+        assert _toast(response)["message"] == ANNOUNCEMENT_IMAGE_INVALID
+        assert not AnnouncementDraft.objects.exists()
+        assert _stored_named("evil") == []
+
+    def it_is_refused_by_the_preview_with_the_plain_message(client: Client, idat):
+        guild = _zine_guild()
+        _login_lead(client, guild)
+        response = client.post(reverse("hub_compose_preview"), _data(guild, image=_crafted(idat)))
+        assert response.status_code == 200
+        assert f"data-compose-preview-image-error>{ANNOUNCEMENT_IMAGE_INVALID}" in response.content.decode()
+
+    def it_is_refused_by_send_a_test_and_nothing_is_sent(client: Client, idat, mailoutbox):
+        guild = _zine_guild()
+        _login_lead(client, guild)
+        response = client.post(reverse("hub_compose_test"), _data(guild, image=_crafted(idat, "evil.png")))
+        assert response.status_code == 204
+        assert _toast(response)["message"] == ANNOUNCEMENT_IMAGE_INVALID
+        assert mailoutbox == []
+        assert _stored_named("evil") == []
+
+
+def describe_a_file_named_as_something_other_than_an_image():
+    def it_is_refused_even_when_its_bytes_are_a_real_image(client: Client):
+        guild = _zine_guild()
+        _login_lead(client, guild)
+        response = client.post(reverse("hub_compose_save_draft"), _data(guild, image=_png("page.html")))
+        assert response.status_code == 204
+        assert _toast(response)["message"] == ANNOUNCEMENT_IMAGE_INVALID
+        assert not AnnouncementDraft.objects.exists()
+
+
+def describe_another_guilds_draft_pk():
+    def it_carries_no_image_into_the_preview_or_the_test(client: Client, mailoutbox):
+        other = GuildFactory(name="Glass Guild")
+        foreign = AnnouncementDraft.objects.create(
+            audience=AnnouncementDraft.Audience.GUILD, guild=other, title="Glass news", body="<p>x</p>"
+        )
+        foreign.image = _png("glass-secret.png")
+        foreign.save()
+        guild = _zine_guild()
+        lead = _login_lead(client, guild)
+        data = _data(guild, draft_pk=str(foreign.pk))
+        preview = client.post(reverse("hub_compose_preview"), data).content.decode()
+        assert "data-announcement-image" not in preview
+        assert "glass-secret" not in preview
+        client.post(reverse("hub_compose_test"), data)
+        [email] = [message for message in mailoutbox if lead.email in message.to]
+        assert "data-announcement-image" not in _html(email)
+
+
+def describe_the_push_test_button():
+    def it_leaves_the_image_out_of_its_post(client: Client):
+        guild = _zine_guild()
+        _login_lead(client, guild)
+        content = client.get(reverse("hub_compose")).content.decode()
+        url = reverse("hub_compose_push_test")
+        assert f'hx-post="{url}" hx-include="closest form" hx-params="not image" hx-swap="none"' in content
+
+
+def describe_a_send_re_rendered_for_another_field():
+    def it_asks_for_the_dropped_file_again(client: Client, mailoutbox):
+        guild = _zine_guild()
+        _login_lead(client, guild)
+        response = client.post(reverse("hub_compose_send"), _data(guild, image=_png(), body=""))
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "data-compose-image-lost>Choose your image again.</p>" in content
+        assert mailoutbox == []
+
+    def it_shows_the_refusal_rather_than_asking_again_when_the_file_was_the_problem(client: Client):
+        guild = _zine_guild()
+        _login_lead(client, guild)
+        response = client.post(reverse("hub_compose_send"), _data(guild, image=_text_file(), body=""))
+        content = response.content.decode()
+        assert "data-compose-image-lost" not in content
+        assert f"data-compose-image-error>{ANNOUNCEMENT_IMAGE_INVALID}</p>" in content
+
+    def it_says_nothing_when_no_file_was_chosen(client: Client):
+        guild = _zine_guild()
+        _login_lead(client, guild)
+        response = client.post(reverse("hub_compose_send"), _data(guild, body=""))
+        assert "data-compose-image-lost" not in response.content.decode()

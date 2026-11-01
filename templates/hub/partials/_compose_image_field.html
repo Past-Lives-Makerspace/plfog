@@ -10,6 +10,7 @@ reload, which would throw away the unsaved message.
 Params:
   current_image — the draft's saved image (a FieldFile), or empty
   errors        — the form's image errors, shown under the zone
+  lost          — truthy when a re-render dropped a file the sender had chosen: asks them to choose it again
   max_bytes     — the upload cap in bytes (settings.MAX_UPLOAD_IMAGE_BYTES), checked in the browser first
   oob           — when truthy, marks this as an out of band swap (the Save draft response)
 {% endcomment %}
@@ -19,6 +20,7 @@ Params:
        removed: false,
        tooBig: false,
        drag: false,
+       picked: false,
        pick() {
          const input = this.$refs.imageInput;
          const file = input.files[0];
@@ -26,6 +28,7 @@ Params:
          if (file.size > {{ max_bytes|default:0 }}) { input.value = ''; this.tooBig = true; return; }
          this.tooBig = false;
          this.removed = false;
+         this.picked = true;
          const reader = new FileReader();
          reader.onload = (event) => { this.preview = event.target.result; };
          reader.readAsDataURL(file);
@@ -63,5 +66,6 @@ Params:
   </label>
   <input type="hidden" name="remove_image" :value="removed ? '1' : ''">
   <p class="pl-field-error pl-compose-image__error" x-show="tooBig" x-cloak role="alert">That image is too large (up to {{ max_bytes|filesizeformat }}). Choose a smaller file.</p>
+  {% if lost %}<p class="pl-field-hint pl-compose-image__error" x-show="!picked" data-compose-image-lost>Choose your image again.</p>{% endif %}
   {% for error in errors %}<p class="pl-field-error pl-compose-image__error" data-compose-image-error>{{ error }}</p>{% endfor %}
 </div>

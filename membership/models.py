@@ -50,9 +50,9 @@ from django.utils import timezone
 from django.utils.functional import cached_property
 from django.utils.html import escape, format_html, strip_tags
 from django.utils.safestring import SafeString
-from PIL import UnidentifiedImageError
+from PIL import Image, UnidentifiedImageError
 
-from core.files import delete_orphan_on_replace
+from core.files import delete_if_unreferenced, delete_orphan_on_replace
 from core.images import cut_hero_crop, image_upload_refusal, normalize_field_if_uploaded, normalize_image
 from core.models import HERO_CROP_FIELDS, AutomationAction, EventDelivery, HeroCropMixin, StaffRequestMixin
 from core.threads import ThreadMessage, ThreadPhoto
@@ -72,6 +72,7 @@ if TYPE_CHECKING:
     from membership.orientations import AudienceCache
     from django import forms
     from django.contrib.auth.models import User
+    from django.core.files.base import ContentFile
     from django.core.files.uploadedfile import UploadedFile
     from django.http import HttpRequest
 
@@ -6447,6 +6448,39 @@ def resolve_channel_webhook(channel: str, guild: "Guild | None" = None) -> str:
 #: The widest an announcement's picture shows in the email: the branded card's content column.
 _EMAIL_IMAGE_WIDTH = 530
 
+#: What an announcement's image upload says when the file is not a picture we can open and re-encode (#1064).
+ANNOUNCEMENT_IMAGE_INVALID = "That file is not an image we can open. Choose a JPG, PNG, WEBP, GIF or HEIC image."
+
+#: The file name endings an announcement's image may arrive with. Whatever arrives is stored re-encoded as a JPEG.
+ANNOUNCEMENT_IMAGE_EXTENSIONS = frozenset({"jpg", "jpeg", "png", "webp", "heic", "heif", "gif"})
+
+#: What Pillow raises on bytes it cannot decode: a broken or truncated stream, a malformed header, a decompression bomb.
+IMAGE_DECODE_ERRORS: tuple[type[Exception], ...] = (
+    OSError,
+    ValueError,
+    SyntaxError,
+    EOFError,
+    Image.DecompressionBombError,
+)
+
+
+def reencode_announcement_image(upload: Any) -> "ContentFile":
+    """Decode an announcement image fully and re-encode it as the JPEG that is stored (#1064).
+
+    EXIF is applied and stripped, transparency flattened over white, and the long edge capped at
+    ``IMAGE_MAX_LONG_EDGE_GALLERY``. The result is always named ``<stem>.jpg``, so nothing the
+    sender named the file decides how it is served.
+
+    Raises:
+        ValidationError: The bytes do not decode as a whole image (:data:`ANNOUNCEMENT_IMAGE_INVALID`).
+    """
+    try:
+        content = normalize_image(upload, max_long_edge=settings.IMAGE_MAX_LONG_EDGE_GALLERY)
+    except IMAGE_DECODE_ERRORS as exc:
+        raise ValidationError(ANNOUNCEMENT_IMAGE_INVALID, code="invalid_image") from exc
+    content.name = f"{Path(content.name or 'image').stem or 'image'}.jpg"
+    return content
+
 
 def build_announcement_email_html(
     title: str,
@@ -7050,16 +7084,37 @@ class AnnouncementDraft(models.Model):
         """Save, shrinking a fresh image upload and removing the file a replaced or removed one leaves.
 
         A fresh upload is re-encoded as a JPEG no longer than ``IMAGE_MAX_LONG_EDGE_GALLERY`` on its
-        long edge (EXIF stripped, HEIC converted), so every mail client and Discord can show it. Only
-        an unsent draft's image ever changes, before any guild post shares its file, so the old file
-        goes as soon as no other draft names it. A save naming fields without ``image`` (the send's
+        long edge (EXIF stripped, HEIC converted), so every mail client and Discord can show it; one
+        that will not decode is refused (:func:`reencode_announcement_image`) and nothing is stored.
+        The old file goes when no other draft and no guild post names it
+        (:meth:`_discard_replaced_image`). A save naming fields without ``image`` (the send's
         bookkeeping) touches neither.
+
+        Raises:
+            ValidationError: A fresh upload does not decode as an image.
         """
         update_fields = kwargs.get("update_fields")
         if update_fields is None or "image" in update_fields:
-            delete_orphan_on_replace(self, "image")
-            normalize_field_if_uploaded(self, "image", settings.IMAGE_MAX_LONG_EDGE_GALLERY)
+            if self.image and not getattr(self.image, "_committed", True):
+                # Refused rather than stored as it came: a file that will not re-encode never reaches storage.
+                self.image = reencode_announcement_image(self.image)
+            self._discard_replaced_image()
         super().save(*args, **kwargs)
+
+    def _discard_replaced_image(self) -> None:
+        """Remove the stored file this save moves the draft off, unless a draft or a guild post still names it.
+
+        A guild send creates its post before it notifies anyone, so a send that fails after that
+        leaves a resumable draft whose file the post already shows; that file is kept.
+        """
+        if self.pk is None:
+            return
+        old = type(self).objects.filter(pk=self.pk).values_list("image", flat=True).first()
+        if not old or old == (self.image.name or ""):
+            return
+        if GuildAnnouncement.objects.filter(image=old).exists():
+            return
+        delete_if_unreferenced(type(self), "image", old, exclude_pk=self.pk)
 
     @property
     def image_url(self) -> str:
@@ -7075,21 +7130,17 @@ class AnnouncementDraft(models.Model):
             return ""
         return member_absolute_url(self.image.url)
 
-    def show_unsaved_image(self, upload: "UploadedFile", *, store: bool) -> None:
-        """Give this unsaved preview or test draft the image the sender just chose, shrunk as a save would.
+    def show_unsaved_image(self, upload: "UploadedFile") -> None:
+        """Give this unsaved preview draft the image the sender just chose, re-encoded as a save would.
 
-        Args:
-            upload: The validated upload (:func:`hub.forms.clean_announcement_image`).
-            store: ``True`` for Send a test to me: the file is written to storage, because the test
-                email's picture is fetched by a mail client later. ``False`` for the in page preview:
-                the picture rides in the page as a ``data:`` URI and nothing is stored.
+        The picture rides in the page as a ``data:`` URI and nothing is stored.
+
+        Raises:
+            ValidationError: The upload does not decode as an image.
         """
         import base64
 
-        content = normalize_image(upload, max_long_edge=settings.IMAGE_MAX_LONG_EDGE_GALLERY)
-        if store:
-            self.image.save(content.name or "image.jpg", content, save=False)
-            return
+        content = reencode_announcement_image(upload)
         encoded = base64.b64encode(content.read()).decode("ascii")
         self.preview_image_url = f"data:image/jpeg;base64,{encoded}"
 

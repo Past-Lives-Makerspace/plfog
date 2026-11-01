@@ -46,6 +46,8 @@ from membership.forms import member_picker_key, member_picker_labels, member_pic
 from membership.markdown import sanitize_page_submission, sanitize_wiki_submission
 from membership.names import user_display_name, user_label, user_name_or_email
 from membership.models import (
+    ANNOUNCEMENT_IMAGE_EXTENSIONS,
+    ANNOUNCEMENT_IMAGE_INVALID,
     AdminCapability,
     CommunityEvent,
     DiscordGuildEmoji,
@@ -103,6 +105,7 @@ from membership.models import (
     duration_label,
     normalize_wiki_ask,
     orientation_way_phrase,
+    reencode_announcement_image,
 )
 
 logger = logging.getLogger(__name__)
@@ -5900,23 +5903,36 @@ def _featurable_by_pk(teaching_member: Member | None) -> dict[str, ClassOffering
     return {str(offering.pk): offering for offering in featurable_classes(teaching_member)}
 
 
-#: What an announcement's image upload says when the file is not a picture Pillow can open (#1064).
-ANNOUNCEMENT_IMAGE_INVALID = "That file is not an image we can open. Choose a JPG, PNG, WEBP or HEIC image."
-
-
 class AnnouncementImageField(forms.ImageField):
-    """The composer's one optional image (#1064): Pillow must open it, within the size and pixel caps.
+    """The composer's one optional image (#1064), refused unless it is a whole image we can re-encode.
 
-    Django's extension check is left out on purpose: its refusal lists every format Pillow knows,
-    and the save re-encodes whatever opens as a JPEG anyway (:meth:`AnnouncementDraft.save`).
+    In order, so nothing large is decoded before it is measured: the name must end in one of
+    :data:`ANNOUNCEMENT_IMAGE_EXTENSIONS`, the bytes must fit ``MAX_UPLOAD_IMAGE_BYTES``, Pillow must
+    open and verify it (Django's own check), the pixels must fit the cap, and then the whole image
+    is re-encoded exactly as the save will (:func:`membership.models.reencode_announcement_image`).
+    ``verify()`` alone passes a PNG whose chunks carry valid checksums over data that is not an
+    image at all; the re-encode does not. Every refusal but the size one is the one plain message,
+    :data:`ANNOUNCEMENT_IMAGE_INVALID`, never Django's list of every format Pillow knows.
     """
 
     default_validators = []
 
     def __init__(self, **kwargs: Any) -> None:
-        kwargs.setdefault("validators", [validate_image_size, validate_image_pixels])
         kwargs.setdefault("error_messages", {"invalid_image": ANNOUNCEMENT_IMAGE_INVALID})
         super().__init__(**kwargs)
+
+    def to_python(self, data: Any) -> Any:
+        if not data:
+            return super().to_python(data)
+        name = (getattr(data, "name", "") or "").lower()
+        if name.rsplit(".", 1)[-1] not in ANNOUNCEMENT_IMAGE_EXTENSIONS or "." not in name:
+            raise forms.ValidationError(ANNOUNCEMENT_IMAGE_INVALID, code="invalid_image")
+        validate_image_size(data)
+        upload = cast("UploadedFile", super().to_python(data))
+        validate_image_pixels(upload)
+        reencode_announcement_image(upload)
+        upload.seek(0)
+        return upload
 
 
 def clean_announcement_image(upload: Any) -> Any:
