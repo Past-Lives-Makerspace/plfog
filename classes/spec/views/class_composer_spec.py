@@ -28,6 +28,7 @@ from classes.factories import (
     UserFactory,
 )
 from classes.forms import ClassOfferingForm, TeachClassOfferingForm
+from classes.spec.live_edit import live_facts
 from classes.models import READINESS_DESCRIPTION_HINT, ClassApproval, ClassOffering, CmsActivity
 from classes.views import COMPOSER_SAVED_LIMIT, COMPOSER_SAVED_SESSION_KEY, _mark_composer_saved
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, LocationFactory
@@ -1794,19 +1795,20 @@ def describe_a_composer_post_to_a_class_cancelled_since_the_page_was_rendered():
 
 _PUBLISHED_NOTICE = (
     "This class was published after you opened this page, so nothing here was saved. "
-    "A live class is edited through a shorter form: the description, the photos, and what to bring. "
-    "To change the title, dates, price, or capacity, ask an admin. "
+    "A live class is edited through a shorter form that changes everything but the dates. "
+    "To change a date, ask an admin. "
     "Copy anything you want to keep, then press Cancel and open Edit again for the shorter form."
 )
 
 
-def _light_payload(**extra) -> dict:
-    """What ``classes/teach/class_form_published.html`` actually posts: light fields, no hidden inputs.
+def _light_payload(offering, **extra) -> dict:
+    """What ``classes/teach/class_form_published.html`` actually posts: its fields, no hidden inputs.
 
     The absence of ``step`` is the point of this helper, so it carries no ``action`` and no
     ``step``; it is what the published branch must keep saving.
     """
     payload = {
+        **live_facts(offering),
         "description": READY_DESCRIPTION,
         "prerequisites": "Bring patience.",
         "materials_included": "All the wood.",
@@ -1883,7 +1885,7 @@ def describe_a_composer_post_to_a_class_published_since_the_page_was_rendered():
         _publish(offering)
         resp = client.post(
             reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
-            _light_payload(materials_to_bring="An apron"),
+            _light_payload(offering, materials_to_bring="An apron"),
         )
         assert resp.status_code == 302
         assert resp.url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})

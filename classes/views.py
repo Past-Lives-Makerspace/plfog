@@ -2712,7 +2712,7 @@ _CLOSED_WHILE_EDITING = (
 
 # The published race is the same loss with a different ending: the class is still the
 # instructor's to edit, just through the shorter live-class form, so the notice points there
-# rather than at an admin. The fields that form does not carry are the admin's, as ever.
+# rather than at an admin. The dates, which that form does not carry, are the admin's (#1067).
 #
 # The last sentence names Cancel deliberately, and must not be softened back to "reload this
 # page". This page is the body of a POST, so a reload re-sends that POST, which still carries
@@ -2721,8 +2721,8 @@ _CLOSED_WHILE_EDITING = (
 # because it is a link to the class page, where Edit is a GET.
 _PUBLISHED_WHILE_EDITING = (
     "This class was published after you opened this page, so nothing here was saved. "
-    "A live class is edited through a shorter form: the description, the photos, and what to bring. "
-    "To change the title, dates, price, or capacity, ask an admin. "
+    "A live class is edited through a shorter form that changes everything but the dates. "
+    "To change a date, ask an admin. "
     "Copy anything you want to keep, then press Cancel and open Edit again for the shorter form."
 )
 
@@ -2787,7 +2787,7 @@ def _render_closed_class_post(request: HttpRequest, offering: ClassOffering, tea
 
 
 def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, teaching_member: Member) -> HttpResponse:
-    """The published class edit page: light fields + FAQ + gallery, structural facts locked.
+    """The published class edit page: every field but the dates, plus FAQ and gallery (#1067).
 
     Reached only through ``teach_class_edit``, so the capability set has already admitted the
     instructor or the guild's staff. Saves with one Save button and no submit: nothing to review.
@@ -3455,7 +3455,7 @@ def teach_class_cancel(request: HttpRequest, pk: int) -> HttpResponse:
 @class_screen_required
 @require_POST
 def teach_class_request_change(request: HttpRequest, pk: int) -> HttpResponse:
-    """Ask the admins to change a live class's title, dates, price, or capacity."""
+    """Ask the admins to change a live class's dates; everything else the instructor edits (#1067)."""
     access: ClassAccess = request.class_access  # type: ignore[attr-defined]
     if not access.can_submit:
         raise Http404("Only the class's own instructor asks the admins for a change.")

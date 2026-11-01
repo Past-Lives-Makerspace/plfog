@@ -5,10 +5,10 @@
 {% include "_components/rich_editor_assets.html" %}
 <div x-data>
 <h2 style="margin-top:0;">Edit Class — {{ offering.title }}</h2>
-{# A live class: content edits only, no re-review. The locked facts change through an admin. #}
-<section class="hub-card pl-live-edit-banner" style="margin:1rem 0;">
+{# A live class: everything but the dates edits here with no re-review (#1067). The dates change through an admin. #}
+<section class="hub-card pl-live-edit-banner" style="margin:1rem 0;" data-guidance-target="classes.live-edit-dates">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;">
-        <p style="margin:0;">This class is live. You can update the description, photos, and what to bring any time. To change the title, dates, price, or capacity, ask an admin.</p>
+        <p style="margin:0;">This class is live. You can change everything here any time except the dates. To change a date, ask an admin.</p>
         {% if is_own_class %}<button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'request-change')">Request a change</button>{% endif %}
     </div>
 </section>
@@ -16,11 +16,6 @@
 <section class="hub-card pl-locked-summary" style="margin:0 0 1rem;">
     <h3 style="margin:0 0 0.5rem;">Locked Details</h3>
     <dl style="display:grid;grid-template-columns:140px 1fr;gap:8px 18px;font-size:14px;margin:0;">
-        <dt style="color:var(--hub-text-muted);">Title</dt><dd style="margin:0;">{{ offering.title }}</dd>
-        <dt style="color:var(--hub-text-muted);">Class Type</dt><dd style="margin:0;">{{ offering.category.name }}</dd>
-        <dt style="color:var(--hub-text-muted);">Price</dt>
-        <dd style="margin:0;">{{ offering.price_cents|cents_as_price }}{% if offering.sale_is_active %} <span style="color:var(--hub-text-muted);">· sale: {{ offering.sale_savings_display }}</span>{% endif %}</dd>
-        <dt style="color:var(--hub-text-muted);">Capacity</dt><dd style="margin:0;">{% if offering.is_flexible %}No seat cap{% else %}{{ offering.capacity }}{% endif %}</dd>
         <dt style="color:var(--hub-text-muted);">Dates</dt>
         <dd style="margin:0;">
             {# A flexible class reads its window, whatever session rows it still carries. #}
@@ -57,12 +52,27 @@
     {% endif %}
     {# The class's own instructors add a partner here (#686): the Basics step's control, since a new name changes nothing a registrant booked on. The guild's staff get no control. #}
     {% include "classes/_components/instructors_field.html" with form=form can_edit=form.instructors_editable %}
-    {# The subtitle is one short line, open like on the composer; it leads the form so it sits above the description. #}
+    {# The class's facts open like on the composer, through the same field component (#1067); a flexible class has no capacity field, so its seats line reads as the composer's does. #}
+    <div data-live-facts data-guidance-target="classes.live-edit-facts">
+    {% include "components/form_field.html" with field=form.title %}
+    {% include "components/form_field.html" with field=form.category %}
+    {% include "components/form_field.html" with field=form.price_cents %}
+    {% if offering.sale_is_active %}<p class="pl-field-hint" data-live-sale-hint>On sale: {{ offering.sale_savings_display }}. Change the sale from the manage page.</p>{% endif %}
+    {% if form.capacity %}
+        {% include "components/form_field.html" with field=form.capacity %}
+    {% else %}
+        <p class="pl-compose-section__note" data-seats-flexible>Flexible classes have no seat cap. Students book one at a time with you.</p>
+    {% endif %}
+    {% include "components/form_field.html" with field=form.area %}
+    </div>
+    {# The subtitle is one short line, open like on the composer; it leads the loop so it sits above the description. #}
     {% for field in form %}
         {% if field.name == 'hero_crop' %}
             {# Rendered by the banner photo field below, beside the cropper that writes it. #}
         {% elif field.name == 'instructors' or field.name == 'add_instructor' %}
             {# Rendered by the Instructors control above the loop. #}
+        {% elif field.name == 'title' or field.name == 'category' or field.name == 'price_cents' or field.name == 'capacity' or field.name == 'area' %}
+            {# Rendered by name above the loop. #}
         {% elif field.is_hidden %}
             {{ field }}
         {% elif field.name == 'video_url' or field.name == 'subtitle' %}

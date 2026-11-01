@@ -1031,12 +1031,14 @@ def eventbrite_rules_failed_email(offering: "ClassOffering", problems: "Sequence
         problems: The listing check's problems, each read as its line (``ListingFinding``).
     """
     overview_url = _absolute_url(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk}))
+    edit_url = _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
     lines = "\n".join(f"- {problem}" for problem in problems)
     body = (
         f'"{offering.title}" is live on Past Lives, but it was not listed on Eventbrite. Eventbrite '
         f"takes down listings that break its selling rules, so nothing was sent.\n\n"
         f"Fix these:\n{lines}\n\n"
-        f"To change a live class, open it and use Request a Change: {overview_url}\n\n"
+        f"You can fix them yourself on the class's edit page: {edit_url}\n\n"
+        f"If the fix is a date, open the class and use Request a Change: {overview_url}\n\n"
         f"Once the change is saved, the class lists on Eventbrite on its own."
     )
     return f'"{offering.title}" was not listed on Eventbrite', body
@@ -1047,8 +1049,8 @@ def send_eventbrite_rules_failed(offering: "ClassOffering") -> None:
 
     Sent by :meth:`ClassOffering.sync_eventbrite_listing` when a class with Submit to Eventbrite
     ticked fails the listing check as it goes out, so nothing reached Eventbrite. A live class is
-    changed through Request a Change on its Overview; once the change is saved, the class lists on
-    its own. Flat text, like the other operational class notices; a class with no instructor
+    fixed on its edit page, or through Request a Change on its Overview when the fix is a date
+    (#1067); once the change is saved, the class lists on its own. Flat text, like the other operational class notices; a class with no instructor
     email sends nothing.
     """
     addresses = [member.primary_email for member in offering.instructor_list if member.primary_email]

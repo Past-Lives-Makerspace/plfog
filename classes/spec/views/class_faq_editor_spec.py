@@ -24,6 +24,7 @@ from django.utils.html import escape
 from classes.forms import LOCKED_FAQ_ERROR, build_class_faq_formset
 from classes.models import DEFAULT_CLASS_FAQS, LOCKED_CLASS_FAQS, ClassFaq, ClassOffering
 from classes.spec.views.class_composer_spec import _full_payload
+from classes.spec.live_edit import live_facts
 
 
 def _image_file(name: str = "shot.png") -> SimpleUploadedFile:
@@ -210,6 +211,7 @@ def describe_a_crafted_post_asking_a_locked_question():
         client.force_login(instructor_user.user)
         url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
         payload = {
+            **live_facts(offering),
             "description": offering.description,
             "faq-INITIAL_FORMS": "0",
             "faq-MIN_NUM_FORMS": "0",
@@ -327,7 +329,13 @@ def describe_a_tab_opened_before_the_deploy():
 
         response = client.post(
             reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
-            {"description": offering.description, "faq-MIN_NUM_FORMS": "0", "faq-MAX_NUM_FORMS": "1000", **stale},
+            {
+                **live_facts(offering),
+                "description": offering.description,
+                "faq-MIN_NUM_FORMS": "0",
+                "faq-MAX_NUM_FORMS": "1000",
+                **stale,
+            },
         )
 
         assert response.status_code == 302

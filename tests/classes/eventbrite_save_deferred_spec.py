@@ -19,6 +19,7 @@ from django.urls import reverse
 
 from classes.factories import ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.models import ClassOffering
+from classes.spec.live_edit import live_facts
 from core.integrations.eventbrite import EventbriteClient, EventbriteError, EventbriteSync
 from membership.models import Member
 from tests.classes.eventbrite_listing_spec import FakeEventbrite, _listed
@@ -60,9 +61,10 @@ def _faq_management() -> dict[str, str]:
     }
 
 
-def _published_edit_payload(**overrides: str) -> dict[str, str]:
+def _published_edit_payload(offering: ClassOffering, **overrides: str) -> dict[str, str]:
     """What templates/classes/teach/class_form_published.html posts, the opt in kept on."""
     payload = {
+        **live_facts(offering),
         "description": "A hands-on class, edited.",
         "eventbrite_enabled": "on",
         "eventbrite_fee_payer": ClassOffering.EventbriteFeePayer.BUYER,
@@ -131,7 +133,7 @@ def describe_an_edit_save_on_a_listed_class():
         client.force_login(instructor.user)
 
         response = client.post(
-            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), _published_edit_payload()
+            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), _published_edit_payload(offering)
         )
 
         assert response.status_code == 302
@@ -165,7 +167,7 @@ def describe_an_edit_save_on_a_listed_class():
         instructor = _instructor()
         offering = _listed(instructor=instructor)
         client.force_login(instructor.user)
-        client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), _published_edit_payload())
+        client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), _published_edit_payload(offering))
 
         call_command("retry_eventbrite_pushes")
 
@@ -261,7 +263,7 @@ def describe_a_class_not_opted_in():
 
         response = client.post(
             reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
-            _published_edit_payload(eventbrite_enabled=""),
+            _published_edit_payload(offering, eventbrite_enabled=""),
         )
 
         assert response.status_code == 302

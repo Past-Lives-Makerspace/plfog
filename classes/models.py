@@ -2283,9 +2283,10 @@ class ClassOffering(HeroCropMixin, models.Model):
     CHANGE_REQUEST_REPEAT_WINDOW = timedelta(hours=1)
 
     def request_change(self, instructor: "Member", note: str) -> bool:
-        """Ask an admin to change a live class's title, dates, price, or capacity.
+        """Ask an admin to change a live class's dates.
 
-        Registrants booked on those facts, so they change through a human: this logs
+        Everything else on a live class the instructor edits themselves (#1067); registrants
+        booked on the dates, so those change through a human: this logs
         ``CLASS_CHANGE_REQUESTED`` and emits ``class_change_requested`` to the CMS
         Administrators with the note and a link to the admin edit page. Each request is
         its own dedupe period, except a repeat: the same note from the same instructor
