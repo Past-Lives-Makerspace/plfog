@@ -3,7 +3,7 @@
 Every PR says how much teaching it ships, once in its changelog fragment and once in its PR
 body, and the portal does the rest: What's New lists the change by role, a New! badge marks the
 thing itself, and the feature's button opens the entry. Nobody writes an announcement by hand
-and no PR adds a Help Center article (#1009). The issue is #1007; the shots are #1050, which
+and no PR adds to or edits the Help Center (#1009). The issue is #1007; the shots are #1050, which
 superseded the recorded clips of #1008.
 
 ## The four levels
@@ -16,7 +16,7 @@ superseded the recorded clips of #1008.
 | `tour` | `shots`, plus a Guided Tour (`core/tours.py`) started from the entry. | A whole new surface with several stops, for a role that has not seen it before. |
 
 A `tour` is a tour plus shots. The `fragment` check requires the tour key and HEADs every shot
-on the media bucket. No level adds a Help Center article; the Help Center is frozen
+on the media bucket. No level adds or edits a Help Center article; the Help Center is frozen
 (`docs/HELP_AUTHORING.md`). `clip` was a level until #1050 and is none now: a fragment that still
 says it fails the check, which names `shots`.
 

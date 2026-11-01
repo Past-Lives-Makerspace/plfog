@@ -1,10 +1,11 @@
 # Writing Help Center Guides
 
-> **Frozen (#1009).** No PR adds a Help Center article or extends one with a new section, at
-> any guidance level; the review bot blocks an addition to `membership/help_content.py`'s
-> `ARTICLES` or to `static/help/`. Teaching now ships through `docs/GUIDANCE.md`: a What's New
-> entry, a clip or a Guided Tour, declared on the PR. The rules below still govern an edit to
-> an existing article (a copy fix, a caveat that changed) until #1009 retires them.
+> **Frozen (#1009). Hands off.** No PR changes `membership/help_content.py` or `static/help/`:
+> no new article, no new section, and no copy fix to an existing one, even when a feature
+> change makes a sentence there untrue. The one exception is a #1009 retirement part, which
+> retires a guide. The review bot blocks any other change to either path. Teaching ships
+> through `docs/GUIDANCE.md`: a What's New entry at `link`, `shots` or `tour`, declared on the
+> PR. The rules below are kept for reference until #1009 removes the Help Center.
 
 The standard for every article in the Help Center. Follow this and the drift
 guards stay green, the screenshots regenerate themselves, and the guides keep
@@ -16,9 +17,8 @@ origin story; this is the working reference.
 
 `membership/help_content.py` is the single source of truth — a Python module of
 dicts, not a CMS. The database is only a projection: `manage.py seed_help_center`
-runs on every deploy (render.yaml buildCommand) and refreshes seeded articles in
-place. **To fix copy, edit the Python and merge.** Edits made in `/help/edit/`
-to a seed-owned article are overwritten on the next deploy.
+refreshes seeded articles in place. Deploys do not run it (`STANDARDS.md`), so a
+change to the Python reaches production only when someone runs the seeder there.
 
 One article entry:
 
