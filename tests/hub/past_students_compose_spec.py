@@ -93,7 +93,7 @@ def describe_the_audience_choice():
         _instructor_with_students(client)
         response = client.get(reverse("hub_compose"))
         assert response.status_code == 200
-        assert f"{_OPTION}>My past students</option>" in response.content.decode()
+        assert f"{_OPTION}>My Past Students</option>" in response.content.decode()
 
     def it_is_offered_to_an_instructor_whose_classes_are_all_archived():
         client = Client()

@@ -44,6 +44,7 @@ def describe_GUIDANCE():
             "admin.manage-members",
             "classes.catalog",
             "classes.teach",
+            "classes.email-past-students",
             "home.door-code",
             "home.whats-new",
         }

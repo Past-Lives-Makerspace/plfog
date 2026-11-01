@@ -20,6 +20,9 @@ from core.guidance import GUIDANCE
 from core.whats_new import (
     NEW_DAYS,
     PAGE_SIZE,
+    TAB_LABELS,
+    TAB_NOUNS,
+    TABS,
     Entry,
     audiences_for,
     can_open,
@@ -216,6 +219,13 @@ def describe_history_slug():
         assert slug != history_slug("2026-10-21", "Old news")
 
 
+def describe_the_tabs():
+    def it_draws_four_tabs_members_instructors_guild_staff_admins_in_that_order():
+        assert TABS == ("members", "instructors", "guild-staff", "admins")
+        assert [TAB_LABELS[tab] for tab in TABS] == ["For Members", "For Instructors", "For Guild Staff", "For Admins"]
+        assert tuple(TAB_NOUNS) == TABS
+
+
 def describe_entries_for():
     def it_lists_every_entry_newest_first_whatever_its_date(changelog):
         changelog([_entry("new"), _entry("edge", days_ago=NEW_DAYS), _entry("old", days_ago=NEW_DAYS + 400)])
@@ -232,9 +242,29 @@ def describe_entries_for():
             ]
         )
         request = _request(_member().user)
-        assert [e.slug for e in entries_for(request, tab="members")] == ["for-all", "for-instructors"]
+        assert [e.slug for e in entries_for(request, tab="members")] == ["for-all"]
+        assert [e.slug for e in entries_for(request, tab="instructors")] == ["for-instructors"]
         assert [e.slug for e in entries_for(request, tab="guild-staff")] == ["for-all", "for-orientors"]
         assert [e.slug for e in entries_for(request, tab="admins")] == ["for-all", "for-admins"]
+
+    def it_lists_an_entry_for_members_and_instructors_on_both_tabs_with_no_chip(changelog):
+        # instructors is a tab of its own since #1052, so it never shows as a chip on For Members.
+        changelog(
+            [
+                _entry("both", audiences=("members", "instructors")),
+                _entry("teaching", audiences=("instructors",)),
+                _entry("send-once", audiences=("guild-staff", "instructors", "admins")),
+            ]
+        )
+        news = whats_new_for(_request(_member().user))
+        assert [e.slug for e in news.entries_for(tab="members")] == ["both"]
+        assert [e.slug for e in news.entries_for(tab="instructors")] == ["both", "teaching", "send-once"]
+        assert [e.slug for e in news.entries_for(tab="guild-staff")] == ["send-once"]
+        assert [e.slug for e in news.entries_for(tab="admins")] == ["send-once"]
+        for tab in TABS:
+            assert [row.chips for group in news.groups_for(tab) for row in group.rows] == [[]] * len(
+                news.entries_for(tab=tab)
+            )
 
     def it_limits_to_a_feature_key_and_everything_under_it(changelog):
         changelog(
@@ -528,6 +558,21 @@ def describe_unseen_and_mark_seen():
         admin = _member("admin", fog_role=Member.FogRole.ADMIN, whats_new_seen=["for-staff"])
         assert whats_new_for(_request(admin.user)).default_tab() == "admins"
         assert whats_new_for(_request(_member("plain").user)).default_tab() == "members"
+
+    def it_opens_on_instructors_for_an_instructor_with_nothing_unseen_for_members(changelog):
+        # The four tabs are asked in drawn order (#1052): For Instructors comes before For Guild Staff.
+        changelog(
+            [
+                _entry("for-staff", audiences=("guild-staff",)),
+                _entry("for-instructors", audiences=("instructors",)),
+                _entry("for-members", audiences=("members",)),
+            ]
+        )
+        teacher = _member("teacher", instructor_slug="ada", whats_new_seen=["for-members"])
+        GuildFactory(guild_lead=teacher)
+        assert whats_new_for(_request(teacher.user)).default_tab() == "instructors"
+        plain = _member("plain", whats_new_seen=["for-members"])
+        assert whats_new_for(_request(plain.user)).default_tab() == "members"
 
     def it_opens_a_feature_on_its_own_first_tab_with_something_unseen_else_its_first_tab_with_anything(changelog):
         # Opened on a feature (#1030): a members entry elsewhere must not pull the modal onto an empty tab.

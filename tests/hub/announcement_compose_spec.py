@@ -925,7 +925,7 @@ def describe_AnnouncementComposeForm():
     def it_offers_a_class_audience_for_each_taught_class():
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         form = AnnouncementComposeForm(is_admin=False, editable_guilds=[], editable_classes=[offering])
-        values = [value for value, _label in form.fields["audience"].choices]
+        values = [value for value, _label in form._flat_audience_choices]
         assert f"class:{offering.pk}" in values
 
     def it_cleans_a_class_audience_into_the_class_offering():

@@ -85,7 +85,7 @@ def it_imports_a_csv_through_the_modal_and_shows_the_answer_and_the_new_columns(
     assert page.evaluate(NO_SIDEWAYS_SCROLL)
 
 
-def it_saves_a_new_column_with_the_rows_own_save(page, live_server, login_via_code):
+def it_saves_a_new_column_as_it_changes(page, live_server, login_via_code):
     url = _vendors_page(page, live_server, login_via_code)
     page.set_viewport_size({"width": 1280, "height": 900})
     table = VendorTable.objects.create(hub=HubCard.objects.get().hub, name="Spec Wren")
@@ -93,10 +93,11 @@ def it_saves_a_new_column_with_the_rows_own_save(page, live_server, login_via_co
 
     row = page.locator(f'[data-hq-vt-row="{table.pk}"]')
     row.get_by_label("Discord handle for Spec Wren").fill("wren.pots")
-    row.get_by_label("Requested on for Spec Wren").fill("2026-10-01")
-    row.get_by_label("Save Spec Wren").click()
+    row.get_by_label("Requested on for Spec Wren").fill("2026-10-01")  # leaving Discord saves; the date too
 
     expect(page.locator(".plt-toast")).to_contain_text("Saved.")
+    expect(row.get_by_label("Requested on for Spec Wren")).to_have_value("2026-10-01")
+    page.wait_for_load_state("networkidle")
     table.refresh_from_db()
     assert (table.discord_handle, table.requested_on.isoformat()) == ("wren.pots", "2026-10-01")
 
@@ -116,7 +117,9 @@ def it_never_scrolls_the_page_sideways_and_the_modal_fits(page, live_server, log
 
     assert page.evaluate(NO_SIDEWAYS_SCROLL)
     page.locator("[data-hq-vt-import-open]").click()
-    box = page.locator("[data-hq-vt-import-form]").bounding_box()
+    form = page.locator("[data-hq-vt-import-form]")
+    expect(form).to_be_visible()
+    box = form.bounding_box()
     assert box is not None
     assert box["x"] >= 0 and box["x"] + box["width"] <= width
     assert page.evaluate(NO_SIDEWAYS_SCROLL)

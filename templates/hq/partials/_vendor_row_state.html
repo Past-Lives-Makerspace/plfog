@@ -1,0 +1,18 @@
+{% comment %}
+A Vendor Tables row's state slot, in its last cell: the row's updated_at stamp (tied to the row's form),
+the saved status the stripe follows (data-hq-vt-status, read by the row's :has() rule), and any refusal.
+Swapped out of band after each autosave, so the next save carries the new stamp and nothing typed in
+the row's boxes is replaced. Over htmx a refused value's errors are listed here by label, since the
+boxes stay as typed; a full page render shows them under each box instead.
+
+  table     — required, the VendorTable as the database holds it
+  form      — required, its VendorTableEditForm (fresh, or bound and refused)
+  row       — required, the hq.views.VendorRow (its error, a stale refusal)
+  state_oob — optional, True renders the hx-swap-oob attribute and the field errors
+{% endcomment %}
+<div class="pl-hq-vt__state" id="hq-vt-state-{{ table.pk }}" data-hq-vt-state data-hq-vt-status="{{ table.status }}"{% if state_oob %} hx-swap-oob="true"{% endif %}>
+  {{ form.updated_at }}
+  {% if row.error %}<p class="pl-field-error" role="alert" data-hq-vt-row-error>{{ row.error }}</p>{% endif %}
+  {% for error in form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
+  {% if state_oob %}{% for field in form %}{% for error in field.errors %}<p class="pl-field-error" role="alert" data-hq-vt-field-error="{{ field.name }}">{{ field.label }}: {{ error }}</p>{% endfor %}{% endfor %}{% endif %}
+</div>
