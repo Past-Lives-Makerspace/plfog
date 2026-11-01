@@ -1,0 +1,19 @@
+bump = "minor"
+date = "2026-10-31"
+audience = "members"
+title = "What's New walks you through a change in pictures"
+changes = [
+  "An entry with pictures shows them one step at a time, with a caption under each. Press Next, the arrow keys or a step in the list to move.",
+  "Tap a picture to see it full size.",
+]
+feature = "home.whats-new"
+guidance = "shots"
+
+[[shots]]
+caption = "Open What's New from Home. An entry with pictures starts on Step 1; press Next or the right arrow key to move on."
+
+[[shots]]
+caption = "The steps are listed beside the picture, with the one you are on marked. Press a step to jump to it."
+
+[[shots]]
+caption = "Tap the picture to see it full size. Press Esc or the X to come back."

@@ -32,7 +32,7 @@ from urllib.parse import urlencode, urlsplit
 from django.utils import timezone
 
 from core.guidance import GUIDANCE, covers, title_for, url_for
-from plfog.changelog import AUDIENCES
+from plfog.changelog import AUDIENCES, SHOT_LEVELS, Shot, shot_key
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -77,6 +77,16 @@ def history_slug(date: str, title: str) -> str:
 
 
 @dataclass(frozen=True)
+class Picture:
+    """One shot as the stepper draws it (#1050): its step number, caption, frame and where the file is."""
+
+    number: int
+    caption: str
+    frame: str
+    url: str
+
+
+@dataclass(frozen=True)
 class Entry:
     """One changelog entry as What's New reads it."""
 
@@ -90,13 +100,16 @@ class Entry:
     #: The control the entry lands on (#1051): its fragment's ``target``, else the registry's
     #: default for its feature, else ``""``. Open <feature> adds ``?show=<target>``.
     target: str = ""
+    #: The captioned screenshots a ``shots`` or ``tour`` fragment walks through (#1050); a frozen entry from before them has none.
+    shots: tuple[Shot, ...] = ()
 
     @classmethod
     def from_changelog(cls, raw: dict[str, Any]) -> Entry:
         """An entry from ``CHANGELOG``, with the defaults a frozen entry from before #1007 needs.
 
         A ``history.json`` row has no ``slug`` (the sweep drops it) and, from before the keys,
-        no ``audiences``, ``feature`` or ``guidance``: it is for members and opens nothing.
+        no ``audiences``, ``feature`` or ``guidance``: it is for members and opens nothing. One
+        from before #1050 has no ``shots``; one written since carries each shot's caption and frame.
         """
         feature = raw.get("feature", "")
         return cls(
@@ -108,6 +121,7 @@ class Entry:
             feature=feature,
             guidance=raw.get("guidance", "none"),
             target=raw.get("target") or _default_target(feature),
+            shots=tuple(Shot(caption=shot["caption"], frame=shot["frame"]) for shot in raw.get("shots", ())),
         )
 
     def on_tab(self, tab: str) -> bool:
@@ -126,10 +140,35 @@ class Entry:
 
     @property
     def steps(self) -> tuple[str, ...]:
-        """The registry's How it works lines, shown at level clip or tour (the clip itself is #1008)."""
-        if self.guidance not in ("clip", "tour") or self.feature not in GUIDANCE:
+        """The registry's How it works lines, shown at level shots or tour when the entry has no shots of its own.
+
+        An entry with shots lists their captions instead, so the lines only reach a frozen
+        entry from before #1050 whose level promised teaching.
+        """
+        if self.guidance not in SHOT_LEVELS or self.feature not in GUIDANCE:
             return ()
         return GUIDANCE[self.feature].steps
+
+    @property
+    def pictures(self) -> list[Picture]:
+        """The entry's shots with their URLs, in step order (#1050).
+
+        Each file is ``guidance/<slug>/step-N.png`` on the default storage, so production
+        reads the R2 public host and a dev box its media folder; the key comes from
+        :func:`plfog.changelog.shot_key`, the same one the upload script writes and the
+        ``fragment`` check HEADs. No query: the storage builds the URL from its settings.
+        """
+        from django.core.files.storage import default_storage
+
+        return [
+            Picture(
+                number=number,
+                caption=shot.caption,
+                frame=shot.frame,
+                url=default_storage.url(shot_key(self.slug, number)),
+            )
+            for number, shot in enumerate(self.shots, start=1)
+        ]
 
     @property
     def open_label(self) -> str:

@@ -1,0 +1,86 @@
+{% comment %}
+The shots stepper (#1050): a What's New entry at level shots or tour walks through its change in
+numbered, captioned screenshots. Context: entry (core.whats_new.Entry) and pictures
+(entry.pictures: number, caption, frame, url, in step order). The picture sits left in a 16:10
+frame with "Step N of M", the caption and Previous and Next under it; the captions list beside it
+with the current one marked, and a listed step jumps to it; below 640px the picture sits above
+the list (guidance.css). Arrow keys move it while the stepper has focus, a swipe on a phone too; a step that disables the
+focused Previous or Next hands focus back to the stepper, so the arrows keep working.
+A tap on the picture opens it full size in a lightbox that stays inside the modal: a layer
+teleported to body would read as a click outside the modal and close it. Esc there closes the
+lightbox alone, because the focused close button stops the key before the modal's window
+listener sees it. A picture that fails to load hides the picture block and keeps the list.
+Under prefers-reduced-motion nothing slides.
+{% endcomment %}
+<div class="pl-wn-clip pl-wn-shots"
+     data-whats-new-shots="{{ pictures|length }}"
+     x-data="{
+        step: 0,
+        total: {{ pictures|length }},
+        broken: false,
+        lightbox: false,
+        touchX: null,
+        go(index) {
+            const held = this.$refs.root.contains(document.activeElement);
+            this.step = Math.min(Math.max(index, 0), this.total - 1);
+            this.$nextTick(() => { const el = document.activeElement; if (held && (el.disabled || !this.$refs.root.contains(el))) (this.lightbox ? this.$refs.close : this.$refs.root).focus(); });
+        },
+        prev() { this.go(this.step - 1); },
+        next() { this.go(this.step + 1); },
+        swipe(x) { if (this.touchX === null) return; const moved = x - this.touchX; this.touchX = null; if (Math.abs(moved) < 40) return; moved < 0 ? this.next() : this.prev(); },
+        openLightbox() { this.lightbox = true; this.$nextTick(() => this.$refs.close.focus()); },
+        closeLightbox() { this.lightbox = false; this.$nextTick(() => this.$refs.root.focus()); }
+     }"
+     x-ref="root"
+     tabindex="0"
+     role="group"
+     aria-label="Screenshots of this change"
+     @keydown.arrow-left.prevent="prev()"
+     @keydown.arrow-right.prevent="next()">
+    <figure class="pl-wn-shots__media" data-whats-new-shots-picture x-show="!broken">
+        <div class="pl-wn-shots__frame"
+             @touchstart.passive="touchX = $event.changedTouches[0].clientX"
+             @touchend="swipe($event.changedTouches[0].clientX)">
+            <div class="pl-wn-shots__track" :style="{ transform: 'translateX(' + (-100 * step) + '%)' }">
+                {% for picture in pictures %}
+                <button type="button" class="pl-wn-shots__slide" @click="openLightbox()" :tabindex="step === {{ forloop.counter0 }} ? 0 : -1" aria-label="See step {{ picture.number }} full size">
+                    <img class="pl-wn-shots__img" src="{{ picture.url }}" alt="{{ picture.caption }}" loading="lazy" @error="broken = true" data-whats-new-shot="{{ picture.number }}">
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+        <figcaption class="pl-wn-shots__caption">
+            <span class="pl-wn-shots__count" data-whats-new-shots-count aria-live="polite">Step <span x-text="step + 1">1</span> of {{ pictures|length }}</span>
+            {% for picture in pictures %}<p class="pl-wn-shots__text" x-show="step === {{ forloop.counter0 }}"{% if not forloop.first %} x-cloak{% endif %}>{{ picture.caption }}</p>{% endfor %}
+        </figcaption>
+        <div class="pl-wn-shots__nav">
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="prev()" :disabled="step === 0" data-whats-new-shots-prev>Previous</button>
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="next()" :disabled="step === total - 1" data-whats-new-shots-next>Next</button>
+        </div>
+    </figure>
+    <ol class="pl-wn-shots__list" data-whats-new-shots-list aria-label="Steps">
+        {% for picture in pictures %}
+        <li :class="{ 'is-current': step === {{ forloop.counter0 }} }">
+            <button type="button" class="pl-wn-shots__step" @click="go({{ forloop.counter0 }})" :aria-current="step === {{ forloop.counter0 }} ? 'step' : null">{{ picture.caption }}</button>
+        </li>
+        {% endfor %}
+    </ol>
+    <div class="pl-wn-lightbox"
+         x-show="lightbox"
+         x-cloak
+         x-transition.opacity
+         @keydown.escape.stop="closeLightbox()"
+         @keydown.arrow-left.stop.prevent="prev()"
+         @keydown.arrow-right.stop.prevent="next()"
+         @click.self="closeLightbox()"
+         role="dialog"
+         aria-modal="true"
+         aria-label="Screenshot, full size"
+         data-whats-new-lightbox>
+        <button class="pl-wn-lightbox__close" type="button" x-ref="close" @click="closeLightbox()" aria-label="Close">&times;</button>
+        <button class="pl-wn-lightbox__nav pl-wn-lightbox__nav--prev" type="button" @click.stop="prev()" :disabled="step === 0" aria-label="Previous step">&lsaquo;</button>
+        {% for picture in pictures %}<img class="pl-wn-lightbox__img" x-show="step === {{ forloop.counter0 }}"{% if not forloop.first %} x-cloak{% endif %} src="{{ picture.url }}" alt="{{ picture.caption }}" loading="lazy">{% endfor %}
+        <button class="pl-wn-lightbox__nav pl-wn-lightbox__nav--next" type="button" @click.stop="next()" :disabled="step === total - 1" aria-label="Next step">&rsaquo;</button>
+        <div class="pl-wn-lightbox__counter">Step <span x-text="step + 1">1</span> of {{ pictures|length }}</div>
+    </div>
+</div>

@@ -87,7 +87,7 @@ Annotation-only imports go under `if TYPE_CHECKING:`; a runtime import that woul
 
 **Parity means the same surfaces.** "Make X work like Y" means reuse Y's screens, components and data shape by name, not a new design in Y's vocabulary. Any deviation from Y is a question for the maintainers.
 
-**A feature registers its guidance key; the PR declares the level.** A member-facing feature has one entry in `core/guidance.py` (its title, where it lives, its steps, and any clip or tour), keyed `<area>.<slug>` under `core.help_registry.KEY_PATTERN`. The PR's fragment names that key as `feature` and a `guidance` level, and the PR body's `**Guidance:**` line says the same level; CI holds the two together and holds `clip` and `tour` to what the registry has. Nothing adds a Help Center article (#1009). `docs/GUIDANCE.md` is the contract.
+**A feature registers its guidance key; the PR declares the level.** A member-facing feature has one entry in `core/guidance.py` (its title, where it lives, its steps, and any tour), keyed `<area>.<slug>` under `core.help_registry.KEY_PATTERN`. The PR's fragment names that key as `feature` and a `guidance` level (`none`, `link`, `shots`, `tour`), and the PR body's `**Guidance:**` line says the same level; CI holds the two together, holds `tour` to what the registry has and HEADs every shot a `shots` or `tour` fragment lists on the media bucket. A diff that adds a button, field, tab or flow to a template ships at `shots`, with the pictures taken to the standard frame; a screen change remakes its shots in the same PR. Nothing adds a Help Center article (#1009). `docs/GUIDANCE.md` is the contract.
 
 ## 13. Writing for Members
 

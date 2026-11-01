@@ -49,7 +49,16 @@ def _entry(slug: str, *, days_ago: int = 0, audiences: tuple[str, ...] = ("membe
     }
     if "target" in keys:
         entry["target"] = keys["target"]
+    if "shots" in keys:  # only when given, as the fragment writes it (#1050)
+        entry["shots"] = keys["shots"]
     return entry
+
+
+#: Two shots as a fragment's ``as_entry`` writes them (#1050).
+_SHOTS = [
+    {"caption": "On Home, press What's New.", "frame": "desktop"},
+    {"caption": "Pick the tab for your role.", "frame": "phone"},
+]
 
 
 @pytest.fixture
@@ -364,6 +373,12 @@ def describe_hub_whats_new():
         with django_assert_num_queries(_BODY_QUERY_BUDGET):
             body = _body(client)  # a full page over six guild keys, one write, the same count
         assert body.count("data-whats-new-open") == PAGE_SIZE
+        changelog(
+            [_entry(f"shot-{i}", feature="guild.cubbies", guidance="shots", shots=_SHOTS) for i in range(PAGE_SIZE)]
+        )
+        with django_assert_num_queries(_BODY_QUERY_BUDGET):
+            body = _body(client)  # a full page of steppers: a picture's URL comes from the storage, never a query
+        assert body.count('data-whats-new-shots="2"') == PAGE_SIZE
 
 
 def describe_the_show_arrival():
@@ -583,17 +598,61 @@ def describe_the_body():
         assert "Nothing here for guild staff yet." in _body(client, "?tab=guild-staff")
         assert "Nothing here for instructors yet." in _body(client, "?tab=instructors")
 
-    def it_lists_the_steps_at_level_clip_and_the_tour_at_level_tour(client: Client, changelog):
+    def it_lists_the_registry_steps_and_the_tour_for_a_tour_entry_without_shots(client: Client, changelog):
+        # A frozen entry from before #1050: its level promised teaching and it has no shots of its own.
         changelog(
             [
-                _entry("clip", feature="home.door-code", guidance="clip"),
                 _entry("tour", feature="home.tour", guidance="tour"),
                 _entry("link", feature="home.polls", guidance="link"),
             ]
         )
         _login(client)
         body = _body(client)
-        assert body.count("data-whats-new-steps") == 2
-        assert "How it works" in body and "Press Tap to reveal to see the code" in body
+        assert body.count("data-whats-new-steps") == 1
+        assert "How it works" in body and "Take the tour banner at the top of Home" in body
         assert 'href="/home/?tour=member-welcome"' in body and "Take the tour" in body
-        assert body.count("data-whats-new-open") == 3
+        assert body.count("data-whats-new-open") == 2
+        assert "data-whats-new-shots" not in body
+
+
+def describe_the_shots_stepper():
+    """An entry at shots or tour walks through its pictures (#1050); the browser's part is tests/e2e/whats_new_shots_spec.py."""
+
+    def it_draws_every_picture_with_its_caption_the_count_the_buttons_the_list_and_the_lightbox(
+        client: Client, changelog
+    ):
+        changelog([_entry("1050-shots", feature="home.whats-new", guidance="shots", shots=_SHOTS)])
+        _login(client)
+        body = _body(client)
+        assert 'data-whats-new-shots="2"' in body
+        assert 'Step <span x-text="step + 1">1</span> of 2' in body
+        # The stepper's two pictures and the lightbox's two, every one lazy and captioned, at the storage's URL.
+        assert body.count('loading="lazy"') == 4
+        assert (
+            'src="/media/guidance/1050-shots/step-1.png" alt="On Home, press What&#x27;s New." loading="lazy"' in body
+        )
+        assert 'src="/media/guidance/1050-shots/step-2.png" alt="Pick the tab for your role." loading="lazy"' in body
+        assert "data-whats-new-shots-list" in body and body.count('class="pl-wn-shots__step"') == 2
+        assert "data-whats-new-shots-prev" in body and "data-whats-new-shots-next" in body
+        assert "data-whats-new-lightbox" in body
+        assert "data-whats-new-steps" not in body  # the captions are the steps; the registry's lines stay out
+        assert "data-whats-new-open" in body  # Open it still follows the entry
+
+    def it_draws_the_stepper_at_level_tour_beside_the_tour_link(client: Client, changelog):
+        changelog([_entry("tour", feature="home.tour", guidance="tour", shots=_SHOTS[:1])])
+        _login(client)
+        body = _body(client)
+        assert 'data-whats-new-shots="1"' in body and "data-whats-new-tour" in body
+        assert "data-whats-new-steps" not in body
+
+    def it_draws_no_stepper_at_link_or_for_a_frozen_entry(client: Client, changelog):
+        changelog(
+            [
+                _entry("link", feature="home.whats-new", guidance="link"),
+                {"version": "2.0.0", "date": _day(1), "title": "Old news", "changes": ["It happened."]},
+            ]
+        )
+        _login(client)
+        body = _body(client)
+        assert "data-whats-new-entry" in body
+        assert "data-whats-new-shots" not in body and "data-whats-new-lightbox" not in body

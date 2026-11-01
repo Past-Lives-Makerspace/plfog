@@ -2,8 +2,9 @@
 
 A changelog fragment says what a release changed and names the ``feature`` it belongs to; this
 module holds the rest, once per feature key: a title, where the feature lives, the few steps a
-member follows to use it, and the teaching materials a release may point at (a clip, #1008, and
-a Guided Tour, :mod:`core.tours`). What's New reads it to offer "Open it", the New! badge and
+member follows to use it, and the Guided Tour (:mod:`core.tours`) a release may point at; the
+captioned screenshots a release walks through live on the fragment itself (#1050). What's New
+reads it to offer "Open it", the New! badge and
 the per feature button key on it, and the two CI scripts check a fragment's ``feature`` and
 ``guidance`` against it.
 
@@ -36,9 +37,8 @@ class Guidance:
     member (the :class:`core.tours.Tour` shape) and may raise ``ValueError`` when the member has
     nothing to open it on, in which case the caller hides the link. ``query`` lands on a page's
     tab, as the guild page reads ``?tab=``. ``steps`` are 2 to 5 plain lines, written for
-    members (STANDARDS §13). ``clip`` and ``tour`` are the materials a fragment may declare
-    with ``guidance = "clip"`` or ``"tour"``; ``help_key`` is the matching Info View key, when
-    one exists. ``target`` (#1051) is the feature's main control, a key placed on it as
+    members (STANDARDS §13). ``tour`` is the Guided Tour a fragment may declare with
+    ``guidance = "tour"``; ``help_key`` is the matching Info View key, when one exists. ``target`` (#1051) is the feature's main control, a key placed on it as
     ``data-guidance-target``, which Open <feature> rings on arrival when a fragment names none.
     """
 
@@ -48,7 +48,6 @@ class Guidance:
     steps: tuple[str, ...]
     url_kwargs: Callable[[Member], dict[str, Any]] | None = None
     query: dict[str, str] | None = None
-    clip: str | None = None
     tour: str | None = None
     help_key: str | None = None
     target: str | None = None
