@@ -1,6 +1,6 @@
 """BDD specs for the Instructors control on a live class's edit page (#686).
 
-A published class's structural facts stay locked, but who teaches it is not one of them: a
+A published class's dates stay locked (#1067), but who teaches it is not one of them: a
 partner added changes nothing a registrant booked on. The class's own instructors get the
 Basics step's control on the light edit page; the guild's staff save the list untouched.
 """
@@ -26,6 +26,7 @@ from classes.factories import (
 )
 from classes.forms import AT_LEAST_ONE_INSTRUCTOR, no_teaching_access_message
 from classes.models import ClassOffering
+from classes.spec.live_edit import live_facts
 from membership.models import Member
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, MemberFactory
 
@@ -56,8 +57,9 @@ def _members(offering: ClassOffering) -> list[int]:
     return [member.pk for member in offering.instructor_list]
 
 
-def _payload(**extra) -> dict:
+def _payload(offering: ClassOffering, **extra) -> dict:
     payload = {
+        **live_facts(offering),
         "description": "Build a frame for the piece you bring, and learn to cut a mat for it.",
         "prerequisites": "",
         "materials_included": "",
@@ -94,7 +96,7 @@ def describe_the_live_edit_page():
         me, partner = _instructor("Alex Eason"), _instructor("Jenelle Giordano")
         offering = _live(me, title="Picture Framing", price_cents=6000, capacity=6)
         client.force_login(me.user)
-        resp = client.post(_edit(offering), _payload(instructors=[me.pk, partner.pk]))
+        resp = client.post(_edit(offering), _payload(offering, instructors=[me.pk, partner.pk]))
         assert resp.status_code == 302
         offering.refresh_from_db()
         assert _members(offering) == [me.pk, partner.pk]
@@ -109,7 +111,9 @@ def describe_the_live_edit_page():
         client.force_login(partner.user)
         html = client.get(_edit(offering)).content.decode()
         assert [row["name"] for row in _rows(html)] == ["Alex Eason", "Jenelle Giordano"]
-        resp = client.post(_edit(offering), _payload(instructors=[me.pk, partner.pk], materials_to_bring="Gloves"))
+        resp = client.post(
+            _edit(offering), _payload(offering, instructors=[me.pk, partner.pk], materials_to_bring="Gloves")
+        )
         assert resp.status_code == 302
         offering.refresh_from_db()
         assert offering.materials_to_bring == "Gloves"
@@ -121,7 +125,7 @@ def describe_the_live_edit_page():
         me, partner = _instructor("Alex Eason"), _instructor("Jenelle Giordano")
         offering = _live(me, instructors=[me, partner])
         client.force_login(me.user)
-        resp = client.post(_edit(offering), _payload(instructors=[partner.pk]))
+        resp = client.post(_edit(offering), _payload(offering, instructors=[partner.pk]))
         assert resp.status_code == 302
         assert resp.url == reverse("classes:teach_dashboard")
         assert client.get(resp.url).status_code == 200
@@ -135,7 +139,7 @@ def describe_the_live_edit_page():
         me, partner = _instructor("Alex Eason"), _instructor("Jenelle Giordano")
         offering = _live(me, instructors=[me, partner])
         client.force_login(me.user)
-        resp = client.post(_edit(offering), _payload())
+        resp = client.post(_edit(offering), _payload(offering))
         assert resp.status_code == 302
         assert _members(offering) == [me.pk, partner.pk]
 
@@ -143,7 +147,7 @@ def describe_the_live_edit_page():
         me = _instructor("Alex Eason")
         offering = _live(me)
         client.force_login(me.user)
-        resp = client.post(_edit(offering), _payload(instructors=[""]))
+        resp = client.post(_edit(offering), _payload(offering, instructors=[""]))
         assert resp.status_code == 200
         assert AT_LEAST_ONE_INSTRUCTOR in resp.content.decode()
         assert _members(offering) == [me.pk]
@@ -153,7 +157,7 @@ def describe_the_live_edit_page():
         plain = MemberFactory(full_legal_name="Pat Plain")
         offering = _live(me)
         client.force_login(me.user)
-        resp = client.post(_edit(offering), _payload(instructors=[me.pk, plain.pk]))
+        resp = client.post(_edit(offering), _payload(offering, instructors=[me.pk, plain.pk]))
         assert resp.status_code == 200
         assert no_teaching_access_message(plain) in unescape(resp.content.decode())
         assert _members(offering) == [me.pk]
@@ -170,7 +174,7 @@ def describe_the_live_edit_page():
         html = client.get(_edit(offering)).content.decode()
         assert "data-instructor-rows" not in html
         assert 'name="add_instructor"' not in html
-        resp = client.post(_edit(offering), _payload(instructors=[staffer.pk], materials_to_bring="Clamps"))
+        resp = client.post(_edit(offering), _payload(offering, instructors=[staffer.pk], materials_to_bring="Clamps"))
         assert resp.status_code == 302
         offering.refresh_from_db()
         assert offering.materials_to_bring == "Clamps"
