@@ -18,7 +18,7 @@ class Migration(migrations.Migration):
             field=models.BooleanField(
                 db_default=False,
                 default=False,
-                help_text="This instructor's personal code (#1065): made when they were given teaching access, shown to them on My Classes and Discount Codes. At most one per instructor. Moving the code off its instructor (Re-assign) ends it being their personal code.",
+                help_text="This instructor's personal code (#1065): made when they were given teaching access, shown to them on My Classes and Discount Codes. At most one per instructor. Moving the code off its instructor (reassign) ends it being their personal code. A new personal code is made on the instructor's next visit, so to stop one, switch it off rather than delete or reassign it.",
             ),
         ),
         migrations.AddConstraint(

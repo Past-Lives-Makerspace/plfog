@@ -251,6 +251,29 @@ def describe_the_lazy_backstop():
             ("SKY10", True)
         ]
 
+    def it_renders_without_the_card_and_logs_when_every_attempt_loses_a_race(client, monkeypatch, caplog):
+        from classes import models as classes_models
+
+        user, member = _member("pc-unlucky@example.com", "Sky Unlucky")
+        Member.objects.filter(pk=member.pk).update(instructor_oriented_at=timezone.now())
+        real = classes_models.personal_code_candidates
+
+        def racing(*args):
+            # Another writer really takes each code just before it is tried.
+            for candidate in real(*args):
+                if not DiscountCode.objects.filter(code=candidate).exists():
+                    DiscountCodeFactory(code=candidate, class_offering=None)
+                yield candidate
+
+        monkeypatch.setattr(classes_models, "personal_code_candidates", racing)
+        client.force_login(user)
+        with caplog.at_level("ERROR", logger="classes.views"):
+            resp = client.get(reverse("classes:teach_dashboard"))
+        assert resp.status_code == 200
+        assert CARD not in resp.content
+        assert f"Could not make a personal discount code for member {member.pk}" in caplog.text
+        assert not DiscountCode.objects.filter(instructor=member).exists()
+
     def it_makes_nothing_new_for_an_instructor_whose_code_is_switched_off(teacher_client, teacher):
         DiscountCode.objects.filter(instructor=teacher[1]).update(is_active=False)
         teacher_client.get(reverse("classes:teach_dashboard"))

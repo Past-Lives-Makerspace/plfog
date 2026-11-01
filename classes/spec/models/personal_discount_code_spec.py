@@ -244,81 +244,83 @@ def describe_ensure_personal_for():
         assert "discount_code.requested" not in sent
 
 
+def taking_each_pick(monkeypatch, *, times: int) -> None:
+    """Another writer really takes each picked code first, for the next ``times`` picks.
+
+    Patches the plain naming function, never a model method: just before a candidate is handed
+    out, a real ``DiscountCode`` row with that code is written, so the insert that follows fails
+    with a real ``IntegrityError`` from the unique code column.
+    """
+    real = classes_models.personal_code_candidates
+    left = [times]
+
+    def racing(*args):
+        for candidate in real(*args):
+            if left[0] > 0 and not DiscountCode.objects.filter(code=candidate).exists():
+                left[0] -= 1
+                DiscountCodeFactory(code=candidate, class_offering=None)
+            yield candidate
+
+    monkeypatch.setattr(classes_models, "personal_code_candidates", racing)
+
+
 def describe_racing_writers():
-    """Two grants at once, or a grant and an admin: the loser of a race recovers instead of failing."""
+    """Two grants at once, or a grant and an admin: the loser of a race recovers instead of failing.
 
-    def _racing(monkeypatch, before_first_pick) -> None:
-        """Run ``before_first_pick`` between the read of the taken codes and the first insert."""
-        real = classes_models.personal_code_candidates
-        calls: list[int] = []
-
-        def racing(*args):
-            if not calls:
-                calls.append(1)
-                before_first_pick()
-            yield from real(*args)
-
-        monkeypatch.setattr(classes_models, "personal_code_candidates", racing)
+    Every race is a real competing write made through a plain function seam at the moment the
+    code is picked; the database raises the ``IntegrityError`` itself.
+    """
 
     def it_tries_the_next_free_code_when_another_writer_takes_the_one_it_picked(monkeypatch):
         member = _locked("Jacqueline Sowell")
-        _racing(monkeypatch, lambda: DiscountCodeFactory(code="JACQUELINE10"))
+        taking_each_pick(monkeypatch, times=1)
         assert DiscountCode.objects.ensure_personal_for(member).code == "JACQUELINES10"
+        assert DiscountCode.objects.filter(code="JACQUELINE10", is_personal=False).exists()
         assert len(_personal(member)) == 1
 
     def it_returns_the_code_another_writer_gave_the_member_first(monkeypatch):
         member = _locked("Jacqueline Sowell")
+        real = classes_models.personal_code_candidates
         theirs: list[DiscountCode] = []
-        _racing(
-            monkeypatch,
-            lambda: theirs.append(
-                DiscountCodeFactory(code="OTHERWRITER", class_offering=None, instructor=member, is_personal=True)
-            ),
-        )
+
+        def racing(*args):
+            if not theirs:
+                theirs.append(
+                    DiscountCodeFactory(code="OTHERWRITER", class_offering=None, instructor=member, is_personal=True)
+                )
+            yield from real(*args)
+
+        monkeypatch.setattr(classes_models, "personal_code_candidates", racing)
         assert DiscountCode.objects.ensure_personal_for(member).pk == theirs[0].pk
         assert DiscountCode.objects.filter(instructor=member).count() == 1
 
-    def it_gives_up_loudly_when_every_attempt_loses(monkeypatch):
+    def it_gives_up_loudly_after_five_lost_races(monkeypatch):
         member = _locked("Jacqueline Sowell")
-        monkeypatch.setattr(classes_models.DiscountCodeQuerySet, "create", _always_taken)
+        taking_each_pick(monkeypatch, times=classes_models.PERSONAL_CODE_ATTEMPTS)
         with pytest.raises(IntegrityError):
             DiscountCode.objects.ensure_personal_for(member)
+        assert not _personal(member)
+        taken = set(DiscountCode.objects.values_list("code", flat=True))
+        assert taken == {"JACQUELINE10", "JACQUELINES10", "JACQUELINESO10", "JACQUELINESOW10", "JACQUELINESOWE10"}
 
     def it_returns_the_winners_code_when_adopting_loses_the_race(monkeypatch):
         member = _locked()
         older = DiscountCodeFactory(code="OLDER", class_offering=None, instructor=member)
-        winner = DiscountCodeFactory(code="WINNER", class_offering=None, instructor=member, is_personal=True)
         DiscountCode.objects.filter(pk=older.pk).update(created_at=timezone.now() - timedelta(days=5))
-        _blind_to_personal_codes(monkeypatch, times=1)
-        assert DiscountCode.objects.ensure_personal_for(member).pk == winner.pk
+        real = classes_models.oldest_live_instructor_code
+        winner: list[DiscountCode] = []
+
+        def racing(codes, member):
+            if not winner:
+                winner.append(
+                    DiscountCodeFactory(code="WINNER", class_offering=None, instructor=member, is_personal=True)
+                )
+            return real(codes, member)
+
+        monkeypatch.setattr(classes_models, "oldest_live_instructor_code", racing)
+        assert DiscountCode.objects.ensure_personal_for(member).pk == winner[0].pk
         older.refresh_from_db()
         assert older.is_personal is False
-
-    def it_raises_when_adopting_fails_and_no_winner_is_there(monkeypatch):
-        member = _locked()
-        DiscountCodeFactory(code="OLDER", class_offering=None, instructor=member)
-        DiscountCodeFactory(code="WINNER", class_offering=None, instructor=member, is_personal=True)
-        _blind_to_personal_codes(monkeypatch, times=99)
-        with pytest.raises(IntegrityError, match="Could not mark a personal discount code"):
-            DiscountCode.objects.ensure_personal_for(member)
-
-
-def _always_taken(self, **kwargs):
-    raise IntegrityError("duplicate key value violates unique constraint")
-
-
-def _blind_to_personal_codes(monkeypatch, *, times: int) -> None:
-    """``personal_for`` answers None for its first ``times`` calls, as if another writer had not committed yet."""
-    real = classes_models.DiscountCodeQuerySet.personal_for
-    left = [times]
-
-    def blind(self, member):
-        if left[0] > 0:
-            left[0] -= 1
-            return None
-        return real(self, member)
-
-    monkeypatch.setattr(classes_models.DiscountCodeQuerySet, "personal_for", blind)
 
 
 def describe_one_personal_code_per_instructor():
@@ -375,16 +377,14 @@ def describe_reassign():
 
 def describe_granting_teaching_makes_the_code():
     def it_rolls_the_grant_back_when_the_code_cannot_be_made(monkeypatch):
-        member = _locked()
-
-        def broken(self, member):
-            raise IntegrityError("no code")
-
-        monkeypatch.setattr(classes_models.DiscountCodeQuerySet, "ensure_personal_for", broken)
+        member = _locked("Jacqueline Sowell")
+        taking_each_pick(monkeypatch, times=classes_models.PERSONAL_CODE_ATTEMPTS)
         with pytest.raises(IntegrityError):
             member.grant_teaching(granted_by=None)
         member.refresh_from_db()
         assert member.instructor_oriented_at is None
+        # The competing writes ran inside the grant's transaction too, so nothing is left behind.
+        assert not DiscountCode.objects.exists()
 
     def it_makes_one_on_grant_teaching():
         member = _locked()

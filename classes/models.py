@@ -5018,9 +5018,21 @@ def personal_code_candidates(display_name: str, full_legal_name: str, pct: int) 
     yield f"{stem}{pct}"
     for end in range(1, len(surname) + 1):
         yield f"{stem}{surname[:end]}{pct}"
-    for length in itertools.count(1):
+    length = 1
+    while True:
         for letters in itertools.product(string.ascii_uppercase, repeat=length):
             yield f"{stem}{surname}{''.join(letters)}{pct}"
+        length += 1
+
+
+def oldest_live_instructor_code(codes: "DiscountCodeQuerySet", member: "Member") -> "DiscountCode | None":
+    """The code :meth:`DiscountCodeQuerySet.ensure_personal_for` adopts (#1065): ``member``'s oldest live instructor code.
+
+    A plain function rather than a queryset method so the race specs can make a real competing
+    write at the moment the adoption is picked, the way they do through
+    :func:`personal_code_candidates`.
+    """
+    return codes.live().filter(instructor=member).order_by("created_at", "pk").first()
 
 
 class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
@@ -5095,9 +5107,10 @@ class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
         approved and active from the start, with no use limit, no dates and no auto apply, and
         is never sent anywhere: the instructor shares it themselves.
 
-        Two writers can race. When another one takes the picked code first, the taken codes are
-        read again and the next free one is tried, up to :data:`PERSONAL_CODE_ATTEMPTS` times;
-        when another one gives this member their personal code first, that code is returned.
+        Two writers can race. Every attempt starts by reading the member's personal code again,
+        so when another writer gave them one first, that code is returned; when another took the
+        picked code (or marked the adopted one first), the taken codes are read again and the
+        next free one is tried, up to :data:`PERSONAL_CODE_ATTEMPTS` attempts in all.
 
         Called by ``Member.save`` when teaching access is granted, so every grant path makes one,
         and by the instructor's pages for anyone who can teach and still has none.
@@ -5107,30 +5120,30 @@ class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
         """
         from core.models import SiteConfiguration
 
-        existing = self.personal_for(member)
-        if existing is not None:
-            return existing
-        adopted = self.live().filter(instructor=member).order_by("created_at", "pk").first()
-        if adopted is not None:
-            try:
-                with transaction.atomic():
-                    adopted.is_personal = True
-                    adopted.save(update_fields=["is_personal"])
-            except IntegrityError:
-                return self._personal_after_a_race(member)
-            return adopted
         pct = SiteConfiguration.load().instructor_code_discount_pct
         stem = personal_code_stem(member.display_name)
         attempts = 0
         while True:
-            taken = set(self.filter(code__startswith=stem).values_list("code", flat=True))
-            code = next(
-                candidate
-                for candidate in personal_code_candidates(member.display_name, member.full_legal_name, pct)
-                if candidate not in taken
-            )
+            # Read afresh on every pass: a writer that won the last race has committed by now.
+            existing = self.personal_for(member)
+            if existing is not None:
+                return existing
+            adopted = oldest_live_instructor_code(self, member)
+            code = ""
+            if adopted is None:
+                taken = set(self.filter(code__startswith=stem).values_list("code", flat=True))
+                code = next(
+                    candidate
+                    for candidate in personal_code_candidates(member.display_name, member.full_legal_name, pct)
+                    if candidate not in taken
+                )
             try:
+                # Only the write sits in the savepoint, so a lost race undoes this attempt alone.
                 with transaction.atomic():
+                    if adopted is not None:
+                        adopted.is_personal = True
+                        adopted.save(update_fields=["is_personal"])
+                        return adopted
                     return self.create(
                         code=code,
                         description=PERSONAL_CODE_DESCRIPTION,
@@ -5141,19 +5154,9 @@ class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
                         is_active=True,
                     )
             except IntegrityError:
-                existing = self.personal_for(member)
-                if existing is not None:
-                    return existing
                 attempts += 1
                 if attempts >= PERSONAL_CODE_ATTEMPTS:
                     raise
-
-    def _personal_after_a_race(self, member: "Member") -> "DiscountCode":
-        """The personal code another writer gave ``member`` while this one tried to; raises if there is none."""
-        existing = self.personal_for(member)
-        if existing is None:
-            raise IntegrityError(f"Could not mark a personal discount code for member {member.pk}")
-        return existing
 
     def site_wide_live(self) -> "DiscountCodeQuerySet":
         """The codes anyone can type at checkout on any class: no scope, active and approved, by code.
@@ -5275,8 +5278,9 @@ class DiscountCode(StaffRequestMixin, models.Model):
         db_default=False,
         help_text=(
             "This instructor's personal code (#1065): made when they were given teaching access, shown "
-            "to them on My Classes and Discount Codes. At most one per instructor. Moving the code off "
-            "its instructor (Re-assign) ends it being their personal code."
+            "to them on My Classes and Discount Codes. At most one per instructor. Moving the code off its "
+            "instructor (reassign) ends it being their personal code. A new personal code is made on the "
+            "instructor's next visit, so to stop one, switch it off rather than delete or reassign it."
         ),
     )
     created_at = models.DateTimeField(auto_now_add=True)

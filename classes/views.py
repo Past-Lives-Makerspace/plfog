@@ -3024,9 +3024,15 @@ def _personal_code_context(member: Member) -> dict[str, Any]:
     still has no personal code (a grant that bypassed ``Member.save``, a bulk ``update``) is
     given one here on their first view: the one GET that writes, idempotently. An admin who
     switches the code off or leaves it unapproved hides the card: a code that would be
-    refused at checkout is not one to hand out.
+    refused at checkout is not one to hand out. Should every attempt to make one lose a race,
+    the page still renders, without the card, and the failure is logged; the next view tries
+    again.
     """
-    code = DiscountCode.objects.ensure_personal_for(member)
+    try:
+        code = DiscountCode.objects.ensure_personal_for(member)
+    except IntegrityError:
+        logger.exception("Could not make a personal discount code for member %s", member.pk)
+        return {"personal_code": None}
     return {"personal_code": code if code.is_active and code.is_approved else None}
 
 
