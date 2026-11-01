@@ -102,6 +102,12 @@ def describe_open_the_feature():
         button = page.locator(BUTTON)
         expect(button).to_have_class(re.compile(r"\bdriver-active-element\b"))
         expect(button).to_be_in_viewport()
+        # The popover sits just under the control it names, not where the layout was before it settled.
+        expect(popover.locator(".driver-popover-arrow")).to_have_class(
+            re.compile(r"\bdriver-popover-arrow-side-bottom\b")
+        )
+        box, pop = button.bounding_box(), popover.bounding_box()
+        assert box["y"] + box["height"] <= pop["y"] <= box["y"] + box["height"] + 40, (box, pop)
         expect(page.locator("html")).to_have_class(re.compile(r"\bpl-guidance-showing\b"))
         # The param is stripped once read, so a reload does not ring the control again.
         assert page.url.endswith(reverse("hub_home")), page.url

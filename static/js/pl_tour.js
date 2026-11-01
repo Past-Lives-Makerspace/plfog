@@ -664,7 +664,7 @@
                                 cleanup();
                             }
                             driverObj = window.driver.js.driver({
-                                steps: [{ element: opts.selector, popover: { title: opts.title, description: opts.body } }],
+                                steps: [{ element: opts.selector, popover: { title: opts.title, description: opts.body, side: "bottom", align: "start" } }],
                                 popoverClass: "pl-tour pl-tour--show",
                                 showProgress: false,
                                 showButtons: ["close"],
@@ -680,6 +680,12 @@
                             active = { driverObj: driverObj, segStart: 0, segEnd: 0, cleanup: cleanup };
                             root.classList.add("pl-guidance-showing");
                             driverObj.drive(0);
+                            // Driver places the popover once, against the layout it measured at the
+                            // start; a page still settling (fonts, the header row) leaves it detached
+                            // from the control. Re-measure once the stage transition has finished.
+                            window.setTimeout(function () {
+                                if (active && active.driverObj === driverObj) driverObj.refresh();
+                            }, reduced ? 50 : 450);
                             // A click anywhere ends it, the ringed control and the popover included
                             // (the overlay already closes through Driver). Bound on the next tick so
                             // the click that asked for it (Show me) is not the click that ends it.
