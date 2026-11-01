@@ -75,16 +75,21 @@ def _fake_diff(monkeypatch, result: _Completed) -> list[list[str]]:
     return calls
 
 
-def _env(monkeypatch, *, labels: list[str] | None = None, public_url: str | None = None) -> None:
+def _env(monkeypatch, *, labels: list[str] | None = None, public_url: str | None = None, ci: bool = False) -> None:
     monkeypatch.setenv("BASE_SHA", _BASE)
     monkeypatch.setenv("HEAD_SHA", _HEAD)
     monkeypatch.setenv("PR_NUMBER", "394")
     monkeypatch.setenv("TODAY", "2026-09-13")
-    # Unset unless a spec hands one over: the HEAD step then skips, as it does on a fork.
+    # Unset unless a spec hands one over: the HEAD step then skips, as on a local run. The suite
+    # itself runs in Actions, so GITHUB_ACTIONS is cleared unless a spec asks for CI's branch.
     if public_url is None:
         monkeypatch.delenv("R2_PUBLIC_URL", raising=False)
     else:
         monkeypatch.setenv("R2_PUBLIC_URL", public_url)
+    if ci:
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    else:
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     if labels is None:
         monkeypatch.delenv("PR_LABELS", raising=False)
     else:
@@ -378,13 +383,30 @@ def describe_main():
             assert "changelog.d/1050-guidance-shots.toml" in capsys.readouterr().out
             assert seen == [_ONE, _TWO]
 
-        def it_skips_the_bucket_check_out_loud_when_the_variable_is_unset(monkeypatch, tmp_path, capsys):
-            # A fork or a local run has no repository variable; the skip is said, never silent.
+        def it_skips_the_bucket_check_out_loud_on_a_local_run_without_the_variable(monkeypatch, tmp_path, capsys):
+            # A local run has no repository variable; the skip is said, never silent.
             module = _tree(monkeypatch, tmp_path, _TWO_SHOTS)
             _env(monkeypatch, labels=[])
             monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: pytest.fail("no HEAD without the variable"))
             module.main()
             assert "R2_PUBLIC_URL is unset; not checking" in capsys.readouterr().out
+
+        def it_fails_in_ci_without_the_variable_naming_it(monkeypatch, tmp_path):
+            # A deleted repository variable must never turn a missing picture into a green run.
+            module = _tree(monkeypatch, tmp_path, _TWO_SHOTS)
+            _env(monkeypatch, labels=[], ci=True)
+            monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: pytest.fail("no HEAD without the variable"))
+            with pytest.raises(SystemExit) as exit_info:
+                module.main()
+            message = str(exit_info.value)
+            assert "R2_PUBLIC_URL is unset in CI" in message and "repository variable R2_PUBLIC_URL" in message
+
+        def it_fails_in_ci_without_the_variable_even_when_no_fragment_lists_shots(monkeypatch, tmp_path):
+            # The gate is the variable's presence, not this PR's fragment: the whole tree is checked every run.
+            module = _tree(monkeypatch, tmp_path, _FRAGMENT_PREFIX + 'feature = "guild.cubbies"\nguidance = "link"\n')
+            _env(monkeypatch, labels=[], ci=True)
+            with pytest.raises(SystemExit, match="R2_PUBLIC_URL is unset in CI"):
+                module.main()
 
         def it_heads_nothing_for_a_fragment_at_link(monkeypatch, tmp_path, capsys):
             module = _tree(monkeypatch, tmp_path, _FRAGMENT_PREFIX + 'feature = "guild.cubbies"\nguidance = "link"\n')

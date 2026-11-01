@@ -61,8 +61,8 @@ CI holds the three together: `check_pr_description.py` fails a body without the 
 value outside the four, or with a value that differs from the fragment the PR adds;
 `check_changelog_fragment.py` fails `tour` on a feature with no tour registered, and fails a
 `shots` or `tour` fragment whose picture is not on the bucket, naming the first missing URL
-(it HEADs `R2_PUBLIC_URL/guidance/<slug>/step-N.png`; the URL is a repository variable, and
-unset, on a fork, the step is skipped out loud). The review bot blocks a members fragment that
+(it HEADs `R2_PUBLIC_URL/guidance/<slug>/step-N.png`; the URL is a repository variable, required
+in CI and skipped out loud on a local run). The review bot blocks a members fragment that
 plainly belongs to a feature and names none, and one at `none` or `link` when the diff adds a
 button, field, tab or flow to a template: that is `shots`.
 

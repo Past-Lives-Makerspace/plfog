@@ -179,10 +179,12 @@ def it_does_not_slide_under_reduced_motion(page, live_server, login_via_code, se
     page.emulate_media(reduced_motion="reduce")
     stepper = _open(page, live_server, login_via_code, FRAMES["desktop"])
     track = stepper.locator(".pl-wn-shots__track")
-    # hub.css also clamps every duration to 0.01ms under reduced motion, so the computed value is as good as none.
-    assert float(track.evaluate("el => getComputedStyle(el).transitionDuration").rstrip("s")) < 0.001
+    # hub.css clamps every duration under reduced motion; the property is the stepper's own rule (guidance.css).
+    transition = "el => [getComputedStyle(el).transitionProperty, getComputedStyle(el).transitionDuration]"
+    prop, duration = track.evaluate(transition)
+    assert prop == "none" and float(duration.rstrip("s")) < 0.001
     page.emulate_media(reduced_motion="no-preference")
-    assert track.evaluate("el => getComputedStyle(el).transitionDuration") == "0.3s"
+    assert track.evaluate(transition) == ["transform", "0.3s"]
 
 
 def _ring(page: Any) -> str:

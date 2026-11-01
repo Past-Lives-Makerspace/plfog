@@ -19,8 +19,9 @@ A fragment's ``guidance`` is held to what exists here rather than in ``parse_fra
 ``[[shots]]`` block of a ``shots`` or ``tour`` fragment needs its picture on the media bucket,
 proved by a HEAD of ``R2_PUBLIC_URL/guidance/<slug>/step-N.png``. The parser runs at app
 import, and a missing tour or picture must cost a red X on the branch, never a production that
-does not boot. ``R2_PUBLIC_URL`` is a repository variable (a public address); unset, as on a
-fork or a local run, the HEAD step is skipped and says so.
+does not boot. ``R2_PUBLIC_URL`` is a repository variable (a public address). In CI
+(``GITHUB_ACTIONS`` set) it is required, so a deleted variable can never turn a missing picture
+into a green run; on a local run the HEAD step is skipped and says so.
 
 Stdlib only, and no Django: this runs in ci.yml's own `changelog` job, which installs
 nothing beyond the interpreter so a missing fragment is reported in seconds rather than
@@ -172,17 +173,21 @@ def main() -> None:
     if materials:
         sys.exit("A fragment promises guidance its feature has not registered.\n\n" + "\n".join(materials))
 
-    # Defaulted on purpose, like PR_LABELS: a fork or a local run has no repository variable, and
-    # skipping the HEAD step out loud there is the documented behaviour, not a weakened check.
+    # Defaulted on purpose, like PR_LABELS: a local run has no repository variable, and skipping
+    # the HEAD step out loud there is the documented behaviour. In CI the default is refused, so
+    # a variable someone deleted can never turn a missing picture into a green run.
     public_url = os.environ.get("R2_PUBLIC_URL", "").rstrip("/")
     if public_url:
         shots = missing_shots(fragments, public_url)
         if shots:
             sys.exit("A fragment promises shots that are not on the bucket.\n\n" + "\n".join(shots))
-    else:
-        print(
-            "R2_PUBLIC_URL is unset; not checking that each fragment's shots are on the bucket (CI sets it from the repository variable)."
+    elif os.environ.get("GITHUB_ACTIONS"):
+        sys.exit(
+            "R2_PUBLIC_URL is unset in CI. Set the repository variable R2_PUBLIC_URL to the media bucket's public "
+            "host (a public address, not a secret) so every fragment's shots can be checked on the bucket."
         )
+    else:
+        print("R2_PUBLIC_URL is unset; not checking that each fragment's shots are on the bucket (CI requires it).")
 
     if _SKIP_LABEL in _labels():
         print(f"'{_SKIP_LABEL}' label present; not requiring a fragment.")

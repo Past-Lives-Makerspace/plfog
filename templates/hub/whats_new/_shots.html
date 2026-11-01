@@ -4,7 +4,8 @@ numbered, captioned screenshots. Context: entry (core.whats_new.Entry) and pictu
 (entry.pictures: number, caption, frame, url, in step order). The picture sits left in a 16:10
 frame with "Step N of M", the caption and Previous and Next under it; the captions list beside it
 with the current one marked, and a listed step jumps to it; below 640px the picture sits above
-the list (guidance.css). Arrow keys move it while the stepper has focus, a swipe on a phone too.
+the list (guidance.css). Arrow keys move it while the stepper has focus, a swipe on a phone too; a step that disables the
+focused Previous or Next hands focus back to the stepper, so the arrows keep working.
 A tap on the picture opens it full size in a lightbox that stays inside the modal: a layer
 teleported to body would read as a click outside the modal and close it. Esc there closes the
 lightbox alone, because the focused close button stops the key before the modal's window
@@ -19,7 +20,11 @@ Under prefers-reduced-motion nothing slides.
         broken: false,
         lightbox: false,
         touchX: null,
-        go(index) { this.step = Math.min(Math.max(index, 0), this.total - 1); },
+        go(index) {
+            const held = this.$refs.root.contains(document.activeElement);
+            this.step = Math.min(Math.max(index, 0), this.total - 1);
+            this.$nextTick(() => { const el = document.activeElement; if (held && (el.disabled || !this.$refs.root.contains(el))) (this.lightbox ? this.$refs.close : this.$refs.root).focus(); });
+        },
         prev() { this.go(this.step - 1); },
         next() { this.go(this.step + 1); },
         swipe(x) { if (this.touchX === null) return; const moved = x - this.touchX; this.touchX = null; if (Math.abs(moved) < 40) return; moved < 0 ? this.next() : this.prev(); },
