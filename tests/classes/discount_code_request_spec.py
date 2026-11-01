@@ -133,7 +133,9 @@ def describe_approve():
         with pytest.raises(DiscountCodeRequestAlreadyDecided):
             req.approve(admin, _valid_form(req, code="OTHER"))
 
-        assert DiscountCode.objects.count() == 1
+        assert (
+            DiscountCode.objects.filter(is_personal=False).count() == 1
+        )  # the requester's personal code (#1065) aside
 
     def it_makes_one_decision_when_two_admins_approve_the_same_request():
         # Two page loads, two in-memory copies both still PENDING. The second approve re-reads
@@ -146,7 +148,9 @@ def describe_approve():
         with pytest.raises(DiscountCodeRequestAlreadyDecided):
             twin.approve(admin, _valid_form(twin, code="OTHER"))
 
-        assert DiscountCode.objects.count() == 1
+        assert (
+            DiscountCode.objects.filter(is_personal=False).count() == 1
+        )  # the requester's personal code (#1065) aside
         twin.refresh_from_db()
         assert twin.status == DiscountCodeRequest.Status.APPROVED
         assert Notification.objects.filter(trigger="discount_code.request_approved").count() == 1
@@ -200,7 +204,9 @@ def describe_decline():
 
         req.decline(_admin(), "Not this time.")
 
-        assert not DiscountCode.objects.exists()
+        assert not DiscountCode.objects.filter(
+            is_personal=False
+        ).exists()  # the requester's personal code (#1065) aside
         req.refresh_from_db()
         assert req.discount_code is None
 
@@ -216,7 +222,9 @@ def describe_decline():
         twin.refresh_from_db()
         assert twin.status == DiscountCodeRequest.Status.APPROVED
         assert twin.decision_note == ""
-        assert DiscountCode.objects.count() == 1
+        assert (
+            DiscountCode.objects.filter(is_personal=False).count() == 1
+        )  # the requester's personal code (#1065) aside
 
 
 def describe_a_new_request():

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import itertools
 import logging
 import re
 import secrets
+import string
 import unicodedata
-from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
 from datetime import UTC, date as date_type, datetime, timedelta
@@ -4958,6 +4960,66 @@ class ClassSession(models.Model):
         return f"{self.class_offering.title} — {self.starts_at:%Y-%m-%d}"
 
 
+#: What an admin reads in a personal code's description (#1065). The backfill migration writes
+#: its own wording, so its reverse can tell the codes it made from ones made at a grant.
+PERSONAL_CODE_DESCRIPTION = "Personal instructor code: works on every class this instructor teaches."
+
+#: The first name a personal code falls back to when a name has no letter to use.
+PERSONAL_CODE_FALLBACK_STEM = "TEACH"
+
+#: The first name and the last name are cut to these lengths, so the letters added on a
+#: collision and a three digit percent still fit in ``code`` (20 + 14 + 3 + 3 = 40).
+PERSONAL_CODE_STEM_MAX = 20
+PERSONAL_CODE_SURNAME_MAX = 14
+
+
+def _code_letters(word: str) -> str:
+    """``word`` in capitals with accents folded ("José" reads JOSE) and everything but A to Z dropped."""
+    folded = unicodedata.normalize("NFKD", word).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^A-Za-z]", "", folded).upper()
+
+
+def personal_code_stem(name: str) -> str:
+    """The front of a personal code (#1065): the first word of ``name``, capital letters only.
+
+    Digits are dropped too, so the only digits in a personal code are the percent at its end.
+    A name with no letter left reads :data:`PERSONAL_CODE_FALLBACK_STEM`.
+    """
+    words = name.split()
+    return _code_letters(words[0] if words else "")[:PERSONAL_CODE_STEM_MAX] or PERSONAL_CODE_FALLBACK_STEM
+
+
+def personal_code_surname(display_name: str, full_legal_name: str) -> str:
+    """The last name a colliding personal code borrows letters from (#1065), capital letters only.
+
+    The last word of ``display_name`` when it has more than one word, since the first name comes
+    from there too; otherwise the last word of ``full_legal_name`` (a one word preferred name
+    pairs with the legal surname). Empty when neither has a second word.
+    """
+    for name in (display_name, full_legal_name):
+        words = name.split()
+        if len(words) > 1:
+            return _code_letters(words[-1])[:PERSONAL_CODE_SURNAME_MAX]
+    return ""
+
+
+def personal_code_candidates(display_name: str, full_legal_name: str, pct: int) -> Iterator[str]:
+    """Every personal code to try, in order (#1065); digits only ever end it, as the percent.
+
+    FIRST plus the percent (JACQUELINE10); then one more letter of the last name at a time
+    (JACQUELINEF10, JACQUELINEFI10, ...); once the last name runs out, or when there is none,
+    A, B, ... Z, AA, AB, ... before the percent (JACQUELINEFINGERA10).
+    """
+    stem = personal_code_stem(display_name)
+    surname = personal_code_surname(display_name, full_legal_name)
+    yield f"{stem}{pct}"
+    for end in range(1, len(surname) + 1):
+        yield f"{stem}{surname[:end]}{pct}"
+    for length in itertools.count(1):
+        for letters in itertools.product(string.ascii_uppercase, repeat=length):
+            yield f"{stem}{surname}{''.join(letters)}{pct}"
+
+
 class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
     def everywhere(self) -> "DiscountCodeQuerySet":
         """The codes with no scope at all: neither a class nor an instructor, so every class honours them (#764)."""
@@ -4981,6 +5043,78 @@ class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
             | Q(instructor__in=offering.instructor_rows.values("member_id"))
         )
         return self.filter(scopes)
+
+    def live(self) -> "DiscountCodeQuerySet":
+        """Active and approved: the codes an instructor is ever shown as working (#1065).
+
+        The date window and the use cap stay with :meth:`DiscountCode.is_currently_valid` at
+        redemption, as :meth:`site_wide_live` explains.
+        """
+        return self.filter(is_active=True, is_approved=True)
+
+    def honoured_on_classes_of(self, member: "Member") -> "DiscountCodeQuerySet":
+        """Every code a registrant may use on at least one class ``member`` teaches (#1065).
+
+        :meth:`honoured_on` across all of their classes at once: the site wide codes, each of
+        their classes' own codes, and the instructor codes of everyone teaching those classes
+        (a co-teacher's code works on the class they share). ``member``'s own instructor codes
+        are included even before they teach anything.
+        """
+        classes = ClassOffering.objects.for_instructor(member)
+        teachers = ClassInstructor.objects.filter(class_offering__in=classes).values("member_id")
+        scopes = (
+            Q(class_offering__isnull=True, instructor__isnull=True)
+            | Q(class_offering__in=classes)
+            | Q(instructor=member)
+            | Q(instructor__in=teachers)
+        )
+        return self.filter(scopes)
+
+    def personal_for(self, member: "Member") -> "DiscountCode | None":
+        """``member``'s personal code (#1065), or ``None`` when they have none."""
+        return self.filter(instructor=member, is_personal=True).first()
+
+    def ensure_personal_for(self, member: "Member") -> "DiscountCode":
+        """``member``'s personal code, made now if they have none (#1065). Idempotent.
+
+        A member who already has a code aimed at their classes (an admin made one, #764) keeps
+        it: the oldest becomes their personal code and nothing new is made. Otherwise the new
+        code is the first of :func:`personal_code_candidates` nobody holds: the first name plus
+        the percent in ``SiteConfiguration.instructor_code_discount_pct`` (JACQUELINE10), then
+        letters of the last name (JACQUELINEF10), then A, B, C (JACQUELINEFINGERA10). It is approved and
+        active from the start, with no use limit, no dates and no auto apply, and is never
+        sent anywhere: the instructor shares it themselves.
+
+        Called by ``Member.save`` when teaching access is granted, so every grant path makes one.
+        """
+        from core.models import SiteConfiguration
+
+        existing = self.personal_for(member)
+        if existing is not None:
+            return existing
+        adopted = self.filter(instructor=member).order_by("created_at", "pk").first()
+        if adopted is not None:
+            adopted.is_personal = True
+            adopted.save(update_fields=["is_personal"])
+            return adopted
+        pct = SiteConfiguration.load().instructor_code_discount_pct
+        taken = set(
+            self.filter(code__startswith=personal_code_stem(member.display_name)).values_list("code", flat=True)
+        )
+        code = next(
+            candidate
+            for candidate in personal_code_candidates(member.display_name, member.full_legal_name, pct)
+            if candidate not in taken
+        )
+        return self.create(
+            code=code,
+            description=PERSONAL_CODE_DESCRIPTION,
+            discount_pct=pct,
+            instructor=member,
+            is_personal=True,
+            is_approved=True,
+            is_active=True,
+        )
 
     def site_wide_live(self) -> "DiscountCodeQuerySet":
         """The codes anyone can type at checkout on any class: no scope, active and approved, by code.
@@ -5096,6 +5230,16 @@ class DiscountCode(StaffRequestMixin, models.Model):
             "Useful for class-scoped promotional pricing without making customers type a code."
         ),
     )
+    is_personal = models.BooleanField(
+        default=False,
+        # The release before this one inserts codes without the column while this migrates (STANDARDS §10).
+        db_default=False,
+        help_text=(
+            "This instructor's personal code (#1065): made when they were given teaching access, shown "
+            "to them on My Classes and Discount Codes. At most one per instructor. Moving the code off "
+            "its instructor (Re-assign) ends it being their personal code."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = DiscountCodeQuerySet.as_manager()
@@ -5111,6 +5255,16 @@ class DiscountCode(StaffRequestMixin, models.Model):
             models.CheckConstraint(
                 condition=(Q(class_offering__isnull=True) | Q(instructor__isnull=True)),
                 name="discount_scope_exclusive",
+            ),
+            # A personal code is aimed at its instructor, and each instructor has at most one (#1065).
+            models.CheckConstraint(
+                condition=(Q(is_personal=False) | Q(instructor__isnull=False)),
+                name="discount_personal_instructor",
+            ),
+            models.UniqueConstraint(
+                fields=["instructor"],
+                condition=Q(is_personal=True),
+                name="discount_one_personal",
             ),
         ]
 
@@ -5331,9 +5485,13 @@ class DiscountCode(StaffRequestMixin, models.Model):
         """
         if class_offering is not None and instructor is not None:
             raise ValueError("A discount code works on one class or on an instructor's classes, not both.")
+        if self.is_personal and (instructor is None or instructor.pk != self.instructor_id):
+            # A personal code moved off its instructor is no longer theirs (#1065); the new
+            # instructor may already have one, and only one is allowed.
+            self.is_personal = False
         self.class_offering = class_offering
         self.instructor = instructor
-        self.save(update_fields=["class_offering", "instructor"])
+        self.save(update_fields=["class_offering", "instructor", "is_personal"])
 
 
 class DiscountCodeRequestQuerySet(models.QuerySet["DiscountCodeRequest"]):

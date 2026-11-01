@@ -27,7 +27,8 @@ permission decorator is the real gate; this only decides whether the tab is offe
     <a href="{% url 'classes:teach_dashboard' %}" class="vote-tab{% if active_tab == 'my_classes' %} vote-tab--active{% endif %}"{% if active_tab == 'my_classes' %} aria-current="page"{% endif %}>My Classes</a>
     {% endif %}
     <a href="{% if actually_admin %}{% url 'classes:admin_registrations' %}{% else %}{% url 'classes:teach_registrations' %}{% endif %}" class="vote-tab{% if active_tab == 'registrations' %} vote-tab--active{% endif %}"{% if active_tab == 'registrations' %} aria-current="page"{% endif %}>Registrations</a>
-    {% if teaches and instructor_discount_codes_enabled %}
+    {% if teaches %}
+    {# Every instructor, whatever the instructor codes flag says: their personal code and the codes on their classes live here (#1065). #}
     <a href="{% url 'classes:teach_discount_codes' %}" class="vote-tab{% if active_tab == 'my_discount_codes' %} vote-tab--active{% endif %}"{% if active_tab == 'my_discount_codes' %} aria-current="page"{% endif %}>Discount Codes</a>
     {% endif %}
     {% if teaches %}

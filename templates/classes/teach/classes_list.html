@@ -1,6 +1,10 @@
 {% extends "classes/teach/base.html" %}
-{% load classes_tags guidance %}
+{% load static classes_tags guidance %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/instructor-codes.css' %}">
+{% endblock %}
 {% block tab_content %}
+{% include "classes/_components/personal_code_card.html" with code=personal_code %}
 <div style="display:flex; justify-content:flex-end; flex-wrap:wrap; gap:0.5rem; margin-bottom:1rem;">
     {# Shown on the same rule the composer offers My Past Students by: any class with this instructor on it (#1042). #}
     {% if has_any_classes %}

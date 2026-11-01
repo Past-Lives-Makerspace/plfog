@@ -34,7 +34,7 @@ def describe_teach_discount_codes():
         resp = client.get(reverse("classes:teach_discount_codes"))
         assert resp.status_code == 200
         assert b"PLMEMBERS" in resp.content
-        assert b"Site-wide" in resp.content
+        assert b"<td data-code-scope>Every class</td>" in resp.content
         # No edit affordance for a code the instructor doesn't own.
         assert reverse("classes:teach_discount_code_edit", kwargs={"pk": code.pk}).encode() not in resp.content
 

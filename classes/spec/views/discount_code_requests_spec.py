@@ -119,7 +119,8 @@ def describe_instructor_surfaces_in_approval_mode():
         assert req.class_offering == mine
         assert req.requested_by == Member.objects.get(user=member_user)
         assert req.status == DiscountCodeRequest.Status.PENDING
-        assert not DiscountCode.objects.exists()
+        # The instructor's personal code (#1065) is the only code; asking makes none.
+        assert not DiscountCode.objects.filter(is_personal=False).exists()
         assert "Your request for EARLYBIRD is in. An admin will review it." in _messages(resp)
 
     def it_refuses_a_foreign_class(client, member_user):
@@ -188,12 +189,16 @@ def describe_instructor_surfaces_in_approval_mode():
         Member.objects.filter(user=member_user).update(can_self_approve_discounts=True)
         mine = _own_offering(member_user)
         code = DiscountCodeFactory(code="MINE10", class_offering=mine, is_approved=False)
+        live = DiscountCodeFactory(code="LIVE10", class_offering=mine)
         client.force_login(member_user)
 
         resp = client.get(reverse(DISCOUNT_CODES))
 
         assert resp.status_code == 200
-        assert b"MINE10" in resp.content
+        # An unapproved code is not listed to an instructor (#1065); an approved one is, read only.
+        assert b"MINE10" not in resp.content
+        assert b"LIVE10" in resp.content
+        assert reverse("classes:teach_discount_code_edit", kwargs={"pk": live.pk}).encode() not in resp.content
         for name in ("teach_discount_code_edit", "teach_discount_code_delete", "teach_discount_code_approve"):
             assert reverse(f"classes:{name}", kwargs={"pk": code.pk}).encode() not in resp.content, name
         assert reverse("classes:teach_discount_code_create").encode() not in resp.content
@@ -256,13 +261,16 @@ def describe_instructor_surfaces_in_approval_mode():
         Member.objects.filter(user=member_user).update(can_self_approve_discounts=True)
         mine = _own_offering(member_user)
         code = DiscountCodeFactory(code="MINE10", class_offering=mine, is_approved=False)
+        DiscountCodeFactory(code="LIVE10", class_offering=mine)
         DiscountCodeRequestFactory(class_offering=mine, code="WAITING")
         client.force_login(member_user)
 
         resp = client.get(reverse("classes:teach_class_discount_codes", kwargs={"pk": mine.pk}))
 
         assert resp.status_code == 200
-        assert b"MINE10" in resp.content
+        # An unapproved code an admin made is not listed to the instructor (#1065); an approved one is.
+        assert b"MINE10" not in resp.content
+        assert b"LIVE10" in resp.content
         assert f"{reverse(REQUEST)}?class={mine.pk}".encode() in resp.content
         assert reverse("classes:teach_discount_code_create").encode() not in resp.content
         for name in ("teach_discount_code_edit", "teach_discount_code_delete", "teach_discount_code_approve"):

@@ -2001,6 +2001,7 @@ def teach_dashboard(request: HttpRequest) -> HttpResponse:
         request,
         "classes/teach/classes_list.html",
         {
+            **_personal_code_context(teaching_member),
             "active_tab": "my_classes",
             "instructor": teaching_member,
             "facets": facets,
@@ -3016,52 +3017,65 @@ def teach_registrations_email(request: HttpRequest) -> HttpResponse:
     return redirect(f"{reverse('hub_compose')}?{params.urlencode()}")
 
 
-@teaching_member_required
-@instructor_discount_codes_required
-def teach_discount_codes(request: HttpRequest) -> HttpResponse:
-    """Discount codes for the Teaching portal.
+def _personal_code_context(member: Member) -> dict[str, Any]:
+    """The personal code card's one key (#1065): ``member``'s personal code while it works, else ``None``.
 
-    Splits codes into the instructor's own (editable, keyed off the ``created_by``
-    audit FK) and the site-wide admin codes — ``class_offering`` null and created
-    by someone else, e.g. the PLMEMBERS member discount. Site-wide codes are shown
-    read-only here; admins manage them from the Classes admin. A code an admin aimed at
-    this instructor's classes (#764) lists with their own, read only, in either mode.
+    An admin who switches the code off or leaves it unapproved hides the card: a code that
+    would be refused at checkout is not one to hand out.
+    """
+    return {"personal_code": DiscountCode.objects.live().personal_for(member)}
+
+
+@teaching_member_required
+def teach_discount_codes(request: HttpRequest) -> HttpResponse:
+    """Discount codes for the Teaching portal, open to every instructor whatever the site flag says (#1065).
+
+    Always: the instructor's personal code, then every active, approved code that works on at
+    least one of their classes (site wide, a class's own, and the instructor codes on their
+    classes), read only. Admins manage those from the Classes admin.
+
+    With ``instructor_discount_codes_enabled`` on, the codes they made follow, editable in the
+    direct flow (keyed off the ``created_by`` audit FK, pending ones included so they can be
+    approved or fixed), and under approval mode their requests and where each stands. With it
+    off, nothing here creates or requests a code; the page says to ask an admin instead.
     """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
     config = SiteConfiguration.load()
+    manages_codes = config.instructor_discount_codes_enabled
     approval_mode = config.instructor_discount_codes_approval_mode
-    if approval_mode:
-        # Read only: the codes on the instructor's classes, plus any they made under the direct
-        # flow before the switch, and where each of their requests stands.
-        own_codes = (
-            DiscountCode.objects.filter(
-                Q(created_by=request.user)
-                | Q(class_offering__instructors=teaching_member)
-                | Q(instructor=teaching_member)
-            )
-            .select_related("class_offering", "instructor")
-            .distinct()
-            .order_by("code")
-        )
-        code_requests = DiscountCodeRequest.objects.filter(requested_by=teaching_member).select_related(
+    personal = _personal_code_context(teaching_member)
+    working_codes = (
+        DiscountCode.objects.honoured_on_classes_of(teaching_member)
+        .live()
+        .select_related("class_offering", "instructor")
+        .order_by("code")
+    )
+    if personal["personal_code"] is not None:
+        working_codes = working_codes.exclude(pk=personal["personal_code"].pk)
+    own_codes = (
+        DiscountCode.objects.filter(created_by=request.user)
+        .select_related("class_offering", "instructor")
+        .order_by("code")
+        if manages_codes
+        else DiscountCode.objects.none()
+    )
+    code_requests = (
+        DiscountCodeRequest.objects.filter(requested_by=teaching_member).select_related(
             "class_offering", "discount_code"
         )
-    else:
-        own_codes = (
-            DiscountCode.objects.filter(Q(created_by=request.user) | Q(instructor=teaching_member))
-            .select_related("class_offering", "instructor")
-            .order_by("code")
-        )
-        code_requests = DiscountCodeRequest.objects.none()
-    sitewide_codes = DiscountCode.objects.everywhere().exclude(created_by=request.user).order_by("code")
+        if approval_mode
+        else DiscountCodeRequest.objects.none()
+    )
     return render(
         request,
         "classes/teach/discount_codes.html",
         {
             "active_tab": "my_discount_codes",
             "instructor": teaching_member,
+            **personal,
+            "working_codes": working_codes,
+            "manages_codes": manages_codes,
             "own_codes": own_codes,
-            "sitewide_codes": sitewide_codes,
             "approval_mode": approval_mode,
             "requests": code_requests,
             # Resolve the acting user's approval capability once (one Member query),
@@ -3323,6 +3337,16 @@ def _render_class_overview(
             "paid_registration_count": offering.paid_registration_count,
             "can_duplicate_run": _may_run_again(access),
             "can_delete_now": _may_delete(access, offering),
+            # The codes that work on this class, read only, for its instructor whatever the site
+            # flag says (#1065); ``None`` hides the section from admins, reviewers and guild leads.
+            "class_codes": (
+                DiscountCode.objects.honoured_on(offering)
+                .live()
+                .select_related("class_offering", "instructor")
+                .order_by("code")
+                if access.role == ROLE_INSTRUCTOR
+                else None
+            ),
             **_page_thread_context(
                 request, offering, next_url=reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
             ),
@@ -3758,6 +3782,9 @@ def teach_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
         raise Http404("Discount codes on this class are not open to this viewer.")
     offering: ClassOffering = request.class_offering  # type: ignore[attr-defined]
     codes = DiscountCode.objects.honoured_on(offering).select_related("instructor").order_by("code")
+    if access.role == ROLE_INSTRUCTOR:
+        # An instructor sees the codes that work, plus their own drafts to fix or approve (#1065).
+        codes = codes.filter(Q(is_active=True, is_approved=True) | Q(created_by=request.user))
     # The instructor under approval mode (#428) reads this tab and asks for codes; admins keep today's page.
     approval_mode = access.role == ROLE_INSTRUCTOR and SiteConfiguration.load().instructor_discount_codes_approval_mode
     code_requests = (

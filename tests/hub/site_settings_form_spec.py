@@ -73,7 +73,9 @@ def describe_the_pages_split_from_site_settings():
         fresh = SiteConfiguration.load()
         fresh.org_name = "Changed Elsewhere"
         fresh.save()
-        form = ManageCmsForm({"instructor_discount_codes_enabled": "on"}, instance=stale)
+        form = ManageCmsForm(
+            {"instructor_discount_codes_enabled": "on", "instructor_code_discount_pct": "10"}, instance=stale
+        )
         assert form.is_valid(), form.errors
         form.save()
         config = SiteConfiguration.load()
@@ -157,7 +159,7 @@ def describe_model_errors_on_fields_a_form_lacks():
     from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
 
     def _bound() -> ManageCmsForm:
-        form = ManageCmsForm({}, instance=SiteConfiguration.load())
+        form = ManageCmsForm({"instructor_code_discount_pct": "10"}, instance=SiteConfiguration.load())
         form.is_valid()
         return form
 
