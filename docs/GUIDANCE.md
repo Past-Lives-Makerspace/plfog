@@ -51,6 +51,11 @@ The files are `guidance/<fragment-slug>/step-1.png`, `step-2.png` and so on on t
 derived from the position, so a step cannot be misnumbered; a shot names no file. `frame =
 "phone"` is the one other key, for phone-only UI (the section picker).
 
+`audience` names the What's New tabs the change is for, `members`, `instructors`, `guild-staff`
+and `admins`, and any finer guild staff key (`guild-leads`, `orientors`, `treasurers`,
+`class-reviewers`, `equipment-managers`), which lists under For Guild Staff with a chip;
+`changelog.d/README.md` has the table.
+
 **The PR body** carries one line under `**Area:**`:
 
 ```

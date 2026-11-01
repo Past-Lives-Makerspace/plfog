@@ -1,16 +1,21 @@
 {% comment %}
 The htmx answer to a row's autosave, all of it out of band (the form posts with hx-swap none, so the
 box being typed in is never replaced): the row's state slot (the new stamp and status, or a refused
-value's errors) or, for a refused stale save, the whole row as the database holds it; then the band,
-so the counts follow the row's status.
+value's errors) or, for a refused stale save, the whole row as the database holds it; then each
+contact box the save filled from a member vendor's record, as its input alone (each carries
+hx-swap-oob and replaces only that box, so a box being typed in elsewhere in the row is kept); then
+the band, so the counts follow the row's status.
 
   hub, row, show — as hq/partials/_vendor_row.html
   band           — required, a hq.services.VendorBand
   whole          — optional, True sends the whole row (a refused stale save)
+  filled         — optional, the row form's bound fields the save filled, each rendered out of band
 {% endcomment %}
 {% if whole %}
 {% include "hq/partials/_vendor_row.html" with row_oob=True %}
 {% else %}
 {% with table=row.table form=row.form %}{% include "hq/partials/_vendor_row_state.html" with state_oob=True %}{% endwith %}
+{% for field in filled %}{{ field }}
+{% endfor %}
 {% endif %}
 {% include "hq/partials/_vendor_band.html" with oob=True %}

@@ -7,6 +7,7 @@ depends on the repo's fragments or on the calendar.
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import Any
 
 import pytest
@@ -137,7 +138,7 @@ def describe_hub_whats_new():
         _login(client)
         body = _body(client)
         assert "<html" not in body
-        assert body.count("data-whats-new-tab=") == 3
+        assert body.count("data-whats-new-tab=") == 4
         assert 'data-whats-new-tab="members"' in body and 'aria-current="page"' in body
         assert '<span id="whats-new-title" hx-swap-oob="innerHTML">What&#x27;s New</span>' in body
         assert 'data-whats-new-entry="fresh"' in body
@@ -167,10 +168,35 @@ def describe_hub_whats_new():
         _login(client)
         body = _body(client)
         picker = body[body.index('<nav class="pl-tab-picker__menu"') :]
-        assert picker.count('hx-target="#whats-new-body"') == 3
-        assert 'hx-get="/whats-new/?tab=admins"' in picker
+        assert picker.count('hx-target="#whats-new-body"') == 4
+        assert 'hx-get="/whats-new/?tab=instructors"' in picker and 'hx-get="/whats-new/?tab=admins"' in picker
+        assert picker.index("For Members") < picker.index("For Instructors") < picker.index("For Guild Staff")
 
     def describe_the_tab():
+        def _tab_keys(body: str) -> list[str]:
+            return re.findall(r'data-whats-new-tab="([a-z-]+)"', body)
+
+        @pytest.mark.parametrize("fields", [{}, {"fog_role": Member.FogRole.ADMIN}])
+        def it_draws_the_four_tabs_in_order_to_a_member_with_no_roles_and_to_an_admin(
+            client: Client, changelog, fields
+        ):
+            # Every tab shows to everyone (#1007's rule, kept for #1052); roles decide only Open it and unseen.
+            changelog([_entry("fresh")])
+            _login(client, **fields)
+            body = _body(client)
+            assert _tab_keys(body) == ["members", "instructors", "guild-staff", "admins"]
+            row = body[: body.index('<div class="pl-wn-pane"')]
+            assert row.index(">For Members<") < row.index(">For Instructors<") < row.index(">For Guild Staff<")
+            assert row.index(">For Guild Staff<") < row.index(">For Admins<")
+
+        def it_opens_on_instructors_for_an_instructor_with_an_unseen_instructor_entry(client: Client, changelog):
+            changelog([_entry("teaching", audiences=("instructors",)), _entry("members", audiences=("members",))])
+            _login(client, instructor_slug="ada", whats_new_seen=["members"])
+            assert 'data-whats-new-pane="instructors"' in _body(client)
+            other = Client()
+            _login(other, "plain", whats_new_seen=["members"])
+            assert 'data-whats-new-pane="members"' in _body(other)
+
         def it_opens_on_the_first_tab_with_something_unseen_for_the_viewer(client: Client, changelog):
             changelog([_entry("staff", audiences=("guild-staff",)), _entry("members", audiences=("members",))])
             lead = _login(client, whats_new_seen=["members"])
@@ -298,9 +324,22 @@ def describe_hub_whats_new():
             assert 'data-whats-new-entry="cubbies"' in body and 'data-whats-new-entry="voting"' in body
             assert 'data-whats-new-entry="tools"' not in body
             assert "For Members (2)" in body and "For Guild Staff (1)" in body and ">For Admins<" in body
+            assert ">For Instructors<" in body
             assert "What&#x27;s New · Guilds</span>" in body  # core.guidance.AREA_TITLES names an area
             assert "What&#x27;s New · Guild Cubbies</span>" in _body(client, "?feature=guild.cubbies")
             assert 'href="/whats-new/?tab=admins&amp;feature=guild"' in body
+
+        def it_lands_on_a_tab_that_has_an_entry_for_a_feature_whose_entries_are_for_instructors(
+            client: Client, changelog
+        ):
+            # Email Members' button for a member who is not an instructor: nothing unseen, so the first tab with
+            # anything of the feature's, which is For Instructors since #1052, not an empty For Members.
+            changelog([_entry("past-students", feature="admin.email-members", audiences=("instructors",))])
+            _login(client)
+            html = _body(client, "?feature=admin.email-members")
+            assert 'data-whats-new-pane="instructors"' in html and 'data-whats-new-entry="past-students"' in html
+            assert "For Instructors (1)" in html and ">For Members<" in html
+            assert "data-whats-new-open" not in html  # listed for everyone, opened only by an instructor
 
         def it_refuses_a_key_that_is_neither_registered_nor_an_area_of_one(client: Client):
             _login(client)
@@ -449,6 +488,25 @@ def describe_the_body():
         assert '<span class="pl-wn-chip" data-whats-new-chip>Guild Leads</span>' in _body(client, "?tab=guild-staff")
         assert "data-whats-new-chip" not in _body(client, "?tab=members")
 
+    def it_lists_an_instructors_entry_on_for_instructors_and_draws_no_instructors_chip(client: Client, changelog):
+        # 1042-past-students (instructors), a members and instructors entry, and 1040-send-once (three roles).
+        changelog(
+            [
+                _entry("past-students", audiences=("instructors",)),
+                _entry("both", audiences=("members", "instructors")),
+                _entry("send-once", audiences=("guild-staff", "instructors", "admins")),
+            ]
+        )
+        _login(client)
+        members = _body(client, "?tab=members")
+        assert 'data-whats-new-entry="both"' in members and 'data-whats-new-entry="past-students"' not in members
+        instructors = _body(client, "?tab=instructors")
+        for slug in ("past-students", "both", "send-once"):
+            assert f'data-whats-new-entry="{slug}"' in instructors
+        assert "data-whats-new-chip" not in members and "data-whats-new-chip" not in instructors
+        assert 'data-whats-new-entry="send-once"' in _body(client, "?tab=guild-staff")
+        assert 'data-whats-new-entry="send-once"' in _body(client, "?tab=admins")
+
     def it_hides_open_it_for_a_role_the_viewer_lacks_and_shows_it_for_one_they_hold(client: Client, changelog):
         changelog([_entry("staff", feature="guild.staff", guidance="link", audiences=("guild-leads",))])
         _login(client, "plain")
@@ -468,6 +526,7 @@ def describe_the_body():
         assert "Nothing here for admins yet." in body
         assert "data-whats-new-entry" not in body and "data-whats-new-older" not in body
         assert "Nothing here for guild staff yet." in _body(client, "?tab=guild-staff")
+        assert "Nothing here for instructors yet." in _body(client, "?tab=instructors")
 
     def it_lists_the_registry_steps_and_the_tour_for_a_tour_entry_without_shots(client: Client, changelog):
         # A frozen entry from before #1050: its level promised teaching and it has no shots of its own.

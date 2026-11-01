@@ -57,7 +57,7 @@ BUMPS = ("patch", "minor", "major")
 AUDIENCE_STRINGS = ("members", "internal")
 
 #: Every audience key a list may name, each with the What's New tab it rolls up to (#1007): the
-#: three tabs themselves, the finer guild roles under Guild Staff, and instructors under Members.
+#: four tabs themselves (instructors since #1052) and the finer guild roles under Guild Staff.
 #: ``internal`` is not here on purpose: an internal fragment is no entry, so it cannot share a
 #: list with anyone.
 AUDIENCES: dict[str, str] = {
@@ -69,7 +69,7 @@ AUDIENCES: dict[str, str] = {
     "treasurers": "guild-staff",
     "class-reviewers": "guild-staff",
     "equipment-managers": "guild-staff",
-    "instructors": "members",
+    "instructors": "instructors",
 }
 
 #: How much teaching a change ships (#1007, #1050), least first. Anything past ``none`` names a
