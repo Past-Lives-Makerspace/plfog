@@ -1,6 +1,6 @@
 {% extends "hub/base.html" %}
 {% load static %}
-{% load tab_picker %}
+{% load tab_picker guidance %}
 {% block title %}Email Members{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/announcement-compose.css' %}">
@@ -13,7 +13,7 @@
   <a href="{% url 'hub_announcements' %}" class="hub-btn hub-btn--sm hub-btn--ghost" data-compose-back>&larr; Back to Email Members</a>
 </p>
 {% endif %}
-<h1 class="hub-page-title">{{ compose_heading|default:"Email Members" }}</h1>
+<div style="display:flex;align-items:center;gap:0.625rem;flex-wrap:wrap;"><h1 class="hub-page-title">{{ compose_heading|default:"Email Members" }}</h1>{% if audience_value == "students" %}{% whats_new_button "classes.email-past-students" %}{% endif %}</div>
 {% if compose_lead %}
 <p class="pl-wizard-lead">{{ compose_lead }}</p>
 {% else %}
