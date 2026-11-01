@@ -37,6 +37,7 @@ from classes.forms import (
     eventbrite_fee_help,
 )
 from classes.models import LOCKED_CLASS_FAQS, ClassImage, ClassOffering
+from classes.spec.live_edit import live_facts
 from core.integrations.eventbrite import EventbriteClient, EventbriteError, EventbriteSync, _listing_text
 from core.models import SiteConfiguration
 from membership.models import Member
@@ -1059,6 +1060,7 @@ def describe_saving_a_live_class_with_its_faq():
         offering = _listed(instructor=instructor)
         client.force_login(instructor.user)
         payload = {
+            **live_facts(offering),
             "description": offering.description,
             "eventbrite_enabled": "on",
             "faq-TOTAL_FORMS": "1",
@@ -1257,7 +1259,7 @@ def describe_the_rules_check_on_the_class_forms():
 
     def it_leaves_a_form_without_the_switch_alone():
         offering = ClassOfferingFactory(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, description=_KATE)
-        form = TeachPublishedClassForm({"description": _KATE, **_faq_post()}, instance=offering)
+        form = TeachPublishedClassForm({**live_facts(offering), "description": _KATE, **_faq_post()}, instance=offering)
         assert form.is_valid(), form.errors
 
         assert "eventbrite_enabled" not in form.fields
@@ -1353,7 +1355,7 @@ def describe_the_rules_check_on_the_class_forms():
 
                 response = client.post(
                     reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
-                    {"description": "A hands-on class, edited.", **_faq_post()},
+                    {**live_facts(offering), "description": "A hands-on class, edited.", **_faq_post()},
                 )
 
                 assert response.status_code == 302
@@ -1791,7 +1793,7 @@ def describe_a_refused_save_through_each_page():
         instructor = _rules_instructor()
         offering = _listed(instructor=instructor)
         client.force_login(instructor.user)
-        data = {"description": _LAB_FEES, **_faq_post()}
+        data = {**live_facts(offering), "description": _LAB_FEES, **_faq_post()}
 
         _refused(client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), data))
 
@@ -1805,7 +1807,7 @@ def describe_a_refused_save_through_each_page():
 
         response = client.post(
             reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
-            {"description": _INCLUDED, **_faq_post()},
+            {**live_facts(offering), "description": _INCLUDED, **_faq_post()},
         )
 
         assert response.status_code == 302
@@ -1819,7 +1821,7 @@ def describe_a_refused_save_through_each_page():
 
         response = client.post(
             reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
-            {"description": _LAB_FEES, **_faq_post()},
+            {**live_facts(offering), "description": _LAB_FEES, **_faq_post()},
         )
 
         assert response.status_code == 302

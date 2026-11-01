@@ -15,6 +15,7 @@ import pytest
 from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory
 from classes.forms import ClassOfferingForm, TeachClassOfferingForm, TeachPublishedClassForm
 from classes.models import ClassOffering
+from classes.spec.live_edit import live_facts
 
 pytestmark = pytest.mark.django_db
 
@@ -168,6 +169,7 @@ def describe_the_booking_line_box_on_the_composer():
 def describe_the_booking_line_box_on_a_published_class():
     def _post_published(offering: ClassOffering, **extra):
         data = {
+            **live_facts(offering),
             "subtitle": "",
             "description": "Hands on intro.",
             "prerequisites": "",

@@ -2086,36 +2086,56 @@ class CategoryForm(forms.ModelForm):
 
 
 class TeachPublishedClassForm(
-    _InstructorsMixin, _EventbriteRulesMixin, _RichDescriptionMixin, _HeroCropMixin, forms.ModelForm
+    _InstructorsMixin,
+    _EventbriteRulesMixin,
+    _RichDescriptionMixin,
+    _HeroCropMixin,
+    _PricingRulesMixin,
+    _LiveSaleGuardMixin,
+    forms.ModelForm,
 ):
-    """Light edits an instructor may make to a LIVE class without re-review.
+    """What an instructor may edit on a LIVE class without re-review: everything but its dates.
 
-    Only fields that do not change what registrants booked on: the subtitle (#563), description,
-    prep notes, materials, safety, guardian note, the flexible-scheduling note, the video, and the
-    banner photo's crop box (the photo itself saves instantly through the hero upload route).
-    The subtitle leads ``Meta.fields`` because the template renders them in this order, and it
-    belongs above the description. Title, class type, price, capacity, dates, and scheduling
-    model stay admin-only after publish (the instructor asks through
-    :class:`ClassChangeRequestForm`). A sale is not one of
-    those: the instructor sets, changes, or ends one on a live class from the manage page's
-    sale modal (:class:`ClassSaleForm`). A crafted POST carrying locked fields is simply
-    ignored: a ModelForm saves only its declared fields. Eventbrite is the class's own tab
-    (#725); a save of a class on Eventbrite still runs the listing check.
+    The title, class type, price, capacity, location and age minimum (#1067), the subtitle
+    (#563), description, prep notes, materials, safety, guardian note, the flexible-scheduling
+    note, the video, and the banner photo's crop box (the photo itself saves instantly through
+    the hero upload route). The price runs the composer's rules: the $1.00 floor
+    (:class:`_PricingRulesMixin`) and the live sale guard (:class:`_LiveSaleGuardMixin`), so a
+    new price cannot break a sale already running; the sale itself is set, changed or ended
+    from the manage page's sale modal (:class:`ClassSaleForm`).
+
+    The dates stay admin-only after publish: sessions, scheduling model and type, the
+    registration cutoff and the flexible window. The instructor asks for those through
+    :class:`ClassChangeRequestForm`. A crafted POST carrying them is simply ignored: a
+    ModelForm saves only its declared fields, and the view binds no session formset. Capacity
+    is dropped on a flexible class, which has no seat cap, as the composer hides it there.
+    Eventbrite is the class's own tab (#725); a save of a class on Eventbrite still runs the
+    listing check.
 
     The instructors list (#686) stays open after publish: a partner added changes nothing a
     registrant booked on, so the class's own instructors get the Basics step's Instructors
     control here too (``can_edit_instructors``), and the guild's staff save the list untouched.
     """
 
+    price_cents = CentsAsDollarsField(label="Price", help_text=PRICE_HELP_TEXT)
+
     class Meta:
         model = ClassOffering
+        # The template renders the facts above the loop by name; the rest render in this order,
+        # the subtitle first because it belongs above the description.
         fields = [
+            "title",
+            "category",
+            "price_cents",
+            "capacity",
+            "area",
             "subtitle",
             "description",
             "prerequisites",
             "materials_included",
             "materials_to_bring",
             "safety_requirements",
+            "age_minimum",
             "age_guardian_note",
             "flexible_booking_text",
             "flexible_note",
@@ -2130,10 +2150,13 @@ class TeachPublishedClassForm(
 
     def __init__(self, *args: Any, can_edit_instructors: bool = True, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        # The booking line exists only on a flexible class's page, so a fixed class does not
-        # get the box (the page renders every field of this form).
+        self.fields["category"].label = "Class Type"
+        setup_location_field(self, hint=CLASS_LOCATION_HINT)
+        # The booking line exists only on a flexible class's page, and a flexible class has no
+        # seat cap, so each class gets only the box that means something for it.
         if self.instance.is_flexible:
             setup_flexible_booking_text(self)
+            del self.fields["capacity"]
         else:
             del self.fields["flexible_booking_text"]
         self.add_hero_crop_field()
@@ -2144,6 +2167,11 @@ class TeachPublishedClassForm(
 
     def clean_video_url(self) -> str:
         return validate_video_url(self.cleaned_data.get("video_url", ""))
+
+    def clean(self) -> dict:
+        data = super().clean() or {}
+        self.clean_price_against_live_sale()
+        return data
 
     def save(self, commit: bool = True) -> ClassOffering:
         offering = super().save(commit=False)
@@ -2156,12 +2184,14 @@ class TeachPublishedClassForm(
 
 
 class ClassChangeRequestForm(forms.Form):
-    """The Request a change modal on a live class: one note for the admins."""
+    """The Request a change modal on a live class: one note for the admins, now only for a date (#1067)."""
 
     note = forms.CharField(
         max_length=1000,
         required=False,
-        widget=forms.Textarea(attrs={"rows": 3, "placeholder": "Move the price to $85 and add one more seat."}),
+        widget=forms.Textarea(
+            attrs={"rows": 3, "placeholder": "Move the second session to Saturday, March 14 at 10 AM."}
+        ),
         label="What needs to change?",
         help_text="An admin makes the change and can reach you with questions.",
     )

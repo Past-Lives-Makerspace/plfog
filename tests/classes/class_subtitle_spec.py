@@ -19,6 +19,7 @@ from django.urls import reverse
 from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.forms import SUBTITLE_HELP_TEXT, ClassOfferingForm, TeachClassOfferingForm, TeachPublishedClassForm
 from classes.models import ClassOffering
+from classes.spec.live_edit import live_facts
 from membership.models import Member
 from tests.membership.factories import MembershipPlanFactory
 
@@ -58,9 +59,10 @@ def _composer_data(**overrides: str) -> dict[str, str]:
     return data
 
 
-def _published_edit_payload(**overrides: str) -> dict[str, str]:
+def _published_edit_payload(offering: ClassOffering, **overrides: str) -> dict[str, str]:
     """What templates/classes/teach/class_form_published.html posts: its light fields and the FAQ."""
     payload = {
+        **live_facts(offering),
         "description": "A hands-on class.",
         "faq-TOTAL_FORMS": "0",
         "faq-INITIAL_FORMS": "0",
@@ -120,7 +122,7 @@ def describe_saving_the_subtitle():
 
     def it_saves_through_the_live_class_edit_form():
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
-        form = TeachPublishedClassForm(data=_published_edit_payload(subtitle=SENTINEL), instance=offering)
+        form = TeachPublishedClassForm(data=_published_edit_payload(offering, subtitle=SENTINEL), instance=offering)
         assert form.is_valid(), form.errors
         form.save()
         offering.refresh_from_db()
@@ -132,7 +134,7 @@ def describe_saving_the_subtitle():
         client.force_login(instructor.user)
         response = client.post(
             reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
-            _published_edit_payload(subtitle=SENTINEL),
+            _published_edit_payload(offering, subtitle=SENTINEL),
         )
         assert response.status_code == 302
         offering.refresh_from_db()
@@ -140,7 +142,7 @@ def describe_saving_the_subtitle():
 
     def it_clears_when_the_host_empties_it():
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, subtitle=SENTINEL)
-        form = TeachPublishedClassForm(data=_published_edit_payload(subtitle=""), instance=offering)
+        form = TeachPublishedClassForm(data=_published_edit_payload(offering, subtitle=""), instance=offering)
         assert form.is_valid(), form.errors
         form.save()
         offering.refresh_from_db()

@@ -20,6 +20,7 @@ from classes.factories import (
     UserFactory,
 )
 from classes.models import ClassApproval, ClassOffering, ClassSession, CmsActivity, Registration
+from classes.spec.live_edit import live_facts
 from core.models import Notification
 from membership.models import Member
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
@@ -57,8 +58,9 @@ def _live(instructor, **kwargs) -> ClassOffering:
     return offering
 
 
-def _light_payload(**extra) -> dict:
+def _light_payload(offering: ClassOffering, **extra) -> dict:
     payload = {
+        **live_facts(offering),
         "description": "A long enough description of what we will make together in the studio today.",
         "prerequisites": "",
         "materials_included": "Clay",
@@ -323,17 +325,21 @@ def describe_the_flexible_window_on_the_manage_pages():
 
 
 def describe_published_light_edit():
-    def it_renders_the_locked_summary_and_the_light_form(instructor_fixture, client):
-        offering = _live(instructor_fixture, title="Locked Lathe", price_cents=8000, capacity=4)
+    def it_renders_the_dates_locked_and_everything_else_as_a_field(instructor_fixture, client):
+        # #1067: only the dates stay locked on a live class.
+        offering = _live(instructor_fixture, title="Live Lathe", price_cents=8000, capacity=4)
         client.force_login(instructor_fixture.user)
         resp = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
         assert resp.status_code == 200
         html = resp.content.decode()
         assert "This class is live." in html
         assert "Locked Details" in html
-        assert "Locked Lathe" in html and "$80" in html and ">4<" in html
+        assert 'value="Live Lathe"' in html and 'value="80"' in html and 'value="4"' in html
         assert 'name="materials_to_bring"' in html
-        assert 'name="title"' not in html and 'name="price_cents"' not in html and 'name="capacity"' not in html
+        for name in ("title", "category", "price_cents", "capacity", "area", "age_minimum"):
+            assert f'name="{name}"' in html
+        for name in ("scheduling_model", "scheduling_type", "registration_cutoff_hours", "flexible_starts_on"):
+            assert f'name="{name}"' not in html
         assert "sessions-TOTAL_FORMS" not in html
         assert "Save &amp; Submit for Review" not in html
         assert reverse("classes:teach_class_duplicate_run", kwargs={"pk": offering.pk}) not in html
@@ -341,16 +347,14 @@ def describe_published_light_edit():
         assert 'name="faq-TOTAL_FORMS"' in html
         assert ">Save<" in html
 
-    def it_saves_only_the_light_fields_and_ignores_a_crafted_structural_post(instructor_fixture, client):
+    def it_saves_the_form_and_ignores_a_crafted_post_of_the_dates(instructor_fixture, client):
         offering = _live(instructor_fixture, title="Keep Title", price_cents=8000, capacity=4)
         session_count = offering.sessions.count()
         client.force_login(instructor_fixture.user)
         resp = client.post(
             reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _light_payload(
-                title="Hacked Title",
-                price_cents="1.00",
-                capacity="99",
+                offering,
                 **{
                     "sessions-TOTAL_FORMS": "1",
                     "sessions-INITIAL_FORMS": "0",
@@ -365,8 +369,6 @@ def describe_published_light_edit():
         offering.refresh_from_db()
         assert offering.materials_to_bring == "An apron"
         assert offering.title == "Keep Title"
-        assert offering.price_cents == 8000
-        assert offering.capacity == 4
         assert offering.status == Status.PUBLISHED
         assert ClassSession.objects.filter(class_offering=offering).count() == session_count
 
@@ -385,7 +387,7 @@ def describe_published_light_edit():
         client.force_login(instructor_fixture.user)
         resp = client.post(
             reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
-            _light_payload(hero_crop='{"x": 5, "y": 6, "w": 160, "h": 90}'),
+            _light_payload(offering, hero_crop='{"x": 5, "y": 6, "w": 160, "h": 90}'),
         )
         assert resp.status_code == 302
         offering.refresh_from_db()
@@ -436,7 +438,7 @@ def describe_the_live_class_forms_exits():
         detail = reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         assert f'href="{detail}">Cancel</a>' in html
-        resp = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), _light_payload())
+        resp = client.post(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}), _light_payload(offering))
         assert resp.url == detail
         assert client.get(resp.url).status_code == 200
 
@@ -458,7 +460,7 @@ def describe_the_live_class_forms_exits():
         client.force_login(instructor_fixture.user)
         resp = client.post(
             reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
-            _light_payload(materials_to_bring="A dust mask"),
+            _light_payload(offering, materials_to_bring="A dust mask"),
         )
         assert resp.status_code == 302
         assert resp.url == reverse("classes:teach_dashboard")

@@ -11,6 +11,7 @@ import pytest
 
 from classes.factories import ClassOfferingFactory
 from classes.forms import ClassOfferingForm, TeachClassOfferingForm, TeachPublishedClassForm
+from classes.spec.live_edit import live_facts
 from core.widgets import RichBodyEditorWidget
 
 pytestmark = pytest.mark.django_db
@@ -53,7 +54,7 @@ def describe_the_description_field():
 def describe_saving_through_the_live_class_form():
     def it_writes_the_sanitized_html_to_the_class():
         offering = ClassOfferingFactory()
-        form = TeachPublishedClassForm(data={"description": EDITOR_HTML}, instance=offering)
+        form = TeachPublishedClassForm(data={**live_facts(offering), "description": EDITOR_HTML}, instance=offering)
         assert form.is_valid(), form.errors
         form.save()
         offering.refresh_from_db()

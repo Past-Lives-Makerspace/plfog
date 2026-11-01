@@ -210,7 +210,7 @@ an admin reading a queue wants the glance.{% endcomment %}
 {% include "components/modal.html" with modal_id="cancel-class" modal_title="Cancel this class?" modal_size="sm" modal_body_include="classes/teach/partials/cancel_class_form.html" %}
 {% endif %}
 {% if access.can_submit and lifecycle == 'upcoming' %}
-{# Request a change: the one note that reaches the admins who can change the locked facts. #}
+{# Request a change: the one note that reaches the admins who can change the dates (#1067). #}
 {% include "components/modal.html" with modal_id="request-change" modal_title="Request a Change" modal_size="sm" modal_body_include="classes/teach/partials/request_change_form.html" %}
 {% endif %}
 {% if access.can_sale and lifecycle != 'cancelled' and lifecycle != 'archived' and lifecycle != 'completed' and offering.price_cents %}
