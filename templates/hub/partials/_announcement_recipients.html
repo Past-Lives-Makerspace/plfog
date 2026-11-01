@@ -48,6 +48,6 @@ Params:
     </table>
   </div>
   {% else %}
-  <p class="pl-recipients__empty" data-recipients-empty>{% if row.ledger_period %}Nobody yet.{% else %}Who this reached was not recorded for emails sent before this page existed.{% endif %}</p>
+  <p class="pl-recipients__empty" data-recipients-empty>{% if row.ledger_period and row.posts_to_guild_page_only %}Posted to the guild page only. Nobody was notified.{% elif row.ledger_period %}Nobody yet.{% else %}Who this reached was not recorded for emails sent before this page existed.{% endif %}</p>
   {% endif %}
 </div>

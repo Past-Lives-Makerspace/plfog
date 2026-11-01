@@ -433,6 +433,19 @@ def describe_announcement_recipients():
         body = client.get(reverse("hub_announcement_recipients", args=[older.pk])).content.decode()
         assert "was not recorded" in body
 
+    def it_says_a_guild_page_only_post_notified_nobody(client: Client):
+        _login_admin(client)
+        row = _sent_row(
+            audience=AnnouncementDraft.Audience.GUILD,
+            guild=GuildFactory(),
+            push_enabled=False,
+            send_email=False,
+            discord_enabled=False,
+        )
+        body = client.get(reverse("hub_announcement_recipients", args=[row.pk])).content.decode()
+        assert "Posted to the guild page only. Nobody was notified." in body
+        assert "Nobody yet." not in body
+
     def it_404s_for_a_guild_lead_on_another_guilds_announcement(client: Client):
         lead = _member("lead")
         mine, other = GuildFactory(), GuildFactory()

@@ -17,7 +17,7 @@
 {% if compose_lead %}
 <p class="pl-wizard-lead">{{ compose_lead }}</p>
 {% else %}
-<p class="pl-wizard-lead">Write your message and pick who gets it, then preview each channel before it goes out. Everyone in your recipient list always gets it in their notification bell.</p>
+<p class="pl-wizard-lead">Write your message and pick who gets it, then preview each channel before it goes out. Everyone in your recipient list gets it in their notification bell, unless a guild announcement goes to the guild page only.</p>
 {% endif %}
 {% if draft.author or draft.funding_snapshot or draft.send_given_up %}
 {# A resumed draft says who saved it last (drafts are shared), or that the snapshot job made it. #}
@@ -45,6 +45,9 @@
        includeWaitlist: {{ form.include_waitlist.value|yesno:'true,false' }},
        siteReach: { loggedIn: {{ site_reach.logged_in|default:0 }}, everyone: {{ site_reach.everyone|default:0 }} },
        instructorReach: { users: {{ instructor_reach.users|default:0 }}, emailOnly: {{ instructor_reach.email_only|default:0 }} },
+       guildPageOnly() {
+         return this.audience.startsWith('guild') && !this.pushOn && !this.emailOn && !this.discordOn;
+       },
        instructorCount() {
          return this.instructorReach.users + (this.emailOn ? this.instructorReach.emailOnly : 0);
        },
@@ -263,9 +266,11 @@
         {% include "hub/partials/_compose_discord_preview.html" with oob=False %}
       </div>
 
-      <p class="pl-wizard-reach">
+      {# guildPageOnly() mirrors AnnouncementDraft.posts_to_guild_page_only: a guild send with every channel off notifies nobody (#1063). #}
+      <p class="pl-wizard-reach" x-show="!guildPageOnly()">
         Reaching <strong x-text="recipientCount"></strong> recipient(s) in the app<span x-show="pushOn"> and by push</span><span x-show="emailOn">, plus email</span>.<span x-show="discordOn &amp;&amp; !audience.startsWith('class') &amp;&amp; audience !== 'students'"> Also posting to Discord.</span>
       </p>
+      <p class="pl-wizard-reach" x-show="guildPageOnly()" x-cloak data-compose-guild-page-only>Posting to the guild page only. Nobody is notified.</p>
 
       <div class="pl-wizard-actions">
         <button type="button" class="hub-btn hub-btn--ghost" @click="phase = 1">&larr; Back</button>
@@ -275,8 +280,8 @@
           <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Save draft
         </button>
         <button type="button" class="hub-btn hub-btn--primary" :disabled="!hasBody"
-                @click="sendModalOpen = true">
-          Send email
+                @click="sendModalOpen = true" data-compose-send>
+          <span x-show="!guildPageOnly()">Send email</span><span x-show="guildPageOnly()" x-cloak>Post to guild page</span>
         </button>
       </div>
     </div>
@@ -290,7 +295,8 @@
           <button type="button" @click="sendModalOpen = false" class="pl-modal__close" aria-label="Close">&times;</button>
         </div>
         <div class="pl-modal__body">
-          <p style="margin: 0 0 1.5rem;">This will send the email to <strong x-text="recipientCount"></strong> recipient(s) <span data-send-timing x-text="audience === 'site' ? 'within 15 minutes' : 'right now'">right now</span>. This can't be undone.</p>
+          <p style="margin: 0 0 1.5rem;" x-show="!guildPageOnly()">This will send the email to <strong x-text="recipientCount"></strong> recipient(s) <span data-send-timing x-text="audience === 'site' ? 'within 15 minutes' : 'right now'">right now</span>. This can't be undone.</p>
+          <p style="margin: 0 0 1.5rem;" x-show="guildPageOnly()" x-cloak data-compose-guild-page-only-confirm>This will post it to the top of the guild page right now. Nobody is notified.</p>
           <div class="pl-modal__actions">
             <button type="button" class="hub-btn hub-btn--primary" data-pl-busy @click="$refs.wizardForm.requestSubmit()">Yes, send it</button>
             <button type="button" class="hub-btn hub-btn--ghost" data-pl-busy="hold" @click="sendModalOpen = false">Cancel</button>

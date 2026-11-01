@@ -1,0 +1,10 @@
+bump = "minor"
+date = "2026-11-01"
+audience = ["guild-leads"]
+title = "Post a guild announcement to the guild page only"
+changes = [
+  "When you write a guild announcement, turn off Push notification, Email and Post to Discord to post it only at the top of your guild page.",
+  "Nobody is notified, and the composer tells you so before you post.",
+]
+feature = "admin.email-members"
+guidance = "link"
