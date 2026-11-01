@@ -15,6 +15,7 @@ from classes.factories import (
 )
 from classes.forms import RegistrationForm
 from classes.models import ClassOffering, ClassSettings, Registration, Waiver
+from membership.models import Member
 
 pytestmark = pytest.mark.django_db
 
@@ -44,6 +45,11 @@ def _build_form(user=None):
         settings_obj=ClassSettings.load(),
         user=user,
     )
+
+
+def _an_active_member() -> Member:
+    """An Active member as the buyer, unsaved: they may use any code, and still get no member price (#557, #1072)."""
+    return Member(status=Member.Status.ACTIVE)
 
 
 def _post_data(**overrides):
@@ -124,7 +130,7 @@ def describe_RegistrationForm():
 
         def it_charges_a_verified_member_the_full_price(offering, settings_obj):
             # The member row links the registration and nothing more: no automatic discount.
-            sentinel_member = object()  # we only check truthiness, not identity
+            sentinel_member = _an_active_member()
             form = RegistrationForm(
                 data=_post_data(), offering=offering, settings_obj=settings_obj, member=sentinel_member
             )
@@ -134,7 +140,7 @@ def describe_RegistrationForm():
 
         def it_applies_a_typed_code_to_the_full_price_for_a_member(offering, settings_obj):
             DiscountCodeFactory(code="SAVE20", discount_pct=20)
-            sentinel_member = object()
+            sentinel_member = _an_active_member()
             form = RegistrationForm(
                 data=_post_data(discount_code="save20"),
                 offering=offering,
@@ -168,7 +174,7 @@ def describe_RegistrationForm():
                 data=_post_data(discount_code="SAVE20"),
                 offering=sale_offering,
                 settings_obj=settings_obj,
-                member=object(),
+                member=_an_active_member(),
             )
             assert form.is_valid(), form.errors
             # 10000 -> 8000 (sale) -> 6400 (code 20%); the linked member changes nothing
@@ -176,7 +182,7 @@ def describe_RegistrationForm():
 
         def it_charges_a_verified_member_the_sale_price(sale_offering, settings_obj):
             form = RegistrationForm(
-                data=_post_data(), offering=sale_offering, settings_obj=settings_obj, member=object()
+                data=_post_data(), offering=sale_offering, settings_obj=settings_obj, member=_an_active_member()
             )
             assert form.is_valid(), form.errors
             assert form.compute_final_price_cents() == 8000  # the sale price, with no member step
@@ -238,7 +244,7 @@ def describe_RegistrationForm():
                 data=_post_data(discount_code="SAVE20"),
                 offering=offering,
                 settings_obj=settings_obj,
-                member=object(),
+                member=_an_active_member(),
             )
             assert "discount_code" in form.fields
             assert form.sale_blocks_codes is False
@@ -412,7 +418,9 @@ def describe_the_price_quote():
     """One price engine behind the quote and the charge. A member's email never changes the price."""
 
     def it_hides_the_code_box_on_the_waitlist(offering, settings_obj):
-        form = RegistrationForm(offering=offering, settings_obj=settings_obj, member=object(), is_waitlist=True)
+        form = RegistrationForm(
+            offering=offering, settings_obj=settings_obj, member=_an_active_member(), is_waitlist=True
+        )
         assert "discount_code" not in form.fields
 
     def describe_the_auto_apply_choice():
@@ -423,12 +431,12 @@ def describe_the_price_quote():
             DiscountCodeFactory(
                 code="FLAT46", discount_pct=None, discount_fixed_cents=4600, class_offering=offering, auto_apply=True
             )
-            form = RegistrationForm(offering=offering, settings_obj=settings_obj, member=object())
+            form = RegistrationForm(offering=offering, settings_obj=settings_obj, member=_an_active_member())
             assert form.auto_applied_discount == half
 
     def describe_quoted_price_cents():
         def it_quotes_the_full_price_to_a_member_on_first_render(offering, settings_obj):
-            form = RegistrationForm(offering=offering, settings_obj=settings_obj, member=object())
+            form = RegistrationForm(offering=offering, settings_obj=settings_obj, member=_an_active_member())
             assert form.quoted_price_cents() == 10000
 
         def it_quotes_the_full_price_to_a_non_member(offering, settings_obj):
@@ -437,7 +445,7 @@ def describe_the_price_quote():
 
         def it_quotes_the_auto_applied_code_the_box_shows_on_first_render(offering, settings_obj):
             DiscountCodeFactory(code="AUTO", discount_pct=20, class_offering=offering, auto_apply=True)
-            form = RegistrationForm(offering=offering, settings_obj=settings_obj, member=object())
+            form = RegistrationForm(offering=offering, settings_obj=settings_obj, member=_an_active_member())
             assert form.fields["discount_code"].initial == "AUTO"
             assert form.quoted_price_cents() == 8000  # 10000 less 20%
 
@@ -445,7 +453,7 @@ def describe_the_price_quote():
             # The refresh carries the cleared box as ""; the quote must match what a submit would charge.
             DiscountCodeFactory(code="AUTO", discount_pct=20, class_offering=offering, auto_apply=True)
             form = RegistrationForm(
-                offering=offering, settings_obj=settings_obj, member=object(), initial={"discount_code": ""}
+                offering=offering, settings_obj=settings_obj, member=_an_active_member(), initial={"discount_code": ""}
             )
             assert form["discount_code"].value() == ""
             assert form.quoted_price_cents() == 10000
@@ -453,7 +461,10 @@ def describe_the_price_quote():
         def it_quotes_a_typed_code_leniently(offering, settings_obj):
             DiscountCodeFactory(code="SAVE20", discount_pct=20)
             form = RegistrationForm(
-                offering=offering, settings_obj=settings_obj, member=object(), initial={"discount_code": " save20 "}
+                offering=offering,
+                settings_obj=settings_obj,
+                member=_an_active_member(),
+                initial={"discount_code": " save20 "},
             )
             assert form.quoted_price_cents() == 8000
 
@@ -461,14 +472,20 @@ def describe_the_price_quote():
             DiscountCodeFactory(code="OLD", discount_pct=20, valid_until=date.today() - timedelta(days=1))
             for raw in ("NOPE", "OLD"):
                 form = RegistrationForm(
-                    offering=offering, settings_obj=settings_obj, member=object(), initial={"discount_code": raw}
+                    offering=offering,
+                    settings_obj=settings_obj,
+                    member=_an_active_member(),
+                    initial={"discount_code": raw},
                 )
                 assert form.quoted_price_cents() == 10000, raw
 
         def it_ignores_a_code_scoped_to_another_class(offering, settings_obj):
             DiscountCodeFactory(code="ELSEWHERE", discount_pct=50, class_offering=ClassOfferingFactory())
             form = RegistrationForm(
-                offering=offering, settings_obj=settings_obj, member=object(), initial={"discount_code": "ELSEWHERE"}
+                offering=offering,
+                settings_obj=settings_obj,
+                member=_an_active_member(),
+                initial={"discount_code": "ELSEWHERE"},
             )
             assert form.quoted_price_cents() == 10000
 
@@ -478,7 +495,7 @@ def describe_the_price_quote():
                 data=_post_data(discount_code="SAVE20"),
                 offering=offering,
                 settings_obj=settings_obj,
-                member=object(),
+                member=_an_active_member(),
             )
             assert form.is_valid(), form.errors
             assert form.quoted_price_cents() == form.compute_final_price_cents() == 8000
@@ -490,19 +507,24 @@ def describe_the_price_quote():
             offering.save()
             DiscountCodeFactory(code="SAVE20", discount_pct=20)
             form = RegistrationForm(
-                offering=offering, settings_obj=settings_obj, member=object(), initial={"discount_code": "SAVE20"}
+                offering=offering,
+                settings_obj=settings_obj,
+                member=_an_active_member(),
+                initial={"discount_code": "SAVE20"},
             )
             assert "discount_code" not in form.fields
             assert form.quoted_price_cents() == 8000  # the sale price alone
 
         def it_quotes_the_full_price_on_the_waitlist_where_the_box_is_hidden(offering, settings_obj):
             # A promoted waitlister owes the stored price: no code box, no member step.
-            form = RegistrationForm(offering=offering, settings_obj=settings_obj, member=object(), is_waitlist=True)
+            form = RegistrationForm(
+                offering=offering, settings_obj=settings_obj, member=_an_active_member(), is_waitlist=True
+            )
             assert form.quoted_price_cents() == 10000
 
     def describe_the_price_refresh():
         def it_wires_the_email_and_the_code_box_alike(offering, settings_obj):
-            form = RegistrationForm(offering=offering, settings_obj=settings_obj, member=object())
+            form = RegistrationForm(offering=offering, settings_obj=settings_obj, member=_an_active_member())
             for name in ("email", "discount_code"):
                 attrs = form.fields[name].widget.attrs
                 assert attrs["hx-get"] == f"/classes/{offering.slug}/register/", name
@@ -576,9 +598,9 @@ def describe_an_instructors_code_at_checkout():
         auto = DiscountCodeFactory(
             code="JAUTO", discount_pct=20, class_offering=None, instructor=teacher, auto_apply=True
         )
-        theirs = RegistrationForm(offering=_class_by(teacher), settings_obj=settings_obj, member=object())
+        theirs = RegistrationForm(offering=_class_by(teacher), settings_obj=settings_obj, member=_an_active_member())
         assert theirs.auto_applied_discount == auto
         assert theirs.quoted_price_cents() == 8000
         for offering in (_class_by(InstructorFactory()), _class_by(None)):
-            elsewhere = RegistrationForm(offering=offering, settings_obj=settings_obj, member=object())
+            elsewhere = RegistrationForm(offering=offering, settings_obj=settings_obj, member=_an_active_member())
             assert elsewhere.auto_applied_discount is None

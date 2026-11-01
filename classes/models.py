@@ -5167,19 +5167,35 @@ class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
         """
         return self.everywhere().filter(is_active=True, is_approved=True).order_by("code")
 
-    def best_auto_apply_for(self, offering: "ClassOffering", base_price_cents: int) -> "DiscountCode | None":
+    def usable_by(self, member: "Member | None") -> "DiscountCodeQuerySet":
+        """The codes the buyer ``member`` may use: all of them for an Active member, else none that are Members only (#1072).
+
+        The queryset form of :meth:`DiscountCode.usable_by`, sharing its :meth:`DiscountCode.buyer_is_member` test.
+        """
+        if DiscountCode.buyer_is_member(member):
+            return self
+        return self.filter(members_only=False)
+
+    def best_auto_apply_for(
+        self, offering: "ClassOffering", base_price_cents: int, *, member: "Member | None"
+    ) -> "DiscountCode | None":
         """The auto-apply code aimed at this class (its own or its instructor's) that drops ``base_price_cents`` furthest.
 
         Walks this offering's currently-valid, approved, active auto-apply codes
         and returns the one yielding the lowest final price, or ``None`` when no
-        such code qualifies. Site wide codes never auto apply.
+        such code qualifies. Site wide codes never auto apply, and a Members only
+        code is skipped unless the buyer ``member`` could type it (#1072).
         """
         best: DiscountCode | None = None
         best_price: int | None = None
-        for code in self.scoped_to(offering).filter(
-            is_active=True,
-            is_approved=True,
-            auto_apply=True,
+        for code in (
+            self.scoped_to(offering)
+            .usable_by(member)
+            .filter(
+                is_active=True,
+                is_approved=True,
+                auto_apply=True,
+            )
         ):
             if not code.is_currently_valid():
                 continue
@@ -5283,6 +5299,15 @@ class DiscountCode(StaffRequestMixin, models.Model):
             "instructor's next visit, so to stop one, switch it off rather than delete or reassign it."
         ),
     )
+    members_only = models.BooleanField(
+        default=False,
+        # The release before this one inserts codes without the column while this migrates (STANDARDS §10).
+        db_default=False,
+        help_text=(
+            "Members only (#1072): checkout takes this code only from a signed in member whose status is "
+            "Active. Anyone else is told to sign in and pays full price, and it never auto applies to them."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = DiscountCodeQuerySet.as_manager()
@@ -5378,6 +5403,22 @@ class DiscountCode(StaffRequestMixin, models.Model):
         if self.discount_fixed_cents is not None:
             return max(0, price_cents - self.discount_fixed_cents)
         return price_cents
+
+    @staticmethod
+    def buyer_is_member(member: "Member | None") -> bool:
+        """True when ``member`` may use a Members only code (#1072): they exist and their status is Active.
+
+        The buyer is the signed in user's member, so ``None`` (signed out, or an account with no
+        member) is never one. Former, Guest, Invited and Suspended are not either. This is the
+        one place checkout asks who is buying (#557: no automatic member price anywhere else).
+        """
+        from membership.models import Member
+
+        return member is not None and member.status == Member.Status.ACTIVE
+
+    def usable_by(self, member: "Member | None") -> bool:
+        """True when the buyer ``member`` may use this code: any code but a Members only one, which needs :meth:`buyer_is_member`."""
+        return not self.members_only or self.buyer_is_member(member)
 
     def is_currently_valid(self) -> bool:
         if not self.is_active:

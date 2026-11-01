@@ -6343,7 +6343,9 @@ def admin_discount_code_create(request: HttpRequest) -> HttpResponse:
             scoped_to = ClassOffering.objects.get(pk=int(raw_class))
         except (ClassOffering.DoesNotExist, ValueError, TypeError):
             scoped_to = None
-    form = DiscountCodeForm(request.POST or None, scoped_to=scoped_to, created_by=request.user)
+    form = DiscountCodeForm(
+        request.POST or None, scoped_to=scoped_to, created_by=request.user, offers_members_only=True
+    )
     if request.method == "POST" and form.is_valid():
         form.save()
         messages.success(request, "Discount code created.")
@@ -6365,7 +6367,7 @@ def admin_discount_code_create(request: HttpRequest) -> HttpResponse:
 @classes_admin_access_required
 def admin_discount_code_edit(request: HttpRequest, pk: int) -> HttpResponse:
     code = get_object_or_404(DiscountCode, pk=pk)
-    form = DiscountCodeForm(request.POST or None, instance=code)
+    form = DiscountCodeForm(request.POST or None, instance=code, offers_members_only=True)
     if request.method == "POST" and form.is_valid():
         form.save()
         messages.success(request, "Discount code updated.")

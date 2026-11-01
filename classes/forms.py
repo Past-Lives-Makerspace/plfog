@@ -2283,9 +2283,14 @@ class DiscountCodeForm(forms.ModelForm):
             "valid_until",
             "max_uses",
             "is_active",
+            "members_only",
         ]
+        labels = {
+            "members_only": "Members only",
+        }
         help_texts = {
             "max_uses": "Leaving the 'uses' field blank indicates unlimited uses.",
+            "members_only": "Only signed in members with an active membership can use it.",
         }
         widgets = {
             "code": forms.TextInput(
@@ -2296,16 +2301,27 @@ class DiscountCodeForm(forms.ModelForm):
             ),
         }
 
-    def __init__(self, *args, scoped_to: ClassOffering | None = None, created_by=None, **kwargs) -> None:
+    def __init__(
+        self,
+        *args,
+        scoped_to: ClassOffering | None = None,
+        created_by=None,
+        offers_members_only: bool = False,
+        **kwargs,
+    ) -> None:
         """Optionally bind this code to a single class and an audit user.
 
         Passing ``scoped_to`` makes a class-scoped code: registrations for any
         other class won't honor it. Passing ``created_by`` records who made it
         (and lets that member manage — and, with the self-approve permission,
         approve — their own codes). Every new code starts unapproved regardless
-        of who creates it.
+        of who creates it. The Members only switch (#1072) is the admin's: it is
+        offered only with ``offers_members_only``, and left off the form a code
+        keeps whatever it already has.
         """
         super().__init__(*args, **kwargs)
+        if not offers_members_only:
+            self.fields.pop("members_only")
         self._scoped_to = scoped_to
         self._created_by = created_by
 
@@ -2597,14 +2613,18 @@ class RegistrationQuestionForm(forms.ModelForm):
         return question
 
 
+#: What checkout says to anyone but an Active member who types a Members only code (#1072).
+MEMBERS_ONLY_REFUSAL = "This code is for members. Sign in to use it."
+
+
 class RegistrationForm(forms.ModelForm):
     """Public registration form — collects registrant + waiver signatures.
 
     One price engine (:meth:`_price_cents`) serves the quote on the page and the charge at
-    checkout: sale price, then the code. ``member`` is accepted for callers that already
-    resolved one and is not read by the form: the price does not depend on it, and the saved
-    row links itself to the Member by email. On save, creates the Registration plus signed
-    Waiver records.
+    checkout: sale price, then the code. ``member`` is the buyer, defaulting to the signed in
+    ``user``'s member; it decides one thing only, whether a Members only code works (#1072),
+    never the email typed and never a member price (#557). The saved row links itself to the
+    Member by email. On save, creates the Registration plus signed Waiver records.
     """
 
     discount_code = forms.CharField(
@@ -2679,6 +2699,11 @@ class RegistrationForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.offering = offering
         self.settings_obj = settings_obj
+        # The buyer, who decides whether a Members only code works (#1072): the member passed in,
+        # else the signed in user's own. ``user.member`` raises an AttributeError subclass when
+        # the account has no member, so ``getattr`` covers that and the anonymous user alike.
+        if member is None and user is not None and user.is_authenticated:
+            member = getattr(user, "member", None)
         self.member = member
         self.client_ip = client_ip
         self.is_waitlist = is_waitlist
@@ -2780,7 +2805,7 @@ class RegistrationForm(forms.ModelForm):
         qualifying auto-apply code exists.
         """
         base = self._price_cents(code=None)
-        return DiscountCode.objects.best_auto_apply_for(self.offering, base)
+        return DiscountCode.objects.best_auto_apply_for(self.offering, base, member=self.member)
 
     def _code_for(self, raw: str) -> DiscountCode | None:
         """The code spelled ``raw`` that this class honours, valid or not, else ``None``.
@@ -2799,6 +2824,8 @@ class RegistrationForm(forms.ModelForm):
             raise forms.ValidationError("That discount code isn't recognized.")
         if not code.is_currently_valid():
             raise forms.ValidationError("That discount code isn't valid right now.")
+        if not code.usable_by(self.member):
+            raise forms.ValidationError(MEMBERS_ONLY_REFUSAL)
         self._validated_discount = code
         return code
 
@@ -2850,7 +2877,7 @@ class RegistrationForm(forms.ModelForm):
             return None
         raw = str(self["discount_code"].value() or "").strip().upper()
         code = self._code_for(raw) if raw else None
-        if code is None or not code.is_currently_valid():
+        if code is None or not code.is_currently_valid() or not code.usable_by(self.member):
             return None
         return code
 
