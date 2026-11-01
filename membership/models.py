@@ -50,10 +50,10 @@ from django.utils import timezone
 from django.utils.functional import cached_property
 from django.utils.html import escape, format_html, strip_tags
 from django.utils.safestring import SafeString
-from PIL import UnidentifiedImageError
+from PIL import Image, UnidentifiedImageError
 
-from core.files import delete_orphan_on_replace
-from core.images import cut_hero_crop, image_upload_refusal, normalize_field_if_uploaded
+from core.files import delete_if_unreferenced, delete_orphan_on_replace
+from core.images import cut_hero_crop, image_upload_refusal, normalize_field_if_uploaded, normalize_image
 from core.models import HERO_CROP_FIELDS, AutomationAction, EventDelivery, HeroCropMixin, StaffRequestMixin
 from core.threads import ThreadMessage, ThreadPhoto
 from core.urls_util import member_absolute_url
@@ -72,6 +72,7 @@ if TYPE_CHECKING:
     from membership.orientations import AudienceCache
     from django import forms
     from django.contrib.auth.models import User
+    from django.core.files.base import ContentFile
     from django.core.files.uploadedfile import UploadedFile
     from django.http import HttpRequest
 
@@ -5930,6 +5931,15 @@ class GuildAnnouncement(StaffRequestMixin, models.Model):
     )
     title = models.CharField(max_length=300, help_text="Announcement headline.")
     body = models.TextField(help_text="Announcement body.")
+    image = models.ImageField(
+        upload_to="announcements/%Y/%m/",
+        blank=True,
+        validators=[validate_image_size],
+        help_text=(
+            "Optional picture shown full width on the guild page card (#1064). A post sent from the "
+            "composer keeps the same stored file its draft holds."
+        ),
+    )
     published_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateField(
         null=True,
@@ -6435,6 +6445,43 @@ def resolve_channel_webhook(channel: str, guild: "Guild | None" = None) -> str:
     raise ValueError(f"Unknown Discord channel '{channel}'.")
 
 
+#: The widest an announcement's picture shows in the email: the branded card's content column.
+_EMAIL_IMAGE_WIDTH = 530
+
+#: What an announcement's image upload says when the file is not a picture we can open and re-encode (#1064).
+ANNOUNCEMENT_IMAGE_INVALID = "That file is not an image we can open. Choose a JPG, PNG, WEBP, GIF or HEIC image."
+
+#: The file name endings an announcement's image may arrive with. Whatever arrives is stored re-encoded as a JPEG.
+ANNOUNCEMENT_IMAGE_EXTENSIONS = frozenset({"jpg", "jpeg", "png", "webp", "heic", "heif", "gif"})
+
+#: What Pillow raises on bytes it cannot decode: a broken or truncated stream, a malformed header, a decompression bomb.
+IMAGE_DECODE_ERRORS: tuple[type[Exception], ...] = (
+    OSError,
+    ValueError,
+    SyntaxError,
+    EOFError,
+    Image.DecompressionBombError,
+)
+
+
+def reencode_announcement_image(upload: Any) -> "ContentFile":
+    """Decode an announcement image fully and re-encode it as the JPEG that is stored (#1064).
+
+    EXIF is applied and stripped, transparency flattened over white, and the long edge capped at
+    ``IMAGE_MAX_LONG_EDGE_GALLERY``. The result is always named ``<stem>.jpg``, so nothing the
+    sender named the file decides how it is served.
+
+    Raises:
+        ValidationError: The bytes do not decode as a whole image (:data:`ANNOUNCEMENT_IMAGE_INVALID`).
+    """
+    try:
+        content = normalize_image(upload, max_long_edge=settings.IMAGE_MAX_LONG_EDGE_GALLERY)
+    except IMAGE_DECODE_ERRORS as exc:
+        raise ValidationError(ANNOUNCEMENT_IMAGE_INVALID, code="invalid_image") from exc
+    content.name = f"{Path(content.name or 'image').stem or 'image'}.jpg"
+    return content
+
+
 def build_announcement_email_html(
     title: str,
     body: str,
@@ -6444,6 +6491,7 @@ def build_announcement_email_html(
     card_html: str = "",
     results_html: str = "",
     footer_html: str = "",
+    image_url: str = "",
 ) -> str:
     """Branded announcement email HTML — one builder for the preview and the real send.
 
@@ -6454,7 +6502,9 @@ def build_announcement_email_html(
     app-built block placed under the message (a results announcement's heading and bar chart,
     :meth:`FundingSnapshot.results_visual_html`); it is never author input, and neither is
     ``card_html`` (a featured class's card, right under the message) nor ``footer_html``, the
-    last line of the message (a past students email's stop line). The branded shell wraps the
+    last line of the message (a past students email's stop line). ``image_url`` is the
+    announcement's picture (#1064), absolute, shown above the message at the card's width with the
+    title as its alt text; blank leaves the email exactly as it was. The branded shell wraps the
     whole fragment. Shared by the compose wizard's live preview and the EMAIL override handed
     to the spine, so the two are byte-faithful.
     """
@@ -6470,6 +6520,12 @@ def build_announcement_email_html(
         fragment += f'<p style="margin:0 0 14px;color:#33424F;font-size:17px;font-weight:600;">{escape(subline)}</p>'
     if sender:
         fragment += f'<p style="margin:0 0 20px;color:#5b6b78;font-size:14px;">From {escape(sender)}</p>'
+    if image_url:
+        fragment += (
+            f'<img src="{escape(image_url)}" alt="{escape(title)}" width="{_EMAIL_IMAGE_WIDTH}" '
+            f'style="display:block;width:100%;max-width:{_EMAIL_IMAGE_WIDTH}px;height:auto;'
+            'margin:0 0 20px;border:0;border-radius:8px;" data-announcement-image>'
+        )
     fragment += render_rich_email_body(body)
     fragment += card_html
     fragment += results_html
@@ -6937,6 +6993,15 @@ class AnnouncementDraft(models.Model):
         blank=True,
         help_text="Guild only: last day the materialized post shows. Blank = never; ignored for a site send.",
     )
+    image = models.ImageField(
+        upload_to="announcements/%Y/%m/",
+        blank=True,
+        validators=[validate_image_size],
+        help_text=(
+            "Optional picture (#1064): above the message in the email, in the Discord embed, and on the "
+            "guild page card for a guild send. Never in push or the bell."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the draft was first created.")
     updated_at = models.DateTimeField(auto_now=True, help_text="Last edit — drives the resume-list ordering.")
     sent_at = models.DateTimeField(
@@ -7010,6 +7075,74 @@ class AnnouncementDraft(models.Model):
     def __str__(self) -> str:
         state = "sent" if self.sent_at else "draft"
         return f"{self.title} — {self.get_audience_display()} ({state})"
+
+    #: Where an unsaved preview draft's image is read from instead of storage: a ``data:`` URI of
+    #: the file the sender just chose (:meth:`show_unsaved_image`). Never set on a row that saves.
+    preview_image_url: str | None = None
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Save, shrinking a fresh image upload and removing the file a replaced or removed one leaves.
+
+        A fresh upload is re-encoded as a JPEG no longer than ``IMAGE_MAX_LONG_EDGE_GALLERY`` on its
+        long edge (EXIF stripped, HEIC converted), so every mail client and Discord can show it; one
+        that will not decode is refused (:func:`reencode_announcement_image`) and nothing is stored.
+        The old file goes when no other draft and no guild post names it
+        (:meth:`_discard_replaced_image`). A save naming fields without ``image`` (the send's
+        bookkeeping) touches neither.
+
+        Raises:
+            ValidationError: A fresh upload does not decode as an image.
+        """
+        update_fields = kwargs.get("update_fields")
+        if update_fields is None or "image" in update_fields:
+            if self.image and not getattr(self.image, "_committed", True):
+                # Refused rather than stored as it came: a file that will not re-encode never reaches storage.
+                self.image = reencode_announcement_image(self.image)
+            self._discard_replaced_image()
+        super().save(*args, **kwargs)
+
+    def _discard_replaced_image(self) -> None:
+        """Remove the stored file this save moves the draft off, unless a draft or a guild post still names it.
+
+        A guild send creates its post before it notifies anyone, so a send that fails after that
+        leaves a resumable draft whose file the post already shows; that file is kept.
+        """
+        if self.pk is None:
+            return
+        old = type(self).objects.filter(pk=self.pk).values_list("image", flat=True).first()
+        if not old or old == (self.image.name or ""):
+            return
+        if GuildAnnouncement.objects.filter(image=old).exists():
+            return
+        delete_if_unreferenced(type(self), "image", old, exclude_pk=self.pk)
+
+    @property
+    def image_url(self) -> str:
+        """The image's absolute URL for the email and the Discord embed, or ``""`` with no image.
+
+        A mail client and Discord fetch the picture themselves, so a relative ``/media/`` path is
+        made absolute on the members host; object storage already answers with an absolute URL.
+        An unsaved preview draft answers with :attr:`preview_image_url` when it carries one.
+        """
+        if self.preview_image_url is not None:
+            return self.preview_image_url
+        if not self.image:
+            return ""
+        return member_absolute_url(self.image.url)
+
+    def show_unsaved_image(self, upload: "UploadedFile") -> None:
+        """Give this unsaved preview draft the image the sender just chose, re-encoded as a save would.
+
+        The picture rides in the page as a ``data:`` URI and nothing is stored.
+
+        Raises:
+            ValidationError: The upload does not decode as an image.
+        """
+        import base64
+
+        content = reencode_announcement_image(upload)
+        encoded = base64.b64encode(content.read()).decode("ascii")
+        self.preview_image_url = f"data:image/jpeg;base64,{encoded}"
 
     @property
     def state(self) -> "AnnouncementDraft.DraftState":
@@ -7548,7 +7681,9 @@ class AnnouncementDraft(models.Model):
         that the rest are on the voting results page, so no line is cut in half.
 
         ``discord_identity`` (the sender's Discord name and picture, :meth:`discord_sender_identity`)
-        becomes the post's webhook name and picture; ``None`` keeps the webhook's own.
+        becomes the post's webhook name and picture; ``None`` keeps the webhook's own. The
+        announcement's picture (:attr:`image_url`, #1064) becomes the embed's image; with none the
+        message is as it was.
         """
         import dataclasses
 
@@ -7562,6 +7697,9 @@ class AnnouncementDraft(models.Model):
                 discord_username=discord_identity.username,
                 discord_avatar_url=discord_identity.avatar_url,
             )
+        image_url = self.image_url
+        if image_url:
+            message = dataclasses.replace(message, discord_image_url=image_url)
         snapshot = self.funding_snapshot
         if snapshot is None:
             return dataclasses.replace(message, body=truncate(message.body, _EMBED_DESCRIPTION_LIMIT))
@@ -7680,6 +7818,7 @@ class AnnouncementDraft(models.Model):
                 card_html=card_html,
                 results_html=results_html,
                 footer_html=footer_html,
+                image_url=self.image_url,
             ),
             trigger_kind=self._trigger_kind(),
             stop_link=stop_link,
@@ -7757,6 +7896,12 @@ class AnnouncementDraft(models.Model):
         # The form offers it only to a sender who linked Discord; anyone else saves it off.
         draft.discord_post_as_me = cd.get("discord_post_as_me", False)
         draft.expires_at = cd.get("expires_at")
+        # A new image replaces the saved one; Remove takes it off; neither keeps it (#1064). The old
+        # file leaves storage in save().
+        if cd.get("image"):
+            draft.image = cd["image"]
+        elif cd.get("remove_image"):
+            draft.image = None
         # A draft saved over starts its send attempts afresh, as queueing it again does
         # (:meth:`queue_send`): a count left by a send whose worker was killed mid-way
         # (:meth:`send_in_request`) must not refuse the resend of the draft it stranded. The
@@ -8030,6 +8175,8 @@ class AnnouncementDraft(models.Model):
                 expires_at=self.expires_at,
                 send_email=self.send_email,
                 discord_channel=self.discord_channel if discord_on else GuildAnnouncement.DiscordChannel.NONE,
+                # The post names the draft's stored file (#1064); the draft keeps it too, for the Sent view.
+                image=self.image.name or "",
             )
             # A guild page only post (every channel off) notifies nobody, so the fan-out, whose bell
             # always delivers, is skipped rather than given an in app switch other events would share.

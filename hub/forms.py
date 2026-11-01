@@ -32,7 +32,12 @@ if TYPE_CHECKING:
     from membership.models import AnnouncementDraft, GuildStaffMembership, OrientationBooking
 
 from core.html_sanitize import clean_rich_body, clean_rich_html, limit_rich_text
-from core.validators import ALLOWED_WIKI_IMAGE_EXTENSIONS, validate_image_size, validate_wiki_upload
+from core.validators import (
+    ALLOWED_WIKI_IMAGE_EXTENSIONS,
+    validate_image_pixels,
+    validate_image_size,
+    validate_wiki_upload,
+)
 from core.features import DEFAULT_SOON_MESSAGE
 from core.events.scheduling import next_tick
 from core.models import CalendarFeed, FeatureSwitch, FeedbackRequest, ScheduledJobState, SiteConfiguration
@@ -41,6 +46,8 @@ from membership.forms import member_picker_key, member_picker_labels, member_pic
 from membership.markdown import sanitize_page_submission, sanitize_wiki_submission
 from membership.names import user_display_name, user_label, user_name_or_email
 from membership.models import (
+    ANNOUNCEMENT_IMAGE_EXTENSIONS,
+    ANNOUNCEMENT_IMAGE_INVALID,
     AdminCapability,
     CommunityEvent,
     DiscordGuildEmoji,
@@ -98,6 +105,7 @@ from membership.models import (
     duration_label,
     normalize_wiki_ask,
     orientation_way_phrase,
+    reencode_announcement_image,
 )
 
 logger = logging.getLogger(__name__)
@@ -5895,6 +5903,50 @@ def _featurable_by_pk(teaching_member: Member | None) -> dict[str, ClassOffering
     return {str(offering.pk): offering for offering in featurable_classes(teaching_member)}
 
 
+class AnnouncementImageField(forms.ImageField):
+    """The composer's one optional image (#1064), refused unless it is a whole image we can re-encode.
+
+    In order, so nothing large is decoded before it is measured: the name must end in one of
+    :data:`ANNOUNCEMENT_IMAGE_EXTENSIONS`, the bytes must fit ``MAX_UPLOAD_IMAGE_BYTES``, Pillow must
+    open and verify it (Django's own check), the pixels must fit the cap, and then the whole image
+    is re-encoded exactly as the save will (:func:`membership.models.reencode_announcement_image`).
+    ``verify()`` alone passes a PNG whose chunks carry valid checksums over data that is not an
+    image at all; the re-encode does not. Every refusal but the size one is the one plain message,
+    :data:`ANNOUNCEMENT_IMAGE_INVALID`, never Django's list of every format Pillow knows.
+    """
+
+    default_validators = []
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault("error_messages", {"invalid_image": ANNOUNCEMENT_IMAGE_INVALID})
+        super().__init__(**kwargs)
+
+    def to_python(self, data: Any) -> Any:
+        if not data:
+            return super().to_python(data)
+        name = (getattr(data, "name", "") or "").lower()
+        if name.rsplit(".", 1)[-1] not in ANNOUNCEMENT_IMAGE_EXTENSIONS or "." not in name:
+            raise forms.ValidationError(ANNOUNCEMENT_IMAGE_INVALID, code="invalid_image")
+        validate_image_size(data)
+        upload = cast("UploadedFile", super().to_python(data))
+        validate_image_pixels(upload)
+        reencode_announcement_image(upload)
+        upload.seek(0)
+        return upload
+
+
+def clean_announcement_image(upload: Any) -> Any:
+    """Validate a posted announcement image outside the form, as the form's own field would.
+
+    The composer's preview and test build an unsaved draft without binding the whole form, and
+    still refuse what Save draft and Send would refuse, with the same words.
+
+    Raises:
+        forms.ValidationError: The file is not an image, or it is over a cap.
+    """
+    return AnnouncementImageField(required=False).clean(upload)
+
+
 class AnnouncementComposeForm(forms.Form):
     """The compose wizard's single form — audience + message + email + Discord + @mention.
 
@@ -5980,6 +6032,10 @@ class AnnouncementComposeForm(forms.Form):
         label="Hide after (optional)",
         help_text="Guild emails only: the day its post leaves your guild page. Leave blank to keep it up.",
     )
+    # One optional picture (#1064). The composer draws its own drop zone (_compose_image_field.html);
+    # an empty post keeps the draft's saved image, and remove_image takes it off.
+    image = AnnouncementImageField(required=False, label="Image (optional)", widget=forms.FileInput)
+    remove_image = forms.BooleanField(required=False, widget=forms.HiddenInput)
 
     def __init__(
         self,

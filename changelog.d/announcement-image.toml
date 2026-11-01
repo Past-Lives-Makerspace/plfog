@@ -1,0 +1,20 @@
+bump = "minor"
+date = "2026-11-01"
+audience = ["guild-leads", "instructors", "admins"]
+title = "Add an image to an announcement"
+changes = [
+  "When you write an announcement, you can add one image under your message, like a poster or a call for work.",
+  "It shows above your message in the email, in the Discord post, and on your guild page.",
+]
+feature = "admin.email-members"
+guidance = "shots"
+requests = [9]
+
+[[shots]]
+caption = "Under your message, choose an image for Image (optional). Press Remove Image to take it off."
+
+[[shots]]
+caption = "On Preview & send, the email shows your image above your message."
+
+[[shots]]
+caption = "A guild announcement shows the image on the guild page too."

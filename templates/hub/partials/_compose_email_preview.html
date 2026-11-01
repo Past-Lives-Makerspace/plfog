@@ -7,6 +7,8 @@ Params:
   preview_subject — the subject line for the inbox row
   discord_title, discord_description_html — the Discord embed, swapped out of band into the
                     Discord preview card so both previews refresh in one request
+  image_error     — why the chosen image was refused (#1064), shown over a preview built without it
 {% endcomment %}
+{% if image_error %}<p class="pl-field-error pl-compose-image__error" role="alert" data-compose-preview-image-error>{{ image_error }} The preview leaves it out.</p>{% endif %}
 {% include "hub/partials/_email_preview_frame.html" %}
 {% include "hub/partials/_compose_discord_preview.html" with oob=True %}

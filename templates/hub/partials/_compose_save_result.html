@@ -1,9 +1,12 @@
 {% comment %}
 HTMX Save draft response. The button uses hx-swap="none", so only this out of band swap applies:
-the hidden draft_pk, so the next save updates the SAME row instead of making a second one. The
-view adds HX-Replace-Url (the draft's resume URL) and the toast.
+the hidden draft_pk, so the next save updates the SAME row instead of making a second one, and the
+image field with the image now stored and an empty file input, so the next save keeps it without
+uploading it again (#1064). The view adds HX-Replace-Url (the draft's resume URL) and the toast.
 
 Params:
-  draft — the just-saved AnnouncementDraft
+  draft     — the just-saved AnnouncementDraft
+  max_upload_image_bytes — the image upload cap, for the swapped image field
 {% endcomment %}
 <input type="hidden" id="compose-draft-pk" name="draft_pk" value="{{ draft.pk }}" hx-swap-oob="true">
+{% include "hub/partials/_compose_image_field.html" with current_image=draft.image errors=None max_bytes=max_upload_image_bytes oob=True %}

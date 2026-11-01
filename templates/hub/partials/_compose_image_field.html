@@ -1,0 +1,71 @@
+{% comment %}
+The composer's one optional image (#1064), under the message on step 1. A drop zone while nothing
+is chosen (FRONTEND rule 16), then the thumbnail and Remove Image. Choosing a file shows it at once
+from the browser; Save draft stores it and swaps this block back in out of band with the stored
+image and an empty file input, so the next save does not upload it again. Remove clears the input
+and posts remove_image, which takes a saved image off the draft. An empty file input keeps the
+saved image. Not components/image_field.html: that one deletes through its own POST and a page
+reload, which would throw away the unsaved message.
+
+Params:
+  current_image — the draft's saved image (a FieldFile), or empty
+  errors        — the form's image errors, shown under the zone
+  lost          — truthy when a re-render dropped a file the sender had chosen: asks them to choose it again
+  max_bytes     — the upload cap in bytes (settings.MAX_UPLOAD_IMAGE_BYTES), checked in the browser first
+  oob           — when truthy, marks this as an out of band swap (the Save draft response)
+{% endcomment %}
+<div id="compose-image" class="pl-form-group pl-compose-image" data-compose-image data-guidance-target="announcements.image"{% if oob %} hx-swap-oob="true"{% endif %}
+     x-data="{
+       preview: '{% if current_image %}{{ current_image.url|escapejs }}{% endif %}',
+       removed: false,
+       tooBig: false,
+       drag: false,
+       picked: false,
+       pick() {
+         const input = this.$refs.imageInput;
+         const file = input.files[0];
+         if (!file) { return; }
+         if (file.size > {{ max_bytes|default:0 }}) { input.value = ''; this.tooBig = true; return; }
+         this.tooBig = false;
+         this.removed = false;
+         this.picked = true;
+         const reader = new FileReader();
+         reader.onload = (event) => { this.preview = event.target.result; };
+         reader.readAsDataURL(file);
+       },
+       drop(event) {
+         this.drag = false;
+         const files = event.dataTransfer.files;
+         if (!files.length || !files[0].type.startsWith('image/')) { return; }
+         this.$refs.imageInput.files = files;
+         this.pick();
+       },
+       clear() {
+         this.$refs.imageInput.value = '';
+         this.preview = '';
+         this.removed = true;
+         this.tooBig = false;
+       }
+     }">
+  <label class="pl-form-label pl-compose-image__label" for="id_image">
+    Image (optional)
+    <span class="pl-help" tabindex="0" aria-label="About the image">
+      <span class="pl-help__icon" aria-hidden="true">?</span>
+      <span class="pl-help__bubble" role="tooltip">One picture, such as a flyer or a photo. About 1600 pixels wide, JPG or PNG, up to {{ max_bytes|filesizeformat }}. It shows above your message in the email, on Discord and on the guild page. Push notifications stay text only.</span>
+    </span>
+  </label>
+  <div class="pl-compose-image__chosen" x-show="preview" x-cloak data-compose-image-chosen>
+    <img class="pl-compose-image__thumb" :src="preview" alt="Your chosen image" data-compose-image-thumb>
+    <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost pl-compose-image__remove" @click="clear()" data-compose-image-remove>Remove Image</button>
+  </div>
+  <label class="cls-image-upload-zone pl-compose-image__zone" :class="{ 'drag-hover': drag }" x-show="!preview"
+         @dragover.prevent="drag = true" @dragleave="drag = false" @drop.prevent="drop($event)" data-compose-image-zone>
+    <input type="file" name="image" id="id_image" accept="image/*" x-ref="imageInput" @change="pick()">
+    <span class="cls-image-upload-label">+ Add an image</span>
+    <span class="cls-image-upload-hint">Click or drag a file here</span>
+  </label>
+  <input type="hidden" name="remove_image" :value="removed ? '1' : ''">
+  <p class="pl-field-error pl-compose-image__error" x-show="tooBig" x-cloak role="alert">That image is too large (up to {{ max_bytes|filesizeformat }}). Choose a smaller file.</p>
+  {% if lost %}<p class="pl-field-hint pl-compose-image__error" x-show="!picked" data-compose-image-lost>Choose your image again.</p>{% endif %}
+  {% for error in errors %}<p class="pl-field-error pl-compose-image__error" data-compose-image-error>{{ error }}</p>{% endfor %}
+</div>
