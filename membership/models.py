@@ -7091,12 +7091,31 @@ class AnnouncementDraft(models.Model):
         )
 
     @property
+    def posts_to_guild_page_only(self) -> bool:
+        """Whether this send only posts to the guild page: a guild audience with Push, Email and Discord all off.
+
+        Such a send creates the guild page post and notifies nobody, not even in the bell (#1063). It
+        reads the three switches as the composer shows them (``guildPageOnly()`` in
+        ``hub/announcement_compose.html`` reads the same three), so the composer's wording and the send
+        never disagree. Every other audience has no page, so it still reaches its people in the bell.
+        """
+        return (
+            self.audience == self.Audience.GUILD
+            and not self.push_enabled
+            and not self.send_email
+            and not self.discord_enabled
+        )
+
+    @property
     def channel_labels(self) -> list[str]:
         """The channels this send uses beyond the bell: Email, Push, Discord, or ``["App only"]``.
 
         A class send never posts to Discord, whatever its toggle says. Everyone it goes to also gets
-        it in their notification bell, so "App only" means the bell alone.
+        it in their notification bell, so "App only" means the bell alone. A guild send with every
+        channel off reaches nobody, not even the bell, so it reads ``["Guild page only"]``.
         """
+        if self.posts_to_guild_page_only:
+            return ["Guild page only"]
         labels = []
         if self.send_email:
             labels.append("Email")
@@ -7799,7 +7818,8 @@ class AnnouncementDraft(models.Model):
             members plus its custom mailing-list addresses — the checklist). ``emailed`` is
             how many of them this send actually emails: ``total`` when no selection was made,
             the chosen subset when one was, and ``0`` when "Also send email" is off. Everyone
-            in ``total`` still gets the in-app bell regardless.
+            in ``total`` still gets the in-app bell regardless, except on a guild page only post
+            (:attr:`posts_to_guild_page_only`), which skips ``notify_members`` and reaches nobody.
 
         The ledger period the send claimed is stamped as :attr:`delivery_period` with ``sent_at``,
         so the Announcements page can read back how many people it reached.
@@ -8011,14 +8031,17 @@ class AnnouncementDraft(models.Model):
                 send_email=self.send_email,
                 discord_channel=self.discord_channel if discord_on else GuildAnnouncement.DiscordChannel.NONE,
             )
-            announcement.notify_members(
-                discord_mention=mention_str,
-                channel_messages=self._channel_overrides(guild_url, identity),
-                recipient_user_ids=recipient_ids,
-                selected_custom_emails=self._selected_custom_emails(),
-                suppress_push=suppress_push,
-                override_preferences=self.mark_as_urgent,
-            )
+            # A guild page only post (every channel off) notifies nobody, so the fan-out, whose bell
+            # always delivers, is skipped rather than given an in app switch other events would share.
+            if not self.posts_to_guild_page_only:
+                announcement.notify_members(
+                    discord_mention=mention_str,
+                    channel_messages=self._channel_overrides(guild_url, identity),
+                    recipient_user_ids=recipient_ids,
+                    selected_custom_emails=self._selected_custom_emails(),
+                    suppress_push=suppress_push,
+                    override_preferences=self.mark_as_urgent,
+                )
             period = announcement.delivery_period
 
         with transaction.atomic():

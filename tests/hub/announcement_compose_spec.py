@@ -657,6 +657,75 @@ def describe_hub_compose_send():
         assert draft.send_requested_at is None
 
 
+def describe_guild_page_only_send():
+    """#1063: a guild send with Push, Email and Discord all off posts to the guild page and notifies nobody."""
+
+    _PAGE_ONLY_LINE = "Posting to the guild page only. Nobody is notified."
+    _PAGE_ONLY_CONFIRM = "This will post it to the top of the guild page right now. Nobody is notified."
+
+    def it_carries_the_guild_page_wording_beside_the_send_wording(client: Client):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        content = client.get(f"{reverse('hub_compose')}?audience=guild:{guild.pk}").content.decode()
+        # The helper reads the same three switches as AnnouncementDraft.posts_to_guild_page_only.
+        assert (
+            "return this.audience.startsWith('guild') && !this.pushOn && !this.emailOn && !this.discordOn;"
+        ) in content
+        assert f'x-show="guildPageOnly()" x-cloak data-compose-guild-page-only>{_PAGE_ONLY_LINE}</p>' in content
+        assert '<p class="pl-wizard-reach" x-show="!guildPageOnly()">' in content
+        assert (
+            '<span x-show="!guildPageOnly()">Send email</span><span x-show="guildPageOnly()" x-cloak>'
+            "Post to guild page</span>"
+        ) in content
+        assert (
+            f'x-show="guildPageOnly()" x-cloak data-compose-guild-page-only-confirm>{_PAGE_ONLY_CONFIRM}</p>' in content
+        )
+        assert 'x-show="!guildPageOnly()">This will send the email to' in content
+
+    def it_posts_to_the_guild_page_and_tells_nobody(client: Client, mailoutbox):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        _guild_member(guild, "weaver@example.com")
+        body = "Zorbly glaze night moves to the back room."
+        # No push_enabled, send_email or discord_enabled in the post: every switch is off.
+        response = client.post(
+            reverse("hub_compose_send"), _valid_send_data(audience=f"guild:{guild.pk}", body=f"<p>{body}</p>")
+        )
+        assert response.url == _sent_tab()
+        assert [m.message for m in get_messages(response.wsgi_request)] == [
+            "Posted to the guild page. Nobody was notified."
+        ]
+        post = GuildAnnouncement.objects.get()
+        assert post.guild == guild
+        assert Notification.objects.count() == 0
+        assert mailoutbox == []
+        assert not EventDelivery.objects.exists()
+        assert body in client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+        assert body in client.get(reverse("hub_guild_announcements", args=[guild.slug])).content.decode()
+
+    def it_still_emails_and_rings_the_bell_with_email_on(client: Client, mailoutbox):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        _guild_member(guild, "weaver@example.com")
+        response = client.post(
+            reverse("hub_compose_send"), _valid_send_data(audience=f"guild:{guild.pk}", send_email="on")
+        )
+        assert [m.message for m in get_messages(response.wsgi_request)] == ["Email sent to 1 recipient(s)."]
+        assert Notification.objects.count() == 1
+        assert len(mailoutbox) == 1
+
+    def it_still_rings_the_bell_with_only_push_on(client: Client, mailoutbox):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        _guild_member(guild, "weaver@example.com")
+        response = client.post(
+            reverse("hub_compose_send"), _valid_send_data(audience=f"guild:{guild.pk}", push_enabled="on")
+        )
+        assert [m.message for m in get_messages(response.wsgi_request)] == ["Email sent to 1 recipient(s)."]
+        assert Notification.objects.count() == 1
+        assert mailoutbox == []
+
+
 def describe_hub_compose_count():
     def it_pushes_the_count_and_returns_the_rescoped_picker(client: Client):
         _login_admin(client)

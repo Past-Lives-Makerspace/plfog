@@ -5848,7 +5848,12 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
         emailed, total = draft.send_in_request()
     except refusals as exc:
         return _compose_send_refused(request, draft, exc)
-    messages.success(request, f"Email sent to {total} recipient(s).")
+    sent_note = (
+        "Posted to the guild page. Nobody was notified."
+        if draft.posts_to_guild_page_only
+        else f"Email sent to {total} recipient(s)."
+    )
+    messages.success(request, sent_note)
     return redirect(_announcements_sent_url())
 
 

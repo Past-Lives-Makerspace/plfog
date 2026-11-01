@@ -184,6 +184,36 @@ def describe_AnnouncementDraft():
             assert AnnouncementDraftFactory(push_enabled=False, discord_enabled=False).channel_labels == ["Email"]
             assert AnnouncementDraftFactory(send_email=False, discord_enabled=False).channel_labels == ["Push"]
 
+        def it_reads_guild_page_only_for_a_guild_send_with_every_channel_off():
+            row = AnnouncementDraftFactory(
+                audience=_GUILD, guild=GuildFactory(), send_email=False, push_enabled=False, discord_enabled=False
+            )
+            assert row.channel_labels == ["Guild page only"]
+
+    def describe_posts_to_guild_page_only():
+        _ALL_OFF = {"push_enabled": False, "send_email": False, "discord_enabled": False}
+
+        def it_is_true_for_a_guild_audience_with_every_channel_off():
+            assert AnnouncementDraftFactory.build(audience=_GUILD, **_ALL_OFF).posts_to_guild_page_only is True
+
+        @pytest.mark.parametrize("channel", ["push_enabled", "send_email", "discord_enabled"])
+        def it_is_false_for_a_guild_audience_with_any_channel_on(channel):
+            fields = {**_ALL_OFF, channel: True}
+            assert AnnouncementDraftFactory.build(audience=_GUILD, **fields).posts_to_guild_page_only is False
+
+        @pytest.mark.parametrize(
+            "audience",
+            [
+                AnnouncementDraft.Audience.SITE,
+                AnnouncementDraft.Audience.LEADS,
+                AnnouncementDraft.Audience.INSTRUCTORS,
+                AnnouncementDraft.Audience.CLASS,
+                AnnouncementDraft.Audience.STUDENTS,
+            ],
+        )
+        def it_is_false_for_every_other_audience_with_every_channel_off(audience):
+            assert AnnouncementDraftFactory.build(audience=audience, **_ALL_OFF).posts_to_guild_page_only is False
+
     def describe_author_label():
         def it_names_the_author_by_full_name_else_username():
             named = User.objects.create_user(username="ana", first_name="Ana", last_name="Ruiz")
@@ -875,6 +905,107 @@ def describe_AnnouncementDraft():
                 with patch.object(GuildAnnouncement, "notify_members") as mock_notify:
                     draft.send()
                 assert mock_notify.call_args.kwargs["suppress_push"] is True
+
+        def describe_guild_page_only():
+            """#1063: a guild send with Push, Email and Discord all off posts to the page and notifies nobody."""
+
+            def _guild_with_a_channel():
+                # The guild's own Discord channel is set up, so a post would go out if the fan-out ran.
+                guild = GuildFactory(discord_webhook_url="https://d/guild", discord_post_enabled=True)
+                _activated_member(guild=guild, username="gm")
+                return guild
+
+            def _draft(guild, **channels):
+                fields = {"push_enabled": False, "send_email": False, "discord_enabled": False}
+                fields.update(channels)
+                return AnnouncementDraft.objects.create(
+                    author=_author(),
+                    audience=_GUILD,
+                    guild=guild,
+                    title="Kiln is down",
+                    body="<p>The big kiln is down until Friday.</p>",
+                    discord_channel=_CHANNEL.GUILD,
+                    **fields,
+                )
+
+            def it_posts_to_the_guild_page_and_notifies_nobody(mailoutbox):
+                guild = _guild_with_a_channel()
+                draft = _draft(guild)
+                with patch("core.events.discord.post_embed", return_value=True) as mock_post:
+                    counts = draft.send()
+                post = guild.announcements.published().get()
+                assert post.title == "Kiln is down"
+                assert post in guild.announcements.published().active()
+                assert counts == (0, 1)
+                assert Notification.objects.count() == 0
+                assert mailoutbox == []
+                assert mock_post.call_count == 0
+                assert not EventDelivery.objects.exists()
+                draft.refresh_from_db()
+                assert draft.sent_at is not None
+                assert draft.delivery_period == post.delivery_period
+
+            def it_never_reaches_the_fan_out_so_no_push_goes_out():
+                guild = _guild_with_a_channel()
+                with (
+                    patch.object(GuildAnnouncement, "notify_members") as mock_notify,
+                    patch("core.events.emit.emit") as mock_emit,
+                ):
+                    _draft(guild).send()
+                assert mock_notify.call_count == 0
+                assert mock_emit.call_count == 0
+
+            @pytest.mark.parametrize("channel", ["push_enabled", "send_email", "discord_enabled"])
+            def it_still_rings_the_bell_when_any_one_channel_is_on(channel):
+                guild = _guild_with_a_channel()
+                with patch("core.events.discord.post_embed", return_value=True):
+                    _draft(guild, **{channel: True}).send()
+                assert guild.announcements.published().count() == 1
+                assert Notification.objects.count() == 1
+
+            def it_still_emails_when_only_email_is_on(mailoutbox):
+                _draft(_guild_with_a_channel(), send_email=True).send()
+                assert len(mailoutbox) == 1
+
+            def it_still_posts_to_discord_when_only_discord_is_on():
+                guild = _guild_with_a_channel()
+                with patch("core.events.discord.post_embed", return_value=True) as mock_post:
+                    _draft(guild, discord_enabled=True).send()
+                assert mock_post.call_count == 1
+
+            def it_still_pushes_when_only_push_is_on():
+                guild = _guild_with_a_channel()
+                with patch.object(GuildAnnouncement, "notify_members") as mock_notify:
+                    _draft(guild, push_enabled=True).send()
+                assert mock_notify.call_args.kwargs["suppress_push"] is False
+
+            def it_still_rings_the_bell_for_a_site_send_with_every_channel_off():
+                _activated_member(username="reader")
+                AnnouncementDraft.objects.create(
+                    author=_author(),
+                    audience=_SITE,
+                    title="T",
+                    body="<p>x</p>",
+                    push_enabled=False,
+                    send_email=False,
+                    discord_enabled=False,
+                ).send()
+                assert Notification.objects.count() == 1
+
+            def it_still_rings_the_bell_for_a_class_send_with_every_channel_off():
+                offering = ClassOfferingFactory()
+                _confirmed_registrant(offering, username="cr")
+                AnnouncementDraft.objects.create(
+                    author=_author(),
+                    audience=_CLASS,
+                    class_offering=offering,
+                    title="T",
+                    body="<p>x</p>",
+                    push_enabled=False,
+                    send_email=False,
+                    discord_enabled=False,
+                ).send()
+                assert Notification.objects.count() == 1
 
         def describe_class_send():
             def it_marks_sent_and_notifies_the_confirmed_roster():
