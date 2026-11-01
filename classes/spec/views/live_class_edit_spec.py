@@ -93,6 +93,15 @@ def describe_the_facts_an_instructor_now_edits():
         offering.refresh_from_db()
         assert offering.price_cents == 8000
 
+    def it_refuses_a_capacity_under_one_seat(instructor, client):
+        offering = _live(instructor, capacity=4)
+        client.force_login(instructor.user)
+        resp = client.post(_edit_url(offering), _post(offering, capacity="0"))
+        assert resp.status_code == 200
+        assert "A class needs at least 1 seat." in resp.content.decode()
+        offering.refresh_from_db()
+        assert offering.capacity == 4
+
     def it_queues_the_eventbrite_update_after_a_save(instructor, client):
         offering = _live(instructor)
         client.force_login(instructor.user)

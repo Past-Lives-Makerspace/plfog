@@ -2165,6 +2165,13 @@ class TeachPublishedClassForm(
     def clean_flexible_booking_text(self) -> str:
         return clean_flexible_booking_text(self)
 
+    def clean_capacity(self) -> int:
+        """A live class keeps at least one seat; the composer's readiness floor never runs on this save."""
+        capacity: int = self.cleaned_data["capacity"]
+        if capacity < 1:
+            raise forms.ValidationError("A class needs at least 1 seat.")
+        return capacity
+
     def clean_video_url(self) -> str:
         return validate_video_url(self.cleaned_data.get("video_url", ""))
 

@@ -26,6 +26,8 @@ from membership.models import Member
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 
 Status = ClassOffering.Status
+# The Request a change button itself: the words alone also reach a page through What's New (#1067).
+REQUEST_CHANGE_BUTTON = "$dispatch('open-modal', 'request-change')"
 
 
 def _messages(response) -> list[str]:
@@ -113,7 +115,7 @@ def describe_workspace_action_row():
             html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
             assert "Run this class again?" in html
             assert "Cancel this class?" not in html
-            assert "Request a change" not in html
+            assert REQUEST_CHANGE_BUTTON not in html
             assert reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) not in html
 
 
@@ -639,11 +641,11 @@ def describe_light_edit_scope():
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
         assert "This class is live." in html
-        assert "Request a change" not in html
+        assert REQUEST_CHANGE_BUTTON not in html
         assert reverse("classes:teach_class_request_change", kwargs={"pk": offering.pk}) not in html
         client.force_login(other_instructor.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        assert "Request a change" in html
+        assert REQUEST_CHANGE_BUTTON in html
         assert reverse("classes:teach_class_request_change", kwargs={"pk": offering.pk}) in html
 
 
