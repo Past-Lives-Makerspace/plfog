@@ -3020,19 +3020,25 @@ def teach_registrations_email(request: HttpRequest) -> HttpResponse:
 def _personal_code_context(member: Member) -> dict[str, Any]:
     """The personal code card's one key (#1065): ``member``'s personal code while it works, else ``None``.
 
-    An admin who switches the code off or leaves it unapproved hides the card: a code that
-    would be refused at checkout is not one to hand out.
+    Every caller sits behind ``teaching_member_required``, so ``member`` can teach. One who
+    still has no personal code (a grant that bypassed ``Member.save``, a bulk ``update``) is
+    given one here on their first view: the one GET that writes, idempotently. An admin who
+    switches the code off or leaves it unapproved hides the card: a code that would be
+    refused at checkout is not one to hand out.
     """
-    return {"personal_code": DiscountCode.objects.live().personal_for(member)}
+    code = DiscountCode.objects.ensure_personal_for(member)
+    return {"personal_code": code if code.is_active and code.is_approved else None}
 
 
 @teaching_member_required
 def teach_discount_codes(request: HttpRequest) -> HttpResponse:
     """Discount codes for the Teaching portal, open to every instructor whatever the site flag says (#1065).
 
-    Always: the instructor's personal code, then every active, approved code that works on at
-    least one of their classes (site wide, a class's own, and the instructor codes on their
-    classes), read only. Admins manage those from the Classes admin.
+    Always: the instructor's personal code, then every active, approved code
+    :meth:`DiscountCodeQuerySet.listed_for_instructor` gives (site wide, their running classes'
+    own codes, their own instructor codes), read only, minus any they made themselves while
+    the flag is on, which list under Your Codes instead. Admins manage those from the Classes
+    admin.
 
     With ``instructor_discount_codes_enabled`` on, the codes they made follow, editable in the
     direct flow (keyed off the ``created_by`` audit FK, pending ones included so they can be
@@ -3040,18 +3046,21 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
     off, nothing here creates or requests a code; the page says to ask an admin instead.
     """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
+    assert request.user.is_authenticated  # @teaching_member_required guarantees a real User
     config = SiteConfiguration.load()
     manages_codes = config.instructor_discount_codes_enabled
     approval_mode = config.instructor_discount_codes_approval_mode
     personal = _personal_code_context(teaching_member)
     working_codes = (
-        DiscountCode.objects.honoured_on_classes_of(teaching_member)
+        DiscountCode.objects.listed_for_instructor(teaching_member)
         .live()
+        .exclude(is_personal=True, instructor=teaching_member)  # the card shows it
         .select_related("class_offering", "instructor")
         .order_by("code")
     )
-    if personal["personal_code"] is not None:
-        working_codes = working_codes.exclude(pk=personal["personal_code"].pk)
+    if manages_codes:
+        # The codes they made list under Your Codes, with their controls; never twice.
+        working_codes = working_codes.exclude(created_by=request.user)
     own_codes = (
         DiscountCode.objects.filter(created_by=request.user)
         .select_related("class_offering", "instructor")

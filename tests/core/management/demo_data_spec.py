@@ -488,3 +488,19 @@ def describe_upserting_a_seeded_registration():
         first_run.refresh_from_db()
         assert first_run.order_number == "PL-NEW1-26"
         assert Registration.objects.filter(class_offering=offering, email=email).count() == 1
+
+
+def describe_demo_data_remove_and_personal_codes():
+    def it_keeps_a_real_instructors_personal_code_that_starts_with_demo():
+        from classes.models import DiscountCode
+        from tests.membership.factories import MemberFactory
+
+        demond = MemberFactory(full_legal_name="Demond Real", preferred_name="", instructor_oriented_at=None)
+        demond.refresh_from_db()
+        demond.grant_teaching(granted_by=None)
+        assert DiscountCode.objects.get(instructor=demond, is_personal=True).code == "DEMOND10"
+        call_command("demo_data")
+        call_command("demo_data", "--remove")
+        assert DiscountCode.objects.filter(instructor=demond, is_personal=True, code="DEMOND10").exists()
+        assert not DiscountCode.objects.filter(code__startswith="DEMO", is_personal=False).exists()
+        assert not DiscountCode.objects.filter(instructor__user__email__endswith=f"@{DEMO_EMAIL_DOMAIN}").exists()

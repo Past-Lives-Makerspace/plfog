@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import itertools
 import re
+from datetime import timedelta
 
 import pytest
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from classes.factories import ClassOfferingFactory, DiscountCodeFactory, InstructorFactory
+from classes import models as classes_models
+from classes.factories import ClassOfferingFactory, ClassSessionFactory, DiscountCodeFactory, InstructorFactory
 from classes.forms import RegistrationForm
 from classes.models import (
     PERSONAL_CODE_DESCRIPTION,
@@ -203,16 +205,30 @@ def describe_ensure_personal_for():
     def it_names_a_member_with_no_usable_name_by_the_fallback():
         assert DiscountCode.objects.ensure_personal_for(_locked("李 小龙")).code == "TEACH10"
 
-    def it_adopts_the_oldest_code_an_admin_already_aimed_at_the_instructor():
+    def it_adopts_the_oldest_live_code_an_admin_already_aimed_at_the_instructor():
         member = _locked()
-        oldest = DiscountCodeFactory(code="JACQUELINE30", discount_pct=30, class_offering=None, instructor=member)
+        DiscountCodeFactory(code="SWITCHEDOFF", class_offering=None, instructor=member, is_active=False)
+        DiscountCodeFactory(code="UNAPPROVED", class_offering=None, instructor=member, is_approved=False)
+        oldest_live = DiscountCodeFactory(code="JACQUELINE30", discount_pct=30, class_offering=None, instructor=member)
         DiscountCodeFactory(code="NEWERONE", class_offering=None, instructor=member)
+        for code, days in (("SWITCHEDOFF", 30), ("UNAPPROVED", 20), ("JACQUELINE30", 10)):
+            DiscountCode.objects.filter(code=code).update(created_at=timezone.now() - timedelta(days=days))
         adopted = DiscountCode.objects.ensure_personal_for(member)
-        assert adopted.pk == oldest.pk
-        oldest.refresh_from_db()
-        assert oldest.is_personal is True
-        assert oldest.discount_pct == 30
-        assert DiscountCode.objects.filter(instructor=member).count() == 2
+        assert adopted.pk == oldest_live.pk
+        oldest_live.refresh_from_db()
+        assert (oldest_live.is_personal, oldest_live.discount_pct) == (True, 30)
+        assert DiscountCode.objects.filter(instructor=member).count() == 4
+
+    def it_makes_a_new_code_beside_codes_that_are_not_live_and_leaves_them_alone():
+        member = _locked()
+        off = DiscountCodeFactory(code="SWITCHEDOFF", class_offering=None, instructor=member, is_active=False)
+        pending = DiscountCodeFactory(code="UNAPPROVED", class_offering=None, instructor=member, is_approved=False)
+        made = DiscountCode.objects.ensure_personal_for(member)
+        assert made.code == "JACQUELINE10"
+        for code in (off, pending):
+            before = (code.is_active, code.is_approved)
+            code.refresh_from_db()
+            assert (code.is_personal, (code.is_active, code.is_approved)) == (False, before)
 
     def it_logs_one_activity_row_and_asks_nobody_to_approve(monkeypatch):
         import sys
@@ -226,6 +242,83 @@ def describe_ensure_personal_for():
             == 1
         )
         assert "discount_code.requested" not in sent
+
+
+def describe_racing_writers():
+    """Two grants at once, or a grant and an admin: the loser of a race recovers instead of failing."""
+
+    def _racing(monkeypatch, before_first_pick) -> None:
+        """Run ``before_first_pick`` between the read of the taken codes and the first insert."""
+        real = classes_models.personal_code_candidates
+        calls: list[int] = []
+
+        def racing(*args):
+            if not calls:
+                calls.append(1)
+                before_first_pick()
+            yield from real(*args)
+
+        monkeypatch.setattr(classes_models, "personal_code_candidates", racing)
+
+    def it_tries_the_next_free_code_when_another_writer_takes_the_one_it_picked(monkeypatch):
+        member = _locked("Jacqueline Sowell")
+        _racing(monkeypatch, lambda: DiscountCodeFactory(code="JACQUELINE10"))
+        assert DiscountCode.objects.ensure_personal_for(member).code == "JACQUELINES10"
+        assert len(_personal(member)) == 1
+
+    def it_returns_the_code_another_writer_gave_the_member_first(monkeypatch):
+        member = _locked("Jacqueline Sowell")
+        theirs: list[DiscountCode] = []
+        _racing(
+            monkeypatch,
+            lambda: theirs.append(
+                DiscountCodeFactory(code="OTHERWRITER", class_offering=None, instructor=member, is_personal=True)
+            ),
+        )
+        assert DiscountCode.objects.ensure_personal_for(member).pk == theirs[0].pk
+        assert DiscountCode.objects.filter(instructor=member).count() == 1
+
+    def it_gives_up_loudly_when_every_attempt_loses(monkeypatch):
+        member = _locked("Jacqueline Sowell")
+        monkeypatch.setattr(classes_models.DiscountCodeQuerySet, "create", _always_taken)
+        with pytest.raises(IntegrityError):
+            DiscountCode.objects.ensure_personal_for(member)
+
+    def it_returns_the_winners_code_when_adopting_loses_the_race(monkeypatch):
+        member = _locked()
+        older = DiscountCodeFactory(code="OLDER", class_offering=None, instructor=member)
+        winner = DiscountCodeFactory(code="WINNER", class_offering=None, instructor=member, is_personal=True)
+        DiscountCode.objects.filter(pk=older.pk).update(created_at=timezone.now() - timedelta(days=5))
+        _blind_to_personal_codes(monkeypatch, times=1)
+        assert DiscountCode.objects.ensure_personal_for(member).pk == winner.pk
+        older.refresh_from_db()
+        assert older.is_personal is False
+
+    def it_raises_when_adopting_fails_and_no_winner_is_there(monkeypatch):
+        member = _locked()
+        DiscountCodeFactory(code="OLDER", class_offering=None, instructor=member)
+        DiscountCodeFactory(code="WINNER", class_offering=None, instructor=member, is_personal=True)
+        _blind_to_personal_codes(monkeypatch, times=99)
+        with pytest.raises(IntegrityError, match="Could not mark a personal discount code"):
+            DiscountCode.objects.ensure_personal_for(member)
+
+
+def _always_taken(self, **kwargs):
+    raise IntegrityError("duplicate key value violates unique constraint")
+
+
+def _blind_to_personal_codes(monkeypatch, *, times: int) -> None:
+    """``personal_for`` answers None for its first ``times`` calls, as if another writer had not committed yet."""
+    real = classes_models.DiscountCodeQuerySet.personal_for
+    left = [times]
+
+    def blind(self, member):
+        if left[0] > 0:
+            left[0] -= 1
+            return None
+        return real(self, member)
+
+    monkeypatch.setattr(classes_models.DiscountCodeQuerySet, "personal_for", blind)
 
 
 def describe_one_personal_code_per_instructor():
@@ -281,6 +374,18 @@ def describe_reassign():
 
 
 def describe_granting_teaching_makes_the_code():
+    def it_rolls_the_grant_back_when_the_code_cannot_be_made(monkeypatch):
+        member = _locked()
+
+        def broken(self, member):
+            raise IntegrityError("no code")
+
+        monkeypatch.setattr(classes_models.DiscountCodeQuerySet, "ensure_personal_for", broken)
+        with pytest.raises(IntegrityError):
+            member.grant_teaching(granted_by=None)
+        member.refresh_from_db()
+        assert member.instructor_oriented_at is None
+
     def it_makes_one_on_grant_teaching():
         member = _locked()
         member.grant_teaching(granted_by=None)
@@ -360,8 +465,8 @@ def describe_live():
         assert list(DiscountCode.objects.live()) == [live]
 
 
-def describe_honoured_on_classes_of():
-    def it_lists_every_code_that_works_on_one_of_their_classes():
+def describe_listed_for_instructor():
+    def it_lists_site_wide_codes_their_running_classes_codes_and_their_own():
         teacher = InstructorFactory()
         partner = InstructorFactory()
         stranger = InstructorFactory()
@@ -371,18 +476,43 @@ def describe_honoured_on_classes_of():
         everywhere = DiscountCodeFactory(code="EVERY", class_offering=None)
         own_class = DiscountCodeFactory(code="ONECLASS", class_offering=shared)
         theirs = DiscountCodeFactory(code="THEIRS", class_offering=None, instructor=teacher)
-        partners = DiscountCodeFactory(code="PARTNER", class_offering=None, instructor=partner)
+        DiscountCodeFactory(code="PARTNER", class_offering=None, instructor=partner)
         DiscountCodeFactory(code="OTHERCLASS", class_offering=elsewhere)
         DiscountCodeFactory(code="STRANGER", class_offering=None, instructor=stranger)
 
-        codes = set(DiscountCode.objects.honoured_on_classes_of(teacher))
+        codes = set(DiscountCode.objects.listed_for_instructor(teacher))
 
-        assert codes == {everywhere, own_class, theirs, partners}
+        # A co-teacher's code works on the shared class only; that class's Overview lists it.
+        assert codes == {everywhere, own_class, theirs}
+
+    def it_leaves_out_codes_on_classes_that_are_over():
+        teacher = InstructorFactory()
+        running = ClassOfferingFactory(instructor=teacher, status=ClassOffering.Status.PUBLISHED)
+        ClassSessionFactory(
+            class_offering=running,
+            starts_at=timezone.now() + timedelta(days=7),
+            ends_at=timezone.now() + timedelta(days=7, hours=2),
+        )
+        ended = ClassOfferingFactory(instructor=teacher, status=ClassOffering.Status.PUBLISHED)
+        ClassSessionFactory(
+            class_offering=ended,
+            starts_at=timezone.now() - timedelta(days=7),
+            ends_at=timezone.now() - timedelta(days=7) + timedelta(hours=2),
+        )
+        cancelled = ClassOfferingFactory(instructor=teacher, status=ClassOffering.Status.CANCELLED)
+        archived = ClassOfferingFactory(instructor=teacher, status=ClassOffering.Status.ARCHIVED)
+        draft = ClassOfferingFactory(instructor=teacher, status=ClassOffering.Status.DRAFT)
+        keep = {DiscountCodeFactory(code="RUNNING", class_offering=running)}
+        keep.add(DiscountCodeFactory(code="DRAFTCLASS", class_offering=draft))
+        for offering in (ended, cancelled, archived):
+            DiscountCodeFactory(code=f"OVER{offering.pk}", class_offering=offering)
+
+        assert set(DiscountCode.objects.listed_for_instructor(teacher)) == keep
 
     def it_lists_their_own_code_before_they_teach_anything():
         teacher = InstructorFactory()
         theirs = DiscountCodeFactory(code="THEIRS", class_offering=None, instructor=teacher)
-        assert list(DiscountCode.objects.honoured_on_classes_of(teacher)) == [theirs]
+        assert list(DiscountCode.objects.listed_for_instructor(teacher)) == [theirs]
 
 
 def describe_the_personal_code_at_checkout():

@@ -1037,8 +1037,11 @@ class Command(BaseCommand):
         user_count = User.objects.filter(email__endswith=f"@{DEMO_EMAIL_DOMAIN}").count()
         User.objects.filter(email__endswith=f"@{DEMO_EMAIL_DOMAIN}").delete()
 
-        code_count = DiscountCode.objects.filter(code__startswith="DEMO").count()
-        DiscountCode.objects.filter(code__startswith="DEMO").delete()
+        # The demo's own codes only. A real instructor's personal code can start with DEMO too
+        # (a Demond gets DEMOND10, #1065); the demo personas' personal codes went with their members.
+        demo_codes = DiscountCode.objects.filter(code__startswith="DEMO", is_personal=False)
+        code_count = demo_codes.count()
+        demo_codes.delete()
 
         question_count = RegistrationQuestion.objects.filter(prompt__startswith="How did you hear").count()
         question_count += RegistrationQuestion.objects.filter(prompt__startswith="Do you have any allergies").count()

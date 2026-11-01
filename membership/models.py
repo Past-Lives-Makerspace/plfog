@@ -2769,16 +2769,21 @@ class Member(StaffRequestMixin, models.Model):
             not self._state.adding and self._loaded_status == self.Status.ACTIVE and self.status != self.Status.ACTIVE
         )
         granted_teaching = self._granting_teaching(kwargs.get("update_fields"))
-        super().save(*args, **kwargs)
-        self._loaded_status = self.status
-        self._loaded_teaching = self.instructor_oriented_at is not None
         if granted_teaching:
-            # Every new instructor gets a personal discount code (#1065). Here rather than in
-            # grant_teaching because three paths grant (grant_teaching, apply_admin_role's
-            # promotion, the demo stager) and any later one saves through here too.
+            # Every new instructor gets a personal discount code (#1065), in one transaction with
+            # the grant: a grant that saved with no code, or a code for a grant that rolled back,
+            # is never left behind. Here rather than in grant_teaching because three paths grant
+            # (grant_teaching, apply_admin_role's promotion, the demo stager) and any later one
+            # saves through here too.
             from classes.models import DiscountCode
 
-            DiscountCode.objects.ensure_personal_for(self)
+            with transaction.atomic():
+                super().save(*args, **kwargs)
+                DiscountCode.objects.ensure_personal_for(self)
+        else:
+            super().save(*args, **kwargs)
+        self._loaded_status = self.status
+        self._loaded_teaching = self.instructor_oriented_at is not None
         if turning_former:
             DiscordRemoval.objects.queue_for_former(self)
         if left_active and self.teaching_applied_at is not None:

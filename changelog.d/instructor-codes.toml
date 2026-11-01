@@ -1,6 +1,6 @@
 bump = "minor"
 date = "2026-11-01"
-audience = ["instructors"]
+audience = ["instructors", "admins"]
 title = "Every instructor has their own discount code"
 changes = [
   "Each instructor now has a discount code that works on every class they teach. Share it with anyone you like.",

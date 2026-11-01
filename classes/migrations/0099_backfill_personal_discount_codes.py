@@ -1,13 +1,15 @@
 """Give every current instructor a personal discount code (#1065).
 
 An instructor is a member with ``instructor_oriented_at`` set (``Member.can_create_classes``).
-One who already has a code aimed at their classes (an admin made one, #764) keeps it: the oldest
-becomes their personal code and nothing new is made. Everyone else gets a new code, approved and
-active with no limits, named the way ``DiscountCodeQuerySet.ensure_personal_for`` names one:
-the first word of their name in capital letters plus the percent from Site Settings
-(JACQUELINE10); when that is taken, one more letter of their last name at a time
-(JACQUELINEF10, JACQUELINEFI10); once the last name runs out, A, B, C before the percent
-(JACQUELINEFINGERA10). Digits only ever end a code, as the percent.
+One who already has a live (active and approved) code aimed at their classes (an admin made
+one, #764) keeps it: the oldest live one becomes their personal code and nothing new is made.
+A switched off or unapproved one is left as it is, and a new code is made beside it.
+
+Everyone else gets a new code, approved and active with no limits, named the way
+``DiscountCodeQuerySet.ensure_personal_for`` names one: the first word of their name in capital
+letters plus the percent from Site Settings (JACQUELINE10); when that is taken, one more letter
+of their last name at a time (JACQUELINEF10, JACQUELINEFI10); once the last name runs out, A, B,
+C before the percent (JACQUELINEFINGERA10). Digits only ever end a code, as the percent.
 
 The naming is copied here rather than imported, so a later change to the app code cannot change
 what this migration did. Nothing is emailed. Running it twice makes nothing new.
@@ -74,7 +76,11 @@ def backfill(apps: Any, schema_editor: Any) -> None:
     for member in member_model.objects.filter(instructor_oriented_at__isnull=False).order_by("pk"):
         if code_model.objects.filter(instructor=member, is_personal=True).exists():
             continue
-        adopted = code_model.objects.filter(instructor=member).order_by("created_at", "pk").first()
+        adopted = (
+            code_model.objects.filter(instructor=member, is_active=True, is_approved=True)
+            .order_by("created_at", "pk")
+            .first()
+        )
         if adopted is not None:
             adopted.is_personal = True
             adopted.save(update_fields=["is_personal"])

@@ -3,19 +3,20 @@
 An instructor's personal discount code (#1065): the code, a Copy button and one line on where it
 works. The same card sits on My Classes and on the Discount Codes tab. Caller passes:
   * code — the instructor's live personal DiscountCode, or None (renders nothing)
-The page links instructor-codes.css. Copy uses the clipboard in a secure context and selects the
-read only box for execCommand otherwise, as the Tours kiosk link does.
+The page links instructor-codes.css. Copy writes to the clipboard in a secure context and says
+Copied! only once the write succeeds; a refused write selects the code for the member to copy by
+hand. Off https it selects the box and says Copied! only when execCommand reports a copy.
 {% endcomment %}
 {% if code %}
-<section class="pl-personal-code" data-personal-code data-guidance-target="classes.personal-code" x-data="{ copied: false }">
+<section class="pl-personal-code" data-personal-code data-guidance-target="classes.personal-code" x-data="{ copied: false, copy() { const box = this.$refs.code; const pick = () => { box.focus(); box.select(); }; if (window.isSecureContext && navigator.clipboard) { navigator.clipboard.writeText(box.value).then(() => { this.copied = true; }, pick); return; } pick(); if (document.execCommand('copy')) { this.copied = true; } } }">
     <div class="pl-personal-code__text">
         <h2 class="pl-personal-code__title">Your Discount Code</h2>
         <p class="pl-personal-code__line">Works on every class you teach. Share it with anyone.</p>
     </div>
     <div class="pl-personal-code__actions">
-        <input class="pl-personal-code__code" x-ref="code" type="text" readonly value="{{ code.code }}" aria-label="Your discount code" onclick="this.select()" data-personal-code-value>
+        <input class="pl-personal-code__code" x-ref="code" type="text" readonly value="{{ code.code }}" aria-label="Your discount code" @click="$el.select()" data-personal-code-value>
         <span class="pl-personal-code__off">{% if code.discount_pct %}{{ code.discount_pct }}% off{% else %}{{ code.discount_fixed_cents|cents_as_dollars }} off{% endif %}</span>
-        <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" data-personal-code-copy @click="$refs.code.select(); window.isSecureContext && navigator.clipboard ? navigator.clipboard.writeText($refs.code.value) : document.execCommand('copy'); copied = true" x-text="copied ? 'Copied!' : 'Copy'">Copy</button>
+        <button type="button" class="hub-btn hub-btn--sm hub-btn--primary" data-personal-code-copy @click="copy()" x-text="copied ? 'Copied!' : 'Copy'">Copy</button>
     </div>
 </section>
 {% endif %}

@@ -12,10 +12,12 @@ from __future__ import annotations
 import pytest
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from classes.factories import (
     CategoryFactory,
     ClassOfferingFactory,
+    ClassSessionFactory,
     DiscountCodeFactory,
     InstructorFactory,
     UserFactory,
@@ -195,13 +197,65 @@ def describe_with_the_setting_on():
 
 
 def describe_co_teaching():
-    def it_lists_a_partners_code_on_the_tab_and_on_the_shared_class(teacher_client, teacher):
+    def it_lists_a_partners_code_on_the_shared_class_but_not_on_the_tab(teacher_client, teacher):
         _, partner = _member("pc-partner@example.com", "Morgan Partner")
         partner.grant_teaching(granted_by=None)
         shared = ClassOfferingFactory(instructor=partner, category=CategoryFactory())
         shared.set_instructors([partner, teacher[1]])
-        for url in (TAB, _overview(shared)):
-            assert b"<code>MORGAN10</code>" in teacher_client.get(url).content, url
+        assert b"<code>MORGAN10</code>" in teacher_client.get(_overview(shared)).content
+        assert b"MORGAN10" not in teacher_client.get(TAB).content
+
+
+def describe_the_tab_list():
+    def it_leaves_out_codes_on_classes_that_are_over(teacher_client, teacher):
+        running = ClassOfferingFactory(instructor=teacher[1], status=ClassOffering.Status.PUBLISHED)
+        cancelled = ClassOfferingFactory(instructor=teacher[1], status=ClassOffering.Status.CANCELLED)
+        ended = ClassOfferingFactory(instructor=teacher[1], status=ClassOffering.Status.PUBLISHED)
+        past = timezone.now() - timezone.timedelta(days=3)
+        ClassSessionFactory(class_offering=ended, starts_at=past, ends_at=past + timezone.timedelta(hours=2))
+        DiscountCodeFactory(code="RUNNING20", class_offering=running)
+        DiscountCodeFactory(code="CANCELLED20", class_offering=cancelled)
+        DiscountCodeFactory(code="ENDED20", class_offering=ended)
+        html = teacher_client.get(TAB).content
+        assert b"<code>RUNNING20</code>" in html
+        assert b"CANCELLED20" not in html
+        assert b"ENDED20" not in html
+
+    def it_lists_a_code_they_made_once_under_your_codes_when_codes_are_on(teacher_client, teacher):
+        _flag(True)
+        mine = DiscountCodeFactory(code="MINELIVE", class_offering=None, created_by=teacher[0])
+        html = teacher_client.get(TAB).content.decode()
+        assert html.count("MINELIVE") == 1
+        assert "<code>MINELIVE</code>" not in html
+        assert reverse("classes:teach_discount_code_edit", kwargs={"pk": mine.pk}) in html
+
+    def it_lists_a_code_they_made_with_the_others_when_codes_are_off(teacher_client, teacher):
+        _flag(False)
+        DiscountCodeFactory(code="MINELIVE", class_offering=None, created_by=teacher[0])
+        html = teacher_client.get(TAB).content.decode()
+        assert html.count("MINELIVE") == 1
+        assert "<code>MINELIVE</code>" in html
+
+
+def describe_the_lazy_backstop():
+    def it_gives_an_instructor_who_slipped_through_a_code_on_their_first_view(client, either_setting):
+        user, member = _member("pc-slipped@example.com", "Sky Slipped")
+        # A bulk update grants without Member.save, so no code was made.
+        Member.objects.filter(pk=member.pk).update(instructor_oriented_at=timezone.now())
+        assert not DiscountCode.objects.filter(instructor=member).exists()
+        client.force_login(user)
+        html = client.get(reverse("classes:teach_dashboard")).content
+        assert b'value="SKY10"' in html
+        client.get(TAB)
+        assert list(DiscountCode.objects.filter(instructor=member).values_list("code", "is_personal")) == [
+            ("SKY10", True)
+        ]
+
+    def it_makes_nothing_new_for_an_instructor_whose_code_is_switched_off(teacher_client, teacher):
+        DiscountCode.objects.filter(instructor=teacher[1]).update(is_active=False)
+        teacher_client.get(reverse("classes:teach_dashboard"))
+        teacher_client.get(TAB)
+        assert DiscountCode.objects.filter(instructor=teacher[1]).count() == 1
 
 
 def describe_who_sees_none_of_it():

@@ -4964,6 +4964,9 @@ class ClassSession(models.Model):
 #: its own wording, so its reverse can tell the codes it made from ones made at a grant.
 PERSONAL_CODE_DESCRIPTION = "Personal instructor code: works on every class this instructor teaches."
 
+#: How many codes ``ensure_personal_for`` tries when other writers keep taking the one it picked.
+PERSONAL_CODE_ATTEMPTS = 5
+
 #: The first name a personal code falls back to when a name has no letter to use.
 PERSONAL_CODE_FALLBACK_STEM = "TEACH"
 
@@ -5052,21 +5055,25 @@ class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
         """
         return self.filter(is_active=True, is_approved=True)
 
-    def honoured_on_classes_of(self, member: "Member") -> "DiscountCodeQuerySet":
-        """Every code a registrant may use on at least one class ``member`` teaches (#1065).
+    def listed_for_instructor(self, member: "Member") -> "DiscountCodeQuerySet":
+        """The codes an instructor's Discount Codes tab lists as working on their classes (#1065).
 
-        :meth:`honoured_on` across all of their classes at once: the site wide codes, each of
-        their classes' own codes, and the instructor codes of everyone teaching those classes
-        (a co-teacher's code works on the class they share). ``member``'s own instructor codes
-        are included even before they teach anything.
+        The site wide codes, the own codes of each class they teach that is still running, and
+        their own instructor codes, even before they teach anything. Two kinds that
+        :meth:`honoured_on` accepts are left off on purpose: a co-teacher's instructor code
+        (it works only on the class they share, and that class's Overview lists it), and a code
+        aimed at a class that has finished, been cancelled or been archived (nobody can use it
+        any more).
         """
         classes = ClassOffering.objects.for_instructor(member)
-        teachers = ClassInstructor.objects.filter(class_offering__in=classes).values("member_id")
+        over = classes.completed().values("pk")
+        running = classes.exclude(status__in=[ClassOffering.Status.CANCELLED, ClassOffering.Status.ARCHIVED]).exclude(
+            pk__in=over
+        )
         scopes = (
             Q(class_offering__isnull=True, instructor__isnull=True)
-            | Q(class_offering__in=classes)
+            | Q(class_offering__in=running.values("pk"))
             | Q(instructor=member)
-            | Q(instructor__in=teachers)
         )
         return self.filter(scopes)
 
@@ -5077,44 +5084,76 @@ class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
     def ensure_personal_for(self, member: "Member") -> "DiscountCode":
         """``member``'s personal code, made now if they have none (#1065). Idempotent.
 
-        A member who already has a code aimed at their classes (an admin made one, #764) keeps
-        it: the oldest becomes their personal code and nothing new is made. Otherwise the new
-        code is the first of :func:`personal_code_candidates` nobody holds: the first name plus
-        the percent in ``SiteConfiguration.instructor_code_discount_pct`` (JACQUELINE10), then
-        letters of the last name (JACQUELINEF10), then A, B, C (JACQUELINEFINGERA10). It is approved and
-        active from the start, with no use limit, no dates and no auto apply, and is never
-        sent anywhere: the instructor shares it themselves.
+        A member who already has a live code aimed at their classes (an admin made one, #764)
+        keeps it: the oldest live one becomes their personal code and nothing new is made. A
+        switched off or unapproved one is left as it is, and a new code is made beside it, since
+        a personal code that checkout refuses is no use to hand out.
 
-        Called by ``Member.save`` when teaching access is granted, so every grant path makes one.
+        A new code is the first of :func:`personal_code_candidates` nobody holds: the first name
+        plus the percent in ``SiteConfiguration.instructor_code_discount_pct`` (JACQUELINE10),
+        then letters of the last name (JACQUELINEF10), then A, B, C (JACQUELINEFINGERA10). It is
+        approved and active from the start, with no use limit, no dates and no auto apply, and
+        is never sent anywhere: the instructor shares it themselves.
+
+        Two writers can race. When another one takes the picked code first, the taken codes are
+        read again and the next free one is tried, up to :data:`PERSONAL_CODE_ATTEMPTS` times;
+        when another one gives this member their personal code first, that code is returned.
+
+        Called by ``Member.save`` when teaching access is granted, so every grant path makes one,
+        and by the instructor's pages for anyone who can teach and still has none.
+
+        Raises:
+            IntegrityError: When every attempt lost a race for its code.
         """
         from core.models import SiteConfiguration
 
         existing = self.personal_for(member)
         if existing is not None:
             return existing
-        adopted = self.filter(instructor=member).order_by("created_at", "pk").first()
+        adopted = self.live().filter(instructor=member).order_by("created_at", "pk").first()
         if adopted is not None:
-            adopted.is_personal = True
-            adopted.save(update_fields=["is_personal"])
+            try:
+                with transaction.atomic():
+                    adopted.is_personal = True
+                    adopted.save(update_fields=["is_personal"])
+            except IntegrityError:
+                return self._personal_after_a_race(member)
             return adopted
         pct = SiteConfiguration.load().instructor_code_discount_pct
-        taken = set(
-            self.filter(code__startswith=personal_code_stem(member.display_name)).values_list("code", flat=True)
-        )
-        code = next(
-            candidate
-            for candidate in personal_code_candidates(member.display_name, member.full_legal_name, pct)
-            if candidate not in taken
-        )
-        return self.create(
-            code=code,
-            description=PERSONAL_CODE_DESCRIPTION,
-            discount_pct=pct,
-            instructor=member,
-            is_personal=True,
-            is_approved=True,
-            is_active=True,
-        )
+        stem = personal_code_stem(member.display_name)
+        attempts = 0
+        while True:
+            taken = set(self.filter(code__startswith=stem).values_list("code", flat=True))
+            code = next(
+                candidate
+                for candidate in personal_code_candidates(member.display_name, member.full_legal_name, pct)
+                if candidate not in taken
+            )
+            try:
+                with transaction.atomic():
+                    return self.create(
+                        code=code,
+                        description=PERSONAL_CODE_DESCRIPTION,
+                        discount_pct=pct,
+                        instructor=member,
+                        is_personal=True,
+                        is_approved=True,
+                        is_active=True,
+                    )
+            except IntegrityError:
+                existing = self.personal_for(member)
+                if existing is not None:
+                    return existing
+                attempts += 1
+                if attempts >= PERSONAL_CODE_ATTEMPTS:
+                    raise
+
+    def _personal_after_a_race(self, member: "Member") -> "DiscountCode":
+        """The personal code another writer gave ``member`` while this one tried to; raises if there is none."""
+        existing = self.personal_for(member)
+        if existing is None:
+            raise IntegrityError(f"Could not mark a personal discount code for member {member.pk}")
+        return existing
 
     def site_wide_live(self) -> "DiscountCodeQuerySet":
         """The codes anyone can type at checkout on any class: no scope, active and approved, by code.

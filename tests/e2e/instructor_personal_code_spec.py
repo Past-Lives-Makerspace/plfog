@@ -88,8 +88,11 @@ def describe_an_instructor_with_codes_switched_off():
         expect(card).to_contain_text("Works on every class you teach. Share it with anyone.")
         copy = card.get_by_role("button", name="Copy", exact=True)
         _shoot(page, 1, "classes.personal-code")
+        # Copied! waits for the clipboard write to succeed, so the browser must allow it.
+        page.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=live_server.url)
         copy.click()
         expect(card.locator("[data-personal-code-copy]")).to_have_text("Copied!")
+        assert page.evaluate("navigator.clipboard.readText()") == "ROBIN10"
 
         # Step 2: the Discount Codes tab is offered, with the card and the live codes, read only.
         page.locator(".pl-tabs").get_by_role("link", name="Discount Codes", exact=True).click()

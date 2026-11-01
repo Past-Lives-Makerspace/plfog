@@ -90,6 +90,24 @@ def describe_migration_0099_backfill_personal_discount_codes():
         finally:
             _migrate(_HEAD)
 
+    def it_adopts_only_a_live_code_and_leaves_the_others_alone():
+        try:
+            dana = _teacher("Dana Live")
+            off = DiscountCodeFactory(code="DANAOFF", class_offering=None, instructor=dana, is_active=False)
+            live = DiscountCodeFactory(code="DANALIVE", class_offering=None, instructor=dana)
+            DiscountCode.objects.filter(pk=off.pk).update(created_at=timezone.now() - timedelta(days=30))
+            kit = _teacher("Kit Pending")
+            DiscountCodeFactory(code="KITPENDING", class_offering=None, instructor=kit, is_approved=False)
+            _migrate(_BEFORE)
+            _migrate(_AFTER)
+            assert _codes(dana) == [("DANALIVE", True), ("DANAOFF", False)]
+            assert live.pk == DiscountCode.objects.get(instructor=dana, is_personal=True).pk
+            assert _codes(kit) == [("KIT10", True), ("KITPENDING", False)]
+            pending = DiscountCode.objects.get(code="KITPENDING")
+            assert (pending.is_approved, pending.is_active) == (False, True)
+        finally:
+            _migrate(_HEAD)
+
     def it_adds_last_name_letters_then_a_b_c_on_a_collision():
         try:
             DiscountCodeFactory(code="SAM10")
