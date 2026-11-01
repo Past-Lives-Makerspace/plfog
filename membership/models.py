@@ -2768,8 +2768,22 @@ class Member(StaffRequestMixin, models.Model):
         left_active = (
             not self._state.adding and self._loaded_status == self.Status.ACTIVE and self.status != self.Status.ACTIVE
         )
-        super().save(*args, **kwargs)
+        granted_teaching = self._granting_teaching(kwargs.get("update_fields"))
+        if granted_teaching:
+            # Every new instructor gets a personal discount code (#1065), in one transaction with
+            # the grant: a grant that saved with no code, or a code for a grant that rolled back,
+            # is never left behind. Here rather than in grant_teaching because three paths grant
+            # (grant_teaching, apply_admin_role's promotion, the demo stager) and any later one
+            # saves through here too.
+            from classes.models import DiscountCode
+
+            with transaction.atomic():
+                super().save(*args, **kwargs)
+                DiscountCode.objects.ensure_personal_for(self)
+        else:
+            super().save(*args, **kwargs)
         self._loaded_status = self.status
+        self._loaded_teaching = self.instructor_oriented_at is not None
         if turning_former:
             DiscordRemoval.objects.queue_for_former(self)
         if left_active and self.teaching_applied_at is not None:
@@ -2790,16 +2804,32 @@ class Member(StaffRequestMixin, models.Model):
         previous = Member.objects.filter(pk=self.pk).values_list("status", flat=True).first()
         return previous != self.Status.FORMER
 
+    def _granting_teaching(self, update_fields: Iterable[str] | None) -> bool:
+        """Whether this save gives an existing member teaching access (#1065): ``instructor_oriented_at`` set from blank.
+
+        Reads only what ``from_db`` remembered, so it costs no query. A new row is not a grant
+        (no production path creates a member already able to teach), and neither is a save that
+        leaves the column out of ``update_fields`` or a load that deferred it.
+        """
+        if self._state.adding or self._loaded_teaching is not False or self.instructor_oriented_at is None:
+            return False
+        return update_fields is None or "instructor_oriented_at" in update_fields
+
     #: ``status`` as last read from or written to the database; ``save`` compares against it.
     #: ``None`` when unknown (never loaded, or loaded with ``status`` deferred).
     _loaded_status: str | None = None
 
+    #: Whether ``instructor_oriented_at`` was set when last read or written; ``None`` when unknown.
+    _loaded_teaching: bool | None = None
+
     @classmethod
     def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
-        """Remember the loaded ``status`` so ``save`` can see a member leave ACTIVE (#894 part 3)."""
+        """Remember the loaded ``status`` and teaching grant so ``save`` can see them change (#894 part 3, #1065)."""
         instance = super().from_db(db, field_names, values, **kwargs)
-        # A deferred status is absent from __dict__; the save then sees no transition.
+        # A deferred field is absent from __dict__; the save then sees no transition.
         instance._loaded_status = instance.__dict__.get("status")
+        if "instructor_oriented_at" in instance.__dict__:
+            instance._loaded_teaching = instance.__dict__["instructor_oriented_at"] is not None
         return instance
 
 

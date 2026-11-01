@@ -185,7 +185,11 @@ _OWN: dict[str, set[str]] = {
         "display_demo_guild",
         "member_directory_public",
     },
-    "hub_admin_cms": {"instructor_discount_codes_enabled", "instructor_discount_codes_need_approval"},
+    "hub_admin_cms": {
+        "instructor_discount_codes_enabled",
+        "instructor_discount_codes_need_approval",
+        "instructor_code_discount_pct",
+    },
     "hub_admin_automations": {"legacy_cms_sync_enabled"},
 }
 
@@ -220,6 +224,7 @@ _DISTINCT: dict[str, Any] = {
     # Manage CMS
     "instructor_discount_codes_enabled": True,
     "instructor_discount_codes_need_approval": True,
+    "instructor_code_discount_pct": 25,
     # Automations
     "legacy_cms_sync_enabled": True,
 }
@@ -231,7 +236,7 @@ def _post_for(url_name: str) -> dict[str, str]:
         "hub_admin_site_settings": site_settings_post,
         "hub_admin_member_agreement": lambda: {"member_agreement_url": "", "member_agreement_version": ""},
         "hub_admin_features": features_post,
-        "hub_admin_cms": dict,
+        "hub_admin_cms": lambda: {"instructor_code_discount_pct": "25"},
         "hub_admin_automations": jobstate_formset_post,
     }[url_name]()
 

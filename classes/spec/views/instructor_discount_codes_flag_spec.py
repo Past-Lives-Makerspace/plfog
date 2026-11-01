@@ -25,12 +25,13 @@ def _own_offering(member_user) -> object:
 
 
 def describe_instructor_discount_codes_flag_off():
-    def it_hides_the_teach_nav_tile(client, member_user):
+    def it_still_shows_the_discount_codes_tab(client, member_user):
+        # Every instructor sees their codes whatever the flag says (#1065); only making them is gated.
         _set_flag(False)
         client.force_login(member_user)
         resp = client.get(reverse("classes:teach_dashboard"))
         assert resp.status_code == 200
-        assert reverse("classes:teach_discount_codes").encode() not in resp.content
+        assert reverse("classes:teach_discount_codes").encode() in resp.content
 
     def it_hides_the_per_class_subtab(client, member_user):
         _set_flag(False)
@@ -48,12 +49,15 @@ def describe_instructor_discount_codes_flag_off():
         assert resp.status_code == 200
         assert b"Discount Codes for This Class" not in resp.content
 
-    def it_redirects_the_list_view_to_the_teach_dashboard(client, member_user):
+    def it_opens_the_list_view_with_nothing_to_create_or_request(client, member_user):
         _set_flag(False)
         client.force_login(member_user)
         resp = client.get(reverse("classes:teach_discount_codes"))
-        assert resp.status_code == 302
-        assert resp["Location"] == reverse("classes:teach_dashboard")
+        assert resp.status_code == 200
+        assert reverse("classes:teach_discount_code_create").encode() not in resp.content
+        assert reverse("classes:teach_discount_code_request").encode() not in resp.content
+        assert b"data-ask-an-admin" in resp.content
+        assert b"data-instructor-code-tools" not in resp.content
 
     def it_redirects_the_create_view(client, member_user):
         _set_flag(False)

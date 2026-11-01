@@ -1034,7 +1034,11 @@ def describe_admin_manage_cms():
         _create_superuser(client)
         response = client.post(
             reverse("hub_admin_cms"),
-            data={"instructor_discount_codes_enabled": "on", "instructor_discount_codes_need_approval": "on"},
+            data={
+                "instructor_discount_codes_enabled": "on",
+                "instructor_discount_codes_need_approval": "on",
+                "instructor_code_discount_pct": "20",
+            },
             follow=True,
         )
         assert response.redirect_chain == [(reverse("hub_admin_cms"), 302)]
@@ -1042,6 +1046,7 @@ def describe_admin_manage_cms():
         config = SiteConfiguration.load()
         assert config.instructor_discount_codes_enabled is True
         assert config.instructor_discount_codes_need_approval is True
+        assert config.instructor_code_discount_pct == 20
 
     def it_syncs_now_on_post_with_sync_now_action(client):
         from unittest.mock import patch

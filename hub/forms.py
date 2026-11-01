@@ -1834,7 +1834,7 @@ class ManageFeaturesForm(_SiteConfigurationSliceForm):
 
 
 class ManageCmsForm(_SiteConfigurationSliceForm):
-    """Manage CMS's own settings (#922): the instructor discount code switches.
+    """Manage CMS's own settings (#922): the instructor discount code switches and the personal code percent (#1065).
 
     The nightly pull's switch is not here: it is a scheduled job's, so it lives on the Automations
     page (``AutomationsForm``) and this page only shows its state.
@@ -1842,7 +1842,11 @@ class ManageCmsForm(_SiteConfigurationSliceForm):
 
     class Meta:
         model = SiteConfiguration
-        fields = ["instructor_discount_codes_enabled", "instructor_discount_codes_need_approval"]
+        fields = [
+            "instructor_discount_codes_enabled",
+            "instructor_discount_codes_need_approval",
+            "instructor_code_discount_pct",
+        ]
 
 
 class AutomationsForm(_SiteConfigurationSliceForm):

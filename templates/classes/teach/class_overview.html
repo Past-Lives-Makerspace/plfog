@@ -1,5 +1,8 @@
 {% extends "classes/_components/class_screen_base.html" %}
-{% load classes_tags %}
+{% load static classes_tags %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/instructor-codes.css' %}">
+{% endblock %}
 {% block detail_content %}
 {% comment %}The one per-class Overview, for every population that reaches it. The facts table
 and the sessions table were already identical on the two screens this replaces; what is merged
@@ -89,6 +92,18 @@ an admin reading a queue wants the glance.{% endcomment %}
     </tbody>
 </table>
 </div>
+
+{% if class_codes is not None %}
+{# The codes that work on this class, read only, for its instructor whatever the instructor codes flag says (#1065). #}
+<section class="pl-class-codes" data-class-codes data-guidance-target="classes.class-codes">
+    <div class="pl-class-codes__head">
+        <h2 class="pl-instructor-codes__title">Discount Codes on This Class</h2>
+        <a class="pl-class-codes__link" href="{% url 'classes:teach_discount_codes' %}">See Your Discount Codes →</a>
+    </div>
+    <p class="pl-instructor-codes__note">Anyone signing up for this class can use these.</p>
+    {% include "classes/_components/discount_codes_read_only_table.html" with codes=class_codes show_scope=True empty_text="No discount codes work on this class right now." %}
+</section>
+{% endif %}
 
 {% url 'classes:admin_class_approve' pk=offering.pk as approve_url %}
 {% url 'classes:teach_class_withdraw' pk=offering.pk as withdraw_url %}

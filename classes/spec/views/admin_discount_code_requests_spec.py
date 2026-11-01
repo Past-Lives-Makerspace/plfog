@@ -246,7 +246,7 @@ def describe_the_review_page():
         assert client.post(_review_url(req), _approve_post()).status_code == 403
         req.refresh_from_db()
         assert req.status == DiscountCodeRequest.Status.PENDING
-        assert not DiscountCode.objects.exists()
+        assert not DiscountCode.objects.filter(code="SPRING20").exists()
 
     def it_refuses_a_self_approver_without_the_capability(member_user, client, db):
         # Self-approval covers a member's own codes; a request is decided by admins or holders only.
@@ -256,7 +256,7 @@ def describe_the_review_page():
 
         assert client.get(_review_url(req)).status_code == 403
         assert client.post(_review_url(req), _approve_post()).status_code == 403
-        assert not DiscountCode.objects.exists()
+        assert not DiscountCode.objects.filter(code="SPRING20").exists()
 
     def it_redirects_anonymous_users_to_login(client, db):
         req = DiscountCodeRequestFactory(code="SPRING20")

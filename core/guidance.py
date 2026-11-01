@@ -337,6 +337,16 @@ _GUIDANCE_LIST = (
         ),
     ),
     Guidance(
+        key="classes.personal-code",
+        title="Your Discount Code",
+        url_name="classes:teach_discount_codes",
+        steps=(
+            "Open Teaching, then My Classes. Your discount code is at the top. Press Copy to share it.",
+            "It works on every class you teach. Share it with anyone.",
+            "Open Discount Codes to see every code that works on your classes, and a class's page for the codes on that class.",
+        ),
+    ),
+    Guidance(
         key="classes.review",
         title="Class Review",
         url_name="classes:admin_classes",

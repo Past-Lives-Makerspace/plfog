@@ -785,10 +785,20 @@ class SiteConfiguration(models.Model):
         default=False,
         verbose_name="Allow instructors to manage their own discount codes",
         help_text=(
-            "When off, instructors can no longer create, edit, or approve their own discount "
-            "codes from the Teaching portal — the Discount Codes tile is hidden and the pages "
-            "redirect. Admins can always create and approve discount codes from Classes admin, "
-            "either way. Default off: only admins create discount codes."
+            "When off, instructors can no longer create, request, edit, or approve their own discount "
+            "codes from the Teaching portal; those pages redirect. Instructors still see their personal "
+            "code and the codes that work on their classes either way. Admins can always create and "
+            "approve discount codes from Classes admin. Default off: only admins create discount codes."
+        ),
+    )
+    instructor_code_discount_pct = models.PositiveSmallIntegerField(
+        default=10,
+        db_default=10,
+        validators=[MinValueValidator(1), MaxValueValidator(100)],
+        verbose_name="Instructor code discount (%)",
+        help_text=(
+            "The percent off on each instructor's personal discount code, made when they are given "
+            "teaching access. Changing it changes only codes made afterwards."
         ),
     )
     instructor_discount_codes_need_approval = models.BooleanField(

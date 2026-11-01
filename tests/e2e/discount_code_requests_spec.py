@@ -108,7 +108,9 @@ def describe_an_instructor():
         req = DiscountCodeRequest.objects.get()
         assert req.code == "EARLYBIRD"
         assert req.class_offering == offering
-        assert not DiscountCode.objects.exists()
+        assert not DiscountCode.objects.filter(
+            is_personal=False
+        ).exists()  # the instructor's personal code (#1065) aside
 
 
 def describe_an_admin():
@@ -151,4 +153,6 @@ def describe_an_admin():
         req.refresh_from_db()
         assert req.status == DiscountCodeRequest.Status.DECLINED
         assert req.decision_note == "Too steep for a first class."
-        assert not DiscountCode.objects.exists()
+        assert not DiscountCode.objects.filter(
+            is_personal=False
+        ).exists()  # the instructor's personal code (#1065) aside

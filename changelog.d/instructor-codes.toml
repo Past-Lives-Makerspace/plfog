@@ -1,0 +1,21 @@
+bump = "minor"
+date = "2026-11-01"
+audience = ["instructors", "admins"]
+title = "Every instructor has their own discount code"
+changes = [
+  "Each instructor now has a discount code that works on every class they teach. Share it with anyone you like.",
+  "Find it at the top of My Classes and on the Discount Codes tab, with every code that works on your classes.",
+  "A class's Overview lists the codes that work on that class.",
+]
+feature = "classes.personal-code"
+guidance = "shots"
+requests = [8]
+
+[[shots]]
+caption = "Your Discount Code sits at the top of My Classes. Press Copy to copy it."
+
+[[shots]]
+caption = "The Discount Codes tab lists every code that works on your classes."
+
+[[shots]]
+caption = "A class's Overview shows the codes that work on that class."

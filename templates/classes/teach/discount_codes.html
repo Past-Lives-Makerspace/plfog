@@ -1,16 +1,37 @@
 {% extends "classes/teach/base.html" %}
-{% load classes_tags %}
+{% load static classes_tags %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/instructor-codes.css' %}">
+{% endblock %}
 {% block tab_content %}
-<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
-    <p style="margin:0; color:var(--hub-text-muted); font-size:0.85rem;">New codes require admin approval before they can be used.</p>
+{% comment %}
+Every instructor reaches this tab whatever instructor_discount_codes_enabled says (#1065): their
+personal code, then every live code that works on their classes, read only. Making or asking for
+a code is the flag's: with it on, the section under data-instructor-code-tools is today's page
+(the codes they made, New Code or Request a Code, and their requests); with it off, one line
+says to ask an admin, in the place that offer would have been.
+{% endcomment %}
+{% include "classes/_components/personal_code_card.html" with code=personal_code %}
+
+<section class="pl-instructor-codes" data-working-codes data-guidance-target="classes.working-codes">
+    <h2 class="pl-instructor-codes__title">Codes That Work on Your Classes</h2>
+    <p class="pl-instructor-codes__note">Anyone signing up for one of your classes can use these. Admins manage them.</p>
+    {% include "classes/_components/discount_codes_read_only_table.html" with codes=working_codes show_scope=True empty_text="No other codes work on your classes right now." %}
+</section>
+
+{% if not manages_codes %}
+<p class="pl-instructor-codes__ask" data-ask-an-admin>Discount codes are managed by admins. Ask an admin if you need one for your class.</p>
+{% else %}
+<section class="pl-instructor-codes" data-instructor-code-tools>
+<div class="pl-instructor-codes__bar">
+    <h2 class="pl-instructor-codes__title">Your Codes</h2>
     {% if approval_mode %}
     <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_discount_code_request' %}">Request a Code</a>
     {% else %}
     <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_discount_code_create' %}">+ New Code</a>
     {% endif %}
 </div>
-
-<h3 style="margin:1.25rem 0 0.5rem; font-size:0.95rem;">Your Codes</h3>
+<p class="pl-instructor-codes__note">New codes require admin approval before they can be used.</p>
 {% if own_codes %}
 <table style="width:100%; border-collapse:collapse;">
     <thead style="border-bottom:2px solid var(--hub-border);">
@@ -63,49 +84,11 @@
     {% endfor %}
     </tbody>
 </table>
-{% else %}
-    <div style="padding:1.25rem 1rem; color:var(--hub-text-muted);">
-        {% if approval_mode %}
-        No codes on your classes yet. <a href="{% url 'classes:teach_discount_code_request' %}">Request one</a>.
-        {% else %}
-        You haven't created any codes yet. <a href="{% url 'classes:teach_discount_code_create' %}">Create one</a>.
-        {% endif %}
-    </div>
+{% elif not approval_mode %}
+    <p class="pl-instructor-codes__empty">You haven't created any codes yet. <a href="{% url 'classes:teach_discount_code_create' %}">Create one</a>.</p>
 {% endif %}
 {% if approval_mode %}{% include "classes/_components/discount_code_requests_list.html" with requests=requests show_class=True %}{% endif %}
-
-{% if sitewide_codes %}
-<h3 style="margin:2rem 0 0.25rem; font-size:0.95rem;">Site-Wide Codes</h3>
-<p style="margin:0 0 0.5rem; color:var(--hub-text-muted); font-size:0.85rem;">Managed by Past Lives admins and usable across all classes — read-only here.</p>
-<table style="width:100%; border-collapse:collapse;">
-    <thead style="border-bottom:2px solid var(--hub-border);">
-        <tr style="text-align:left;">
-            <th style="padding:0.5rem 0.75rem; font-weight:600;">Code</th>
-            <th style="padding:0.5rem 0.75rem; font-weight:600;">%</th>
-            <th style="padding:0.5rem 0.75rem; font-weight:600;">Fixed</th>
-            <th style="padding:0.5rem 0.75rem; font-weight:600;">Valid</th>
-            <th style="padding:0.5rem 0.75rem; font-weight:600;">Uses</th>
-            <th style="padding:0.5rem 0.75rem; font-weight:600;">Status</th>
-            <th style="padding:0.5rem 0.75rem; font-weight:600;">Notes</th>
-        </tr>
-    </thead>
-    <tbody>
-    {% for c in sitewide_codes %}
-        <tr style="border-bottom:1px solid var(--hub-border);">
-            <td style="padding:0.5rem 0.75rem;">{{ c.code }}</td>
-            <td style="padding:0.5rem 0.75rem;">{{ c.discount_pct|default:"—" }}</td>
-            <td style="padding:0.5rem 0.75rem;">{% if c.discount_fixed_cents %}{{ c.discount_fixed_cents|cents_as_dollars }}{% else %}—{% endif %}</td>
-            <td style="padding:0.5rem 0.75rem;">{{ c.valid_from|default:"—" }} → {{ c.valid_until|default:"—" }}</td>
-            <td style="padding:0.5rem 0.75rem;">{{ c.use_count }}/{{ c.max_uses|default:"∞" }}</td>
-            <td style="padding:0.5rem 0.75rem;">
-                {% if c.is_active %}<span style="color:var(--hub-success, #4caf50);">Active</span>{% else %}<span style="color:var(--hub-text-muted);">Inactive</span>{% endif %}
-            </td>
-            <td style="padding:0.5rem 0.75rem; color:var(--hub-text-muted); font-size:0.85rem;">
-                {% if c.description %}{{ c.description }} · {% endif %}Site-wide — managed by admins, can't be edited or deleted here.
-            </td>
-        </tr>
-    {% endfor %}
-    </tbody>
-</table>
+</section>
 {% endif %}
+
 {% endblock %}

@@ -4,8 +4,12 @@ Discount codes as an instructor reads them on the composer's Discounts step (#42
 wide codes that already apply to every class. A table and nothing else: the per step check
 (static/js/composer_validation.js, pinned by composer_step_validation_spec.py) counts every
 input, select and textarea inside a pane, so a read only table must contribute none. Caller passes:
-  * codes      — the DiscountCode rows to list
+  * codes      — the DiscountCode rows to list (select_related "class_offering" and "instructor"
+                 when show_scope is set)
   * empty_text — the one line shown when there are none
+  * show_scope — optional; adds a Works On column: every class, the one class's title, or the
+                 instructor whose classes it works on (the instructor's Discount Codes tab and a
+                 class's Overview, #1065)
 {% endcomment %}
 <div class="admin-table-wrap">
 <table>
@@ -15,6 +19,7 @@ input, select and textarea inside a pane, so a read only table must contribute n
             <th>Discount</th>
             <th>Valid</th>
             <th>Uses</th>
+            {% if show_scope %}<th>Works On</th>{% endif %}
         </tr>
     </thead>
     <tbody>
@@ -24,9 +29,12 @@ input, select and textarea inside a pane, so a read only table must contribute n
             <td>{% if c.discount_pct %}{{ c.discount_pct }}% off{% else %}{{ c.discount_fixed_cents|cents_as_dollars }} off{% endif %}</td>
             <td>{% if c.valid_from and c.valid_until %}From {{ c.valid_from|date:"M j, Y" }} until {{ c.valid_until|date:"M j, Y" }}{% elif c.valid_from %}From {{ c.valid_from|date:"M j, Y" }}{% elif c.valid_until %}Until {{ c.valid_until|date:"M j, Y" }}{% else %}No date limit{% endif %}</td>
             <td>{{ c.use_count }}{% if c.max_uses %} / {{ c.max_uses }}{% endif %}</td>
+            {% if show_scope %}
+            <td data-code-scope>{% if c.class_offering_id %}{{ c.class_offering.title }}{% elif c.instructor_id %}<span class="hub-pill hub-pill--neutral" data-scope-instructor>{{ c.scope_label }}</span>{% else %}Every class{% endif %}</td>
+            {% endif %}
         </tr>
     {% empty %}
-        <tr><td colspan="4" class="pl-table-empty">{{ empty_text }}</td></tr>
+        <tr><td colspan="{% if show_scope %}5{% else %}4{% endif %}" class="pl-table-empty">{{ empty_text }}</td></tr>
     {% endfor %}
     </tbody>
 </table>
