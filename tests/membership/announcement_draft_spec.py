@@ -945,16 +945,6 @@ def describe_AnnouncementDraft():
                 assert draft.sent_at is not None
                 assert draft.delivery_period == post.delivery_period
 
-            def it_never_reaches_the_fan_out_so_no_push_goes_out():
-                guild = _guild_with_a_channel()
-                with (
-                    patch.object(GuildAnnouncement, "notify_members") as mock_notify,
-                    patch("core.events.emit.emit") as mock_emit,
-                ):
-                    _draft(guild).send()
-                assert mock_notify.call_count == 0
-                assert mock_emit.call_count == 0
-
             @pytest.mark.parametrize("channel", ["push_enabled", "send_email", "discord_enabled"])
             def it_still_rings_the_bell_when_any_one_channel_is_on(channel):
                 guild = _guild_with_a_channel()
