@@ -310,8 +310,9 @@ two empty lists, and "all clear" would be a lie about a guild that does have wor
 
 {% if is_admin %}
 {% comment %}
-Guild Visibility (admin only) — show/hide the guild from every listing. Its own form
-and endpoint, sitting outside the main form. A guild lead never sees this: it is gated
+Guild Visibility (admin only) — show/hide the guild from every listing, and its New
+Guild badge (#1086). Its own form and endpoint, sitting outside the main form; Admin Tools >
+Guilds posts the same form to the same endpoint. A guild lead never sees this: it is gated
 on is_admin (the same effective-admin gate as the Danger Zone below), and the save view
 403s anyone who is not an actual admin.
 {% endcomment %}
@@ -325,6 +326,7 @@ on is_admin (the same effective-admin gate as the Danger Zone below), and the sa
       settings page stay reachable by direct link, so an admin can always turn it back on.
     </p>
     {% include "components/form_field.html" with field=visibility_form.is_active %}
+    {% include "components/form_field.html" with field=visibility_form.is_new_guild %}
   </div>
 </form>
 {% comment %}

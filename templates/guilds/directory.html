@@ -1,6 +1,9 @@
 {% extends guilds_page_base %}
 {% load static %}
 {% block title %}Guilds{% endblock %}
+{% block extra_head %}{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/new-guild.css' %}">
+{% endblock %}
 
 {% block content %}
 <div class="cp-page">
@@ -42,6 +45,7 @@
         </span>
         {% endif %}
         {% if guild.is_featured %}<span class="pl-guild-dir__star">★ Featured</span>{% endif %}
+        {% if guild.is_new_guild %}<span class="pl-newguild-badge pl-newguild-badge--sm pl-guild-dir__newguild" data-newguild-badge>New Guild</span>{% endif %}
       </a>
       <div class="cls-body">
         <a href="{% url 'hub_guild_detail' guild.slug %}" class="cls-title">{{ guild.name }}</a>

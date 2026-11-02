@@ -1,0 +1,80 @@
+{% extends "hub/base.html" %}
+{% load static guidance %}
+
+{% block title %}Guilds{% endblock %}
+
+{% block extra_head %}{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/guild-settings.css' %}">
+<link rel="stylesheet" href="{% static 'css/new-guild.css' %}">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+Admin Tools > Guilds (#1086): every guild in one table with its two admin switches. Each row is
+one GuildVisibilityForm (both switches) posting to hub_guild_visibility_save, the endpoint the
+guild editor's Basic tab uses. A <form> cannot wrap a <tr>, so the form sits in the name cell and
+the switches join it with form="..."; plGuildAutosave (static/js/guild_autosave.js) resolves a
+control's form that way, and saves on the change, so there is no Save button.
+{% endcomment %}
+<div class="pl-guilds-admin" x-data="plGuildAutosave({ section: 'guilds' })" data-guild-autosave @pl-guild-autosave-leave.window="leave()">
+<div class="pl-guild-settings__header">
+  <div>
+    <h1 class="hub-page-title pl-guild-settings__title">Guilds</h1>
+    <p class="pl-guild-settings__lead">Every change saves as you make it.</p>
+  </div>
+  <span class="pl-guild-settings__actions">
+    {% whats_new_button "admin.guilds" %}
+    <span class="pl-meeting-savestate" data-save-pill
+          :class="'pl-meeting-savestate--' + (pending > 0 ? 'saving' : state)"
+          :data-saves="saves"
+          x-show="pending > 0 || state !== 'idle'" x-text="label()" aria-live="polite" x-cloak></span>
+  </span>
+</div>
+<p class="hub-text-muted pl-guilds-admin__lead"><strong>Visible to members</strong> hides or shows a guild in the sidebar, the guild directory, the Calendar and voting. <strong>New Guild</strong> puts a gold badge on a new guild's page, directory card and sidebar row; it does not change voting. Turn it off when the guild graduates.</p>
+
+<div class="hub-card pl-guilds-admin__card">
+  {% if guild_rows %}
+  <div class="admin-table-wrap pl-guilds-admin__table">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Guild</th>
+          <th scope="col">Visible to Members</th>
+          <th scope="col" data-guidance-target="admin.guilds-newguild">New Guild</th>
+          <th scope="col"><span class="sr-only">Settings</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for guild, form in guild_rows %}
+        <tr data-guild-row="{{ guild.pk }}">
+          <td class="pl-guilds-admin__name">
+            <form method="post" action="{% url 'hub_guild_visibility_save' guild.pk %}" id="guild-row-{{ guild.pk }}" data-autosave="change">{% csrf_token %}</form>
+            <a href="{% url 'hub_guild_detail' guild.slug %}">{{ guild.name }}</a>
+            <span class="pl-guilds-admin__tags">
+              {% if not guild.is_active %}<span class="hub-pill hub-pill--neutral" data-guild-hidden-tag>Hidden</span>{% endif %}
+              {% if guild.is_new_guild %}<span class="pl-newguild-badge pl-newguild-badge--sm" data-newguild-badge>New Guild</span>{% endif %}
+            </span>
+          </td>
+          <td class="pl-guilds-admin__switch" data-label="Visible to Members">
+            {% include "components/toggle.html" with field=form.is_active %}
+          </td>
+          <td class="pl-guilds-admin__switch" data-label="New Guild">
+            {% include "components/toggle.html" with field=form.is_new_guild %}
+          </td>
+          <td class="pl-guilds-admin__settings">
+            <a href="{% url 'hub_guild_edit' guild.pk %}?tab=basic" class="hub-btn hub-btn--sm">Settings</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="hub-text-muted" data-guilds-empty>No guilds yet.</p>
+  {% endif %}
+</div>
+
+{# A boosted navigation held behind a save that failed: Leave resumes it, Stay drops it. #}
+{% include "components/confirm_modal.html" with confirm_id="leave-while-saving" confirm_title="A change did not save" confirm_message="A change could not be saved. Leave anyway, or stay and try again?" confirm_button_text="Leave" confirm_cancel_text="Stay" confirm_button_style="primary" confirm_js="window.dispatchEvent(new CustomEvent('pl-guild-autosave-leave'))" %}
+</div>{# /x-data #}
+{% endblock %}

@@ -7,6 +7,7 @@
 {% block extra_head %}{{ block.super }}
 <link rel="stylesheet" href="{% static 'css/calendar.css' %}">
 <link rel="stylesheet" href="{% static 'css/locations.css' %}">
+<link rel="stylesheet" href="{% static 'css/new-guild.css' %}">
 <link rel="stylesheet" href="{% static 'css/guild-announcements.css' %}">
 {% if kiln_home %}<link rel="stylesheet" href="{% static 'css/kiln-tickets.css' %}">{% endif %}
 {% if show_polls_tab %}<link rel="stylesheet" href="{% static 'css/polls.css' %}">{% endif %}
@@ -63,9 +64,13 @@
             {% if guild.logo_prefix %}
             <img src="{% static 'img/guild_logos/'|add:guild.logo_prefix|add:'_bw.svg' %}" width="40" height="40" alt="" style="flex-shrink:0;">
             {% endif %}
-            <h1 class="pl-guild-hero__title" style="margin:0;">{{ guild.name }}</h1>
+            <div class="pl-newguild-title">
+                <h1 class="pl-guild-hero__title" style="margin:0;">{{ guild.name }}</h1>
+                {% if guild.is_new_guild %}<span class="pl-newguild-badge" data-newguild-badge data-guidance-target="guild.newguild-badge">New Guild</span>{% endif %}
+            </div>
         </div>
         {% if guild.guild_lead %}<div class="pl-guild-hero__lead" style="margin-top:0;">Led by {{ guild.guild_lead.display_name }}</div>{% endif %}
+        {% if guild.is_new_guild %}<p class="pl-newguild-note" data-newguild-note>This guild is new and still getting fleshed out! Join in and help shape it.</p>{% endif %}
         {% if can_edit_this_guild %}
         {# Editor-only hero controls. The Join/Member CTA moved out to the stat-chips row below. #}
         <div style="display:flex; gap:0.5rem; margin-top:0.75rem; flex-wrap:wrap; align-items:center;">

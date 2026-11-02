@@ -1,0 +1,19 @@
+bump = "minor"
+date = "2026-11-02"
+audience = ["admins", "members"]
+feature = "admin.guilds"
+guidance = "shots"
+title = "Guilds still getting set up can wear a New Guild badge"
+changes = [
+  "A guild that is new and still getting set up can show a gold New Guild badge on its page, on its card in the guild directory and on its row in the sidebar, inviting members to join in and help shape it.",
+  "Admins turn the badge on and off, and choose whether members can see each guild, from the new Guilds page in Admin Tools or from a guild's settings. A guild with the badge stays on the voting ballot like any other guild.",
+]
+
+[[shots]]
+caption = "Open Admin Tools and press Guilds, under Manage."
+
+[[shots]]
+caption = "Every guild is one row. Turn on its New Guild switch; it saves the moment you flip it."
+
+[[shots]]
+caption = "The guild's page shows the gold New Guild badge beside its name, with a line inviting members to help shape it."

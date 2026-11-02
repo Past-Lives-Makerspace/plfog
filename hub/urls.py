@@ -920,6 +920,7 @@ urlpatterns = [
         name="hub_admin_voting_results_draft",
     ),
     path("manage/voting/settings/", views.voting_settings, name="hub_admin_voting_settings"),
+    path("manage/guilds/", views.admin_guilds, name="hub_admin_guilds"),
     path("manage/members/", views.admin_members, name="hub_admin_members"),
     path("manage/members/invite/", views.admin_member_invite, name="hub_admin_member_invite"),
     path("manage/members/create/", views.admin_member_create, name="hub_admin_member_create"),

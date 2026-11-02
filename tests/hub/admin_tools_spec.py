@@ -284,6 +284,7 @@ _ADMIN_SECTIONS = [
             "Manage All Classes",
             "Manage Events",
             "Manage Members",
+            "Guilds",
             "Member Agreement",
             "Manage Mailing Lists",
             "Cubbies",
@@ -336,7 +337,7 @@ def describe_admin_tools_sections():
         _login_superuser(client, "sections_once")
         GuildFactory()
         titles = _card_titles(client)
-        assert len(titles) == len(set(titles)) == 28
+        assert len(titles) == len(set(titles)) == 29
 
     def it_keeps_the_help_key_on_the_wrapper_the_admin_tour_targets(client: Client):
         _login_superuser(client, "sections_help_key")
