@@ -47,13 +47,13 @@ if TYPE_CHECKING:
 
 
 def cycle_label(moment: datetime) -> str:
-    """The voting cycle label for ``moment`` (e.g. ``"June 2026"``)."""
-    return moment.strftime("%B %Y")
+    """The voting cycle label for ``moment`` (e.g. ``"June 2026"``), read in local time (#1078)."""
+    return timezone.localtime(moment).strftime("%B %Y")
 
 
 def cycle_period(moment: datetime) -> str:
-    """The dedupe period bucket for the cycle containing ``moment`` (``"voting:YYYY-MM"``)."""
-    return f"voting:{moment:%Y-%m}"
+    """The dedupe period bucket for the cycle containing ``moment`` (``"voting:YYYY-MM"``), in local time."""
+    return f"voting:{timezone.localtime(moment):%Y-%m}"
 
 
 def month_end_close(moment: datetime) -> datetime:
@@ -61,12 +61,14 @@ def month_end_close(moment: datetime) -> datetime:
 
     The cycle closes when the month rolls over: midnight on the 1st of the *next*
     month, in the active (project) timezone. Returned as an aware datetime so the
-    scheduler's window math compares like-for-like with ``timezone.now()``.
+    scheduler's window math compares like-for-like with ``timezone.now()``. ``moment`` is
+    read in local time (#1078), so 5 PM Pacific on the last day is not already next month.
     """
-    if moment.month == 12:
-        next_year, next_month = moment.year + 1, 1
+    local = timezone.localtime(moment)
+    if local.month == 12:
+        next_year, next_month = local.year + 1, 1
     else:
-        next_year, next_month = moment.year, moment.month + 1
+        next_year, next_month = local.year, local.month + 1
     naive_close = datetime(next_year, next_month, 1, 0, 0, 0)
     return timezone.make_aware(naive_close, timezone.get_current_timezone())
 
@@ -76,10 +78,11 @@ def closes_on_display(moment: datetime) -> str:
 
     The close *instant* is midnight on the 1st of next month, but members think of
     voting as closing on the last day of the current month — so we display that last
-    day, matching ``membership.cycle.get_cycle_context``.
+    day, matching ``membership.cycle.get_cycle_context``. Read in local time (#1078).
     """
-    last_day = calendar.monthrange(moment.year, moment.month)[1]
-    return moment.replace(day=last_day).strftime("%B %d, %Y").replace(" 0", " ")
+    local = timezone.localtime(moment)
+    last_day = calendar.monthrange(local.year, local.month)[1]
+    return local.replace(day=last_day).strftime("%B %d, %Y").replace(" 0", " ")
 
 
 def cycle_start(moment: datetime) -> datetime:

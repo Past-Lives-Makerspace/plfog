@@ -22,7 +22,10 @@ from membership.models import Member, VotingSettings
 from membership.voting import (
     close_period,
     closed_cycle_end,
+    closes_on_display,
     closing_soon_occurrences,
+    cycle_label,
+    cycle_period,
     cycle_start,
     cycle_turnout_stats,
     month_end_close,
@@ -89,6 +92,15 @@ def describe_cycle_timing_helpers():
         assert previous_cycle_label(five_pm) == "September 2026"
         assert close_period(five_pm) == "voting_close:2026-09"
         assert closed_cycle_end(five_pm) == _aware(2026, 10, 1)
+
+    def it_reads_the_open_cycle_in_local_time_on_the_last_evening_of_the_month():
+        """5:30 PM Pacific on Oct 31 is November in UTC; the open cycle is still October (#1078)."""
+        evening = _aware(2026, 10, 31, 17).astimezone(UTC) + timedelta(minutes=30)
+        assert evening.month == 11  # what the old code read
+        assert month_end_close(evening) == _aware(2026, 11, 1)
+        assert cycle_period(evening) == "voting:2026-10"
+        assert cycle_label(evening) == "October 2026"
+        assert closes_on_display(evening) == "October 31, 2026"
 
     def it_closes_the_month_at_local_midnight_on_the_first():
         just_after = _aware(2026, 11, 1).astimezone(UTC) + timedelta(minutes=1)

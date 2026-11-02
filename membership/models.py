@@ -13641,7 +13641,7 @@ class FundingSnapshot(models.Model):
         announcement (:meth:`draft_results_announcement`).
 
         Args:
-            title: Custom label for the snapshot. Defaults to current month/year.
+            title: Custom label for the snapshot. Defaults to the current local month/year.
             minimum_pool: Dollar floor applied to the funding pool. Pool is
                 ``max(paying_voters × $10, minimum_pool)``. ``None`` (the default)
                 resolves to ``VotingSettings.load().minimum_pool_floor``; an explicit
@@ -13710,7 +13710,7 @@ class FundingSnapshot(models.Model):
             minimum_pool=minimum_pool_value,
         )
 
-        cycle_label = title.strip() if title.strip() else timezone.now().strftime("%B %Y")
+        cycle_label = title.strip() if title.strip() else timezone.localtime().strftime("%B %Y")
 
         snapshot = cls.objects.create(
             cycle_label=cycle_label,
