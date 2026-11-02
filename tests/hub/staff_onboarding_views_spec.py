@@ -217,7 +217,7 @@ def describe_seed_wiki_staff_rules():
         assert "Managing them anywhere else is no longer allowed." in page.body
         assert staff_onboarding.rules_page_path() == reverse("hub_wiki_page", args=[page.slug])
 
-    def it_lets_members_read_the_article_and_only_admins_edit_it(lead: Member):
+    def it_lets_members_and_leads_read_the_article_and_only_admins_edit_it(lead: Member):
         call_command("seed_wiki_staff_rules")
         page = WikiPage.objects.get(title=staff_onboarding.RULES_PAGE_TITLE)
         assert page.status == WikiPage.Status.OFFICIAL
@@ -229,6 +229,18 @@ def describe_seed_wiki_staff_rules():
         assert _client(member).get(reverse("hub_wiki_edit", args=[page.slug])).status_code == 403
         assert _client(lead).get(reverse("hub_wiki_edit", args=[page.slug])).status_code == 403
         assert _client(admin).get(reverse("hub_wiki_edit", args=[page.slug])).status_code == 200
+        assert page.admins_only_edit
+
+    def it_gives_a_guild_officer_read_only():
+        call_command("seed_wiki_staff_rules")
+        page = WikiPage.objects.get(title=staff_onboarding.RULES_PAGE_TITLE)
+        officer = _member("corvin", fog_role=Member.FogRole.GUILD_OFFICER)
+        client = _client(officer)
+        assert client.get(reverse("hub_wiki_page", args=[page.slug])).status_code == 200
+        assert client.get(reverse("hub_wiki_edit", args=[page.slug])).status_code == 403
+        assert client.post(reverse("hub_wiki_edit", args=[page.slug]), {"title": "Changed"}).status_code == 403
+        page.refresh_from_db()
+        assert page.title == staff_onboarding.RULES_PAGE_TITLE
 
     def it_writes_nothing_on_a_dry_run():
         call_command("seed_wiki_staff_rules", "--dry-run")
@@ -248,3 +260,28 @@ def describe_the_modal_component():
         assert "pl-modal__close" not in required
         assert "@click.outside" not in required
         assert "open = true" in required
+
+
+def describe_the_admins_only_wiki_level():
+    """WikiPage.admins_only_edit: the lock itself, on any page, ahead of Official and moderation."""
+
+    def it_admits_only_an_admin_to_edit_or_moderate_any_admins_only_page():
+        from django.test import RequestFactory
+
+        from hub.view_as import ViewAs
+        from membership.permissions import can_edit_wiki_page, can_moderate_wiki_page
+
+        page = WikiPage.objects.create_page(title="Loftwick Notes", kind=WikiPage.Kind.REFERENCE, author=None)
+        page.admins_only_edit = True
+        page.save(update_fields=["admins_only_edit"])
+        for username, role, allowed in (
+            ("ada", Member.FogRole.ADMIN, True),
+            ("odo", Member.FogRole.GUILD_OFFICER, False),
+            ("mab", Member.FogRole.MEMBER, False),
+        ):
+            member = _member(username, fog_role=role)
+            request = RequestFactory().get("/")
+            request.user = member.user
+            request.view_as = ViewAs.for_request(request)
+            assert can_edit_wiki_page(request, page) is allowed
+            assert can_moderate_wiki_page(request, page) is allowed

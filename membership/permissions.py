@@ -51,6 +51,12 @@ def is_effective_staff(request: HttpRequest) -> bool:
     return view_as is not None and (view_as.is_admin or view_as.is_guild_officer)
 
 
+def _is_effective_admin(request: HttpRequest) -> bool:
+    """True when the request's effective role is admin (``view_as`` aware): not a guild officer."""
+    view_as = getattr(request, "view_as", None)
+    return view_as is not None and view_as.is_admin
+
+
 def _editing_member(request: HttpRequest) -> Member | None:
     """The linked Member behind this request when it may act as a member, else None.
 
@@ -826,6 +832,9 @@ def can_moderate_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
     co-lead, secretary, treasurer and orientor. A space-wide page (``guild`` is None) is
     moderatable by effective staff only.
     """
+    if page.admins_only_edit:
+        # An admins-only page is archived and restored by admins only, as it is edited (#1076).
+        return _is_effective_admin(request)
     return can_moderate_wiki_scope(request, page.guild)
 
 
@@ -859,6 +868,9 @@ def _is_own_unpublished_proposal(request: HttpRequest, page: WikiPage) -> bool:
 
 def can_edit_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
     """True when this request may edit the page's title, body, facts, and attachments.
+
+    ``admins_only_edit`` pages (#1076): effective admins only, checked before everything else,
+    so neither a guild officer nor an author carve-out reaches them.
 
     ``OFFICIAL`` pages: effective staff only (admins/officers) — a member sees no edit
     affordance at all, not a disabled one. An archived page: ``can_moderate_wiki_page``
@@ -897,6 +909,9 @@ def can_edit_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
     # locked rule never grants on Official content — and the author carve-out below is
     # deliberately inside this branch and after the archived guard, so an archived
     # proposal stays moderators-only.
+    if page.admins_only_edit:
+        # The narrowest lock (#1076): admins only, ahead of every other leg, officers included.
+        return _is_effective_admin(request)
     if page.status == WikiPage.Status.OFFICIAL:
         if _is_own_unpublished_proposal(request, page):
             return True
