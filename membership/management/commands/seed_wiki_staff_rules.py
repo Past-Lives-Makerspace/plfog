@@ -5,7 +5,7 @@ which falls back to the wiki home until it exists). It states the rule Felix set
 that orientations, reservations, equipment and email lists run through the Member Portal and
 nowhere else, and where each Guild Staff Tool lives.
 
-It is seeded Official, so members read it and only admins and guild officers edit it. Like the
+It is seeded Official and admins only: members and guild officers read it, only admins edit it. Like the
 other wiki seeders it never touches a page that exists: a live space-wide page with this
 title, in any state and by any author, is left as it is. It is NOT part of any deploy; run it by
 hand once after the release.
@@ -70,8 +70,8 @@ class Command(BaseCommand):
         if options["dry_run"]:
             self.stdout.write(f"Would add '{RULES_PAGE_TITLE}'.")
             return
-        # Official is the wiki's existing lock: members read it, only admins and guild officers
-        # edit it (membership.permissions.can_edit_wiki_page). The rules are the space's, not a member's.
+        # Official, and admins only: members and guild officers read it, only admins edit or
+        # archive it (WikiPage.admins_only_edit, membership.permissions.can_edit_wiki_page).
         page = WikiPage.objects.create_page(
             title=RULES_PAGE_TITLE,
             kind=WikiPage.Kind.REFERENCE,
@@ -83,5 +83,6 @@ class Command(BaseCommand):
         # Written content, not a stub: without the stamp the reading page shows it as empty and
         # the wiki home lists it under Pages Waiting For You (WikiPage.has_written_body).
         page.body_edited_at = timezone.now()
-        page.save(update_fields=["body_edited_at"])
+        page.admins_only_edit = True
+        page.save(update_fields=["body_edited_at", "admins_only_edit"])
         self.stdout.write(f"Added '{RULES_PAGE_TITLE}' at /wiki/p/{page.slug}/.")
