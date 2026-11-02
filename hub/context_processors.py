@@ -13,6 +13,7 @@ from core.whats_new import unopened
 from hub.spotlight import LatestUpdate, sees_spotlight
 from kiln.access import KilnNav
 from membership.models import AdminCapability, Guild, Member
+from membership.permissions import sidebar_guilds
 
 # The per-class management screen an admin lands on. After #399 that is
 # ``/classes/teach/classes/<pk>/…`` for everyone — the old ``/classes/admin/<pk>/`` pages
@@ -67,10 +68,9 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
     tools_page_title = _tools_page_title(request, member)
     version_card = sees_spotlight(member)
     return {
-        # Inactive guilds are hidden everywhere they're listed (directory, voting,
-        # My Guilds) — the sidebar follows suit. Their detail pages stay reachable
-        # by direct link, which is how the Help Center's example guild works.
-        "guilds": Guild.objects.filter(is_active=True).order_by("name"),
+        # Active guilds, plus the hidden ones this viewer may open (admins, the guild's lead and staff),
+        # which the template tags Hidden. Hidden guilds stay off every other list.
+        "guilds": sidebar_guilds(request),
         "user_initials": initials,
         "user_profile_photo_url": photo_url,
         "can_use_admin_tools": tools_page_title is not None,
