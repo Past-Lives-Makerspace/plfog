@@ -40,7 +40,14 @@ from core.validators import (
 )
 from core.features import DEFAULT_SOON_MESSAGE
 from core.events.scheduling import next_tick
-from core.models import CalendarFeed, FeatureSwitch, FeedbackRequest, ScheduledJobState, SiteConfiguration
+from core.models import (
+    CalendarFeed,
+    FeatureSwitch,
+    FeedbackRequest,
+    ScheduledJobState,
+    SiteConfiguration,
+    split_discord_ids,
+)
 from core.widgets import PageContentEditorWidget, RichBodyEditorWidget, RichTextEditorWidget
 from membership.forms import member_picker_key, member_picker_labels, member_picker_lookup, setup_location_field
 from membership.markdown import sanitize_page_submission, sanitize_wiki_submission
@@ -1728,6 +1735,7 @@ class SiteSettingsForm(_OwnFieldErrorsOnly):
             "discord_member_role_id",
             "discord_role_message_channel_id",
             "discord_role_message_id",
+            "discord_role_message_extra_ids",
             "member_event_policy",
             "member_google_calendar_id",
             "public_google_calendar_id",
@@ -1752,6 +1760,14 @@ class SiteSettingsForm(_OwnFieldErrorsOnly):
             "public_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
             "discord_info_links_content": forms.Textarea(attrs={"rows": 14}),
         }
+
+    def clean_discord_role_message_extra_ids(self) -> str:
+        """Accept Discord message ids (digits only) and store them comma separated."""
+        ids = split_discord_ids(self.cleaned_data["discord_role_message_extra_ids"])
+        bad = [part for part in ids if not part.isdigit()]
+        if bad:
+            raise forms.ValidationError(f"Not a Discord message id: {', '.join(bad)}. Ids are numbers only.")
+        return ", ".join(ids)
 
     def clean_discord_info_links_content(self) -> str:
         """Cap the links copy at Discord's embed-description limit before it can 400 a sync."""
