@@ -19,17 +19,16 @@ from typing import Any
 import pytest
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.db.migrations.loader import MigrationLoader
 from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory
+from classes.spec.migrations._head import migrate_all_to_head
 
 _APP = "classes"
 _BEFORE = "0064_video_provider_help_text"
 _AFTER = "0065_cancel_duplicate_signups"
 # The real head, read off the graph: ``ClassOfferingFactory`` writes with the current model, so
 # a pinned name goes stale the day a later migration drops a column (0072 did).
-_HEAD = MigrationLoader(None).graph.leaf_nodes(_APP)[0][1]
 
 _migration = import_module(f"classes.migrations.{_AFTER}")
 MARKER = _migration.MARKER
@@ -99,7 +98,7 @@ def describe_migration_0065_cancel_duplicate_signups():
                 assert row.cancellation_reason == reason_for("pending")
                 assert row.cancelled_at is not None
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_leaves_a_lone_registration_alone():
         try:
@@ -114,7 +113,7 @@ def describe_migration_0065_cancel_duplicate_signups():
             assert row.cancellation_reason == ""
             assert row.cancelled_at is None
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_leaves_an_already_cancelled_row_out_of_the_group():
         try:
@@ -128,7 +127,7 @@ def describe_migration_0065_cancel_duplicate_signups():
             assert _row(apps, live).status == "pending"
             assert _row(apps, gone).cancellation_reason == ""
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_keeps_the_paid_row_when_an_unpaid_one_is_older():
         try:
@@ -142,7 +141,7 @@ def describe_migration_0065_cancel_duplicate_signups():
             assert _row(apps, paid).status == "confirmed"
             assert _row(apps, unpaid).status == "cancelled"
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_leaves_the_same_email_on_a_different_class_alone():
         try:
@@ -157,7 +156,7 @@ def describe_migration_0065_cancel_duplicate_signups():
             assert _row(apps, here).status == "pending"
             assert _row(apps, there).status == "pending"
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def describe_the_reverse():
         def it_restores_every_row_the_migration_cancelled():
@@ -176,7 +175,7 @@ def describe_migration_0065_cancel_duplicate_signups():
                 assert restored.cancelled_at is None
                 assert _row(apps, kept).status == "pending"
             finally:
-                _migrate(_HEAD)
+                migrate_all_to_head()
 
         def it_restores_a_waitlisted_row_as_waitlisted():
             try:
@@ -191,7 +190,7 @@ def describe_migration_0065_cancel_duplicate_signups():
 
                 assert _row(apps, queued).status == "waitlisted"
             finally:
-                _migrate(_HEAD)
+                migrate_all_to_head()
 
         def it_leaves_a_row_an_admin_cancelled_where_it_is():
             try:
@@ -211,7 +210,7 @@ def describe_migration_0065_cancel_duplicate_signups():
                 assert row.cancellation_reason == "Registrant emailed us to drop."
                 assert MARKER not in row.cancellation_reason
             finally:
-                _migrate(_HEAD)
+                migrate_all_to_head()
 
     def describe_a_duplicate_that_carries_money():
         """Two paid rows is what the worst double-click produced: two sessions, both charged.
@@ -243,7 +242,7 @@ def describe_migration_0065_cancel_duplicate_signups():
                 assert _row(apps, kept).status == "confirmed"
             finally:
                 _row(apps, paid).delete()
-                _migrate(_HEAD)
+                migrate_all_to_head()
 
         def it_names_the_offending_row_in_the_message():
             """A Stripe payment id on the losing row is the signal, whatever its status."""
@@ -268,7 +267,7 @@ def describe_migration_0065_cancel_duplicate_signups():
                 assert "Decide each one by hand" in str(caught.value)
             finally:
                 _row(apps, paid).delete()
-                _migrate(_HEAD)
+                migrate_all_to_head()
 
         def it_still_cancels_an_unpaid_duplicate_alongside_a_paid_keeper():
             """Only a row that would LOSE its seat and holds money stops the migration."""
@@ -285,7 +284,7 @@ def describe_migration_0065_cancel_duplicate_signups():
                 assert _row(apps, keeper).status == "confirmed"
                 assert _row(apps, unpaid).status == "cancelled"
             finally:
-                _migrate(_HEAD)
+                migrate_all_to_head()
 
     def describe_the_provisional_amount_on_an_unpaid_row():
         """The exact shape production carries, and the reason this migration nearly failed a deploy.
@@ -314,7 +313,7 @@ def describe_migration_0065_cancel_duplicate_signups():
                 assert _row(apps, dupe).status == "cancelled"
                 assert _row(apps, dupe).cancellation_reason == reason_for("pending")
             finally:
-                _migrate(_HEAD)
+                migrate_all_to_head()
 
         def it_still_refuses_when_a_confirmed_duplicate_was_settled_in_cash():
             """``mark_paid`` records real money and leaves no Stripe id, only ever on a CONFIRMED row."""
@@ -334,4 +333,4 @@ def describe_migration_0065_cancel_duplicate_signups():
                 assert _row(apps, cash).status == "confirmed"
             finally:
                 _row(apps, cash).delete()
-                _migrate(_HEAD)
+                migrate_all_to_head()

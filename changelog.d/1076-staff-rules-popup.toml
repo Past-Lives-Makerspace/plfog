@@ -1,0 +1,18 @@
+bump = "minor"
+audience = ["guild-staff", "admins"]
+feature = "guild.staff"
+guidance = "shots"
+date = "2026-11-01"
+title = "New guild staff confirm the rules, then get a tour"
+changes = [
+  "A new guild lead or staff member sees the guild rules on their next visit and confirms they have read them before going on.",
+  "Then a glowing Take the Tour button stays on screen until they take the Guild Staff Tools tour or press Exit.",
+  "While that tour is waiting, Home holds back the members' tour banner, so only one tour is offered at a time.",
+  "A Guild Staff Rules and Tools wiki article spells out the rules and where every tool lives. Members can read it; only admins can edit it.",
+]
+
+[[shots]]
+caption = "Your next visit opens the rules. Turn on I have read the rules, then press I Understand."
+
+[[shots]]
+caption = "Then press Take the Tour to see where your guild's tools live, or Exit."

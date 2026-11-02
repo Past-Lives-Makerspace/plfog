@@ -1,0 +1,21 @@
+{% comment %}The guild staff rules popup's body (#1076), inside components/modal.html with modal_required: no X, so I Understand, enabled only once the switch is on, is the way past it. A badge per rule, the key phrase bold, the rule itself in a warning callout. Context from hub.context_processors.staff_onboarding.{% endcomment %}
+<p class="pl-staff-rules__lead">You can now run <strong>{{ staff_onboarding_guilds|join:", " }}</strong> from the Member Portal. Every guild follows these rules:</p>
+<ul class="pl-staff-rules__list">
+    <li class="pl-staff-rules__rule"><span class="hub-badge pl-staff-rules__badge">Orientations</span><span>Offer them, set hours and confirm bookings <strong>in the Member Portal</strong>.</span></li>
+    <li class="pl-staff-rules__rule"><span class="hub-badge pl-staff-rules__badge">Reservations</span><span>Rooms, spaces and tools are <strong>reserved in the Member Portal</strong>.</span></li>
+    <li class="pl-staff-rules__rule"><span class="hub-badge pl-staff-rules__badge">Equipment</span><span>Agreements and sign-offs <strong>live in the Member Portal</strong>.</span></li>
+    <li class="pl-staff-rules__rule"><span class="hub-badge pl-staff-rules__badge">Email Lists</span><span>Write to your members from <strong>Email Members</strong>.</span></li>
+</ul>
+<div class="pl-staff-rules__callout" role="note">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+    <p><strong>No more outside management.</strong> Managing any of these outside the Member Portal is no longer allowed.</p>
+</div>
+<p class="pl-staff-rules__more"><a href="{{ staff_rules_url }}" target="_blank" rel="noopener">Read the Full Rules and Where Every Tool Lives →</a></p>
+<form method="post" action="{% url 'hub_staff_rules_confirm' %}" x-data="{ read: false }" class="pl-staff-rules__form" data-guidance-target="guild.staff-rules">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    {% include "components/toggle.html" with field=staff_rules_form.read_rules toggle_label="I have read the rules" %}
+    <div class="pl-modal__actions">
+        <button type="submit" class="pl-btn pl-btn--primary" :disabled="!read">I Understand</button>
+    </div>
+</form>

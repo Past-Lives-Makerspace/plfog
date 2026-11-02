@@ -10,17 +10,16 @@ from __future__ import annotations
 import pytest
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.db.migrations.loader import MigrationLoader
 from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory
-from classes.models import Category
+from classes.models import Category, ClassOffering
 from membership.models import Guild
+from classes.spec.migrations._head import migrate_all_to_head
 
 _APP = "classes"
 _BEFORE = "0093_split_multi_date_single_classes"
 _AFTER = "0094_guild_class_types"
-_HEAD = MigrationLoader(None).graph.leaf_nodes(_APP)[0][1]
 
 
 def _migrate(target: str) -> None:
@@ -50,7 +49,7 @@ def describe_migration_0094_guild_class_types():
             assert list(Category.objects.filter(guild=wood)) == [woodworking]
             assert not Category.objects.filter(name__in=["Cartographers", "Gone"]).exists()
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_links_an_unlinked_match_and_skips_one_another_guild_owns():
         try:
@@ -69,17 +68,20 @@ def describe_migration_0094_guild_class_types():
             assert owned.guild == owner
             assert not Category.objects.filter(guild=other).exists()
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_reverses_by_deleting_only_the_empty_class_types_it_made():
         try:
+            # Built at head (it makes an instructor, a Member); it takes the migration's class type
+            # below by a plain update, which writes no Member.
+            offering = ClassOfferingFactory()
             _migrate(_BEFORE)
             weaving = _guild("Weaving Guild", "weaving-guild")
             kept = Category.objects.create(name="Weaving", slug="weaving", guild=weaving, icon_svg="<svg></svg>")
             empty = _guild("Printmaking Guild", "printmaking-guild")
             used = _guild("Prison Outreach Guild", "prison-outreach-guild")
             _migrate(_AFTER)
-            ClassOfferingFactory(category=Category.objects.get(guild=used))
+            ClassOffering.objects.filter(pk=offering.pk).update(category=Category.objects.get(guild=used))
 
             _migrate(_BEFORE)
 
@@ -87,4 +89,4 @@ def describe_migration_0094_guild_class_types():
             assert Category.objects.filter(guild=used).exists()
             assert Category.objects.filter(pk=kept.pk).exists()
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()

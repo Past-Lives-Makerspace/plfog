@@ -19,6 +19,14 @@
     padding: 1rem;
 }
 
+/* Every open modal puts the page's floating controls behind it (#1076). The feedback button
+   (and the guild staff tour dock) sit lower in the stack already, but the backdrop is see
+   through, so a bright gold bubble at a phone modal's corner read as on top of it. An open
+   backdrop is one Alpine has not hidden: x-show writes display: none on a closed one. */
+body:has(.pl-modal-backdrop:not([style*="display: none"])) :is(.hub-feedback-fab, .pl-walkthrough-dock) {
+    visibility: hidden;
+}
+
 .pl-modal {
     background: var(--hub-card-bg, #0f2d44);
     border: 1px solid rgba(255, 255, 255, 0.08);

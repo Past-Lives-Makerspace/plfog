@@ -17,7 +17,7 @@ from django.db import transaction
 from django import forms
 from django.conf import settings
 from django.core.exceptions import NON_FIELD_ERRORS
-from django.db.models import Case, Q, QuerySet, Value, When
+from django.db.models import Case, Q, QuerySet, TextChoices, Value, When
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import escape
@@ -40,7 +40,14 @@ from core.validators import (
 )
 from core.features import DEFAULT_SOON_MESSAGE
 from core.events.scheduling import next_tick
-from core.models import CalendarFeed, FeatureSwitch, FeedbackRequest, ScheduledJobState, SiteConfiguration
+from core.models import (
+    CalendarFeed,
+    FeatureSwitch,
+    FeedbackRequest,
+    ScheduledJobState,
+    SiteConfiguration,
+    split_discord_ids,
+)
 from core.widgets import PageContentEditorWidget, RichBodyEditorWidget, RichTextEditorWidget
 from membership.forms import member_picker_key, member_picker_labels, member_picker_lookup, setup_location_field
 from membership.markdown import sanitize_page_submission, sanitize_wiki_submission
@@ -1728,6 +1735,7 @@ class SiteSettingsForm(_OwnFieldErrorsOnly):
             "discord_member_role_id",
             "discord_role_message_channel_id",
             "discord_role_message_id",
+            "discord_role_message_extra_ids",
             "member_event_policy",
             "member_google_calendar_id",
             "public_google_calendar_id",
@@ -1752,6 +1760,14 @@ class SiteSettingsForm(_OwnFieldErrorsOnly):
             "public_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
             "discord_info_links_content": forms.Textarea(attrs={"rows": 14}),
         }
+
+    def clean_discord_role_message_extra_ids(self) -> str:
+        """Accept Discord message ids (digits only) and store them comma separated."""
+        ids = split_discord_ids(self.cleaned_data["discord_role_message_extra_ids"])
+        bad = [part for part in ids if not part.isdigit()]
+        if bad:
+            raise forms.ValidationError(f"Not a Discord message id: {', '.join(bad)}. Ids are numbers only.")
+        return ", ".join(ids)
 
     def clean_discord_info_links_content(self) -> str:
         """Cap the links copy at Discord's embed-description limit before it can 400 a sync."""
@@ -8652,3 +8668,31 @@ class WikiWantedFulfilForm(forms.Form):
         if page is None:
             raise forms.ValidationError("That page is not in this guild.")
         return page
+
+
+class StaffRulesConfirmForm(forms.Form):
+    """The guild staff rules popup (#1076): the one switch a new lead or staffer turns on to go on."""
+
+    read_rules = forms.BooleanField(
+        required=True,
+        label="I have read the rules",
+        # The popup's I Understand stays disabled until this is on.
+        widget=forms.CheckboxInput(attrs={"x-model": "read"}),
+    )
+
+
+class WalkthroughChoiceForm(forms.Form):
+    """Take or Exit on a walkthrough button (#1076): which walkthrough, and the choice."""
+
+    class Choice(TextChoices):
+        TAKE = "take", "Take the Tour"
+        EXIT = "exit", "Exit"
+
+    tour_key = forms.ChoiceField(choices=())
+    choice = forms.ChoiceField(choices=Choice.choices)
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        from core.tours import TOURS
+
+        super().__init__(*args, **kwargs)
+        cast(forms.ChoiceField, self.fields["tour_key"]).choices = [(key, key) for key in TOURS]

@@ -235,6 +235,88 @@
     .pl-wn-shots__track { transition: none; } /* the next step appears; nothing slides */
 }
 
+/* ---- The walkthrough button (#1076): components/walkthrough_button.html ---- */
+.pl-walkthrough { display: inline-flex; align-items: center; gap: 0.5rem; }
+.pl-walkthrough-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    height: 2.4rem;
+    padding: 0 0.9rem;
+    border-radius: 999px;
+    border: 1px solid var(--hub-border-strong);
+    background: var(--hub-elevated);
+    color: var(--hub-text);
+    font-family: var(--font-heading);
+    font-size: 0.88rem;
+    font-weight: 700;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+.pl-walkthrough-btn:hover { border-color: var(--color-tuscan-yellow); color: var(--hub-link); }
+.pl-walkthrough-btn:focus-visible { outline: 2px solid var(--hub-blue); outline-offset: 2px; }
+.pl-walkthrough-btn svg { width: 1.15rem; height: 1.15rem; flex: 0 0 auto; }
+/* The onboarding offer glows in the New! gold until they take the tour or exit. */
+.pl-walkthrough-btn--glow {
+    border-color: transparent;
+    background: linear-gradient(135deg, var(--pl-new-from), var(--pl-new-to));
+    color: #092E4C;
+    animation: pl-walkthrough-glow 2.4s ease-in-out infinite;
+}
+.pl-walkthrough-btn--glow:hover { color: #092E4C; }
+@keyframes pl-walkthrough-glow {
+    0%, 100% { box-shadow: 0 0 0 0 var(--pl-new-ring), 0 0 10px 2px rgba(255, 211, 106, 0.35); }
+    50% { box-shadow: 0 0 0 6px transparent, 0 0 22px 6px rgba(255, 211, 106, 0.55); }
+}
+.pl-walkthrough-dock {
+    position: fixed;
+    right: 1.5rem;
+    bottom: 1.5rem;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+    max-width: 22rem;
+    padding: 1rem 1.25rem;
+    border-radius: 12px;
+    border: 1px solid var(--hub-border-strong);
+    background: var(--hub-card-bg);
+    color: var(--hub-text);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+.pl-walkthrough-dock__text { margin: 0; font-size: 0.9rem; line-height: 1.45; }
+@media (max-width: 640px) {
+    .pl-walkthrough-dock { left: 1rem; right: 1rem; bottom: 5rem; max-width: none; }
+}
+/* The guild staff rules popup's body: a badge per rule, the rule itself in a warning callout. */
+.pl-staff-rules__lead { margin: 0 0 1rem; }
+.pl-staff-rules__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; }
+.pl-staff-rules__rule { display: grid; grid-template-columns: 7.5rem 1fr; align-items: baseline; gap: 0.75rem; line-height: 1.5; }
+.pl-staff-rules__badge { justify-self: start; white-space: nowrap; }
+[data-theme="light"] .pl-staff-rules__badge { background: rgba(180, 120, 10, 0.12); color: #8a5a00; }
+.pl-staff-rules__callout {
+    --pl-callout-ink: #fbbf24;
+    --pl-callout-wash: rgba(251, 191, 36, 0.12);
+    display: flex; gap: 0.75rem; align-items: flex-start;
+    margin-top: 1.5rem; padding: 0.875rem 1rem;
+    border-left: 4px solid var(--pl-callout-ink); border-radius: 8px;
+    background: var(--pl-callout-wash);
+}
+[data-theme="light"] .pl-staff-rules__callout { --pl-callout-ink: #a16207; --pl-callout-wash: rgba(180, 120, 10, 0.1); }
+.pl-staff-rules__callout svg { width: 1.25rem; height: 1.25rem; flex: 0 0 auto; margin-top: 0.1rem; color: var(--pl-callout-ink); }
+.pl-staff-rules__callout p { margin: 0; line-height: 1.5; }
+.pl-staff-rules__callout strong { color: var(--pl-callout-ink); }
+.pl-staff-rules__more { margin: 1rem 0 0; }
+.pl-staff-rules__form { margin-top: 1.5rem; }
+.pl-staff-rules__form .pl-modal__actions { margin-top: 1.5rem; }
+.pl-staff-rules__form .pl-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+@media (max-width: 480px) {
+    .pl-staff-rules__rule { grid-template-columns: 1fr; gap: 0.25rem; }
+}
+@media (prefers-reduced-motion: reduce) { .pl-walkthrough-btn--glow { animation: none; } }
+
 /* ---- The one step highlight (#1051): Open <feature> lands on ?show=<key> and Show me stays put; both ring
    the one control carrying data-guidance-target="<key>" through the tour's Driver.js stage and popover
    (pl_tour.js show). The ring is the brand gold on the ringed element itself, inside Driver's stage padding,
