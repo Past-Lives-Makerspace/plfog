@@ -144,32 +144,49 @@ def describe_rules_page_path():
         assert staff_onboarding.rules_page_path() == f"/wiki/p/{page.slug}/"
 
 
-def describe_staff_onboarding_step():
-    def it_is_nothing_for_someone_never_granted():
-        assert _member("orrin").staff_onboarding_step() is None
+def describe_the_step_the_hub_owes():
+    def it_owes_nothing_to_someone_never_granted():
+        assert _member("orrin").staff_onboarding_step == ""
 
-    def it_asks_for_the_rules_then_the_tour_then_nothing(guild: Guild):
+    def it_owes_the_rules_then_the_tour_then_nothing(guild: Guild):
         member = _member("orrin")
         guild.assign_lead(member)
-        assert member.staff_onboarding_step() == Step.RULES
+        member.refresh_from_db()
+        assert member.staff_onboarding_step == Step.RULES
 
-        GuildStaffOnboardingEvent.objects.create(member=member, action=Action.CONFIRMED)
-        assert member.staff_onboarding_step() == Step.TOUR
+        staff_onboarding.confirm_rules(member)
+        assert member.staff_onboarding_step == Step.TOUR
 
-        GuildStaffOnboardingEvent.objects.create(
-            member=member, action=Action.TOUR_EXITED, tour_key=staff_onboarding.ONBOARDING_TOUR
-        )
-        assert member.staff_onboarding_step() is None
+        staff_onboarding.record_tour_choice(member, staff_onboarding.ONBOARDING_TOUR, taken=False)
+        assert member.staff_onboarding_step == ""
+        assert list(member.staff_onboarding_events.order_by("pk").values_list("action", "tour_key")) == [
+            (Action.GRANTED, ""),
+            (Action.CONFIRMED, ""),
+            (Action.TOUR_EXITED, staff_onboarding.ONBOARDING_TOUR),
+        ]
 
     def it_keeps_offering_the_onboarding_tour_after_another_walkthrough(guild: Guild):
         member = _member("orrin")
         guild.assign_lead(member)
-        GuildStaffOnboardingEvent.objects.create(member=member, action=Action.CONFIRMED)
-        GuildStaffOnboardingEvent.objects.create(member=member, action=Action.TOUR_TAKEN, tour_key="member-welcome")
-        assert member.staff_onboarding_step() == Step.TOUR
+        member.refresh_from_db()
+        staff_onboarding.confirm_rules(member)
+        staff_onboarding.record_tour_choice(member, "member-welcome", taken=True)
+        assert member.staff_onboarding_step == Step.TOUR
+        assert member.staff_onboarding_events.filter(action=Action.TOUR_TAKEN, tour_key="member-welcome").exists()
 
-    def it_is_nothing_once_they_no_longer_lead_or_staff_a_guild(guild: Guild):
+    def it_logs_a_walkthrough_choice_without_changing_a_finished_welcome():
+        member = _member("orrin")
+        staff_onboarding.record_tour_choice(member, staff_onboarding.ONBOARDING_TOUR, taken=True)
+        assert member.staff_onboarding_step == ""
+        staff_onboarding.confirm_rules(member)
+        assert member.staff_onboarding_step == ""
+
+    def it_does_not_ask_for_the_rules_again_on_a_second_guild(guild: Guild):
         member = _member("orrin")
         guild.assign_lead(member)
-        guild.clear_lead()
-        assert member.staff_onboarding_step() is None
+        member.refresh_from_db()
+        staff_onboarding.confirm_rules(member)
+        staff_onboarding.record_tour_choice(member, staff_onboarding.ONBOARDING_TOUR, taken=True)
+        GuildFactory(name="Saltmarsh Guild").add_staff(member, role=GuildStaffMembership.Role.ORIENTER)
+        member.refresh_from_db()
+        assert member.staff_onboarding_step == ""

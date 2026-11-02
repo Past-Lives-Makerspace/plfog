@@ -2,8 +2,8 @@
 
 A grant (:meth:`Guild.assign_lead`, :meth:`Guild.add_staff`) records a ``GRANTED`` step and,
 once the grant commits, emails the member a map of their tools and the rules for using them.
-The hub then shows the rules popup and the tour button, each recording its own step, so
-:meth:`Member.staff_onboarding_step` always reads one log.
+The hub then shows the rules popup and the tour button from :attr:`Member.staff_onboarding_step`,
+which every function here keeps in step with the log, so a page knows what to show without a query.
 """
 
 from __future__ import annotations
@@ -107,11 +107,44 @@ def send_welcome(event: GuildStaffOnboardingEvent) -> None:
 
 
 def record_grant(member: Member, guild: Guild) -> GuildStaffOnboardingEvent:
-    """Log a new lead or staff grant and send the welcome email once the grant commits."""
-    from membership.models import GuildStaffOnboardingEvent
+    """Log a new lead or staff grant, owe the rules popup, and send the welcome email once it commits.
+
+    The popup is owed once per person: someone who already confirmed the rules on another guild
+    is not asked again, and one still owed a step keeps it.
+    """
+    from membership.models import GuildStaffOnboardingEvent, Member
 
     event = GuildStaffOnboardingEvent.objects.create(
         member=member, guild=guild, action=GuildStaffOnboardingEvent.Action.GRANTED
     )
+    if (
+        not member.staff_onboarding_step
+        and not member.staff_onboarding_events.filter(action=GuildStaffOnboardingEvent.Action.CONFIRMED).exists()
+    ):
+        member.staff_onboarding_step = Member.StaffOnboardingStep.RULES
+        member.save(update_fields=["staff_onboarding_step"])
     transaction.on_commit(lambda: send_welcome(event))
     return event
+
+
+def confirm_rules(member: Member) -> None:
+    """The member confirmed they read the rules: log it, and offer the onboarding tour next."""
+    from membership.models import GuildStaffOnboardingEvent, Member
+
+    GuildStaffOnboardingEvent.objects.create(member=member, action=GuildStaffOnboardingEvent.Action.CONFIRMED)
+    if member.staff_onboarding_step == Member.StaffOnboardingStep.RULES:
+        member.staff_onboarding_step = Member.StaffOnboardingStep.TOUR
+        member.save(update_fields=["staff_onboarding_step"])
+
+
+def record_tour_choice(member: Member, tour_key: str, *, taken: bool) -> None:
+    """The member took or exited a walkthrough: log it; the onboarding tour's choice ends the welcome."""
+    from membership.models import GuildStaffOnboardingEvent, Member
+
+    Action = GuildStaffOnboardingEvent.Action
+    GuildStaffOnboardingEvent.objects.create(
+        member=member, action=Action.TOUR_TAKEN if taken else Action.TOUR_EXITED, tour_key=tour_key
+    )
+    if tour_key == ONBOARDING_TOUR and member.staff_onboarding_step == Member.StaffOnboardingStep.TOUR:
+        member.staff_onboarding_step = ""
+        member.save(update_fields=["staff_onboarding_step"])

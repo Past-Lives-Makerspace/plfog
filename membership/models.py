@@ -980,6 +980,26 @@ class Member(StaffRequestMixin, models.Model):
             "(null = not dismissed yet). Set once they act on it, so it never shows again."
         ),
     )
+
+    class StaffOnboardingStep(models.TextChoices):
+        """What the hub still owes a new guild lead or staffer (#1076)."""
+
+        RULES = "rules", "Confirm the rules"
+        TOUR = "tour", "Take or exit the tour"
+
+    staff_onboarding_step = models.CharField(
+        max_length=10,
+        choices=StaffOnboardingStep.choices,
+        blank=True,
+        default="",
+        # The release before this one still inserts members during the deploy.
+        db_default="",
+        help_text=(
+            "Where a new guild lead or staffer is in their Guild Staff Tools welcome: the rules popup, "
+            "then the tour button, then blank. Kept on the member so a page reads it without a query; "
+            "membership.staff_onboarding writes it alongside the step log."
+        ),
+    )
     onboarding_dismissed_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -1923,32 +1943,6 @@ class Member(StaffRequestMixin, models.Model):
     def staffed_guilds(self) -> models.QuerySet[Guild]:
         """Guilds this member leads or holds any staff role on (i.e. has lead authority)."""
         return Guild.objects.filter(models.Q(guild_lead=self) | models.Q(staff_memberships__member=self)).distinct()
-
-    class StaffOnboardingStep(models.TextChoices):
-        """Where a new lead or staffer is in their Guild Staff Tools welcome (#1076)."""
-
-        RULES = "rules", "Read the rules"
-        TOUR = "tour", "Take or exit the tour"
-
-    def staff_onboarding_step(self) -> Member.StaffOnboardingStep | None:
-        """What the hub still owes this member after a lead or staff grant, or None when nothing.
-
-        ``RULES`` until they confirm the rules popup, then ``TOUR`` until they take or exit the
-        tour. None for anyone never granted since this shipped (no backfill) and for anyone who
-        no longer leads or staffs a guild. One query for the steps; a second only after a grant.
-        """
-        from membership.staff_onboarding import ONBOARDING_TOUR
-
-        Action = GuildStaffOnboardingEvent.Action
-        steps = set(self.staff_onboarding_events.values_list("action", "tour_key"))
-        actions = {action for action, _tour in steps}
-        if Action.GRANTED not in actions or not self.staffed_guilds.exists():
-            return None
-        if Action.CONFIRMED not in actions:
-            return self.StaffOnboardingStep.RULES
-        if steps.isdisjoint({(Action.TOUR_TAKEN, ONBOARDING_TOUR), (Action.TOUR_EXITED, ONBOARDING_TOUR)}):
-            return self.StaffOnboardingStep.TOUR
-        return None
 
     @property
     def class_reviewed_guilds(self) -> models.QuerySet[Guild]:
@@ -4316,9 +4310,10 @@ class GuildStaffOnboardingEvent(models.Model):
     """One step of a new guild lead's or staffer's welcome to Guild Staff Tools (#1076).
 
     An append-only log, one row per step, so admins can see who read the rules and who took or
-    passed on a walkthrough: the onboarding tour and every feature's own (``tour_key``). ``GRANTED`` is written by :meth:`Guild.assign_lead` and
-    :meth:`Guild.add_staff`; the others by the hub's rules popup and tour button. The popup and
-    the button read their state from it through :meth:`Member.staff_onboarding_step`.
+    passed on a walkthrough: the onboarding tour and every feature's own (``tour_key``).
+    ``GRANTED`` is written by :meth:`Guild.assign_lead` and :meth:`Guild.add_staff`, the others
+    by the hub's rules popup and walkthrough buttons, all through ``membership.staff_onboarding``,
+    which keeps :attr:`Member.staff_onboarding_step` (what the hub shows next) in step with it.
     """
 
     class Action(models.TextChoices):
