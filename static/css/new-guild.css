@@ -1,4 +1,4 @@
-/* Founding Guild (#1086): the gold badge a new guild carries while it is still being set up, and
+/* New Guild (#1086): the gold badge a new guild carries while it is still being set up, and
    Admin Tools > Guilds, the table where admins switch it and Visible to members.
 
    Loaded by hub/guild_detail.html, guilds/directory.html and hub/admin/guilds.html. The guild page
@@ -6,7 +6,7 @@
    token here carries its fallback. The badge is a gold FILL with navy text in both themes: it sits
    on the hero's dark shade, on a card's photo and on a light card, and reads on all three. */
 
-.pl-founding-badge {
+.pl-newguild-badge {
     display: inline-flex;
     align-items: center;
     flex-shrink: 0;
@@ -20,7 +20,7 @@
     box-shadow: 0 2px 10px rgba(238, 180, 75, 0.25);
 }
 
-.pl-founding-badge--sm {
+.pl-newguild-badge--sm {
     padding: 0.125rem 0.5rem;
     font-size: 0.6875rem;
     box-shadow: none;
@@ -28,14 +28,14 @@
 
 /* The guild page hero: the name and the badge on one line that wraps on a phone, then the
    explainer line under the lead. */
-.pl-founding-title {
+.pl-newguild-title {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem 0.75rem;
 }
 
-.pl-founding-note {
+.pl-newguild-note {
     margin: 0.5rem 0 0;
     max-width: 40rem;
     font-size: 0.9375rem;
@@ -45,13 +45,13 @@
 
 /* A hero with no banner is the theme's own gradient; in light it is pale above and shaded below,
    so the line takes the title's dark text (the muted tone vanishes into the shade). */
-[data-theme="light"] .pl-guild-hero--noimg .pl-founding-note {
+[data-theme="light"] .pl-guild-hero--noimg .pl-newguild-note {
     color: var(--hub-text, #1D1E1E);
     font-weight: 600;
 }
 
 /* The directory card: top right of the picture, clear of the Featured tag on the left. */
-.cp-page .pl-guild-dir__founding {
+.cp-page .pl-guild-dir__newguild {
     position: absolute;
     top: 8px;
     right: 8px;

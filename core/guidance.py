@@ -422,7 +422,7 @@ _GUIDANCE_LIST = (
         url_name="hub_admin_guilds",
         steps=(
             "Open Guilds from Admin Tools, under Manage.",
-            "Every guild is one row. Visible to members hides or shows the guild; Founding Guild puts a gold badge on a new guild's page, directory card and sidebar row.",
+            "Every guild is one row. Visible to members hides or shows the guild; New Guild puts a gold badge on the guild's page, directory card and sidebar row.",
             "Each switch saves the moment you flip it. Settings opens that guild's settings page.",
         ),
     ),

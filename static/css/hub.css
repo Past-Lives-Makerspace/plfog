@@ -397,10 +397,10 @@ a:hover { color: var(--hub-link-hover); }
     white-space: nowrap;
 }
 
-/* A Founding Guild's tag (#1086): the Hidden tag's shape in gold. A founding guild's tags sit in
-   one column at the end of the row, so Hidden and Founding stack rather than run past the
+/* A New Guild's tag (#1086): the Hidden tag's shape in gold. A New Guild's tags sit in
+   one column at the end of the row, so Hidden and New Guild stack rather than run past the
    sidebar's edge. */
-.hub-sidebar__private--founding {
+.hub-sidebar__private--newguild {
     border-color: var(--color-tuscan-yellow);
     background: var(--color-tuscan-yellow);
     color: #061f33;

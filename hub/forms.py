@@ -5409,29 +5409,29 @@ class GuildReservationsSettingsForm(forms.ModelForm):
 
 
 class GuildVisibilityForm(forms.ModelForm):
-    """Admin-only switches for a guild: Visible to members and Founding Guild (#1086).
+    """Admin-only switches for a guild: Visible to members and New Guild (#1086).
 
     Two booleans on :class:`~membership.models.Guild`, rendered as toggles on the guild
     editor's Basic tab and on each row of Admin Tools > Guilds, both posting this whole form
     to ``guild_visibility_save``. Turning Visible off sets ``is_active=False``, which removes
     the guild from the sidebar, the guild directory, the community calendar, and voting, but
     the guild page and its settings page stay reachable by direct link, so an admin can turn
-    it back on. Founding Guild only adds a badge; it changes nothing about voting. Save is
+    it back on. New Guild only adds a badge; it changes nothing about voting. Save is
     gated to an effective admin in the view; a guild lead never sees or reaches these.
     """
 
     class Meta:
         model = Guild
-        fields = ["is_active", "is_founding"]
-        labels = {"is_active": "Visible to members", "is_founding": "Founding Guild"}
+        fields = ["is_active", "is_new_guild"]
+        labels = {"is_active": "Visible to members", "is_new_guild": "New Guild"}
         help_texts = {
             "is_active": (
                 "When off, this guild is hidden from the sidebar, the guild directory, the "
                 "Calendar, and voting. Its guild page and this settings page stay "
                 "reachable by direct link, so an admin can turn it back on."
             ),
-            "is_founding": (
-                "Shows a gold Founding Guild badge on the guild page, its directory card and its "
+            "is_new_guild": (
+                "Shows a gold New Guild badge on the guild page, its directory card and its "
                 "sidebar row, inviting members to help shape a new guild. It does not change voting. "
                 "Turn it off when the guild graduates."
             ),
@@ -5441,12 +5441,12 @@ class GuildVisibilityForm(forms.ModelForm):
     def for_row(cls, guild: Guild) -> Self:
         """The form for one row of the Guilds page: ids unique per guild, each switch named for its guild.
 
-        The field names stay plain (``is_active``, ``is_founding``) so the row posts to the same
+        The field names stay plain (``is_active``, ``is_new_guild``) so the row posts to the same
         endpoint as the guild editor; only the ids, the accessible names and the ``form`` attribute
         change, because the page renders one of these per guild.
         """
         form = cls(instance=guild, auto_id=f"id_guild{guild.pk}_%s")
-        names = {"is_active": "visible to members", "is_founding": "Founding Guild"}
+        names = {"is_active": "visible to members", "is_new_guild": "New Guild"}
         for name, label in names.items():
             # A <form> cannot wrap a table row, so each switch joins its row's form by id.
             form.fields[name].widget.attrs.update(

@@ -1,11 +1,11 @@
-"""End-to-end: Admin Tools > Guilds switches save themselves, and a Founding Guild wears its badge (#1086).
+"""End-to-end: Admin Tools > Guilds switches save themselves, and a New Guild wears its badge (#1086).
 
 Pytest's Django client never runs the autosave script, so this flips the switches in a real
-browser: Founding Guild on one row saves at once (the save pill reads Saved), survives a reload,
+browser: New Guild on one row saves at once (the save pill reads Saved), survives a reload,
 leaves the other row alone, and puts the gold badge on that guild's page; Visible to members off
 hides the guild. On a phone the table folds into one card per guild with no sideways scroll.
 
-Waits are on what the page shows, never a fixed sleep. Set ``CAPTURE_FOUNDING_GUILD_SCREENSHOTS=1``
+Waits are on what the page shows, never a fixed sleep. Set ``CAPTURE_NEW_GUILD_SCREENSHOTS=1``
 to write the PR screenshots and the What's New shots to ``mockups/screenshots/1086/``. Run with
 ``pytest -m e2e`` on PostgreSQL.
 """
@@ -25,9 +25,9 @@ from tests.e2e.guidance import shoot
 from tests.features import turn_on
 from tests.membership.factories import GuildFactory, MembershipPlanFactory
 
-ADMIN_EMAIL = "founding-guild-admin@example.com"
+ADMIN_EMAIL = "new-guild-admin@example.com"
 SHOTS = Path(__file__).resolve().parents[2] / "mockups" / "screenshots" / "1086"
-CAPTURE = bool(os.environ.get("CAPTURE_FOUNDING_GUILD_SCREENSHOTS"))
+CAPTURE = bool(os.environ.get("CAPTURE_NEW_GUILD_SCREENSHOTS"))
 ALPINE_READY = "() => !!(document.querySelector('[data-guild-autosave]') || {})._x_dataStack"
 SAVED_PAST = (
     "(n) => { const pill = document.querySelector('[data-save-pill]');"
@@ -85,28 +85,28 @@ def _capture(page, name: str, *, locator=None) -> None:
 
 
 def describe_admin_guilds_page():
-    def it_saves_founding_guild_at_once_and_the_guild_page_shows_the_badge(live_server, page, login_via_code):
+    def it_saves_new_guild_at_once_and_the_guild_page_shows_the_badge(live_server, page, login_via_code):
         glass, weaving = _guilds()
         _sign_in_as_admin(login_via_code)
         _open_guilds_page(page, live_server)
 
-        box = page.locator(f"#id_guild{glass.pk}_is_founding")
+        box = page.locator(f"#id_guild{glass.pk}_is_new_guild")
         expect(box).not_to_be_checked()
-        _flip(page, glass, "is_founding")
+        _flip(page, glass, "is_new_guild")
         page.wait_for_function(SAVED_PAST, arg=1)
         glass.refresh_from_db()
         weaving.refresh_from_db()
-        assert (glass.is_active, glass.is_founding) == (True, True)
-        assert weaving.is_founding is False
+        assert (glass.is_active, glass.is_new_guild) == (True, True)
+        assert weaving.is_new_guild is False
 
         page.reload()
         page.wait_for_function(ALPINE_READY)
-        expect(page.locator(f"#id_guild{glass.pk}_is_founding")).to_be_checked()
-        expect(page.locator(f"[data-guild-row='{glass.pk}'] [data-founding-badge]")).to_be_visible()
+        expect(page.locator(f"#id_guild{glass.pk}_is_new_guild")).to_be_checked()
+        expect(page.locator(f"[data-guild-row='{glass.pk}'] [data-newguild-badge]")).to_be_visible()
 
         page.goto(f"{live_server.url}{reverse('hub_guild_detail', args=[glass.slug])}")
-        expect(page.locator("[data-founding-badge]")).to_have_text("Founding Guild")
-        expect(page.locator("[data-founding-note]")).to_be_visible()
+        expect(page.locator("[data-newguild-badge]")).to_have_text("New Guild")
+        expect(page.locator("[data-newguild-note]")).to_be_visible()
 
     def it_hides_a_guild_from_its_row(live_server, page, login_via_code):
         glass, _weaving = _guilds()
@@ -116,7 +116,7 @@ def describe_admin_guilds_page():
         _flip(page, glass, "is_active")
         page.wait_for_function(SAVED_PAST, arg=1)
         glass.refresh_from_db()
-        assert (glass.is_active, glass.is_founding) == (False, False)
+        assert (glass.is_active, glass.is_new_guild) == (False, False)
 
     def it_folds_into_cards_on_a_phone(live_server, page, login_via_code):
         _guilds()
@@ -132,10 +132,10 @@ def describe_the_pictures():
         """Walks every surface the PR shows; the What's New shots land in tmp_path unless capturing."""
         out = SHOTS if CAPTURE else tmp_path
         glass, _weaving = _guilds()
-        glass.is_founding = True
+        glass.is_new_guild = True
         glass.is_featured = True
-        glass.save(update_fields=["is_founding", "is_featured"])
-        Guild.objects.filter(name="Leather Guild").update(is_founding=True)
+        glass.save(update_fields=["is_new_guild", "is_featured"])
+        Guild.objects.filter(name="Leather Guild").update(is_new_guild=True)
         _sign_in_as_admin(login_via_code)
 
         # What's New: Admin Tools' card, the Guilds page's column, the guild page badge.
@@ -146,9 +146,9 @@ def describe_the_pictures():
             no_thanks.click()
         shoot(page, out / "step-1.png", target="admin.guilds-card")
         _open_guilds_page(page, live_server)
-        shoot(page, out / "step-2.png", target="admin.guilds-founding")
+        shoot(page, out / "step-2.png", target="admin.guilds-newguild")
         page.goto(f"{live_server.url}{reverse('hub_guild_detail', args=[glass.slug])}")
-        shoot(page, out / "step-3.png", target="guild.founding-badge")
+        shoot(page, out / "step-3.png", target="guild.newguild-badge")
 
         # The PR pictures.
         page.set_viewport_size({"width": 1280, "height": 800})
@@ -193,7 +193,7 @@ def describe_the_pictures():
         page.goto(f"{live_server.url}{reverse('hub_home')}")
         _theme(page, "dark")
         page.get_by_role("button", name="Toggle sidebar").click()
-        tag = nav.get_by_role("link", name="Leather Guild").locator("[data-sidebar-founding]")
+        tag = nav.get_by_role("link", name="Leather Guild").locator("[data-sidebar-newguild]")
         tag.scroll_into_view_if_needed()
         expect(tag).to_be_visible()
         assert page.evaluate(NO_SIDEWAYS_SCROLL)
@@ -204,7 +204,7 @@ def describe_the_pictures():
         page.set_viewport_size({"width": 1280, "height": 800})
         page.goto(f"{live_server.url}{reverse('hub_guild_directory')}")
         cards = page.locator(".pl-guild-dir__grid")
-        expect(cards.locator("[data-founding-badge]")).to_have_count(1)
+        expect(cards.locator("[data-newguild-badge]")).to_have_count(1)
         for theme in ("dark", "light"):
             _theme(page, theme)
             _capture(page, f"directory-{theme}.png", locator=cards)

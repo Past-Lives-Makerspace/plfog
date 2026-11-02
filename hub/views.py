@@ -1681,7 +1681,7 @@ def guild_delete(request: HttpRequest, pk: int) -> HttpResponse:
 @login_required
 @require_POST
 def guild_visibility_save(request: HttpRequest, pk: int) -> HttpResponse:
-    """Save a guild's two admin switches: Visible to members and Founding Guild. Admin only.
+    """Save a guild's two admin switches: Visible to members and New Guild. Admin only.
 
     Posted whole (both booleans) by :class:`~hub.forms.GuildVisibilityForm` from the guild
     editor's Basic tab and from each row of Admin Tools > Guilds (:func:`admin_guilds`, #1086).
@@ -5809,7 +5809,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
         "tool_registrations": guild_tools is not None
         and ClassOffering.objects.filter(category__guild__in=guild_tools.guilds).exists(),
         "tool_manage_members": is_admin,
-        # Every guild's Visible and Founding Guild switches in one table (#1086).
+        # Every guild's Visible and New Guild switches in one table (#1086).
         "tool_guilds": is_admin,
         # Guild cubbies (#977): admins open the manager here, with its guild picker.
         "tool_cubbies": is_admin,
