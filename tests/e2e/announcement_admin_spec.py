@@ -151,10 +151,15 @@ def describe_the_rows():
         _spotlight(page, live_server)
         assert _row_texts(page) == ["Zorblax 1", "Zorblax 2", "Zorblax 3"]
 
-        page.locator(ROWS).nth(0).get_by_role("button", name="Move Spotlight message down").click()
+        # The rows move on the click, before the save lands; wait on each save so the
+        # reload below never races the second one.
+        saved = reverse("hub_admin_announcement_reorder")
+        with page.expect_response(lambda r: r.url.endswith(saved) and r.ok):
+            page.locator(ROWS).nth(0).get_by_role("button", name="Move Spotlight message down").click()
         expect(page.locator(TOAST).last).to_have_text("Order saved.")
         assert _row_texts(page) == ["Zorblax 2", "Zorblax 1", "Zorblax 3"]
-        page.locator(ROWS).nth(2).get_by_role("button", name="Move Spotlight message up").click()
+        with page.expect_response(lambda r: r.url.endswith(saved) and r.ok):
+            page.locator(ROWS).nth(2).get_by_role("button", name="Move Spotlight message up").click()
         expect(page.locator(f"{ROWS} [data-announcement-text]").nth(1)).to_have_text("Zorblax 3")
 
         page.reload()

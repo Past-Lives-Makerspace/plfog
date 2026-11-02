@@ -138,6 +138,8 @@ from membership.permissions import (
 from membership.permissions import can_edit_category as _can_edit_category
 from membership.permissions import can_edit_class as _can_edit_offering
 from membership.permissions import can_edit_guild as _can_edit_guild
+from membership.permissions import can_view_guild as _can_view_guild
+from membership.permissions import sidebar_guilds
 from membership.permissions import can_manage_orientations as _can_manage_orientations
 from membership.permissions import can_propose_to_meeting as _can_propose_to_meeting
 from membership.permissions import editable_meeting_scopes
@@ -148,9 +150,8 @@ logger = logging.getLogger("hub")
 
 def _get_hub_context(request: HttpRequest) -> dict[str, Any]:
     """Build common sidebar context for all hub pages."""
-    # Match hub_sidebar: inactive guilds are unlisted (direct link only). The example/demo
-    # guild rides along here only when the display_demo_guild site setting is on (visible()).
-    guilds = Guild.objects.visible().order_by("name")
+    # The same list as hub_sidebar: visible() guilds, plus the hidden ones this viewer may open.
+    guilds = sidebar_guilds(request)
     initials = ""
     photo_url = ""
     show_welcome_modal = False
@@ -741,6 +742,8 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
         ),
         slug=slug,
     )
+    if not _can_view_guild(request, guild):
+        raise Http404
     ctx = _get_hub_context(request)
     products = guild.products.order_by("name").prefetch_related("splits__guild")
     member = _get_member(request)
