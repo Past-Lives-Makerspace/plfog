@@ -29,14 +29,16 @@ Step = Member.StaffOnboardingStep
 TOUR = staff_onboarding.ONBOARDING_TOUR
 
 
-def _member(username: str) -> Member:
+def _member(username: str, **fields: object) -> Member:
     MembershipPlanFactory()
     user = User.objects.create_user(username=username, email=f"{username}@example.com", password="x")
     member = user.member
     member.status = Member.Status.ACTIVE
     member.full_legal_name = f"{username.title()} Larkspurrow"
     member.welcome_dismissed_at = timezone.now()
-    member.save(update_fields=["status", "full_legal_name", "welcome_dismissed_at"])
+    for name, value in fields.items():
+        setattr(member, name, value)
+    member.save()
     return member
 
 
@@ -68,8 +70,9 @@ def describe_the_rules_popup():
         page = _home(lead)
         assert 'id="staff-rules-title"' in page
         assert "You Now Have Guild Staff Tools" in page
-        assert "You can now run Hollowreed Guild from the Member Portal." in page
-        assert "Managing any of these outside the Member Portal is no longer allowed." in page
+        assert "You can now run <strong>Hollowreed Guild</strong> from the Member Portal." in page
+        assert "No more outside management." in page
+        assert page.count("pl-staff-rules__badge") == 4
         popup = page[page.index('aria-labelledby="staff-rules-title"') :]
         popup = popup[: popup.index("</form>")]
         assert "pl-modal__close" not in popup
@@ -187,6 +190,25 @@ def describe_the_tour_offer():
         assert not GuildStaffOnboardingEvent.objects.exists()
 
 
+def describe_one_tour_offer_on_home():
+    BANNER = "data-tour-banner"
+
+    def it_hides_the_member_tour_banner_while_the_staff_tour_is_pending(lead: Member):
+        from core.models import TourState
+
+        staff_onboarding.confirm_rules(lead)
+        assert BANNER not in _home(lead)
+        assert TourState.objects.status_for(lead.user, "member-welcome") is None
+
+    def it_brings_the_banner_back_once_they_take_or_exit_the_staff_tour(lead: Member):
+        staff_onboarding.confirm_rules(lead)
+        staff_onboarding.record_tour_choice(lead, TOUR, taken=False)
+        assert BANNER in _home(lead)
+
+    def it_still_offers_it_to_an_ordinary_member():
+        assert BANNER in _home(_member("wren"))
+
+
 def describe_seed_wiki_staff_rules():
     def it_adds_the_rules_article_once_and_the_welcome_links_it():
         call_command("seed_wiki_staff_rules")
@@ -194,6 +216,19 @@ def describe_seed_wiki_staff_rules():
         [page] = WikiPage.objects.filter(title=staff_onboarding.RULES_PAGE_TITLE)
         assert "Managing them anywhere else is no longer allowed." in page.body
         assert staff_onboarding.rules_page_path() == reverse("hub_wiki_page", args=[page.slug])
+
+    def it_lets_members_read_the_article_and_only_admins_edit_it(lead: Member):
+        call_command("seed_wiki_staff_rules")
+        page = WikiPage.objects.get(title=staff_onboarding.RULES_PAGE_TITLE)
+        assert page.status == WikiPage.Status.OFFICIAL
+        member = _member("wren")
+        admin = _member("hester", fog_role=Member.FogRole.ADMIN)
+        read = _client(member).get(reverse("hub_wiki_page", args=[page.slug]))
+        assert read.status_code == 200
+        assert "Managing them anywhere else is no longer allowed." in read.content.decode()
+        assert _client(member).get(reverse("hub_wiki_edit", args=[page.slug])).status_code == 403
+        assert _client(lead).get(reverse("hub_wiki_edit", args=[page.slug])).status_code == 403
+        assert _client(admin).get(reverse("hub_wiki_edit", args=[page.slug])).status_code == 200
 
     def it_writes_nothing_on_a_dry_run():
         call_command("seed_wiki_staff_rules", "--dry-run")

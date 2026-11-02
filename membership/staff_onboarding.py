@@ -111,25 +111,50 @@ def send_welcome(event: GuildStaffOnboardingEvent) -> None:
     )
 
 
-def record_grant(member: Member, guild: Guild) -> GuildStaffOnboardingEvent:
-    """Log a new lead or staff grant, owe the rules popup, and send the welcome email once it commits.
+def welcome(member: Member, guild: Guild) -> GuildStaffOnboardingEvent | None:
+    """Welcome ``member`` to Guild Staff Tools once in their life: log it, owe the popup, email after commit.
 
-    The popup is owed once per person: someone who already confirmed the rules on another guild
-    is not asked again, and one still owed a step keeps it.
+    The ``GRANTED`` step is the record: someone who already has one (a new grant before, or the
+    backfill) is never welcomed again, and None comes back. The one welcome path both callers share.
     """
     from membership.models import GuildStaffOnboardingEvent, Member
 
+    if member.staff_onboarding_events.filter(action=GuildStaffOnboardingEvent.Action.GRANTED).exists():
+        return None
     event = GuildStaffOnboardingEvent.objects.create(
         member=member, guild=guild, action=GuildStaffOnboardingEvent.Action.GRANTED
     )
-    if (
-        not member.staff_onboarding_step
-        and not member.staff_onboarding_events.filter(action=GuildStaffOnboardingEvent.Action.CONFIRMED).exists()
-    ):
-        member.staff_onboarding_step = Member.StaffOnboardingStep.RULES
-        member.save(update_fields=["staff_onboarding_step"])
+    member.staff_onboarding_step = Member.StaffOnboardingStep.RULES
+    member.save(update_fields=["staff_onboarding_step"])
     transaction.on_commit(lambda: send_welcome(event))
     return event
+
+
+def record_grant(member: Member, guild: Guild) -> GuildStaffOnboardingEvent | None:
+    """A new lead or a first staff role on ``guild``: welcome them, unless they were welcomed before."""
+    return welcome(member, guild)
+
+
+def backfill_candidates() -> list[tuple[Member, Guild]]:
+    """Every current guild lead and staffer never welcomed, each with the first guild they run by name.
+
+    Live guilds only (not soft deleted), hidden ones included: a hidden guild's staff run it too.
+    """
+    from membership.models import Guild, GuildStaffOnboardingEvent
+
+    welcomed = GuildStaffOnboardingEvent.objects.filter(action=GuildStaffOnboardingEvent.Action.GRANTED).values(
+        "member_id"
+    )
+    first: dict[int, tuple[Member, Guild]] = {}
+    for guild in (
+        Guild.objects.order_by("name").select_related("guild_lead").prefetch_related("staff_memberships__member")
+    ):
+        people = [guild.guild_lead] if guild.guild_lead is not None else []
+        people += [row.member for row in guild.staff_memberships.all()]
+        for person in people:
+            first.setdefault(person.pk, (person, guild))
+    skip = set(welcomed.values_list("member_id", flat=True))
+    return sorted((pair for pk, pair in first.items() if pk not in skip), key=lambda pair: pair[0].display_name)
 
 
 def confirm_rules(member: Member) -> None:

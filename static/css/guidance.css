@@ -290,13 +290,31 @@
 @media (max-width: 640px) {
     .pl-walkthrough-dock { left: 1rem; right: 1rem; bottom: 5rem; max-width: none; }
 }
-/* The guild staff rules popup's body. */
-.pl-staff-rules__lead { margin: 0 0 0.75rem; }
-.pl-staff-rules__list { margin: 0 0 0.75rem; padding-left: 1.25rem; line-height: 1.6; }
-.pl-staff-rules__list li { margin: 0 0 0.35rem; }
-.pl-staff-rules__form { margin-top: 0.75rem; }
+/* The guild staff rules popup's body: a badge per rule, the rule itself in a warning callout. */
+.pl-staff-rules__lead { margin: 0 0 1rem; }
+.pl-staff-rules__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; }
+.pl-staff-rules__rule { display: grid; grid-template-columns: 7.5rem 1fr; align-items: baseline; gap: 0.75rem; line-height: 1.5; }
+.pl-staff-rules__badge { justify-self: start; white-space: nowrap; }
+[data-theme="light"] .pl-staff-rules__badge { background: rgba(180, 120, 10, 0.12); color: #8a5a00; }
+.pl-staff-rules__callout {
+    --pl-callout-ink: #fbbf24;
+    --pl-callout-wash: rgba(251, 191, 36, 0.12);
+    display: flex; gap: 0.75rem; align-items: flex-start;
+    margin-top: 1.5rem; padding: 0.875rem 1rem;
+    border-left: 4px solid var(--pl-callout-ink); border-radius: 8px;
+    background: var(--pl-callout-wash);
+}
+[data-theme="light"] .pl-staff-rules__callout { --pl-callout-ink: #a16207; --pl-callout-wash: rgba(180, 120, 10, 0.1); }
+.pl-staff-rules__callout svg { width: 1.25rem; height: 1.25rem; flex: 0 0 auto; margin-top: 0.1rem; color: var(--pl-callout-ink); }
+.pl-staff-rules__callout p { margin: 0; line-height: 1.5; }
+.pl-staff-rules__callout strong { color: var(--pl-callout-ink); }
+.pl-staff-rules__more { margin: 1rem 0 0; }
+.pl-staff-rules__form { margin-top: 1.5rem; }
 .pl-staff-rules__form .pl-modal__actions { margin-top: 1.5rem; }
 .pl-staff-rules__form .pl-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+@media (max-width: 480px) {
+    .pl-staff-rules__rule { grid-template-columns: 1fr; gap: 0.25rem; }
+}
 @media (prefers-reduced-motion: reduce) { .pl-walkthrough-btn--glow { animation: none; } }
 /* A tab's walkthrough button sits on its own row at the top of the tab, right aligned. */
 .pl-walkthrough-row { display: flex; justify-content: flex-end; margin: 0 0 1rem; }
