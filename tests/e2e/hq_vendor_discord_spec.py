@@ -1,4 +1,4 @@
-"""End-to-end: Check Discord on Vendor Tables (#1014). An admin opens Discord Channel beside the vendor sheet and saves
+"""End-to-end: Check Discord on Vendor Tables (#1014). An admin opens Discord Channel beside the space map capacity and saves
 the channel's id (one that is not digits comes back refused, the box open); Check Discord then appears beside Import
 CSV, and pressing it loads the new posters over the list. Skip takes one away; Add as Request puts the other on the
 list with the counts moved, and the panel says nothing is new. At a phone's width and a desktop's the page with the

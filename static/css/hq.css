@@ -2617,26 +2617,13 @@ a.pl-hq-card:focus-visible {
 .pl-hq-vt__import-problems li + li {
   margin-top: 0.25rem;
 }
-/* The vendor sheet (#1013): Pull From Sheet Now beside Import CSV, the last pull over the list, and the admins' link
-   field, held to a readable width. */
+/* The inline form beside Import CSV that holds Check Discord's button, and the red line a panel says why in. */
 .pl-hq-vt__pull {
   display: inline;
   margin: 0;
 }
-.pl-hq-vt__pull-when {
-  margin: 0 0 0.75rem;
-  font-size: 0.88rem;
-  color: var(--pl-hq-vol-muted);
-}
-.pl-hq-vt__pull-link {
-  font-weight: 700;
-  color: var(--pl-hq-vol-gold);
-}
 .pl-hq-vt__pull-error {
   color: var(--pl-hq-vt-bad);
-}
-.pl-hq-vt__sheet-field {
-  max-width: 520px;
 }
 /* Check Discord (#1014): the panel over the list, a card per new poster with their posts and two buttons, and the
    admins' channel id field, sized to an id. */
