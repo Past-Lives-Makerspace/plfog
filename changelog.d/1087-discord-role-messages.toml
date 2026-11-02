@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-11-02"
+audience = ["admins"]
+guidance = "none"
+title = "Guild picks count from more than one Discord message"
+changes = [
+  "Discord allows 20 reactions per message, so the guild picker in #choose-your-guild can now span more than one message.",
+  "Add the extra message ids under More reaction-role message ids in Site Settings, Discord tab. A reaction on any of them joins that guild, and nobody is dropped from a guild while they still react on one of them.",
+]
