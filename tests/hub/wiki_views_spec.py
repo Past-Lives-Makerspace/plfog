@@ -86,9 +86,10 @@ def _preview_as(client: Client, role: str) -> None:
 # That fixed cost must stay the same with one page or a full list of cards. 40 with the Spotlight's
 # second query, its live announcements (#890). 39 with Guild Tools (#921): the tools entry asks
 # whether the member runs a guild in one EXISTS where it asked about leads and staff in two. 37 since #935: the
-# sidebar's Spotlight is a static version card, so neither of its two queries runs. 41 with the usage log
-# (#1078): its role read, its insert and the savepoint pair around them, the same for any number of rows.
-_HOME_QUERY_BUDGET = 41
+# sidebar's Spotlight is a static version card, so neither of its two queries runs. 36 since the hidden-guild
+# sidebar: the guild list reads the demo guild setting inside its one query. 37 with the usage log (#1078):
+# its one insert, the same for any number of rows.
+_HOME_QUERY_BUDGET = 37
 
 
 def describe_the_feature_switch():

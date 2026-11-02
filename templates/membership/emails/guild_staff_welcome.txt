@@ -1,0 +1,18 @@
+{% autoescape off %}Hi {{ first_name }},
+
+You now have Guild Staff Tools for {{ guild.name }}. You can run the guild from the Member Portal: {{ guild_url }}
+
+Here is where everything lives:
+{% for name, purpose, url in tools %}
+{{ name }}: {{ purpose }}
+  {{ url }}
+{% endfor %}
+THE RULES
+Your guild's orientations, reservations, equipment and email lists all run through the Member Portal. Managing them anywhere else is no longer allowed.
+Read the full rules: {{ rules_url }}
+
+Take the tour: {{ tour_url }}
+
+Next time you open the Member Portal we will ask you to confirm you have read the rules. You can take the tour again any time from the Help page.
+
+{% include "membership/emails/_footer.txt" %}{% endautoescape %}

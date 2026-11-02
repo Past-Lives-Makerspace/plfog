@@ -1,0 +1,24 @@
+# Runs on the Render web instance: creates each guild hidden (is_active=False). Idempotent by name.
+import os
+import sys
+
+sys.path.insert(0, "/app")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "plfog.settings")
+import django
+
+django.setup()
+from django.db import connection, transaction
+
+from membership.models import Guild
+
+print(connection.settings_dict["HOST"])
+ROWS = []
+with transaction.atomic():
+    for row in ROWS:
+        g = Guild.all_objects.filter(name=row["name"]).first()
+        if g is None:
+            g = Guild(is_active=False, **row)
+            g.save()
+            print("created", g.pk, g.name, g.slug, "active" if g.is_active else "hidden")
+        else:
+            print("exists", g.pk, g.name, g.slug, "active" if g.is_active else "hidden")

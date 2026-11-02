@@ -181,8 +181,9 @@ def describe_query_count():
 #: The whole page as an admin sees it: the hub shell's reads plus the dashboard's aggregates. 35 with the Holiday
 #: Bizarre sidebar entry (HQ card sharing): one EXISTS over the HQs for an admin. 36 with the Spotlight's live
 #: announcements (#890), its second query. 34 since #935: the sidebar's Spotlight is a static card that reads nothing.
-#: 37 with the usage log (#1078): its insert and the savepoint pair around it (a superuser's role needs no read).
-QUERIES = 37
+#: 33 since the hidden-guild sidebar: the guild list reads the demo guild setting inside its one query.
+#: 34 with the usage log (#1078): its one insert.
+QUERIES = 34
 
 
 def describe_admin_tools_card():
