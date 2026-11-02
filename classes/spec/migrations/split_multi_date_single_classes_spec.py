@@ -16,7 +16,6 @@ from typing import Any
 import pytest
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.db.migrations.loader import MigrationLoader
 from django.utils import timezone
 
 from classes.factories import (
@@ -28,11 +27,11 @@ from classes.factories import (
     SeriesClassOfferingFactory,
 )
 from classes.models import ClassOffering, ClassSession, CmsActivity, Registration
+from classes.spec.migrations._head import migrate_all_to_head
 
 _APP = "classes"
 _BEFORE = "0092_classinstructor"
 _AFTER = "0093_split_multi_date_single_classes"
-_HEAD = MigrationLoader(None).graph.leaf_nodes(_APP)[0][1]
 
 _migration = import_module(f"classes.migrations.{_AFTER}")
 
@@ -77,7 +76,7 @@ def describe_classes_to_split():
             apps = _migrate(_BEFORE)
             picked = _migration.classes_to_split(apps)
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
         assert picked == [sushi.pk, cancelled_only.pk]
         assert series.pk not in picked and flexible.pk not in picked
 
@@ -93,7 +92,7 @@ def describe_split_all():
             apps = _migrate(_BEFORE)
             made = _migration.split_all(apps)
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
         assert [source for source, _ in made] == [sushi.pk, sushi.pk]
         assert _starts(sushi.pk) == starts[:1]
@@ -120,7 +119,7 @@ def describe_split_all():
             apps = _migrate(_BEFORE)
             made = _migration.split_all(apps)
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
         assert ClassOffering.objects.get(pk=made[0][1]).channel_announced_at == announced
         cup.refresh_from_db()
         assert cup.channel_announced_at == announced
@@ -149,7 +148,7 @@ def describe_merge_all():
             assert _starts(cup.pk) == [starts[0], starts[1]]
             assert _starts(booked) == [starts[2]]
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_skips_a_run_already_deleted():
         cup = _published("Cup", 10, 20)
@@ -159,7 +158,7 @@ def describe_merge_all():
             apps.get_model(_APP, "ClassOffering").objects.filter(pk=made[0][1]).delete()
             removed = _migration.merge_all(apps)
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
         assert removed == []
         assert len(_starts(cup.pk)) == 1
 
@@ -173,7 +172,7 @@ def describe_merge_all():
             assert len(_starts(cup.pk)) == 2
             assert ClassOffering.objects.count() == 1
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
 
 def describe_split_all_when_the_first_date_has_passed():
@@ -183,7 +182,7 @@ def describe_split_all_when_the_first_date_has_passed():
             apps = _migrate(_BEFORE)
             made = _migration.split_all(apps)
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
         first_run, second_run = (ClassOffering.objects.get(pk=run_pk) for _, run_pk in made)
         assert first_run.channel_announced_at is None
         assert second_run.channel_announced_at is not None
@@ -203,4 +202,4 @@ def describe_merge_all_without_a_source():
             assert Offering.objects.filter(pk=run_pk).exists()
             assert len(_starts(run_pk)) == 1
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()

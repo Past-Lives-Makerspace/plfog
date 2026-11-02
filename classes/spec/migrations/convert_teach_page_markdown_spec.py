@@ -13,13 +13,12 @@ from importlib import import_module
 import pytest
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.db.migrations.loader import MigrationLoader
+from classes.spec.migrations._head import migrate_all_to_head
 
 _APP = "classes"
 _BEFORE = "0061_teach_page_money_split_and_rich_text"
 _AFTER = "0062_convert_teach_page_markdown"
 # The real head, read off the graph, so the DB this leaves behind matches the current models.
-_HEAD = MigrationLoader(None).graph.leaf_nodes(_APP)[0][1]
 
 _migration = import_module(f"classes.migrations.{_AFTER}")
 PROSE_FIELDS = _migration.PROSE_FIELDS
@@ -61,7 +60,7 @@ def describe_migration_0062_convert_teach_page_markdown():
                 assert getattr(row, name) == html
             assert row.teach_page_faq.startswith("<h3>")
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_renders_a_custom_markdown_value_to_html_once():
         try:
@@ -79,7 +78,7 @@ def describe_migration_0062_convert_teach_page_markdown():
             assert row.teach_page_expectations == "<ul>\n<li>Be kind.</li>\n<li>Be safe.</li>\n</ul>"
             assert row.teach_page_faq == "<h3>Is It Free?</h3>\n<p>Yes.</p>"
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_leaves_html_and_blank_values_alone():
         try:
@@ -97,7 +96,7 @@ def describe_migration_0062_convert_teach_page_markdown():
             assert row.teach_page_expectations == ""
             assert row.teach_page_faq == "  <h3>Padded</h3><p>Kept as is.</p>"
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_reverse_restores_the_markdown_default_and_leaves_custom_html_alone():
         try:
@@ -115,7 +114,7 @@ def describe_migration_0062_convert_teach_page_markdown():
             assert row.teach_page_expectations == PROSE_FIELDS["teach_page_expectations"][0]
             assert row.teach_page_faq == LEGACY_FAQ_MD
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_does_nothing_with_no_settings_row():
         try:
@@ -124,4 +123,4 @@ def describe_migration_0062_convert_teach_page_markdown():
             apps = _migrate(_AFTER)
             assert apps.get_model(_APP, "ClassSettings").objects.count() == 0
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
