@@ -57,14 +57,19 @@ def everything_new(monkeypatch):
 
 @pytest.fixture
 def admin_lead(client: Client) -> Member:
-    """An admin who leads a guild with every tab on, signed in, with every switchable feature on."""
+    """An admin who leads a guild and may teach, with every tab on, signed in, with every switchable feature on.
+
+    Teaching access (``instructor_oriented_at``) admits the teaching portal's pages: since #1071,
+    ``classes.personal-code`` lives on one, and without it the page redirects to Teach at Past Lives.
+    """
     MembershipPlanFactory()
     for key in ("catalog", "teach", "meetings", "orientations", "equipment", "voting", "wiki", "guilds"):
         turn_on(key)
     user = User.objects.create_user(username="lead", password="pass")
     member = user.member
     member.fog_role = Member.FogRole.ADMIN
-    member.save(update_fields=["fog_role"])
+    member.instructor_oriented_at = timezone.now()
+    member.save(update_fields=["fog_role", "instructor_oriented_at"])
     member.sync_user_permissions()
     GuildFactory(guild_lead=member, show_cubbies_tab=True)
     client.login(username="lead", password="pass")
