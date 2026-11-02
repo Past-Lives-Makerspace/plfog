@@ -1,5 +1,7 @@
 bump = "minor"
 audience = ["guild-staff", "admins"]
+feature = "guild.staff"
+guidance = "shots"
 date = "2026-11-01"
 title = "New guild staff confirm the rules, then get a tour"
 changes = [
@@ -8,3 +10,9 @@ changes = [
   "While that tour is waiting, Home holds back the members' tour banner, so only one tour is offered at a time.",
   "A Guild Staff Rules and Tools wiki article spells out the rules and where every tool lives. Members can read it; only admins can edit it.",
 ]
+
+[[shots]]
+caption = "Your next visit opens the rules. Turn on I have read the rules, then press I Understand."
+
+[[shots]]
+caption = "Then press Take the Tour to see where your guild's tools live, or Exit."

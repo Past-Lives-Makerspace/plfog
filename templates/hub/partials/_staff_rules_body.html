@@ -11,7 +11,7 @@
     <p><strong>No more outside management.</strong> Managing any of these outside the Member Portal is no longer allowed.</p>
 </div>
 <p class="pl-staff-rules__more"><a href="{{ staff_rules_url }}" target="_blank" rel="noopener">Read the Full Rules and Where Every Tool Lives →</a></p>
-<form method="post" action="{% url 'hub_staff_rules_confirm' %}" x-data="{ read: false }" class="pl-staff-rules__form">
+<form method="post" action="{% url 'hub_staff_rules_confirm' %}" x-data="{ read: false }" class="pl-staff-rules__form" data-guidance-target="guild.staff-rules">
     {% csrf_token %}
     <input type="hidden" name="next" value="{{ request.get_full_path }}">
     {% include "components/toggle.html" with field=staff_rules_form.read_rules toggle_label="I have read the rules" %}
