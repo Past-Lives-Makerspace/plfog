@@ -2034,6 +2034,7 @@ class SiteActivity(models.Model):
         CLASS_CANCELLED = "class_cancelled", "Class cancelled"
         REFUND_ISSUED = "refund_issued", "Refund issued"
         FUNDING_SNAPSHOT_TAKEN = "funding_snapshot_taken", "Funding snapshot taken"
+        FUNDING_SNAPSHOT_DELETED = "funding_snapshot_deleted", "Funding snapshot deleted"
         MEMBER_INVITED = "member_invited", "Member invited"
         MEMBER_INVITE_REVOKED = "member_invite_revoked", "Member invite revoked"
         INVITE_ACCEPTED = "invite_accepted", "Invite accepted"

@@ -8833,7 +8833,7 @@ def voting_snapshot_take(request: HttpRequest) -> HttpResponse:
     title = request.POST.get("title", "").strip()
     minimum_pool = parse_minimum_pool(request.POST.get("minimum_pool"))
 
-    snapshot = FundingSnapshot.take(title=title, minimum_pool=minimum_pool)
+    snapshot = FundingSnapshot.take(title=title, minimum_pool=minimum_pool, actor=request.user)
     if snapshot is None:
         messages.warning(request, "No votes yet — nothing to snapshot.")
         return redirect("hub_admin_voting_snapshots")
@@ -8845,7 +8845,7 @@ def voting_snapshot_take(request: HttpRequest) -> HttpResponse:
 @fog_admin_required
 @require_POST
 def voting_snapshot_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    """Hard-delete a snapshot (and its Airtable mirror) and return to the Funding History list.
+    """Hard-delete a snapshot (and its Airtable mirror), log who did it, and return to Funding History.
 
     Refused while the snapshot's results announcement is queued (:attr:`FundingSnapshot.deletion_blocker`).
     """
@@ -8855,7 +8855,7 @@ def voting_snapshot_delete(request: HttpRequest, pk: int) -> HttpResponse:
         messages.error(request, blocker)
         return redirect("hub_admin_voting_history_detail", pk=snapshot.pk)
     cycle_label = snapshot.cycle_label
-    snapshot.delete()
+    snapshot.delete_by(request.user)
     messages.success(request, f"Deleted snapshot '{cycle_label}'.")
     return redirect("hub_admin_voting_history")
 

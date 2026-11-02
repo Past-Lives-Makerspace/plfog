@@ -20,8 +20,8 @@ they are all due in the same 15-minute tick and each member's
 :class:`core.models.EventDelivery` (``user:<pk>`` × ``voting:YYYY-MM``) dedupes to
 once per cycle.
 
-The :func:`previous_cycle_label` / :func:`close_period` / :func:`cycle_start`
-helpers serve the auto-snapshot job (``take_cycle_snapshot``).
+The :func:`previous_cycle_label` / :func:`close_period` / :func:`cycle_start` /
+:func:`closed_cycle_end` helpers serve the auto-snapshot job (``take_cycle_snapshot``).
 """
 
 from __future__ import annotations
@@ -87,15 +87,29 @@ def cycle_start(moment: datetime) -> datetime:
 
     Once the calendar has rolled into a new month, the cycle that just closed is the
     previous month — its start is midnight on the 1st of that month (an aware
-    datetime). Used as the duplicate-snapshot window guard for the auto-snapshot job.
-    Handles the January rollover (previous month is the prior December).
+    datetime). Handles the January rollover (previous month is the prior December).
+
+    ``moment`` is read in local time (#1078): ``timezone.now()`` is UTC, which rolls the
+    month over at 5 PM Pacific on the last day, seven hours before the cycle really closes.
     """
-    if moment.month == 1:
-        year, month = moment.year - 1, 12
+    local = timezone.localtime(moment)
+    if local.month == 1:
+        year, month = local.year - 1, 12
     else:
-        year, month = moment.year, moment.month - 1
+        year, month = local.year, local.month - 1
     naive_start = datetime(year, month, 1, 0, 0, 0)
     return timezone.make_aware(naive_start, timezone.get_current_timezone())
+
+
+def closed_cycle_end(moment: datetime) -> datetime:
+    """The instant the cycle that just closed relative to ``moment`` ended: local midnight on the 1st.
+
+    The auto-snapshot job's duplicate guard counts only snapshots taken since then (#1078). The
+    previous cycle's snapshot is taken in the first days of the month now closing, so a guard
+    from the closed cycle's start always matched and the auto snapshot never ran.
+    """
+    local = timezone.localtime(moment)
+    return timezone.make_aware(datetime(local.year, local.month, 1, 0, 0, 0), timezone.get_current_timezone())
 
 
 def previous_cycle_label(moment: datetime) -> str:
