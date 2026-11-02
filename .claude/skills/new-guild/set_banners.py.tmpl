@@ -1,0 +1,25 @@
+# Runs on the Render web instance: saves each banner (already copied to /tmp) onto its guild.
+# Skips a guild that already has one. Fill BANNERS with (guild pk, file name in /tmp).
+import os
+import sys
+
+sys.path.insert(0, "/app")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "plfog.settings")
+import django
+
+django.setup()
+from django.core.files import File
+from django.db import connection
+
+from membership.models import Guild
+
+print(connection.settings_dict["HOST"])
+BANNERS = []
+for pk, fname in BANNERS:
+    g = Guild.all_objects.get(pk=pk)
+    if g.banner_image:
+        print("has banner", pk, g.banner_image.name)
+        continue
+    with open(f"/tmp/{fname}", "rb") as fh:
+        g.banner_image.save(fname, File(fh), save=True)
+    print("set", pk, g.name, g.banner_image.url)
