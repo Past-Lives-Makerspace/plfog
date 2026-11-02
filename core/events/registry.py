@@ -584,6 +584,7 @@ TOUR_CALENDAR_BROKEN = "tour.calendar_broken"  # Google stopped accepting your c
 TOUR_CALENDAR_GONE = "tour.calendar_gone"  # the calendar you picked for tours is gone; the main one took over (#951)
 TOUR_CALENDAR_UNREAD = "tour.calendar_unread"  # your Google Calendar could not be read for over an hour (#951)
 GUILD_NEEDS_ATTENTION = "guild.needs_attention"  # a guild breaks a Needs attention rule (#953)
+GUILD_STAFF_WELCOME = "guild_staff.welcome"  # you were made a guild lead or staff: your tools and the rules (#1076)
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -1900,6 +1901,18 @@ _NEW_EVENTS: list[EventType] = [
         key=CUBBIES_WAITLIST_OPENED,
         label="A cubby opened for you",
         description="A cubby opened in a guild whose waitlist you joined. Whoever rents it first gets it.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # A new guild lead or staffer (#1076): their Guild Staff Tools and the rules for using them.
+    # Bell on, email forced (it is how they learn the rules), once per grant from
+    # membership.staff_onboarding with the membership/emails/guild_staff_welcome.{txt,html} body.
+    EventType(
+        key=GUILD_STAFF_WELCOME,
+        label="Welcome to Guild Staff Tools",
+        description="You were made a guild lead or staff member. Your tools and the rules for running your guild.",
         category="Guilds",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_FORCED),

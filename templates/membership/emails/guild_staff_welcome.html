@@ -1,0 +1,19 @@
+{% extends "membership/emails/notification_shell.html" %}{% comment %}guild_staff.welcome (#1076): a new guild lead or staffer's map of their tools and the rules for using them. Context from membership.staff_onboarding.email_context.{% endcomment %}{% block content %}
+<h1 style="margin: 0 0 14px; font-size: 24px; line-height: 1.25; color: #092E4C;">You now have Guild Staff Tools for {{ guild.name }}</h1>
+<p style="margin: 0 0 20px;">Hi {{ first_name }}, you can now run <a href="{{ guild_url }}" style="color: #092E4C; font-weight: 700;">{{ guild.name }}</a> from the Member Portal. Here is where everything lives.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 22px; border: 1px solid #e3e7ec; border-radius: 10px;">
+  {% for name, purpose, url in tools %}<tr><td style="padding: 12px 16px;{% if not forloop.last %} border-bottom: 1px solid #e3e7ec;{% endif %} font-size: 14px; line-height: 1.5;">
+    <a href="{{ url }}" style="color: #092E4C; font-weight: 700;">{{ name }}</a><br>
+    <span style="color: #5B6B77;">{{ purpose }}</span>
+  </td></tr>{% endfor %}
+</table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 22px; background: #FFF7E6; border-left: 4px solid #EEB44B; border-radius: 6px;">
+  <tr><td style="padding: 14px 16px; font-size: 14px; line-height: 1.6; color: #1c2b36;">
+    <strong style="color: #092E4C;">The rules</strong><br>
+    Your guild's orientations, reservations, equipment and email lists all run through the Member Portal. Managing them anywhere else is no longer allowed.
+    <a href="{{ rules_url }}" style="color: #092E4C; font-weight: 700;">Read the full rules</a>
+  </td></tr>
+</table>
+<p style="margin: 0 0 24px; text-align: center;"><a href="{{ tour_url }}" style="display: inline-block; padding: 13px 26px; border-radius: 8px; background: #EEB44B; color: #092E4C; font-weight: 700; text-decoration: none;">Take the Tour</a></p>
+<p style="margin: 0; font-size: 14px; color: #5B6B77;">Next time you open the Member Portal we will ask you to confirm you have read the rules. You can take the tour again any time from the Help page.</p>
+{% endblock %}
