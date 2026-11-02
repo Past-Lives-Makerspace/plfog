@@ -397,6 +397,29 @@ a:hover { color: var(--hub-link-hover); }
     white-space: nowrap;
 }
 
+/* A Founding Guild's tag (#1086): the Hidden tag's shape in gold. A founding guild's tags sit in
+   one column at the end of the row, so Hidden and Founding stack rather than run past the
+   sidebar's edge. */
+.hub-sidebar__private--founding {
+    border-color: var(--color-tuscan-yellow);
+    background: var(--color-tuscan-yellow);
+    color: #061f33;
+    font-weight: 700;
+}
+
+.hub-sidebar__tags {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.25rem;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.hub-sidebar__tags .hub-sidebar__private {
+    margin-left: 0;
+}
+
 /* "Coming soon" nav entry (#405): present but not yet. It must read as a feature that is on
    its way, never as a broken or failed link — so it keeps the icon, the label and the exact
    position it will occupy when it goes live, and gives up only the affordances of a link.

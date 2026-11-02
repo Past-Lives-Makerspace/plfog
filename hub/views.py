@@ -1681,12 +1681,13 @@ def guild_delete(request: HttpRequest, pk: int) -> HttpResponse:
 @login_required
 @require_POST
 def guild_visibility_save(request: HttpRequest, pk: int) -> HttpResponse:
-    """Show/hide a guild from the Basic tab of the guild editor. Actual admin only.
+    """Save a guild's two admin switches: Visible to members and Founding Guild. Admin only.
 
-    Flips ``Guild.is_active`` via a single-boolean :class:`~hub.forms.GuildVisibilityForm`.
+    Posted whole (both booleans) by :class:`~hub.forms.GuildVisibilityForm` from the guild
+    editor's Basic tab and from each row of Admin Tools > Guilds (:func:`admin_guilds`, #1086).
     Gated with ``_require_admin`` (the same effective-admin gate as the Danger Zone
     delete on this page), so a guild lead or staffer gets a 403 and never sees the
-    control. Turning it off removes the guild from the sidebar, directory, community
+    control. Turning Visible off removes the guild from the sidebar, directory, community
     calendar, and voting (existing ``is_active`` behavior); the guild page and this
     settings page stay reachable by direct link so an admin can turn it back on.
     Redirects back to the Basic tab.
@@ -1707,6 +1708,24 @@ def guild_visibility_save(request: HttpRequest, pk: int) -> HttpResponse:
         "This guild is now visible to members." if guild.is_active else "This guild is now hidden from members.",
     )
     return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=basic")
+
+
+@login_required
+def admin_guilds(request: HttpRequest) -> HttpResponse:
+    """Admin Tools > Guilds (#1086): every guild in one table with its two admin switches.
+
+    Each row is a :class:`~hub.forms.GuildVisibilityForm` that autosaves to
+    :func:`guild_visibility_save`, the same endpoint as the guild editor's Basic tab, so the two
+    places cannot drift. Soft-deleted guilds are left out by ``Guild.objects``. Gated with
+    ``_require_admin`` (effective admin, ``view_as`` aware), as the save is.
+    """
+    from hub.forms import GuildVisibilityForm
+
+    forbidden = _require_admin(request)
+    if forbidden is not None:
+        return forbidden
+    rows = [(guild, GuildVisibilityForm.for_row(guild)) for guild in Guild.objects.order_by("name")]
+    return render(request, "hub/admin/guilds.html", {**_get_hub_context(request), "guild_rows": rows})
 
 
 @login_required
@@ -5661,6 +5680,7 @@ ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tool_manage_classes",
             "tool_manage_events",
             "tool_manage_members",
+            "tool_guilds",
             "tool_member_agreement",
             "tool_mailing_lists",
             "tool_cubbies",
@@ -5789,6 +5809,8 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
         "tool_registrations": guild_tools is not None
         and ClassOffering.objects.filter(category__guild__in=guild_tools.guilds).exists(),
         "tool_manage_members": is_admin,
+        # Every guild's Visible and Founding Guild switches in one table (#1086).
+        "tool_guilds": is_admin,
         # Guild cubbies (#977): admins open the manager here, with its guild picker.
         "tool_cubbies": is_admin,
         "tool_manage_classes": is_admin,

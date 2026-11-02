@@ -433,7 +433,9 @@
                             </svg>
                             {% endif %}
                             {{ guild.name }}
+                            {% if guild.is_founding %}<span class="hub-sidebar__tags">{% endif %}
                             {% if not guild.is_active %}<span class="hub-sidebar__private" title="Hidden from members: only admins and this guild's staff see it">Hidden</span>{% endif %}
+                            {% if guild.is_founding %}<span class="hub-sidebar__private hub-sidebar__private--founding" title="Founding Guild: new and still being set up" data-sidebar-founding>Founding</span></span>{% endif %}
                         </a>
                         {% endfor %}
                     </div>

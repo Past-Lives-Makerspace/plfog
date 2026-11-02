@@ -1,0 +1,174 @@
+/* Founding Guild (#1086): the gold badge a new guild carries while it is still being set up, and
+   Admin Tools > Guilds, the table where admins switch it and Visible to members.
+
+   Loaded by hub/guild_detail.html, guilds/directory.html and hub/admin/guilds.html. The guild page
+   and the directory also render on the guilds host, which does not load the hub tokens, so every
+   token here carries its fallback. The badge is a gold FILL with navy text in both themes: it sits
+   on the hero's dark shade, on a card's photo and on a light card, and reads on all three. */
+
+.pl-founding-badge {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    padding: 0.25rem 0.625rem;
+    border-radius: 999px;
+    background: var(--color-tuscan-yellow, #EEB44B);
+    color: #061f33;
+    font: 700 0.75rem/1.2 Lato, Inter, sans-serif;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    box-shadow: 0 2px 10px rgba(238, 180, 75, 0.25);
+}
+
+.pl-founding-badge--sm {
+    padding: 0.125rem 0.5rem;
+    font-size: 0.6875rem;
+    box-shadow: none;
+}
+
+/* The guild page hero: the name and the badge on one line that wraps on a phone, then the
+   explainer line under the lead. */
+.pl-founding-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+}
+
+.pl-founding-note {
+    margin: 0.5rem 0 0;
+    max-width: 40rem;
+    font-size: 0.9375rem;
+    line-height: 1.45;
+    color: #F4EFDD;
+}
+
+/* A hero with no banner is the theme's own gradient; in light it is pale above and shaded below,
+   so the line takes the title's dark text (the muted tone vanishes into the shade). */
+[data-theme="light"] .pl-guild-hero--noimg .pl-founding-note {
+    color: var(--hub-text, #1D1E1E);
+    font-weight: 600;
+}
+
+/* The directory card: top right of the picture, clear of the Featured tag on the left. */
+.cp-page .pl-guild-dir__founding {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+}
+
+/* ── Admin Tools > Guilds ───────────────────────────────────────────── */
+.pl-guilds-admin__lead {
+    max-width: 46rem;
+    margin: 0 0 1.5rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.pl-guilds-admin__card {
+    padding: 1.25rem;
+}
+
+.pl-guilds-admin__table tbody tr + tr td {
+    border-top: 1px solid var(--hub-border);
+}
+
+.pl-guilds-admin__table tbody td {
+    vertical-align: middle;
+}
+
+.pl-guilds-admin__name a {
+    font-weight: 600;
+    color: var(--hub-text);
+}
+
+.pl-guilds-admin__tags {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    margin-left: 0.5rem;
+    vertical-align: middle;
+}
+
+.pl-guilds-admin__tags:empty {
+    display: none;
+}
+
+/* The toggle component's row stretches by default; in a cell it is just the switch. */
+.pl-guilds-admin__switch .pl-toggle-row {
+    padding: 0;
+    border: 0;
+}
+
+.pl-guilds-admin__settings {
+    text-align: right;
+    white-space: nowrap;
+}
+
+/* A phone: each guild is a card. The name and its tags on top, then one line per switch with
+   its label on the left (from the cell's data-label), then Settings. */
+@media (max-width: 640px) {
+    .pl-guilds-admin__card {
+        padding: 0.75rem;
+    }
+
+    .pl-guilds-admin__table {
+        border: 0;
+        overflow-x: visible;
+    }
+
+    .pl-guilds-admin__table thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+    }
+
+    .pl-guilds-admin__table table,
+    .pl-guilds-admin__table tbody,
+    .pl-guilds-admin__table tr,
+    .pl-guilds-admin__table td {
+        display: block;
+    }
+
+    .pl-guilds-admin__table tbody tr {
+        padding: 1rem 0.25rem;
+    }
+
+    .pl-guilds-admin__table tbody tr + tr {
+        border-top: 1px solid var(--hub-border);
+    }
+
+    .pl-guilds-admin__table tbody tr + tr td {
+        border-top: 0;
+    }
+
+    .pl-guilds-admin__table tbody td {
+        padding: 0;
+    }
+
+    .pl-guilds-admin__tags {
+        display: flex;
+        margin: 0.5rem 0 0;
+    }
+
+    .pl-guilds-admin__table td.pl-guilds-admin__switch {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-top: 0.75rem;
+    }
+
+    .pl-guilds-admin__switch::before {
+        content: attr(data-label);
+        font-size: 0.875rem;
+        color: var(--hub-text-muted);
+    }
+
+    .pl-guilds-admin__settings {
+        margin-top: 0.75rem;
+        text-align: left;
+    }
+}

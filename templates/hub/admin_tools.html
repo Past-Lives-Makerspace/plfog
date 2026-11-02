@@ -122,6 +122,15 @@
         <span class="pl-tool-card__desc">Add, edit, and review members and their roles.</span>
       </a>
       {% endif %}
+      {% if tool_guilds %}
+      <a class="hub-card pl-tool-card" href="{% url 'hub_admin_guilds' %}" data-tool-guilds data-guidance-target="admin.guilds-card">
+        <span class="pl-tool-card__icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V10l7-5 7 5v11"/><path d="M10 21v-6h4v6"/></svg>
+        </span>
+        <span class="pl-tool-card__title">Guilds{% new_badge "admin.guilds" %}</span>
+        <span class="pl-tool-card__desc">Every guild in one list: whether members can see it, and its Founding Guild badge.</span>
+      </a>
+      {% endif %}
       {% if tool_member_agreement %}
       <a class="hub-card pl-tool-card" href="{% url 'hub_admin_member_agreement' %}" data-tool-member-agreement>
         <span class="pl-tool-card__icon">

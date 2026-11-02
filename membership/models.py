@@ -3324,6 +3324,14 @@ class Guild(HeroCropMixin, models.Model):
     is_featured = models.BooleanField(
         default=False, help_text="Pin this guild to the top of the public guilds directory."
     )
+    is_founding = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "A new guild still being set up: shows a Founding Guild badge on its page, its directory card "
+            "and its sidebar row. Changes nothing about voting; an admin switches it off when it graduates."
+        ),
+    )
     featured_class = models.ForeignKey(
         "classes.ClassOffering",
         null=True,
