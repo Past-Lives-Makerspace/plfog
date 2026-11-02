@@ -377,6 +377,7 @@ TEMPLATES = [
                 "core.context_processors.persona",
                 "billing.context_processors.tab_context",
                 "hub.context_processors.hub_sidebar",
+                "hub.context_processors.staff_onboarding",
                 "core.context_processors.notification_badge",
                 "core.context_processors.tour_runtime",
                 "core.context_processors.guidance_show",

@@ -17,7 +17,7 @@ from django.db import transaction
 from django import forms
 from django.conf import settings
 from django.core.exceptions import NON_FIELD_ERRORS
-from django.db.models import Case, Q, QuerySet, Value, When
+from django.db.models import Case, Q, QuerySet, TextChoices, Value, When
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import escape
@@ -8639,3 +8639,31 @@ class WikiWantedFulfilForm(forms.Form):
         if page is None:
             raise forms.ValidationError("That page is not in this guild.")
         return page
+
+
+class StaffRulesConfirmForm(forms.Form):
+    """The guild staff rules popup (#1076): the one switch a new lead or staffer turns on to go on."""
+
+    read_rules = forms.BooleanField(
+        required=True,
+        label="I have read the rules",
+        # The popup's I Understand stays disabled until this is on.
+        widget=forms.CheckboxInput(attrs={"x-model": "read"}),
+    )
+
+
+class WalkthroughChoiceForm(forms.Form):
+    """Take or Exit on a walkthrough button (#1076): which walkthrough, and the choice."""
+
+    class Choice(TextChoices):
+        TAKE = "take", "Take the Tour"
+        EXIT = "exit", "Exit"
+
+    tour_key = forms.ChoiceField(choices=())
+    choice = forms.ChoiceField(choices=Choice.choices)
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        from core.tours import TOURS
+
+        super().__init__(*args, **kwargs)
+        cast(forms.ChoiceField, self.fields["tour_key"]).choices = [(key, key) for key in TOURS]

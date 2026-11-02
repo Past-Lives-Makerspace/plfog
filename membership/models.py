@@ -21594,6 +21594,15 @@ class WikiPage(StaffRequestMixin, models.Model):
         help_text="Why a green check was dropped, e.g. 'Edited since it was verified.' Shown beside the "
         "status pill, because a reason recorded and never shown is a lie told to the next reader.",
     )
+    admins_only_edit = models.BooleanField(
+        default=False,
+        # The release before this one still inserts pages during the deploy.
+        db_default=False,
+        help_text=(
+            "Only admins may edit or moderate this page; members and guild officers read it. Narrower "
+            "than Official, which guild officers may also edit. Set on the Guild Staff Rules and Tools page."
+        ),
+    )
     is_published = models.BooleanField(
         default=True,
         help_text="Off means the page is held for a second read and only its author and the guild's leads can see it.",

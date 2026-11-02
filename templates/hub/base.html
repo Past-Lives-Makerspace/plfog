@@ -676,6 +676,11 @@
     {% include "includes/changelog_modal.html" %}
     {% endif %}
     {% if show_welcome_modal %}{% include "includes/welcome_modal.html" %}{% endif %}
+    {# A new guild lead or staffer (#1076): the rules popup until they confirm, then the glowing tour offer until they take it or exit. #}
+    {% if staff_onboarding_step and not is_guest_surface and not is_framed %}
+    {% if staff_onboarding_step == "rules" %}{% include "components/modal.html" with modal_id="staff-rules" modal_title="You Now Have Guild Staff Tools" modal_required=True modal_body_include="hub/partials/_staff_rules_body.html" %}
+    {% else %}<div class="pl-walkthrough-dock" role="region" aria-label="Guild Staff Tools tour" data-guidance-target="guild.staff-tour"><p class="pl-walkthrough-dock__text"><strong>New to Guild Staff Tools?</strong> See where your guild's tools live.</p>{% include "components/walkthrough_button.html" with tour_key=staff_onboarding_tour label="Take the Tour" pester=True %}</div>{% endif %}
+    {% endif %}
     {# The What's New modal (#1007), once for every hub page: any page's {% whats_new_button %} loads hub_whats_new into it. Not on the guilds host, which serves no hub_whats_new and draws no button. #}
     {% if not is_guilds_surface %}{% include "components/modal.html" with modal_id="whats-new" modal_title="What's New" modal_size="lg" %}{% endif %}
     {# HTMX fires HX-Trigger JSON keys as events plus a kebab alias, so trigger_toast's #}
