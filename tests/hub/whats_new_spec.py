@@ -47,6 +47,8 @@ def _entry(slug: str, *, days_ago: int = 0, audiences: tuple[str, ...] = ("membe
         "feature": keys.get("feature", ""),
         "guidance": keys.get("guidance", "none"),
     }
+    if "target" in keys:
+        entry["target"] = keys["target"]
     if "shots" in keys:  # only when given, as the fragment writes it (#1050)
         entry["shots"] = keys["shots"]
     return entry
@@ -93,8 +95,10 @@ def _preview(client: Client, role: str) -> None:
     session.save()
 
 
-def _body(client: Client, query: str = "") -> str:
-    response = client.get(reverse("hub_whats_new") + query, HTTP_HX_REQUEST="true")
+def _body(client: Client, query: str = "", current: str = "") -> str:
+    """The modal body as htmx loads it; ``current`` is the page the modal is open on (HX-Current-URL, #1051)."""
+    headers = {"HTTP_HX_CURRENT_URL": f"http://testserver{current}"} if current else {}
+    response = client.get(reverse("hub_whats_new") + query, HTTP_HX_REQUEST="true", **headers)
     assert response.status_code == 200
     return response.content.decode()
 
@@ -377,6 +381,27 @@ def describe_hub_whats_new():
         assert body.count('data-whats-new-shots="2"') == PAGE_SIZE
 
 
+def describe_the_show_arrival():
+    """``?show=<key>`` on a hub page carries the entry it names for guidance.js to ring (#1051)."""
+
+    def it_carries_the_entrys_title_and_first_bullet_for_a_key_an_entry_names(client: Client, changelog):
+        changelog([_entry("open-dest", feature="home.whats-new", target="home.whats-new-button")])
+        _login(client)
+        html = client.get(reverse("hub_home") + "?show=home.whats-new-button").content.decode()
+        assert (
+            '<script id="pl-guidance-show" type="application/json">'
+            '{"target": "home.whats-new-button", "title": "Open dest", "body": "open-dest changed"}</script>'
+        ) in html
+        # The control itself is on the page: Home's labelled What's New button carries the key.
+        assert 'data-whats-new-button data-guidance-target="home.whats-new-button"' in html
+
+    def it_carries_nothing_without_the_param_for_a_key_no_entry_names_or_outside_the_grammar(client: Client, changelog):
+        changelog([_entry("open-dest", feature="home.whats-new", target="home.whats-new-button")])
+        _login(client)
+        for query in ("", "?show=home.door-chip", "?show=Home+Button", "?show=home"):
+            assert "pl-guidance-show" not in client.get(reverse("hub_home") + query).content.decode(), query
+
+
 def describe_hub_whats_new_seen():
     def it_marks_the_keys_entries_seen_and_answers_204(client: Client, changelog):
         changelog(
@@ -482,6 +507,51 @@ def describe_the_home_button():
 
 
 def describe_the_body():
+    def it_names_the_feature_on_the_button_and_lands_on_the_target(client: Client, changelog):
+        # #1051: never a bare Open it; ?show=<target> rides along when the entry names a control.
+        changelog(
+            [
+                _entry("home", feature="home.whats-new", target="home.whats-new-button"),
+                _entry("code", feature="home.door-code"),
+            ]
+        )
+        _login(client)
+        body = _body(client, current=reverse("classes:teach_overview"))
+        assert (
+            'href="/home/?show=home.whats-new-button" class="hub-btn hub-btn--sm" data-whats-new-open>Open What&#x27;s New</a>'
+            in body
+        )
+        assert 'href="/home/" class="hub-btn hub-btn--sm" data-whats-new-open>Open Door Code</a>' in body
+        assert "Open it" not in body and "data-whats-new-show" not in body
+
+    def it_shows_me_on_the_page_the_entry_lives_on_and_nothing_without_a_target(client: Client, changelog):
+        # The modal open on the Teach page: a classes.teach entry never links back to the Teach page (#1051).
+        changelog(
+            [
+                _entry("with-target", feature="classes.teach", target="classes.new-class"),
+                _entry("without", feature="classes.teach"),
+                _entry("elsewhere", feature="home.door-code"),
+            ]
+        )
+        _login(client)
+        body = _body(client, current=reverse("classes:teach_overview"))
+        assert (
+            '<button type="button" class="hub-btn hub-btn--sm" data-whats-new-show="classes.new-class" '
+            'data-show-title="With target" data-show-body="with-target changed">Show me</button>'
+        ) in body
+        without = body[body.index('data-whats-new-entry="without"') : body.index('data-whats-new-entry="elsewhere"')]
+        assert (
+            "data-whats-new-open" not in without
+            and "data-whats-new-show" not in without
+            and "pl-wn-actions" not in without
+        )
+        assert body.count("data-whats-new-open") == 1 and 'href="/home/"' in body
+        # Elsewhere the same entries link to the Teach page, the one with a target carrying it.
+        away = _body(client, current=reverse("hub_home"))
+        teach = reverse("classes:teach_overview")
+        assert f'href="{teach}?show=classes.new-class"' in away and away.count(f'href="{teach}"') == 1
+        assert "data-whats-new-show" not in away
+
     def it_draws_a_chip_for_a_finer_audience_on_its_tab(client: Client, changelog):
         changelog([_entry("leads", audiences=("members", "guild-leads"))])
         _login(client)

@@ -11,6 +11,7 @@ from core.context_processors import (
     brand,
     feature_flags,
     google_analytics,
+    guidance_show,
     registration_mode,
     surface,
     theme,
@@ -477,6 +478,49 @@ def _tour_request(path, user, *, method="GET", with_resolver=True):
     if with_resolver:
         request.resolver_match = resolve(path.split("?")[0])
     return request
+
+
+def describe_guidance_show():
+    """``?show=<key>`` (#1051): the entry a page rings on arrival, or None."""
+
+    _ENTRY = {
+        "date": "2026-10-31",
+        "title": "Open buttons say where they go",
+        "changes": ["Open What's New lands on the button.", "A second bullet."],
+        "slug": "1051-open-it-destination",
+        "audiences": ["members"],
+        "feature": "home.whats-new",
+        "guidance": "link",
+        "target": "home.whats-new-button",
+    }
+
+    def it_names_the_entry_for_a_signed_in_get(monkeypatch):
+        monkeypatch.setattr("plfog.version.CHANGELOG", [_ENTRY])
+        member = _tour_member("gs-member")
+        request = _tour_request(f"{reverse('hub_home')}?show=home.whats-new-button", member.user)
+        assert guidance_show(request) == {
+            "guidance_show": {
+                "target": "home.whats-new-button",
+                "title": "Open buttons say where they go",
+                "body": "Open What's New lands on the button.",
+            }
+        }
+
+    def it_is_none_without_the_param_for_a_key_no_entry_names_or_outside_the_grammar(monkeypatch):
+        monkeypatch.setattr("plfog.version.CHANGELOG", [_ENTRY])
+        member = _tour_member("gs-none")
+        for query in ("", "?show=home.door-chip", "?show=Whats+New", "?show=home.whats-new-button.x"):
+            request = _tour_request(f"{reverse('hub_home')}{query}", member.user)
+            assert guidance_show(request) == {"guidance_show": None}, query
+
+    def it_is_none_for_an_anonymous_visitor_a_post_or_a_request_with_no_user(monkeypatch):
+        monkeypatch.setattr("plfog.version.CHANGELOG", [_ENTRY])
+        path = f"{reverse('hub_home')}?show=home.whats-new-button"
+        assert guidance_show(_tour_request(path, AnonymousUser()))["guidance_show"] is None
+        member = _tour_member("gs-post")
+        assert guidance_show(_tour_request(path, member.user, method="POST"))["guidance_show"] is None
+        bare = RequestFactory().get(path)  # a themed 404 renders before auth has run
+        assert guidance_show(bare)["guidance_show"] is None
 
 
 def describe_tour_runtime():

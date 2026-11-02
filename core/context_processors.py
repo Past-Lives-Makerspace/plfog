@@ -312,3 +312,22 @@ def tour_runtime(request: HttpRequest) -> dict[str, Any]:
             if match.view_name == tour.entry_url_name:
                 return tour_offer_context(request, tour.key)
     return empty
+
+
+def guidance_show(request: HttpRequest) -> dict[str, Any]:
+    """The control a ``?show=<key>`` arrival rings (#1051), for ``hub/base.html`` and ``guidance.js``.
+
+    Open <feature> on a What's New entry lands on the feature's page with ``?show=<target>``; the
+    page carries the entry's title and first bullet as ``#pl-guidance-show`` and the script rings
+    the element marked ``data-guidance-target="<key>"``. Only on a signed in GET, and only for a
+    key in the help key grammar that an entry names: anything else is ``None``, never an error,
+    as a stale link should be. ``request.user`` is read defensively, as :func:`tour_runtime` does.
+    """
+    from core.help_registry import KEY_PATTERN
+    from core.whats_new import show_payload
+
+    user = getattr(request, "user", None)
+    key = request.GET.get("show", "") if getattr(request, "method", "GET") == "GET" else ""
+    if not key or user is None or not user.is_authenticated or not KEY_PATTERN.match(key):
+        return {"guidance_show": None}
+    return {"guidance_show": show_payload(key)}

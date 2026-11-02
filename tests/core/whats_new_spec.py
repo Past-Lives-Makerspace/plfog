@@ -6,14 +6,17 @@ depends on what the repo's fragments say this week or on the calendar moving pas
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 from typing import Any
 
 import pytest
 from django.contrib.auth.models import User
 from django.test import RequestFactory
+from django.urls import reverse
 from django.utils import timezone
 
+from core.guidance import GUIDANCE
 from core.whats_new import (
     NEW_DAYS,
     PAGE_SIZE,
@@ -29,6 +32,8 @@ from core.whats_new import (
     mark_opened,
     mark_seen,
     open_url,
+    show_payload,
+    show_url,
     unopened,
     whats_new_for,
     window_start,
@@ -52,7 +57,7 @@ def _day(days_ago: int = 0) -> str:
 
 
 def _entry(slug: str, *, days_ago: int = 0, audiences: tuple[str, ...] = ("members",), **keys: Any) -> dict[str, Any]:
-    """A changelog entry as ``Fragment.as_entry`` writes one; ``shots`` only when given, as the fragment writes it."""
+    """A changelog entry as ``Fragment.as_entry`` writes one; ``target`` (#1051) and ``shots`` only when given."""
     entry = {
         "date": _day(days_ago),
         "title": slug.replace("-", " ").capitalize(),
@@ -62,6 +67,8 @@ def _entry(slug: str, *, days_ago: int = 0, audiences: tuple[str, ...] = ("membe
         "feature": keys.get("feature", ""),
         "guidance": keys.get("guidance", "none"),
     }
+    if "target" in keys:
+        entry["target"] = keys["target"]
     if "shots" in keys:
         entry["shots"] = keys["shots"]
     return entry
@@ -87,8 +94,10 @@ def _member(username: str = "viewer", **fields: Any) -> Member:
     return member
 
 
-def _request(user: User | None, picked: str | None = None):
-    request = RequestFactory().get("/")
+def _request(user: User | None, picked: str | None = None, current: str = ""):
+    """A request as the modal body makes one; ``current`` is the page the modal is open on (htmx's HX-Current-URL)."""
+    headers = {"HTTP_HX_CURRENT_URL": f"http://testserver{current}"} if current else {}
+    request = RequestFactory().get("/whats-new/", **headers)
     request.user = user
     request.view_as = ViewAs(actual=compute_actual_roles(user), picked=picked)
     return request
@@ -420,6 +429,103 @@ def describe_can_open_and_open_url():
         assert rows["tour"].tour_url == "/home/?tour=member-welcome"
         # guild.staff's tour is for a guild lead; a plain member gets the entry with no tour link.
         assert rows["staff"].tour_url == ""
+
+
+def describe_open_label_and_targets():
+    """Open <feature> names where it goes and lands on the control the entry names (#1051)."""
+
+    def it_names_the_feature_on_the_button():
+        assert Entry.from_changelog(_entry("x", feature="admin.email-members")).open_label == "Open Email Members"
+        assert Entry.from_changelog(_entry("x", feature="guild.cubbies")).open_label == "Open Guild Cubbies"
+
+    def it_reads_the_fragments_target_and_defaults_to_none():
+        assert Entry.from_changelog(_entry("x", feature="home.whats-new", target="home.whats-new-button")).target == (
+            "home.whats-new-button"
+        )
+        assert Entry.from_changelog(_entry("x", feature="home.whats-new")).target == ""
+        assert Entry.from_changelog(_entry("plain")).target == ""
+
+    def it_falls_back_to_the_registrys_default_target_for_the_feature(monkeypatch):
+        monkeypatch.setitem(
+            GUIDANCE, "home.door-code", dataclasses.replace(GUIDANCE["home.door-code"], target="home.door-chip")
+        )
+        assert Entry.from_changelog(_entry("x", feature="home.door-code")).target == "home.door-chip"
+        # A fragment that names its own control wins over the default.
+        assert (
+            Entry.from_changelog(_entry("x", feature="home.door-code", target="home.door-card")).target
+            == "home.door-card"
+        )
+
+    def it_adds_show_to_a_url_with_and_without_a_query():
+        assert show_url("/home/", "home.whats-new-button") == "/home/?show=home.whats-new-button"
+        assert (
+            show_url("/guilds/wood/?tab=cubbies", "guild.cubby-grid")
+            == "/guilds/wood/?tab=cubbies&show=guild.cubby-grid"
+        )
+        assert show_url("/home/", "") == "/home/"
+        assert show_url("", "home.whats-new-button") == ""
+
+    def it_builds_the_open_url_with_the_target():
+        member = _member()
+        GuildMembershipFactory(member=member, guild=GuildFactory(slug="ceramics"))
+        with_target = Entry.from_changelog(_entry("cubbies", feature="guild.cubbies", target="guild.cubby-grid"))
+        assert open_url(with_target, member) == "/guilds/ceramics/?tab=cubbies&show=guild.cubby-grid"
+        assert open_url(
+            Entry.from_changelog(_entry("home", feature="home.whats-new", target="home.whats-new-button")), member
+        ) == ("/home/?show=home.whats-new-button")
+
+    def describe_the_page_the_modal_is_open_on():
+        def it_shows_me_in_place_for_an_entry_that_lives_here_and_names_a_control(changelog):
+            changelog([_entry("here", feature="home.whats-new", target="home.whats-new-button")])
+            news = whats_new_for(_request(_member().user, current=reverse("hub_home")))
+            (row,) = news.groups_for("members")[0].rows
+            assert (row.open_url, row.show, row.open_label) == ("", "home.whats-new-button", "Open What's New")
+
+        def it_draws_no_button_for_an_entry_that_lives_here_and_names_none(changelog):
+            changelog([_entry("here", feature="home.whats-new")])
+            news = whats_new_for(_request(_member().user, current=reverse("hub_home")))
+            (row,) = news.groups_for("members")[0].rows
+            assert (row.open_url, row.show) == ("", "")
+
+        def it_links_elsewhere_with_the_target_in_the_query(changelog):
+            changelog([_entry("away", feature="home.whats-new", target="home.whats-new-button")])
+            news = whats_new_for(_request(_member().user, current=reverse("classes:teach_overview")))
+            (row,) = news.groups_for("members")[0].rows
+            assert (row.open_url, row.show) == ("/home/?show=home.whats-new-button", "")
+
+        def it_compares_paths_so_a_tab_of_the_page_counts_as_the_page(changelog):
+            changelog([_entry("cubbies", feature="guild.cubbies", target="guild.cubby-grid")])
+            member = _member()
+            GuildMembershipFactory(member=member, guild=GuildFactory(slug="ceramics"))
+            news = whats_new_for(_request(member.user, current="/guilds/ceramics/?tab=wiki"))
+            (row,) = news.groups_for("members")[0].rows
+            assert (row.open_url, row.show) == ("", "guild.cubby-grid")
+
+        def it_takes_a_plain_get_as_the_whats_new_page_itself(changelog):
+            changelog([_entry("home", feature="home.whats-new")])
+            news = whats_new_for(_request(_member().user))
+            assert news.here == "/whats-new/"
+            (row,) = news.groups_for("members")[0].rows
+            assert row.open_url == "/home/"
+
+    def describe_show_payload():
+        def it_names_the_newest_entry_with_the_target_by_title_and_first_bullet(changelog):
+            changelog(
+                [
+                    _entry("newer", feature="home.whats-new", target="home.whats-new-button"),
+                    _entry("older", days_ago=3, feature="home.whats-new", target="home.whats-new-button"),
+                    _entry("other", feature="home.door-code", target="home.door-chip"),
+                ]
+            )
+            assert show_payload("home.whats-new-button") == {
+                "target": "home.whats-new-button",
+                "title": "Newer",
+                "body": "newer changed",
+            }
+
+        def it_is_none_for_a_key_no_entry_names(changelog):
+            changelog([_entry("plain")])
+            assert show_payload("home.whats-new-button") is None
 
 
 def describe_unseen_and_mark_seen():

@@ -234,3 +234,22 @@
 @media (prefers-reduced-motion: reduce) {
     .pl-wn-shots__track { transition: none; } /* the next step appears; nothing slides */
 }
+
+/* ---- The one step highlight (#1051): Open <feature> lands on ?show=<key> and Show me stays put; both ring
+   the one control carrying data-guidance-target="<key>" through the tour's Driver.js stage and popover
+   (pl_tour.js show). The ring is the brand gold on the ringed element itself, inside Driver's stage padding,
+   with one soft pulse per 10 s like the badge; the popover drops its footer (one stop, nothing to walk).
+   Still under prefers-reduced-motion, and pl_tour.js scrolls without animation there. ---- */
+.pl-guidance-showing .driver-active-element {
+    box-shadow: 0 0 0 3px var(--color-tuscan-yellow), 0 0 0 7px var(--pl-new-ring); /* follows the control's own corners */
+    animation: pl-show-ring 10s ease-out infinite;
+}
+@keyframes pl-show-ring {
+    0% { box-shadow: 0 0 0 3px var(--color-tuscan-yellow), 0 0 0 3px var(--pl-new-ring); }
+    12% { box-shadow: 0 0 0 3px var(--color-tuscan-yellow), 0 0 0 12px transparent; }
+    100% { box-shadow: 0 0 0 3px var(--color-tuscan-yellow), 0 0 0 7px var(--pl-new-ring); }
+}
+.driver-popover.pl-tour--show .driver-popover-footer { display: none; }
+@media (prefers-reduced-motion: reduce) {
+    .pl-guidance-showing .driver-active-element { animation: none; }
+}

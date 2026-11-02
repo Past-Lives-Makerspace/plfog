@@ -38,7 +38,8 @@ class Guidance:
     nothing to open it on, in which case the caller hides the link. ``query`` lands on a page's
     tab, as the guild page reads ``?tab=``. ``steps`` are 2 to 5 plain lines, written for
     members (STANDARDS §13). ``tour`` is the Guided Tour a fragment may declare with
-    ``guidance = "tour"``; ``help_key`` is the matching Info View key, when one exists.
+    ``guidance = "tour"``; ``help_key`` is the matching Info View key, when one exists. ``target`` (#1051) is the feature's main control, a key placed on it as
+    ``data-guidance-target``, which Open <feature> rings on arrival when a fragment names none.
     """
 
     key: str
@@ -49,6 +50,7 @@ class Guidance:
     query: dict[str, str] | None = None
     tour: str | None = None
     help_key: str | None = None
+    target: str | None = None
 
     def url(self, kwargs: dict[str, Any]) -> str:
         """Where this feature lives, from ``url_kwargs`` already resolved for a member.
