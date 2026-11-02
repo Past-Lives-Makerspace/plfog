@@ -162,6 +162,11 @@ def describe_admin_guilds_page():
         GuildFactory(guild_lead=lead)
         assert client.get(reverse("hub_admin_guilds")).status_code == 403
 
+    def it_forbids_guild_staff(client: Client):
+        staff = _login(client, "fg_page_staff")
+        GuildStaffMembershipFactory(guild=GuildFactory(), member=staff)
+        assert client.get(reverse("hub_admin_guilds")).status_code == 403
+
     def it_forbids_an_admin_previewing_as_a_member(client: Client):
         _admin(client)
         _preview_as_member(client)
@@ -185,6 +190,18 @@ def describe_the_admin_tools_card():
         assert resp.status_code == 200
         assert b"data-tool-guilds" not in resp.content
 
+    def it_is_not_on_guild_tools_for_staff(client: Client):
+        staff = _login(client, "fg_tools_staff")
+        GuildStaffMembershipFactory(guild=GuildFactory(), member=staff)
+        resp = client.get(reverse("hub_admin_tools"))
+        assert resp.status_code == 200
+        assert b"data-tool-guilds" not in resp.content
+
+    def it_is_hidden_from_an_admin_previewing_as_a_member(client: Client):
+        _admin(client)
+        _preview_as_member(client)
+        assert b"data-tool-guilds" not in client.get(reverse("hub_admin_tools"), follow=True).content
+
 
 def describe_the_basic_tab_switch():
     def it_shows_to_an_admin(client: Client):
@@ -198,6 +215,22 @@ def describe_the_basic_tab_switch():
         guild = GuildFactory(guild_lead=lead)
         resp = client.get(reverse("hub_guild_edit", args=[guild.pk]))
         assert resp.status_code == 200
+        assert b'name="is_founding"' not in resp.content
+
+    def it_is_hidden_from_guild_staff(client: Client):
+        staff = _login(client, "fg_tab_staff")
+        guild = GuildFactory()
+        GuildStaffMembershipFactory(guild=guild, member=staff)
+        resp = client.get(reverse("hub_guild_edit", args=[guild.pk]))
+        assert resp.status_code == 200
+        assert b'name="is_founding"' not in resp.content
+        assert b'name="is_active"' not in resp.content
+
+    def it_is_hidden_from_an_admin_previewing_as_a_member(client: Client):
+        _admin(client)
+        _preview_as_member(client)
+        guild = GuildFactory()
+        resp = client.get(reverse("hub_guild_edit", args=[guild.pk]), follow=True)
         assert b'name="is_founding"' not in resp.content
 
 
