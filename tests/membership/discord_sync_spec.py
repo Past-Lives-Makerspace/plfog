@@ -217,6 +217,147 @@ def describe_reconcile_reactions():
         assert GuildMembership.objects.filter(guild=glass, member=m2).exists()
 
 
+def _mock_reactions_by_message(reactors, *, flaky=()):
+    """Mock reactions per ``(message_id, emoji)``; ``flaky`` pairs answer 429 (a truncated read)."""
+
+    def handler(request):
+        parts = request.url.path.split("/")
+        message_id, emoji = parts[-3], unquote(parts[-1])
+        if (message_id, emoji) in flaky:
+            return httpx.Response(429, headers={"Retry-After": "0"})
+        return httpx.Response(200, json=[{"id": uid} for uid in reactors.get((message_id, emoji), [])])
+
+    return respx.get(url__regex=_REACTIONS_RE).mock(side_effect=handler)
+
+
+def describe_reconcile_across_role_messages():
+    @pytest.fixture
+    def two_messages(sync_config):
+        sync_config.discord_role_message_extra_ids = "msg2"
+        sync_config.save()
+        return sync_config
+
+    @respx.mock
+    def it_joins_a_guild_from_a_reaction_on_the_extra_message(two_messages):
+        music = GuildFactory(name="Music")
+        DiscordGuildEmojiFactory(emoji="🎵", guild=music)
+        member = MemberFactory(discord_user_id="u1")
+        _mock_reactions_by_message({("msg2", "🎵"): ["u1"]})
+        stats = discord_sync.reconcile_reactions()
+        assert stats.added == 1
+        assert GuildMembership.objects.filter(guild=music, member=member).exists()
+
+    @respx.mock
+    def it_reads_every_emoji_on_every_message(two_messages):
+        DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
+        DiscordGuildEmojiFactory(emoji="🎵", guild=GuildFactory())
+        route = _mock_reactions_by_message({})
+        discord_sync.reconcile_reactions()
+        read = {(c.request.url.path.split("/")[-3], unquote(c.request.url.path.split("/")[-1])) for c in route.calls}
+        assert read == {("msg", "🔥"), ("msg", "🎵"), ("msg2", "🔥"), ("msg2", "🎵")}
+
+    @respx.mock
+    def it_keeps_a_member_whose_reaction_is_only_on_the_other_message(two_messages):
+        glass = GuildFactory(name="Glass")
+        DiscordGuildEmojiFactory(emoji="🔥", guild=glass)
+        member = MemberFactory(discord_user_id="u1")
+        GuildMembership.objects.record_discord_join(glass, member)
+        _mock_reactions_by_message({("msg2", "🔥"): ["u1"]})  # gone from msg, still on msg2
+        stats = discord_sync.reconcile_reactions()
+        assert stats.removed == 0
+        assert GuildMembership.objects.filter(guild=glass, member=member).exists()
+
+    @respx.mock
+    def it_unions_reactors_across_messages(two_messages):
+        glass = GuildFactory(name="Glass")
+        DiscordGuildEmojiFactory(emoji="🔥", guild=glass)
+        m1 = MemberFactory(discord_user_id="u1")
+        m2 = MemberFactory(discord_user_id="u2")
+        gone = MemberFactory(discord_user_id="u3")
+        GuildMembership.objects.record_discord_join(glass, gone)
+        _mock_reactions_by_message({("msg", "🔥"): ["u1"], ("msg2", "🔥"): ["u2"]})
+        stats = discord_sync.reconcile_reactions()
+        assert stats.added == 2
+        assert stats.removed == 1  # only the member on neither message
+        assert set(GuildMembership.objects.filter(guild=glass).values_list("member_id", flat=True)) == {m1.pk, m2.pk}
+
+    @respx.mock
+    def it_removes_nobody_when_one_message_fetch_is_truncated(two_messages):
+        glass = GuildFactory(name="Glass")
+        DiscordGuildEmojiFactory(emoji="🔥", guild=glass)
+        member = MemberFactory(discord_user_id="u1")
+        GuildMembership.objects.record_discord_join(glass, member)
+        _mock_reactions_by_message({}, flaky=[("msg2", "🔥")])  # msg complete and empty, msg2 truncated
+        stats = discord_sync.reconcile_reactions()
+        assert stats.removed == 0
+        assert stats.skipped_guilds == 1
+        assert GuildMembership.objects.filter(guild=glass, member=member).exists()
+
+    @respx.mock
+    def it_still_removes_in_a_guild_whose_fetches_all_completed(two_messages):
+        glass, wood = GuildFactory(name="Glass"), GuildFactory(name="Wood")
+        DiscordGuildEmojiFactory(emoji="🔥", guild=glass)
+        DiscordGuildEmojiFactory(emoji="🪵", guild=wood)
+        member = MemberFactory(discord_user_id="u1")
+        GuildMembership.objects.record_discord_join(glass, member)
+        GuildMembership.objects.record_discord_join(wood, member)
+        _mock_reactions_by_message({}, flaky=[("msg2", "🔥")])
+        stats = discord_sync.reconcile_reactions()
+        assert stats.removed == 1  # Wood read fully on both messages; Glass held back
+        assert GuildMembership.objects.filter(guild=glass, member=member).exists()
+        assert not GuildMembership.objects.filter(guild=wood, member=member).exists()
+
+    @respx.mock
+    def it_nudges_an_unlinked_reactor_once_when_they_react_on_both_messages(two_messages):
+        DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
+        DiscordGuildEmojiFactory(emoji="🎵", guild=GuildFactory())
+        _mock_reactions_by_message({("msg", "🔥"): ["stranger"], ("msg2", "🎵"): ["stranger"]})
+        msg = _mock_dm()
+        stats = discord_sync.reconcile_reactions()
+        assert stats.nudged == 1
+        assert msg.call_count == 1
+        assert DiscordLinkNudge.objects.filter(discord_user_id="stranger").count() == 1
+
+    @respx.mock
+    def it_imports_a_members_guilds_from_both_messages(two_messages):
+        glass, music = GuildFactory(name="Glass"), GuildFactory(name="Music")
+        DiscordGuildEmojiFactory(emoji="🔥", guild=glass)
+        DiscordGuildEmojiFactory(emoji="🎵", guild=music)
+        member = MemberFactory(discord_user_id="u1")
+        _mock_reactions_by_message({("msg", "🔥"): ["u1"], ("msg2", "🎵"): ["u1"]})
+        _mock_roles()
+        result = discord_sync.import_member_guilds(member)
+        assert [g.name for g in result.guilds] == ["Glass", "Music"]
+        assert result.complete is True
+
+    @respx.mock
+    def it_marks_an_import_incomplete_when_the_extra_message_is_truncated(two_messages):
+        DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory(name="Glass"))
+        member = MemberFactory(discord_user_id="u1")
+        _mock_reactions_by_message({("msg", "🔥"): ["u1"]}, flaky=[("msg2", "🔥")])
+        _mock_roles()
+        result = discord_sync.import_member_guilds(member)
+        assert [g.name for g in result.guilds] == ["Glass"]
+        assert result.complete is False
+
+    @respx.mock
+    def it_reads_only_the_main_message_when_the_extra_ids_are_blank(sync_config):
+        glass = GuildFactory(name="Glass")
+        DiscordGuildEmojiFactory(emoji="🔥", guild=glass)
+        member = MemberFactory(discord_user_id="u1")
+        GuildMembership.objects.record_discord_join(glass, member)
+        route = _mock_reactions_by_message({})
+        stats = discord_sync.reconcile_reactions()
+        assert {c.request.url.path.split("/")[-3] for c in route.calls} == {"msg"}
+        assert stats.removed == 1  # exactly today's behavior: a complete empty read removes
+
+    def it_does_not_run_on_extra_ids_alone(sync_config):
+        sync_config.discord_role_message_id = ""
+        sync_config.discord_role_message_extra_ids = "msg2"
+        sync_config.save()
+        assert discord_sync.reconcile_reactions().ran is False
+
+
 def describe_reconcile_nudges_unlinked_reactors():
     @respx.mock
     def it_dms_a_one_time_nudge_with_the_absolute_link_url(sync_config, settings):

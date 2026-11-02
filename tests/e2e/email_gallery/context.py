@@ -1105,6 +1105,16 @@ def cubby_rental_refunded_context(data: SampleData) -> dict[str, Any]:
     return _cubby_context(data, "You've been refunded for B3", refunded="$22")
 
 
+def guild_staff_welcome_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``membership.staff_onboarding.send_welcome``: the sample member now runs the sample guild."""
+    from membership import staff_onboarding
+
+    return {
+        "subject": staff_onboarding.welcome_subject(data.guild),
+        "template_context": staff_onboarding.email_context(data.member, data.guild),
+    }
+
+
 def cubby_waitlist_opened_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``membership.cubby_waitlist.notify_opened``: B3 on the Glaze Wall opened, and the sample member was first in line."""
     from membership import cubby_waitlist

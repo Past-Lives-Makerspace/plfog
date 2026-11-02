@@ -13,13 +13,12 @@ from importlib import import_module
 import pytest
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.db.migrations.loader import MigrationLoader
+from classes.spec.migrations._head import migrate_all_to_head
 
 _APP = "classes"
 _BEFORE = "0071_classoffering_hero_cropped"
 _AFTER = "0072_remove_member_discount"
 # The real head off the graph: a pinned name goes stale the day a later migration drops a column.
-_HEAD = MigrationLoader(None).graph.leaf_nodes(_APP)[0][1]
 
 _migration = import_module(f"classes.migrations.{_AFTER}")
 COPY_FIELDS = _migration.COPY_FIELDS
@@ -73,7 +72,7 @@ def describe_migration_0072_remove_member_discount():
             _make_settings(apps)
             assert _settings(apps).default_member_discount_pct == 10
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_moves_every_old_default_to_the_new_default():
         try:
@@ -87,7 +86,7 @@ def describe_migration_0072_remove_member_discount():
             assert "member discount" not in row.teach_page_features
             assert "member discount" not in row.teach_page_faq
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_leaves_an_admins_own_copy_alone_going_forward():
         try:
@@ -99,7 +98,7 @@ def describe_migration_0072_remove_member_discount():
             for name, value in CUSTOM.items():
                 assert getattr(row, name) == value
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_reverse_restores_the_old_default():
         try:
@@ -112,7 +111,7 @@ def describe_migration_0072_remove_member_discount():
                 assert getattr(row, name) == old
             assert "Set a price with a member discount" in row.teach_page_features
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_reverse_leaves_an_admins_own_copy_alone():
         try:
@@ -124,7 +123,7 @@ def describe_migration_0072_remove_member_discount():
             for name, value in CUSTOM.items():
                 assert getattr(row, name) == value
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_does_nothing_with_no_settings_row():
         try:
@@ -133,4 +132,4 @@ def describe_migration_0072_remove_member_discount():
             apps = _migrate(_AFTER)
             assert apps.get_model(_APP, "ClassSettings").objects.count() == 0
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()

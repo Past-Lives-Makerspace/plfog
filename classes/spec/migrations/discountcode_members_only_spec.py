@@ -11,14 +11,13 @@ from __future__ import annotations
 import pytest
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.db.migrations.loader import MigrationLoader
 
 from classes.models import DiscountCode
+from classes.spec.migrations._head import migrate_all_to_head
 
 _APP = "classes"
 _BEFORE = "0099_backfill_personal_discount_codes"
 _AFTER = "0100_discountcode_members_only"
-_HEAD = MigrationLoader(None).graph.leaf_nodes(_APP)[0][1]
 
 
 def _migrate(target: str):
@@ -55,7 +54,7 @@ def describe_migration_0100_discountcode_members_only():
                 "MEMBER15": False,
             }
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_does_nothing_when_there_is_no_member10():
         try:
@@ -64,7 +63,7 @@ def describe_migration_0100_discountcode_members_only():
             _migrate(_AFTER)
             assert list(DiscountCode.objects.values_list("code", "members_only")) == [("SAVE20", False)]
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_reverses_by_switching_member10_off_and_dropping_the_column():
         try:
@@ -76,7 +75,7 @@ def describe_migration_0100_discountcode_members_only():
             _migrate(_BEFORE)
             assert "members_only" not in _columns()
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_switches_member10_off_in_the_reverse_step_itself():
         try:
@@ -89,4 +88,4 @@ def describe_migration_0100_discountcode_members_only():
             import_module(f"classes.migrations.{_AFTER}").backwards(live_apps, None)
             assert DiscountCode.objects.get(code="MEMBER10").members_only is False
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()

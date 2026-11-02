@@ -16,18 +16,17 @@ from importlib import import_module
 import pytest
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.db.migrations.loader import MigrationLoader
 from django.utils import timezone
 
 from classes.factories import DiscountCodeFactory
 from classes.models import DiscountCode
 from core.models import SiteConfiguration
 from tests.membership.factories import MemberFactory
+from classes.spec.migrations._head import migrate_all_to_head
 
 _APP = "classes"
 _BEFORE = "0098_discountcode_is_personal"
 _AFTER = "0099_backfill_personal_discount_codes"
-_HEAD = MigrationLoader(None).graph.leaf_nodes(_APP)[0][1]
 
 _migration = import_module(f"classes.migrations.{_AFTER}")
 
@@ -74,7 +73,7 @@ def describe_migration_0099_backfill_personal_discount_codes():
             )
             assert made.description == _migration.BACKFILL_DESCRIPTION
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_keeps_an_existing_instructor_code_as_the_personal_one():
         try:
@@ -89,7 +88,7 @@ def describe_migration_0099_backfill_personal_discount_codes():
             assert _codes(jacqueline) == [("JACQUELINE30", True)]
             assert _codes(two) == [("MORGANNEW", False), ("MORGANOLD", True)]
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_adopts_only_a_live_code_and_leaves_the_others_alone():
         try:
@@ -108,7 +107,7 @@ def describe_migration_0099_backfill_personal_discount_codes():
             pending = codes_then.get(code="KITPENDING")
             assert (pending.is_approved, pending.is_active) == (False, True)
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_adds_last_name_letters_then_a_b_c_on_a_collision():
         try:
@@ -130,7 +129,7 @@ def describe_migration_0099_backfill_personal_discount_codes():
             assert (_codes(kai_1), _codes(kai_2)) == ([("KAI10", True)], [("KAIA10", True)])
             assert _codes(nameless) == [("TEACH10", True)]
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_names_the_same_codes_as_the_app():
         from classes.models import personal_code_candidates
@@ -154,7 +153,7 @@ def describe_migration_0099_backfill_personal_discount_codes():
             _migration.backfill(apps, None)
             assert DiscountCode.objects.count() == before
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_reverses_by_deleting_only_the_unused_codes_it_made():
         try:
@@ -172,7 +171,7 @@ def describe_migration_0099_backfill_personal_discount_codes():
                 "JACQUELINE30"
             ]
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_uses_the_default_percent_with_no_settings_row():
         try:
@@ -182,4 +181,4 @@ def describe_migration_0099_backfill_personal_discount_codes():
             _migrate(_AFTER)
             assert _codes(alex) == [("ALEX10", True)]
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()

@@ -513,6 +513,18 @@ def default_signage_tour_url() -> str:
     return str(settings.TOURS_BASE_URL)
 
 
+def split_discord_ids(raw: str) -> list[str]:
+    """Split a list of Discord ids typed into one box, by commas, spaces or new lines.
+
+    Args:
+        raw: The text as typed, such as ``"111, 222 333"``.
+
+    Returns:
+        The ids in the order typed, blanks dropped.
+    """
+    return [part for part in re.split(r"[\s,]+", raw or "") if part]
+
+
 class SiteConfiguration(models.Model):
     """Singleton model for site-wide settings like registration mode."""
 
@@ -682,6 +694,16 @@ class SiteConfiguration(models.Model):
         verbose_name="Reaction-role message id",
         help_text="The id of the reaction-role message — update if it's reposted. "
         "Blank disables the inbound reaction sync.",
+    )
+    discord_role_message_extra_ids = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        db_default="",
+        verbose_name="More reaction-role message ids",
+        help_text="Ids of more reaction-role messages in the same channel, separated by commas or spaces, "
+        "for when one message is full (Discord allows 20 reactions per message). A reaction on any of "
+        "them counts. Blank reads only the message above.",
     )
     google_analytics_measurement_id = models.CharField(
         max_length=50,
@@ -1179,6 +1201,18 @@ class SiteConfiguration(models.Model):
         self.door_code_changed_by = by
         self.save(update_fields=["door_code", "door_code_changed_at", "door_code_changed_by"])
         return True
+
+    @property
+    def discord_role_message_ids(self) -> list[str]:
+        """Every reaction-role message the inbound guild sync reads, the main one first.
+
+        Empty when the main message id is blank, so the extra ids alone never switch the
+        sync on. Repeats are dropped, keeping the first.
+        """
+        main = (self.discord_role_message_id or "").strip()
+        if not main:
+            return []
+        return list(dict.fromkeys([main, *split_discord_ids(self.discord_role_message_extra_ids)]))
 
     @property
     def instructor_discount_codes_approval_mode(self) -> bool:

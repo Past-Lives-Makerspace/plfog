@@ -14,16 +14,15 @@ from datetime import timedelta
 import pytest
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.db.migrations.loader import MigrationLoader
 from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory, UserFactory
 from classes.models import ClassApproval, ClassMessage
+from classes.spec.migrations._head import migrate_all_to_head
 
 _APP = "classes"
 _BEFORE = "0095_class_messages"
 _AFTER = "0096_approval_notes_to_messages"
-_HEAD = MigrationLoader(None).graph.leaf_nodes(_APP)[0][1]
 
 
 def _migrate(target: str) -> None:
@@ -45,7 +44,8 @@ def _approval(offering, *, notes: str, decided_at=None, decided_by=None, role=Cl
 def describe_migration_0096_approval_notes_to_messages():
     def it_carries_each_note_into_its_class_thread_oldest_first():
         try:
-            _migrate(_BEFORE)
+            # Rows are built at head, then stepped back: a User made on the old schema makes a
+            # Member through the real model, naming columns the rolled back table lacks.
             lead = UserFactory(username="mig-lead@example.com")
             offering = ClassOfferingFactory(title="Zz migrate mugs")
             other = ClassOfferingFactory(title="Zz migrate lamps")
@@ -56,6 +56,7 @@ def describe_migration_0096_approval_notes_to_messages():
             _approval(offering, notes="")
             _approval(offering, notes=" \n ")
             _approval(offering, notes="Approved automatically when an admin gave final approval.", decided_at=now)
+            _migrate(_BEFORE)
 
             _migrate(_AFTER)
 
@@ -68,13 +69,13 @@ def describe_migration_0096_approval_notes_to_messages():
             assert (lone.body, lone.created_at) == ("Zzno date", undated.created_at)
             assert ClassApproval.objects.get(pk=later.pk).notes == "  Zzsecond round  "
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_removes_only_the_carried_messages_on_the_way_back():
         try:
-            _migrate(_BEFORE)
             offering = ClassOfferingFactory(title="Zz reverse mugs")
             _approval(offering, notes="Zzcarried", decided_at=timezone.now())
+            _migrate(_BEFORE)
             _migrate(_AFTER)
             ClassMessage.objects.create(class_offering=offering, body="Zzwritten since")
 
@@ -83,4 +84,4 @@ def describe_migration_0096_approval_notes_to_messages():
             assert list(ClassMessage.objects.values_list("body", flat=True)) == ["Zzwritten since"]
             assert ClassApproval.objects.get(class_offering=offering).notes == "Zzcarried"
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()

@@ -14,15 +14,14 @@ from datetime import timedelta
 import pytest
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.db.migrations.loader import MigrationLoader
 
 from classes.factories import ClassOfferingFactory, InstructorFactory
 from classes.models import ClassInstructor, ClassOffering
+from classes.spec.migrations._head import migrate_all_to_head
 
 _APP = "classes"
 _BEFORE = "0091_discountcode_instructor"
 _AFTER = "0092_classinstructor"
-_HEAD = MigrationLoader(None).graph.leaf_nodes(_APP)[0][1]
 
 
 def _migrate(target: str) -> None:
@@ -43,7 +42,7 @@ def describe_migration_0092_classinstructor():
             assert not ClassInstructor.objects.filter(class_offering=nobody).exists()
             assert ClassOffering.objects.get(pk=taught.pk).instructor_id == teacher.pk
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_reverses_by_writing_the_first_listed_instructor_back_as_the_payee():
         try:
@@ -57,4 +56,4 @@ def describe_migration_0092_classinstructor():
             _migrate(_BEFORE)
             assert ClassOffering.objects.get(pk=offering.pk).instructor_id == b.pk
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()

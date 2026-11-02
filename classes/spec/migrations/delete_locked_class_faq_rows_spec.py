@@ -13,15 +13,14 @@ from importlib import import_module
 import pytest
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.db.migrations.loader import MigrationLoader
 
 from classes.factories import ClassFaqFactory, ClassOfferingFactory
 from classes.models import LOCKED_CLASS_FAQS, ClassFaq, ClassOffering, _faq_key
+from classes.spec.migrations._head import migrate_all_to_head
 
 _APP = "classes"
 _BEFORE = "0085_classoffering_eventbrite_published"
 _AFTER = "0086_delete_locked_class_faq_rows"
-_HEAD = MigrationLoader(None).graph.leaf_nodes(_APP)[0][1]
 
 _migration = import_module(f"classes.migrations.{_AFTER}")
 
@@ -81,7 +80,7 @@ def describe_migration_0086_delete_locked_class_faq_rows():
 
             assert sorted(ClassFaq.objects.values_list("pk", flat=True)) == sorted(row.pk for row in kept)
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_reverses_by_putting_the_locked_questions_back_at_the_top_of_each_class_with_rows():
         try:
@@ -106,4 +105,4 @@ def describe_migration_0086_delete_locked_class_faq_rows():
             assert [q for q, _ in _rows(both_missing)] == ["Gloves?", "Age?"]
             assert [q for q, _ in _rows(one_missing)] == ["Dog?"]
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
