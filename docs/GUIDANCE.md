@@ -3,7 +3,7 @@
 Every PR says how much teaching it ships, once in its changelog fragment and once in its PR
 body, and the portal does the rest: What's New lists the change by role, a New! badge marks the
 thing itself, and the feature's button opens the entry. Nobody writes an announcement by hand
-and no PR adds a Help Center article (#1009). The issue is #1007; the shots are #1050, which
+and no PR adds to or edits the Help Center (#1009). The issue is #1007; the shots are #1050, which
 superseded the recorded clips of #1008.
 
 ## The four levels
@@ -16,7 +16,7 @@ superseded the recorded clips of #1008.
 | `tour` | `shots`, plus a Guided Tour (`core/tours.py`) started from the entry. | A whole new surface with several stops, for a role that has not seen it before. |
 
 A `tour` is a tour plus shots. The `fragment` check requires the tour key and HEADs every shot
-on the media bucket. No level adds a Help Center article; the Help Center is frozen
+on the media bucket. No level adds or edits a Help Center article; the Help Center is frozen
 (`docs/HELP_AUTHORING.md`). `clip` was a level until #1050 and is none now: a fragment that still
 says it fails the check, which names `shots`.
 
@@ -71,6 +71,30 @@ in CI and skipped out loud on a local run). The review bot blocks a members frag
 plainly belongs to a feature and names none, and one at `none` or `link` when the diff adds a
 button, field, tab or flow to a template: that is `shots`.
 
+## Landing on the control: `target`
+
+Open <feature> names where it goes ("Open Email Members", from the registry's `title`) and goes
+where the feature lives. When a release changes one control on a page that already exists, the
+fragment names that control so the button lands on it rather than beside it (#1051):
+
+```toml
+target = "announcements.feature-class"
+```
+
+The key follows `KEY_PATTERN` (`area.control`), and the same PR places it on the control as
+`data-guidance-target="announcements.feature-class"`. The button adds `?show=<key>` to the
+feature's URL; on arrival `static/js/guidance.js` hands the key to the tour engine's one step mode
+(`static/js/pl_tour.js`), which scrolls the control into view and rings it in gold under a popover
+carrying the entry's title and first bullet, until a click anywhere or Esc. A control the viewer's
+role does not render shows nothing and logs nothing. With What's New open on the page the entry
+lives on, the button reads "Show me" and rings in place; without a `target` there, no button.
+
+The rule: a `link` or `shots` fragment for a change to an existing page names a `target`. A new
+page needs none. The registry may carry a default `target` for a feature's main control, used
+when a fragment names none and by the feature walkthrough; `tests/hub/guidance_targets_spec.py`
+holds every `target`, from fragments, `history.json` and the registry, to a template that carries
+it, and the `fragment` check rejects one outside the grammar.
+
 ## Picking the level
 
 1. Is there a feature? A change to one thing members use names its key. A fix spread across
@@ -96,6 +120,8 @@ Add a `Guidance(...)` to `_GUIDANCE_LIST` in `core/guidance.py`:
 - `steps`: 2 to 5 lines in the house voice for members (STANDARDS.md §13), each true of merged
   code. Name buttons and tabs as they are labelled.
 - `help_key`, `tour`: only what exists.
+- `target`: the feature's main control, when a template marks one with `data-guidance-target`
+  (above). Optional; no feature sets one yet.
 
 ## Taking the shots
 

@@ -447,7 +447,8 @@ def describe_equipment_index():
             # plus the Spotlight's second query, its live announcements (#890).
             # 42 since Guild Tools (#921): the sidebar's tools entry asks about leads and staff in one EXISTS.
             # 40 since #935: the sidebar's Spotlight is a static version card, so neither of its two queries runs.
-            with django_assert_num_queries(40):
+            # 39 since the hidden-guild sidebar: its guild list reads the demo guild setting inside its one query.
+            with django_assert_num_queries(39):
                 assert client.get(url).status_code == 200
 
         def it_answers_an_empty_grid_without_the_member_lookups(django_assert_num_queries):

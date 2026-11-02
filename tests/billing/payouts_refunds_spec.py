@@ -62,6 +62,14 @@ def _sent_registration(payee: Member, *, amount: int = 10000, share: int = 7000)
     return reg
 
 
+def _sent_now() -> None:
+    """Stamp the share as sent this instant, so "sent this month" holds on the 1st of a month too.
+
+    ``_sent_registration`` sends it a day ago, which is last month on the 1st (Pacific).
+    """
+    Payout.objects.update(sent_at=timezone.now())
+
+
 def _sent_booking(payee: Member, *, amount: int = 5000, share: int = 3500) -> OrientationBooking:
     slot = OrientationSlotFactory(
         starts_at=timezone.now() - timedelta(days=3), ends_at=timezone.now() - timedelta(days=3, hours=-1)
@@ -362,6 +370,7 @@ def describe_review_round_1():
     def it_shows_the_part_kept_and_the_part_taken_back_with_net_totals(django_capture_on_commit_callbacks):
         payee = _payee()
         reg = _sent_registration(payee)
+        _sent_now()
         with _Reversals(), django_capture_on_commit_callbacks(execute=True):
             issue_refund(reg, amount_cents=4000, share_decision=TAKE_BACK)
         earnings = payouts.payee_earnings(payee)
@@ -434,6 +443,7 @@ def describe_review_round_2():
     def it_still_lists_a_fully_refunded_share_past_lives_covered_as_sent(django_capture_on_commit_callbacks):
         payee = _payee()
         reg = _sent_registration(payee)
+        _sent_now()
         with _Reversals(), django_capture_on_commit_callbacks(execute=True):
             issue_refund(reg, share_decision=PL_COVERS)
         earnings = payouts.payee_earnings(payee)

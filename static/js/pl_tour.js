@@ -20,6 +20,12 @@
  * hx-boost re-executes this script on boosted navigations, so it is a guarded
  * window.plTour IIFE with no top-level const/let: the module is defined once,
  * and every execution just calls init() to re-read the payload and resume.
+ *
+ * show() is the ONE STEP mode (#1051): What's New's Open <feature> lands on
+ * ?show=<key> and Show me stays on the page; both ring the one control marked
+ * data-guidance-target="<key>" with the same Driver.js stage and popover (the
+ * entry's title and first bullet), no footer, ended by Esc, the X or any click.
+ * It saves no run and records nothing: it is not a tour.
  */
 (function () {
     "use strict";
@@ -57,7 +63,10 @@
             function loadAssets() {
                 if (assetsPromise) return assetsPromise;
                 assetsPromise = new Promise(function (resolve, reject) {
-                    var root = document.getElementById("pl-tour-root");
+                    // The asset URLs sit on #pl-tour-assets on every member page (a highlight
+                    // can start where no tour payload renders); #pl-tour-root still carries
+                    // them for a page rendered by an older template.
+                    var root = document.getElementById("pl-tour-assets") || document.getElementById("pl-tour-root");
                     if (!root) {
                         reject(new Error("no tour root"));
                         return;
@@ -627,6 +636,69 @@
                 );
             }
 
+            // ── one step highlight (#1051) ──────────────────────────────────
+            function show(opts) {
+                if (active) return; // a tour or another highlight already holds the stage
+                var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+                // waitFor's cap covers a control that paints a moment after arrival; a control
+                // the viewer's role does not render resolves false and nothing shows.
+                waitFor({ target: opts.selector })
+                    .then(function (found) {
+                        if (!found || active) return null;
+                        return loadAssets().then(function () {
+                            if (active) return;
+                            var theme = document.documentElement.getAttribute("data-theme") || window.__plTheme || "dark";
+                            var root = document.documentElement;
+                            var driverObj = null;
+                            // Driver records its active element only once the 400 ms stage transition
+                            // has finished and skips onDestroyed on a destroy before that (an early Esc),
+                            // so every exit tidies up itself; cleanup is idempotent and runs at most once.
+                            function cleanup() {
+                                document.removeEventListener("click", end, true);
+                                root.classList.remove("pl-guidance-showing");
+                                if (active && active.driverObj === driverObj) active = null;
+                            }
+                            function end() {
+                                if (!active || active.driverObj !== driverObj) return;
+                                driverObj.destroy();
+                                cleanup();
+                            }
+                            driverObj = window.driver.js.driver({
+                                steps: [{ element: opts.selector, popover: { title: opts.title, description: opts.body, side: "bottom", align: "start" } }],
+                                popoverClass: "pl-tour pl-tour--show",
+                                showProgress: false,
+                                showButtons: ["close"],
+                                allowClose: true,
+                                animate: !reduced,
+                                smoothScroll: !reduced,
+                                stagePadding: 14,
+                                overlayColor: theme === "light" ? "rgba(29, 30, 30, 0.45)" : "rgba(4, 5, 8, 0.72)",
+                                overlayOpacity: 1,
+                                onDestroyStarted: end, // Esc, the X, the overlay: Driver hands the close to us
+                                onDestroyed: cleanup,
+                            });
+                            active = { driverObj: driverObj, segStart: 0, segEnd: 0, cleanup: cleanup };
+                            root.classList.add("pl-guidance-showing");
+                            driverObj.drive(0);
+                            // Driver places the popover once, against the layout it measured at the
+                            // start; a page still settling (fonts, the header row) leaves it detached
+                            // from the control. Re-measure once the stage transition has finished.
+                            window.setTimeout(function () {
+                                if (active && active.driverObj === driverObj) driverObj.refresh();
+                            }, reduced ? 50 : 450);
+                            // A click anywhere ends it, the ringed control and the popover included
+                            // (the overlay already closes through Driver). Bound on the next tick so
+                            // the click that asked for it (Show me) is not the click that ends it.
+                            window.setTimeout(function () {
+                                if (active && active.driverObj === driverObj) document.addEventListener("click", end, true);
+                            }, 0);
+                        });
+                    })
+                    .catch(function () {
+                        /* driver.min.js failed to load: no highlight, and nothing to report */
+                    });
+            }
+
             function resumeFromContext() {
                 // 1. Authoritative seed: an autostart payload (?tour= present) —
                 //    resume at the server-clamped resume_step on THIS page.
@@ -803,7 +875,9 @@
                 // user themselves boosts away mid-tour (a link click) — abandon the tour.
                 ending = false;
                 clearRun();
-                active.driverObj.destroy();
+                var held = active;
+                held.driverObj.destroy();
+                if (held.cleanup) held.cleanup(); // a highlight (#1051) tidies itself; see show()
                 session = null;
             }
 
@@ -837,7 +911,7 @@
                 resumeFromContext();
             }
 
-            return { init: init, start: start };
+            return { init: init, start: start, show: show };
         })();
     }
 

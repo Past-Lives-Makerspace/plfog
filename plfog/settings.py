@@ -378,6 +378,7 @@ TEMPLATES = [
                 "hub.context_processors.staff_onboarding",
                 "core.context_processors.notification_badge",
                 "core.context_processors.tour_runtime",
+                "core.context_processors.guidance_show",
             ],
         },
     },

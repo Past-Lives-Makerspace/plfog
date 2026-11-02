@@ -1,0 +1,8 @@
+bump = "minor"
+audience = ["admins", "guild-staff"]
+date = "2026-11-01"
+title = "Hidden guilds show in the sidebar for the people who run them"
+changes = [
+  "A hidden guild now appears in the sidebar for admins and for that guild's lead and staff, marked Hidden, so a guild being set up is easy to find.",
+  "Everyone else still sees no trace of it, and its page now says Not Found to them instead of opening by direct link.",
+]

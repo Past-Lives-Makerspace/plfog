@@ -1,8 +1,11 @@
 {% comment %}
 One entry on a What's New tab (#1007). Context: row (core.whats_new.Row): the entry, the chips for
-a finer audience on this tab, and open_url and tour_url, each empty when the viewer may not follow
-it. An entry with shots (#1050, level shots or tour) walks through them in the stepper of
-_shots.html; a frozen entry at tour from before shots shows the registry's How it works lines.
+a finer audience on this tab, and open_url, show and tour_url, each empty when the viewer may not
+follow it. The button reads "Open <feature>" and carries ?show=<target> when the entry names a
+control (#1051); on the page the entry lives on it reads Show me instead, closing the modal and
+ringing the control in place through guidance.js, and with no target there is no button at all. An
+entry with shots (#1050, level shots or tour) walks through them in the stepper of _shots.html; a
+frozen entry at tour from before shots shows the registry's How it works lines.
 {% endcomment %}
 <article class="pl-wn-entry" data-whats-new-entry="{{ row.entry.slug }}">
     <h3 class="pl-wn-entry__title">{{ row.entry.title }}{% for chip in row.chips %} <span class="pl-wn-chip" data-whats-new-chip>{{ chip }}</span>{% endfor %}</h3>
@@ -21,9 +24,10 @@ _shots.html; a frozen entry at tour from before shots shows the registry's How i
         </div>
     </div>
     {% endif %}
-    {% if row.open_url or row.tour_url %}
+    {% if row.open_url or row.show or row.tour_url %}
     <div class="pl-wn-actions">
-        {% if row.open_url %}<a href="{{ row.open_url }}" class="hub-btn hub-btn--sm" data-whats-new-open>Open it</a>{% endif %}
+        {% if row.open_url %}<a href="{{ row.open_url }}" class="hub-btn hub-btn--sm" data-whats-new-open>{{ row.open_label }}</a>{% endif %}
+        {% if row.show %}<button type="button" class="hub-btn hub-btn--sm" data-whats-new-show="{{ row.show }}" data-show-title="{{ row.entry.title }}" data-show-body="{{ row.entry.changes.0 }}">Show me</button>{% endif %}
         {% if row.tour_url %}<a href="{{ row.tour_url }}" class="hub-btn hub-btn--sm hub-btn--ghost" data-whats-new-tour>Take the tour</a>{% endif %}
     </div>
     {% endif %}
