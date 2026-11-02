@@ -1,5 +1,6 @@
 {% extends "classes/teach/base.html" %}
-{% load static classes_tags %}
+{% load static classes_tags guidance %}
+{% block portal_whats_new %}{% whats_new_button "classes.personal-code" %}{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/instructor-codes.css' %}">
 {% endblock %}
