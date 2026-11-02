@@ -43,7 +43,6 @@ from collections.abc import Callable
 from urllib.parse import quote, urlsplit
 
 from django.conf import settings
-from django.db import transaction
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponsePermanentRedirect, HttpResponseRedirect
 
 logger = logging.getLogger(__name__)
@@ -525,8 +524,11 @@ def is_from_app(request: HttpRequest) -> bool:
 class PageViewMiddleware:
     """Write one :class:`core.models.PageView` per signed in full page view (#1078).
 
-    Runs after the response is built. A failure to write is logged and swallowed, so the usage
-    log can never fail or change a page.
+    Runs after the response is built and costs one INSERT: the role comes from the
+    ``request.view_as`` roles the ViewAs middleware already read (:meth:`PageView.role_value`).
+    A failure to write is logged and swallowed, so the usage log can never fail or change a page.
+    No savepoint is needed: requests are not atomic (``ATOMIC_REQUESTS`` is off), so a failed
+    autocommit INSERT leaves nothing open behind it.
     """
 
     def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
@@ -539,13 +541,13 @@ class PageViewMiddleware:
             if view_name:
                 from core.models import PageView
 
-                with transaction.atomic():
-                    PageView.record(
-                        user=request.user,
-                        view_name=view_name,
-                        surface=PAGE_VIEW_SURFACES[request.surface],  # type: ignore[attr-defined]
-                        from_app=is_from_app(request),
-                    )
+                PageView.record(
+                    user=request.user,
+                    actual_roles=request.view_as.actual,  # type: ignore[attr-defined]
+                    view_name=view_name,
+                    surface=PAGE_VIEW_SURFACES[request.surface],  # type: ignore[attr-defined]
+                    from_app=is_from_app(request),
+                )
         except Exception:
             logger.exception("Could not record a page view")
         return response

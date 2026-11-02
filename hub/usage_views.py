@@ -31,8 +31,12 @@ DEFAULT_RANGE = "30"
 #: The role chips: every role, then each one alone.
 ROLE_CHOICES: tuple[tuple[str, str], ...] = (("", "All Roles"), *PageView.Role.choices)
 
-#: How many pages the Least Used card lists.
-LEAST_USED_COUNT = 10
+#: How many pages the Pages card lists, most viewed first.
+TOP_PAGES_COUNT = 15
+
+#: How many pages the Least Used card lists. It shows only when more pages were visited than the
+#: Pages card lists, so the two never repeat each other.
+LEAST_USED_COUNT = 8
 
 
 class UsageForm(forms.Form):
@@ -49,13 +53,36 @@ class UsageForm(forms.Form):
 
 
 @dataclass(frozen=True)
+class PageRow:
+    """One page's counts on the Usage page, with its readable name and its view name."""
+
+    label: str
+    view_name: str
+    views: int
+    people: int
+
+
+def _page_rows(rows: list[dict[str, Any]]) -> list[PageRow]:
+    return [
+        PageRow(
+            label=PageView.label_for(row["view_name"]),
+            view_name=row["view_name"],
+            views=row["views"],
+            people=row["people"],
+        )
+        for row in rows
+    ]
+
+
+@dataclass(frozen=True)
 class UsageBoard:
     """Everything the Usage page shows for one range and role."""
 
     views: int
     people: int
-    pages: list[dict[str, Any]]
-    least_used: list[dict[str, Any]]
+    pages: list[PageRow]
+    page_count: int
+    least_used: list[PageRow]
     activity: ActivityWeeks
 
 
@@ -64,12 +91,15 @@ def usage_board(days: int, role: str) -> UsageBoard:
     start = timezone.now() - timedelta(days=days)
     views = PageView.objects.since(start).for_role(role)
     totals = views.aggregate(views=Count("id"), people=Count("user", distinct=True))
-    pages = list(views.by_page())
+    ranked = list(views.by_page())
+    least_used = list(reversed(ranked[-LEAST_USED_COUNT:])) if len(ranked) > TOP_PAGES_COUNT else []
+    least_used.sort(key=lambda row: (row["views"], row["view_name"]))
     return UsageBoard(
         views=totals["views"],
         people=totals["people"],
-        pages=pages,
-        least_used=list(views.by_page().order_by("views", "view_name")[:LEAST_USED_COUNT]),
+        pages=_page_rows(ranked[:TOP_PAGES_COUNT]),
+        page_count=len(ranked),
+        least_used=_page_rows(least_used),
         activity=SiteActivity.weekly_counts(start),
     )
 

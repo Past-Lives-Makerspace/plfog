@@ -24,3 +24,53 @@
 .pl-usage .admin-table-wrap {
     margin-top: 1rem;
 }
+
+/* The chip rows wrap onto more lines rather than running off the card at phone width. */
+.pl-usage .pl-equip-chips {
+    flex-wrap: wrap;
+    overflow-x: visible;
+}
+
+/* A page's readable name, with its view name under it in small muted type so it stays unambiguous. */
+.pl-usage__page {
+    overflow-wrap: anywhere;
+}
+
+.pl-usage__view-name {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
+    color: var(--hub-text-muted);
+    overflow-wrap: anywhere;
+}
+
+/* Count columns take only the room their numbers need, so the page column gets the rest. */
+.pl-usage__num {
+    width: 1%;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.pl-usage .admin-table-wrap thead th.pl-usage__num {
+    text-align: right;
+}
+
+/* Activity by Kind is one column per week; Total sits beside Kind so it never scrolls away, and the
+   weeks scroll inside the table's frame (#543), which the line under it says on a phone. */
+.pl-usage__scroll-hint {
+    display: none;
+    margin-top: 0.5rem;
+    font-size: 0.8rem;
+}
+
+@media (max-width: 640px) {
+    .pl-usage .admin-table-wrap thead th,
+    .pl-usage .admin-table-wrap tbody td {
+        padding-left: 0.6rem;
+        padding-right: 0.6rem;
+    }
+
+    .pl-usage__scroll-hint {
+        display: block;
+    }
+}

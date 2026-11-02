@@ -43,7 +43,7 @@ def _people() -> tuple[User, User]:
 def _pages(response) -> dict[str, tuple[int, int]]:
     """Counts by page, leaving out the admin's own earlier visits to this page, which the log records too."""
     rows = response.context["board"].pages
-    return {row["view_name"]: (row["views"], row["people"]) for row in rows if row["view_name"] != "hub_admin_usage"}
+    return {row.view_name: (row.views, row.people) for row in rows if row.view_name != "hub_admin_usage"}
 
 
 def describe_access():
@@ -74,8 +74,31 @@ def describe_counts():
 
         assert response.status_code == 200
         assert _pages(response) == {"hub_home": (3, 2), "hub_guilds": (1, 1)}
-        assert [row["view_name"] for row in response.context["board"].least_used] == ["hub_guilds", "hub_home"]
+        assert response.context["board"].least_used == []  # two pages: nothing beyond the Pages list
         assert "4 page views by 2 people" in response.content.decode()
+
+    def it_shows_a_readable_name_with_the_view_name_under_it(admin_client: Client):
+        zelda, _yuri = _people()
+        _view(zelda, "classes:admin_class_detail")
+        html = admin_client.get(_URL).content.decode()
+        assert 'Class detail<span class="pl-usage__view-name">classes:admin_class_detail</span>' in html
+
+    def it_lists_the_top_fifteen_and_the_bottom_eight_only_past_fifteen(admin_client: Client):
+        zelda, _yuri = _people()
+        for rank in range(18):  # page_00 is viewed 18 times, page_17 once
+            for _ in range(18 - rank):
+                _view(zelda, f"page_{rank:02d}")
+
+        board = admin_client.get(_URL).context["board"]
+
+        assert [row.view_name for row in board.pages] == [f"page_{rank:02d}" for rank in range(15)]
+        assert board.page_count == 18  # this page's own visit is written after it renders
+        assert [row.view_name for row in board.least_used] == [f"page_{rank:02d}" for rank in range(17, 9, -1)]
+
+    def it_shows_no_least_used_card_with_fifteen_pages_or_fewer(admin_client: Client):
+        zelda, _yuri = _people()
+        _view(zelda, "hub_home")
+        assert "data-usage-least-card" not in admin_client.get(_URL).content.decode()
 
     def it_names_no_one(admin_client: Client):
         zelda, _yuri = _people()

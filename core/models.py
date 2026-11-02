@@ -2289,44 +2289,101 @@ class PageView(models.Model):
         return f"{self.view_name} @ {self.viewed_at:%Y-%m-%d %H:%M}"
 
     @classmethod
-    def role_for(cls, user: Any) -> str:
-        """The highest role ``user`` holds right now, in one query.
+    def role_value(cls, *, user_id: int, actual_roles: frozenset[str]) -> Any:
+        """The visitor's highest role for the row, without a query of its own (#1078).
 
-        Admin (a superuser, or an active member whose role is admin), then Guild Staff (a guild
-        officer, lead or staff holder), then Instructor (a public instructor profile), then Member.
-        A signed in account with no active membership, such as a class guest, is a Guest.
+        ``actual_roles`` is ``request.view_as.actual``, which the ViewAs middleware already read for
+        this request: Admin (a superuser, or an active admin member), Guild Staff for a guild officer,
+        and Signed In Guest for an account with no active membership come straight from it. A plain
+        member's finer role (Guild Staff as a guild lead or staff holder, else Instructor with a
+        public instructor profile, else Member) is a subquery the INSERT itself evaluates, so the
+        row still costs one round trip.
         """
-        from django.db.models import Exists, OuterRef
+        from django.db.models import Case, CharField, Exists, OuterRef, Q, Subquery, Value, When
+        from django.db.models.functions import Coalesce
 
+        from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER
         from membership.models import Guild, GuildStaffMembership, Member
 
-        if getattr(user, "is_superuser", False):
+        if ROLE_ADMIN in actual_roles:
             return cls.Role.ADMIN
-        member = (
-            Member.objects.filter(user_id=user.pk, status=Member.Status.ACTIVE)
-            .annotate(
-                leads=Exists(Guild.objects.filter(guild_lead=OuterRef("pk"))),
-                staffs=Exists(GuildStaffMembership.objects.filter(member=OuterRef("pk"))),
-            )
-            .values("fog_role", "instructor_slug", "leads", "staffs")
-            .first()
-        )
-        if member is None:
-            return cls.Role.GUEST
-        if member["fog_role"] == Member.FogRole.ADMIN:
-            return cls.Role.ADMIN
-        if member["fog_role"] == Member.FogRole.GUILD_OFFICER or member["leads"] or member["staffs"]:
+        if ROLE_GUILD_OFFICER in actual_roles:
             return cls.Role.GUILD_STAFF
-        if member["instructor_slug"]:
-            return cls.Role.INSTRUCTOR
-        return cls.Role.MEMBER
+        if ROLE_MEMBER not in actual_roles:
+            return cls.Role.GUEST
+        runs_a_guild = Q(Exists(Guild.objects.filter(guild_lead=OuterRef("pk")))) | Q(
+            Exists(GuildStaffMembership.objects.filter(member=OuterRef("pk")))
+        )
+        finer = (
+            Member.objects.filter(user_id=user_id, status=Member.Status.ACTIVE)
+            .annotate(
+                page_view_role=Case(
+                    When(runs_a_guild, then=Value(cls.Role.GUILD_STAFF.value)),
+                    When(instructor_slug__gt="", then=Value(cls.Role.INSTRUCTOR.value)),
+                    default=Value(cls.Role.MEMBER.value),
+                    output_field=CharField(),
+                )
+            )
+            .values("page_view_role")[:1]
+        )
+        return Coalesce(Subquery(finer), Value(cls.Role.MEMBER.value), output_field=CharField())
 
     @classmethod
-    def record(cls, *, user: Any, view_name: str, surface: str, from_app: bool) -> PageView:
-        """Write one view, reading the visitor's role as it stands now."""
-        return cls.objects.create(
-            user=user, view_name=view_name, role=cls.role_for(user), surface=surface, from_app=from_app
+    def record(cls, *, user: Any, actual_roles: frozenset[str], view_name: str, surface: str, from_app: bool) -> None:
+        """Write one view in a single INSERT, its role read as it stands now (:meth:`role_value`)."""
+        cls.objects.create(
+            user=user,
+            view_name=view_name,
+            role=cls.role_value(user_id=user.pk, actual_roles=actual_roles),
+            surface=surface,
+            from_app=from_app,
         )
+
+    #: Readable names for the pages people open most; any other page is humanized from its view name.
+    #: Never read from the page's <title>, which can carry a member's name.
+    LABELS: ClassVar[dict[str, str]] = {
+        "hub_home": "Home",
+        "home": "Home",
+        "hub_guild_directory": "Guilds",
+        "hub_guild_detail": "Guild Page",
+        "classes:public_list": "Classes",
+        "classes:public_class_detail": "Class Page",
+        "classes:teach_dashboard": "Host a Class",
+        "hub_admin_tools": "Admin Tools",
+        "hub_orientations": "Orientations",
+        "hub_member_directory": "Member Directory",
+        "hub_leadership_directory": "Leadership Directory",
+        "hub_beta_feedback": "Feedback",
+        "hub_admin_feedback_inbox": "Feedback Inbox",
+        "hub_admin_growth": "Growth",
+        "hub_admin_usage": "Usage",
+        "hub_community_calendar": "Calendar",
+        "hub_guild_voting": "Guild Voting",
+        "hub_meetings": "Meetings",
+        "hub_equipment_index": "Reservations",
+        "hub_wiki_home": "Knowledge Base",
+        "hub_help": "Help",
+        "hub_tab_detail": "My Tab",
+        "hub_announcements": "Email Members",
+        "hub_cubbies_home": "Cubbies",
+        "hub_profile_settings": "Profile",
+        "hub_user_settings": "Settings",
+    }
+
+    @classmethod
+    def label_for(cls, view_name: str) -> str:
+        """A readable name for a page: the :attr:`LABELS` entry, else the view name humanized.
+
+        Humanizing drops the app namespace and a ``hub_`` then ``admin_`` prefix and turns
+        underscores into spaces: ``classes:admin_class_detail`` reads "Class detail".
+        """
+        if view_name in cls.LABELS:
+            return cls.LABELS[view_name]
+        name = view_name.rsplit(":", 1)[-1]
+        for prefix in ("hub_", "admin_"):
+            name = name.removeprefix(prefix)
+        words = name.replace("_", " ").strip()
+        return words[:1].upper() + words[1:] if words else view_name
 
     @classmethod
     def prune(cls, now: datetime) -> int:

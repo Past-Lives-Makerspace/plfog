@@ -6,15 +6,16 @@ import logging
 
 import pytest
 from django.contrib.auth.models import AnonymousUser, User
-from django.db import IntegrityError
+from django.db import connection
 from django.http import HttpResponse
 from django.test import Client, RequestFactory
+from django.test.utils import CaptureQueriesContext
 from django.urls import resolve, reverse
 
 from core.middleware import page_view_name
 from core.models import PageView
-from membership.models import FundingSnapshot
-from tests.membership.factories import FundingSnapshotFactory
+from membership.models import FundingSnapshot, Member
+from tests.membership.factories import FundingSnapshotFactory, MemberFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -119,6 +120,37 @@ def describe_requests_that_write_nothing():
         assert page_view_name(request, HttpResponse("<p>ok</p>")) == ""
 
 
+def describe_the_cost_of_a_page_view():
+    def _queries(client: Client, url: str, monkeypatch, *, logged: bool) -> list[str]:
+        if not logged:
+            monkeypatch.setattr("core.middleware.page_view_name", lambda request, response: "")
+        with CaptureQueriesContext(connection) as captured:
+            assert client.get(url).status_code == 200
+        monkeypatch.undo()
+        return [query["sql"] for query in captured.captured_queries]
+
+    def it_adds_exactly_one_insert_for_an_admin(client: Client, admin: User, monkeypatch):
+        client.get(_PAGE)  # warm the per process caches both runs share
+        without = _queries(client, _PAGE, monkeypatch, logged=False)
+        with_log = _queries(client, _PAGE, monkeypatch, logged=True)
+        assert len(with_log) - len(without) == 1
+        assert with_log[-1].lstrip().upper().startswith("INSERT")
+
+    def it_adds_exactly_one_insert_for_a_plain_member(client: Client, monkeypatch):
+        member = MemberFactory()
+        user = User.objects.create_user("usage_member", "usage_member@example.com")
+        Member.objects.filter(user=user).exclude(pk=member.pk).delete()
+        member.user = user
+        member.save(update_fields=["user"])
+        client.force_login(user)
+        page = reverse("hub_member_directory")
+        client.get(page)
+        without = _queries(client, page, monkeypatch, logged=False)
+        with_log = _queries(client, page, monkeypatch, logged=True)
+        assert len(with_log) - len(without) == 1
+        assert PageView.objects.filter(user=user).latest("viewed_at").role == PageView.Role.MEMBER
+
+
 def describe_a_failure_to_write():
     def it_serves_the_page_and_logs_the_error(client: Client, admin: User, monkeypatch, caplog):
         def broken(cls, **kwargs):
@@ -131,12 +163,19 @@ def describe_a_failure_to_write():
         assert response.status_code == 200
         assert "Could not record a page view" in caplog.text
 
-    def it_keeps_the_database_usable_after_a_failed_insert(client: Client, admin: User, monkeypatch):
-        def broken(cls, **kwargs):
-            PageView.objects.create(user_id=admin.pk, view_name="x", role="admin", surface="members")
-            raise IntegrityError("duplicate")
 
-        monkeypatch.setattr(PageView, "record", classmethod(broken))
+def describe_a_failed_insert_in_autocommit():
+    """Requests are not atomic, so a failed INSERT leaves nothing open: the connection's next query works (Postgres too)."""
+
+    @pytest.mark.django_db(transaction=True)
+    def it_serves_the_page_and_the_next_query_runs(client: Client, monkeypatch):
+        user = User.objects.create_superuser("usage_tx", "usage_tx@example.com", "pass")
+        client.force_login(user)
+
+        def failing_insert(cls, **kwargs):
+            cls.objects.create(user=kwargs["user"], view_name="x", role="admin", surface=None)  # NOT NULL fails
+
+        monkeypatch.setattr(PageView, "record", classmethod(failing_insert))
         assert client.get(_PAGE).status_code == 200
-        assert not PageView.objects.exists()  # the savepoint rolled the half write back
-        assert client.get(_PAGE).status_code == 200
+        assert not PageView.objects.exists()
+        assert User.objects.filter(pk=user.pk).exists()

@@ -32,12 +32,13 @@
 <div class="hub-card">
   <h2 class="hub-detail-label">Pages</h2>
   {% if board.pages %}
+  <p class="hub-text-muted pl-usage__note">{% if board.page_count > board.pages|length %}The {{ board.pages|length }} most viewed of {{ board.page_count }} pages opened in this range.{% else %}Every page opened in this range, most viewed first.{% endif %}</p>
   <div class="admin-table-wrap">
     <table class="admin-table" data-usage-pages>
-      <thead><tr><th>Page</th><th>Views</th><th>People</th></tr></thead>
+      <thead><tr><th>Page</th><th class="pl-usage__num">Views</th><th class="pl-usage__num">People</th></tr></thead>
       <tbody>
         {% for row in board.pages %}
-        <tr><td><code>{{ row.view_name }}</code></td><td>{{ row.views }}</td><td>{{ row.people }}</td></tr>
+        <tr><td class="pl-usage__page">{{ row.label }}<span class="pl-usage__view-name">{{ row.view_name }}</span></td><td class="pl-usage__num">{{ row.views }}</td><td class="pl-usage__num">{{ row.people }}</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -47,22 +48,22 @@
   {% endif %}
 </div>
 
-<div class="hub-card">
+{% if board.least_used %}
+<div class="hub-card" data-usage-least-card>
   <h2 class="hub-detail-label">Least Used</h2>
-  <p class="hub-text-muted pl-usage__note">The {{ board.least_used|length }} least viewed pages that were opened at least once in this range.</p>
-  {% if board.least_used %}
+  <p class="hub-text-muted pl-usage__note">The {{ board.least_used|length }} least viewed pages that were opened at least once in this range. Pages nobody opened are not listed.</p>
   <div class="admin-table-wrap">
     <table class="admin-table" data-usage-least>
-      <thead><tr><th>Page</th><th>Views</th><th>People</th></tr></thead>
+      <thead><tr><th>Page</th><th class="pl-usage__num">Views</th><th class="pl-usage__num">People</th></tr></thead>
       <tbody>
         {% for row in board.least_used %}
-        <tr><td><code>{{ row.view_name }}</code></td><td>{{ row.views }}</td><td>{{ row.people }}</td></tr>
+        <tr><td class="pl-usage__page">{{ row.label }}<span class="pl-usage__view-name">{{ row.view_name }}</span></td><td class="pl-usage__num">{{ row.views }}</td><td class="pl-usage__num">{{ row.people }}</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  {% endif %}
 </div>
+{% endif %}
 
 <div class="hub-card">
   <h2 class="hub-detail-label">Activity by Kind</h2>
@@ -70,14 +71,15 @@
   {% if board.activity.rows %}
   <div class="admin-table-wrap">
     <table class="admin-table" data-usage-activity>
-      <thead><tr><th>Kind</th>{% for week in board.activity.weeks %}<th>{{ week|date:"M j" }}</th>{% endfor %}<th>Total</th></tr></thead>
+      <thead><tr><th>Kind</th><th class="pl-usage__num">Total</th>{% for week in board.activity.weeks %}<th class="pl-usage__num">{{ week|date:"M j" }}</th>{% endfor %}</tr></thead>
       <tbody>
         {% for row in board.activity.rows %}
-        <tr><td>{{ row.label }}</td>{% for count in row.counts %}<td>{{ count }}</td>{% endfor %}<td>{{ row.total }}</td></tr>
+        <tr><td>{{ row.label }}</td><td class="pl-usage__num"><strong>{{ row.total }}</strong></td>{% for count in row.counts %}<td class="pl-usage__num">{{ count }}</td>{% endfor %}</tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  {% if board.activity.weeks|length > 1 %}<p class="hub-text-muted pl-usage__scroll-hint">Scroll the table sideways for every week.</p>{% endif %}
   {% else %}
   <p class="hub-text-muted pl-usage__note">No activity in this range.</p>
   {% endif %}
