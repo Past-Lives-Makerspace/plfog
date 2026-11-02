@@ -1,0 +1,88 @@
+{% extends "hub/base.html" %}
+{% load static %}
+
+{% block title %}Usage{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/usage.css' %}">
+{% endblock %}
+
+{% block content %}
+{# The admin Usage page (#1078): counts only, from core.models.PageView and SiteActivity; nothing here names a person. #}
+<div class="pl-usage" data-usage>
+<div>
+<h1 class="hub-page-title">Usage</h1>
+<p class="hub-text-muted pl-usage__lead">Which pages signed in people open, by their highest role, and what the activity log recorded. Counts only; no one is named. Page views are kept for 90 days.</p>
+</div>
+
+<div class="hub-card pl-usage__filters">
+  <div class="pl-equip-chips" role="group" aria-label="Date range" data-usage-ranges>
+    {% for key, label, query in range_chips %}
+    <a class="pl-equip-chip{% if range_key == key %} pl-equip-chip--active{% endif %}" href="?{{ query }}" data-range="{{ key }}"{% if range_key == key %} aria-current="true"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </div>
+  <div class="pl-equip-chips" role="group" aria-label="Role" data-usage-roles>
+    {% for key, label, query in role_chips %}
+    <a class="pl-equip-chip{% if role == key %} pl-equip-chip--active{% endif %}" href="?{{ query }}" data-role="{{ key|default:'all' }}"{% if role == key %} aria-current="true"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </div>
+  <p class="hub-text-muted" data-usage-totals>{{ range_label }}, {{ role_label|lower }}: {{ board.views }} page view{{ board.views|pluralize }} by {{ board.people }} {{ board.people|pluralize:"person,people" }}.</p>
+</div>
+
+<div class="hub-card">
+  <h2 class="hub-detail-label">Pages</h2>
+  {% if board.pages %}
+  <p class="hub-text-muted pl-usage__note">{% if board.page_count > board.pages|length %}The {{ board.pages|length }} most viewed of {{ board.page_count }} pages opened in this range.{% else %}Every page opened in this range, most viewed first.{% endif %}</p>
+  <div class="admin-table-wrap">
+    <table class="admin-table" data-usage-pages>
+      <thead><tr><th>Page</th><th class="pl-usage__num">Views</th><th class="pl-usage__num">People</th></tr></thead>
+      <tbody>
+        {% for row in board.pages %}
+        <tr><td class="pl-usage__page">{{ row.label }}<span class="pl-usage__view-name">{{ row.view_name }}</span></td><td class="pl-usage__num">{{ row.views }}</td><td class="pl-usage__num">{{ row.people }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="hub-text-muted pl-usage__note" data-usage-empty>No page views in this range.</p>
+  {% endif %}
+</div>
+
+{% if board.least_used %}
+<div class="hub-card" data-usage-least-card>
+  <h2 class="hub-detail-label">Least Used</h2>
+  <p class="hub-text-muted pl-usage__note">The {{ board.least_used|length }} least viewed pages that were opened at least once in this range. Pages nobody opened are not listed.</p>
+  <div class="admin-table-wrap">
+    <table class="admin-table" data-usage-least>
+      <thead><tr><th>Page</th><th class="pl-usage__num">Views</th><th class="pl-usage__num">People</th></tr></thead>
+      <tbody>
+        {% for row in board.least_used %}
+        <tr><td class="pl-usage__page">{{ row.label }}<span class="pl-usage__view-name">{{ row.view_name }}</span></td><td class="pl-usage__num">{{ row.views }}</td><td class="pl-usage__num">{{ row.people }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="hub-card">
+  <h2 class="hub-detail-label">Activity by Kind</h2>
+  <p class="hub-text-muted pl-usage__note">Rows the activity log recorded, each week starting Monday, for every role.</p>
+  {% if board.activity.rows %}
+  <div class="admin-table-wrap">
+    <table class="admin-table" data-usage-activity>
+      <thead><tr><th>Kind</th><th class="pl-usage__num">Total</th>{% for week in board.activity.weeks %}<th class="pl-usage__num">{{ week|date:"M j" }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for row in board.activity.rows %}
+        <tr><td>{{ row.label }}</td><td class="pl-usage__num"><strong>{{ row.total }}</strong></td>{% for count in row.counts %}<td class="pl-usage__num">{{ count }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if board.activity.weeks|length > 1 %}<p class="hub-text-muted pl-usage__scroll-hint">Scroll the table sideways for every week.</p>{% endif %}
+  {% else %}
+  <p class="hub-text-muted pl-usage__note">No activity in this range.</p>
+  {% endif %}
+</div>
+</div>
+{% endblock %}

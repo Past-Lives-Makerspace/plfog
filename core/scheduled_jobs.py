@@ -102,6 +102,16 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="rollup_page_views",
+        name="Usage rollup",
+        description=(
+            "Folds each finished week of page views into the weekly usage table, then deletes page views older than 90 days."
+        ),
+        command="rollup_page_views",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="send_queued_announcements",
         name="Queued announcements",
         description="Sends the site-wide announcements queued from the composer, such as the monthly voting results.",

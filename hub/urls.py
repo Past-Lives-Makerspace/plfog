@@ -23,6 +23,7 @@ from . import (
     orientations_views,
     spotlight_views,
     staff_onboarding_views,
+    usage_views,
     views,
     whats_new_views,
     wiki_views,
@@ -1106,6 +1107,7 @@ urlpatterns = [
     path("manage/feedback/", feedback_views.hub_admin_feedback_inbox, name="hub_admin_feedback_inbox"),
     # The admin Growth dashboard (#795): counts since launch for a date range, a GET page.
     path("manage/growth/", growth_views.hub_admin_growth, name="hub_admin_growth"),
+    path("manage/usage/", usage_views.hub_admin_usage, name="hub_admin_usage"),
     # The Door Code card on Home (#813): its Change save, admin only.
     path("manage/door-code/", door_code_views.hub_admin_door_code, name="hub_admin_door_code"),
     path("manage/spotlight/", spotlight_views.hub_admin_spotlight, name="hub_admin_spotlight"),

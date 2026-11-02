@@ -19,6 +19,10 @@ const config: CapacitorConfig = {
   appId: 'app.pastlives.hub',
   appName: 'Past Lives',
   webDir: 'www',
+  // Both apps name themselves in their user agent so the usage log can tell an app visit
+  // from a browser one (core.middleware.APP_USER_AGENT_TOKEN, #1078). It reaches a phone with
+  // the next store build; until then the server falls back to Android WebView's marker.
+  appendUserAgent: 'PastLivesApp',
   server: {
     // Canonical origin. `pastlives.app` 301-redirects here; pointing directly
     // avoids the redirect hop and keeps the webview origin (and its auth

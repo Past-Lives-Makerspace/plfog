@@ -7,7 +7,8 @@ import hashlib
 import logging
 import re
 import secrets
-from datetime import datetime, timedelta
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from django.conf import settings
@@ -2034,6 +2035,7 @@ class SiteActivity(models.Model):
         CLASS_CANCELLED = "class_cancelled", "Class cancelled"
         REFUND_ISSUED = "refund_issued", "Refund issued"
         FUNDING_SNAPSHOT_TAKEN = "funding_snapshot_taken", "Funding snapshot taken"
+        FUNDING_SNAPSHOT_DELETED = "funding_snapshot_deleted", "Funding snapshot deleted"
         MEMBER_INVITED = "member_invited", "Member invited"
         MEMBER_INVITE_REVOKED = "member_invite_revoked", "Member invite revoked"
         INVITE_ACCEPTED = "invite_accepted", "Invite accepted"
@@ -2155,6 +2157,294 @@ class SiteActivity(models.Model):
             activity.target = target
         activity.save()
         return activity
+
+    @classmethod
+    def weekly_counts(cls, since: datetime) -> ActivityWeeks:
+        """Rows logged since ``since``, counted per kind and per local week (Monday first), for the Usage page.
+
+        Counts only: no row names a person. One grouped query.
+        """
+        from django.db.models import Count
+        from django.db.models.functions import TruncWeek
+
+        grouped = (
+            cls.objects.filter(created_at__gte=since)
+            .annotate(week=TruncWeek("created_at"))
+            .values("week", "kind")
+            .annotate(n=Count("id"))
+            .order_by()
+        )
+        counts: dict[tuple[str, Any], int] = {}
+        weeks: set[Any] = set()
+        for row in grouped:
+            week = row["week"].date() if isinstance(row["week"], datetime) else row["week"]
+            weeks.add(week)
+            counts[(row["kind"], week)] = row["n"]
+        ordered_weeks = sorted(weeks)
+        labels = dict(cls.Kind.choices)
+        rows = [
+            ActivityWeekRow(
+                label=labels[kind],
+                counts=[counts.get((kind, week), 0) for week in ordered_weeks],
+            )
+            for kind in sorted({kind for kind, _week in counts}, key=lambda k: labels[k])
+        ]
+        rows.sort(key=lambda row: -row.total)
+        return ActivityWeeks(weeks=ordered_weeks, rows=rows)
+
+
+@dataclass(frozen=True)
+class ActivityWeekRow:
+    """One activity kind's counts per week on the Usage page."""
+
+    label: str
+    counts: list[int]
+
+    @property
+    def total(self) -> int:
+        """Every row of this kind in the range."""
+        return sum(self.counts)
+
+
+@dataclass(frozen=True)
+class ActivityWeeks:
+    """The Usage page's activity table: the weeks (each a Monday) and one row per kind."""
+
+    weeks: list[Any]
+    rows: list[ActivityWeekRow]
+
+
+class PageViewQuerySet(models.QuerySet["PageView"]):
+    """Usage page queries over the raw page view log (#1078)."""
+
+    def since(self, start: datetime) -> PageViewQuerySet:
+        """Views at or after ``start``."""
+        return self.filter(viewed_at__gte=start)
+
+    def for_role(self, role: str) -> PageViewQuerySet:
+        """Views by visitors whose highest role was ``role``; ``""`` keeps every role."""
+        return self.filter(role=role) if role else self
+
+    def by_page(self) -> models.QuerySet[Any]:
+        """One row per view name with its view count and distinct people, most viewed first."""
+        from django.db.models import Count
+
+        return (
+            self.values("view_name")
+            .annotate(views=Count("id"), people=Count("user", distinct=True))
+            .order_by("-views", "view_name")
+        )
+
+
+class PageView(models.Model):
+    """One signed in full page view, written by ``core.middleware.PageViewMiddleware`` (#1078).
+
+    Stores the Django view name, never the path, an id or the query string. Kept
+    ``RETENTION_DAYS``; ``rollup_page_views`` folds each finished week into
+    :class:`PageViewWeek` before the raw rows age out.
+    """
+
+    RETENTION_DAYS: ClassVar[int] = 90
+
+    class Role(models.TextChoices):
+        ADMIN = "admin", "Admin"
+        GUILD_STAFF = "guild_staff", "Guild Staff"
+        INSTRUCTOR = "instructor", "Instructor"
+        MEMBER = "member", "Member"
+        GUEST = "guest", "Signed In Guest"
+
+    class Surface(models.TextChoices):
+        MEMBERS = "members", "Members"
+        CLASSES = "classes", "Classes"
+        TOURS = "tours", "Tours"
+        GUILDS = "guilds", "Guilds"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="+",
+        help_text="Who viewed the page. Only the Usage page's distinct people count reads it.",
+    )
+    view_name = models.CharField(
+        max_length=200, help_text="The Django view name of the page (never its path, ids or query string)."
+    )
+    role = models.CharField(
+        max_length=20, choices=Role.choices, help_text="The visitor's highest role when they viewed the page."
+    )
+    surface = models.CharField(
+        max_length=20,
+        choices=Surface.choices,
+        help_text="Which host served the page: members, classes, tours or guilds.",
+    )
+    from_app = models.BooleanField(default=False, help_text="True when the view came from the Android or iOS app.")
+    viewed_at = models.DateTimeField(default=timezone.now, db_index=True, help_text="When the page was viewed.")
+
+    objects = PageViewQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-viewed_at"]
+        indexes = [models.Index(fields=["role", "viewed_at"])]
+
+    def __str__(self) -> str:
+        return f"{self.view_name} @ {self.viewed_at:%Y-%m-%d %H:%M}"
+
+    @classmethod
+    def role_value(cls, *, user_id: int, actual_roles: frozenset[str]) -> Any:
+        """The visitor's highest role for the row, without a query of its own (#1078).
+
+        ``actual_roles`` is ``request.view_as.actual``, which the ViewAs middleware already read for
+        this request: Admin (a superuser, or an active admin member), Guild Staff for a guild officer,
+        and Signed In Guest for an account with no active membership come straight from it. A plain
+        member's finer role (Guild Staff as a guild lead or staff holder, else Instructor with a
+        public instructor profile, else Member) is a subquery the INSERT itself evaluates, so the
+        row still costs one round trip.
+        """
+        from django.db.models import Case, CharField, Exists, OuterRef, Q, Subquery, Value, When
+        from django.db.models.functions import Coalesce
+
+        from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER
+        from membership.models import Guild, GuildStaffMembership, Member
+
+        if ROLE_ADMIN in actual_roles:
+            return cls.Role.ADMIN
+        if ROLE_GUILD_OFFICER in actual_roles:
+            return cls.Role.GUILD_STAFF
+        if ROLE_MEMBER not in actual_roles:
+            return cls.Role.GUEST
+        runs_a_guild = Q(Exists(Guild.objects.filter(guild_lead=OuterRef("pk")))) | Q(
+            Exists(GuildStaffMembership.objects.filter(member=OuterRef("pk")))
+        )
+        finer = (
+            Member.objects.filter(user_id=user_id, status=Member.Status.ACTIVE)
+            .annotate(
+                page_view_role=Case(
+                    When(runs_a_guild, then=Value(cls.Role.GUILD_STAFF.value)),
+                    When(instructor_slug__gt="", then=Value(cls.Role.INSTRUCTOR.value)),
+                    default=Value(cls.Role.MEMBER.value),
+                    output_field=CharField(),
+                )
+            )
+            .values("page_view_role")[:1]
+        )
+        return Coalesce(Subquery(finer), Value(cls.Role.MEMBER.value), output_field=CharField())
+
+    @classmethod
+    def record(cls, *, user: Any, actual_roles: frozenset[str], view_name: str, surface: str, from_app: bool) -> None:
+        """Write one view in a single INSERT, its role read as it stands now (:meth:`role_value`)."""
+        cls.objects.create(
+            user=user,
+            view_name=view_name,
+            role=cls.role_value(user_id=user.pk, actual_roles=actual_roles),
+            surface=surface,
+            from_app=from_app,
+        )
+
+    #: Readable names for the pages people open most; any other page is humanized from its view name.
+    #: Never read from the page's <title>, which can carry a member's name.
+    LABELS: ClassVar[dict[str, str]] = {
+        "hub_home": "Home",
+        "home": "Home",
+        "hub_guild_directory": "Guilds",
+        "hub_guild_detail": "Guild Page",
+        "classes:public_list": "Classes",
+        "classes:public_class_detail": "Class Page",
+        "classes:teach_dashboard": "Host a Class",
+        "hub_admin_tools": "Admin Tools",
+        "hub_orientations": "Orientations",
+        "hub_member_directory": "Member Directory",
+        "hub_leadership_directory": "Leadership Directory",
+        "hub_beta_feedback": "Feedback",
+        "hub_admin_feedback_inbox": "Feedback Inbox",
+        "hub_admin_growth": "Growth",
+        "hub_admin_usage": "Usage",
+        "hub_community_calendar": "Calendar",
+        "hub_guild_voting": "Guild Voting",
+        "hub_meetings": "Meetings",
+        "hub_equipment_index": "Reservations",
+        "hub_wiki_home": "Knowledge Base",
+        "hub_help": "Help",
+        "hub_tab_detail": "My Tab",
+        "hub_announcements": "Email Members",
+        "hub_cubbies_home": "Cubbies",
+        "hub_profile_settings": "Profile",
+        "hub_user_settings": "Settings",
+    }
+
+    @classmethod
+    def label_for(cls, view_name: str) -> str:
+        """A readable name for a page: the :attr:`LABELS` entry, else the view name humanized.
+
+        Humanizing drops the app namespace and a ``hub_`` then ``admin_`` prefix and turns
+        underscores into spaces: ``classes:admin_class_detail`` reads "Class detail".
+        """
+        if view_name in cls.LABELS:
+            return cls.LABELS[view_name]
+        name = view_name.rsplit(":", 1)[-1]
+        for prefix in ("hub_", "admin_"):
+            name = name.removeprefix(prefix)
+        words = name.replace("_", " ").strip()
+        return words[:1].upper() + words[1:] if words else view_name
+
+    @classmethod
+    def prune(cls, now: datetime) -> int:
+        """Delete raw views older than ``RETENTION_DAYS``; returns how many went."""
+        deleted, _ = cls.objects.filter(viewed_at__lt=now - timedelta(days=cls.RETENTION_DAYS)).delete()
+        return deleted
+
+
+class PageViewWeek(models.Model):
+    """One finished week of page views for a page, role and surface, kept indefinitely (#1078)."""
+
+    week = models.DateField(help_text="The Monday the week starts on, in local time.")
+    view_name = models.CharField(max_length=200, help_text="The Django view name of the page.")
+    role = models.CharField(
+        max_length=20, choices=PageView.Role.choices, help_text="The visitors' highest role when they viewed it."
+    )
+    surface = models.CharField(max_length=20, choices=PageView.Surface.choices, help_text="Which host served the page.")
+    views = models.PositiveIntegerField(help_text="Page views that week.")
+    people = models.PositiveIntegerField(help_text="Distinct people who viewed it that week.")
+
+    class Meta:
+        ordering = ["-week", "view_name"]
+        constraints = [
+            models.UniqueConstraint(fields=["week", "view_name", "role", "surface"], name="unique_page_view_week")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.view_name} week of {self.week}"
+
+    @classmethod
+    def fold_finished_weeks(cls, today: date) -> int:
+        """Fold every finished local week that still has raw views and no rollup yet; returns rows written.
+
+        A week is finished once its Sunday is over (``today`` is in a later week). A week that
+        already has rollup rows is skipped, so running twice writes nothing new.
+        """
+        from django.db.models import Count, Min
+
+        this_monday = today - timedelta(days=today.weekday())
+        earliest = PageView.objects.aggregate(first=Min("viewed_at"))["first"]
+        if earliest is None:
+            return 0
+        first_day = timezone.localtime(earliest).date()
+        monday = first_day - timedelta(days=first_day.weekday())
+        rolled = set(cls.objects.filter(week__gte=monday).values_list("week", flat=True).distinct())
+        written = 0
+        while monday < this_monday:
+            if monday not in rolled:
+                start = timezone.make_aware(datetime.combine(monday, datetime.min.time()))
+                end = timezone.make_aware(datetime.combine(monday + timedelta(days=7), datetime.min.time()))
+                grouped = (
+                    PageView.objects.filter(viewed_at__gte=start, viewed_at__lt=end)
+                    .values("view_name", "role", "surface")
+                    .annotate(views=Count("id"), people=Count("user", distinct=True))
+                    .order_by()
+                )
+                rows = [PageViewWeek(week=monday, **row) for row in grouped]
+                PageViewWeek.objects.bulk_create(rows, ignore_conflicts=True)
+                written += len(rows)
+            monday += timedelta(days=7)
+        return written
 
 
 class NotificationQuerySet(models.QuerySet["Notification"]):

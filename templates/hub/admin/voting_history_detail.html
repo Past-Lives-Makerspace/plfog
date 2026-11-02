@@ -17,7 +17,7 @@
     <div class="pl-vote-detail-head">
       <h2 style="margin:0;">{{ snapshot.cycle_label }}</h2>
       <p class="pl-vote-detail-meta">
-        Taken {{ snapshot.snapshot_at|date:"N j, Y, g:i a" }}
+        Taken {{ snapshot.snapshot_at|date:"N j, Y, g:i a" }}{% if snapshot.taken_by %} by {{ snapshot.taken_by }}{% endif %}
         &middot; ${{ snapshot.funding_pool }} pool
         &middot; {{ snapshot.contributor_count }} paying contributor{{ snapshot.contributor_count|pluralize }}
         &middot; <span class="pl-vote-badge pl-vote-badge--manual">{{ snapshot.source_label }}</span>

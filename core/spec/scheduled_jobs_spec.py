@@ -52,6 +52,7 @@ _DISPATCHER_ALWAYS = {
     "release_cubby_payment_holds",
     "release_abandoned_class_holds",
     "take_reconciliation_snapshot",
+    "rollup_page_views",
     "send_queued_announcements",
     "announce_live_requests",
     "fetch_video_thumbnails",

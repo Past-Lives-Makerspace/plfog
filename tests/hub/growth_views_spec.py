@@ -182,7 +182,8 @@ def describe_query_count():
 #: Bizarre sidebar entry (HQ card sharing): one EXISTS over the HQs for an admin. 36 with the Spotlight's live
 #: announcements (#890), its second query. 34 since #935: the sidebar's Spotlight is a static card that reads nothing.
 #: 33 since the hidden-guild sidebar: the guild list reads the demo guild setting inside its one query.
-QUERIES = 33
+#: 34 with the usage log (#1078): its one insert.
+QUERIES = 34
 
 
 def describe_admin_tools_card():
