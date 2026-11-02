@@ -73,9 +73,13 @@ def walkthrough_choice(request: HttpRequest) -> HttpResponse:
     taken = form.cleaned_data["choice"] == WalkthroughChoiceForm.Choice.TAKE
     staff_onboarding.record_tour_choice(member, tour.key, taken=taken)
     if taken:
-        start = request.POST.get("start", "")
-        if start and url_has_allowed_host_and_scheme(start, allowed_hosts={request.get_host()}):
-            # The tool's own button: run the walkthrough right here, on this guild.
-            return redirect(_with_tour(start, tour.key))
+        posted = request.POST.get("start", "")
+        start = _with_tour(posted, tour.key)
+        hosts = {request.get_host()}
+        # The tool's own button: run the walkthrough right here, on this guild. Both the posted URL
+        # and the one we would send must be ours: "http://<our host>//elsewhere" passes the first
+        # check and keeps only the path "//elsewhere", which is another site.
+        if posted and url_has_allowed_host_and_scheme(posted, hosts) and url_has_allowed_host_and_scheme(start, hosts):
+            return redirect(start)
         return redirect(entry_url_for(tour, member))
     return _back(request)

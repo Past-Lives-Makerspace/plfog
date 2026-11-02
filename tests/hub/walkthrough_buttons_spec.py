@@ -112,6 +112,15 @@ def describe_taking_a_walkthrough():
         )
         assert response["Location"] == f"{reverse('hub_guild_orientations', args=[guild.pk])}?tour=guild-orientations"
 
+    @pytest.mark.parametrize("start", ["http://testserver//elsewhere.example/x", "/\\elsewhere.example/x"])
+    def it_never_starts_on_another_site(lead: Member, guild: Guild, start: str):
+        client = Client()
+        client.force_login(lead.user)
+        response = client.post(
+            reverse("hub_walkthrough_choice"), {"tour_key": "guild-cubbies", "choice": "take", "start": start}
+        )
+        assert response["Location"] == f"{reverse('hub_guild_edit', args=[guild.pk])}?tour=guild-cubbies"
+
 
 def describe_leaving_a_walkthrough_partway():
     def it_logs_an_exit_for_a_staff_walkthrough(lead: Member):
