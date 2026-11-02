@@ -699,6 +699,10 @@ def tour_offer_context(request: HttpRequest, tour_key: str) -> dict[str, Any]:
     show_welcome_modal = member.welcome_dismissed_at is None and not member.has_started_profile
     if not member.guided_tours_enabled or show_welcome_modal:
         return empty
+    if tour.key == "member-welcome" and member.staff_onboarding_step:
+        # One tour offer at a time (#1076): Home's banner waits while a new lead or staffer still
+        # owes the rules or the Guild Staff tour, and returns once they take or exit it.
+        return empty
     if not SiteConfiguration.load().guided_tours_enabled:
         # The site-wide switch (Manage Features). Checked after the member guards so
         # the query only runs for someone who would otherwise be offered a tour, and before
