@@ -1,5 +1,8 @@
 """``{% new_badge %}`` and ``{% whats_new_button %}`` (#1007, part 3): what marks a thing as new.
 
+``{% walkthrough_button %}`` (#1076) sits beside them: the always-available button that starts a
+tool's own walkthrough, for the guild staff and admins it is for.
+
 Both read the request's one :class:`core.whats_new.WhatsNew` (D9), so a page with twenty
 badges pays the roles query once and a page with none pays nothing. A key is a feature in
 :data:`core.guidance.GUIDANCE` or an area with one under it (``guild`` covers ``guild.*``).
@@ -16,6 +19,7 @@ Usage::
     <button class="vote-tab">Cubbies{% new_badge "guild.cubbies" %}</button>
     {% whats_new_button "guild" %}
     {% whats_new_button labelled=True %}
+    {% walkthrough_button "guild-cubbies" guild %}
 """
 
 from __future__ import annotations
@@ -92,4 +96,34 @@ def whats_new_button(context: dict[str, Any], key: str | None = None, labelled: 
             "labelled": labelled,
             "unopened": news.has_unopened(key) if key else news.unopened,
         },
+    )
+
+
+@register.simple_tag(takes_context=True)
+def walkthrough_button(context: dict[str, Any], tour_key: str, guild: Any = None) -> str:
+    """The walkthrough button for ``tour_key``, only for a viewer who runs ``guild`` (or the tour is theirs).
+
+    The one control that starts a guild staff walkthrough on its own tool
+    (``components/walkthrough_button.html``): Take starts the tour on this page, and the choice
+    is logged. With ``guild``, only someone who may edit that guild sees it (its lead and staff,
+    and admins, ``view_as`` aware), so an ordinary member or another guild's lead never does;
+    without one, anyone the tour's audience admits. An unknown key raises, as a typo should.
+    """
+    from core.tours import TOURS
+    from membership.permissions import can_edit_guild
+
+    tour = TOURS[tour_key]
+    request = context.get("request")
+    member = getattr(getattr(request, "user", None), "member", None) if request is not None else None
+    if member is None:
+        return ""
+    if guild is not None:
+        # Editing the guild implies the staff tours' audience; the guild page has already asked.
+        allowed = context.get("can_edit_this_guild")
+        if not (allowed if allowed is not None else can_edit_guild(request, guild)):
+            return ""
+    elif not tour.audience(member):
+        return ""
+    return render_to_string(
+        "components/walkthrough_button.html", {"tour_key": tour_key, "start": request.get_full_path()}, request=request
     )

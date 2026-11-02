@@ -309,6 +309,6 @@ def tour_runtime(request: HttpRequest) -> dict[str, Any]:
     match = getattr(request, "resolver_match", None)
     if match is not None:
         for tour in TOURS.values():
-            if match.view_name == tour.entry_url_name:
+            if tour.auto_offer and match.view_name == tour.entry_url_name:
                 return tour_offer_context(request, tour.key)
     return empty

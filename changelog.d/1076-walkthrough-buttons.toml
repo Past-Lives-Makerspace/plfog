@@ -1,0 +1,8 @@
+bump = "minor"
+audience = ["guild-staff", "admins"]
+date = "2026-11-01"
+title = "A Walkthrough button on every guild tool"
+changes = [
+  "Guild Settings, Cubbies, Email Members, Orientations and Reservations each have a Walkthrough button that takes you through that tool, as often as you like.",
+  "The guild page shows it too, for the guild's staff and admins only.",
+]

@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load hub_tags static %}
+{% load hub_tags static guidance %}
 {% block title %}{{ guild.name }} Orientations{% endblock %}
 {% block extra_head %}{{ block.super }}
 <link rel="stylesheet" href="{% static 'css/guild-settings.css' %}">
@@ -20,6 +20,7 @@ leave guards. The one "Add New Orientation +" sits at the top right of the Orien
     <p class="pl-guild-settings__lead">Every change saves as you make it.</p>
   </div>
   <span class="pl-guild-settings__actions">
+    {% walkthrough_button "guild-orientations" guild %}
     <span class="pl-meeting-savestate" data-save-pill
           :class="'pl-meeting-savestate--' + (pending > 0 ? 'saving' : state)"
           :data-saves="saves"

@@ -25,11 +25,11 @@ way back in: the modals are teleported to <body>, outside this root.
   </div>
   <span class="pl-guild-settings__actions">
     {% whats_new_button "guild.staff" %}
+    {% walkthrough_button "guild-lead" guild %}
     <span class="pl-meeting-savestate" data-save-pill
           :class="'pl-meeting-savestate--' + (pending > 0 ? 'saving' : state)"
           :data-saves="saves"
           x-show="pending > 0 || state !== 'idle'" x-text="label()" aria-live="polite" x-cloak></span>
-    <a href="?tour=guild-lead" class="hub-btn hub-btn--sm">Show Me Around</a>
     <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to Guild Page</a>
   </span>
 </div>
@@ -440,15 +440,16 @@ confirm modal carries its own POST form, and template content can't nest a form.
 
 {# ── Reservations (#502): the guild page's Reservations tab toggle, then the guild's reservable items. ── #}
 <div x-show="section === 'reservations'" x-cloak>
+  <div class="pl-walkthrough-row">{% walkthrough_button "guild-reservations" guild %}</div>
   <form method="post" action="{% url 'hub_guild_reservations_settings_save' guild.pk %}" class="hub-form" data-autosave>
     {% csrf_token %}
-    <div class="hub-card pl-guild-settings-card">
+    <div class="hub-card pl-guild-settings-card" data-help-key="guild.reservations-settings">
       <h2 class="hub-detail-label pl-guild-settings-card__title">Reservations</h2>
       <p class="hub-text-muted pl-guild-settings-card__lead">Put this guild's reservable rooms, spaces and tools on the guild page.</p>
       {% include "components/toggle.html" with field=reservations_settings_form.show_reservations_tab toggle_label="Show a Reservations tab on the guild page" toggle_description="The tab lists every active item below. A tool a member is not trained on shows locked, with a link to its orientation." %}
     </div>
   </form>
-  <div class="hub-card pl-guild-settings-card">
+  <div class="hub-card pl-guild-settings-card" data-help-key="guild.reservable-items">
     <h2 class="hub-detail-label pl-guild-settings-card__title">Reservable Items</h2>
     <p class="hub-text-muted pl-guild-settings-card__lead">Everything members can reserve from this guild. Hours, managers and photos live on each item's manage page.</p>
     {% if reservable_items %}
@@ -472,13 +473,14 @@ confirm modal carries its own POST form, and template content can't nest a form.
 {# Only whoever runs the guild's cubbies sees the tab (#1015, can_manage_cubbies): the lead, staff and admins. #}
 {% if can_manage_cubbies %}
 <div x-show="section === 'cubbies'" x-cloak data-cubbies-settings>
+  <div class="pl-walkthrough-row">{% walkthrough_button "guild-cubbies" guild %}</div>
   <form method="post" action="{% url 'hub_guild_cubbies_settings_save' guild.pk %}" class="hub-form" data-autosave>
     {% csrf_token %}
-    <div class="hub-card pl-guild-settings-card">
+    <div class="hub-card pl-guild-settings-card" data-help-key="guild.cubbies-settings">
       <h2 class="hub-detail-label pl-guild-settings-card__title">Cubbies</h2>
       <p class="hub-text-muted pl-guild-settings-card__lead">Rent shelf space to members, paid monthly.</p>
       {% include "components/toggle.html" with field=cubbies_settings_form.show_cubbies_tab toggle_label="Show a Cubbies Tab on the Guild Page" toggle_description="Members see the guild's shelves and which cubbies are open." %}
-      <p class="pl-form-note"><a href="{% url 'hub_guild_cubbies' guild.pk %}" class="pl-cubby-live__link" data-cubbies-manage-link>Build Shelves and Set Prices →</a></p>
+      <p class="pl-form-note"><a href="{% url 'hub_guild_cubbies' guild.pk %}" class="pl-cubby-live__link" data-cubbies-manage-link data-help-key="guild.cubbies-manage">Build Shelves and Set Prices →</a></p>
     </div>
   </form>
 </div>
@@ -616,9 +618,10 @@ confirm modal carries its own POST form, and template content can't nest a form.
 
 {# ── Email Members (#920; the tab key stays announcements, separate forms, live outside the main form) ── #}
 <div x-show="section === 'announcements'" x-cloak>
+  <div class="pl-walkthrough-row">{% walkthrough_button "guild-email-members" guild %}</div>
 
   {# ── Your Mailing List (own forms/endpoints — not nested in another form) ── #}
-  <div class="hub-card" id="mailing-list" style="padding:1.5rem; margin-bottom:1.5rem;">
+  <div class="hub-card" id="mailing-list" data-help-key="guild.mailing-list" style="padding:1.5rem; margin-bottom:1.5rem;">
     <div style="display:flex; align-items:center; gap:0.4rem; margin-bottom:0.5rem;">
       <h2 class="hub-detail-label" style="margin:0;">Your Mailing List</h2>
       <span class="pl-help" tabindex="0" aria-label="Who receives your guild's emails">

@@ -298,3 +298,5 @@
 .pl-staff-rules__form .pl-modal__actions { margin-top: 1.5rem; }
 .pl-staff-rules__form .pl-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) { .pl-walkthrough-btn--glow { animation: none; } }
+/* A tab's walkthrough button sits on its own row at the top of the tab, right aligned. */
+.pl-walkthrough-row { display: flex; justify-content: flex-end; margin: 0 0 1rem; }
