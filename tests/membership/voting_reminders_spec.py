@@ -6,7 +6,7 @@ deterministic.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from django.contrib.auth.models import User
@@ -21,7 +21,11 @@ from core.models import EventDelivery, Notification
 from membership.models import Member, VotingSettings
 from membership.voting import (
     close_period,
+    closed_cycle_end,
+    closes_on_display,
     closing_soon_occurrences,
+    cycle_label,
+    cycle_period,
     cycle_start,
     cycle_turnout_stats,
     month_end_close,
@@ -80,6 +84,43 @@ def describe_cycle_timing_helpers():
         assert cycle_start(_aware(2027, 1, 3)) == _aware(2026, 12, 1)
         assert previous_cycle_label(_aware(2027, 1, 3)) == "December 2026"
         assert close_period(_aware(2027, 1, 3)) == "voting_close:2026-12"
+
+    def it_keeps_the_month_open_until_local_midnight_when_now_is_utc():
+        """5:01 PM Pacific on Oct 31 is already November in UTC; the cycle has not closed (#1078)."""
+        five_pm = _aware(2026, 10, 31, 17).astimezone(UTC) + timedelta(minutes=1)
+        assert five_pm.month == 11  # what the old code read
+        assert previous_cycle_label(five_pm) == "September 2026"
+        assert close_period(five_pm) == "voting_close:2026-09"
+        assert closed_cycle_end(five_pm) == _aware(2026, 10, 1)
+
+    def it_reads_the_open_cycle_in_local_time_on_the_last_evening_of_the_month():
+        """5:30 PM Pacific on Oct 31 is November in UTC; the open cycle is still October (#1078)."""
+        evening = _aware(2026, 10, 31, 17).astimezone(UTC) + timedelta(minutes=30)
+        assert evening.month == 11  # what the old code read
+        assert month_end_close(evening) == _aware(2026, 11, 1)
+        assert cycle_period(evening) == "voting:2026-10"
+        assert cycle_label(evening) == "October 2026"
+        assert closes_on_display(evening) == "October 31, 2026"
+
+    def it_closes_the_month_at_local_midnight_on_the_first():
+        just_after = _aware(2026, 11, 1).astimezone(UTC) + timedelta(minutes=1)
+        assert cycle_start(just_after) == _aware(2026, 10, 1)
+        assert previous_cycle_label(just_after) == "October 2026"
+        assert close_period(just_after) == "voting_close:2026-10"
+        assert closed_cycle_end(just_after) == _aware(2026, 11, 1)
+
+    def it_rolls_over_into_january_in_local_time():
+        """New Year's Eve evening is January in UTC; December closes only at local midnight."""
+        new_years_eve = _aware(2026, 12, 31, 17).astimezone(UTC) + timedelta(minutes=30)
+        assert new_years_eve.year == 2027
+        assert previous_cycle_label(new_years_eve) == "November 2026"
+        assert closed_cycle_end(new_years_eve) == _aware(2026, 12, 1)
+
+        new_year = _aware(2027, 1, 1).astimezone(UTC) + timedelta(minutes=1)
+        assert cycle_start(new_year) == _aware(2026, 12, 1)
+        assert previous_cycle_label(new_year) == "December 2026"
+        assert close_period(new_year) == "voting_close:2026-12"
+        assert closed_cycle_end(new_year) == _aware(2027, 1, 1)
 
 
 def describe_closing_soon_occurrences():

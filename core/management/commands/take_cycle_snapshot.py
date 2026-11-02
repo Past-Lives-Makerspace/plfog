@@ -21,9 +21,15 @@ Idempotency is layered, modeled on ``send_lease_expiry_reminders``:
 1. A once-per-cycle :class:`core.models.EventDelivery` slot
    (``voting.auto_snapshot`` / ``cycle`` / ``system`` / ``voting_close:YYYY-MM``)
    is the authority — the unique constraint makes the first tick of the new month
-   claim it and every later (or concurrent) tick a no-op.
+   claim it and every later (or concurrent) tick a no-op. The claim and the take share
+   one transaction, so an exception in the take rolls the claim back and the next tick
+   retries instead of the month being burned (#1078).
 2. A window-based duplicate guard — any snapshot taken since the just-closed cycle
-   began means an admin already captured it (even with a custom title), so we skip.
+   *ended* (local midnight on the 1st) means an admin already captured it (even with a
+   custom title), so we skip. Counting from the cycle's start would match the previous
+   cycle's snapshot, which is taken in the first days of the month now closing (#1078).
+
+The month rolls over in local time (``America/Los_Angeles``), not UTC.
 
 Phase 1 is gated on ``VotingSettings.auto_snapshot_enabled``; phase 2 is not.
 """
@@ -33,11 +39,12 @@ from __future__ import annotations
 from typing import Any
 
 from django.core.management.base import BaseCommand
+from django.db import transaction
 from django.utils import timezone
 
 from core.models import EventDelivery
 from membership.models import FundingSnapshot, VotingSettings
-from membership.voting import close_period, cycle_start, previous_cycle_label
+from membership.voting import close_period, closed_cycle_end, previous_cycle_label
 
 
 class Command(BaseCommand):
@@ -61,24 +68,25 @@ class Command(BaseCommand):
         period = close_period(now)
         label = previous_cycle_label(now)
 
-        # Claim the once-per-cycle slot on the EventDelivery ledger (the locked dedupe).
-        _row, created = EventDelivery.objects.get_or_create(
-            event_key="voting.auto_snapshot",
-            target_ref="cycle",
-            channel="system",
-            period=period,
-        )
-        if not created:
-            self.stdout.write("Auto-snapshot already handled this cycle.")
-            return
+        with transaction.atomic():
+            # Claim the once-per-cycle slot on the EventDelivery ledger (the locked dedupe).
+            _row, created = EventDelivery.objects.get_or_create(
+                event_key="voting.auto_snapshot",
+                target_ref="cycle",
+                channel="system",
+                period=period,
+            )
+            if not created:
+                self.stdout.write("Auto-snapshot already handled this cycle.")
+                return
 
-        # Match on the cycle WINDOW, not the free-text label: any snapshot taken since
-        # the just-closed cycle began means an admin already captured it.
-        if FundingSnapshot.objects.filter(snapshot_at__gte=cycle_start(now)).exists():
-            self.stdout.write("A snapshot already exists for this cycle — skipping auto-take.")
-            return
+            # Match on the cycle WINDOW, not the free-text label: any snapshot taken since
+            # the just-closed cycle ended means an admin already captured it.
+            if FundingSnapshot.objects.filter(snapshot_at__gte=closed_cycle_end(now)).exists():
+                self.stdout.write("A snapshot already exists for this cycle — skipping auto-take.")
+                return
 
-        snapshot = FundingSnapshot.take(title=label, is_auto=True)
+            snapshot = FundingSnapshot.take(title=label, is_auto=True)
         if snapshot is None:
             self.stdout.write("No votes — nothing to snapshot.")
         else:

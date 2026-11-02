@@ -188,3 +188,87 @@ def describe_the_results_draft_phase():
             with record_run("take_cycle_snapshot", trigger=Trigger.SCHEDULED):
                 call_command("take_cycle_snapshot")
         assert ScheduledTaskRun.objects.get(task_key="take_cycle_snapshot").status == ScheduledTaskRun.Status.FAILED
+
+
+def _pacific(y, m, d, h=0, minute=0):
+    return timezone.make_aware(datetime(y, m, d, h, minute))
+
+
+def _snapshot_taken_at(monkeypatch, moment, label):
+    """A snapshot an admin took by hand at ``moment`` (``snapshot_at`` follows the frozen clock)."""
+    _freeze(monkeypatch, moment)
+    return FundingSnapshot.take(title=label)
+
+
+def describe_the_month_closing_in_local_time():
+    """#1078: the cycle closes at local midnight on the 1st, not at 5 PM Pacific when UTC rolls over."""
+
+    def it_does_nothing_at_five_pm_on_the_last_day_of_the_month(monkeypatch):
+        _voter("voter@x.com")
+        _snapshot_taken_at(monkeypatch, _pacific(2026, 10, 2, 10), "September 2026")
+
+        _freeze(monkeypatch, _pacific(2026, 10, 31, 17, 1))  # already November in UTC
+        call_command("take_cycle_snapshot")
+
+        assert FundingSnapshot.objects.count() == 1
+        assert not EventDelivery.objects.filter(
+            event_key="voting.auto_snapshot", period="voting_close:2026-10"
+        ).exists()
+
+    def it_takes_the_closed_month_after_local_midnight_with_last_months_snapshot_taken_on_the_second(monkeypatch):
+        _voter("voter@x.com")
+        _snapshot_taken_at(monkeypatch, _pacific(2026, 10, 2, 10), "September 2026")
+
+        _freeze(monkeypatch, _pacific(2026, 11, 1, 0, 1))
+        call_command("take_cycle_snapshot")
+
+        auto = FundingSnapshot.objects.get(is_auto=True)
+        assert auto.cycle_label == "October 2026"
+        assert EventDelivery.objects.filter(event_key="voting.auto_snapshot", period="voting_close:2026-10").exists()
+
+    def it_skips_when_an_admin_already_took_the_closed_month_by_hand_on_the_first(monkeypatch):
+        _voter("voter@x.com")
+        _snapshot_taken_at(monkeypatch, _pacific(2026, 10, 2, 10), "September 2026")
+        _snapshot_taken_at(monkeypatch, _pacific(2026, 11, 1, 0, 5), "October wrap-up")
+
+        _freeze(monkeypatch, _pacific(2026, 11, 1, 0, 16))
+        call_command("take_cycle_snapshot")
+
+        assert not FundingSnapshot.objects.filter(is_auto=True).exists()
+        assert FundingSnapshot.objects.count() == 2
+
+    def it_takes_december_after_local_midnight_on_new_years_day(monkeypatch):
+        _voter("voter@x.com")
+        _freeze(monkeypatch, _pacific(2026, 12, 31, 17, 30))  # already January in UTC
+        call_command("take_cycle_snapshot")
+        # Still December locally: the closed cycle is November, never December.
+        assert list(FundingSnapshot.objects.filter(is_auto=True).values_list("cycle_label", flat=True)) == [
+            "November 2026"
+        ]
+        assert not EventDelivery.objects.filter(period="voting_close:2026-12").exists()
+
+        _freeze(monkeypatch, _pacific(2027, 1, 1, 0, 1))
+        call_command("take_cycle_snapshot")
+
+        assert FundingSnapshot.objects.filter(is_auto=True).first().cycle_label == "December 2026"
+        assert EventDelivery.objects.filter(event_key="voting.auto_snapshot", period="voting_close:2026-12").exists()
+
+
+def describe_a_failed_take():
+    def it_leaves_the_months_slot_unclaimed_so_the_next_tick_retries(monkeypatch):
+        _voter("voter@x.com")
+        _freeze(monkeypatch, _pacific(2026, 11, 1, 0, 1))
+        real_take = FundingSnapshot.take.__func__
+
+        def broken(cls, **kwargs):
+            raise RuntimeError("take broke")
+
+        monkeypatch.setattr(FundingSnapshot, "take", classmethod(broken))
+        with pytest.raises(RuntimeError, match="take broke"):
+            call_command("take_cycle_snapshot")
+
+        assert not EventDelivery.objects.filter(event_key="voting.auto_snapshot").exists()
+
+        monkeypatch.setattr(FundingSnapshot, "take", classmethod(real_take))
+        call_command("take_cycle_snapshot")
+        assert FundingSnapshot.objects.get(is_auto=True).cycle_label == "October 2026"

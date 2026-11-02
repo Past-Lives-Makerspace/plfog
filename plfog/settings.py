@@ -347,6 +347,8 @@ MIDDLEWARE = [
     "core.middleware.MemberLockoutMiddleware",
     "core.middleware.MemberAgreementMiddleware",
     "plfog.service_worker_middleware.ServiceWorkerAllowedMiddleware",
+    # Last, so it sees the final response: one usage row per signed in page view (#1078).
+    "core.middleware.PageViewMiddleware",
 ]
 
 ROOT_URLCONF = "plfog.urls"

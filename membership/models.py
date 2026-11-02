@@ -13618,6 +13618,45 @@ class FundingSnapshot(models.Model):
         """How this snapshot was created — "Automatic" for cycle-end auto-takes, else "Manual"."""
         return "Automatic" if self.is_auto else "Manual"
 
+    @cached_property
+    def taken_by(self) -> str:
+        """The name of the admin who took this snapshot by hand, else ``""``.
+
+        Read from its ``funding_snapshot_taken`` activity row (no column of its own, #1078).
+        An automatic snapshot, or one taken before the row carried an actor, names nobody.
+        One query; the snapshot page shows one snapshot.
+        """
+        from core.models import SiteActivity
+
+        row = (
+            SiteActivity.objects.filter(
+                kind=SiteActivity.Kind.FUNDING_SNAPSHOT_TAKEN,
+                target_ct=ContentType.objects.get_for_model(FundingSnapshot),
+                target_id=self.pk,
+                actor__isnull=False,
+            )
+            .select_related("actor__member")
+            .order_by("created_at")
+            .first()
+        )
+        return row.who if row is not None else ""
+
+    def delete_by(self, actor: Any) -> None:
+        """Delete this snapshot and log who did it and which cycle it held (#1078).
+
+        The activity row carries no target, because the snapshot is gone once this returns; the
+        cycle label and the old pk ride in its payload instead.
+        """
+        from core.models import SiteActivity
+
+        with transaction.atomic():
+            SiteActivity.log(
+                SiteActivity.Kind.FUNDING_SNAPSHOT_DELETED,
+                actor=actor,
+                payload={"cycle_label": self.cycle_label, "snapshot_pk": self.pk},
+            )
+            self.delete()
+
     @property
     def results_pending(self) -> bool:
         """Whether real per-guild results exist for this snapshot and have not gone out yet.
@@ -13681,7 +13720,7 @@ class FundingSnapshot(models.Model):
         announcement (:meth:`draft_results_announcement`).
 
         Args:
-            title: Custom label for the snapshot. Defaults to current month/year.
+            title: Custom label for the snapshot. Defaults to the current local month/year.
             minimum_pool: Dollar floor applied to the funding pool. Pool is
                 ``max(paying_voters × $10, minimum_pool)``. ``None`` (the default)
                 resolves to ``VotingSettings.load().minimum_pool_floor``; an explicit
@@ -13750,7 +13789,7 @@ class FundingSnapshot(models.Model):
             minimum_pool=minimum_pool_value,
         )
 
-        cycle_label = title.strip() if title.strip() else timezone.now().strftime("%B %Y")
+        cycle_label = title.strip() if title.strip() else timezone.localtime().strftime("%B %Y")
 
         snapshot = cls.objects.create(
             cycle_label=cycle_label,

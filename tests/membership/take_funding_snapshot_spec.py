@@ -168,7 +168,7 @@ def describe_take_funding_snapshot_command():
 
         snap = FundingSnapshot.objects.first()
         assert snap is not None
-        expected_label = timezone.now().strftime("%B %Y")
+        expected_label = timezone.localtime().strftime("%B %Y")
         assert snap.cycle_label == expected_label
 
     def it_logs_funding_snapshot_taken_activity_when_votes_exist():

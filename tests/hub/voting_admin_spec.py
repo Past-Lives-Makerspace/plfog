@@ -20,6 +20,7 @@ from django.template.loader import get_template
 from django.test import Client
 from django.urls import reverse
 
+from core.models import SiteActivity
 from membership.models import FundingSnapshot, Member
 from tests.membership.factories import (
     FundingSnapshotFactory,
@@ -212,6 +213,43 @@ def describe_history_detail():
     def it_404s_unknown_pk(admin_client):
         assert admin_client.get(reverse("hub_admin_voting_history_detail", args=[999999])).status_code == 404
 
+    def it_says_who_took_a_snapshot_by_hand(admin_client):
+        User.objects.filter(username="vadmin").update(first_name="Vera", last_name="Admin")
+        _mixed_votes()
+        admin_client.post(reverse("hub_admin_voting_snapshot_take"), {"title": "Test"})
+        snap = FundingSnapshot.objects.get()
+
+        content = admin_client.get(reverse("hub_admin_voting_history_detail", args=[snap.pk])).content.decode()
+
+        assert " by Vera Admin" in content
+
+    def it_names_nobody_for_an_automatic_snapshot(admin_client):
+        _mixed_votes()
+        snap = FundingSnapshot.take(title="June 2026", is_auto=True)
+        assert snap is not None
+
+        content = admin_client.get(reverse("hub_admin_voting_history_detail", args=[snap.pk])).content.decode()
+
+        assert "Automatic" in content
+        assert snap.taken_by == ""
+        assert " by " not in content.split("pl-vote-detail-meta", 1)[1].split("</p>", 1)[0]
+
+    def it_names_nobody_for_an_older_snapshot_with_no_recorded_actor(admin_client):
+        snap = _stored(admin_client)  # taken with no actor, as every snapshot before #1078 was
+
+        content = admin_client.get(reverse("hub_admin_voting_history_detail", args=[snap.pk])).content.decode()
+
+        assert " by " not in content.split("pl-vote-detail-meta", 1)[1].split("</p>", 1)[0]
+
+    def it_reads_who_took_it_in_one_query(admin_client, django_assert_num_queries):
+        admin = User.objects.get(username="vadmin")
+        _mixed_votes()
+        snap = FundingSnapshot.take(title="Test", actor=admin)
+        assert snap is not None
+        fresh = FundingSnapshot.objects.get(pk=snap.pk)
+        with django_assert_num_queries(1):
+            assert fresh.taken_by == fresh.taken_by == admin.email
+
     def it_renders_a_header_delete_button(admin_client):
         snap = _stored(admin_client)
         content = admin_client.get(reverse("hub_admin_voting_history_detail", args=[snap.pk])).content.decode()
@@ -237,6 +275,19 @@ def describe_snapshots():
         assert resp.status_code == 302
         snap = FundingSnapshot.objects.get()
         assert resp.url == reverse("hub_admin_voting_history_detail", args=[snap.pk])
+
+    def it_take_records_the_admin_on_the_activity_row_and_the_results_ready_emit(admin_client):
+        _mixed_votes()
+        admin = User.objects.get(username="vadmin")
+        with patch("core.events.emit.emit") as mock_emit:
+            admin_client.post(reverse("hub_admin_voting_snapshot_take"), {"title": "Test"})
+
+        snap = FundingSnapshot.objects.get()
+        row = SiteActivity.objects.get(kind=SiteActivity.Kind.FUNDING_SNAPSHOT_TAKEN)
+        assert (row.actor, row.target) == (admin, snap)
+        mock_emit.assert_called_once()
+        assert mock_emit.call_args.args == ("voting.results_ready",)
+        assert mock_emit.call_args.kwargs["actor"] == admin
 
     def it_take_with_no_votes_warns_and_stays(admin_client):
         resp = admin_client.post(reverse("hub_admin_voting_snapshot_take"), {})
@@ -296,6 +347,22 @@ def describe_delete():
         with patch("airtable_sync.service.delete_snapshot_from_airtable") as mock_delete:
             admin_client.post(reverse("hub_admin_voting_snapshot_delete", args=[snap.pk]))
         mock_delete.assert_called_once_with("recDEL123")
+
+    def it_logs_who_deleted_it_and_which_cycle(admin_client):
+        snap = _stored(admin_client)
+        pk, label = snap.pk, snap.cycle_label
+
+        admin_client.post(reverse("hub_admin_voting_snapshot_delete", args=[pk]))
+
+        row = SiteActivity.objects.get(kind=SiteActivity.Kind.FUNDING_SNAPSHOT_DELETED)
+        assert row.actor == User.objects.get(username="vadmin")
+        assert row.payload == {"cycle_label": label, "snapshot_pk": pk}
+
+    def it_logs_nothing_when_the_delete_is_refused(admin_client):
+        snap = _stored(admin_client)
+        with patch.object(FundingSnapshot, "deletion_blocker", "Its results email is sending."):
+            admin_client.post(reverse("hub_admin_voting_snapshot_delete", args=[snap.pk]))
+        assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.FUNDING_SNAPSHOT_DELETED).exists()
 
     def it_is_post_only(admin_client):
         snap = _stored(admin_client)
