@@ -1,0 +1,7 @@
+bump = "minor"
+audience = ["guild-staff", "admins"]
+date = "2026-11-01"
+title = "New guild leads and staff get a welcome email"
+changes = [
+  "When someone is made a guild lead or joins a guild's staff, they get an email that maps their Guild Staff Tools and the rules for running the guild through the Member Portal.",
+]
