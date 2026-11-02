@@ -1,0 +1,16 @@
+{% comment %}The guild staff rules popup's body (#1076), inside components/modal.html with modal_required: no X, so I Understand, enabled only once the switch is on, is the way past it. Context from hub.context_processors.staff_onboarding.{% endcomment %}
+<p class="pl-staff-rules__lead">You can now run {{ staff_onboarding_guilds|join:", " }} from the Member Portal. Before you start, read the rules every guild follows:</p>
+<ul class="pl-staff-rules__list">
+    <li>Your guild's orientations, reservations and equipment run through the Member Portal.</li>
+    <li>Your guild's email lists run through Email Members in the Member Portal.</li>
+    <li>Managing any of these outside the Member Portal is no longer allowed.</li>
+</ul>
+<p class="pl-form-note"><a href="{{ staff_rules_url }}" target="_blank" rel="noopener">Read the full rules and where every tool lives</a></p>
+<form method="post" action="{% url 'hub_staff_rules_confirm' %}" x-data="{ read: false }" class="pl-staff-rules__form">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    {% include "components/toggle.html" with field=staff_rules_form.read_rules toggle_label="I have read the rules" %}
+    <div class="pl-modal__actions">
+        <button type="submit" class="pl-btn pl-btn--primary" :disabled="!read">I Understand</button>
+    </div>
+</form>

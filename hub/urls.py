@@ -22,6 +22,7 @@ from . import (
     notification_views,
     orientations_views,
     spotlight_views,
+    staff_onboarding_views,
     views,
     whats_new_views,
     wiki_views,
@@ -816,6 +817,8 @@ urlpatterns = [
         name="hub_guild_product_delete",
     ),
     path("welcome/dismiss/", views.welcome_dismiss, name="hub_welcome_dismiss"),
+    path("staff-tools/rules/confirm/", staff_onboarding_views.staff_rules_confirm, name="hub_staff_rules_confirm"),
+    path("walkthroughs/choice/", staff_onboarding_views.walkthrough_choice, name="hub_walkthrough_choice"),
     path("welcome/guild-updates/", views.guild_updates_prompt, name="hub_guild_updates_prompt"),
     path("agreement/", views.hub_member_agreement, name="hub_member_agreement"),
     # Guided tours (Spec C): the one state-recording endpoint — the offer card's

@@ -291,3 +291,36 @@ def _tools_page_title(request: HttpRequest, member: Member | None) -> str | None
     from hub.views import _tools_page_title as _gate
 
     return _gate(request, member)
+
+
+def staff_onboarding(request: HttpRequest) -> dict[str, Any]:
+    """What a new guild lead or staffer is still owed (#1076): the rules popup or the tour button.
+
+    Reads ``Member.staff_onboarding_step``, which rides on the member every hub page already
+    loads, so a member who is owed nothing costs no query. Only someone owed a step pays for the
+    guards: nothing on a POST re-render, while the Member Agreement or the first-login welcome
+    is still waiting (their buttons would be bounced to the agreement, or the two popups would
+    stack), or once they no longer lead or staff a guild.
+    """
+    from hub.forms import StaffRulesConfirmForm
+    from membership.staff_onboarding import ONBOARDING_TOUR, rules_page_path
+
+    empty: dict[str, Any] = {"staff_onboarding_step": ""}
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated or getattr(request, "method", "GET") != "GET":
+        return empty
+    member = getattr(user, "member", None)
+    if member is None or not member.staff_onboarding_step:
+        return empty
+    if member.needs_member_agreement or (member.welcome_dismissed_at is None and not member.has_started_profile):
+        return empty
+    guild_names = list(member.staffed_guilds.order_by("name").values_list("name", flat=True))
+    if not guild_names:
+        return empty
+    return {
+        "staff_onboarding_step": member.staff_onboarding_step,
+        "staff_onboarding_guilds": guild_names,
+        "staff_rules_url": rules_page_path(),
+        "staff_onboarding_tour": ONBOARDING_TOUR,
+        "staff_rules_form": StaffRulesConfirmForm(),
+    }

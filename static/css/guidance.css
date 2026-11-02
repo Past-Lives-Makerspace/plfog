@@ -234,3 +234,67 @@
 @media (prefers-reduced-motion: reduce) {
     .pl-wn-shots__track { transition: none; } /* the next step appears; nothing slides */
 }
+
+/* ---- The walkthrough button (#1076): components/walkthrough_button.html ---- */
+.pl-walkthrough { display: inline-flex; align-items: center; gap: 0.5rem; }
+.pl-walkthrough-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    height: 2.4rem;
+    padding: 0 0.9rem;
+    border-radius: 999px;
+    border: 1px solid var(--hub-border-strong);
+    background: var(--hub-elevated);
+    color: var(--hub-text);
+    font-family: var(--font-heading);
+    font-size: 0.88rem;
+    font-weight: 700;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+.pl-walkthrough-btn:hover { border-color: var(--color-tuscan-yellow); color: var(--hub-link); }
+.pl-walkthrough-btn:focus-visible { outline: 2px solid var(--hub-blue); outline-offset: 2px; }
+.pl-walkthrough-btn svg { width: 1.15rem; height: 1.15rem; flex: 0 0 auto; }
+/* The onboarding offer glows in the New! gold until they take the tour or exit. */
+.pl-walkthrough-btn--glow {
+    border-color: transparent;
+    background: linear-gradient(135deg, var(--pl-new-from), var(--pl-new-to));
+    color: #092E4C;
+    animation: pl-walkthrough-glow 2.4s ease-in-out infinite;
+}
+.pl-walkthrough-btn--glow:hover { color: #092E4C; }
+@keyframes pl-walkthrough-glow {
+    0%, 100% { box-shadow: 0 0 0 0 var(--pl-new-ring), 0 0 10px 2px rgba(255, 211, 106, 0.35); }
+    50% { box-shadow: 0 0 0 6px transparent, 0 0 22px 6px rgba(255, 211, 106, 0.55); }
+}
+.pl-walkthrough-dock {
+    position: fixed;
+    right: 1.5rem;
+    bottom: 1.5rem;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+    max-width: 22rem;
+    padding: 1rem 1.25rem;
+    border-radius: 12px;
+    border: 1px solid var(--hub-border-strong);
+    background: var(--hub-card-bg);
+    color: var(--hub-text);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+}
+.pl-walkthrough-dock__text { margin: 0; font-size: 0.9rem; line-height: 1.45; }
+@media (max-width: 640px) {
+    .pl-walkthrough-dock { left: 1rem; right: 1rem; bottom: 5rem; max-width: none; }
+}
+/* The guild staff rules popup's body. */
+.pl-staff-rules__lead { margin: 0 0 0.75rem; }
+.pl-staff-rules__list { margin: 0 0 0.75rem; padding-left: 1.25rem; line-height: 1.6; }
+.pl-staff-rules__list li { margin: 0 0 0.35rem; }
+.pl-staff-rules__form { margin-top: 0.75rem; }
+.pl-staff-rules__form .pl-modal__actions { margin-top: 1.5rem; }
+.pl-staff-rules__form .pl-btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) { .pl-walkthrough-btn--glow { animation: none; } }

@@ -1,0 +1,24 @@
+{% comment %}
+The walkthrough button (#1076): one standard control that starts a Guided Tour (core/tours.py)
+and records the choice. Every guild staff walkthrough uses it, and nothing else starts one from a
+page. It posts to hub_walkthrough_choice, which logs Take or Exit and then starts the tour at its
+entry page or returns here.
+
+Parameters (pass via {% include ... with %}):
+  tour_key — required, a key in core.tours.TOURS
+  label    — optional, the button text (default "Walkthrough")
+  pester   — optional, truthy for the onboarding offer: the button glows and an Exit sits beside it
+
+The caller decides who sees it; {% walkthrough_button %} (core/templatetags/guidance.py) shows it
+only to a member the tour is for.
+{% endcomment %}
+<form method="post" action="{% url 'hub_walkthrough_choice' %}" class="pl-walkthrough{% if pester %} pl-walkthrough--pester{% endif %}" data-walkthrough="{{ tour_key }}">
+    {% csrf_token %}
+    <input type="hidden" name="tour_key" value="{{ tour_key }}">
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <button type="submit" name="choice" value="take" class="pl-walkthrough-btn{% if pester %} pl-walkthrough-btn--glow{% endif %}" title="Start the walkthrough">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M10 8.5l5.5 3.5-5.5 3.5z" fill="currentColor"/></svg>
+        {{ label|default:"Walkthrough" }}
+    </button>
+    {% if pester %}<button type="submit" name="choice" value="exit" class="pl-btn pl-btn--secondary pl-btn--sm">Exit</button>{% endif %}
+</form>

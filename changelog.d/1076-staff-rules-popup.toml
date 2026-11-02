@@ -1,0 +1,9 @@
+bump = "minor"
+audience = ["guild-staff", "admins"]
+date = "2026-11-01"
+title = "New guild staff confirm the rules, then get a tour"
+changes = [
+  "A new guild lead or staff member sees the guild rules on their next visit and confirms they have read them before going on.",
+  "Then a glowing Take the Tour button stays on screen until they take the Guild Staff Tools tour or press Exit.",
+  "A Guild Staff Rules and Tools wiki article spells out the rules and where every tool lives.",
+]
