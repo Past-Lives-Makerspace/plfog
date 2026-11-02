@@ -1,38 +1,31 @@
 """Vendor Tables fill a member vendor's blank contact details from their member record (#1049): the match (Discord
 handle first, then preferred or full legal name, case and spacing ignored, a shared key matching nobody, active
-members only), only blank boxes filled, every write path (+ Add, the row's autosave, CSV import, the sheet pull with
-its whole list pass, Discord add), "Kate's changes win" kept, and the fixed number of queries. Every person, handle
+members only), only blank boxes filled, every write path (+ Add, the row's autosave, CSV import,
+Discord add), and the fixed number of queries. Every person, handle
 and address here is made up (this repo is public)."""
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from datetime import timedelta
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 from allauth.account.models import EmailAddress
-from django.db import connection
 from django.test import Client
-from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from hq import services, vendor_sheet
+from hq import services
 from hq.models import HubCard, VendorTable
 from hq.vendor_discord import ChannelRead
-from hq.vendor_sheet import SheetLink
 from membership.models import Member
 from tests.hq.conftest import signed_in
-from tests.hq.factories import HubCardFactory, VendorFloorFactory, VendorTableFactory
+from tests.hq.factories import HubCardFactory, VendorTableFactory
 from tests.membership.factories import MemberFactory
 
 pytestmark = pytest.mark.django_db
 
 HTMX = {"HTTP_HX_REQUEST": "true"}
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1SpecMemberContactsSheetAbCdEfGhIjKlMnOp/edit#gid=0"
-HEADER = "Name,Status,Email,Phone,Discord handle"
 
 
 @pytest.fixture
@@ -413,73 +406,6 @@ def describe_the_csv_import():
         assert _contacts(hub.vendor_tables.get()) == ("shop@odie.example", "503-555-0161", "odie.makes")
 
 
-class FakeSheet:
-    """Replaces ``hq.vendor_sheet.fetch_sheet_csv``, so no spec reaches the network."""
-
-    def __init__(self) -> None:
-        self.text = f"{HEADER}\n"
-
-    def __call__(self, link: SheetLink) -> bytes:
-        return self.text.encode()
-
-
-@pytest.fixture
-def sheet(hub) -> Iterator[FakeSheet]:
-    VendorFloorFactory(hub=hub, sheet_url=SHEET_URL)
-    fake = FakeSheet()
-    with patch.object(vendor_sheet, "fetch_sheet_csv", fake):
-        yield fake
-
-
-def _pull(hub: Any, sheet: FakeSheet, *rows: str) -> None:
-    sheet.text = "\n".join((HEADER, *rows)) + "\n"
-    services.pull_vendor_sheet(hub)
-
-
-def describe_the_sheet_pull():
-    def it_fills_a_row_the_sheet_adds(hub, odile, sheet):
-        _pull(hub, sheet, "Odie Farrow,Requested,,,")
-
-        assert _contacts(hub.vendor_tables.get()) == ODILE
-
-    def it_fills_every_row_on_the_list_including_ones_the_sheet_leaves_alone(hub, odile, make_member, sheet):
-        make_member(preferred_name="Lark Sutter", phone="503-555-0191")
-        typed = VendorTableFactory(hub=hub, name="Lark Sutter")
-        _pull(hub, sheet, "Odie Farrow,Requested,,,")
-
-        typed.refresh_from_db()
-        assert typed.phone == "503-555-0191"
-        assert typed.sheet_cells == {}
-
-    def it_fills_the_whole_list_on_pull_from_sheet_now(hub, odile, sheet, kate_client):
-        table = VendorTableFactory(hub=hub, name="Odie Farrow")
-
-        kate_client.post(reverse("hq:vendor_pull", args=[hub.slug]), {"filter": "all"}, **HTMX)
-
-        table.refresh_from_db()
-        assert _contacts(table) == ODILE
-
-    def it_fills_on_the_daily_run(hub, odile, sheet):
-        table = VendorTableFactory(hub=hub, name="Odie Farrow")
-
-        assert services.pull_every_vendor_sheet() == []
-
-        table.refresh_from_db()
-        assert _contacts(table) == ODILE
-
-    def it_keeps_a_filled_value_while_kates_cell_stays_blank_and_takes_her_later_change(hub, odile, sheet):
-        _pull(hub, sheet, "Odie Farrow,Requested,,,")
-        _pull(hub, sheet, "Odie Farrow,Requested,,,")
-        table = hub.vendor_tables.get()
-        assert table.email == "odile.primary@farrow.example"
-
-        _pull(hub, sheet, "Odie Farrow,Requested,kate.typed@odie.example,,")
-
-        table.refresh_from_db()
-        assert table.email == "kate.typed@odie.example"
-        assert table.phone == "503-555-0161"
-
-
 def describe_discord_add():
     def it_fills_a_poster_whose_name_is_a_members_handle(hub, odile, kate):
         author = {"id": "8101", "username": "odie.makes", "global_name": None}
@@ -497,21 +423,3 @@ def describe_discord_add():
 
         table.refresh_from_db()
         assert _contacts(table) == ODILE
-
-
-def describe_the_query_scan_of_a_pull():
-    def it_fills_a_pull_of_many_rows_without_a_query_per_row(hub, make_member, sheet):
-        rows = []
-        for n in range(8):
-            make_member(preferred_name=f"Spec Potter {n}", phone=f"503-555-{2000 + n}")
-            rows.append(f"Spec Potter {n},Requested,,,")
-        _pull(hub, sheet, *rows[:1])
-
-        with CaptureQueriesContext(connection) as few:
-            _pull(hub, sheet, *rows[:2])
-        with CaptureQueriesContext(connection) as many:
-            _pull(hub, sheet, *rows)
-
-        # Each added row costs its insert; the fill adds nothing per row.
-        assert len(many) - len(few) == 5
-        assert hub.vendor_tables.filter(phone="").count() == 0

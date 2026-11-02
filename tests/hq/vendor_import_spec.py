@@ -1,5 +1,5 @@
-"""Vendor Tables' Import CSV (#1012): the sheet's four extra columns, the one reader the CSV upload and the sheet pull
-share (headers by name, loose values, problems by row), the upload's rule (match by name, blank cells change
+"""Vendor Tables' Import CSV (#1012): the sheet's four extra columns, the reader
+(headers by name, loose values, problems by row), the upload's rule (match by name, blank cells change
 nothing, add the rest, never delete, a repeated name reported), the refusals that write nothing, Kate's sheet as she
 keeps it, an export that imports back unchanged, the gate, and the answer on the page."""
 
