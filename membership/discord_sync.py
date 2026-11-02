@@ -10,7 +10,7 @@ Three entry points:
   member's Discord reactions into ``source="discord"`` guild memberships, and push their
   existing in-app guilds out to Discord as roles.
 * :func:`reconcile_reactions` — the 15-minute cron: keep ``source="discord"`` memberships
-  in step with the reaction-role message, adding and (guardedly) removing. Also DMs a
+  in step with the reaction-role messages, adding and (guardedly) removing. Also DMs a
   one-time "you're halfway there" nudge to reactors with no linked member, so a guild
   pick from an unlinked Discord account isn't silently ignored.
 
@@ -94,11 +94,27 @@ class LinkResult:
     complete: bool = True
 
 
-def _reconcile_config() -> tuple[str, str, str] | None:
-    """The ``(server_id, channel_id, message_id)`` for the sync, or ``None`` if disabled.
+@dataclass(frozen=True)
+class _GuildReactions:
+    """Who reacted for each mapped guild, read across every configured role message.
 
-    Disabled when the bot token or ANY of the three ids is blank (the "no-op when
-    unconfigured" idiom) — the whole reaction sync then does nothing.
+    ``reactors`` is the union, per guild, of the reactors of every emoji mapped to it on
+    every message. ``complete`` is ``True`` for a guild only when every one of those
+    fetches was complete, so one truncated message keeps that guild's removals off.
+    """
+
+    guilds: dict[int, Guild]
+    reactors: dict[int, set[str]]
+    complete: dict[int, bool]
+
+
+def _reconcile_config() -> tuple[str, str, list[str]] | None:
+    """The ``(server_id, channel_id, message_ids)`` for the sync, or ``None`` if disabled.
+
+    Disabled when the bot token, the server id, the channel id or the main message id is
+    blank (the "no-op when unconfigured" idiom); the whole reaction sync then does
+    nothing. ``message_ids`` is the main message first, then any extra ones
+    (``SiteConfiguration.discord_role_message_ids``).
     """
     from core.models import SiteConfiguration
 
@@ -107,10 +123,25 @@ def _reconcile_config() -> tuple[str, str, str] | None:
     config = SiteConfiguration.load()
     server_id = (config.discord_server_id or "").strip()
     channel_id = (config.discord_role_message_channel_id or "").strip()
-    message_id = (config.discord_role_message_id or "").strip()
-    if not (server_id and channel_id and message_id):
+    message_ids = config.discord_role_message_ids
+    if not (server_id and channel_id and message_ids):
         return None
-    return server_id, channel_id, message_id
+    return server_id, channel_id, message_ids
+
+
+def _read_guild_reactions(channel_id: str, message_ids: list[str]) -> _GuildReactions:
+    """Read every mapped emoji's reactors on every role message, folded per guild."""
+    from membership.models import DiscordGuildEmoji
+
+    result = _GuildReactions(guilds={}, reactors={}, complete={})
+    for emoji, guild in DiscordGuildEmoji.objects.mapping().items():
+        result.guilds[guild.pk] = guild
+        reactors = result.reactors.setdefault(guild.pk, set())
+        for message_id in message_ids:
+            page = discord_reactions.fetch_reactors(channel_id, message_id, emoji)
+            reactors.update(page.user_ids)
+            result.complete[guild.pk] = result.complete.get(guild.pk, True) and page.complete
+    return result
 
 
 def import_member_guilds(member: Member) -> ImportResult:
@@ -125,20 +156,19 @@ def import_member_guilds(member: Member) -> ImportResult:
        ``False`` if any reaction fetch was truncated (safe to add, but a few more guilds
        may surface on the next cron tick).
     """
-    from membership.models import DiscordGuildEmoji, GuildMembership
+    from membership.models import GuildMembership
 
     config = _reconcile_config()
     discord_user_id = (member.discord_user_id or "").strip()
     reacted: dict[int, Guild] = {}
     complete = True
     if config is not None and discord_user_id:
-        _server_id, channel_id, message_id = config
-        for emoji, guild in DiscordGuildEmoji.objects.mapping().items():
-            page = discord_reactions.fetch_reactors(channel_id, message_id, emoji)
-            if not page.complete:
-                complete = False
-            if discord_user_id in page.user_ids:
-                reacted[guild.pk] = guild
+        _server_id, channel_id, message_ids = config
+        reactions = _read_guild_reactions(channel_id, message_ids)
+        complete = all(reactions.complete.values())
+        for pk, ids in reactions.reactors.items():
+            if discord_user_id in ids:
+                reacted[pk] = reactions.guilds[pk]
 
     for guild in reacted.values():
         GuildMembership.objects.record_discord_join(guild, member)
@@ -154,29 +184,26 @@ def import_member_guilds(member: Member) -> ImportResult:
 
 
 def reconcile_reactions() -> ReconcileStats:
-    """Reconcile every ``source="discord"`` membership with the reaction-role message.
+    """Reconcile every ``source="discord"`` membership with the reaction-role messages.
 
     Runs every 15 minutes. No-ops (``ran=False``) unless Discord is fully configured.
-    Adds a ``source="discord"`` membership for each linked member who reacted (silent — no
-    per-reaction email/notification), and — ONLY on a *complete* fetch for that guild —
-    removes the ``source="discord"`` rows for members who no longer react. Never touches
+    Adds a ``source="discord"`` membership for each linked member who reacted on any
+    configured message (silent — no per-reaction email/notification), and — ONLY when
+    that guild's fetches were *complete* on every message — removes the
+    ``source="discord"`` rows for members who react on none of them. Never touches
     ``source="app"`` rows in either direction.
     """
-    from membership.models import DiscordGuildEmoji, GuildMembership, Member
+    from membership.models import GuildMembership, Member
 
     config = _reconcile_config()
     if config is None:
         return ReconcileStats(ran=False)
-    _server_id, channel_id, message_id = config
+    _server_id, channel_id, message_ids = config
 
-    reacted_by_guild: dict[int, set[str]] = {}
-    complete_by_guild: dict[int, bool] = {}
-    guilds_by_pk: dict[int, Guild] = {}
-    for emoji, guild in DiscordGuildEmoji.objects.mapping().items():
-        page = discord_reactions.fetch_reactors(channel_id, message_id, emoji)
-        guilds_by_pk[guild.pk] = guild
-        reacted_by_guild.setdefault(guild.pk, set()).update(page.user_ids)
-        complete_by_guild[guild.pk] = complete_by_guild.get(guild.pk, True) and page.complete
+    reactions = _read_guild_reactions(channel_id, message_ids)
+    reacted_by_guild = reactions.reactors
+    complete_by_guild = reactions.complete
+    guilds_by_pk = reactions.guilds
 
     added = 0
     removed = 0

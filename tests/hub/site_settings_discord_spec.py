@@ -107,6 +107,7 @@ def describe_discord_tab_render():
         assert content.count('name="discord_member_role_id"') == 1
         assert "Discord Member role ID" in content
         assert 'name="discord_role_message_id"' in content
+        assert content.count('name="discord_role_message_extra_ids"') == 1  # Discord tab only, not General
         assert "Emoji → Guild Map" in content
         assert "No emoji mappings yet" in content  # empty state
         assert "Guild → Discord Role" in content
@@ -131,6 +132,33 @@ def describe_discord_connection_ids():
         assert config.discord_member_role_id == "4242"
         assert config.discord_role_message_channel_id == "1121"
         assert config.discord_role_message_id == "1301"
+
+
+def describe_discord_role_message_extra_ids():
+    def it_saves_the_ids_comma_separated(client: Client):
+        _superuser(client)
+        resp = client.post(
+            reverse("hub_admin_site_settings"),
+            _settings_post(discord_role_message_extra_ids=" 1566847042540806416\n1777,, 1888 "),
+        )
+        assert resp.status_code == 302
+        assert SiteConfiguration.load().discord_role_message_extra_ids == "1566847042540806416, 1777, 1888"
+
+    def it_saves_blank(client: Client):
+        _superuser(client)
+        resp = client.post(reverse("hub_admin_site_settings"), _settings_post(discord_role_message_extra_ids="  "))
+        assert resp.status_code == 302
+        assert SiteConfiguration.load().discord_role_message_extra_ids == ""
+
+    def it_refuses_an_id_that_is_not_a_number(client: Client):
+        _superuser(client)
+        resp = client.post(
+            reverse("hub_admin_site_settings"),
+            _settings_post(discord_role_message_extra_ids="1566, https://discord.com/x"),
+        )
+        assert resp.status_code == 200
+        assert "Not a Discord message id: https://discord.com/x" in resp.content.decode()
+        assert SiteConfiguration.load().discord_role_message_extra_ids == ""
 
 
 def describe_emoji_map_editor():
