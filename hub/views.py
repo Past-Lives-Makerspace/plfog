@@ -93,6 +93,7 @@ from hub.event_media_views import event_media_context
 from hub.toast import trigger_toast
 from hub.calendar_entries import calendar_day
 from hub.calendar_window import CALENDAR_PAGE_SIZE, calendar_window, calendar_window_context
+from membership import staff_onboarding
 from membership.cycle import get_cycle_context
 from membership.vote_calculator import compute_live_standings, compute_new_votes_since
 from membership.models import (
@@ -232,6 +233,9 @@ def tour_state(request: HttpRequest, tour_key: str) -> HttpResponse:
         TourState.objects.mark_completed(user, tour_key)
     else:
         TourState.objects.mark_dismissed(user, tour_key)
+        member = _get_member(request)
+        if member is not None:
+            staff_onboarding.record_partway_exit(member, tour_key)
     return HttpResponse(status=204)
 
 

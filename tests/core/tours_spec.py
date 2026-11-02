@@ -77,8 +77,17 @@ def _get(url: str, member: Member):
 
 
 def describe_TOURS():
-    def it_registers_the_four_role_tours():
-        assert set(TOURS) == {"member-welcome", "guild-lead", "instructor", "admin"}
+    def it_registers_the_four_role_tours_and_the_guild_staff_walkthroughs():
+        assert set(TOURS) == {
+            "member-welcome",
+            "guild-lead",
+            "instructor",
+            "admin",
+            "guild-cubbies",
+            "guild-reservations",
+            "guild-email-members",
+            "guild-orientations",
+        }
 
     def it_offers_only_the_member_tour_as_a_banner():
         # Home draws its own banner (#824); every other tour keeps the floating offer card.
@@ -247,20 +256,50 @@ def describe_tours_for():
 
     def it_includes_the_lead_tour_for_leads():
         lead = _lead("tf-lead")
-        assert [t.key for t in tours_for(lead)] == ["member-welcome", "guild-lead"]
+        assert [t.key for t in tours_for(lead)] == [
+            "member-welcome",
+            "guild-lead",
+            "guild-cubbies",
+            "guild-reservations",
+            "guild-email-members",
+            "guild-orientations",
+        ]
         lead.instructor_oriented_at = timezone.now()
         lead.save(update_fields=["instructor_oriented_at"])
-        assert [t.key for t in tours_for(lead)] == ["member-welcome", "guild-lead", "instructor"]
+        assert [t.key for t in tours_for(lead)] == [
+            "member-welcome",
+            "guild-lead",
+            "guild-cubbies",
+            "guild-reservations",
+            "guild-email-members",
+            "guild-orientations",
+            "instructor",
+        ]
 
     def it_includes_the_lead_and_admin_tours_for_admins_who_staff_no_guild():
         GuildFactory(name="Rows Active Guild", is_active=True)
         admin = _member("tf-admin", fog_role=Member.FogRole.ADMIN)
-        assert [t.key for t in tours_for(admin)] == ["member-welcome", "guild-lead", "admin"]
+        assert [t.key for t in tours_for(admin)] == [
+            "member-welcome",
+            "guild-lead",
+            "guild-cubbies",
+            "guild-reservations",
+            "guild-email-members",
+            "guild-orientations",
+            "admin",
+        ]
 
     def it_includes_the_lead_tour_for_guild_officers_who_staff_no_guild():
         GuildFactory(name="Rows Officer Guild", is_active=True)
         officer = _member("tf-officer", fog_role=Member.FogRole.GUILD_OFFICER)
-        assert [t.key for t in tours_for(officer)] == ["member-welcome", "guild-lead"]
+        assert [t.key for t in tours_for(officer)] == [
+            "member-welcome",
+            "guild-lead",
+            "guild-cubbies",
+            "guild-reservations",
+            "guild-email-members",
+            "guild-orientations",
+        ]
 
 
 def describe_help_card_rows():

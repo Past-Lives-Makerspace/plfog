@@ -272,7 +272,7 @@ def describe_guild_edit_tour_offer():
         response = client.get(reverse("hub_guild_edit", kwargs={"pk": guild.pk}))
         content = response.content.decode()
         assert FLOATING_CARD in content
-        assert "?tour=guild-lead" in content  # the manual entry link
+        assert 'data-walkthrough="guild-lead"' in content  # the manual entry: the walkthrough button (#1076)
         assert TourState.objects.status_for(member.user, "guild-lead") == TourState.Status.OFFERED
 
     def it_stamps_the_tab_strip_and_tab_buttons(client):

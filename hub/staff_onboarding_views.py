@@ -2,14 +2,16 @@
 
 Two small POSTs, each recorded through ``membership.staff_onboarding``: the popup's confirm, and
 Take the Tour or Exit on any walkthrough button. Take records the choice and starts the walkthrough
-at its entry page (``core.tours.entry_url_for``); Exit records it and returns the member where they
-were. The popup and the onboarding button are drawn by ``hub/base.html`` from
+on the tool's own page (the button's ``start``) or else at its entry page
+(``core.tours.entry_url_for``); Exit records it and returns the member where they were. The
+popup and the onboarding button are drawn by ``hub/base.html`` from
 ``Member.staff_onboarding_step``, so both go away once the step moves on.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, HttpResponseBadRequest, HttpResponseForbidden
@@ -23,6 +25,13 @@ from membership import staff_onboarding
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
+
+
+def _with_tour(path: str, tour_key: str) -> str:
+    """``path`` with ``?tour=<key>`` set, keeping its other query (a Guild Settings ``tab``)."""
+    parts = urlsplit(path)
+    query = [(k, v) for k, v in parse_qsl(parts.query) if k != "tour"] + [("tour", tour_key)]
+    return urlunsplit(("", "", parts.path, urlencode(query), ""))
 
 
 def _back(request: HttpRequest) -> HttpResponse:
@@ -64,5 +73,13 @@ def walkthrough_choice(request: HttpRequest) -> HttpResponse:
     taken = form.cleaned_data["choice"] == WalkthroughChoiceForm.Choice.TAKE
     staff_onboarding.record_tour_choice(member, tour.key, taken=taken)
     if taken:
+        posted = request.POST.get("start", "")
+        start = _with_tour(posted, tour.key)
+        hosts = {request.get_host()}
+        # The tool's own button: run the walkthrough right here, on this guild. Both the posted URL
+        # and the one we would send must be ours: "http://<our host>//elsewhere" passes the first
+        # check and keeps only the path "//elsewhere", which is another site.
+        if posted and url_has_allowed_host_and_scheme(posted, hosts) and url_has_allowed_host_and_scheme(start, hosts):
+            return redirect(start)
         return redirect(entry_url_for(tour, member))
     return _back(request)

@@ -1,0 +1,17 @@
+bump = "minor"
+audience = ["guild-staff", "admins"]
+feature = "guild.staff"
+guidance = "shots"
+target = "guild.walkthrough"
+date = "2026-11-01"
+title = "A Walkthrough button on every guild tool"
+changes = [
+  "Guild Settings, Cubbies, Email Members, Orientations and Reservations each have a Walkthrough button that takes you through that tool, as often as you like.",
+  "The guild page shows it too, for the guild's staff and admins only.",
+]
+
+[[shots]]
+caption = "On Guild Settings, press Walkthrough to take the Guild Staff Tools tour."
+
+[[shots]]
+caption = "Each tool's tab has its own Walkthrough too, here on Cubbies. Retake any of them whenever you like."

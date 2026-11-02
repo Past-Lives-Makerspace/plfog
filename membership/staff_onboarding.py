@@ -21,6 +21,11 @@ WELCOME_EVENT = "guild_staff.welcome"
 RULES_PAGE_TITLE = "Guild Staff Rules and Tools"
 # The walkthrough the onboarding button offers; its take or exit ends the onboarding.
 ONBOARDING_TOUR = "guild-lead"
+# Every guild staff walkthrough: the onboarding tour and each tool's own. Leaving one partway is
+# logged as an exit (hub.views.tour_state), as Exit on the onboarding offer is.
+STAFF_WALKTHROUGHS = frozenset(
+    {ONBOARDING_TOUR, "guild-cubbies", "guild-reservations", "guild-email-members", "guild-orientations"}
+)
 
 
 def _absolute_url(path: str) -> str:
@@ -173,3 +178,9 @@ def record_tour_choice(member: Member, tour_key: str, *, taken: bool) -> None:
     if tour_key == ONBOARDING_TOUR and member.staff_onboarding_step == Member.StaffOnboardingStep.TOUR:
         member.staff_onboarding_step = ""
         member.save(update_fields=["staff_onboarding_step"])
+
+
+def record_partway_exit(member: Member, tour_key: str) -> None:
+    """A walkthrough left partway (the tour runtime's dismissed): an exit, for guild staff walkthroughs only."""
+    if tour_key in STAFF_WALKTHROUGHS:
+        record_tour_choice(member, tour_key, taken=False)

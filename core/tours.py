@@ -71,6 +71,8 @@ class Tour:
     entry_url_kwargs: Callable[[Member], dict[str, Any]] | None = None  # e.g. guild pk for guild-lead
     # The entry page shows the offer as its own banner (Home's, #824) instead of the floating card.
     offer_banner: bool = False
+    # False: never offered on its entry page; it starts only from its walkthrough button (#1076).
+    auto_offer: bool = True
 
 
 def _any_member(member: Member) -> bool:
@@ -370,6 +372,104 @@ TOURS: dict[str, Tour] = {
                     "details every tool, and the Cartographers Guild is a full example to borrow from."
                 ),
                 tab_set=("section", "basic"),
+            ),
+        ),
+    ),
+    # The guild staff walkthroughs (#1076): one per tool, each started from the walkthrough
+    # button on that tool (components/walkthrough_button.html). Same audience as the lead tour.
+    "guild-cubbies": Tour(
+        key="guild-cubbies",
+        auto_offer=False,
+        title="Cubbies Walkthrough",
+        entry_url_name="hub_guild_edit",
+        audience=_guild_lead_or_staff,
+        entry_url_kwargs=_first_staffed_guild_pk,
+        steps=(
+            TourStep(
+                target='[data-help-key="guild.cubbies-settings"]',
+                title="Show Your Cubbies",
+                body="Turn on the Cubbies tab and members see your shelves and which cubbies are open to rent.",
+                tab_set=("section", "cubbies"),
+            ),
+            TourStep(
+                target='[data-help-key="guild.cubbies-manage"]',
+                title="Build Shelves and Set Prices",
+                body="Build your shelves here, place each cubby and set what it costs a month. Rentals and the waitlist live there too.",
+                tab_set=("section", "cubbies"),
+            ),
+        ),
+    ),
+    "guild-reservations": Tour(
+        key="guild-reservations",
+        auto_offer=False,
+        title="Reservations Walkthrough",
+        entry_url_name="hub_guild_edit",
+        audience=_guild_lead_or_staff,
+        entry_url_kwargs=_first_staffed_guild_pk,
+        steps=(
+            TourStep(
+                target='[data-help-key="guild.reservations-settings"]',
+                title="The Reservations Tab",
+                body="Turn this on to list your guild's reservable rooms, spaces and tools on the guild page.",
+                tab_set=("section", "reservations"),
+            ),
+            TourStep(
+                target='[data-help-key="guild.reservable-items"]',
+                title="Reservable Items",
+                body="Everything members can reserve from your guild. Open an item to set its hours, managers and photos.",
+                tab_set=("section", "reservations"),
+            ),
+        ),
+    ),
+    "guild-email-members": Tour(
+        key="guild-email-members",
+        auto_offer=False,
+        title="Email Members Walkthrough",
+        entry_url_name="hub_guild_edit",
+        audience=_guild_lead_or_staff,
+        entry_url_kwargs=_first_staffed_guild_pk,
+        steps=(
+            TourStep(
+                target='[data-help-key="guild.announcements"]',
+                title="Email Members",
+                body="Write to your guild from here: draft, preview and send. Member proposals wait for you here too.",
+                tab_set=("section", "announcements"),
+            ),
+            TourStep(
+                target='[data-help-key="guild.mailing-list"]',
+                title="Your Mailing List",
+                body="Members join your list automatically, and you can add custom addresses. Your guild's email lists live here, not anywhere else.",
+                tab_set=("section", "announcements"),
+            ),
+        ),
+    ),
+    "guild-orientations": Tour(
+        key="guild-orientations",
+        auto_offer=False,
+        title="Orientations Walkthrough",
+        entry_url_name="hub_guild_orientations",
+        audience=_guild_lead_or_staff,
+        entry_url_kwargs=_first_staffed_guild_pk,
+        steps=(
+            TourStep(
+                target='[data-help-key="orientation.booking-settings"]',
+                title="Booking",
+                body="Turn booking on, let members ask for a custom time and set how much notice they must give.",
+            ),
+            TourStep(
+                target='[data-help-key="orientation.types"]',
+                title="Your Orientations",
+                body="Each orientation your guild gives, with its length, seats and price. Add one with the button on this card.",
+            ),
+            TourStep(
+                target='[data-help-key="orientation.schedule"]',
+                title="Who Gives Them and When",
+                body="Set each orientor's weekly hours. Members book from these, and you confirm each booking.",
+            ),
+            TourStep(
+                target='[data-help-key="guild.thankyou-email"]',
+                title="The Thank You Email",
+                body="Members get this after their orientation. Write it once and it goes out on its own.",
             ),
         ),
     ),

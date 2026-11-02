@@ -3,7 +3,7 @@
 <form method="post" action="{% url 'hub_guild_orientation_edit' guild.pk %}" class="hub-form" data-autosave>
   {% csrf_token %}
 
-  <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+  <div class="hub-card" data-help-key="orientation.booking-settings" style="padding:1.5rem; margin-bottom:1.5rem;">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Booking</h2>
     {% include "components/form_field.html" with field=orientation_form.is_enabled %}
     {% include "components/form_field.html" with field=orientation_form.allow_custom_requests %}
@@ -38,7 +38,7 @@
 {# ── Orientations (#732): its own form + endpoint, the FAQ idiom; each row collapsed to a summary line ── #}
 <form method="post" action="{% url 'hub_guild_orientation_types_save' guild.pk %}" enctype="multipart/form-data" class="hub-form" id="otypes-form" data-autosave data-formset="otypes" data-formset-required="{{ orientation_type_formset.empty_form|required_fields }}">
   {% csrf_token %}
-  <div class="hub-card pl-otype-card">
+  <div class="hub-card pl-otype-card" data-help-key="orientation.types">
     <div class="pl-otype-card__head" data-card-head>
       <h2 class="hub-detail-label pl-otype-card__title">Orientations</h2>
       {# The page's one add (#680, #732): the Add an Orientation page with this guild chosen; a hidden guild that page does not offer adds a row here. #}
@@ -100,7 +100,7 @@
 {# A lead/admin (can_edit_others_hours) sees + edits every row including their own; a plain orientor #}
 {# (show_my_hours_card only) sees just their own row, still with an Edit Hours button. #}
 {% if show_my_hours_card or can_edit_others_hours %}
-<div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
+<div class="hub-card" data-help-key="orientation.schedule" style="padding:1.5rem; margin-bottom:1.5rem;">
   <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Orientation Schedule</h2>
   <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">{% if can_edit_others_hours %}Everyone on staff who can give orientations, and when.{% else %}Your weekly orientation hours. Members book you by name.{% endif %}</p>
   {% for staffer, staffer_rules, has_open in orienter_overview %}

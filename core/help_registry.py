@@ -676,6 +676,55 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
         "article_slug": None,
         "anchor": None,
     },
+    # The guild staff walkthroughs (#1076): one key per stop that had none.
+    "guild.cubbies-settings": {
+        "title": "Cubbies",
+        "short_text": "Turn on the Cubbies tab to show members your shelves and which cubbies are open.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.cubbies-manage": {
+        "title": "Build shelves and set prices",
+        "short_text": "Build your shelves, place each cubby and set what it costs a month.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.reservations-settings": {
+        "title": "Reservations tab",
+        "short_text": "Show your guild's reservable rooms, spaces and tools on the guild page.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.reservable-items": {
+        "title": "Reservable items",
+        "short_text": "Everything members can reserve from your guild. Open an item to set its hours, managers and photos.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "guild.mailing-list": {
+        "title": "Your mailing list",
+        "short_text": "Members join your list automatically, and you can add custom addresses. Everyone on it gets your guild's emails.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "orientation.booking-settings": {
+        "title": "Orientation booking",
+        "short_text": "Turn booking on, allow custom time requests and set how much notice members must give.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "orientation.types": {
+        "title": "Your orientations",
+        "short_text": "Each orientation your guild gives, with its length, seats and price.",
+        "article_slug": None,
+        "anchor": None,
+    },
+    "orientation.schedule": {
+        "title": "Orientation schedule",
+        "short_text": "Who on staff gives orientations and when. Members book from these hours.",
+        "article_slug": None,
+        "anchor": None,
+    },
     "guild.announcements": {
         "title": "Email Members tab",
         "short_text": (

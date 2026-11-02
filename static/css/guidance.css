@@ -316,6 +316,8 @@
     .pl-staff-rules__rule { grid-template-columns: 1fr; gap: 0.25rem; }
 }
 @media (prefers-reduced-motion: reduce) { .pl-walkthrough-btn--glow { animation: none; } }
+/* A tab's walkthrough button sits on its own row at the top of the tab, right aligned. */
+.pl-walkthrough-row { display: flex; justify-content: flex-end; margin: 0 0 1rem; }
 
 /* ---- The one step highlight (#1051): Open <feature> lands on ?show=<key> and Show me stays put; both ring
    the one control carrying data-guidance-target="<key>" through the tour's Driver.js stage and popover

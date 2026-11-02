@@ -124,7 +124,7 @@
     </div>
     <div class="pl-guild-statbar__actions">
         {# Members surface only, as the CTA is: the guilds host serves no hub_whats_new, so the button would open an empty modal there. #}
-        {% if not is_guilds_surface %}{% whats_new_button "guild" %}{% endif %}
+        {% if not is_guilds_surface %}{% whats_new_button "guild" %}{% walkthrough_button "guild-lead" guild %}{% endif %}
         {% include "hub/partials/_guild_join_cta.html" %}
     </div>
 </div>
