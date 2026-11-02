@@ -25,6 +25,19 @@ def describe_logo_prefix_for():
     def it_leaves_3d_printing_off_the_printmaking_logo():
         assert logo_prefix_for("3D Printing") is None
 
+    def it_maps_the_music_guild_to_the_notes_logo():
+        assert logo_prefix_for("Music Guild") == "music"
+        assert logo_prefix_for("Musicians") == "music"
+
+    def it_maps_the_erma_guild_and_its_class_type_to_the_heart_logo():
+        assert logo_prefix_for("ERMA Guild") == "erma"
+        assert logo_prefix_for("ERMA") == "erma"
+        assert logo_prefix_for("Emergency Response") == "erma"
+        assert logo_prefix_for("Mutual Aid Network") == "erma"
+
+    def it_leaves_permaculture_off_the_erma_logo():
+        assert logo_prefix_for("Permaculture") is None
+
     def it_returns_none_when_unmatched():
         assert logo_prefix_for("Quantum Computing") is None
 
