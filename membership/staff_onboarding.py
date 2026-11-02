@@ -178,3 +178,9 @@ def record_tour_choice(member: Member, tour_key: str, *, taken: bool) -> None:
     if tour_key == ONBOARDING_TOUR and member.staff_onboarding_step == Member.StaffOnboardingStep.TOUR:
         member.staff_onboarding_step = ""
         member.save(update_fields=["staff_onboarding_step"])
+
+
+def record_partway_exit(member: Member, tour_key: str) -> None:
+    """A walkthrough left partway (the tour runtime's dismissed): an exit, for guild staff walkthroughs only."""
+    if tour_key in STAFF_WALKTHROUGHS:
+        record_tour_choice(member, tour_key, taken=False)

@@ -25,7 +25,7 @@ way back in: the modals are teleported to <body>, outside this root.
   </div>
   <span class="pl-guild-settings__actions">
     {% whats_new_button "guild.staff" %}
-    {% walkthrough_button "guild-lead" guild %}
+    <span data-guidance-target="guild.walkthrough">{% walkthrough_button "guild-lead" guild %}</span>
     <span class="pl-meeting-savestate" data-save-pill
           :class="'pl-meeting-savestate--' + (pending > 0 ? 'saving' : state)"
           :data-saves="saves"

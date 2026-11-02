@@ -234,9 +234,8 @@ def tour_state(request: HttpRequest, tour_key: str) -> HttpResponse:
     else:
         TourState.objects.mark_dismissed(user, tour_key)
         member = _get_member(request)
-        if member is not None and tour_key in staff_onboarding.STAFF_WALKTHROUGHS:
-            # A guild staff walkthrough left partway counts as an exit in the onboarding log (#1076).
-            staff_onboarding.record_tour_choice(member, tour_key, taken=False)
+        if member is not None:
+            staff_onboarding.record_partway_exit(member, tour_key)
     return HttpResponse(status=204)
 
 
