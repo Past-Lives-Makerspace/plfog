@@ -114,7 +114,9 @@ def walkthrough_button(context: dict[str, Any], tour_key: str, guild: Any = None
 
     tour = TOURS[tour_key]
     request = context.get("request")
-    member = getattr(getattr(request, "user", None), "member", None) if request is not None else None
+    if request is None:
+        return ""
+    member = getattr(request.user, "member", None)
     if member is None:
         return ""
     if guild is not None:
