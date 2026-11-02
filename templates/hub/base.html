@@ -424,7 +424,7 @@
                         {# Kiln Tickets is a tab on the kiln guild's page (#691), so a kiln page lights that guild. #}
                         {% active_path '/kiln/' as on_kiln_page %}
                         {% for guild in guilds %}
-                        <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-sidebar__link {% active_nav 'hub_guild_detail' guild.slug %}{% if on_kiln_page and guild.slug == kiln_nav.guild_slug %} active{% endif %}">
+                        <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-sidebar__link{% if guild.is_new_guild %} hub-sidebar__link--tagged{% endif %} {% active_nav 'hub_guild_detail' guild.slug %}{% if on_kiln_page and guild.slug == kiln_nav.guild_slug %} active{% endif %}">
                             {% if guild.logo_prefix %}
                             <img src="{% static 'img/guild_logos/'|add:guild.logo_prefix|add:'_color.svg' %}" width="16" height="16" alt="" style="flex-shrink:0;">
                             {% else %}
@@ -432,10 +432,10 @@
                                 <circle cx="7" cy="7" r="5"/>
                             </svg>
                             {% endif %}
-                            {{ guild.name }}
+                            {% if guild.is_new_guild %}<span class="hub-sidebar__guild-name" title="{{ guild.name }}">{{ guild.name }}</span>{% else %}{{ guild.name }}{% endif %}
                             {% if guild.is_new_guild %}<span class="hub-sidebar__tags">{% endif %}
                             {% if not guild.is_active %}<span class="hub-sidebar__private" title="Hidden from members: only admins and this guild's staff see it">Hidden</span>{% endif %}
-                            {% if guild.is_new_guild %}<span class="hub-sidebar__private hub-sidebar__private--newguild" title="New Guild: still being set up" data-sidebar-newguild>New Guild</span></span>{% endif %}
+                            {% if guild.is_new_guild %}<span class="hub-sidebar__private hub-sidebar__private--newguild" title="New Guild" aria-label="New Guild" data-sidebar-newguild>New</span></span>{% endif %}
                         </a>
                         {% endfor %}
                     </div>

@@ -33,6 +33,7 @@ SAVED_PAST = (
     "(n) => { const pill = document.querySelector('[data-save-pill]');"
     " return !!pill && Number(pill.dataset.saves) >= n && pill.textContent.trim() === 'Saved'; }"
 )
+ONE_LINE_NAMES = "() => [...document.querySelectorAll('.hub-sidebar__guild-name')].every((n) => n.offsetHeight < 24)"
 NO_SIDEWAYS_SCROLL = "() => document.documentElement.scrollWidth <= window.innerWidth"
 THEME_JS = """(t) => {
     const root = document.documentElement;
@@ -189,6 +190,7 @@ def describe_the_pictures():
             _theme(page, theme)
             nav.get_by_role("link", name="Leather Guild").scroll_into_view_if_needed()
             _capture(page, f"sidebar-{theme}.png", locator=page.locator(".hub-sidebar"))
+        assert page.evaluate(ONE_LINE_NAMES), "a New Guild's sidebar name wrapped"
         page.set_viewport_size({"width": 390, "height": 844})
         page.goto(f"{live_server.url}{reverse('hub_home')}")
         _theme(page, "dark")
@@ -196,7 +198,11 @@ def describe_the_pictures():
         tag = nav.get_by_role("link", name="Leather Guild").locator("[data-sidebar-newguild]")
         tag.scroll_into_view_if_needed()
         expect(tag).to_be_visible()
+        # The drawer slides in; the picture waits until it has settled at the left edge.
+        page.wait_for_function("() => document.querySelector('.hub-sidebar').getBoundingClientRect().left === 0")
+        page.wait_for_timeout(300)
         assert page.evaluate(NO_SIDEWAYS_SCROLL)
+        assert page.evaluate(ONE_LINE_NAMES), "a New Guild's sidebar name wrapped on a phone"
         _capture(page, "sidebar-phone-dark.png")
 
         # The directory is the guilds host's page (guilds.pastlives.space), so it is shot there.

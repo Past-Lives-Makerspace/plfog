@@ -397,9 +397,8 @@ a:hover { color: var(--hub-link-hover); }
     white-space: nowrap;
 }
 
-/* A New Guild's tag (#1086): the Hidden tag's shape in gold. A New Guild's tags sit in
-   one column at the end of the row, so Hidden and New Guild stack rather than run past the
-   sidebar's edge. */
+/* A New Guild's tag (#1086): the Hidden tag's shape and size in gold, reading "New" so the
+   guild's name keeps its one line; a hidden New Guild carries both tags side by side. */
 .hub-sidebar__private--newguild {
     border-color: var(--color-tuscan-yellow);
     background: var(--color-tuscan-yellow);
@@ -409,8 +408,7 @@ a:hover { color: var(--hub-link-hover); }
 
 .hub-sidebar__tags {
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
+    align-items: center;
     gap: 0.25rem;
     flex-shrink: 0;
     margin-left: auto;
@@ -418,6 +416,33 @@ a:hover { color: var(--hub-link-hover); }
 
 .hub-sidebar__tags .hub-sidebar__private {
     margin-left: 0;
+    padding: 0 0.25rem;
+    font-size: 0.625rem;
+    line-height: 1.5;
+}
+
+.hub-sidebar__tags {
+    gap: 0.1875rem;
+}
+
+/* A New Guild's row spends less on its gaps, so the name and the tags fit the sidebar's width. */
+.hub-sidebar__link--tagged {
+    gap: 0.375rem;
+    padding-right: 0.5rem;
+}
+
+/* The gold fill is its own edge, so the New tag drops the outline the Hidden tag needs. */
+.hub-sidebar__tags .hub-sidebar__private--newguild {
+    border-width: 0;
+    padding: 0.0625rem 0.25rem;
+}
+
+/* A New Guild's name keeps one line beside its tags, ending in an ellipsis when it runs long. */
+.hub-sidebar__guild-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* "Coming soon" nav entry (#405): present but not yet. It must read as a feature that is on
