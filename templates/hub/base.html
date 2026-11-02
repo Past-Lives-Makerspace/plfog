@@ -433,6 +433,7 @@
                             </svg>
                             {% endif %}
                             {{ guild.name }}
+                            {% if not guild.is_active %}<span class="hub-sidebar__private" title="Hidden from members: only admins and this guild's staff see it">Hidden</span>{% endif %}
                         </a>
                         {% endfor %}
                     </div>

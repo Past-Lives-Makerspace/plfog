@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from django.db.models import Q, TextChoices
+from django.db.models import Exists, Q, TextChoices
 from django.utils import timezone
 
 if TYPE_CHECKING:
@@ -100,6 +100,47 @@ def can_set_class_reviewers(request: HttpRequest, guild: Guild) -> bool:
         return True
     member = _editing_member(request)
     return member is not None and guild.guild_lead_id == member.pk
+
+
+def can_view_guild(request: HttpRequest, guild: Guild) -> bool:
+    """True when this request may open the guild's page.
+
+    A hidden guild (``is_active=False``) is private to admins (``view_as`` aware) and the
+    guild's own lead and staff, on both surfaces. The Help Center's example guild stays
+    open to everyone: it is hidden by design and the guides link straight to it.
+    """
+    from membership.models import EXAMPLE_GUILD_SLUG
+
+    if guild.is_active or guild.slug == EXAMPLE_GUILD_SLUG:
+        return True
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.is_admin:
+        return True
+    member = _editing_member(request)
+    return member is not None and member.staffed_guilds.filter(pk=guild.pk).exists()
+
+
+def sidebar_guilds(request: HttpRequest) -> QuerySet[Guild]:
+    """The sidebar's guilds, name-ordered, in one query with nothing read beforehand: the
+    member-facing list (``Guild.objects.visible()``'s rule: active guilds, and the example guild
+    while ``display_demo_guild`` is on, read here as a subquery) plus the hidden guilds this
+    request may open (:func:`can_view_guild`), so a hidden guild's admins and staff can find it.
+    The example guild never joins through the hidden leg.
+    """
+    from core.models import SiteConfiguration
+    from membership.models import EXAMPLE_GUILD_SLUG, Guild
+
+    demo_on = Exists(SiteConfiguration.objects.filter(pk=1, display_demo_guild=True))
+    listed = Q(is_active=True) | (Q(slug=EXAMPLE_GUILD_SLUG) & Q(demo_on))
+    hidden = Q(is_active=False) & ~Q(slug=EXAMPLE_GUILD_SLUG)
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.is_admin:
+        return Guild.objects.filter(listed | hidden).order_by("name")
+    member = _editing_member(request)
+    if member is None:
+        return Guild.objects.filter(listed).order_by("name")
+    staffed = Q(pk__in=member.staffed_guilds.values("pk"))
+    return Guild.objects.filter(listed | (hidden & staffed)).order_by("name")
 
 
 def manageable_guilds(request: HttpRequest) -> QuerySet[Guild]:

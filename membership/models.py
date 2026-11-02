@@ -980,6 +980,26 @@ class Member(StaffRequestMixin, models.Model):
             "(null = not dismissed yet). Set once they act on it, so it never shows again."
         ),
     )
+
+    class StaffOnboardingStep(models.TextChoices):
+        """What the hub still owes a new guild lead or staffer (#1076)."""
+
+        RULES = "rules", "Confirm the rules"
+        TOUR = "tour", "Take or exit the tour"
+
+    staff_onboarding_step = models.CharField(
+        max_length=10,
+        choices=StaffOnboardingStep.choices,
+        blank=True,
+        default="",
+        # The release before this one still inserts members during the deploy.
+        db_default="",
+        help_text=(
+            "Where a new guild lead or staffer is in their Guild Staff Tools welcome: the rules popup, "
+            "then the tour button, then blank. Kept on the member so a page reads it without a query; "
+            "membership.staff_onboarding writes it alongside the step log."
+        ),
+    )
     onboarding_dismissed_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -3729,11 +3749,16 @@ class Guild(HeroCropMixin, models.Model):
         """
         if member is None:
             raise ValueError("A member is required to assign a guild lead.")
+        from membership.staff_onboarding import record_grant
+
         previous = self.guild_lead
         self.guild_lead = member
         self.save(update_fields=["guild_lead"])
         if previous is not None:
             self.drop_cubby_payee_unless_leader(previous)
+        if previous != member and not self.staff_memberships.filter(member=member).exists():
+            # A new lead hears about their tools (#1076); a staffer promoted to lead already did.
+            record_grant(member, self)
         warnings: list[str] = []
         if member.user_id is None:
             warnings.append(
@@ -3812,7 +3837,7 @@ class Guild(HeroCropMixin, models.Model):
         makes them a Class Reviewer in one step: a member already on the staff has the switch
         turned on, and anyone else gets a row titled "Class Reviewer". ``class_reviewer`` sets
         every row they hold here (:meth:`set_class_reviewer`), so the switch reads one state
-        per person. Sends nothing.
+        per person. Their first role on this guild sends the Guild Staff Tools welcome (#1076).
 
         Args:
             member: Who joins the staff.
@@ -3832,17 +3857,23 @@ class Guild(HeroCropMixin, models.Model):
         problem = GuildStaffMembership.title_problem(self, member, role, custom_title, class_reviewer=class_reviewer)
         if problem:
             raise ValueError(problem)
+        from membership.staff_onboarding import record_grant
+
         with transaction.atomic():
             if not role and not custom_title:
                 if self.set_class_reviewer(member, True):
                     return None
                 custom_title = GuildStaffMembership.CLASS_REVIEWER_TITLE
             reviews = class_reviewer or self.reviews_classes(member)
+            first_role_here = not self.staff_memberships.filter(member=member).exists()
             staff = GuildStaffMembership.objects.create(
                 guild=self, member=member, role=role, custom_title=custom_title, can_review_classes=reviews
             )
             if class_reviewer:
                 self.set_class_reviewer(member, True)
+            if first_role_here:
+                # Their first role on this guild welcomes them (#1076); a second title does not.
+                record_grant(member, self)
         return staff
 
     def remove_staff(self, staff: GuildStaffMembership) -> int:
@@ -4273,6 +4304,54 @@ class GuildStaffMembership(models.Model):
 
     def __str__(self) -> str:
         return f"{self.member.display_name} — {self.display_title} of {self.guild.name}"
+
+
+class GuildStaffOnboardingEvent(models.Model):
+    """One step of a new guild lead's or staffer's welcome to Guild Staff Tools (#1076).
+
+    An append-only log, one row per step, so admins can see who read the rules and who took or
+    passed on a walkthrough: the onboarding tour and every feature's own (``tour_key``).
+    ``GRANTED`` is written by :meth:`Guild.assign_lead` and :meth:`Guild.add_staff`, the others
+    by the hub's rules popup and walkthrough buttons, all through ``membership.staff_onboarding``,
+    which keeps :attr:`Member.staff_onboarding_step` (what the hub shows next) in step with it.
+    """
+
+    class Action(models.TextChoices):
+        GRANTED = "granted", "Granted Guild Staff Tools"
+        CONFIRMED = "confirmed", "Confirmed they read the rules"
+        TOUR_TAKEN = "tour_taken", "Took the tour"
+        TOUR_EXITED = "tour_exited", "Exited the tour offer"
+
+    member = models.ForeignKey(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="staff_onboarding_events",
+        help_text="The lead or staff member this step belongs to.",
+    )
+    action = models.CharField(max_length=20, choices=Action.choices, help_text="What happened.")
+    guild = models.ForeignKey(
+        Guild,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The guild they were given a role on. Set on grants only.",
+    )
+    tour_key = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        help_text="The walkthrough taken or exited (a key in core.tours.TOURS). Set on tour steps only.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When it happened.")
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "guild staff onboarding step"
+        indexes = [models.Index(fields=["member", "action"], name="staff_onboard_member_action")]
+
+    def __str__(self) -> str:
+        return f"{self.member} {self.get_action_display()} {self.created_at:%Y-%m-%d}"
 
 
 class AdminCapability(models.Model):

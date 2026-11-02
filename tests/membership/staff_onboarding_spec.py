@@ -1,0 +1,252 @@
+"""BDD specs for welcoming a new guild lead or staffer to Guild Staff Tools (#1076).
+
+A grant through ``Guild.assign_lead`` or ``Guild.add_staff`` logs a ``GRANTED`` step and, after
+it commits, emails the member their tools and the rules; a second title on the same guild, the same
+lead again, or a staffer promoted to lead sends nothing new. ``Member.staff_onboarding_step`` reads
+the log: rules until confirmed, then the onboarding tour until taken or exited, then nothing.
+
+Names are factory strings no changelog could contain (STANDARDS.md section 8).
+"""
+
+from __future__ import annotations
+
+from io import StringIO
+
+import pytest
+from django.contrib.auth.models import User
+from django.core import mail
+from django.core.management import call_command
+
+from membership import staff_onboarding
+from membership.models import Guild, GuildStaffMembership, GuildStaffOnboardingEvent, Member
+from tests.membership.factories import GuildFactory, MemberFactory, MembershipPlanFactory
+
+pytestmark = pytest.mark.django_db
+
+Action = GuildStaffOnboardingEvent.Action
+Step = Member.StaffOnboardingStep
+
+
+def _member(username: str) -> Member:
+    MembershipPlanFactory()
+    user = User.objects.create_user(username=username, email=f"{username}@example.com", password="x")
+    member = user.member
+    member.status = Member.Status.ACTIVE
+    member.full_legal_name = f"{username.title()} Brackenmoor"
+    member.save(update_fields=["status", "full_legal_name"])
+    return member
+
+
+@pytest.fixture
+def guild() -> Guild:
+    return GuildFactory(name="Thistledown Guild")
+
+
+def _grants(member: Member) -> list[GuildStaffOnboardingEvent]:
+    return list(member.staff_onboarding_events.filter(action=Action.GRANTED))
+
+
+def describe_a_new_lead():
+    def it_logs_the_grant_and_emails_the_tools_and_rules_after_commit(guild: Guild, django_capture_on_commit_callbacks):
+        member = _member("quillon")
+        with django_capture_on_commit_callbacks(execute=True):
+            guild.assign_lead(member)
+
+        assert [g.guild for g in _grants(member)] == [guild]
+        [email] = mail.outbox
+        assert email.to == ["quillon@example.com"]
+        assert email.subject == "Welcome to Guild Staff Tools for Thistledown Guild"
+        assert "orientations, reservations, equipment and email lists all run through the Member Portal" in email.body
+        html = email.alternatives[0][0]
+        assert "You now have Guild Staff Tools for Thistledown Guild" in html
+        for name, _purpose, path in staff_onboarding.tool_links(guild):
+            assert name in html
+            assert path in html
+
+    def it_sends_nothing_until_the_grant_commits(guild: Guild, django_capture_on_commit_callbacks):
+        member = _member("quillon")
+        with django_capture_on_commit_callbacks(execute=False) as callbacks:
+            guild.assign_lead(member)
+        assert mail.outbox == []
+        assert len(callbacks) == 1
+
+    def it_emails_a_lead_who_has_no_account_yet_at_their_staged_address(
+        guild: Guild, django_capture_on_commit_callbacks
+    ):
+        member = MemberFactory(_pre_signup_email="unlinked-lead@example.com")
+        with django_capture_on_commit_callbacks(execute=True):
+            guild.assign_lead(member)
+        assert [e.to for e in mail.outbox] == [["unlinked-lead@example.com"]]
+
+    def it_sends_nothing_for_the_same_lead_again(guild: Guild, django_capture_on_commit_callbacks):
+        member = _member("quillon")
+        with django_capture_on_commit_callbacks(execute=True):
+            guild.assign_lead(member)
+            guild.assign_lead(member)
+        assert len(_grants(member)) == 1
+        assert len(mail.outbox) == 1
+
+    def it_sends_nothing_when_a_staffer_is_promoted_to_lead(guild: Guild, django_capture_on_commit_callbacks):
+        member = _member("quillon")
+        with django_capture_on_commit_callbacks(execute=True):
+            guild.add_staff(member, role=GuildStaffMembership.Role.TREASURER)
+            guild.assign_lead(member)
+        assert len(_grants(member)) == 1
+
+
+def describe_a_new_staffer():
+    def it_logs_their_first_role_on_the_guild_and_emails_them(guild: Guild, django_capture_on_commit_callbacks):
+        member = _member("marrow")
+        with django_capture_on_commit_callbacks(execute=True):
+            guild.add_staff(member, role=GuildStaffMembership.Role.SECRETARY)
+        assert [g.guild for g in _grants(member)] == [guild]
+        assert [e.to for e in mail.outbox] == [["marrow@example.com"]]
+
+    def it_sends_nothing_for_a_second_title_on_the_same_guild(guild: Guild, django_capture_on_commit_callbacks):
+        member = _member("marrow")
+        with django_capture_on_commit_callbacks(execute=True):
+            guild.add_staff(member, role=GuildStaffMembership.Role.SECRETARY)
+            guild.add_staff(member, role=GuildStaffMembership.Role.TREASURER)
+        assert len(_grants(member)) == 1
+        assert len(mail.outbox) == 1
+
+    def it_welcomes_a_person_once_in_their_life_even_on_another_guild(guild: Guild, django_capture_on_commit_callbacks):
+        member = _member("marrow")
+        other = GuildFactory(name="Saltmarsh Guild")
+        with django_capture_on_commit_callbacks(execute=True):
+            guild.add_staff(member, role=GuildStaffMembership.Role.SECRETARY)
+            other.add_staff(member, role=GuildStaffMembership.Role.ORIENTER)
+        assert [g.guild for g in _grants(member)] == [guild]
+        assert len(mail.outbox) == 1
+
+    def it_welcomes_a_class_reviewer_added_on_their_own(guild: Guild, django_capture_on_commit_callbacks):
+        member = _member("marrow")
+        with django_capture_on_commit_callbacks(execute=True):
+            guild.add_staff(member, class_reviewer=True)
+        assert len(_grants(member)) == 1
+
+
+def describe_send_welcome():
+    def it_refuses_a_step_that_is_not_a_grant_on_a_guild():
+        member = _member("orrin")
+        step = GuildStaffOnboardingEvent.objects.create(member=member, action=Action.CONFIRMED)
+        with pytest.raises(ValueError, match="no guild"):
+            staff_onboarding.send_welcome(step)
+
+
+def describe_rules_page_path():
+    def it_points_at_the_wiki_home_until_the_rules_page_exists():
+        assert staff_onboarding.rules_page_path() == "/wiki/"
+
+    def it_points_at_the_rules_page_once_seeded():
+        from membership.models import WikiPage
+
+        page = WikiPage.objects.create_page(
+            title=staff_onboarding.RULES_PAGE_TITLE, kind=WikiPage.Kind.REFERENCE, author=None
+        )
+        assert staff_onboarding.rules_page_path() == f"/wiki/p/{page.slug}/"
+
+
+def describe_the_step_the_hub_owes():
+    def it_owes_nothing_to_someone_never_granted():
+        assert _member("orrin").staff_onboarding_step == ""
+
+    def it_owes_the_rules_then_the_tour_then_nothing(guild: Guild):
+        member = _member("orrin")
+        guild.assign_lead(member)
+        member.refresh_from_db()
+        assert member.staff_onboarding_step == Step.RULES
+
+        staff_onboarding.confirm_rules(member)
+        assert member.staff_onboarding_step == Step.TOUR
+
+        staff_onboarding.record_tour_choice(member, staff_onboarding.ONBOARDING_TOUR, taken=False)
+        assert member.staff_onboarding_step == ""
+        assert list(member.staff_onboarding_events.order_by("pk").values_list("action", "tour_key")) == [
+            (Action.GRANTED, ""),
+            (Action.CONFIRMED, ""),
+            (Action.TOUR_EXITED, staff_onboarding.ONBOARDING_TOUR),
+        ]
+
+    def it_keeps_offering_the_onboarding_tour_after_another_walkthrough(guild: Guild):
+        member = _member("orrin")
+        guild.assign_lead(member)
+        member.refresh_from_db()
+        staff_onboarding.confirm_rules(member)
+        staff_onboarding.record_tour_choice(member, "member-welcome", taken=True)
+        assert member.staff_onboarding_step == Step.TOUR
+        assert member.staff_onboarding_events.filter(action=Action.TOUR_TAKEN, tour_key="member-welcome").exists()
+
+    def it_logs_a_walkthrough_choice_without_changing_a_finished_welcome():
+        member = _member("orrin")
+        staff_onboarding.record_tour_choice(member, staff_onboarding.ONBOARDING_TOUR, taken=True)
+        assert member.staff_onboarding_step == ""
+        staff_onboarding.confirm_rules(member)
+        assert member.staff_onboarding_step == ""
+
+    def it_does_not_ask_for_the_rules_again_on_a_second_guild(guild: Guild):
+        member = _member("orrin")
+        guild.assign_lead(member)
+        member.refresh_from_db()
+        staff_onboarding.confirm_rules(member)
+        staff_onboarding.record_tour_choice(member, staff_onboarding.ONBOARDING_TOUR, taken=True)
+        GuildFactory(name="Saltmarsh Guild").add_staff(member, role=GuildStaffMembership.Role.ORIENTER)
+        member.refresh_from_db()
+        assert member.staff_onboarding_step == ""
+
+
+def describe_welcome_existing_guild_staff():
+    """The one-time backfill: every current lead and staffer, once, through the same record."""
+
+    @pytest.fixture
+    def existing(guild: Guild) -> tuple[Member, Member]:
+        lead, staffer = _member("rowan"), _member("sable")
+        # Appointed before this shipped: written straight to the rows, so no welcome exists yet.
+        Guild.objects.filter(pk=guild.pk).update(guild_lead=lead)
+        GuildStaffMembership.objects.create(guild=guild, member=staffer, role=GuildStaffMembership.Role.ORIENTER)
+        return lead, staffer
+
+    def it_lists_who_would_be_welcomed_and_writes_nothing_on_a_dry_run(existing, django_capture_on_commit_callbacks):
+        out = StringIO()
+        with django_capture_on_commit_callbacks(execute=True):
+            call_command("welcome_existing_guild_staff", "--dry-run", stdout=out)
+        assert "Rowan Brackenmoor <rowan@example.com> (Thistledown Guild)" in out.getvalue()
+        assert "Would welcome 2 guild leads and staff." in out.getvalue()
+        assert not GuildStaffOnboardingEvent.objects.exists()
+        assert mail.outbox == []
+
+    def it_welcomes_each_once_and_a_rerun_sends_nothing(existing, django_capture_on_commit_callbacks):
+        lead, staffer = existing
+        with django_capture_on_commit_callbacks(execute=True):
+            call_command("welcome_existing_guild_staff", stdout=StringIO())
+        assert sorted(e.to[0] for e in mail.outbox) == ["rowan@example.com", "sable@example.com"]
+        lead.refresh_from_db()
+        assert lead.staff_onboarding_step == Step.RULES
+
+        out = StringIO()
+        with django_capture_on_commit_callbacks(execute=True):
+            call_command("welcome_existing_guild_staff", stdout=out)
+        assert len(mail.outbox) == 2
+        assert "Welcomed 0 guild leads and staff." in out.getvalue()
+        assert GuildStaffOnboardingEvent.objects.filter(action=Action.GRANTED).count() == 2
+
+    def it_never_welcomes_them_again_on_a_later_grant(existing, django_capture_on_commit_callbacks):
+        lead, _staffer = existing
+        with django_capture_on_commit_callbacks(execute=True):
+            call_command("welcome_existing_guild_staff", stdout=StringIO())
+            GuildFactory(name="Saltmarsh Guild").add_staff(lead, role=GuildStaffMembership.Role.TREASURER)
+        assert [e.to for e in mail.outbox].count(["rowan@example.com"]) == 1
+
+    def it_skips_someone_a_grant_already_welcomed(guild: Guild, django_capture_on_commit_callbacks):
+        member = _member("tobin")
+        with django_capture_on_commit_callbacks(execute=True):
+            guild.assign_lead(member)
+            call_command("welcome_existing_guild_staff", stdout=StringIO())
+        assert len(mail.outbox) == 1
+
+    def it_names_each_person_once_with_their_first_guild_by_name(existing, guild: Guild):
+        lead, _staffer = existing
+        GuildFactory(name="Alderwick Guild", guild_lead=lead)
+        pairs = {m.pk: g.name for m, g in staff_onboarding.backfill_candidates()}
+        assert pairs[lead.pk] == "Alderwick Guild"
+        assert len(pairs) == 2
