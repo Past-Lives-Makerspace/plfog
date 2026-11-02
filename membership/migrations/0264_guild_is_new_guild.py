@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0262_guild_staff_onboarding"),
+        ("membership", "0263_wikipage_admins_only_edit"),
     ]
 
     operations = [
