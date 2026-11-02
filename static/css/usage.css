@@ -1,0 +1,26 @@
+/* The admin Usage page (#1078, templates/hub/admin/usage.html). Spacing only: the cards,
+   chips and tables are hub.css components, so both themes come from their tokens. */
+
+.pl-usage {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.pl-usage__lead {
+    margin-top: 0.5rem;
+}
+
+.pl-usage__filters {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.pl-usage__note {
+    margin-top: 0.75rem;
+}
+
+.pl-usage .admin-table-wrap {
+    margin-top: 1rem;
+}

@@ -5678,7 +5678,17 @@ ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tool_slideshow",
         ),
     ),
-    ("reports", ("tool_payments", "tool_reports", "tool_growth", "tool_registrations", "tool_orientation_bookings")),
+    (
+        "reports",
+        (
+            "tool_payments",
+            "tool_reports",
+            "tool_growth",
+            "tool_usage",
+            "tool_registrations",
+            "tool_orientation_bookings",
+        ),
+    ),
     (
         "webmaster",
         (
@@ -5792,6 +5802,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
         "tool_automations": is_admin,
         "tool_slideshow": is_admin,
         "tool_growth": is_admin,
+        "tool_usage": is_admin,
         # Admins reach the HQ here as well as from the sidebar, which shows it to them once an HQ exists.
         "tool_holiday_bizarre": is_admin,
         "tool_instructor_inquiries": is_admin,

@@ -305,7 +305,7 @@ _ADMIN_SECTIONS = [
             "Slideshow",
         ],
     ),
-    ("reports", "Reports", ["Payments", "Reports", "Growth"]),
+    ("reports", "Reports", ["Payments", "Reports", "Growth", "Usage"]),
     (
         "webmaster",
         "Webmaster",
@@ -336,7 +336,7 @@ def describe_admin_tools_sections():
         _login_superuser(client, "sections_once")
         GuildFactory()
         titles = _card_titles(client)
-        assert len(titles) == len(set(titles)) == 27
+        assert len(titles) == len(set(titles)) == 28
 
     def it_keeps_the_help_key_on_the_wrapper_the_admin_tour_targets(client: Client):
         _login_superuser(client, "sections_help_key")
@@ -490,3 +490,20 @@ def describe_admin_tools_cards():
         slugs = {article["slug"] for article in ARTICLES}
         assert "instructor-quickstart" in slugs
         assert "guild-lead-quickstart" in slugs
+
+
+def describe_admin_tools_usage_card():
+    """#1078: the Usage card shows exactly when its page admits the viewer."""
+
+    _USAGE_HREF = reverse("hub_admin_usage")
+
+    def it_shows_an_admin_the_card_in_reports(client: Client):
+        _login_superuser(client, "usage_card_admin")
+        content = client.get(reverse("hub_admin_tools")).content.decode()
+        assert "data-tool-usage" in content
+        assert client.get(_USAGE_HREF).status_code == 200
+
+    def it_hides_the_card_from_a_billing_approver_the_page_refuses(client: Client):
+        _login_billing_approver(client, "usage_card_biller")
+        assert "data-tool-usage" not in client.get(reverse("hub_admin_tools")).content.decode()
+        assert client.get(_USAGE_HREF).status_code == 403

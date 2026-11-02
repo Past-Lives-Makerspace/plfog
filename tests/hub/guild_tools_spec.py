@@ -118,7 +118,7 @@ def describe_guild_tools():
             sections = _sections(client)
             assert "guild" not in [key for key, _, _ in sections]
             reports = dict((key, cards) for key, _, cards in sections)["reports"]
-            assert reports == ["Payments", "Reports", "Growth"]
+            assert reports == ["Payments", "Reports", "Growth", "Usage"]
             assert "Orientations" in dict((key, cards) for key, _, cards in sections)["tools"]
 
     def describe_an_admin_viewing_as_a_guild_lead():

@@ -1,10 +1,2 @@
 bump = "patch"
-date = "2026-11-01"
-audience = ["admins"]
-guidance = "none"
-title = "Voting snapshots say who took them, and the month end snapshot takes itself"
-changes = [
-  "A funding snapshot's page now names the admin who took it, and deleting one is recorded in the activity log with who did it.",
-  "The automatic month end snapshot now runs at midnight Pacific on the 1st. Before, it treated the month as over at 5 PM on the last day and then skipped every month.",
-  "Voting reminders now read the month in Pacific time, so the last evening of a month no longer counts as the next one.",
-]
+audience = "internal"
