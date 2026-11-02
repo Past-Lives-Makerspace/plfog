@@ -650,6 +650,23 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="cubby_waitlist_opened_context",
     ),
     GalleryEmail(
+        key="guild_staff_welcome",
+        name="Welcome to Guild Staff Tools",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent once in a person's life when they first become a guild lead or join a guild's staff, "
+            "or by welcome_existing_guild_staff for everyone already running a guild (#1076). Maps their "
+            "tools and the rule that guild business runs through the Member Portal."
+        ),
+        edit_pointer=_tpl("membership/emails", "guild_staff_welcome"),
+        audience="The member just made a guild lead or staff member.",
+        event_keys=frozenset({"guild_staff.welcome"}),
+        text_template="membership/emails/guild_staff_welcome.txt",
+        html_template="membership/emails/guild_staff_welcome.html",
+        context_builder="guild_staff_welcome_context",
+    ),
+    GalleryEmail(
         key="orientation_time_proposed",
         name="Orientation new time proposed",
         section="Guilds & Orientations",

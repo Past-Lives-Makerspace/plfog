@@ -12,13 +12,12 @@ from importlib import import_module
 import pytest
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.db.migrations.loader import MigrationLoader
+from classes.spec.migrations._head import migrate_all_to_head
 
 _APP = "classes"
 _BEFORE = "0062_convert_teach_page_markdown"
 _AFTER = "0063_teach_page_no_free_option"
 # The real head, read off the graph, so the DB this leaves behind matches the current models.
-_HEAD = MigrationLoader(None).graph.leaf_nodes(_APP)[0][1]
 
 _migration = import_module(f"classes.migrations.{_AFTER}")
 COPY_FIELDS = _migration.COPY_FIELDS
@@ -67,7 +66,7 @@ def describe_migration_0063_teach_page_no_free_option():
             assert "run it free" not in row.teach_page_faq
             assert row.teach_page_split_note == "Every class splits the same way."
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_leaves_an_admins_own_copy_alone_going_forward():
         try:
@@ -79,7 +78,7 @@ def describe_migration_0063_teach_page_no_free_option():
             for name, value in CUSTOM.items():
                 assert getattr(row, name) == value
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_reverse_restores_the_old_default():
         try:
@@ -92,7 +91,7 @@ def describe_migration_0063_teach_page_no_free_option():
                 assert getattr(row, name) == old
             assert "Run it free and there is nothing to split." in row.teach_page_split_note
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_reverse_leaves_an_admins_own_copy_alone():
         try:
@@ -104,7 +103,7 @@ def describe_migration_0063_teach_page_no_free_option():
             for name, value in CUSTOM.items():
                 assert getattr(row, name) == value
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
 
     def it_does_nothing_with_no_settings_row():
         try:
@@ -113,4 +112,4 @@ def describe_migration_0063_teach_page_no_free_option():
             apps = _migrate(_AFTER)
             assert apps.get_model(_APP, "ClassSettings").objects.count() == 0
         finally:
-            _migrate(_HEAD)
+            migrate_all_to_head()
