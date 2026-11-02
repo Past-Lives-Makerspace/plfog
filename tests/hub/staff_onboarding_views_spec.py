@@ -89,8 +89,15 @@ def describe_the_rules_popup():
         lead.save(update_fields=["welcome_dismissed_at"])
         assert 'id="staff-rules-title"' not in _home(lead)
 
-    def it_waits_for_the_member_agreement(lead: Member, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setattr(Member, "needs_member_agreement", property(lambda self: True))
+    def it_waits_for_the_member_agreement(lead: Member):
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.member_agreement_required = True
+        config.member_agreement_url = "https://example.com/agreement"
+        config.member_agreement_version = "2026-11"
+        config.save()
+        assert lead.needs_member_agreement
         assert staff_onboarding_context(lead)["staff_onboarding_step"] == ""
 
     def it_goes_away_once_they_no_longer_lead_or_staff_a_guild(lead: Member, guild: Guild):
