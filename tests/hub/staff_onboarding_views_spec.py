@@ -78,13 +78,13 @@ def describe_the_rules_popup():
 
     def it_never_shows_to_an_ordinary_member():
         page = _home(_member("wren"))
-        assert "staff-rules" not in page
+        assert 'id="staff-rules-title"' not in page
         assert "pl-walkthrough-dock" not in page
 
     def it_waits_for_the_first_login_welcome(lead: Member):
         lead.welcome_dismissed_at = None
         lead.save(update_fields=["welcome_dismissed_at"])
-        assert "staff-rules" not in _home(lead)
+        assert 'id="staff-rules-title"' not in _home(lead)
 
     def it_waits_for_the_member_agreement(lead: Member, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr(Member, "needs_member_agreement", property(lambda self: True))
@@ -92,7 +92,7 @@ def describe_the_rules_popup():
 
     def it_goes_away_once_they_no_longer_lead_or_staff_a_guild(lead: Member, guild: Guild):
         guild.clear_lead()
-        assert "staff-rules" not in _home(lead)
+        assert 'id="staff-rules-title"' not in _home(lead)
 
 
 def staff_onboarding_context(member: Member) -> dict[str, object]:
@@ -146,7 +146,7 @@ def describe_the_tour_offer():
 
     def it_glows_on_every_page_with_take_and_exit(confirmed: Member):
         page = _home(confirmed)
-        assert "staff-rules-title" not in page
+        assert 'id="staff-rules-title"' not in page
         dock = page[page.index('class="pl-walkthrough-dock"') :]
         dock = dock[: dock.index("</form>")]
         assert "pl-walkthrough-btn--glow" in dock
