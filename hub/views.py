@@ -5686,7 +5686,17 @@ ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
             "tool_slideshow",
         ),
     ),
-    ("reports", ("tool_payments", "tool_reports", "tool_growth", "tool_registrations", "tool_orientation_bookings")),
+    (
+        "reports",
+        (
+            "tool_payments",
+            "tool_reports",
+            "tool_growth",
+            "tool_usage",
+            "tool_registrations",
+            "tool_orientation_bookings",
+        ),
+    ),
     (
         "webmaster",
         (
@@ -5800,6 +5810,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
         "tool_automations": is_admin,
         "tool_slideshow": is_admin,
         "tool_growth": is_admin,
+        "tool_usage": is_admin,
         # Admins reach the HQ here as well as from the sidebar, which shows it to them once an HQ exists.
         "tool_holiday_bizarre": is_admin,
         "tool_instructor_inquiries": is_admin,
@@ -8841,7 +8852,7 @@ def voting_snapshot_take(request: HttpRequest) -> HttpResponse:
     title = request.POST.get("title", "").strip()
     minimum_pool = parse_minimum_pool(request.POST.get("minimum_pool"))
 
-    snapshot = FundingSnapshot.take(title=title, minimum_pool=minimum_pool)
+    snapshot = FundingSnapshot.take(title=title, minimum_pool=minimum_pool, actor=request.user)
     if snapshot is None:
         messages.warning(request, "No votes yet — nothing to snapshot.")
         return redirect("hub_admin_voting_snapshots")
@@ -8853,7 +8864,7 @@ def voting_snapshot_take(request: HttpRequest) -> HttpResponse:
 @fog_admin_required
 @require_POST
 def voting_snapshot_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    """Hard-delete a snapshot (and its Airtable mirror) and return to the Funding History list.
+    """Hard-delete a snapshot (and its Airtable mirror), log who did it, and return to Funding History.
 
     Refused while the snapshot's results announcement is queued (:attr:`FundingSnapshot.deletion_blocker`).
     """
@@ -8863,7 +8874,7 @@ def voting_snapshot_delete(request: HttpRequest, pk: int) -> HttpResponse:
         messages.error(request, blocker)
         return redirect("hub_admin_voting_history_detail", pk=snapshot.pk)
     cycle_label = snapshot.cycle_label
-    snapshot.delete()
+    snapshot.delete_by(request.user)
     messages.success(request, f"Deleted snapshot '{cycle_label}'.")
     return redirect("hub_admin_voting_history")
 

@@ -8,6 +8,7 @@ the announcement an admin drafts from the Voting page (results_announcement_spec
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -63,6 +64,17 @@ def describe_take():
         acts = SiteActivity.objects.filter(kind=SiteActivity.Kind.FUNDING_SNAPSHOT_TAKEN)
         assert acts.count() == 1
         assert acts.first().target_id == snap.pk
+
+    def it_labels_a_blank_title_from_the_local_month(monkeypatch):
+        """At 5:30 PM Pacific on Oct 31 (November in UTC) the default label is October (#1078)."""
+        evening = timezone.make_aware(datetime(2026, 10, 31, 17, 30))
+        monkeypatch.setattr("django.utils.timezone.now", lambda: evening.astimezone(UTC))
+        _voter("v@x.com")
+
+        snap = FundingSnapshot.take(title="  ")
+
+        assert snap is not None
+        assert snap.cycle_label == "October 2026"
 
     def it_uses_the_settings_floor_when_minimum_pool_is_none():
         settings = VotingSettings.load()

@@ -38,11 +38,14 @@ domain lands on the catalog rather than the member hub home.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from urllib.parse import quote, urlsplit
 
 from django.conf import settings
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponsePermanentRedirect, HttpResponseRedirect
+
+logger = logging.getLogger(__name__)
 
 
 class SurfaceMiddleware:
@@ -466,3 +469,85 @@ class MemberAgreementMiddleware:
             return redirect(agreement_url)
 
         return self.get_response(request)
+
+
+#: ``request.surface`` to the surface a page view records (#1078). The kiosk (signage) is absent on purpose: it
+#: is never a signed in member's page view.
+PAGE_VIEW_SURFACES = {"members": "members", "public": "classes", "tours": "tours", "guilds": "guilds"}
+
+#: The token the Android and iOS apps append to their user agent (``mobile/capacitor.config.ts``).
+APP_USER_AGENT_TOKEN = "PastLivesApp"
+
+#: Android WebView's own marker, the app flag's fallback until every installed app sends the token above.
+#: Another app's in-app browser on Android carries it too.
+ANDROID_WEBVIEW_MARKER = "; wv)"
+
+#: View names that are never a page view: the health check Render polls.
+PAGE_VIEW_SKIPPED_NAMES = frozenset({"health_check"})
+
+
+def page_view_name(request: HttpRequest, response: HttpResponse) -> str:
+    """The view name to log when this request was a signed in full page view, else ``""`` (#1078).
+
+    A page view is a normal load or a boosted navigation of an HTML page that rendered (200).
+    Never an htmx partial, a static or media file, the API, the health check, an anonymous
+    visitor, or the kiosk. Only the view name is returned, never the path, ids or query string.
+    """
+    if request.method != "GET" or response.status_code != 200:
+        return ""
+    if not response.get("Content-Type", "").startswith("text/html"):
+        return ""
+    if request.headers.get("HX-Request") == "true" and request.headers.get("HX-Boosted") != "true":
+        return ""
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated:
+        return ""
+    if getattr(request, "surface", "") not in PAGE_VIEW_SURFACES:
+        return ""
+    static_prefixes = tuple(p for p in (settings.STATIC_URL, settings.MEDIA_URL) if p and p.startswith("/"))
+    if static_prefixes and request.path.startswith(static_prefixes):
+        return ""
+    match = request.resolver_match
+    if match is None or not match.view_name or match.view_name in PAGE_VIEW_SKIPPED_NAMES:
+        return ""
+    if match.route.startswith("api/"):
+        return ""
+    return match.view_name
+
+
+def is_from_app(request: HttpRequest) -> bool:
+    """Whether the request came from the Android or iOS app."""
+    agent = request.headers.get("User-Agent", "")
+    return APP_USER_AGENT_TOKEN in agent or ANDROID_WEBVIEW_MARKER in agent
+
+
+class PageViewMiddleware:
+    """Write one :class:`core.models.PageView` per signed in full page view (#1078).
+
+    Runs after the response is built and costs one INSERT: the role comes from the
+    ``request.view_as`` roles the ViewAs middleware already read (:meth:`PageView.role_value`).
+    A failure to write is logged and swallowed, so the usage log can never fail or change a page.
+    No savepoint is needed: requests are not atomic (``ATOMIC_REQUESTS`` is off), so a failed
+    autocommit INSERT leaves nothing open behind it.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        response = self.get_response(request)
+        try:
+            view_name = page_view_name(request, response)
+            if view_name:
+                from core.models import PageView
+
+                PageView.record(
+                    user=request.user,
+                    actual_roles=request.view_as.actual,  # type: ignore[attr-defined]
+                    view_name=view_name,
+                    surface=PAGE_VIEW_SURFACES[request.surface],  # type: ignore[attr-defined]
+                    from_app=is_from_app(request),
+                )
+        except Exception:
+            logger.exception("Could not record a page view")
+        return response
