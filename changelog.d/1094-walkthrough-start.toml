@@ -1,0 +1,9 @@
+bump = "patch"
+audience = ["guild-staff", "admins"]
+feature = "guild.staff"
+date = "2026-11-03"
+title = "Walkthrough buttons start their tour on every guild"
+changes = [
+  "Walkthrough on a guild's page now opens that guild's settings and starts the tour there.",
+  "The Guild Settings walkthroughs now start on whichever guild you open them from, for admins and for leads of more than one guild.",
+]

@@ -10,6 +10,8 @@ Names are factory strings no changelog could contain (STANDARDS.md section 8).
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
@@ -90,6 +92,37 @@ def describe_the_walkthrough_button():
         form = form[: form.index("</form>")]
         assert f'name="start" value="{reverse("hub_guild_edit", args=[guild.pk])}?tab=cubbies"' in form
         assert 'value="exit"' not in form
+
+    @pytest.mark.parametrize(("url_name", "tour_key"), SURFACES)
+    def it_starts_in_place_on_each_tools_own_page(lead: Member, guild: Guild, url_name: str, tour_key: str):
+        url = reverse(url_name, args=[guild.pk])
+        assert f'name="start" value="{url}"' in _start_form(_get(lead, url), tour_key)
+
+    def it_starts_the_guild_page_walkthrough_on_that_guilds_settings(lead: Member, guild: Guild):
+        page = _get(lead, reverse("hub_guild_detail", args=[guild.slug]))
+        form = _start_form(page, "guild-lead")
+        assert f'name="start" value="{reverse("hub_guild_edit", args=[guild.pk])}"' in form
+
+    def it_starts_an_admin_on_the_guild_they_pressed_it_on(guild: Guild):
+        earlier = GuildFactory(name="Aldergrove Guild", is_active=True)
+        admin = _member("hester", fog_role=Member.FogRole.ADMIN)
+        form = _start_form(_get(admin, reverse("hub_guild_detail", args=[guild.slug])), "guild-lead")
+        assert f'name="start" value="{reverse("hub_guild_edit", args=[guild.pk])}"' in form
+        assert reverse("hub_guild_edit", args=[earlier.pk]) not in form
+
+    def it_runs_an_admins_tour_on_the_guild_whose_settings_are_open(guild: Guild):
+        GuildFactory(name="Aldergrove Guild", is_active=True)
+        admin = _member("hester", fog_role=Member.FogRole.ADMIN)
+        url = reverse("hub_guild_edit", args=[guild.pk])
+        page = _get(admin, f"{url}?tour=guild-lead")
+        payload = page[page.index('id="pl-tour-data"') :]
+        payload = json.loads(payload[payload.index(">") + 1 : payload.index("</script>")])
+        assert {step["page_path"] for step in payload["steps"]} == {url}
+
+
+def _start_form(page: str, tour_key: str) -> str:
+    form = page[page.index(f'data-walkthrough="{tour_key}"') :]
+    return form[: form.index("</form>")]
 
 
 def describe_taking_a_walkthrough():

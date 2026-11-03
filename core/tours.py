@@ -717,7 +717,7 @@ def _step_href(navigate: str, kwargs: dict[str, Any], query: dict[str, Any]) -> 
     return path
 
 
-def _tour_payload(tour: Tour, member: Member, *, autostart: bool) -> dict[str, Any]:
+def _tour_payload(tour: Tour, member: Member, *, autostart: bool, entry_path: str | None = None) -> dict[str, Any]:
     """The json_script payload ``pl_tour.js`` consumes.
 
     Resolves each step's ``navigate`` to a concrete relative href (member-resolved
@@ -725,9 +725,15 @@ def _tour_payload(tour: Tour, member: Member, *, autostart: bool) -> dict[str, A
     location assertion, and **drops** any step whose ``navigate_kwargs`` / ``query``
     resolver raises ``ValueError`` (no eligible object → a shorter, still-coherent
     tour rather than a 500).
+
+    ``entry_path`` is the entry page actually being served, when it is one: a guild staff tour's
+    entry depends on the guild, and the member's first guild (``entry_url_kwargs``) is the wrong
+    one on any other, where the runtime's location check would refuse every step.
     """
-    entry_kwargs = tour.entry_url_kwargs(member) if tour.entry_url_kwargs is not None else {}
-    current_path = reverse(tour.entry_url_name, kwargs=entry_kwargs)
+    if entry_path is None:
+        entry_kwargs = tour.entry_url_kwargs(member) if tour.entry_url_kwargs is not None else {}
+        entry_path = reverse(tour.entry_url_name, kwargs=entry_kwargs)
+    current_path = entry_path
     steps: list[dict[str, Any]] = []
     for step in tour.steps:
         try:
@@ -789,10 +795,12 @@ def tour_offer_context(request: HttpRequest, tour_key: str) -> dict[str, Any]:
         # Ineligible visitors hitting a ?tour= URL get the page normally — the
         # param is simply ignored (no error).
         return empty
+    match = request.resolver_match
+    entry_path = request.path if match is not None and match.view_name == tour.entry_url_name else None
     if request.GET.get("tour") == tour_key:
         return {
             "tour": tour,
-            "tour_json": _tour_payload(tour, member, autostart=True),
+            "tour_json": _tour_payload(tour, member, autostart=True, entry_path=entry_path),
             "show_tour_offer": False,
             "tour_autostart": True,
         }
@@ -817,7 +825,7 @@ def tour_offer_context(request: HttpRequest, tour_key: str) -> dict[str, Any]:
         return empty
     return {
         "tour": tour,
-        "tour_json": _tour_payload(tour, member, autostart=False),
+        "tour_json": _tour_payload(tour, member, autostart=False, entry_path=entry_path),
         "show_tour_offer": True,
         "tour_autostart": False,
     }
