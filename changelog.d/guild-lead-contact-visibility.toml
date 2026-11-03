@@ -1,0 +1,9 @@
+bump = "patch"
+date = "2026-11-03"
+audience = ["members", "guild-leads"]
+title = "Guild lead contact details follow your privacy settings"
+changes = [
+  "Opening a guild lead's name on a guild page now shows only the contact details that lead chose to share in the Member Directory.",
+  "A phone number, email, Discord name, pronouns or About Me set to Hidden stays hidden there, on the Email Guild Lead button and on the printable guild flyer.",
+]
+requests = [11]
