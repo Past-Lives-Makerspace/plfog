@@ -363,7 +363,7 @@
     </form>
     <div class="pl-actions">
       <a href="{% url 'billing_admin_reconciliation_csv' %}?{{ reconciliation_query }}" class="pl-btn pl-btn--secondary pl-btn--sm" hx-boost="false" data-pl-download>Export CSV</a>
-      <a href="{% url 'billing_admin_reconciliation_print' %}?{{ reconciliation_query }}" target="_blank" class="pl-btn pl-btn--secondary pl-btn--sm">Export PDF</a>
+      <a href="{% url 'billing_admin_reconciliation_print' %}?{{ reconciliation_query }}" target="_blank" data-pl-new-window class="pl-btn pl-btn--secondary pl-btn--sm">Export PDF</a>
       <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" onclick="document.getElementById('recon-snapshot-modal').style.display='flex'">Take Snapshot</button>
     </div>
   </div>

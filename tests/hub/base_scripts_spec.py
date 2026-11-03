@@ -47,6 +47,7 @@ HEAD_ORDER = (
     "js/biometric-auth.js",
     "js/app-store-badges.js",
     "js/native-downloads.js",
+    "js/native-new-tab-links.js",
 )
 
 

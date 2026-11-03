@@ -299,7 +299,7 @@ two empty lists, and "all clear" would be a lie about a guild that does have wor
         Print this on signage or read it aloud — it opens your public guild page.
       </p>
       <div style="display:flex; gap:0.75rem; flex-wrap:wrap;">
-        <a href="{% url 'hub_guild_flyer' guild.pk %}" target="_blank" rel="noopener" class="pl-btn pl-btn--primary">Open printable flyer</a>
+        <a href="{% url 'hub_guild_flyer' guild.pk %}" target="_blank" data-pl-new-window rel="noopener" class="pl-btn pl-btn--primary">Open printable flyer</a>
         <a href="{% url 'hub_guild_qr' guild.pk 'svg' %}" class="pl-btn pl-btn--secondary" hx-boost="false" data-pl-download>Download QR (SVG)</a>
         <a href="{% url 'hub_guild_qr' guild.pk 'png' %}" class="pl-btn pl-btn--secondary" hx-boost="false" data-pl-download>Download QR (PNG)</a>
       </div>

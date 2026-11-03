@@ -245,7 +245,10 @@ def describe_the_flyer_links():
 
         body = client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
 
-        assert f'href="{_flyer(event)}" target="_blank" rel="noopener" data-qr-share-flyer>Flyer</a>' in body
+        assert (
+            f'href="{_flyer(event)}" target="_blank" data-pl-new-window rel="noopener" data-qr-share-flyer>Flyer</a>'
+            in body
+        )
 
     def it_leaves_the_card_and_its_flyer_link_off_for_a_visitor(client: Client):
         event = CommunityEventFactory(community=True)
@@ -262,4 +265,7 @@ def describe_the_flyer_links():
         body = client.get(reverse("hub_admin_events")).content.decode()
 
         for event in (live, pending):
-            assert f'href="{_flyer(event)}" target="_blank" rel="noopener" data-event-flyer>Flyer</a>' in body
+            assert (
+                f'href="{_flyer(event)}" target="_blank" data-pl-new-window rel="noopener" data-event-flyer>Flyer</a>'
+                in body
+            )

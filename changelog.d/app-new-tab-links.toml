@@ -1,0 +1,9 @@
+bump = "patch"
+date = "2026-11-03"
+audience = ["members", "instructors"]
+title = "Previews and new tab links stay inside the iPhone app"
+changes = [
+  "In the iPhone app, pressing Preview while setting up a class, or any link that would open a new tab on the portal, now opens inside the app where you are already signed in, instead of in Safari asking for a login code.",
+  "Links to other websites still open in your browser.",
+]
+requests = [12]

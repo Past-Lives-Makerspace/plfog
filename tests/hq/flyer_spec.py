@@ -1074,7 +1074,7 @@ def describe_the_flyer_the_event_makes():
 
         flyer_url = reverse("hub_event_flyer", args=[event.pk])
         assert (
-            f'<a href="{flyer_url}" class="pl-hq-fl__poster pl-hq-fl__poster--sheet" target="_blank" rel="noopener"'
+            f'<a href="{flyer_url}" class="pl-hq-fl__poster pl-hq-fl__poster--sheet" target="_blank" data-pl-new-window rel="noopener"'
             ' aria-label="Open the event flyer full size" data-hq-fl-poster data-hq-fl-generated>' in body
         )
         assert f'data-event-flyer="{event.pk}"' in body
@@ -1087,7 +1087,7 @@ def describe_the_flyer_the_event_makes():
 
         flyer_url = reverse("hub_event_flyer", args=[event.pk])
         assert (
-            f'<a href="{flyer_url}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" target="_blank" rel="noopener"'
+            f'<a href="{flyer_url}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" target="_blank" data-pl-new-window rel="noopener"'
             " data-hq-fl-view>View full size</a>" in body
         )
         assert '@click="window.print()" data-hq-fl-print>Print</button>' in body

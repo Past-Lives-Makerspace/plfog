@@ -9,7 +9,7 @@
 {% block content %}
 <div class="pl-btn-row" style="margin-bottom:1rem;">
   <a href="{% url 'hub_equipment_detail' equipment.slug %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to the {{ equipment.name }}</a>
-  {% if equipment.is_active %}<a href="{% url 'hub_equipment_flyer' equipment.slug %}" target="_blank" rel="noopener" class="pl-btn pl-btn--secondary pl-btn--sm" data-qr-sheet-link>Print QR Sheet</a>{% endif %}
+  {% if equipment.is_active %}<a href="{% url 'hub_equipment_flyer' equipment.slug %}" target="_blank" data-pl-new-window rel="noopener" class="pl-btn pl-btn--secondary pl-btn--sm" data-qr-sheet-link>Print QR Sheet</a>{% endif %}
 </div>
 <h1 class="hub-page-title">Manage {{ equipment.name }}</h1>
 
