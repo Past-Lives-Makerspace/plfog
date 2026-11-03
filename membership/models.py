@@ -20998,6 +20998,9 @@ class EquipmentReservation(models.Model):
         Equipment.objects.select_for_update().filter(pk=self.equipment_id).exists()
         self._ensure_not_credited()
 
+    #: End Early's refusal while Sessions are on (#1096): Stop Session ends and credits instead.
+    SESSIONS_REPLACE_END_EARLY_MESSAGE: ClassVar[str] = "Sessions are on for this equipment. Use Stop Session instead."
+
     #: The shortest unused stretch End Early credits (#787): one half hour.
     END_EARLY_MIN_MINUTES: ClassVar[int] = 30
 
@@ -21078,6 +21081,9 @@ class EquipmentReservation(models.Model):
                 raise EquipmentError(self.SEASON_NOT_CREDITABLE_MESSAGE)
             if not (row.equipment.is_hourly and row.equipment.early_end_credit):
                 raise EquipmentError("Ending early isn't turned on for this equipment.")
+            if row.equipment.sessions_enabled:
+                # The same rule as can_end_early (#1096): with Sessions on, Stop Session is the way to end and credit.
+                raise EquipmentError(self.SESSIONS_REPLACE_END_EARLY_MESSAGE)
             if row.status != self.Status.CONFIRMED:
                 raise EquipmentError("Only a confirmed reservation can be ended early.")
             if row.starts_at > moment:
@@ -21147,14 +21153,18 @@ class EquipmentReservation(models.Model):
         return self.ends_at if self.ends_at <= timezone.now() else None
 
     def _session_offer_open(self, member: Member | None, now: datetime_type) -> bool:
-        """The gates Start and Stop share for showing a button (#1096): the member's own confirmed booking, in progress."""
+        """The gates Start and Stop share for showing a button (#1096): the member's own confirmed booking, in progress.
+
+        The switch is checked only before a start: a session already started can always be stopped,
+        so turning Sessions off never takes away the credit Stop promised.
+        """
         return (
             member is not None
             and self.member_id == member.pk
             and not self.is_block
             and not self.is_season
             and self.status == self.Status.CONFIRMED
-            and self.equipment.has_sessions
+            and (self.session_started_at is not None or self.equipment.has_sessions)
             and self.starts_at <= now < self.ends_at
         )
 
@@ -21196,7 +21206,8 @@ class EquipmentReservation(models.Model):
             return "Only the member who booked this can start or stop its session."
         if row.is_season:
             return "A season reservation has no sessions."
-        if not row.equipment.has_sessions:
+        # A started session stays stoppable after the switch goes off (#1096): Stop keeps its promise.
+        if row.session_started_at is None and not row.equipment.has_sessions:
             return "Sessions aren't turned on for this equipment."
         if row.status != self.Status.CONFIRMED:
             return "Only a confirmed reservation has a session."

@@ -10,10 +10,11 @@ scanning member's current reservation there itself, so a printed sheet never goe
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from datetime import datetime, time, timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db.models import Q
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -40,9 +41,6 @@ from membership.models import (
     _clock,
     duration_label,
 )
-
-if TYPE_CHECKING:
-    from datetime import datetime
 
 
 def _stop_message(result: SessionStop) -> str:
@@ -150,24 +148,33 @@ def session_page(equipment: Equipment, member: Member, now: datetime) -> Session
     payment: why it cannot start); otherwise their session that stopped earlier today, so the page
     they just pressed Stop on still says what happened; otherwise nothing is current.
     """
-    if not equipment.has_sessions:
-        return SessionPage(state="off")
-    credit = EquipmentCredit.objects.balance_for(member, equipment)
     rows = EquipmentReservation.objects.reservations().filter(member=member, equipment=equipment, is_season=False)
     # One at most: a member's held bookings on one item never overlap.
     current = rows.holding().filter(starts_at__lte=now, ends_at__gt=now).first()
+    # A session already running stays stoppable after the switch goes off, so the page still offers Stop.
+    running = current is not None and current.session_started_at is not None and current.session_stopped_at is None
+    if not equipment.has_sessions and not running:
+        return SessionPage(state="off")
+    credit = EquipmentCredit.objects.balance_for(member, equipment)
     upcoming = rows.holding().filter(starts_at__gt=now).order_by("starts_at").first()
     if current is not None and current.status != EquipmentReservation.Status.CONFIRMED:
         return SessionPage(state="waiting", reservation=current, upcoming=upcoming, credit_minutes=credit)
     if current is not None and current.session_started_at is None:
         return SessionPage(state="start", reservation=current, upcoming=upcoming, credit_minutes=credit)
-    if current is not None and current.session_stopped_at is None:
+    if current is not None and running:
         stop_minutes = current.session_stop_minutes(now, credited_minutes=EquipmentCredit.objects.credited_on(current))
         return SessionPage(state="running", reservation=current, stop_minutes=stop_minutes, credit_minutes=credit)
-    today = timezone.localdate(now)
+    # A session that ended today, by its stop (or the booked end it ran to) in local time, so one
+    # started before midnight and stopped after still shows what happened.
+    day_starts = timezone.make_aware(datetime.combine(timezone.localdate(now), time.min))
+    day_ends = day_starts + timedelta(days=1)
     stopped = current or (
         rows.confirmed()
-        .filter(session_started_at__isnull=False, session_started_at__date=today, ends_at__lte=now)
+        .filter(session_started_at__isnull=False, ends_at__lte=now)
+        .filter(
+            Q(session_stopped_at__gte=day_starts, session_stopped_at__lt=day_ends)
+            | Q(session_stopped_at__isnull=True, ends_at__gte=day_starts, ends_at__lt=day_ends)
+        )
         .order_by("-session_started_at")
         .first()
     )

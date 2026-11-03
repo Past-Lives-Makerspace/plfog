@@ -295,7 +295,6 @@ def describe_crafted_posts():
         [
             ("not_owner", "Only the member who booked this can start or stop its session."),
             ("manager", "Only the member who booked this can start or stop its session."),
-            ("switch_off", "Sessions aren't turned on for this equipment."),
             ("season", "A season reservation has no sessions."),
             ("after_end", "This reservation already ended, so its session ended with it."),
         ],
@@ -603,3 +602,44 @@ def describe_the_session_page():
         Member.objects.filter(user=user).delete()
         client.login(username="ashscannomember", password="pass")
         assert client.get(_session_url(item)).status_code == 404
+
+
+def describe_fix_round():
+    def it_refuses_a_crafted_end_early_post_while_sessions_are_on(client: Client):
+        item = _laser(early_end_credit=True)
+        booking = _in_progress(item, _login(client, "ashendearly"))
+        url = reverse("hub_equipment_reservation_end_early", args=[item.slug, booking.pk])
+        response = client.post(url, {"next": "/equipment/?view=bookings"})
+        assert _messages(response) == ["Sessions are on for this equipment. Use Stop Session instead."]
+        assert not EquipmentCredit.objects.exists()
+
+    def it_shows_stop_for_a_running_session_after_the_switch_goes_off(client: Client):
+        item = _laser()
+        booking = _in_progress(
+            item, _login(client, "ashswitchedoff"), session_started_at=timezone.now() - timedelta(minutes=45)
+        )
+        Equipment.objects.filter(pk=item.pk).update(sessions_enabled=False)
+        content = client.get(_session_url(item)).content.decode()
+        assert 'data-session-page="running"' in content
+        assert f"session-stop-{booking.pk}" in content
+        assert "data-session-stop" in _schedule(client, item)
+        response = client.post(_stop_url(booking), {"next": _session_url(item)})
+        assert _messages(response)[-1].endswith(" of credit added.")
+
+    def it_shows_a_session_that_ran_past_midnight_as_stopped_today(client: Client):
+        item = _laser()
+        member = _login(client, "ashovernight")
+        today = timezone.localdate()
+        midnight = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.min.time()))
+        now = timezone.now()
+        booking = EquipmentReservationFactory(
+            equipment=item,
+            member=member,
+            starts_at=midnight - timedelta(hours=1),
+            ends_at=min(midnight + timedelta(minutes=30), now - timedelta(seconds=1)),
+            session_started_at=midnight - timedelta(minutes=50),
+            session_stopped_at=min(midnight + timedelta(minutes=10), now - timedelta(seconds=2)),
+        )
+        content = client.get(_session_url(item)).content.decode()
+        assert 'data-session-page="stopped"' in content
+        assert f'data-session-times="{booking.pk}"' in content

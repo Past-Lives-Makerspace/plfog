@@ -261,7 +261,6 @@ def describe_stop_session():
         [
             ("other_member", "Only the member who booked this can start or stop its session."),
             ("season", "A season reservation has no sessions."),
-            ("switch_off", "Sessions aren't turned on for this equipment."),
             ("cancelled", "Only a confirmed reservation has a session."),
             ("not_started", "Start your session first."),
             ("after_end", "This reservation already ended, so its session ended with it."),
@@ -400,3 +399,39 @@ def describe_the_session_qr():
         assert _kiln().has_sessions
         assert not _kiln(name="Quillfern Saw", sessions_enabled=False).has_sessions
         assert not EquipmentFactory(name="Quillfern Free Press", sessions_enabled=True).has_sessions
+
+
+def describe_fix_round():
+    def it_refuses_end_early_while_sessions_are_on():
+        item = _kiln(early_end_credit=True)
+        member = _member()
+        booking = _booking(item, member)
+        with pytest.raises(EquipmentError, match="^Sessions are on for this equipment. Use Stop Session instead.$"):
+            booking.end_early(member, now=_at(10, 20))
+        booking.refresh_from_db()
+        assert booking.ends_at == _at(16)
+        assert not EquipmentCredit.objects.exists()
+
+    def it_still_stops_a_started_session_after_the_switch_goes_off():
+        item = _kiln()
+        member = _member()
+        booking = _booking(item, member)
+        booking.start_session(member, now=_at(9))
+        Equipment.objects.filter(pk=item.pk).update(sessions_enabled=False)
+        fresh = EquipmentReservation.objects.select_related("equipment").get(pk=booking.pk)
+        assert fresh.can_stop_session(member, now=_at(10, 20))
+        assert booking.stop_session(member, now=_at(10, 20)).minutes == 360
+        assert _credit_lines(member, item) == [(EquipmentCredit.Kind.ENDED_EARLY, 360)]
+
+    def it_still_refuses_a_start_or_a_stranger_once_the_switch_is_off():
+        item = _kiln()
+        member = _member()
+        booking = _booking(item, member, session_started_at=_at(9))
+        Equipment.objects.filter(pk=item.pk).update(sessions_enabled=False)
+        with pytest.raises(EquipmentError, match="^Only the member who booked this"):
+            booking.stop_session(_member("hollowmere"), now=_at(10))
+        unstarted = _booking(item, member, starts_at=_at(17), ends_at=_at(18))
+        with pytest.raises(EquipmentError, match="^Sessions aren't turned on for this equipment.$"):
+            unstarted.start_session(member, now=_at(17, 5))
+        with pytest.raises(EquipmentError, match="^Sessions aren't turned on for this equipment.$"):
+            unstarted.stop_session(member, now=_at(17, 5))
