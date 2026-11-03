@@ -277,7 +277,10 @@ def build_row(
         _offer_end_early(row, viewer, now)
         return row
     # The member menu: only ever on the viewer's own row (the staff rows are managed or own).
-    row.can_cancel_mine = is_own and (confirmed or waiting) and reservation.starts_at > now and not row.credited_minutes
+    # Before it starts, or all season long on a season reservation (#1095).
+    row.can_cancel_mine = (
+        is_own and (confirmed or waiting) and reservation.can_self_cancel(now) and not row.credited_minutes
+    )
     row.can_pay_fee = is_own and fee is not None and fee.is_unpaid
     _offer_end_early(row, viewer, now)
     # A request was never booked, so cancelling it never carries a fee line (#748).

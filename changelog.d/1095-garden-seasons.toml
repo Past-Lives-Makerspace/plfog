@@ -1,0 +1,10 @@
+bump = "minor"
+audience = ["members", "equipment-managers"]
+feature = "guild.reservations"
+guidance = "link"
+date = "2026-11-03"
+title = "Reserve a garden bed for the whole season"
+changes = [
+  "Equipment managers can give an item a season start and end on Hours and Limits. Members then reserve it for the whole season with one press, first come first served.",
+  "Garden beds are the first use: reserve your bed from spring until after the last harvest, and the next season opens to everyone again.",
+]

@@ -176,6 +176,17 @@
       </div>
     </div>
 
+    {# Season (#1095): with both dates set, members reserve the whole season with one press instead of picking times. #}
+    <div class="hub-card pl-equip-panel" data-season-card>
+      <h2 class="hub-detail-label pl-equip-panel__title">Season</h2>
+      <p class="hub-text-muted pl-equip-panel__intro">Set both dates and members reserve the {{ equipment.name }} for the whole season with one press, first come first served. Hours, lengths and the booking horizon don't apply. Leave both blank to book by time.</p>
+      <input type="hidden" name="season_shown" value="1">
+      <div class="hub-form-group pl-equip-season__dates">
+        <div class="pl-equip-season__field" data-season-start>{% include "components/form_field.html" with field=settings_form.season_starts_on %}</div>
+        <div class="pl-equip-season__field" data-season-end>{% include "components/form_field.html" with field=settings_form.season_ends_on %}</div>
+      </div>
+    </div>
+
     <div class="hub-card pl-equip-panel">
       <h2 class="hub-detail-label pl-equip-panel__title">Limits</h2>
       {% include "components/form_field.html" with field=settings_form.min_duration_minutes field_tooltip="The least time a member can book in one reservation, in minutes." %}
@@ -518,7 +529,7 @@
       {% for reservation in manage_approvals %}
       <div class="pl-equip-res-row" data-approval-row="{{ reservation.pk }}">
         <span class="pl-equip-approve-row__main">
-          <span>{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}</span>
+          <span>{% if reservation.is_season %}<span data-season-row>Season, {{ reservation.season_label }}</span>{% else %}{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}{% endif %}</span>
           <span class="pl-equip-approve-row__who">{{ reservation.member.display_name }}{% if reservation.purpose %} · {{ reservation.purpose }}{% endif %}{% if reservation.has_unread_messages %} <span class="pl-equip-badge pl-equip-badge--warn" data-thread-unread="{{ reservation.thread_key }}">New message</span>{% endif %}</span>
         </span>
         <span class="pl-equip-approve-row__actions">
@@ -626,12 +637,12 @@
       {% if reservation.is_awaiting_payment %}
       {# An unpaid hold (#749): it holds the time and is released on its own, so it has no Cancel. #}
       <div class="pl-equip-res-row" data-awaiting-payment-row="{{ reservation.pk }}">
-        <span>{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}</span>
+        <span>{% if reservation.is_season %}<span data-season-row>Season, {{ reservation.season_label }}</span>{% else %}{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}{% endif %}</span>
         <span class="pl-equip-hold-row__who">{{ reservation.member.display_name }} <span class="pl-equip-badge pl-equip-badge--warn">Awaiting payment</span> <span class="hub-text-muted">Released if unpaid by {{ reservation.hold_released_by|time:"g:i A" }}</span></span>
       </div>
       {% else %}
       <div class="pl-equip-res-row">
-        <span>{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}</span>
+        <span>{% if reservation.is_season %}<span data-season-row>Season, {{ reservation.season_label }}</span>{% else %}{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}{% endif %}</span>
         <span>{{ reservation.member.display_name }}{% if reservation.purpose %} <span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}{% if reservation.amount_paid_cents %} <span class="pl-price-chip" data-paid-chip>Paid {{ reservation.paid_display }}</span>{% endif %}{% if reservation.has_unread_messages %} <span class="pl-equip-badge pl-equip-badge--warn" data-thread-unread="{{ reservation.thread_key }}">New message</span>{% endif %}</span>
         <span class="pl-equip-approve-row__actions">
           {% include "hub/partials/reservation_messages_launch.html" with r=reservation launch_next=reservations_tab_url launch_class="pl-btn pl-btn--secondary pl-btn--sm" %}

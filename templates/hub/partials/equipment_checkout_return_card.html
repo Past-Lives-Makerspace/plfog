@@ -19,7 +19,7 @@ The reservation checkout landing card (#749). States:
   {% else %}
   <h1 class="hub-detail-label pl-checkout-card__title" data-checkout-state="{{ reservation.status }}">About This Reservation</h1>
   {% endif %}
-  <p class="pl-checkout-card__when">{{ equipment.name }} · {{ reservation.starts_at|date:"l, F j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}</p>
+  <p class="pl-checkout-card__when">{{ equipment.name }} · {% if reservation.is_season %}Season, {{ reservation.season_label }}{% else %}{{ reservation.starts_at|date:"l, F j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}{% endif %}</p>
   {% if reservation.status == "confirmed" %}
   <p class="hub-text-muted pl-checkout-card__text">You paid {{ reservation.paid_display }}. Your reservation is confirmed. We've emailed you the details and a calendar invite.</p>
   {% elif reservation.status == "pending_approval" %}

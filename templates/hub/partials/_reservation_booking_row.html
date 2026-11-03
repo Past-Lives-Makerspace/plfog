@@ -8,7 +8,7 @@ the viewer has not read shows a New message pill in the Status column.
 {% endcomment %}
 {% with r=row.reservation %}
 <tr data-reservation-row="{{ r.pk }}">
-  <td class="pl-bookings-table__when">{{ r.starts_at|date:"D M j, g:i A" }} to {{ r.ends_at|date:"g:i A" }}</td>
+  <td class="pl-bookings-table__when">{% if r.is_season %}<span data-season-row>Season, {{ r.season_label }}</span>{% else %}{{ r.starts_at|date:"D M j, g:i A" }} to {{ r.ends_at|date:"g:i A" }}{% endif %}</td>
   {% if is_staff_view %}
   <td data-label="Member">{% if row.is_own %}You{% else %}{{ r.member.display_name }}{% endif %}</td>
   {% endif %}

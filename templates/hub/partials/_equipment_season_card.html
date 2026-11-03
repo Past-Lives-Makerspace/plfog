@@ -1,0 +1,44 @@
+{% comment %}
+The season card (#1095), in place of the week strip and Book a Time on an item with season dates.
+It says where the season stands (open, reserved, ended) with the dates, and offers Reserve This Season
+to a member nothing blocks while the season is open. The press posts the whole season to the same
+reserve endpoint as Book a Time; the engine takes only the season's exact span. Context from
+equipment_views._schedule_context (the _season_context keys plus price_chip, booking_terms,
+needs_approval and late_cancel_sentence).
+{% endcomment %}
+<div class="hub-card pl-equip-season" data-season-state="{{ season_state }}">
+  <div class="pl-equip-book__head">
+    <h2 class="hub-detail-label">This Season</h2>
+    {% if price_chip %}<span class="pl-price-chip" data-price-chip>{{ price_chip }}</span>{% endif %}
+  </div>
+  <p class="pl-equip-season__state"><span class="pl-equip-avail pl-equip-avail--{% if season_state == 'open' %}free{% elif season_state == 'reserved' %}busy{% else %}muted{% endif %}" data-season-line>{{ season_line }}</span></p>
+  {% if season_state == "ended" %}
+  <p class="hub-text-muted pl-equip-season__note">This season is over. A manager sets the next season's dates.{% if manages %} <a href="{% url 'hub_equipment_manage' equipment.slug %}?tab=hours">Set the next season</a>{% endif %}</p>
+  {% elif holds_season %}
+  <p class="hub-text-muted pl-equip-season__note" data-season-yours>This season is yours. It's under Your Reservations Here.</p>
+  {% elif season_state == "reserved" %}
+  <p class="hub-text-muted pl-equip-season__note">Someone already reserved this season.</p>
+  {% elif can_reserve_season %}
+  {% if booking_terms %}
+  <p class="pl-equip-book__terms"{% if needs_approval %} data-approval-terms{% endif %}{% if equipment.is_priced %} data-pay-terms{% endif %}>{{ booking_terms }}</p>
+  {% endif %}
+  <form id="equip-reserve-form" method="post" action="{% url 'hub_equipment_reserve' equipment.slug %}"
+        hx-post="{% url 'hub_equipment_reserve' equipment.slug %}" hx-target="#equipment-schedule"
+        hx-swap="outerHTML" hx-indicator="#equipment-schedule" class="pl-equip-season__form">
+    {% csrf_token %}
+    <input type="hidden" name="starts_at" value="{{ season_starts_at }}">
+    <input type="hidden" name="duration_minutes" value="{{ season_minutes }}">
+    {% if equipment.is_donation %}<input type="hidden" name="amount" value="" data-reserve-amount>{% endif %}
+    <button type="button" class="pl-btn pl-btn--primary pl-equip-season__reserve" data-reserve-season
+            @click="$dispatch('open-confirm', 'equip-reserve-confirm')">Reserve This Season, {{ equipment.season_label }}</button>
+  </form>
+  {% if late_cancel_sentence %}
+  <p class="hub-text-muted pl-equip-book-note">{{ late_cancel_sentence }}</p>
+  {% endif %}
+  {% if equipment.is_donation %}
+  {% include "components/confirm_modal.html" with confirm_id="equip-reserve-confirm" confirm_title=needs_approval|yesno:"Request this season?,Reserve this season?" confirm_message=season_confirm_message confirm_amount_name="amount" confirm_amount_label="Your amount ($)" confirm_amount_value=equipment.donation_suggested_dollars confirm_amount_hint=equipment.donation_amount_hint confirm_amount_max="500" confirm_button_text=needs_approval|yesno:"Send request,Reserve" confirm_button_style="primary" confirm_js="var form = document.getElementById('equip-reserve-form'); form.querySelector('[data-reserve-amount]').value = document.getElementById('equip-reserve-confirm-amount').value; form.requestSubmit();" %}
+  {% else %}
+  {% include "components/confirm_modal.html" with confirm_id="equip-reserve-confirm" confirm_title=needs_approval|yesno:"Request this season?,Reserve this season?" confirm_message=season_confirm_message confirm_button_text=needs_approval|yesno:"Send request,Reserve" confirm_button_style="primary" confirm_js="document.getElementById('equip-reserve-form').requestSubmit();" %}
+  {% endif %}
+  {% endif %}
+</div>

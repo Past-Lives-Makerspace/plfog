@@ -58,7 +58,7 @@
 </div>
 {% elif access_state == "ok" %}
 <div class="hub-card pl-equip-banner pl-equip-banner--ok">
-  <p class="pl-equip-banner__ok-text" style="margin:0;">You're all set.{% if not equipment.is_closed %} Pick a time below.{% endif %}</p>
+  <p class="pl-equip-banner__ok-text" style="margin:0;">You're all set.{% if not equipment.is_closed and not equipment.has_season %} Pick a time below.{% endif %}</p>
 </div>
 {% elif access_state == "needs_orientation" %}
 <div class="hub-card pl-equip-banner pl-equip-banner--warn">

@@ -352,7 +352,9 @@ def _schedule_context(
                 cancel_sentence(policy) if charges and policy.is_late(reservation.starts_at, now=now) else ""
             )
         unpaid_late_fee = unpaid_fee_for(member)
+    late_cancel_sentence = "" if fee_exempt else booking_sentence(policy)
     return {
+        **_season_context(equipment, blockers, my_reservations, needs_approval, late_cancel_sentence),
         "equipment": equipment,
         "week_offset": week_offset,
         # String forms for template |add composition (the self-cancel hx-vals JSON).
@@ -387,9 +389,63 @@ def _schedule_context(
         "credit_minutes": credit_minutes,
         "credit_line": f"You have {duration_label(credit_minutes)} of credit here." if credit_minutes else "",
         # Under the Book a Time form and appended to its Reserve prompt; "" when no fee applies.
-        "late_cancel_sentence": "" if fee_exempt else booking_sentence(policy),
+        "late_cancel_sentence": late_cancel_sentence,
         # The block until paid (#456): the requirements banner shows it with a Pay button.
         "unpaid_late_fee": unpaid_late_fee,
+    }
+
+
+def _season_confirm_message(equipment: Equipment, *, needs_approval: bool, late_cancel_sentence: str) -> str:
+    """The Reserve This Season confirm's words (#1095): the item and its dates, then what pressing it does."""
+    lead = f"The {equipment.name}, {equipment.season_label}."
+    if equipment.is_donation and needs_approval:
+        rest = (
+            "You choose what you pay. Any amount above $0 goes through our secure checkout. Then a manager approves "
+            "your reservation; until they do, the season is held for you. If they decline, or you cancel, you get "
+            "an automatic full refund."
+        )
+    elif equipment.is_donation:
+        rest = (
+            "You choose what you pay. Any amount above $0 goes through our secure checkout, and your reservation "
+            "confirms when it is paid. If you cancel, you get an automatic full refund."
+        )
+    elif needs_approval:
+        rest = "A manager approves each reservation. We hold the season for you and email you when they decide."
+    else:
+        rest = "Your reservation confirms right away. If plans change, cancel and the season opens for the next person."
+    return " ".join(part for part in (lead, rest, "" if needs_approval else late_cancel_sentence) if part)
+
+
+def _season_context(
+    equipment: Equipment,
+    blockers: list[str],
+    my_reservations: list[EquipmentReservation],
+    needs_approval: bool,
+    late_cancel_sentence: str,
+) -> dict[str, Any]:
+    """The season card's context (#1095): where the season stands, whether this member may reserve it, the confirm.
+
+    Empty values for an item without a season, so the template's ``has_season`` alone decides.
+    """
+    if not equipment.has_season:
+        return {"has_season": False}
+    state = equipment.season_state()
+    season_starts_at, _ = equipment.season_span()
+    return {
+        "has_season": True,
+        "season_state": state.value,
+        "season_line": f"{state.label}, {equipment.season_label}",
+        "season_starts_at": season_starts_at.isoformat(),
+        "season_minutes": equipment.season_minutes,
+        "can_reserve_season": state == Equipment.SeasonState.OPEN and not blockers,
+        # The member's own season row sits under Your Reservations Here; the card says it is theirs.
+        "holds_season": any(
+            reservation.is_season and reservation.status in EquipmentReservation.HOLDING_STATUSES
+            for reservation in my_reservations
+        ),
+        "season_confirm_message": _season_confirm_message(
+            equipment, needs_approval=needs_approval, late_cancel_sentence=late_cancel_sentence
+        ),
     }
 
 
@@ -420,6 +476,22 @@ def _attach_running_orientations(equipment_list: Sequence[Equipment], *, now: da
             by_equipment[listed.pk].append(slot)
     for equipment in equipment_list:
         equipment.current_orientation_slots = by_equipment[equipment.pk]
+
+
+def _attach_season_holds(equipment_list: Sequence[Equipment], *, now: datetime) -> None:
+    """Give every season card its ``season_holds`` (held rows not over yet) in one query, none without a season (#1095).
+
+    :meth:`Equipment.season_state` reads them, so the card line costs no query per card, and a
+    grid with no season item runs nothing extra.
+    """
+    season_cards = [equipment for equipment in equipment_list if equipment.has_season]
+    if not season_cards:
+        return
+    by_equipment: dict[int, list[EquipmentReservation]] = {equipment.pk: [] for equipment in season_cards}
+    for row in EquipmentReservation.objects.holding().filter(equipment__in=season_cards, ends_at__gt=now):
+        by_equipment[row.equipment_id].append(row)
+    for equipment in season_cards:
+        equipment.season_holds = by_equipment[equipment.pk]
 
 
 def reservation_cards(member: Member | None, queryset: EquipmentQuerySet) -> list[dict[str, Any]]:
@@ -460,6 +532,7 @@ def reservation_cards(member: Member | None, queryset: EquipmentQuerySet) -> lis
     if not equipment_list:
         return []
     _attach_running_orientations(equipment_list, now=now)
+    _attach_season_holds(equipment_list, now=now)
     oriented_ids = _member_oriented_type_ids(member)
     # The block until paid (#456) is a per-member state: one lookup for the whole grid.
     has_unpaid_fee = member is not None and unpaid_fee_for(member) is not None
@@ -901,6 +974,9 @@ def hub_equipment_reserve(request: HttpRequest, slug: str) -> HttpResponse:
     response = _render_schedule(request, equipment, week_offset=week_offset, selected_day=local_start.date())
     if reservation.is_awaiting_approval:
         trigger_toast(response, "Request sent. We'll email you when a manager decides.", "success")
+        return response
+    if reservation.is_season:
+        trigger_toast(response, f"Reserved for the season, {reservation.season_label}.", "success")
         return response
     trigger_toast(response, f"Reserved. See you {local_start:%A}.", "success")
     return response

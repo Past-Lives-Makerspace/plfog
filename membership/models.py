@@ -18805,6 +18805,20 @@ class Equipment(HeroCropMixin, models.Model):
             "and the time they did not use, rounded up to the half hour, becomes credit here."
         ),
     )
+    # --- Seasons (#1095): with both dates set, a member reserves the whole season with one press.
+    season_starts_on = models.DateField(
+        null=True,
+        blank=True,
+        help_text=(
+            "First day of the season (Pacific). With an end date too, members reserve the whole season, "
+            "first come first served, instead of picking times."
+        ),
+    )
+    season_ends_on = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Last day of the season (Pacific), included. Clear both dates to go back to booking by time.",
+    )
 
     objects = EquipmentQuerySet.as_manager()
 
@@ -18813,6 +18827,8 @@ class Equipment(HeroCropMixin, models.Model):
     # View-attached by the index (hub_equipment_index): booked orientation slots running
     # right now, so availability_line() reads them without a per-card query.
     current_orientation_slots: list[OrientationSlot]
+    # View-attached by the card grid on a season item (#1095): its held rows not over yet, read by season_state().
+    season_holds: list[EquipmentReservation]
 
     class Meta:
         ordering = ["name"]
@@ -19470,6 +19486,86 @@ class Equipment(HeroCropMixin, models.Model):
                 return list(range(self.min_duration_minutes, limit + 1, self.RESERVATION_SNAP_MINUTES))
         return []
 
+    # --- Seasons (#1095): one reservation from season start to the end of the season end day.
+
+    class SeasonState(models.TextChoices):
+        """Where this item's season stands for the next member: the card line and the season card read it."""
+
+        OPEN = "open", "Open for the season"
+        RESERVED = "reserved", "Reserved for the season"
+        ENDED = "ended", "Season ended"
+
+    SEASON_OVER_MESSAGE: ClassVar[str] = "This season is over. A manager sets the next season's dates."
+    SEASON_TAKEN_MESSAGE: ClassVar[str] = "Someone already reserved this season."
+    SEASON_CHANGED_MESSAGE: ClassVar[str] = "The season dates just changed. Please look again."
+
+    @property
+    def has_season(self) -> bool:
+        """True when both season dates are set: the item is reserved by season, not by time."""
+        return self.season_starts_on is not None and self.season_ends_on is not None
+
+    def season_span(self) -> tuple[datetime_type, datetime_type]:
+        """The season as aware datetimes: local midnight on the start day to local midnight after the end day.
+
+        Raises:
+            ValueError: When the item has no season.
+        """
+        if self.season_starts_on is None or self.season_ends_on is None:
+            raise ValueError(f"Equipment {self.pk} has no season dates.")
+        return (
+            timezone.make_aware(datetime_type.combine(self.season_starts_on, time_type.min)),
+            timezone.make_aware(datetime_type.combine(self.season_ends_on + timedelta(days=1), time_type.min)),
+        )
+
+    @property
+    def season_minutes(self) -> int:
+        """The season's real length in minutes, an hour off its calendar days across a clock change.
+
+        What Reserve This Season posts as the reservation's duration. Worked out in UTC: two
+        datetimes in the same zone subtract by the wall clock and would miss the daylight saving hour.
+        """
+        starts_at, ends_at = self.season_span()
+        return int((ends_at.astimezone(UTC) - starts_at.astimezone(UTC)).total_seconds() // 60)
+
+    @property
+    def season_label(self) -> str:
+        """The season's dates in short words, "Mar 1 to Dec 15"; "" when the item has no season."""
+        if self.season_starts_on is None or self.season_ends_on is None:
+            return ""
+        return season_dates_label(self.season_starts_on, self.season_ends_on)
+
+    def season_state(self) -> SeasonState:
+        """Ended once the season's last day is over; reserved while any held row covers what is left of it; else open.
+
+        Reads a ``season_holds`` ``to_attr`` (held rows that have not ended) when the card grid
+        supplies one, so a page of cards runs no per card query; without it, one query.
+        """
+        starts_at, ends_at = self.season_span()
+        now = timezone.now()
+        if ends_at <= now:
+            return self.SeasonState.ENDED
+        rest_starts_at = max(starts_at, now)
+        holds = getattr(self, "season_holds", None)
+        if holds is None:
+            held = EquipmentReservation.objects.overlapping(self, rest_starts_at, ends_at).exists()
+        else:
+            held = any(row.starts_at < ends_at and row.ends_at > rest_starts_at for row in holds)
+        return self.SeasonState.RESERVED if held else self.SeasonState.OPEN
+
+    def season_bookings_inside(self, starts_on: date_type, ends_on: date_type) -> int:
+        """How many upcoming held time slot bookings and blocks sit inside the season ``starts_on`` to ``ends_on``.
+
+        Saving season dates is refused while any do, since the season could never be reserved
+        past them. A season reservation is not counted: it is the season's own holder.
+        """
+        starts_at = timezone.make_aware(datetime_type.combine(starts_on, time_type.min))
+        ends_at = timezone.make_aware(datetime_type.combine(ends_on + timedelta(days=1), time_type.min))
+        return (
+            EquipmentReservation.objects.overlapping(self, max(starts_at, timezone.now()), ends_at)
+            .filter(is_season=False)
+            .count()
+        )
+
     def availability_line(self) -> tuple[str, str]:
         """The index card's ``(tone, text)`` availability line, computed from now.
 
@@ -19482,6 +19578,11 @@ class Equipment(HeroCropMixin, models.Model):
         now = timezone.now()
         if self.is_closed:
             return ("closed", f"Closed. {self.closed_message}".strip() if self.closed_message else "Closed for now.")
+        if self.has_season:
+            # A season item (#1095) reads its season, with the dates, never the time of day.
+            state = self.season_state()
+            tone = {self.SeasonState.OPEN: "free", self.SeasonState.RESERVED: "busy", self.SeasonState.ENDED: "muted"}
+            return (tone[state], f"{state.label}, {self.season_label}")
         rules = [rule for rule in self.hours_rules.all() if rule.is_active]
         if not rules:
             return ("muted", "Not taking reservations yet")
@@ -19529,6 +19630,11 @@ class Equipment(HeroCropMixin, models.Model):
         blockers = self.booking_blockers(member)
         if blockers:
             raise EquipmentError(blockers[0])
+        if self.has_season:
+            # Real minutes from the real start (UTC), never wall clock addition across a clock change.
+            ends_at = starts_at.astimezone(UTC) + timedelta(minutes=duration_minutes)
+            self._ensure_season_reservable(member, starts_at, ends_at)
+            return
         now = timezone.now()
         if starts_at <= now:
             raise EquipmentError("That time's already past. Please pick a future time.")
@@ -19546,16 +19652,48 @@ class Equipment(HeroCropMixin, models.Model):
         )
         if not in_hours:
             raise EquipmentError("That time is outside this equipment's open hours.")
+        self._ensure_under_member_cap(member)
+        if EquipmentReservation.objects.overlapping(self, starts_at, ends_at).exists():
+            raise EquipmentError("That time was just taken. Please pick another time.")
+        if OrientationSlot.objects.holding_seats_on(self, starts_at, ends_at).exists():
+            raise EquipmentError("That time overlaps a booked orientation. Please pick another time.")
+
+    def _ensure_under_member_cap(self, member: Member) -> None:
+        """Raise :class:`EquipmentError` when the member already holds this item's per member limit."""
         cap = self.max_active_reservations_per_member
         if EquipmentReservation.objects.active_count_for(member, self) >= cap:
             raise EquipmentError(
                 f"You already have {cap} upcoming reservation{'' if cap == 1 else 's'} here. "
                 "Cancel one to book another time."
             )
-        if EquipmentReservation.objects.overlapping(self, starts_at, ends_at).exists():
-            raise EquipmentError("That time was just taken. Please pick another time.")
-        if OrientationSlot.objects.holding_seats_on(self, starts_at, ends_at).exists():
-            raise EquipmentError("That time overlaps a booked orientation. Please pick another time.")
+
+    def _ensure_season_reservable(self, member: Member, starts_at: datetime_type, ends_at: datetime_type) -> None:
+        """The season road of :meth:`ensure_reservable` (#1095), after the member's blockers passed.
+
+        Only the whole season can be reserved, while it has not ended: the span must be exactly
+        :meth:`season_span`, so a page drawn before the dates changed is refused. The duration,
+        half hour grid, opening hours and booking horizon never apply; the per member limit does.
+        Nothing held may overlap what is left of the season: one holder at a time, first come
+        first served. A season started already is still reserved from its first day.
+
+        Raises:
+            EquipmentError: With member-facing copy naming the failed check.
+        """
+        season_starts_at, season_ends_at = self.season_span()
+        now = timezone.now()
+        if season_ends_at <= now:
+            raise EquipmentError(self.SEASON_OVER_MESSAGE)
+        if (starts_at, ends_at) != (season_starts_at, season_ends_at):
+            raise EquipmentError(self.SEASON_CHANGED_MESSAGE)
+        if self.is_hourly:
+            # The settings form never saves both; a season is never charged by the hour.
+            raise EquipmentError("This season can't be reserved right now. Please ask a manager.")
+        self._ensure_under_member_cap(member)
+        rest_starts_at = max(season_starts_at, now)
+        if EquipmentReservation.objects.overlapping(self, rest_starts_at, season_ends_at).exists():
+            raise EquipmentError(self.SEASON_TAKEN_MESSAGE)
+        if OrientationSlot.objects.holding_seats_on(self, rest_starts_at, season_ends_at).exists():
+            raise EquipmentError("A booked orientation falls inside this season. Please ask a manager.")
 
     def ensure_blockable(self, actor: Member, starts_at: datetime_type, ends_at: datetime_type) -> None:
         """Raise :class:`EquipmentError` unless ``actor`` may hold [starts_at, ends_at) here (#657).
@@ -19720,6 +19858,22 @@ class Equipment(HeroCropMixin, models.Model):
         "you get an automatic full refund."
     )
     FREE_TERMS_APPROVAL: ClassVar[str] = "A manager approves each reservation before it is booked."
+
+
+def season_dates_label(starts_on: date_type, ends_on: date_type, *, long: bool = False) -> str:
+    """A season's first and last day in member words (#1095): "Mar 1 to Dec 15", or "March 1 to December 15" when ``long``.
+
+    The year shows only when it is not this year: once at the end for a season inside one
+    other year ("Mar 1 to Dec 15, 2027"), on both days for a season across two years.
+    """
+    month = "%B" if long else "%b"
+    start = f"{starts_on:{month}} {starts_on.day}"
+    end = f"{ends_on:{month}} {ends_on.day}"
+    if starts_on.year != ends_on.year:
+        return f"{start}, {starts_on.year} to {end}, {ends_on.year}"
+    if starts_on.year != timezone.localdate().year:
+        return f"{start} to {end}, {ends_on.year}"
+    return f"{start} to {end}"
 
 
 def money_display(cents: int) -> str:
@@ -20207,6 +20361,12 @@ class EquipmentReservation(models.Model):
         db_default=0,
         help_text="Minutes of the member's credit on this equipment this booking used; the charge covers the rest.",
     )
+    # --- Seasons (#1095): the database default too, since the old release inserts without it.
+    is_season = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Reserved for a whole season with Reserve This Season (#1095), not a time slot.",
+    )
 
     objects = EquipmentReservationQuerySet.as_manager()
 
@@ -20234,6 +20394,32 @@ class EquipmentReservation(models.Model):
     def is_block(self) -> bool:
         """True for a manager's held time rather than a member's booking (#657)."""
         return self.kind == self.Kind.BLOCK
+
+    @property
+    def season_label(self) -> str:
+        """A season reservation's dates in short words, "Mar 1 to Dec 15" (#1095); "" for a time slot."""
+        if not self.is_season:
+            return ""
+        return season_dates_label(*self.season_days())
+
+    def season_days(self) -> tuple[date_type, date_type]:
+        """A season reservation's first and last local day: it ends at midnight after the last one (#1095)."""
+        return (
+            timezone.localtime(self.starts_at).date(),
+            timezone.localtime(self.ends_at).date() - timedelta(days=1),
+        )
+
+    @property
+    def request_span(self) -> str:
+        """What the row asks for, in the Decline confirm's words: "Sat, Sep 12, 2:00 PM to 4:00 PM", or "the season, Mar 1 to Dec 15"."""
+        if self.is_season:
+            return f"the season, {self.season_label}"
+        local = timezone.localtime(self.starts_at)
+        return f"{local:%a, %b} {local.day}, {_clock(self.starts_at)} to {_clock(self.ends_at)}"
+
+    def can_self_cancel(self, now: datetime_type) -> bool:
+        """Whether its member's own Cancel is still offered by time: before it starts, or all season long (#1095)."""
+        return self.ends_at > now if self.is_season else self.starts_at > now
 
     def remove_block(self, actor: Member) -> None:
         """Release a manager's block (#657): no reason, no email, never a fee.
@@ -20519,7 +20705,7 @@ class EquipmentReservation(models.Model):
     def cancel(self, actor: Member, *, reason: str = "", as_manager: bool = False) -> LateCancellationFee | None:
         """Cancel this reservation as ``actor`` — the member themselves, or a manager.
 
-        Self cancel: future reservations only, no reason needed, the member gets their own
+        Self cancel: future reservations only (a season reservation until its season ends, #1095), no reason needed, the member gets their own
         "you cancelled" email, and a cancel inside the notice window creates the late
         cancellation fee (#456) in the same transaction as the cancel, unless the actor
         manages this equipment. Manager cancel: also
@@ -20746,6 +20932,10 @@ class EquipmentReservation(models.Model):
                 raise EquipmentError("Only the reserving member or an equipment manager can cancel this.")
             if not reason:
                 raise ValueError("A manager cancel needs a reason the member will see.")
+            if self.ends_at <= now:
+                raise EquipmentError("This reservation already ended.")
+        elif self.is_season:
+            # A season reservation (#1095) gives the bed back whenever its member is done, until the season ends.
             if self.ends_at <= now:
                 raise EquipmentError("This reservation already ended.")
         elif self.starts_at <= now:
