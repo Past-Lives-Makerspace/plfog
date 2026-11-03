@@ -938,7 +938,8 @@ def describe_the_guild_page_panel():
         content = client.get(f"{reverse('hub_compose')}?audience=guild:{guild.pk}").content.decode()
         assert "css/guild-announcements.css" in content
         assert (
-            """<div class="pl-compose-channel" x-show="audience.startsWith('guild')" x-cloak data-compose-guild-page>"""
+            """<div class="pl-compose-channel" x-show="audience.startsWith('guild')" x-cloak data-compose-guild-page"""
+            ' data-guidance-target="announcements.guild-page-preview">'
             '\n        <h3 class="pl-compose-channel__title">Guild Page</h3>'
         ) in content
         assert '<div id="compose-guild-preview" data-compose-guild-preview>' in content

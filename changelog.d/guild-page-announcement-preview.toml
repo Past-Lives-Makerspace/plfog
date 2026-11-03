@@ -1,9 +1,18 @@
-bump = "patch"
+bump = "minor"
 date = "2026-11-03"
 audience = ["guild-staff", "admins"]
+feature = "admin.email-members"
+guidance = "shots"
+target = "announcements.preview-send"
 title = "Preview a guild announcement as it will look on the guild page"
 changes = [
   "Step 2 of writing a guild announcement now has a Guild Page preview showing the announcement exactly as it will appear at the top of your guild page.",
   "It shows even when you post to the guild page only, so there is no need to switch email on just to see a preview.",
 ]
 requests = [10]
+
+[[shots]]
+caption = "Write your guild announcement and press Preview & send."
+
+[[shots]]
+caption = "The Guild Page card shows it as it will look at the top of your guild page."

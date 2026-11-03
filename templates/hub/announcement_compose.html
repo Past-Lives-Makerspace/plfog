@@ -209,7 +209,7 @@
                 :disabled="!hasBody">
           <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Save draft
         </button>
-        <button type="button" class="hub-btn hub-btn--primary" @click="goPreview()" :disabled="!hasBody">
+        <button type="button" class="hub-btn hub-btn--primary" @click="goPreview()" :disabled="!hasBody" data-guidance-target="announcements.preview-send">
           Preview &amp; send &rarr;
         </button>
       </div>
@@ -272,7 +272,7 @@
       </div>
 
       {# Every guild post lands on the guild page, so this card shows whatever else is on; its own Refresh swaps only the out of band cards (#1103). #}
-      <div class="pl-compose-channel" x-show="audience.startsWith('guild')" x-cloak data-compose-guild-page>
+      <div class="pl-compose-channel" x-show="audience.startsWith('guild')" x-cloak data-compose-guild-page data-guidance-target="announcements.guild-page-preview">
         <h3 class="pl-compose-channel__title">Guild Page</h3>
         <p class="pl-compose-section__note">How it will look at the top of the guild page.</p>
         {% include "hub/partials/_compose_guild_page_preview.html" with oob=False %}
