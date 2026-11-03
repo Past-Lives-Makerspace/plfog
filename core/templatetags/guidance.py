@@ -25,16 +25,22 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django import template
 from django.conf import settings
 from django.template.loader import render_to_string
+from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import SafeString
 
 from core.guidance import registered, title_for
 from core.whats_new import WhatsNew, whats_new_for
+
+if TYPE_CHECKING:
+    from django.http import HttpRequest
+
+    from core.tours import Tour
 
 register = template.Library()
 log = logging.getLogger(__name__)
@@ -104,10 +110,10 @@ def walkthrough_button(context: dict[str, Any], tour_key: str, guild: Any = None
     """The walkthrough button for ``tour_key``, only for a viewer who runs ``guild`` (or the tour is theirs).
 
     The one control that starts a guild staff walkthrough on its own tool
-    (``components/walkthrough_button.html``): Take starts the tour on this page, and the choice
-    is logged. With ``guild``, only someone who may edit that guild sees it (its lead and staff,
-    and admins, ``view_as`` aware), so an ordinary member or another guild's lead never does;
-    without one, anyone the tour's audience admits. An unknown key raises, as a typo should.
+    (``components/walkthrough_button.html``): Take starts the tour on this page when it is the
+    tour's entry page, otherwise on that entry page for ``guild``, and the choice is logged. With
+    ``guild``, only someone who may edit that guild sees it (its lead and staff, and admins,
+    ``view_as`` aware), so an ordinary member or another guild's lead never does; without one, anyone the tour's audience admits. An unknown key raises, as a typo should.
     """
     from core.tours import TOURS
     from membership.permissions import can_edit_guild
@@ -127,5 +133,22 @@ def walkthrough_button(context: dict[str, Any], tour_key: str, guild: Any = None
     elif not tour.audience(member):
         return ""
     return render_to_string(
-        "components/walkthrough_button.html", {"tour_key": tour_key, "start": request.get_full_path()}, request=request
+        "components/walkthrough_button.html",
+        {"tour_key": tour_key, "start": _tour_start(request, tour, guild)},
+        request=request,
     )
+
+
+def _tour_start(request: HttpRequest, tour: Tour, guild: Any) -> str:
+    """Where Take starts ``tour``: this page when it is the tour's entry page, else that page for ``guild``.
+
+    A tour's steps live on its entry page, so starting it anywhere else finds no step and nothing
+    happens (the guild page's Guild Settings walkthrough). The fallback names this guild, not the
+    member's first one (``core.tours.entry_url_for``), so an admin lands on the guild they pressed it on.
+    """
+    match = request.resolver_match
+    if match is not None and match.view_name == tour.entry_url_name:
+        return request.get_full_path()
+    if guild is not None:
+        return reverse(tour.entry_url_name, kwargs={"pk": guild.pk})
+    return ""
