@@ -47,6 +47,7 @@ supplies the inter-card spacing, since .hub-card carries no margin of its own.
                 <div class="pl-slideshow-zone__actions">
                   <button type="button" class="hub-btn hub-btn--sm"
                           @click="navigator.clipboard.writeText('{{ f.instance.player_url }}'); $dispatch('show-toast', {message:'URL copied', type:'info'})">Copy URL</button>
+                  {# player_url is on SIGNAGE_BASE_URL, another host, so the native app leaves this link to the system browser and needs no data-pl-new-window. #}
                   <a class="hub-btn hub-btn--sm" href="{{ f.instance.player_url }}" target="_blank" rel="noopener">Preview</a>
                 </div>
                 <div class="pl-slideshow-zone__qr">{{ f.instance.qr_svg|safe }}</div>
