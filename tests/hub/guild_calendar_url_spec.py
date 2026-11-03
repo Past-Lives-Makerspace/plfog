@@ -59,9 +59,11 @@ def describe_GuildEditForm_calendar_url():
             "https://zq7calendars.example.org/guild/FEED.ICS",
             "https://zq7calendars.example.org/export?format=ical",
             "https://zq7calendars.example.org/ical/guild",
+            "https://p52-caldav.icloud.com/published/2/MTIzNDU2Nzg5MDEyMzQ1Ng",
+            "https://zq7cloud.example.org/remote.php/dav/public-calendars/ZQ7XYZ?export",
         ],
     )
-    def it_accepts_another_hosts_feed_ending_in_ics_or_naming_ical(url):
+    def it_accepts_another_hosts_feed_link(url):
         form = _form(url)
         assert form.is_valid(), form.errors
 

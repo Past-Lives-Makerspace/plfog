@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from collections.abc import Collection, Iterable
 from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from django.db import transaction
 from django import forms
@@ -356,7 +356,8 @@ class GuildEditForm(forms.ModelForm):
         A Google Calendar link must be the calendar's ``/calendar/ical/...ics`` secret address;
         a single event link or the calendar's web page is refused (Tech Guild's single event
         link failed the sync every night, #1093). Another host's feed is judged leniently: it
-        passes when it ends in ``.ics`` or mentions ``ical`` anywhere.
+        passes when it ends in ``.ics``, mentions ``ical`` anywhere, is an iCloud published
+        calendar (``/published/``, no extension) or is an ``?export`` link (Nextcloud).
         """
         url = (self.cleaned_data.get("calendar_url") or "").strip()
         if not url:
@@ -366,7 +367,12 @@ class GuildEditForm(forms.ModelForm):
         if (parts.hostname or "").lower() == "calendar.google.com":
             is_feed = "/calendar/ical/" in path and path.endswith(".ics")
         else:
-            is_feed = path.endswith(".ics") or "ical" in url.lower()
+            is_feed = (
+                path.endswith(".ics")
+                or "ical" in url.lower()
+                or path.startswith("/published/")
+                or "export" in parse_qs(parts.query, keep_blank_values=True)
+            )
         if not is_feed:
             raise forms.ValidationError(
                 "That link is not a calendar feed. In Google Calendar, open your calendar's settings "
