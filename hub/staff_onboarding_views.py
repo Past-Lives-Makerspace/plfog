@@ -20,7 +20,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from core.tours import TOURS, entry_url_for
-from hub.forms import StaffRulesConfirmForm, WalkthroughChoiceForm
+from hub.forms import WalkthroughChoiceForm
 from membership import staff_onboarding
 
 if TYPE_CHECKING:
@@ -44,13 +44,9 @@ def _back(request: HttpRequest) -> HttpResponse:
 @login_required
 @require_POST
 def staff_rules_confirm(request: HttpRequest) -> HttpResponse:
-    """The popup's I Understand: log that they read the rules, then back where they were.
-
-    An unticked switch changes nothing and lands back on the same page, where the popup is still
-    owed, so the only way past it is to turn the switch on.
-    """
+    """The popup's I Understand: log that they confirmed the rules, then back where they were."""
     member = getattr(request.user, "member", None)
-    if member is not None and StaffRulesConfirmForm(request.POST).is_valid():
+    if member is not None:
         staff_onboarding.confirm_rules(member)
     return _back(request)
 

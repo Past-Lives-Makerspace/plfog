@@ -1,8 +1,8 @@
 """BDD specs for the guild staff rules popup and the walkthrough buttons (#1076, part 2).
 
-A new lead or staffer owed the rules sees a popup with no close button on any hub page, until they
-turn on "I have read the rules" and press I Understand; then a glowing Take the Tour offer with an
-Exit stays on every page until they choose. Each choice is logged. Ordinary members see neither,
+A new lead or staffer owed the rules sees a popup with no close button on every hub page but the
+rules article its link opens, until they press I Understand; then a glowing Take the Tour offer
+with an Exit stays on every page until they choose. Each choice is logged. Ordinary members see neither,
 and neither shows while the Member Agreement or the first-login welcome is waiting, or once the
 member no longer leads or staffs a guild. The rules article seeder never touches an existing page.
 
@@ -77,7 +77,9 @@ def describe_the_rules_popup():
         popup = popup[: popup.index("</form>")]
         assert "pl-modal__close" not in popup
         assert "@keydown.escape.window" not in popup
-        assert ':disabled="!read"' in popup
+        assert "I Understand" in popup
+        assert "disabled" not in popup
+        assert "toggle" not in popup
 
     def it_never_shows_to_an_ordinary_member():
         page = _home(_member("wren"))
@@ -104,6 +106,13 @@ def describe_the_rules_popup():
         guild.clear_lead()
         assert 'id="staff-rules-title"' not in _home(lead)
 
+    def it_stays_off_the_rules_article_its_link_opens(lead: Member):
+        call_command("seed_wiki_staff_rules")
+        page = _client(lead).get(staff_onboarding.rules_page_path()).content.decode()
+        assert "Managing them anywhere else is no longer allowed." in page
+        assert 'id="staff-rules-title"' not in page
+        assert 'id="staff-rules-title"' in _home(lead)
+
 
 def staff_onboarding_context(member: Member) -> dict[str, object]:
     from django.test import RequestFactory
@@ -127,24 +136,15 @@ def describe_the_context_on_a_post():
 
 
 def describe_confirming_the_rules():
-    def it_changes_nothing_while_the_switch_is_off(lead: Member):
-        response = _client(lead).post(reverse("hub_staff_rules_confirm"), {"next": "/guilds/"})
-        assert response.status_code == 302
-        lead.refresh_from_db()
-        assert lead.staff_onboarding_step == Step.RULES
-        assert not lead.staff_onboarding_events.filter(action=Action.CONFIRMED).exists()
-
     def it_logs_the_confirm_and_returns_them_where_they_were(lead: Member):
-        response = _client(lead).post(reverse("hub_staff_rules_confirm"), {"read_rules": "on", "next": "/guilds/"})
+        response = _client(lead).post(reverse("hub_staff_rules_confirm"), {"next": "/guilds/"})
         assert response["Location"] == "/guilds/"
         lead.refresh_from_db()
         assert lead.staff_onboarding_step == Step.TOUR
         assert lead.staff_onboarding_events.filter(action=Action.CONFIRMED).count() == 1
 
     def it_never_follows_a_next_to_another_host(lead: Member):
-        response = _client(lead).post(
-            reverse("hub_staff_rules_confirm"), {"read_rules": "on", "next": "https://elsewhere.example/"}
-        )
+        response = _client(lead).post(reverse("hub_staff_rules_confirm"), {"next": "https://elsewhere.example/"})
         assert response["Location"] == reverse("hub_home")
 
 
