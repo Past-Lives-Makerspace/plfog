@@ -1,6 +1,6 @@
 bump = "patch"
 date = "2026-11-03"
-audience = ["guild-staff"]
+audience = ["guild-staff", "admins"]
 title = "Preview a guild announcement as it will look on the guild page"
 changes = [
   "Step 2 of writing a guild announcement now has a Guild Page preview showing the announcement exactly as it will appear at the top of your guild page.",
