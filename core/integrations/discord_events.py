@@ -132,6 +132,18 @@ class DiscordScheduledEventsClient:
             retry_on_rate_limit=retry_on_rate_limit,
         )
 
+    def list_event_ids(self, server_id: str, *, retry_on_rate_limit: bool = False) -> set[str]:
+        """The ids of the server's live Scheduled Events (``GET /guilds/{id}/scheduled-events``).
+
+        One call returns them all; a copy deleted by hand on Discord is missing from it.
+        """
+        # This endpoint returns a JSON array; _execute is annotated for the dict-shaped calls.
+        events = cast(
+            "list[dict[str, Any]]",
+            self._execute("GET", f"/guilds/{server_id}/scheduled-events", retry_on_rate_limit=retry_on_rate_limit),
+        )
+        return {str(event["id"]) for event in events}
+
     def list_interested_user_ids(self, server_id: str, event_id: str) -> "list[str]":
         """Every Discord user id marked Interested on a Scheduled Event, paginated.
 

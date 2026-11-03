@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import time
 import urllib.request
@@ -349,11 +351,14 @@ def _discord_event_body(event: CalendarEvent) -> dict[str, Any]:
 def sync_discord_feed_events() -> int:
     """Mirror upcoming general-feed events into Discord Scheduled Events.
 
-    Pushes every ``source="general"`` event starting within ``_DISCORD_PUSH_HORIZON``
+    Covers every ``source="general"`` event starting within ``_DISCORD_PUSH_HORIZON``
     (capped at ``_DISCORD_PUSH_CAP``, soonest first): creates the Discord event for a row
-    without one, updates rows already pushed, and recreates a row whose Discord copy was
-    deleted by hand (an update 404). A still-future row that dropped out of the push set
-    (date moved, or pushed under an older horizon) has its Discord copy deleted; past
+    without one, recreates a row whose Discord copy was deleted by hand (missing from the
+    server's live events, or an update 404), and updates a row only when the body it would
+    send differs from the last one sent (``discord_payload_hash``). An unchanged row makes
+    no call, so a quiet day sends nothing and cannot trip Discord's rate limit (#1093). A
+    still-future row that dropped out of the push set (date moved, or pushed under an
+    older horizon) has its Discord copy deleted; past
     events are left to Discord's own lifecycle. Echoes of our own Google-pushed
     CommunityEvents are excluded from the push set — the dropped pass deletes any Discord
     copies they gained before echo suppression existed, then the rows themselves are
@@ -400,10 +405,14 @@ def sync_discord_feed_events() -> int:
             time.sleep(_DISCORD_PUSH_PACE_SECONDS)
         made_a_call = True
 
+    live_ids = _live_discord_ids(client, push_set, _pace, failures)
     for event in push_set:
+        body = _discord_event_body(event)
+        if _discord_copy_is_current(event, body, live_ids):
+            continue
         _pace()
         try:
-            _push_feed_event(client, event)
+            _push_feed_event(client, event, body, live_ids)
         except DiscordEventsError as exc:
             failures.append(f"'{event.title}': {exc}")
 
@@ -426,15 +435,55 @@ def sync_discord_feed_events() -> int:
     return len(push_set)
 
 
-def _push_feed_event(client: DiscordScheduledEventsClient, event: CalendarEvent) -> None:
-    """Create or update the Discord copy of one feed event.
+def _live_discord_ids(
+    client: DiscordScheduledEventsClient,
+    push_set: list[CalendarEvent],
+    pace: Callable[[], None],
+    failures: list[str],
+) -> set[str]:
+    """Which of the push set's stored Discord ids still exist, from one list call (none when nothing is stored).
 
-    An update that 404s means the Discord copy was deleted by hand — recreate it
-    rather than erroring every morning forever.
+    A failed list is added to ``failures`` so the source still fails loudly, and the stored
+    ids are trusted rather than resending every event; a changed event's update still
+    recreates a deleted copy on its 404.
     """
     from core.integrations.discord_events import DiscordEventsError
 
-    body = _discord_event_body(event)
+    stored_ids = {event.discord_event_id for event in push_set if event.discord_event_id}
+    if not stored_ids:
+        return set()
+    pace()
+    try:
+        return client.list_event_ids(client.server_id, retry_on_rate_limit=True)
+    except DiscordEventsError as exc:
+        failures.append(f"listing Discord events: {exc}")
+        return stored_ids
+
+
+def _discord_body_fingerprint(body: dict[str, Any]) -> str:
+    """SHA-256 of a Discord event body, key order ignored, so any sent field that changes counts."""
+    return hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _discord_copy_is_current(event: CalendarEvent, body: dict[str, Any], live_ids: set[str]) -> bool:
+    """Whether the event's Discord copy still exists and was last sent exactly ``body``."""
+    return event.discord_event_id in live_ids and event.discord_payload_hash == _discord_body_fingerprint(body)
+
+
+def _push_feed_event(
+    client: DiscordScheduledEventsClient, event: CalendarEvent, body: dict[str, Any], live_ids: set[str]
+) -> None:
+    """Create or update the Discord copy of one feed event, then store the fingerprint of ``body``.
+
+    A stored id missing from ``live_ids``, or an update that 404s, means the Discord copy
+    was deleted by hand — recreate it rather than erroring every morning forever. A call
+    that raises stores nothing, so the old fingerprint stays and the next run tries again.
+    """
+    from core.integrations.discord_events import DiscordEventsError
+
+    if event.discord_event_id not in live_ids:
+        event.discord_event_id = ""
+
     if event.discord_event_id:
         try:
             client.update_event(client.server_id, event.discord_event_id, body, retry_on_rate_limit=True)
@@ -445,7 +494,8 @@ def _push_feed_event(client: DiscordScheduledEventsClient, event: CalendarEvent)
     if not event.discord_event_id:
         created = client.insert_event(client.server_id, body, retry_on_rate_limit=True)
         event.discord_event_id = created["id"]
-        event.save(update_fields=["discord_event_id"])
+    event.discord_payload_hash = _discord_body_fingerprint(body)
+    event.save(update_fields=["discord_event_id", "discord_payload_hash"])
 
 
 def _delete_feed_event_copy(client: DiscordScheduledEventsClient, event: CalendarEvent) -> None:
@@ -458,7 +508,8 @@ def _delete_feed_event_copy(client: DiscordScheduledEventsClient, event: Calenda
         if "404" not in str(exc):
             raise
     event.discord_event_id = ""
-    event.save(update_fields=["discord_event_id"])
+    event.discord_payload_hash = ""
+    event.save(update_fields=["discord_event_id", "discord_payload_hash"])
 
 
 def _purge_echoed_feed_events(echo_uids: set[str], now: datetime) -> None:

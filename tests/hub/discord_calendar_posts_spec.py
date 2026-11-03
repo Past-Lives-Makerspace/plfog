@@ -316,6 +316,31 @@ def describe_post_weekly_digest():
         assert route.call_count == 1
 
     @respx.mock
+    def it_waits_fifteen_seconds_for_discord_on_the_read_and_the_post(settings):
+        settings.DISCORD_BOT_TOKEN = "tok"
+        read = respx.get(_MESSAGES_URL).mock(return_value=httpx.Response(200, json=[]))
+        post = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+        _enable_posts()
+        _feed_event("Forge Night", days=2)
+
+        assert dcp.post_weekly_digest() == 1
+        assert dcp.DIGEST_TIMEOUT_SECONDS == 15.0
+        assert read.calls.last.request.extensions["timeout"]["read"] == 15.0
+        assert post.calls.last.request.extensions["timeout"]["read"] == 15.0
+
+    @respx.mock
+    def it_leaves_every_other_channel_post_at_five_seconds(settings):
+        from core.integrations.discord_channel import DEFAULT_TIMEOUT_SECONDS, post_channel_message
+
+        settings.DISCORD_BOT_TOKEN = "tok"
+        post = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
+
+        post_channel_message(CHANNEL_ID, [{"title": "t"}])
+
+        assert DEFAULT_TIMEOUT_SECONDS == 5.0
+        assert post.calls.last.request.extensions["timeout"]["read"] == 5.0
+
+    @respx.mock
     def it_fails_without_posting_when_the_channel_read_times_out(settings):
         settings.DISCORD_BOT_TOKEN = "tok"
         _enable_posts()

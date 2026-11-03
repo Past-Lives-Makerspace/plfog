@@ -24,7 +24,9 @@ import httpx
 
 from core.events.discord_dm import API_BASE, _auth_headers, bot_disabled, bot_token
 
-_TIMEOUT_SECONDS = 5.0
+# How long one request waits for Discord. Callers that can run inside a web request keep this
+# (#845 hit gunicorn's 30 s limit); a scheduled job may pass a longer ``timeout``.
+DEFAULT_TIMEOUT_SECONDS = 5.0
 _RATE_LIMIT_MAX_WAIT_SECONDS = 15.0
 # How far back a duplicate check looks; a retry runs within the hour, long before 50 posts.
 _RECENT_MESSAGES_LIMIT = 50
@@ -136,6 +138,7 @@ def post_channel_message(
     content: str = "",
     components: list[dict[str, Any]] | None = None,
     allowed_mentions: dict[str, Any] | None = None,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """POST one message carrying ``embeds`` to the channel; return the created message JSON.
 
@@ -148,11 +151,15 @@ def post_channel_message(
     later refresh the embed and a cancel can strip the buttons. A 429 is retried once after
     Discord's advertised ``Retry-After`` (bounded); a second 429, or an unusable/too-long
     ``Retry-After``, raises.
+
+    ``timeout`` is how long one request waits for Discord. Keep the 5 second default for
+    anything that can run inside a web request (#845 hit gunicorn's 30 second limit); only
+    a scheduled job may pass longer.
     """
     if bot_disabled("channel post"):
         return {}
     payload = _message_payload(embeds, content=content, components=components, allowed_mentions=allowed_mentions)
-    return _send_payload("POST", f"{API_BASE}/channels/{channel_id}/messages", payload, len(embeds))
+    return _send_payload("POST", f"{API_BASE}/channels/{channel_id}/messages", payload, len(embeds), timeout=timeout)
 
 
 def edit_channel_message(
@@ -177,7 +184,7 @@ def edit_channel_message(
     _send_payload("PATCH", f"{API_BASE}/channels/{channel_id}/messages/{message_id}", payload, len(embeds))
 
 
-def recent_bot_post_titles(channel_id: str) -> list[str]:
+def recent_bot_post_titles(channel_id: str, *, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> list[str]:
     """The lead embed title of each recent bot message in the channel, oldest first.
 
     A POST that times out may still have landed: Discord can keep the message and answer
@@ -185,11 +192,16 @@ def recent_bot_post_titles(channel_id: str) -> list[str]:
     reads this first, so it posts against what the channel actually holds instead of
     trusting the failed run. Raises :class:`DiscordChannelError` when the channel cannot be
     read (after the same single 429 retry as a post), because posting blind is how the
-    duplicate happened. Empty with a blank bot token.
+    duplicate happened. Empty with a blank bot token. ``timeout`` as :func:`post_channel_message`.
     """
     if bot_disabled("channel read"):
         return []
-    response = _request("GET", f"{API_BASE}/channels/{channel_id}/messages", params={"limit": _RECENT_MESSAGES_LIMIT})
+    response = _request(
+        "GET",
+        f"{API_BASE}/channels/{channel_id}/messages",
+        params={"limit": _RECENT_MESSAGES_LIMIT},
+        timeout=timeout,
+    )
     titles = [
         (message.get("embeds") or [{}])[0].get("title", "")
         for message in response.json()
@@ -229,12 +241,14 @@ def fetch_channel_name_from_webhook(webhook_url: str) -> str:
     if not webhook_url or not bot_token():
         return ""
     try:
-        hook = httpx.get(webhook_url, timeout=_TIMEOUT_SECONDS)
+        hook = httpx.get(webhook_url, timeout=DEFAULT_TIMEOUT_SECONDS)
         hook.raise_for_status()
         channel_id = (hook.json().get("channel_id") or "").strip()
         if not channel_id:
             return ""
-        channel = httpx.get(f"{API_BASE}/channels/{channel_id}", headers=_auth_headers(), timeout=_TIMEOUT_SECONDS)
+        channel = httpx.get(
+            f"{API_BASE}/channels/{channel_id}", headers=_auth_headers(), timeout=DEFAULT_TIMEOUT_SECONDS
+        )
         channel.raise_for_status()
         name = (channel.json().get("name") or "").strip()
     except (httpx.HTTPError, ValueError, AttributeError):
@@ -242,7 +256,9 @@ def fetch_channel_name_from_webhook(webhook_url: str) -> str:
     return f"#{name}" if name else ""
 
 
-def _send_payload(method: str, url: str, payload: dict[str, Any], embed_count: int) -> dict[str, Any]:
+def _send_payload(
+    method: str, url: str, payload: dict[str, Any], embed_count: int, *, timeout: float = DEFAULT_TIMEOUT_SECONDS
+) -> dict[str, Any]:
     """Deliver ``payload`` via one bot REST call (shared cap check + single 429 retry).
 
     Returns the parsed response JSON (an empty dict when the response has no body), so a
@@ -250,7 +266,7 @@ def _send_payload(method: str, url: str, payload: dict[str, Any], embed_count: i
     """
     if embed_count > MAX_EMBEDS_PER_MESSAGE:
         raise DiscordChannelError(f"Discord allows {MAX_EMBEDS_PER_MESSAGE} embeds per message, got {embed_count}.")
-    response = _request(method, url, payload)
+    response = _request(method, url, payload, timeout=timeout)
     return response.json() if response.content else {}
 
 
@@ -261,10 +277,11 @@ def _request(
     *,
     params: dict[str, Any] | None = None,
     deadline: float | None = None,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> httpx.Response:
     """One bot REST call with the single bounded 429 retry; raises on anything but a 2xx. With a ``deadline`` (a
     ``time.monotonic()`` value) the retry is skipped when its wait would end past it."""
-    response = _send(method, url, payload, params=params)
+    response = _send(method, url, payload, params=params, timeout=timeout)
     if response.status_code == 429:
         retry_after = _retry_after_seconds(response)
         if (
@@ -273,7 +290,7 @@ def _request(
             and (deadline is None or time.monotonic() + retry_after < deadline)
         ):
             time.sleep(retry_after)
-            response = _send(method, url, payload, params=params)
+            response = _send(method, url, payload, params=params, timeout=timeout)
     if response.status_code == 429:
         raise DiscordRateLimitedError(f"Discord API 429: {response.text[:300]}", status_code=429)
     if not response.is_success:
@@ -284,7 +301,12 @@ def _request(
 
 
 def _send(
-    method: str, url: str, payload: dict[str, Any] | None, *, params: dict[str, Any] | None = None
+    method: str,
+    url: str,
+    payload: dict[str, Any] | None,
+    *,
+    params: dict[str, Any] | None = None,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> httpx.Response:
     """One raw REST call; only transport failures raise (as :class:`DiscordChannelError`)."""
     try:
@@ -294,7 +316,7 @@ def _send(
             json=payload,
             params=params,
             headers=_auth_headers(),
-            timeout=_TIMEOUT_SECONDS,
+            timeout=timeout,
         )
     except httpx.HTTPError as exc:
         raise DiscordChannelError(str(exc)) from exc

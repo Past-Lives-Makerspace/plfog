@@ -15,6 +15,10 @@ Three passes, run daily by ``sync_stripe_fees`` and over all history by ``sync_s
    bank deposit.
 
 Nothing here runs inside a webhook: a Stripe outage only delays the fee, never a payment.
+
+Only payments made on or after :data:`FEE_READING_STARTS` are covered: an older one gets no
+record from the find pass, and a record it already has (the backfill added some) is never read
+and never counts as stuck.
 """
 
 from __future__ import annotations
@@ -23,14 +27,16 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
 import stripe
 from django.db.models import F, Min
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from billing import stripe_utils
 from billing.exceptions import StripeAccountUnavailableError, StripeSettlementNotReadyError
-from billing.models import BillingSettings, StripeFeeRecord, StripeFeeRefund
+from billing.models import BillingSettings, StripeFeeRecord, StripeFeeRecordQuerySet, StripeFeeRefund
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -45,6 +51,14 @@ DAILY_READ_LIMIT = 500
 
 PAYOUT_ARRIVAL_SLACK = timedelta(days=1)
 """Payouts are listed from a day before the earliest availability, since arrival and availability round to days."""
+
+FEE_READING_STARTS = datetime(2026, 10, 1, tzinfo=ZoneInfo("America/Los_Angeles"))
+"""The first day whose payments get their Stripe fee recorded: the day the new portal launched.
+
+Older payments went through the old site and the old Stripe account; some are not readable
+any more, and they kept the job failing every day (#1093). A payment before this moment is
+never read from Stripe and never counts as stuck.
+"""
 
 
 @dataclass
@@ -64,39 +78,70 @@ class SyncReport:
 
 
 def paid_sources() -> dict[str, tuple[QuerySet[Any], str]]:
-    """Each Payments panel source's paid rows and the field holding their PaymentIntent, by source kind.
+    """Each Payments panel source's rows paid on or after :data:`FEE_READING_STARTS`, and their PaymentIntent field."""
+    return {
+        kind: (queryset.filter(fee_paid_at__gte=FEE_READING_STARTS), pi_field)
+        for kind, (queryset, pi_field) in _dated_paid_sources().items()
+    }
+
+
+def exclude_before_cutoff(records: StripeFeeRecordQuerySet) -> StripeFeeRecordQuerySet:
+    """``records`` without those for a payment made before :data:`FEE_READING_STARTS`.
+
+    A record has no date of its own, so the payment's own row decides. One subquery per
+    source keeps the work in the database, however many old payments there are.
+    """
+    for queryset, pi_field in _dated_paid_sources().values():
+        before = queryset.filter(fee_paid_at__lt=FEE_READING_STARTS).exclude(**{pi_field: ""})
+        records = records.exclude(stripe_payment_intent_id__in=before.values(pi_field))
+    return records
+
+
+def _dated_paid_sources() -> dict[str, tuple[QuerySet[Any], str]]:
+    """Each Payments panel source's paid rows, annotated ``fee_paid_at``, and the field holding their PaymentIntent.
 
     The same paid rules as ``billing.payments_panel``: succeeded tab charges, paid registrations,
     orientation bookings and reservations past their payment hold, paid or refunded late fees, and
-    paid cubby invoices.
+    paid cubby invoices. ``fee_paid_at`` is the date the panel shows for the row, with the row's
+    creation standing in where the paid date is blank.
     """
     from billing.models import LateCancellationFee, TabCharge
     from classes.models import Registration
     from membership.models import CubbyPayment, EquipmentReservation, OrientationBooking
 
     return {
-        "tab": (TabCharge.objects.filter(status=TabCharge.Status.SUCCEEDED), "stripe_payment_intent_id"),
-        "class": (Registration.objects.filter(amount_paid_cents__gt=0), "stripe_payment_id"),
-        "orientation": (
-            OrientationBooking.objects.filter(amount_paid_cents__gt=0).exclude(
-                status=OrientationBooking.Status.PENDING_PAYMENT
+        "tab": (
+            TabCharge.objects.filter(status=TabCharge.Status.SUCCEEDED).annotate(
+                fee_paid_at=Coalesce("charged_at", "created_at")
+            ),
+            "stripe_payment_intent_id",
+        ),
+        "class": (
+            Registration.objects.filter(amount_paid_cents__gt=0).annotate(
+                fee_paid_at=Coalesce("confirmed_at", "registered_at")
             ),
             "stripe_payment_id",
         ),
+        "orientation": (
+            OrientationBooking.objects.filter(amount_paid_cents__gt=0)
+            .exclude(status=OrientationBooking.Status.PENDING_PAYMENT)
+            .annotate(fee_paid_at=F("requested_at")),
+            "stripe_payment_id",
+        ),
         "reservation": (
-            EquipmentReservation.objects.filter(amount_paid_cents__gt=0).exclude(
-                status=EquipmentReservation.Status.PENDING_PAYMENT
-            ),
+            EquipmentReservation.objects.filter(amount_paid_cents__gt=0)
+            .exclude(status=EquipmentReservation.Status.PENDING_PAYMENT)
+            .annotate(fee_paid_at=F("created_at")),
             "stripe_payment_id",
         ),
         "late_fee": (
             LateCancellationFee.objects.filter(
                 status__in=[LateCancellationFee.Status.PAID, LateCancellationFee.Status.REFUNDED]
-            ),
+            ).annotate(fee_paid_at=Coalesce("paid_at", "created_at")),
             "stripe_payment_id",
         ),
         # A paid cubby invoice (#979): Reconciliation's Cubby line reads its fee and net too.
-        "cubby": (CubbyPayment.objects.all(), "stripe_payment_intent_id"),
+        "cubby": (CubbyPayment.objects.annotate(fee_paid_at=F("paid_at")), "stripe_payment_intent_id"),
     }
 
 
@@ -217,7 +262,7 @@ def sync(*, backfill: bool = False) -> SyncReport:
         )
     # Never read first, then the longest waiting, so a record that keeps failing cannot starve the rest.
     pending = (
-        StripeFeeRecord.objects.pending()
+        exclude_before_cutoff(StripeFeeRecord.objects.pending())
         .readable(live=live)
         .order_by(F("last_attempt_at").asc(nulls_first=True), "created_at")
     )
