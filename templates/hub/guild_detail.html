@@ -648,7 +648,7 @@
             <p style="font-size:0.875rem;color:var(--hub-text, #F4EFDD);margin:0 0 1rem;">{{ lead.about_me }}</p>
             {% endif %}
             {% if email_visible and lead.primary_email or phone_visible and lead.phone or discord_visible and lead.discord_handle %}
-            <div style="display:flex;flex-direction:column;gap:0.5rem;">
+            <div data-lead-contacts style="display:flex;flex-direction:column;gap:0.5rem;">
                 {% if lead.primary_email and email_visible %}
                 <div style="display:flex;gap:0.5rem;font-size:0.875rem;">
                     <span style="color:var(--hub-text-muted, #96ACBB);min-width:60px;">Email</span>
@@ -658,7 +658,7 @@
                 {% if lead.phone and phone_visible %}
                 <div style="display:flex;gap:0.5rem;font-size:0.875rem;">
                     <span style="color:var(--hub-text-muted, #96ACBB);min-width:60px;">Phone</span>
-                    {% with tel=lead.phone|tel_href %}{% if tel %}<a href="tel:{{ tel }}" style="color:var(--color-tuscan-yellow, #EEB44B);">{{ lead.phone }}</a>{% else %}<span style="color:var(--hub-text, #F4EFDD);">{{ lead.phone }}</span>{% endif %}{% endwith %}
+                    {% with tel=lead.phone|tel_href %}{% if tel %}<a href="tel:{{ tel }}">{{ lead.phone }}</a>{% else %}<span style="color:var(--hub-text, #F4EFDD);">{{ lead.phone }}</span>{% endif %}{% endwith %}
                 </div>
                 {% endif %}
                 {% if lead.discord_handle and discord_visible %}

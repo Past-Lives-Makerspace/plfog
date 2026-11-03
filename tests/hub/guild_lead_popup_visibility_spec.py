@@ -63,15 +63,14 @@ def describe_guild_lead_popup():
         _login(client)
         body = _guild_page(client, _lead(email=False))
 
+        # The address appears nowhere, so neither the popup row nor the Email Guild Lead button links it.
         assert "lena.lead@example.com" not in body
-        assert "Email Guild Lead" not in body
 
     def it_shows_the_email_and_button_when_public(client: Client):
         _login(client)
         body = _guild_page(client, _lead())
 
-        assert 'href="mailto:lena.lead@example.com"' in body
-        assert "Email Guild Lead" in body
+        assert body.count('href="mailto:lena.lead@example.com"') == 2  # popup row and Email Guild Lead button
 
     def it_links_a_public_phone_for_dialing(client: Client):
         _login(client)
@@ -79,13 +78,17 @@ def describe_guild_lead_popup():
 
         assert 'href="tel:5035550199"' in body
 
-    def it_renders_no_contact_rows_when_every_contact_is_hidden(client: Client):
+    def it_renders_the_contact_block_when_a_contact_is_public(client: Client):
+        _login(client)
+        body = _guild_page(client, _lead(email=False, phone=False))
+
+        assert "data-lead-contacts" in body
+
+    def it_renders_no_contact_block_when_every_contact_is_hidden(client: Client):
         _login(client)
         body = _guild_page(client, _lead(email=False, phone=False, discord_handle=False))
 
-        assert 'min-width:60px;">Phone' not in body
-        assert 'min-width:60px;">Email' not in body
-        assert 'min-width:60px;">Discord' not in body
+        assert "data-lead-contacts" not in body
 
     def it_gives_the_lead_the_same_view_as_other_members(client: Client):
         lead = _login(client, username="lena")
@@ -119,3 +122,36 @@ def describe_guild_flyer_lead_email():
         body = client.get(reverse("hub_guild_flyer", args=[guild.pk])).content.decode()
 
         assert "lena@example.com" in body
+
+
+def describe_orientor_photo_on_the_guild_page():
+    def _slot_page(client: Client, **visibility: bool) -> str:
+        from membership.models import GuildStaffMembership
+        from tests.membership.factories import (
+            GuildOrientationSettingsFactory,
+            GuildStaffMembershipFactory,
+            OrientationSlotFactory,
+        )
+
+        _login(client)
+        guild = GuildFactory(name="Writers Guild", guild_lead=MemberFactory(full_legal_name="Lena Lead"))
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        bob = MemberFactory(full_legal_name="Bob Orientor", directory_visibility=visibility)
+        bob.profile_photo.name = "profile_photos/bob-orientor.jpg"
+        bob.save(update_fields=["profile_photo"])
+        GuildStaffMembershipFactory(guild=guild, member=bob, role=GuildStaffMembership.Role.ORIENTER)
+        OrientationSlotFactory(guild=guild, orienter=bob)
+        resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
+        assert resp.status_code == 200
+        return resp.content.decode()
+
+    def it_hides_a_photo_the_orientor_set_to_hidden(client: Client):
+        body = _slot_page(client, profile_photo=False)
+
+        assert "bob-orientor.jpg" not in body
+        assert "pl-orient-avatar--initials" in body
+
+    def it_shows_a_public_photo(client: Client):
+        body = _slot_page(client)
+
+        assert "bob-orientor.jpg" in body
