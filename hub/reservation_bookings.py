@@ -262,6 +262,7 @@ def build_row(
         ended_early = cast(bool, reservation.has_ended_early)  # type: ignore[attr-defined]
         if (
             confirmed
+            and not reservation.is_season
             and reservation.equipment.is_hourly
             and reservation.starts_at <= now
             and credit_left > 0

@@ -697,8 +697,10 @@
 {% if not reservation.is_awaiting_payment and not reservation.credited_minutes_total %}
 {% url 'hub_equipment_reservation_cancel' equipment.slug reservation.pk as mgr_cancel_url %}
 {% with rpks=reservation.pk|stringformat:"s" who=reservation.member.display_name %}
-{# A paid row (#749) adds "Their $50.00 is refunded in full." #}
-{% if reservation.amount_paid_cents %}
+{# A paid row (#749) adds "Their $50.00 is refunded in full."; a paid season after it started (#1095) is not refunded. #}
+{% if reservation.keeps_payment_on_cancel %}
+{% include "components/confirm_modal.html" with confirm_id="mgr-cancel-"|add:rpks confirm_title="Cancel This Reservation?" confirm_message="The member has this season booked. Cancelling frees it and tells them why. The season has started, so their "|add:reservation.paid_display|add:" isn't refunded. An admin can refund it from Payments." confirm_action_url=mgr_cancel_url confirm_button_text="Cancel Reservation" confirm_note_name="reason" confirm_note_label="Reason" confirm_note_placeholder="Why is this being cancelled?" confirm_note_hint="The member will see this, in their email and the reservation's messages." %}
+{% elif reservation.amount_paid_cents %}
 {% include "components/confirm_modal.html" with confirm_id="mgr-cancel-"|add:rpks confirm_title="Cancel This Reservation?" confirm_message="The member has this time booked. Cancelling frees it and tells them why. Their "|add:reservation.paid_display|add:" is refunded in full." confirm_action_url=mgr_cancel_url confirm_button_text="Cancel Reservation" confirm_note_name="reason" confirm_note_label="Reason" confirm_note_placeholder="Why is this being cancelled?" confirm_note_hint="The member will see this, in their email and the reservation's messages." %}
 {% else %}
 {% include "components/confirm_modal.html" with confirm_id="mgr-cancel-"|add:rpks confirm_title="Cancel This Reservation?" confirm_message="The member has this time booked. Cancelling frees it and tells them why." confirm_action_url=mgr_cancel_url confirm_button_text="Cancel Reservation" confirm_note_name="reason" confirm_note_label="Reason" confirm_note_placeholder="Why is this being cancelled?" confirm_note_hint="The member will see this, in their email and the reservation's messages." %}

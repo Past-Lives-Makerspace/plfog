@@ -7773,6 +7773,15 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
             cleaned["payee"] = self.instance.payee
         return cleaned
 
+    def _keep_stored_season(self, cleaned: dict[str, Any]) -> None:
+        """A POST from a page without the Season card keeps the stored dates, and Hourly cannot be saved onto them."""
+        self.errors.pop("season_starts_on", None)
+        self.errors.pop("season_ends_on", None)
+        cleaned["season_starts_on"] = self.instance.season_starts_on
+        cleaned["season_ends_on"] = self.instance.season_ends_on
+        if self.instance.has_season and cleaned.get("pricing") == Equipment.Pricing.HOURLY:
+            self.add_error("pricing", self.SEASON_NOT_HOURLY)
+
     def _clean_season(self, cleaned: dict[str, Any]) -> None:
         """The Season card (#1095): both dates or neither, the end after the start, never hourly, nothing in the way.
 
@@ -7781,10 +7790,7 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
         the stored dates.
         """
         if self.SEASON_MARKER not in self.data:
-            self.errors.pop("season_starts_on", None)
-            self.errors.pop("season_ends_on", None)
-            cleaned["season_starts_on"] = self.instance.season_starts_on
-            cleaned["season_ends_on"] = self.instance.season_ends_on
+            self._keep_stored_season(cleaned)
             return
         if "season_starts_on" not in cleaned or "season_ends_on" not in cleaned:
             return  # A date that did not parse already carries its own error.

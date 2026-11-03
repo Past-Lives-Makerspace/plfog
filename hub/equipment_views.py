@@ -439,10 +439,7 @@ def _season_context(
         "season_minutes": equipment.season_minutes,
         "can_reserve_season": state == Equipment.SeasonState.OPEN and not blockers,
         # The member's own season row sits under Your Reservations Here; the card says it is theirs.
-        "holds_season": any(
-            reservation.is_season and reservation.status in EquipmentReservation.HOLDING_STATUSES
-            for reservation in my_reservations
-        ),
+        "holds_season": any(reservation.holds_current_season() for reservation in my_reservations),
         "season_confirm_message": _season_confirm_message(
             equipment, needs_approval=needs_approval, late_cancel_sentence=late_cancel_sentence
         ),
@@ -1037,6 +1034,8 @@ def _refund_sentence(reservation: EquipmentReservation) -> str:
         return f" Your {reservation.paid_display} is being refunded to your card."
     if reservation.refund_outcome == "failed":
         return f" Your {reservation.paid_display} refund is being processed."
+    if reservation.refund_outcome == "kept":
+        return f" {reservation.season_payment_kept_sentence}"
     return ""
 
 
@@ -1174,6 +1173,9 @@ def _manager_cancel_message(reservation: EquipmentReservation, manager: Member) 
     told = "" if own_row else " The member has been told."
     if reservation.refund_outcome == "failed":
         told += _REFUND_FAILED_TAIL
+    if reservation.refund_outcome == "kept":
+        # A paid season cancelled after it started (#1095): nothing refunds on its own.
+        told += " The season had started, so the payment isn't refunded. An admin can refund it from Payments."
     return f"Reservation cancelled.{told}"
 
 

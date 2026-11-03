@@ -180,12 +180,13 @@ def _reservation_activities(area_ids: set[int], now: datetime, horizon: datetime
     """Confirmed equipment reservations and blocks overlapping the window. The member who reserved is never read.
 
     A manager's block (#657) keeps the area busy too, titled "Held" so it never reads as a member's booking.
+    A season reservation (#1095) is left out: a bed held for months says nothing about who is there now.
     """
     from membership.models import EquipmentReservation
 
     reservations = (
         EquipmentReservation.objects.confirmed()
-        .filter(equipment__area_id__in=area_ids, starts_at__lte=horizon, ends_at__gt=now)
+        .filter(equipment__area_id__in=area_ids, is_season=False, starts_at__lte=horizon, ends_at__gt=now)
         .select_related("equipment")
     )
     return [

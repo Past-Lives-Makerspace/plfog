@@ -22,6 +22,7 @@ from django.utils import timezone
 from membership import equipment as equipment_service
 from membership.models import (
     Equipment,
+    EquipmentCredit,
     EquipmentError,
     EquipmentReservation,
     Member,
@@ -359,3 +360,138 @@ def describe_season_reservation_words():
         ).walk("VEVENT")[0]
         assert event.decoded("dtstart") == starts_at
         assert "transp" not in event
+
+
+def describe_holding_the_current_season():
+    def it_is_the_holder_only_while_its_span_is_the_items_season_as_set_now():
+        bed = _bed(start_offset=-200, end_offset=10)
+        reservation = _reserve(bed, _member("lastyears"))
+        assert reservation.holds_current_season()
+        # The manager moves on to next year's dates while last year's row is still running.
+        bed.season_starts_on = timezone.localdate() + timedelta(days=120)
+        bed.season_ends_on = timezone.localdate() + timedelta(days=400)
+        bed.save(update_fields=["season_starts_on", "season_ends_on"])
+        reservation.refresh_from_db()
+        assert not reservation.holds_current_season()
+        assert bed.season_state() == Equipment.SeasonState.OPEN
+
+    def it_is_not_the_holder_once_cancelled_or_without_a_season():
+        bed = _bed()
+        holder = _member("letgo")
+        reservation = _reserve(bed, holder)
+        reservation.cancel(holder)
+        assert not reservation.holds_current_season()
+        assert not EquipmentReservationFactory(equipment=EquipmentFactory()).holds_current_season()
+
+
+def describe_no_credit_on_a_season():
+    def _hourly_after_a_season(username: str) -> tuple[Equipment, EquipmentReservation, Member]:
+        """A season row in progress, then the dates cleared and Hourly with End Early turned on."""
+        bed = _bed(start_offset=-30, end_offset=260)
+        holder = _member(username)
+        reservation = _reserve(bed, holder)
+        Equipment.objects.filter(pk=bed.pk).update(
+            season_starts_on=None,
+            season_ends_on=None,
+            pricing=Equipment.Pricing.HOURLY,
+            hourly_rate_cents=1000,
+            early_end_credit=True,
+        )
+        reservation.refresh_from_db()
+        return reservation.equipment, reservation, holder
+
+    def it_never_offers_or_allows_end_early():
+        _equipment, reservation, holder = _hourly_after_a_season("noendearly")
+        assert not reservation.can_end_early(holder, now=timezone.now(), credited_minutes=0)
+        with pytest.raises(EquipmentError, match=EquipmentReservation.SEASON_NOT_CREDITABLE_MESSAGE):
+            reservation.end_early(holder)
+        assert not EquipmentCredit.objects.exists()
+
+    def it_refuses_a_managers_credit_unused_time():
+        equipment, reservation, _holder = _hourly_after_a_season("nocreditunused")
+        manager = _member("creditwarden")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=manager)
+        with pytest.raises(EquipmentError, match=EquipmentReservation.SEASON_NOT_CREDITABLE_MESSAGE):
+            equipment_service.grant_credit(equipment, reservation.member, manager, 60, reservation=reservation)
+        assert not EquipmentCredit.objects.exists()
+
+
+def describe_cancelling_a_paid_season():
+    """Felix's rule (#1095): a paid season refunds in full before it starts, and nothing once it has started."""
+
+    def _paid_season(username: str, *, start_offset: int) -> tuple[EquipmentReservation, Member]:
+        bed = _bed(start_offset=start_offset, end_offset=200, pricing=Equipment.Pricing.DONATION)
+        holder = _member(username)
+        starts_at, ends_at = bed.season_span()
+        reservation = EquipmentReservationFactory(
+            equipment=bed,
+            member=holder,
+            is_season=True,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            amount_paid_cents=2500,
+            stripe_payment_id=f"pi_{username}",
+        )
+        return reservation, holder
+
+    @patch("billing.stripe_utils.create_refund", return_value={"id": "re_season_early", "status": "succeeded"})
+    def it_refunds_in_full_when_cancelled_before_the_season_starts(mock_refund):
+        reservation, holder = _paid_season("earlyleaver", start_offset=10)
+        assert not reservation.keeps_payment_on_cancel()
+        mail.outbox.clear()
+        reservation.cancel(holder)
+        assert reservation.refund_outcome == "refunded"
+        assert mock_refund.call_count == 1
+        assert any("Your $25.00 has been refunded to your card." in message.body for message in mail.outbox)
+
+    @patch("billing.stripe_utils.create_refund")
+    def it_keeps_the_payment_when_the_member_cancels_after_the_season_started(mock_refund):
+        reservation, holder = _paid_season("midleaver", start_offset=-10)
+        assert reservation.keeps_payment_on_cancel()
+        mail.outbox.clear()
+        reservation.cancel(holder)
+        assert reservation.status == EquipmentReservation.Status.CANCELLED
+        assert reservation.refund_outcome == "kept"
+        assert not mock_refund.called
+        assert reservation.refundable_cents == 2500  # still refundable by hand from Payments
+        assert any("Your $25.00 isn't refunded once the season has started." in m.body for m in mail.outbox)
+        # The bed is free for the next person.
+        assert reservation.equipment.season_state() == Equipment.SeasonState.OPEN
+
+    @patch("billing.stripe_utils.create_refund")
+    def it_keeps_the_payment_when_a_manager_cancels_after_the_season_started(mock_refund):
+        reservation, _holder = _paid_season("managerleft", start_offset=-10)
+        manager = _member("seasonclerk")
+        EquipmentStaffMembershipFactory(equipment=reservation.equipment, member=manager)
+        mail.outbox.clear()
+        reservation.cancel(manager, reason="Bed 9Z is closing for repairs.")
+        assert reservation.refund_outcome == "kept"
+        assert not mock_refund.called
+        assert any("isn't refunded once the season has started." in m.body for m in mail.outbox)
+
+    @patch("billing.stripe_utils.create_refund", return_value={"id": "re_season_decline", "status": "succeeded"})
+    def it_still_refunds_a_declined_request_after_the_season_started(mock_refund):
+        reservation, _holder = _paid_season("declinedlate", start_offset=-10)
+        EquipmentReservation.objects.filter(pk=reservation.pk).update(status=WAITING)
+        reservation.refresh_from_db()
+        manager = _member("declineclerk")
+        EquipmentStaffMembershipFactory(equipment=reservation.equipment, member=manager)
+        reservation.decline(manager, reason="Bed 9Z is spoken for by the guild.")
+        assert reservation.refund_outcome == "refunded"
+
+    @patch("billing.stripe_utils.create_refund", return_value={"id": "re_slot_started", "status": "succeeded"})
+    def it_keeps_the_full_refund_for_a_time_slot(mock_refund):
+        tool = EquipmentFactory(pricing=Equipment.Pricing.DONATION)
+        manager = _member("slotclerk")
+        EquipmentStaffMembershipFactory(equipment=tool, member=manager)
+        started = timezone.now() - timedelta(minutes=30)
+        slot = EquipmentReservationFactory(
+            equipment=tool,
+            starts_at=started,
+            ends_at=started + timedelta(hours=2),
+            amount_paid_cents=1500,
+            stripe_payment_id="pi_slot_started",
+        )
+        assert not slot.keeps_payment_on_cancel()
+        slot.cancel(manager, reason="The kiln room is flooded.")
+        assert slot.refund_outcome == "refunded"

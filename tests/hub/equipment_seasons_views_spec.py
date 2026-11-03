@@ -175,6 +175,18 @@ def describe_the_season_card_on_hours_and_limits():
         assert response.status_code == 200
         assert "A season can be free or donation based, not hourly." in response.content.decode()
 
+    def it_refuses_hourly_from_a_page_without_the_card_while_season_dates_are_stored(client: Client):
+        bed = _bed(name="Oldpage Bed 0H")
+        EquipmentStaffMembershipFactory(equipment=bed, member=_login(client, "oldhourly"))
+        data = _settings(pricing="hourly", hourly_rate="20")
+        data.pop("season_shown")
+        response = client.post(reverse("hub_equipment_hours_save", args=[bed.slug]), data)
+        assert response.status_code == 200
+        card = _field_errors(response.content.decode(), "data-pricing-card")
+        assert "A season can be free or donation based, not hourly." in card
+        bed.refresh_from_db()
+        assert bed.pricing == Equipment.Pricing.FREE
+
     def it_saves_a_donation_season(client: Client):
         bed = EquipmentFactory(name="Wrenfield Bed 3B")
         EquipmentStaffMembershipFactory(equipment=bed, member=_login(client, "donationseason"))
@@ -377,6 +389,19 @@ def describe_the_item_page():
         EquipmentStaffMembershipFactory(equipment=bed, member=manager)
         assert "Set the next season" in _detail(client, bed)
 
+    def it_offers_the_new_season_to_last_seasons_holder_once_new_dates_are_set(client: Client):
+        bed = _bed(start_offset=-200, end_offset=10)
+        member = _login(client, "lastholder")
+        starts_at, ends_at = bed.season_span()
+        EquipmentReservationFactory(equipment=bed, member=member, is_season=True, starts_at=starts_at, ends_at=ends_at)
+        assert "data-season-yours" in _detail(client, bed)
+        bed.season_starts_on = timezone.localdate() + timedelta(days=120)
+        bed.season_ends_on = timezone.localdate() + timedelta(days=400)
+        bed.save(update_fields=["season_starts_on", "season_ends_on"])
+        content = _detail(client, bed)
+        assert "data-season-yours" not in content
+        assert f"Reserve This Season, {bed.season_label}" in content
+
     def it_shows_the_button_to_others_again_after_the_holder_cancels(client: Client):
         bed = _bed(start_offset=-10, end_offset=150)
         holder = _login(client, "giveitback")
@@ -389,6 +414,58 @@ def describe_the_item_page():
         other = Client()
         _login(other, "nextup")
         assert "data-reserve-season" in _detail(other, bed)
+
+
+def describe_cancelling_a_paid_season():
+    def _paid(member: Member, start_offset: int) -> EquipmentReservation:
+        bed = _bed(start_offset=start_offset, pricing=Equipment.Pricing.DONATION)
+        starts_at, ends_at = bed.season_span()
+        return EquipmentReservationFactory(
+            equipment=bed,
+            member=member,
+            is_season=True,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            amount_paid_cents=2500,
+            stripe_payment_id="pi_view_season",
+        )
+
+    def it_tells_the_member_before_and_after_cancelling_that_a_started_season_is_not_refunded(client: Client):
+        reservation = _paid(_login(client, "paidmid"), start_offset=-10)
+        content = _detail(client, reservation.equipment)
+        assert (
+            "The season opens for the next person. Your $25.00 isn&#x27;t refunded once the season has started."
+            in content
+        )
+        response = client.post(
+            reverse("hub_equipment_reservation_cancel", args=[reservation.equipment.slug, reservation.pk]),
+            HTTP_HX_REQUEST="true",
+        )
+        assert _toast(response) == (
+            "Reservation cancelled. Your $25.00 isn't refunded once the season has started.",
+            "success",
+        )
+
+    def it_promises_the_full_refund_before_the_season_starts(client: Client):
+        reservation = _paid(_login(client, "paidearly"), start_offset=10)
+        content = _detail(client, reservation.equipment)
+        assert "You&#x27;ll get an automatic full refund." in content
+
+    def it_tells_a_manager_the_payment_is_kept(client: Client):
+        reservation = _paid(Member.objects.get(pk=_login(Client(), "paidholder").pk), start_offset=-10)
+        manager = _login(client, "paidwarden")
+        EquipmentStaffMembershipFactory(equipment=reservation.equipment, member=manager)
+        content = _manage(client, reservation.equipment).replace("&#x27;", "'")
+        assert (
+            "The season has started, so their $25.00 isn't refunded. An admin can refund it from Payments." in content
+        )
+        response = client.post(
+            reverse("hub_equipment_reservation_cancel", args=[reservation.equipment.slug, reservation.pk]),
+            {"reason": "Bed closed for the winter."},
+        )
+        assert response.status_code == 302
+        messages = [str(m) for m in response.wsgi_request._messages]
+        assert any("The season had started, so the payment isn't refunded." in m for m in messages)
 
 
 def describe_the_directory_card():
@@ -420,6 +497,18 @@ def describe_the_directory_card():
 
 
 def describe_the_bookings_tab():
+    def it_never_offers_credit_unused_time_on_a_season_row(client: Client):
+        bed = _bed(start_offset=-30, end_offset=260)
+        manager = _login(client, "creditlooker")
+        EquipmentStaffMembershipFactory(equipment=bed, member=manager)
+        starts_at, ends_at = bed.season_span()
+        EquipmentReservationFactory(equipment=bed, is_season=True, starts_at=starts_at, ends_at=ends_at)
+        Equipment.objects.filter(pk=bed.pk).update(
+            season_starts_on=None, season_ends_on=None, pricing=Equipment.Pricing.HOURLY, hourly_rate_cents=1000
+        )
+        content = client.get(f"{reverse('hub_equipment_bookings')}?show=all").content.decode()
+        assert "data-credit-unused-menu-item" not in content
+
     def it_offers_the_member_cancel_on_a_season_that_already_started(client: Client):
         bed = _bed(start_offset=-10, end_offset=150)
         member = _login(client, "midseason")

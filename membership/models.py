@@ -20417,6 +20417,50 @@ class EquipmentReservation(models.Model):
         local = timezone.localtime(self.starts_at)
         return f"{local:%a, %b} {local.day}, {_clock(self.starts_at)} to {_clock(self.ends_at)}"
 
+    def holds_current_season(self) -> bool:
+        """Whether this row is the holder of its item's season as set now: a held season row spanning it exactly.
+
+        A row from an earlier season, or from dates a manager has since changed, does not hold the current one.
+        """
+        equipment = self.equipment
+        return (
+            self.is_season
+            and self.status in self.HOLDING_STATUSES
+            and equipment.has_season
+            and (self.starts_at, self.ends_at) == equipment.season_span()
+        )
+
+    #: The refusal for ending early or crediting unused time on a season reservation (#1095): a season is never hourly time.
+    SEASON_NOT_CREDITABLE_MESSAGE: ClassVar[str] = "A season reservation has no unused time to credit."
+
+    def _refund_on_cancel(self, actor: Member, now: datetime_type) -> str:
+        """Refund a paid row in full on cancel (#749), or keep a paid season's payment once it started (#1095).
+
+        The late fee stays separate, never netted, and a refund Stripe refuses never undoes the cancel.
+
+        Returns:
+            :func:`membership.equipment.refund_if_paid`'s outcome, or ``"kept"`` for a started paid season.
+        """
+        if self.keeps_payment_on_cancel(now):
+            return "kept"
+        from membership import equipment as equipment_service
+
+        return equipment_service.refund_if_paid(self, actor=actor.user)
+
+    def keeps_payment_on_cancel(self, now: datetime_type | None = None) -> bool:
+        """Whether a cancel now keeps what was paid (Felix, #1095): a paid season row once its season has started.
+
+        Before the season starts it refunds in full like any reservation; a time slot always does.
+        Nothing stops an admin refunding it by hand from the Payments page.
+        """
+        moment = now or timezone.now()
+        return self.is_season and self.amount_paid_cents > 0 and self.starts_at <= moment
+
+    @property
+    def season_payment_kept_sentence(self) -> str:
+        """The words for a paid season cancelled after it started: "Your $15.00 isn't refunded once the season has started."."""
+        return f"Your {self.paid_display} isn't refunded once the season has started."
+
     def can_self_cancel(self, now: datetime_type) -> bool:
         """Whether its member's own Cancel is still offered by time: before it starts, or all season long (#1095)."""
         return self.ends_at > now if self.is_season else self.starts_at > now
@@ -20788,9 +20832,7 @@ class EquipmentReservation(models.Model):
                 self.write_message(author=actor.user, body=cleaned_reason)
         from membership import equipment as equipment_service
 
-        # Every cancel of a paid row refunds it in full (#749); the late fee above stays separate,
-        # never netted, and a refund Stripe refuses never undoes the cancel.
-        self.refund_outcome = equipment_service.refund_if_paid(self, actor=actor.user)
+        self.refund_outcome = self._refund_on_cancel(actor, now)
         if not acting_as_manager:
             equipment_service.notify_self_cancelled(self, fee)
         elif not is_own_row:
@@ -20858,6 +20900,7 @@ class EquipmentReservation(models.Model):
             member is not None
             and self.member_id == member.pk
             and not self.is_block
+            and not self.is_season
             and self.status == self.Status.CONFIRMED
             and equipment.is_hourly
             and equipment.early_end_credit
@@ -20886,6 +20929,8 @@ class EquipmentReservation(models.Model):
             row.equipment = locked
             if row.member_id != actor.pk or row.is_block:
                 raise EquipmentError("Only the member who booked this can end it early.")
+            if row.is_season:
+                raise EquipmentError(self.SEASON_NOT_CREDITABLE_MESSAGE)
             if not (locked.is_hourly and locked.early_end_credit):
                 raise EquipmentError("Ending early isn't turned on for this equipment.")
             if row.status != self.Status.CONFIRMED:

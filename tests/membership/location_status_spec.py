@@ -72,6 +72,20 @@ def _only(guild):
     return statuses[0]
 
 
+def describe_season_reservations():
+    def it_leaves_a_season_out_so_a_shorter_reservation_shows():
+        location = LocationFactory(name="Ploughfield Plot")
+        bed = EquipmentFactory(name="Furrowline Bed", area=location)
+        EquipmentReservationFactory(
+            equipment=bed, is_season=True, starts_at=NOW - timedelta(days=60), ends_at=NOW + timedelta(days=90)
+        )
+        assert _only(location.guild).light == Light.FREE
+        _reservation(location, start=NOW - timedelta(minutes=30), minutes=90)
+        status = _only(location.guild)
+        assert status.light == Light.IN_USE
+        assert status.activity.ends_at == NOW + timedelta(minutes=60)
+
+
 def describe_guild_location_statuses():
     def it_is_empty_without_a_location():
         assert guild_location_statuses(GuildFactory(), now=NOW) == []

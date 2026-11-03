@@ -908,6 +908,8 @@ def refund_line(reservation: EquipmentReservation) -> str:
         return f"Your {reservation.paid_display} has been refunded to your card. It can take 5 to 10 days to show. "
     if reservation.refund_outcome == "failed":
         return f"Your {reservation.paid_display} refund is being processed. "
+    if reservation.refund_outcome == "kept":
+        return f"{reservation.season_payment_kept_sentence} "
     return ""
 
 
@@ -945,6 +947,8 @@ def _ensure_creditable_reservation(reservation: EquipmentReservation, equipment:
         or reservation.status != EquipmentReservation.Status.CONFIRMED
     ):
         raise EquipmentError("Only a confirmed reservation can have its unused time credited.")
+    if reservation.is_season:
+        raise EquipmentError(EquipmentReservation.SEASON_NOT_CREDITABLE_MESSAGE)
     if reservation.starts_at > timezone.now():
         raise EquipmentError("This reservation hasn't started yet.")
     # The member already ended it early (#787): its unused time is credited, and its length is now what they used.
