@@ -1,0 +1,25 @@
+{% comment %}
+Start Session and Stop Session (#1096) on the member's own in progress row on Your Reservations
+Here, rendered only while the schedule builder set reservation.session_action ("start" or
+"stop"). Start posts at once; Stop confirms first, naming the credit it gives. Both post through
+htmx and the refreshed schedule comes back with a toast; hx-vals keeps the week and day.
+Context: reservation, equipment, week_offset_str, selected_day_str.
+{% endcomment %}
+{% with rpks=reservation.pk|stringformat:"s" session_vals='{"week": "'|add:week_offset_str|add:'", "day": "'|add:selected_day_str|add:'"}' %}
+{% if reservation.session_action == "start" %}
+<button type="button" class="pl-btn pl-btn--primary pl-btn--sm" data-session-start
+        hx-post="{% url 'hub_equipment_session_start' equipment.slug reservation.pk %}" hx-target="#equipment-schedule" hx-swap="outerHTML"
+        hx-vals='{{ session_vals|safe }}' data-guidance-target="reservations.start-session">Start Session</button>
+{% elif reservation.session_action == "stop" %}
+{% url 'hub_equipment_session_stop' equipment.slug reservation.pk as stop_url %}
+<button type="button" class="pl-btn pl-btn--primary pl-btn--sm" data-session-stop data-guidance-target="reservations.stop-session"
+        @click="$dispatch('open-confirm', 'session-stop-{{ rpks }}')">Stop Session</button>
+{% if reservation.session_stop_hours %}
+{% with stop_message="The "|add:reservation.session_stop_hours|add:" you have not used become credit here." %}
+{% include "components/confirm_modal.html" with confirm_id="session-stop-"|add:rpks confirm_title="Stop your session now?" confirm_message=stop_message confirm_button_text="Stop Session" confirm_button_style="primary" confirm_cancel_text="Keep Going" confirm_hx_post=stop_url confirm_hx_target="#equipment-schedule" confirm_hx_vals=session_vals %}
+{% endwith %}
+{% else %}
+{% include "components/confirm_modal.html" with confirm_id="session-stop-"|add:rpks confirm_title="Stop your session now?" confirm_message="Less than half an hour is left, so stopping adds no credit." confirm_button_text="Stop Session" confirm_button_style="primary" confirm_cancel_text="Keep Going" confirm_hx_post=stop_url confirm_hx_target="#equipment-schedule" confirm_hx_vals=session_vals %}
+{% endif %}
+{% endif %}
+{% endwith %}

@@ -37,6 +37,7 @@ SKIP_PARTS = {".venv", "node_modules", "tests", "spec", "migrations", "staticfil
 ATTACHMENT_SOURCES: dict[tuple[str, str], frozenset[str]] = {
     ("hub/views.py", "guild_qr_download"): frozenset({"hub_guild_qr"}),
     ("hub/equipment_views.py", "hub_equipment_qr"): frozenset({"hub_equipment_qr"}),
+    ("hub/equipment_session_views.py", "hub_equipment_session_qr"): frozenset({"hub_equipment_session_qr"}),
     ("hub/orientations_views.py", "hub_orientation_type_qr"): frozenset({"hub_orientation_type_qr"}),
     ("hub/views.py", "calendar_export_ics"): frozenset({"hub_calendar_export_ics"}),
     ("hub/views.py", "event_ics"): frozenset({"hub_event_ics"}),

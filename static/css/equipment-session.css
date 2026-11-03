@@ -1,0 +1,100 @@
+/* The session page (#1096): what a machine's session QR opens, read on a phone at the machine.
+   One centred card; Start Session and Stop Session are big, full width thumb targets. */
+.pl-session {
+    display: flex;
+    justify-content: center;
+    padding: 1rem 0 2rem;
+}
+
+.pl-session__card {
+    width: 100%;
+    max-width: 32rem;
+    padding: 1.5rem;
+}
+
+.pl-session__eyebrow {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-tuscan-yellow);
+}
+
+.pl-session__name {
+    margin-top: 0.25rem;
+    font-size: 1.75rem;
+    line-height: 1.2;
+}
+
+.pl-session__where {
+    margin-top: 0.25rem;
+    color: var(--hub-text-muted);
+}
+
+.pl-session__booking {
+    margin-top: 1.25rem;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    background: var(--hub-surface);
+    font-weight: 600;
+}
+
+.pl-session__lead {
+    margin-top: 1.25rem;
+    font-size: 1.05rem;
+}
+
+.pl-session__running {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+.pl-session__dot {
+    flex: 0 0 auto;
+    width: 0.65rem;
+    height: 0.65rem;
+    border-radius: 50%;
+    background: #3fb950;
+    box-shadow: 0 0 0 4px rgba(63, 185, 80, 0.2);
+}
+
+.pl-session__actions {
+    margin-top: 1.5rem;
+}
+
+.pl-session__go {
+    width: 100%;
+    min-height: 3.25rem;
+    font-size: 1.1rem;
+}
+
+.pl-session__note {
+    margin-top: 1rem;
+    font-size: 0.875rem;
+    color: var(--hub-text-muted);
+}
+
+.pl-session-times {
+    display: inline-block;
+    margin-top: 0.75rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    background: var(--hub-surface);
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.pl-session__credit {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--hub-border);
+}
+
+.pl-session__back {
+    margin-top: 1.5rem;
+    font-size: 0.875rem;
+}

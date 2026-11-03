@@ -1,0 +1,7 @@
+{% comment %}
+A reservation's session times (#1096), once its member pressed Start Session: "Session 9:05 AM to
+10:20 AM", or "Session started 9:05 AM" while it runs. The stop is the Stop Session time, else
+the booked end once it passed (EquipmentReservation.session_ended_at). Renders nothing before a
+start. Context: reservation, and session_class for the pill each surface uses.
+{% endcomment %}
+{% if reservation.session_started_at %}{% with ended=reservation.session_ended_at %}<span class="{{ session_class|default:'pl-session-times' }}" data-session-times="{{ reservation.pk }}">{% if ended %}Session {{ reservation.session_started_at|time:"g:i A" }} to {{ ended|time:"g:i A" }}{% else %}Session started {{ reservation.session_started_at|time:"g:i A" }}{% endif %}</span>{% endwith %}{% endif %}

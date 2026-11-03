@@ -18831,6 +18831,15 @@ class Equipment(HeroCropMixin, models.Model):
             "and the time they did not use, rounded up to the half hour, becomes credit here."
         ),
     )
+    sessions_enabled = models.BooleanField(
+        default=False,
+        # The database default too: the old release inserts equipment without it while this migrates.
+        db_default=False,
+        help_text=(
+            "Hourly items only (#1096): members press Start Session and Stop Session on their own reservation, "
+            "from the item page or the machine's session QR code. Stop credits the unused time as End Early does."
+        ),
+    )
     # --- Seasons (#1095): with both dates set, a member reserves the whole season with one press.
     season_starts_on = models.DateField(
         null=True,
@@ -19037,6 +19046,36 @@ class Equipment(HeroCropMixin, models.Model):
         from membership.qr import qr_png_bytes as render_png
 
         return render_png(self.qr_url)
+
+    # --- Sessions (#1096): the second QR, which opens the scanning member's Start or Stop here.
+
+    @property
+    def has_sessions(self) -> bool:
+        """True while members can start and stop sessions here: the switch, on an hourly item (#1096)."""
+        return self.is_hourly and self.sessions_enabled
+
+    @property
+    def session_qr_url(self) -> str:
+        """The absolute session page URL the session QR encodes (#1096): one per item, never a reservation.
+
+        Stable for the same reason as :attr:`qr_url`, so a printed sheet keeps working; the page
+        finds the scanning member's current reservation itself.
+        """
+        from membership.orientations import _absolute_url
+
+        return _absolute_url(reverse("hub_equipment_session", args=[self.slug]))
+
+    def session_qr_svg(self) -> str:
+        """Inline, CSS-scalable SVG QR of the session page (#1096)."""
+        from membership.qr import qr_svg as render_qr
+
+        return render_qr(self.session_qr_url)
+
+    def session_qr_png_bytes(self) -> bytes:
+        """PNG bytes of the session QR (#1096), a raster download for print."""
+        from membership.qr import qr_png_bytes as render_png
+
+        return render_png(self.session_qr_url)
 
     @property
     def qr_sheet_refusal(self) -> str:
@@ -20279,6 +20318,27 @@ class EquipmentAgreementAcceptance(models.Model):
         return f"{self.member.display_name} agreed to the {self.equipment.name} usage agreement on {self.accepted_at.date()}"
 
 
+@dataclass(frozen=True)
+class SessionStart:
+    """What one Start Session did (#1096): when the session started, and whether it already had."""
+
+    started_at: datetime_type
+    #: The session had already started: this press changed nothing.
+    already_started: bool
+
+
+@dataclass(frozen=True)
+class SessionStop:
+    """What one Stop Session did (#1096): when it stopped, the minutes credited, why none were, and whether it was a repeat."""
+
+    stopped_at: datetime_type
+    minutes: int
+    #: Why nothing was credited ("Less than half an hour is left..."), "" when credit was given or on a repeat.
+    note: str
+    #: The session had already stopped: this press changed nothing.
+    already_stopped: bool
+
+
 class EquipmentReservation(models.Model):
     """A member's hold on a piece of equipment: instant and self confirmed, or a request (#748).
 
@@ -20301,6 +20361,10 @@ class EquipmentReservation(models.Model):
     # View-attached (#787): the hours End Early would credit, set by the schedule builder on the member's
     # own row only while it offers End Early; "" otherwise, so a renderer that never set it shows nothing.
     end_early_hours: str = ""
+    # View-attached (#1096): "start" or "stop" while the member's own row offers that session button, and
+    # the hours Stop would credit; "" otherwise, so a renderer that never set them shows nothing.
+    session_action: str = ""
+    session_stop_hours: str = ""
 
     class Status(models.TextChoices):
         CONFIRMED = "confirmed", "Confirmed"
@@ -20407,6 +20471,20 @@ class EquipmentReservation(models.Model):
         help_text=(
             "A confirmed paid season cancelled once its season had started (#1095): the payment was not refunded, "
             "so the manager's share is still owed. Written by the cancel itself."
+        ),
+    )
+    # --- Sessions (#1096): when the member actually started and stopped at the machine.
+    session_started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the member pressed Start Session (#1096); empty until then. Written once.",
+    )
+    session_stopped_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the member pressed Stop Session (#1096); empty when they never did, and then the "
+            "session ended at the booked end. Written once."
         ),
     )
 
@@ -20920,6 +20998,9 @@ class EquipmentReservation(models.Model):
         Equipment.objects.select_for_update().filter(pk=self.equipment_id).exists()
         self._ensure_not_credited()
 
+    #: End Early's refusal while Sessions are on (#1096): Stop Session ends and credits instead.
+    SESSIONS_REPLACE_END_EARLY_MESSAGE: ClassVar[str] = "Sessions are on for this equipment. Use Stop Session instead."
+
     #: The shortest unused stretch End Early credits (#787): one half hour.
     END_EARLY_MIN_MINUTES: ClassVar[int] = 30
 
@@ -20971,6 +21052,8 @@ class EquipmentReservation(models.Model):
             and self.status == self.Status.CONFIRMED
             and equipment.is_hourly
             and equipment.early_end_credit
+            # With Sessions on (#1096), Stop Session is the one way to end and credit, so End Early steps aside.
+            and not equipment.sessions_enabled
             and self.starts_at <= now < self.ends_at
             and credited_minutes == 0
             and self._end_early_has_time_left(now)
@@ -20991,35 +21074,214 @@ class EquipmentReservation(models.Model):
         """
         moment = now or timezone.now()
         with transaction.atomic():
-            locked = Equipment.objects.select_for_update().get(pk=self.equipment_id)
-            row = EquipmentReservation.objects.get(pk=self.pk)
-            row.equipment = locked
+            row = self._locked_fresh_row()
             if row.member_id != actor.pk or row.is_block:
                 raise EquipmentError("Only the member who booked this can end it early.")
             if row.is_season:
                 raise EquipmentError(self.SEASON_NOT_CREDITABLE_MESSAGE)
-            if not (locked.is_hourly and locked.early_end_credit):
+            if not (row.equipment.is_hourly and row.equipment.early_end_credit):
                 raise EquipmentError("Ending early isn't turned on for this equipment.")
+            if row.equipment.sessions_enabled:
+                # The same rule as can_end_early (#1096): with Sessions on, Stop Session is the way to end and credit.
+                raise EquipmentError(self.SESSIONS_REPLACE_END_EARLY_MESSAGE)
             if row.status != self.Status.CONFIRMED:
                 raise EquipmentError("Only a confirmed reservation can be ended early.")
             if row.starts_at > moment:
                 raise EquipmentError("This reservation hasn't started yet.")
-            if EquipmentCredit.objects.credited_on(row):
-                raise EquipmentError("Unused time on this reservation was already credited.")
-            if not row._end_early_has_time_left(moment):
-                raise EquipmentError("Less than half an hour is left, so there is nothing to credit.")
-            minutes = row.end_early_minutes(moment)
-            new_end = row.end_early_end(moment)
-            EquipmentReservation.objects.filter(pk=row.pk).update(ends_at=new_end)
-            EquipmentCredit.objects.create(
-                equipment=locked,
-                member=actor,
-                minutes=minutes,
-                kind=EquipmentCredit.Kind.ENDED_EARLY,
-                reservation=row,
-            )
+            refusal = row._rest_credit_refusal(moment)
+            if refusal:
+                raise EquipmentError(refusal)
+            minutes = row._credit_rest(actor, moment)
+        self.ends_at = row.ends_at
+        return minutes
+
+    def _locked_fresh_row(self) -> EquipmentReservation:
+        """Take the Equipment row lock (#787) and read this reservation fresh under it, its item the locked row.
+
+        The lock every spend, cancel, Credit Unused Time, End Early and Stop Session takes, so two of
+        them never both credit one booking. Call inside ``transaction.atomic()``.
+        """
+        locked = Equipment.objects.select_for_update().get(pk=self.equipment_id)
+        row = EquipmentReservation.objects.get(pk=self.pk)
+        row.equipment = locked
+        return row
+
+    def _rest_credit_refusal(self, moment: datetime_type) -> str:
+        """Why the rest of this booking cannot become credit at ``moment``, or "" (#787, #1096).
+
+        The once per reservation guard and the half hour rule End Early and Stop Session share.
+        Read on a fresh row under :meth:`_locked_fresh_row`.
+        """
+        if EquipmentCredit.objects.credited_on(self):
+            return "Unused time on this reservation was already credited."
+        if not self._end_early_has_time_left(moment):
+            return "Less than half an hour is left, so there is nothing to credit."
+        return ""
+
+    def _credit_rest(self, actor: Member, moment: datetime_type) -> int:
+        """End this booking at the last half hour mark and credit the rest, rounded up (#787); return the minutes.
+
+        The one writer of an ENDED_EARLY line, for End Early and Stop Session alike. Runs on a
+        fresh row under :meth:`_locked_fresh_row` once :meth:`_rest_credit_refusal` said "".
+        """
+        minutes = self.end_early_minutes(moment)
+        new_end = self.end_early_end(moment)
+        EquipmentReservation.objects.filter(pk=self.pk).update(ends_at=new_end)
+        EquipmentCredit.objects.create(
+            equipment=self.equipment,
+            member=actor,
+            minutes=minutes,
+            kind=EquipmentCredit.Kind.ENDED_EARLY,
+            reservation=self,
+        )
         self.ends_at = new_end
         return minutes
+
+    # --- Sessions (#1096): Start Session and Stop Session on the member's own reservation.
+
+    @property
+    def session_ended_at(self) -> datetime_type | None:
+        """When the session stopped: the Stop Session time, else the booked end once it has passed (#1096).
+
+        A started session nobody stopped ends at the booked end, with no overtime and no charge,
+        so it reads that way once the booking is over. ``None`` while it runs or never started.
+        """
+        if self.session_started_at is None:
+            return None
+        if self.session_stopped_at is not None:
+            return self.session_stopped_at
+        return self.ends_at if self.ends_at <= timezone.now() else None
+
+    def _session_offer_open(self, member: Member | None, now: datetime_type) -> bool:
+        """The gates Start and Stop share for showing a button (#1096): the member's own confirmed booking, in progress.
+
+        The switch is checked only before a start: a session already started can always be stopped,
+        so turning Sessions off never takes away the credit Stop promised.
+        """
+        return (
+            member is not None
+            and self.member_id == member.pk
+            and not self.is_block
+            and not self.is_season
+            and self.status == self.Status.CONFIRMED
+            and (self.session_started_at is not None or self.equipment.has_sessions)
+            and self.starts_at <= now < self.ends_at
+        )
+
+    def can_start_session(self, member: Member | None, *, now: datetime_type) -> bool:
+        """Whether Start Session shows on this row for ``member`` (#1096). :meth:`start_session` re-checks it all."""
+        return self.session_started_at is None and self._session_offer_open(member, now)
+
+    def can_stop_session(self, member: Member | None, *, now: datetime_type) -> bool:
+        """Whether Stop Session shows on this row for ``member`` (#1096): started, not stopped, not over."""
+        return (
+            self.session_started_at is not None
+            and self.session_stopped_at is None
+            and self._session_offer_open(member, now)
+        )
+
+    def session_stop_minutes(self, now: datetime_type, *, credited_minutes: int) -> int:
+        """The credit Stop Session would give right now (#1096): End Early's, or 0 when it would credit nothing."""
+        if credited_minutes or not self._end_early_has_time_left(now):
+            return 0
+        return self.end_early_minutes(now)
+
+    def attach_session_offer(self, member: Member | None, *, now: datetime_type, credited_minutes: int) -> None:
+        """Set the view attached :attr:`session_action` and :attr:`session_stop_hours` for ``member`` (#1096).
+
+        "start", or "stop" with the hours Stop would credit ("" when it would credit none); nothing
+        otherwise. The item page's Your Reservations Here and the Bookings tab both call it, so they
+        offer the same button. ``credited_minutes`` is the row's unused time already credited.
+        """
+        if self.can_start_session(member, now=now):
+            self.session_action = "start"
+        elif self.can_stop_session(member, now=now):
+            self.session_action = "stop"
+            minutes = self.session_stop_minutes(now, credited_minutes=credited_minutes)
+            self.session_stop_hours = duration_label(minutes) if minutes else ""
+
+    def _session_refusal(self, row: EquipmentReservation, actor: Member) -> str:
+        """Why ``actor`` may not start or stop a session on ``row`` (a fresh read), or "" (#1096)."""
+        if row.member_id != actor.pk or row.is_block:
+            return "Only the member who booked this can start or stop its session."
+        if row.is_season:
+            return "A season reservation has no sessions."
+        # A started session stays stoppable after the switch goes off (#1096): Stop keeps its promise.
+        if row.session_started_at is None and not row.equipment.has_sessions:
+            return "Sessions aren't turned on for this equipment."
+        if row.status != self.Status.CONFIRMED:
+            return "Only a confirmed reservation has a session."
+        return ""
+
+    def start_session(self, actor: Member, *, now: datetime_type | None = None) -> SessionStart:
+        """Record that the member started their session now (#1096).
+
+        Only during the booking, from its start until its end: starting early adds no time,
+        since the booking still runs from its booked start. A second press, a double tap or a
+        retry changes nothing: the conditional update writes the time once.
+
+        Raises:
+            EquipmentError: With the member facing reason when any gate fails.
+        """
+        moment = now or timezone.now()
+        row = EquipmentReservation.objects.select_related("equipment").get(pk=self.pk)
+        refusal = self._session_refusal(row, actor)
+        if refusal:
+            raise EquipmentError(refusal)
+        if row.session_started_at is not None:
+            self.session_started_at = row.session_started_at
+            return SessionStart(started_at=row.session_started_at, already_started=True)
+        if row.starts_at > moment:
+            raise EquipmentError(f"This reservation starts at {_clock(row.starts_at)}. Start your session then.")
+        if row.ends_at <= moment:
+            raise EquipmentError("This reservation already ended.")
+        started = EquipmentReservation.objects.filter(pk=row.pk, session_started_at__isnull=True).update(
+            session_started_at=moment
+        )
+        if not started:
+            # A second tap that raced the first: the first one's time stands. The update matched nothing
+            # only because that time is set, and it is written once, so it is never empty here.
+            first = cast(
+                datetime_type,
+                EquipmentReservation.objects.values_list("session_started_at", flat=True).get(pk=row.pk),
+            )
+            self.session_started_at = first
+            return SessionStart(started_at=first, already_started=True)
+        self.session_started_at = moment
+        return SessionStart(started_at=moment, already_started=False)
+
+    def stop_session(self, actor: Member, *, now: datetime_type | None = None) -> SessionStop:
+        """Record that the member stopped now and credit the unused time as End Early does (#1096).
+
+        Under the same lock as :meth:`end_early`, on a fresh read: the stop time is written once,
+        then the rest of the booking becomes credit through :meth:`_credit_rest` (the last half
+        hour mark, the time left rounded up, the once per reservation guard), whether or not the
+        item's End Early switch is on: turning Sessions on is the manager choosing it. With less
+        than half an hour left, or credit already given, the stop is recorded and nothing is
+        credited, and :attr:`SessionStop.note` says why. A second Stop changes nothing.
+
+        Raises:
+            EquipmentError: With the member facing reason when any gate fails.
+        """
+        moment = now or timezone.now()
+        with transaction.atomic():
+            row = self._locked_fresh_row()
+            refusal = self._session_refusal(row, actor)
+            if refusal:
+                raise EquipmentError(refusal)
+            if row.session_stopped_at is not None:
+                self.session_stopped_at = row.session_stopped_at
+                return SessionStop(stopped_at=row.session_stopped_at, minutes=0, note="", already_stopped=True)
+            if row.session_started_at is None:
+                raise EquipmentError("Start your session first.")
+            if row.ends_at <= moment:
+                raise EquipmentError("This reservation already ended, so its session ended with it.")
+            EquipmentReservation.objects.filter(pk=row.pk).update(session_stopped_at=moment)
+            note = row._rest_credit_refusal(moment)
+            minutes = 0 if note else row._credit_rest(actor, moment)
+        self.session_stopped_at = moment
+        self.ends_at = row.ends_at
+        return SessionStop(stopped_at=moment, minutes=minutes, note=note, already_stopped=False)
 
     def _lost_cancel_race_message(self) -> str:
         """Why a cancel lost its conditional update, from the row as it stands now (#748).

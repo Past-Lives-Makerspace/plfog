@@ -276,6 +276,8 @@ def build_row(
             )
         # A manager's own booking takes this staff menu, and still offers End Early under the same gates (#787).
         _offer_end_early(row, viewer, now)
+        # ...and the session buttons (#1096): only ever on the viewer's own booking, never on a member's behalf.
+        reservation.attach_session_offer(viewer, now=now, credited_minutes=row.credited_minutes)
         return row
     # The member menu: only ever on the viewer's own row (the staff rows are managed or own).
     # Before it starts, or all season long on a season reservation (#1095).
@@ -284,6 +286,7 @@ def build_row(
     )
     row.can_pay_fee = is_own and fee is not None and fee.is_unpaid
     _offer_end_early(row, viewer, now)
+    reservation.attach_session_offer(viewer, now=now, credited_minutes=row.credited_minutes)
     # A request was never booked, so cancelling it never carries a fee line (#748).
     if row.can_cancel_mine and confirmed:
         policy = policy_for_equipment(reservation.equipment, site=site)

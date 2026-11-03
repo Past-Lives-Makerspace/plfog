@@ -216,6 +216,11 @@
         <div class="pl-equip-pricing__early-end" data-early-end-switch>
           {% include "components/form_field.html" with field=settings_form.early_end_credit %}
         </div>
+        {# Sessions (#1096): saved only while Hourly is picked, like End Early. Once saved on, the session QR shows under it. #}
+        <div class="pl-equip-pricing__early-end" data-sessions-switch data-guidance-target="reservations.sessions-switch">
+          {% include "components/form_field.html" with field=settings_form.sessions_enabled %}
+        </div>
+        {% if equipment.has_sessions %}{% include "hub/partials/_equipment_session_qr.html" %}{% endif %}
       </div>
       <div class="pl-equip-pricing__fields hub-form-group" x-show="pricing === 'donation'"{% if settings_form.pricing_value != "donation" %} x-cloak{% endif %} data-pricing-donation>
         <div class="pl-otype-pricing__row">
@@ -629,6 +634,25 @@
   </div>
   {% endif %}
 
+  {% if equipment.has_sessions or manage_sessions %}
+  {# Sessions (#1096): when members actually started and stopped, newest first. A stop is Stop Session, else the booked end once it passed. #}
+  <div class="hub-card pl-equip-panel" data-sessions-card>
+    <h2 class="hub-detail-label pl-equip-panel__title">Sessions</h2>
+    {% if manage_sessions %}
+    <div class="pl-equip-res-list">
+      {% for reservation in manage_sessions %}
+      <div class="pl-equip-res-row" data-session-row="{{ reservation.pk }}">
+        <span>{{ reservation.starts_at|date:"D, M j" }} · booked {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}</span>
+        <span>{{ reservation.member.display_name }} {% include "hub/partials/_equipment_session_times.html" with session_class="pl-price-chip" %}{% if reservation.credited_unused_label %} <span class="pl-price-chip" data-credited-chip>{{ reservation.credited_unused_label }}</span>{% endif %}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="hub-text-muted pl-equip-panel__empty" data-sessions-empty>No sessions yet. Members start one from the item's page or its session QR code.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
   <div class="hub-card pl-equip-panel" data-upcoming-reservations-card>
     <h2 class="hub-detail-label pl-equip-panel__title">Upcoming Reservations</h2>
     {% if manage_reservations %}
@@ -643,7 +667,7 @@
       {% else %}
       <div class="pl-equip-res-row">
         <span>{% if reservation.is_season %}<span data-season-row>Season, {{ reservation.season_label }}</span>{% else %}{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}{% endif %}</span>
-        <span>{{ reservation.member.display_name }}{% if reservation.purpose %} <span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}{% if reservation.amount_paid_cents %} <span class="pl-price-chip" data-paid-chip>Paid {{ reservation.paid_display }}</span>{% endif %}{% if reservation.has_unread_messages %} <span class="pl-equip-badge pl-equip-badge--warn" data-thread-unread="{{ reservation.thread_key }}">New message</span>{% endif %}</span>
+        <span>{{ reservation.member.display_name }}{% if reservation.purpose %} <span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}{% if reservation.amount_paid_cents %} <span class="pl-price-chip" data-paid-chip>Paid {{ reservation.paid_display }}</span>{% endif %}{% if reservation.session_started_at %} {% include "hub/partials/_equipment_session_times.html" with session_class="pl-price-chip" %}{% endif %}{% if reservation.has_unread_messages %} <span class="pl-equip-badge pl-equip-badge--warn" data-thread-unread="{{ reservation.thread_key }}">New message</span>{% endif %}</span>
         <span class="pl-equip-approve-row__actions">
           {% include "hub/partials/reservation_messages_launch.html" with r=reservation launch_next=reservations_tab_url launch_class="pl-btn pl-btn--secondary pl-btn--sm" %}
           {% if reservation.credited_minutes_total %}

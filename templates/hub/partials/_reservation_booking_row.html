@@ -4,7 +4,8 @@ One Bookings tab row (#627) for an equipment reservation: the <tr> the Reservati
 Bookings pane and the Manage Bookings home (#768) both render, so a menu item or a column
 changes in one place. Read from the including loop: row (a hub.reservation_bookings.ReservationRow),
 is_staff_view (the staff columns) and bookings_next (where the menu's Approve lands). A thread with a message
-the viewer has not read shows a New message pill in the Status column.
+the viewer has not read shows a New message pill in the Status column, and a started session its
+times; the member's own in progress booking on an item with Sessions on carries Start or Stop Session.
 {% endcomment %}
 {% with r=row.reservation %}
 <tr data-reservation-row="{{ r.pk }}">
@@ -39,6 +40,19 @@ the viewer has not read shows a New message pill in the Status column.
     {% if r.refund_state == "full" %}<span class="hub-pill hub-pill--neutral" data-booking-refunded>Refunded</span>{% endif %}
     {% if row.has_unread_messages %}<span class="hub-pill hub-pill--warn" data-thread-unread="{{ r.thread_key }}">New message</span>{% endif %}
     {% if row.fee_unpaid %}<span class="hub-pill hub-pill--danger" data-booking-fee>Fee unpaid</span>{% elif row.late_fee %}<span class="hub-pill hub-pill--neutral" data-booking-fee>Fee {{ row.late_fee.get_status_display|lower }}</span>{% endif %}
+    {% if r.session_started_at %}{% include "hub/partials/_equipment_session_times.html" with reservation=r session_class="hub-pill hub-pill--neutral" %}{% endif %}
+    {# Sessions (#1096): the member's own in progress booking; Stop confirms in reservation_booking_modals.html. #}
+    {% if r.session_action == "start" %}
+    <form method="post" action="{% url 'hub_equipment_session_start' r.equipment.slug r.pk %}" class="pl-bookings-session">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ bookings_next }}">
+      <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm" data-session-start data-guidance-target="reservations.start-session">Start Session</button>
+    </form>
+    {% elif r.session_action == "stop" %}
+    <div class="pl-bookings-session">
+      <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" data-session-stop data-guidance-target="reservations.stop-session" @click="$dispatch('open-confirm', 'reservation-session-stop-{{ r.pk }}')">Stop Session</button>
+    </div>
+    {% endif %}
   </td>
   <td class="pl-bookings-table__actions">
     {# The viewer's own row is named by what and when, not by their own name. #}

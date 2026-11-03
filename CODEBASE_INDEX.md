@@ -105,6 +105,7 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 /feedback/                      Feedback form
 /orientation/bookings/<pk>/     A member's orientation booking and its messages (the shared thread)
 /equipment/reservations/<pk>/messages/  A reservation's messages for the Messages modal (the shared thread)
+/equipment/<slug>/session/      The session page a machine's session QR opens (#1096): Start or Stop Session on the member's current reservation
 /tab/                           My Tab (current balance + add entry)
 /tab/history/                   Past billing charges
 /                               Home / redirects (core.views)

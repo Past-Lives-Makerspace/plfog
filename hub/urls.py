@@ -10,6 +10,7 @@ from . import (
     day_off_views,
     discord_views,
     door_code_views,
+    equipment_session_views,
     equipment_views,
     event_admin_views,
     event_media_views,
@@ -615,6 +616,23 @@ urlpatterns = [
         "equipment/<slug:slug>/reservations/<int:pk>/end-early/",
         equipment_views.hub_equipment_reservation_end_early,
         name="hub_equipment_reservation_end_early",
+    ),
+    # Sessions (#1096): Start and Stop on the member's own reservation, the page the session QR opens, its downloads.
+    path(
+        "equipment/<slug:slug>/reservations/<int:pk>/session/start/",
+        equipment_session_views.hub_equipment_session_start,
+        name="hub_equipment_session_start",
+    ),
+    path(
+        "equipment/<slug:slug>/reservations/<int:pk>/session/stop/",
+        equipment_session_views.hub_equipment_session_stop,
+        name="hub_equipment_session_stop",
+    ),
+    path("equipment/<slug:slug>/session/", equipment_session_views.hub_equipment_session, name="hub_equipment_session"),
+    path(
+        "equipment/<slug:slug>/session-qr.<str:fmt>/",
+        equipment_session_views.hub_equipment_session_qr,
+        name="hub_equipment_session_qr",
     ),
     path(
         "equipment/<slug:slug>/manage/credit/add/",

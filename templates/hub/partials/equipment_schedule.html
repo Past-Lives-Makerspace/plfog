@@ -200,11 +200,12 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
           {% elif reservation.is_awaiting_approval %}
           <span class="pl-equip-res-row__state"><span class="pl-equip-badge pl-equip-badge--warn">Awaiting approval</span> A manager will approve or decline it.{% if reservation.credit_minutes %} <span class="pl-equip-badge pl-equip-badge--credit" data-credit-used>{{ reservation.credit_used_label }}</span>{% endif %}</span>
           {% else %}
-          <span class="pl-equip-res-row__state"><span class="pl-equip-badge pl-equip-badge--ok">Confirmed</span>{% if reservation.amount_paid_cents %} Paid {{ reservation.paid_display }}{% endif %}{% if reservation.credit_minutes %} <span class="pl-equip-badge pl-equip-badge--credit" data-credit-used>{{ reservation.credit_used_label }}</span>{% endif %}</span>
+          <span class="pl-equip-res-row__state"><span class="pl-equip-badge pl-equip-badge--ok">Confirmed</span>{% if reservation.amount_paid_cents %} Paid {{ reservation.paid_display }}{% endif %}{% if reservation.credit_minutes %} <span class="pl-equip-badge pl-equip-badge--credit" data-credit-used>{{ reservation.credit_used_label }}</span>{% endif %}{% if reservation.session_started_at %} {% include "hub/partials/_equipment_session_times.html" with session_class="pl-equip-badge pl-equip-badge--muted" %}{% endif %}</span>
           {% endif %}
         </span>
         <span class="pl-equip-res-row__actions">
           {% include "hub/partials/_equipment_my_messages_link.html" %}
+          {% if reservation.session_action %}{% include "hub/partials/_equipment_session_controls.html" %}{% endif %}
           {% if not reservation.is_declined and not reservation.credited_minutes_total %}
           {% if reservation.end_early_hours %}{% include "hub/partials/_equipment_end_early.html" %}{% endif %}
           {% if reservation.is_awaiting_payment %}
@@ -227,6 +228,7 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
         <span>
           {% if reservation.is_season %}<span data-season-row>Season, {{ reservation.season_label }}</span>{% else %}{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}{% endif %}
           {% if reservation.purpose %}<span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}
+          {% if reservation.session_started_at %}{% include "hub/partials/_equipment_session_times.html" with session_class="pl-equip-badge pl-equip-badge--muted" %}{% endif %}
         </span>
         {% if reservation.is_cancelled_by_manager %}
         <span class="hub-text-muted">Cancelled by the manager: {{ reservation.cancelled_reason }}{% if reservation.refund_note %} {{ reservation.refund_note }}{% endif %}</span>
@@ -234,6 +236,7 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
         {% elif reservation.status == "confirmed" and not reservation.credited_minutes_total %}
         <span class="pl-equip-res-row__actions">
           {% include "hub/partials/_equipment_my_messages_link.html" %}
+          {% if reservation.session_action %}{% include "hub/partials/_equipment_session_controls.html" %}{% endif %}
           {% if reservation.end_early_hours %}{% include "hub/partials/_equipment_end_early.html" %}{% endif %}
           <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
                   @click="$dispatch('open-confirm', 'cancel-my-res-{{ reservation.pk }}')">Cancel</button>

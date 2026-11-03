@@ -16,6 +16,10 @@
     <button type="button" class="pl-flyer-print-btn" onclick="window.print()">Print / Save as PDF</button>
     <a class="pl-flyer-download" href="{% url 'hub_equipment_qr' equipment.slug 'svg' %}" hx-boost="false" data-pl-download>Download QR (SVG)</a>
     <a class="pl-flyer-download" href="{% url 'hub_equipment_qr' equipment.slug 'png' %}" hx-boost="false" data-pl-download>Download QR (PNG)</a>
+    {% if session_qr_svg %}
+    <a class="pl-flyer-download" href="{% url 'hub_equipment_session_qr' equipment.slug 'svg' %}" hx-boost="false" data-pl-download data-session-qr-download="svg">Download Session QR (SVG)</a>
+    <a class="pl-flyer-download" href="{% url 'hub_equipment_session_qr' equipment.slug 'png' %}" hx-boost="false" data-pl-download data-session-qr-download="png">Download Session QR (PNG)</a>
+    {% endif %}
   </div>
   <p class="pl-flyer-toolbar__hint">Use your browser's Print dialog and choose “Save as PDF,” or print it and post it by the {{ equipment.get_kind_display|lower }}.</p>
 </header>
@@ -52,8 +56,16 @@
       <p class="pl-flyer__qr-caption">Scan to see open times and book the {{ equipment.get_kind_display|lower }}.</p>
       <p class="pl-flyer__qr-url">{{ equipment.qr_url }}</p>
     </section>
+    {# Sessions (#1096): the session QR takes the second panel, since three do not fit the Letter row; the orientation is then named below. #}
+    {% if session_qr_svg %}
+    <section class="pl-flyer__qr-panel" data-qr-target="session">
+      <div class="pl-flyer__qr">{{ session_qr_svg|safe }}</div>
+      <h2 class="pl-flyer__qr-title">Start Your Session</h2>
+      <p class="pl-flyer__qr-caption">Reserved it for now? Scan to start your session, and scan again to stop it.</p>
+      <p class="pl-flyer__qr-url">{{ equipment.session_qr_url }}</p>
+    </section>
     {# A way of several orientations (#747): no single type QR, since no one type unlocks it alone. #}
-    {% if not requirement and orientations|length == 1 %}
+    {% elif not requirement and orientations|length == 1 %}
     {% with orientation=orientations.0 %}
     <section class="pl-flyer__qr-panel" data-qr-target="orientation">
       <div class="pl-flyer__qr">{{ orientation.qr_svg|safe }}</div>
@@ -70,6 +82,8 @@
   <p class="pl-flyer__about" data-qr-requirement>New here? {{ requirement }} Scan Reserve It to book.</p>
   {% elif orientations|length > 1 %}
   <p class="pl-flyer__about" data-qr-orientations>New here? Any one of these orientations unlocks it: {% for orientation in orientations %}{{ orientation.name }}{% if not forloop.last %}, {% endif %}{% endfor %}. Scan Reserve It to book one.</p>
+  {% elif session_qr_svg and orientations|length == 1 %}
+  <p class="pl-flyer__about" data-qr-orientations>New here? You need the {{ orientations.0.name }} orientation before you can reserve it. Scan Reserve It to book it.</p>
   {% endif %}
 
   <footer class="pl-flyer__footer">Past Lives Makerspace · Portland, OR</footer>
