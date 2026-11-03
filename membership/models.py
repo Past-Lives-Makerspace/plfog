@@ -6150,6 +6150,19 @@ class GuildAnnouncement(StaffRequestMixin, models.Model):
         """Whether the card should clamp this body and offer Read more."""
         return len(self.body) > self.LONG_BODY_CHARS or self.body.count("\n") >= self.LONG_BODY_LINES
 
+    #: The composer's unsaved preview post carries the picture the sender just chose as a ``data:``
+    #: URI (#1103, :meth:`AnnouncementDraft.build_guild_announcement`). Never set on a row that saves.
+    preview_image_url: str | None = None
+
+    @property
+    def card_image_url(self) -> str:
+        """Where the card's picture is read from: the unsaved preview's ``data:`` URI, else the stored file, else ``""``."""
+        if self.preview_image_url is not None:
+            return self.preview_image_url
+        if not self.image:
+            return ""
+        return self.image.url
+
     @property
     def is_active(self) -> bool:
         """Visible on the page — never expires, or the expiry is today or later."""
@@ -7873,6 +7886,30 @@ class AnnouncementDraft(models.Model):
             Channel.EMAIL: self.build_email_message(base_url),
         }
 
+    def build_guild_announcement(self) -> GuildAnnouncement:
+        """The unsaved guild page post this draft makes: what a guild send saves and the Step 2 card shows (#1103).
+
+        One builder for both, so the preview card and the saved post cannot differ. The guild page
+        and slideshow render the body as plain text, so the sanitized rich body is stored as lines,
+        paragraphs and bullets kept (the draft keeps the rich HTML for the email). The post names the
+        draft's stored image (#1064); an unsaved preview draft's just chosen picture rides along as
+        its ``data:`` URI. ``published_at`` stays empty until the row is saved.
+        """
+        from core.html_sanitize import rich_html_to_lines, sanitize_rich_html
+
+        announcement = GuildAnnouncement(
+            guild=cast(Guild, self.guild),
+            author=self.author,
+            title=self.title,
+            body=rich_html_to_lines(sanitize_rich_html(self.body)),
+            expires_at=self.expires_at,
+            send_email=self.send_email,
+            discord_channel=self.discord_channel if self.discord_enabled else GuildAnnouncement.DiscordChannel.NONE,
+            image=self.image.name or "",
+        )
+        announcement.preview_image_url = self.preview_image_url
+        return announcement
+
     def build_email_message(self, base_url: str) -> "Message":
         """The branded EMAIL :class:`Message` for this draft — the Step-2 preview *is* this.
 
@@ -8281,20 +8318,9 @@ class AnnouncementDraft(models.Model):
             guild_url = _absolute_url(reverse("hub_guild_detail", args=[guild.slug]))
             total = len(recipient_ids) if recipient_ids is not None else len(guild.announcement_member_ids())
             counts = (total if self.send_email else 0, total)
-            announcement = GuildAnnouncement.objects.create(
-                guild=guild,
-                author=self.author,
-                title=self.title,
-                # The guild page + slideshow render the body as plain text (|linebreaksbr),
-                # so store the rich body as lines, paragraphs and bullets kept; the rich
-                # formatting still shows in the branded email (the draft keeps the rich HTML).
-                body=rich_html_to_lines(body_html),
-                expires_at=self.expires_at,
-                send_email=self.send_email,
-                discord_channel=self.discord_channel if discord_on else GuildAnnouncement.DiscordChannel.NONE,
-                # The post names the draft's stored file (#1064); the draft keeps it too, for the Sent view.
-                image=self.image.name or "",
-            )
+            # Built by the method the composer's Guild Page preview renders, so the two cannot differ (#1103).
+            announcement = self.build_guild_announcement()
+            announcement.save()
             # A guild page only post (every channel off) notifies nobody, so the fan-out, whose bell
             # always delivers, is skipped rather than given an in app switch other events would share.
             if not self.posts_to_guild_page_only:
