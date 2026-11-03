@@ -10,6 +10,9 @@ selected_day_str.
 {% with rpks=reservation.pk|stringformat:"s" cancel_vals='{"week": "'|add:week_offset_str|add:'", "day": "'|add:selected_day_str|add:'"}' %}
 {% if reservation.is_awaiting_payment %}
 {% include "components/confirm_modal.html" with confirm_id="cancel-my-res-"|add:rpks confirm_title="Cancel your reservation?" confirm_message="If you haven't paid, nothing is charged." confirm_button_text="Cancel reservation" confirm_hx_post=cancel_url confirm_hx_target="#equipment-schedule" confirm_hx_vals=cancel_vals %}
+{% elif reservation.keeps_payment_on_cancel %}
+{# A paid season after it started (#1095): the bed frees, the payment is not refunded. #}
+{% include "components/confirm_modal.html" with confirm_id="cancel-my-res-"|add:rpks confirm_title="Cancel your reservation?" confirm_message="The season opens for the next person. "|add:reservation.season_payment_kept_sentence|add:" "|add:reservation.late_cancel_warning confirm_button_text="Cancel reservation" confirm_hx_post=cancel_url confirm_hx_target="#equipment-schedule" confirm_hx_vals=cancel_vals %}
 {% elif reservation.amount_paid_cents %}
 {% include "components/confirm_modal.html" with confirm_id="cancel-my-res-"|add:rpks confirm_title="Cancel your reservation?" confirm_message="The time opens up for someone else. You can book again any time. You'll get an automatic full refund. "|add:reservation.late_cancel_warning confirm_button_text="Cancel reservation" confirm_hx_post=cancel_url confirm_hx_target="#equipment-schedule" confirm_hx_vals=cancel_vals %}
 {% else %}

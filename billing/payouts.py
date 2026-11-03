@@ -257,7 +257,8 @@ def _reservations() -> QuerySet[Any]:
     Only an unpaid hold is left out, like ``_bookings()``. A declined or cancelled row is
     refunded in full, so its share is 0 and it earns nothing; a request awaiting approval keeps
     its share, so a snapshot classifies it like reconciliation does. Recording and sending wait
-    for CONFIRMED (``run_payouts``, ``_refresh_amount``). ``created_at`` stands in for paid at.
+    for CONFIRMED, or a paid season that kept its payment on a cancel after it started (#1095,
+    ``share_due``; ``run_payouts``, ``_refresh_amount``). ``created_at`` stands in for paid at.
     """
     from membership.models import EquipmentReservation
 
@@ -437,7 +438,8 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
         .annotate(due_base=Greatest("slot__starts_at", "requested_at"))
         .filter(**window),
         _reservations()
-        .filter(payout__isnull=True, status=EquipmentReservation.Status.CONFIRMED)
+        # Confirmed, or a paid season cancelled after it started, which kept its payment (#1095).
+        .filter(EquipmentReservation.share_due_q(), payout__isnull=True)
         .annotate(due_base=Greatest("starts_at", "created_at"))
         .filter(**window),
         _cubby_payments().filter(payout__isnull=True).annotate(due_base=F("paid_at")).filter(**window),
@@ -617,7 +619,8 @@ def _refresh_amount(payout: Payout) -> bool:
 
     A reservation's share (#749) is sent only once it is CONFIRMED: a request still awaiting
     approval is held (False, nothing recorded, tried again next run), and a declined or
-    cancelled one is NOTHING_DUE, since nobody used the time.
+    cancelled one is NOTHING_DUE, since nobody used the time. A paid season cancelled after it
+    started kept its payment (#1095, ``kept_payment``), so its share is sent like a confirmed one.
     """
     from membership.models import EquipmentReservation
 
@@ -625,7 +628,7 @@ def _refresh_amount(payout: Payout) -> bool:
         status = cast("Any", payout.reservation).status
         if status == EquipmentReservation.Status.PENDING_APPROVAL:
             return False
-        if status != EquipmentReservation.Status.CONFIRMED:
+        if status != EquipmentReservation.Status.CONFIRMED and not cast("Any", payout.reservation).kept_payment:
             payout.status = Payout.Status.NOTHING_DUE
             payout.save(update_fields=["status"])
             return False

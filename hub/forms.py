@@ -7596,8 +7596,19 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
             "pricing",
             "payee",
             "early_end_credit",
+            "season_starts_on",
+            "season_ends_on",
         ]
-        widgets = {"pricing": forms.RadioSelect}
+        widgets = {
+            "pricing": forms.RadioSelect,
+            # Rule 14: the whole field opens the picker; .pl-slot-date fixes the dark theme icon.
+            "season_starts_on": forms.DateInput(
+                attrs={"type": "date", "class": "pl-slot-date", "onclick": "try { this.showPicker() } catch (e) {}"}
+            ),
+            "season_ends_on": forms.DateInput(
+                attrs={"type": "date", "class": "pl-slot-date", "onclick": "try { this.showPicker() } catch (e) {}"}
+            ),
+        }
         labels = {
             "closed_message": "Closed message",
             "requires_approval": "Needs approval",
@@ -7606,6 +7617,8 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
             "max_advance_days": "Booking horizon (days)",
             "max_active_reservations_per_member": "Upcoming reservations per member",
             "early_end_credit": "Members can end a reservation early and keep the unused time as credit",
+            "season_starts_on": "Season start",
+            "season_ends_on": "Season end",
         }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -7625,6 +7638,8 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
             "half hour, becomes credit on this item. Nothing is refunded and no fee applies."
         )
         self.fields["late_cancel_fee"].help_text = "In dollars."
+        self.fields["season_starts_on"].help_text = ""
+        self.fields["season_ends_on"].help_text = ""
         # Absent from a page drawn before the Pricing card (#749): the stored pricing stands.
         self.fields["pricing"].required = False
         # The card's example line follows the rate as it is typed (#749).
@@ -7708,6 +7723,15 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
     #: Posted beside the switch, so an unchecked box means "closed" only when the switch was on the page.
     #: A Manage page loaded before #731 posts no switch, and must not close the equipment on Save.
     SWITCH_MARKER = "reservations_open_shown"
+    #: Posted by the Season card (#1095): a page drawn before it existed must not clear the dates on Save.
+    SEASON_MARKER = "season_shown"
+
+    SEASON_START_MISSING = "Set the season start too, or clear the end."
+    SEASON_END_MISSING = "Set the season end too, or clear the start."
+    SEASON_END_BEFORE_START = "The season must end after it starts."
+    SEASON_NOT_HOURLY = (
+        "A season can be free or donation based, not hourly. Pick another option or clear the season dates."
+    )
 
     def save(self, commit: bool = True) -> Any:
         """Write the Active switch back as its inverse, ``is_closed``, when the switch was posted,
@@ -7740,6 +7764,7 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
         if cap is not None and cap < 1:
             self.add_error("max_active_reservations_per_member", "Use at least 1.")
         self._clean_pricing(cleaned)
+        self._clean_season(cleaned)
         # End Early (#787) is saved only while Hourly is posted; otherwise the item keeps what it had.
         if not (self.pricing_posted and cleaned.get("pricing") == Equipment.Pricing.HOURLY):
             cleaned["early_end_credit"] = self.instance.early_end_credit
@@ -7747,6 +7772,53 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
             self.errors.pop("payee", None)
             cleaned["payee"] = self.instance.payee
         return cleaned
+
+    def _keep_stored_season(self, cleaned: dict[str, Any]) -> None:
+        """A POST from a page without the Season card keeps the stored dates, and Hourly cannot be saved onto them."""
+        self.errors.pop("season_starts_on", None)
+        self.errors.pop("season_ends_on", None)
+        cleaned["season_starts_on"] = self.instance.season_starts_on
+        cleaned["season_ends_on"] = self.instance.season_ends_on
+        if self.instance.has_season and cleaned.get("pricing") == Equipment.Pricing.HOURLY:
+            self.add_error("pricing", self.SEASON_NOT_HOURLY)
+
+    def _clean_season(self, cleaned: dict[str, Any]) -> None:
+        """The Season card (#1095): both dates or neither, the end after the start, never hourly, nothing in the way.
+
+        New or changed dates are refused while upcoming bookings sit inside them, naming how
+        many, since the season could never be reserved past them. A POST without the card keeps
+        the stored dates.
+        """
+        if self.SEASON_MARKER not in self.data:
+            self._keep_stored_season(cleaned)
+            return
+        if "season_starts_on" not in cleaned or "season_ends_on" not in cleaned:
+            return  # A date that did not parse already carries its own error.
+        starts_on = cleaned["season_starts_on"]
+        ends_on = cleaned["season_ends_on"]
+        if starts_on is None and ends_on is None:
+            return
+        if starts_on is None:
+            self.add_error("season_starts_on", self.SEASON_START_MISSING)
+            return
+        if ends_on is None:
+            self.add_error("season_ends_on", self.SEASON_END_MISSING)
+            return
+        if ends_on <= starts_on:
+            self.add_error("season_ends_on", self.SEASON_END_BEFORE_START)
+            return
+        if cleaned.get("pricing") == Equipment.Pricing.HOURLY:
+            self.add_error("pricing", self.SEASON_NOT_HOURLY)
+        if (starts_on, ends_on) == (self.instance.season_starts_on, self.instance.season_ends_on):
+            return
+        inside = self.instance.season_bookings_inside(starts_on, ends_on)
+        if inside:
+            one = inside == 1
+            self.add_error(
+                "season_starts_on",
+                f"{inside} upcoming reservation{'' if one else 's'} {'sits' if one else 'sit'} inside these dates. "
+                f"Cancel {'it' if one else 'them'} first, or pick other dates.",
+            )
 
     def _clean_pricing(self, cleaned: dict[str, Any]) -> None:
         """Check the picked option's own boxes (#749) and drop any refusal on a hidden one."""

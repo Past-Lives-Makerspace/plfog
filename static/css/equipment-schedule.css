@@ -114,3 +114,30 @@
     background: var(--hub-surface);
     border: 1px solid var(--hub-border);
 }
+
+/* The season card (#1095): in place of the week strip and Book a Time on an item with season dates. */
+.pl-equip-season {
+    padding: 1.25rem 1.5rem;
+}
+.pl-equip-season__state {
+    margin: 0;
+}
+.pl-equip-season__state .pl-equip-avail {
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+.pl-equip-season__note {
+    margin: 0.75rem 0 0;
+    font-size: 0.875rem;
+}
+.pl-equip-season__state + .pl-equip-book__terms {
+    margin-top: 0.75rem;
+}
+.pl-equip-season__form {
+    margin: 1rem 0 0;
+}
+.pl-equip-season__reserve {
+    max-width: 100%;
+    white-space: normal;
+    text-align: center;
+}

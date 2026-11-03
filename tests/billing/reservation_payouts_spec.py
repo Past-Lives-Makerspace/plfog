@@ -1052,3 +1052,99 @@ def describe_retrying_a_failed_reservation_refund():
         assert (refund.status, refund.attempt) == (PaymentRefund.Status.SUCCEEDED, 2)
         reservation = EquipmentReservation.objects.get(pk=reservation.pk)
         assert (reservation.refund_state, reservation.refundable_cents) == ("full", 0)
+
+
+def describe_a_paid_season_cancelled_after_it_started():
+    """Felix's rule (#1095): the payment is kept, so the picked manager's share is still paid."""
+
+    def _kept_season(payee: Member, *, cancelled_after_start: bool = True) -> EquipmentReservation:
+        starts = _now() - timedelta(days=30)
+        reservation = _paid(
+            _equipment(payee, name="Furrowmere Plot 9"), amount=5000, starts_at=starts, minutes=60 * 24 * 200
+        )
+        cancelled_at = starts + timedelta(days=5) if cancelled_after_start else starts - timedelta(days=1)
+        EquipmentReservation.objects.filter(pk=reservation.pk).update(
+            is_season=True,
+            status=EquipmentReservation.Status.CANCELLED,
+            cancelled_at=cancelled_at,
+            payment_kept=cancelled_after_start,  # what the cancel writes for a confirmed season after its start
+        )
+        reservation.refresh_from_db()
+        return reservation
+
+    def it_records_and_sends_the_share_like_a_confirmed_one():
+        _turn_on()
+        payee = _manager()
+        reservation = _kept_season(payee)
+        assert reservation.kept_payment
+        with _Stripe() as fake:
+            run = payouts.run_payouts(_now())
+        assert (run.created, run.sent) == (1, 1)
+        assert [t["amount_cents"] for t in fake.transfers] == [3500]
+        assert Payout.objects.get().reservation == reservation
+
+    def it_sends_a_share_recorded_before_the_cancel():
+        _turn_on()
+        payee = _manager()
+        reservation = _kept_season(payee)
+        payout = Payout.objects.create(reservation=reservation, payee=payee, amount_cents=3500, due_at=_now())
+        assert payouts._refresh_amount(payout)
+        assert payout.status == Payout.Status.PENDING
+
+    def it_is_nothing_due_for_a_season_cancelled_before_it_started():
+        _turn_on()
+        payee = _manager()
+        reservation = _kept_season(payee, cancelled_after_start=False)
+        assert not reservation.kept_payment
+        payout = Payout.objects.create(reservation=reservation, payee=payee, amount_cents=3500, due_at=_now())
+        assert not payouts._refresh_amount(payout)
+        assert payout.status == Payout.Status.NOTHING_DUE
+        with _Stripe() as fake:
+            payouts.run_payouts(_now())
+        assert fake.transfers == []
+
+    def it_leaves_a_time_slot_cancel_nothing_due():
+        _turn_on()
+        payee = _manager()
+        slot = _paid(_equipment(payee), status=EquipmentReservation.Status.CANCELLED)
+        EquipmentReservation.objects.filter(pk=slot.pk).update(cancelled_at=_now())
+        slot.refresh_from_db()
+        assert not slot.kept_payment
+        with _Stripe() as fake:
+            payouts.run_payouts(_now())
+        assert fake.transfers == []
+
+    def it_leaves_a_share_already_sent_as_it_was():
+        _turn_on()
+        payee = _manager()
+        reservation = _kept_season(payee)
+        Payout.objects.create(
+            reservation=reservation, payee=payee, amount_cents=3500, due_at=_now(), status=Payout.Status.SENT
+        )
+        with _Stripe() as fake:
+            payouts.run_payouts(_now())
+        assert fake.transfers == []
+        assert Payout.objects.get().status == Payout.Status.SENT
+
+    @patch("billing.stripe_utils.create_refund", return_value={"id": "re_season_request", "status": "succeeded"})
+    def it_owes_nothing_for_a_request_cancelled_after_the_start(mock_refund):
+        _turn_on()
+        payee = _manager()
+        starts = _now() - timedelta(days=30)
+        request = _paid(
+            _equipment(payee, name="Furrowmere Plot 10"),
+            amount=5000,
+            starts_at=starts,
+            minutes=60 * 24 * 200,
+            status=EquipmentReservation.Status.PENDING_APPROVAL,
+        )
+        EquipmentReservation.objects.filter(pk=request.pk).update(is_season=True)
+        request.refresh_from_db()
+        request.cancel(request.member)
+        request.refresh_from_db()
+        assert (request.payment_kept, request.kept_payment) == (False, False)
+        assert mock_refund.call_count == 1
+        with _Stripe() as fake:
+            payouts.run_payouts(_now())
+        assert fake.transfers == []
+        assert not Payout.objects.filter(reservation=request, status=Payout.Status.SENT).exists()

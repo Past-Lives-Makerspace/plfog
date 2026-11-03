@@ -9,7 +9,7 @@ thread_next (where Send lands, "" for the poster's own page).
 <div class="pl-thread-summary" data-reservation-thread="{{ r.pk }}">
   <p class="pl-thread-summary__title"><strong>{{ r.equipment.name }}</strong>{% if viewer_is_staff %} · {{ name }}{% endif %}</p>
   <p class="pl-thread-summary__meta">
-    <span>{{ r.starts_at|date:"D, M j" }} · {{ r.starts_at|time:"g:i A" }} to {{ r.ends_at|time:"g:i A" }}</span>
+    <span>{% if r.is_season %}Season, {{ r.season_label }}{% else %}{{ r.starts_at|date:"D, M j" }} · {{ r.starts_at|time:"g:i A" }} to {{ r.ends_at|time:"g:i A" }}{% endif %}</span>
     <span class="hub-pill {% if r.status == 'confirmed' %}hub-pill--ok{% elif r.status == 'pending_approval' or r.status == 'pending_payment' %}hub-pill--warn{% else %}hub-pill--neutral{% endif %}" data-reservation-status="{{ r.status }}">{{ r.get_status_display }}</span>
   </p>
   {% if r.purpose %}<p class="pl-thread-summary__meta">{{ r.purpose }}</p>{% endif %}

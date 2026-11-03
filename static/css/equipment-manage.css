@@ -47,6 +47,22 @@
     border-top: 1px solid var(--hub-border);
 }
 
+/* The Season card (#1095): two date fields side by side, each sized to a date (rule 28); full width on a phone. */
+.pl-equip-season__dates {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.5rem;
+}
+.pl-equip-season__field {
+    width: 12rem;
+    max-width: 100%;
+}
+@media (max-width: 480px) {
+    .pl-equip-season__field {
+        width: 100%;
+    }
+}
+
 /* A Needs Approval row (#748): member and purpose under the when line, Approve and Decline on the right. */
 .pl-equip-approve-row__main {
     display: flex;

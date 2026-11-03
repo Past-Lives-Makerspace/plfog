@@ -18,6 +18,7 @@ from hub.calendar_entries import (
     ORIENTATION_PK_OFFSET,
     RESERVATION_PK_OFFSET,
     CalendarEntry,
+    calendar_day,
     calendar_subscribe_links,
     google_calendar_add_url,
     google_calendar_event_url,
@@ -431,6 +432,50 @@ def describe_orientation_page_entries():
             OrientationSlotFactory(guild=guild, orientation_type=orientation_type)
         with django_assert_num_queries(1):
             assert len(orientation_page_entries(types, *_calendar_range())) == 3
+
+
+@pytest.mark.django_db
+def describe_season_reservation_entries():
+    def _season(item, first: date, last: date) -> EquipmentReservation:
+        return EquipmentReservationFactory(
+            equipment=item,
+            member=MemberFactory(full_legal_name="Wren Haybrook", preferred_name=""),
+            is_season=True,
+            starts_at=timezone.make_aware(datetime.combine(first, datetime.min.time())),
+            ends_at=timezone.make_aware(datetime.combine(last + timedelta(days=1), datetime.min.time())),
+        )
+
+    def it_shows_a_season_all_day_once_in_every_week_of_any_window_it_covers():
+        item = EquipmentFactory(name="Tansybrook Bed")
+        today = timezone.localdate()
+        reservation = _season(item, today - timedelta(days=100), today + timedelta(days=200))
+        # A window months after the season began, wholly inside it.
+        fetch_from = today + timedelta(days=60)
+        fetch_to = fetch_from + timedelta(days=27)
+        entries = reservation_entries([item], fetch_from, fetch_to)
+        assert entries
+        assert all(entry.all_day for entry in entries)
+        days = sorted(calendar_day(entry) for entry in entries)
+        assert days[0] == fetch_from
+        assert all(day.weekday() == 0 for day in days[1:])
+        weeks = {fetch_from + timedelta(days=n) for n in range(28)}
+        assert len(days) == len({day - timedelta(days=day.weekday()) for day in weeks})
+        assert len({entry.pk for entry in entries}) == len(entries)
+        assert all(fetch_from <= day <= fetch_to for day in days)
+        assert all(entry.end_dt <= reservation.ends_at for entry in entries)
+        assert entries[0].title == f"Tansybrook Bed · Wren H. · Season, {reservation.season_label}"
+
+    def it_starts_on_the_seasons_first_day_and_keeps_time_slots_as_they_were():
+        item = EquipmentFactory(name="Tansybrook Bed 2")
+        today = timezone.localdate()
+        first = today + timedelta(days=10)
+        _season(item, first, first + timedelta(days=100))
+        slot = EquipmentReservationFactory(equipment=EquipmentFactory(name="Bandsaw Q"))
+        entries = reservation_entries([item, slot.equipment], today, today + timedelta(days=27))
+        slot_entries = [entry for entry in entries if entry.pk == RESERVATION_PK_OFFSET + slot.pk]
+        assert [(entry.start_dt, entry.all_day) for entry in slot_entries] == [(slot.starts_at, False)]
+        season_days = sorted(calendar_day(entry) for entry in entries if entry.all_day)
+        assert season_days[0] == first
 
 
 @pytest.mark.django_db

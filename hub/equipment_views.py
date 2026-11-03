@@ -352,7 +352,9 @@ def _schedule_context(
                 cancel_sentence(policy) if charges and policy.is_late(reservation.starts_at, now=now) else ""
             )
         unpaid_late_fee = unpaid_fee_for(member)
+    late_cancel_sentence = "" if fee_exempt else booking_sentence(policy)
     return {
+        **_season_context(equipment, blockers, my_reservations, needs_approval, late_cancel_sentence),
         "equipment": equipment,
         "week_offset": week_offset,
         # String forms for template |add composition (the self-cancel hx-vals JSON).
@@ -387,9 +389,96 @@ def _schedule_context(
         "credit_minutes": credit_minutes,
         "credit_line": f"You have {duration_label(credit_minutes)} of credit here." if credit_minutes else "",
         # Under the Book a Time form and appended to its Reserve prompt; "" when no fee applies.
-        "late_cancel_sentence": "" if fee_exempt else booking_sentence(policy),
+        "late_cancel_sentence": late_cancel_sentence,
         # The block until paid (#456): the requirements banner shows it with a Pay button.
         "unpaid_late_fee": unpaid_late_fee,
+    }
+
+
+def _season_refund_terms(equipment: Equipment, *, needs_approval: bool) -> str:
+    """What a paid season refunds (Felix, #1095): a decline, and a cancel before the season starts; nothing after.
+
+    Once the season has started already, a cancel refunds nothing from the first day, so only
+    the decline is promised.
+    """
+    started = equipment.season_span()[0] <= timezone.now()
+    declined = "If a manager declines, you get an automatic full refund. " if needs_approval else ""
+    if started:
+        return f"{declined}The season has started, so if you cancel, your payment isn't refunded."
+    return (
+        f"{declined}If you cancel before the season starts, you get an automatic full refund. "
+        "Once it has started, a cancel isn't refunded."
+    )
+
+
+def _season_confirm_message(equipment: Equipment, *, needs_approval: bool, late_cancel_sentence: str) -> str:
+    """The Reserve This Season confirm's words (#1095): the item and its dates, then what pressing it does."""
+    lead = f"The {equipment.name}, {equipment.season_label}."
+    if equipment.is_donation and needs_approval:
+        rest = (
+            "You choose what you pay. Any amount above $0 goes through our secure checkout. Then a manager approves "
+            "your reservation; until they do, the season is held for you. "
+            + _season_refund_terms(equipment, needs_approval=True)
+        )
+    elif equipment.is_donation:
+        rest = (
+            "You choose what you pay. Any amount above $0 goes through our secure checkout, and your reservation "
+            "confirms when it is paid. " + _season_refund_terms(equipment, needs_approval=False)
+        )
+    elif needs_approval:
+        rest = "A manager approves each reservation. We hold the season for you and email you when they decide."
+    else:
+        rest = "Your reservation confirms right away. If plans change, cancel and the season opens for the next person."
+    return " ".join(part for part in (lead, rest, "" if needs_approval else late_cancel_sentence) if part)
+
+
+def _season_context(
+    equipment: Equipment,
+    blockers: list[str],
+    my_reservations: list[EquipmentReservation],
+    needs_approval: bool,
+    late_cancel_sentence: str,
+) -> dict[str, Any]:
+    """The season card's context (#1095): where the season stands, whether this member may reserve it, the confirm.
+
+    Empty values for an item without a season, so the template's ``has_season`` alone decides.
+    """
+    if not equipment.has_season:
+        return {"has_season": False}
+    state = equipment.season_state()
+    season_starts_at, season_ends_at = equipment.season_span()
+    rest_starts_at = max(season_starts_at, timezone.now())
+    # After a manager changed the dates, the member's own row can still hold part of this season (#1095).
+    own_rows = [
+        reservation
+        for reservation in my_reservations
+        if reservation.is_season
+        and reservation.status in EquipmentReservation.HOLDING_STATUSES
+        and reservation.starts_at < season_ends_at
+        and reservation.ends_at > rest_starts_at
+    ]
+    return {
+        "has_season": True,
+        "season_state": state.value,
+        "season_line": f"{state.label}, {equipment.season_label}",
+        "season_starts_at": season_starts_at.isoformat(),
+        "season_minutes": equipment.season_minutes,
+        "can_reserve_season": state == Equipment.SeasonState.OPEN and not blockers,
+        # The member's own season row sits under Your Reservations Here; the card says it is theirs.
+        "holds_season": any(reservation.holds_current_season() for reservation in my_reservations),
+        # Their row overlapping a season whose dates moved: theirs, by its own dates, never "someone".
+        "own_season_label": next(
+            (reservation.season_label for reservation in own_rows if not reservation.holds_current_season()), ""
+        ),
+        # The terms line for a paid season: Felix's refund rule, not the time slot's "Cancel and you get a full refund".
+        "season_terms": (
+            f"You pay when you reserve. {_season_refund_terms(equipment, needs_approval=needs_approval)}"
+            if equipment.is_priced
+            else equipment.booking_terms(needs_approval=needs_approval)
+        ),
+        "season_confirm_message": _season_confirm_message(
+            equipment, needs_approval=needs_approval, late_cancel_sentence=late_cancel_sentence
+        ),
     }
 
 
@@ -420,6 +509,22 @@ def _attach_running_orientations(equipment_list: Sequence[Equipment], *, now: da
             by_equipment[listed.pk].append(slot)
     for equipment in equipment_list:
         equipment.current_orientation_slots = by_equipment[equipment.pk]
+
+
+def _attach_season_holds(equipment_list: Sequence[Equipment], *, now: datetime) -> None:
+    """Give every season card its ``season_holds`` (held rows not over yet) in one query, none without a season (#1095).
+
+    :meth:`Equipment.season_state` reads them, so the card line costs no query per card, and a
+    grid with no season item runs nothing extra.
+    """
+    season_cards = [equipment for equipment in equipment_list if equipment.has_season]
+    if not season_cards:
+        return
+    by_equipment: dict[int, list[EquipmentReservation]] = {equipment.pk: [] for equipment in season_cards}
+    for row in EquipmentReservation.objects.holding().filter(equipment__in=season_cards, ends_at__gt=now):
+        by_equipment[row.equipment_id].append(row)
+    for equipment in season_cards:
+        equipment.season_holds = by_equipment[equipment.pk]
 
 
 def reservation_cards(member: Member | None, queryset: EquipmentQuerySet) -> list[dict[str, Any]]:
@@ -460,6 +565,7 @@ def reservation_cards(member: Member | None, queryset: EquipmentQuerySet) -> lis
     if not equipment_list:
         return []
     _attach_running_orientations(equipment_list, now=now)
+    _attach_season_holds(equipment_list, now=now)
     oriented_ids = _member_oriented_type_ids(member)
     # The block until paid (#456) is a per-member state: one lookup for the whole grid.
     has_unpaid_fee = member is not None and unpaid_fee_for(member) is not None
@@ -902,6 +1008,9 @@ def hub_equipment_reserve(request: HttpRequest, slug: str) -> HttpResponse:
     if reservation.is_awaiting_approval:
         trigger_toast(response, "Request sent. We'll email you when a manager decides.", "success")
         return response
+    if reservation.is_season:
+        trigger_toast(response, f"Reserved for the season, {reservation.season_label}.", "success")
+        return response
     trigger_toast(response, f"Reserved. See you {local_start:%A}.", "success")
     return response
 
@@ -961,6 +1070,8 @@ def _refund_sentence(reservation: EquipmentReservation) -> str:
         return f" Your {reservation.paid_display} is being refunded to your card."
     if reservation.refund_outcome == "failed":
         return f" Your {reservation.paid_display} refund is being processed."
+    if reservation.refund_outcome == "kept":
+        return f" {reservation.season_payment_kept_sentence}"
     return ""
 
 
@@ -1098,6 +1209,9 @@ def _manager_cancel_message(reservation: EquipmentReservation, manager: Member) 
     told = "" if own_row else " The member has been told."
     if reservation.refund_outcome == "failed":
         told += _REFUND_FAILED_TAIL
+    if reservation.refund_outcome == "kept":
+        # A paid season cancelled after it started (#1095): nothing refunds on its own.
+        told += " The season had started, so the payment isn't refunded. An admin can refund it from Payments."
     return f"Reservation cancelled.{told}"
 
 

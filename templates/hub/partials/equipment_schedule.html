@@ -7,6 +7,10 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
 {% endcomment %}
 <div id="equipment-schedule" class="pl-equip-schedule">
 
+  {% if has_season %}
+  {# ── A season item (#1095): the season card in place of the week strip and Book a Time. ── #}
+  {% include "hub/partials/_equipment_season_card.html" %}
+  {% else %}
   {# ── Schedule, this week — the 7 day strip; muted days are unclickable. ── #}
   <div class="hub-card" style="padding:1.25rem 1.5rem;">
     <div class="pl-equip-strip__head">
@@ -162,11 +166,12 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
     {% endif %}
   </div>
   {% endif %}
+  {% endif %}
 
   {# ── The usage agreement (#734): where Book a Time would be, until the member agrees to this version. ── #}
   {% if awaits_agreement %}
   <div class="hub-card pl-equip-agree" data-equip-agree-prompt>
-    <h2 class="hub-detail-label pl-equip-agree__title">Book a Time</h2>
+    <h2 class="hub-detail-label pl-equip-agree__title">{% if has_season %}This Season{% else %}Book a Time{% endif %}</h2>
     <p class="pl-equip-agree__lead">Before your first reservation, read and agree to the {{ equipment.name }} usage agreement. You agree once. If it changes, we ask again.</p>
     <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('open-modal', 'equip-agreement')" data-equip-agree-open>Agree to the usage agreement</button>
   </div>
@@ -183,7 +188,7 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
       <li class="pl-equip-res-row" data-my-reservation-state="{{ reservation.status }}">
         <span class="pl-equip-res-row__main">
           <span>
-            {{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}
+            {% if reservation.is_season %}<span data-season-row>Season, {{ reservation.season_label }}</span>{% else %}{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}{% endif %}
             {% if reservation.purpose %}<span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}
           </span>
           {% if reservation.is_awaiting_payment %}
@@ -220,7 +225,7 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
       {% else %}
       <li class="pl-equip-res-row">
         <span>
-          {{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}
+          {% if reservation.is_season %}<span data-season-row>Season, {{ reservation.season_label }}</span>{% else %}{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}{% endif %}
           {% if reservation.purpose %}<span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}
         </span>
         {% if reservation.is_cancelled_by_manager %}
@@ -251,7 +256,7 @@ on day taps, week arrows, bookings, and cancels, so every list stays fresh.
     <ul class="pl-equip-res-list">
       {% for reservation in upcoming_reservations %}
       <li class="pl-equip-res-row">
-        <span>{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}</span>
+        <span>{% if reservation.is_season %}<span data-season-row>Season, {{ reservation.season_label }}</span>{% else %}{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}{% endif %}</span>
         <span>{{ reservation.member.display_name }}{% if reservation.purpose %} <span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}{% if reservation.is_awaiting_approval %} <span class="hub-text-muted">· Awaiting approval</span>{% elif reservation.is_awaiting_payment %} <span class="hub-text-muted">· Held</span>{% endif %}</span>
       </li>
       {% endfor %}

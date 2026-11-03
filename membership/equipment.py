@@ -67,7 +67,14 @@ def _time_display(value: datetime) -> str:
 
 
 def when_display(reservation: EquipmentReservation) -> str:
-    """The reservation's span in member words, local time: "Saturday, September 12, 2:00 PM to 4:00 PM"."""
+    """The reservation's span in member words, local time: "Saturday, September 12, 2:00 PM to 4:00 PM".
+
+    A season reservation (#1095) reads its days instead: "The season, March 1 to December 15".
+    """
+    if reservation.is_season:
+        from membership.models import season_dates_label
+
+        return f"The season, {season_dates_label(*reservation.season_days(), long=True)}"
     local_start = timezone.localtime(reservation.starts_at)
     return f"{local_start:%A, %B} {local_start.day}, {_time_display(reservation.starts_at)} to {_time_display(reservation.ends_at)}"
 
@@ -91,8 +98,15 @@ def build_ics(reservation: EquipmentReservation, *, method: str, status: str) ->
     event = icalendar.Event()
     event.add("uid", f"equipment-reservation-{reservation.pk}@pastlives")
     event.add("summary", f"{equipment.name} reservation — Past Lives Makerspace")
-    event.add("dtstart", reservation.starts_at)
-    event.add("dtend", reservation.ends_at)
+    if reservation.is_season:
+        # A season (#1095) is all day events from its first day through its last, and leaves the calendar free.
+        first_day, last_day = reservation.season_days()
+        event.add("dtstart", first_day)
+        event.add("dtend", last_day + timedelta(days=1))
+        event.add("transp", "TRANSPARENT")
+    else:
+        event.add("dtstart", reservation.starts_at)
+        event.add("dtend", reservation.ends_at)
     event.add("dtstamp", timezone.now())
     event.add("status", status)
     if equipment.location_note:
@@ -167,6 +181,16 @@ def _spend_credit(reservation: EquipmentReservation) -> None:
     )
 
 
+def _ends_at(locked: Equipment, starts_at: datetime, duration_minutes: int) -> datetime:
+    """Where a booking that passed ``ensure_reservable`` ends: the season's own end on a season item (#1095).
+
+    A season spans a clock change, and wall clock addition on a zoned start would land an hour off it.
+    """
+    if locked.has_season:
+        return locked.season_span()[1]
+    return starts_at + timedelta(minutes=duration_minutes)
+
+
 def reserve(
     equipment: Equipment,
     member: Member,
@@ -226,7 +250,7 @@ def reserve(
             equipment=locked,
             member=member,
             starts_at=starts_at,
-            ends_at=starts_at + timedelta(minutes=duration_minutes),
+            ends_at=_ends_at(locked, starts_at, duration_minutes),
             purpose=purpose.strip(),
             status=(
                 EquipmentReservation.Status.PENDING_APPROVAL
@@ -234,6 +258,8 @@ def reserve(
                 else EquipmentReservation.Status.CONFIRMED
             ),
             credit_minutes=locked.credit_applied_minutes(duration_minutes, balance),
+            # ensure_reservable passed the season road (#1095): only the whole season gets this far.
+            is_season=locked.has_season,
         )
         _spend_credit(reservation)
     if reservation.is_awaiting_approval:
@@ -612,10 +638,12 @@ def start_reservation_checkout(
             equipment=locked,
             member=member,
             starts_at=starts_at,
-            ends_at=starts_at + timedelta(minutes=duration_minutes),
+            ends_at=_ends_at(locked, starts_at, duration_minutes),
             purpose=purpose.strip(),
             status=EquipmentReservation.Status.PENDING_PAYMENT,
             credit_minutes=locked.credit_applied_minutes(duration_minutes, balance),
+            # ensure_reservable passed the season road (#1095): only the whole season gets this far.
+            is_season=locked.has_season,
         )
         _spend_credit(reservation)
     success_url, cancel_url = _checkout_urls(reservation)
@@ -880,6 +908,8 @@ def refund_line(reservation: EquipmentReservation) -> str:
         return f"Your {reservation.paid_display} has been refunded to your card. It can take 5 to 10 days to show. "
     if reservation.refund_outcome == "failed":
         return f"Your {reservation.paid_display} refund is being processed. "
+    if reservation.refund_outcome == "kept":
+        return f"{reservation.season_payment_kept_sentence} "
     return ""
 
 
@@ -917,6 +947,8 @@ def _ensure_creditable_reservation(reservation: EquipmentReservation, equipment:
         or reservation.status != EquipmentReservation.Status.CONFIRMED
     ):
         raise EquipmentError("Only a confirmed reservation can have its unused time credited.")
+    if reservation.is_season:
+        raise EquipmentError(EquipmentReservation.SEASON_NOT_CREDITABLE_MESSAGE)
     if reservation.starts_at > timezone.now():
         raise EquipmentError("This reservation hasn't started yet.")
     # The member already ended it early (#787): its unused time is credited, and its length is now what they used.

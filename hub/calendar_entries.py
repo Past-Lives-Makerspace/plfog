@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from core.models import SiteConfiguration
-    from membership.models import CommunityEvent, Equipment, Guild, OrientationType
+    from membership.models import CommunityEvent, Equipment, EquipmentReservation, Guild, OrientationType
 
 # Offsets keep synthetic pks clear of real CalendarEvent pks so the shared
 # focusEvent() JS and the month_event_pages map keep working untouched.
@@ -30,6 +30,9 @@ CLASS_PK_OFFSET = 1_000_000_000
 ORIENTATION_PK_OFFSET = 2_000_000_000
 EVENT_PK_OFFSET = 3_000_000_000
 RESERVATION_PK_OFFSET = 4_000_000_000
+#: A season reservation (#1095) repeats once a week, so each copy needs its own pk: offset + row pk * stride + week.
+SEASON_PK_OFFSET = 5_000_000_000
+SEASON_WEEK_STRIDE = 1000
 _OCC_STRIDE = 100  # max occurrences per event per window (a few months of monthly « 100)
 ORIENTATION_ITEM_STRIDE = 100  # max items one orientation uses (#658), so a slot on two items keeps two pks
 
@@ -244,6 +247,42 @@ def _item_day_url(equipment: Equipment, moment: datetime) -> str:
     return f"{page}?day={day.isoformat()}" if equipment.is_within_horizon(day) else page
 
 
+def _season_entries(rows: Iterable[EquipmentReservation], fetch_from: date, fetch_to: date) -> list[CalendarEntry]:
+    """Each season reservation in ``rows`` as all day entries, once per week of ``[fetch_from, fetch_to]`` it covers (#1095).
+
+    Each copy runs from its week's Monday, or the season's first day, to the end of that week or
+    of the season, so every week and every month the bed is held shows it.
+    """
+    entries: list[CalendarEntry] = []
+    for reservation in rows:
+        item = reservation.equipment
+        first_day, last_day = reservation.season_days()
+        week = fetch_from - timedelta(days=fetch_from.weekday())
+        while week <= min(fetch_to, last_day):
+            anchor = max(week, first_day, fetch_from)
+            week_end = week + timedelta(days=7)
+            if anchor < week_end and anchor <= last_day:
+                starts_at = timezone.make_aware(datetime.combine(anchor, time.min))
+                ends_at = min(timezone.make_aware(datetime.combine(week_end, time.min)), reservation.ends_at)
+                entries.append(
+                    CalendarEntry(
+                        pk=SEASON_PK_OFFSET
+                        + reservation.pk * SEASON_WEEK_STRIDE
+                        + (week - first_day + timedelta(days=first_day.weekday())).days // 7 % SEASON_WEEK_STRIDE,
+                        title=f"{item.name} · {reservation.member.short_name} · Season, {reservation.season_label}",
+                        start_dt=starts_at,
+                        end_dt=ends_at,
+                        all_day=True,
+                        source="reservation",
+                        url=_item_day_url(item, starts_at),
+                        legend_key=str(item.pk),
+                        owner_label=_equipment_owner_label(item),
+                    )
+                )
+            week = week_end
+    return entries
+
+
 def reservation_entries(items: Iterable[Equipment], fetch_from: date, fetch_to: date) -> list[CalendarEntry]:
     """What is taken on ``items`` in ``[fetch_from, fetch_to]``: confirmed reservations and booked orientations.
 
@@ -252,21 +291,34 @@ def reservation_entries(items: Iterable[Equipment], fetch_from: date, fetch_to: 
     because a booked orientation occupies the machine; a slot whose type lists two of the
     items (#658) files under both. Every entry files under its item's legend chip and links
     the item's page on that day. A cancelled reservation and an open, unbooked slot are
-    absent. Three queries however many items.
+    absent. A season reservation (#1095) is an all day entry once in every week it covers
+    (:func:`_season_entries`), since the grid draws an entry on its first day only. Three
+    queries however many items.
     """
     from django.db.models import Prefetch
 
     from membership.models import Equipment, EquipmentReservation, OrientationSlot
 
+    from django.db.models import Q
+
     item_list = list(items)
     entries: list[CalendarEntry] = []
-    reservations = (
+    window_starts_at = timezone.make_aware(datetime.combine(fetch_from, time.min))
+    window_ends_at = timezone.make_aware(datetime.combine(fetch_to + timedelta(days=1), time.min))
+    rows = list(
         EquipmentReservation.objects.confirmed()
         .reservations()  # a manager's block stays off the calendar feed (#657)
-        .filter(equipment__in=item_list, starts_at__date__gte=fetch_from, starts_at__date__lte=fetch_to)
+        .filter(equipment__in=item_list)
+        .filter(
+            # A time slot starts in the window; a season (#1095) only has to overlap it.
+            Q(is_season=False, starts_at__date__gte=fetch_from, starts_at__date__lte=fetch_to)
+            | Q(is_season=True, starts_at__lt=window_ends_at, ends_at__gt=window_starts_at)
+        )
         .select_related("equipment", "equipment__guild", "member")
         .order_by("starts_at")
     )
+    entries.extend(_season_entries([row for row in rows if row.is_season], fetch_from, fetch_to))
+    reservations = [row for row in rows if not row.is_season]
     for reservation in reservations:
         item = reservation.equipment
         entries.append(

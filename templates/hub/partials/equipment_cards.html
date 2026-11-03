@@ -97,7 +97,8 @@ The Staff line (#615) names the item's staff from equipment.staff_roster, and is
       </div>
       {% endif %}
       {% if card.availability %}
-      <div class="pl-equip-avail pl-equip-avail--{{ card.availability.0 }}">{{ card.availability.1 }}</div>
+      {# A season item's line (#1095) is the guidance target: it shows on the guild's Reservations tab the feature opens. #}
+      <div class="pl-equip-avail pl-equip-avail--{{ card.availability.0 }}"{% if equipment.has_season %} data-guidance-target="reservations.season-line"{% endif %}>{{ card.availability.1 }}</div>
       {% endif %}
       {% if equipment.staff_roster %}
       <div class="pl-equip-avail pl-equip-avail--muted" data-equip-card-staff>Staff: {% for staff in equipment.staff_roster %}{{ staff.member.display_name }}{% if not forloop.last %}, {% endif %}{% endfor %}</div>
