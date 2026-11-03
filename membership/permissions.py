@@ -455,6 +455,23 @@ def manageable_orientation_types(
     return queryset.filter(pk__in=in_scope.values("pk"))
 
 
+def holds_orientor_role(request: HttpRequest) -> bool:
+    """True when this request's member holds the Orientor role on any guild (#1097).
+
+    The audience of the Orientations page payouts card: the people who give orientations and
+    get paid for them. Narrower than :func:`manages_orientations` on purpose; admins, officers,
+    EQUIPMENT holders, leads and other staff roles do not count unless they also hold the role.
+    ``view_as`` aware through :func:`_editing_member`, so a preview below Member sees no card.
+    """
+    from membership.models import GuildStaffMembership
+
+    member = _editing_member(request)
+    return (
+        member is not None
+        and GuildStaffMembership.objects.filter(member=member, role=GuildStaffMembership.Role.ORIENTER).exists()
+    )
+
+
 def manages_orientations(request: HttpRequest, *, honour_preview: bool = False) -> bool:
     """True when this request runs some orientation: the gate on the staff endpoints (export, Add Member).
 
