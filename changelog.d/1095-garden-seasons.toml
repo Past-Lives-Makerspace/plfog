@@ -1,10 +1,20 @@
 bump = "minor"
 audience = ["members", "equipment-managers"]
 feature = "guild.reservations"
-guidance = "link"
+guidance = "shots"
+target = "reservations.reserve-season"
 date = "2026-11-03"
 title = "Reserve a garden bed for the whole season"
 changes = [
   "Equipment managers can give an item a season start and end on Hours and Limits. Members then reserve it for the whole season with one press, first come first served.",
   "Garden beds are the first use: reserve your bed from spring until after the last harvest, and the next season opens to everyone again.",
 ]
+
+[[shots]]
+caption = "On Hours and Limits, a manager sets Season start and Season end on the Season card, then presses Save."
+
+[[shots]]
+caption = "On the item's page, press Reserve This Season. The button shows the season's dates."
+
+[[shots]]
+caption = "The bed reads Reserved for the season and shows under Your Reservations Here."

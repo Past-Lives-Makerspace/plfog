@@ -3,7 +3,7 @@ The season card (#1095), in place of the week strip and Book a Time on an item w
 It says where the season stands (open, reserved, ended) with the dates, and offers Reserve This Season
 to a member nothing blocks while the season is open. The press posts the whole season to the same
 reserve endpoint as Book a Time; the engine takes only the season's exact span. Context from
-equipment_views._schedule_context (the _season_context keys plus price_chip, booking_terms,
+equipment_views._schedule_context (the _season_context keys plus price_chip,
 needs_approval and late_cancel_sentence).
 {% endcomment %}
 <div class="hub-card pl-equip-season" data-season-state="{{ season_state }}">
@@ -16,11 +16,13 @@ needs_approval and late_cancel_sentence).
   <p class="hub-text-muted pl-equip-season__note">This season is over. A manager sets the next season's dates.{% if manages %} <a href="{% url 'hub_equipment_manage' equipment.slug %}?tab=hours">Set the next season</a>{% endif %}</p>
   {% elif holds_season %}
   <p class="hub-text-muted pl-equip-season__note" data-season-yours>This season is yours. It's under Your Reservations Here.</p>
+  {% elif own_season_label %}
+  <p class="hub-text-muted pl-equip-season__note" data-season-yours>Your reservation holds this bed for {{ own_season_label }}. It's under Your Reservations Here.</p>
   {% elif season_state == "reserved" %}
   <p class="hub-text-muted pl-equip-season__note">Someone already reserved this season.</p>
   {% elif can_reserve_season %}
-  {% if booking_terms %}
-  <p class="pl-equip-book__terms"{% if needs_approval %} data-approval-terms{% endif %}{% if equipment.is_priced %} data-pay-terms{% endif %}>{{ booking_terms }}</p>
+  {% if season_terms %}
+  <p class="pl-equip-book__terms"{% if needs_approval %} data-approval-terms{% endif %}{% if equipment.is_priced %} data-pay-terms{% endif %}>{{ season_terms }}</p>
   {% endif %}
   <form id="equip-reserve-form" method="post" action="{% url 'hub_equipment_reserve' equipment.slug %}"
         hx-post="{% url 'hub_equipment_reserve' equipment.slug %}" hx-target="#equipment-schedule"
@@ -29,7 +31,7 @@ needs_approval and late_cancel_sentence).
     <input type="hidden" name="starts_at" value="{{ season_starts_at }}">
     <input type="hidden" name="duration_minutes" value="{{ season_minutes }}">
     {% if equipment.is_donation %}<input type="hidden" name="amount" value="" data-reserve-amount>{% endif %}
-    <button type="button" class="pl-btn pl-btn--primary pl-equip-season__reserve" data-reserve-season
+    <button type="button" class="pl-btn pl-btn--primary pl-equip-season__reserve" data-reserve-season data-guidance-target="reservations.reserve-season"
             @click="$dispatch('open-confirm', 'equip-reserve-confirm')">Reserve This Season, {{ equipment.season_label }}</button>
   </form>
   {% if late_cancel_sentence %}

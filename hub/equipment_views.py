@@ -395,19 +395,35 @@ def _schedule_context(
     }
 
 
+def _season_refund_terms(equipment: Equipment, *, needs_approval: bool) -> str:
+    """What a paid season refunds (Felix, #1095): a decline, and a cancel before the season starts; nothing after.
+
+    Once the season has started already, a cancel refunds nothing from the first day, so only
+    the decline is promised.
+    """
+    started = equipment.season_span()[0] <= timezone.now()
+    declined = "If a manager declines, you get an automatic full refund. " if needs_approval else ""
+    if started:
+        return f"{declined}The season has started, so if you cancel, your payment isn't refunded."
+    return (
+        f"{declined}If you cancel before the season starts, you get an automatic full refund. "
+        "Once it has started, a cancel isn't refunded."
+    )
+
+
 def _season_confirm_message(equipment: Equipment, *, needs_approval: bool, late_cancel_sentence: str) -> str:
     """The Reserve This Season confirm's words (#1095): the item and its dates, then what pressing it does."""
     lead = f"The {equipment.name}, {equipment.season_label}."
     if equipment.is_donation and needs_approval:
         rest = (
             "You choose what you pay. Any amount above $0 goes through our secure checkout. Then a manager approves "
-            "your reservation; until they do, the season is held for you. If they decline, or you cancel, you get "
-            "an automatic full refund."
+            "your reservation; until they do, the season is held for you. "
+            + _season_refund_terms(equipment, needs_approval=True)
         )
     elif equipment.is_donation:
         rest = (
             "You choose what you pay. Any amount above $0 goes through our secure checkout, and your reservation "
-            "confirms when it is paid. If you cancel, you get an automatic full refund."
+            "confirms when it is paid. " + _season_refund_terms(equipment, needs_approval=False)
         )
     elif needs_approval:
         rest = "A manager approves each reservation. We hold the season for you and email you when they decide."
@@ -430,7 +446,17 @@ def _season_context(
     if not equipment.has_season:
         return {"has_season": False}
     state = equipment.season_state()
-    season_starts_at, _ = equipment.season_span()
+    season_starts_at, season_ends_at = equipment.season_span()
+    rest_starts_at = max(season_starts_at, timezone.now())
+    # After a manager changed the dates, the member's own row can still hold part of this season (#1095).
+    own_rows = [
+        reservation
+        for reservation in my_reservations
+        if reservation.is_season
+        and reservation.status in EquipmentReservation.HOLDING_STATUSES
+        and reservation.starts_at < season_ends_at
+        and reservation.ends_at > rest_starts_at
+    ]
     return {
         "has_season": True,
         "season_state": state.value,
@@ -440,6 +466,16 @@ def _season_context(
         "can_reserve_season": state == Equipment.SeasonState.OPEN and not blockers,
         # The member's own season row sits under Your Reservations Here; the card says it is theirs.
         "holds_season": any(reservation.holds_current_season() for reservation in my_reservations),
+        # Their row overlapping a season whose dates moved: theirs, by its own dates, never "someone".
+        "own_season_label": next(
+            (reservation.season_label for reservation in own_rows if not reservation.holds_current_season()), ""
+        ),
+        # The terms line for a paid season: Felix's refund rule, not the time slot's "Cancel and you get a full refund".
+        "season_terms": (
+            f"You pay when you reserve. {_season_refund_terms(equipment, needs_approval=needs_approval)}"
+            if equipment.is_priced
+            else equipment.booking_terms(needs_approval=needs_approval)
+        ),
         "season_confirm_message": _season_confirm_message(
             equipment, needs_approval=needs_approval, late_cancel_sentence=late_cancel_sentence
         ),

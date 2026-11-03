@@ -20083,6 +20083,14 @@ class EquipmentReservationQuerySet(models.QuerySet["EquipmentReservation"]):
     def confirmed(self) -> EquipmentReservationQuerySet:
         return self.filter(status=EquipmentReservation.Status.CONFIRMED)
 
+    def share_due(self) -> EquipmentReservationQuerySet:
+        """Rows whose manager share is owed: confirmed ones, and a paid season cancelled once it started (#1095).
+
+        The second kind kept its payment (:attr:`EquipmentReservation.kept_payment`), so its share is
+        paid like a confirmed row's; a hand refund since lowers the share as on any row.
+        """
+        return self.filter(EquipmentReservation.share_due_q())
+
     def holding(self) -> EquipmentReservationQuerySet:
         """Rows that hold their time: confirmed ones and requests awaiting approval (#748).
 
@@ -20446,6 +20454,28 @@ class EquipmentReservation(models.Model):
         from membership import equipment as equipment_service
 
         return equipment_service.refund_if_paid(self, actor=actor.user)
+
+    @classmethod
+    def share_due_q(cls) -> Q:
+        """The filter for rows whose manager share is owed (#1095): confirmed, or a season that kept its payment."""
+        return Q(status=cls.Status.CONFIRMED) | Q(
+            status=cls.Status.CANCELLED, is_season=True, cancelled_at__gte=F("starts_at")
+        )
+
+    @property
+    def kept_payment(self) -> bool:
+        """True for a paid season cancelled once its season had started (#1095): its payment was kept, so its share is owed.
+
+        Read from what the cancel recorded, no extra column: a season row, cancelled, with
+        ``cancelled_at`` at or after ``starts_at`` (exactly when :meth:`keeps_payment_on_cancel`
+        held), the same rule as :meth:`EquipmentReservationQuerySet.share_due`.
+        """
+        return (
+            self.is_season
+            and self.status == self.Status.CANCELLED
+            and self.cancelled_at is not None
+            and self.cancelled_at >= self.starts_at
+        )
 
     def keeps_payment_on_cancel(self, now: datetime_type | None = None) -> bool:
         """Whether a cancel now keeps what was paid (Felix, #1095): a paid season row once its season has started.

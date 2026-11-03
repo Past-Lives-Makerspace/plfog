@@ -371,6 +371,21 @@ def describe_the_item_page():
         assert "Your amount ($)" in content
         assert "You choose what you pay." in content
 
+    def it_promises_a_refund_only_before_the_season_starts(client: Client):
+        bed = _bed(start_offset=10, pricing=Equipment.Pricing.DONATION)
+        _login(client, "refundwords")
+        content = _detail(client, bed).replace("&#x27;", "'")
+        promise = "If you cancel before the season starts, you get an automatic full refund. Once it has started, a cancel isn't refunded."
+        assert content.count(promise) == 2  # the terms line and the confirm
+        assert "You pay when you reserve. If you cancel before the season starts" in content
+
+    def it_promises_no_cancel_refund_once_the_season_has_started(client: Client):
+        bed = _bed(start_offset=-10, pricing=Equipment.Pricing.DONATION, requires_approval=True)
+        _login(client, "startedwords")
+        content = _detail(client, bed).replace("&#x27;", "'")
+        assert content.count("If a manager declines, you get an automatic full refund.") == 2
+        assert content.count("The season has started, so if you cancel, your payment isn't refunded.") == 2
+
     def it_offers_a_donation_request_when_approval_is_on(client: Client):
         bed = _bed(pricing=Equipment.Pricing.DONATION, requires_approval=True)
         _login(client, "giverasks")
@@ -401,6 +416,22 @@ def describe_the_item_page():
         content = _detail(client, bed)
         assert "data-season-yours" not in content
         assert f"Reserve This Season, {bed.season_label}" in content
+
+    def it_tells_the_holder_their_own_row_holds_the_bed_after_the_dates_move(client: Client):
+        bed = _bed(start_offset=-10, end_offset=100)
+        member = _login(client, "movedholder")
+        starts_at, ends_at = bed.season_span()
+        reservation = EquipmentReservationFactory(
+            equipment=bed, member=member, is_season=True, starts_at=starts_at, ends_at=ends_at
+        )
+        bed.season_ends_on = bed.season_ends_on + timedelta(days=30)
+        bed.save(update_fields=["season_ends_on"])
+        content = _detail(client, bed).replace("&#x27;", "'")
+        assert f"Your reservation holds this bed for {reservation.season_label}." in content
+        assert "Someone already reserved this season." not in content
+        other = Client()
+        _login(other, "lookingon")
+        assert "Someone already reserved this season." in _detail(other, bed)
 
     def it_shows_the_button_to_others_again_after_the_holder_cancels(client: Client):
         bed = _bed(start_offset=-10, end_offset=150)
