@@ -18,7 +18,7 @@ hides the Orientations tab otherwise), so there is no empty state here. Context:
   orientation_all_done — bool, member completed every type in orientation_sections
   custom_request_form  — OrientationCustomRequestForm (carries the type picker)
 {% endcomment %}
-{% load classes_tags rich_text %}
+{% load classes_tags rich_text hub_tags %}
 <section id="guild-orientation" class="hub-card" style="padding:1.25rem 1.5rem; margin-bottom:1.5rem;" aria-label="Orientation">
   {% if orientation.is_closed %}
     <h2 class="hub-detail-label" style="margin:0 0 0.5rem;">Orientations paused</h2>
@@ -80,7 +80,7 @@ hides the Orientations tab otherwise), so there is no empty state here. Context:
             <span class="pl-orient-slots__time">{{ slot.starts_at|time:"g:i A" }} – {{ slot.ends_at|time:"g:i A" }}</span>
             <span class="pl-orient-slots__with">
               {% if slot.with_display %}
-              {% if slot.orienter.profile_photo %}<img src="{{ slot.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ slot.orienter.display_name|slice:":1" }}</span>{% endif %}
+              {% if slot.orienter.profile_photo and slot.orienter|is_public:"profile_photo" %}<img src="{{ slot.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ slot.orienter.display_name|slice:":1" }}</span>{% endif %}
               <span>{{ slot.with_display }}</span>
               {% endif %}
             </span>
@@ -116,7 +116,7 @@ hides the Orientations tab otherwise), so there is no empty state here. Context:
             <span class="pl-orient-slots__date">{{ block.starts_at|date:"D M j" }}</span>
             <span class="pl-orient-slots__time">{{ block.starts_at|time:"g:i A" }} – {{ block.ends_at|time:"g:i A" }}</span>
             <span class="pl-orient-slots__with">
-              {% if block.orienter.profile_photo %}<img src="{{ block.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ block.orienter.display_name|slice:":1" }}</span>{% endif %}
+              {% if block.orienter.profile_photo and block.orienter|is_public:"profile_photo" %}<img src="{{ block.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ block.orienter.display_name|slice:":1" }}</span>{% endif %}
               <span>with {{ block.orienter.display_name }}</span>
             </span>
             <span class="pl-orient-slots__action">

@@ -1,4 +1,4 @@
-{% load static %}<!DOCTYPE html>
+{% load static hub_tags %}<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -38,13 +38,13 @@
   <div class="pl-flyer__cols">
     <div class="pl-flyer__info">
       {# 3 · Contact block #}
-      {% if guild.guild_lead or guild.contact_email or guild.guild_lead.primary_email or guild.discord_url %}
+      {% if guild.guild_lead or guild.contact_email or guild.discord_url %}
       <section class="pl-flyer__block">
         <h2 class="pl-flyer__block-title">Get in Touch</h2>
         {% if guild.guild_lead %}<p class="pl-flyer__line">Led by <strong>{{ guild.guild_lead.display_name }}</strong></p>{% endif %}
         {% if guild.contact_email %}
           <p class="pl-flyer__line">{{ guild.contact_email }}</p>
-        {% elif guild.guild_lead.primary_email %}
+        {% elif guild.guild_lead.primary_email and guild.guild_lead|is_public:"email" %}
           <p class="pl-flyer__line">{{ guild.guild_lead.primary_email }}</p>
         {% endif %}
         {% if guild.discord_url %}<p class="pl-flyer__line">Discord: {{ guild.discord_url }}</p>{% endif %}

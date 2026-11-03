@@ -2,6 +2,7 @@
 {% load static tab_picker guidance %}
 {% load classes_tags %}
 {% load membership_md %}
+{% load hub_tags %}
 {% block title %}{{ guild.name }}{% endblock %}
 
 {% block extra_head %}{{ block.super }}
@@ -342,7 +343,7 @@
                 {# No in-place cart on the guest surface — buyables live on the members hub. #}
                 <a href="{{ MEMBER_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}" class="pl-btn pl-btn--secondary" style="width:100%;" hx-boost="false">{% if user.is_authenticated %}Buy this guild's items on the members hub{% else %}Log in on the members hub to shop{% endif %}</a>
                 {% endif %}
-                {% if user.is_authenticated and guild.guild_lead.primary_email %}
+                {% if user.is_authenticated and guild.guild_lead.primary_email and guild.guild_lead|is_public:"email" %}
                 <a href="mailto:{{ guild.guild_lead.primary_email }}" class="pl-btn pl-btn--secondary" style="width:100%;">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.35rem;"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
                     Email Guild Lead
@@ -611,8 +612,10 @@
 </div>
 {% endif %}
 
-{# Guild lead profile modal — triggered from the aside lead card. Contact details are member-only. #}
+{# Guild lead profile modal, opened from the aside lead card. Member-only; each field follows the lead's directory visibility, as on the Member Directory card (#1099). #}
 {% if guild.guild_lead and user.is_authenticated %}
+{% with lead=guild.guild_lead %}
+{% with email_visible=lead|is_public:"email" phone_visible=lead|is_public:"phone" discord_visible=lead|is_public:"discord_handle" %}
 <div x-data="{ open: false }"
      x-show="open"
      x-transition:enter="modal-enter"
@@ -626,42 +629,42 @@
      aria-modal="true">
     <div class="pl-modal pl-modal--sm" @click.outside="open = false">
         <div class="pl-modal__header">
-            <h2 class="pl-modal__title">{{ guild.guild_lead.display_name }}</h2>
+            <h2 class="pl-modal__title">{{ lead.display_name }}</h2>
             <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
         </div>
         <div class="pl-modal__body">
             <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.25rem;">
                 <div class="hub-member-avatar" style="width:48px;height:48px;font-size:1.25rem;">
-                    {{ guild.guild_lead.display_name|make_list|first|upper }}
+                    {{ lead.display_name|make_list|first|upper }}
                 </div>
                 <div>
-                    <div style="font-weight:600;color:var(--hub-text, #F4EFDD);">{{ guild.guild_lead.display_name }}</div>
-                    {% if guild.guild_lead.pronouns %}
-                    <div style="font-size:0.8125rem;color:var(--hub-text-muted, #96ACBB);">{{ guild.guild_lead.pronouns }}</div>
+                    <div style="font-weight:600;color:var(--hub-text, #F4EFDD);">{{ lead.display_name }}</div>
+                    {% if lead.pronouns and lead|is_public:"pronouns" %}
+                    <div style="font-size:0.8125rem;color:var(--hub-text-muted, #96ACBB);">{{ lead.pronouns }}</div>
                     {% endif %}
                 </div>
             </div>
-            {% if guild.guild_lead.about_me %}
-            <p style="font-size:0.875rem;color:var(--hub-text, #F4EFDD);margin:0 0 1rem;">{{ guild.guild_lead.about_me }}</p>
+            {% if lead.about_me and lead|is_public:"about_me" %}
+            <p style="font-size:0.875rem;color:var(--hub-text, #F4EFDD);margin:0 0 1rem;">{{ lead.about_me }}</p>
             {% endif %}
-            {% if guild.guild_lead.primary_email or guild.guild_lead.phone or guild.guild_lead.discord_handle %}
-            <div style="display:flex;flex-direction:column;gap:0.5rem;">
-                {% if guild.guild_lead.primary_email %}
+            {% if email_visible and lead.primary_email or phone_visible and lead.phone or discord_visible and lead.discord_handle %}
+            <div data-lead-contacts style="display:flex;flex-direction:column;gap:0.5rem;">
+                {% if lead.primary_email and email_visible %}
                 <div style="display:flex;gap:0.5rem;font-size:0.875rem;">
                     <span style="color:var(--hub-text-muted, #96ACBB);min-width:60px;">Email</span>
-                    <a href="mailto:{{ guild.guild_lead.primary_email }}" style="color:var(--color-tuscan-yellow, #EEB44B);">{{ guild.guild_lead.primary_email }}</a>
+                    <a href="mailto:{{ lead.primary_email }}" style="color:var(--color-tuscan-yellow, #EEB44B);">{{ lead.primary_email }}</a>
                 </div>
                 {% endif %}
-                {% if guild.guild_lead.phone %}
+                {% if lead.phone and phone_visible %}
                 <div style="display:flex;gap:0.5rem;font-size:0.875rem;">
                     <span style="color:var(--hub-text-muted, #96ACBB);min-width:60px;">Phone</span>
-                    <span style="color:var(--hub-text, #F4EFDD);">{{ guild.guild_lead.phone }}</span>
+                    {% with tel=lead.phone|tel_href %}{% if tel %}<a href="tel:{{ tel }}">{{ lead.phone }}</a>{% else %}<span style="color:var(--hub-text, #F4EFDD);">{{ lead.phone }}</span>{% endif %}{% endwith %}
                 </div>
                 {% endif %}
-                {% if guild.guild_lead.discord_handle %}
+                {% if lead.discord_handle and discord_visible %}
                 <div style="display:flex;gap:0.5rem;font-size:0.875rem;">
                     <span style="color:var(--hub-text-muted, #96ACBB);min-width:60px;">Discord</span>
-                    <span style="color:var(--hub-text, #F4EFDD);">{{ guild.guild_lead.discord_handle }}</span>
+                    <span style="color:var(--hub-text, #F4EFDD);">{{ lead.discord_handle }}</span>
                 </div>
                 {% endif %}
             </div>
@@ -669,6 +672,8 @@
         </div>
     </div>
 </div>
+{% endwith %}
+{% endwith %}
 {% endif %}
 
 {# Add to Cart modal — quantity picker #}

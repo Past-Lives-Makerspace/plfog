@@ -107,7 +107,7 @@
   {% if can_edit_others_hours or staffer.pk == viewer_member_pk %}
   <div class="pl-orient-overview__group">
     <div class="pl-orient-overview__person">
-      {% if staffer.profile_photo %}<img src="{{ staffer.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ staffer.display_name|slice:":1" }}</span>{% endif %}
+      {% if staffer.profile_photo and staffer|is_public:"profile_photo" %}<img src="{{ staffer.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ staffer.display_name|slice:":1" }}</span>{% endif %}
       <strong>{{ staffer.display_name }}</strong>
       <button type="button" class="hub-btn hub-btn--sm"
               @click="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Loading…</p>'; $dispatch('open-modal', 'edit-hours-modal')"
@@ -148,7 +148,7 @@
   {% for staffer, staffer_rules, has_open in former_staff_overview %}
   <div class="pl-orient-overview__group">
     <div class="pl-orient-overview__person">
-      {% if staffer.profile_photo %}<img src="{{ staffer.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ staffer.display_name|slice:":1" }}</span>{% endif %}
+      {% if staffer.profile_photo and staffer|is_public:"profile_photo" %}<img src="{{ staffer.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ staffer.display_name|slice:":1" }}</span>{% endif %}
       <strong>{{ staffer.display_name }}</strong>
       {# Deliberately ungated within this lead/admin card: the Edit Hours modal is the only route #}
       {# to clean up a former staffer's leftover rows (they no longer appear in the active list). #}
@@ -303,7 +303,7 @@
       <input type="checkbox" class="pl-slot-admin__pick" aria-label="Select {{ item.starts_at|date:'D M j' }}, {{ item.starts_at|time:'g:i A' }}" :checked="selected.includes('window:{{ item.pk }}')" @change="toggle('window:{{ item.pk }}')">
       <span class="pl-slot-admin__when">{{ item.starts_at|date:"D M j" }} · {{ item.starts_at|time:"g:i A" }}–{{ item.ends_at|time:"g:i A" }} · {{ item.type_display }}</span>
       <span class="pl-slot-admin__with">
-        {% if item.orienter.profile_photo %}<img src="{{ item.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ item.orienter.display_name|slice:":1" }}</span>{% endif %}
+        {% if item.orienter.profile_photo and item.orienter|is_public:"profile_photo" %}<img src="{{ item.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ item.orienter.display_name|slice:":1" }}</span>{% endif %}
         {{ item.orienter.display_name }}
       </span>
       <span class="pl-slot-admin__seats">{% if item.live_segments %}{{ item.live_segments|length }} booked{% else %}nothing booked yet{% endif %}</span>
@@ -325,7 +325,7 @@
       <span class="pl-slot-admin__when">{{ item.starts_at|date:"D M j" }} · {{ item.starts_at|time:"g:i A" }}–{{ item.ends_at|time:"g:i A" }} · {{ item.orientation_type.name }}{% include "hub/partials/_slot_blocked_by.html" with slot=item %}</span>
       <span class="pl-slot-admin__with">
         {% if item.orienter %}
-          {% if item.orienter.profile_photo %}<img src="{{ item.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ item.orienter.display_name|slice:":1" }}</span>{% endif %}
+          {% if item.orienter.profile_photo and item.orienter|is_public:"profile_photo" %}<img src="{{ item.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ item.orienter.display_name|slice:":1" }}</span>{% endif %}
           {{ item.orienter.display_name }}
         {% else %}
           <span class="hub-text-muted">Any orientor</span>
