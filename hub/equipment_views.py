@@ -79,6 +79,9 @@ logger = logging.getLogger("hub")
 #: The panes ``?view=`` may open on the Reservations page; anything else opens List.
 PANES = ("calendar", "bookings")
 
+#: How many recent sessions the manage page's Reservations tab lists (#1096).
+MANAGE_SESSIONS_SHOWN = 10
+
 #: The Reservations page Calendar pane's localStorage salt in the shared calendar shell.
 CALENDAR_KEY = "reservations"
 
@@ -344,6 +347,8 @@ def _schedule_context(
             # End Early (#787): the hours it would credit, only while the row offers it.
             if reservation.can_end_early(member, now=now, credited_minutes=reservation.credited_unused_minutes):
                 reservation.end_early_hours = duration_label(reservation.end_early_minutes(now))
+            # Sessions (#1096): Start Session, then Stop Session with the hours it would credit.
+            reservation.attach_session_offer(member, now=now, credited_minutes=reservation.credited_unused_minutes)
             # The cancel modal's fee line, only while a cancel right now would be late (#456). A request
             # awaiting approval was never booked, so cancelling it never costs anything (#748), and an
             # unpaid hold (#749) is released, not cancelled.
@@ -1495,6 +1500,14 @@ def _render_manage(
                 .with_unread_messages_for(viewer),  # the row's New message pill
                 25,
             ).get_page(request.GET.get("page", 1)),
+            # The Sessions card (#1096): the latest started sessions here, newest first, while Sessions are on or any exist.
+            "manage_sessions": list(
+                equipment.reservations.reservations()
+                .filter(session_started_at__isnull=False)
+                .select_related("member")
+                .with_credited_unused()  # the row's "Credited 6h" chip
+                .order_by("-session_started_at")[:MANAGE_SESSIONS_SHOWN]
+            ),
             # The Needs Approval card (#748), shown while the switch is on or anything still waits.
             "manage_approvals": approvals,
             "show_approvals_card": equipment.requires_approval or bool(approvals),
@@ -1859,7 +1872,8 @@ def hub_equipment_flyer(request: HttpRequest, slug: str) -> HttpResponse:
     """The equipment QR sheet (#631): one printable Letter page to post at the machine.
 
     A QR to the equipment page, where a member reserves it or sees the orientation it needs,
-    and, when it requires an orientation that is on, a second QR straight to booking it.
+    and, when it requires an orientation that is on, a second QR straight to booking it. With
+    Sessions on (#1096) the second QR is the session QR instead, and the orientation is named.
     """
     equipment = get_object_or_404(_equipment_queryset().select_related("area"), slug=slug)
     forbidden = _require_can_print(request, equipment)
@@ -1871,6 +1885,8 @@ def hub_equipment_flyer(request: HttpRequest, slug: str) -> HttpResponse:
         {
             "equipment": equipment,
             "qr_svg": equipment.qr_svg(),
+            # The session QR (#1096), only while Sessions are on; "" leaves the sheet as it was.
+            "session_qr_svg": equipment.session_qr_svg() if equipment.has_sessions else "",
             "orientations": equipment.qr_sheet_orientations,
             "requirement": equipment.qr_sheet_requirement,
         },

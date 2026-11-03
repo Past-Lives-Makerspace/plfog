@@ -1,0 +1,84 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}{{ equipment.name }} Session · Past Lives{% endblock %}
+{% block extra_head %}{{ block.super }}
+<link rel="stylesheet" href="{% static 'css/equipment-session.css' %}">
+{% endblock %}
+{% block content %}
+{% comment %}
+The session page (#1096): what a machine's session QR opens, for the signed in member. It reads
+hub.equipment_session_views.SessionPage: Start Session or Stop Session on their current
+reservation here, what happened once they stopped, why a booking awaiting approval or payment
+cannot start, or, with nothing current, a plain line and a link to book. Start and Stop post
+next back here, so the answer is a message on this same page.
+{% endcomment %}
+{% url 'hub_equipment_detail' equipment.slug as item_url %}
+{% with r=page.reservation %}
+<div class="pl-session">
+  <div class="hub-card pl-session__card" data-session-page="{{ page.state }}">
+    <p class="pl-session__eyebrow">Session</p>
+    <h1 class="pl-session__name">{{ equipment.name }}</h1>
+    {% if equipment.area %}<p class="pl-session__where">{{ equipment.area.name }}</p>{% endif %}
+
+    {% if r %}
+    <p class="pl-session__booking" data-session-booking>Your reservation: {{ r.starts_at|date:"D, M j" }}, {{ r.starts_at|time:"g:i A" }} to {{ r.ends_at|time:"g:i A" }}</p>
+    {% endif %}
+
+    {% if page.state == "off" %}
+    <p class="pl-session__lead" data-session-off>Sessions aren't turned on for the {{ equipment.name }}.</p>
+    <div class="pl-session__actions"><a href="{{ item_url }}" class="pl-btn pl-btn--secondary">Go to the {{ equipment.name }}</a></div>
+
+    {% elif page.state == "none" %}
+    <p class="pl-session__lead" data-session-none>You don't have a reservation on the {{ equipment.name }} right now.</p>
+    {% if page.upcoming %}<p class="pl-session__note" data-session-upcoming>Your next one starts {{ page.upcoming.starts_at|date:"D, M j" }} at {{ page.upcoming.starts_at|time:"g:i A" }}. Come back then to start it.</p>{% endif %}
+    <div class="pl-session__actions"><a href="{{ item_url }}#equipment-schedule" class="pl-btn pl-btn--primary" data-session-book>Book a Time</a></div>
+
+    {% elif page.state == "waiting" %}
+    {% if r.is_awaiting_approval %}
+    <p class="pl-session__lead" data-session-waiting>Your reservation is waiting for a manager's approval, so its session can't start yet.</p>
+    {% else %}
+    <p class="pl-session__lead" data-session-waiting>Your payment hasn't come through, so this reservation's session can't start yet.</p>
+    {% endif %}
+    <div class="pl-session__actions"><a href="{{ item_url }}" class="pl-btn pl-btn--secondary">Go to the {{ equipment.name }}</a></div>
+
+    {% elif page.state == "start" %}
+    <form method="post" action="{% url 'hub_equipment_session_start' equipment.slug r.pk %}" class="pl-session__actions">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ session_url }}">
+      <button type="submit" class="pl-btn pl-btn--primary pl-session__go" data-session-start data-guidance-target="reservations.start-session">Start Session</button>
+    </form>
+    <p class="pl-session__note">Press Stop Session when you are done. The time you don't use, rounded up to the half hour, becomes credit for your next booking here.</p>
+
+    {% elif page.state == "running" %}
+    <p class="pl-session__running" data-session-running><span class="pl-session__dot" aria-hidden="true"></span>Started at {{ r.session_started_at|time:"g:i A" }}</p>
+    <div class="pl-session__actions">
+      <button type="button" class="pl-btn pl-btn--primary pl-session__go" data-session-stop data-guidance-target="reservations.stop-session"
+              @click="$dispatch('open-confirm', 'session-stop-{{ r.pk }}')">Stop Session</button>
+    </div>
+    <p class="pl-session__note">If you don't press Stop, your session ends at {{ r.ends_at|time:"g:i A" }}. There is no charge past it.</p>
+    {% url 'hub_equipment_session_stop' equipment.slug r.pk as stop_url %}
+    {% with rpks=r.pk|stringformat:"s" %}
+    {% if page.stop_hours %}
+    {% with stop_message="The "|add:page.stop_hours|add:" you have not used become credit here." %}
+    {% include "components/confirm_modal.html" with confirm_id="session-stop-"|add:rpks confirm_title="Stop your session now?" confirm_message=stop_message confirm_action_url=stop_url confirm_next=session_url confirm_button_text="Stop Session" confirm_button_style="primary" confirm_cancel_text="Keep Going" %}
+    {% endwith %}
+    {% else %}
+    {% include "components/confirm_modal.html" with confirm_id="session-stop-"|add:rpks confirm_title="Stop your session now?" confirm_message="Less than half an hour is left, so stopping adds no credit." confirm_action_url=stop_url confirm_next=session_url confirm_button_text="Stop Session" confirm_button_style="primary" confirm_cancel_text="Keep Going" %}
+    {% endif %}
+    {% endwith %}
+
+    {% elif page.state == "stopped" %}
+    <p class="pl-session__lead" data-session-stopped>Your session is over.</p>
+    {% include "hub/partials/_equipment_session_times.html" with reservation=r %}
+    {% if page.upcoming %}<p class="pl-session__note" data-session-upcoming>Your next one starts {{ page.upcoming.starts_at|date:"D, M j" }} at {{ page.upcoming.starts_at|time:"g:i A" }}.</p>{% endif %}
+    <div class="pl-session__actions"><a href="{{ item_url }}#equipment-schedule" class="pl-btn pl-btn--secondary">Book More Time</a></div>
+    {% endif %}
+
+    {% if page.credit_label %}
+    <p class="pl-session__credit" data-session-credit>Your credit here: <strong>{{ page.credit_label }}</strong>. It is used first when you book.</p>
+    {% endif %}
+    {% if page.state != "off" %}<p class="pl-session__back"><a href="{{ item_url }}">View the {{ equipment.name }} →</a></p>{% endif %}
+  </div>
+</div>
+{% endwith %}
+{% endblock %}

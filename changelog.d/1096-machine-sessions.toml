@@ -1,0 +1,21 @@
+bump = "minor"
+audience = ["members", "equipment-managers"]
+feature = "guild.machine-sessions"
+guidance = "shots"
+target = "reservations.start-session"
+date = "2026-11-03"
+title = "Start and stop your session at the machine"
+changes = [
+  "Equipment managers can turn on Sessions (Start and Stop) for an hourly machine on Hours and Limits. Each machine then gets a session QR code to post beside it.",
+  "During your reservation, press Start Session on your booking or scan the machine's QR code. Press Stop Session when you are done.",
+  "The time you did not use, rounded up to the half hour, becomes credit on that machine for your next booking. Managers see when each session started and stopped.",
+]
+
+[[shots]]
+caption = "On Hours and Limits, turn on Sessions (Start and Stop) and press Save. The session QR code shows under it."
+
+[[shots]]
+caption = "During your reservation, press Start Session on your booking, or scan the machine's session QR code."
+
+[[shots]]
+caption = "Press Stop Session when you are done. The time you did not use becomes credit here."

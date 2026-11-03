@@ -235,6 +235,19 @@ _GUIDANCE_LIST = (
             "Each reservation has a conversation with the equipment managers. A New message tag marks a reply you have not read.",
         ),
     ),
+    # Sessions (#1096): Start and Stop on a machine reservation. The Bookings tab carries the member's button.
+    Guidance(
+        key="guild.machine-sessions",
+        title="Machine Sessions",
+        url_name="hub_equipment_index",
+        query={"view": "bookings"},
+        steps=(
+            "On a machine with Sessions turned on, scan its Start Your Session QR code, or open the Bookings tab under Reservations.",
+            "During your reservation, press Start Session. Press Stop Session when you are done.",
+            "The time you did not use, rounded up to the half hour, becomes credit on that machine for your next booking.",
+        ),
+        target="reservations.start-session",
+    ),
     _guild_tab(
         "guild.wiki",
         "Guild Wiki",

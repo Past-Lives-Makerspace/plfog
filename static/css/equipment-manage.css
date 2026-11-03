@@ -311,3 +311,41 @@
 .pl-equip-pricing__early-end {
     margin-top: 1rem;
 }
+
+/* Sessions (#1096): the session QR under the Sessions switch, its code on white so a phone camera reads it in either theme. */
+.pl-equip-session-qr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem 1.25rem;
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid var(--hub-border);
+    border-radius: 10px;
+    background: var(--hub-surface);
+}
+.pl-equip-session-qr__code {
+    flex: 0 0 8rem;
+    width: 8rem;
+    height: 8rem;
+    padding: 0.5rem;
+    border-radius: 6px;
+    background: #fff;
+}
+.pl-equip-session-qr__code svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+.pl-equip-session-qr__body {
+    flex: 1 1 14rem;
+    min-width: 0;
+}
+.pl-equip-session-qr__title {
+    font-weight: 700;
+}
+.pl-equip-session-qr__text {
+    margin: 0.25rem 0 0.75rem;
+    font-size: 0.875rem;
+    color: var(--hub-text-muted);
+}

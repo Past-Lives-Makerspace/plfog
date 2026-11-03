@@ -1,0 +1,18 @@
+{% comment %}
+The session QR (#1096) under the Sessions switch on Hours & Limits, once Sessions are saved on: the
+QR that opens the scanning member's Start or Stop for their current reservation here, its two
+downloads and the QR sheet that carries it. One stable URL per item, never a reservation.
+Context: equipment.
+{% endcomment %}
+<div class="pl-equip-session-qr" data-session-qr>
+  <div class="pl-equip-session-qr__code" aria-hidden="true">{{ equipment.session_qr_svg|safe }}</div>
+  <div class="pl-equip-session-qr__body">
+    <p class="pl-equip-session-qr__title">Session QR Code</p>
+    <p class="pl-equip-session-qr__text">Post it at the machine. Members scan it to start and stop their session.</p>
+    <div class="pl-btn-row">
+      <a class="pl-btn pl-btn--secondary pl-btn--sm" href="{% url 'hub_equipment_session_qr' equipment.slug 'svg' %}" hx-boost="false" data-pl-download data-session-qr-download="svg">Download SVG</a>
+      <a class="pl-btn pl-btn--secondary pl-btn--sm" href="{% url 'hub_equipment_session_qr' equipment.slug 'png' %}" hx-boost="false" data-pl-download data-session-qr-download="png">Download PNG</a>
+      {% if equipment.is_active %}<a class="pl-btn pl-btn--secondary pl-btn--sm" href="{% url 'hub_equipment_flyer' equipment.slug %}" target="_blank" data-pl-new-window rel="noopener">Print QR Sheet</a>{% endif %}
+    </div>
+  </div>
+</div>

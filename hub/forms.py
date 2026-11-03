@@ -7596,6 +7596,7 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
             "pricing",
             "payee",
             "early_end_credit",
+            "sessions_enabled",
             "season_starts_on",
             "season_ends_on",
         ]
@@ -7617,6 +7618,7 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
             "max_advance_days": "Booking horizon (days)",
             "max_active_reservations_per_member": "Upcoming reservations per member",
             "early_end_credit": "Members can end a reservation early and keep the unused time as credit",
+            "sessions_enabled": "Sessions (Start and Stop)",
             "season_starts_on": "Season start",
             "season_ends_on": "Season end",
         }
@@ -7636,6 +7638,11 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
         self.fields["early_end_credit"].help_text = (
             "Once a reservation has started, its member can end it. The time left, rounded up to the "
             "half hour, becomes credit on this item. Nothing is refunded and no fee applies."
+        )
+        self.fields["sessions_enabled"].help_text = (
+            "Members press Start Session at the machine and Stop Session when they are done, on the item's "
+            "page or from its session QR code. On Stop, the time left, rounded up to the half hour, becomes "
+            "credit here, the same as End Early."
         )
         self.fields["late_cancel_fee"].help_text = "In dollars."
         self.fields["season_starts_on"].help_text = ""
@@ -7765,9 +7772,10 @@ class EquipmentSettingsForm(LateCancelFeeFormMixin):
             self.add_error("max_active_reservations_per_member", "Use at least 1.")
         self._clean_pricing(cleaned)
         self._clean_season(cleaned)
-        # End Early (#787) is saved only while Hourly is posted; otherwise the item keeps what it had.
+        # End Early (#787) and Sessions (#1096) are saved only while Hourly is posted; otherwise the item keeps what it had.
         if not (self.pricing_posted and cleaned.get("pricing") == Equipment.Pricing.HOURLY):
             cleaned["early_end_credit"] = self.instance.early_end_credit
+            cleaned["sessions_enabled"] = self.instance.sessions_enabled
         if not self.payee_posted:
             self.errors.pop("payee", None)
             cleaned["payee"] = self.instance.payee

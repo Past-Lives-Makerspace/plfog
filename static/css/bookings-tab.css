@@ -204,3 +204,8 @@
     font-size: 0.7rem;
     font-weight: 700;
 }
+
+/* Sessions (#1096): Start or Stop Session under the Status pills, clear of them, on the member's own in progress row. */
+.pl-bookings-session {
+    margin-top: 0.75rem;
+}
