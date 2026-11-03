@@ -1,0 +1,8 @@
+{# The composer's Guild Page preview (#1103): the post the send saves, through the guild page's own card. Expects: guild_announcement (None for any other audience), oob. #}
+<div id="compose-guild-preview" data-compose-guild-preview{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% if guild_announcement %}
+  {% include "hub/partials/_guild_announcement_card.html" with announcement=guild_announcement %}
+  {% else %}
+  <p class="pl-wizard-preview__loading">Building your preview&hellip;</p>
+  {% endif %}
+</div>

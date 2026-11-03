@@ -4939,7 +4939,10 @@ def _announcement_previews(draft: AnnouncementDraft) -> dict[str, Any]:
     :meth:`AnnouncementDraft.build_discord_message` through the embed builder the send posts with,
     and the push line from :meth:`AnnouncementDraft.build_push_message`. With "Post on Discord as
     me" on, the card shows the sender's Discord name and picture from the same payload, read through
-    the briefly remembered lookup so a preview refresh is not a Discord call.
+    the briefly remembered lookup so a preview refresh is not a Discord call. A guild audience also
+    gets its guild page post from :meth:`AnnouncementDraft.build_guild_announcement`, the post the
+    send saves (#1103), dated when it went out, or today while it is a draft; any other audience
+    has no page, so ``guild_announcement`` is ``None``.
     """
     from core.events.discord import build_embed_payload, discord_markdown_html
     from membership.orientations import _absolute_url
@@ -4949,6 +4952,12 @@ def _announcement_previews(draft: AnnouncementDraft) -> dict[str, Any]:
     payload = build_embed_payload(draft.build_discord_message(site_url, draft.discord_sender_identity(cached=True)))
     embeds = cast(list[dict[str, str]], payload["embeds"])
     push = draft.build_push_message(site_url)
+    guild_announcement = None
+    if draft.audience == AnnouncementDraft.Audience.GUILD:
+        guild_announcement = draft.build_guild_announcement()
+        # A draft is dated the start of today, so two refreshes render the same bytes (the card shows only the date).
+        today = dj_timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
+        guild_announcement.published_at = draft.sent_at or today
     return {
         "preview_html": message.html_body,
         "preview_subject": draft.title,
@@ -4959,6 +4968,7 @@ def _announcement_previews(draft: AnnouncementDraft) -> dict[str, Any]:
         "discord_image_url": cast(dict[str, Any], embeds[0]).get("image", {}).get("url", ""),
         "push_title": push.title,
         "push_body": push.body,
+        "guild_announcement": guild_announcement,
     }
 
 
@@ -5446,8 +5456,10 @@ def hub_compose_preview(request: HttpRequest) -> HttpResponse:
     reusing its own :meth:`AnnouncementDraft.build_email_message` keeps the preview identical to
     the sent email. The same response refreshes the Discord preview card out of band, from
     :meth:`AnnouncementDraft.build_discord_message` through the embed builder the send posts with,
-    so the card shows exactly the title and description Discord gets. Built by
-    :func:`_announcement_previews`, the helper the sent view also renders from.
+    so the card shows exactly the title and description Discord gets, and the Guild Page card
+    the same way for a guild audience (#1103): the unsaved post the send would save, rendered by
+    the guild page's own card partial. Built by :func:`_announcement_previews`, the helper the
+    sent view also renders from. Nothing is sent or saved.
     """
     if not _can_enter_compose(request, _get_member(request), request.POST.get("audience")):
         return _compose_refused(request)

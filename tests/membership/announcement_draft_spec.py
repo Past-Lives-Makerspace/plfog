@@ -1332,3 +1332,53 @@ def describe_send_in_request():
             "in_flight": True,
             "stale": False,
         }
+
+
+def describe_build_guild_announcement():
+    """#1103: one builder for the guild page post a guild send saves and the composer's card shows."""
+
+    def it_builds_unsaved_the_post_the_send_saves():
+        guild = GuildFactory()
+        draft = AnnouncementDraftFactory(
+            author=_author(),
+            audience=_GUILD,
+            guild=guild,
+            body="<p>Zorbly kiln night.</p><ul><li>Bring tongs</li></ul>",
+            expires_at=date(2031, 5, 4),
+            send_email=False,
+            push_enabled=False,
+            discord_enabled=True,
+            discord_channel=_CHANNEL.GENERAL,
+            image="announcements/2031/05/kiln.jpg",
+        )
+        built = draft.build_guild_announcement()
+        assert built.pk is None
+        assert not GuildAnnouncement.objects.exists()
+        with patch.object(GuildAnnouncement, "notify_members"):
+            draft.send()
+        saved = GuildAnnouncement.objects.get()
+        fields = ("guild_id", "author_id", "title", "body", "expires_at", "send_email", "discord_channel")
+        assert [getattr(built, f) for f in fields] == [getattr(saved, f) for f in fields]
+        assert built.image.name == saved.image.name == "announcements/2031/05/kiln.jpg"
+        assert saved.body == "Zorbly kiln night.\n\n- Bring tongs"
+
+    def it_posts_to_no_channel_while_discord_is_off():
+        draft = AnnouncementDraftFactory(
+            audience=_GUILD, guild=GuildFactory(), discord_enabled=False, discord_channel=_CHANNEL.GENERAL
+        )
+        assert draft.build_guild_announcement().discord_channel == _CHANNEL.NONE
+
+    def it_carries_a_just_chosen_pictures_data_uri():
+        draft = AnnouncementDraft(audience=_GUILD, guild=GuildFactory(), body="<p>Hi</p>")
+        draft.preview_image_url = "data:image/jpeg;base64,AAAA"
+        assert draft.build_guild_announcement().card_image_url == "data:image/jpeg;base64,AAAA"
+
+
+def describe_GuildAnnouncement_card_image_url():
+    def it_is_blank_with_no_image():
+        assert GuildAnnouncement(title="t", body="b").card_image_url == ""
+
+    def it_is_the_stored_files_url():
+        post = GuildAnnouncement(title="t", body="b", image="announcements/2031/05/kiln.jpg")
+        assert post.card_image_url == post.image.url
+        assert post.card_image_url.endswith("announcements/2031/05/kiln.jpg")

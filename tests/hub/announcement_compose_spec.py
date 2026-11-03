@@ -21,8 +21,9 @@ from django.contrib.auth.models import User
 from django.contrib.messages import get_messages
 from django.db.models.signals import post_save
 from django.test import Client
+from django.template.loader import render_to_string
 from django.urls import reverse
-from django.utils import timezone
+from django.utils import dateformat, timezone
 from factory.django import mute_signals
 
 from django.test import RequestFactory
@@ -31,7 +32,7 @@ from classes.factories import ClassOfferingFactory, RegistrationFactory
 from classes.models import ClassOffering, Registration
 from core.models import EventDelivery, Notification
 from hub.forms import AnnouncementComposeForm, discord_channel_choices, split_audience
-from hub.views import _compose_count_for, _compose_editable_guilds, _compose_first_error
+from hub.views import _announcement_previews, _compose_count_for, _compose_editable_guilds, _compose_first_error
 from membership.models import ANNOUNCEMENT_RESEND_WINDOW, AnnouncementDraft, GuildAnnouncement, Member
 from tests.membership.factories import (
     AnnouncementDraftFactory,
@@ -878,6 +879,96 @@ def describe_hub_compose_preview():
         assert response.status_code == 200
         assert b"STARTMARK" in response.content
         assert b"ENDMARK" not in response.content
+
+    def describe_the_guild_page_card():
+        """#1103: a guild audience gets the guild page card out of band, built as the send builds the post."""
+
+        _OOB = '<div id="compose-guild-preview" data-compose-guild-preview hx-swap-oob="true">'
+
+        def it_returns_the_card_for_a_guild_page_only_post_and_sends_nothing(client: Client, mailoutbox):
+            guild = GuildFactory()
+            _login_lead(client, guild)
+            _guild_member(guild, "weaver@example.com")
+            body = "<p>Zorbly kiln night moves.</p><ul><li>Bring tongs</li><li>Bring gloves</li></ul>"
+            data = _valid_send_data(audience=f"guild:{guild.pk}", subject="Zorbly Kiln Night", body=body)
+            content = client.post(reverse("hub_compose_preview"), data).content.decode()
+            card = content[content.index(_OOB) :]
+            assert '<h3 class="pl-guild-announcement__title">Zorbly Kiln Night</h3>' in card
+            today = dateformat.format(timezone.localtime(), "M j, Y")
+            assert f">{today}</time>" in card
+            assert "<li>Bring tongs</li>" in card
+            assert not GuildAnnouncement.objects.exists()
+            assert not AnnouncementDraft.objects.exists()
+            assert not Notification.objects.exists()
+            assert mailoutbox == []
+
+        def it_returns_the_card_beside_the_email_when_email_is_on(client: Client):
+            guild = GuildFactory()
+            _login_lead(client, guild)
+            data = _valid_send_data(audience=f"guild:{guild.pk}", send_email="on")
+            content = client.post(reverse("hub_compose_preview"), data).content.decode()
+            assert "<iframe" in content
+            assert "data-guild-announcement=" in content[content.index(_OOB) :]
+
+        @pytest.mark.parametrize("audience", ["site", "instructor"])
+        def it_returns_no_card_for_an_audience_without_a_page(client: Client, audience: str):
+            _login_admin(client)
+            content = client.post(reverse("hub_compose_preview"), _valid_send_data(audience=audience)).content.decode()
+            assert _OOB in content
+            assert "data-guild-announcement=" not in content
+
+        def it_shows_the_card_as_the_send_saves_the_post(client: Client):
+            guild = GuildFactory()
+            _login_lead(client, guild)
+            data = _valid_send_data(audience=f"guild:{guild.pk}", body="<p>One</p><p>Two <b>bold</b></p>")
+            preview = client.post(reverse("hub_compose_preview"), data).content.decode()
+            client.post(reverse("hub_compose_send"), data)
+            post = GuildAnnouncement.objects.get()
+            rendered = render_to_string("hub/partials/_guild_announcement_card.html", {"announcement": post})
+            body = rendered[rendered.index("data-announcement-body>") : rendered.index("</div>")]
+            assert body in preview
+
+
+def describe_the_guild_page_panel():
+    """#1103: step 2 carries a Guild Page panel for guild audiences, refreshed on its own."""
+
+    def it_offers_the_panel_with_its_own_refresh_on_a_guild_compose(client: Client):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        content = client.get(f"{reverse('hub_compose')}?audience=guild:{guild.pk}").content.decode()
+        assert "css/guild-announcements.css" in content
+        assert (
+            """<div class="pl-compose-channel" x-show="audience.startsWith('guild')" x-cloak data-compose-guild-page>"""
+            '\n        <h3 class="pl-compose-channel__title">Guild Page</h3>'
+        ) in content
+        assert '<div id="compose-guild-preview" data-compose-guild-preview>' in content
+        assert 'x-ref="refreshGuildPreview" data-compose-guild-refresh' in content
+        # The page only flow refreshes from the guild panel, never needing the email panel's button.
+        assert (
+            "else if (this.audience.startsWith('guild') && $refs.refreshGuildPreview) "
+            "{ $refs.refreshGuildPreview.click(); }"
+        ) in content
+
+
+def describe_announcement_previews_guild_card():
+    """#1103: ``_announcement_previews`` dates the guild card when it went out, or today for a draft."""
+
+    def it_dates_a_draft_today(client: Client):
+        guild = GuildFactory()
+        draft = AnnouncementDraftFactory(audience=AnnouncementDraft.Audience.GUILD, guild=guild)
+        card = _announcement_previews(draft)["guild_announcement"]
+        assert card.pk is None
+        assert timezone.localtime(card.published_at).date() == timezone.localdate()
+        assert card.published_at == _announcement_previews(draft)["guild_announcement"].published_at
+
+    def it_dates_a_sent_row_when_it_went_out(client: Client):
+        guild = GuildFactory()
+        sent_at = timezone.now() - timedelta(days=9)
+        draft = AnnouncementDraftFactory(audience=AnnouncementDraft.Audience.GUILD, guild=guild, sent_at=sent_at)
+        assert _announcement_previews(draft)["guild_announcement"].published_at == sent_at
+
+    def it_has_no_card_for_a_site_draft(client: Client):
+        assert _announcement_previews(AnnouncementDraftFactory())["guild_announcement"] is None
 
 
 def describe_compose_edge_cases():

@@ -1,8 +1,8 @@
 """End-to-end (#1063): a guild announcement with every channel off posts to the guild page only.
 
 A lead turns Push notification, Email and Post to Discord off; step 2, the send button and the
-Ready to Send? modal switch to the guild page wording, and turning one channel back on restores
-today's. The send lands the post on the guild page and rings nobody's bell. Screenshots of step 2
+Ready to Send? modal switch to the guild page wording, step 2 shows the guild page card the post
+will be (#1103), and turning one channel back on restores today's wording beside the same card. The send lands the post on the guild page and rings nobody's bell. Screenshots of step 2
 and the modal go to ``PL_SCREENSHOT_DIR`` when it is set. Run with ``pytest -m e2e``.
 """
 
@@ -13,10 +13,11 @@ from pathlib import Path
 
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from django.utils import timezone
 from playwright.sync_api import expect
 
 from core.models import Notification
-from membership.models import GuildAnnouncement, Member
+from membership.models import AnnouncementDraft, GuildAnnouncement, Member
 from tests.membership.factories import GuildFactory, GuildMembershipFactory, MembershipPlanFactory
 
 LEAD_EMAIL = "quill-lead@example.com"
@@ -58,6 +59,14 @@ def describe_a_guild_page_only_announcement():
         page.get_by_role("tab", name="2. Preview & send").click()
         page_only = page.locator("[data-compose-guild-page-only]")
         expect(page_only).to_have_text(PAGE_ONLY_LINE)
+        # Step 2 previews the guild page card the post will be (#1103), with the email panel off.
+        card = page.locator("[data-compose-guild-preview] [data-guild-announcement]")
+        expect(card).to_be_visible()
+        expect(card.locator("[data-announcement-body]")).to_have_text("Zorbly ink is on the top shelf now.")
+        title = AnnouncementDraft(audience=AnnouncementDraft.Audience.GUILD, guild=guild).announcement_category
+        expect(card.locator(".pl-guild-announcement__title")).to_have_text(title)
+        expect(card.locator("time")).to_have_text(timezone.localtime().strftime("%b %-d, %Y"))
+        expect(page.locator("#compose-preview")).to_be_hidden()
         expect(page.locator(".pl-wizard-reach", has_text="Reaching")).to_be_hidden()
         post_button = page.get_by_role("button", name="Post to guild page", exact=True)
         expect(post_button).to_be_visible()
@@ -72,6 +81,7 @@ def describe_a_guild_page_only_announcement():
         expect(page.locator(".pl-wizard-reach", has_text="Reaching")).to_be_visible()
         expect(page.get_by_role("button", name="Send email", exact=True)).to_be_visible()
         expect(post_button).to_be_hidden()
+        expect(card).to_be_visible()
         page.get_by_role("tab", name="1. Compose").click()
         _toggle(page, "push_enabled")
         page.get_by_role("tab", name="2. Preview & send").click()

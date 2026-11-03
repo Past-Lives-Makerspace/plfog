@@ -4,6 +4,7 @@
 {% block title %}Email Members{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/announcement-compose.css' %}">
+<link rel="stylesheet" href="{% static 'css/guild-announcements.css' %}">
 {% endblock %}
 {% block content %}
 {% include "_components/rich_editor_assets.html" %}
@@ -72,6 +73,7 @@
        },
        goPreview() {
          if ((this.emailOn || this.discordOn) && $refs.refreshPreview) { $refs.refreshPreview.click(); }
+         else if (this.audience.startsWith('guild') && $refs.refreshGuildPreview) { $refs.refreshGuildPreview.click(); }
          this.phase = 2;
        }
      }"
@@ -267,6 +269,19 @@
         </div>
         {% endif %}
         {% include "hub/partials/_compose_discord_preview.html" with oob=False %}
+      </div>
+
+      {# Every guild post lands on the guild page, so this card shows whatever else is on; its own Refresh swaps only the out of band cards (#1103). #}
+      <div class="pl-compose-channel" x-show="audience.startsWith('guild')" x-cloak data-compose-guild-page>
+        <h3 class="pl-compose-channel__title">Guild Page</h3>
+        <p class="pl-compose-section__note">How it will look at the top of the guild page.</p>
+        {% include "hub/partials/_compose_guild_page_preview.html" with oob=False %}
+        <div class="pl-compose-channel__actions">
+          <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" x-ref="refreshGuildPreview" data-compose-guild-refresh
+                  hx-post="{% url 'hub_compose_preview' %}" hx-include="closest form" hx-swap="none">
+            <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Refresh preview
+          </button>
+        </div>
       </div>
 
       {# guildPageOnly() mirrors AnnouncementDraft.posts_to_guild_page_only: a guild send with every channel off notifies nobody (#1063). #}

@@ -10,6 +10,7 @@ the zero size of a hidden tab so it measures again when the tab shows, and drops
 the toggle when the whole body fits after all.
 
 Its image (#1064), when it has one, shows full width under the title and date, the title as its alt text.
+The composer's Step 2 renders an unsaved post here too (#1103), its picture a data: URI (card_image_url).
 
 Parameters:
   announcement — required, a GuildAnnouncement.
@@ -17,7 +18,7 @@ Parameters:
 <article class="hub-card pl-guild-announcement" data-guild-announcement="{{ announcement.pk }}">
     <h3 class="pl-guild-announcement__title">{{ announcement.title }}</h3>
     <time class="pl-guild-announcement__date" datetime="{{ announcement.published_at|date:'c' }}">{{ announcement.published_at|date:"M j, Y" }}</time>
-    {% if announcement.image %}<img class="pl-guild-announcement__image" src="{{ announcement.image.url }}" alt="{{ announcement.title }}" loading="lazy" data-announcement-image data-guidance-target="guild.announcement-image">{% endif %}
+    {% if announcement.card_image_url %}<img class="pl-guild-announcement__image" src="{{ announcement.card_image_url }}" alt="{{ announcement.title }}" loading="lazy" data-announcement-image data-guidance-target="guild.announcement-image">{% endif %}
     {% if announcement.body_is_long %}
     <div x-data="{ open: false, overflows: true }">
         <div class="pl-guild-announcement__body pl-guild-announcement__body--clamp" id="announcement-body-{{ announcement.pk }}"

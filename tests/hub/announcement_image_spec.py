@@ -251,6 +251,15 @@ def describe_the_preview():
         assert "data-discord-preview-image" in content
         assert not AnnouncementDraft.objects.exists()
 
+    def it_shows_a_just_chosen_file_on_the_guild_page_card(client: Client):
+        """#1103: the Guild Page card carries the chosen picture as its data: URI, as the post will show it."""
+        guild = _zine_guild()
+        _login_lead(client, guild)
+        content = client.post(reverse("hub_compose_preview"), _data(guild, image=_png())).content.decode()
+        card = content[content.index('<div id="compose-guild-preview"') :]
+        assert '<img class="pl-guild-announcement__image" src="data:image/jpeg;base64,' in card
+        assert not GuildAnnouncement.objects.exists()
+
     def it_shows_the_saved_image_by_its_absolute_url(client: Client):
         guild = _zine_guild()
         _login_lead(client, guild)
