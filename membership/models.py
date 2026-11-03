@@ -14775,6 +14775,15 @@ class CalendarEvent(models.Model):
         default="",
         help_text="Discord Scheduled Event id mirroring this feed event; blank when not pushed.",
     )
+    discord_payload_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text=(
+            "SHA-256 of the Discord event body last sent successfully, so the daily mirror skips "
+            "an unchanged event. Blank until the first successful push."
+        ),
+    )
     channel_announced_at = models.DateTimeField(
         null=True,
         blank=True,

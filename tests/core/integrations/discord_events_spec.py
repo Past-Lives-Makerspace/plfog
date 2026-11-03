@@ -786,6 +786,16 @@ def describe_DiscordScheduledEventsClient():
 
     def describe_api_methods():
         @respx.mock
+        def it_lists_the_ids_of_the_servers_live_events(settings):
+            settings.DISCORD_BOT_TOKEN = "tok"
+            route = respx.get(_EVENTS_URL).mock(
+                return_value=httpx.Response(200, json=[{"id": "e1", "name": "a"}, {"id": 2, "name": "b"}])
+            )
+            client = de.DiscordScheduledEventsClient(enabled=True, server_id=SERVER_ID)
+            assert client.list_event_ids(SERVER_ID) == {"e1", "2"}
+            assert route.called
+
+        @respx.mock
         def it_inserts_via_post(settings):
             settings.DISCORD_BOT_TOKEN = "tok"
             route = respx.post(_EVENTS_URL).mock(return_value=httpx.Response(200, json={"id": "e1"}))

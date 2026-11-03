@@ -172,6 +172,7 @@ def describe_post_weekly_classes_digest():
         assert dcp.post_weekly_classes_digest() == 1
         assert route.call_count == 1
         assert "Intro to Welding" in _sent_embeds(route)[0]["description"]
+        assert route.calls.last.request.extensions["timeout"]["read"] == 5.0  # only #calendar's digest waits 15 s
 
     @respx.mock
     def it_does_not_post_again_when_this_weeks_digest_is_already_in_the_channel(settings):

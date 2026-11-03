@@ -27,6 +27,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from core.integrations.discord_channel import (
+    DEFAULT_TIMEOUT_SECONDS,
     MAX_EMBEDS_PER_MESSAGE,
     discord_message_url,
     post_channel_message,
@@ -38,6 +39,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# The weekly #calendar digest waits this long for Discord per request, not the client's 5 s
+# default: its post sometimes timed out and only landed on the retry (#1093). Scheduled job
+# only; request-time posts keep 5 s so a slow Discord cannot reach gunicorn's 30 s limit (#845).
+DIGEST_TIMEOUT_SECONDS = 15.0
 # Discord's hard cap on one embed's description.
 EMBED_DESCRIPTION_MAX = 4096
 # Discord's hard cap on one MESSAGE's combined embed text (titles + descriptions + …
@@ -295,21 +300,24 @@ def post_weekly_digest() -> int:
     items = _digest_items(now)
     if not items:
         return 0
-    if not _post_unposted_batches(channel_id, _embeds_for_items(items, now)):
+    if not _post_unposted_batches(channel_id, _embeds_for_items(items, now), timeout=DIGEST_TIMEOUT_SECONDS):
         logger.info("Weekly calendar digest already in #calendar; not posting it again.")
         return 0
     return len(items)
 
 
-def _post_unposted_batches(channel_id: str, embeds: list[dict[str, Any]]) -> bool:
+def _post_unposted_batches(
+    channel_id: str, embeds: list[dict[str, Any]], *, timeout: float = DEFAULT_TIMEOUT_SECONDS
+) -> bool:
     """Post the digest's messages that are not in the channel yet; return whether any posted.
 
     A retry after a timed-out post resumes rather than repeats: the headline message carries
     this week's dated title, so finding it means that message landed, and each matching
     "(continued)" message after it accounts for one more. Shared by the #classes digest.
+    ``timeout`` is how long each Discord request (the channel read and every post) waits.
     """
     batches = _batch_embeds(embeds)
-    titles = recent_bot_post_titles(channel_id)
+    titles = recent_bot_post_titles(channel_id, timeout=timeout)
     headline = embeds[0]["title"]
     posted = 0
     if headline in titles:
@@ -317,7 +325,7 @@ def _post_unposted_batches(channel_id: str, embeds: list[dict[str, Any]]) -> boo
         continued = after_headline.count(batches[1][0]["title"]) if len(batches) > 1 else 0
         posted = min(len(batches), 1 + continued)
     for batch in batches[posted:]:
-        post_channel_message(channel_id, batch)
+        post_channel_message(channel_id, batch, timeout=timeout)
     return posted < len(batches)
 
 

@@ -431,11 +431,13 @@ def _feed_event(days: float = 5, **kwargs: object) -> CalendarEvent:
     return CalendarEvent.objects.create(**defaults)
 
 
-def _events_client(enabled: bool = True) -> MagicMock:
+def _events_client(enabled: bool = True, live_ids: set[str] | None = None) -> MagicMock:
+    """A mock client; ``live_ids`` is what Discord's list of the server's events returns."""
     client = MagicMock(spec=DiscordScheduledEventsClient)
     client.enabled = enabled
     client.server_id = "srv1"
     client.insert_event.return_value = {"id": "disc-new"}
+    client.list_event_ids.return_value = live_ids or set()
     return client
 
 
@@ -682,8 +684,8 @@ def describe_sync_discord_feed_events():
         from hub.calendar_service import sync_discord_feed_events
 
         event = _feed_event(discord_event_id="disc-77")
-        client = _events_client()
-        with _with_client(client):
+        client = _events_client(live_ids={"disc-77"})
+        with _with_client(client), patch("hub.calendar_service.time.sleep"):
             sync_discord_feed_events()
 
         client.update_event.assert_called_once()
@@ -692,18 +694,207 @@ def describe_sync_discord_feed_events():
         event.refresh_from_db()
         assert event.discord_event_id == "disc-77"
 
-    def it_recreates_when_the_discord_copy_was_deleted_by_hand():
+    def it_recreates_when_an_update_404s():
+        # The copy was deleted by hand between Discord's list and the update.
         from core.integrations.discord_events import DiscordEventsError
         from hub.calendar_service import sync_discord_feed_events
 
         event = _feed_event(discord_event_id="disc-gone")
-        client = _events_client()
+        client = _events_client(live_ids={"disc-gone"})
         client.update_event.side_effect = DiscordEventsError("Discord API 404: Unknown Guild Scheduled Event")
-        with _with_client(client):
+        with _with_client(client), patch("hub.calendar_service.time.sleep"):
             sync_discord_feed_events()
 
         event.refresh_from_db()
         assert event.discord_event_id == "disc-new"
+
+    def it_recreates_an_unchanged_event_whose_discord_copy_was_deleted_by_hand():
+        from hub.calendar_service import _discord_body_fingerprint, _discord_event_body, sync_discord_feed_events
+
+        event = _feed_event(discord_event_id="disc-handdeleted")
+        event.discord_payload_hash = _discord_body_fingerprint(_discord_event_body(event))
+        event.save(update_fields=["discord_payload_hash"])
+        client = _events_client(live_ids={"disc-someone-else"})
+        with _with_client(client), patch("hub.calendar_service.time.sleep"):
+            sync_discord_feed_events()
+
+        client.update_event.assert_not_called()
+        client.insert_event.assert_called_once()
+        event.refresh_from_db()
+        assert event.discord_event_id == "disc-new"
+        assert event.discord_payload_hash == _discord_body_fingerprint(_discord_event_body(event))
+
+    def describe_unchanged_events():
+        def it_stores_the_fingerprint_of_the_first_push():
+            from hub.calendar_service import _discord_body_fingerprint, sync_discord_feed_events
+
+            event = _feed_event(title="Zinnia potluck qx7")
+            client = _events_client()
+            with _with_client(client):
+                sync_discord_feed_events()
+
+            event.refresh_from_db()
+            sent = client.insert_event.call_args.args[1]
+            assert event.discord_payload_hash == _discord_body_fingerprint(sent)
+            client.list_event_ids.assert_not_called()  # nothing pushed yet, nothing to check
+
+        def it_makes_no_push_on_a_second_run_with_no_upstream_change():
+            from hub.calendar_service import sync_discord_feed_events
+
+            event = _feed_event(title="Zinnia potluck qx7")
+            client = _events_client()
+            with _with_client(client):
+                sync_discord_feed_events()
+            event.refresh_from_db()
+
+            client = _events_client(live_ids={event.discord_event_id})
+            with _with_client(client), patch("hub.calendar_service.time.sleep") as sleep:
+                assert sync_discord_feed_events() == 1
+
+            client.update_event.assert_not_called()
+            client.insert_event.assert_not_called()
+            client.list_event_ids.assert_called_once_with("srv1", retry_on_rate_limit=True)
+            sleep.assert_not_called()
+
+        def it_survives_the_feed_upsert_untouched():
+            from hub.calendar_service import _upsert_events, sync_discord_feed_events
+
+            event = _feed_event(uid="feed-uid-upsert-qx7", title="Zinnia potluck qx7")
+            client = _events_client()
+            with _with_client(client):
+                sync_discord_feed_events()
+            event.refresh_from_db()
+            stored_hash = event.discord_payload_hash
+
+            _upsert_events(
+                [
+                    {
+                        "uid": event.uid,
+                        "recurrence_id": "",
+                        "title": event.title,
+                        "description": event.description,
+                        "location": event.location,
+                        "url": event.url,
+                        "start_dt": event.start_dt,
+                        "end_dt": event.end_dt,
+                        "all_day": False,
+                    }
+                ],
+                None,
+                CalendarEvent.Source.GENERAL,
+            )
+
+            event.refresh_from_db()
+            assert event.discord_payload_hash == stored_hash
+            assert event.discord_event_id == "disc-new"
+
+        @pytest.mark.parametrize(
+            "field, value",
+            [
+                ("title", "Zinnia potluck renamed qx7"),
+                ("location", "Back lot qx7"),
+                ("description", "Bring a trowel qx7"),
+                ("start_dt", None),
+            ],
+        )
+        def it_pushes_once_when_a_sent_field_changes_upstream(field, value):
+            from hub.calendar_service import _discord_body_fingerprint, _discord_event_body, sync_discord_feed_events
+
+            event = _feed_event(title="Zinnia potluck qx7")
+            client = _events_client()
+            with _with_client(client):
+                sync_discord_feed_events()
+            event.refresh_from_db()
+            old_hash = event.discord_payload_hash
+
+            setattr(event, field, value if value is not None else event.start_dt + timedelta(hours=1))
+            event.save()
+            client = _events_client(live_ids={"disc-new"})
+            with _with_client(client), patch("hub.calendar_service.time.sleep"):
+                sync_discord_feed_events()
+                sync_discord_feed_events()
+
+            client.update_event.assert_called_once()
+            client.insert_event.assert_not_called()
+            event.refresh_from_db()
+            assert event.discord_payload_hash == _discord_body_fingerprint(_discord_event_body(event))
+            assert event.discord_payload_hash != old_hash
+
+        def it_ignores_a_change_to_a_field_discord_is_not_sent():
+            from hub.calendar_service import sync_discord_feed_events
+
+            event = _feed_event(title="Zinnia potluck qx7")
+            client = _events_client()
+            with _with_client(client):
+                sync_discord_feed_events()
+            CalendarEvent.objects.filter(pk=event.pk).update(fetched_at=timezone.now() + timedelta(hours=3))
+
+            client = _events_client(live_ids={"disc-new"})
+            with _with_client(client):
+                sync_discord_feed_events()
+
+            client.update_event.assert_not_called()
+
+        def it_keeps_the_old_fingerprint_when_the_push_fails_so_the_next_run_retries():
+            from core.integrations.discord_events import DiscordEventsError
+            from hub.calendar_service import sync_discord_feed_events
+
+            event = _feed_event(title="Zinnia potluck qx7")
+            client = _events_client()
+            with _with_client(client):
+                sync_discord_feed_events()
+            event.refresh_from_db()
+            old_hash = event.discord_payload_hash
+
+            event.title = "Zinnia potluck moved qx7"
+            event.save()
+            client = _events_client(live_ids={"disc-new"})
+            client.update_event.side_effect = DiscordEventsError("Discord API 429: slow down")
+            with (
+                _with_client(client),
+                patch("hub.calendar_service.time.sleep"),
+                pytest.raises(DiscordEventsError, match="429"),
+            ):
+                sync_discord_feed_events()
+            event.refresh_from_db()
+            assert event.discord_payload_hash == old_hash
+
+            client = _events_client(live_ids={"disc-new"})
+            with _with_client(client), patch("hub.calendar_service.time.sleep"):
+                sync_discord_feed_events()
+            client.update_event.assert_called_once()
+
+        def it_fails_the_run_but_skips_unchanged_events_when_the_list_call_fails():
+            from core.integrations.discord_events import DiscordEventsError
+            from hub.calendar_service import sync_discord_feed_events
+
+            _feed_event(title="Zinnia potluck qx7")
+            client = _events_client()
+            with _with_client(client):
+                sync_discord_feed_events()
+
+            client = _events_client()
+            client.list_event_ids.side_effect = DiscordEventsError("Discord API 503: down")
+            with (
+                _with_client(client),
+                patch("hub.calendar_service.time.sleep"),
+                pytest.raises(DiscordEventsError, match="listing Discord events"),
+            ):
+                sync_discord_feed_events()
+
+            client.update_event.assert_not_called()
+            client.insert_event.assert_not_called()
+
+        def it_clears_the_fingerprint_when_the_copy_is_deleted():
+            from hub.calendar_service import sync_discord_feed_events
+
+            moved = _feed_event(days=40, discord_event_id="disc-moved", discord_payload_hash="a" * 64)
+            client = _events_client()
+            with _with_client(client):
+                sync_discord_feed_events()
+
+            moved.refresh_from_db()
+            assert moved.discord_payload_hash == ""
 
     def it_only_pushes_the_near_window():
         from hub.calendar_service import sync_discord_feed_events

@@ -883,6 +883,88 @@ def describe_sync():
         }
 
 
+def _backdate(sources: dict[str, Any], when: datetime) -> None:
+    """Move every source row's paid date (and its creation, which stands in for it) to ``when``."""
+    for kind, row in sources.items():
+        fields = {
+            "tab": {"charged_at": when, "created_at": when},
+            "class": {"confirmed_at": when, "registered_at": when},
+            "orientation": {"requested_at": when},
+            "reservation": {"created_at": when},
+            "late_fee": {"paid_at": when, "created_at": when},
+            "cubby": {"paid_at": when, "created_at": when},
+        }[kind]
+        type(row).objects.filter(pk=row.pk).update(**fields)
+
+
+_PI_BY_KIND = {
+    "tab": "pi_fake_tab",
+    "class": "pi_fake_class",
+    "orientation": "pi_fake_orient",
+    "reservation": "pi_fake_resv",
+    "late_fee": "pi_fake_late",
+    "cubby": "pi_fake_cubby",
+}
+
+
+def _every_dated_source() -> dict[str, Any]:
+    from tests.membership.factories import CubbyPaymentFactory
+
+    return {**_every_paid_source(), "cubby": CubbyPaymentFactory(stripe_payment_intent_id="pi_fake_cubby")}
+
+
+def describe_fee_reading_cutoff():
+    """Only payments from the new portal's launch (2026-10-01, Pacific) on are read (#1093)."""
+
+    just_before = stripe_fees.FEE_READING_STARTS - timedelta(seconds=1)
+
+    def it_starts_at_midnight_pacific_on_the_first_of_october():
+        assert stripe_fees.FEE_READING_STARTS == datetime(2026, 10, 1, 7, 0, tzinfo=UTC)
+
+    def it_adds_no_record_for_a_payment_made_before_the_portal_launched():
+        _backdate(_every_dated_source(), just_before)
+        assert stripe_fees.add_missing_records() == 0
+        assert not StripeFeeRecord.objects.exists()
+
+    def it_adds_a_record_for_a_payment_made_at_the_launch_itself():
+        _backdate(_every_dated_source(), stripe_fees.FEE_READING_STARTS)
+        assert stripe_fees.add_missing_records() == 6
+
+    def it_dates_a_class_by_its_registration_when_it_has_no_confirmed_date():
+        reg = RegistrationFactory(amount_paid_cents=5000, stripe_payment_id="pi_fake_unconfirmed_old")
+        type(reg).objects.filter(pk=reg.pk).update(confirmed_at=None, registered_at=just_before)
+        assert stripe_fees.add_missing_records() == 0
+
+    def it_never_reads_an_old_payments_existing_record_and_never_counts_it_stuck():
+        _configure()
+        sources = _every_dated_source()
+        _backdate(sources, just_before)
+        for kind in sources:
+            StripeFeeRecord.objects.create(
+                stripe_payment_intent_id=_PI_BY_KIND[kind],
+                attempts=STRIPE_FEE_STUCK_AFTER_READS + 5,
+            )
+        StripeFeeRecord.objects.create(stripe_payment_intent_id="pi_fake_webhook_only")
+        with patch.object(stripe_utils, "retrieve_charge_settlement", return_value=None) as read:
+            stripe_fees.sync()
+            stripe_fees.sync(backfill=True)
+        assert {c.kwargs["payment_intent_id"] for c in read.call_args_list} == {"pi_fake_webhook_only"}
+        assert StripeFeeRecord.objects.stuck().count() == 6
+        assert stripe_fees.exclude_before_cutoff(StripeFeeRecord.objects.stuck()).count() == 0
+
+    def it_keeps_reading_and_alerting_on_a_payment_from_the_launch_on():
+        _configure()
+        reg = RegistrationFactory(amount_paid_cents=5000, stripe_payment_id="pi_fake_after_launch")
+        type(reg).objects.filter(pk=reg.pk).update(confirmed_at=stripe_fees.FEE_READING_STARTS)
+        StripeFeeRecord.objects.create(
+            stripe_payment_intent_id="pi_fake_after_launch", attempts=STRIPE_FEE_STUCK_AFTER_READS
+        )
+        assert stripe_fees.exclude_before_cutoff(StripeFeeRecord.objects.stuck()).count() == 1
+        with patch.object(stripe_utils, "retrieve_charge_settlement", return_value=None) as read:
+            stripe_fees.sync()
+        read.assert_called_once_with(payment_intent_id="pi_fake_after_launch")
+
+
 # ---------------------------------------------------------------------------
 # The command
 # ---------------------------------------------------------------------------
@@ -926,6 +1008,18 @@ def describe_sync_stripe_fees_command():
         with patch.object(stripe_fees, "sync", return_value=stripe_fees.SyncReport()):
             with pytest.raises(CommandError, match="1 payment"):
                 _run()
+
+    def it_does_not_alert_on_a_stuck_payment_made_before_the_portal_launched():
+        # Fee records 5, 110 and 476 in production: registrations from 2024, 2025 and September 2026.
+        reg = RegistrationFactory(amount_paid_cents=5000, stripe_payment_id="pi_fake_stuck_old")
+        type(reg).objects.filter(pk=reg.pk).update(
+            confirmed_at=datetime(2024, 4, 9, 18, 0, tzinfo=UTC), registered_at=datetime(2024, 4, 9, 18, 0, tzinfo=UTC)
+        )
+        StripeFeeRecord.objects.create(
+            stripe_payment_intent_id="pi_fake_stuck_old", attempts=STRIPE_FEE_STUCK_AFTER_READS + 20
+        )
+        with patch.object(stripe_fees, "sync", return_value=stripe_fees.SyncReport()):
+            _run()
 
 
 # ---------------------------------------------------------------------------

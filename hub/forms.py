@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass
 from collections.abc import Collection, Iterable
 from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
+from urllib.parse import urlsplit
 
 from django.db import transaction
 from django import forms
@@ -348,6 +349,30 @@ class GuildEditForm(forms.ModelForm):
         from classes.video_providers import validate_youtube_url
 
         return validate_youtube_url(self.cleaned_data.get("youtube_url"))
+
+    def clean_calendar_url(self) -> str:
+        """Accept only an iCal feed (or blank), so the nightly sync is not handed a page it cannot read.
+
+        A Google Calendar link must be the calendar's ``/calendar/ical/...ics`` secret address;
+        a single event link or the calendar's web page is refused (Tech Guild's single event
+        link failed the sync every night, #1093). Another host's feed is judged leniently: it
+        passes when it ends in ``.ics`` or mentions ``ical`` anywhere.
+        """
+        url = (self.cleaned_data.get("calendar_url") or "").strip()
+        if not url:
+            return url
+        parts = urlsplit(url)
+        path = parts.path.lower()
+        if (parts.hostname or "").lower() == "calendar.google.com":
+            is_feed = "/calendar/ical/" in path and path.endswith(".ics")
+        else:
+            is_feed = path.endswith(".ics") or "ical" in url.lower()
+        if not is_feed:
+            raise forms.ValidationError(
+                "That link is not a calendar feed. In Google Calendar, open your calendar's settings "
+                'and copy the "Secret address in iCal format". It ends in .ics.'
+            )
+        return url
 
     def clean_discord_webhook_url(self) -> str:
         """Validate the webhook is a Discord webhook URL (or blank).

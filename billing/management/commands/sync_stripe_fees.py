@@ -3,6 +3,7 @@
 Safe to rerun: a recorded payment is never read again unless a refund sends it back to
 pending, and a payout already matched stays matched. The run fails (so the Webmasters hear)
 when Stripe could not answer a read, or when a payment has failed to record for a week.
+Payments before ``stripe_fees.FEE_READING_STARTS`` are left alone and never alert.
 """
 
 from __future__ import annotations
@@ -45,7 +46,7 @@ class Command(BaseCommand):
                     self.stdout.write(f"  {kind} {pk}")
             else:
                 self.stdout.write("Every paid payment was found on Stripe.")
-        stuck = StripeFeeRecord.objects.stuck().count()
+        stuck = stripe_fees.exclude_before_cutoff(StripeFeeRecord.objects.stuck()).count()
         if report.stripe_errors or stuck:
             raise CommandError(
                 f"{report.stripe_errors} Stripe read(s) failed this run and {stuck} payment(s) have failed "
