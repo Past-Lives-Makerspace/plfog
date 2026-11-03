@@ -8,8 +8,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from billing.models import BillingSettings, PayoutAccount
-from membership.models import Member
-from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
+from membership.models import GuildStaffMembership, Member
+from tests.membership.factories import EquipmentStaffMembershipFactory, GuildFactory, GuildStaffMembershipFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -108,33 +108,111 @@ def describe_payouts_tab():
 
 
 def describe_orientations_nudge():
+    """#1097: the card is for members with the Orientor role, not everyone who manages orientations."""
+
+    _NUDGE = 'data-payouts-nudge="orientations"'
+
+    def _page(client) -> str:
+        return client.get(reverse("hub_orientations")).content.decode()
+
+    def _give_role(member: Member, role: str) -> None:
+        GuildStaffMembershipFactory(guild=GuildFactory(), member=member, role=role)
+
     def _orientor(client) -> Member:
         member = _login(client)
-        GuildStaffMembershipFactory(guild=GuildFactory(), member=member)
+        _give_role(member, GuildStaffMembership.Role.ORIENTER)
         return member
 
-    def it_shows_for_someone_who_runs_orientations(client):
+    def _admin(client) -> Member:
+        member = _login(client)
+        member.fog_role = Member.FogRole.ADMIN
+        member.save(update_fields=["fog_role"])
+        member.sync_user_permissions()
+        return member
+
+    def it_shows_for_a_member_with_the_orientor_role(client):
         _orientor(client)
         _payouts(on=True)
-        html = client.get(reverse("hub_orientations")).content.decode()
-        assert 'data-payouts-nudge="orientations"' in html
+        html = _page(client)
+        assert _NUDGE in html
+        assert "Get paid a few days after each orientation" in html
         assert 'href="/settings/?tab=payouts"' in html
 
     def it_hides_while_payouts_are_off(client):
         _orientor(client)
         _payouts(on=False)
-        assert "data-payouts-nudge" not in client.get(reverse("hub_orientations")).content.decode()
+        assert "data-payouts-nudge" not in _page(client)
 
     def it_hides_once_connected(client):
         member = _orientor(client)
         _payouts(on=True)
         _account(member, PayoutAccount.Status.ACTIVE)
-        assert "data-payouts-nudge" not in client.get(reverse("hub_orientations")).content.decode()
+        assert "data-payouts-nudge" not in _page(client)
 
     def it_hides_for_a_member_who_does_not_orient(client):
         _login(client)
         _payouts(on=True)
-        assert "data-payouts-nudge" not in client.get(reverse("hub_orientations")).content.decode()
+        assert "data-payouts-nudge" not in _page(client)
+
+    def it_hides_for_an_admin_without_the_orientor_role(client):
+        _admin(client)
+        _payouts(on=True)
+        response = client.get(reverse("hub_orientations"))
+        assert response.context["payouts_nudge"] is False
+        assert _NUDGE not in response.content.decode()
+
+    def it_shows_for_an_admin_with_the_orientor_role(client):
+        _give_role(_admin(client), GuildStaffMembership.Role.ORIENTER)
+        _payouts(on=True)
+        assert _NUDGE in _page(client)
+
+    def it_hides_for_an_admin_with_the_role_previewing_as_a_guest(client):
+        _give_role(_admin(client), GuildStaffMembership.Role.ORIENTER)
+        _payouts(on=True)
+        session = client.session
+        session["view_as_role"] = "guest"
+        session.save()
+        assert _NUDGE not in _page(client)
+
+    def it_hides_for_a_guild_lead_without_the_orientor_role(client):
+        GuildFactory(name="Quillmarsh Lead Guild", guild_lead=_login(client))
+        _payouts(on=True)
+        assert _NUDGE not in _page(client)
+
+    @pytest.mark.parametrize(
+        "role",
+        [
+            GuildStaffMembership.Role.CO_LEAD,
+            GuildStaffMembership.Role.SECRETARY,
+            GuildStaffMembership.Role.TREASURER,
+        ],
+    )
+    def it_hides_for_other_guild_staff_roles(client, role):
+        _give_role(_login(client), role)
+        _payouts(on=True)
+        assert _NUDGE not in _page(client)
+
+    def it_shows_for_a_treasurer_who_is_also_an_orientor(client):
+        member = _login(client)
+        guild = GuildFactory()
+        GuildStaffMembershipFactory(guild=guild, member=member, role=GuildStaffMembership.Role.TREASURER)
+        GuildStaffMembershipFactory(guild=guild, member=member, role=GuildStaffMembership.Role.ORIENTER)
+        _payouts(on=True)
+        assert _NUDGE in _page(client)
+
+    def it_hides_for_a_machine_manager_without_the_orientor_role(client):
+        EquipmentStaffMembershipFactory(member=_login(client))
+        _payouts(on=True)
+        assert _NUDGE not in _page(client)
+
+    def it_leaves_the_staff_tools_gate_unchanged(client):
+        """The export is gated by ``manages_orientations``: leads and admins keep it, card or not."""
+        export = reverse("hub_orientations_export")
+        member = _login(client)
+        assert client.get(export).status_code == 403
+        GuildFactory(name="Quillmarsh Export Guild", guild_lead=member)
+        assert client.get(export).status_code == 200
+        assert _NUDGE not in _page(client)
 
 
 def describe_earnings_card():
