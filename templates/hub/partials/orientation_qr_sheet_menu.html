@@ -7,7 +7,7 @@ printable sheet in a new tab. Context: qr_sheet_types.
 <ul class="pl-qr-sheet-menu" data-bookings-qr-sheet-menu>
   {% for orientation_type in qr_sheet_types %}
   <li class="pl-qr-sheet-menu__item">
-    <a href="{% url 'hub_orientation_type_flyer' orientation_type.pk %}" target="_blank" rel="noopener">{{ orientation_type.name }}</a>
+    <a href="{% url 'hub_orientation_type_flyer' orientation_type.pk %}" target="_blank" data-pl-new-window rel="noopener">{{ orientation_type.name }}</a>
     <span class="hub-text-muted">{{ orientation_type.owner_name }}</span>
   </li>
   {% endfor %}

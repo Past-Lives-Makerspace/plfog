@@ -53,7 +53,7 @@ static/css/home-featured.css.
           {% endif %}
           <div class="pl-upnext__actions">
             <a href="{{ item.url }}" class="hub-btn hub-btn--sm hub-btn--ghost" data-upnext-view>{{ item.view_label }}</a>
-            {% if item.flyer_url %}<a href="{{ item.flyer_url }}" class="hub-btn hub-btn--sm hub-btn--ghost" target="_blank" rel="noopener" data-upnext-flyer>Flyer</a>{% endif %}
+            {% if item.flyer_url %}<a href="{{ item.flyer_url }}" class="hub-btn hub-btn--sm hub-btn--ghost" target="_blank" data-pl-new-window rel="noopener" data-upnext-flyer>Flyer</a>{% endif %}
             {% if item.video_url %}<a href="{{ item.video_url }}" class="hub-btn hub-btn--sm hub-btn--ghost" target="_blank" rel="noopener noreferrer" data-upnext-join>Join Online</a>{% endif %}
           </div>
         </div>

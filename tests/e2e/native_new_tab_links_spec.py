@@ -59,8 +59,10 @@ def _composer(page: Page, live_server, login_via_code) -> ClassOffering:
 def _decisions(page: Page, hrefs: list[tuple[str, str]]) -> list[bool]:
     """Click a fresh ``target="_blank"`` link per (href, extra attribute) and report whether
     the script cancelled the click. A window listener runs after the script's document
-    listener, records ``defaultPrevented`` and then cancels the click itself, so nothing
-    actually leaves the page."""
+    listener, records ``defaultPrevented`` and then cancels the click's default action, so no
+    click opens a tab or follows its link. A click the script took has already called
+    ``location.assign``, though, so the page leaves for that URL once the batch returns; a
+    caller that expects one waits for it."""
     return cast(
         list[bool],
         page.evaluate(
@@ -125,7 +127,9 @@ def describe_new_tab_links_inside_the_native_app():
         assert popup.url == OTHER_HOST
         assert page.url == composer_url
 
-    def it_only_takes_same_host_web_links_that_are_not_downloads(live_server, page, login_via_code):
+    def it_only_takes_same_host_web_links_that_are_not_downloads_or_marked_for_a_new_window(
+        live_server, page, login_via_code
+    ):
         page.add_init_script(NATIVE_STUB)
         offering = _composer(page, live_server, login_via_code)
         same_host = reverse("classes:class_preview", kwargs={"pk": offering.pk})
@@ -139,10 +143,13 @@ def describe_new_tab_links_inside_the_native_app():
                 ("tel:+15035550100", ""),
                 (same_host, "download"),
                 (same_host, "data-pl-download"),
+                (same_host, "data-pl-new-window"),
             ],
         )
 
-        assert decisions == [True, False, False, False, False, False]
+        assert decisions == [True, False, False, False, False, False, False]
+        # The one click it took sends the page there, in place.
+        page.wait_for_url(re.compile(re.escape(same_host) + "$"))
 
 
 def describe_new_tab_links_in_a_browser():

@@ -23,6 +23,6 @@ guessed link learns the same thing. The tour key sits on the wrapper, not the bu
 {% endif %}
 {% if can_print_marketing %}
 {# A print-ready one-page flyer (hero photo + QR) that opens in its own tab for browser Print, then Save as PDF. #}
-<a class="hub-btn hub-btn--sm hub-btn--primary pl-qr-share__flyer" href="{% url 'classes:class_flyer' offering.pk %}" target="_blank" rel="noopener">Open printable flyer</a>
+<a class="hub-btn hub-btn--sm hub-btn--primary pl-qr-share__flyer" href="{% url 'classes:class_flyer' offering.pk %}" target="_blank" data-pl-new-window rel="noopener">Open printable flyer</a>
 {% endif %}
 </div>

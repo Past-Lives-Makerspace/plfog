@@ -46,7 +46,7 @@ or an <a> link, so the card is safe to drop INSIDE another <form> (e.g. the even
   <div class="pl-qr-share__actions">
     <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ svg_url }}" hx-boost="false" data-pl-download>Download QR (SVG)</a>
     <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ png_url }}" hx-boost="false" data-pl-download>Download QR (PNG)</a>
-    {% if flyer_url %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ flyer_url }}" target="_blank" rel="noopener" data-qr-share-flyer>Flyer</a>{% endif %}
+    {% if flyer_url %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ flyer_url }}" target="_blank" data-pl-new-window rel="noopener" data-qr-share-flyer>Flyer</a>{% endif %}
   </div>
   {% endif %}
 </div>
