@@ -1064,7 +1064,10 @@ def describe_a_paid_season_cancelled_after_it_started():
         )
         cancelled_at = starts + timedelta(days=5) if cancelled_after_start else starts - timedelta(days=1)
         EquipmentReservation.objects.filter(pk=reservation.pk).update(
-            is_season=True, status=EquipmentReservation.Status.CANCELLED, cancelled_at=cancelled_at
+            is_season=True,
+            status=EquipmentReservation.Status.CANCELLED,
+            cancelled_at=cancelled_at,
+            payment_kept=cancelled_after_start,  # what the cancel writes for a confirmed season after its start
         )
         reservation.refresh_from_db()
         return reservation
@@ -1122,3 +1125,26 @@ def describe_a_paid_season_cancelled_after_it_started():
             payouts.run_payouts(_now())
         assert fake.transfers == []
         assert Payout.objects.get().status == Payout.Status.SENT
+
+    @patch("billing.stripe_utils.create_refund", return_value={"id": "re_season_request", "status": "succeeded"})
+    def it_owes_nothing_for_a_request_cancelled_after_the_start(mock_refund):
+        _turn_on()
+        payee = _manager()
+        starts = _now() - timedelta(days=30)
+        request = _paid(
+            _equipment(payee, name="Furrowmere Plot 10"),
+            amount=5000,
+            starts_at=starts,
+            minutes=60 * 24 * 200,
+            status=EquipmentReservation.Status.PENDING_APPROVAL,
+        )
+        EquipmentReservation.objects.filter(pk=request.pk).update(is_season=True)
+        request.refresh_from_db()
+        request.cancel(request.member)
+        request.refresh_from_db()
+        assert (request.payment_kept, request.kept_payment) == (False, False)
+        assert mock_refund.call_count == 1
+        with _Stripe() as fake:
+            payouts.run_payouts(_now())
+        assert fake.transfers == []
+        assert not Payout.objects.filter(reservation=request, status=Payout.Status.SENT).exists()

@@ -495,3 +495,22 @@ def describe_cancelling_a_paid_season():
         assert not slot.keeps_payment_on_cancel()
         slot.cancel(manager, reason="The kiln room is flooded.")
         assert slot.refund_outcome == "refunded"
+
+    @patch("billing.stripe_utils.create_refund", return_value={"id": "re_season_waiting", "status": "succeeded"})
+    def it_refunds_a_request_still_awaiting_approval_even_after_the_season_started(mock_refund):
+        reservation, holder = _paid_season("stillwaiting", start_offset=-10)
+        EquipmentReservation.objects.filter(pk=reservation.pk).update(status=WAITING)
+        reservation.refresh_from_db()
+        assert not reservation.keeps_payment_on_cancel()
+        reservation.cancel(holder)
+        assert reservation.refund_outcome == "refunded"
+        assert mock_refund.call_count == 1
+        reservation.refresh_from_db()
+        assert (reservation.payment_kept, reservation.kept_payment) == (False, False)
+
+    def it_records_the_kept_payment_on_the_row():
+        reservation, holder = _paid_season("recordedkeep", start_offset=-10)
+        reservation.cancel(holder)
+        reservation.refresh_from_db()
+        assert (reservation.payment_kept, reservation.kept_payment) == (True, True)
+        assert EquipmentReservation.objects.share_due().filter(pk=reservation.pk).exists()

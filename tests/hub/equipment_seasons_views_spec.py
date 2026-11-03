@@ -27,6 +27,7 @@ from tests.membership.factories import (
     EquipmentHoursFactory,
     EquipmentReservationFactory,
     EquipmentStaffMembershipFactory,
+    GuildFactory,
     MembershipPlanFactory,
     OrientationTypeFactory,
 )
@@ -508,8 +509,9 @@ def describe_the_directory_card():
         )
         _login(client, "browser")
         content = client.get(reverse("hub_equipment_index")).content.decode()
-        assert f'pl-equip-avail--free">Open for the season, {open_bed.season_label}<' in content
-        assert f'pl-equip-avail--busy">Reserved for the season, {held_bed.season_label}<' in content
+        target = ' data-guidance-target="reservations.season-line"'
+        assert f'pl-equip-avail--free"{target}>Open for the season, {open_bed.season_label}<' in content
+        assert f'pl-equip-avail--busy"{target}>Reserved for the season, {held_bed.season_label}<' in content
 
     def it_costs_one_query_for_any_number_of_season_cards(client: Client):
         _login(client, "counter")
@@ -525,6 +527,18 @@ def describe_the_directory_card():
         with CaptureQueriesContext(connection) as four:
             client.get(reverse("hub_equipment_index"))
         assert len(four.captured_queries) == len(one.captured_queries)
+
+
+def describe_the_guidance_target():
+    def it_marks_a_season_items_line_on_the_guild_reservations_tab_the_feature_opens(client: Client):
+        guild = GuildFactory(name="Loamhart Gardeners", show_reservations_tab=True)
+        bed = _bed(name="Loamhart Bed 1", guild=guild)
+        EquipmentFactory(name="Loamhart Trowel Rack", guild=guild)
+        _login(client, "targetlooker")
+        content = client.get(f"{reverse('hub_guild_detail', args=[guild.slug])}?tab=reservations").content.decode()
+        marker = 'data-guidance-target="reservations.season-line"'
+        assert content.count(marker) == 1
+        assert f"{marker}>Open for the season, {bed.season_label}<" in content
 
 
 def describe_the_bookings_tab():

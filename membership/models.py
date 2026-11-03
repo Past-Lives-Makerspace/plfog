@@ -20375,6 +20375,14 @@ class EquipmentReservation(models.Model):
         db_default=False,
         help_text="Reserved for a whole season with Reserve This Season (#1095), not a time slot.",
     )
+    payment_kept = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "A confirmed paid season cancelled once its season had started (#1095): the payment was not refunded, "
+            "so the manager's share is still owed. Written by the cancel itself."
+        ),
+    )
 
     objects = EquipmentReservationQuerySet.as_manager()
 
@@ -20449,7 +20457,7 @@ class EquipmentReservation(models.Model):
         Returns:
             :func:`membership.equipment.refund_if_paid`'s outcome, or ``"kept"`` for a started paid season.
         """
-        if self.keeps_payment_on_cancel(now):
+        if self.payment_kept:
             return "kept"
         from membership import equipment as equipment_service
 
@@ -20458,24 +20466,17 @@ class EquipmentReservation(models.Model):
     @classmethod
     def share_due_q(cls) -> Q:
         """The filter for rows whose manager share is owed (#1095): confirmed, or a season that kept its payment."""
-        return Q(status=cls.Status.CONFIRMED) | Q(
-            status=cls.Status.CANCELLED, is_season=True, cancelled_at__gte=F("starts_at")
-        )
+        return Q(status=cls.Status.CONFIRMED) | Q(status=cls.Status.CANCELLED, payment_kept=True)
 
     @property
     def kept_payment(self) -> bool:
         """True for a paid season cancelled once its season had started (#1095): its payment was kept, so its share is owed.
 
-        Read from what the cancel recorded, no extra column: a season row, cancelled, with
-        ``cancelled_at`` at or after ``starts_at`` (exactly when :meth:`keeps_payment_on_cancel`
-        held), the same rule as :meth:`EquipmentReservationQuerySet.share_due`.
+        Read from ``payment_kept``, which the cancel writes in its own conditional update only for a
+        CONFIRMED season row whose season had started (never a request awaiting approval, #748), the
+        same rule as :meth:`EquipmentReservationQuerySet.share_due`.
         """
-        return (
-            self.is_season
-            and self.status == self.Status.CANCELLED
-            and self.cancelled_at is not None
-            and self.cancelled_at >= self.starts_at
-        )
+        return self.payment_kept and self.status == self.Status.CANCELLED
 
     def keeps_payment_on_cancel(self, now: datetime_type | None = None) -> bool:
         """Whether a cancel now keeps what was paid (Felix, #1095): a paid season row once its season has started.
@@ -20484,7 +20485,13 @@ class EquipmentReservation(models.Model):
         Nothing stops an admin refunding it by hand from the Payments page.
         """
         moment = now or timezone.now()
-        return self.is_season and self.amount_paid_cents > 0 and self.starts_at <= moment
+        # A request still awaiting approval was never booked (#748): cancelling it refunds in full, always.
+        return (
+            self.is_season
+            and self.status == self.Status.CONFIRMED
+            and self.amount_paid_cents > 0
+            and self.starts_at <= moment
+        )
 
     @property
     def season_payment_kept_sentence(self) -> str:
@@ -20816,6 +20823,8 @@ class EquipmentReservation(models.Model):
             raise EquipmentError("This reservation was already cancelled.")
         was_waiting = self.status == self.Status.PENDING_APPROVAL
         now = timezone.now()
+        # Decided on the row as it stands, before the flip: only a confirmed season started already keeps it (#1095).
+        payment_kept = self.keeps_payment_on_cancel(now)
         is_own_row = actor.pk == self.member_id
         acting_as_manager = as_manager or not is_own_row
         cleaned_reason = reason.strip()
@@ -20844,6 +20853,7 @@ class EquipmentReservation(models.Model):
                 cancelled_as_manager=fee_exempt,
                 late_fee_waived=fee_waived,
                 cancelled_at=now,
+                payment_kept=payment_kept,
             )
             if not flipped:
                 raise EquipmentError(self._lost_cancel_race_message())
@@ -20855,6 +20865,7 @@ class EquipmentReservation(models.Model):
             self.cancelled_as_manager = fee_exempt
             self.late_fee_waived = fee_waived
             self.cancelled_at = now
+            self.payment_kept = payment_kept
             if not fee_exempt and not was_waiting:
                 fee = charge_if_late(self, now=now)
             if acting_as_manager and not is_own_row:

@@ -10,6 +10,15 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
+            model_name="equipmentreservation",
+            name="payment_kept",
+            field=models.BooleanField(
+                db_default=False,
+                default=False,
+                help_text="A confirmed paid season cancelled once its season had started (#1095): the payment was not refunded, so the manager's share is still owed. Written by the cancel itself.",
+            ),
+        ),
+        migrations.AddField(
             model_name="equipment",
             name="season_ends_on",
             field=models.DateField(
