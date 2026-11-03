@@ -12,7 +12,7 @@ changes = [
 ]
 
 [[shots]]
-caption = "Your next visit opens the rules. Turn on I have read the rules, then press I Understand."
+caption = "Your next visit opens the rules. Read them, then press I Understand."
 
 [[shots]]
 caption = "Then press Take the Tour to see where your guild's tools live, or Exit."

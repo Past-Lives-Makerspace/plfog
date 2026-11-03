@@ -1,4 +1,4 @@
-{% comment %}The guild staff rules popup's body (#1076), inside components/modal.html with modal_required: no X, so I Understand, enabled only once the switch is on, is the way past it. A badge per rule, the key phrase bold, the rule itself in a warning callout. Context from hub.context_processors.staff_onboarding.{% endcomment %}
+{% comment %}The guild staff rules popup's body (#1076), inside components/modal.html with modal_required: no X, so I Understand is the way past it; the Read the Full Rules link opens the article, which never shows this popup. A badge per rule, the key phrase bold, the rule itself in a warning callout. Context from hub.context_processors.staff_onboarding.{% endcomment %}
 <p class="pl-staff-rules__lead">You can now run <strong>{{ staff_onboarding_guilds|join:", " }}</strong> from the Member Portal. Every guild follows these rules:</p>
 <ul class="pl-staff-rules__list">
     <li class="pl-staff-rules__rule"><span class="hub-badge pl-staff-rules__badge">Orientations</span><span>Offer them, set hours and confirm bookings <strong>in the Member Portal</strong>.</span></li>
@@ -11,11 +11,10 @@
     <p><strong>No more outside management.</strong> Managing any of these outside the Member Portal is no longer allowed.</p>
 </div>
 <p class="pl-staff-rules__more"><a href="{{ staff_rules_url }}" target="_blank" rel="noopener">Read the Full Rules and Where Every Tool Lives →</a></p>
-<form method="post" action="{% url 'hub_staff_rules_confirm' %}" x-data="{ read: false }" class="pl-staff-rules__form" data-guidance-target="guild.staff-rules">
+<form method="post" action="{% url 'hub_staff_rules_confirm' %}" class="pl-staff-rules__form">
     {% csrf_token %}
     <input type="hidden" name="next" value="{{ request.get_full_path }}">
-    {% include "components/toggle.html" with field=staff_rules_form.read_rules toggle_label="I have read the rules" %}
     <div class="pl-modal__actions">
-        <button type="submit" class="pl-btn pl-btn--primary" :disabled="!read">I Understand</button>
+        <button type="submit" class="pl-btn pl-btn--primary" data-guidance-target="guild.staff-rules">I Understand</button>
     </div>
 </form>

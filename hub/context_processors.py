@@ -302,7 +302,6 @@ def staff_onboarding(request: HttpRequest) -> dict[str, Any]:
     is still waiting (their buttons would be bounced to the agreement, or the two popups would
     stack), or once they no longer lead or staff a guild.
     """
-    from hub.forms import StaffRulesConfirmForm
     from membership.staff_onboarding import ONBOARDING_TOUR, rules_page_path
 
     empty: dict[str, Any] = {"staff_onboarding_step": ""}
@@ -317,10 +316,13 @@ def staff_onboarding(request: HttpRequest) -> dict[str, Any]:
     guild_names = list(member.staffed_guilds.order_by("name").values_list("name", flat=True))
     if not guild_names:
         return empty
+    rules_url = rules_page_path()
+    if member.staff_onboarding_step == Member.StaffOnboardingStep.RULES and request.path == rules_url:
+        # The popup's Read the Full Rules link opens this page; covering it would block the read.
+        return empty
     return {
         "staff_onboarding_step": member.staff_onboarding_step,
         "staff_onboarding_guilds": guild_names,
-        "staff_rules_url": rules_page_path(),
+        "staff_rules_url": rules_url,
         "staff_onboarding_tour": ONBOARDING_TOUR,
-        "staff_rules_form": StaffRulesConfirmForm(),
     }

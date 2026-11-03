@@ -1,0 +1,9 @@
+bump = "patch"
+audience = ["guild-staff"]
+feature = "guild.staff"
+date = "2026-11-02"
+title = "The guild rules popup takes one press"
+changes = [
+  "The new guild staff rules popup no longer asks you to turn on a switch first: press I Understand to go on.",
+  "Read the Full Rules opens the rules article without the popup over it.",
+]

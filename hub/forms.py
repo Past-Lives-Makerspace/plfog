@@ -8670,17 +8670,6 @@ class WikiWantedFulfilForm(forms.Form):
         return page
 
 
-class StaffRulesConfirmForm(forms.Form):
-    """The guild staff rules popup (#1076): the one switch a new lead or staffer turns on to go on."""
-
-    read_rules = forms.BooleanField(
-        required=True,
-        label="I have read the rules",
-        # The popup's I Understand stays disabled until this is on.
-        widget=forms.CheckboxInput(attrs={"x-model": "read"}),
-    )
-
-
 class WalkthroughChoiceForm(forms.Form):
     """Take or Exit on a walkthrough button (#1076): which walkthrough, and the choice."""
 
