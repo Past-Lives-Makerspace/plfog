@@ -7,4 +7,5 @@ changes = [
   "The Meetings page no longer lists past meetings as awaiting approval, and its schedule suggestions now offer to set up the meeting itself.",
   "Members see past meetings read only, and whoever runs a meeting can still fix its date or delete it. Guild meeting notes are unchanged.",
 ]
+feature = "guild.meetings"
 guidance = "none"
