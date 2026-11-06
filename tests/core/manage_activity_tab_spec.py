@@ -23,3 +23,11 @@ def describe_activity_tab():
         resp = staff_client.get(reverse("manage_activity"), {"tab": "';alert(1)//"})
         assert resp.context["active_tab"] == "feed"
         assert b"alert(1)" not in resp.content
+
+    def it_opens_the_email_log_for_a_ring_on_recipient(staff_client):
+        resp = staff_client.get(reverse("manage_activity"), {"show": "activity.email-search"})
+        assert resp.context["active_tab"] == "emails"
+
+    def it_keeps_an_explicit_tab_over_a_ring(staff_client):
+        resp = staff_client.get(reverse("manage_activity"), {"tab": "queue", "show": "activity.email-search"})
+        assert resp.context["active_tab"] == "queue"

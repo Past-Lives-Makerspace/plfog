@@ -643,6 +643,9 @@ def biometric_disable(request: HttpRequest) -> JsonResponse:
 
 
 _ACTIVITY_TABS = frozenset({"feed", "emails", "queue"})
+# A guidance ring (?show=) on a control inside a hidden tab opens that tab on arrival, because
+# the tour engine's reveal event fires before Alpine is listening on a fresh page load.
+_ACTIVITY_TAB_FOR_TARGET = {"activity.email-search": "emails"}
 
 
 @staff_member_required
@@ -653,7 +656,7 @@ def site_activity(request: HttpRequest) -> HttpResponse:
 
     # The tab lands inside an Alpine expression, where the browser decodes Django's escaping
     # before Alpine evaluates it, so only a known tab name may reach the template.
-    tab = request.GET.get("tab", "feed")
+    tab = request.GET.get("tab") or _ACTIVITY_TAB_FOR_TARGET.get(request.GET.get("show", ""), "feed")
     if tab not in _ACTIVITY_TABS:
         tab = "feed"
     now = timezone.now()
