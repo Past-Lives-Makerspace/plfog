@@ -14,6 +14,7 @@ from core.models import (
     QueuedDiscordMessage,
     ScheduledJobState,
     ScheduledTaskRun,
+    TransactionalEmailLog,
     UserProfile,
 )
 from core.scheduled_jobs import Trigger
@@ -92,3 +93,22 @@ class QueuedDiscordMessageFactory(factory.django.DjangoModelFactory):
     sender_discord_id = "555"
     sender_name = "Discord Dee"
     sent_at = factory.LazyFunction(timezone.now)
+
+
+class TransactionalEmailLogFactory(factory.django.DjangoModelFactory):
+    """One row in the Email Log. Pass ``sent_at`` to backdate it, since ``created_at`` is auto_now_add."""
+
+    class Meta:
+        model = TransactionalEmailLog
+        skip_postgeneration_save = True
+
+    to_email = factory.Sequence(lambda n: f"recipient{n}@example.com")
+    subject = factory.Sequence(lambda n: f"Plimsoll notice {n}")
+    trigger_kind = "billing.receipt"
+    status = TransactionalEmailLog.Status.SENT
+
+    @factory.post_generation
+    def sent_at(obj: TransactionalEmailLog, create: bool, extracted: object, **kwargs: object) -> None:  # noqa: N805
+        if extracted is not None:
+            TransactionalEmailLog.objects.filter(pk=obj.pk).update(created_at=extracted)
+            obj.refresh_from_db()

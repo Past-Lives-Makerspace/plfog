@@ -5,13 +5,17 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/email-queue.css' %}">
+<link rel="stylesheet" href="{% static 'css/site-activity.css' %}">
 {% endblock %}
 
 {% block content %}
-<div x-data="{ tab: '{{ active_tab|default:"feed" }}' }">
+{# Each pane is a data-composer-step, so a guidance ring on a control in a hidden tab (pl_tour revealStep) opens that tab first. #}
+<div x-data="{ tab: '{{ active_tab|default:"feed" }}', tabs: ['feed', 'emails', 'queue'] }"
+     @composer-goto-step.window="tab = tabs[$event.detail.step - 1] || tab">
   <div class="hub-page-header" style="display:flex;align-items:center;gap:0.625rem;flex-wrap:wrap;">
     <h1 class="hub-page-title" data-help-key="admin.activity">Site Activity</h1>
     {% whats_new_button "admin.site-activity" %}
+    <span x-show="tab === 'emails'" x-cloak>{% whats_new_button "admin.email-log" %}</span>
   </div>
 
   {% tab_picker "Site Activity" %}
@@ -25,13 +29,13 @@
   </nav>
   {% endtab_picker %}
 
-  <div x-show="tab === 'feed'" x-cloak>
+  <div x-show="tab === 'feed'" x-cloak data-composer-step="1">
     {% include "hub/admin/_activity_feed.html" %}
   </div>
-  <div x-show="tab === 'emails'" x-cloak>
+  <div x-show="tab === 'emails'" x-cloak data-composer-step="2">
     {% include "hub/admin/_activity_emails.html" %}
   </div>
-  <div x-show="tab === 'queue'" x-cloak>
+  <div x-show="tab === 'queue'" x-cloak data-composer-step="3">
     {% include "hub/admin/_activity_queue.html" %}
   </div>
 </div>

@@ -1,0 +1,18 @@
+bump = "minor"
+date = "2026-11-06"
+audience = ["admins"]
+feature = "admin.email-log"
+guidance = "shots"
+target = "activity.email-search"
+title = "Search the Email Log for anyone's emails"
+changes = [
+  "Type part of an email address into Recipient on the Email Log to see every email the portal sent that person.",
+  "Narrow the log by Type, such as Sign in to Past Lives for the first time, or by From and To dates.",
+  "A count above the list tells you how many were sent and how many failed.",
+]
+
+[[shots]]
+caption = "On Site Activity, open Email Log, type part of an address into Recipient and press Filter."
+
+[[shots]]
+caption = "Pick a Type and From and To dates to see one kind of email. The count shows how many were sent and how many failed."

@@ -1,11 +1,12 @@
+{# Keeps every filter on the page: querystring starts from request.GET and replaces only the tab and this list's page; show= (a guidance highlight) is dropped. #}
 {% if page.has_other_pages %}
 <div style="display:flex;gap:0.75rem;justify-content:center;margin-top:1rem;align-items:center;">
   {% if page.has_previous %}
-    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="?{{ param }}={{ page.previous_page_number }}">Previous</a>
+    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% if param == 'epage' %}{% querystring show=None tab=tab epage=page.previous_page_number %}{% else %}{% querystring show=None tab=tab page=page.previous_page_number %}{% endif %}">Previous</a>
   {% endif %}
   <span class="hub-text-muted">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
   {% if page.has_next %}
-    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="?{{ param }}={{ page.next_page_number }}">Next</a>
+    <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% if param == 'epage' %}{% querystring show=None tab=tab epage=page.next_page_number %}{% else %}{% querystring show=None tab=tab page=page.next_page_number %}{% endif %}">Next</a>
   {% endif %}
 </div>
 {% endif %}

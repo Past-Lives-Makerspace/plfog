@@ -1,0 +1,58 @@
+/* Manage > Site Activity's filter row and count line (#1112), loaded by hub/admin/activity.html.
+   The fields are .hub-form-group controls (FRONTEND.md rule 13); this file only lays them out.
+   Desktop: one row that wraps. Phone: each field full width, From and To side by side. */
+
+.pl-activity-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+/* The row carries the spacing, so a field drops .hub-form-group's bottom margin. */
+.pl-activity-filters__field {
+    margin-bottom: 0;
+    flex: 0 1 12rem;
+    min-width: 0;
+}
+
+/* Rule 28: an address stops at a readable width. */
+.pl-activity-filters__field--wide {
+    flex-basis: 18rem;
+}
+
+.pl-activity-filters__field--date {
+    flex-basis: 10rem;
+}
+
+/* Rule 14: the native picker icon is black by default, invisible on the dark theme. */
+.pl-activity-filters__date::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    cursor: pointer;
+}
+[data-theme="light"] .pl-activity-filters__date::-webkit-calendar-picker-indicator {
+    filter: none;
+}
+
+/* The count line clears the filter card above and the list below. */
+.pl-activity-count {
+    margin: 0 0 0.75rem;
+    font-size: 0.875rem;
+}
+
+@media (max-width: 639px) {
+    .pl-activity-filters__field,
+    .pl-activity-filters__field--wide {
+        flex: 1 1 100%;
+    }
+
+    /* From and To share one line. */
+    .pl-activity-filters__field--date {
+        flex: 1 1 calc(50% - 0.375rem);
+    }
+
+    .pl-activity-filters__submit {
+        flex: 1 1 100%;
+    }
+}
