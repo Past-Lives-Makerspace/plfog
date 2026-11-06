@@ -461,6 +461,19 @@ _GUIDANCE_LIST = (
         ),
     ),
     Guidance(
+        key="admin.email-log",
+        title="Email Log",
+        url_name="manage_activity",
+        query={"tab": "emails"},
+        help_key="admin.activity",
+        target="activity.email-search",
+        steps=(
+            "Open Site Activity from Admin Tools and pick Email Log.",
+            "Type part of an address into Recipient to see every email sent to that person.",
+            "Pick a Type, a Status or From and To dates to narrow the list. The count above it shows how many were sent and how many failed.",
+        ),
+    ),
+    Guidance(
         key="admin.discount-codes",
         title="Discount Codes",
         url_name="classes:admin_discount_codes",

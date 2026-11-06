@@ -49,8 +49,10 @@ class EmailLogFilterForm(forms.Form):
     drops that one bound rather than the whole search.
     """
 
-    recipient = forms.CharField(required=False, max_length=254)
-    type = forms.CharField(required=False, max_length=100)
+    # No max_length: an over-long value would fail validation and be dropped, showing the
+    # whole log as if it were the answer. A long search simply matches nothing.
+    recipient = forms.CharField(required=False)
+    type = forms.CharField(required=False)
     status = forms.ChoiceField(required=False, choices=[("", "All"), *TransactionalEmailLog.Status.choices])
     date_from = forms.DateField(required=False)
     date_to = forms.DateField(required=False)
@@ -91,7 +93,8 @@ class EmailLogFilterForm(forms.Form):
             emails = emails.filter(status=status)
         if date_from := self._date("date_from"):
             emails = emails.filter(created_at__gte=_start_of_day(date_from))
-        if date_to := self._date("date_to"):
+        # The last representable day has no next midnight; every row is before it anyway.
+        if (date_to := self._date("date_to")) and date_to < date.max:
             emails = emails.filter(created_at__lt=_start_of_day(date_to + timedelta(days=1)))
         return emails
 

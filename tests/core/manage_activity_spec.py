@@ -191,7 +191,9 @@ def describe_email_log_filters():
                 to_email=f"pager-other{n}@example.com", status="sent", subject=f"Other row {n}"
             )
         params = {"recipient": "pager", "status": "failed", "date_from": "2000-01-01", "date_to": "2100-12-31"}
-        first = _email_log(client, **params)
+        # show= is a one time guidance highlight; paging must not replay it.
+        first = _email_log(client, **params, show="admin.site-activity")
+        assert "show=" not in re.search(r'href="([^"]*)">Next</a>', first).group(1)
         next_href = re.search(r'href="([^"]*)">Next</a>', first).group(1).replace("&amp;", "&")
         for pair in (
             "tab=emails",
@@ -215,6 +217,27 @@ def describe_email_log_filters():
         content = client.get(reverse("manage_activity"), {"tab": "feed", "kind": "login"}).content.decode()
         next_href = re.search(r'href="([^"]*)">Next</a>', content).group(1).replace("&amp;", "&")
         assert "tab=feed" in next_href and "kind=login" in next_href and "page=2" in next_href
+
+    def it_accepts_the_last_representable_day_as_to(client):
+        # date.max has no next midnight; the bound is skipped rather than overflowing to a 500.
+        TransactionalEmailLogFactory(subject="Far future kept")
+        resp = client.get(reverse("manage_activity"), {"tab": "emails", "date_to": "9999-12-31"})
+        assert resp.status_code == 200
+        assert "Far future kept" in resp.content.decode()
+
+    def it_finds_nothing_for_an_over_long_recipient_instead_of_the_whole_log(client):
+        TransactionalEmailLogFactory(subject="Must not show")
+        long_recipient = "z" * 300
+        content = _email_log(client, recipient=long_recipient)
+        assert "Must not show" not in content
+        assert _testid(content, "email-log-empty") == f"No emails to {long_recipient} have been logged."
+        assert 'data-testid="email-log-count"' not in content
+
+    def it_finds_nothing_for_an_over_long_type(client):
+        TransactionalEmailLogFactory(subject="Must not show either")
+        content = _email_log(client, type="t" * 150)
+        assert "Must not show either" not in content
+        assert _testid(content, "email-log-empty") == "No emails match these filters."
 
     def it_names_the_address_when_a_recipient_search_finds_nothing(client):
         TransactionalEmailLogFactory(to_email="someone@example.com")

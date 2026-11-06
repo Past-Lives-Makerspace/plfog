@@ -642,13 +642,20 @@ def biometric_disable(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"error": "We could not turn that off. Please try again."}, status=500)
 
 
+_ACTIVITY_TABS = frozenset({"feed", "emails", "queue"})
+
+
 @staff_member_required
 def site_activity(request: HttpRequest) -> HttpResponse:
     """Staff dashboard: a site-wide event feed, an email audit log and the Email Queue (#894)."""
     from core.email_log_filters import EmailLogFilterForm, count_line, type_choices
     from core.services.email_queue import DigestQueue, sent_digests
 
+    # The tab lands inside an Alpine expression, where the browser decodes Django's escaping
+    # before Alpine evaluates it, so only a known tab name may reach the template.
     tab = request.GET.get("tab", "feed")
+    if tab not in _ACTIVITY_TABS:
+        tab = "feed"
     now = timezone.now()
 
     activities = SiteActivity.objects.select_related("actor", "target_ct", "email_log").all()
