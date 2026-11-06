@@ -114,11 +114,13 @@ def describe_notifications_template():
         assert 'href="#notif-guilds"' in content
         assert 'id="notif-guilds"' in content
 
-    def it_renders_the_guilds_and_meetings_subtitles(client: Client):
+    def it_renders_the_guilds_subtitle_and_no_meetings_section(client: Client):
+        # #1113 retired the Meetings notifications (proposals and minutes approvals).
         _login(client)
         content = client.get("/settings/?tab=notifications").content.decode()
         assert "Manage Which Guilds Send You Updates" in content
-        assert "View Upcoming Meetings" in content
+        assert "View Upcoming Meetings" not in content
+        assert 'id="notif-meetings"' not in content
 
 
 def describe_profile_tab_template():

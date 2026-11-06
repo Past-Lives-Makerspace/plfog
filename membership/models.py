@@ -70,7 +70,6 @@ from membership.names import user_display_name, user_name_or_email
 
 if TYPE_CHECKING:
     from membership.orientations import AudienceCache
-    from django import forms
     from django.contrib.auth.models import User
     from django.core.files.base import ContentFile
     from django.core.files.uploadedfile import UploadedFile
@@ -182,7 +181,7 @@ class NextMeeting(NamedTuple):
     render the date without a bogus midnight time. ``title`` is the event's title when it comes
     from an event (a guild's own or a Google calendar row), blank otherwise. ``is_meeting`` is
     False for anything that is not a meeting (studio hours, a potluck, a Google row), which is
-    where "Start the agenda" must not be offered.
+    where "Schedule it" must not be offered.
     """
 
     when: datetime_type
@@ -3597,7 +3596,7 @@ class Guild(HeroCropMixin, models.Model):
         page); without it this guild's own are loaded, two queries.
 
         ``meetings_only`` keeps to meetings (guild meeting events, Meeting rows, the cadence):
-        what "Start the agenda" and the Meetings page read, so weekly studio hours never hide
+        what "Schedule it" and the Meetings page read, so weekly studio hours never hide
         the monthly meeting there.
         """
         if sources is None:
@@ -12119,22 +12118,12 @@ class CommunityEventDraft(models.Model):
         return f"{self.title} by {self.author} ({state})"
 
 
-class MeetingLockedError(Exception):
-    """Raised when a mutating operation targets an approved (locked) meeting."""
-
-
-class InvalidProposalTransition(ValueError):
-    """Raised when a :class:`MeetingItemProposal` decision method is called from a state
-    that does not permit it (e.g. approving an already-declined proposal)."""
-
-
 class MeetingQuerySet(models.QuerySet):
-    """Window + scope queries for the Meetings feature (upcoming / archive / attention)."""
+    """Window + scope queries for the Meetings feature (upcoming / archive / undated)."""
 
     def upcoming(self) -> MeetingQuerySet:
-        """Meetings dated today or later — drafts AND approved (an approved agenda for a
-        future meeting still shows). Ordered ascending (soonest first, blank times last),
-        overriding ``Meta.ordering`` so ``.first()`` is the *soonest* meeting."""
+        """Meetings dated today or later. Ordered ascending (soonest first, blank times
+        last), overriding ``Meta.ordering`` so ``.first()`` is the *soonest* meeting."""
         return self.filter(scheduled_date__gte=timezone.localdate()).order_by(
             "scheduled_date", models.F("scheduled_time").asc(nulls_last=True), "pk"
         )
@@ -12151,16 +12140,9 @@ class MeetingQuerySet(models.QuerySet):
             models.F("scheduled_date").desc(nulls_last=True), "-created_at"
         )
 
-    def needs_attention(self) -> MeetingQuerySet:
-        """Unfinished meetings an editor forgot: undated + past-dated meetings not yet approved.
-
-        Excludes only APPROVED (locked) minutes, so both DRAFT and PUBLISHED meetings that
-        have slipped past their date without being approved surface here — publishing an
-        agenda must not drop it out of the approval reminder.
-        """
-        return self.exclude(status=Meeting.Status.APPROVED).filter(
-            Q(scheduled_date__isnull=True) | Q(scheduled_date__lt=timezone.localdate())
-        )
+    def undated(self) -> MeetingQuerySet:
+        """Meetings with no date yet, oldest first: the editor's "No date set" rows."""
+        return self.filter(scheduled_date__isnull=True).order_by("created_at")
 
     def for_scope(self, guild: Guild | None) -> MeetingQuerySet:
         """This guild's meetings, or (``None``) the cross-guild council meetings."""
@@ -12168,53 +12150,23 @@ class MeetingQuerySet(models.QuerySet):
             return self.filter(guild__isnull=True)
         return self.filter(guild=guild)
 
-    def next_in_scope_after(self, meeting: Meeting) -> MeetingQuerySet:
-        """The scope's next DATED meeting after ``meeting`` — ``carry_over``'s immediate-link
-        target. Undated drafts never qualify (mirrors ``carryover_for``). Filters by
-        ``guild_id`` (local field) rather than ``for_scope(meeting.guild)``, avoiding a
-        Guild fetch."""
-        if meeting.scheduled_date is None:
-            return self.none()
-        qs = self.filter(scheduled_date__gt=meeting.scheduled_date)
-        qs = qs.filter(guild_id=meeting.guild_id) if meeting.guild_id is not None else qs.filter(guild__isnull=True)
-        return qs.order_by("scheduled_date", "pk")
-
-    def approved(self) -> MeetingQuerySet:
-        return self.filter(status=Meeting.Status.APPROVED)
-
-    def drafts(self) -> MeetingQuerySet:
-        return self.filter(status=Meeting.Status.DRAFT)
-
-    def visible_to(self, user: User) -> MeetingQuerySet:
-        """Every meeting — all meetings are member-readable (transparency). Exists as the
-        single seam should visibility ever narrow."""
-        return self.all()
-
 
 class Meeting(models.Model):
-    """One meeting's workspace: the agenda that evolves into the minutes.
+    """One scheduled meeting: a scope, a date, start and end times and a video link (#1113).
 
-    A meeting belongs to a guild, or — with ``guild`` NULL — to the cross-guild
-    council (guild leads) scope, the same convention as :class:`CommunityEvent`.
-    It starts life as an editable DRAFT workspace (agenda items, attendance,
-    action items, autosave) and locks into the permanent record when leadership
-    approves the minutes (APPROVED). It optionally rides a :class:`CommunityEvent`
-    for Google Calendar / Discord sync and reminder emails.
+    A meeting belongs to a guild, or (with ``guild`` NULL) to the cross-guild council
+    (guild leads) scope, the same convention as :class:`CommunityEvent`. Its date and time
+    give it a :class:`CommunityEvent` for Google Calendar, Discord and reminder emails.
+
+    The agenda, minutes, attendance, attachment and proposal tables and the ``status``,
+    ``approved_*`` and notes columns are history from the retired agenda workspace (#1113);
+    nothing writes them any more and dropping them is a follow up.
     """
 
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
         PUBLISHED = "published", "Published"
         APPROVED = "approved", "Approved"
-
-    # Queryset annotations + per-viewer flag set by the Meetings home view (§6.2).
-    topic_count: int
-    pending_count: int
-    viewer_can_edit: bool
-    viewer_can_propose: bool
-    # The per-card propose form (unique auto_id per meeting), attached by the
-    # Meetings home view for proposable cards only.
-    propose_form: forms.Form
 
     guild = models.ForeignKey(
         Guild,
@@ -12357,8 +12309,9 @@ class Meeting(models.Model):
         return f"{self.scope_label} — {kind}"
 
     @property
-    def is_locked(self) -> bool:
-        return self.status == self.Status.APPROVED
+    def is_past(self) -> bool:
+        """Dated before today in local time. A past meeting opens read only (#1113)."""
+        return self.scheduled_date is not None and self.scheduled_date < timezone.localdate()
 
     @property
     def scope_label(self) -> str:
@@ -12420,127 +12373,6 @@ class Meeting(models.Model):
         meeting location; a council meeting (no guild) must not raise."""
         return self.video_call_url or (self.guild.meeting_location if self.guild is not None else "")
 
-    def assert_editable(self) -> None:
-        """Raise :class:`MeetingLockedError` when the minutes are approved (locked).
-
-        Called by every mutating path — approved minutes are the permanent record.
-        """
-        if self.is_locked:
-            raise MeetingLockedError("Approved minutes are locked.")
-
-    def publish(self) -> None:
-        """Transition from draft to published — agenda is finalised and visible.
-
-        Raises:
-            MeetingLockedError: If the minutes are already approved.
-            ValueError: If the meeting is not in DRAFT status.
-        """
-        if self.status == self.Status.APPROVED:
-            raise MeetingLockedError("Approved minutes cannot be published again.")
-        if self.status != self.Status.DRAFT:
-            raise ValueError(f"Cannot publish a meeting with status {self.status!r}.")
-        self.status = self.Status.PUBLISHED
-        self.save(update_fields=["status"])
-
-    def unpublish(self, *, by: User) -> None:
-        """Return a published agenda to draft — symmetric with :meth:`publish`.
-
-        Silent by design: ``publish()`` emits nothing, so unpublish emits nothing
-        either — an activity row only, the :meth:`unlock` idiom.
-
-        Raises:
-            MeetingLockedError: If the minutes are approved (unlock is the admin path).
-            ValueError: If the meeting is not currently published.
-        """
-        if self.status == self.Status.APPROVED:
-            raise MeetingLockedError("Approved minutes are locked — an admin can unlock them.")
-        if self.status != self.Status.PUBLISHED:
-            raise ValueError(f"Cannot unpublish a meeting with status {self.status!r}.")
-        self.status = self.Status.DRAFT
-        self.save(update_fields=["status"])
-        from core.models import SiteActivity
-
-        SiteActivity.log(SiteActivity.Kind.MEETING_UNPUBLISHED, actor=by, target=self)
-
-    def attach_carried_over_proposals(self) -> list[MeetingItemProposal]:
-        """Materialize proposals carried forward while this scope had no next meeting yet
-        (the deferred half of :meth:`MeetingItemProposal.carry_over`). No-op on a locked
-        meeting. Idempotent: each waiting proposal claims exactly one target via
-        ``carried_to``, so a re-run finds nothing left to attach."""
-        if self.is_locked:
-            return []
-        waiting = MeetingItemProposal.objects.awaiting_carryover_for(self)
-        return [source.attach_carryover_to(self) for source in waiting]
-
-    def approve(self, *, by: User, dispositions: dict[int, str] | None = None) -> None:
-        """Approve and lock: apply each pending proposal's disposition, stamp, notify.
-
-        ``dispositions`` maps a still-pending proposal's pk to
-        :attr:`MeetingItemProposal.Disposition.CARRY` or ``.SET_ASIDE`` (the lock-time
-        modal POST). Any pending proposal NOT present defaults to CARRY — non-destructive,
-        so the zero-pending fast path (or an old client) never silently drops a member's
-        idea like the old blanket auto-decline. Withdrawn / declined / already-decided
-        proposals are untouched (the PENDING filter skips them) — which also makes carry /
-        table idempotent across an admin unlock + re-approve. The approval emit's period is
-        timestamped so a re-approval after an admin unlock announces the corrected minutes
-        again; the spine writes the ``meeting_approved`` activity row.
-
-        Raises:
-            MeetingLockedError: If already approved.
-            ValueError: If no ``scheduled_date`` is set, or ``dispositions`` names an
-                unknown token.
-        """
-        self.assert_editable()
-        if self.scheduled_date is None:
-            raise ValueError("Set the meeting date before approving.")
-        dispositions = dispositions or {}
-        for proposal in self.proposals.filter(state=MeetingItemProposal.State.PENDING):
-            proposal.meeting = self  # reuse — avoids re-fetching the row we already are
-            disposition = dispositions.get(proposal.pk, MeetingItemProposal.Disposition.CARRY)
-            if disposition == MeetingItemProposal.Disposition.SET_ASIDE:
-                proposal.table(reviewer=by)
-            elif disposition == MeetingItemProposal.Disposition.CARRY:
-                proposal.carry_over(reviewer=by)
-            else:
-                raise ValueError(f"Unknown disposition '{disposition}' for proposal {proposal.pk}.")
-        self.status = self.Status.APPROVED
-        self.approved_by = by
-        self.approved_at = timezone.now()
-        self.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
-        from core.events.emit import emit
-
-        key = "meeting.minutes_approved" if self.guild_id is not None else "meeting.council_minutes_approved"
-        emit(
-            key,
-            actor=by,
-            target=self,
-            context={
-                "guild": self.guild,
-                "guild_name": self.scope_label,
-                "meeting_title": self.display_title,
-                "meeting_url": self.absolute_url,
-            },
-            url=self.absolute_url,
-            period=f"meeting:{self.pk}:approved:{self.approved_at.timestamp()}",
-        )
-
-    def unlock(self, *, by: User) -> None:
-        """Reopen approved minutes for editing (FOG admin only — the view enforces).
-
-        The approval stamps are left in place as history until a re-approve overwrites
-        them. No broadcast — unlocking is corrective plumbing (activity row only).
-
-        Raises:
-            ValueError: If the meeting is not currently approved.
-        """
-        if not self.is_locked:
-            raise ValueError("Only approved minutes can be unlocked.")
-        self.status = self.Status.DRAFT
-        self.save(update_fields=["status", "updated_at"])
-        from core.models import SiteActivity
-
-        SiteActivity.log(SiteActivity.Kind.MEETING_UNLOCKED, actor=by, target=self)
-
     @property
     def is_calendar_ready(self) -> bool:
         """Whether the meeting may get its calendar event automatically: a date and a start
@@ -12580,10 +12412,8 @@ class Meeting(models.Model):
         the draft are written together; the pushes run after, best-effort.
 
         Raises:
-            MeetingLockedError: If the minutes are locked.
             ValueError: If already linked, or date/time are not both set.
         """
-        self.assert_editable()
         if self.event_id is not None:
             raise ValueError("This meeting is already linked to a calendar event.")
         if self.scheduled_date is None or self.scheduled_time is None:
@@ -12659,11 +12489,9 @@ class Meeting(models.Model):
         shared) event is never edited or deleted from the workspace.
 
         Raises:
-            MeetingLockedError: If the minutes are locked.
             ValueError: If already linked, or ``occurrence_date`` is not one of the
                 event's occurrences.
         """
-        self.assert_editable()
         if self.event_id is not None:
             raise ValueError("This meeting is already linked to a calendar event.")
         if not event.occurrences_in(occurrence_date, occurrence_date):
@@ -12706,10 +12534,8 @@ class Meeting(models.Model):
         design (a formerly-owned event simply becomes a normal calendar event).
 
         Raises:
-            MeetingLockedError: If the minutes are locked.
             ValueError: If no event is linked.
         """
-        self.assert_editable()
         if self.event_id is None:
             raise ValueError("No calendar event is linked.")
         self.event = None
@@ -12724,77 +12550,13 @@ class Meeting(models.Model):
         ``remove_from_google`` + ``remove_from_discord`` — then its row is deleted, so no
         orphaned event keeps announcing a cancelled meeting. A merely-linked event is
         left completely alone.
-
-        Raises:
-            MeetingLockedError: If the minutes are locked (deletion requires unlock first).
         """
-        self.assert_editable()
         event = self.event
         if event is not None and self.owns_event:
             event.remove_from_google()
             event.remove_from_discord()
             event.delete()
         self.delete()
-
-    def add_item(self, *, by: User, name: str = "") -> MeetingAgendaItem:
-        """Append an agenda item and return it.
-
-        Raises:
-            MeetingLockedError: If the minutes are locked.
-        """
-        self.assert_editable()
-        return MeetingAgendaItem.objects.create(meeting=self, name=name)
-
-    def add_attendee(self, *, member: Member | None = None, guest_name: str = "") -> MeetingAttendee:
-        """Add a roster member OR a free-text guest to the attendance list.
-
-        The member-XOR-guest shape is enforced by the check constraint; the friendly
-        duplicate guard here surfaces as a 422 toast in the workspace.
-
-        Raises:
-            MeetingLockedError: If the minutes are locked.
-            ValueError: If the member is already on the list.
-        """
-        self.assert_editable()
-        if member is not None and self.attendees.filter(member=member).exists():
-            raise ValueError("Already on the list.")
-        return MeetingAttendee.objects.create(meeting=self, member=member, guest_name=guest_name)
-
-    def propose_item(self, *, by: User, title: str, why: str) -> MeetingItemProposal:
-        """A member proposes an agenda item for this (upcoming, editable) meeting.
-
-        The view guards ``can_propose_to_meeting``; the model re-asserts the hard
-        invariants (not locked, not past) and pings the reviewers via the spine.
-
-        Raises:
-            MeetingLockedError: If the minutes are locked.
-            ValueError: If the meeting date has already passed.
-        """
-        self.assert_editable()
-        if self.scheduled_date is not None and self.scheduled_date < timezone.localdate():
-            raise ValueError("This meeting has already happened — proposals are closed.")
-        proposal = MeetingItemProposal.objects.create(meeting=self, title=title, why=why, proposed_by=by)
-        from core.events.emit import emit
-
-        emit(
-            "meeting.item_proposed",
-            actor=by,
-            target=proposal,
-            context={
-                "guild": self.guild,
-                "meeting": self,
-                "meeting_title": self.display_title,
-                "proposal_title": title,
-            },
-            # Anchored on the proposal, so each one's bell link is its own and clears on its decision (#894).
-            url=member_absolute_url(proposal.request_bell_path),
-            period=f"meeting-proposal:{proposal.pk}:submitted",
-        )
-        return proposal
-
-    def carryover_actions(self) -> MeetingActionItemQuerySet:
-        """Open action items from the scope's earlier meetings (empty while undated)."""
-        return MeetingActionItem.objects.carryover_for(self)
 
 
 class MeetingAttendee(models.Model):
@@ -12895,84 +12657,6 @@ class MeetingAgendaItem(models.Model):
     def __str__(self) -> str:
         return f"{self.name or 'Untitled item'} ({self.meeting})"
 
-    def save(self, *args: Any, **kwargs: Any) -> None:
-        """Auto-assign ``max(sibling sort_order) + 10`` on create so new items land at
-        the bottom (an explicit non-zero ``sort_order`` is respected)."""
-        if self._state.adding and self.sort_order == 0:
-            max_order = self.meeting.items.aggregate(max_order=models.Max("sort_order"))["max_order"]
-            self.sort_order = (max_order or 0) + 10
-        super().save(*args, **kwargs)
-
-    @property
-    def open_action_count(self) -> int:
-        """Open actions under this topic (the collapsed-item 'N★' badge). Counts in
-        Python so a ``prefetch_related("items__actions")`` workspace query stays N+1-free."""
-        return sum(1 for action in self.actions.all() if action.status == MeetingActionItem.Status.OPEN)
-
-    @property
-    def upvote_count(self) -> int:
-        """Number of +1s. Uses the prefetch cache when upvoters are prefetched."""
-        return sum(1 for _ in self.upvoters.all())
-
-    def toggle_upvote(self, user: User) -> bool:
-        """Add or remove this user's +1. Returns True if now upvoted, False if removed.
-
-        Raises:
-            MeetingLockedError: If the meeting's minutes are approved (locked) — a +1 is
-                a mutating path, and approved minutes are the permanent record.
-        """
-        self.meeting.assert_editable()
-        if self.upvoters.filter(pk=user.pk).exists():
-            self.upvoters.remove(user)
-            return False
-        self.upvoters.add(user)
-        return True
-
-    def move(self, *, direction: str) -> None:
-        """Swap this item one position up or down the agenda; a clamped no-op at the ends.
-
-        Renumbers the whole sibling list (position × 10) so ties in ``sort_order``
-        can never make a move invisible.
-
-        Args:
-            direction: ``"up"`` or ``"down"``.
-        """
-        siblings = list(self.meeting.items.all())
-        index = siblings.index(self)
-        target = index - 1 if direction == "up" else index + 1
-        if target < 0 or target >= len(siblings):
-            return
-        siblings[index], siblings[target] = siblings[target], siblings[index]
-        for position, item in enumerate(siblings):
-            new_order = (position + 1) * 10
-            if item.sort_order != new_order:
-                item.sort_order = new_order
-                item.save(update_fields=["sort_order"])
-
-
-class MeetingActionItemQuerySet(models.QuerySet):
-    """Carryover query for open action items."""
-
-    def carryover_for(self, meeting: Meeting) -> MeetingActionItemQuerySet:
-        """Open actions from OTHER meetings in the same scope (guild, or both NULL for
-        council) dated before this meeting — oldest source meeting first, then row order.
-
-        Approval status of the source meeting does not matter (an open task is open);
-        undated source drafts are excluded by the date comparison, and an undated
-        *target* meeting has no carryover at all.
-        """
-        if meeting.scheduled_date is None:
-            return self.none()
-        qs = self.filter(
-            status=MeetingActionItem.Status.OPEN,
-            item__meeting__scheduled_date__lt=meeting.scheduled_date,
-        )
-        if meeting.guild_id is None:
-            qs = qs.filter(item__meeting__guild__isnull=True)
-        else:
-            qs = qs.filter(item__meeting__guild=meeting.guild_id)
-        return qs.select_related("item__meeting").order_by("item__meeting__scheduled_date", "sort_order", "pk")
-
 
 class MeetingActionItem(models.Model):
     """A task that came out of an agenda topic; open ones carry over until closed."""
@@ -13012,8 +12696,6 @@ class MeetingActionItem(models.Model):
         help_text="The meeting whose carryover panel closed it (blank when closed in its own meeting).",
     )
 
-    objects = MeetingActionItemQuerySet.as_manager()
-
     class Meta:
         ordering = ["sort_order", "pk"]
         indexes = [
@@ -13022,47 +12704,6 @@ class MeetingActionItem(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name or 'Untitled action'} [{self.get_status_display()}]"
-
-    def complete(self, *, by: User, in_meeting: Meeting | None = None) -> None:
-        """Mark done — ``in_meeting`` when closed from another meeting's carryover panel
-        (allowed even when the source meeting is locked; that's the point of carryover).
-
-        Raises:
-            ValueError: If not currently open.
-        """
-        if self.status != self.Status.OPEN:
-            raise ValueError("Only an open action item can be completed.")
-        self.status = self.Status.DONE
-        self.closed_at = timezone.now()
-        self.closed_in = in_meeting
-        self.save(update_fields=["status", "closed_at", "closed_in"])
-
-    def dismiss(self, *, by: User, in_meeting: Meeting) -> None:
-        """Wave off a stale carryover item without lying that it was done.
-
-        Raises:
-            ValueError: If not currently open.
-        """
-        if self.status != self.Status.OPEN:
-            raise ValueError("Only an open action item can be dismissed.")
-        self.status = self.Status.DISMISSED
-        self.closed_at = timezone.now()
-        self.closed_in = in_meeting
-        self.save(update_fields=["status", "closed_at", "closed_in"])
-
-    def reopen(self) -> None:
-        """Uncheck the done box (its own meeting only) — DONE back to OPEN, stamps
-        cleared. A dismissal is not reopenable from the UI: it's a wave-off.
-
-        Raises:
-            ValueError: If not currently done.
-        """
-        if self.status != self.Status.DONE:
-            raise ValueError("Only a completed action item can be reopened.")
-        self.status = self.Status.OPEN
-        self.closed_at = None
-        self.closed_in = None
-        self.save(update_fields=["status", "closed_at", "closed_in"])
 
 
 class MeetingAttachment(models.Model):
@@ -13115,43 +12756,6 @@ class MeetingAttachment(models.Model):
         delete_orphan_on_replace(self, "file")  # mirror GuildMeetingNoteAttachment; no image normalization
         super().save(*args, **kwargs)
 
-    @property
-    def is_file(self) -> bool:
-        return bool(self.file)
-
-    @property
-    def is_link(self) -> bool:
-        return bool(self.url)
-
-    @property
-    def display_name(self) -> str:
-        """Label if set, else the file's base name, else the URL."""
-        if self.label:
-            return self.label
-        if self.file and self.file.name:
-            return self.file.name.rsplit("/", 1)[-1]
-        return self.url
-
-
-class MeetingItemProposalQuerySet(models.QuerySet):
-    """Carryover-attach query for proposals whose scope had no next meeting at lock time."""
-
-    def awaiting_carryover_for(self, meeting: Meeting) -> MeetingItemProposalQuerySet:
-        """CARRIED_OVER proposals in the same scope with no target yet — waiting for
-        'the next agenda' to start.
-
-        NOT date-scoped (unlike :meth:`MeetingActionItemQuerySet.carryover_for`): the
-        target only needs to be the next Meeting row created for the scope. Each waiting
-        proposal claims exactly one target via ``carried_to``, so anything already claimed
-        is excluded.
-        """
-        qs = self.filter(state=MeetingItemProposal.State.CARRIED_OVER, carried_to__isnull=True)
-        if meeting.guild_id is None:
-            qs = qs.filter(meeting__guild__isnull=True)
-        else:
-            qs = qs.filter(meeting__guild_id=meeting.guild_id)
-        return qs.select_related("meeting", "proposed_by__member").order_by("meeting__scheduled_date", "pk")
-
 
 class MeetingItemProposal(StaffRequestMixin, models.Model):
     """A member's proposed agenda item for an upcoming meeting, awaiting a decision."""
@@ -13163,10 +12767,6 @@ class MeetingItemProposal(StaffRequestMixin, models.Model):
         WITHDRAWN = "withdrawn", "Withdrawn"
         CARRIED_OVER = "carried_over", "Carried Over"
         TABLED = "tabled", "Tabled"
-
-    class Disposition(models.TextChoices):
-        CARRY = "carry", "Carry over"
-        SET_ASIDE = "set_aside", "Set aside"
 
     meeting = models.ForeignKey(
         Meeting,
@@ -13224,8 +12824,6 @@ class MeetingItemProposal(StaffRequestMixin, models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
-    objects = MeetingItemProposalQuerySet.as_manager()
-
     class Meta:
         ordering = ["created_at"]
         indexes = [
@@ -13234,6 +12832,7 @@ class MeetingItemProposal(StaffRequestMixin, models.Model):
         ]
 
     #: The bell rows a decision clears (#894 part 3, :class:`core.models.StaffRequestMixin`).
+    # Kept after #1113 retired proposals: a meeting delete still clears the old bell rows.
     REQUEST_EVENT_KEYS: ClassVar[tuple[str, ...]] = ("meeting.item_proposed",)
 
     @property
@@ -13243,185 +12842,6 @@ class MeetingItemProposal(StaffRequestMixin, models.Model):
 
     def __str__(self) -> str:
         return f"{self.title} → {self.meeting} ({self.get_state_display()})"
-
-    def approve(self, *, reviewer: User, title: str | None = None, why: str | None = None) -> MeetingAgendaItem:
-        """Put the proposal on the agenda; the proposer is credited on the item.
-
-        The optional ``title``/``why`` overrides are the edit-then-approve path (the
-        decision modal posts possibly-tweaked text). The new item lands at the agenda
-        bottom via the sort_order auto-assign.
-
-        Raises:
-            InvalidProposalTransition: If not currently pending.
-            MeetingLockedError: If the meeting's minutes are locked.
-        """
-        if self.state != self.State.PENDING:
-            raise InvalidProposalTransition(f"Cannot approve a proposal in state '{self.state}'.")
-        self.meeting.assert_editable()
-        item = MeetingAgendaItem.objects.create(
-            meeting=self.meeting,
-            name=title or self.title,
-            description=why or self.why,
-            proposed_by=self.proposed_by,
-        )
-        self.state = self.State.APPROVED
-        self.reviewed_by = reviewer
-        self.reviewed_at = timezone.now()
-        self.created_item = item
-        self.save(update_fields=["state", "reviewed_by", "reviewed_at", "created_item"])
-        self.clear_request_bells()
-        self._emit_decided(period=f"meeting-proposal:{self.pk}:approved")
-        return item
-
-    def decline(self, *, reviewer: User, note: str = "") -> None:
-        """Turn the proposal down; the note back to the proposer is optional.
-
-        Raises:
-            InvalidProposalTransition: If not currently pending.
-            MeetingLockedError: If the meeting's minutes are locked.
-        """
-        if self.state != self.State.PENDING:
-            raise InvalidProposalTransition(f"Cannot decline a proposal in state '{self.state}'.")
-        self.meeting.assert_editable()
-        self.state = self.State.DECLINED
-        self.reviewed_by = reviewer
-        self.reviewed_at = timezone.now()
-        self.review_note = note
-        self.save(update_fields=["state", "reviewed_by", "reviewed_at", "review_note"])
-        self.clear_request_bells()
-        self._emit_decided(period=f"meeting-proposal:{self.pk}:declined")
-
-    def withdraw(self, *, by: User) -> None:
-        """The proposer pulls back their own pending proposal. Silent — no emit; the
-        reviewer queue simply loses the row, and ``Meeting.approve``'s per-proposal
-        disposition skips withdrawn proposals (the PENDING filter never sees them).
-
-        Raises:
-            InvalidProposalTransition: If not currently pending.
-            ValueError: If ``by`` is not the proposer (the view 403s anyone else first).
-        """
-        if self.state != self.State.PENDING:
-            raise InvalidProposalTransition(f"Cannot withdraw a proposal in state '{self.state}'.")
-        if by.pk != self.proposed_by_id:
-            raise ValueError("Only the proposer can withdraw their proposal.")
-        self.state = self.State.WITHDRAWN
-        self.save(update_fields=["state"])
-        self.clear_request_bells()
-
-    def carry_over(self, *, reviewer: User) -> MeetingItemProposal | None:
-        """Move to next month's agenda instead of declining — the default outcome for a
-        still-pending proposal when the meeting locks.
-
-        When the scope's next DATED meeting exists, a fresh PENDING proposal is created
-        there now, crediting the same proposer, linked via ``carried_to``; this proposal is
-        stamped CARRIED_OVER and stays on THIS (now locked) meeting as the permanent
-        record. When none exists, ``carried_to`` stays null and it waits — see
-        :meth:`Meeting.attach_carried_over_proposals`.
-
-        Raises:
-            InvalidProposalTransition: If not currently pending.
-            MeetingLockedError: If the meeting's minutes are locked.
-
-        Returns:
-            The new proposal, or ``None`` when deferred.
-        """
-        if self.state != self.State.PENDING:
-            raise InvalidProposalTransition(f"Cannot carry over a proposal in state '{self.state}'.")
-        self.meeting.assert_editable()
-        target = Meeting.objects.next_in_scope_after(self.meeting).first()
-        update_fields = ["state", "reviewed_by", "reviewed_at"]
-        new_proposal = None
-        if target is not None:
-            new_proposal = self._spawn_carryover(target)
-            self.carried_to = new_proposal
-            update_fields.append("carried_to")
-        self.state = self.State.CARRIED_OVER
-        self.reviewed_by = reviewer
-        self.reviewed_at = timezone.now()
-        self.save(update_fields=update_fields)
-        self.clear_request_bells()
-        self._emit_decided(period=f"meeting-proposal:{self.pk}:carried_over")
-        return new_proposal
-
-    def table(self, *, reviewer: User, note: str = "") -> None:
-        """Set aside for now instead of declining — the disposition modal's other option.
-
-        Raises:
-            InvalidProposalTransition: If not currently pending.
-            MeetingLockedError: If the meeting's minutes are locked.
-        """
-        if self.state != self.State.PENDING:
-            raise InvalidProposalTransition(f"Cannot table a proposal in state '{self.state}'.")
-        self.meeting.assert_editable()
-        self.state = self.State.TABLED
-        self.reviewed_by = reviewer
-        self.reviewed_at = timezone.now()
-        self.review_note = note
-        self.save(update_fields=["state", "reviewed_by", "reviewed_at", "review_note"])
-        self.clear_request_bells()
-        self._emit_decided(period=f"meeting-proposal:{self.pk}:tabled")
-
-    def attach_carryover_to(self, target: Meeting) -> MeetingItemProposal:
-        """Materialize this waiting carryover as a fresh PENDING proposal on ``target`` —
-        the deferred half of :meth:`carry_over`.
-
-        Raises:
-            InvalidProposalTransition: If not currently CARRIED_OVER, or already attached.
-        """
-        if self.state != self.State.CARRIED_OVER:
-            raise InvalidProposalTransition(f"Cannot attach a carryover from state '{self.state}'.")
-        if self.carried_to_id is not None:
-            raise InvalidProposalTransition("This proposal was already carried forward.")
-        new_proposal = self._spawn_carryover(target)
-        self.carried_to = new_proposal
-        self.save(update_fields=["carried_to"])
-        return new_proposal
-
-    def _spawn_carryover(self, target: Meeting) -> MeetingItemProposal:
-        """The fresh PENDING row a carry-forward creates on ``target`` — shared by the
-        immediate (:meth:`carry_over`) and deferred (:meth:`attach_carryover_to`) paths."""
-        return MeetingItemProposal.objects.create(
-            meeting=target, title=self.title, why=self.why, proposed_by_id=self.proposed_by_id
-        )
-
-    @property
-    def carried_from_label(self) -> str:
-        """'Carried over from {month}' badge for the decide strip when this proposal is
-        itself the materialized carry-forward of an earlier one. Blank for an original."""
-        source = getattr(self, "carried_from", None)
-        if source is None:
-            return ""
-        return f"Carried over from {source.meeting.scheduled_date:%B %Y}"
-
-    def _emit_decided(self, *, period: str) -> None:
-        """Notify the proposer: added, declined, carried over, or tabled."""
-        from core.events.emit import emit
-
-        outcome_by_state: dict[str, str] = {
-            self.State.APPROVED: f"'{self.title}' was added to the agenda for {self.meeting.display_title}.",
-            self.State.DECLINED: f"'{self.title}' wasn't added to the agenda for {self.meeting.display_title}.",
-            self.State.CARRIED_OVER: (
-                f"'{self.title}' was not reached this time. It has been carried over to "
-                f"next month's {self.meeting.scope_label} meeting."
-            ),
-            self.State.TABLED: f"'{self.title}' was not added this time. It has been set aside for now.",
-        }
-        outcome = outcome_by_state[self.state]
-        emit(
-            "meeting.item_decided",
-            actor=self.reviewed_by,
-            target=self,
-            context={
-                "user": self.proposed_by,
-                "proposal_title": self.title,
-                "meeting_title": self.meeting.display_title,
-                "meeting_url": self.meeting.absolute_url,
-                "review_note": self.review_note,
-                "outcome": outcome,
-            },
-            url=self.meeting.absolute_url,
-            period=period,
-        )
 
 
 class VotePreferenceQuerySet(models.QuerySet):

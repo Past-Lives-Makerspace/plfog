@@ -244,7 +244,6 @@ _CHANNEL_BY_CATEGORY: dict[str, str] = {
     "Announcements": PUSH_CHANNEL_GENERAL,
     "Billing": PUSH_CHANNEL_GENERAL,
     "Events": PUSH_CHANNEL_GENERAL,
-    "Meetings": PUSH_CHANNEL_GENERAL,
     "Membership": PUSH_CHANNEL_GENERAL,
     "Orientations": PUSH_CHANNEL_GENERAL,
     "Spaces & Equipment": PUSH_CHANNEL_GENERAL,

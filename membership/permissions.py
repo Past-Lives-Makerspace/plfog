@@ -17,7 +17,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from django.db.models import Exists, Q, TextChoices
-from django.utils import timezone
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -784,69 +783,6 @@ def editable_meeting_scopes(request: HttpRequest) -> tuple[list[Guild], bool]:
         return [], False
     guilds = list(member.staffed_guilds.order_by("name"))
     return guilds, bool(guilds)
-
-
-def can_propose_to_meeting(
-    request: HttpRequest,
-    meeting: Meeting,
-    *,
-    member_guild_ids: set[int] | None = None,
-    is_editable: bool | None = None,
-) -> bool:
-    """True when this request may propose an agenda item for the meeting.
-
-    Guild meeting: any active member of that guild (its leadership and admins
-    trivially). Council: any active member. Always ``False`` once the meeting is
-    locked or its date has passed.
-
-    ``member_guild_ids`` is the bulk optimization for a caller checking many meetings at
-    once (the Meetings home §6.2): pass the viewer's joined-guild pks (see
-    :func:`viewer_guild_membership_ids`). An active member of the meeting's guild is then
-    answered straight from the set, skipping the per-meeting roster ``.exists()`` query.
-
-    ``is_editable`` lets that same bulk caller pass the meeting's already-computed
-    editability (from the cheap :func:`editable_meeting_scopes` sets) so this function
-    reuses it instead of firing ``can_edit_meeting``'s per-card staff-roster query for a
-    meeting in a guild the viewer is not on. The two are equivalent (both derive from the
-    member's led/staffed guilds), so a caller that already knows ``viewer_can_edit`` must
-    pass it to avoid an N+1 down the Meetings list. Omit both and every check runs per call.
-    """
-    from membership.models import Member
-
-    if meeting.is_locked:
-        return False
-    if meeting.scheduled_date is not None and meeting.scheduled_date < timezone.localdate():
-        return False
-    member = _editing_member(request)
-    active_member_of_scope = (
-        member_guild_ids is not None
-        and meeting.guild_id is not None
-        and member is not None
-        and member.status == Member.Status.ACTIVE
-        and meeting.guild_id in member_guild_ids
-    )
-    if active_member_of_scope:
-        return True
-    editable = is_editable if is_editable is not None else can_edit_meeting(request, meeting)
-    if editable:
-        return True
-    if member is None or member.status != Member.Status.ACTIVE:
-        return False
-    if meeting.guild is None:
-        return True  # council: any active member may propose
-    if member_guild_ids is not None:
-        return meeting.guild_id in member_guild_ids
-    return meeting.guild.memberships.filter(member=member).exists()
-
-
-def viewer_guild_membership_ids(request: HttpRequest) -> set[int]:
-    """The signed-in member's joined-guild pks, for a bulk caller checking
-    :func:`can_propose_to_meeting` for many meetings without a per-meeting ``.exists()``.
-    Empty for a request with no linked, active-preview member."""
-    member = _editing_member(request)
-    if member is None:
-        return set()
-    return set(member.guild_memberships.values_list("guild_id", flat=True))
 
 
 def can_edit_category(request: HttpRequest, category: Category) -> bool:

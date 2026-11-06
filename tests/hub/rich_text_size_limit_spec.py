@@ -15,7 +15,7 @@ from core.html_sanitize import RICH_TEXT_MAX_CHARS, RICH_TEXT_TOO_LONG
 from hub.forms import GuildEditForm, GuildFAQItemForm, GuildMeetingNoteForm
 from membership.models import Member, WikiDraft
 from tests.features import turn_on
-from tests.membership.factories import GuildFactory, MeetingFactory, MembershipPlanFactory, WikiPageFactory
+from tests.membership.factories import GuildFactory, MembershipPlanFactory, WikiPageFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -83,23 +83,6 @@ def describe_guild_faq_item_form():
         form = GuildFAQItemForm({"question": "Hours?", "answer": "**Evenings**", "sort_order": 0})
         assert form.is_valid(), form.errors
         assert form.cleaned_data["answer"] == "**Evenings**"
-
-
-def describe_meeting_notes_autosave():
-    def it_answers_422_with_the_copy_and_keeps_the_saved_notes(client: Client):
-        guild = GuildFactory()
-        user = _login(client, "notes_lead")
-        guild.guild_lead = user.member
-        guild.save(update_fields=["guild_lead"])
-        meeting = MeetingFactory(guild=guild, other_notes="<p>kept</p>")
-        response = client.post(
-            reverse("hub_meeting_save", args=[meeting.pk]), {"field": "other_notes", "value": TOO_LONG}
-        )
-        assert response.status_code == 422
-        assert response.content.decode() == COPY
-        assert "showToast" in response["HX-Trigger"]
-        meeting.refresh_from_db()
-        assert meeting.other_notes == "<p>kept</p>"
 
 
 def describe_wiki_body_autosave():

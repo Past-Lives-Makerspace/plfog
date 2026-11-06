@@ -93,11 +93,6 @@ Context:
           <a href="?tab=guilds" @click.prevent="go('guilds')">Manage Which Guilds Send You Updates →</a>
         </p>
       {% endif %}
-      {% if section.title == 'Meetings' and matrix_self and not prefs_token and features.meetings.is_on %}
-        <p class="hub-text-muted pl-notif-section-note">
-          <a href="{% url 'hub_meetings' %}">View Upcoming Meetings →</a>
-        </p>
-      {% endif %}
     {% endif %}
     {% for block in section.blocks %}
     {% with scope_name=block.heading|default:section.title %}

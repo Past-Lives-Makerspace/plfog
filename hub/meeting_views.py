@@ -1,15 +1,13 @@
-"""Meeting workspace views (Meetings spec §6.0 / §6.3 — phase 2).
+"""Meeting page views: scheduling only (#1113).
 
-The autosave surface for the one-page agenda-and-minutes workspace. All views are
-thin per CLAUDE.md: parse request → permission guard (``can_edit_meeting``) →
-``assert_editable`` (403 on locked, per §5.2) → whitelisted-field cleaner →
-``save(update_fields=…)`` → 204 + ``HX-Trigger: meeting-saved`` (or a partial
-render for the add/move endpoints). An unlisted field is a 400 (fail loudly); an
-invalid value is a 422 + error toast.
+A meeting is a scope, a date, start and end times and a video link. The page autosaves
+those fields one at a time (``hub_meeting_save``), carries the calendar card (create, link
+and unlink the event) and Delete. The views are thin: parse the request, check the
+permission (``can_edit_meeting``), clean a whitelisted field, save, and answer 204 with
+``HX-Trigger: meeting-saved`` (or a redirect for the confirm posts). An unlisted field is a
+400; an invalid value is a 422 with an error toast. A past meeting opens read only.
 
-Lifecycle (approve / unlock / delete), the carryover panel, and the proposal
-routes (propose / decide / withdraw) are phase 3; the Meetings home (§6.2) and
-the calendar-event routes (§6.3) are phase 4 and live at the bottom.
+The Meetings home lists upcoming meetings, meetings by guild and the archive.
 """
 
 from __future__ import annotations
@@ -26,47 +24,18 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.core.validators import URLValidator
-from django.db.models import Count, Prefetch, Q
+from django.db.models import Q
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from core.html_sanitize import clean_rich_html
-from hub.forms import (
-    MeetingAttachmentForm,
-    MeetingCreateForm,
-    MeetingItemProposalForm,
-    MeetingLockDispositionForm,
-    MeetingProposalDecisionForm,
-    half_hour_time_choices,
-)
+from hub.forms import MeetingCreateForm, half_hour_time_choices
 from hub.toast import trigger_toast
-from hub.view_as import ROLE_ADMIN, fog_admin_required
 from hub.views import _get_hub_context
-from membership.models import (
-    CommunityEvent,
-    Guild,
-    InvalidProposalTransition,
-    Meeting,
-    MeetingActionItem,
-    MeetingAgendaItem,
-    MeetingAttachment,
-    MeetingAttendee,
-    MeetingItemProposal,
-    MeetingLockedError,
-    Member,
-    NextMeeting,
-    NextMeetingSources,
-)
-from membership.permissions import (
-    can_edit_meeting,
-    can_propose_to_meeting,
-    editable_meeting_scopes,
-    viewer_guild_membership_ids,
-)
+from membership.models import CommunityEvent, Guild, Meeting, NextMeeting, NextMeetingSources
+from membership.permissions import can_edit_meeting, editable_meeting_scopes
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -97,7 +66,7 @@ def _invalid(message: str) -> HttpResponse:
 def _hx_redirect(url: str) -> HttpResponse:
     """204 + ``HX-Redirect`` — a real browser navigation from an HTMX confirm POST.
 
-    The lifecycle confirm modals POST via HTMX, so a plain 302 would be swapped
+    The Delete and calendar confirm modals POST via HTMX, so a plain 302 would be swapped
     inline; the header redirect (the ``hub_admin_member_add`` idiom) navigates the
     whole page and the queued Django message renders on the destination.
     """
@@ -107,17 +76,23 @@ def _hx_redirect(url: str) -> HttpResponse:
 
 
 def _guard(request: HttpRequest, meeting: Meeting) -> HttpResponse | None:
-    """Permission + lock guard for every mutating route: 403 or None (proceed).
-
-    A locked meeting 403s server-side (the absorbed app's "Approved minutes are
-    locked" contract) — the client's lock-race branch keys on this status.
-    """
+    """The permission gate for every mutating route: 403, or None to proceed."""
     if not can_edit_meeting(request, meeting):
         return HttpResponse("Forbidden", status=403)
-    try:
-        meeting.assert_editable()
-    except MeetingLockedError:
-        return HttpResponse("Approved minutes are locked.", status=403)
+    return None
+
+
+def _guard_current(request: HttpRequest, meeting: Meeting) -> HttpResponse | None:
+    """:func:`_guard`, and a past meeting is read only (#1113): 403 for Delete and the calendar card.
+
+    The field autosave uses :func:`_guard` alone, because the date input saves while a year
+    is typed and passes through past years (0002, 0020, 0202) on the way to 2026.
+    """
+    guard = _guard(request, meeting)
+    if guard is not None:
+        return guard
+    if meeting.is_past:
+        return HttpResponse("This meeting has already happened.", status=403)
     return None
 
 
@@ -140,10 +115,6 @@ def _clean_char(max_length: int) -> Callable[[str], str]:
         return stripped
 
     return clean
-
-
-def _clean_text(value: str) -> str:
-    return value.strip()
 
 
 def _clean_date(value: str) -> date | None:
@@ -206,8 +177,6 @@ _MEETING_FIELDS: dict[str, Callable[[str], Any]] = {
     "scheduled_time": _clean_half_hour,
     "scheduled_end_time": _clean_half_hour,
     "video_call_url": _clean_url,
-    "special_notes": clean_rich_html,
-    "other_notes": clean_rich_html,
 }
 
 # Saves that must reach an OWNED calendar event (§5.2) — sync_event() itself
@@ -269,28 +238,7 @@ def hub_meeting_save(request: HttpRequest, pk: int) -> HttpResponse:
     return _autosave(request, fields=_MEETING_FIELDS, apply=partial(_apply_meeting_save, meeting, by=user))
 
 
-# --- Workspace GET ------------------------------------------------------------
-
-
-def _attendee_roster(meeting: Meeting) -> Any:
-    """The members a meeting may list as attendees: its guild's roster, or the council's."""
-    if meeting.guild is not None:
-        return meeting.guild.roster_members()
-    # Council roster: everyone holding lead/staff authority in any guild.
-    return (
-        Member.objects.filter(
-            Q(pk__in=Guild.objects.filter(guild_lead__isnull=False).values("guild_lead"))
-            | Q(guild_staff_roles__isnull=False)
-        )
-        .without_hidden()
-        .distinct()
-    )
-
-
-def _attendee_picker_context(meeting: Meeting) -> dict[str, Any]:
-    """The roster ``<select>`` options: scope roster minus already-added members."""
-    added = meeting.attendees.filter(member__isnull=False).values("member")
-    return {"roster_options": _attendee_roster(meeting).exclude(pk__in=added).order_by("full_legal_name")}
+# --- Meeting page GET ---------------------------------------------------------
 
 
 # Mirrors Guild.next_meeting_occurrence's forward window — a year of occurrences.
@@ -346,79 +294,27 @@ def _linkable_events(meeting: Meeting) -> list[dict[str, Any]]:
 
 
 def _workspace_context(request: HttpRequest, meeting: Meeting) -> dict[str, Any]:
-    """The full draft/locked × editor/read-only rendering context (§6.3)."""
-    can_edit = can_edit_meeting(request, meeting)
-    is_editable = can_edit and not meeting.is_locked
-    can_propose = can_propose_to_meeting(request, meeting, is_editable=can_edit)
-    view_as = getattr(request, "view_as", None)
-    user: User = request.user  # type: ignore[assignment]  # every caller is @login_required
+    """The meeting page context: editable for its editors until the meeting is past (#1113)."""
+    is_editable = can_edit_meeting(request, meeting) and not meeting.is_past
     return {
         **_get_hub_context(request),
         "meeting": meeting,
-        "items": meeting.items.prefetch_related("actions", "upvoters"),
-        "upvoted_item_ids": _upvoted_ids(meeting, user),
-        "attendees": meeting.attendees.all(),
-        "attachments": meeting.attachments.all(),
-        "can_edit": can_edit,
         "is_editable": is_editable,
-        # The Unlock button mirrors the endpoint's gate: ACTUAL admin role, so a
-        # view-as preview can't grant or hide it inconsistently (fog_admin_required).
-        "can_unlock": meeting.is_locked and view_as is not None and view_as.has_actual(ROLE_ADMIN),
-        # Load-bearing: the header's published `elif` renders for read-only viewers too,
-        # so the Unpublish button needs its own explicit editor gate.
-        "can_unpublish": can_edit and meeting.status == Meeting.Status.PUBLISHED,
-        # Everyone who may propose sees the button — editors included; their submissions
-        # land in the same pending-proposals queue.
-        "can_propose": can_propose,
-        "propose_form": MeetingItemProposalForm(auto_id="propose-item-%s") if can_propose else None,
-        # Deeper than carryover_for's select_related: the panel's group headers render
-        # each source meeting's display_title, which touches guild.
-        "carryover_actions": (
-            meeting.carryover_actions().select_related("item__meeting__guild")
-            if is_editable
-            else MeetingActionItem.objects.none()
-        ),
-        "pending_proposals": (
-            meeting.proposals.filter(state=MeetingItemProposal.State.PENDING).select_related("proposed_by__member")
-            if is_editable
-            else MeetingItemProposal.objects.none()
-        ),
-        "my_proposals": meeting.proposals.filter(proposed_by=user)
-        .exclude(state=MeetingItemProposal.State.WITHDRAWN)
-        .select_related("created_item"),
         "time_choices": half_hour_time_choices(required=False),
-        "attachment_form": MeetingAttachmentForm(),
-        "open_attachment_modal": False,
-        # The §6.3 calendar block: the link-existing candidates are only worth
-        # computing for an editable, still-unlinked draft (the modal's only home).
+        # The link-existing candidates are only worth computing for an editable, unlinked meeting.
         "linkable_events": _linkable_events(meeting) if is_editable and meeting.event_id is None else [],
         "can_add_to_calendar": meeting.scheduled_date is not None and meeting.scheduled_time is not None,
-        **_attendee_picker_context(meeting),
     }
-
-
-def _workspace_queryset() -> Any:
-    """The workspace GET queryset — prefetched so ``open_action_count`` and the
-    proposer credits stay N+1-free however many items the agenda grows."""
-    item_qs = MeetingAgendaItem.objects.select_related("proposed_by__member").prefetch_related("actions")
-    return Meeting.objects.select_related("guild", "event", "approved_by").prefetch_related(
-        Prefetch("items", queryset=item_qs), "attendees__member", "attachments"
-    )
 
 
 @login_required
 def hub_meeting(request: HttpRequest, pk: int) -> HttpResponse:
-    """The workspace — draft or locked, editor or read-only (§6.3)."""
-    meeting = get_object_or_404(_workspace_queryset(), pk=pk)
-    # A lead who pre-created an empty/undated draft before a carryover fired materializes
-    # the waiting proposals here (idempotent no-op in the common case). Gated to editors so
-    # a plain member's read view never triggers a write.
-    if can_edit_meeting(request, meeting):
-        meeting.attach_carried_over_proposals()
+    """The meeting page: editable for its editors, read only for everyone else and once past."""
+    meeting = get_object_or_404(Meeting.objects.select_related("guild", "event"), pk=pk)
     return render(request, "hub/meeting_workspace.html", _workspace_context(request, meeting))
 
 
-# --- Create (the §6.2 modal POST + Start-the-agenda prefill contract) ---------
+# --- Create (the New meeting modal and the Schedule it prefill) ---------------
 
 
 def _parse_prefill(request: HttpRequest) -> tuple[date | None, time | None]:
@@ -440,11 +336,11 @@ def _parse_prefill(request: HttpRequest) -> tuple[date | None, time | None]:
 @login_required
 @require_POST
 def hub_meeting_create(request: HttpRequest) -> HttpResponse:
-    """Create an EMPTY meeting (create-empty-then-fill) and land in its workspace.
+    """Create a meeting and land on its page.
 
-    Carries the §6.2 Start-the-agenda prefill contract (optional ``date``/``time``)
-    and its double-create guard: an existing upcoming meeting for the same
-    scope + date redirects into THAT workspace instead of creating a twin.
+    Carries the Schedule it prefill (optional ``date``/``time``) and its double-create
+    guard: an existing upcoming meeting for the same scope + date redirects into THAT
+    meeting instead of creating a twin. A future date and time give it its calendar event.
     """
     form = MeetingCreateForm(request.POST, request=request)
     if not form.is_valid():
@@ -469,426 +365,23 @@ def hub_meeting_create(request: HttpRequest) -> HttpResponse:
         scheduled_time=prefill_time,
         created_by=user,
     )
-    # That scope's next agenda is now started — pull in any proposals waiting to carry over.
-    meeting.attach_carried_over_proposals()
     meeting.add_to_calendar_if_scheduled(by=user)
     return redirect("hub_meeting", pk=meeting.pk)
 
 
-# --- Agenda items -------------------------------------------------------------
-
-_ITEM_FIELDS: dict[str, Callable[[str], Any]] = {
-    "name": _clean_char(200),
-    "description": _clean_text,
-    "minutes": clean_rich_html,
-}
-
-
-def _apply_child_save(
-    instance: MeetingAgendaItem | MeetingActionItem | MeetingAttendee, field: str, value: Any
-) -> None:
-    setattr(instance, field, value)
-    instance.save(update_fields=[field])
-
-
-def _get_item(pk: int) -> MeetingAgendaItem:
-    return get_object_or_404(MeetingAgendaItem.objects.select_related("meeting__guild"), pk=pk)
-
-
-def _items_response(request: HttpRequest, meeting: Meeting, *, new_item_pk: int | None = None) -> HttpResponse:
-    """Re-render the agenda list container (the HTMX swap unit for add + move)."""
-    response = render(
-        request,
-        "hub/partials/_meeting_items.html",
-        {
-            "meeting": meeting,
-            "items": meeting.items.prefetch_related("actions", "upvoters"),
-            "is_editable": True,
-            "new_item_pk": new_item_pk,
-            "upvoted_item_ids": _upvoted_ids(meeting, request.user),
-        },
-    )
-    _set_saved_trigger(response)
-    return response
-
-
-@login_required
-@require_POST
-def hub_meeting_item_add(request: HttpRequest, pk: int) -> HttpResponse:
-    """Append an agenda item with the submitted name; response swaps the full item list."""
-    meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=pk)
-    guard = _guard(request, meeting)
-    if guard is not None:
-        return guard
-    name = _clean_char(200)(request.POST.get("name", ""))
-    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
-    meeting.add_item(by=user, name=name)
-    return _items_response(request, meeting)
-
-
-@login_required
-@require_POST
-def hub_meeting_item_save(request: HttpRequest, pk: int) -> HttpResponse:
-    item = _get_item(pk)
-    guard = _guard(request, item.meeting)
-    if guard is not None:
-        return guard
-    return _autosave(request, fields=_ITEM_FIELDS, apply=partial(_apply_child_save, item))
-
-
-@login_required
-@require_POST
-def hub_meeting_item_move(request: HttpRequest, pk: int) -> HttpResponse:
-    """Up/down reorder (§6.3) — swaps sort_order, clamped no-op at the ends."""
-    item = _get_item(pk)
-    guard = _guard(request, item.meeting)
-    if guard is not None:
-        return guard
-    direction = request.POST.get("direction", "")
-    if direction not in ("up", "down"):
-        return HttpResponse("Unknown direction.", status=400)
-    item.move(direction=direction)
-    return _items_response(request, item.meeting)
-
-
-@login_required
-@require_POST
-def hub_meeting_item_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    item = _get_item(pk)
-    guard = _guard(request, item.meeting)
-    if guard is not None:
-        return guard
-    item.delete()
-    response = HttpResponse("")  # empty outerHTML swap removes the row
-    trigger_toast(response, "Topic deleted.", "success")
-    return response
-
-
-def _upvoted_ids(meeting: Meeting, user: Any) -> set[int]:
-    """PKs of this meeting's items the given user has upvoted."""
-    return set(meeting.items.filter(upvoters=user).values_list("pk", flat=True))
-
-
-def _single_item_response(request: HttpRequest, item: MeetingAgendaItem) -> HttpResponse:
-    """Re-render one agenda item row (HTMX outerHTML swap for upvote toggle)."""
-    user: Any = request.user
-    meeting = item.meeting
-    return render(
-        request,
-        "hub/partials/_meeting_item.html",
-        {
-            "item": item,
-            "meeting": meeting,
-            "is_editable": can_edit_meeting(request, meeting) and not meeting.is_locked,
-            "upvoted_item_ids": {item.pk} if item.upvoters.filter(pk=user.pk).exists() else set(),
-        },
-    )
-
-
-@login_required
-@require_POST
-def hub_meeting_item_upvote(request: HttpRequest, pk: int) -> HttpResponse:
-    """Toggle the current user's +1 on an agenda item.
-
-    Scoped through Meeting.objects.visible_to so item PK enumeration is bounded
-    by the same visibility gate as the workspace read view.
-    """
-    user: Any = request.user
-    item = get_object_or_404(
-        MeetingAgendaItem.objects.select_related("meeting__guild")
-        .prefetch_related("upvoters")
-        .filter(meeting__in=Meeting.objects.visible_to(user)),
-        pk=pk,
-    )
-    try:
-        item.toggle_upvote(user)
-    except MeetingLockedError:
-        return HttpResponse("Approved minutes are locked.", status=403)
-    return _single_item_response(request, item)
-
-
-# --- Action items -------------------------------------------------------------
-
-
-def _get_action(pk: int) -> MeetingActionItem:
-    return get_object_or_404(MeetingActionItem.objects.select_related("item__meeting__guild"), pk=pk)
-
-
-def _clean_action_status(value: str) -> str:
-    if value not in (MeetingActionItem.Status.OPEN, MeetingActionItem.Status.DONE):
-        raise ValueError("Invalid value.")
-    return value
-
-
-def _apply_action_save(action: MeetingActionItem, user: User, field: str, value: Any) -> None:
-    """Action saves route ``status`` through the domain transitions (complete/reopen)."""
-    if field != "status":
-        _apply_child_save(action, field, value)
-        return
-    if value == action.status:
-        return  # idempotent — a debounced double-fire is not an error
-    if value == MeetingActionItem.Status.DONE:
-        action.complete(by=user)
-    else:
-        action.reopen()  # ValueError on a dismissed row → 422
-
-
-@login_required
-@require_POST
-def hub_meeting_action_add(request: HttpRequest, pk: int) -> HttpResponse:
-    """Append an empty action row under an agenda item (create-empty-then-fill)."""
-    item = _get_item(pk)
-    guard = _guard(request, item.meeting)
-    if guard is not None:
-        return guard
-    action = MeetingActionItem.objects.create(item=item)
-    response = render(
-        request,
-        "hub/partials/_meeting_action.html",
-        {"action": action, "is_editable": True, "focus_new": True},
-    )
-    _set_saved_trigger(response)
-    return response
-
-
-@login_required
-@require_POST
-def hub_meeting_action_save(request: HttpRequest, pk: int) -> HttpResponse:
-    action = _get_action(pk)
-    guard = _guard(request, action.item.meeting)
-    if guard is not None:
-        return guard
-    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
-    fields: dict[str, Callable[[str], Any]] = {
-        "name": _clean_char(300),
-        "is_flagged": _clean_bool,
-        "status": _clean_action_status,
-    }
-    return _autosave(request, fields=fields, apply=partial(_apply_action_save, action, user))
-
-
-@login_required
-@require_POST
-def hub_meeting_action_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    action = _get_action(pk)
-    guard = _guard(request, action.item.meeting)
-    if guard is not None:
-        return guard
-    action.delete()
-    response = HttpResponse("")
-    trigger_toast(response, "Action item deleted.", "success")
-    return response
-
-
-# --- Attendance ---------------------------------------------------------------
-
-
-def _get_attendee(pk: int) -> MeetingAttendee:
-    return get_object_or_404(MeetingAttendee.objects.select_related("meeting__guild", "member"), pk=pk)
-
-
-def _apply_attendee_save(attendee: MeetingAttendee, field: str, value: Any) -> None:
-    """Attendee saves keep the member-XOR-guest shape intact (§4.2)."""
-    if field == "guest_name":
-        if attendee.member_id is not None:
-            raise ValueError("Roster names can't be edited.")
-        if not value:
-            raise ValueError("Guest name can't be empty.")
-    _apply_child_save(attendee, field, value)
-
-
-@login_required
-@require_POST
-def hub_meeting_attendee_add(request: HttpRequest, pk: int) -> HttpResponse:
-    """Add a roster member or a guest; the response appends the row AND OOB-swaps
-    the picker so the just-added member drops out of the ``<select>`` (§6.3)."""
-    meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=pk)
-    guard = _guard(request, meeting)
-    if guard is not None:
-        return guard
-    member_pk = request.POST.get("member", "").strip()
-    guest_name = request.POST.get("guest_name", "").strip()
-    if bool(member_pk) == bool(guest_name):
-        return _invalid("Pick a member or type a guest name.")
-    member = None
-    if member_pk:
-        if not member_pk.isdigit():
-            return _invalid("Pick a member from the list.")
-        # Only a member the picker offers (#614): never a hidden account or someone off the roster.
-        member = _attendee_roster(meeting).filter(pk=int(member_pk)).first()
-        if member is None:
-            return _invalid("Pick a member from the list.")
-    try:
-        attendee = meeting.add_attendee(member=member, guest_name=guest_name)
-    except ValueError as exc:  # duplicate member — the stale-select backstop
-        return _invalid(str(exc))
-    row_html = render_to_string(
-        "hub/partials/_meeting_attendee_row.html",
-        {"attendee": attendee, "is_editable": True},
-        request=request,
-    )
-    picker_html = render_to_string(
-        "hub/partials/_meeting_attendee_picker.html",
-        {"meeting": meeting, "oob": True, **_attendee_picker_context(meeting)},
-        request=request,
-    )
-    response = HttpResponse(row_html + picker_html)
-    _set_saved_trigger(response)
-    return response
-
-
-@login_required
-@require_POST
-def hub_meeting_attendee_save(request: HttpRequest, pk: int) -> HttpResponse:
-    attendee = _get_attendee(pk)
-    guard = _guard(request, attendee.meeting)
-    if guard is not None:
-        return guard
-    fields: dict[str, Callable[[str], Any]] = {"present": _clean_bool, "guest_name": _clean_char(120)}
-    return _autosave(request, fields=fields, apply=partial(_apply_attendee_save, attendee))
-
-
-@login_required
-@require_POST
-def hub_meeting_attendee_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    attendee = _get_attendee(pk)
-    guard = _guard(request, attendee.meeting)
-    if guard is not None:
-        return guard
-    name = attendee.display_name
-    attendee.delete()
-    response = HttpResponse("")
-    trigger_toast(response, f"{name} removed from attendance.", "success")
-    return response
-
-
-# --- Attachments --------------------------------------------------------------
-
-
-@login_required
-@require_POST
-def hub_meeting_attachment_add(request: HttpRequest, pk: int) -> HttpResponse:
-    """The '+ Attach file or link' modal POST — a conventional form (§6.3)."""
-    meeting = get_object_or_404(_workspace_queryset(), pk=pk)
-    guard = _guard(request, meeting)
-    if guard is not None:
-        return guard
-    form = MeetingAttachmentForm(request.POST, request.FILES)
-    if form.is_valid():
-        attachment = form.save(commit=False)
-        attachment.meeting = meeting
-        attachment.save()
-        messages.success(request, "Attachment added.")
-        return redirect("hub_meeting", pk=meeting.pk)
-    context = {**_workspace_context(request, meeting), "attachment_form": form, "open_attachment_modal": True}
-    return render(request, "hub/meeting_workspace.html", context)
-
-
-@login_required
-@require_POST
-def hub_meeting_attachment_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    attachment = get_object_or_404(MeetingAttachment.objects.select_related("meeting__guild"), pk=pk)
-    guard = _guard(request, attachment.meeting)
-    if guard is not None:
-        return guard
-    attachment.delete()  # row only — stored files are never deleted from here
-    response = HttpResponse("")
-    trigger_toast(response, "Attachment removed.", "success")
-    return response
-
-
-# --- Lifecycle: approve / unlock / delete (§5.3, §6.3 banner + footer) ---------
-
-
-@login_required
-@require_POST
-def hub_meeting_publish(request: HttpRequest, pk: int) -> HttpResponse:
-    """Publish the agenda — transitions DRAFT → PUBLISHED (header button → redirect)."""
-    meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=pk)
-    if not can_edit_meeting(request, meeting):
-        return HttpResponse("Forbidden", status=403)
-    try:
-        meeting.publish()
-    except (ValueError, MeetingLockedError) as exc:
-        return _invalid(str(exc))
-    messages.success(request, "Agenda published.")
-    return redirect(reverse("hub_meeting", args=[meeting.pk]))
-
-
-@login_required
-@require_POST
-def hub_meeting_unpublish(request: HttpRequest, pk: int) -> HttpResponse:
-    """Return a published agenda to draft — same editor gate as publish, confirm-modal POST."""
-    meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=pk)
-    if not can_edit_meeting(request, meeting):
-        return HttpResponse("Forbidden", status=403)
-    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
-    try:
-        meeting.unpublish(by=user)
-    except (ValueError, MeetingLockedError) as exc:
-        return _invalid(str(exc))
-    messages.success(request, "Agenda unpublished — back to draft.")
-    return _hx_redirect(reverse("hub_meeting", args=[meeting.pk]))
-
-
-def _pending_proposals(meeting: Meeting) -> Any:
-    """Still-pending proposals — the shared shape for the decide strip and the lock-time
-    disposition modal, so the two never drift."""
-    return meeting.proposals.filter(state=MeetingItemProposal.State.PENDING).select_related("proposed_by__member")
-
-
-@login_required
-def hub_meeting_approve(request: HttpRequest, pk: int) -> HttpResponse:
-    """Approve and lock. GET loads the lock-time disposition modal body (HTMX) whether or
-    not there are pending proposals (a race that clears the last one degrades gracefully).
-    POST reads the (possibly empty) disposition map and locks."""
-    meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=pk)
-    guard = _guard(request, meeting)
-    if guard is not None:
-        return guard
-    pending = list(_pending_proposals(meeting))
-    if request.method == "GET":
-        return render(
-            request,
-            "hub/partials/_meeting_lock_disposition.html",
-            {"meeting": meeting, "pending_proposals": pending},
-        )
-    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
-    form = MeetingLockDispositionForm(request.POST, proposal_ids=[p.pk for p in pending])
-    if not form.is_valid():
-        return _invalid("Unknown disposition.")
-    try:
-        meeting.approve(by=user, dispositions=form.dispositions())
-    except ValueError as exc:  # undated — "Set the meeting date before approving."
-        return _invalid(str(exc))
-    messages.success(request, "Minutes approved and locked.")
-    return _hx_redirect(reverse("hub_meeting", args=[meeting.pk]))
-
-
-@fog_admin_required
-@require_POST
-def hub_meeting_unlock(request: HttpRequest, pk: int) -> HttpResponse:
-    """Reopen approved minutes for editing — FOG admin only (banner confirm modal)."""
-    meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=pk)
-    user: User = request.user  # type: ignore[assignment]  # @fog_admin_required guarantees User
-    try:
-        meeting.unlock(by=user)
-    except ValueError as exc:  # not currently approved
-        return _invalid(str(exc))
-    messages.success(request, "Minutes unlocked — the workspace is editable again.")
-    return _hx_redirect(reverse("hub_meeting", args=[meeting.pk]))
+# --- Delete --------------------------------------------------------------------
 
 
 @login_required
 @require_POST
 def hub_meeting_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    """Delete a DRAFT meeting via ``Meeting.remove`` (locked minutes 403 — unlock first).
+    """Delete a meeting via ``Meeting.remove`` (a past meeting is read only: 403).
 
     ``remove()`` unwinds an OWNED calendar event through the existing rails and
     leaves a merely-linked one alone (§5.3); the confirm copy names each case.
     """
     meeting = get_object_or_404(Meeting.objects.select_related("guild", "event"), pk=pk)
-    guard = _guard(request, meeting)
+    guard = _guard_current(request, meeting)
     if guard is not None:
         return guard
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
@@ -897,163 +390,18 @@ def hub_meeting_delete(request: HttpRequest, pk: int) -> HttpResponse:
     return _hx_redirect(reverse("hub_meetings"))
 
 
-# --- Carryover panel (§5.5, §6.3) ---------------------------------------------
-
-
-@login_required
-@require_POST
-def hub_meeting_action_carryover(request: HttpRequest, pk: int) -> HttpResponse:
-    """Close (Done) or wave off (Dismiss) a carried-over action from a draft meeting.
-
-    The guard runs against the PANEL meeting (must be an editable draft); the
-    action's SOURCE meeting may be locked — that's the one deliberate write into a
-    locked meeting's data (§5.5). The response re-renders the whole panel, which
-    removes itself once empty.
-    """
-    action = _get_action(pk)
-    meeting_pk = request.POST.get("meeting", "").strip()
-    if not meeting_pk.isdigit():
-        return HttpResponse("Unknown meeting.", status=400)
-    meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=int(meeting_pk))
-    guard = _guard(request, meeting)
-    if guard is not None:
-        return guard
-    if not meeting.carryover_actions().filter(pk=action.pk).exists():
-        # Wrong scope, undated panel meeting, or already closed by another editor.
-        return HttpResponse("Not a carryover item for this meeting.", status=404)
-    op = request.POST.get("op", "")
-    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
-    if op == "complete":
-        action.complete(by=user, in_meeting=meeting)
-        toast = "Marked done."
-    elif op == "dismiss":
-        action.dismiss(by=user, in_meeting=meeting)
-        toast = "Dismissed."
-    else:
-        return HttpResponse("Unknown op.", status=400)
-    response = render(
-        request,
-        "hub/partials/_meeting_carryover.html",
-        {"meeting": meeting, "carryover_actions": meeting.carryover_actions().select_related("item__meeting__guild")},
-    )
-    trigger_toast(response, toast, "success")
-    return response
-
-
-# --- Agenda-item proposals (§5.4, §6.3) ---------------------------------------
-
-
-def _proposer_name(proposal: MeetingItemProposal) -> str:
-    member = getattr(proposal.proposed_by, "member", None)
-    return member.display_name if member is not None else proposal.proposed_by.username
-
-
-@login_required
-@require_POST
-def hub_meeting_propose(request: HttpRequest, pk: int) -> HttpResponse:
-    """A member proposes an agenda item (the propose modal POST → 204 + toast).
-
-    ``can_propose_to_meeting`` is the whole gate: it already refuses locked and
-    past meetings, so the button-absent states 403 here too.
-    """
-    meeting = get_object_or_404(Meeting.objects.select_related("guild"), pk=pk)
-    if not can_propose_to_meeting(request, meeting):
-        return HttpResponse("Forbidden", status=403)
-    form = MeetingItemProposalForm(request.POST)
-    if not form.is_valid():
-        return _invalid(str(next(iter(form.errors.values()))[0]))
-    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
-    meeting.propose_item(by=user, title=form.cleaned_data["title"], why=form.cleaned_data["why"])
-    response = HttpResponse(status=204)
-    trigger_toast(response, f"Proposed. {meeting.scope_label} leadership will review it.", "success")
-    return response
-
-
-@login_required
-def hub_meeting_proposal_decide(request: HttpRequest, pk: int) -> HttpResponse:
-    """The reviewer decision modal: GET loads it (HTMX), POST records the decision.
-
-    Approve is edit-then-approve — the posted Title/Why (possibly tweaked) land on
-    the created item, the response removes the strip row and OOB-appends the new
-    item partial to the accordion. Decline carries an optional note.
-    """
-    proposal = get_object_or_404(
-        MeetingItemProposal.objects.select_related("meeting__guild", "proposed_by__member"), pk=pk
-    )
-    guard = _guard(request, proposal.meeting)  # reviewer gate + locked-meeting 403
-    if guard is not None:
-        return guard
-    if request.method == "GET":
-        mode = request.GET.get("mode", "")
-        if mode not in ("approve", "decline"):
-            return HttpResponse("Unknown mode.", status=400)
-        return render(
-            request,
-            "hub/partials/_meeting_proposal_decide_modal.html",
-            {"proposal": proposal, "mode": mode, "proposer_name": _proposer_name(proposal)},
-        )
-    form = MeetingProposalDecisionForm(request.POST)
-    if not form.is_valid():
-        if "decision" in form.errors:
-            return HttpResponse("Unknown decision.", status=400)
-        return _invalid(str(next(iter(form.errors.values()))[0]))
-    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
-    try:
-        if form.cleaned_data["decision"] == "approve":
-            item = proposal.approve(reviewer=user, title=form.cleaned_data["title"], why=form.cleaned_data["why"])
-            item_html = render_to_string(
-                "hub/partials/_meeting_item.html",
-                {"item": item, "meeting": proposal.meeting, "is_editable": True, "oob_append": True},
-                request=request,
-            )
-            response = HttpResponse(item_html)  # OOB append; the empty remainder removes the row
-            trigger_toast(response, "Added to the agenda.", "success")
-        else:
-            proposal.decline(reviewer=user, note=form.cleaned_data["note"])
-            response = HttpResponse("")
-            trigger_toast(response, f"Declined — {_proposer_name(proposal)} was notified.", "success")
-    except InvalidProposalTransition:
-        return _invalid("This proposal was already decided.")
-    return response
-
-
-@login_required
-@require_POST
-def hub_meeting_proposal_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
-    """The proposer pulls back their own pending proposal — anyone else 403s,
-    admins included (a reviewer who wants it gone already has Decline, §5.4)."""
-    proposal = get_object_or_404(MeetingItemProposal.objects.select_related("meeting__guild"), pk=pk)
-    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
-    if proposal.proposed_by_id != user.pk:
-        return HttpResponse("Forbidden", status=403)
-    try:
-        proposal.withdraw(by=user)
-    except InvalidProposalTransition:
-        return _invalid("This proposal was already decided.")
-    response = HttpResponse("")
-    trigger_toast(response, "Withdrawn.", "success")
-    return response
-
-
-# --- The Meetings home (§6.2) --------------------------------------------------
+# --- The Meetings home ---------------------------------------------------------
 
 _ARCHIVE_PAGE_SIZE = 25
 
 
-def _scope_is_editable(guild_id: int | None, editable_ids: set[int], council_editable: bool) -> bool:
-    """Whether one meeting scope (guild pk, or None for council) is viewer-editable."""
-    if guild_id is None:
-        return council_editable
-    return guild_id in editable_ids
-
-
 def _dash_rows(editable_ids: set[int], council_editable: bool, upcoming: list[Meeting]) -> list[dict[str, Any]]:
-    """Zone 2's coordinator rows: the Council row first, then every active guild (§6.2).
+    """The Meetings by guild rows: the Council row first, then every active guild.
 
-    'Most recent' is the latest PAST-DATED meeting only — an approved *future* meeting
-    belongs solely to 'Next scheduled'. A guild with no upcoming Meeting row falls back
-    to its cadence-derived ``next_meeting_occurrence()`` (no row to link — plain text
-    for members, 'Start the agenda' for that scope's editors).
+    'Most recent' is the latest PAST-DATED meeting only. A scope with no upcoming Meeting row
+    falls back to its schedule (``cadence``: the soonest of anything, as the guild page card
+    shows, #953) and, for that scope's editors, a Schedule it suggestion (``suggested``: the
+    soonest meeting only, so studio hours never get one).
     """
     latest_past: dict[int | None, Meeting] = {}
     for meeting in Meeting.objects.past().select_related("guild").order_by("scheduled_date", "pk"):
@@ -1070,7 +418,7 @@ def _dash_rows(editable_ids: set[int], council_editable: bool, upcoming: list[Me
             "most_recent": latest_past.get(None),
             "next_meeting": council_next,
             "cadence": council_cadence,
-            "agenda": council_cadence,
+            "suggested": council_cadence,
             "can_edit": council_editable,
         }
     ]
@@ -1085,27 +433,28 @@ def _dash_rows(editable_ids: set[int], council_editable: bool, upcoming: list[Me
                 "label": guild.name,
                 "most_recent": latest_past.get(guild.pk),
                 "next_meeting": next_meeting,
-                # The same soonest-of-anything the guild page card shows (#953) ...
                 "cadence": guild.next_meeting_occurrence(sources) if next_meeting is None else None,
-                # ... while "Start the agenda" follows the soonest meeting, so studio hours never get one.
-                "agenda": guild.next_meeting_occurrence(sources, meetings_only=True) if next_meeting is None else None,
+                "suggested": (
+                    guild.next_meeting_occurrence(sources, meetings_only=True) if next_meeting is None else None
+                ),
                 "can_edit": guild.pk in editable_ids,
             }
         )
     return rows
 
 
-def _start_agenda_rows(dash_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Editable scopes with a cadence but nothing upcoming yet — filters the already-
-    computed ``dash_rows``, no new query. Feeds the prominent 'Start the agenda' affordance
-    in the Needs-attention strip (§6.2 Part 2a-2). Reads ``agenda``, the soonest meeting (#953)."""
-    return [row for row in dash_rows if row["can_edit"] and row["next_meeting"] is None and row["agenda"] is not None]
+def _schedule_rows(dash_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Editable scopes with a schedule but nothing upcoming yet, for the Needs attention strip's
+    Schedule it buttons. Filters the already-computed ``dash_rows``, no new query."""
+    return [
+        row for row in dash_rows if row["can_edit"] and row["next_meeting"] is None and row["suggested"] is not None
+    ]
 
 
 def _archive_page(request: HttpRequest) -> dict[str, Any]:
-    """Zone 3's filtered, paginated archive (§6.2): guild + year GET filters that never
-    hide undated drafts (they match every year — an interrupted draft's only copy must
-    stay findable), 25/page, undated rows last via the queryset's ``nulls_last``."""
+    """The filtered, paginated archive: guild + year GET filters that never hide undated
+    meetings (they match every year, so an interrupted create stays findable), 25 a page,
+    undated rows last via the queryset's ``nulls_last``."""
     guild_filter = request.GET.get("guild", "")
     year_filter = request.GET.get("year", "")
     archive_qs = Meeting.objects.archive().select_related("guild")
@@ -1129,48 +478,24 @@ def _archive_page(request: HttpRequest) -> dict[str, Any]:
 
 @login_required
 def hub_meetings(request: HttpRequest) -> HttpResponse:
-    """The Meetings home (§6.2): Upcoming, the editor 'Needs attention' strip, the
-    coordinator table, the filtered archive, and the '+ New meeting' modal."""
+    """The Meetings home: Upcoming, the editor's Needs attention strip (Schedule it, and
+    meetings with no date), Meetings by guild, the archive, and the New meeting modal."""
     editable_guilds, council_editable = editable_meeting_scopes(request)
     editable_ids = {guild.pk for guild in editable_guilds}
     can_create = council_editable or bool(editable_ids)
+    upcoming = list(Meeting.objects.upcoming().select_related("guild"))
 
-    upcoming = list(
-        Meeting.objects.upcoming()
-        .select_related("guild")
-        .annotate(
-            topic_count=Count("items", distinct=True),
-            pending_count=Count(
-                "proposals", filter=Q(proposals__state=MeetingItemProposal.State.PENDING), distinct=True
-            ),
-        )
-    )
-    member_guild_ids = viewer_guild_membership_ids(request)  # one query, reused per card
-    for meeting in upcoming:
-        meeting.viewer_can_edit = _scope_is_editable(meeting.guild_id, editable_ids, council_editable)
-        # Everyone who may propose gets the card affordance — editors included; their
-        # submissions land in the same pending-proposals queue.
-        meeting.viewer_can_propose = can_propose_to_meeting(
-            request, meeting, member_guild_ids=member_guild_ids, is_editable=meeting.viewer_can_edit
-        )
-        if meeting.viewer_can_propose:
-            # Per-card auto_id — the list renders one modal per card, and a shared
-            # form would emit duplicate DOM ids.
-            meeting.propose_form = MeetingItemProposalForm(auto_id=f"propose-item-{meeting.pk}-%s")
-
-    attention: list[Meeting] = []
+    undated: list[Meeting] = []
     if can_create:
-        # Anyone with edit rights anywhere edits the council scope too (§5.1), so
-        # can_create ⇒ council rows belong in this editor's strip.
+        # Anyone with edit rights anywhere edits the council scope too, so can_create means
+        # council rows belong in this editor's strip.
         scope_q = Q(guild_id__in=editable_ids) | Q(guild__isnull=True)
-        attention = list(
-            Meeting.objects.needs_attention().filter(scope_q).select_related("guild").order_by("created_at")
-        )
+        undated = list(Meeting.objects.undated().filter(scope_q).select_related("guild"))
 
     guild_filter = request.GET.get("guild", "")
     create_form = None
     if can_create:
-        # The archive's ?guild filter doubles as the guild-tab entry point's preselect (§6.2/§6.4).
+        # The archive's ?guild filter doubles as the guild tab's preselect for the New meeting modal.
         create_form = MeetingCreateForm(request=request, initial={"scope": guild_filter} if guild_filter else None)
     dash_rows = _dash_rows(editable_ids, council_editable, upcoming)
     return render(
@@ -1179,9 +504,9 @@ def hub_meetings(request: HttpRequest) -> HttpResponse:
         {
             **_get_hub_context(request),
             "upcoming_meetings": upcoming,
-            "attention_meetings": attention,
+            "undated_meetings": undated,
             "dash_rows": dash_rows,
-            "start_agenda_rows": _start_agenda_rows(dash_rows),
+            "schedule_rows": _schedule_rows(dash_rows),
             "can_create": can_create,
             "create_form": create_form,
             **_archive_page(request),
@@ -1189,7 +514,7 @@ def hub_meetings(request: HttpRequest) -> HttpResponse:
     )
 
 
-# --- Calendar rails: create / link / unlink (§5.3, §6.3) -----------------------
+# --- Calendar card: create / link / unlink -------------------------------------
 
 
 @login_required
@@ -1203,7 +528,7 @@ def hub_meeting_event(request: HttpRequest, pk: int) -> HttpResponse:
     date for a non-recurring event). ValueErrors surface as 422 toasts (§6.3).
     """
     meeting = get_object_or_404(Meeting.objects.select_related("guild", "event"), pk=pk)
-    guard = _guard(request, meeting)
+    guard = _guard_current(request, meeting)
     if guard is not None:
         return guard
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
@@ -1231,7 +556,7 @@ def hub_meeting_event(request: HttpRequest, pk: int) -> HttpResponse:
 def hub_meeting_event_unlink(request: HttpRequest, pk: int) -> HttpResponse:
     """Drop the calendar link — never deletes or edits the event (§5.3)."""
     meeting = get_object_or_404(Meeting.objects.select_related("guild", "event"), pk=pk)
-    guard = _guard(request, meeting)
+    guard = _guard_current(request, meeting)
     if guard is not None:
         return guard
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User

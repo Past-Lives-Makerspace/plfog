@@ -43,7 +43,6 @@ DIGEST_EVENTS = {
     "discount_code.requested",
     "event.submitted",
     "guild_announcement.submitted",
-    "meeting.item_proposed",
     "wiki.page_reported",
     "wiki.page_proposed",
     "instructor_application_received",

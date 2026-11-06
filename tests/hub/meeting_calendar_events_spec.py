@@ -250,3 +250,39 @@ def describe_the_guild_leads_audience():
         assert draft.audience == AnnouncementDraft.Audience.LEADS
         assert draft.sent_at is not None
         assert draft.send_requested_at is None
+
+
+def describe_a_council_meeting_shaped_like_production_meeting_18():
+    """#1113 AC8: a council draft on Nov 19 at 6:30 PM with its own calendar event (prod meeting 18,
+    event 37) keeps opening, syncing and deleting through the scheduling page."""
+
+    def _meeting_18(by: User) -> tuple[Meeting, CommunityEvent]:
+        day = timezone.localdate() + timedelta(days=13)
+        meeting = MeetingFactory(guild=None, scheduled_date=day, scheduled_time=time(18, 30))
+        with patch.object(CommunityEvent, "push_live"):
+            event = meeting.create_calendar_event(by=by)
+        assert meeting.status == Meeting.Status.DRAFT
+        return meeting, event
+
+    def it_opens_editable_with_its_calendar_event(client: Client):
+        meeting, event = _meeting_18(_admin(client))
+        content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+        assert "Council — Monthly Meeting" in content
+        assert "On the calendar ✓" in content
+        assert reverse("hub_event_detail", args=[event.pk]) in content
+        assert "Delete meeting" in content
+
+    def it_moves_its_event_when_the_time_changes(client: Client):
+        meeting, event = _meeting_18(_admin(client))
+        with patch.object(CommunityEvent, "push_to_google"), patch.object(CommunityEvent, "push_to_discord"):
+            assert _autosave(client, meeting, "scheduled_time", "19:00").status_code == 204
+        event.refresh_from_db()
+        assert timezone.localtime(event.starts_at).time() == time(19, 0)
+        assert event.event_type == CommunityEvent.EventType.LEAD_MEETING
+
+    def it_removes_its_event_when_deleted(client: Client):
+        meeting, event = _meeting_18(_admin(client))
+        with patch.object(CommunityEvent, "remove_from_google"), patch.object(CommunityEvent, "remove_from_discord"):
+            assert client.post(reverse("hub_meeting_delete", args=[meeting.pk])).status_code == 204
+        assert not CommunityEvent.objects.filter(pk=event.pk).exists()
+        assert not Meeting.objects.filter(pk=meeting.pk).exists()

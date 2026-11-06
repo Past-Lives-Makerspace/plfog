@@ -46,7 +46,6 @@ from tests.core.events.digest_support import digest_emails
 from tests.membership.factories import (
     CommunityEventFactory,
     GuildAnnouncementFactory,
-    MeetingFactory,
     MeetingItemProposalFactory,
     MemberFactory,
     SpaceRequestFactory,
@@ -62,7 +61,6 @@ PART_3_EVENTS = (
     "discount_code.requested",
     "event.submitted",
     "guild_announcement.submitted",
-    "meeting.item_proposed",
     "wiki.page_reported",
     "wiki.page_proposed",
     "instructor_application_received",
@@ -268,25 +266,16 @@ def describe_guild_announcement_submitted():
 
 
 def describe_meeting_item_proposed():
-    def it_is_open_while_pending_and_declining_clears_the_bell():
-        proposal = MeetingItemProposalFactory()
-        _assert_lifecycle(
-            proposal,
-            "meeting.item_proposed",
-            f"meeting-proposal:{proposal.pk}:submitted",
-            lambda: proposal.decline(reviewer=_approver_admin()),
-        )
+    def it_is_no_longer_counted_by_the_staff_digest():
+        # #1113 retired meeting proposals: no digest email, no still-open check.
+        from core.events.resolvers import has_open_check
 
-    def it_anchors_each_proposals_bell_on_the_meeting_page_and_clears_it_with_the_meeting():
-        meeting = MeetingFactory()
-        with patch("core.events.emit.emit") as fake:
-            proposal = meeting.propose_item(
-                by=UserFactory(username="pat@example.com", email="pat@example.com"), title="Dust", why="It piles up."
-            )
-        assert notification_click_url(_emitted(fake, "meeting.item_proposed")["url"]) == proposal.request_bell_path
-        assert proposal.request_bell_path == f"{reverse('hub_meeting', args=[meeting.pk])}#proposal-{proposal.pk}"
+        assert not has_open_check("meeting.item_proposed")
+
+    def it_still_clears_an_old_proposal_bell_when_its_meeting_is_deleted():
+        proposal = MeetingItemProposalFactory()
         bell = _bell(proposal, "meeting.item_proposed", _approver())
-        meeting.delete()
+        proposal.meeting.delete()
         assert _read(bell)
 
 
