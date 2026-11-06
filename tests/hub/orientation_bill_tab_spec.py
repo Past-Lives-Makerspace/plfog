@@ -247,6 +247,15 @@ def describe_the_refusals():
             client, _post(str(world["type"]), "Quincy Billee", bill_amount="forty")
         )
 
+    def it_refuses_fractions_of_a_cent_and_takes_trailing_zeros(client: Client):
+        world = _world(client)
+        assert "Enter the amount in dollars, like 40 or 12.50." in _refused(
+            client, _post(str(world["type"]), "Quincy Billee", bill_amount="12.505")
+        )
+        assert not OrientationBooking.objects.exists()
+        client.post(reverse("hub_orientation_record"), _post(str(world["type"]), "Quincy Billee", bill_amount="12.500"))
+        assert OrientationBooking.objects.get().bill_amount_cents == 1250
+
     def it_requires_who_ran_it(client: Client):
         world = _world(client)
         data = _post(str(world["type"]), "Quincy Billee")

@@ -5042,8 +5042,13 @@ class OrientationRecordForm(forms.Form):
         try:
             amount = Decimal(raw) if raw else None
         except InvalidOperation:
+            amount = None
             self.add_error("bill_amount", "Enter the amount in dollars, like 40 or 12.50.")
-        else:
+        exponent = amount.normalize().as_tuple().exponent if amount is not None and amount.is_finite() else 0
+        if isinstance(exponent, int) and exponent < -2:
+            # Whole cents only: a crafted 12.505 is refused rather than billed as 12.50.
+            self.add_error("bill_amount", "Enter the amount in dollars, like 40 or 12.50.")
+        elif raw == "" or amount is not None:
             cents = None if amount is None or not amount.is_finite() else int(amount * 100)
             try:
                 OrientationBooking.ensure_bill_amount(cents)
