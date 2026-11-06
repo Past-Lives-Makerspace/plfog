@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from django.http import HttpRequest, QueryDict
 
     from classes.models import ClassOffering
-    from membership.models import AnnouncementDraft, GuildStaffMembership, OrientationBooking
+    from membership.models import AnnouncementDraft, GuildStaffMembership
 
 from core.html_sanitize import clean_rich_body, clean_rich_html, limit_rich_text
 from core.validators import (
@@ -90,6 +90,7 @@ from membership.models import (
     OrgLink,
     OrientationAvailability,
     OrientationAvailabilityBlock,
+    OrientationBooking,
     OrientationDayOff,
     OrientationError,
     OrientationRecord,
@@ -4876,6 +4877,12 @@ class OrientationRecordForm(forms.Form):
     The admin flow passes the member from the URL. The Bookings tab's Record Orientation
     (#630) passes ``member=None``, which adds a Member picker built the same way (a datalist
     of active members, matched exactly), and ``type_queryset``, the types the viewer runs.
+
+    The Bookings tab's form also carries Send a bill and Amount (#1111). Ticked, the
+    orientation becomes a billed booking (:func:`billing.orientation_bills.send_bill`)
+    instead of a silent record: the amount must be $1 to $500, and the member must have a
+    login account and no live booking for the type (``bill_refusal``). ``bill_prices`` is
+    the price each type's label prefills Amount with, read by the window's script.
     """
 
     RETIRED_SUFFIX = " (retired)"
@@ -4921,8 +4928,12 @@ class OrientationRecordForm(forms.Form):
             cast(forms.ModelChoiceField, self.fields["oriented_by"]).queryset = (
                 Member.objects.filter(status=Member.Status.ACTIVE).without_hidden().order_by("full_legal_name")
             )
+            self._add_bill_fields()
         self.type_options: list[str] = []
         self._types_by_label: dict[str, OrientationType] = {}
+        #: Each type's label, lowercased as the window's script reads it, to the dollars Amount
+        #: prefills with: "" for a free type (#1111).
+        self.bill_prices: dict[str, str] = {}
         types = (
             (type_queryset if type_queryset is not None else OrientationType.objects.all())
             .select_related("guild", "equipment")
@@ -4932,6 +4943,36 @@ class OrientationRecordForm(forms.Form):
             label = str(orientation_type) if orientation_type.is_active else f"{orientation_type}{self.RETIRED_SUFFIX}"
             self.type_options.append(label)
             self._types_by_label[label.casefold()] = orientation_type
+            prefill = orientation_type.bill_prefill_cents
+            self.bill_prices[label.lower()] = (
+                "" if prefill is None else OrientationType.dollars(prefill).removeprefix("$")
+            )
+
+    def _add_bill_fields(self) -> None:
+        """Send a bill and Amount (#1111), after Note: only on the Bookings tab's form."""
+        self.fields["send_bill"] = forms.BooleanField(
+            label="Send a bill",
+            required=False,
+            help_text="Email the member a bill they pay online. They're oriented now either way.",
+            widget=forms.CheckboxInput(attrs={"x-model": "sendBill"}),
+        )
+        self.fields["bill_amount"] = forms.DecimalField(
+            label="Amount ($)",
+            required=False,
+            max_digits=7,
+            decimal_places=2,
+            error_messages={"invalid": "Enter the amount in dollars, like 40 or 12.50."},
+            widget=forms.NumberInput(
+                attrs={
+                    "x-model": "amount",
+                    "min": "1",
+                    "max": "500",
+                    "step": "0.01",
+                    "inputmode": "decimal",
+                    "class": "pl-bookings-record__amount",
+                }
+            ),
+        )
 
     def _add_member_picker(self) -> None:
         """The Member field: a text input over a datalist of active members, first in the form.
@@ -4986,7 +5027,49 @@ class OrientationRecordForm(forms.Form):
             and orientation_type.pk in member.completed_orientation_type_ids([orientation_type])
         ):
             self.add_error("orientation", f"{member.display_name} already completed this orientation.")
+        elif cleaned.get("send_bill"):
+            self._clean_bill(cleaned, member, orientation_type)
         return cleaned
+
+    def _clean_bill(
+        self, cleaned: dict[str, Any], member: Member | None, orientation_type: OrientationType | None
+    ) -> None:
+        """Send a bill's own refusals: a billable amount, and a member who can be billed for the type."""
+        from billing.orientation_bills import bill_refusal
+
+        amount = cleaned.get("bill_amount")
+        try:
+            OrientationBooking.ensure_bill_amount(None if amount is None else int(amount * 100))
+        except OrientationError as exc:
+            self.add_error("bill_amount", str(exc))
+        if member is not None and orientation_type is not None:
+            refusal = bill_refusal(member, orientation_type)
+            if refusal:
+                self.add_error("member", refusal)
+
+    @property
+    def sends_bill(self) -> bool:
+        """Whether this recording sends a bill (read after ``is_valid``)."""
+        return bool(self.cleaned_data.get("send_bill"))
+
+    @property
+    def bill_amount_cents(self) -> int:
+        """The billed amount in cents (read after ``is_valid``, on a form that sends a bill)."""
+        return int(self.cleaned_data["bill_amount"] * 100)
+
+    def send_bill(self, *, sent_by: User) -> OrientationBooking:
+        """Record the orientation as a billed booking and send the bill (#1111). Never a silent record."""
+        from billing.orientation_bills import send_bill
+
+        return send_bill(
+            self.recorded_member,
+            self.cleaned_data["orientation"],
+            completed_on=self.cleaned_data["completed_on"],
+            oriented_by=self.cleaned_data["oriented_by"],
+            amount_cents=self.bill_amount_cents,
+            sent_by=sent_by,
+            note=self.cleaned_data["note"],
+        )
 
     @property
     def recorded_member(self) -> Member:

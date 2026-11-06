@@ -732,6 +732,8 @@ def describe_padlocked_rows():
         "cubbies.waitlist_opened": "Guilds",
         # A new lead or staffer learns the rules for running their guild (#1076).
         "guild_staff.welcome": "Guilds",
+        # A bill for an orientation the member already took (#1111): money they owe.
+        "billing.orientation_bill": "Billing",
     }
     # Forced emails routed to staff: padlocked too, but in Admin / Permissions.
     STAFF_FORCED = {

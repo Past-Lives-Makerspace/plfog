@@ -335,7 +335,7 @@ def _earnings(
                 item=f"{booking.orientation_type.owner_name} orientation",
                 payer=booking.member.finance_name,
                 taught_at=booking.slot.starts_at,
-                paid_at=booking.requested_at,
+                paid_at=booking.money_at,
                 share_cents=shares.for_booking(booking),
             )
         )
@@ -415,7 +415,7 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
     owed by hand, so nothing waits unsent with nobody told.
     """
     from classes.models import Registration
-    from membership.models import EquipmentReservation
+    from membership.models import EquipmentReservation, OrientationBooking
 
     now = now or timezone.now()
     run = PayoutRun()
@@ -435,7 +435,7 @@ def run_payouts(now: datetime | None = None) -> PayoutRun:
         .filter(**window),
         _bookings()
         .filter(payout__isnull=True)
-        .annotate(due_base=Greatest("slot__starts_at", "requested_at"))
+        .annotate(due_base=Greatest("slot__starts_at", OrientationBooking.money_at_expression()))
         .filter(**window),
         _reservations()
         # Confirmed, or a paid season cancelled after it started, which kept its payment (#1095).
@@ -663,9 +663,11 @@ def freeze_split(snapshot: ReconciliationSnapshot, window: Any) -> None:
     and owed by hand in this snapshot's dates, so it stops retrying and nobody is left to pay it.
     The snapshot's results are then read from these rows, so nothing can contradict them later.
     """
+    from membership.models import OrientationBooking
+
     paid_in = _earnings(
         _registrations().filter(confirmed_at__gte=window.start_dt, confirmed_at__lt=window.end_dt),
-        _bookings().filter(requested_at__gte=window.start_dt, requested_at__lt=window.end_dt),
+        _bookings().filter(OrientationBooking.money_between_q(window.start_dt, window.end_dt)),
         _reservations().filter(created_at__gte=window.start_dt, created_at__lt=window.end_dt),
         _cubby_payments().filter(paid_at__gte=window.start_dt, paid_at__lt=window.end_dt),
     )
@@ -694,6 +696,8 @@ def freeze_split(snapshot: ReconciliationSnapshot, window: Any) -> None:
 def _fell_due_in(window: Any) -> list[Earning]:
     """Earnings paid before ``window`` that may fall due inside it: by the recorded ``Payout.due_at``
     once there is a row, else by the base ``run_payouts`` uses. The caller tests ``Earning.due_at``."""
+    from membership.models import OrientationBooking
+
     due = fell_due_between(window.start_dt, window.end_dt)
     return _earnings(
         _registrations()
@@ -701,8 +705,8 @@ def _fell_due_in(window: Any) -> list[Earning]:
         .annotate(due_base=Greatest("first_session_at", "confirmed_at"))
         .filter(due),
         _bookings()
-        .filter(requested_at__lt=window.start_dt)
-        .annotate(due_base=Greatest("slot__starts_at", "requested_at"))
+        .filter(OrientationBooking.money_before_q(window.start_dt))
+        .annotate(due_base=Greatest("slot__starts_at", OrientationBooking.money_at_expression()))
         .filter(due),
         _reservations()
         .filter(created_at__lt=window.start_dt)

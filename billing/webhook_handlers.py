@@ -314,6 +314,83 @@ def handle_late_fee_checkout_expired(event: dict[str, Any]) -> None:
     )
 
 
+def handle_orientation_bill_checkout_completed(event: dict[str, Any]) -> None:
+    """Mark an orientation bill paid via the one shared :func:`billing.orientation_bills.mark_paid` (#1111).
+
+    Only acts on sessions tagged ``kind=orientation_bill``, so the booking webhook's
+    ``kind=orientation_booking`` handler never sees a bill and never calls it an orphan.
+    Idempotent and race safe: ``mark_paid`` re-reads the row under a lock, so a re-delivery
+    or the landing page racing the webhook stamps the payment once. A paid session whose
+    bill is gone, or which landed on a bill already paid by another payment or cancelled,
+    is money with no in-app home: logged at ERROR and alerted to the Billing Administrators.
+    """
+    from billing import orientation_bills
+    from membership.models import OrientationBooking
+    from membership.webhook_handlers import _send_orphan_payment_alert
+
+    session = event["data"]["object"]
+    metadata = session.get("metadata") or {}
+    if metadata.get("kind") != orientation_bills.CHECKOUT_KIND:
+        return
+    booking_id = str(metadata.get("booking_id") or "")
+    if not booking_id.isdigit():
+        logger.warning(
+            "checkout.session.completed: missing or non-numeric booking_id %r in orientation bill metadata",
+            metadata.get("booking_id"),
+        )
+        return
+    if session.get("payment_status") != "paid":
+        logger.info(
+            "checkout.session.completed: ignoring orientation bill session %s with payment_status=%s",
+            session.get("id"),
+            session.get("payment_status"),
+        )
+        return
+    incoming = session.get("payment_intent", "") or ""
+    booking = OrientationBooking.objects.filter(pk=booking_id, billed_at__isnull=False).first()
+    amount_total = session.get("amount_total")
+    outcome = (
+        "gone"
+        if booking is None
+        else orientation_bills.mark_paid(
+            booking,
+            payment_intent=incoming,
+            session_id=session.get("id", "") or "",
+            amount_total=amount_total if isinstance(amount_total, int) else None,
+        )
+    )
+    if outcome == "paid":
+        return
+    if booking is None or outcome == "gone":
+        logger.error(
+            "checkout.session.completed: PAID orientation bill session %s (payment intent %s) has no bill %s. "
+            "Refund from the Stripe dashboard.",
+            session.get("id"),
+            incoming,
+            booking_id,
+        )
+        _send_orphan_payment_alert(
+            session, reason=f"Orientation bill {booking_id} no longer exists.", item="orientation bill"
+        )
+        return
+    fresh = OrientationBooking.objects.get(pk=booking.pk)
+    if fresh.stripe_payment_id == incoming:
+        return  # a re-delivery of the payment already recorded
+    reason = (
+        f"Orientation bill {booking_id} was already paid by {fresh.stripe_payment_id}; this session paid it again."
+        if fresh.paid_at is not None
+        else f"Orientation bill {booking_id} was cancelled before the payment landed."
+    )
+    logger.error(
+        "checkout.session.completed: PAID orientation bill session %s (payment intent %s): %s "
+        "Refund from the Stripe dashboard.",
+        session.get("id"),
+        incoming,
+        reason,
+    )
+    _send_orphan_payment_alert(session, reason=reason, item="orientation bill")
+
+
 def handle_account_updated(event: dict[str, Any]) -> None:
     """``account.updated`` (#662): re-read the matching payout account from Stripe and apply it.
 

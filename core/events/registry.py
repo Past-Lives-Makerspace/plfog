@@ -543,6 +543,7 @@ EQUIPMENT_RESERVATION_MESSAGE_TO_MANAGERS = (
 EQUIPMENT_CREDIT_GRANTED = "equipment.credit_granted"  # a manager gave you hourly credit on an item (#787)
 BILLING_LATE_FEE_PAID = "billing.late_fee_paid"  # the receipt for a paid late cancellation fee
 BILLING_LATE_FEE_WAIVED = "billing.late_fee_waived"  # an unpaid late cancellation fee was forgiven
+BILLING_ORIENTATION_BILL = "billing.orientation_bill"  # an orientor billed you for an orientation you took (#1111)
 BILLING_PAYOUT_FAILED_ADMIN = "billing.payout_failed_admin"  # Stripe rejected a payout transfer (#662)
 BILLING_PAYOUTS_INVITE = "billing.payouts_invite"  # a payee's first owed share: set up payouts (#662)
 BILLING_PAYOUT_REVERSAL_FAILED_ADMIN = "billing.payout_reversal_failed_admin"  # a share take back failed (#662)
@@ -1342,6 +1343,19 @@ _NEW_EVENTS: list[EventType] = [
         key=BILLING_LATE_FEE_WAIVED,
         label="Late cancellation fee waived",
         description="A late cancellation fee you owed was waived. You can book again.",
+        category="Billing",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # billing.orientation_bill — an orientor recorded an orientation the member already took and
+    # sent a bill for it (#1111): the orientation, the day, who ran it, the amount and the bill's
+    # page. Money is owed, so the email is forced like the late fee notices. No activity row here:
+    # ``billing.orientation_bills.send_bill`` logs ORIENTATION_BILL_SENT with the orientor as actor.
+    EventType(
+        key=BILLING_ORIENTATION_BILL,
+        label="Orientation bill",
+        description="An orientor sent you a bill for an orientation you took.",
         category="Billing",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_FORCED),

@@ -263,9 +263,9 @@ def _class_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRo
 def _orientation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRow]:
     """Paid orientation-booking rows, with refund state derived from the ledger.
 
-    ``PENDING_PAYMENT`` holds are excluded — no money has moved yet. ``requested_at``
-    stands in for paid-at (payment lands within the checkout hour of creation; the
-    booking stamps no separate payment timestamp).
+    ``PENDING_PAYMENT`` holds are excluded — no money has moved yet. Dated by
+    ``OrientationBooking.money_at``: a bill's ``paid_at`` (#1111), else ``requested_at``,
+    which stands in for paid at because a checkout's payment lands within its hour.
     """
     from django.urls import reverse
 
@@ -274,7 +274,7 @@ def _orientation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[Pay
     bookings = (
         OrientationBooking.objects.filter(amount_paid_cents__gt=0)
         .exclude(status=OrientationBooking.Status.PENDING_PAYMENT)
-        .filter(requested_at__gte=window.start_dt, requested_at__lt=window.end_dt)
+        .filter(OrientationBooking.money_between_q(window.start_dt, window.end_dt))
         .select_related("guild", "member", "orientation_type__guild", "orientation_type__equipment")
         .prefetch_related("refunds")
     )
@@ -292,7 +292,7 @@ def _orientation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[Pay
                 item=f"Orientation — {booking.orientation_type.owner_name}",
                 amount_cents=booking.amount_paid_cents,
                 status=status,
-                date=booking.requested_at,
+                date=booking.money_at,
                 refund_rows=refunds,
                 can_refund=bool(booking.stripe_payment_id) and booking.refundable_cents > 0,
                 pending_age=pending_age,

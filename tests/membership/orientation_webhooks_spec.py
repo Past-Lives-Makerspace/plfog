@@ -255,6 +255,7 @@ def describe_billing_fan_in_router():
             webhook_handlers.handle_reservation_checkout_completed,
             webhook_handlers.handle_cubby_checkout_completed,
             billing_handlers.handle_late_fee_checkout_completed,
+            billing_handlers.handle_orientation_bill_checkout_completed,
         ]
 
     def it_routes_an_orientation_session_through_the_real_fan_in():

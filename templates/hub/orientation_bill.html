@@ -1,0 +1,66 @@
+{% extends "hub/base.html" %}
+{% block title %}Orientation Bill · Past Lives{% endblock %}
+{% block content %}
+{% comment %}
+A bill for an orientation the member already took (#1111): the page the bill email links, and
+the Stripe Checkout landing. A GET shows the bill; only the Pay button POSTs to mint the
+Checkout, so a mail client prefetching the link never starts a payment. States:
+  unpaid    the bill's own page while it is owed
+  pending   back from Stripe, which has not confirmed yet; a refresh asks again, Pay stays
+  paid      paid (the webhook or the landing's own check)
+  cancelled the bill was cancelled; nothing is owed
+  invalid   a bad or expired return token, or the bill is gone (HTTP 400)
+Styles are the late fee card's (pl-late-fee-card), the same surface.
+{% endcomment %}
+{% if state == "invalid" %}
+{% include "components/page_header.html" with title="We Couldn't Find That Bill" description="If you were charged, the payment will appear in your email receipt and we'll sort it out." %}
+<div class="pl-checkout-return">
+  <div class="hub-card pl-checkout-return__card pl-late-fee-card" data-orientation-bill-state="invalid">
+    <a href="{% url 'hub_home' %}" class="pl-btn pl-btn--primary">Back to the Hub</a>
+  </div>
+</div>
+{% else %}
+{% if state == "paid" %}
+{% include "components/page_header.html" with title="Paid. Thank You." description="Your orientation bill is paid. Nothing more to do." %}
+{% elif state == "pending" %}
+{% include "components/page_header.html" with title="Almost There" description="Stripe has not confirmed it yet, so refresh in a moment. If the payment did not go through, the Pay button opens a fresh checkout." %}
+{% elif state == "cancelled" %}
+{% include "components/page_header.html" with title="Nothing More to Pay" description="This bill was cancelled, so nothing is owed. You're still marked as oriented." %}
+{% else %}
+{% include "components/page_header.html" with title="Orientation Bill" description="You took this orientation and you're marked as oriented. Pay the bill online any time." %}
+{% endif %}
+<div class="pl-checkout-return">
+  <div class="hub-card pl-checkout-return__card pl-late-fee-card" data-orientation-bill-state="{{ state }}">
+    <dl class="pl-late-fee-card__facts">
+      <div class="pl-late-fee-card__fact">
+        <dt class="pl-late-fee-card__label">For</dt>
+        <dd class="pl-late-fee-card__value"><a href="{{ bill.orientation_type.owner_page_path }}">{{ bill_item }}</a></dd>
+      </div>
+      <div class="pl-late-fee-card__fact">
+        <dt class="pl-late-fee-card__label">Day</dt>
+        <dd class="pl-late-fee-card__value">{{ bill.slot.starts_at|date:"l, F j, Y" }}</dd>
+      </div>
+      <div class="pl-late-fee-card__fact">
+        <dt class="pl-late-fee-card__label">Run by</dt>
+        <dd class="pl-late-fee-card__value">{{ bill_oriented_by }}</dd>
+      </div>
+      <div class="pl-late-fee-card__fact">
+        <dt class="pl-late-fee-card__label">Amount</dt>
+        <dd class="pl-late-fee-card__value">{{ bill.bill_amount_display }}</dd>
+      </div>
+      <div class="pl-late-fee-card__fact">
+        <dt class="pl-late-fee-card__label">Status</dt>
+        <dd class="pl-late-fee-card__value" data-orientation-bill-status="{{ bill.bill_state }}">{% if bill.bill_state == "paid" %}Paid on {{ bill.paid_at|date:"l, F j" }}{% elif bill.bill_state == "cancelled" %}Cancelled{% else %}Unpaid{% endif %}</dd>
+      </div>
+    </dl>
+    {% if bill.bill_is_unpaid %}
+    {# Unboosted: it answers with a redirect to Stripe Checkout. #}
+    <form method="post" action="{% url 'hub_orientation_bill_pay' bill.pk %}" hx-boost="false" class="pl-late-fee-card__pay">
+      {% csrf_token %}
+      <button type="submit" class="pl-btn pl-btn--primary" data-orientation-bill-pay>Pay {{ bill.bill_amount_display }}</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

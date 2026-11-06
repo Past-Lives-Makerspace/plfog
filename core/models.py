@@ -2082,6 +2082,10 @@ class SiteActivity(models.Model):
         ORIENTATION_COMPLETED = "orientation_completed", "Orientation completed"
         ORIENTATION_RECORDED = "orientation_recorded", "Orientation recorded"
         ORIENTATION_RECORD_REMOVED = "orientation_record_removed", "Orientation record removed"
+        # A bill sent from Record Orientation, and its cancel (#1111). Both added at once so
+        # part 2 (Cancel Bill) needs no migration of its own.
+        ORIENTATION_BILL_SENT = "orientation_bill_sent", "Orientation bill sent"
+        ORIENTATION_BILL_CANCELLED = "orientation_bill_cancelled", "Orientation bill cancelled"
         LATE_FEE_CHARGED = "late_fee_charged", "Late cancellation fee charged"
         LATE_FEE_PAID = "late_fee_paid", "Late cancellation fee paid"
         LATE_FEE_WAIVED = "late_fee_waived", "Late cancellation fee waived"

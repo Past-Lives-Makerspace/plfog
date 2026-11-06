@@ -15315,6 +15315,16 @@ class OrientationType(models.Model):
             "paid by card when you book."
         )
 
+    @property
+    def bill_prefill_cents(self) -> int | None:
+        """What Record Orientation's Send a bill fills Amount with (#1111), or ``None`` to leave it blank.
+
+        A fixed price type's price; a donation type's suggestion, else its minimum; a free type nothing.
+        """
+        if self.is_donation:
+            return self.donation_suggested_cents or self.donation_minimum_cents or None
+        return self.price_cents or None
+
     def checkout_amount_cents(self, entered_cents: int | None) -> int:
         """What booking this type charges, in cents: 0 books a free request, anything above goes to checkout.
 
@@ -16980,6 +16990,50 @@ class OrientationBooking(models.Model):
         related_name="orientation_times_proposed",
         help_text="The leader who proposed the open new time.",
     )
+    # --- A bill sent from Record Orientation (#1111) --------------------------------------
+    bill_amount_cents = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "What the bill asks the member to pay, in cents (#1111). 0 on every booking that is not a bill; "
+            "amount_paid_cents holds what Stripe collected once it is paid."
+        ),
+    )
+    billed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When an orientor recorded this orientation and sent the member a bill for it (#1111). "
+            "Empty on an ordinary booking; set means this booking is a bill."
+        ),
+    )
+    bill_cancelled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the bill was cancelled, so nothing is owed any more. The orientation stays.",
+    )
+    bill_cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who cancelled the bill.",
+    )
+    bill_checkout_attempts = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "How many Pay clicks minted a Checkout for the bill. Part of the Stripe idempotency key, "
+            "so every click gets a fresh session."
+        ),
+    )
+    paid_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the bill was paid. The Payments panel, Reconciliation and payouts date a booking by it "
+            "when set, else by requested_at; an ordinary booking never sets it."
+        ),
+    )
 
     #: The columns an open proposal lives in; cleared together on accept, keep, decline and cancel.
     PROPOSAL_FIELDS: ClassVar[tuple[str, ...]] = ("proposed_starts_at", "proposed_at", "proposed_by")
@@ -17164,6 +17218,131 @@ class OrientationBooking(models.Model):
         """Undo a completion (a lead correcting an auto-completed no-show)."""
         self.is_completed = False
         self.save(update_fields=["is_completed"])
+
+    # --- A bill sent from Record Orientation (#1111) --------------------------------------
+
+    #: A bill's least amount: the donation floor, so no bill is for cents.
+    BILL_MINIMUM_CENTS: ClassVar[int] = 100
+    #: A bill's most: the same $500 ceiling a price or a donation has.
+    BILL_MAXIMUM_CENTS: ClassVar[int] = 50000
+
+    @classmethod
+    def create_bill(
+        cls, *, slot: OrientationSlot, member: Member, oriented_by: Member | None, amount_cents: int
+    ) -> OrientationBooking:
+        """The billed orientation: confirmed and completed at once on ``slot``, asking ``amount_cents``.
+
+        The member already had the orientation, so they are oriented now and access never waits
+        on the money. Nothing is emailed here: :mod:`billing.orientation_bills` owns the one
+        bill email, and no road through ``request_orientation``, ``confirm_orientation`` or
+        ``complete_orientation`` (which email, ping orientors and post to Discord) is taken.
+
+        Raises:
+            OrientationError: When the amount is outside ``BILL_MINIMUM_CENTS`` to ``BILL_MAXIMUM_CENTS``.
+        """
+        cls.ensure_bill_amount(amount_cents)
+        now = timezone.now()
+        return cls.objects.create(
+            slot=slot,
+            guild=slot.guild,
+            orientation_type=slot.orientation_type,
+            member=member,
+            status=cls.Status.CONFIRMED,
+            confirmed_at=now,
+            is_completed=True,
+            oriented_by=oriented_by,
+            bill_amount_cents=amount_cents,
+            billed_at=now,
+        )
+
+    @classmethod
+    def ensure_bill_amount(cls, amount_cents: int | None) -> None:
+        """Raise :class:`OrientationError` with orientor copy unless ``amount_cents`` is a billable amount."""
+        if amount_cents is None:
+            raise OrientationError("Enter the amount to bill.")
+        if amount_cents < cls.BILL_MINIMUM_CENTS:
+            raise OrientationError(f"A bill is at least {OrientationType.dollars(cls.BILL_MINIMUM_CENTS)}.")
+        if amount_cents > cls.BILL_MAXIMUM_CENTS:
+            raise OrientationError(OrientationType.DONATION_CEILING_MESSAGE)
+
+    @property
+    def is_bill(self) -> bool:
+        """Whether this booking is a bill sent from Record Orientation."""
+        return self.billed_at is not None
+
+    @property
+    def bill_state(self) -> str:
+        """``"unpaid" | "paid" | "cancelled"`` for a bill, ``""`` for an ordinary booking: the row chip's vocabulary."""
+        if self.billed_at is None:
+            return ""
+        if self.paid_at is not None:
+            return "paid"
+        if self.bill_cancelled_at is not None:
+            return "cancelled"
+        return "unpaid"
+
+    @property
+    def bill_is_unpaid(self) -> bool:
+        """Whether the member still owes this bill: what shows Pay and lets a Checkout start."""
+        return self.bill_state == "unpaid"
+
+    @property
+    def bill_amount_display(self) -> str:
+        """The billed amount as member copy: "$40" or "$12.50"."""
+        return OrientationType.dollars(self.bill_amount_cents)
+
+    def ensure_bill_payable(self) -> None:
+        """Raise :class:`OrientationError` unless this is a bill the member still owes."""
+        if not self.bill_is_unpaid:
+            raise OrientationError("This bill has nothing left to pay.")
+
+    def next_bill_checkout_attempt(self) -> int:
+        """Count one more Pay click and return it, saved before any Stripe call (the idempotency key)."""
+        self.bill_checkout_attempts += 1
+        self.save(update_fields=["bill_checkout_attempts"])
+        return self.bill_checkout_attempts
+
+    def record_bill_payment(self, *, payment_intent: str, session_id: str, amount_total: int | None) -> None:
+        """Stamp the money on an unpaid bill: what Stripe collected, the payment, and when.
+
+        The caller holds the row lock and has checked :attr:`bill_is_unpaid`. ``amount_total``
+        is what Stripe collected; without one the billed amount stands in. ``session_id``
+        backfills a session id that never got saved.
+        """
+        self.amount_paid_cents = amount_total if amount_total is not None else self.bill_amount_cents
+        self.stripe_payment_id = payment_intent
+        if session_id and not self.stripe_session_id:
+            self.stripe_session_id = session_id
+        self.paid_at = timezone.now()
+        self.save(update_fields=["amount_paid_cents", "stripe_payment_id", "stripe_session_id", "paid_at"])
+
+    # --- When the money landed, for the finance readers (#1111) ---------------------------
+
+    @property
+    def money_at(self) -> datetime_type:
+        """The moment the finance readers file this booking's payment under.
+
+        A bill's ``paid_at``; otherwise ``requested_at``, since a checkout's payment lands
+        within its hour. The query twin is :meth:`money_at_expression`.
+        """
+        return self.paid_at or self.requested_at
+
+    @staticmethod
+    def money_at_expression() -> Coalesce:
+        """:attr:`money_at` as a database expression, for a payout's due base."""
+        return Coalesce("paid_at", "requested_at")
+
+    @staticmethod
+    def money_between_q(start: datetime_type, end: datetime_type) -> Q:
+        """Bookings whose :attr:`money_at` falls in ``[start, end)``."""
+        return Q(paid_at__isnull=False, paid_at__gte=start, paid_at__lt=end) | Q(
+            paid_at__isnull=True, requested_at__gte=start, requested_at__lt=end
+        )
+
+    @staticmethod
+    def money_before_q(start: datetime_type) -> Q:
+        """Bookings whose :attr:`money_at` is before ``start``."""
+        return Q(paid_at__isnull=False, paid_at__lt=start) | Q(paid_at__isnull=True, requested_at__lt=start)
 
     # --- Refund engine surface (billing.refunds.RefundableSource) -----------
 
