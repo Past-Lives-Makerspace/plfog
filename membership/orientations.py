@@ -1686,12 +1686,16 @@ def complete_orientation(booking: OrientationBooking) -> None:
 
 
 def auto_complete(*, now: datetime | None = None) -> int:
-    """Complete confirmed orientations whose slot has ended. Returns the count completed."""
+    """Complete confirmed orientations whose slot has ended. Returns the count completed.
+
+    A bill (#1111) is never completed here: it was recorded as completed, and one a lead undid
+    stays undone until they mark it again, silently, rather than getting a thank-you and a Discord post.
+    """
     from membership.models import OrientationBooking
 
     cutoff = now or timezone.now()
     pending = OrientationBooking.objects.filter(
-        status=OrientationBooking.Status.CONFIRMED, is_completed=False, slot__ends_at__lt=cutoff
+        status=OrientationBooking.Status.CONFIRMED, is_completed=False, slot__ends_at__lt=cutoff, billed_at__isnull=True
     ).select_related("slot", "guild", "member", "oriented_by")
     count = 0
     for booking in pending:

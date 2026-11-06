@@ -113,11 +113,14 @@ def bill_refusal(member: Member, orientation_type: OrientationType) -> str:
 def _billed_starts_at(orientation_type: OrientationType, day: date) -> datetime:
     """When the billed slot starts: midday on ``day``, or early enough that it has already ended.
 
-    The slot must lie in the past, so it never shows as upcoming on a calendar or a list.
+    The slot should lie in the past, so it never shows as upcoming on a calendar or a list, but
+    it never starts before ``day`` itself: just after midnight today it starts at midnight and
+    may still be running, which beats filing the orientation under yesterday.
     """
+    start_of_day = timezone.make_aware(datetime.combine(day, time.min))
     midday = timezone.make_aware(datetime.combine(day, _BILLED_HOUR))
     latest = timezone.now() - timedelta(minutes=orientation_type.duration_minutes)
-    return min(midday, latest)
+    return max(start_of_day, min(midday, latest))
 
 
 def send_bill(

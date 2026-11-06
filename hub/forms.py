@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 from datetime import date as date_type
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from functools import cached_property
 import json
 import logging
@@ -4956,15 +4956,16 @@ class OrientationRecordForm(forms.Form):
             help_text="Email the member a bill they pay online. They're oriented now either way.",
             widget=forms.CheckboxInput(attrs={"x-model": "sendBill"}),
         )
-        self.fields["bill_amount"] = forms.DecimalField(
+        # Text, parsed in _clean_bill: an unticked form never reads it, so a stray value there
+        # cannot block a plain record.
+        self.fields["bill_amount"] = forms.CharField(
             label="Amount ($)",
             required=False,
-            max_digits=7,
-            decimal_places=2,
-            error_messages={"invalid": "Enter the amount in dollars, like 40 or 12.50."},
+            max_length=12,
             widget=forms.NumberInput(
                 attrs={
                     "x-model": "amount",
+                    ":disabled": "!sendBill",
                     "min": "1",
                     "max": "500",
                     "step": "0.01",
@@ -5034,14 +5035,24 @@ class OrientationRecordForm(forms.Form):
     def _clean_bill(
         self, cleaned: dict[str, Any], member: Member | None, orientation_type: OrientationType | None
     ) -> None:
-        """Send a bill's own refusals: a billable amount, and a member who can be billed for the type."""
+        """Send a bill's own refusals: a billable amount, who ran it, and a member who can be billed for the type."""
         from billing.orientation_bills import bill_refusal
 
-        amount = cleaned.get("bill_amount")
+        raw = (cleaned.get("bill_amount") or "").strip()
         try:
-            OrientationBooking.ensure_bill_amount(None if amount is None else int(amount * 100))
-        except OrientationError as exc:
-            self.add_error("bill_amount", str(exc))
+            amount = Decimal(raw) if raw else None
+        except InvalidOperation:
+            self.add_error("bill_amount", "Enter the amount in dollars, like 40 or 12.50.")
+        else:
+            cents = None if amount is None or not amount.is_finite() else int(amount * 100)
+            try:
+                OrientationBooking.ensure_bill_amount(cents)
+            except OrientationError as exc:
+                self.add_error("bill_amount", str(exc))
+            else:
+                cleaned["bill_amount_cents"] = cents
+        if cleaned.get("oriented_by") is None:
+            self.add_error("oriented_by", "Pick who ran the orientation so they get their share.")
         if member is not None and orientation_type is not None:
             refusal = bill_refusal(member, orientation_type)
             if refusal:
@@ -5055,7 +5066,8 @@ class OrientationRecordForm(forms.Form):
     @property
     def bill_amount_cents(self) -> int:
         """The billed amount in cents (read after ``is_valid``, on a form that sends a bill)."""
-        return int(self.cleaned_data["bill_amount"] * 100)
+        cents: int = self.cleaned_data["bill_amount_cents"]
+        return cents
 
     def send_bill(self, *, sent_by: User) -> OrientationBooking:
         """Record the orientation as a billed booking and send the bill (#1111). Never a silent record."""

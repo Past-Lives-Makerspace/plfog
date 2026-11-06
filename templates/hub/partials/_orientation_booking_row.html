@@ -24,7 +24,9 @@ is_staff_view (the staff columns) and viewer_has_refund_authority (the Paid colu
     {% if b.has_open_proposal %}<span class="hub-pill hub-pill--warn" data-booking-proposal>New time asked</span>{% endif %}
     {% if row.fee_unpaid %}<span class="hub-pill hub-pill--danger" data-booking-fee>Fee unpaid</span>{% endif %}
     {% if b.is_bill %}{% if is_staff_view or b.bill_state == "cancelled" %}
-    {% if b.bill_state == "paid" %}<span class="hub-pill hub-pill--ok" data-booking-bill="paid">Paid {{ b.bill_amount_display }}</span>
+    {% if b.bill_state == "paid" and b.refund_state == "full" %}<span class="hub-pill hub-pill--neutral" data-booking-bill="refunded">Refunded {{ b.amount_paid_cents|cents_as_price }}</span>
+    {% elif b.bill_state == "paid" and b.refund_state == "partial" %}<span class="hub-pill hub-pill--warn" data-booking-bill="partial">Partially refunded {{ b.amount_paid_cents|cents_as_price }}</span>
+    {% elif b.bill_state == "paid" %}<span class="hub-pill hub-pill--ok" data-booking-bill="paid">Paid {{ b.amount_paid_cents|cents_as_price }}</span>
     {% elif b.bill_state == "cancelled" %}<span class="hub-pill hub-pill--neutral" data-booking-bill="cancelled">Bill cancelled</span>
     {% else %}<span class="hub-pill hub-pill--warn" data-booking-bill="unpaid">Unpaid {{ b.bill_amount_display }}</span>{% endif %}
     {% endif %}{% endif %}

@@ -17153,7 +17153,11 @@ class OrientationBooking(models.Model):
 
         What shows Move to Another Time; :meth:`ensure_movable` is the guard behind it.
         """
-        return self.status in (self.Status.REQUESTED, self.Status.CONFIRMED) and not self.is_completed
+        return (
+            self.status in (self.Status.REQUESTED, self.Status.CONFIRMED)
+            and not self.is_completed
+            and self.billed_at is None
+        )
 
     def ensure_movable(self) -> None:
         """Raise :class:`OrientationError` unless the guild may move this booking to another time.
@@ -17164,7 +17168,8 @@ class OrientationBooking(models.Model):
         self._refuse_checkout_hold()
         if self.status not in (self.Status.REQUESTED, self.Status.CONFIRMED):
             raise OrientationError("Only a requested or confirmed orientation can move to another time.")
-        if self.is_completed:
+        if self.is_completed or self.billed_at is not None:
+            # A bill (#1111) is an orientation that already happened, even after Undo Oriented.
             raise OrientationError("This orientation already happened, so it can't move.")
 
     def move_to(self, slot: OrientationSlot, *, oriented_by: Member | None = None) -> None:
@@ -17297,9 +17302,12 @@ class OrientationBooking(models.Model):
             raise OrientationError("This bill has nothing left to pay.")
 
     def next_bill_checkout_attempt(self) -> int:
-        """Count one more Pay click and return it, saved before any Stripe call (the idempotency key)."""
-        self.bill_checkout_attempts += 1
-        self.save(update_fields=["bill_checkout_attempts"])
+        """Count one more Pay click and return it, saved before any Stripe call (the idempotency key).
+
+        One UPDATE in the database, so two clicks at once never share an attempt (and so a key).
+        """
+        type(self).objects.filter(pk=self.pk).update(bill_checkout_attempts=F("bill_checkout_attempts") + 1)
+        self.refresh_from_db(fields=["bill_checkout_attempts"])
         return self.bill_checkout_attempts
 
     def record_bill_payment(self, *, payment_intent: str, session_id: str, amount_total: int | None) -> None:
@@ -17307,11 +17315,11 @@ class OrientationBooking(models.Model):
 
         The caller holds the row lock and has checked :attr:`bill_is_unpaid`. ``amount_total``
         is what Stripe collected; without one the billed amount stands in. ``session_id``
-        backfills a session id that never got saved.
+        is the session that paid, kept over any later session a Pay click minted.
         """
         self.amount_paid_cents = amount_total if amount_total is not None else self.bill_amount_cents
         self.stripe_payment_id = payment_intent
-        if session_id and not self.stripe_session_id:
+        if session_id:
             self.stripe_session_id = session_id
         self.paid_at = timezone.now()
         self.save(update_fields=["amount_paid_cents", "stripe_payment_id", "stripe_session_id", "paid_at"])

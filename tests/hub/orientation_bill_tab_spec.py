@@ -69,12 +69,17 @@ def _account(username: str, name: str) -> Member:
     return member
 
 
+def _runner() -> str:
+    """Who ran it, as the Oriented by select posts it: a bill requires one."""
+    return str(MemberFactory(full_legal_name="Rory Runner", status=Member.Status.ACTIVE).pk)
+
+
 def _post(type_label: str, member_label: str, **extra: str) -> dict[str, str]:
     return {
         "member": member_label,
         "orientation": type_label,
         "completed_on": timezone.localdate().isoformat(),
-        "oriented_by": "",
+        "oriented_by": extra.pop("oriented_by", None) or _runner(),
         "note": "",
         "send_bill": "on",
         "bill_amount": "40",
@@ -186,6 +191,16 @@ def describe_recording_with_a_bill():
 
 
 def describe_recording_without_a_bill():
+    def it_ignores_a_stray_amount_and_who_ran_it_when_unticked(client: Client):
+        world = _world(client)
+        data = _post(str(world["type"]), "Quincy Billee", bill_amount="abc")
+        del data["send_bill"]
+        data["oriented_by"] = ""
+        response = client.post(RECORD_URL, data)
+        assert response["Location"] == LANDING
+        assert OrientationRecord.objects.filter(member=world["target"]).exists()
+        assert not OrientationBooking.objects.exists()
+
     def it_stays_a_silent_record(client: Client):
         world = _world(client)
         mail.outbox.clear()
@@ -230,6 +245,18 @@ def describe_the_refusals():
         world = _world(client)
         assert "Enter the amount in dollars, like 40 or 12.50." in _refused(
             client, _post(str(world["type"]), "Quincy Billee", bill_amount="forty")
+        )
+
+    def it_requires_who_ran_it(client: Client):
+        world = _world(client)
+        data = _post(str(world["type"]), "Quincy Billee")
+        data["oriented_by"] = ""
+        assert "Pick who ran the orientation so they get their share." in _refused(client, data)
+
+    def it_refuses_an_amount_that_is_not_finite(client: Client):
+        world = _world(client)
+        assert "Enter the amount to bill." in _refused(
+            client, _post(str(world["type"]), "Quincy Billee", bill_amount="NaN")
         )
 
     def it_refuses_a_member_with_no_account(client: Client):
@@ -289,6 +316,8 @@ def describe_the_window():
         assert 'id="orientation-record-bill-prices"' in content
         assert "x-text=\"sendBill ? 'Record and Send Bill' : 'Record Orientation'\"" in content
         assert "data-bookings-record-bill-intro" in content
+        # Hidden while unticked, and never posted then, so it cannot block a plain record.
+        assert ':disabled="!sendBill"' in content
         assert str(world["type"]).lower() in content.lower()
 
     def it_prefills_each_price_kind(client: Client):
@@ -527,6 +556,41 @@ def describe_the_bookings_tab_row():
         content = _staff_row(client, paid_at=timezone.now(), amount_paid_cents=4000, stripe_payment_id="pi_row")
         assert 'data-booking-bill="paid">Paid $40</span>' in content
 
+    def it_prints_what_was_paid_not_what_was_billed(client: Client):
+        content = _staff_row(client, paid_at=timezone.now(), amount_paid_cents=3800, stripe_payment_id="pi_row")
+        assert 'data-booking-bill="paid">Paid $38</span>' in content
+
+    def it_says_refunded_after_a_full_refund(client: Client):
+        from billing.models import PaymentRefund
+
+        world_content = _staff_row(client, paid_at=timezone.now(), amount_paid_cents=4000, stripe_payment_id="pi_rf")
+        assert 'data-booking-bill="paid"' in world_content
+        booking = OrientationBooking.objects.get(billed_at__isnull=False)
+        PaymentRefund.objects.create(
+            orientation_booking=booking, amount_cents=4000, status=PaymentRefund.Status.SUCCEEDED
+        )
+        content = client.get(PAGE, {"view": "bookings", "show": "past"}).content.decode()
+        assert 'data-booking-bill="refunded">Refunded $40</span>' in content
+
+    def it_says_partially_refunded_after_a_partial_refund(client: Client):
+        from billing.models import PaymentRefund
+
+        _staff_row(client, paid_at=timezone.now(), amount_paid_cents=4000, stripe_payment_id="pi_rp")
+        booking = OrientationBooking.objects.get(billed_at__isnull=False)
+        PaymentRefund.objects.create(
+            orientation_booking=booking, amount_cents=1000, status=PaymentRefund.Status.SUCCEEDED
+        )
+        content = client.get(PAGE, {"view": "bookings", "show": "past"}).content.decode()
+        assert 'data-booking-bill="partial">Partially refunded $40</span>' in content
+
+    def it_offers_no_move_on_a_billed_row(client: Client):
+        content = _staff_row(client)
+        assert "data-booking-move=" not in content
+
+    def it_offers_no_move_on_a_billed_row_after_undo_oriented(client: Client):
+        content = _staff_row(client, is_completed=False)
+        assert "data-booking-move=" not in content
+
     def it_shows_staff_a_cancelled_chip(client: Client):
         content = _staff_row(client, bill_cancelled_at=timezone.now())
         assert 'data-booking-bill="cancelled">Bill cancelled</span>' in content
@@ -562,3 +626,58 @@ def describe_the_bookings_tab_row():
         content = client.get(PAGE, {"view": "bookings", "show": "past"}).content.decode()
         assert 'data-booking-bill="cancelled">Bill cancelled</span>' in content
         assert "data-booking-bill-pay" not in content
+
+
+def describe_undo_then_mark_oriented():
+    def it_stays_undone_through_the_nightly_job_and_marks_again_silently(client: Client):
+        from membership import orientations
+
+        world = _world(client)
+        booking = _bill(world["target"])
+        OrientationBooking.objects.filter(pk=booking.pk).update(
+            orientation_type=world["type"], guild=world["type"].guild
+        )
+        toggle = reverse("hub_orientation_toggle_completed", args=[booking.pk])
+        mail.outbox.clear()
+        with patch("core.events.discord.post_embed", return_value=True) as mock_post:
+            client.post(toggle, {"completed": "0"})
+            booking.refresh_from_db()
+            assert booking.is_completed is False
+            assert orientations.auto_complete() == 0
+            booking.refresh_from_db()
+            assert booking.is_completed is False
+            client.post(toggle, {"completed": "1"})
+        booking.refresh_from_db()
+        assert booking.is_completed is True
+        assert mail.outbox == []
+        assert not mock_post.called
+
+
+def describe_refunding_a_paid_bill():
+    def it_refunds_through_the_existing_orientation_refund(client: Client):
+        from billing.models import PaymentRefund
+        from membership.models import AdminCapability
+
+        world = _world(client)
+        world["lead"].admin_capabilities.create(capability=AdminCapability.Capability.REFUNDS)
+        booking = _bill(
+            world["target"], paid_at=timezone.now(), amount_paid_cents=4000, stripe_payment_id="pi_refund_bill"
+        )
+        OrientationBooking.objects.filter(pk=booking.pk).update(
+            orientation_type=world["type"], guild=world["type"].guild
+        )
+        with patch(
+            "billing.stripe_utils.create_refund",
+            return_value={"id": "re_bill_1", "status": "succeeded", "amount": 4000},
+        ) as mock_refund:
+            response = client.post(
+                reverse("billing_orientation_refund", args=[booking.pk]),
+                {"amount": "40.00", "reason": "Changed their mind"},
+            )
+        assert response.status_code == 204
+        assert mock_refund.called
+        booking.refresh_from_db()
+        assert booking.refund_state == "full"
+        refund = PaymentRefund.objects.get(orientation_booking=booking)
+        assert (refund.amount_cents, refund.status) == (4000, PaymentRefund.Status.SUCCEEDED)
+        assert world["type"].pk in world["target"].completed_orientation_type_ids([world["type"]])

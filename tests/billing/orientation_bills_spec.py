@@ -143,6 +143,14 @@ def describe_send_bill():
             starts = orientation_bills._billed_starts_at(orientation_type, date(2026, 3, 4))
             assert timezone.localtime(starts).hour == 12
 
+        def it_never_starts_before_the_day_itself():
+            orientation_type = OrientationTypeFactory(name="Night Lathe", duration_minutes=60)
+            half_past_midnight = timezone.make_aware(datetime(2026, 3, 4, 0, 30))
+            with patch("billing.orientation_bills.timezone.now", return_value=half_past_midnight):
+                starts = orientation_bills._billed_starts_at(orientation_type, date(2026, 3, 4))
+            assert starts == timezone.make_aware(datetime(2026, 3, 4, 0, 0))
+            assert timezone.localtime(starts).date() == date(2026, 3, 4)
+
         def it_ends_before_now_when_midday_has_not_come_yet_today():
             orientation_type = OrientationTypeFactory(name="Morning Lathe", duration_minutes=90)
             morning = timezone.make_aware(datetime(2026, 3, 4, 9, 0))
@@ -163,6 +171,18 @@ def describe_the_bill_model():
     def it_reads_cancelled():
         booking = _bill(bill_cancelled_at=timezone.now())
         assert (booking.bill_state, booking.bill_is_unpaid) == ("cancelled", False)
+
+    def it_refuses_to_move_a_bill_even_after_undo_oriented():
+        booking = _bill(is_completed=False)
+        assert booking.is_movable is False
+        with pytest.raises(OrientationError, match="already happened"):
+            booking.ensure_movable()
+
+    def it_counts_pay_clicks_in_the_database():
+        booking = _bill()
+        stale = OrientationBooking.objects.get(pk=booking.pk)
+        assert booking.next_bill_checkout_attempt() == 1
+        assert stale.next_bill_checkout_attempt() == 2
 
     def it_formats_the_amount():
         assert _bill(bill_amount_cents=1250).bill_amount_display == "$12.50"
@@ -248,11 +268,17 @@ def describe_mark_paid():
             "already"
         )
 
-    def it_keeps_a_session_id_already_saved():
-        booking = _bill(stripe_session_id="cs_saved")
-        orientation_bills.mark_paid(booking, payment_intent="pi_2", session_id="cs_other", amount_total=None)
+    def it_stores_the_session_that_paid():
+        booking = _bill(stripe_session_id="cs_minted_later")
+        orientation_bills.mark_paid(booking, payment_intent="pi_2", session_id="cs_that_paid", amount_total=None)
         booking.refresh_from_db()
-        assert (booking.stripe_session_id, booking.amount_paid_cents) == ("cs_saved", 4000)
+        assert (booking.stripe_session_id, booking.amount_paid_cents) == ("cs_that_paid", 4000)
+
+    def it_keeps_the_saved_session_when_stripe_names_none():
+        booking = _bill(stripe_session_id="cs_saved")
+        orientation_bills.mark_paid(booking, payment_intent="pi_2b", session_id="", amount_total=4000)
+        booking.refresh_from_db()
+        assert booking.stripe_session_id == "cs_saved"
 
     def it_logs_a_mismatch_between_stripe_and_the_bill(caplog):
         booking = _bill()
@@ -318,6 +344,29 @@ def describe_the_jobs_leave_a_bill_alone():
         assert not SiteActivity.objects.filter(
             kind=SiteActivity.Kind.ORIENTATION_COMPLETED, target_id=booking.pk
         ).exists()
+
+    def it_is_never_completed_again_after_undo_oriented():
+        booking = _bill()
+        booking.uncomplete()
+        mail.outbox.clear()
+        with patch("core.events.discord.post_embed", return_value=True) as mock_post:
+            assert orientations.auto_complete() == 0
+        booking.refresh_from_db()
+        assert booking.is_completed is False
+        assert mail.outbox == []
+        assert not mock_post.called
+
+    def it_still_completes_an_ordinary_booking():
+        from datetime import timedelta as _td
+
+        starts = timezone.now() - _td(days=1)
+        ordinary = OrientationBookingFactory(
+            slot=OrientationSlotFactory(starts_at=starts, ends_at=starts + _td(hours=1)),
+            status=OrientationBooking.Status.CONFIRMED,
+        )
+        assert orientations.auto_complete() == 1
+        ordinary.refresh_from_db()
+        assert ordinary.is_completed is True
 
     def it_is_never_swept_as_a_payment_hold():
         booking = _bill(requested_at=timezone.now() - timedelta(days=5), stripe_session_id="cs_swept")
