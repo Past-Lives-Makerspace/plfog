@@ -101,16 +101,6 @@ def describe_Meeting():
             meeting = MeetingFactory(is_special=True, special_title="Planning")
             assert meeting.pk is not None
 
-    def describe_is_past():
-        def it_is_true_for_a_meeting_dated_before_today():
-            assert MeetingFactory(scheduled_date=timezone.localdate() - timedelta(days=1)).is_past is True
-
-        def it_is_false_for_today_a_later_date_or_no_date():
-            today = timezone.localdate()
-            assert MeetingFactory(scheduled_date=today).is_past is False
-            assert MeetingFactory(scheduled_date=today + timedelta(days=1)).is_past is False
-            assert MeetingFactory(scheduled_date=None).is_past is False
-
     def describe_absolute_url():
         def it_points_at_the_workspace_route():
             meeting = MeetingFactory()

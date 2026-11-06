@@ -8,7 +8,6 @@ from django.contrib.auth.models import AnonymousUser, User
 from django.test import RequestFactory
 from django.utils import timezone
 
-from core.models import EventDelivery
 from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER, ViewAs
 from membership.models import GuildStaffMembership
 from membership.permissions import can_edit_meeting
@@ -28,10 +27,6 @@ def _user(username: str) -> User:
     return User.objects.create_user(
         username=username, email=f"{username}@example.com", password="x", last_login=timezone.now()
     )
-
-
-def _deliveries(event_key: str) -> int:
-    return EventDelivery.objects.filter(event_key=event_key, channel="in_app").count()
 
 
 def _request(user: User | AnonymousUser, *, roles: set[str] | None = None, picked: str | None = None):

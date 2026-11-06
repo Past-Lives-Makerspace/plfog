@@ -12309,11 +12309,6 @@ class Meeting(models.Model):
         return f"{self.scope_label} — {kind}"
 
     @property
-    def is_past(self) -> bool:
-        """Dated before today in local time. A past meeting opens read only (#1113)."""
-        return self.scheduled_date is not None and self.scheduled_date < timezone.localdate()
-
-    @property
     def scope_label(self) -> str:
         return self.guild.name if self.guild is not None else "Council"
 

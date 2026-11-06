@@ -190,9 +190,9 @@ def describe_workspace_get():
             assert "Add to Calendar" not in content
 
     def describe_an_old_meeting():
-        def it_opens_read_only_for_an_editor_on_the_same_page_shape(client: Client):
+        def it_opens_read_only_for_a_plain_member_on_the_same_page_shape(client: Client):
             guild = GuildFactory()
-            _lead_client(client, guild)
+            _member_client(client)
             meeting = MeetingFactory(
                 guild=guild,
                 scheduled_date=timezone.localdate() - timedelta(days=7),
@@ -206,7 +206,14 @@ def describe_workspace_get():
             assert "pl-meeting-savestate" not in content
             assert "data-autosave" not in content
             assert "Delete meeting" not in content
-            assert "Add to Calendar" not in content
+
+        def it_stays_editable_for_its_editor_so_a_wrong_date_can_be_fixed(client: Client):
+            guild = GuildFactory()
+            _lead_client(client, guild)
+            meeting = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() - timedelta(days=7))
+            content = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert '"field": "scheduled_date"' in content
+            assert "Delete meeting" in content
 
         def it_opens_approved_minutes_with_no_banner_or_old_rows(client: Client):
             guild = GuildFactory()
@@ -431,12 +438,12 @@ def describe_delete():
         assert CommunityEvent.objects.filter(pk=event.pk).exists()
         assert not Meeting.objects.exists()
 
-    def it_403s_a_past_meeting(client: Client):
+    def it_lets_an_editor_delete_a_past_dated_meeting(client: Client):
         guild = GuildFactory()
         _lead_client(client, guild)
         meeting = MeetingFactory(guild=guild, scheduled_date=timezone.localdate() - timedelta(days=1))
-        assert client.post(reverse("hub_meeting_delete", args=[meeting.pk])).status_code == 403
-        assert Meeting.objects.filter(pk=meeting.pk).exists()
+        assert client.post(reverse("hub_meeting_delete", args=[meeting.pk])).status_code == 204
+        assert not Meeting.objects.filter(pk=meeting.pk).exists()
 
     def it_403s_a_non_editor(client: Client):
         _member_client(client)
@@ -1120,18 +1127,12 @@ def describe_calendar_rails():
             )
             assert client.post(reverse("hub_meeting_event", args=[meeting.pk])).status_code == 422
 
-        def it_403s_a_plain_member_and_a_past_meeting(client: Client):
+        def it_403s_a_plain_member(client: Client):
             guild = GuildFactory()
             meeting = MeetingFactory(guild=guild, scheduled_time=time(18, 0))
             _member_client(client)
             assert client.post(reverse("hub_meeting_event", args=[meeting.pk])).status_code == 403
-            client.logout()
-            _lead_client(client, guild)
-            past = MeetingFactory(
-                guild=guild, scheduled_date=timezone.localdate() - timedelta(days=1), scheduled_time=time(18, 0)
-            )
-            assert client.post(reverse("hub_meeting_event", args=[past.pk])).status_code == 403
-            assert client.post(reverse("hub_meeting_event_unlink", args=[past.pk])).status_code == 403
+            assert client.post(reverse("hub_meeting_event_unlink", args=[meeting.pk])).status_code == 403
 
     def describe_the_link_existing_path():
         def it_links_a_scope_event_without_owning_it(client: Client):

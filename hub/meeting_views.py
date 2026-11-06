@@ -5,7 +5,8 @@ those fields one at a time (``hub_meeting_save``), carries the calendar card (cr
 and unlink the event) and Delete. The views are thin: parse the request, check the
 permission (``can_edit_meeting``), clean a whitelisted field, save, and answer 204 with
 ``HX-Trigger: meeting-saved`` (or a redirect for the confirm posts). An unlisted field is a
-400; an invalid value is a 422 with an error toast. A past meeting opens read only.
+400; an invalid value is a 422 with an error toast. Whoever can edit a meeting can always
+correct its date or delete it, whatever date it holds; everyone else sees it read only.
 
 The Meetings home lists upcoming meetings, meetings by guild and the archive.
 """
@@ -79,20 +80,6 @@ def _guard(request: HttpRequest, meeting: Meeting) -> HttpResponse | None:
     """The permission gate for every mutating route: 403, or None to proceed."""
     if not can_edit_meeting(request, meeting):
         return HttpResponse("Forbidden", status=403)
-    return None
-
-
-def _guard_current(request: HttpRequest, meeting: Meeting) -> HttpResponse | None:
-    """:func:`_guard`, and a past meeting is read only (#1113): 403 for Delete and the calendar card.
-
-    The field autosave uses :func:`_guard` alone, because the date input saves while a year
-    is typed and passes through past years (0002, 0020, 0202) on the way to 2026.
-    """
-    guard = _guard(request, meeting)
-    if guard is not None:
-        return guard
-    if meeting.is_past:
-        return HttpResponse("This meeting has already happened.", status=403)
     return None
 
 
@@ -294,8 +281,11 @@ def _linkable_events(meeting: Meeting) -> list[dict[str, Any]]:
 
 
 def _workspace_context(request: HttpRequest, meeting: Meeting) -> dict[str, Any]:
-    """The meeting page context: editable for its editors until the meeting is past (#1113)."""
-    is_editable = can_edit_meeting(request, meeting) and not meeting.is_past
+    """The meeting page context: editable for its editors whatever its date, read only for everyone else.
+
+    The server gates every write on the same ``can_edit_meeting``, so a lead who picks a past
+    date by mistake can still move it back or delete it (#1113)."""
+    is_editable = can_edit_meeting(request, meeting)
     return {
         **_get_hub_context(request),
         "meeting": meeting,
@@ -309,7 +299,7 @@ def _workspace_context(request: HttpRequest, meeting: Meeting) -> dict[str, Any]
 
 @login_required
 def hub_meeting(request: HttpRequest, pk: int) -> HttpResponse:
-    """The meeting page: editable for its editors, read only for everyone else and once past."""
+    """The meeting page: editable for its editors, read only for everyone else."""
     meeting = get_object_or_404(Meeting.objects.select_related("guild", "event"), pk=pk)
     return render(request, "hub/meeting_workspace.html", _workspace_context(request, meeting))
 
@@ -375,13 +365,13 @@ def hub_meeting_create(request: HttpRequest) -> HttpResponse:
 @login_required
 @require_POST
 def hub_meeting_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    """Delete a meeting via ``Meeting.remove`` (a past meeting is read only: 403).
+    """Delete a meeting via ``Meeting.remove``, whatever date it holds (editors only).
 
     ``remove()`` unwinds an OWNED calendar event through the existing rails and
     leaves a merely-linked one alone (§5.3); the confirm copy names each case.
     """
     meeting = get_object_or_404(Meeting.objects.select_related("guild", "event"), pk=pk)
-    guard = _guard_current(request, meeting)
+    guard = _guard(request, meeting)
     if guard is not None:
         return guard
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
@@ -528,7 +518,7 @@ def hub_meeting_event(request: HttpRequest, pk: int) -> HttpResponse:
     date for a non-recurring event). ValueErrors surface as 422 toasts (§6.3).
     """
     meeting = get_object_or_404(Meeting.objects.select_related("guild", "event"), pk=pk)
-    guard = _guard_current(request, meeting)
+    guard = _guard(request, meeting)
     if guard is not None:
         return guard
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
@@ -556,7 +546,7 @@ def hub_meeting_event(request: HttpRequest, pk: int) -> HttpResponse:
 def hub_meeting_event_unlink(request: HttpRequest, pk: int) -> HttpResponse:
     """Drop the calendar link — never deletes or edits the event (§5.3)."""
     meeting = get_object_or_404(Meeting.objects.select_related("guild", "event"), pk=pk)
-    guard = _guard_current(request, meeting)
+    guard = _guard(request, meeting)
     if guard is not None:
         return guard
     user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User

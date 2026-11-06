@@ -286,3 +286,27 @@ def describe_a_council_meeting_shaped_like_production_meeting_18():
             assert client.post(reverse("hub_meeting_delete", args=[meeting.pk])).status_code == 204
         assert not CommunityEvent.objects.filter(pk=event.pk).exists()
         assert not Meeting.objects.filter(pk=meeting.pk).exists()
+
+
+def describe_a_past_date_picked_by_mistake():
+    def it_can_be_changed_back_and_the_event_follows(client: Client):
+        guild = GuildFactory()
+        by = _lead(client, guild)
+        right_day = timezone.localdate() + timedelta(days=10)
+        meeting = MeetingFactory(guild=guild, scheduled_date=right_day, scheduled_time=time(18, 0))
+        with patch.object(CommunityEvent, "push_live"):
+            event = meeting.create_calendar_event(by=by)
+        wrong_day = timezone.localdate() - timedelta(days=30)
+        with patch.object(CommunityEvent, "push_to_google"), patch.object(CommunityEvent, "push_to_discord"):
+            assert _autosave(client, meeting, "scheduled_date", wrong_day.isoformat()).status_code == 204
+            event.refresh_from_db()
+            assert timezone.localtime(event.starts_at).date() == wrong_day
+            page = client.get(reverse("hub_meeting", args=[meeting.pk])).content.decode()
+            assert '"field": "scheduled_date"' in page  # still editable for its lead
+            assert _autosave(client, meeting, "scheduled_date", right_day.isoformat()).status_code == 204
+        event.refresh_from_db()
+        meeting.refresh_from_db()
+        assert meeting.scheduled_date == right_day
+        assert timezone.localtime(event.starts_at).date() == right_day
+        assert meeting.event_occurrence == right_day
+        assert CommunityEvent.objects.count() == 1

@@ -5,8 +5,7 @@
 {% comment %}
 The meeting page (#1113): scheduling only. Editors autosave the Special toggle and name,
 date, start, end and video link one field at a time, run the calendar card (create, link,
-unlink) and Delete; everyone else, and everyone once the meeting is past, sees the same
-shape read only. The Alpine component owns the computed title, the native date picker and
+unlink) and Delete whatever date it holds; everyone else sees the same shape read only. The Alpine component owns the computed title, the native date picker and
 the savestate pill's error contract.
 {% endcomment %}
 <div class="pl-meeting-workspace"
@@ -165,7 +164,7 @@ the savestate pill's error contract.
     {% endif %}
   </div>
 
-  {# ── Footer: Delete meeting (editors, not past) ── #}
+  {# ── Footer: Delete meeting (editors) ── #}
   {% if is_editable %}
   <div class="pl-meeting-footer">
     <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
