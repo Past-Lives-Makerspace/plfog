@@ -645,6 +645,7 @@ def biometric_disable(request: HttpRequest) -> JsonResponse:
 @staff_member_required
 def site_activity(request: HttpRequest) -> HttpResponse:
     """Staff dashboard: a site-wide event feed, an email audit log and the Email Queue (#894)."""
+    from core.email_log_filters import EmailLogFilterForm, count_line, type_choices
     from core.services.email_queue import DigestQueue, sent_digests
 
     tab = request.GET.get("tab", "feed")
@@ -662,10 +663,8 @@ def site_activity(request: HttpRequest) -> HttpResponse:
     activities = activities.select_related("actor__member").prefetch_related("target")
     feed_page = Paginator(activities, 50).get_page(request.GET.get("page"))
 
-    emails = TransactionalEmailLog.objects.all()
-    status = request.GET.get("status", "").strip()
-    if status:
-        emails = emails.filter(status=status)
+    email_filters = EmailLogFilterForm(request.GET)
+    emails = email_filters.filter(TransactionalEmailLog.objects.all())
     email_page = Paginator(emails, 50).get_page(request.GET.get("epage"))
 
     return render(
@@ -678,7 +677,9 @@ def site_activity(request: HttpRequest) -> HttpResponse:
             "kinds": SiteActivity.Kind.choices,
             "kind": kind,
             "actor_q": actor_q,
-            "status": status,
+            "email_filters": email_filters,
+            "email_types": type_choices(),
+            "email_count_line": count_line(emails),
             "digest_queue": DigestQueue.load(now),
             "sent_digests": sent_digests(now),
         },

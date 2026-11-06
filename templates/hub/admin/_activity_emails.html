@@ -1,15 +1,41 @@
-<form method="get" class="hub-card" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end;margin-bottom:1rem;">
+{# The Email Log's filters (#1112): each field a .hub-form-group, the row wrapping on a phone. #}
+<form method="get" class="hub-card pl-activity-filters">
   <input type="hidden" name="tab" value="emails">
-  <label style="display:flex;flex-direction:column;gap:0.25rem;">
-    <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--hub-text-muted);">Status</span>
-    <select name="status" style="background:rgba(255,255,255,0.04);color:var(--hub-text);border:1px solid var(--hub-border);border-radius:6px;padding:0.4rem 0.65rem;font-size:0.875rem;font-family:inherit;">
-      <option value="">All</option>
-      <option value="sent" {% if status == 'sent' %}selected{% endif %}>Sent</option>
-      <option value="failed" {% if status == 'failed' %}selected{% endif %}>Failed</option>
+  <div class="hub-form-group pl-activity-filters__field pl-activity-filters__field--wide" data-guidance-target="activity.email-search">
+    <label for="email-log-recipient">Recipient</label>
+    <input type="search" id="email-log-recipient" name="recipient" value="{{ email_filters.recipient_value }}" placeholder="name@example.com">
+  </div>
+  <div class="hub-form-group pl-activity-filters__field">
+    <label for="email-log-type">Type</label>
+    <select id="email-log-type" name="type">
+      <option value="">All types</option>
+      {% for value, label in email_types %}
+        <option value="{{ value }}" {% if value == email_filters.data.type %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
     </select>
-  </label>
-  <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Filter</button>
+  </div>
+  <div class="hub-form-group pl-activity-filters__field">
+    <label for="email-log-status">Status</label>
+    <select id="email-log-status" name="status">
+      {% for value, label in email_filters.fields.status.choices %}
+        <option value="{{ value }}" {% if value == email_filters.data.status %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="hub-form-group pl-activity-filters__field pl-activity-filters__field--date">
+    <label for="email-log-from">From</label>
+    <input type="date" id="email-log-from" name="date_from" value="{{ email_filters.data.date_from }}" class="pl-activity-filters__date"
+           @click="(() => { try { $el.showPicker() } catch (e) {} })()">
+  </div>
+  <div class="hub-form-group pl-activity-filters__field pl-activity-filters__field--date">
+    <label for="email-log-to">To</label>
+    <input type="date" id="email-log-to" name="date_to" value="{{ email_filters.data.date_to }}" class="pl-activity-filters__date"
+           @click="(() => { try { $el.showPicker() } catch (e) {} })()">
+  </div>
+  <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary pl-activity-filters__submit">Filter</button>
 </form>
+
+{% if email_count_line %}<p class="hub-text-muted pl-activity-count" data-testid="email-log-count">{{ email_count_line }}</p>{% endif %}
 
 <div class="hub-card">
   {% for e in email_page %}
@@ -24,8 +50,8 @@
     <span class="hub-badge" style="{% if e.status == 'failed' %}color:#ef4444;{% endif %}">{{ e.get_status_display }}</span>
   </div>
   {% empty %}
-  <p class="hub-text-muted">No emails logged yet.</p>
+  <p class="hub-text-muted" data-testid="email-log-empty">{{ email_filters.empty_message }}</p>
   {% endfor %}
 </div>
 
-{% include "hub/admin/_activity_pagination.html" with page=email_page param="epage" %}
+{% include "hub/admin/_activity_pagination.html" with page=email_page param="epage" tab="emails" %}

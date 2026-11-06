@@ -1,9 +1,14 @@
 """Access + rendering for the /manage/activity/ staff page."""
 
+import re
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import pytest
 from django.contrib.auth.models import User
 from django.urls import reverse
 
+from core.factories import TransactionalEmailLogFactory
 from core.models import SiteActivity, TransactionalEmailLog
 
 pytestmark = pytest.mark.django_db
@@ -103,6 +108,122 @@ def describe_manage_activity():
         )
         resp = client.get(reverse("manage_activity"), {"tab": "emails", "status": "sent"})
         assert resp.status_code == 200
+
+
+def _pacific(*args: int) -> datetime:
+    return datetime(*args, tzinfo=ZoneInfo("America/Los_Angeles"))
+
+
+def _email_log(client, **params: str) -> str:
+    return client.get(reverse("manage_activity"), {"tab": "emails", **params}).content.decode()
+
+
+def _testid(content: str, testid: str) -> str:
+    match = re.search(rf'data-testid="{testid}">([^<]*)<', content)
+    assert match, f"no {testid} in the page"
+    return match.group(1).strip()
+
+
+def describe_email_log_filters():
+    @pytest.fixture(autouse=True)
+    def staff(client):
+        user = User.objects.create_user(
+            username="elog", email="elog-staff@example.com", password="pw12345!", is_staff=True
+        )
+        client.force_login(user)
+        return user
+
+    def it_finds_a_recipient_by_any_part_of_the_address_in_any_case(client):
+        TransactionalEmailLogFactory(to_email="Zoe.Quillfeather@Example.com", subject="Quillfeather welcome")
+        TransactionalEmailLogFactory(to_email="zoe@brambleworth.org", subject="Brambleworth receipt")
+        content = _email_log(client, recipient="QUILLFEATHER@example")
+        assert "Quillfeather welcome" in content
+        assert "Brambleworth receipt" not in content
+        assert 'value="QUILLFEATHER@example"' in content
+
+    def it_filters_by_type_and_labels_the_types_in_plain_words(client):
+        TransactionalEmailLogFactory(trigger_kind="member.login_invite", subject="Sign in subject zephyr")
+        TransactionalEmailLogFactory(trigger_kind="billing.receipt", subject="Receipt subject zephyr")
+        content = _email_log(client, type="member.login_invite")
+        assert "Sign in subject zephyr" in content
+        assert "Receipt subject zephyr" not in content
+        # The registry's label for a key it knows; the raw key for one it does not.
+        assert re.search(
+            r'<option value="member.login_invite"\s+selected>Sign in to Past Lives for the first time</option>', content
+        )
+        assert re.search(r'<option value="billing.receipt"\s*>billing.receipt</option>', content)
+
+    def it_offers_suppressed_as_a_status(client):
+        TransactionalEmailLogFactory(status=TransactionalEmailLog.Status.SUPPRESSED, subject="Held back gorse")
+        TransactionalEmailLogFactory(status=TransactionalEmailLog.Status.SENT, subject="Went out gorse")
+        content = _email_log(client, status="suppressed")
+        assert re.search(r'<option value="suppressed"\s+selected>Suppressed</option>', content)
+        assert "Held back gorse" in content
+        assert "Went out gorse" not in content
+
+    def it_bounds_the_send_date_by_pacific_day_inclusive(client):
+        # 23:30 Pacific on Nov 4 is already Nov 5 in UTC: a UTC bound would let it in.
+        TransactionalEmailLogFactory(subject="Late on the fourth", sent_at=_pacific(2026, 11, 4, 23, 30))
+        TransactionalEmailLogFactory(subject="Early on the fifth", sent_at=_pacific(2026, 11, 5, 0, 10))
+        TransactionalEmailLogFactory(subject="Late on the sixth", sent_at=_pacific(2026, 11, 6, 23, 59))
+        TransactionalEmailLogFactory(subject="Early on the seventh", sent_at=_pacific(2026, 11, 7, 0, 1))
+        content = _email_log(client, date_from="2026-11-05", date_to="2026-11-06")
+        assert "Early on the fifth" in content
+        assert "Late on the sixth" in content
+        assert "Late on the fourth" not in content
+        assert "Early on the seventh" not in content
+        assert 'value="2026-11-05"' in content
+        assert 'value="2026-11-06"' in content
+
+    def it_counts_the_filtered_set_by_outcome(client):
+        for status in ("sent", "sent", "failed", "suppressed"):
+            TransactionalEmailLogFactory(to_email="counted@example.com", status=status)
+        TransactionalEmailLogFactory(to_email="elsewhere@example.com", status="sent")
+        assert _testid(_email_log(client), "email-log-count") == "5 emails: 3 sent, 1 failed, 1 suppressed"
+        content = _email_log(client, recipient="counted", status="sent")
+        assert _testid(content, "email-log-count") == "2 emails: 2 sent"
+
+    def it_keeps_every_filter_on_page_two(client):
+        for n in range(55):
+            TransactionalEmailLogFactory(to_email=f"pager{n}@example.com", status="failed", subject=f"Paged row {n}")
+        for n in range(10):
+            TransactionalEmailLogFactory(
+                to_email=f"pager-other{n}@example.com", status="sent", subject=f"Other row {n}"
+            )
+        params = {"recipient": "pager", "status": "failed", "date_from": "2000-01-01", "date_to": "2100-12-31"}
+        first = _email_log(client, **params)
+        next_href = re.search(r'href="([^"]*)">Next</a>', first).group(1).replace("&amp;", "&")
+        for pair in (
+            "tab=emails",
+            "epage=2",
+            "recipient=pager",
+            "status=failed",
+            "date_from=2000-01-01",
+            "date_to=2100-12-31",
+        ):
+            assert pair in next_href
+        second = client.get(reverse("manage_activity") + next_href).content.decode()
+        assert second.count("Paged row") == 5
+        assert "Other row" not in second
+        assert "Page 2 of 2" in second
+        previous_href = re.search(r'href="([^"]*)">Previous</a>', second).group(1).replace("&amp;", "&")
+        assert "epage=1" in previous_href and "recipient=pager" in previous_href
+
+    def it_keeps_the_feed_filters_on_the_feed_next_page(client, staff):
+        for _ in range(51):
+            SiteActivity.log(SiteActivity.Kind.LOGIN, actor=staff)
+        content = client.get(reverse("manage_activity"), {"tab": "feed", "kind": "login"}).content.decode()
+        next_href = re.search(r'href="([^"]*)">Next</a>', content).group(1).replace("&amp;", "&")
+        assert "tab=feed" in next_href and "kind=login" in next_href and "page=2" in next_href
+
+    def it_names_the_address_when_a_recipient_search_finds_nothing(client):
+        TransactionalEmailLogFactory(to_email="someone@example.com")
+        content = _email_log(client, recipient="zoe@example.com")
+        assert _testid(content, "email-log-empty") == "No emails to zoe@example.com have been logged."
+        assert 'data-testid="email-log-count"' not in content
+
+    def it_says_no_emails_logged_yet_on_an_empty_log(client):
+        assert _testid(_email_log(client), "email-log-empty") == "No emails logged yet."
 
 
 def describe_admin_tools_activity_link():
