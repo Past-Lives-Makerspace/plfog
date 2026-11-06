@@ -20,7 +20,9 @@ The legacy ``core/triggers.py`` stays present and working; nothing here replaces
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from collections.abc import Iterable
 from enum import Enum
+from typing import Protocol, TypeVar
 
 from core import triggers
 
@@ -1924,6 +1926,25 @@ def get_event(key: str) -> EventType:
     emit time rather than silently delivering nothing.
     """
     return _BY_KEY[key]
+
+
+class _HasEventKey(Protocol):
+    event_key: str
+
+
+_KeyedRow = TypeVar("_KeyedRow", bound=_HasEventKey)
+
+
+def registered_rows(rows: Iterable[_KeyedRow]) -> list[_KeyedRow]:
+    """``rows`` without those whose ``event_key`` is no longer registered, order kept.
+
+    A queued row outlives the event it was queued for when that event is retired (#1113 took
+    ``meeting.item_proposed`` out), and every reader that labels or judges a row looks its key
+    up with :func:`get_event`, which fails loudly. The readers of stored rows (the 8 AM staff
+    digest, the Email Queue tab) pass them through here first, so a retired key is skipped and
+    the rest still send and render; the row itself is left alone.
+    """
+    return [row for row in rows if row.event_key in _BY_KEY]
 
 
 def all_events() -> list[EventType]:

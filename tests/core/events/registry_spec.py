@@ -278,6 +278,18 @@ def describe_event_registry():
             ):
                 assert get_event(key).has_channel(Channel.DISCORD)
 
+        def it_keeps_only_rows_whose_event_is_still_registered_in_order():
+            from types import SimpleNamespace
+
+            from core.events.registry import registered_rows
+
+            rows = [
+                SimpleNamespace(event_key="class_review_requested"),
+                SimpleNamespace(event_key="meeting.item_proposed"),
+                SimpleNamespace(event_key="event.submitted"),
+            ]
+            assert [row.event_key for row in registered_rows(rows)] == ["class_review_requested", "event.submitted"]
+
         def it_registers_none_of_the_retired_meeting_workspace_events():
             # #1113: proposals, their decisions and minutes approvals are gone.
             for key in (

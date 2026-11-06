@@ -513,7 +513,10 @@ class DigestAdapter:
             channel=Channel.DIGEST.value, status=EventDelivery.Status.PENDING, created_at__lt=cutoff
         ).order_by("created_at")
         by_target: dict[str, list[EventDelivery]] = {}
-        kept, left_out = cls._drop_decided(list(pending))
+        from core.events.registry import registered_rows
+
+        # A row queued for a since retired event is skipped, never a KeyError (#1113).
+        kept, left_out = cls._drop_decided(registered_rows(pending))
         for row in kept:
             by_target.setdefault(row.target_ref, []).append(row)
         users = User.objects.select_related("member").in_bulk(
