@@ -201,7 +201,10 @@ def describe_a_payment_after_cancel_bill():
         _billing_approver()
         booking = _bill(stripe_session_id="cs_stale_tab")
         actor = User.objects.create_user(username="hook_canceller", email="hook_canceller@example.com")
-        with patch("billing.stripe_utils.expire_checkout_session"):
+        with (
+            patch("billing.stripe_utils.retrieve_checkout_session", return_value={"payment_status": "unpaid"}),
+            patch("billing.stripe_utils.expire_checkout_session"),
+        ):
             orientation_bills.cancel_bill(booking, actor=actor)
         mail.outbox.clear()
         webhook_handlers.handle_orientation_bill_checkout_completed(_event(booking_id=booking.pk))

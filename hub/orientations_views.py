@@ -547,6 +547,8 @@ def hub_orientation_bill_return(request: HttpRequest, token: str) -> HttpRespons
     context = _bill_context(booking)
     if booking.bill_is_unpaid:
         context["state"] = "pending"
+    # Cancelled while they were paying: say the money comes back (the webhook alerts staff to refund).
+    context["paid_after_cancel"] = orientation_bills.paid_after_cancel(booking)
     return render(request, "hub/orientation_bill.html", {**_get_hub_context(request), **context})
 
 

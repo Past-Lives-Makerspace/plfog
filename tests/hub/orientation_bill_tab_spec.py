@@ -503,6 +503,36 @@ def describe_the_return_landing():
         assert 'data-orientation-bill-state="paid"' in content
         assert not mock_retrieve.called
 
+    def it_promises_a_refund_when_a_cancelled_bill_was_paid_anyway(client: Client):
+        member = _login(client, "bill_ret_cancelled_paid")
+        booking = _bill(member, stripe_session_id="cs_ret_cx", bill_cancelled_at=timezone.now())
+        session = {"id": "cs_ret_cx", "payment_status": "paid", "payment_intent": "pi_cx", "amount_total": 4000}
+        with patch("billing.stripe_utils.retrieve_checkout_session", return_value=session):
+            content = client.get(_url(booking)).content.decode()
+        assert 'data-orientation-bill-state="cancelled"' in content
+        assert "data-orientation-bill-refund-due" in content
+        assert (
+            "If you were charged, we&#x27;ll refund it." in content
+            or "If you were charged, we'll refund it." in content
+        )
+        booking.refresh_from_db()
+        assert booking.amount_paid_cents == 0
+
+    def it_says_plain_cancelled_when_the_session_was_not_paid(client: Client):
+        member = _login(client, "bill_ret_cancelled_unpaid")
+        booking = _bill(member, stripe_session_id="cs_ret_cu", bill_cancelled_at=timezone.now())
+        with patch("billing.stripe_utils.retrieve_checkout_session", return_value={"payment_status": "unpaid"}):
+            content = client.get(_url(booking)).content.decode()
+        assert 'data-orientation-bill-state="cancelled"' in content
+        assert "data-orientation-bill-refund-due" not in content
+
+    def it_says_plain_cancelled_when_stripe_cannot_be_asked(client: Client):
+        member = _login(client, "bill_ret_cancelled_dark")
+        booking = _bill(member, stripe_session_id="cs_ret_cd", bill_cancelled_at=timezone.now())
+        with patch("billing.stripe_utils.retrieve_checkout_session", side_effect=RuntimeError("down")):
+            content = client.get(_url(booking)).content.decode()
+        assert "data-orientation-bill-refund-due" not in content
+
     def it_renders_400_for_a_bad_token(client: Client):
         _login(client, "bill_ret_bad")
         response = client.get(reverse("hub_orientation_bill_return", args=["not-a-token"]))
@@ -750,7 +780,21 @@ def describe_resend_and_cancel():
             assert [m.subject for m in mail.outbox] == ["Your bill for the Alpha Lathe orientation"]
             assert orientation_bills.bill_url(booking) in mail.outbox[0].body
             assert "Sent the $40 bill to Quincy Billee again." in _messages(response)
-            _resend(client, booking)
+
+        def it_sends_once_for_a_double_submit_and_again_a_minute_later(client: Client):
+            from datetime import datetime as dt
+
+            world = _world(client)
+            booking = _staff_bill(world)
+            first = timezone.make_aware(dt(2026, 11, 6, 10, 15, 5))
+            mail.outbox.clear()
+            with patch("billing.orientation_bills.timezone.now", return_value=first):
+                _resend(client, booking)
+            with patch("billing.orientation_bills.timezone.now", return_value=first + timedelta(seconds=40)):
+                _resend(client, booking)
+            assert len(mail.outbox) == 1
+            with patch("billing.orientation_bills.timezone.now", return_value=first + timedelta(minutes=1)):
+                _resend(client, booking)
             assert len(mail.outbox) == 2
 
         def it_logs_no_activity_row(client: Client):
@@ -782,10 +826,51 @@ def describe_resend_and_cancel():
             row = SiteActivity.objects.get(kind=SiteActivity.Kind.ORIENTATION_BILL_CANCELLED)
             assert (row.actor, row.target, row.payload["amount_cents"]) == (world["lead"].user, booking, 4000)
 
+        def it_refuses_to_cancel_a_bill_stripe_says_was_just_paid(client: Client):
+            world = _world(client)
+            booking = _staff_bill(world, stripe_session_id="cs_late_hook")
+            session = {
+                "id": "cs_late_hook",
+                "payment_status": "paid",
+                "payment_intent": "pi_late",
+                "amount_total": 4000,
+            }
+            with patch("billing.stripe_utils.retrieve_checkout_session", return_value=session):
+                response = _cancel(client, booking)
+            assert "They already paid this bill. Refund it from Payments if needed." in _messages(response)
+            booking.refresh_from_db()
+            assert (booking.bill_state, booking.stripe_payment_id) == ("paid", "pi_late")
+            assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_BILL_CANCELLED).exists()
+
+        def it_cancels_when_the_open_checkout_is_unpaid(client: Client):
+            world = _world(client)
+            booking = _staff_bill(world, stripe_session_id="cs_unpaid_tab")
+            with (
+                patch("billing.stripe_utils.retrieve_checkout_session", return_value={"payment_status": "unpaid"}),
+                patch("billing.stripe_utils.expire_checkout_session"),
+            ):
+                _cancel(client, booking)
+            booking.refresh_from_db()
+            assert booking.bill_state == "cancelled"
+
+        def it_cancels_when_stripe_cannot_be_asked(client: Client):
+            world = _world(client)
+            booking = _staff_bill(world, stripe_session_id="cs_dark")
+            with (
+                patch("billing.stripe_utils.retrieve_checkout_session", side_effect=RuntimeError("down")),
+                patch("billing.stripe_utils.expire_checkout_session"),
+            ):
+                _cancel(client, booking)
+            booking.refresh_from_db()
+            assert booking.bill_state == "cancelled"
+
         def it_expires_the_open_checkout(client: Client):
             world = _world(client)
             booking = _staff_bill(world, stripe_session_id="cs_open_tab")
-            with patch("billing.stripe_utils.expire_checkout_session") as mock_expire:
+            with (
+                patch("billing.stripe_utils.retrieve_checkout_session", return_value={"payment_status": "unpaid"}),
+                patch("billing.stripe_utils.expire_checkout_session") as mock_expire,
+            ):
                 _cancel(client, booking)
             mock_expire.assert_called_once_with(session_id="cs_open_tab")
 
@@ -870,11 +955,63 @@ def describe_resend_and_cancel():
             mail.outbox.clear()
             response = (_resend if action == "resend" else _cancel)(client, booking)
             assert response["Location"] == LANDING
-            assert "This bill has nothing left to pay." in _messages(response)
+            assert "This bill is already paid or cancelled." in _messages(response)
             booking.refresh_from_db()
             assert (booking.paid_at, booking.bill_cancelled_at, booking.bill_cancelled_by_id) == before
             assert mail.outbox == []
             assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_BILL_CANCELLED).exists()
+
+        @pytest.mark.parametrize("action", ["resend", "cancel"])
+        def it_refuses_the_manager_of_a_different_tool(client: Client, action: str):
+            staffer = _login(client, f"bill_other_tool_{action}")
+            EquipmentStaffMembershipFactory(equipment=EquipmentFactory(name=f"Other Lathe {action}"), member=staffer)
+            billed_type = OrientationTypeFactory(
+                equipment_owned=True, equipment=EquipmentFactory(name=f"Billed Lathe {action}"), name="Tool Bill"
+            )
+            booking = _bill(_account(f"bill_other_tool_target_{action}", "Tess Billee"))
+            OrientationBooking.objects.filter(pk=booking.pk).update(orientation_type=billed_type, guild=None)
+            mail.outbox.clear()
+            response = (_resend if action == "resend" else _cancel)(client, booking)
+            assert response.status_code == 403
+            booking.refresh_from_db()
+            assert booking.bill_state == "unpaid"
+            assert mail.outbox == []
+
+        @pytest.mark.parametrize("action", ["resend", "cancel"])
+        def it_refuses_an_admin_previewing_as_a_member(client: Client, action: str):
+            booking = _bill(_account(f"bill_preview_target_{action}", "Pia Billee"))
+            admin = _login(client, f"bill_preview_admin_{action}")
+            admin.fog_role = Member.FogRole.ADMIN
+            admin.save(update_fields=["fog_role"])
+            admin.sync_user_permissions()
+            session = client.session
+            session["view_as_role"] = "member"
+            session.save()
+            mail.outbox.clear()
+            response = (_resend if action == "resend" else _cancel)(client, booking)
+            assert response.status_code == 403
+            booking.refresh_from_db()
+            assert booking.bill_state == "unpaid"
+            assert mail.outbox == []
+
+        def it_lets_a_superuser_with_no_member_row_act(client: Client):
+            from django.db.models.signals import post_save
+            from factory.django import mute_signals
+
+            booking = _bill(_account("bill_root_target", "Rae Billee"))
+            with mute_signals(post_save):
+                root = User.objects.create_superuser(
+                    username="bill_root", email="bill_root@example.com", password="pass"
+                )
+            assert not Member.objects.filter(user=root).exists()
+            client.force_login(root)
+            mail.outbox.clear()
+            _resend(client, booking)
+            assert len(mail.outbox) == 1
+            _cancel(client, booking)
+            booking.refresh_from_db()
+            assert booking.bill_state == "cancelled"
+            assert booking.bill_cancelled_by == root
 
         def it_404s_a_booking_that_is_not_a_bill(client: Client):
             world = _world(client)

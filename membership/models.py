@@ -16711,10 +16711,17 @@ class OrientationBooking(models.Model):
         """The billed amount as member copy: "$40" or "$12.50"."""
         return OrientationType.dollars(self.bill_amount_cents)
 
-    def ensure_bill_payable(self) -> None:
-        """Raise :class:`OrientationError` unless this is a bill the member still owes."""
+    #: Why a bill no longer owed refuses: the member's words (Pay) and staff's (Resend, Cancel).
+    BILL_SETTLED_FOR_MEMBER: ClassVar[str] = "This bill has nothing left to pay."
+    BILL_SETTLED_FOR_STAFF: ClassVar[str] = "This bill is already paid or cancelled."
+
+    def ensure_bill_payable(self, *, for_staff: bool = False) -> None:
+        """Raise :class:`OrientationError` unless this is a bill the member still owes.
+
+        ``for_staff`` words the refusal for the orientor's Resend or Cancel, not the member's Pay.
+        """
         if not self.bill_is_unpaid:
-            raise OrientationError("This bill has nothing left to pay.")
+            raise OrientationError(self.BILL_SETTLED_FOR_STAFF if for_staff else self.BILL_SETTLED_FOR_MEMBER)
 
     def cancel_bill(self, *, by: User | None) -> None:
         """Cancel an unpaid bill (#1111 part 2): nothing is owed any more; the orientation stays.
@@ -16724,7 +16731,7 @@ class OrientationBooking(models.Model):
         Raises:
             OrientationError: When the bill is already paid or cancelled.
         """
-        self.ensure_bill_payable()
+        self.ensure_bill_payable(for_staff=True)
         self.bill_cancelled_at = timezone.now()
         self.bill_cancelled_by = by
         self.save(update_fields=["bill_cancelled_at", "bill_cancelled_by"])

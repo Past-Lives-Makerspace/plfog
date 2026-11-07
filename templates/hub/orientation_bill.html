@@ -24,13 +24,15 @@ Styles are the late fee card's (pl-late-fee-card), the same surface.
 {% include "components/page_header.html" with title="Paid. Thank You." description="Your orientation bill is paid. Nothing more to do." %}
 {% elif state == "pending" %}
 {% include "components/page_header.html" with title="Almost There" description="Stripe has not confirmed it yet, so refresh in a moment. If the payment did not go through, the Pay button opens a fresh checkout." %}
+{% elif state == "cancelled" and paid_after_cancel %}
+{% include "components/page_header.html" with title="Nothing More to Pay" description="This bill was cancelled, so nothing is owed. If you were charged, we'll refund it." %}
 {% elif state == "cancelled" %}
 {% include "components/page_header.html" with title="Nothing More to Pay" description="This bill was cancelled, so nothing is owed. You're still marked as oriented." %}
 {% else %}
 {% include "components/page_header.html" with title="Orientation Bill" description="You took this orientation and you're marked as oriented. Pay the bill online any time." %}
 {% endif %}
 <div class="pl-checkout-return">
-  <div class="hub-card pl-checkout-return__card pl-late-fee-card" data-orientation-bill-state="{{ state }}">
+  <div class="hub-card pl-checkout-return__card pl-late-fee-card" data-orientation-bill-state="{{ state }}"{% if paid_after_cancel %} data-orientation-bill-refund-due{% endif %}>
     <dl class="pl-late-fee-card__facts">
       <div class="pl-late-fee-card__fact">
         <dt class="pl-late-fee-card__label">For</dt>

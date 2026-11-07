@@ -54,7 +54,7 @@ Stripe. Context: booking_rows, bookings_next.
 {% if row.can_cancel_bill %}
 {% url 'hub_orientation_bill_cancel' b.pk as bill_cancel_url %}
 {% with amount=b.bill_amount_display %}
-{% with cancel_bill_message=name|add:" no longer owes the "|add:amount|add:" and stays oriented. Their bill page will say it was cancelled. We don't email them." %}
+{% with cancel_bill_message=name|add:" no longer owes the "|add:amount|add:". Their orientation status doesn't change, and their bill page will say it was cancelled. We don't email them." %}
 {% include "components/confirm_modal.html" with confirm_id="booking-bill-cancel-"|add:pk confirm_title="Cancel This Bill?" confirm_message=cancel_bill_message confirm_action_url=bill_cancel_url confirm_next=bookings_next confirm_button_text="Cancel Bill" %}
 {% endwith %}
 {% endwith %}
