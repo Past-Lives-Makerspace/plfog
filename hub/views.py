@@ -2186,18 +2186,11 @@ def guild_staff_class_reviewer(request: HttpRequest, pk: int, member_pk: int) ->
     return response
 
 
-def _flash_hidden_times(request: HttpRequest, guild: Guild, previous: Member | None, new_lead: Member) -> None:
-    """Tell the admin a replaced lead's orientation times are hidden now, unless they are on staff (#1129).
-
-    ``assign_lead`` deletes nothing; the nightly job retires the times if they are still off
-    staff then, so adding them as staff the same day keeps every time.
-    """
-    if previous is None or previous == new_lead or guild.is_staffed_by(previous):
-        return
-    messages.warning(
-        request,
-        f"{previous.display_name}'s orientation times are hidden. Add them as staff today to keep them.",
-    )
+def _flash_hidden_times(request: HttpRequest, guild: Guild, previous: Member | None, new_lead: Member | None) -> None:
+    """Flash :meth:`Guild.hidden_times_notice` after a lead is replaced or cleared, when it has something to say (#1129)."""
+    notice = guild.hidden_times_notice(previous, new_lead)
+    if notice:
+        messages.warning(request, notice)
 
 
 @login_required
@@ -9404,6 +9397,7 @@ def admin_member_guild_lead_clear(request: HttpRequest, pk: int, guild_pk: int) 
     guild = get_object_or_404(Guild, pk=guild_pk, guild_lead=member)
     guild.clear_lead()
     messages.success(request, f"{member.display_name} is no longer the lead of {guild.name}.")
+    _flash_hidden_times(request, guild, member, None)
     return redirect(_member_permissions_url(member))
 
 

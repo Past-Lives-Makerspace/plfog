@@ -19,6 +19,7 @@ from tests.membership.factories import (
     GuildStaffMembershipFactory,
     MemberFactory,
     MembershipPlanFactory,
+    OrientationAvailabilityFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -369,6 +370,7 @@ def describe_guild_lead_set():
         _member_user("gl_hidden_admin", fog_role=Member.FogRole.ADMIN)
         old = MemberFactory(full_legal_name="Hidden Lead")
         guild = GuildFactory(guild_lead=old)
+        OrientationAvailabilityFactory(guild=guild, orienter=old)
         client.login(username="gl_hidden_admin", password="pass")
         url = reverse("hub_guild_lead_set", args=[guild.pk])
         response = client.post(url, {"member": _member_user("gl_hidden_new").member.pk}, follow=True)
@@ -378,6 +380,17 @@ def describe_guild_lead_set():
         GuildStaffMembershipFactory(guild=guild, member=old, role=Role.ORIENTER)
         guild.assign_lead(old)  # back as lead, still on staff
         response = client.post(url, {"member": _member_user("gl_hidden_newer").member.pk}, follow=True)
+        assert not any("orientation times are hidden" in str(m) for m in response.context["messages"])
+
+    def it_says_nothing_about_times_when_the_old_lead_had_none(client: Client):
+        _member_user("gl_none_admin", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory(guild_lead=MemberFactory())
+        client.login(username="gl_none_admin", password="pass")
+        response = client.post(
+            reverse("hub_guild_lead_set", args=[guild.pk]),
+            {"member": _member_user("gl_none_new").member.pk},
+            follow=True,
+        )
         assert not any("orientation times are hidden" in str(m) for m in response.context["messages"])
 
     def it_says_nothing_about_times_when_the_same_lead_is_set_again(client: Client):

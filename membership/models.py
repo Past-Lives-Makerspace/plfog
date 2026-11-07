@@ -3965,6 +3965,30 @@ class Guild(HeroCropMixin, models.Model):
             self.drop_cubby_payee_unless_leader(previous)
         return previous
 
+    def hidden_times_notice(self, previous: Member | None, new_lead: Member | None) -> str:
+        """The line an admin reads after a lead change when the old lead's orientation times here are now hidden.
+
+        ``assign_lead`` and ``clear_lead`` delete nothing (#1129): an old lead off this guild's
+        staff stops being offered at once and the nightly job retires their times, so adding
+        them as staff the same day keeps every time. Says so only when that is news: there was
+        a previous lead, someone else (or nobody) now leads, they are not on staff, and they
+        have a recurring row, or an upcoming uncancelled time or open window, in this guild.
+        The Staff tab, the member Permissions tab and ``set_guild_lead`` all show it.
+
+        Returns:
+            The line, or "" when there is nothing to say.
+        """
+        if previous is None or previous == new_lead or self.is_staffed_by(previous):
+            return ""
+        has_times = (
+            OrientationAvailability.objects.filter(guild=self, orienter=previous).exists()
+            or OrientationSlot.objects.filter(guild=self, orienter=previous).upcoming().exists()
+            or OrientationAvailabilityBlock.objects.filter(guild=self, orienter=previous).upcoming().exists()
+        )
+        if not has_times:
+            return ""
+        return f"{previous.display_name}'s orientation times are hidden. Add them as staff today to keep them."
+
     def drop_cubby_payee_unless_leader(self, member: Member) -> None:
         """Clear Who gets paid for cubbies when it is ``member`` and they no longer lead or staff this guild (#977).
 

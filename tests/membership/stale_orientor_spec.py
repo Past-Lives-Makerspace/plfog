@@ -500,3 +500,60 @@ def describe_generation():
                 equipment_owned=True, orientation_type=tool_type, orienter=manager, weekday=weekday
             )
         assert orientations.generate_slots(equipment=equipment) == 0
+
+
+def describe_hidden_times_notice():
+    """``Guild.hidden_times_notice``: the one line an admin reads after a lead change (#1129)."""
+
+    LINE = "Gone Lead's orientation times are hidden. Add them as staff today to keep them."
+
+    def _gone_lead() -> Member:
+        return MemberFactory(full_legal_name="Gone Lead")
+
+    def it_names_a_replaced_lead_with_a_recurring_row_here():
+        gone = _gone_lead()
+        guild = _guild(gone)
+        OrientationAvailabilityFactory(guild=guild, orienter=gone)
+        new = MemberFactory()
+        guild.assign_lead(new)
+        assert guild.hidden_times_notice(gone, new) == LINE
+
+    def it_names_a_cleared_lead_with_an_upcoming_posted_time_here():
+        gone = _gone_lead()
+        guild = _guild(gone)
+        _manual_slot(guild, gone)
+        guild.clear_lead()
+        assert guild.hidden_times_notice(gone, None) == LINE
+
+    def it_names_a_lead_with_an_upcoming_open_window_here():
+        gone = _gone_lead()
+        guild = _guild(gone)
+        OrientationAvailabilityBlockFactory(guild=guild, orienter=gone, orienter_on_staff=False)
+        guild.clear_lead()
+        assert guild.hidden_times_notice(gone, None) == LINE
+
+    def it_says_nothing_for_a_lead_with_no_times_here():
+        gone = _gone_lead()
+        guild = _guild(gone)
+        elsewhere = _guild(gone)
+        OrientationAvailabilityFactory(guild=elsewhere, orienter=gone)
+        past = _manual_slot(guild, gone)
+        OrientationSlot.objects.filter(pk=past.pk).update(
+            starts_at=timezone.now() - timedelta(days=2), ends_at=timezone.now() - timedelta(days=2, hours=-1)
+        )
+        cancelled = _manual_slot(guild, gone)
+        cancelled.mark_cancelled()
+        window = OrientationAvailabilityBlockFactory(guild=guild, orienter=gone, orienter_on_staff=False)
+        window.cancel()
+        guild.clear_lead()
+        assert guild.hidden_times_notice(gone, None) == ""
+
+    def it_says_nothing_when_they_stay_on_staff_or_nothing_changed():
+        gone = _gone_lead()
+        guild = _guild(gone)
+        OrientationAvailabilityFactory(guild=guild, orienter=gone)
+        assert guild.hidden_times_notice(None, gone) == ""
+        assert guild.hidden_times_notice(gone, gone) == ""
+        _staff(guild, gone)
+        guild.assign_lead(MemberFactory())
+        assert guild.hidden_times_notice(gone, guild.guild_lead) == ""
