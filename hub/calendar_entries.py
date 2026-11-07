@@ -119,9 +119,11 @@ class CalendarEntry:
 def guild_calendar_entries(guild: Guild, fetch_from: date, fetch_to: date) -> list[CalendarEntry]:
     """Build synthetic calendar entries for a guild's published class sessions and
     upcoming orientation slots whose start date falls within ``[fetch_from, fetch_to]``."""
+    from django.db.models import Exists, OuterRef, Q
     from django.urls import reverse
 
     from classes.models import ClassOffering, ClassSession
+    from membership.models import OrientationBooking
 
     entries: list[CalendarEntry] = []
 
@@ -149,10 +151,13 @@ def guild_calendar_entries(guild: Guild, fetch_from: date, fetch_to: date) -> li
             )
         )
 
-    # A lapsed orientor's times are not offered, so they are not on the calendar either (#1129).
+    # A lapsed orientor's open times are not offered, so they are not on the calendar either
+    # (#1129); a time still holding a live request, checkout or booking stays until it is moved.
+    holds_a_seat = OrientationBooking.objects.seat_holding().filter(slot_id=OuterRef("pk"))
+    current = guild.orientation_slots.with_current_orientor().values("pk")
     slots = (
         guild.orientation_slots.upcoming()
-        .with_current_orientor()
+        .filter(Q(pk__in=current) | Exists(holds_a_seat))
         .filter(starts_at__date__gte=fetch_from, starts_at__date__lte=fetch_to)
     )
     for slot in slots:

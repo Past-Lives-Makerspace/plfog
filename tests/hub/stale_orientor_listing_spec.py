@@ -100,8 +100,20 @@ def describe_the_window_time_picker():
         _slot_marker, window_marker = _markers(lapsed_times)
         assert client.get(window_marker).status_code == 200
 
-    def it_is_not_found_once_the_orientor_is_no_longer_active(client: Client, lapsed_times):
+    def it_replaces_the_modal_body_with_one_line_once_the_orientor_is_no_longer_active(client: Client, lapsed_times):
+        # htmx drops a 4xx, which would leave the previous window's start form in the modal.
         _login(client, "stale_w2")
         _lapse(lapsed_times)
         _slot_marker, window_marker = _markers(lapsed_times)
-        assert client.get(window_marker).status_code == 404
+        response = client.get(window_marker)
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "data-window-gone" in content
+        assert "<form" not in content
+        assert reverse("hub_orientation_block_book", args=[lapsed_times["window"].pk]) not in content
+
+    def it_answers_the_same_for_a_window_that_no_longer_exists(client: Client, lapsed_times):
+        _login(client, "stale_w3")
+        response = client.get(reverse("hub_orientation_block_starts", args=[999999, lapsed_times["type"].pk]))
+        assert response.status_code == 200
+        assert "data-window-gone" in response.content.decode()

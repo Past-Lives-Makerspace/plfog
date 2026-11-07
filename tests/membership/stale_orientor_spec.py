@@ -250,6 +250,17 @@ def describe_a_member_leaving_active():
             written.save(update_fields=["status"])
         assert len(scheduled) == 1
 
+    def it_clears_the_teaching_bell_only_when_the_save_writes_the_status():
+        member = MemberFactory(teaching_applied_at=timezone.now())
+        with patch.object(Member, "clear_request_bells") as cleared:
+            member.status = Member.Status.FORMER
+            member.save(update_fields=["full_legal_name"])
+            assert cleared.call_count == 0
+            written = Member.objects.get(pk=member.pk)
+            written.status = Member.Status.FORMER
+            written.save(update_fields=["status"])
+            assert cleared.call_count == 1
+
     def it_keeps_everything_on_an_ordinary_save(django_capture_on_commit_callbacks):
         orientor = MemberFactory()
         guild = _guild(orientor)

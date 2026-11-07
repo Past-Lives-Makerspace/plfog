@@ -2,7 +2,7 @@
 Pick-a-time modal body (issue #283): the live valid start times inside one
 availability block for one orientation type. Loaded via HTMX from
 hub_orientation_block_starts. Context:
-  block            — OrientationAvailabilityBlock (uncancelled)
+  block            — OrientationAvailabilityBlock (offered), or None when it is no longer offered (#1129)
   orientation_type — the OrientationType being booked
   form             — OrientationBlockBookingForm (starts_at select carries the choices)
   has_starts       — bool, False when every interval was taken since the page rendered
@@ -10,6 +10,9 @@ hub_orientation_block_starts. Context:
   amount_form      — an OrientationAmountForm for a donation based type (#636), else None
 {% endcomment %}
 {% load classes_tags %}
+{% if block is None %}
+<p class="hub-text-muted" data-window-gone style="margin:0; font-size:0.9rem;">This time is no longer offered.</p>
+{% else %}
 <p style="margin:0 0 0.25rem; font-weight:700; color:var(--hub-text);">{{ orientation_type.name }} · {{ orientation_type.duration_minutes }} min</p>
 <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.9rem;">
   {{ block.starts_at|date:"l, F j" }} · {{ block.starts_at|time:"g:i A" }} to {{ block.ends_at|time:"g:i A" }}
@@ -39,4 +42,5 @@ hub_orientation_block_starts. Context:
 </form>
 {% else %}
 <p class="hub-text-muted" style="margin:0; font-size:0.9rem;">No times left in this window. Please pick another one.</p>
+{% endif %}
 {% endif %}

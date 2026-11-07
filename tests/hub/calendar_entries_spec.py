@@ -243,6 +243,39 @@ def describe_guild_calendar_entries():
         }
         assert shown == {shared.pk}
 
+    def it_keeps_a_replaced_orientors_time_that_holds_a_live_booking():
+        # The member still has that orientation on the calendar; only open times are hidden (#1129).
+        from hub.calendar_entries import guild_calendar_entries
+        from membership.models import OrientationBooking
+
+        old_lead = MemberFactory()
+        guild = GuildFactory(guild_lead=old_lead)
+        booked = {
+            status: OrientationSlotFactory(guild=guild, orienter=old_lead)
+            for status in (
+                OrientationBooking.Status.REQUESTED,
+                OrientationBooking.Status.PENDING_PAYMENT,
+                OrientationBooking.Status.CONFIRMED,
+            )
+        }
+        for status, slot in booked.items():
+            OrientationBookingFactory(slot=slot, status=status)
+        declined = OrientationSlotFactory(guild=guild, orienter=old_lead)
+        OrientationBookingFactory(slot=declined, status=OrientationBooking.Status.DECLINED)
+        open_slot = OrientationSlotFactory(guild=guild, orienter=old_lead)
+        guild.assign_lead(MemberFactory())
+        fetch_from, fetch_to = _window()
+
+        shown = [
+            e.pk - ORIENTATION_PK_OFFSET
+            for e in guild_calendar_entries(guild, fetch_from, fetch_to)
+            if e.source == "orientation"
+        ]
+
+        assert sorted(shown) == sorted(slot.pk for slot in booked.values())
+        assert open_slot.pk not in shown
+        assert declined.pk not in shown
+
 
 def describe_google_calendar_add_url():
     def it_builds_google_calendars_add_link_with_the_id_encoded():

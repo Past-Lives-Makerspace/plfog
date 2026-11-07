@@ -2186,6 +2186,20 @@ def guild_staff_class_reviewer(request: HttpRequest, pk: int, member_pk: int) ->
     return response
 
 
+def _flash_hidden_times(request: HttpRequest, guild: Guild, previous: Member | None, new_lead: Member) -> None:
+    """Tell the admin a replaced lead's orientation times are hidden now, unless they are on staff (#1129).
+
+    ``assign_lead`` deletes nothing; the nightly job retires the times if they are still off
+    staff then, so adding them as staff the same day keeps every time.
+    """
+    if previous is None or previous == new_lead or guild.is_staffed_by(previous):
+        return
+    messages.warning(
+        request,
+        f"{previous.display_name}'s orientation times are hidden. Add them as staff today to keep them.",
+    )
+
+
 @login_required
 @require_POST
 def guild_lead_set(request: HttpRequest, pk: int) -> HttpResponse:
@@ -2204,10 +2218,12 @@ def guild_lead_set(request: HttpRequest, pk: int) -> HttpResponse:
     form = GuildLeadForm(request.POST, member_queryset=_lead_candidates(guild))
     if form.is_valid():
         member = form.cleaned_data["member"]
+        previous = guild.guild_lead
         warnings = guild.assign_lead(member)
         messages.success(request, f"{member.display_name} is now the lead of {guild.name}.")
         for warning in warnings:
             messages.warning(request, warning)
+        _flash_hidden_times(request, guild, previous, member)
     else:
         error_list = form.non_field_errors() or next(iter(form.errors.values()))
         messages.error(request, str(error_list[0]))
@@ -2450,11 +2466,14 @@ def orientation_block_starts(request: HttpRequest, block_pk: int, type_pk: int) 
     from hub.forms import OrientationAmountForm, OrientationBlockBookingForm
     from membership.models import OrientationAvailabilityBlock, OrientationType
 
-    block = get_object_or_404(
-        # offered(): a window whose orientor no longer runs the guild's orientations is gone (#1129).
-        OrientationAvailabilityBlock.objects.offered().select_related("guild", "orienter"),
-        pk=block_pk,
+    # offered(): a window whose orientor no longer runs the guild's orientations is gone (#1129).
+    # A miss answers 200 with one line, not a 404: htmx drops a 4xx and would leave the
+    # previous window's start form in the modal, which can book into that other window.
+    block = (
+        OrientationAvailabilityBlock.objects.offered().select_related("guild", "orienter").filter(pk=block_pk).first()
     )
+    if block is None:
+        return render(request, "hub/partials/orientation_block_start_form.html", {"block": None})
     orientation_type = get_object_or_404(OrientationType.objects.active(), pk=type_pk, guild_id=block.guild_id)
     form = OrientationBlockBookingForm(block=block, orientation_type=orientation_type)
     start_choices = list(form.fields["starts_at"].widget.choices)
@@ -9373,6 +9392,7 @@ def admin_member_guild_lead_set(request: HttpRequest, pk: int) -> HttpResponse:
     messages.success(request, message)
     for warning in warnings:
         messages.warning(request, warning)
+    _flash_hidden_times(request, guild, previous, member)
     return redirect(_member_permissions_url(member))
 
 

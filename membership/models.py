@@ -2834,7 +2834,7 @@ class Member(StaffRequestMixin, models.Model):
 
             member = self
             transaction.on_commit(lambda: orientations.retire_stale_orientor_hours(member=member), robust=True)
-        if left_active and self.teaching_applied_at is not None:
+        if left_active and writes_status and self.teaching_applied_at is not None:
             # Only an active member's application waits on an admin (awaiting_teaching_decision),
             # so one who leaves ACTIVE no longer asks in the admins' bell. Only on that change:
             # an ordinary save costs no query.
