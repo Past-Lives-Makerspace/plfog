@@ -1,0 +1,15 @@
+{% comment %}
+Menu items for one New Members row (#1115), rendered inside components/row_actions.html, so it
+reads row (a core.new_members.NewMemberRow) from the table loop. See Their Emails opens the Email
+Log filtered to their address. Send or Resend Sign In Link posts at once and comes back to this
+tab with its window and switch kept and the lookup dropped; only an admin sees it, and only for
+someone who never signed in.
+{% endcomment %}
+<a href="{% url 'manage_activity' %}?tab=emails&amp;recipient={{ row.email|urlencode }}" class="pl-row-menu__item" role="menuitem" data-testid="new-member-emails" @click="closeAndRefocus()">See Their Emails</a>
+{% if not row.last_login and request.view_as.actual_is_admin %}
+<form method="post" action="{% url 'hub_admin_member_send_login_invite' row.member.pk %}" data-testid="new-member-resend">
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{% url 'manage_activity' %}{% querystring show=None nm_q=None tab='newmembers' %}">
+  <button type="submit" class="pl-row-menu__item" role="menuitem">{% if row.member.welcome_email_sent_at %}Resend{% else %}Send{% endif %} Sign In Link</button>
+</form>
+{% endif %}

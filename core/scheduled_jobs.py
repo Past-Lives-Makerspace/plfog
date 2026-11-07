@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 
 RUN_HISTORY_RETENTION_DAYS = 90
 
+# The hour (UTC) the airtable_pull cron imports members: Render's "0 10 * * *". The schedule
+# itself lives in the Render dashboard (render.yaml says the same but is not linked to the
+# service), so this is the one place the code knows it. Keep the two in step.
+AIRTABLE_PULL_UTC_HOUR = 10
+
 # How much of a failed run's error line the Webmaster alert quotes (push trims it further).
 ALERT_ERROR_LIMIT = 300
 

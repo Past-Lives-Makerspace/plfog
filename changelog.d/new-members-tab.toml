@@ -1,0 +1,18 @@
+bump = "minor"
+date = "2026-11-07"
+audience = ["admins"]
+feature = "admin.new-members"
+guidance = "shots"
+target = "activity.new-members"
+title = "See every new member from Airtable to their first sign in"
+changes = [
+  "Site Activity has a New Members tab: everyone added from Airtable lately, when they were added, whether their welcome email went out (or why not), and when they first signed in.",
+  "Each row's Actions menu opens their emails or sends them a sign in link.",
+  "Can't Find Someone? searches the portal and Airtable together and says where a person stands, such as not imported yet or not in Airtable at all.",
+]
+
+[[shots]]
+caption = "Open Site Activity and pick New Members. Choose 30, 60 or 90 days, or show only members who never signed in."
+
+[[shots]]
+caption = "Open Can't Find Someone?, search a name or email, and the answer says where they stand."

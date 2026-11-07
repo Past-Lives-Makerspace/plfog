@@ -9470,32 +9470,42 @@ def admin_user_edit(request: HttpRequest, user_pk: int) -> HttpResponse:
 @fog_admin_required
 @require_POST
 def admin_member_send_login_invite(request: HttpRequest, pk: int) -> HttpResponse:
-    """POST-only (HTMX) — email a not-signed-in member a first-time sign-in link.
+    """POST-only — email a not-signed-in member a first-time sign-in link.
 
     Calls the Phase-1 ``Member.send_login_invite`` (a distinct path from the
-    "already a member" invite guard). Returns 204 + a toast either way.
+    "already a member" invite guard). From the member's page (HTMX) it returns 204 + a
+    toast either way. A form that posts a same-host ``next`` (Site Activity's New Members
+    tab, #1115) is sent back there with the same words as a message, so its row shows
+    the stamp.
     """
     member = get_object_or_404(Member, pk=pk)
+    message, level = _send_login_invite(member)
+    if next_url := _safe_next_url(request):
+        messages.add_message(request, messages.SUCCESS if level == "success" else messages.ERROR, message)
+        return redirect(next_url)
     response = HttpResponse(status=204)
+    trigger_toast(response, message, level)
+    return response
+
+
+def _send_login_invite(member: Member) -> tuple[str, str]:
+    """Send ``member`` their sign-in link and stamp the welcome ledger when it left; (message, toast level)."""
     from core.events.channels import Channel
 
     try:
         result = member.send_login_invite()
     except ValueError as exc:
-        trigger_toast(response, str(exc), "error")
-        return response
+        return str(exc), "error"
     # "Did not raise" is not "was sent": core.email.send runs best_effort=True, so a
     # provider rejection is logged FAILED and swallowed. Reporting success there would
     # show a green toast for an email that never left, and — because this button targets
     # exactly the welcome automation's candidate set — the stamp below would drop the
     # member from that automation for good.
     if not any(channel is Channel.EMAIL for _, channel in result.delivered):
-        trigger_toast(response, f"Could not send the login invite to {member.primary_email}.", "error")
-        return response
+        return f"Could not send the login invite to {member.primary_email}.", "error"
     # Stamp the ledger so tomorrow's 6 AM run does not send the same person the same email.
     member.record_welcome_sent()
-    trigger_toast(response, f"Login invite sent to {member.primary_email}.", "success")
-    return response
+    return f"Login invite sent to {member.primary_email}.", "success"
 
 
 def _email_rows(user: User, *, owner_pk: int, set_primary: str, toggle: str, remove: str) -> list[dict[str, Any]]:

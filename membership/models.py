@@ -497,6 +497,22 @@ class MemberQuerySet(models.QuerySet):
             .select_related("user")
         )
 
+    def matching_name_or_email(self, text: str) -> MemberQuerySet:
+        """Members whose name or any address they hold contains ``text``, ignoring case.
+
+        The address side covers all three email stores (``primary_email`` explains them): the
+        Airtable address and staged aliases of an unlinked member, and the account's own and
+        allauth addresses of a linked one. The New Members lookup (#1115) reads this.
+        """
+        return self.filter(
+            Q(preferred_name__icontains=text)
+            | Q(full_legal_name__icontains=text)
+            | Q(_pre_signup_email__icontains=text)
+            | Q(emails__email__icontains=text)
+            | Q(user__email__icontains=text)
+            | Q(user__emailaddress__email__icontains=text)
+        ).distinct()
+
     def with_lease_totals(self) -> MemberQuerySet:
         active_filter = _active_lease_q(prefix="leases__")
         return self.annotate(

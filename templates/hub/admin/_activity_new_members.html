@@ -1,0 +1,98 @@
+{% load classes_tags %}
+{% comment %}
+New Members (#1115): who the Airtable pull added lately, their welcome email and first sign in.
+Two blocks, top to bottom. Can't Find Someone? is a closed disclosure (open after a search) that
+asks the portal and Airtable about one person and answers in sentences, one pill per outcome; it
+is a different question from the list, so it never sits in the list's toolbar. The list is one
+card: its header carries the count, the 30, 60 or 90 day chips (links, like the Bookings tab) and
+the Never Signed In switch (submits on change), then the house .pl-members-table with an Actions
+"..." menu per row, stacked into labelled cards on a phone.
+{% endcomment %}
+<details class="pl-disclosure pl-new-members-lookup" data-guidance-target="activity.new-members"{% if nm_filters.query %} open{% endif %}>
+  <summary class="pl-disclosure__summary">
+    <span class="pl-disclosure__text">
+      <span class="pl-disclosure__title">Can't Find Someone?</span>
+      <span class="pl-disclosure__hint">Search the portal and Airtable by name or email to see where they stand.</span>
+    </span>
+    <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+  </summary>
+  <div class="pl-disclosure__body pl-new-members-lookup__body">
+    <form method="get" class="pl-new-members-lookup__form" data-testid="new-members-lookup">
+      <input type="hidden" name="tab" value="newmembers">
+      <input type="hidden" name="nm_days" value="{{ nm_filters.days }}">
+      {% if nm_filters.never_only %}<input type="hidden" name="nm_never" value="on">{% endif %}
+      <div class="hub-form-group pl-new-members-lookup__field">
+        <label for="new-members-lookup">Name or email</label>
+        <input type="search" id="new-members-lookup" name="nm_q" value="{{ nm_filters.query }}" placeholder="name@example.com">
+      </div>
+      <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary pl-new-members-lookup__submit">Search</button>
+    </form>
+    {% if nm_lookup is not None %}
+    <ul class="pl-new-members-answer" data-testid="new-members-lookup-result" aria-label="What the search found">
+      {% for line in nm_lookup %}
+      <li class="pl-new-members-answer__line">
+        <span class="hub-pill hub-pill--{{ line.tone }} pl-new-members-answer__pill">{{ line.label }}</span>
+        <span class="pl-new-members-answer__text">{{ line.text }}{% if line.url %} <a href="{{ line.url }}">{{ line.link_text }}</a>{% endif %}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+</details>
+
+<section class="hub-card pl-new-members" aria-label="New members">
+  <div class="pl-new-members__header">
+    {% if new_members_count_line %}<p class="pl-new-members__count" data-testid="new-members-count">{{ new_members_count_line }}</p>{% endif %}
+    <div class="pl-new-members__controls">
+      <div class="pl-new-members__window" role="group" aria-labelledby="new-members-window">
+        <span class="pl-new-members__label" id="new-members-window">Added in the last</span>
+        <div class="pl-equip-chips pl-new-members__chips">
+          {% for value, label in nm_filters.fields.nm_days.choices %}
+          <a href="{% url 'manage_activity' %}{% querystring nm_days=value show=None nm_q=None tab='newmembers' %}" class="pl-equip-chip{% if value == nm_filters.days %} pl-equip-chip--active{% endif %}" data-new-members-days="{{ value }}"{% if value == nm_filters.days %} aria-current="true"{% endif %}>{{ label }}</a>
+          {% endfor %}
+        </div>
+      </div>
+      {# The switch filters the moment it changes; the window rides along and the lookup is dropped. #}
+      <form method="get" class="pl-new-members__never" data-testid="new-members-filters" @change="$el.requestSubmit()">
+        <input type="hidden" name="tab" value="newmembers">
+        <input type="hidden" name="nm_days" value="{{ nm_filters.days }}">
+        {% include "components/toggle.html" with field=nm_filters.nm_never toggle_label="Never signed in only" %}
+      </form>
+    </div>
+  </div>
+
+  {% if new_members %}
+  <div class="pl-new-members__table-wrap">
+    <table class="pl-members-table pl-new-members-table">
+      <thead>
+        <tr>
+          <th scope="col">Member</th>
+          <th scope="col">Added</th>
+          <th scope="col">Welcome Email</th>
+          <th scope="col">Signed In</th>
+          <th scope="col" class="pl-new-members-table__actions">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in new_members %}
+        {% concat "Actions for " row.member.display_name as nm_menu_label %}
+        <tr data-testid="new-member-row" data-member="{{ row.member.pk }}">
+          <td class="pl-new-members-table__member">
+            <span class="pl-new-members-table__name">{{ row.member.display_name }}</span>
+            {% if row.email %}<span class="pl-new-members-table__email">{{ row.email }}</span>{% endif %}
+          </td>
+          <td data-label="Added" data-fact="added">{{ row.member.created_at|date:"M j, Y" }}</td>
+          <td data-label="Welcome Email"><span class="hub-pill hub-pill--{{ row.welcome.tone }} pl-new-members-table__welcome" data-fact="welcome" data-state="{{ row.welcome.state }}">{{ row.welcome.text }}</span></td>
+          <td data-label="Signed In" data-fact="signed-in">{% if row.last_login %}{{ row.last_login|date:"M j, Y" }}{% else %}Never{% endif %}</td>
+          <td class="pl-new-members-table__actions">
+            {% if row.email %}{% include "components/row_actions.html" with menu_include="hub/admin/_activity_new_members_menu.html" menu_label=nm_menu_label %}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="hub-text-muted pl-new-members__empty"><span data-testid="new-members-empty">{{ new_members_empty }}</span>{% if nm_filters.never_only %} <a href="{% url 'manage_activity' %}{% querystring nm_never=None show=None nm_q=None tab='newmembers' %}">Clear filters</a>{% endif %}</p>
+  {% endif %}
+</section>

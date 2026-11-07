@@ -1646,6 +1646,49 @@ def describe_admin_member_send_login_invite():
         assert member.welcome_email_sent_at is None
         assert Member.objects.awaiting_welcome_email().filter(pk=member.pk).exists()
 
+    def it_returns_to_a_same_host_next_with_the_message_when_one_is_posted(client, mailoutbox):
+        # Site Activity's New Members tab (#1115) posts a plain form with next, so the admin lands
+        # back on the tab with the row's stamp showing.
+        from django.contrib.messages import get_messages
+
+        from tests.membership.factories import MemberFactory
+
+        _create_superuser(client)
+        member = MemberFactory(_pre_signup_email="fromthetab@example.com")
+        back = reverse("manage_activity") + "?tab=newmembers&nm_days=60"
+        response = client.post(reverse("hub_admin_member_send_login_invite", args=[member.pk]), {"next": back})
+        assert response.status_code == 302
+        assert response["Location"] == back
+        assert [str(m) for m in get_messages(response.wsgi_request)] == ["Login invite sent to fromthetab@example.com."]
+        member.refresh_from_db()
+        assert member.welcome_email_sent_at is not None
+
+    def it_carries_a_refusal_back_to_next_as_an_error(client, mailoutbox):
+        from django.contrib import messages as django_messages
+        from django.contrib.messages import get_messages
+
+        from tests.membership.factories import MemberFactory
+
+        _create_superuser(client)
+        member = MemberFactory(_pre_signup_email="")
+        back = reverse("manage_activity") + "?tab=newmembers"
+        response = client.post(reverse("hub_admin_member_send_login_invite", args=[member.pk]), {"next": back})
+        assert response["Location"] == back
+        (message,) = get_messages(response.wsgi_request)
+        assert message.level == django_messages.ERROR
+        assert "no email on file" in str(message)
+
+    def it_ignores_an_off_site_next_and_answers_with_a_toast(client, mailoutbox):
+        from tests.membership.factories import MemberFactory
+
+        _create_superuser(client)
+        member = MemberFactory(_pre_signup_email="offsite@example.com")
+        response = client.post(
+            reverse("hub_admin_member_send_login_invite", args=[member.pk]), {"next": "https://evil.example.com/"}
+        )
+        assert response.status_code == 204
+        assert "Login invite sent" in response["HX-Trigger"]
+
 
 def describe_admin_user_edit():
     def it_requires_login(client):

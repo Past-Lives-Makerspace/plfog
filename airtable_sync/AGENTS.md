@@ -18,7 +18,7 @@ Bidirectional Airtable sync. Pulls Member/Space/Lease records INTO Django; pushe
 
 ## Client (airtable_sync/client.py)
 
-Thin HTTP wrapper around Airtable REST API. `AirtableClient` with methods: `get()`, `list()`, `create()`, `update()`, `delete()`. Config from `airtable_sync/config.py`.
+Thin wrapper around pyairtable: `get_api()` and `get_table(table_id)`, configured from settings. Both take `timeout` (connect, read seconds) and `retry`; the nightly pull keeps pyairtable's defaults (no timeout, retries), while a page an admin waits on passes a short timeout and no retries (the New Members lookup, `core/new_members.py`, #1115). Field mappings are in `airtable_sync/config.py`.
 
 ## Management Commands
 
