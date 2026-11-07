@@ -12,7 +12,8 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
-from typing import TYPE_CHECKING, Any, cast
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import icalendar
 from django.conf import settings
@@ -51,8 +52,8 @@ logger = logging.getLogger(__name__)
 _ACTION_SALT = "orientation-action"
 _ACTION_MAX_AGE = 90 * 24 * 3600  # 90 days — long enough to schedule, bounded for safety
 _ACTIONS = frozenset({"confirm", "decline", "cancel", "accept_time", "keep_time"})
-#: Marks a link minted for the one person whose email carries it (#1127). Links minted before
-#: carry no marker: a shared slot's went out to many people stamped with the guild lead.
+#: Marks a link minted for the one person whose email carries it (#1127): a guild request's
+#: per person send. Every other link carries no marker (see :func:`read_action_addressed`).
 _ADDRESSED_VERSION = 2
 #: The member's answers to a proposed new time (#853). Their links carry the proposal they answer.
 PROPOSAL_ACTIONS = frozenset({"accept_time", "keep_time"})
@@ -70,7 +71,12 @@ def _absolute_url(path: str) -> str:
 
 
 def make_action_token(
-    booking: OrientationBooking, action: str, *, recipient: Member | None = None, proposal: str = ""
+    booking: OrientationBooking,
+    action: str,
+    *,
+    recipient: Member | None = None,
+    proposal: str = "",
+    addressed: bool = False,
 ) -> str:
     """Sign a no-login token authorizing one ``action`` on one ``booking`` (for email links).
 
@@ -78,10 +84,14 @@ def make_action_token(
     decline/cancel can credit the person who clicked it (refund attribution).
     ``proposal`` stamps an Accept or Keep link with the proposal it answers
     (:attr:`OrientationBooking.proposal_key`), so a replaced proposal's links go stale.
+    ``addressed`` marks a link minted for the one person whose email carries it
+    (:func:`read_action_addressed`); only a request's per person send sets it.
     """
-    payload: dict[str, Any] = {"booking": booking.pk, "action": action, "v": _ADDRESSED_VERSION}
+    payload: dict[str, Any] = {"booking": booking.pk, "action": action}
     if recipient is not None:
         payload["recipient"] = recipient.pk
+        if addressed:
+            payload["v"] = _ADDRESSED_VERSION
     if proposal:
         payload["proposal"] = proposal
     return signing.dumps(payload, salt=_ACTION_SALT)
@@ -120,10 +130,10 @@ def read_action_proposal(token: str) -> str:
 def read_action_addressed(token: str) -> bool:
     """Whether a link was minted for the person it names, so whoever clicks it is that person (#1127).
 
-    True for a link with a recipient minted since #1127, which mints each request email's
-    links for its one reader. A link from before carries no marker (a shared slot's request
-    went to many people stamped with the guild lead), so its recipient says nothing about
-    who clicked. Read after :func:`read_action_token` has vetted the token, so it only decodes.
+    True only for a link minted for its one reader: a guild request's per person send
+    (#1127). Any other link carries no marker: one from before #1127 (a shared slot's request
+    went to many people stamped with the guild lead), or an equipment request's one send to
+    every manager naming the slot's manager. Its recipient says nothing about who clicked. Read after :func:`read_action_token` has vetted the token, so it only decodes.
     """
     data = signing.loads(token, salt=_ACTION_SALT, max_age=_ACTION_MAX_AGE)
     return "recipient" in data and data.get("v") == _ADDRESSED_VERSION
@@ -177,12 +187,17 @@ def apply_token_action(
 
 
 def _action_url(
-    booking: OrientationBooking, action: str, *, recipient: Member | None = None, proposal: str = ""
+    booking: OrientationBooking,
+    action: str,
+    *,
+    recipient: Member | None = None,
+    proposal: str = "",
+    addressed: bool = False,
 ) -> str:
     return _absolute_url(
         reverse(
             "hub_orientation_action",
-            args=[make_action_token(booking, action, recipient=recipient, proposal=proposal)],
+            args=[make_action_token(booking, action, recipient=recipient, proposal=proposal, addressed=addressed)],
         )
     )
 
@@ -1064,8 +1079,10 @@ def request_resolver_context(booking: OrientationBooking) -> dict[str, Any]:
     return {"guild": booking.guild, "slot": booking.slot}
 
 
-#: ``confirm_orientation``'s default: whoever ran it also confirmed it.
-_SAME_AS_RUNNER = object()
+class _Confirmer(Enum):
+    """``confirm_orientation``'s ``confirmed_by`` default: whoever ran it also confirmed it."""
+
+    SAME_AS_RUNNER = "same_as_runner"
 
 
 def _emit_lead_request(booking: OrientationBooking) -> None:
@@ -1081,8 +1098,9 @@ def _emit_lead_request(booking: OrientationBooking) -> None:
     minted for its reader (#1127): an email-link confirm credits, and names to the guild
     lead, the Orientor who clicked, and an email-link decline credits them with a paid
     booking's refund. Every send shares one period, which the delivery ledger keys per
-    person, so a re-run still sends nobody anything twice; only the first logs the event's
-    activity row. Equipment keeps one send whose links carry the slot's manager, or nobody.
+    person, so a re-run still sends nobody anything twice. No send logs the event's own
+    activity row: the caller logs the request's row, with its member and booking. Equipment
+    keeps one send to every manager whose links name the slot's manager, or nobody, unaddressed.
     """
     from core.events.resolvers import guild_orienters_or_equipment_managers
     from membership.models import Member
@@ -1091,16 +1109,12 @@ def _emit_lead_request(booking: OrientationBooking) -> None:
         # Managers confirm explicitly, so a shared slot's email-link decline is unattributed;
         # make_action_token accepts recipient=None.
         responder = booking.slot.orienter if booking.slot.orienter_id is not None else None
-        _send_request(booking, responder=responder, recipient_user_ids=None, log_activity=True)
+        _send_request(booking, responder=responder, recipient_user_ids=None, addressed=False)
         return
     user_ids = [user.pk for user, _reason in guild_orienters_or_equipment_managers(request_resolver_context(booking))]
-    if not user_ids:
-        # Nobody to tell; the send still logs the event's activity row, as it always did.
-        _send_request(booking, responder=None, recipient_user_ids=None, log_activity=True)
-        return
     members = {member.user_id: member for member in Member.objects.filter(user_id__in=user_ids)}
-    for index, user_id in enumerate(user_ids):
-        _send_request(booking, responder=members[user_id], recipient_user_ids={user_id}, log_activity=index == 0)
+    for user_id in user_ids:
+        _send_request(booking, responder=members[user_id], recipient_user_ids={user_id}, addressed=True)
 
 
 def _send_request(
@@ -1108,16 +1122,20 @@ def _send_request(
     *,
     responder: Member | None,
     recipient_user_ids: set[int] | None,
-    log_activity: bool,
+    addressed: bool,
 ) -> None:
-    """One request send: the email and bell, its Confirm and Decline links minted for ``responder``."""
+    """One request send: the email and bell, its Confirm and Decline links naming ``responder``.
+
+    ``addressed`` marks the links as minted for their one reader. No activity row: the
+    caller (:func:`_fan_out_request`) logs the request's own row with its member and booking.
+    """
     ctx = _context(
         booking,
         # The member's newest message: the request's note, shown as the email's Note line.
         member_message=booking.latest_message(from_staff=False),
         respond_url=_absolute_url(reverse("hub_orientation_respond", args=[booking.pk])),
-        confirm_url=_action_url(booking, "confirm", recipient=responder),
-        decline_url=_action_url(booking, "decline", recipient=responder),
+        confirm_url=_action_url(booking, "confirm", recipient=responder, addressed=addressed),
+        decline_url=_action_url(booking, "decline", recipient=responder, addressed=addressed),
     )
     emit_with_email_shell(
         "orientation_requested",
@@ -1131,7 +1149,7 @@ def _send_request(
         url=reverse("hub_orientation_respond", args=[booking.pk]),
         period=f"booking:{booking.pk}:request",
         recipient_user_ids=recipient_user_ids,
-        log_activity=log_activity,
+        log_activity=False,
     )
 
 
@@ -1139,7 +1157,7 @@ def confirm_orientation(
     booking: OrientationBooking,
     *,
     oriented_by: Member | None = None,
-    confirmed_by: Member | None | object = _SAME_AS_RUNNER,
+    confirmed_by: Member | None | Literal[_Confirmer.SAME_AS_RUNNER] = _Confirmer.SAME_AS_RUNNER,
 ) -> None:
     """Confirm a request: update state, email the member a CONFIRMED invite, log + notify.
 
@@ -1165,7 +1183,7 @@ def confirm_orientation(
         in_app_title="Orientation confirmed",
         in_app_body=f"Your orientation for {booking.orientation_type.owner_name} is confirmed.",
     )
-    confirmer = oriented_by if confirmed_by is _SAME_AS_RUNNER else cast("Member | None", confirmed_by)
+    confirmer = oriented_by if confirmed_by is _Confirmer.SAME_AS_RUNNER else confirmed_by
     _tell_lead_of_confirmation(booking, confirmer=confirmer)
 
 

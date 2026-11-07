@@ -228,8 +228,19 @@ def describe_email_link_confirmations():
         for orientor in orientors:
             assert len([m for m in mail.outbox if m.to == [orientor.primary_email]]) == 1
             assert Notification.objects.filter(user=orientor.user, trigger="orientation_requested").count() == 1
-        # One untargeted row per send, as before the links were minted per person.
-        assert SiteActivity.objects.filter(kind="orientation_requested", target_id=None).count() == 2
+        # The sends log no row of their own: the request's targeted row is the caller's.
+        assert not SiteActivity.objects.filter(kind="orientation_requested").exists()
+
+    def it_logs_one_targeted_activity_row_per_request():
+        from core.models import SiteActivity
+
+        guild, _lead, _orientors = _guild("t2c", orientors=2)
+        slot = OrientationSlotFactory(guild=guild, enabled_settings=False)
+
+        booking = orientations.request_orientation(slot, _member("t2c_req"))
+
+        rows = SiteActivity.objects.filter(kind="orientation_requested")
+        assert list(rows.values_list("target_id", flat=True)) == [booking.pk]
 
     def it_sends_the_lead_nothing_when_the_lead_alone_got_the_request_and_clicked():
         guild, lead, _none = _guild("t3", orientors=0)
@@ -567,17 +578,43 @@ def describe_old_email_links():
         assert "Confirmed by: Someone" in emails[0].body
         assert len(bells) == 1
 
-    def it_marks_a_new_link_as_addressed():
+    def it_marks_only_a_link_minted_for_its_reader_as_addressed():
         guild, lead, [orientor] = _guild("ol3")
         booking = _booking(guild, "ol3")
-        token = orientations.make_action_token(booking, "confirm", recipient=orientor)
-        assert orientations.read_action_addressed(token) is True
+        addressed = orientations.make_action_token(booking, "confirm", recipient=orientor, addressed=True)
+        named_only = orientations.make_action_token(booking, "confirm", recipient=orientor)
+        assert orientations.read_action_addressed(addressed) is True
+        assert orientations.read_action_addressed(named_only) is False
         assert orientations.read_action_addressed(orientations.make_action_token(booking, "confirm")) is False
+
+    def it_leaves_an_equipment_request_link_unaddressed():
+        # One equipment email goes to every manager, its links naming the slot's manager: whoever
+        # clicks may be another manager, so the link must not claim to know.
+        from membership.models import EquipmentStaffMembership
+
+        equipment = EquipmentFactory()
+        manager = _member("ol5_manager", "Mo Manager")
+        other = _member("ol5_other")
+        for person in (manager, other):
+            EquipmentStaffMembership.objects.create(equipment=equipment, member=person)
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment)
+        booking = OrientationBookingFactory(
+            slot=OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type, orienter=manager),
+            member=_member("ol5_member"),
+        )
+        mail.outbox.clear()
+
+        orientations._emit_lead_request(booking)
+
+        email = next(m for m in mail.outbox if m.subject.startswith("New orientation request"))
+        token = _token(email, "confirm")
+        assert orientations.read_action_token(token)[2] == manager
+        assert orientations.read_action_addressed(token) is False
 
     def it_confirms_through_the_action_page_and_names_the_orientor(client: Client):
         guild, lead, [orientor] = _guild("ol4")
         booking = _booking(guild, "ol4")
-        token = orientations.make_action_token(booking, "confirm", recipient=orientor)
+        token = orientations.make_action_token(booking, "confirm", recipient=orientor, addressed=True)
 
         response = client.post(reverse("hub_orientation_action", args=[token]))
 
