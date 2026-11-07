@@ -263,6 +263,48 @@ def describe_payment_intent_calls():
         mock_get_client.return_value = client
         assert stripe_utils.retrieve_payment_intent(payment_intent_id="pi_1")["capture_before"] is None
 
+    @pytest.mark.parametrize(
+        "charge",
+        [
+            "ch_unexpanded",
+            stripe.Charge.construct_from({"id": "ch_1", "object": "charge"}, "sk"),
+        ],
+    )
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_reads_no_deadline_from_a_charge_missing_its_fields(mock_get_client, charge):
+        client = _mock_client()
+        client.v1.payment_intents.retrieve.return_value = stripe.PaymentIntent.construct_from(
+            {
+                "id": "pi_1",
+                "object": "payment_intent",
+                "status": "requires_capture",
+                "amount": 1500,
+                "amount_capturable": 1500,
+                "amount_received": 0,
+                "latest_charge": charge,
+            },
+            "sk",
+        )
+        mock_get_client.return_value = client
+        assert stripe_utils.retrieve_payment_intent(payment_intent_id="pi_1")["capture_before"] is None
+
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_reads_no_deadline_from_an_intent_sent_without_a_charge(mock_get_client):
+        client = _mock_client()
+        client.v1.payment_intents.retrieve.return_value = stripe.PaymentIntent.construct_from(
+            {
+                "id": "pi_1",
+                "object": "payment_intent",
+                "status": "requires_capture",
+                "amount": 1500,
+                "amount_capturable": 1500,
+                "amount_received": 0,
+            },
+            "sk",
+        )
+        mock_get_client.return_value = client
+        assert stripe_utils.retrieve_payment_intent(payment_intent_id="pi_1")["capture_before"] is None
+
     @patch("billing.stripe_utils._get_stripe_client")
     def it_captures_a_hold_with_no_idempotency_key(mock_get_client):
         client = _mock_client()

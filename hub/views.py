@@ -3354,7 +3354,7 @@ def orientation_toggle_completed(request: HttpRequest, booking_pk: int) -> HttpR
     flipping one means two staff clicking Mark Oriented at once both get what they asked for;
     anything else is a 400. Lands on ``next`` when it is a local path, else the Bookings tab.
     """
-    from membership.models import OrientationBooking
+    from membership.models import OrientationBooking, OrientationError
 
     booking = get_object_or_404(
         OrientationBooking.objects.select_related("guild", "member", "orientation_type__equipment"), pk=booking_pk
@@ -3371,8 +3371,13 @@ def orientation_toggle_completed(request: HttpRequest, booking_pk: int) -> HttpR
         # and the sweep would release it, orienting the member for free. A bill is confirmed.
         messages.error(request, "Only a confirmed orientation can be marked oriented. Confirm it first.")
     elif completed and not booking.is_completed:
-        booking.mark_completed()
-        messages.success(request, f"Marked {booking.member.display_name} as oriented.")
+        try:
+            booking.mark_completed()
+        except OrientationError as exc:
+            # A confirmed booking still holding an uncharged card (#1128, a deploy rollover race).
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, f"Marked {booking.member.display_name} as oriented.")
     elif not completed and booking.is_completed:
         booking.uncomplete()
         messages.success(request, f"{booking.member.display_name} is no longer marked oriented.")

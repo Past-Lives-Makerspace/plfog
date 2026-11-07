@@ -337,3 +337,14 @@ def describe_marking_oriented():
         client.post(reverse("hub_orientation_toggle_completed", args=[booking.pk]), {"completed": "1"})
         booking.refresh_from_db()
         assert booking.is_completed
+
+    def it_shows_a_message_instead_of_a_500_for_a_confirmed_booking_still_holding_a_card(client: Client):
+        _login(client, "hv_mark_race", admin=True)
+        booking = _held(status=Status.CONFIRMED, confirmed_at=timezone.now())
+        response = client.post(
+            reverse("hub_orientation_toggle_completed", args=[booking.pk]), {"completed": "1"}, follow=True
+        )
+        assert response.status_code == 200
+        assert any("still holds the member's card" in m for m in _messages(response))
+        booking.refresh_from_db()
+        assert not booking.is_completed

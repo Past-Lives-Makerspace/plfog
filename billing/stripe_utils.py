@@ -417,11 +417,13 @@ def _expandable_id(value: Any) -> str:
 
 def _capture_before(intent: stripe.PaymentIntent) -> int | None:
     """Stripe's deadline to charge a card hold (unix seconds), when the expanded latest charge carries one."""
-    charge = intent.latest_charge
-    if not isinstance(charge, stripe.Charge) or charge.payment_method_details is None:
+    # A Stripe object raises on a field it was not sent, so every step reads with a default; a
+    # charge on any other method has no card, and an unexpanded charge is only its id.
+    charge = getattr(intent, "latest_charge", None)
+    if not isinstance(charge, stripe.Charge):
         return None
-    # A Stripe object raises on a field it was not sent, and a charge on any other method has no card.
-    card = getattr(charge.payment_method_details, "card", None)
+    details = getattr(charge, "payment_method_details", None)
+    card = getattr(details, "card", None) if details is not None else None
     return getattr(card, "capture_before", None) if card is not None else None
 
 

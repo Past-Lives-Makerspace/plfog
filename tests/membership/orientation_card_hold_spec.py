@@ -750,11 +750,53 @@ def describe_stripes_capture_deadline():
             assert orientations.release_unconfirmed_holds(now=timezone.now() + timedelta(days=3)) == (0, 0)
             assert orientations.release_unconfirmed_holds(now=timezone.now() + timedelta(days=4, hours=1)) == (1, 0)
 
+    def _finalized_with_deadline(deadline):
+        hold = OrientationBookingFactory(slot=_slot(), status=Status.PENDING_PAYMENT, stripe_session_id="cs_hold")
+        orientations.finalize_paid_booking(
+            hold, payment_intent="pi_hold", amount_total=1500, held=True, capture_before=deadline
+        )
+        hold.refresh_from_db()
+        return hold
+
+    def it_gives_a_deadline_under_a_day_away_until_an_hour_before_it():
+        deadline = timezone.now() + timedelta(hours=12)
+        hold = _finalized_with_deadline(deadline)
+        assert hold.hold_release_by == deadline - OrientationBooking.HOLD_LAST_CALL
+        with patch(CANCEL, return_value=intent("canceled")) as cancel:
+            assert orientations.release_unconfirmed_holds() == (0, 0)  # the next sweep leaves the just-paid request
+        cancel.assert_not_called()
+
+    def it_never_sets_the_decline_before_now():
+        before = timezone.now()
+        hold = _finalized_with_deadline(before + timedelta(minutes=30))
+        assert before <= hold.hold_release_by <= timezone.now()
+
     def it_falls_back_to_six_days_without_a_stripe_deadline():
         hold = OrientationBookingFactory(slot=_slot(), status=Status.PENDING_PAYMENT, stripe_session_id="cs_hold")
         orientations.finalize_paid_booking(hold, payment_intent="pi_hold", amount_total=1500, held=True)
         hold.refresh_from_db()
         assert hold.hold_release_by == hold.authorized_at + OrientationBooking.HOLD_CONFIRM_WINDOW
+
+
+def describe_a_confirmed_booking_still_holding_a_card():
+    """Only a confirm racing the deploy leaves one; nothing must crash on it."""
+
+    def it_is_skipped_by_auto_complete_without_stalling_the_rest():
+        past = timezone.now() - timedelta(days=1)
+        stuck = _held(
+            status=Status.CONFIRMED,
+            confirmed_at=past,
+            slot=OrientationSlotFactory(starts_at=past - timedelta(hours=1), ends_at=past),
+        )
+        done = OrientationBookingFactory(
+            status=Status.CONFIRMED,
+            confirmed_at=past,
+            slot=OrientationSlotFactory(starts_at=past - timedelta(hours=1), ends_at=past),
+        )
+        assert orientations.auto_complete() == 1
+        stuck.refresh_from_db()
+        done.refresh_from_db()
+        assert (stuck.is_completed, done.is_completed) == (False, True)
 
 
 def describe_finance_readers_ignore_uncharged_holds():

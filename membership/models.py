@@ -16906,6 +16906,9 @@ class OrientationBooking(models.Model):
     #: How long before Stripe's capture deadline (a card's ``capture_before``) the request is declined.
     #: Some cards allow less than 7 days, so the card's own deadline wins when Stripe gives one.
     HOLD_RELEASE_MARGIN: ClassVar[timedelta] = timedelta(days=1)
+    #: The last call when the card's deadline is under a day away: the request is declined this long
+    #: before it instead, so a just-paid request is never declined by the next sweep for a day it never had.
+    HOLD_LAST_CALL: ClassVar[timedelta] = timedelta(hours=1)
 
     @property
     def hold_is_open(self) -> bool:
@@ -16933,15 +16936,20 @@ class OrientationBooking(models.Model):
 
         ``capture_before`` is Stripe's deadline to charge this card's hold, when Stripe gives one:
         the request is declined :attr:`HOLD_RELEASE_MARGIN` before it, else
-        :attr:`HOLD_CONFIRM_WINDOW` after the hold was placed.
+        :attr:`HOLD_CONFIRM_WINDOW` after the hold was placed. A deadline under a day away
+        moves the decline to :attr:`HOLD_LAST_CALL` before it (never before now), so the
+        Orientors keep what time the card allows.
         """
         now = timezone.now()
         self.stripe_payment_id = payment_intent
         self.authorized_cents = amount_cents
         self.authorized_at = now
-        self.hold_release_by = (
-            capture_before - self.HOLD_RELEASE_MARGIN if capture_before is not None else now + self.HOLD_CONFIRM_WINDOW
-        )
+        if capture_before is None:
+            self.hold_release_by = now + self.HOLD_CONFIRM_WINDOW
+        elif capture_before - self.HOLD_RELEASE_MARGIN > now:
+            self.hold_release_by = capture_before - self.HOLD_RELEASE_MARGIN
+        else:
+            self.hold_release_by = max(now, capture_before - self.HOLD_LAST_CALL)
 
     def record_capture(self, amount_cents: int) -> None:
         """The hold was charged: ``amount_cents`` is money in hand now. The caller holds the row lock."""
