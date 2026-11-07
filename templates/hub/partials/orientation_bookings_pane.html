@@ -26,7 +26,7 @@ and closes the modal.
   {% if add_member_form or record_form or qr_sheet_types %}
   <div class="pl-bookings__top">
     {% if add_member_form %}<button type="button" class="hub-btn hub-btn--sm hub-btn--primary" data-bookings-add-member @click="$dispatch('open-modal', 'orientation-add-member')">+ Add Member</button>{% endif %}
-    {% if record_form %}<button type="button" class="hub-btn hub-btn--sm hub-btn--primary" data-bookings-record @click="$dispatch('open-modal', 'orientation-record')">+ Record Orientation</button>{% endif %}
+    {% if record_form %}<button type="button" class="hub-btn hub-btn--sm hub-btn--primary" data-bookings-record data-guidance-target="orientations.record" @click="$dispatch('open-modal', 'orientation-record')">+ Record Orientation</button>{% endif %}
     {% if qr_sheet_types %}<button type="button" class="hub-btn hub-btn--sm" data-bookings-qr-sheet @click="$dispatch('open-modal', 'orientation-qr-sheet')">Print QR Sheet</button>{% endif %}
   </div>
   {% endif %}

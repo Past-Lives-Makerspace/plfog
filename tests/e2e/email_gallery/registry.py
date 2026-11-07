@@ -118,7 +118,6 @@ _CATEGORY_SECTIONS: dict[str, str] = {
     "Tours": "Guilds & Orientations",  # facility tours booked like an orientation (#948)
     "Voting": "Voting",
     "Events": "Events",
-    "Meetings": "Events",  # meetings ride the events rails; their spine cards group there
     "Announcements": "Announcements & Release",
     # The member wiki's two spine emails: a report to a guild's leadership, and the
     # verification note back to the people who wrote the page.

@@ -43,7 +43,6 @@ DIGEST_EVENTS = {
     "discount_code.requested",
     "event.submitted",
     "guild_announcement.submitted",
-    "meeting.item_proposed",
     "wiki.page_reported",
     "wiki.page_proposed",
     "instructor_application_received",
@@ -209,6 +208,31 @@ def describe_the_8am_digest():
         flush_digests(_next_8am())
         (digest,) = _digests(shop.lead)
         assert "CLASS REVIEW REQUEST" in digest.body
+
+
+def _queue_a_retired_line(member: Member) -> EventDelivery:
+    """A pending digest line for an event since taken out of the registry (#1113), shaped like
+    a real queued line: one of ``member``'s own rows, copied under the retired key."""
+    row = EventDelivery.objects.filter(channel=Channel.DIGEST.value, target_ref=f"user:{member.user_id}").first()
+    assert row is not None
+    row.pk = None
+    row.event_key = "meeting.item_proposed"
+    row.period = "meeting-proposal:999:submitted"
+    row.title = "Old agenda proposal"
+    row.save()
+    return row
+
+
+def describe_a_line_queued_for_a_retired_event():
+    def it_is_skipped_and_the_rest_still_send(shop: _Woodshop):
+        shop.submit("Board One")
+        retired = _queue_a_retired_line(shop.lead)
+        flush_digests(_next_8am())
+        (digest,) = _digests(shop.lead)
+        assert "Review request: Board One" in digest.body
+        assert "Old agenda proposal" not in digest.body
+        retired.refresh_from_db()
+        assert retired.status == EventDelivery.Status.PENDING  # skipped, never touched
 
 
 def describe_a_request_decided_before_8am():

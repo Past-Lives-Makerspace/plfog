@@ -2476,76 +2476,6 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
-    # meeting.minutes_approved — a broadcast to the guild's members, so NO channel may
-    # address a single recipient. Before this curated copy existed, the generic fallback's
-    # email greeting leaked "Hi [missing: member_name]" into guild Discord channels; the
-    # event's Discord channel was then removed outright (owner decision 2026-09-03) — the
-    # authored Discord copy stays as a safe default should it ever return.
-    "meeting.minutes_approved": EventCopy(
-        # meeting_title is Meeting.display_title, which already embeds the guild name
-        # ("Metal Guild — Monthly Meeting") — so the bodies never repeat guild_name.
-        placeholders=("guild_name", "meeting_title", "meeting_url"),
-        sample_context={
-            "guild_name": "Metal Guild",
-            "meeting_title": "Metal Guild — Monthly Meeting",
-            "meeting_url": "https://pastlives.example/guilds/3/meetings/12/",
-        },
-        channels={
-            Channel.IN_APP: ChannelCopy(
-                subject="Meeting minutes approved",
-                body_text="The minutes for {{ meeting_title }} are approved and locked.",
-            ),
-            Channel.EMAIL: ChannelCopy(
-                subject="{{ guild_name }} meeting minutes approved",
-                body_text=(
-                    "The minutes for {{ meeting_title }} are approved and locked.\n\n"
-                    "Read them: {{ meeting_url }}\n\n"
-                    "Past Lives Makerspace"
-                ),
-                body_html=(
-                    "<p>The minutes for <strong>{{ meeting_title }}</strong> are approved and locked.</p>"
-                    '<p><a href="{{ meeting_url }}">Read the minutes</a></p>'
-                    "<p>Past Lives Makerspace</p>"
-                ),
-            ),
-            Channel.DISCORD: ChannelCopy(
-                subject="Meeting minutes approved",
-                body_text="The minutes for {{ meeting_title }} are approved and locked.\n\n{{ meeting_url }}",
-            ),
-        },
-    ),
-    # meeting.council_minutes_approved — same broadcast posture for the cross-guild council
-    # meeting (recipients are all guild leads/staff/officers; Discord likewise removed).
-    "meeting.council_minutes_approved": EventCopy(
-        placeholders=("meeting_title", "meeting_url"),
-        sample_context={
-            "meeting_title": "Council — Monthly Meeting",
-            "meeting_url": "https://pastlives.example/meetings/15/",
-        },
-        channels={
-            Channel.IN_APP: ChannelCopy(
-                subject="Council minutes approved",
-                body_text="The minutes for {{ meeting_title }} are approved and locked.",
-            ),
-            Channel.EMAIL: ChannelCopy(
-                subject="Council minutes approved",
-                body_text=(
-                    "The minutes for {{ meeting_title }} are approved and locked.\n\n"
-                    "Read them: {{ meeting_url }}\n\n"
-                    "Past Lives Makerspace"
-                ),
-                body_html=(
-                    "<p>The minutes for <strong>{{ meeting_title }}</strong> are approved and locked.</p>"
-                    '<p><a href="{{ meeting_url }}">Read the minutes</a></p>'
-                    "<p>Past Lives Makerspace</p>"
-                ),
-            ),
-            Channel.DISCORD: ChannelCopy(
-                subject="Council minutes approved",
-                body_text="The minutes for {{ meeting_title }} are approved and locked.\n\n{{ meeting_url }}",
-            ),
-        },
-    ),
     # equipment.reservation_confirmed — the member's booking receipt (forced email with the
     # calendar invite attached by the emit call). One primary CTA to the equipment page.
     "equipment.reservation_confirmed": EventCopy(
@@ -3038,6 +2968,62 @@ _CURATED: dict[str, EventCopy] = {
                     "<p>Your <strong>{{ fee_amount }}</strong> late cancellation fee is paid. Thank you.</p>"
                     '<p>For: <a href="{{ fee_url }}">{{ fee_item }}</a><br>Paid on: {{ paid_on }}</p>'
                     "<p>You can book orientations and equipment again.</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # billing.orientation_bill — the one email a billed orientation sends (#1111): what it was,
+    # the day, who ran it, the amount and a Pay link to the bill's own page (a GET there never
+    # charges; only its Pay button opens Checkout).
+    "billing.orientation_bill": EventCopy(
+        placeholders=(
+            "member_name",
+            "orientation_name",
+            "owner_name",
+            "oriented_on",
+            "oriented_by_name",
+            "bill_amount",
+            "bill_url",
+        ),
+        sample_context={
+            "member_name": "Robin Vale",
+            "orientation_name": "Lathe Basics",
+            "owner_name": "Wood Shop",
+            "oriented_on": "Tuesday, November 3",
+            "oriented_by_name": "Sam Turner",
+            "bill_amount": "$40",
+            "bill_url": "https://pastlives.example/orientation/bills/12/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Bill for your {{ orientation_name }} orientation",
+                body_text="{{ bill_amount }} for the {{ orientation_name }} orientation on {{ oriented_on }}. Pay it online.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Your bill for the {{ orientation_name }} orientation",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "Thanks for taking the {{ orientation_name }} orientation with {{ owner_name }}. "
+                    "You're marked as oriented. Here is the bill for it.\n\n"
+                    "Orientation: {{ orientation_name }}, {{ owner_name }}\n"
+                    "Day: {{ oriented_on }}\n"
+                    "Run by: {{ oriented_by_name }}\n"
+                    "Amount: {{ bill_amount }}\n\n"
+                    "Pay it online: {{ bill_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p>Thanks for taking the <strong>{{ orientation_name }}</strong> orientation with "
+                    "{{ owner_name }}. You're marked as oriented. Here is the bill for it.</p>"
+                    "<p>Orientation: {{ orientation_name }}, {{ owner_name }}<br>"
+                    "Day: {{ oriented_on }}<br>"
+                    "Run by: {{ oriented_by_name }}<br>"
+                    "Amount: <strong>{{ bill_amount }}</strong></p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ bill_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Pay {{ bill_amount }}</a></p>"
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),

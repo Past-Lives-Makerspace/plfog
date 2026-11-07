@@ -23,8 +23,22 @@ is_staff_view (the staff columns) and viewer_has_refund_authority (the Paid colu
     {% if b.is_completed %}<span class="hub-pill hub-pill--ok" data-booking-oriented>Oriented</span>{% endif %}
     {% if b.has_open_proposal %}<span class="hub-pill hub-pill--warn" data-booking-proposal>New time asked</span>{% endif %}
     {% if row.fee_unpaid %}<span class="hub-pill hub-pill--danger" data-booking-fee>Fee unpaid</span>{% endif %}
+    {% if b.is_bill %}{% if is_staff_view or b.bill_state == "cancelled" %}
+    {% if b.bill_state == "paid" and b.refund_state == "full" %}<span class="hub-pill hub-pill--neutral" data-booking-bill="refunded">Refunded {{ b.amount_paid_cents|cents_as_price }}</span>
+    {% elif b.bill_state == "paid" and b.refund_state == "partial" %}<span class="hub-pill hub-pill--warn" data-booking-bill="partial">Partially refunded {{ b.amount_paid_cents|cents_as_price }}</span>
+    {% elif b.bill_state == "paid" %}<span class="hub-pill hub-pill--ok" data-booking-bill="paid">Paid {{ b.amount_paid_cents|cents_as_price }}</span>
+    {% elif b.bill_state == "cancelled" %}<span class="hub-pill hub-pill--neutral" data-booking-bill="cancelled">Bill cancelled</span>
+    {% else %}<span class="hub-pill hub-pill--warn" data-booking-bill="unpaid">Unpaid {{ b.bill_amount_display }}</span>{% endif %}
+    {% endif %}{% endif %}
     {% if not is_staff_view and b.amount_paid_cents %}
     <span class="pl-bookings-table__paid">{% if b.refund_state == "full" or b.refund_state == "partial" %}Refunded{% else %}Paid {{ b.amount_paid_cents|cents_as_price }}{% endif %}</span>
+    {% endif %}
+    {% if row.can_pay_bill %}
+    {# Unboosted: it answers with a redirect to Stripe Checkout (#1111). #}
+    <form method="post" action="{% url 'hub_orientation_bill_pay' b.pk %}" hx-boost="false" class="pl-bookings-bill-pay">
+      {% csrf_token %}
+      <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary" data-booking-bill-pay="{{ b.pk }}">Pay {{ b.bill_amount_display }}</button>
+    </form>
     {% endif %}
   </td>
   {% if is_staff_view %}

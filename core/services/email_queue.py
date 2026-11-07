@@ -21,7 +21,7 @@ from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 from core.events.channels import DIGEST_HOUR, DIGEST_TRIGGER_KIND, PACIFIC
-from core.events.registry import Channel, get_event
+from core.events.registry import Channel, get_event, registered_rows
 from core.events.scheduling import DEFAULT_WINDOW
 from core.models import EventDelivery
 
@@ -151,7 +151,8 @@ class DigestQueue:
         from core.events.channels import DigestAdapter, digest_line_key, notification_email_for
         from core.events.resolvers import open_request_urls
 
-        pending = list(
+        # A row queued for a since retired event is skipped, as the 8 AM send skips it (#1113).
+        pending = registered_rows(
             EventDelivery.objects.filter(channel=Channel.DIGEST.value, status=EventDelivery.Status.PENDING).order_by(
                 "created_at"
             )

@@ -125,7 +125,7 @@ def _dated_paid_sources() -> dict[str, tuple[QuerySet[Any], str]]:
         "orientation": (
             OrientationBooking.objects.filter(amount_paid_cents__gt=0)
             .exclude(status=OrientationBooking.Status.PENDING_PAYMENT)
-            .annotate(fee_paid_at=F("requested_at")),
+            .annotate(fee_paid_at=OrientationBooking.money_at_expression()),
             "stripe_payment_id",
         ),
         "reservation": (

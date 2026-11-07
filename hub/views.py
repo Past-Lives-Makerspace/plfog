@@ -62,7 +62,6 @@ from hub.forms import (
     GuildStaffTitleForm,
     ManageCmsForm,
     ManageFeaturesForm,
-    MeetingItemProposalForm,
     MemberAdminEditForm,
     MemberAgreementSettingsForm,
     MemberBadgesForm,
@@ -111,7 +110,6 @@ from membership.models import (
     LeadershipPage,
     LeadershipTab,
     Meeting,
-    MeetingItemProposal,
     Member,
     MemberContact,
     OrgInfoPage,
@@ -141,7 +139,6 @@ from membership.permissions import can_edit_guild as _can_edit_guild
 from membership.permissions import can_view_guild as _can_view_guild
 from membership.permissions import sidebar_guilds
 from membership.permissions import can_manage_orientations as _can_manage_orientations
-from membership.permissions import can_propose_to_meeting as _can_propose_to_meeting
 from membership.permissions import editable_meeting_scopes
 from membership.services.account_deletion import delete_own_account
 
@@ -782,12 +779,12 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     announcement = published_announcements.active().first()
     published_announcement_count = published_announcements.count()
     has_past_announcements = published_announcement_count > 1
-    # The Meetings tab (§6.4, #891). Its Meetings feature parts (next meeting, proposals, minutes)
-    # follow the switch and are built only while it is on; the guild's meeting notes (the ones
-    # leads post in the editor) show on the tab whatever the switch says, to signed in viewers,
-    # newest meeting first (Meta.ordering), attachments in the same prefetch. The tab shows on the
-    # members surface when the feature is on, the guild has notes, or the viewer can edit it, so
-    # a lead's empty state can point at the editor.
+    # The Meetings tab (§6.4, #891). Its Meetings feature parts (the next meeting and the past
+    # meetings, #1113) follow the switch and are built only while it is on; the guild's meeting
+    # notes (the ones leads post in the editor) show on the tab whatever the switch says, to
+    # signed in viewers, newest meeting first (Meta.ordering), attachments in the same prefetch.
+    # The tab shows on the members surface when the feature is on, the guild has notes, or the
+    # viewer can edit it, so a lead's empty state can point at the editor.
     meetings_feature_on = is_on("meetings") and not guilds_surface
     meeting_notes = (
         list(guild.meeting_notes.prefetch_related("attachments"))
@@ -796,39 +793,11 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     )
     show_meetings_tab = not guilds_surface and (meetings_feature_on or bool(meeting_notes) or can_edit_this_guild)
     next_guild_meeting = None
-    can_propose_next = False
-    propose_form = None
-    pending_proposal_count = 0
-    recent_minutes = Meeting.objects.none()
-    awaiting_minutes = Meeting.objects.none()
+    past_meetings: list[Meeting] = []
     if meetings_feature_on:
-        # The guild's soonest upcoming meeting + last 5 approved minutes.
-        next_guild_meeting = (
-            Meeting.objects.for_scope(guild)
-            .upcoming()
-            .select_related("guild")
-            .annotate(topic_count=Count("items"))
-            .first()
-        )
-        # Everyone who may propose sees the button — editors included; their submissions
-        # land in the same pending-proposals queue.
-        can_propose_next = next_guild_meeting is not None and _can_propose_to_meeting(request, next_guild_meeting)
-        propose_form = MeetingItemProposalForm(auto_id="propose-item-%s") if can_propose_next else None
-        pending_proposal_count = (
-            next_guild_meeting.proposals.filter(state=MeetingItemProposal.State.PENDING).count()
-            if can_edit_this_guild and next_guild_meeting is not None
-            else 0
-        )
-        recent_minutes = Meeting.objects.for_scope(guild).approved().select_related("guild")[:5]
-        # Not-yet-approved meetings in the archive window (past + undated), so a published or
-        # slipped meeting stays reachable from its guild page: members see published ones,
-        # editors also see slipped drafts (mirrors the Meetings-home needs-attention scope).
-        awaiting_window = Meeting.objects.for_scope(guild).archive().select_related("guild")
-        awaiting_minutes = (
-            awaiting_window.exclude(status=Meeting.Status.APPROVED)
-            if can_edit_this_guild
-            else awaiting_window.filter(status=Meeting.Status.PUBLISHED)
-        )[:3]
+        guild_meetings = Meeting.objects.for_scope(guild).select_related("guild")
+        next_guild_meeting = guild_meetings.upcoming().first()
+        past_meetings = list(guild_meetings.past().order_by("-scheduled_date", "-pk")[:5])
     # Gate the roster on the viewer, not just the guild opt-in: an anonymous guest
     # must never see member names/avatars (the count-only chip lives in the hero).
     roster = guild.roster_members() if guild.show_members and member is not None else None
@@ -1013,14 +982,10 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "has_published_announcements": published_announcement_count > 0,
             "next_guild_meeting": next_guild_meeting,
             # The Next Meeting card and its stat chip show the soonest of anything (#953); the
-            # Meetings tab's "Start the agenda" reads the soonest meeting. One load feeds both.
+            # Meetings tab's "Schedule it" reads the soonest meeting. One load feeds both.
             "next_meeting": guild.next_meeting_occurrence(meeting_sources),
             "next_scheduled_meeting": guild.next_meeting_occurrence(meeting_sources, meetings_only=True),
-            "can_propose_next": can_propose_next,
-            "propose_form": propose_form,
-            "pending_proposal_count": pending_proposal_count,
-            "recent_minutes": recent_minutes,
-            "awaiting_minutes": awaiting_minutes,
+            "past_meetings": past_meetings,
             "roster": roster,
             "member": member,
             "is_member_of_guild": is_member_of_guild,

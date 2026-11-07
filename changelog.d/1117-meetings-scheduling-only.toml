@@ -1,0 +1,11 @@
+bump = "minor"
+audience = ["guild-leads", "admins"]
+date = "2026-11-06"
+title = "Meetings are now just scheduling"
+changes = [
+  "A meeting is its date, start and end time, video link and calendar event. Agendas, minutes, attendance, attachments, proposals and approvals are gone.",
+  "The Meetings page no longer lists past meetings as awaiting approval, and its schedule suggestions now offer to set up the meeting itself.",
+  "Members see past meetings read only, and whoever runs a meeting can still fix its date or delete it. Guild meeting notes are unchanged.",
+]
+feature = "guild.meetings"
+guidance = "none"

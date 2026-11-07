@@ -262,9 +262,9 @@ def events_approvers(context: dict[str, Any]) -> list[Recipient]:
 def guild_leadership_or_events_approvers(context: dict[str, Any]) -> list[Recipient]:
     """COMPOSITION — a guild's leadership when present, else the Calendar Administrators.
 
-    The proposal-queue audience for a Community Calendar event or a meeting agenda item:
-    a guild-scoped proposal routes to that guild's lead + staff ONLY; a site-wide/council
-    proposal (``context["guild"]`` is ``None``) routes to :func:`events_approvers`. Same
+    The proposal-queue audience for a Community Calendar event: a guild-scoped proposal
+    routes to that guild's lead + staff ONLY; a site-wide proposal (``context["guild"]``
+    is ``None``) routes to :func:`events_approvers`. Same
     composition shape as :func:`guild_leadership_or_class_approvers`.
     """
     guild: Guild | None = _require(context, "guild")
@@ -888,12 +888,6 @@ def _submitted_announcements() -> dict[str, QuerySet[Any]]:
     return {"announcement": GuildAnnouncement.objects.awaiting_review()}
 
 
-def _proposed_meeting_items() -> dict[str, QuerySet[Any]]:
-    from membership.models import MeetingItemProposal
-
-    return {"meeting-proposal": MeetingItemProposal.objects.filter(state=MeetingItemProposal.State.PENDING)}
-
-
 def _wiki_reports() -> dict[str, QuerySet[Any]]:
     from membership.models import WikiReport
 
@@ -926,7 +920,6 @@ _OPEN_CHECKS: dict[str, OpenCheckFn] = {
     "discount_code.requested": _open_by_request(_discount_requests),
     "event.submitted": _open_by_request(_submitted_events),
     "guild_announcement.submitted": _open_by_request(_submitted_announcements),
-    "meeting.item_proposed": _open_by_request(_proposed_meeting_items),
     "wiki.page_reported": _open_by_request(_wiki_reports),
     "wiki.page_proposed": _open_by_request(_wiki_proposals),
     "instructor_application_received": _open_by_request(_teaching_applications),

@@ -1,13 +1,10 @@
 {% comment %}
-The guild detail "Meetings" tab (Meetings spec §6.4) — a filtered window into the
-Meetings feature: the guild's next meeting (with propose gating per §6.3, the
-locked-agenda hint, and the cadence "Start the agenda" fallback), its last 5
-approved minutes plus the not-yet-approved archive-window rows (awaiting_minutes:
-published for everyone, slipped drafts for editors), and the editor extras
-(+ New meeting via the Meetings home's preselected modal, pending-proposals chip).
-Context comes from guild_detail: next_guild_meeting (topic_count annotated),
-can_propose_next, propose_form, recent_minutes, awaiting_minutes,
-pending_proposal_count, plus guild / can_edit_this_guild.
+The guild detail "Meetings" tab (Meetings spec §6.4, scheduling only since #1113) — a
+filtered window into the Meetings feature: the guild's next meeting (or the schedule's
+next date with Schedule it for editors), its last 5 past meetings, and + New meeting for
+editors via the Meetings home's preselected modal. Context comes from guild_detail:
+next_guild_meeting, next_scheduled_meeting, past_meetings, plus guild /
+can_edit_this_guild.
 
 Those feature parts render only while the Meetings switch is on (guild_detail builds their
 context only then). The guild's meeting notes (#891) render after them whatever the switch
@@ -19,9 +16,6 @@ whether the tab exists at all.
     {% if can_edit_this_guild %}
     <div class="pl-guild-meetings__toolbar">
         <a href="{% url 'hub_meetings' %}?guild={{ guild.pk }}" class="pl-btn pl-btn--primary pl-btn--sm">+ New meeting</a>
-        {% if pending_proposal_count %}
-        <a href="{% url 'hub_meeting' next_guild_meeting.pk %}" class="hub-badge pl-guild-meetings__pending">{{ pending_proposal_count }} proposal{{ pending_proposal_count|pluralize }} pending</a>
-        {% endif %}
     </div>
     {% endif %}
 
@@ -31,35 +25,25 @@ whether the tab exists at all.
         <a href="{% url 'hub_meeting' next_guild_meeting.pk %}" class="pl-guild-meetings__title">{{ next_guild_meeting.display_title }}</a>
         <div class="hub-text-muted pl-guild-meetings__meta">
             {{ next_guild_meeting.scheduled_date|date:"l, F j" }} ·
-            {% if next_guild_meeting.scheduled_time %}{{ next_guild_meeting.scheduled_time|time:"g:i A" }}{% else %}Time TBD{% endif %}
-            · {{ next_guild_meeting.topic_count }} topic{{ next_guild_meeting.topic_count|pluralize }}
+            {% if next_guild_meeting.scheduled_time %}{{ next_guild_meeting.scheduled_time|time:"g:i A" }}{% if next_guild_meeting.scheduled_end_time %} &ndash; {{ next_guild_meeting.scheduled_end_time|time:"g:i A" }}{% endif %}{% else %}Time TBD{% endif %}
         </div>
         {% if next_guild_meeting.video_call_url %}
         <a href="{{ next_guild_meeting.video_call_url }}" target="_blank" rel="noopener" class="pl-btn pl-btn--primary pl-btn--sm pl-guild-meetings__join">Join meeting</a>
         {% endif %}
-        {% if can_propose_next %}
-        <div class="pl-guild-meetings__propose">
-            <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('open-modal', 'propose-item')">Propose an agenda item</button>
-        </div>
-        {% elif next_guild_meeting.is_locked %}
-        <p class="hub-text-muted pl-guild-meetings__hint">The agenda is locked — proposals are closed for this one.</p>
-        {% endif %}
         {% else %}
-        {# The soonest meeting, not studio hours or a Google event, so the agenda follows the meeting (#953). #}
+        {# The soonest meeting, not studio hours or a Google event, so Schedule it follows the meeting (#953). #}
         {% if next_scheduled_meeting %}
         <div class="pl-guild-meetings__meta">{% if next_scheduled_meeting.title %}{{ next_scheduled_meeting.title }}: {% else %}Next per schedule: {% endif %}{{ next_scheduled_meeting.when|date:"l, F j" }}{% if next_scheduled_meeting.has_time %} · {{ next_scheduled_meeting.when|time:"g:i A" }}{% endif %}</div>
         {% if can_edit_this_guild %}
-        {# The §6.2 Start-the-agenda contract — an existing scope+date meeting redirects into it, no twin. #}
+        {# Schedule it: an existing scope+date meeting redirects into it, no twin. #}
         <form method="post" action="{% url 'hub_meeting_create' %}" class="pl-guild-meetings__start">
             {% csrf_token %}
             <input type="hidden" name="scope" value="{{ guild.pk }}">
             <input type="hidden" name="kind" value="monthly">
             <input type="hidden" name="date" value="{{ next_scheduled_meeting.when|date:'Y-m-d' }}">
             <input type="hidden" name="time" value="{% if next_scheduled_meeting.has_time %}{{ next_scheduled_meeting.when|time:'H:i' }}{% endif %}">
-            <button type="submit" class="pl-btn pl-btn--sm">Start the agenda</button>
+            <button type="submit" class="pl-btn pl-btn--sm">Schedule it</button>
         </form>
-        {% else %}
-        <p class="hub-text-muted pl-guild-meetings__hint">Proposals open once leadership starts the agenda.</p>
         {% endif %}
         {% else %}
         <p class="hub-text-muted">No meeting scheduled yet.</p>
@@ -68,37 +52,18 @@ whether the tab exists at all.
     </div>
 
     <div class="hub-card pl-guild-meetings__card">
-        <h3 class="hub-detail-label">Recent minutes</h3>
-        {% if awaiting_minutes or recent_minutes %}
-        {% for meeting in awaiting_minutes %}
-        <div class="pl-guild-meetings__minute">
-            <a href="{% url 'hub_meeting' meeting.pk %}">{{ meeting.display_title }}</a>
-            <span class="hub-text-muted">{% if meeting.scheduled_date %}{{ meeting.scheduled_date|date:"M j, Y" }}{% else %}No date{% endif %}</span>
-            {% if meeting.status == 'published' %}
-            <span class="pl-meeting-badge pl-meeting-badge--published">Published</span>
-            {% else %}
-            <span class="pl-meeting-badge pl-meeting-badge--draft">Draft</span>
-            {% endif %}
-        </div>
-        {% endfor %}
-        {% for meeting in recent_minutes %}
+        <h3 class="hub-detail-label">Past meetings</h3>
+        {% for meeting in past_meetings %}
         <div class="pl-guild-meetings__minute">
             <a href="{% url 'hub_meeting' meeting.pk %}">{{ meeting.display_title }}</a>
             <span class="hub-text-muted">{{ meeting.scheduled_date|date:"M j, Y" }}</span>
-            <span class="pl-meeting-badge pl-meeting-badge--approved">✓</span>
         </div>
+        {% empty %}
+        <p class="hub-text-muted">No past meetings yet.</p>
         {% endfor %}
-        {% else %}
-        <p class="hub-text-muted">No approved minutes yet.</p>
-        {% endif %}
         <a href="{% url 'hub_meetings' %}?guild={{ guild.pk }}" class="pl-guild-meetings__archive-link">See All in the Archive →</a>
     </div>
 </section>
-
-{# ── The propose modal (factored partial, targeted at the next meeting) ── #}
-{% if can_propose_next %}
-{% include "hub/partials/_propose_modal.html" with meeting=next_guild_meeting modal_key="propose-item" form=propose_form %}
-{% endif %}
 {% endif %}
 
 {% include "hub/partials/_guild_meeting_notes.html" %}

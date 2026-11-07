@@ -37,18 +37,17 @@ def describe_emit():
             assert (member.user_id, Channel.IN_APP) in result.delivered
 
         def it_emails_only_opted_in_recipients(linked_member):
-            # meeting.minutes_approved defaults EMAIL off, so only the member holding an
-            # explicit enabled row is mailed; the other guild member gets the bell only.
+            # cubbies.rental_started defaults EMAIL off, so only the guild leader holding an
+            # explicit enabled row is mailed; the other leader gets the bell only.
             opted = linked_member()
             other = linked_member()  # not opted in
-            guild = GuildFactory()
-            GuildMembershipFactory(guild=guild, member=opted)
-            GuildMembershipFactory(guild=guild, member=other)
+            guild = GuildFactory(guild_lead=opted)
+            GuildStaffMembershipFactory(guild=guild, member=other)
             NotificationPreference.objects.create(
-                user=opted.user, event_key="meeting.minutes_approved", channel="email", enabled=True
+                user=opted.user, event_key="cubbies.rental_started", channel="email", enabled=True
             )
-            emit("meeting.minutes_approved", context={"guild": guild}, title="t", body="b")
-            logs = list(TransactionalEmailLog.objects.filter(trigger_kind="meeting.minutes_approved"))
+            emit("cubbies.rental_started", context={"guild": guild}, title="t", body="b")
+            logs = list(TransactionalEmailLog.objects.filter(trigger_kind="cubbies.rental_started"))
             assert len(logs) == 1
             assert logs[0].to_email == opted.user.email
 
@@ -107,13 +106,12 @@ def describe_emit():
 
         def it_records_one_eventdelivery_row_per_channel(linked_member):
             member = linked_member()
-            guild = GuildFactory()
-            GuildMembershipFactory(guild=guild, member=member)
-            emit("meeting.minutes_approved", context={"guild": guild}, title="t", body="b")
-            # meeting.minutes_approved is in-app only for a default member (email off, and
+            guild = GuildFactory(guild_lead=member)
+            emit("cubbies.rental_started", context={"guild": guild}, title="t", body="b")
+            # cubbies.rental_started is in-app only for a default leader (email off, and
             # push is off by default for it), so exactly one delivery row — one per
             # delivered channel.
-            row = EventDelivery.objects.get(event_key="meeting.minutes_approved", target_ref=f"user:{member.user_id}")
+            row = EventDelivery.objects.get(event_key="cubbies.rental_started", target_ref=f"user:{member.user_id}")
             assert row.channel == Channel.IN_APP.value
             assert row.period == ""
 
@@ -311,7 +309,6 @@ def describe_per_announcement_suppression():
     """A guild announcement can opt out of the email channel and its OWN Discord post."""
 
     def it_skips_the_email_channel_when_suppress_email_is_set(linked_member):
-        from tests.membership.factories import GuildMembershipFactory
 
         guild = GuildFactory()
         member = linked_member()
@@ -324,7 +321,6 @@ def describe_per_announcement_suppression():
         assert all(channel is not Channel.EMAIL for _pk, channel in result.delivered)
 
     def it_still_emails_the_guild_member_by_default(linked_member):
-        from tests.membership.factories import GuildMembershipFactory
 
         guild = GuildFactory()
         member = linked_member()
