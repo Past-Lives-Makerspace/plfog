@@ -31,3 +31,14 @@ def describe_activity_tab():
     def it_keeps_an_explicit_tab_over_a_ring(staff_client):
         resp = staff_client.get(reverse("manage_activity"), {"tab": "queue", "show": "activity.email-search"})
         assert resp.context["active_tab"] == "queue"
+
+    def it_opens_new_members_when_asked(staff_client):
+        resp = staff_client.get(reverse("manage_activity"), {"tab": "newmembers"})
+        assert resp.context["active_tab"] == "newmembers"
+        assert b"tabs: ['feed', 'emails', 'queue', 'newmembers']" in resp.content
+        assert b'data-composer-step="4"' in resp.content
+
+    def it_opens_new_members_for_a_ring_on_the_lookup(staff_client):
+        resp = staff_client.get(reverse("manage_activity"), {"show": "activity.new-members"})
+        assert resp.context["active_tab"] == "newmembers"
+        assert b'data-guidance-target="activity.new-members"' in resp.content

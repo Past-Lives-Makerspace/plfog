@@ -60,3 +60,289 @@
         flex: 1 1 100%;
     }
 }
+
+/* New Members (#1115), loaded with the rest of this page; two blocks, top to bottom.
+   Can't Find Someone?: the shared .pl-disclosure, its search row sized to an address (rule 28) and
+   its answer one line per outcome, a pill in a fixed track so every sentence starts at the same x.
+   The list: one card whose header carries the count, the window chips and the Never Signed In
+   switch, ruled off from the house .pl-members-table below it, which stacks into labelled cards on
+   a phone with the Actions "..." pinned top right, as the Bookings tab's table does. */
+
+.pl-new-members-lookup__form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem;
+}
+
+.pl-new-members-lookup__field {
+    flex: 0 1 22rem;
+    min-width: 0;
+    margin-bottom: 0;
+}
+
+/* The input's own height (0.625rem padding twice, a 0.9375rem line, a 1px border twice), so the
+   button's top and bottom line up with the box beside it. */
+.pl-new-members-lookup__submit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 2.5rem;
+    padding: 0 1.25rem;
+}
+
+.pl-new-members-answer {
+    display: grid;
+    gap: 0.75rem;
+    margin: 1.25rem 0 0;
+    padding: 1.25rem 0 0;
+    list-style: none;
+    border-top: 1px solid var(--hub-border);
+}
+
+.pl-new-members-answer__line {
+    display: grid;
+    grid-template-columns: 9.5rem minmax(0, 1fr);
+    column-gap: 0.75rem;
+    align-items: baseline;
+}
+
+.pl-new-members-answer__pill {
+    justify-self: start;
+    white-space: nowrap;
+}
+
+.pl-new-members-answer__text {
+    font-size: 0.9375rem;
+    color: var(--hub-text);
+    overflow-wrap: anywhere;
+}
+
+.pl-new-members-answer__text a {
+    margin-left: 0.25rem;
+    white-space: nowrap;
+}
+
+/* The list card: no padding of its own, so the header's rule and the table's rows run edge to edge. */
+.hub-card.pl-new-members {
+    margin-top: 1.5rem;
+    padding: 0;
+}
+
+.pl-new-members__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem 1.5rem;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--hub-border);
+}
+
+.pl-new-members__count {
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--hub-text);
+}
+
+.pl-new-members__controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem 1.5rem;
+    margin-left: auto;
+}
+
+.pl-new-members__window {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.pl-new-members__label {
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    white-space: nowrap;
+}
+
+/* Three chips never overflow, so the shared row's scrollbar room goes. */
+.pl-new-members__chips {
+    padding-bottom: 0;
+}
+
+.pl-new-members__never {
+    margin: 0;
+}
+
+/* The toggle component spreads its words and switch across a full row with a rule under it; in the
+   header the switch comes first with its words beside it, at the chips' size. */
+.pl-new-members__never .pl-toggle-row {
+    flex-direction: row-reverse;
+    justify-content: flex-end;
+    gap: 0.625rem;
+    padding: 0;
+    border-bottom: 0;
+}
+
+.pl-new-members__never .pl-toggle-label {
+    font-size: 0.875rem;
+}
+
+.pl-new-members__table-wrap {
+    overflow-x: auto;
+}
+
+.pl-new-members-table td {
+    vertical-align: middle;
+}
+
+.pl-new-members-table tbody tr:last-child {
+    border-bottom: 0;
+}
+
+.pl-new-members-table__name,
+.pl-new-members-table__email {
+    display: block;
+}
+
+.pl-new-members-table__name {
+    font-weight: 500;
+    color: var(--hub-text);
+}
+
+.pl-new-members-table__email {
+    margin-top: 0.125rem;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+    overflow-wrap: anywhere;
+}
+
+/* A failure reason can run to 160 characters, so the pill wraps rather than widening the table. */
+.pl-new-members-table__welcome {
+    max-width: 22rem;
+    line-height: 1.4;
+    white-space: normal;
+}
+
+.pl-new-members__empty {
+    margin: 0;
+    padding: 1.5rem;
+}
+
+/* Light theme (Slate) contrast for the green and amber pills; .pl-members-table already darkens
+   the neutral and red ones. */
+[data-theme="light"] .pl-new-members-table .hub-pill--ok,
+[data-theme="light"] .pl-new-members-answer .hub-pill--ok { color: #1f7a52; }
+[data-theme="light"] .pl-new-members-table .hub-pill--warn,
+[data-theme="light"] .pl-new-members-answer .hub-pill--warn { color: #9a6a00; }
+[data-theme="light"] .pl-new-members-answer .hub-pill--neutral { color: #5b6675; }
+[data-theme="light"] .pl-new-members-answer .hub-pill--danger { color: #b03030; }
+
+/* Desktop: the table's first and last columns line up with the header's 1.5rem inset, the dates
+   stay on one line, and Actions takes only the room its "..." needs. */
+@media (min-width: 769px) {
+    .pl-new-members-table th:first-child,
+    .pl-new-members-table td:first-child {
+        padding-left: 1.5rem;
+    }
+
+    .pl-new-members-table th:last-child,
+    .pl-new-members-table td:last-child {
+        padding-right: 1.5rem;
+    }
+
+    .pl-new-members-table td[data-fact="added"],
+    .pl-new-members-table td[data-fact="signed-in"] {
+        white-space: nowrap;
+    }
+
+    .pl-new-members-table__actions {
+        width: 1%;
+        white-space: nowrap;
+    }
+}
+
+/* Phone: the standard stacking (hub.css hides the head and boxes each row); every cell is a
+   block, the name leads, and the "..." sits in the row's top right corner clear of it. */
+@media (max-width: 768px) {
+    .pl-new-members__header {
+        padding: 1rem;
+    }
+
+    .pl-new-members__controls {
+        flex-direction: column;
+        align-items: stretch;
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .pl-new-members__window {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .pl-new-members__label {
+        flex: 1 1 100%;
+    }
+
+    /* The three windows share the row equally. */
+    .pl-new-members__chips {
+        flex: 1 1 100%;
+    }
+
+    .pl-new-members__chips .pl-equip-chip {
+        flex: 1 1 0;
+        padding: 0.4rem 0.5rem;
+        text-align: center;
+    }
+
+    .pl-new-members__table-wrap {
+        padding: 1rem 1rem 0.25rem;
+    }
+
+    .pl-new-members-table tr {
+        position: relative;
+    }
+
+    .pl-new-members-table tbody tr:last-child {
+        border-bottom: 1px solid var(--hub-border);
+    }
+
+    .pl-new-members-table td {
+        display: block;
+        padding: 0.4rem 0;
+    }
+
+    .pl-new-members-table td.pl-new-members-table__member {
+        padding-right: 3rem;
+    }
+
+    .pl-new-members-table td.pl-new-members-table__actions {
+        position: absolute;
+        top: 0.25rem;
+        right: 0.25rem;
+        padding: 0;
+    }
+
+    .pl-new-members-table__welcome {
+        max-width: 100%;
+    }
+
+    .pl-new-members__empty {
+        padding: 1rem;
+    }
+}
+
+@media (max-width: 639px) {
+    .pl-new-members-lookup__field,
+    .pl-new-members-lookup__submit {
+        flex: 1 1 100%;
+    }
+
+    /* The pill over its sentence, rather than a 9.5rem track eating a narrow screen. */
+    .pl-new-members-answer__line {
+        grid-template-columns: minmax(0, 1fr);
+        row-gap: 0.375rem;
+    }
+}

@@ -642,18 +642,21 @@ def biometric_disable(request: HttpRequest) -> JsonResponse:
         return JsonResponse({"error": "We could not turn that off. Please try again."}, status=500)
 
 
-_ACTIVITY_TABS = frozenset({"feed", "emails", "queue"})
+_ACTIVITY_TABS = frozenset({"feed", "emails", "queue", "newmembers"})
 # A guidance ring (?show=) on a control inside a hidden tab opens that tab on arrival, because
 # the tour engine's reveal event fires before Alpine is listening on a fresh page load.
-_ACTIVITY_TAB_FOR_TARGET = {"activity.email-search": "emails"}
+_ACTIVITY_TAB_FOR_TARGET = {"activity.email-search": "emails", "activity.new-members": "newmembers"}
 
 
 @staff_member_required
 def site_activity(request: HttpRequest) -> HttpResponse:
-    """Staff dashboard: a site-wide event feed, an email audit log and the Email Queue (#894)."""
+    """Staff dashboard: a site-wide event feed, an email audit log, the Email Queue (#894) and New Members (#1115)."""
     from core.activity_feed_filters import ActivityFeedFilterForm
     from core.activity_feed_filters import count_line as feed_count_line
     from core.email_log_filters import EmailLogFilterForm, count_line, type_choices
+    from core.new_members import NewMembersFilterForm, look_up, new_member_rows
+    from core.new_members import count_line as new_members_count_line
+    from core.new_members import empty_message as new_members_empty_message
     from core.services.email_queue import DigestQueue, sent_digests
 
     # The tab lands inside an Alpine expression, where the browser decodes Django's escaping
@@ -675,6 +678,9 @@ def site_activity(request: HttpRequest) -> HttpResponse:
     emails = email_filters.filter(TransactionalEmailLog.objects.all())
     email_page = Paginator(emails, 50).get_page(request.GET.get("epage"))
 
+    nm_filters = NewMembersFilterForm(request.GET)
+    new_members = new_member_rows(days=nm_filters.days, never_only=nm_filters.never_only, now=now)
+
     return render(
         request,
         "hub/admin/activity.html",
@@ -689,6 +695,14 @@ def site_activity(request: HttpRequest) -> HttpResponse:
             "email_count_line": count_line(emails),
             "digest_queue": DigestQueue.load(now),
             "sent_digests": sent_digests(now),
+            "nm_filters": nm_filters,
+            "new_members": new_members,
+            "new_members_count_line": new_members_count_line(
+                len(new_members), days=nm_filters.days, never_only=nm_filters.never_only
+            ),
+            "new_members_empty": new_members_empty_message(days=nm_filters.days, never_only=nm_filters.never_only),
+            # Airtable is called only when an admin searches, never on a tab load.
+            "nm_lookup": look_up(nm_filters.query, now=now) if nm_filters.query else None,
         },
     )
 

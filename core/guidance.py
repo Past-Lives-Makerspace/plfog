@@ -474,6 +474,19 @@ _GUIDANCE_LIST = (
         ),
     ),
     Guidance(
+        key="admin.new-members",
+        title="New Members",
+        url_name="manage_activity",
+        query={"tab": "newmembers"},
+        help_key="admin.activity",
+        target="activity.new-members",
+        steps=(
+            "Open Site Activity from Admin Tools and pick New Members.",
+            "Each member added from Airtable shows when they were added, where their welcome email stands and when they first signed in. Pick 30, 60 or 90 days, or turn on Never signed in.",
+            "Can't find someone? Type a name or email to search the portal and Airtable together and see where they stand.",
+        ),
+    ),
+    Guidance(
         key="admin.discount-codes",
         title="Discount Codes",
         url_name="classes:admin_discount_codes",

@@ -61,6 +61,7 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 - `Notification` / `NotificationPreference` — per-user in-app notifications + per-trigger channel prefs (see `core/triggers.py` catalogue, `core/notifications.py` dispatch)
 - `TransactionalEmailLog` — logs every email sent via `core.email.send()` (sync; console in dev, Resend in prod)
 - `SiteActivity` — cross-app activity/audit feed; `SITE_ACTIVITY_CATEGORIES` groups its kinds for the feed's Category filter (`core/activity_feed_filters.py`)
+- `core/new_members.py` — Site Activity's New Members tab (#1115): each member the Airtable pull added lately with their welcome email (read by `awaiting_welcome_email`'s own conditions) and first sign in, and a lookup that searches the portal (`MemberQuerySet.matching_name_or_email`) and Airtable live
 
 ### polls
 - `Poll` / `PollChoice` / `PollVote` — a question, its 2 to 6 answers and one anonymous vote per member; `Poll.guild` (blank is site wide); `Poll.post` refuses while one is open in that scope, `PollCard` is one poll as one member sees it, `GuildPolls` a guild's Polls tab; written answers (`allows_write_in`, `PollVote.write_in`, named or Anonymous) where the poll takes them
