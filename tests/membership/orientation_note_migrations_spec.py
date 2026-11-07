@@ -25,7 +25,10 @@ from tests.membership.factories import MembershipPlanFactory, OrientationBooking
 
 BEFORE = ("membership", "0248_orientation_booking_messages")
 
-pytestmark = pytest.mark.django_db(transaction=True)
+# A later AddField with a default on OrientationBooking (0268, #1111) makes SQLite rebuild the table
+# from the model state, which drops the two retired note columns this file reads, so only
+# PostgreSQL (production, CI's postgres-only job) keeps them to step back through.
+pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.postgres_only]
 
 migration = importlib.import_module("membership.migrations.0249_orientation_notes_to_messages")
 
