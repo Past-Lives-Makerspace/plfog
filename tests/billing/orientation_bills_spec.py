@@ -374,3 +374,27 @@ def describe_the_jobs_leave_a_bill_alone():
             assert orientations.expire_payment_holds() == (0, 0)
         assert not mock_retrieve.called
         assert OrientationBooking.objects.filter(pk=booking.pk).exists()
+
+
+def describe_cancel_and_resend():
+    def it_refuses_to_cancel_twice():
+        booking = _bill()
+        actor = User.objects.create_user(username="svc_canceller")
+        orientation_bills.cancel_bill(booking, actor=actor)
+        with pytest.raises(OrientationError):
+            orientation_bills.cancel_bill(booking, actor=actor)
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_BILL_CANCELLED).count() == 1
+
+    def it_cancels_even_when_the_session_will_not_expire():
+        booking = _bill(stripe_session_id="cs_stuck")
+        with patch("billing.stripe_utils.expire_checkout_session", side_effect=RuntimeError("down")):
+            orientation_bills.cancel_bill(booking, actor=User.objects.create_user(username="svc_c2"))
+        booking.refresh_from_db()
+        assert booking.bill_state == "cancelled"
+
+    def it_refuses_to_resend_a_paid_bill():
+        booking = _bill(paid_at=timezone.now())
+        mail.outbox.clear()
+        with pytest.raises(OrientationError):
+            orientation_bills.resend_bill(booking)
+        assert mail.outbox == []

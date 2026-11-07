@@ -48,6 +48,12 @@ orientation_booking_modals.html; the refunds load their form into the shared ref
 {% if row.can_waive_fee %}
 <button type="button" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus(); $dispatch('open-modal', 'waive-fee-{{ row.late_fee.pk }}')">Waive Late Fee</button>
 {% endif %}
+{% if row.can_resend_bill %}
+<button type="button" class="pl-row-menu__item" role="menuitem" data-booking-bill-resend="{{ pk }}" @click="closeAndRefocus(); $dispatch('open-confirm', 'booking-bill-resend-{{ pk }}')">Resend Bill</button>
+{% endif %}
+{% if row.can_cancel_bill %}
+<button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem" data-booking-bill-cancel="{{ pk }}" @click="closeAndRefocus(); $dispatch('open-confirm', 'booking-bill-cancel-{{ pk }}')">Cancel Bill</button>
+{% endif %}
 {% if row.can_refund_fee %}
 <button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem"
         hx-get="{% url 'billing_late_fee_refund_form' row.late_fee.pk %}" hx-target="#refund-modal-body" hx-swap="innerHTML"

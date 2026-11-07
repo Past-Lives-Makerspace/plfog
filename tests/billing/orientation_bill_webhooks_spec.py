@@ -192,3 +192,19 @@ def describe_handle_orientation_bill_checkout_completed():
             assert "was cancelled before the payment landed" in mail.outbox[0].body
             booking.refresh_from_db()
             assert booking.amount_paid_cents == 0
+
+
+def describe_a_payment_after_cancel_bill():
+    def it_alerts_and_leaves_the_bill_cancelled():
+        from billing import orientation_bills
+
+        _billing_approver()
+        booking = _bill(stripe_session_id="cs_stale_tab")
+        actor = User.objects.create_user(username="hook_canceller", email="hook_canceller@example.com")
+        with patch("billing.stripe_utils.expire_checkout_session"):
+            orientation_bills.cancel_bill(booking, actor=actor)
+        mail.outbox.clear()
+        webhook_handlers.handle_orientation_bill_checkout_completed(_event(booking_id=booking.pk))
+        assert _orphan_alerts() == [_ORPHAN_SUBJECT]
+        booking.refresh_from_db()
+        assert (booking.bill_state, booking.amount_paid_cents) == ("cancelled", 0)

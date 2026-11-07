@@ -89,6 +89,9 @@ class BookingRow:
     #: The viewer's own unpaid bill (#1111): the row's Pay $X button and View Bill item.
     can_pay_bill: bool = False
     can_move: bool = False
+    #: Resend Bill and Cancel Bill (#1111 part 2): a staff row whose bill is still owed.
+    can_resend_bill: bool = False
+    can_cancel_bill: bool = False
     late_cancel_warning: str = ""
     #: The Waive modal's form, built only for a row that offers Waive Late Fee.
     waive_form: Any = None
@@ -103,7 +106,14 @@ class BookingRow:
     @property
     def has_money_item(self) -> bool:
         """Whether the staff menu's Money group has an item (so it gets a divider)."""
-        return self.can_refund or self.can_retry_refund or self.can_waive_fee or self.can_refund_fee
+        return (
+            self.can_refund
+            or self.can_retry_refund
+            or self.can_waive_fee
+            or self.can_refund_fee
+            or self.can_resend_bill
+            or self.can_cancel_bill
+        )
 
     @property
     def fee_unpaid(self) -> bool:
@@ -266,6 +276,7 @@ def build_row(
             and fee.refundable_cents > 0
         )
         row.can_cancel = status == OrientationBooking.Status.CONFIRMED and upcoming
+        row.can_resend_bill = row.can_cancel_bill = booking.bill_is_unpaid
         row.can_move = booking.is_movable
         if row.can_move:
             # Its own ids per row: every row's modal sits on one page (#853).

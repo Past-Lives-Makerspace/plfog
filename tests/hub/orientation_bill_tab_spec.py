@@ -690,3 +690,209 @@ def describe_refunding_a_paid_bill():
         refund = PaymentRefund.objects.get(orientation_booking=booking)
         assert (refund.amount_cents, refund.status) == (4000, PaymentRefund.Status.SUCCEEDED)
         assert world["type"].pk in world["target"].completed_orientation_type_ids([world["type"]])
+
+
+def describe_resend_and_cancel():
+    """Part 2: Resend Bill and Cancel Bill on a staff row, gated like recording."""
+
+    def _staff_bill(world: dict[str, Any], **fields: Any) -> OrientationBooking:
+        booking = _bill(world["target"], **fields)
+        OrientationBooking.objects.filter(pk=booking.pk).update(
+            orientation_type=world["type"], guild=world["type"].guild
+        )
+        booking.refresh_from_db()
+        return booking
+
+    def _resend(client: Client, booking: OrientationBooking) -> HttpResponse:
+        return client.post(reverse("hub_orientation_bill_resend", args=[booking.pk]), {"next": LANDING})
+
+    def _cancel(client: Client, booking: OrientationBooking) -> HttpResponse:
+        return client.post(reverse("hub_orientation_bill_cancel", args=[booking.pk]), {"next": LANDING})
+
+    def describe_the_menu():
+        def it_offers_both_on_an_unpaid_staff_row_with_their_confirms(client: Client):
+            world = _world(client)
+            booking = _staff_bill(world)
+            content = client.get(PAGE, {"view": "bookings", "show": "past"}).content.decode()
+            assert f'data-booking-bill-resend="{booking.pk}"' in content
+            assert f'data-booking-bill-cancel="{booking.pk}"' in content
+            assert f"booking-bill-resend-{booking.pk}" in content
+            assert f'action="{reverse("hub_orientation_bill_cancel", args=[booking.pk])}"' in content
+            assert "Cancel This Bill?" in content
+
+        @pytest.mark.parametrize(
+            "fields",
+            [{"paid_at": "now", "amount_paid_cents": 4000, "stripe_payment_id": "pi_m"}, {"bill_cancelled_at": "now"}],
+        )
+        def it_offers_neither_once_paid_or_cancelled(client: Client, fields: dict[str, Any]):
+            world = _world(client)
+            values = {key: timezone.now() if value == "now" else value for key, value in fields.items()}
+            _staff_bill(world, **values)
+            content = client.get(PAGE, {"view": "bookings", "show": "past"}).content.decode()
+            assert "data-booking-bill-resend" not in content
+            assert "data-booking-bill-cancel" not in content
+
+        def it_never_offers_them_on_the_members_own_row(client: Client):
+            member = _login(client, "bill_menu_member")
+            _bill(member)
+            content = client.get(PAGE, {"view": "bookings", "show": "past"}).content.decode()
+            assert "data-booking-bill-resend" not in content
+            assert "data-booking-bill-cancel" not in content
+
+    def describe_resend():
+        def it_sends_the_same_bill_email_again(client: Client):
+            world = _world(client)
+            booking = _staff_bill(world)
+            orientation_bills._send_bill_email(booking)
+            mail.outbox.clear()
+            response = _resend(client, booking)
+            assert response["Location"] == LANDING
+            assert [m.subject for m in mail.outbox] == ["Your bill for the Alpha Lathe orientation"]
+            assert orientation_bills.bill_url(booking) in mail.outbox[0].body
+            assert "Sent the $40 bill to Quincy Billee again." in _messages(response)
+            _resend(client, booking)
+            assert len(mail.outbox) == 2
+
+        def it_logs_no_activity_row(client: Client):
+            world = _world(client)
+            booking = _staff_bill(world)
+            before = SiteActivity.objects.count()
+            _resend(client, booking)
+            assert SiteActivity.objects.count() == before
+
+    def describe_cancel():
+        def it_cancels_the_bill_and_keeps_the_member_oriented(client: Client):
+            world = _world(client)
+            booking = _staff_bill(world)
+            mail.outbox.clear()
+            response = _cancel(client, booking)
+            assert response["Location"] == LANDING
+            assert "Cancelled the $40 bill for Quincy Billee." in _messages(response)
+            booking.refresh_from_db()
+            assert booking.bill_state == "cancelled"
+            assert booking.bill_cancelled_by == world["lead"].user
+            assert (booking.is_completed, booking.status) == (True, OrientationBooking.Status.CONFIRMED)
+            assert world["type"].pk in world["target"].completed_orientation_type_ids([world["type"]])
+            assert mail.outbox == []
+
+        def it_logs_one_cancelled_row_naming_the_actor(client: Client):
+            world = _world(client)
+            booking = _staff_bill(world)
+            _cancel(client, booking)
+            row = SiteActivity.objects.get(kind=SiteActivity.Kind.ORIENTATION_BILL_CANCELLED)
+            assert (row.actor, row.target, row.payload["amount_cents"]) == (world["lead"].user, booking, 4000)
+
+        def it_expires_the_open_checkout(client: Client):
+            world = _world(client)
+            booking = _staff_bill(world, stripe_session_id="cs_open_tab")
+            with patch("billing.stripe_utils.expire_checkout_session") as mock_expire:
+                _cancel(client, booking)
+            mock_expire.assert_called_once_with(session_id="cs_open_tab")
+
+        def it_leaves_the_member_a_cancelled_page_and_refuses_their_pay(client: Client):
+            world = _world(client)
+            booking = _staff_bill(world)
+            _cancel(client, booking)
+            member_client = Client()
+            member_client.force_login(world["target"].user)
+            content = member_client.get(reverse("hub_orientation_bill", args=[booking.pk])).content.decode()
+            assert 'data-orientation-bill-state="cancelled"' in content
+            assert "data-orientation-bill-pay" not in content
+            with patch("billing.stripe_utils.create_checkout_session") as mock_create:
+                response = member_client.post(reverse("hub_orientation_bill_pay", args=[booking.pk]))
+            assert response["Location"] == reverse("hub_orientation_bill", args=[booking.pk])
+            assert not mock_create.called
+            row = member_client.get(PAGE, {"view": "bookings", "show": "past"}).content.decode()
+            assert 'data-booking-bill="cancelled">Bill cancelled</span>' in row
+
+    def describe_who_may():
+        def it_lets_an_admin_act_on_any_guilds_bill(client: Client):
+            target = _account("bill_admin_target", "Ada Billee")
+            booking = _bill(target)
+            admin = _login(client, "bill_admin")
+            admin.fog_role = Member.FogRole.ADMIN
+            admin.save(update_fields=["fog_role"])
+            admin.sync_user_permissions()
+            _cancel(client, booking)
+            booking.refresh_from_db()
+            assert booking.bill_state == "cancelled"
+
+        def it_lets_an_equipment_manager_act_on_their_tools_bill(client: Client):
+            staffer = _login(client, "bill_tool_mgr")
+            tool = EquipmentFactory(name="Managed Bill Lathe")
+            EquipmentStaffMembershipFactory(equipment=tool, member=staffer)
+            tool_type = OrientationTypeFactory(equipment_owned=True, equipment=tool, name="Managed Bill Basics")
+            booking = _bill(_account("bill_tool_target", "Tia Billee"))
+            OrientationBooking.objects.filter(pk=booking.pk).update(orientation_type=tool_type, guild=None)
+            mail.outbox.clear()
+            _resend(client, booking)
+            assert len(mail.outbox) == 1
+
+        @pytest.mark.parametrize("action", ["resend", "cancel"])
+        def it_refuses_another_guilds_orientor_and_writes_nothing(client: Client, action: str):
+            world = _world(client)
+            outsider_client = Client()
+            outsider = _login(outsider_client, f"bill_outsider_{action}")
+            GuildStaffMembershipFactory(guild=world["other_type"].guild, member=outsider)
+            booking = _staff_bill(world)
+            mail.outbox.clear()
+            response = (_resend if action == "resend" else _cancel)(outsider_client, booking)
+            assert response.status_code == 403
+            booking.refresh_from_db()
+            assert booking.bill_state == "unpaid"
+            assert mail.outbox == []
+            assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_BILL_CANCELLED).exists()
+
+        @pytest.mark.parametrize("action", ["resend", "cancel"])
+        def it_refuses_a_plain_member_even_the_billed_one(client: Client, action: str):
+            world = _world(client)
+            booking = _staff_bill(world)
+            member_client = Client()
+            member_client.force_login(world["target"].user)
+            mail.outbox.clear()
+            response = (_resend if action == "resend" else _cancel)(member_client, booking)
+            assert response.status_code == 403
+            booking.refresh_from_db()
+            assert booking.bill_state == "unpaid"
+            assert mail.outbox == []
+
+        @pytest.mark.parametrize("action", ["resend", "cancel"])
+        @pytest.mark.parametrize("state", ["paid", "cancelled"])
+        def it_refuses_a_bill_no_longer_owed_and_writes_nothing(client: Client, action: str, state: str):
+            world = _world(client)
+            fields: dict[str, Any] = (
+                {"paid_at": timezone.now(), "amount_paid_cents": 4000, "stripe_payment_id": "pi_x"}
+                if state == "paid"
+                else {"bill_cancelled_at": timezone.now()}
+            )
+            booking = _staff_bill(world, **fields)
+            before = (booking.paid_at, booking.bill_cancelled_at, booking.bill_cancelled_by_id)
+            mail.outbox.clear()
+            response = (_resend if action == "resend" else _cancel)(client, booking)
+            assert response["Location"] == LANDING
+            assert "This bill has nothing left to pay." in _messages(response)
+            booking.refresh_from_db()
+            assert (booking.paid_at, booking.bill_cancelled_at, booking.bill_cancelled_by_id) == before
+            assert mail.outbox == []
+            assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_BILL_CANCELLED).exists()
+
+        def it_404s_a_booking_that_is_not_a_bill(client: Client):
+            world = _world(client)
+            plain = OrientationBookingFactory(
+                member=world["target"],
+                slot=OrientationSlotFactory(guild=world["type"].guild, orientation_type=world["type"]),
+            )
+            assert _cancel(client, plain).status_code == 404
+            assert _resend(client, plain).status_code == 404
+
+        @pytest.mark.parametrize("name", ["hub_orientation_bill_resend", "hub_orientation_bill_cancel"])
+        def it_rejects_get(client: Client, name: str):
+            world = _world(client)
+            booking = _staff_bill(world)
+            assert client.get(reverse(name, args=[booking.pk])).status_code == 405
+
+        def it_falls_back_to_the_past_list_without_a_next(client: Client):
+            world = _world(client)
+            booking = _staff_bill(world)
+            response = client.post(reverse("hub_orientation_bill_cancel", args=[booking.pk]))
+            assert response["Location"] == "/orientations/?view=bookings&show=past"

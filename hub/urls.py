@@ -241,6 +241,16 @@ urlpatterns = [
         name="hub_orientation_bill_pay",
     ),
     path(
+        "orientation/bills/<int:booking_pk>/resend/",
+        orientations_views.hub_orientation_bill_resend,
+        name="hub_orientation_bill_resend",
+    ),
+    path(
+        "orientation/bills/<int:booking_pk>/cancel/",
+        orientations_views.hub_orientation_bill_cancel,
+        name="hub_orientation_bill_cancel",
+    ),
+    path(
         "orientation/bills/return/<str:token>/",
         orientations_views.hub_orientation_bill_return,
         name="hub_orientation_bill_return",

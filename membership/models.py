@@ -16716,6 +16716,19 @@ class OrientationBooking(models.Model):
         if not self.bill_is_unpaid:
             raise OrientationError("This bill has nothing left to pay.")
 
+    def cancel_bill(self, *, by: User | None) -> None:
+        """Cancel an unpaid bill (#1111 part 2): nothing is owed any more; the orientation stays.
+
+        The caller holds the row lock. Only the bill columns change, so the member stays oriented.
+
+        Raises:
+            OrientationError: When the bill is already paid or cancelled.
+        """
+        self.ensure_bill_payable()
+        self.bill_cancelled_at = timezone.now()
+        self.bill_cancelled_by = by
+        self.save(update_fields=["bill_cancelled_at", "bill_cancelled_by"])
+
     def next_bill_checkout_attempt(self) -> int:
         """Count one more Pay click and return it, saved before any Stripe call (the idempotency key).
 

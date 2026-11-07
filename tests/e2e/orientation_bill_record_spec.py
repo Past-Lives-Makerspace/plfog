@@ -112,3 +112,26 @@ def describe_send_a_bill():
         _pick(dialog, world["priced"])
         expect(dialog.locator("#orientation-record-bill_amount")).to_be_visible()
         page.wait_for_function(NO_SIDEWAYS_SCROLL)
+
+
+def describe_cancel_bill():
+    def it_cancels_from_the_row_menu_through_its_confirm(live_server, page, login_via_code):
+        world = _world(login_via_code)
+        dialog = _open(page, live_server)
+        dialog.locator("#orientation-record-member").fill("Bryn Billable")
+        _pick(dialog, world["priced"])
+        dialog.locator("[data-bookings-record-submit]").click()
+        row = page.locator("[data-booking-row]").filter(has_text="Bryn Billable")
+        expect(row.locator('[data-booking-bill="unpaid"]')).to_have_text("Unpaid $40")
+
+        row.get_by_role("button", name="Actions for Bryn Billable").click()
+        row.get_by_role("menuitem", name="Cancel Bill").click()
+        confirm = page.get_by_role("dialog").filter(has_text="Cancel This Bill?")
+        expect(confirm).to_be_visible()
+        confirm.get_by_role("button", name="Cancel Bill").click()
+
+        row = page.locator("[data-booking-row]").filter(has_text="Bryn Billable")
+        expect(row.locator('[data-booking-bill="cancelled"]')).to_have_text("Bill cancelled")
+        booking = OrientationBooking.objects.get(member=world["target"])
+        assert booking.bill_state == "cancelled"
+        assert booking.is_completed is True

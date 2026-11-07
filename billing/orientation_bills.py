@@ -174,8 +174,12 @@ def send_bill(
     return booking
 
 
-def _send_bill_email(booking: OrientationBooking) -> None:
-    """The member's bill: the ``billing.orientation_bill`` event, its email forced."""
+def _send_bill_email(booking: OrientationBooking, *, period: str = "") -> None:
+    """The member's bill: the ``billing.orientation_bill`` event, its email forced.
+
+    ``period`` is the emit's idempotency bucket: the first send's own by default, so a retried
+    send never mails twice; a resend passes a fresh one so it is not taken for that send.
+    """
     from core.events.emit import emit
 
     member = booking.member
@@ -194,8 +198,51 @@ def _send_bill_email(booking: OrientationBooking) -> None:
             "bill_url": bill_url(booking),
         },
         url=reverse("hub_orientation_bill", args=[booking.pk]),
-        period=f"orientation_bill:{booking.pk}:sent",
+        period=period or f"orientation_bill:{booking.pk}:sent",
     )
+
+
+def resend_bill(booking: OrientationBooking) -> None:
+    """Send the same bill email again (#1111 part 2), while the bill is still owed.
+
+    No activity row: nothing about the bill changes, and the email log records the send.
+
+    Raises:
+        OrientationError: When the bill is paid or cancelled.
+    """
+    booking.ensure_bill_payable()
+    _send_bill_email(booking, period=f"orientation_bill:{booking.pk}:resent:{timezone.now().isoformat()}")
+
+
+def cancel_bill(booking: OrientationBooking, *, actor: User) -> OrientationBooking:
+    """Cancel an unpaid bill (#1111 part 2): nothing is owed, the member stays oriented.
+
+    Under the booking row lock, so a payment landing at the same moment wins or loses cleanly
+    (a paid bill is refunded, never cancelled). Logs one ``ORIENTATION_BILL_CANCELLED`` row
+    naming ``actor``. After the commit the bill's open Checkout is expired best effort, so a
+    Stripe tab left open cannot pay it; should one pay anyway, the webhook alerts the Billing
+    Administrators. The member is not emailed: the bill's page reads cancelled.
+
+    Raises:
+        OrientationError: When the bill is already paid or cancelled.
+    """
+    from membership.orientations import locked_booking_queryset
+
+    with transaction.atomic():
+        locked = locked_booking_queryset().get(pk=booking.pk)
+        locked.cancel_bill(by=actor)
+        SiteActivity.log(
+            SiteActivity.Kind.ORIENTATION_BILL_CANCELLED,
+            actor=actor,
+            target=locked,
+            payload={
+                "orientation_type": locked.orientation_type.name,
+                "owner": locked.orientation_type.owner_name,
+                "amount_cents": locked.bill_amount_cents,
+            },
+        )
+    _expire_session_best_effort(locked)
+    return locked
 
 
 def _expire_session_best_effort(booking: OrientationBooking) -> None:
