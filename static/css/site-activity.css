@@ -1,4 +1,4 @@
-/* Manage > Site Activity's filter row and count line (#1112), loaded by hub/admin/activity.html.
+/* Manage > Site Activity's filter rows and count lines (#1112 Email Log, #1114 Activity Feed), loaded by hub/admin/activity.html.
    The fields are .hub-form-group controls (FRONTEND.md rule 13); this file only lays them out.
    Desktop: one row that wraps. Phone: each field full width, From and To side by side. */
 
@@ -20,6 +20,10 @@
 /* Rule 28: an address stops at a readable width. */
 .pl-activity-filters__field--wide {
     flex-basis: 18rem;
+}
+/* Fits the longest category name, "Classes and teaching", without clipping. */
+.pl-activity-filters__field--category {
+    flex-basis: 14rem;
 }
 
 .pl-activity-filters__field--date {

@@ -651,6 +651,8 @@ _ACTIVITY_TAB_FOR_TARGET = {"activity.email-search": "emails"}
 @staff_member_required
 def site_activity(request: HttpRequest) -> HttpResponse:
     """Staff dashboard: a site-wide event feed, an email audit log and the Email Queue (#894)."""
+    from core.activity_feed_filters import ActivityFeedFilterForm
+    from core.activity_feed_filters import count_line as feed_count_line
     from core.email_log_filters import EmailLogFilterForm, count_line, type_choices
     from core.services.email_queue import DigestQueue, sent_digests
 
@@ -661,16 +663,12 @@ def site_activity(request: HttpRequest) -> HttpResponse:
         tab = "feed"
     now = timezone.now()
 
-    activities = SiteActivity.objects.select_related("actor", "target_ct", "email_log").all()
-    kind = request.GET.get("kind", "").strip()
-    if kind:
-        activities = activities.filter(kind=kind)
-    actor_q = request.GET.get("actor", "").strip()
-    if actor_q:
-        activities = activities.filter(actor__email__icontains=actor_q)
+    feed_filters = ActivityFeedFilterForm(request.GET)
     # The feed names each row's person (SiteActivity.who): the actor's member, or a
     # registration target's registrant, so both are fetched with the page.
-    activities = activities.select_related("actor__member").prefetch_related("target")
+    activities = feed_filters.filter(
+        SiteActivity.objects.select_related("actor__member", "target_ct", "email_log")
+    ).prefetch_related("target")
     feed_page = Paginator(activities, 50).get_page(request.GET.get("page"))
 
     email_filters = EmailLogFilterForm(request.GET)
@@ -684,9 +682,8 @@ def site_activity(request: HttpRequest) -> HttpResponse:
             "active_tab": tab,
             "feed_page": feed_page,
             "email_page": email_page,
-            "kinds": SiteActivity.Kind.choices,
-            "kind": kind,
-            "actor_q": actor_q,
+            "feed_filters": feed_filters,
+            "feed_count_line": feed_count_line(feed_page.paginator.count),
             "email_filters": email_filters,
             "email_types": type_choices(),
             "email_count_line": count_line(emails),
