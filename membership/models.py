@@ -16791,6 +16791,12 @@ class OrientationBooking(models.Model):
         step = sum(1 for threshold in self.BILL_REMINDER_DAYS if days >= threshold)
         return step if step > self.bill_reminder_step else 0
 
+    def bill_reminder_due_on(self, step: int) -> date_type:
+        """The local day reminder ``step`` (1 based) fell due: ``billed_at``'s day plus its days."""
+        return timezone.localdate(cast(datetime_type, self.billed_at)) + timedelta(
+            days=self.BILL_REMINDER_DAYS[step - 1]
+        )
+
     @classmethod
     def is_last_bill_reminder(cls, step: int) -> bool:
         """Whether ``step`` is the final reminder, the one that also tells the orientor."""

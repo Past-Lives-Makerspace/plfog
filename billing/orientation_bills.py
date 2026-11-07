@@ -290,24 +290,53 @@ def _tell_orientor_unpaid(booking: OrientationBooking) -> None:
 
 @dataclass(frozen=True)
 class ReminderRun:
-    """What one daily pass did: reminders sent, and bills whose reminder failed and waits for the next run."""
+    """What one daily pass did: reminders sent, failed (retried next run) and skipped for good."""
 
     sent: int
     failed: int
+    skipped: int
+
+
+#: How many days after a step's due day a refused or raised send is still retried (and fails the run).
+REMINDER_RETRY_DAYS = 2
+
+
+def _put_back_or_give_up(pk: int, *, step: int, previous: int, today: date, due_on: date) -> bool:
+    """After a send that did not go out: put the step back for a retry while within the grace, else keep it.
+
+    Returns:
+        True when the step was put back (the bill counts as failed); False when the grace has
+        run out, so the step stays recorded and one dead address cannot keep the job failing.
+    """
+    from membership.models import OrientationBooking
+
+    if (today - due_on).days <= REMINDER_RETRY_DAYS:
+        OrientationBooking.undo_bill_reminder(pk, step=step, previous=previous)
+        return True
+    logger.warning(
+        "Orientation bill %s: reminder %s still could not be sent %s days after it was due; giving up on it.",
+        pk,
+        step,
+        (today - due_on).days,
+    )
+    return False
 
 
 def _remind(pk: int, today: date) -> str:
-    """Send one bill the reminder due ``today``: ``"sent"``, ``"skipped"`` or ``"failed"``.
+    """Send one bill the reminder due ``today``: ``"sent"``, ``"skipped"``, ``"failed"`` or ``"not_due"``.
 
     The step is saved under the row lock first, so a rerun or a second tick never sends it
     again. The bill is read again just before the email; one paid or cancelled in the gap is
-    skipped with the step left recorded. When the member's email does not go out, or the send
-    raises, the step goes back to what it was, so the next run tries again. The orientor hears
-    only after the member's last reminder really went out.
+    skipped with the step left recorded, and so is a member with no address to email (logged
+    once, since the step is kept). When the email does not go out, or the send raises, within
+    :data:`REMINDER_RETRY_DAYS` of the step's due day, the step goes back so the next run tries
+    again; past that it is kept and the bill is skipped. The orientor hears only after the
+    member's last reminder really went out, and a failure there is logged, never the bill's.
 
     Raises:
-        Exception: Whatever the send raised, after the step is put back.
+        Exception: Whatever the send raised within the retry days, after the step is put back.
     """
+    from core.events.channels import notification_email_for
     from membership.models import OrientationBooking
     from membership.orientations import locked_booking_queryset
 
@@ -315,23 +344,34 @@ def _remind(pk: int, today: date) -> str:
         locked = locked_booking_queryset().get(pk=pk)
         step = locked.bill_reminder_due(today)
         if not step:
-            return "skipped"
+            return "not_due"
         previous = locked.bill_reminder_step
         locked.record_bill_reminder(step)
     booking = bills().get(pk=pk)
     if not booking.bill_is_unpaid:
         return "skipped"
+    user = booking.member.user
+    if user is None or not notification_email_for(user).strip():
+        logger.warning("Orientation bill %s: the member has no email address, so reminder %s is skipped.", pk, step)
+        return "skipped"
+    due_on = booking.bill_reminder_due_on(step)
     try:
         delivered = _send_reminder_email(booking, step)
     except Exception:
-        OrientationBooking.undo_bill_reminder(pk, step=step, previous=previous)
-        raise
+        if _put_back_or_give_up(pk, step=step, previous=previous, today=today, due_on=due_on):
+            raise
+        logger.exception("Orientation bill %s: reminder %s raised past its retry days.", pk, step)
+        return "skipped"
     if not delivered:
-        OrientationBooking.undo_bill_reminder(pk, step=step, previous=previous)
-        logger.warning("Orientation bill %s: reminder %s was not delivered; the next run tries again.", pk, step)
-        return "failed"
+        if _put_back_or_give_up(pk, step=step, previous=previous, today=today, due_on=due_on):
+            logger.warning("Orientation bill %s: reminder %s was not delivered; the next run tries again.", pk, step)
+            return "failed"
+        return "skipped"
     if OrientationBooking.is_last_bill_reminder(step):
-        _tell_orientor_unpaid(booking)
+        try:
+            _tell_orientor_unpaid(booking)
+        except Exception:
+            logger.exception("Orientation bill %s: could not tell the orientor it is still unpaid.", pk)
     return "sent"
 
 
@@ -346,12 +386,12 @@ def send_due_reminders() -> ReminderRun:
     Resend Bill never moves the step. One bill failing is logged and never stops the rest.
 
     Returns:
-        How many reminders went out and how many failed (retried on the next run).
+        How many reminders went out, failed (retried on the next run) and were skipped.
     """
     from membership.models import OrientationBooking
 
     today = timezone.localdate()
-    sent = failed = 0
+    sent = failed = skipped = 0
     for pk in list(OrientationBooking.objects.bills_awaiting_reminder(today).values_list("pk", flat=True)):
         try:
             outcome = _remind(pk, today)
@@ -360,7 +400,8 @@ def send_due_reminders() -> ReminderRun:
             outcome = "failed"
         sent += outcome == "sent"
         failed += outcome == "failed"
-    return ReminderRun(sent=sent, failed=failed)
+        skipped += outcome == "skipped"
+    return ReminderRun(sent=sent, failed=failed, skipped=skipped)
 
 
 def cancel_bill(booking: OrientationBooking, *, actor: User) -> OrientationBooking:

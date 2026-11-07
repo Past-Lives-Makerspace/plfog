@@ -22,7 +22,7 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         run = send_due_reminders()
-        self.stdout.write(f"Sent {run.sent} orientation bill reminder(s).")
+        self.stdout.write(f"Sent {run.sent} orientation bill reminder(s); skipped {run.skipped}.")
         if run.failed:
             # Fail the run so the Webmasters hear; each failed bill kept its old step and is retried.
             raise CommandError(f"{run.failed} orientation bill reminder(s) failed and will be tried again.")
