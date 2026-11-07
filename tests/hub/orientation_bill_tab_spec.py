@@ -588,7 +588,10 @@ def describe_the_bookings_tab_row():
 
     def it_shows_staff_an_unpaid_chip(client: Client):
         content = _staff_row(client)
-        assert '<span class="hub-pill hub-pill--warn" data-booking-bill="unpaid" data-guidance-target="orientations.bill">Unpaid $40</span>' in content
+        assert (
+            '<span class="hub-pill hub-pill--warn" data-booking-bill="unpaid" data-guidance-target="orientations.bill">Unpaid $40</span>'
+            in content
+        )
         assert "data-booking-bill-pay" not in content
 
     def it_shows_staff_a_paid_chip(client: Client):
