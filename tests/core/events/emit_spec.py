@@ -29,6 +29,13 @@ def describe_emit():
             emit("class_reminder", context={"member": member}, title="t", body="b")
             assert not SiteActivity.objects.exists()
 
+        def it_writes_no_activity_row_when_the_sender_already_logged_it(linked_member):
+            # A sender splitting one event into several emits logs the row once (#1127).
+            actor = User.objects.create_user(username="actor_quiet", email="actor_quiet@example.com")
+            linked_member()
+            emit("site_announcement", actor=actor, context={}, title="t", body="b", log_activity=False)
+            assert not SiteActivity.objects.exists()
+
     def describe_fan_out():
         def it_creates_in_app_rows_for_resolved_recipients(linked_member):
             member = linked_member()

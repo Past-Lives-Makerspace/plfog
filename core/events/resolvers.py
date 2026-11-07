@@ -347,19 +347,53 @@ def guild_orienters_or_equipment_managers(context: dict[str, Any]) -> list[Recip
     * equipment-owned: :func:`equipment_managers` (the item's managers plus its guild's
       leadership, with its own personal-slot narrowing and an Equipment Administrator
       fallback only for equipment nobody runs);
-    * a guild's personal slot: :func:`guild_orienters`, which narrows to the orientor
-      the member booked plus the guild lead;
-    * a guild's shared slot: :func:`guild_leadership`, the whole team (lead, co-leads,
-      secretaries, treasurers, orientors), because any of them can confirm it.
+    * guild-owned: :func:`guild_request_orientors`, the Orientors who act on it (#1127).
 
-    ``guild_orienters`` itself stays lead-plus-orientors for its other callers. A context
-    carrying neither ``equipment`` nor ``guild`` fails loudly in the delegated resolver.
+    It decides who is told, never who may act: confirming, declining and opening a booking
+    are :meth:`membership.models.OrientationBooking.may_be_run_by` and the hub's gate.
+    A context carrying neither ``equipment`` nor ``guild`` fails loudly in the delegated
+    resolver.
     """
     if context.get("equipment") is not None:
         return equipment_managers(context)
+    return guild_request_orientors(context)
+
+
+def guild_request_orientors(context: dict[str, Any]) -> list[Recipient]:
+    """GUILD-SCOPED — who is told about a guild orientation request and its messages (#1127).
+
+    * a personal slot: the Orientor the member booked, alone, while they still run this
+      guild's orientations (:func:`_runs_guild_orientations`). Leaving the staff keeps their
+      booked slots, so after that the slot is treated as shared;
+    * a shared slot, a member's proposed time or no slot in context: every Active staff
+      member holding the Orientor role.
+
+    The guild lead hears about the outcome instead (``orientation.confirmed_to_lead``).
+    A request is never unheard: when that audience reaches nobody (no Orientor, or none
+    with an account) it goes to the guild lead, and with no reachable lead either to the
+    whole :func:`guild_leadership`. A missing ``guild`` key fails loudly.
+    """
+    from membership.models import GuildStaffMembership, Member
+
+    guild: Guild = _require(context, "guild")
     slot = context.get("slot")
-    if slot is not None and slot.orienter_id is not None:
-        return guild_orienters(context)
+    if (
+        slot is not None
+        and slot.orienter_id is not None
+        and slot.orienter is not None
+        and _runs_guild_orientations(guild, slot.orienter)
+    ):
+        orientors = _members_to_recipients([slot.orienter], "guild_orienter")
+    else:
+        rows = guild.staff_memberships.select_related("member__user").filter(
+            role=GuildStaffMembership.Role.ORIENTER, member__status=Member.Status.ACTIVE
+        )
+        orientors = _members_to_recipients([row.member for row in rows], "guild_orienter")
+    if orientors:
+        return orientors
+    lead = guild_lead(context)
+    if lead:
+        return lead
     return guild_leadership(context)
 
 
@@ -395,6 +429,20 @@ def guild_orienters(context: dict[str, Any]) -> list[Recipient]:
             members.append(staff.member)
             seen.add(staff.member_id)
     return _members_to_recipients(members, "guild_orienter")
+
+
+def _runs_guild_orientations(guild: Guild, member: Member) -> bool:
+    """Whether ``member`` still runs ``guild``'s orientations: Active, and its lead or on its staff.
+
+    The rule :meth:`membership.models.OrientationSlot.is_bookable` applies to a personal slot,
+    plus Active, so a removed, former or deleted Orientor's still booked slot is not theirs to
+    hear about. Replaceable by ``member.pk in guild.orientor_ids()`` once that lands (#1129).
+    """
+    from membership.models import Member
+
+    if member.status != Member.Status.ACTIVE:
+        return False
+    return member.pk in {leader.pk for leader in guild.leadership_members()}
 
 
 def orientation_runner(context: dict[str, Any]) -> list[Recipient]:

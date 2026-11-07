@@ -104,7 +104,7 @@ No stretched name link: the Book buttons are the tap targets.
         <p class="pl-orient-card__note">Propose your own time and a manager will confirm it.</p>
         <form method="post" action="{% url 'hub_equipment_orientation_request_custom' sec.type.equipment.slug %}" class="hub-form" hx-boost="false">
         {% else %}
-        <p class="pl-orient-card__note">Propose your own time and the guild lead will confirm it.</p>
+        <p class="pl-orient-card__note">Propose your own time and an Orientor will confirm it.</p>
         <form method="post" action="{% url 'hub_guild_orientation_request_custom' sec.type.guild.pk %}" class="hub-form" hx-boost="false">
         {% endif %}
           {% csrf_token %}

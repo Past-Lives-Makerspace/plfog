@@ -3244,7 +3244,13 @@ def orientation_action(request: HttpRequest, token: str) -> HttpResponse:
         return render(request, "hub/orientation_action.html", {"invalid": True}, status=400)
     proposal = orientations.read_action_proposal(token)
     result = (
-        orientations.apply_token_action(booking, action, recipient=recipient, proposal=proposal)
+        orientations.apply_token_action(
+            booking,
+            action,
+            recipient=recipient,
+            proposal=proposal,
+            addressed=orientations.read_action_addressed(token),
+        )
         if request.method == "POST"
         else None
     )

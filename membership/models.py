@@ -17043,9 +17043,10 @@ class OrientationBooking(models.Model):
 class OrientationBookingMessage(ThreadMessage):
     """One message on an :class:`OrientationBooking`'s thread, between the member and its orientors.
 
-    The member side is the booking's member; the staff side is whoever may run the booking: the
-    audience ``orientation_requested`` reaches (a guild's leadership or orienter, an equipment's
-    managers) and admins. A note carried over from the old ``lead_note`` has no author and signs
+    The member side is the booking's member; the staff side is whoever may run the booking
+    (:meth:`OrientationBooking.may_be_run_by`: a guild's lead and staff with orientation powers, an
+    equipment's managers, admins). Who is told of a member's message is narrower: the audience
+    ``orientation_requested`` reaches (a guild's Orientors, an equipment's managers). A note carried over from the old ``lead_note`` has no author and signs
     as the guild or the equipment (:attr:`staff_signature`).
     """
 
@@ -17079,7 +17080,7 @@ class OrientationBookingMessage(ThreadMessage):
         """Who a member's message reaches: the request's audience, plus staff who wrote here, minus the author.
 
         The audience is the ``orientation_requested`` resolver's (a guild's shared slot reaches
-        its whole leadership, a personal slot its orienter and the lead, equipment its managers).
+        its Orientors, else its lead; a personal slot its orienter alone; equipment its managers).
         Anyone else on the staff side who has written on this thread (an admin, say) hears the
         answer to what they wrote, while they still run the booking
         (:meth:`OrientationBooking.may_be_run_by`): a demoted admin or an orientor taken off staff

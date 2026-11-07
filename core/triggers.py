@@ -118,9 +118,10 @@ TRIGGERS: list[Trigger] = [
     Trigger(
         "orientation_requested",
         "Orientation requested",
-        "Someone requested an orientation for a guild you lead.",
+        "A member requested an orientation you run.",
         "Orientations",
-        email_default=True,
+        # #1127: the Orientor who has to act must get it, so the email cannot be switched off.
+        force_email=True,
     ),
     Trigger(
         "orientation_update",

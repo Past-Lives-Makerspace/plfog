@@ -744,6 +744,8 @@ def describe_padlocked_rows():
         "classes.orphaned_payment_alert",
         "billing.late_fee_orphan_payment",
         "membership.orientation_orphan_payment",
+        # The request reaches only the Orientors who must act on it (#1127).
+        "orientation_requested",
     }
 
     def _email_cell(user, event_key):
