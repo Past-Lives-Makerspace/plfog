@@ -2314,6 +2314,7 @@ SITE_ACTIVITY_CATEGORIES: dict[str, tuple[str, tuple[SiteActivity.Kind, ...]]] =
         ),
     ),
 }
+del _Kind
 
 
 @dataclass(frozen=True)

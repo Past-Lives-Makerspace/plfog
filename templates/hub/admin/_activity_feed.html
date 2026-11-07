@@ -29,12 +29,12 @@
   </div>
   <div class="hub-form-group pl-activity-filters__field pl-activity-filters__field--date">
     <label for="activity-feed-from">From</label>
-    <input type="date" id="activity-feed-from" name="date_from" value="{{ feed_filters.data.date_from }}" class="pl-activity-filters__date"
+    <input type="date" id="activity-feed-from" name="feed_from" value="{{ feed_filters.data.feed_from }}" class="pl-activity-filters__date"
            @click="(() => { try { $el.showPicker() } catch (e) {} })()">
   </div>
   <div class="hub-form-group pl-activity-filters__field pl-activity-filters__field--date">
     <label for="activity-feed-to">To</label>
-    <input type="date" id="activity-feed-to" name="date_to" value="{{ feed_filters.data.date_to }}" class="pl-activity-filters__date"
+    <input type="date" id="activity-feed-to" name="feed_to" value="{{ feed_filters.data.feed_to }}" class="pl-activity-filters__date"
            @click="(() => { try { $el.showPicker() } catch (e) {} })()">
   </div>
   <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary pl-activity-filters__submit">Filter</button>

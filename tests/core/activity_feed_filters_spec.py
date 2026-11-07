@@ -86,12 +86,12 @@ def describe_ActivityFeedFilterForm():
         def it_ignores_a_malformed_date_but_keeps_the_other_filters():
             SiteActivity.log(SiteActivity.Kind.LOGIN)
             SiteActivity.log(SiteActivity.Kind.LOGOUT)
-            form = ActivityFeedFilterForm({"kind": "login", "date_from": "not-a-date"})
+            form = ActivityFeedFilterForm({"kind": "login", "feed_from": "not-a-date"})
             assert _kinds(form) == {"login"}
 
         def it_skips_a_to_bound_on_the_last_representable_day():
             SiteActivity.log(SiteActivity.Kind.LOGIN)
-            form = ActivityFeedFilterForm({"date_to": date.max.isoformat()})
+            form = ActivityFeedFilterForm({"feed_to": date.max.isoformat()})
             assert _kinds(form) == {"login"}
             assert form.has_other_filters
 
@@ -104,7 +104,7 @@ def describe_ActivityFeedFilterForm():
             assert form.empty_message() == "No activity by Zoe matches these filters."
 
         def it_says_the_filters_matched_nothing_without_a_person():
-            assert ActivityFeedFilterForm({"date_from": "2026-11-06"}).empty_message() == (
+            assert ActivityFeedFilterForm({"feed_from": "2026-11-06"}).empty_message() == (
                 "No activity matches these filters."
             )
 

@@ -39,8 +39,10 @@ class ActivityFeedFilterForm(forms.Form):
     # showing the whole feed as if it were the answer. A long value simply matches nothing.
     kind = forms.CharField(required=False)
     person = forms.CharField(required=False)
-    date_from = forms.DateField(required=False)
-    date_to = forms.DateField(required=False)
+    # Not date_from/date_to: the Email Log's form reads those from the same page's GET, and
+    # every tab renders at once, so a shared name would let one tab's dates empty the other.
+    feed_from = forms.DateField(required=False)
+    feed_to = forms.DateField(required=False)
 
     def __init__(self, data: Mapping[str, Any]) -> None:
         # items() gives a QueryDict's last value per key, as reading one key would.
@@ -82,7 +84,7 @@ class ActivityFeedFilterForm(forms.Form):
     @property
     def has_other_filters(self) -> bool:
         """Whether a category, event or date bound narrows the feed besides the person."""
-        return bool(self.category_value or self.kind_value or self._date("date_from") or self._date("date_to"))
+        return bool(self.category_value or self.kind_value or self._date("feed_from") or self._date("feed_to"))
 
     def event_groups(self) -> list[EventGroup]:
         """The Event select's options under their category: only the chosen category's, when there is one."""
@@ -109,11 +111,11 @@ class ActivityFeedFilterForm(forms.Form):
                 | Q(actor__member__preferred_name__icontains=person)
                 | Q(actor__member__full_legal_name__icontains=person)
             )
-        if date_from := self._date("date_from"):
-            activities = activities.filter(created_at__gte=start_of_pacific_day(date_from))
+        if feed_from := self._date("feed_from"):
+            activities = activities.filter(created_at__gte=start_of_pacific_day(feed_from))
         # The last representable day has no next midnight; every row is before it anyway.
-        if (date_to := self._date("date_to")) and date_to < date.max:
-            activities = activities.filter(created_at__lt=start_of_pacific_day(date_to + timedelta(days=1)))
+        if (feed_to := self._date("feed_to")) and feed_to < date.max:
+            activities = activities.filter(created_at__lt=start_of_pacific_day(feed_to + timedelta(days=1)))
         return activities
 
     def empty_message(self) -> str:

@@ -357,11 +357,11 @@ def describe_activity_feed_filters():
         _log_at(SiteActivity.Kind.VOTE_SUBMITTED, _pacific(2026, 11, 5, 0, 10))
         _log_at(SiteActivity.Kind.VOTE_CHANGED, _pacific(2026, 11, 6, 23, 59))
         _log_at(SiteActivity.Kind.LOGOUT, _pacific(2026, 11, 7, 0, 1))
-        resp = _feed(client, date_from="2026-11-05", date_to="2026-11-06")
+        resp = _feed(client, feed_from="2026-11-05", feed_to="2026-11-06")
         assert _feed_kinds(resp) == {"vote_submitted", "vote_changed"}
         content = resp.content.decode()
-        assert 'name="date_from" value="2026-11-05"' in content
-        assert 'name="date_to" value="2026-11-06"' in content
+        assert 'name="feed_from" value="2026-11-05"' in content
+        assert 'name="feed_to" value="2026-11-06"' in content
 
     def it_counts_the_filtered_feed_above_the_list(client):
         for _ in range(3):
@@ -390,18 +390,61 @@ def describe_activity_feed_filters():
             _log_at(SiteActivity.Kind.VOTE_SUBMITTED, _pacific(2026, 11, 5, 12, 0))
             _log_at(SiteActivity.Kind.LOGIN, _pacific(2026, 11, 5, 12, 0), actor=voter)
         _log_at(SiteActivity.Kind.VOTE_SUBMITTED, _pacific(2026, 11, 8, 12, 0), actor=voter)
-        params = {"category": "voting", "person": "pager person", "date_from": "2026-11-05", "date_to": "2026-11-06"}
+        params = {"category": "voting", "person": "pager person", "feed_from": "2026-11-05", "feed_to": "2026-11-06"}
         first = _feed(client, **params, show="admin.site-activity").content.decode()
         assert _testid(first, "activity-feed-count") == "55 events"
         next_href = re.search(r'href="([^"]*)">Next</a>', first).group(1).replace("&amp;", "&")
         assert "show=" not in next_href
-        for pair in ("tab=feed", "page=2", "category=voting", "person=pager+person", "date_from=2026-11-05"):
+        for pair in (
+            "tab=feed",
+            "page=2",
+            "category=voting",
+            "person=pager+person",
+            "feed_from=2026-11-05",
+            "feed_to=2026-11-06",
+        ):
             assert pair in next_href
         second = client.get(reverse("manage_activity") + next_href)
         assert len(second.context["feed_page"]) == 5
         assert {activity.actor_id for activity in second.context["feed_page"]} == {voter.pk}
         assert _feed_kinds(second) == {"vote_submitted"}
         assert "Page 2 of 2" in second.content.decode()
+
+
+def describe_feed_and_email_log_dates_stay_apart():
+    # Every tab renders in one page from one request.GET, so the two forms' dates must not share names.
+    @pytest.fixture(autouse=True)
+    def staff(client):
+        user = User.objects.create_user(
+            username="apart", email="apart-staff@example.com", password="pw12345!", is_staff=True
+        )
+        client.force_login(user)
+        return user
+
+    @pytest.fixture
+    def one_of_each():
+        _log_at(SiteActivity.Kind.LOGIN, _pacific(2026, 11, 5, 12, 0))
+        TransactionalEmailLogFactory(subject="Recent email kestrel", sent_at=_pacific(2026, 11, 5, 12, 0))
+
+    def it_leaves_the_feed_alone_when_the_email_log_has_dates(client, one_of_each):
+        resp = client.get(
+            reverse("manage_activity"), {"tab": "emails", "date_from": "2020-01-01", "date_to": "2020-01-02"}
+        )
+        assert _feed_kinds(resp) == {"login"}
+        assert len(resp.context["email_page"]) == 0
+        content = resp.content.decode()
+        assert 'name="feed_from" value=""' in content
+        assert 'name="feed_to" value=""' in content
+        assert 'name="date_from" value="2020-01-01"' in content
+
+    def it_leaves_the_email_log_alone_when_the_feed_has_dates(client, one_of_each):
+        resp = _feed(client, feed_from="2020-01-01", feed_to="2020-01-02")
+        assert _feed_kinds(resp) == set()
+        assert [email.subject for email in resp.context["email_page"]] == ["Recent email kestrel"]
+        content = resp.content.decode()
+        assert 'name="date_from" value=""' in content
+        assert 'name="date_to" value=""' in content
+        assert 'name="feed_from" value="2020-01-01"' in content
 
 
 def describe_admin_tools_activity_link():
