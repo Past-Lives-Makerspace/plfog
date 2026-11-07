@@ -12,9 +12,11 @@ from io import StringIO
 from unittest.mock import patch
 
 import pytest
+from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.utils import timezone
 
+from core.models import Notification
 from membership import orientations
 from membership.models import (
     GuildStaffMembership,
@@ -252,14 +254,23 @@ def describe_a_member_leaving_active():
 
     def it_clears_the_teaching_bell_only_when_the_save_writes_the_status():
         member = MemberFactory(teaching_applied_at=timezone.now())
-        with patch.object(Member, "clear_request_bells") as cleared:
-            member.status = Member.Status.FORMER
-            member.save(update_fields=["full_legal_name"])
-            assert cleared.call_count == 0
-            written = Member.objects.get(pk=member.pk)
-            written.status = Member.Status.FORMER
-            written.save(update_fields=["status"])
-            assert cleared.call_count == 1
+        reviewer = User.objects.create_user(username="bell-reviewer", email="bell-reviewer@example.com")
+        bell = Notification.objects.create(
+            user=reviewer,
+            trigger="instructor_application_received",
+            title="Teaching application",
+            body="A member applied to teach.",
+            url=member.request_bell_path,
+        )
+        member.status = Member.Status.FORMER
+        member.save(update_fields=["full_legal_name"])
+        bell.refresh_from_db()
+        assert bell.read_at is None
+        written = Member.objects.get(pk=member.pk)
+        written.status = Member.Status.FORMER
+        written.save(update_fields=["status"])
+        bell.refresh_from_db()
+        assert bell.read_at is not None
 
     def it_keeps_everything_on_an_ordinary_save(django_capture_on_commit_callbacks):
         orientor = MemberFactory()
