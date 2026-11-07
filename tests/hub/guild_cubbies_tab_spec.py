@@ -176,8 +176,11 @@ def describe_guild_settings():
         content = client.get(reverse("hub_guild_edit", args=[guild.pk])).content.decode()
         after = content.split(">Reservations</button>", 1)[1].lstrip()
         assert after.startswith("<button") and "data-cubbies-tab>Cubbies</button>" in after.split("\n", 1)[0]
-        section = content.split("data-cubbies-settings", 1)[1].split("</form>", 1)[0]
-        assert reverse("hub_guild_cubbies_settings_save", args=[guild.pk]) in section
+        # The settings form, not the Walkthrough button's own form before it (#1084).
+        block = content.split("data-cubbies-settings", 1)[1]
+        save_url = reverse("hub_guild_cubbies_settings_save", args=[guild.pk])
+        assert f'action="{save_url}"' in block
+        section = block[block.index(f'action="{save_url}"') :].split("</form>", 1)[0]
         assert "data-autosave" in section
         assert 'name="show_cubbies_tab"' in section
         assert 'type="submit"' not in section

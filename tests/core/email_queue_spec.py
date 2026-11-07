@@ -131,7 +131,10 @@ def describe_the_tab():
 
     def it_sits_after_email_log_inside_the_section_picker(staff_client: Client):
         html = _queue_html(staff_client)
-        assert html.index("Activity Feed") < html.index("Email Log") < html.index("Email Queue")
+        tabs = [
+            html.index(f'class="vote-tab">{label}</button>') for label in ("Activity Feed", "Email Log", "Email Queue")
+        ]
+        assert tabs == sorted(tabs)
         assert 'aria-label="Site Activity"' in html
         assert "data-tab-picker" in html or "pl-tab-picker" in html
 
@@ -375,7 +378,8 @@ def describe_coming_up_in_the_next_24_hours():
     ):
         shop.submit("Board One")
         _class_reminder(title="Cutting Board Basics", hours_from_now=2)
-        with django_assert_max_num_queries(40):
+        # 41: the New Members tab (#1115) builds its table on every Site Activity load, one query.
+        with django_assert_max_num_queries(41):
             _queue_html(staff_client)
 
 

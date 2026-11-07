@@ -2,10 +2,14 @@
 
 Guilds are made with ``bulk_create`` so ``Guild.save`` does not create their Class Types first,
 which is the state production was in. Uses Django's ``MigrationExecutor`` (the pattern of
-backfill_class_instructors_spec); each test restores the schema to head in a ``finally``.
+backfill_class_instructors_spec); each test restores the schema to head in a ``finally``. Rows are
+read and written through the models of the applied migrations, never today's: rolling classes back
+to 0093 also unapplies membership 0259 onward, so today's ``Guild`` names columns not there yet.
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 import pytest
 from django.db import connection
@@ -13,8 +17,6 @@ from django.db.migrations.executor import MigrationExecutor
 from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory
-from classes.models import Category, ClassOffering
-from membership.models import Guild
 from classes.spec.migrations._head import migrate_all_to_head
 
 _APP = "classes"
@@ -26,8 +28,19 @@ def _migrate(target: str) -> None:
     MigrationExecutor(connection).migrate([(_APP, target)])
 
 
-def _guild(name: str, slug: str, **fields: object) -> Guild:
-    return Guild.all_objects.bulk_create([Guild(name=name, slug=slug, **fields)])[0]
+def _model(app: str, name: str) -> Any:
+    """``app.name`` as the migrations applied right now shape it."""
+    executor = MigrationExecutor(connection)
+    return executor.loader.project_state(list(executor.loader.applied_migrations)).apps.get_model(app, name)
+
+
+def _category() -> Any:
+    return _model("classes", "Category")._base_manager
+
+
+def _guild(name: str, slug: str, **fields: object) -> int:
+    guild = _model("membership", "Guild")
+    return guild._base_manager.bulk_create([guild(name=name, slug=slug, **fields)])[0].pk
 
 
 @pytest.mark.django_db(transaction=True)
@@ -38,16 +51,16 @@ def describe_migration_0094_guild_class_types():
             printmaking = _guild("Printmaking Guild", "printmaking-guild")
             outreach = _guild("Prison Outreach Guild", "prison-outreach-guild")
             wood = _guild("Wood Guild", "wood-guild")
-            woodworking = Category.objects.create(name="Woodworking", slug="woodworking", guild=wood)
+            woodworking = _category().create(name="Woodworking", slug="woodworking", guild_id=wood).pk
             _guild("Cartographers Guild", "cartographers-guild", is_active=False)
             _guild("Gone Guild", "gone-guild", deleted_at=timezone.now())
 
             _migrate(_AFTER)
 
-            assert Category.objects.get(guild=printmaking).name == "Printmaking"
-            assert Category.objects.get(guild=outreach).slug == "prison-outreach"
-            assert list(Category.objects.filter(guild=wood)) == [woodworking]
-            assert not Category.objects.filter(name__in=["Cartographers", "Gone"]).exists()
+            assert _category().get(guild_id=printmaking).name == "Printmaking"
+            assert _category().get(guild_id=outreach).slug == "prison-outreach"
+            assert list(_category().filter(guild_id=wood).values_list("pk", flat=True)) == [woodworking]
+            assert not _category().filter(name__in=["Cartographers", "Gone"]).exists()
         finally:
             migrate_all_to_head()
 
@@ -55,18 +68,16 @@ def describe_migration_0094_guild_class_types():
         try:
             _migrate(_BEFORE)
             glass = _guild("Glass Guild", "glass-guild")
-            unlinked = Category.objects.create(name="Glass", slug="glass")
+            unlinked = _category().create(name="Glass", slug="glass").pk
             owner = _guild("Metal", "metal")
-            owned = Category.objects.create(name="Metal", slug="metal", guild=owner)
+            owned = _category().create(name="Metal", slug="metal", guild_id=owner).pk
             other = _guild("Metal Guild", "metal-guild")
 
             _migrate(_AFTER)
 
-            unlinked.refresh_from_db()
-            owned.refresh_from_db()
-            assert unlinked.guild == glass
-            assert owned.guild == owner
-            assert not Category.objects.filter(guild=other).exists()
+            assert _category().get(pk=unlinked).guild_id == glass
+            assert _category().get(pk=owned).guild_id == owner
+            assert not _category().filter(guild_id=other).exists()
         finally:
             migrate_all_to_head()
 
@@ -77,16 +88,18 @@ def describe_migration_0094_guild_class_types():
             offering = ClassOfferingFactory()
             _migrate(_BEFORE)
             weaving = _guild("Weaving Guild", "weaving-guild")
-            kept = Category.objects.create(name="Weaving", slug="weaving", guild=weaving, icon_svg="<svg></svg>")
+            kept = _category().create(name="Weaving", slug="weaving", guild_id=weaving, icon_svg="<svg></svg>").pk
             empty = _guild("Printmaking Guild", "printmaking-guild")
             used = _guild("Prison Outreach Guild", "prison-outreach-guild")
             _migrate(_AFTER)
-            ClassOffering.objects.filter(pk=offering.pk).update(category=Category.objects.get(guild=used))
+            _model("classes", "ClassOffering")._base_manager.filter(pk=offering.pk).update(
+                category=_category().get(guild_id=used)
+            )
 
             _migrate(_BEFORE)
 
-            assert not Category.objects.filter(guild=empty).exists()
-            assert Category.objects.filter(guild=used).exists()
-            assert Category.objects.filter(pk=kept.pk).exists()
+            assert not _category().filter(guild_id=empty).exists()
+            assert _category().filter(guild_id=used).exists()
+            assert _category().filter(pk=kept).exists()
         finally:
             migrate_all_to_head()

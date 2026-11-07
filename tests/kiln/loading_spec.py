@@ -29,11 +29,15 @@ Status = KilnTicket.Status
 
 
 def _waiting(firing_type: str = "bisque", *, days: int = 0, **kwargs: object) -> KilnTicket:
-    """A ticket in the queue that has waited ``days`` days, with a cover photo."""
+    """A ticket in the queue that has waited ``days`` days, with a cover photo.
+
+    The days are local calendar days, as the tile counts them: stepping back from local time keeps
+    the wall clock, so a DST change in between cannot make six days read as five.
+    """
     ticket = KilnTicketFactory(
         status=Status.SUBMITTED,
         firing_type=firing_type,
-        submitted_at=timezone.now() - timedelta(days=days),
+        submitted_at=timezone.localtime() - timedelta(days=days),
         **kwargs,
     )
     KilnTicketPhotoFactory(ticket=ticket, is_cover=True)

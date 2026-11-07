@@ -10,9 +10,9 @@
 {% block content %}
 {% if can_create %}
 {% url 'hub_equipment_add' as add_url %}
-{% include "components/page_header.html" with title="Reservations" description="Book a room, a space, or a tool you are trained on." action_url=add_url action_label="+ Add" action_class="pl-btn pl-btn--primary" %}
+{% include "components/page_header.html" with title="Reservations" description="Book a room, a space, or a tool you are trained on." action_url=add_url action_label="+ Add" action_class="pl-btn pl-btn--primary" new_key="guild.machine-sessions" %}
 {% else %}
-{% include "components/page_header.html" with title="Reservations" description="Book a room, a space, or a tool you are trained on." %}
+{% include "components/page_header.html" with title="Reservations" description="Book a room, a space, or a tool you are trained on." new_key="guild.machine-sessions" %}
 {% endif %}
 
 {% if payouts_nudge_items %}

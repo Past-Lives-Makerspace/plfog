@@ -646,7 +646,8 @@ def describe_tile_labels():
 
         from django.utils import timezone
 
-        now = timezone.now()
+        # Local time, so the steps back are calendar days across a DST change too.
+        now = timezone.localtime()
         assert KilnTicketFactory().waiting_label == ""
         assert KilnTicketFactory(submitted_at=now).waiting_label == "Today"
         assert KilnTicketFactory(submitted_at=now - timedelta(days=1)).waiting_label == "1 day"
