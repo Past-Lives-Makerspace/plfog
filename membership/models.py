@@ -16801,6 +16801,15 @@ class OrientationBooking(models.Model):
         self.bill_reminder_step = step
         self.save(update_fields=["bill_reminder_step"])
 
+    @classmethod
+    def undo_bill_reminder(cls, pk: int, *, step: int, previous: int) -> None:
+        """Put a bill's reminder step back to ``previous`` when reminder ``step`` did not go out.
+
+        One conditional UPDATE: only a row still at ``step`` moves, so a later run that already
+        moved on is never wound back.
+        """
+        cls.objects.filter(pk=pk, bill_reminder_step=step).update(bill_reminder_step=previous)
+
     def next_bill_checkout_attempt(self) -> int:
         """Count one more Pay click and return it, saved before any Stripe call (the idempotency key).
 

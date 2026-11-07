@@ -20,6 +20,7 @@ import pytest
 from django.contrib.auth.models import User
 from django.core import mail
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.urls import reverse
 from django.utils import timezone
 
@@ -72,8 +73,16 @@ def _bill(billed_at: datetime, *, oriented_by: Member | None = None, **fields: A
 
 
 def _run_on(moment: datetime) -> int:
+    return _pass_on(moment).sent
+
+
+def _pass_on(moment: datetime) -> orientation_bills.ReminderRun:
     with patch("django.utils.timezone.now", return_value=moment):
         return orientation_bills.send_due_reminders()
+
+
+def _orientor_notices() -> int:
+    return Notification.objects.filter(trigger="billing.orientation_bill_unpaid").count()
 
 
 def _step(booking: OrientationBooking) -> int:
@@ -334,3 +343,96 @@ def describe_the_job():
     def it_does_not_run_when_switched_off_on_automations():
         ScheduledJobStateFactory(task_key=JOB_KEY, enabled=False)
         assert JOB_KEY not in _dispatched_in_the_daily_hour()
+
+
+def describe_a_reminder_that_does_not_go_out():
+    def it_puts_the_step_back_when_the_email_channel_refuses_the_send_and_retries_next_run():
+        booking = _bill(_local(2026, 1, 1, 12))
+        with patch("core.events.channels.EmailAdapter.deliver", return_value=False):
+            run = _pass_on(_local(2026, 1, 8))
+        assert (run.sent, run.failed) == (0, 1)
+        assert _step(booking) == 0
+        assert _run_on(_local(2026, 1, 9)) == 1
+        assert len(_member_mail(booking)) == 1
+        assert _step(booking) == 1
+
+    def it_puts_the_step_back_when_the_send_raises_and_carries_on_with_the_other_bills(caplog):
+        broken = _bill(_local(2026, 1, 1, 12))
+        fine = _bill(_local(2026, 1, 1, 12))
+        real_send = orientation_bills._send_reminder_email
+
+        def send_or_raise(booking: OrientationBooking, step: int) -> bool:
+            if booking.pk == broken.pk:
+                raise RuntimeError("smtp down")
+            return real_send(booking, step)
+
+        with patch("billing.orientation_bills._send_reminder_email", side_effect=send_or_raise):
+            run = _pass_on(_local(2026, 1, 8))
+        assert (run.sent, run.failed) == (1, 1)
+        assert (_step(broken), _step(fine)) == (0, 1)
+        assert f"Orientation bill {broken.pk}: the reminder failed" in caplog.text
+        assert _member_mail(broken) == []
+        assert len(_member_mail(fine)) == 1
+
+    def it_tells_the_orientor_only_once_the_members_last_reminder_went_out():
+        orientor = _account("rem_orientor_fail", "Otto Orientor")
+        booking = _bill(_local(2026, 1, 1, 12), oriented_by=orientor)
+        with patch("core.events.channels.EmailAdapter.deliver", return_value=False):
+            _pass_on(_local(2026, 1, 31))
+        assert _orientor_notices() == 0
+        assert _step(booking) == 0
+        assert _run_on(_local(2026, 2, 1)) == 1
+        assert _orientor_notices() == 1
+        assert _step(booking) == 3
+
+    def it_counts_an_email_the_ledger_already_holds_as_sent():
+        booking = _bill(_local(2026, 1, 1, 12))
+        _run_on(_local(2026, 1, 8))
+        OrientationBooking.objects.filter(pk=booking.pk).update(bill_reminder_step=0)
+        assert _run_on(_local(2026, 1, 8, 7)) == 1
+        assert len(_member_mail(booking)) == 1
+        assert _step(booking) == 1
+
+    def it_never_winds_back_a_step_a_later_run_moved_on():
+        booking = _bill(_local(2026, 1, 1, 12), bill_reminder_step=2)
+        OrientationBooking.undo_bill_reminder(booking.pk, step=1, previous=0)
+        assert _step(booking) == 2
+
+    def it_fails_the_command_so_the_webmasters_hear_after_trying_every_bill():
+        booking = _bill(_local(2026, 1, 1, 12))
+        out = io.StringIO()
+        with (
+            patch("core.events.channels.EmailAdapter.deliver", return_value=False),
+            patch("django.utils.timezone.now", return_value=_local(2026, 1, 8)),
+            pytest.raises(CommandError, match="1 orientation bill reminder"),
+        ):
+            call_command(JOB_KEY, stdout=out)
+        assert out.getvalue().strip() == "Sent 0 orientation bill reminder(s)."
+        assert _step(booking) == 0
+
+
+def describe_a_bill_settled_while_its_reminder_was_being_sent():
+    def it_skips_the_email_and_leaves_the_step_recorded():
+        booking = _bill(_local(2026, 1, 1, 12))
+        record = OrientationBooking.record_bill_reminder
+
+        def record_then_paid(self: OrientationBooking, step: int) -> None:
+            record(self, step)
+            OrientationBooking.objects.filter(pk=self.pk).update(paid_at=_local(2026, 1, 8, 5))
+
+        with patch.object(OrientationBooking, "record_bill_reminder", record_then_paid):
+            run = _pass_on(_local(2026, 1, 8))
+        assert (run.sent, run.failed) == (0, 0)
+        assert mail.outbox == []
+        assert _step(booking) == 1
+
+
+def describe_the_orientor_notices_day_count():
+    def it_is_the_last_reminder_day_not_a_written_in_thirty():
+        orientor = _account("rem_orientor_days", "Otto Orientor")
+        _bill(_local(2026, 1, 1, 12), oriented_by=orientor)
+        with patch.object(OrientationBooking, "BILL_REMINDER_DAYS", (7, 14, 45)):
+            assert _run_on(_local(2026, 2, 15)) == 1
+        [email] = [message for message in mail.outbox if orientor.user.email in message.to]
+        assert "still unpaid after 45 days." in email.body
+        assert "still unpaid after 45 days." in email.alternatives[0][0]

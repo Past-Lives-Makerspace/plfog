@@ -3088,7 +3088,7 @@ _CURATED: dict[str, EventCopy] = {
         },
     ),
     # billing.orientation_bill_unpaid — the orientor who ran it hears that a bill they sent is
-    # still unpaid at the 30 day reminder (#1120): the member, the orientation, the amount and
+    # still unpaid at the last reminder (#1120), after ``unpaid_days`` (the last of BILL_REMINDER_DAYS): the member, the orientation, the amount and
     # the Bookings tab's Past list, where the bill's row offers Resend Bill and Cancel Bill.
     "billing.orientation_bill_unpaid": EventCopy(
         placeholders=(
@@ -3098,6 +3098,7 @@ _CURATED: dict[str, EventCopy] = {
             "owner_name",
             "bill_amount",
             "billed_on",
+            "unpaid_days",
             "bookings_url",
         ),
         sample_context={
@@ -3107,6 +3108,7 @@ _CURATED: dict[str, EventCopy] = {
             "owner_name": "Wood Shop",
             "bill_amount": "$40",
             "billed_on": "Wednesday, November 4",
+            "unpaid_days": "30",
             "bookings_url": "https://pastlives.example/orientations/?view=bookings&show=past",
         },
         channels={
@@ -3122,7 +3124,7 @@ _CURATED: dict[str, EventCopy] = {
                 body_text=(
                     "Hi {{ orientor_name }},\n\n"
                     "The bill you sent {{ member_name }} for the {{ orientation_name }} orientation is "
-                    "still unpaid after 30 days. We've reminded them by email.\n\n"
+                    "still unpaid after {{ unpaid_days }} days. We've reminded them by email.\n\n"
                     "Member: {{ member_name }}\n"
                     "Orientation: {{ orientation_name }}, {{ owner_name }}\n"
                     "Amount: {{ bill_amount }}\n"
@@ -3133,7 +3135,7 @@ _CURATED: dict[str, EventCopy] = {
                 body_html=(
                     "<p>Hi {{ orientor_name }},</p>"
                     "<p>The bill you sent {{ member_name }} for the <strong>{{ orientation_name }}</strong> "
-                    "orientation is still unpaid after 30 days. We've reminded them by email.</p>"
+                    "orientation is still unpaid after {{ unpaid_days }} days. We've reminded them by email.</p>"
                     "<p>Member: {{ member_name }}<br>"
                     "Orientation: {{ orientation_name }}, {{ owner_name }}<br>"
                     "Amount: <strong>{{ bill_amount }}</strong><br>"
