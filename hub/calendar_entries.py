@@ -149,7 +149,12 @@ def guild_calendar_entries(guild: Guild, fetch_from: date, fetch_to: date) -> li
             )
         )
 
-    slots = guild.orientation_slots.upcoming().filter(starts_at__date__gte=fetch_from, starts_at__date__lte=fetch_to)
+    # A lapsed orientor's times are not offered, so they are not on the calendar either (#1129).
+    slots = (
+        guild.orientation_slots.upcoming()
+        .with_current_orientor()
+        .filter(starts_at__date__gte=fetch_from, starts_at__date__lte=fetch_to)
+    )
     for slot in slots:
         entries.append(
             CalendarEntry(

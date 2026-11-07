@@ -2451,7 +2451,9 @@ def orientation_block_starts(request: HttpRequest, block_pk: int, type_pk: int) 
     from membership.models import OrientationAvailabilityBlock, OrientationType
 
     block = get_object_or_404(
-        OrientationAvailabilityBlock.objects.select_related("guild", "orienter"), pk=block_pk, is_cancelled=False
+        # offered(): a window whose orientor no longer runs the guild's orientations is gone (#1129).
+        OrientationAvailabilityBlock.objects.offered().select_related("guild", "orienter"),
+        pk=block_pk,
     )
     orientation_type = get_object_or_404(OrientationType.objects.active(), pk=type_pk, guild_id=block.guild_id)
     form = OrientationBlockBookingForm(block=block, orientation_type=orientation_type)

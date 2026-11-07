@@ -2217,17 +2217,19 @@ def retire_stale_orientor_hours(*, member: Member | None = None) -> StaleOriento
 
     Stale means outside the one predicate (:func:`_orientor_ids_for`): no longer an Active
     member, or no longer the guild's lead or staff (the tool's Orientors, for equipment). It
-    catches every way someone stops: a lead replaced or cleared, a membership lapsing or
-    suspended, a staff row removed in Django admin. Each stale row goes through
+    catches every way someone stops: a lead replaced or cleared and not kept on as staff
+    (the nightly job; ``bookable`` hides those times at once), a membership lapsing or
+    suspended (after the status change commits), a staff row removed in Django admin. Each stale row goes through
     :func:`retire_rule` (its open times removed, the row deleted). A stale posted time
-    (MANUAL) or one off window no row owns goes through the same retirement as a rule's
+    (MANUAL), an orphaned generated time (its row retired while it held a booking that has
+    since ended) or a one off window no row owns goes through the same retirement as a rule's
     own times: deleted when untouched, cancelled when it carries booking history, kept
     (capped to the seats taken) when it holds a live booking, so a lead can still move or
     cancel it. A booking's own times (CUSTOM, FROM_BLOCK) are never touched, and no booking
     or payment row is deleted.
 
     Args:
-        member: Sweep only this person's hours (a lead change or a status change); None
+        member: Sweep only this person's hours (their status change); None
             sweeps everyone, as the daily job does.
 
     Returns:
@@ -2240,8 +2242,12 @@ def retire_stale_orientor_hours(*, member: Member | None = None) -> StaleOriento
         "guild", "orientation_type__equipment"
     )
     slots = (
-        OrientationSlot.objects.filter(
-            orienter__isnull=False, source=OrientationSlot.Source.MANUAL, is_cancelled=False, starts_at__gte=now
+        OrientationSlot.objects.filter(orienter__isnull=False, is_cancelled=False, starts_at__gte=now)
+        # A posted time, or a generated one left behind with no row (its rule retired while it
+        # held a booking that has since ended): neither has a rule whose retirement covers it.
+        .filter(
+            Q(source=OrientationSlot.Source.MANUAL)
+            | Q(source=OrientationSlot.Source.GENERATED, availability__isnull=True)
         )
         .select_related("guild", "orientation_type__equipment")
         .with_seat_holding_count()
@@ -2257,6 +2263,9 @@ def retire_stale_orientor_hours(*, member: Member | None = None) -> StaleOriento
     orientors: dict[tuple[str, int], set[int]] = {}
     rules_retired = removed = kept = 0
     with transaction.atomic():
+        # Read the loose times before any row retires: a booked time its row keeps becomes an
+        # orphan below, and is already counted as kept there.
+        stale_slots = [slot for slot in slots if slot.orienter_id not in _orientor_ids_for(slot, orientors)]
         for rule in rules:
             if rule.orienter_id in _orientor_ids_for(rule, orientors):
                 continue
@@ -2264,9 +2273,7 @@ def retire_stale_orientor_hours(*, member: Member | None = None) -> StaleOriento
             rules_retired += 1
             removed += rule_removed
             kept += rule_kept
-        slots_removed, slots_kept = _retire_slots(
-            [slot for slot in slots if slot.orienter_id not in _orientor_ids_for(slot, orientors)]
-        )
+        slots_removed, slots_kept = _retire_slots(stale_slots)
         windows_removed, windows_kept = _retire_windows(
             [window for window in windows if window.orienter_id not in _orientor_ids_for(window, orientors)]
         )

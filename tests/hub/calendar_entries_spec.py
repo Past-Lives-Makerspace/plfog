@@ -217,6 +217,32 @@ def describe_guild_calendar_entries():
         class_entries = [e for e in entries if e.source == "classes"]
         assert len(class_entries) == 3
 
+    def it_leaves_out_a_time_whose_orientor_no_longer_runs_the_guilds_orientations():
+        # #1129: the guild calendar shows the times bookable() would, not a lapsed orientor's.
+        from hub.calendar_entries import guild_calendar_entries
+        from membership.models import Member
+
+        lead = MemberFactory()
+        lapsed = MemberFactory()
+        guild = GuildFactory(guild_lead=lead)
+        current = OrientationSlotFactory(guild=guild, orienter=lead)
+        shared = OrientationSlotFactory(guild=guild)
+        stale = OrientationSlotFactory(guild=guild, orienter=lapsed)
+        fetch_from, fetch_to = _window()
+
+        entries = guild_calendar_entries(guild, fetch_from, fetch_to)
+
+        shown = {e.pk - ORIENTATION_PK_OFFSET for e in entries if e.source == "orientation"}
+        assert shown == {current.pk, shared.pk}
+        assert stale.pk not in shown
+        Member.objects.filter(pk=lead.pk).update(status=Member.Status.FORMER)
+        shown = {
+            e.pk - ORIENTATION_PK_OFFSET
+            for e in guild_calendar_entries(guild, fetch_from, fetch_to)
+            if e.source == "orientation"
+        }
+        assert shown == {shared.pk}
+
 
 def describe_google_calendar_add_url():
     def it_builds_google_calendars_add_link_with_the_id_encoded():

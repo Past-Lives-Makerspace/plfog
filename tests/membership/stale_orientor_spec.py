@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from io import StringIO
+from unittest.mock import patch
 
 import pytest
 from django.core.management import call_command
@@ -106,15 +107,44 @@ def describe_orientor_ids():
 
 
 def describe_replacing_or_clearing_a_lead():
-    def it_removes_the_old_leads_open_future_times_when_they_are_not_staff():
+    def it_hides_the_old_leads_times_at_once_and_keeps_their_data_until_the_nightly_job():
+        old_lead = MemberFactory()
+        guild = _guild(old_lead)
+        rule, slots = _hours(guild, old_lead)
+        window = OrientationAvailabilityBlockFactory(guild=guild, orienter=old_lead)
+
+        guild.assign_lead(MemberFactory())
+
+        assert OrientationAvailability.objects.filter(pk=rule.pk).exists()
+        assert OrientationSlot.objects.filter(pk__in=[slot.pk for slot in slots]).count() == len(slots)
+        assert not _bookable_pks() & {slot.pk for slot in slots}
+        assert window.pk not in set(OrientationAvailabilityBlock.objects.offered().values_list("pk", flat=True))
+
+    def it_keeps_every_time_when_the_old_lead_is_kept_on_as_staff_through_the_staff_tab():
+        # The Staff tab refuses to add the sitting lead, so the UI order is replace, then add.
+        old_lead = MemberFactory()
+        guild = _guild(old_lead)
+        rule, slots = _hours(guild, old_lead)
+        with pytest.raises(ValueError):
+            guild.add_staff(old_lead, role=GuildStaffMembership.Role.ORIENTER)
+
+        guild.assign_lead(MemberFactory())
+        guild.add_staff(old_lead, role=GuildStaffMembership.Role.ORIENTER)
+        orientations.retire_stale_orientor_hours()
+
+        assert OrientationAvailability.objects.filter(pk=rule.pk).exists()
+        assert {slot.pk for slot in slots} <= _bookable_pks()
+
+    def it_lets_the_nightly_job_retire_a_replaced_lead_who_was_not_kept_on():
         old_lead = MemberFactory()
         guild = _guild(old_lead)
         rule, slots = _hours(guild, old_lead)
         booked = slots[0]
         OrientationBookingFactory(slot=booked)
         manual = _manual_slot(guild, old_lead)
-
         guild.assign_lead(MemberFactory())
+
+        orientations.retire_stale_orientor_hours()
 
         assert not OrientationAvailability.objects.filter(pk=rule.pk).exists()
         assert not OrientationSlot.objects.filter(pk__in=[slot.pk for slot in slots[1:]]).exists()
@@ -122,80 +152,50 @@ def describe_replacing_or_clearing_a_lead():
         # The booked time stays, so a lead can move or cancel it.
         assert OrientationSlot.objects.filter(pk=booked.pk, is_cancelled=False).exists()
 
-    def it_keeps_the_old_leads_hours_when_they_stay_on_staff():
-        old_lead = MemberFactory()
-        guild = _guild(old_lead)
-        _staff(guild, old_lead)
-        rule, slots = _hours(guild, old_lead)
-
-        guild.assign_lead(MemberFactory())
-
-        assert OrientationAvailability.objects.filter(pk=rule.pk).exists()
-        assert OrientationSlot.objects.filter(pk__in=[slot.pk for slot in slots]).count() == len(slots)
-
-    def it_removes_their_hours_on_the_guilds_tools_too():
-        old_lead = MemberFactory()
-        guild = _guild(old_lead)
-        tool_rule = _tool_hours(EquipmentFactory(guild=guild), old_lead)
-
-        guild.assign_lead(MemberFactory())
-
-        assert not OrientationAvailability.objects.filter(pk=tool_rule.pk).exists()
-
-    def it_leaves_their_hours_in_a_guild_they_still_run():
+    def it_retires_their_hours_on_the_guilds_tools_but_not_in_a_guild_they_still_run():
         old_lead = MemberFactory()
         guild = _guild(old_lead)
         elsewhere = _guild(old_lead)
-        _hours(guild, old_lead)
+        tool_rule = _tool_hours(EquipmentFactory(guild=guild), old_lead)
         kept_rule, _slots = _hours(elsewhere, old_lead)
-
         guild.assign_lead(MemberFactory())
 
+        orientations.retire_stale_orientor_hours()
+
+        assert not OrientationAvailability.objects.filter(pk=tool_rule.pk).exists()
         assert OrientationAvailability.objects.filter(pk=kept_rule.pk).exists()
 
-    def it_touches_nothing_when_the_same_lead_is_assigned_again():
-        lead = MemberFactory()
-        guild = _guild(lead)
-        rule, _slots = _hours(guild, lead)
-        guild.assign_lead(lead)
-        assert OrientationAvailability.objects.filter(pk=rule.pk).exists()
-
-    def it_assigns_a_first_lead_without_retiring_anyone():
-        guild = _guild()
-        staffer = MemberFactory()
-        _staff(guild, staffer)
-        rule, _slots = _hours(guild, staffer)
-        guild.assign_lead(MemberFactory())
-        assert OrientationAvailability.objects.filter(pk=rule.pk).exists()
-
-    def it_removes_the_cleared_leads_hours_unless_they_are_staff():
+    def it_hides_a_cleared_leads_times_and_the_job_retires_them_unless_they_are_staff():
         gone = MemberFactory()
         guild = _guild(gone)
-        rule, _slots = _hours(guild, gone)
-        assert guild.clear_lead() == gone
-        assert not OrientationAvailability.objects.filter(pk=rule.pk).exists()
-
+        rule, slots = _hours(guild, gone)
         stays = MemberFactory()
         other = _guild(stays)
         _staff(other, stays)
-        kept, _slots = _hours(other, stays)
+        kept, _kept_slots = _hours(other, stays)
+
+        assert guild.clear_lead() == gone
         other.clear_lead()
+        assert not _bookable_pks() & {slot.pk for slot in slots}
+        orientations.retire_stale_orientor_hours()
+
+        assert not OrientationAvailability.objects.filter(pk=rule.pk).exists()
         assert OrientationAvailability.objects.filter(pk=kept.pk).exists()
 
     def it_clears_a_guild_with_no_lead_quietly():
         assert _guild().clear_lead() is None
 
-    def it_retires_through_the_set_guild_lead_command():
+    def it_hides_the_times_through_the_set_guild_lead_command():
         old_lead = MemberFactory()
         guild = _guild(old_lead)
-        rule, _slots = _hours(guild, old_lead)
+        _rule, slots = _hours(guild, old_lead)
         call_command("set_guild_lead", "--guild", str(guild.pk), "--clear", stdout=StringIO())
-        assert not OrientationAvailability.objects.filter(pk=rule.pk).exists()
+        assert not _bookable_pks() & {slot.pk for slot in slots}
 
 
 def describe_a_member_leaving_active():
     @pytest.mark.parametrize("status", [Member.Status.FORMER, Member.Status.SUSPENDED])
-    def it_loses_their_open_future_times_everywhere(status):
+    def it_loses_their_open_future_times_everywhere(status, django_capture_on_commit_callbacks):
         orientor = MemberFactory()
         guild = _guild(orientor)
         other = _guild()
@@ -210,7 +210,8 @@ def describe_a_member_leaving_active():
         booked = slots[0]
         booking = OrientationBookingFactory(slot=booked)
 
-        _leave_active(orientor, status)
+        with django_capture_on_commit_callbacks(execute=True):
+            _leave_active(orientor, status)
 
         assert not OrientationAvailability.objects.filter(pk__in=[rule.pk, other_rule.pk, tool_rule.pk]).exists()
         assert not OrientationSlot.objects.filter(orienter=orientor).exclude(pk=booked.pk).exists()
@@ -220,21 +221,53 @@ def describe_a_member_leaving_active():
         assert OrientationSlot.objects.filter(pk=booked.pk, is_cancelled=False).exists()
         assert OrientationBooking.objects.get(pk=booking.pk).status == booking.status
 
-    def it_keeps_everything_on_an_ordinary_save():
+    def it_waits_for_the_status_change_to_commit(django_capture_on_commit_callbacks):
+        orientor = MemberFactory()
+        rule, _slots = _hours(_guild(orientor), orientor)
+        with django_capture_on_commit_callbacks() as callbacks:
+            _leave_active(orientor, Member.Status.FORMER)
+            assert OrientationAvailability.objects.filter(pk=rule.pk).exists()
+        assert len(callbacks) == 1
+
+    def it_keeps_the_status_change_when_the_sweep_fails(django_capture_on_commit_callbacks):
+        orientor = MemberFactory()
+        _hours(_guild(orientor), orientor)
+        with patch.object(orientations, "retire_stale_orientor_hours", side_effect=RuntimeError("boom")):
+            with django_capture_on_commit_callbacks(execute=True):
+                _leave_active(orientor, Member.Status.FORMER)
+        assert Member.objects.get(pk=orientor.pk).status == Member.Status.FORMER
+
+    def it_sweeps_only_when_the_save_writes_the_status(django_capture_on_commit_callbacks):
+        orientor = MemberFactory()
+        with django_capture_on_commit_callbacks() as skipped:
+            orientor.status = Member.Status.FORMER
+            orientor.full_legal_name = "Renamed Person"
+            orientor.save(update_fields=["full_legal_name"])
+        assert skipped == []
+        written = Member.objects.get(pk=orientor.pk)
+        with django_capture_on_commit_callbacks() as scheduled:
+            written.status = Member.Status.FORMER
+            written.save(update_fields=["status"])
+        assert len(scheduled) == 1
+
+    def it_keeps_everything_on_an_ordinary_save(django_capture_on_commit_callbacks):
         orientor = MemberFactory()
         guild = _guild(orientor)
         rule, _slots = _hours(guild, orientor)
-        orientor.full_legal_name = "Renamed Person"
-        orientor.save()
+        with django_capture_on_commit_callbacks() as callbacks:
+            orientor.full_legal_name = "Renamed Person"
+            orientor.save()
+        assert callbacks == []
         assert OrientationAvailability.objects.filter(pk=rule.pk).exists()
 
-    def it_leaves_other_orientors_alone():
+    def it_leaves_other_orientors_alone(django_capture_on_commit_callbacks):
         orientor = MemberFactory()
         colleague = MemberFactory()
         guild = _guild(orientor)
         _staff(guild, colleague)
         kept, _slots = _hours(guild, colleague)
-        _leave_active(orientor, Member.Status.FORMER)
+        with django_capture_on_commit_callbacks(execute=True):
+            _leave_active(orientor, Member.Status.FORMER)
         assert OrientationAvailability.objects.filter(pk=kept.pk).exists()
 
 
@@ -319,6 +352,30 @@ def describe_the_daily_job():
         assert window.is_cancelled is True
         assert sweep.kept == 1
         assert OrientationBooking.objects.filter(pk=booking.pk).exists()
+
+    def it_retires_an_orphaned_generated_time_once_its_booking_is_cancelled():
+        orientor = MemberFactory()
+        guild = _guild(orientor)
+        rule, slots = _hours(guild, orientor)
+        slot = slots[0]
+        booking = OrientationBookingFactory(slot=slot)
+        Member.objects.filter(pk=orientor.pk).update(status=Member.Status.FORMER)
+        orientations.retire_stale_orientor_hours()
+        slot.refresh_from_db()
+        assert slot.availability_id is None  # the rule went; the booked time stayed, detached
+        booking.cancel()
+        untouched = OrientationSlotFactory(
+            guild=guild, orienter=orientor, source=OrientationSlot.Source.GENERATED, availability=None
+        )
+
+        sweep = orientations.retire_stale_orientor_hours()
+
+        slot.refresh_from_db()
+        assert slot.is_cancelled is True  # cancelled, not deleted: the booking's history stays
+        assert OrientationBooking.objects.filter(pk=booking.pk).exists()
+        assert not OrientationSlot.objects.filter(pk=untouched.pk).exists()
+        assert sweep.times == 2
+        assert not OrientationAvailability.objects.filter(pk=rule.pk).exists()
 
     def it_leaves_shared_slots_and_a_bookings_own_times_alone():
         departed = MemberFactory(status=Member.Status.FORMER)

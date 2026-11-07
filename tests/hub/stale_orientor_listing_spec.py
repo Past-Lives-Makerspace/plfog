@@ -92,3 +92,16 @@ def describe_the_orientations_page():
         _lapse(lapsed_times)
         client.post(reverse("hub_orientation_book", args=[lapsed_times["slot"].pk]))
         assert not lapsed_times["slot"].bookings.exists()
+
+
+def describe_the_window_time_picker():
+    def it_answers_for_an_active_orientors_window(client: Client, lapsed_times):
+        _login(client, "stale_w1")
+        _slot_marker, window_marker = _markers(lapsed_times)
+        assert client.get(window_marker).status_code == 200
+
+    def it_is_not_found_once_the_orientor_is_no_longer_active(client: Client, lapsed_times):
+        _login(client, "stale_w2")
+        _lapse(lapsed_times)
+        _slot_marker, window_marker = _markers(lapsed_times)
+        assert client.get(window_marker).status_code == 404
