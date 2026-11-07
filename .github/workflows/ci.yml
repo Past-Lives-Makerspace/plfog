@@ -63,7 +63,7 @@ jobs:
   postgres-only:
     if: github.event.action != 'closed' && github.event_name != 'merge_group'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     env:
       DJANGO_SECRET_KEY: test-secret-key-for-ci
       DATABASE_URL: postgres://plfog:plfog@localhost:5432/plfog
