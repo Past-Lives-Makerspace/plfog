@@ -144,7 +144,9 @@ def apply_token_action(
     if booking.status != statuses.REQUESTED:
         return "already"
     if action == "confirm":
-        confirm_orientation(booking)
+        # The link's addressee is who confirmed it. That is also who the booking credits by
+        # default (the slot's orientor, else the guild lead), so passing it changes no credit.
+        confirm_orientation(booking, oriented_by=recipient)
         return "confirmed"
     decline_orientation(booking, actor=actor)
     return "declined"
@@ -1038,27 +1040,39 @@ def request_resolver_context(booking: OrientationBooking) -> dict[str, Any]:
     return {"guild": booking.guild, "slot": booking.slot}
 
 
+def _lead_if_sole_audience(booking: OrientationBooking) -> Member | None:
+    """The guild lead when a guild booking's request reaches the lead and nobody else, else ``None``."""
+    lead = cast("Guild", booking.guild).guild_lead
+    if lead is None or lead.user_id is None:
+        return None
+    return lead if orientor_audience(booking) == {lead.user_id} else None
+
+
 def _emit_lead_request(booking: OrientationBooking) -> None:
     """Tell the request's audience a member asked for an orientation: email + bell (Decision 7).
 
     One audience for every channel, the ``orientation_requested`` resolver
     (:func:`core.events.resolvers.guild_orienters_or_equipment_managers`): a guild's
-    shared slot reaches its whole leadership, a personal slot the orientor booked plus
-    the guild lead, and equipment its managers. Each person's own Email switch decides
+    personal slot reaches the Orientor booked, a shared slot every Orientor (the lead
+    when there are none), and equipment its managers. Each person's own Email switch decides
     the email (#524), which goes to their notification address. The activity row is
     logged by the caller.
     """
     # One body goes to the whole audience, so the confirm/decline links carry the
-    # slot's primary responder (personal slot: the orientor; guild slot: the lead)
-    # as the token recipient — a paid booking's email-link decline credits them.
-    if booking.orientation_type.is_equipment_owned:
-        # A personal slot's manager is its responder; a shared slot has none (managers
-        # confirm explicitly, so an email-link decline is unattributed — make_action_token
-        # accepts recipient=None, same as a lead-less guild).
-        primary_responder = booking.slot.orienter if booking.slot.orienter_id is not None else None
+    # slot's primary responder as the token recipient: a paid booking's email-link decline
+    # credits them, and an email-link confirm is theirs (the lead hears of it unless the
+    # lead clicked). A personal slot's is its orientor. A guild's shared slot has one only
+    # when the request reaches the lead alone (no Orientors, #1127); with several Orientors
+    # nobody knows in advance who clicks, so the link is unattributed.
+    primary_responder: Member | None
+    if booking.slot.orienter_id is not None:
+        primary_responder = booking.slot.orienter
+    elif booking.orientation_type.is_equipment_owned:
+        # Managers confirm explicitly, so an email-link decline is unattributed;
+        # make_action_token accepts recipient=None.
+        primary_responder = None
     else:
-        guild = cast("Guild", booking.guild)
-        primary_responder = booking.slot.orienter if booking.slot.orienter_id is not None else guild.guild_lead
+        primary_responder = _lead_if_sole_audience(booking)
     ctx = _context(
         booking,
         # The member's newest message: the request's note, shown as the email's Note line.
@@ -1084,8 +1098,10 @@ def _emit_lead_request(booking: OrientationBooking) -> None:
 def confirm_orientation(booking: OrientationBooking, *, oriented_by: Member | None = None) -> None:
     """Confirm a request: update state, email the member a CONFIRMED invite, log + notify.
 
-    ``oriented_by`` credits the actual runner (Decision 7). The view passes the acting
-    member; when omitted the booking model still defaults to the guild lead.
+    ``oriented_by`` credits the actual runner (Decision 7) and is who confirmed it: the view
+    passes the acting member, an email link its addressee. When omitted the booking model
+    still defaults to the slot's orientor, then the guild lead. The guild lead hears of the
+    confirmation unless they confirmed it (:func:`_tell_lead_of_confirmation`).
     """
     from membership.late_cancel import booking_sentence, policy_for
 
@@ -1102,6 +1118,43 @@ def confirm_orientation(booking: OrientationBooking, *, oriented_by: Member | No
         ics=_ics(booking, method="REQUEST", status="CONFIRMED"),
         in_app_title="Orientation confirmed",
         in_app_body=f"Your orientation for {booking.orientation_type.owner_name} is confirmed.",
+    )
+    _tell_lead_of_confirmation(booking, confirmer=oriented_by)
+
+
+def _tell_lead_of_confirmation(booking: OrientationBooking, *, confirmer: Member | None) -> None:
+    """Email and bell the guild lead that someone else confirmed a guild orientation (#1127).
+
+    The lead no longer gets every request, so this is how they hear the outcome. Guild owned
+    only (equipment keeps its own routing), and nothing when the lead confirmed it themselves.
+    ``confirmer`` ``None`` means nobody knows who did (an unattributed email link, which only
+    the Orientors of a shared slot receive), so the lead hears and it reads "An Orientor".
+    Sends once per booking whichever way it was confirmed.
+    """
+    from core.events.registry import ORIENTATION_CONFIRMED_TO_LEAD
+
+    if booking.orientation_type.is_equipment_owned:
+        return
+    guild = cast("Guild", booking.guild)
+    lead = guild.guild_lead
+    if lead is None or (confirmer is not None and confirmer.pk == lead.pk):
+        return
+    emit(
+        ORIENTATION_CONFIRMED_TO_LEAD,
+        actor=confirmer.user if confirmer is not None else None,
+        target=booking,
+        context={
+            "guild": guild,
+            "lead_name": lead.display_name,
+            "member_name": booking.member.display_name,
+            "orientation_name": booking.orientation_type.name,
+            "owner_name": booking.orientation_type.owner_name,
+            "starts_at": _when(booking.slot.starts_at),
+            "confirmer_name": confirmer.display_name if confirmer is not None else "An Orientor",
+            "booking_url": _absolute_url(reverse("hub_orientation_respond", args=[booking.pk])),
+        },
+        url=reverse("hub_orientation_respond", args=[booking.pk]),
+        period=f"booking:{booking.pk}:confirmed_lead",
     )
 
 
@@ -1173,11 +1226,11 @@ def cancel_orientation(
         extra_context={"late_fee": fee, "late_fee_pay_url": pay_url(fee) if fee is not None else ""},
     )
     # Bell (and push / Discord per switch) that a booking was cancelled, to the same
-    # audience the request reached (the orientation_requested resolver: a shared guild
-    # slot's whole leadership, a personal slot's orientor plus lead, or the equipment's
-    # managers). No email: the row's Email switch is about requests, and since #524 it
-    # defaults ON, so letting this ping email would start a new bare cancel email to
-    # every leader who never touched the page.
+    # audience the request reached (the orientation_requested resolver: a guild's
+    # Orientors, a personal slot's orientor, or the equipment's managers). No email: the
+    # row's Email switch is about requests, and since #524 it defaults ON, so letting this
+    # ping email would start a new bare cancel email to every leader who never touched
+    # the page.
     emit(
         "orientation_requested",
         context=request_resolver_context(booking),
@@ -1230,8 +1283,13 @@ def _locked_booking(booking: OrientationBooking) -> OrientationBooking:
     return locked_booking_queryset().get(pk=booking.pk)
 
 
-def _move_locked(locked: OrientationBooking, starts_at: datetime, *, oriented_by: Member | None) -> datetime:
-    """Move the row-locked booking onto a fresh one-off at ``starts_at``; returns the old start.
+def _move_locked(
+    locked: OrientationBooking, starts_at: datetime, *, oriented_by: Member | None
+) -> tuple[datetime, bool]:
+    """Move the row-locked booking onto a fresh one-off at ``starts_at``.
+
+    Returns the old start, and whether the move confirmed a request (the guild lead is told
+    once the caller's transaction commits, :func:`_tell_lead_of_confirmation`).
 
     Runs inside the caller's transaction, after :func:`_locked_booking`. The slot is the
     custom request's one-off (:func:`_create_custom_slot`), sized by the type's length, with
@@ -1258,7 +1316,7 @@ def _move_locked(locked: OrientationBooking, starts_at: datetime, *, oriented_by
     if was_request:
         actor = locked.oriented_by.user if locked.oriented_by is not None else None
         SiteActivity.log(SiteActivity.Kind.ORIENTATION_CONFIRMED, actor=actor, target=locked)
-    return old_slot.starts_at
+    return old_slot.starts_at, was_request
 
 
 def _emit_moved(
@@ -1301,9 +1359,11 @@ def move_orientation(
     """
     with transaction.atomic():
         locked = _locked_booking(booking)
-        old_starts_at = _move_locked(locked, starts_at, oriented_by=actor)
+        old_starts_at, confirmed = _move_locked(locked, starts_at, oriented_by=actor)
         written = locked.write_message(author=_user_of(actor), body=message)
     _emit_moved(locked, old_starts_at, message=written)
+    if confirmed:
+        _tell_lead_of_confirmation(locked, confirmer=actor)
     return locked
 
 
@@ -1428,6 +1488,8 @@ def answer_proposal(booking: OrientationBooking, *, accept: bool, proposal: str)
     from membership.models import OrientationError
 
     old_starts_at: datetime | None = None
+    confirmed = False
+    proposer: Member | None = None
     with transaction.atomic():
         locked = _locked_booking(booking)
         verdict = proposal_verdict(locked, proposal)
@@ -1435,9 +1497,11 @@ def answer_proposal(booking: OrientationBooking, *, accept: bool, proposal: str)
             return verdict
         key = locked.proposal_key
         if accept:
+            # The move clears the proposal, so who proposed it is read first: they confirmed it.
+            proposer = locked.proposed_by
             try:
-                old_starts_at = _move_locked(
-                    locked, cast(datetime, locked.proposed_starts_at), oriented_by=locked.proposed_by
+                old_starts_at, confirmed = _move_locked(
+                    locked, cast(datetime, locked.proposed_starts_at), oriented_by=proposer
                 )
             except OrientationError:
                 return "unavailable"
@@ -1445,6 +1509,8 @@ def answer_proposal(booking: OrientationBooking, *, accept: bool, proposal: str)
             locked.clear_proposal()
     if old_starts_at is not None:
         _emit_moved(locked, old_starts_at)
+    if confirmed:
+        _tell_lead_of_confirmation(locked, confirmer=proposer)
     _tell_leaders_of_answer(locked, key, accepted=accept)
     return "accepted" if accept else "kept"
 

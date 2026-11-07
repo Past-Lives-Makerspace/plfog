@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-11-07"
+audience = ["orientors", "guild-leads"]
+title = "Orientation requests go straight to the Orientors"
+changes = [
+  "A new orientation request now goes to the Orientor whose time was booked, or to all of the guild's Orientors for a shared time. Guild leads are no longer copied on every request.",
+  "The request email is always on for Orientors, so a request is never missed.",
+  "Guild leads get one email when an Orientor confirms an orientation in their guild.",
+]

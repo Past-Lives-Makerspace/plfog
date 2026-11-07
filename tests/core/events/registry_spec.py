@@ -89,6 +89,7 @@ _BRAND_NEW_KEYS = {
     "feedback.member_replied",
     "orientation.message_to_member",
     "orientation.message_to_orientors",
+    "orientation.confirmed_to_lead",
     "equipment.reservation_message_to_member",
     "equipment.reservation_message_to_managers",
     "class.message_to_instructors",
@@ -396,12 +397,16 @@ def describe_the_class_review_row():
 
 
 def describe_the_orientation_request_row():
-    def it_defaults_email_on_now_that_the_switch_decides():
-        # The request email used to ignore this switch and reach everyone. An OFF default
-        # would silently stop it for every leader who never opened the settings page.
-        email = get_event("orientation_requested").channel(Channel.EMAIL)
+    def it_forces_the_email_so_the_orientor_who_acts_always_gets_it():
+        # #1127: the request reaches only the Orientors who must act on it, so its email is
+        # essential like other booking mail. Push and Discord DM stay the person's choice.
+        event = get_event("orientation_requested")
+        email = event.channel(Channel.EMAIL)
         assert email is not None
-        assert email.default is ChannelDefault.ON
+        assert email.default is ChannelDefault.FORCED
+        assert event.channel(Channel.PUSH).default is not ChannelDefault.FORCED
+        assert event.channel(Channel.DISCORD_DM).default is ChannelDefault.OFF
+        assert get_event("orientation.message_to_orientors").channel(Channel.EMAIL).default is ChannelDefault.ON
 
 
 def describe_the_automation_failed_alert():

@@ -347,19 +347,44 @@ def guild_orienters_or_equipment_managers(context: dict[str, Any]) -> list[Recip
     * equipment-owned: :func:`equipment_managers` (the item's managers plus its guild's
       leadership, with its own personal-slot narrowing and an Equipment Administrator
       fallback only for equipment nobody runs);
-    * a guild's personal slot: :func:`guild_orienters`, which narrows to the orientor
-      the member booked plus the guild lead;
-    * a guild's shared slot: :func:`guild_leadership`, the whole team (lead, co-leads,
-      secretaries, treasurers, orientors), because any of them can confirm it.
+    * guild-owned: :func:`guild_request_orientors`, the Orientors who act on it (#1127).
 
-    ``guild_orienters`` itself stays lead-plus-orientors for its other callers. A context
-    carrying neither ``equipment`` nor ``guild`` fails loudly in the delegated resolver.
+    It decides who is told, never who may act: confirming, declining and opening a booking
+    are :meth:`membership.models.OrientationBooking.may_be_run_by` and the hub's gate.
+    A context carrying neither ``equipment`` nor ``guild`` fails loudly in the delegated
+    resolver.
     """
     if context.get("equipment") is not None:
         return equipment_managers(context)
+    return guild_request_orientors(context)
+
+
+def guild_request_orientors(context: dict[str, Any]) -> list[Recipient]:
+    """GUILD-SCOPED — who is told about a guild orientation request and its messages (#1127).
+
+    * a personal slot: the Orientor the member booked, alone;
+    * a shared slot, a member's proposed time or no slot in context: every staff member
+      holding the Orientor role.
+
+    The guild lead hears about the outcome instead (``orientation.confirmed_to_lead``).
+    A request is never unheard: when that audience reaches nobody (no Orientor, or none
+    with an account) it goes to the guild lead, and with no reachable lead either to the
+    whole :func:`guild_leadership`. A missing ``guild`` key fails loudly.
+    """
+    from membership.models import GuildStaffMembership
+
+    guild: Guild = _require(context, "guild")
     slot = context.get("slot")
-    if slot is not None and slot.orienter_id is not None:
-        return guild_orienters(context)
+    if slot is not None and slot.orienter_id is not None and slot.orienter is not None:
+        orientors = _members_to_recipients([slot.orienter], "guild_orienter")
+    else:
+        rows = guild.staff_memberships.select_related("member__user").filter(role=GuildStaffMembership.Role.ORIENTER)
+        orientors = _members_to_recipients([row.member for row in rows], "guild_orienter")
+    if orientors:
+        return orientors
+    lead = guild_lead(context)
+    if lead:
+        return lead
     return guild_leadership(context)
 
 
