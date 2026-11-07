@@ -512,3 +512,87 @@ def describe_an_orientor_notice_that_raises():
         assert _step(booking) == 3
         assert len(_member_mail(booking)) == 1
         assert f"Orientation bill {booking.pk}: could not tell the orientor" in caplog.text
+
+
+def describe_the_orientor_hears_whenever_the_last_step_is_kept():
+    def _orientor_mail(orientor: Member) -> list[Any]:
+        return [message for message in mail.outbox if orientor.user.email in message.to]
+
+    def it_says_the_member_was_reminded_when_their_last_reminder_went_out():
+        orientor = _account("rem_orientor_reached", "Otto Orientor")
+        _bill(_local(2026, 1, 1, 12), oriented_by=orientor)
+        _run_on(_local(2026, 1, 31))
+        [email] = _orientor_mail(orientor)
+        assert "still unpaid after 30 days. We've reminded them by email." in email.body
+        assert "couldn't reach them" not in email.body
+
+    def it_tells_the_orientor_the_member_could_not_be_reached_when_they_have_no_address():
+        orientor = _account("rem_orientor_blank", "Otto Orientor")
+        booking = _bill(_local(2026, 1, 1, 12), oriented_by=orientor)
+        User.objects.filter(pk=booking.member.user_id).update(email="")
+        run = _pass_on(_local(2026, 1, 31))
+        assert (run.sent, run.failed, run.skipped) == (0, 0, 1)
+        assert _step(booking) == 3
+        [email] = _orientor_mail(orientor)
+        line = "We couldn't reach them by email, so they may not know about it."
+        assert line in email.body
+        assert "reminded them by email" not in email.body
+        assert Notification.objects.filter(user=orientor.user, trigger="billing.orientation_bill_unpaid").count() == 1
+
+    def it_tells_the_orientor_once_when_the_last_step_is_given_up_after_refusals():
+        orientor = _account("rem_orientor_gaveup", "Otto Orientor")
+        booking = _bill(_local(2026, 1, 1, 12), oriented_by=orientor)
+        with patch("core.events.channels.EmailAdapter.deliver", return_value=False):
+            outcomes = [_pass_on(_local(2026, 1, 31)), _pass_on(_local(2026, 2, 1)), _pass_on(_local(2026, 2, 2))]
+            assert [run.failed for run in outcomes] == [1, 1, 1]
+            assert _orientor_notices() == 0
+            gave_up = _pass_on(_local(2026, 2, 3))
+            assert (gave_up.failed, gave_up.skipped) == (0, 1)
+            _pass_on(_local(2026, 2, 4))
+        assert _step(booking) == 3
+        assert _orientor_notices() == 1
+        bell = Notification.objects.get(user=orientor.user, trigger="billing.orientation_bill_unpaid")
+        assert bell.user == orientor.user
+
+    def it_does_not_tell_the_orientor_while_the_last_step_is_put_back_for_a_retry():
+        orientor = _account("rem_orientor_retry", "Otto Orientor")
+        booking = _bill(_local(2026, 1, 1, 12), oriented_by=orientor)
+        with patch("core.events.channels.EmailAdapter.deliver", return_value=False):
+            assert _pass_on(_local(2026, 1, 31)).failed == 1
+        assert _step(booking) == 0
+        assert _orientor_notices() == 0
+
+    def it_does_not_tell_the_orientor_when_the_bill_was_settled_in_the_gap():
+        orientor = _account("rem_orientor_paid", "Otto Orientor")
+        booking = _bill(_local(2026, 1, 1, 12), oriented_by=orientor)
+        record = OrientationBooking.record_bill_reminder
+
+        def record_then_paid(self: OrientationBooking, step: int) -> None:
+            record(self, step)
+            OrientationBooking.objects.filter(pk=self.pk).update(paid_at=_local(2026, 1, 31, 5))
+
+        with patch.object(OrientationBooking, "record_bill_reminder", record_then_paid):
+            _pass_on(_local(2026, 1, 31))
+        assert _step(booking) == 3
+        assert _orientor_notices() == 0
+
+    def it_tells_the_orientor_when_a_send_that_raises_is_given_up_on_the_last_step():
+        orientor = _account("rem_orientor_raised", "Otto Orientor")
+        booking = _bill(_local(2026, 1, 1, 12), oriented_by=orientor)
+        with patch("billing.orientation_bills._send_reminder_email", side_effect=RuntimeError("smtp down")):
+            run = _pass_on(_local(2026, 2, 3))
+        assert (run.failed, run.skipped) == (0, 1)
+        assert _step(booking) == 3
+        [email] = _orientor_mail(orientor)
+        assert "We couldn't reach them by email" in email.body
+
+
+def describe_the_no_address_check_matches_the_reminders_resolver():
+    def it_skips_at_once_a_member_with_a_blank_account_email_but_a_notification_address():
+        booking = _bill(_local(2026, 1, 1, 12))
+        User.objects.filter(pk=booking.member.user_id).update(email="")
+        Member.objects.filter(pk=booking.member_id).update(notification_email="other@example.com")
+        run = _pass_on(_local(2026, 1, 8))
+        assert (run.sent, run.failed, run.skipped) == (0, 0, 1)
+        assert _step(booking) == 1
+        assert mail.outbox == []

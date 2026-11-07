@@ -3099,6 +3099,7 @@ _CURATED: dict[str, EventCopy] = {
             "bill_amount",
             "billed_on",
             "unpaid_days",
+            "reached_line",
             "bookings_url",
         ),
         sample_context={
@@ -3109,6 +3110,7 @@ _CURATED: dict[str, EventCopy] = {
             "bill_amount": "$40",
             "billed_on": "Wednesday, November 4",
             "unpaid_days": "30",
+            "reached_line": "We've reminded them by email.",
             "bookings_url": "https://pastlives.example/orientations/?view=bookings&show=past",
         },
         channels={
@@ -3124,7 +3126,7 @@ _CURATED: dict[str, EventCopy] = {
                 body_text=(
                     "Hi {{ orientor_name }},\n\n"
                     "The bill you sent {{ member_name }} for the {{ orientation_name }} orientation is "
-                    "still unpaid after {{ unpaid_days }} days. We've reminded them by email.\n\n"
+                    "still unpaid after {{ unpaid_days }} days. {{ reached_line }}\n\n"
                     "Member: {{ member_name }}\n"
                     "Orientation: {{ orientation_name }}, {{ owner_name }}\n"
                     "Amount: {{ bill_amount }}\n"
@@ -3135,7 +3137,7 @@ _CURATED: dict[str, EventCopy] = {
                 body_html=(
                     "<p>Hi {{ orientor_name }},</p>"
                     "<p>The bill you sent {{ member_name }} for the <strong>{{ orientation_name }}</strong> "
-                    "orientation is still unpaid after {{ unpaid_days }} days. We've reminded them by email.</p>"
+                    "orientation is still unpaid after {{ unpaid_days }} days. {{ reached_line }}</p>"
                     "<p>Member: {{ member_name }}<br>"
                     "Orientation: {{ orientation_name }}, {{ owner_name }}<br>"
                     "Amount: <strong>{{ bill_amount }}</strong><br>"

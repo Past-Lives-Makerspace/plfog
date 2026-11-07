@@ -259,11 +259,13 @@ def _send_reminder_email(booking: OrientationBooking, step: int) -> bool:
     return member_email in result.delivered or member_email in result.skipped_duplicates
 
 
-def _tell_orientor_unpaid(booking: OrientationBooking) -> None:
+def _tell_orientor_unpaid(booking: OrientationBooking, *, reached: bool) -> None:
     """Tell the bill's Oriented by, in the bell and by email, that it is still unpaid at the last step.
 
     The ``orientation_runner`` resolver finds nobody when the bill has no Oriented by or their
-    member has no account, so the notice is skipped silently then.
+    member has no account, so the notice is skipped silently then. ``reached`` picks the
+    sentence saying whether the member's reminder went out (the renderer has no conditionals,
+    so the line arrives pre-built, like ``event.reminder``'s ``join_line``).
     """
     from core.events.emit import emit
     from membership.models import OrientationBooking
@@ -281,6 +283,7 @@ def _tell_orientor_unpaid(booking: OrientationBooking) -> None:
             "bill_amount": booking.bill_amount_display,
             "billed_on": _day_text(cast("datetime", booking.billed_at)),
             "unpaid_days": str(OrientationBooking.BILL_REMINDER_DAYS[-1]),
+            "reached_line": REACHED_LINE if reached else NOT_REACHED_LINE,
             "bookings_url": _absolute_url(_bookings_tab_path()),
         },
         url=_bookings_tab_path(),
@@ -296,6 +299,10 @@ class ReminderRun:
     failed: int
     skipped: int
 
+
+#: The orientor notice's line when the member's last reminder went out, and when it could not.
+REACHED_LINE = "We've reminded them by email."
+NOT_REACHED_LINE = "We couldn't reach them by email, so they may not know about it."
 
 #: How many days after a step's due day a refused or raised send is still retried (and fails the run).
 REMINDER_RETRY_DAYS = 2
@@ -313,7 +320,7 @@ def _put_back_or_give_up(pk: int, *, step: int, previous: int, today: date, due_
     if (today - due_on).days <= REMINDER_RETRY_DAYS:
         OrientationBooking.undo_bill_reminder(pk, step=step, previous=previous)
         return True
-    logger.warning(
+    logger.error(
         "Orientation bill %s: reminder %s still could not be sent %s days after it was due; giving up on it.",
         pk,
         step,
@@ -336,8 +343,7 @@ def _remind(pk: int, today: date) -> str:
     Raises:
         Exception: Whatever the send raised within the retry days, after the step is put back.
     """
-    from core.events.channels import notification_email_for
-    from membership.models import OrientationBooking
+    from core.events import resolvers
     from membership.orientations import locked_booking_queryset
 
     with transaction.atomic():
@@ -350,9 +356,9 @@ def _remind(pk: int, today: date) -> str:
     booking = bills().get(pk=pk)
     if not booking.bill_is_unpaid:
         return "skipped"
-    user = booking.member.user
-    if user is None or not notification_email_for(user).strip():
+    if not resolvers.single_user({"user": booking.member.user}):
         logger.warning("Orientation bill %s: the member has no email address, so reminder %s is skipped.", pk, step)
+        _tell_orientor_if_last(booking, step, reached=False)
         return "skipped"
     due_on = booking.bill_reminder_due_on(step)
     try:
@@ -361,18 +367,32 @@ def _remind(pk: int, today: date) -> str:
         if _put_back_or_give_up(pk, step=step, previous=previous, today=today, due_on=due_on):
             raise
         logger.exception("Orientation bill %s: reminder %s raised past its retry days.", pk, step)
+        _tell_orientor_if_last(booking, step, reached=False)
         return "skipped"
     if not delivered:
         if _put_back_or_give_up(pk, step=step, previous=previous, today=today, due_on=due_on):
             logger.warning("Orientation bill %s: reminder %s was not delivered; the next run tries again.", pk, step)
             return "failed"
+        _tell_orientor_if_last(booking, step, reached=False)
         return "skipped"
-    if OrientationBooking.is_last_bill_reminder(step):
-        try:
-            _tell_orientor_unpaid(booking)
-        except Exception:
-            logger.exception("Orientation bill %s: could not tell the orientor it is still unpaid.", pk)
+    _tell_orientor_if_last(booking, step, reached=True)
     return "sent"
+
+
+def _tell_orientor_if_last(booking: OrientationBooking, step: int, *, reached: bool) -> None:
+    """On the last step, once it is kept, tell the orientor; a failure here is logged, never the bill's.
+
+    ``reached`` says whether the member's reminder went out, so the notice never claims an email
+    that did not happen.
+    """
+    from membership.models import OrientationBooking
+
+    if not OrientationBooking.is_last_bill_reminder(step):
+        return
+    try:
+        _tell_orientor_unpaid(booking, reached=reached)
+    except Exception:
+        logger.exception("Orientation bill %s: could not tell the orientor it is still unpaid.", booking.pk)
 
 
 def send_due_reminders() -> ReminderRun:
