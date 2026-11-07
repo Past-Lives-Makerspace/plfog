@@ -85,7 +85,6 @@ CATEGORY_ORDER: tuple[str, ...] = (
     "Spaces & Equipment",
     "Announcements",
     "Security",
-    "Meetings",
     "Your requests",
     "Kiln tickets",
     "Tours",

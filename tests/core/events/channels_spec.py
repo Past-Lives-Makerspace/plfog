@@ -305,7 +305,6 @@ def describe_push_channel_for():
             "site_announcement",
             "tab_charged",
             "event.approved",
-            "meeting.minutes_approved",
             "new_member_joined",
             "orientation_requested",
             "space.lease_requested",

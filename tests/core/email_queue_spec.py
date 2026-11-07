@@ -194,6 +194,21 @@ def describe_waiting_for_the_next_digest():
         assert "Review request: Board One" in html
         assert "Still waiting" in html
 
+    def it_skips_a_line_queued_for_a_retired_event_and_still_lists_the_rest(staff_client: Client, shop: _Woodshop):
+        # #1113 took meeting.item_proposed out of the registry; a row queued before that
+        # must not break the tab.
+        shop.submit("Board One")
+        row = EventDelivery.objects.filter(channel="digest", target_ref=f"user:{shop.lead.user_id}").first()
+        row.pk = None
+        row.event_key = "meeting.item_proposed"
+        row.period = "meeting-proposal:999:submitted"
+        row.title = "Old agenda proposal"
+        row.save()
+        html = _queue_html(staff_client)
+        assert "Review request: Board One" in html
+        assert "Old agenda proposal" not in html
+        assert "chris@example.com · 1 item" in html
+
     def it_marks_a_request_decided_since_as_handled(shop: _Woodshop):
         gate = shop.submit("Board One")
         gate.decide(ClassApproval.Decision.APPROVED, user=shop.lead.user)

@@ -44,10 +44,6 @@ _BRAND_NEW_KEYS = {
     "space.cubby_requested",
     "space.request_approved",
     "space.request_declined",
-    "meeting.item_proposed",
-    "meeting.item_decided",
-    "meeting.minutes_approved",
-    "meeting.council_minutes_approved",
     "discount_code.requested",
     "discount_code.request_approved",
     "discount_code.request_declined",
@@ -268,7 +264,7 @@ def describe_event_registry():
             assert on == registry._PUSH_ON_BY_DEFAULT
             assert registry.get_event("class_cancelled").channel(Channel.PUSH).default is ChannelDefault.ON
             # routine / FYI notices stay OFF by default (offered, not forced on)
-            for quiet in ("meeting.minutes_approved", "meeting.council_minutes_approved", "orientation_requested"):
+            for quiet in ("cubbies.rental_started", "orientation_requested"):
                 spec = registry.get_event(quiet).channel(Channel.PUSH)
                 assert spec is not None
                 assert spec.default is ChannelDefault.OFF
@@ -283,11 +279,28 @@ def describe_event_registry():
             ):
                 assert get_event(key).has_channel(Channel.DISCORD)
 
-        def it_never_puts_minutes_approvals_on_discord():
-            # Owner decision (2026-09-03, v1.30.1): a minutes approval is routine
-            # housekeeping, not channel news.
-            for key in ("meeting.minutes_approved", "meeting.council_minutes_approved"):
-                assert not get_event(key).has_channel(Channel.DISCORD)
+        def it_keeps_only_rows_whose_event_is_still_registered_in_order():
+            from types import SimpleNamespace
+
+            from core.events.registry import registered_rows
+
+            rows = [
+                SimpleNamespace(event_key="class_review_requested"),
+                SimpleNamespace(event_key="meeting.item_proposed"),
+                SimpleNamespace(event_key="event.submitted"),
+            ]
+            assert [row.event_key for row in registered_rows(rows)] == ["class_review_requested", "event.submitted"]
+
+        def it_registers_none_of_the_retired_meeting_workspace_events():
+            # #1113: proposals, their decisions and minutes approvals are gone.
+            for key in (
+                "meeting.item_proposed",
+                "meeting.item_decided",
+                "meeting.minutes_approved",
+                "meeting.council_minutes_approved",
+            ):
+                with pytest.raises(KeyError):
+                    get_event(key)
 
     def describe_resolvers():
         def it_assigns_a_resolver_reference_to_every_event():

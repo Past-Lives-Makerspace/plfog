@@ -1,8 +1,8 @@
 """Specs for #614: members under the ``hide_from_directory`` override stay out of the pickers.
 
 Guild leads, staff and instructors choose other members in the announcement composer's "add
-anyone" list, the guild Staff tab, the orientation dashboard, the equipment "+ Add Manager"
-form and the council meeting attendee list. The app store review account (and the Help
+anyone" list, the guild Staff tab, the orientation dashboard and the equipment "+ Add Manager"
+form. The app store review account (and the Help
 Center's example accounts) must never show up in any of them.
 """
 
@@ -12,14 +12,11 @@ import pytest
 from django.contrib.auth.models import User
 
 from hub.forms import EquipmentStaffAddForm, OrientationAddMemberForm, announcement_add_member_choices
-from hub.meeting_views import _attendee_picker_context
 from hub.views import _staff_candidates
 from membership.models import Member
 from tests.membership.factories import (
     EquipmentFactory,
     GuildFactory,
-    GuildStaffMembershipFactory,
-    MeetingFactory,
     MemberFactory,
     MembershipPlanFactory,
 )
@@ -87,14 +84,3 @@ def describe_equipment_staff_add_form():
 
         assert shown in queryset
         assert hidden not in queryset
-
-
-def describe_council_attendee_picker():
-    def it_leaves_out_a_hidden_guild_staff_member():
-        shown = GuildStaffMembershipFactory().member
-        hidden = GuildStaffMembershipFactory(member=MemberFactory(hide_from_directory=True)).member
-
-        options = list(_attendee_picker_context(MeetingFactory(guild=None))["roster_options"])
-
-        assert shown in options
-        assert hidden not in options

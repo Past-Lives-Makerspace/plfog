@@ -80,8 +80,6 @@ from membership.models import (
     LeadershipTab,
     Location,
     MapHotspot,
-    MeetingAttachment,
-    MeetingItemProposal,
     Member,
     MemberContact,
     MemberSkill,
@@ -2651,80 +2649,6 @@ class MeetingCreateForm(forms.Form):
         if value == "council":
             return None
         return Guild.objects.get(pk=int(value))
-
-
-class MeetingItemProposalForm(forms.Form):
-    """The 'Propose an agenda item' modal (Meetings spec §6.3): Topic + optional Why."""
-
-    title = forms.CharField(label="Topic", max_length=200)
-    why = forms.CharField(
-        label="Why / what needs deciding",
-        required=False,
-        help_text="Helps leadership slot it into the meeting.",
-        widget=forms.Textarea(attrs={"rows": 3}),
-    )
-
-
-class MeetingProposalDecisionForm(forms.Form):
-    """The reviewer decision modal POST (Meetings spec §5.4/§6.3).
-
-    Approve is the edit-then-approve path — the possibly-tweaked Title/Why land on the
-    created agenda item, so a topic is required. Decline carries only an optional note
-    back to the proposer (the locked decision — unlike event declines).
-    """
-
-    DECISION_CHOICES = [("approve", "Approve"), ("decline", "Decline")]
-
-    decision = forms.ChoiceField(choices=DECISION_CHOICES)
-    title = forms.CharField(max_length=200, required=False)
-    why = forms.CharField(required=False, widget=forms.Textarea)
-    note = forms.CharField(required=False, widget=forms.Textarea)
-
-    def clean(self) -> dict[str, Any]:
-        cleaned = cast(dict[str, Any], super().clean())
-        if cleaned.get("decision") == "approve" and not cleaned.get("title"):
-            raise forms.ValidationError("Give the agenda item a topic.")
-        return cleaned
-
-
-class MeetingLockDispositionForm(forms.Form):
-    """The lock-time disposition modal POST (Meetings spec §6.3) — one Carry / Set-aside
-    choice per still-pending proposal. ``Meeting.approve()`` owns the default-to-carry
-    rule; this form only parses / validates what WAS submitted."""
-
-    def __init__(self, *args: Any, proposal_ids: list[int], **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self._proposal_ids = proposal_ids
-        for pk in proposal_ids:
-            self.fields[f"disposition_{pk}"] = forms.ChoiceField(
-                choices=MeetingItemProposal.Disposition.choices, required=False
-            )
-
-    def dispositions(self) -> dict[int, str]:
-        """Cleaned per-proposal map for ``Meeting.approve(dispositions=...)``. A proposal
-        whose radio wasn't submitted (or whose field didn't exist at render time) is
-        omitted, which ``approve()`` reads as default-to-carry."""
-        return {pk: value for pk in self._proposal_ids if (value := self.cleaned_data[f"disposition_{pk}"])}
-
-
-class MeetingAttachmentForm(forms.ModelForm):
-    """The workspace's '+ Attach file or link' modal — exactly one of file / url.
-
-    Copies the meeting-note attachment XOR idiom (the user-facing guard in front of
-    the model's ``ck_meetingattachment_file_xor_url`` constraint).
-    """
-
-    class Meta:
-        model = MeetingAttachment
-        fields = ["label", "file", "url"]
-
-    def clean(self) -> dict[str, Any]:
-        cleaned = cast(dict[str, Any], super().clean())
-        has_file = bool(cleaned.get("file"))
-        has_url = bool(cleaned.get("url"))
-        if has_file == has_url:  # both empty or both filled
-            raise forms.ValidationError("Pick a file or paste a link, not both.")
-        return cleaned
 
 
 class LateCancelFeeFormMixin(forms.ModelForm):
