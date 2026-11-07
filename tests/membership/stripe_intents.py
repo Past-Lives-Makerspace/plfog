@@ -17,14 +17,20 @@ CAPTURE = "billing.stripe_utils.capture_payment_intent"
 CANCEL = "billing.stripe_utils.cancel_payment_intent"
 
 
-def intent(status: str = "succeeded", amount: int = 1500, pi: str = "pi_hold") -> dict[str, Any]:
-    """A PaymentIntent dict in ``status``: held amounts are capturable, charged ones received."""
+def intent(
+    status: str = "succeeded", amount: int = 1500, pi: str = "pi_hold", capture_before: int | None = None
+) -> dict[str, Any]:
+    """A PaymentIntent dict in ``status``: held amounts are capturable, charged ones received.
+
+    ``capture_before`` is Stripe's capture deadline for the card hold, a unix timestamp, or ``None``.
+    """
     return {
         "id": pi,
         "status": status,
         "amount": amount,
         "amount_capturable": amount if status == "requires_capture" else 0,
         "amount_received": amount if status == "succeeded" else 0,
+        "capture_before": capture_before,
     }
 
 

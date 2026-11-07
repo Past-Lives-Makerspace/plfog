@@ -318,3 +318,22 @@ def describe_the_member_answering_a_new_time():
                 follow=True,
             )
         assert any("nothing changed" in m for m in _messages(response))
+
+
+def describe_marking_oriented():
+    def it_refuses_to_mark_a_request_oriented_before_it_is_confirmed(client: Client):
+        _login(client, "hv_mark", admin=True)
+        booking = _held()
+        response = client.post(
+            reverse("hub_orientation_toggle_completed", args=[booking.pk]), {"completed": "1"}, follow=True
+        )
+        assert any("Confirm it first" in m for m in _messages(response))
+        booking.refresh_from_db()
+        assert not booking.is_completed
+
+    def it_still_marks_a_confirmed_booking_oriented(client: Client):
+        _login(client, "hv_mark_ok", admin=True)
+        booking = _held(status=Status.CONFIRMED, amount_paid_cents=1500, confirmed_at=timezone.now())
+        client.post(reverse("hub_orientation_toggle_completed", args=[booking.pk]), {"completed": "1"})
+        booking.refresh_from_db()
+        assert booking.is_completed

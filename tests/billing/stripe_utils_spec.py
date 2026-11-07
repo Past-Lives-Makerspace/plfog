@@ -220,8 +220,48 @@ def describe_payment_intent_calls():
             "amount": 1500,
             "amount_capturable": 1500,
             "amount_received": 0,
+            "capture_before": None,
         }
-        client.v1.payment_intents.retrieve.assert_called_once_with("pi_1")
+        client.v1.payment_intents.retrieve.assert_called_once_with("pi_1", params={"expand": ["latest_charge"]})
+
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_reads_stripes_capture_deadline_from_the_expanded_charge(mock_get_client):
+        client = _mock_client()
+        charge = stripe.Charge.construct_from(
+            {"id": "ch_1", "object": "charge", "payment_method_details": {"card": {"capture_before": 1_800_000_000}}},
+            "sk_test",
+        )
+        client.v1.payment_intents.retrieve.return_value = MagicMock(
+            id="pi_1",
+            status="requires_capture",
+            amount=1500,
+            amount_capturable=1500,
+            amount_received=0,
+            latest_charge=charge,
+        )
+        mock_get_client.return_value = client
+        assert stripe_utils.retrieve_payment_intent(payment_intent_id="pi_1")["capture_before"] == 1_800_000_000
+
+    @pytest.mark.parametrize(
+        "details",
+        [None, {"type": "cashapp"}],
+    )
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_reads_no_deadline_without_card_details(mock_get_client, details):
+        client = _mock_client()
+        charge = stripe.Charge.construct_from(
+            {"id": "ch_1", "object": "charge", "payment_method_details": details}, "sk"
+        )
+        client.v1.payment_intents.retrieve.return_value = MagicMock(
+            id="pi_1",
+            status="requires_capture",
+            amount=1500,
+            amount_capturable=1500,
+            amount_received=0,
+            latest_charge=charge,
+        )
+        mock_get_client.return_value = client
+        assert stripe_utils.retrieve_payment_intent(payment_intent_id="pi_1")["capture_before"] is None
 
     @patch("billing.stripe_utils._get_stripe_client")
     def it_captures_a_hold_with_no_idempotency_key(mock_get_client):

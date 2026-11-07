@@ -578,8 +578,8 @@ def describe_release_unconfirmed_holds():
         assert (booking.status, booking.hold_state) == (Status.DECLINED, "released")
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_DECLINED).exists()
         declined = next(m for m in _member_mail(booking) if "about your orientation request" in m.subject.lower())
-        assert "wasn't confirmed within 6 days, so we released the hold on your card" in declined.body
-        assert "You were not charged." in declined.body
+        assert "wasn't confirmed in time, so we closed it before the hold on your card ran out." in declined.body
+        assert "We released the $15 hold on your card. You were not charged." in declined.body
 
     def it_leaves_a_request_still_inside_the_window():
         booking = _aged(5.9)
@@ -635,6 +635,126 @@ def describe_release_unconfirmed_holds():
         with patch(CANCEL, return_value=intent("canceled")):
             call_command("release_orientation_card_holds", stdout=out)
         assert "Declined 1 unconfirmed request(s); released 0 leftover hold(s)." in out.getvalue()
+
+
+def describe_review_probes():
+    """The independent review of PR #1130: each probe, kept as a spec."""
+
+    @patch("billing.refunds.issue_refund")
+    def it_refunds_a_lost_capture_the_retry_sweep_finds(mock_issue):
+        # Stripe captured on confirm but neither the reply nor the read-back arrived; the request
+        # was then declined while Stripe was still unreachable; the retry finds it charged.
+        booking = _held()
+        with patch(CAPTURE, side_effect=RuntimeError("timeout")), patch(READ, side_effect=RuntimeError("down")):
+            with pytest.raises(HoldCaptureUnavailable):
+                orientations.confirm_orientation(booking)
+        with patch(CANCEL, side_effect=RuntimeError("captured")), patch(READ, side_effect=RuntimeError("down")):
+            orientations.decline_orientation(booking)
+        booking.refresh_from_db()
+        assert (booking.status, booking.hold_state) == (Status.DECLINED, "held")
+        mock_issue.assert_not_called()
+        with patch(CANCEL, side_effect=RuntimeError("captured")), patch(READ, return_value=intent("succeeded")):
+            assert orientations.release_unconfirmed_holds() == (0, 1)
+        booking.refresh_from_db()
+        assert booking.amount_paid_cents == 1500
+        mock_issue.assert_called_once()
+
+    @patch("billing.refunds.issue_refund")
+    def it_tells_the_truth_when_the_sweep_finds_a_capture_a_rollback_lost(mock_issue):
+        booking = _held(authorized_at=timezone.now() - timedelta(days=7))
+        with (
+            patch(CAPTURE, return_value=intent("succeeded")),
+            patch.object(OrientationBooking, "confirm", side_effect=RuntimeError("db blip")),
+            pytest.raises(RuntimeError),
+        ):
+            orientations.confirm_orientation(booking)
+        booking.refresh_from_db()
+        assert (booking.status, booking.amount_paid_cents) == (Status.REQUESTED, 0)
+        mail.outbox.clear()
+        with patch(CANCEL, side_effect=RuntimeError("captured")), patch(READ, return_value=intent("succeeded")):
+            assert orientations.release_unconfirmed_holds() == (1, 0)
+        mock_issue.assert_called_once()
+        declined = next(m for m in _member_mail(booking) if "about your orientation request" in m.subject.lower())
+        assert "You were not charged" not in _body(declined)
+        assert "refund" in declined.body
+
+    def it_never_marks_a_request_holding_a_card_oriented():
+        booking = _held(authorized_at=timezone.now() - timedelta(days=7))
+        with pytest.raises(OrientationError, match="Confirm it first"):
+            booking.mark_completed()
+        booking.refresh_from_db()
+        assert not booking.is_completed
+
+    def it_says_the_card_was_not_charged_on_a_card_that_would_not_charge():
+        booking = _held()
+        mail.outbox.clear()
+        with (
+            patch(CAPTURE, return_value=intent("canceled")),
+            patch(CANCEL, return_value=intent("canceled")),
+            pytest.raises(HoldCaptureFailed),
+        ):
+            orientations.confirm_orientation(booking)
+        declined = next(m for m in _member_mail(booking) if "about your orientation request" in m.subject.lower())
+        assert "We couldn't charge your card when your request was confirmed, so we had to decline it." in declined.body
+        assert "We released the $15 hold on your card. You were not charged." in declined.body
+
+    def it_says_the_hold_is_still_being_released_when_the_sweep_release_fails():
+        booking = _held(authorized_at=timezone.now() - timedelta(days=7))
+        mail.outbox.clear()
+        with patch(CANCEL, side_effect=RuntimeError("busy")), patch(READ, return_value=intent("requires_capture")):
+            orientations.release_unconfirmed_holds()
+        declined = next(m for m in _member_mail(booking) if "about your orientation request" in m.subject.lower())
+        assert "We're releasing the $15 hold on your card." in declined.body
+        assert "We released" not in declined.body
+
+    def it_tells_billing_admins_the_card_was_not_charged_only_when_stripe_said_so():
+        _billing_approver()
+        still_held = _held()
+        unreadable = _held()
+        mail.outbox.clear()
+        with patch(CANCEL, side_effect=RuntimeError("busy")), patch(READ, return_value=intent("requires_capture")):
+            orientations.decline_orientation(still_held)
+        with patch(CANCEL, side_effect=RuntimeError("down")), patch(READ, side_effect=RuntimeError("down")):
+            orientations.decline_orientation(unreadable)
+        alerts = {m.body for m in mail.outbox if m.subject == "An orientation card hold was not released"}
+        held_alert = next(body for body in alerts if f"/{still_held.pk}/" in body)
+        unknown_alert = next(body for body in alerts if f"/{unreadable.pk}/" in body)
+        assert "They were not charged." in held_alert
+        assert "They were not charged." not in unknown_alert
+        assert "may not have been released" in unknown_alert
+        assert "Check the payment in Stripe" in unknown_alert
+
+
+def describe_stripes_capture_deadline():
+    """The sweep declines a day before Stripe's own capture deadline when Stripe gives one."""
+
+    def _session():
+        return {"status": "complete", "payment_status": "unpaid", "payment_intent": "pi_hold"}
+
+    def it_reads_the_deadline_from_the_charge():
+        deadline = timezone.now() + timedelta(days=5)
+        with patch(READ, return_value=intent("requires_capture", capture_before=int(deadline.timestamp()))):
+            landed = orientations.landed_payment(_session())
+        assert landed is not None
+        assert landed.capture_before == deadline.replace(microsecond=0)
+
+    def it_declines_a_day_before_a_short_stripe_deadline():
+        hold = OrientationBookingFactory(slot=_slot(), status=Status.PENDING_PAYMENT, stripe_session_id="cs_hold")
+        deadline = timezone.now() + timedelta(days=5)
+        orientations.finalize_paid_booking(
+            hold, payment_intent="pi_hold", amount_total=1500, held=True, capture_before=deadline
+        )
+        hold.refresh_from_db()
+        assert hold.hold_release_by == deadline - OrientationBooking.HOLD_RELEASE_MARGIN
+        with patch(CANCEL, return_value=intent("canceled")):
+            assert orientations.release_unconfirmed_holds(now=timezone.now() + timedelta(days=3)) == (0, 0)
+            assert orientations.release_unconfirmed_holds(now=timezone.now() + timedelta(days=4, hours=1)) == (1, 0)
+
+    def it_falls_back_to_six_days_without_a_stripe_deadline():
+        hold = OrientationBookingFactory(slot=_slot(), status=Status.PENDING_PAYMENT, stripe_session_id="cs_hold")
+        orientations.finalize_paid_booking(hold, payment_intent="pi_hold", amount_total=1500, held=True)
+        hold.refresh_from_db()
+        assert hold.hold_release_by == hold.authorized_at + OrientationBooking.HOLD_CONFIRM_WINDOW
 
 
 def describe_finance_readers_ignore_uncharged_holds():

@@ -3350,7 +3350,7 @@ def orientation_add_member(request: HttpRequest) -> HttpResponse:
 def orientation_toggle_completed(request: HttpRequest, booking_pk: int) -> HttpResponse:
     """POST-only — set an orientation's completed flag (that booking's managers only).
 
-    ``completed=1`` marks it oriented, ``completed=0`` undoes that. Setting a state rather than
+    ``completed=1`` marks a confirmed booking oriented, ``completed=0`` undoes that. Setting a state rather than
     flipping one means two staff clicking Mark Oriented at once both get what they asked for;
     anything else is a 400. Lands on ``next`` when it is a local path, else the Bookings tab.
     """
@@ -3366,7 +3366,11 @@ def orientation_toggle_completed(request: HttpRequest, booking_pk: int) -> HttpR
     if wanted not in ("0", "1"):
         return HttpResponseBadRequest("Say completed=1 or completed=0.")
     completed = wanted == "1"
-    if completed and not booking.is_completed:
+    if completed and not booking.is_completed and booking.status != OrientationBooking.Status.CONFIRMED:
+        # Only a confirmed booking happened (#1128): a request may still hold an uncharged card,
+        # and the sweep would release it, orienting the member for free. A bill is confirmed.
+        messages.error(request, "Only a confirmed orientation can be marked oriented. Confirm it first.")
+    elif completed and not booking.is_completed:
         booking.mark_completed()
         messages.success(request, f"Marked {booking.member.display_name} as oriented.")
     elif not completed and booking.is_completed:

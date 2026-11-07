@@ -734,6 +734,8 @@ class LandedPayment:
     payment_intent: str
     amount_cents: int
     held: bool
+    #: Stripe's deadline to charge a card hold, when its card gives one.
+    capture_before: datetime | None = None
 
 
 def landed_payment(session: dict[str, Any]) -> LandedPayment | None:
@@ -754,7 +756,13 @@ def landed_payment(session: dict[str, Any]) -> LandedPayment | None:
         return None
     intent = stripe_utils.retrieve_payment_intent(payment_intent_id=payment_intent)
     if intent["status"] == "requires_capture":
-        return LandedPayment(payment_intent=payment_intent, amount_cents=intent["amount_capturable"], held=True)
+        deadline = intent["capture_before"]
+        return LandedPayment(
+            payment_intent=payment_intent,
+            amount_cents=intent["amount_capturable"],
+            held=True,
+            capture_before=datetime.fromtimestamp(deadline, tz=UTC) if deadline is not None else None,
+        )
     if intent["status"] == "succeeded":
         return LandedPayment(payment_intent=payment_intent, amount_cents=intent["amount_received"], held=False)
     return None
@@ -768,6 +776,7 @@ def finalize_landed(booking: OrientationBooking, landed: LandedPayment, *, sessi
         amount_total=landed.amount_cents,
         session_id=session_id,
         held=landed.held,
+        capture_before=landed.capture_before,
     )
 
 
@@ -778,6 +787,7 @@ def finalize_paid_booking(
     amount_total: int | None,
     session_id: str = "",
     held: bool = False,
+    capture_before: datetime | None = None,
 ) -> str:
     """Flip a ``PENDING_PAYMENT`` hold to ``REQUESTED`` with the full request fan-out.
 
@@ -794,7 +804,8 @@ def finalize_paid_booking(
     ``held`` (#1128) means the card was only held for ``amount_total``: it is recorded as
     ``authorized_cents``, never ``amount_paid_cents``, so no payout, report or refund counts
     it until confirming charges it. Without ``held`` the money was taken at once (a checkout
-    opened before #1128) and lands in ``amount_paid_cents`` as before.
+    opened before #1128) and lands in ``amount_paid_cents`` as before. ``capture_before`` is
+    Stripe's deadline to charge the hold, which sets when an unconfirmed request is declined.
 
     A hold whose slot was cancelled while the member was paying is finalized and
     then immediately cancelled with the slot-cancelled fan-out (member email +
@@ -824,7 +835,7 @@ def finalize_paid_booking(
         if held:
             if amount_total is None:
                 raise ValueError(f"A card hold for orientation booking {locked.pk} landed with no amount.")
-            locked.record_hold(payment_intent=payment_intent, amount_cents=amount_total)
+            locked.record_hold(payment_intent=payment_intent, amount_cents=amount_total, capture_before=capture_before)
         elif amount_total is not None:
             locked.amount_paid_cents = amount_total
         locked.save(
@@ -835,6 +846,7 @@ def finalize_paid_booking(
                 "amount_paid_cents",
                 "authorized_cents",
                 "authorized_at",
+                "hold_release_by",
             ]
         )
         slot_cancelled = locked.slot.is_cancelled
@@ -1163,12 +1175,17 @@ def _confirm_charging_hold(booking: OrientationBooking, *, oriented_by: Member |
     booking.refresh_from_db()
 
 
-def _release_locked_hold(locked: OrientationBooking) -> bool:
-    """Release the row-locked booking's card hold; ``False`` when Stripe did not release it.
+#: What a release attempt learned from Stripe: the hold is gone (released, or charged and left for
+#: the caller's refund), Stripe still holds it uncharged, or Stripe could not be read at all.
+RELEASED, STILL_HELD, UNKNOWN = "released", "still_held", "unknown"
+
+
+def _release_locked_hold(locked: OrientationBooking) -> str:
+    """Release the row-locked booking's card hold: :data:`RELEASED`, :data:`STILL_HELD` or :data:`UNKNOWN`.
 
     After a failed cancel call the PaymentIntent is read back: already released counts as
     released, and already charged (a capture whose reply never landed) is recorded as money
-    in hand, so the caller's refund gives it back.
+    in hand and counts as released too, since the caller's refund gives it back.
     """
     from billing import stripe_utils
 
@@ -1179,52 +1196,59 @@ def _release_locked_hold(locked: OrientationBooking) -> bool:
         logger.exception("Could not release the card hold of orientation booking %s.", locked.pk)
         intent = _read_intent(locked.stripe_payment_id)
     if intent is None:
-        return False
+        return UNKNOWN
     if intent["status"] == "canceled":
         locked.record_hold_released()
-        return True
+        return RELEASED
     if intent["status"] == "succeeded":
         locked.record_capture(intent["amount_received"])
-        return True
-    return False
+        return RELEASED
+    return STILL_HELD
 
 
 def _release_hold(booking: OrientationBooking) -> bool:
     """Release ``booking``'s uncharged card hold under its row lock; flag, don't block, on failure.
 
-    The release never undoes the decline or cancel that asked for it. When Stripe will not
-    release it, the Billing Administrators are told once and :func:`release_unconfirmed_holds`
-    tries again every 15 minutes; the member is still never charged, and Stripe releases the
-    hold itself 7 days after it was placed. A hold a racing confirm charged first is left for
-    the caller's refund. ``booking`` is refreshed with what was written.
+    Callers go through :func:`_give_money_back`, which refunds anything this finds already
+    charged. The release never undoes the decline or cancel that asked for it. When Stripe
+    will not release it, the Billing Administrators are told once and
+    :func:`release_unconfirmed_holds` tries again every 15 minutes; Stripe also releases a
+    hold itself once its capture deadline passes. ``booking`` is refreshed with what was written.
 
     Returns:
-        ``False`` only when the hold is still open.
+        ``False`` only when the hold may still be open.
     """
     with transaction.atomic():
         locked = _locked_booking(booking)
-        released = not locked.hold_is_open or _release_locked_hold(locked)
+        outcome = _release_locked_hold(locked) if locked.hold_is_open else RELEASED
     booking.refresh_from_db(fields=_HOLD_FIELDS)
-    if not released:
-        _alert_hold_not_released(booking)
-    return released
+    if outcome != RELEASED:
+        _alert_hold_not_released(booking, stripe_answered=outcome == STILL_HELD)
+    return outcome == RELEASED
 
 
-def _alert_hold_not_released(booking: OrientationBooking) -> None:
-    """Email the Billing Administrators that a declined or cancelled request still holds a card.
+def _alert_hold_not_released(booking: OrientationBooking, *, stripe_answered: bool) -> None:
+    """Email the Billing Administrators that a declined or cancelled request may still hold a card.
 
+    ``stripe_answered`` says Stripe read the hold back as still uncharged, so the member was not
+    charged; otherwise Stripe could not be read and the email says to check the payment there.
     Sent through the orientation money alert (``membership.orientation_orphan_payment``, email
     forced), once per booking.
     """
     from core.events.senders import emit_flat_email
     from membership.webhook_handlers import _flat_html
 
+    what = (
+        "was not released when the request was {status}. They were not charged."
+        if stripe_answered
+        else "may not have been released when the request was {status}: Stripe could not be reached to check it. "
+        "Check the payment in Stripe; if it was charged, the app refunds it on its next try."
+    ).format(status=booking.get_status_display().lower())
     body = (
         f"The card hold on {booking.member.display_name}'s {booking.orientation_type.owner_name} orientation "
-        f"request (${booking.authorized_cents / 100:.2f}) was not released when the request was "
-        f"{booking.get_status_display().lower()}. They were not charged.\n\n"
-        "The app tries again every 15 minutes, and Stripe releases a hold on its own 7 days after it was "
-        "placed. To release it now, cancel the payment in the Stripe dashboard.\n\n"
+        f"request (${booking.authorized_cents / 100:.2f}) {what}\n\n"
+        "The app tries again every 15 minutes, and Stripe releases a hold on its own once its capture "
+        "deadline passes. To release it now, cancel the payment in the Stripe dashboard.\n\n"
         f"Stripe payment: https://dashboard.stripe.com/payments/{booking.stripe_payment_id}\n"
         f"Booking: {_absolute_url(reverse('hub_orientation_respond', args=[booking.pk]))}"
     )
@@ -1237,11 +1261,18 @@ def _alert_hold_not_released(booking: OrientationBooking) -> None:
     )
 
 
-def _give_money_back(booking: OrientationBooking, *, actor: User | None) -> None:
-    """On decline or cancel: release an uncharged card hold (#1128), else refund what was paid."""
-    if booking.hold_is_open:
-        _release_hold(booking)
+def _give_money_back(booking: OrientationBooking, *, actor: User | None) -> bool:
+    """On decline or cancel: release an uncharged card hold (#1128), and refund whatever was charged.
+
+    The refund runs after the release, so a capture the release discovers (a charge whose reply
+    was lost) is refunded on every road: a decline, a cancel and the sweep's retry alike.
+
+    Returns:
+        ``False`` only when an uncharged hold may still be open.
+    """
+    released = _release_hold(booking) if booking.hold_is_open else True
     _refund_if_paid(booking, actor=actor)
+    return released
 
 
 def _decline_unconfirmed(booking: OrientationBooking, *, reason: str) -> bool:
@@ -1267,24 +1298,29 @@ def _decline_unconfirmed(booking: OrientationBooking, *, reason: str) -> bool:
 def release_unconfirmed_holds(*, now: datetime | None = None) -> tuple[int, int]:
     """The card hold sweep (#1128), every 15 minutes. Returns ``(declined, released)``.
 
-    A request still unconfirmed :attr:`OrientationBooking.HOLD_CONFIRM_WINDOW` (6 days) after
-    its card hold was placed is declined (:data:`DECLINE_HOLD_EXPIRED`): the hold is released
-    a day before Stripe's 7 day limit and the member is emailed why. Then every declined or
-    cancelled booking whose hold Stripe did not release earlier is released again.
+    A request still unconfirmed at its ``hold_release_by`` (a day before Stripe's capture
+    deadline for the card, else 6 days after the hold was placed) is declined
+    (:data:`DECLINE_HOLD_EXPIRED`): the hold is released and the member is emailed why. Then
+    every declined or cancelled booking whose hold Stripe did not release earlier gets its
+    money back again, refunding a charge the retry finds.
     """
     from membership.models import OrientationBooking
 
     statuses = OrientationBooking.Status
+    now = now or timezone.now()
     open_holds = OrientationBooking.objects.filter(
         authorized_cents__gt=0, amount_paid_cents=0, hold_released_at__isnull=True
     ).select_related("slot", "guild", "member")
-    cutoff = (now or timezone.now()) - OrientationBooking.HOLD_CONFIRM_WINDOW
+    due = Q(hold_release_by__lt=now) | Q(
+        hold_release_by__isnull=True, authorized_at__lt=now - OrientationBooking.HOLD_CONFIRM_WINDOW
+    )
     declined = sum(
         _decline_unconfirmed(booking, reason=DECLINE_HOLD_EXPIRED)
-        for booking in open_holds.filter(status=statuses.REQUESTED, authorized_at__lt=cutoff)
+        for booking in open_holds.filter(due, status=statuses.REQUESTED)
     )
     released = sum(
-        _release_hold(booking) for booking in open_holds.filter(status__in=[statuses.DECLINED, statuses.CANCELLED])
+        _give_money_back(booking, actor=None)
+        for booking in open_holds.filter(status__in=[statuses.DECLINED, statuses.CANCELLED])
     )
     return declined, released
 

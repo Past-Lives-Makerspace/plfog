@@ -16451,6 +16451,14 @@ class OrientationBooking(models.Model):
         blank=True,
         help_text="When Stripe released the card hold of a request declined or cancelled before it was charged.",
     )
+    hold_release_by = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When a request still unconfirmed is declined and its card hold released: a day before Stripe's own "
+            "capture deadline for the card, else 6 days after the hold was placed."
+        ),
+    )
     requested_at = models.DateTimeField(auto_now_add=True)
     confirmed_at = models.DateTimeField(null=True, blank=True)
     declined_at = models.DateTimeField(null=True, blank=True)
@@ -16709,7 +16717,14 @@ class OrientationBooking(models.Model):
         self.save(update_fields=list(self.PROPOSAL_FIELDS))
 
     def mark_completed(self, *, oriented_by: Member | None = None) -> None:
-        """Record that the orientation happened — this is what marks the member oriented."""
+        """Record that the orientation happened — this is what marks the member oriented.
+
+        Raises:
+            OrientationError: The booking still holds an uncharged card (#1128): a request is
+                confirmed, and its hold charged, before anyone is marked oriented for it.
+        """
+        if self.hold_is_open:
+            raise OrientationError("This request still holds the member's card. Confirm it first.")
         self.is_completed = True
         if oriented_by is not None:
             self.oriented_by = oriented_by
@@ -16886,8 +16901,11 @@ class OrientationBooking(models.Model):
     # --- A card hold charged only on confirm (#1128) -----------------------------------------
 
     #: How long a card hold may wait for an Orientor before the request is declined and the hold
-    #: released: a day inside Stripe's 7 day limit on an uncaptured card payment.
+    #: released, when Stripe gives no capture deadline: a day inside its usual 7 day limit.
     HOLD_CONFIRM_WINDOW: ClassVar[timedelta] = timedelta(days=6)
+    #: How long before Stripe's capture deadline (a card's ``capture_before``) the request is declined.
+    #: Some cards allow less than 7 days, so the card's own deadline wins when Stripe gives one.
+    HOLD_RELEASE_MARGIN: ClassVar[timedelta] = timedelta(days=1)
 
     @property
     def hold_is_open(self) -> bool:
@@ -16910,11 +16928,20 @@ class OrientationBooking(models.Model):
             return "released"
         return "held"
 
-    def record_hold(self, *, payment_intent: str, amount_cents: int) -> None:
-        """Note the card hold a landed checkout placed, in memory; the finalize path saves it under its lock."""
+    def record_hold(self, *, payment_intent: str, amount_cents: int, capture_before: datetime_type | None) -> None:
+        """Note the card hold a landed checkout placed, in memory; the finalize path saves it under its lock.
+
+        ``capture_before`` is Stripe's deadline to charge this card's hold, when Stripe gives one:
+        the request is declined :attr:`HOLD_RELEASE_MARGIN` before it, else
+        :attr:`HOLD_CONFIRM_WINDOW` after the hold was placed.
+        """
+        now = timezone.now()
         self.stripe_payment_id = payment_intent
         self.authorized_cents = amount_cents
-        self.authorized_at = timezone.now()
+        self.authorized_at = now
+        self.hold_release_by = (
+            capture_before - self.HOLD_RELEASE_MARGIN if capture_before is not None else now + self.HOLD_CONFIRM_WINDOW
+        )
 
     def record_capture(self, amount_cents: int) -> None:
         """The hold was charged: ``amount_cents`` is money in hand now. The caller holds the row lock."""

@@ -22,7 +22,12 @@ from typing import TYPE_CHECKING, Any, TypeVar
 import stripe
 from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
-from stripe.params import RefundCreateParams, SubscriptionCancelParams, SubscriptionUpdateParams
+from stripe.params import (
+    PaymentIntentRetrieveParams,
+    RefundCreateParams,
+    SubscriptionCancelParams,
+    SubscriptionUpdateParams,
+)
 from stripe.params.billing_portal import SessionCreateParams as PortalSessionCreateParams
 from stripe.params.checkout import (
     SessionCreateParams,
@@ -410,6 +415,16 @@ def _expandable_id(value: Any) -> str:
     return value if isinstance(value, str) else str(value.id)
 
 
+def _capture_before(intent: stripe.PaymentIntent) -> int | None:
+    """Stripe's deadline to charge a card hold (unix seconds), when the expanded latest charge carries one."""
+    charge = intent.latest_charge
+    if not isinstance(charge, stripe.Charge) or charge.payment_method_details is None:
+        return None
+    # A Stripe object raises on a field it was not sent, and a charge on any other method has no card.
+    card = getattr(charge.payment_method_details, "card", None)
+    return getattr(card, "capture_before", None) if card is not None else None
+
+
 def _intent_dict(intent: stripe.PaymentIntent) -> dict[str, Any]:
     """The PaymentIntent fields a card hold (#1128) is decided on."""
     return {
@@ -418,6 +433,7 @@ def _intent_dict(intent: stripe.PaymentIntent) -> dict[str, Any]:
         "amount": intent.amount,
         "amount_capturable": intent.amount_capturable,
         "amount_received": intent.amount_received,
+        "capture_before": _capture_before(intent),
     }
 
 
@@ -426,9 +442,14 @@ def retrieve_payment_intent(*, payment_intent_id: str) -> dict[str, Any]:
 
     Returns dict with 'id', 'status' (``requires_capture`` for a card hold, ``succeeded`` once
     charged, ``canceled`` once released, ...), 'amount', 'amount_capturable' (what a hold can
-    still charge) and 'amount_received' (what was charged). Stripe errors propagate.
+    still charge), 'amount_received' (what was charged) and 'capture_before' (Stripe's deadline
+    to charge a card hold, unix seconds, or ``None``; read from the latest charge, expanded
+    here). Stripe errors propagate.
     """
-    return _intent_dict(_on_owning_account(lambda client: client.v1.payment_intents.retrieve(payment_intent_id)))
+    params: PaymentIntentRetrieveParams = {"expand": ["latest_charge"]}
+    return _intent_dict(
+        _on_owning_account(lambda client: client.v1.payment_intents.retrieve(payment_intent_id, params=params))
+    )
 
 
 def capture_payment_intent(*, payment_intent_id: str) -> dict[str, Any]:
