@@ -37,7 +37,7 @@ def type_choices() -> list[tuple[str, str]]:
     return sorted(((kind, type_label(kind)) for kind in kinds), key=lambda choice: choice[1].casefold())
 
 
-def _start_of_day(day: date) -> datetime:
+def start_of_pacific_day(day: date) -> datetime:
     """Midnight starting ``day`` in the site's time zone (Pacific)."""
     return timezone.make_aware(datetime.combine(day, time.min))
 
@@ -92,10 +92,10 @@ class EmailLogFilterForm(forms.Form):
         if status := self._text("status"):
             emails = emails.filter(status=status)
         if date_from := self._date("date_from"):
-            emails = emails.filter(created_at__gte=_start_of_day(date_from))
+            emails = emails.filter(created_at__gte=start_of_pacific_day(date_from))
         # The last representable day has no next midnight; every row is before it anyway.
         if (date_to := self._date("date_to")) and date_to < date.max:
-            emails = emails.filter(created_at__lt=_start_of_day(date_to + timedelta(days=1)))
+            emails = emails.filter(created_at__lt=start_of_pacific_day(date_to + timedelta(days=1)))
         return emails
 
     def empty_message(self) -> str:

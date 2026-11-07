@@ -2227,6 +2227,96 @@ class SiteActivity(models.Model):
         return ActivityWeeks(weeks=ordered_weeks, rows=rows)
 
 
+_Kind = SiteActivity.Kind
+
+# The Activity Feed's Category filter (#1114): every SiteActivity.Kind in exactly one group,
+# keyed by the slug the URL carries, in the order the select lists them. A Kind added without
+# a group fails tests/core/site_activity_categories_spec.py. Labels only, so no migration.
+SITE_ACTIVITY_CATEGORIES: dict[str, tuple[str, tuple[SiteActivity.Kind, ...]]] = {
+    "accounts": (
+        "Accounts and sign in",
+        (
+            _Kind.LOGIN,
+            _Kind.LOGOUT,
+            _Kind.ACCEPTED_MEMBER_AGREEMENT,
+            _Kind.PROFILE_UPDATED,
+            _Kind.MEMBER_INVITED,
+            _Kind.MEMBER_INVITE_REVOKED,
+            _Kind.INVITE_ACCEPTED,
+            _Kind.MEMBER_SIGNUP,
+            _Kind.ACCOUNT_DELETED,
+        ),
+    ),
+    "voting": (
+        "Voting",
+        (_Kind.VOTE_SUBMITTED, _Kind.VOTE_CHANGED, _Kind.FUNDING_SNAPSHOT_TAKEN, _Kind.FUNDING_SNAPSHOT_DELETED),
+    ),
+    "classes": (
+        "Classes and teaching",
+        (
+            _Kind.CLASS_REGISTERED,
+            _Kind.CLASS_REGISTRATION_CANCELLED,
+            _Kind.CLASS_WAITLIST_JOINED,
+            _Kind.CLASS_PUBLISHED,
+            _Kind.CLASS_SUBMITTED,
+            _Kind.CLASS_APPROVED,
+            _Kind.CLASS_CANCELLED,
+            _Kind.INSTRUCTOR_ORIENTED,
+            _Kind.TEACHING_APPLIED,
+            _Kind.TEACHING_APPLICATION_DECLINED,
+            _Kind.TEACHING_GRANTED,
+            _Kind.TEACHING_REVOKED,
+            _Kind.TEACHING_INQUIRY_ADDED,
+        ),
+    ),
+    "orientations": (
+        "Orientations",
+        (
+            _Kind.ORIENTATION_REQUESTED,
+            _Kind.ORIENTATION_CONFIRMED,
+            _Kind.ORIENTATION_DECLINED,
+            _Kind.ORIENTATION_CANCELLED,
+            _Kind.ORIENTATION_COMPLETED,
+            _Kind.ORIENTATION_RECORDED,
+            _Kind.ORIENTATION_RECORD_REMOVED,
+        ),
+    ),
+    "money": (
+        "Money",
+        (
+            _Kind.TAB_CHARGED,
+            _Kind.TAB_CHARGE_FAILED,
+            _Kind.TAB_ENTRY_ADDED,
+            _Kind.REFUND_ISSUED,
+            _Kind.LATE_FEE_CHARGED,
+            _Kind.LATE_FEE_PAID,
+            _Kind.LATE_FEE_WAIVED,
+            _Kind.LATE_FEE_REFUNDED,
+            _Kind.RECONCILIATION_SNAPSHOT_TAKEN,
+            _Kind.RECONCILIATION_SNAPSHOT_DELETED,
+        ),
+    ),
+    "guilds": (
+        "Guilds and announcements",
+        (_Kind.GUILD_JOINED, _Kind.GUILD_ANNOUNCEMENT, _Kind.SITE_ANNOUNCEMENT),
+    ),
+    "spaces": ("Spaces", (_Kind.LEASE_ACTIVATED, _Kind.SPACE_REQUEST)),
+    "meetings": ("Meetings", (_Kind.MEETING_APPROVED, _Kind.MEETING_UNLOCKED, _Kind.MEETING_UNPUBLISHED)),
+    "wiki": (
+        "Wiki",
+        (
+            _Kind.WIKI_PAGE_CREATED,
+            _Kind.WIKI_PAGE_EDITED,
+            _Kind.WIKI_PAGE_VERIFIED,
+            _Kind.WIKI_PAGE_REPORTED,
+            _Kind.WIKI_PAGE_ARCHIVED,
+            _Kind.WIKI_PAGE_REVERTED,
+        ),
+    ),
+}
+del _Kind
+
+
 @dataclass(frozen=True)
 class ActivityWeekRow:
     """One activity kind's counts per week on the Usage page."""

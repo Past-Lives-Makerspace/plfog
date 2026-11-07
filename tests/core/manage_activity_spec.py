@@ -249,6 +249,204 @@ def describe_email_log_filters():
         assert _testid(_email_log(client), "email-log-empty") == "No emails logged yet."
 
 
+def _feed(client, **params: str):
+    return client.get(reverse("manage_activity"), {"tab": "feed", **params})
+
+
+def _feed_kinds(resp) -> set[str]:
+    # Read from the page object, not the HTML: the Event select lists every kind's label.
+    return {activity.kind for activity in resp.context["feed_page"]}
+
+
+def _log_at(kind: str, when: datetime, actor: User | None = None) -> SiteActivity:
+    activity = SiteActivity.log(kind, actor=actor)
+    SiteActivity.objects.filter(pk=activity.pk).update(created_at=when)
+    return activity
+
+
+def _person(username: str, *, preferred_name: str = "", full_legal_name: str = "") -> User:
+    from membership.models import Member
+
+    user = User.objects.create_user(username=username, email=f"{username}@example.com", password="pw12345!")
+    # Creating the user links it a Member (membership.signals.ensure_user_has_member).
+    Member.objects.filter(user=user).update(preferred_name=preferred_name, full_legal_name=full_legal_name)
+    return user
+
+
+def describe_activity_feed_filters():
+    @pytest.fixture(autouse=True)
+    def staff(client):
+        user = User.objects.create_user(
+            username="feedstaff", email="feed-staff@example.com", password="pw12345!", is_staff=True
+        )
+        client.force_login(user)
+        return user
+
+    def it_shows_only_voting_kinds_for_voting(client):
+        for kind in SiteActivity.Kind.values:
+            SiteActivity.log(kind)
+        assert _feed_kinds(_feed(client, category="voting")) == {
+            "vote_submitted",
+            "vote_changed",
+            "funding_snapshot_taken",
+            "funding_snapshot_deleted",
+        }
+
+    def it_shows_only_class_and_teaching_kinds_for_classes_and_teaching(client):
+        for kind in SiteActivity.Kind.values:
+            SiteActivity.log(kind)
+        assert _feed_kinds(_feed(client, category="classes")) == {
+            "class_registered",
+            "class_registration_cancelled",
+            "class_waitlist_joined",
+            "class_published",
+            "class_submitted",
+            "class_approved",
+            "class_cancelled",
+            "instructor_oriented",
+            "teaching_applied",
+            "teaching_application_declined",
+            "teaching_granted",
+            "teaching_revoked",
+            "teaching_inquiry_added",
+        }
+
+    def it_groups_the_event_options_by_category(client):
+        content = _feed(client).content.decode()
+        assert content.count("<optgroup ") == 9
+        assert re.search(r'<optgroup label="Voting">\s*<option value="vote_submitted"', content)
+        assert re.search(r'<option value="voting"\s*>Voting</option>', content)
+
+    def it_narrows_the_event_options_to_the_chosen_category(client):
+        content = _feed(client, category="voting", kind="login").content.decode()
+        assert content.count("<optgroup ") == 1
+        assert 'value="vote_changed"' in content
+        assert 'value="login"' not in content
+        assert re.search(r'<option value="voting"\s+selected>Voting</option>', content)
+
+    def it_marks_the_chosen_event(client):
+        content = _feed(client, kind="vote_changed").content.decode()
+        assert re.search(r'<option value="vote_changed"\s+selected>Changed vote</option>', content)
+
+    def it_finds_rows_by_the_actors_preferred_name(client):
+        quill = _person("quill", preferred_name="Zephyrine", full_legal_name="Ann Quillfeather")
+        other = _person("other", preferred_name="Bramble", full_legal_name="Bo Other")
+        SiteActivity.log(SiteActivity.Kind.LOGIN, actor=quill)
+        SiteActivity.log(SiteActivity.Kind.LOGOUT, actor=other)
+        resp = _feed(client, person="zephyr")
+        assert _feed_kinds(resp) == {"login"}
+        assert 'value="zephyr"' in resp.content.decode()
+
+    def it_finds_rows_by_the_actors_legal_name(client):
+        quill = _person("quill2", preferred_name="Zephyrine", full_legal_name="Ann Quillfeather")
+        SiteActivity.log(SiteActivity.Kind.LOGIN, actor=quill)
+        SiteActivity.log(SiteActivity.Kind.LOGOUT)
+        assert _feed_kinds(_feed(client, person="QUILLFEATHER")) == {"login"}
+
+    def it_still_answers_an_old_actor_link(client):
+        quill = _person("quill3")
+        SiteActivity.log(SiteActivity.Kind.LOGIN, actor=quill)
+        SiteActivity.log(SiteActivity.Kind.LOGOUT)
+        resp = _feed(client, actor="quill3@example.com")
+        assert _feed_kinds(resp) == {"login"}
+        assert 'name="person" value="quill3@example.com"' in resp.content.decode()
+
+    def it_bounds_the_feed_by_pacific_day_inclusive(client):
+        # 23:30 Pacific on Nov 4 is already Nov 5 in UTC: a UTC bound would let it in.
+        _log_at(SiteActivity.Kind.LOGIN, _pacific(2026, 11, 4, 23, 30))
+        _log_at(SiteActivity.Kind.VOTE_SUBMITTED, _pacific(2026, 11, 5, 0, 10))
+        _log_at(SiteActivity.Kind.VOTE_CHANGED, _pacific(2026, 11, 6, 23, 59))
+        _log_at(SiteActivity.Kind.LOGOUT, _pacific(2026, 11, 7, 0, 1))
+        resp = _feed(client, feed_from="2026-11-05", feed_to="2026-11-06")
+        assert _feed_kinds(resp) == {"vote_submitted", "vote_changed"}
+        content = resp.content.decode()
+        assert 'name="feed_from" value="2026-11-05"' in content
+        assert 'name="feed_to" value="2026-11-06"' in content
+
+    def it_counts_the_filtered_feed_above_the_list(client):
+        for _ in range(3):
+            SiteActivity.log(SiteActivity.Kind.VOTE_SUBMITTED)
+        SiteActivity.log(SiteActivity.Kind.LOGIN)
+        assert _testid(_feed(client).content.decode(), "activity-feed-count") == "4 events"
+        assert _testid(_feed(client, category="voting").content.decode(), "activity-feed-count") == "3 events"
+
+    def it_says_so_when_the_filters_match_nothing(client):
+        SiteActivity.log(SiteActivity.Kind.LOGIN)
+        content = _feed(client, category="wiki").content.decode()
+        assert _testid(content, "activity-feed-empty") == "No activity matches these filters."
+        assert 'data-testid="activity-feed-count"' not in content
+
+    def it_rings_the_category_field_for_guidance(client):
+        content = _feed(client).content.decode()
+        assert re.search(
+            r'data-guidance-target="activity.feed-filter">\s*<label for="activity-feed-category">', content
+        )
+
+    def it_keeps_every_filter_on_page_two(client):
+        voter = _person("pager", preferred_name="Pager Person")
+        for n in range(55):
+            _log_at(SiteActivity.Kind.VOTE_SUBMITTED, _pacific(2026, 11, 5, 12, n % 60), actor=voter)
+        for _ in range(10):
+            _log_at(SiteActivity.Kind.VOTE_SUBMITTED, _pacific(2026, 11, 5, 12, 0))
+            _log_at(SiteActivity.Kind.LOGIN, _pacific(2026, 11, 5, 12, 0), actor=voter)
+        _log_at(SiteActivity.Kind.VOTE_SUBMITTED, _pacific(2026, 11, 8, 12, 0), actor=voter)
+        params = {"category": "voting", "person": "pager person", "feed_from": "2026-11-05", "feed_to": "2026-11-06"}
+        first = _feed(client, **params, show="admin.site-activity").content.decode()
+        assert _testid(first, "activity-feed-count") == "55 events"
+        next_href = re.search(r'href="([^"]*)">Next</a>', first).group(1).replace("&amp;", "&")
+        assert "show=" not in next_href
+        for pair in (
+            "tab=feed",
+            "page=2",
+            "category=voting",
+            "person=pager+person",
+            "feed_from=2026-11-05",
+            "feed_to=2026-11-06",
+        ):
+            assert pair in next_href
+        second = client.get(reverse("manage_activity") + next_href)
+        assert len(second.context["feed_page"]) == 5
+        assert {activity.actor_id for activity in second.context["feed_page"]} == {voter.pk}
+        assert _feed_kinds(second) == {"vote_submitted"}
+        assert "Page 2 of 2" in second.content.decode()
+
+
+def describe_feed_and_email_log_dates_stay_apart():
+    # Every tab renders in one page from one request.GET, so the two forms' dates must not share names.
+    @pytest.fixture(autouse=True)
+    def staff(client):
+        user = User.objects.create_user(
+            username="apart", email="apart-staff@example.com", password="pw12345!", is_staff=True
+        )
+        client.force_login(user)
+        return user
+
+    @pytest.fixture
+    def one_of_each():
+        _log_at(SiteActivity.Kind.LOGIN, _pacific(2026, 11, 5, 12, 0))
+        TransactionalEmailLogFactory(subject="Recent email kestrel", sent_at=_pacific(2026, 11, 5, 12, 0))
+
+    def it_leaves_the_feed_alone_when_the_email_log_has_dates(client, one_of_each):
+        resp = client.get(
+            reverse("manage_activity"), {"tab": "emails", "date_from": "2020-01-01", "date_to": "2020-01-02"}
+        )
+        assert _feed_kinds(resp) == {"login"}
+        assert len(resp.context["email_page"]) == 0
+        content = resp.content.decode()
+        assert 'name="feed_from" value=""' in content
+        assert 'name="feed_to" value=""' in content
+        assert 'name="date_from" value="2020-01-01"' in content
+
+    def it_leaves_the_email_log_alone_when_the_feed_has_dates(client, one_of_each):
+        resp = _feed(client, feed_from="2020-01-01", feed_to="2020-01-02")
+        assert _feed_kinds(resp) == set()
+        assert [email.subject for email in resp.context["email_page"]] == ["Recent email kestrel"]
+        content = resp.content.decode()
+        assert 'name="date_from" value=""' in content
+        assert 'name="date_to" value=""' in content
+        assert 'name="feed_from" value="2020-01-01"' in content
+
+
 def describe_admin_tools_activity_link():
     def _member(fog_role: str) -> User:
         from membership.models import Member, MembershipPlan

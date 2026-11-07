@@ -1,0 +1,18 @@
+bump = "minor"
+date = "2026-11-06"
+audience = ["admins"]
+feature = "admin.site-activity"
+guidance = "shots"
+target = "activity.feed-filter"
+title = "Filter Site Activity by category, person and date"
+changes = [
+  "Pick a Category on the Activity Feed, such as Voting or Classes and teaching, to see only that kind of activity. The Event list narrows to match.",
+  "Type a name or email into Person to see what one member did, and use From and To to pick the dates.",
+  "A count above the list tells you how many events match.",
+]
+
+[[shots]]
+caption = "On Site Activity, pick a Category such as Voting. The feed shows only that kind of activity."
+
+[[shots]]
+caption = "Add a Person and From and To dates to narrow it further, then press Filter."

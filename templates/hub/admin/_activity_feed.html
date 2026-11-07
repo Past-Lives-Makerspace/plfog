@@ -1,21 +1,46 @@
-<form method="get" class="hub-card" style="display:flex;gap:0.75rem;flex-wrap:wrap;align-items:end;margin-bottom:1rem;">
+{# The Activity Feed's filters (#1114), laid out as the Email Log's: each field a .hub-form-group, the row wrapping on a phone. #}
+<form method="get" class="hub-card pl-activity-filters">
   <input type="hidden" name="tab" value="feed">
-  <label style="display:flex;flex-direction:column;gap:0.25rem;">
-    <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--hub-text-muted);">Event</span>
-    <select name="kind" style="background:rgba(255,255,255,0.04);color:var(--hub-text);border:1px solid var(--hub-border);border-radius:6px;padding:0.4rem 0.65rem;font-size:0.875rem;font-family:inherit;">
-      <option value="">All events</option>
-      {% for value, label in kinds %}
-        <option value="{{ value }}" {% if value == kind %}selected{% endif %}>{{ label }}</option>
+  <div class="hub-form-group pl-activity-filters__field pl-activity-filters__field--category" data-guidance-target="activity.feed-filter">
+    <label for="activity-feed-category">Category</label>
+    {# Choosing a category reloads the feed, so the Event list narrows to that category's events. #}
+    <select id="activity-feed-category" name="category" @change="$el.form.requestSubmit()">
+      {% for value, label in feed_filters.fields.category.choices %}
+        <option value="{{ value }}" {% if value == feed_filters.category_value %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
     </select>
-  </label>
-  <label style="display:flex;flex-direction:column;gap:0.25rem;">
-    <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--hub-text-muted);">Actor email</span>
-    <input type="text" name="actor" value="{{ actor_q }}" placeholder="name@example.com"
-           style="background:rgba(255,255,255,0.04);color:var(--hub-text);border:1px solid var(--hub-border);border-radius:6px;padding:0.4rem 0.65rem;font-size:0.875rem;font-family:inherit;">
-  </label>
-  <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Filter</button>
+  </div>
+  <div class="hub-form-group pl-activity-filters__field">
+    <label for="activity-feed-kind">Event</label>
+    <select id="activity-feed-kind" name="kind">
+      <option value="">All events</option>
+      {% for group_label, events in feed_filters.event_groups %}
+        <optgroup label="{{ group_label }}">
+          {% for value, label in events %}
+            <option value="{{ value }}" {% if value == feed_filters.kind_value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </optgroup>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="hub-form-group pl-activity-filters__field pl-activity-filters__field--wide">
+    <label for="activity-feed-person">Person</label>
+    <input type="search" id="activity-feed-person" name="person" value="{{ feed_filters.person_value }}" placeholder="Name or email">
+  </div>
+  <div class="hub-form-group pl-activity-filters__field pl-activity-filters__field--date">
+    <label for="activity-feed-from">From</label>
+    <input type="date" id="activity-feed-from" name="feed_from" value="{{ feed_filters.data.feed_from }}" class="pl-activity-filters__date"
+           @click="(() => { try { $el.showPicker() } catch (e) {} })()">
+  </div>
+  <div class="hub-form-group pl-activity-filters__field pl-activity-filters__field--date">
+    <label for="activity-feed-to">To</label>
+    <input type="date" id="activity-feed-to" name="feed_to" value="{{ feed_filters.data.feed_to }}" class="pl-activity-filters__date"
+           @click="(() => { try { $el.showPicker() } catch (e) {} })()">
+  </div>
+  <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary pl-activity-filters__submit">Filter</button>
 </form>
+
+{% if feed_count_line %}<p class="hub-text-muted pl-activity-count" data-testid="activity-feed-count">{{ feed_count_line }}</p>{% endif %}
 
 <div class="hub-card">
   {% for a in feed_page %}
@@ -38,7 +63,7 @@
     {% endif %}
   </div>
   {% empty %}
-  <p class="hub-text-muted">No activity yet.</p>
+  <p class="hub-text-muted" data-testid="activity-feed-empty">{{ feed_filters.empty_message }}</p>
   {% endfor %}
 </div>
 
