@@ -242,6 +242,21 @@ def describe_start_bill_checkout():
         booking = _bill(stripe_session_id="cs_old")
         assert orientation_bills.start_bill_checkout(booking) == _SESSION["url"]
 
+    @patch("billing.stripe_utils.expire_checkout_session")
+    def it_expires_and_refuses_a_session_minted_while_staff_cancelled(mock_expire):
+        booking = _bill()
+
+        def mint_while_cancelled(**kwargs: Any) -> dict[str, str]:
+            OrientationBooking.objects.filter(pk=booking.pk).update(bill_cancelled_at=timezone.now())
+            return _SESSION
+
+        with (
+            patch("billing.stripe_utils.create_checkout_session", side_effect=mint_while_cancelled),
+            pytest.raises(OrientationError, match="This bill has nothing left to pay."),
+        ):
+            orientation_bills.start_bill_checkout(booking)
+        mock_expire.assert_called_once_with(session_id=_SESSION["id"])
+
     @patch("billing.stripe_utils.create_checkout_session", return_value=_SESSION)
     def it_refuses_a_bill_with_nothing_to_pay(mock_create):
         booking = _bill(paid_at=timezone.now())
@@ -374,3 +389,30 @@ def describe_the_jobs_leave_a_bill_alone():
             assert orientations.expire_payment_holds() == (0, 0)
         assert not mock_retrieve.called
         assert OrientationBooking.objects.filter(pk=booking.pk).exists()
+
+
+def describe_cancel_and_resend():
+    def it_refuses_to_cancel_twice():
+        booking = _bill()
+        actor = User.objects.create_user(username="svc_canceller")
+        orientation_bills.cancel_bill(booking, actor=actor)
+        with pytest.raises(OrientationError):
+            orientation_bills.cancel_bill(booking, actor=actor)
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_BILL_CANCELLED).count() == 1
+
+    def it_cancels_even_when_the_session_will_not_expire():
+        booking = _bill(stripe_session_id="cs_stuck")
+        with (
+            patch("billing.stripe_utils.retrieve_checkout_session", return_value={"payment_status": "unpaid"}),
+            patch("billing.stripe_utils.expire_checkout_session", side_effect=RuntimeError("down")),
+        ):
+            orientation_bills.cancel_bill(booking, actor=User.objects.create_user(username="svc_c2"))
+        booking.refresh_from_db()
+        assert booking.bill_state == "cancelled"
+
+    def it_refuses_to_resend_a_paid_bill():
+        booking = _bill(paid_at=timezone.now())
+        mail.outbox.clear()
+        with pytest.raises(OrientationError):
+            orientation_bills.resend_bill(booking)
+        assert mail.outbox == []

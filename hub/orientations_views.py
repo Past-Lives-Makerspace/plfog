@@ -547,6 +547,8 @@ def hub_orientation_bill_return(request: HttpRequest, token: str) -> HttpRespons
     context = _bill_context(booking)
     if booking.bill_is_unpaid:
         context["state"] = "pending"
+    # Cancelled while they were paying: say the money comes back (the webhook alerts staff to refund).
+    context["paid_after_cancel"] = orientation_bills.paid_after_cancel(booking)
     return render(request, "hub/orientation_bill.html", {**_get_hub_context(request), **context})
 
 
@@ -575,3 +577,56 @@ def _bill_context(booking: OrientationBooking) -> dict[str, Any]:
         "bill_item": orientation_bills.item_label(booking),
         "bill_oriented_by": orientation_bills.oriented_by_name(booking),
     }
+
+
+# --- Resend Bill and Cancel Bill on the Bookings tab (#1111 part 2) ------------------------
+
+
+def _bill_for_staff(request: HttpRequest, booking_pk: int) -> tuple[OrientationBooking, HttpResponse | None]:
+    """A billed booking and the type gate's refusal, if any: whoever may record for the type may act on its bill."""
+    booking = get_object_or_404(orientation_bills.bills(), pk=booking_pk)
+    return booking, _require_can_run_orientation_type(request, booking.orientation_type)
+
+
+def _bills_landing(request: HttpRequest) -> str:
+    """Where Resend and Cancel land: the posted ``next``, else the tab's Past list, where a bill's row is."""
+    return _safe_next(request, f"{_orientation_bookings_tab()}&show=past")
+
+
+@login_required
+@require_POST
+def hub_orientation_bill_resend(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """Resend Bill (#1111 part 2): the same bill email again, while it is owed.
+
+    Gated like recording (:func:`_require_can_run_orientation_type`, admins included); a paid or
+    cancelled bill is refused with the reason and sends nothing.
+    """
+    booking, forbidden = _bill_for_staff(request, booking_pk)
+    if forbidden is not None:
+        return forbidden
+    try:
+        orientation_bills.resend_bill(booking)
+    except OrientationError as exc:
+        messages.error(request, str(exc))
+        return redirect(_bills_landing(request))
+    messages.success(request, f"Sent the {booking.bill_amount_display} bill to {booking.member.display_name} again.")
+    return redirect(_bills_landing(request))
+
+
+@login_required
+@require_POST
+def hub_orientation_bill_cancel(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """Cancel Bill (#1111 part 2): nothing is owed any more; the member stays oriented and is not emailed.
+
+    Gated like recording, admins included; a paid or cancelled bill is refused and nothing changes.
+    """
+    booking, forbidden = _bill_for_staff(request, booking_pk)
+    if forbidden is not None:
+        return forbidden
+    try:
+        orientation_bills.cancel_bill(booking, actor=cast(User, request.user))
+    except OrientationError as exc:
+        messages.error(request, str(exc))
+        return redirect(_bills_landing(request))
+    messages.success(request, f"Cancelled the {booking.bill_amount_display} bill for {booking.member.display_name}.")
+    return redirect(_bills_landing(request))

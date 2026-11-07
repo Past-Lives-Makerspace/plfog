@@ -1,0 +1,18 @@
+bump = "minor"
+date = "2026-11-06"
+audience = ["orientors", "guild-leads"]
+feature = "orientations.bookings"
+guidance = "shots"
+target = "orientations.bill"
+title = "Resend or cancel an orientation bill"
+changes = [
+  "An unpaid orientation bill on the Bookings tab has two new menu items: Resend Bill emails the member the same bill again, and Cancel Bill means they no longer owe it.",
+  "Cancelling never changes whether the member is oriented, and their bill page says it was cancelled.",
+  "If the member already paid, Cancel Bill says so and points you to Payments for a refund instead.",
+]
+
+[[shots]]
+caption = "Open the menu on an unpaid bill's row and pick Resend Bill or Cancel Bill."
+
+[[shots]]
+caption = "Cancel Bill asks first. The member owes nothing after it and stays as oriented as they were."

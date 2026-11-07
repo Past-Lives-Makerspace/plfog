@@ -41,6 +41,8 @@ logger = logging.getLogger(__name__)
 CHECKOUT_KIND = "orientation_bill"
 _CHECKOUT_SALT = "orientation-bill-checkout"
 _CHECKOUT_MAX_AGE = 30 * 24 * 3600  # 30 days, like the late fee token: outlives any session by a wide margin
+#: Staff copy when Cancel Bill finds Stripe already took the money.
+PAID_BEFORE_CANCEL = "They already paid this bill. Refund it from Payments if needed."
 #: Where the billed slot sits on its day: midday, or earlier when that has not come yet.
 _BILLED_HOUR = time(12)
 
@@ -174,8 +176,12 @@ def send_bill(
     return booking
 
 
-def _send_bill_email(booking: OrientationBooking) -> None:
-    """The member's bill: the ``billing.orientation_bill`` event, its email forced."""
+def _send_bill_email(booking: OrientationBooking, *, period: str = "") -> None:
+    """The member's bill: the ``billing.orientation_bill`` event, its email forced.
+
+    ``period`` is the emit's idempotency bucket: the first send's own by default, so a retried
+    send never mails twice; a resend passes a fresh one so it is not taken for that send.
+    """
     from core.events.emit import emit
 
     member = booking.member
@@ -194,8 +200,61 @@ def _send_bill_email(booking: OrientationBooking) -> None:
             "bill_url": bill_url(booking),
         },
         url=reverse("hub_orientation_bill", args=[booking.pk]),
-        period=f"orientation_bill:{booking.pk}:sent",
+        period=period or f"orientation_bill:{booking.pk}:sent",
     )
+
+
+def resend_bill(booking: OrientationBooking) -> None:
+    """Send the same bill email again (#1111 part 2), while the bill is still owed.
+
+    No activity row: nothing about the bill changes, and the email log records the send.
+
+    Raises:
+        OrientationError: When the bill is paid or cancelled.
+    """
+    booking.ensure_bill_payable(for_staff=True)
+    # Bucketed to the minute, so a double submitted Resend sends one email.
+    minute = timezone.now().strftime("%Y%m%dT%H%M")
+    _send_bill_email(booking, period=f"orientation_bill:{booking.pk}:resent:{minute}")
+
+
+def cancel_bill(booking: OrientationBooking, *, actor: User) -> OrientationBooking:
+    """Cancel an unpaid bill (#1111 part 2): nothing is owed, the member stays oriented.
+
+    Under the booking row lock, so a payment landing at the same moment wins or loses cleanly
+    (a paid bill is refunded, never cancelled). Logs one ``ORIENTATION_BILL_CANCELLED`` row
+    naming ``actor``. After the commit the bill's open Checkout is expired best effort, so a
+    Stripe tab left open cannot pay it; should one pay anyway, the webhook alerts the Billing
+    Administrators. The member is not emailed: the bill's page reads cancelled.
+
+    A late webhook must not let a paid bill be cancelled: when a Checkout was opened, Stripe
+    is asked first (:func:`reconcile_landed_checkout`), and a payment it reports is stamped
+    and the cancel refused. Stripe unreachable does not block the cancel; the webhook's alert
+    is the backstop.
+
+    Raises:
+        OrientationError: When the bill is already paid or cancelled, or Stripe says it was just paid.
+    """
+    from membership.models import OrientationError
+    from membership.orientations import locked_booking_queryset
+
+    if booking.stripe_session_id and reconcile_landed_checkout(booking) == "paid":
+        raise OrientationError(PAID_BEFORE_CANCEL)
+    with transaction.atomic():
+        locked = locked_booking_queryset().get(pk=booking.pk)
+        locked.cancel_bill(by=actor)
+        SiteActivity.log(
+            SiteActivity.Kind.ORIENTATION_BILL_CANCELLED,
+            actor=actor,
+            target=locked,
+            payload={
+                "orientation_type": locked.orientation_type.name,
+                "owner": locked.orientation_type.owner_name,
+                "amount_cents": locked.bill_amount_cents,
+            },
+        )
+    _expire_session_best_effort(locked)
+    return locked
 
 
 def _expire_session_best_effort(booking: OrientationBooking) -> None:
@@ -226,6 +285,8 @@ def start_bill_checkout(booking: OrientationBooking) -> str:
         OrientationError: If the bill is paid or cancelled; there is nothing to pay.
     """
     from billing import stripe_utils
+    from membership.models import OrientationBooking, OrientationError
+    from membership.orientations import locked_booking_queryset
 
     booking.ensure_bill_payable()
     _expire_session_best_effort(booking)
@@ -242,6 +303,12 @@ def start_bill_checkout(booking: OrientationBooking) -> str:
     )
     booking.stripe_session_id = session["id"]
     booking.save(update_fields=["stripe_session_id"])
+    # A Cancel Bill that landed during the Stripe call must not leave a live page to pay.
+    with transaction.atomic():
+        still_owed = locked_booking_queryset().get(pk=booking.pk).bill_is_unpaid
+    if not still_owed:
+        _expire_session_best_effort(booking)
+        raise OrientationError(OrientationBooking.BILL_SETTLED_FOR_MEMBER)
     return session["url"]
 
 
@@ -274,6 +341,23 @@ def mark_paid(booking: OrientationBooking, *, payment_intent: str, session_id: s
             )
         locked.record_bill_payment(payment_intent=payment_intent, session_id=session_id, amount_total=amount_total)
     return "paid"
+
+
+def paid_after_cancel(booking: OrientationBooking) -> bool:
+    """Whether a cancelled bill's last Checkout was paid anyway: the member's return page then says so.
+
+    False when the bill is not cancelled, has no session, or Stripe cannot be asked.
+    """
+    from billing import stripe_utils
+
+    if booking.bill_state != "cancelled" or not booking.stripe_session_id:
+        return False
+    try:
+        session = stripe_utils.retrieve_checkout_session(session_id=booking.stripe_session_id)
+    except Exception:
+        logger.exception("Return page: could not check session for cancelled orientation bill %s.", booking.pk)
+        return False
+    return bool(session["payment_status"] == "paid")
 
 
 def reconcile_landed_checkout(booking: OrientationBooking) -> str:
