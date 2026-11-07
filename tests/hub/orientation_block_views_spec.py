@@ -78,13 +78,16 @@ def describe_orientation_block_starts():
         ).content.decode()
         assert reverse("hub_orientation_block_book", args=[block.pk]) not in content
 
-    def it_404s_for_a_cancelled_block(client: Client):
+    def it_replaces_the_modal_body_with_one_line_for_a_cancelled_block(client: Client):
+        # A 200, not a 404: htmx drops a 4xx and would leave another window's start form showing (#1129).
         _user_with_role("bs3")
         block, orientation_type = _block_with_type()
         block.cancel()
         client.login(username="bs3", password="pass")
         response = client.get(reverse("hub_orientation_block_starts", args=[block.pk, orientation_type.pk]))
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert "data-window-gone" in response.content.decode()
+        assert "<form" not in response.content.decode()
 
     def it_requires_login(client: Client):
         block, orientation_type = _block_with_type()

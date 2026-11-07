@@ -10,7 +10,7 @@ from django.core.management.base import CommandError
 
 from classes.factories import UserFactory
 from membership.models import Member
-from tests.membership.factories import GuildFactory, MemberFactory
+from tests.membership.factories import GuildFactory, MemberFactory, OrientationAvailabilityFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -74,3 +74,26 @@ def describe_set_guild_lead():
         GuildFactory(name="Glass")
         with pytest.raises(CommandError):
             _run(guild="Glass", member="ghost@example.com")
+
+
+def describe_hidden_orientation_times():
+    def it_prints_the_line_when_a_replaced_lead_had_times_here():
+        old = MemberFactory(full_legal_name="Old Forge Lead")
+        guild = GuildFactory(name="Forge", guild_lead=old)
+        OrientationAvailabilityFactory(guild=guild, orienter=old)
+        UserFactory(username="nextlead@example.com")
+        output = _run(guild="Forge", member="nextlead@example.com")
+        assert "Old Forge Lead's orientation times are hidden. Add them as staff today to keep them." in output
+
+    def it_prints_the_line_when_a_cleared_lead_had_times_here():
+        old = MemberFactory(full_legal_name="Old Clay Lead")
+        guild = GuildFactory(name="Clay", guild_lead=old)
+        OrientationAvailabilityFactory(guild=guild, orienter=old)
+        output = _run(guild="Clay", clear=True)
+        assert "Old Clay Lead's orientation times are hidden. Add them as staff today to keep them." in output
+
+    def it_prints_nothing_about_times_for_a_lead_with_none():
+        GuildFactory(name="Glass", guild_lead=MemberFactory())
+        UserFactory(username="glasslead@example.com")
+        assert "orientation times are hidden" not in _run(guild="Glass", member="glasslead@example.com")
+        assert "orientation times are hidden" not in _run(guild="Glass", clear=True)

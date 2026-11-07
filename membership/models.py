@@ -2795,7 +2795,8 @@ class Member(StaffRequestMixin, models.Model):
     def save(self, *args: Any, **kwargs: Any) -> None:
         # Cleans up the orphaned profile_photo file when the user replaces it, queues a
         # member who just turned Former for removal from Discord (#898), and clears the
-        # admins' teaching-application bell when a member leaves ACTIVE (#894 part 3).
+        # admins' teaching-application bell when a member leaves ACTIVE (#894 part 3), and
+        # retires their open orientation times after commit (#1129).
         # Every path that changes a member's status (the Airtable pull, an admin's edit)
         # saves through here.
         delete_orphan_on_replace(self, "profile_photo")
@@ -2803,6 +2804,7 @@ class Member(StaffRequestMixin, models.Model):
         left_active = (
             not self._state.adding and self._loaded_status == self.Status.ACTIVE and self.status != self.Status.ACTIVE
         )
+        writes_status = kwargs.get("update_fields") is None or "status" in kwargs["update_fields"]
         granted_teaching = self._granting_teaching(kwargs.get("update_fields"))
         if granted_teaching:
             # Every new instructor gets a personal discount code (#1065), in one transaction with
@@ -2817,11 +2819,22 @@ class Member(StaffRequestMixin, models.Model):
                 DiscountCode.objects.ensure_personal_for(self)
         else:
             super().save(*args, **kwargs)
-        self._loaded_status = self.status
+        if writes_status:
+            # A save that left status out wrote nothing new there; keep comparing against the stored value.
+            self._loaded_status = self.status
         self._loaded_teaching = self.instructor_oriented_at is not None
         if turning_former:
             DiscordRemoval.objects.queue_for_former(self)
-        if left_active and self.teaching_applied_at is not None:
+        if left_active and writes_status:
+            # Only an Active member runs orientations (#1129): their open times go in every guild
+            # and on every tool once the status change commits. Robust, so a failing sweep never
+            # undoes the status change or stops the Airtable pull; bookable() already hides the
+            # times, and the nightly job retries the sweep.
+            from membership import orientations
+
+            member = self
+            transaction.on_commit(lambda: orientations.retire_stale_orientor_hours(member=member), robust=True)
+        if left_active and writes_status and self.teaching_applied_at is not None:
             # Only an active member's application waits on an admin (awaiting_teaching_decision),
             # so one who leaves ACTIVE no longer asks in the admins' bell. Only on that change:
             # an ordinary save costs no query.
@@ -3762,7 +3775,11 @@ class Guild(HeroCropMixin, models.Model):
 
         The single assignment path shared by the ``set_guild_lead`` management command and the
         admin-only Staff-tab control. Assigning the FK is all that's needed — guild-lead perks
-        flow from it, no FOG role required. The assignment always succeeds; advisory conditions
+        flow from it, no FOG role required. A replaced lead's orientation times stop being offered at
+        once unless they are on this guild's staff (``orientor_ids``, #1129); nothing is deleted here,
+        so keeping them on as staff the same day (the Staff tab refuses the sitting lead, so that
+        comes after) restores every time, and the nightly ``retire_stale_orientor_hours`` job retires
+        them if they are still off staff by then. The assignment always succeeds; advisory conditions
         (the member can't log in yet, or isn't Active) are returned as warning strings for the
         caller to surface (CLI output, web messages).
 
@@ -3808,6 +3825,17 @@ class Guild(HeroCropMixin, models.Model):
                 members.append(staff.member)
                 seen.add(staff.member_id)
         return members
+
+    def orientor_ids(self) -> set[int]:
+        """Who runs this guild's orientations now (#1129): the lead and staff who are Active members.
+
+        One predicate with :meth:`Equipment.orientor_ids` and its SQL twins
+        (``OrientationSlotQuerySet.bookable`` and ``OrientationAvailabilityBlockQuerySet.offered``):
+        a personal recurring row, posted time or open window whose orientor is outside it
+        generates nothing, is offered to nobody and books for nobody, and
+        ``orientations.retire_stale_orientor_hours`` retires its open times.
+        """
+        return {member.pk for member in self.leadership_members() if member.status == Member.Status.ACTIVE}
 
     def class_reviewer_ids(self) -> set[int]:
         """Member pks of the staff marked Class Reviewer on this guild (the lead not included), one query."""
@@ -3926,8 +3954,9 @@ class Guild(HeroCropMixin, models.Model):
     def clear_lead(self) -> Member | None:
         """Remove this guild's lead (``guild_lead`` to None) and return who it was.
 
-        The web counterpart of ``set_guild_lead --clear``: the FK goes and nothing else changes,
-        so staff rows and orienter hours stay as they are.
+        The web counterpart of ``set_guild_lead --clear``: the FK goes and staff rows stay. As with
+        :meth:`assign_lead`, the previous lead's orientation times stop being offered unless they are
+        on this guild's staff, and the nightly job retires them if they still are not (#1129).
         """
         previous = self.guild_lead
         self.guild_lead = None
@@ -3935,6 +3964,30 @@ class Guild(HeroCropMixin, models.Model):
         if previous is not None:
             self.drop_cubby_payee_unless_leader(previous)
         return previous
+
+    def hidden_times_notice(self, previous: Member | None, new_lead: Member | None) -> str:
+        """The line an admin reads after a lead change when the old lead's orientation times here are now hidden.
+
+        ``assign_lead`` and ``clear_lead`` delete nothing (#1129): an old lead off this guild's
+        staff stops being offered at once and the nightly job retires their times, so adding
+        them as staff the same day keeps every time. Says so only when that is news: there was
+        a previous lead, someone else (or nobody) now leads, they are not on staff, and they
+        have a recurring row, or an upcoming uncancelled time or open window, in this guild.
+        The Staff tab, the member Permissions tab and ``set_guild_lead`` all show it.
+
+        Returns:
+            The line, or "" when there is nothing to say.
+        """
+        if previous is None or previous == new_lead or self.is_staffed_by(previous):
+            return ""
+        has_times = (
+            OrientationAvailability.objects.filter(guild=self, orienter=previous).exists()
+            or OrientationSlot.objects.filter(guild=self, orienter=previous).upcoming().exists()
+            or OrientationAvailabilityBlock.objects.filter(guild=self, orienter=previous).upcoming().exists()
+        )
+        if not has_times:
+            return ""
+        return f"{previous.display_name}'s orientation times are hidden. Add them as staff today to keep them."
 
     def drop_cubby_payee_unless_leader(self, member: Member) -> None:
         """Clear Who gets paid for cubbies when it is ``member`` and they no longer lead or staff this guild (#977).
@@ -15501,6 +15554,22 @@ class OrientationAvailabilityBlockQuerySet(models.QuerySet):
         """Uncancelled blocks with time still remaining (a partly elapsed block can still book its tail)."""
         return self.filter(is_cancelled=False, ends_at__gt=timezone.now())
 
+    def offered(self) -> OrientationAvailabilityBlockQuerySet:
+        """:meth:`upcoming` windows a member may book into: their orientor still runs the guild's orientations.
+
+        The window's SQL twin of :meth:`Guild.orientor_ids` (#1129): an Active member who
+        leads or staffs the window's guild. Member facing lists read this; the staff
+        dashboard keeps :meth:`upcoming` so a lead still sees a stale window to tidy it.
+        """
+        still_on_staff = GuildStaffMembership.objects.filter(
+            guild_id=OuterRef("guild_id"), member_id=OuterRef("orienter_id")
+        )
+        return (
+            self.upcoming()
+            .filter(orienter__status=Member.Status.ACTIVE)
+            .filter(Q(orienter_id=models.F("guild__guild_lead_id")) | Exists(still_on_staff))
+        )
+
 
 class OrientationAvailabilityBlock(models.Model):
     """An open window of an orientor's time that members book INTO (issues #283 and #532).
@@ -15938,6 +16007,26 @@ class OrientationSlotQuerySet(models.QuerySet):
         # ``Exists | Q`` really is a Q at runtime; django-stubs widens the chain to Combinable.
         return cast(Q, gate)
 
+    def with_current_orientor(self) -> OrientationSlotQuerySet:
+        """Slots with no orientor, or whose orientor still runs the owner's orientations (#1129).
+
+        The SQL twin of ``Guild.orientor_ids`` / ``Equipment.orientor_ids``: an Active member who
+        is the guild's lead or staff (a guild slot), or one of the tool's Orientors
+        (:meth:`_run_by_gate`, an equipment slot). :meth:`bookable` applies it, and so does any list
+        that shows posted times to members without the rest of the booking gates (the guild
+        calendar), so a lapsed orientor's times hide at once, before the nightly job retires them.
+        """
+        still_on_staff = GuildStaffMembership.objects.filter(
+            guild_id=OuterRef("guild_id"), member_id=OuterRef("orienter_id")
+        )
+        guild_orientor = Q(orientation_type__guild__isnull=False) & (
+            Q(orienter_id=models.F("guild__guild_lead_id")) | Exists(still_on_staff)
+        )
+        tool_orientor = Q(orientation_type__equipment__isnull=False) & self._run_by_gate()
+        return self.filter(
+            Q(orienter__isnull=True) | (Q(orienter__status=Member.Status.ACTIVE) & (guild_orientor | tool_orientor))
+        )
+
     def bookable(self) -> OrientationSlotQuerySet:
         """Upcoming slots whose owner is currently accepting bookings (does not check seats).
 
@@ -15951,19 +16040,16 @@ class OrientationSlotQuerySet(models.QuerySet):
         an orientation, #665), and a slot generated from a paused rule stops taking NEW
         bookings; a one time slot has no rule and is unaffected.
         """
-        still_on_staff = GuildStaffMembership.objects.filter(
-            guild_id=OuterRef("guild_id"), member_id=OuterRef("orienter_id")
-        )
         guild_gate = Q(
             orientation_type__guild__isnull=False,
             guild__orientation_settings__is_enabled=True,
             guild__orientation_settings__is_closed=False,
-        ) & (Q(orienter__isnull=True) | Q(orienter_id=models.F("guild__guild_lead_id")) | Exists(still_on_staff))
+        )
         equipment_gate = Q(
             orientation_type__equipment__isnull=False,
             orientation_type__equipment__is_active=True,
             orientation_type__equipment__is_closed=False,
-        ) & (Q(orienter__isnull=True) | self._run_by_gate())
+        )
         # Either owner: a reservation or block on any item the type uses hides the slot (#665).
         reserved_over_span = EquipmentReservation.objects.over_orientation(
             OuterRef("orientation_type_id"), OuterRef("starts_at"), OuterRef("ends_at")
@@ -15977,6 +16063,7 @@ class OrientationSlotQuerySet(models.QuerySet):
             self.upcoming()
             .filter(orientation_type__is_active=True)
             .filter(guild_gate | equipment_gate)
+            .with_current_orientor()
             .filter(rule_gate)
             .filter(~Exists(reserved_over_span))
         )
@@ -16131,9 +16218,10 @@ class OrientationSlot(models.Model):
     def is_bookable(self) -> bool:
         """Future, uncancelled, has a free seat, owner accepting, rule not paused, orientor still current.
 
-        A personal slot whose orientor is no longer in the guild's leadership (or no
-        longer manages the equipment) blocks NEW bookings only — existing bookings on
-        it are untouched. A slot whose orientation type was deactivated, or whose
+        A personal slot whose orientor no longer runs the owner's orientations
+        (``orientor_ids``: Active, and in the guild's leadership or among the tool's
+        Orientors, #1129) blocks NEW bookings only; existing bookings on it are
+        untouched. A slot whose orientation type was deactivated, or whose
         recurring rule was paused, blocks new bookings the same way (the per-slot
         twin of ``bookable()``).
         """
@@ -16152,11 +16240,11 @@ class OrientationSlot(models.Model):
             equipment = cast("Equipment", self.orientation_type.equipment)
             # A personal slot whose manager no longer RUNS orientations here blocks NEW
             # bookings only (the equipment twin of the departed-orientor guard).
-            if self.orienter_id is not None and not equipment.is_run_by(cast(Member, self.orienter)):
+            if self.orienter_id is not None and self.orienter_id not in equipment.orientor_ids():
                 return False
         else:
             guild = cast(Guild, self.guild)  # guild-owned type: the one-owner constraint guarantees it
-            if self.orienter_id is not None and self.orienter_id not in {m.pk for m in guild.leadership_members()}:
+            if self.orienter_id is not None and self.orienter_id not in guild.orientor_ids():
                 return False
             settings_obj = GuildOrientationSettings.objects.filter(guild=guild).first()
             if settings_obj is None or not settings_obj.is_accepting:
@@ -18939,8 +19027,10 @@ class Equipment(HeroCropMixin, models.Model):
         themselves on the Staff tab, exactly as a guild admin needs a staff row.
 
         One predicate, and it must stay one: it feeds ``bookable()`` (its SQL twin
-        ``_run_by_gate``), ``is_bookable``, slot generation, the Runs with picker, the
-        schedule overview, and the staff-removal retirement check. When it drifted wider
+        ``_run_by_gate``), the Runs with picker, the schedule overview, and the
+        staff-removal retirement check; ``is_bookable``, slot generation and the stale
+        orientor sweep read :meth:`orientor_ids`, this set narrowed to Active members
+        (#1129), as ``bookable()`` does beside ``_run_by_gate``. When it drifted wider
         than the set that generates slots, a removed manager's slots stopped extending but
         stayed publicly bookable with their name on them.
         """
@@ -18994,6 +19084,14 @@ class Equipment(HeroCropMixin, models.Model):
                     members.append(leader)
                     seen.add(leader.pk)
         return members
+
+    def orientor_ids(self) -> set[int]:
+        """Who runs this tool's orientations now (#1129): the :meth:`orienter_members` who are Active members.
+
+        The equipment leg of :meth:`Guild.orientor_ids`, the one predicate for generation,
+        bookability and the stale orientor sweep.
+        """
+        return {member.pk for member in self.orienter_members() if member.status == Member.Status.ACTIVE}
 
     def access_state(
         self,
