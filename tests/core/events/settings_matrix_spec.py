@@ -734,6 +734,8 @@ def describe_padlocked_rows():
         "guild_staff.welcome": "Guilds",
         # A bill for an orientation the member already took (#1111): money they owe.
         "billing.orientation_bill": "Billing",
+        # Its reminders at 7, 14 and 30 days (#1120): the same money, still owed.
+        "billing.orientation_bill_reminder": "Billing",
     }
     # Forced emails routed to staff: padlocked too, but in Admin / Permissions.
     STAFF_FORCED = {

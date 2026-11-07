@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, time, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.core import signing
@@ -176,6 +176,27 @@ def send_bill(
     return booking
 
 
+def _day_text(moment: datetime) -> str:
+    """A moment's local day as the bill emails write it: "Tuesday, November 3"."""
+    day = timezone.localtime(moment)
+    return f"{day:%A, %B} {day.day}"
+
+
+def _bill_context(booking: OrientationBooking) -> dict[str, Any]:
+    """What the bill email and its reminder both say: the member, the orientation, the amount, the Pay link."""
+    member = booking.member
+    return {
+        "user": member.user,
+        "member_name": member.display_name,
+        "orientation_name": booking.orientation_type.name,
+        "owner_name": booking.orientation_type.owner_name,
+        "oriented_on": _day_text(booking.slot.starts_at),
+        "oriented_by_name": oriented_by_name(booking),
+        "bill_amount": booking.bill_amount_display,
+        "bill_url": bill_url(booking),
+    }
+
+
 def _send_bill_email(booking: OrientationBooking, *, period: str = "") -> None:
     """The member's bill: the ``billing.orientation_bill`` event, its email forced.
 
@@ -184,21 +205,10 @@ def _send_bill_email(booking: OrientationBooking, *, period: str = "") -> None:
     """
     from core.events.emit import emit
 
-    member = booking.member
-    day = timezone.localtime(booking.slot.starts_at)
     emit(
         "billing.orientation_bill",
         target=booking,
-        context={
-            "user": member.user,
-            "member_name": member.display_name,
-            "orientation_name": booking.orientation_type.name,
-            "owner_name": booking.orientation_type.owner_name,
-            "oriented_on": f"{day:%A, %B} {day.day}",
-            "oriented_by_name": oriented_by_name(booking),
-            "bill_amount": booking.bill_amount_display,
-            "bill_url": bill_url(booking),
-        },
+        context=_bill_context(booking),
         url=reverse("hub_orientation_bill", args=[booking.pk]),
         period=period or f"orientation_bill:{booking.pk}:sent",
     )
@@ -216,6 +226,88 @@ def resend_bill(booking: OrientationBooking) -> None:
     # Bucketed to the minute, so a double submitted Resend sends one email.
     minute = timezone.now().strftime("%Y%m%dT%H%M")
     _send_bill_email(booking, period=f"orientation_bill:{booking.pk}:resent:{minute}")
+
+
+# --- Reminders for an unpaid bill (#1120) ------------------------------------------------
+
+
+def _bookings_tab_path() -> str:
+    """The Orientations page's Bookings tab, Past list: where a bill's row offers Resend and Cancel."""
+    return f"{reverse('hub_orientations')}?view=bookings&show=past"
+
+
+def _send_reminder_email(booking: OrientationBooking, step: int) -> None:
+    """The member's reminder: the bill email with reminder wording, once per bill per step."""
+    from core.events.emit import emit
+
+    emit(
+        "billing.orientation_bill_reminder",
+        target=booking,
+        context={**_bill_context(booking), "billed_on": _day_text(cast("datetime", booking.billed_at))},
+        url=reverse("hub_orientation_bill", args=[booking.pk]),
+        period=f"orientation_bill:{booking.pk}:reminder:{step}",
+    )
+
+
+def _tell_orientor_unpaid(booking: OrientationBooking) -> None:
+    """Tell the bill's Oriented by, in the bell and by email, that it is still unpaid at the last step.
+
+    The ``orientation_runner`` resolver finds nobody when the bill has no Oriented by or their
+    member has no account, so the notice is skipped silently then.
+    """
+    from core.events.emit import emit
+
+    orientor = booking.oriented_by
+    emit(
+        "billing.orientation_bill_unpaid",
+        target=booking,
+        context={
+            "booking": booking,
+            "orientor_name": orientor.display_name if orientor is not None else "",
+            "member_name": booking.member.display_name,
+            "orientation_name": booking.orientation_type.name,
+            "owner_name": booking.orientation_type.owner_name,
+            "bill_amount": booking.bill_amount_display,
+            "billed_on": _day_text(cast("datetime", booking.billed_at)),
+            "bookings_url": _absolute_url(_bookings_tab_path()),
+        },
+        url=_bookings_tab_path(),
+        period=f"orientation_bill:{booking.pk}:unpaid_notice",
+    )
+
+
+def send_due_reminders() -> int:
+    """Send each unpaid bill the reminder due today, at most one per bill: the daily job (#1120).
+
+    Reminders go 7, 14 and 30 local days after ``billed_at``
+    (:attr:`OrientationBooking.BILL_REMINDER_DAYS`); a bill that missed steps gets only the
+    latest one due, counted as that step. Each bill decides under its row lock
+    (:func:`membership.orientations.locked_booking_queryset`): a paid or cancelled bill, or one
+    that already had the step, is skipped, and the step is saved before the email, so a rerun
+    or a second dispatcher tick never sends twice; each emit's period is per bill per step as
+    a second guard. The last step also tells the orientor. Resend Bill never moves the step.
+
+    Returns:
+        How many reminders went out.
+    """
+    from membership.models import OrientationBooking
+    from membership.orientations import locked_booking_queryset
+
+    today = timezone.localdate()
+    sent = 0
+    for pk in list(OrientationBooking.objects.bills_awaiting_reminder(today).values_list("pk", flat=True)):
+        with transaction.atomic():
+            locked = locked_booking_queryset().get(pk=pk)
+            step = locked.bill_reminder_due(today)
+            if not step:
+                continue
+            locked.record_bill_reminder(step)
+        booking = bills().get(pk=pk)
+        _send_reminder_email(booking, step)
+        if OrientationBooking.is_last_bill_reminder(step):
+            _tell_orientor_unpaid(booking)
+        sent += 1
+    return sent
 
 
 def cancel_bill(booking: OrientationBooking, *, actor: User) -> OrientationBooking:

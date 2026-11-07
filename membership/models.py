@@ -16311,6 +16311,22 @@ class OrientationBookingQuerySet(models.QuerySet):
     def completed(self) -> OrientationBookingQuerySet:
         return self.filter(is_completed=True)
 
+    def bills_awaiting_reminder(self, today: date_type) -> OrientationBookingQuerySet:
+        """Unpaid bills sent at least the first reminder's days before ``today`` with a reminder left (#1120).
+
+        A coarse filter for the daily job: each row still decides its own step under the lock
+        (:meth:`OrientationBooking.bill_reminder_due`). Sent on or before ``today`` less the
+        first step's days, by local date, is sent before the start of the local day after that.
+        """
+        days = OrientationBooking.BILL_REMINDER_DAYS
+        cutoff = timezone.make_aware(datetime_type.combine(today - timedelta(days=days[0] - 1), time_type.min))
+        return self.filter(
+            billed_at__lt=cutoff,
+            paid_at__isnull=True,
+            bill_cancelled_at__isnull=True,
+            bill_reminder_step__lt=len(days),
+        )
+
     def with_thread(self) -> OrientationBookingQuerySet:
         """Load each booking's messages, their authors' names and photos in three queries, whatever the count."""
         return self.select_related("member", "orientation_type__guild", "orientation_type__equipment").prefetch_related(
@@ -16463,6 +16479,13 @@ class OrientationBooking(models.Model):
         help_text=(
             "When the bill was paid. The Payments panel, Reconciliation and payouts date a booking by it "
             "when set, else by requested_at; an ordinary booking never sets it."
+        ),
+    )
+    bill_reminder_step = models.PositiveSmallIntegerField(
+        default=0,
+        help_text=(
+            "The latest reminder an unpaid bill has had (#1120): 0 none, 1 the 7 day one, 2 the 14 day one, "
+            "3 the 30 day one. A missed day catches up to the latest step due, so a rerun never sends twice."
         ),
     )
 
@@ -16751,6 +16774,32 @@ class OrientationBooking(models.Model):
         self.bill_cancelled_at = timezone.now()
         self.bill_cancelled_by = by
         self.save(update_fields=["bill_cancelled_at", "bill_cancelled_by"])
+
+    #: Days after a bill is sent that it reminds the member (#1120); the last also tells the orientor.
+    BILL_REMINDER_DAYS: ClassVar[tuple[int, ...]] = (7, 14, 30)
+
+    def bill_reminder_due(self, today: date_type) -> int:
+        """The reminder step due on ``today`` and not had yet, or 0 when none is (#1120).
+
+        Days count by local calendar date from ``billed_at``, so the 6 AM run reminds on the
+        seventh day whatever hour the bill went out. Catch up: a bill that missed steps gets only
+        the latest one due. A paid or cancelled bill, or an ordinary booking, is never due.
+        """
+        if self.billed_at is None or not self.bill_is_unpaid:
+            return 0
+        days = (today - timezone.localdate(self.billed_at)).days
+        step = sum(1 for threshold in self.BILL_REMINDER_DAYS if days >= threshold)
+        return step if step > self.bill_reminder_step else 0
+
+    @classmethod
+    def is_last_bill_reminder(cls, step: int) -> bool:
+        """Whether ``step`` is the final reminder, the one that also tells the orientor."""
+        return step == len(cls.BILL_REMINDER_DAYS)
+
+    def record_bill_reminder(self, step: int) -> None:
+        """Mark reminder ``step`` as had. The caller holds the row lock and read :meth:`bill_reminder_due`."""
+        self.bill_reminder_step = step
+        self.save(update_fields=["bill_reminder_step"])
 
     def next_bill_checkout_attempt(self) -> int:
         """Count one more Pay click and return it, saved before any Stripe call (the idempotency key).
