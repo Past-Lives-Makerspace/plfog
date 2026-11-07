@@ -225,6 +225,18 @@ _GUIDANCE_LIST = (
         ),
         help_key="orientation.book-slot",
     ),
+    Guidance(
+        key="orientations.bookings",
+        title="Orientation Bookings",
+        url_name="hub_orientations",
+        query={"view": "bookings"},
+        steps=(
+            "Open Orientations and press the Bookings tab to see every booking for the orientations you run.",
+            "Press Record Orientation for one that happened outside the app. Tick Send a bill to email the member a bill they pay online.",
+            "A billed orientation shows under Past with Unpaid or Paid beside it.",
+        ),
+        target="orientations.record",
+    ),
     _guild_tab(
         "guild.reservations",
         "Equipment Reservations",

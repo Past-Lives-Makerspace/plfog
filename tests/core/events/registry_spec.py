@@ -68,6 +68,7 @@ _BRAND_NEW_KEYS = {
     "equipment.credit_granted",
     "billing.late_fee_paid",
     "billing.late_fee_waived",
+    "billing.orientation_bill",
     "billing.payout_failed_admin",
     "billing.payouts_invite",
     "billing.payout_reversal_failed_admin",

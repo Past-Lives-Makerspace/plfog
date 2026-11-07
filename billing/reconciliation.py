@@ -489,7 +489,7 @@ def _orientation_lines(
     bookings = (
         OrientationBooking.objects.filter(amount_paid_cents__gt=0)
         .exclude(status=OrientationBooking.Status.PENDING_PAYMENT)
-        .filter(requested_at__gte=window.start_dt, requested_at__lt=window.end_dt)
+        .filter(OrientationBooking.money_between_q(window.start_dt, window.end_dt))
         .select_related("guild", "member", "oriented_by", "orientation_type__guild", "orientation_type__equipment")
         .prefetch_related("refunds")
     )
@@ -507,7 +507,7 @@ def _orientation_line(
     return _member_share_line(
         source_kind="orientation",
         source_pk=booking.pk,
-        when=booking.requested_at,
+        when=booking.money_at,
         payer_name=booking.member.finance_name,
         item=f"Orientation — {booking.orientation_type.owner_name}",
         gross_cents=booking.amount_paid_cents,
@@ -967,9 +967,10 @@ def _due_earlier_lines(
         .prefetch_related("refunds")
     )
     bookings = (
-        OrientationBooking.objects.filter(amount_paid_cents__gt=0, requested_at__lt=window.start_dt)
+        OrientationBooking.objects.filter(amount_paid_cents__gt=0)
+        .filter(OrientationBooking.money_before_q(window.start_dt))
         .exclude(status=OrientationBooking.Status.PENDING_PAYMENT)
-        .annotate(due_base=Greatest("slot__starts_at", "requested_at"))
+        .annotate(due_base=Greatest("slot__starts_at", OrientationBooking.money_at_expression()))
         .filter(due)
         .select_related("guild", "member", "oriented_by", "orientation_type__guild", "orientation_type__equipment")
         .prefetch_related("refunds")

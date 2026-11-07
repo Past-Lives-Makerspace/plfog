@@ -3043,6 +3043,62 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # billing.orientation_bill — the one email a billed orientation sends (#1111): what it was,
+    # the day, who ran it, the amount and a Pay link to the bill's own page (a GET there never
+    # charges; only its Pay button opens Checkout).
+    "billing.orientation_bill": EventCopy(
+        placeholders=(
+            "member_name",
+            "orientation_name",
+            "owner_name",
+            "oriented_on",
+            "oriented_by_name",
+            "bill_amount",
+            "bill_url",
+        ),
+        sample_context={
+            "member_name": "Robin Vale",
+            "orientation_name": "Lathe Basics",
+            "owner_name": "Wood Shop",
+            "oriented_on": "Tuesday, November 3",
+            "oriented_by_name": "Sam Turner",
+            "bill_amount": "$40",
+            "bill_url": "https://pastlives.example/orientation/bills/12/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Bill for your {{ orientation_name }} orientation",
+                body_text="{{ bill_amount }} for the {{ orientation_name }} orientation on {{ oriented_on }}. Pay it online.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Your bill for the {{ orientation_name }} orientation",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "Thanks for taking the {{ orientation_name }} orientation with {{ owner_name }}. "
+                    "You're marked as oriented. Here is the bill for it.\n\n"
+                    "Orientation: {{ orientation_name }}, {{ owner_name }}\n"
+                    "Day: {{ oriented_on }}\n"
+                    "Run by: {{ oriented_by_name }}\n"
+                    "Amount: {{ bill_amount }}\n\n"
+                    "Pay it online: {{ bill_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p>Thanks for taking the <strong>{{ orientation_name }}</strong> orientation with "
+                    "{{ owner_name }}. You're marked as oriented. Here is the bill for it.</p>"
+                    "<p>Orientation: {{ orientation_name }}, {{ owner_name }}<br>"
+                    "Day: {{ oriented_on }}<br>"
+                    "Run by: {{ oriented_by_name }}<br>"
+                    "Amount: <strong>{{ bill_amount }}</strong></p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ bill_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Pay {{ bill_amount }}</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     # billing.late_fee_waived — an unpaid late cancellation fee was forgiven (#456, part 3).
     # Who waived it is deliberately not named; the member learns the fee is gone and that
     # they can book again, with the owner page as the one call to action.

@@ -158,6 +158,14 @@
     font-size: 0.85rem;
     margin: 0 0 0.75rem;
 }
+/* Send a bill's Amount (#1111): a price is a few characters wide (FRONTEND rule 28). */
+.pl-bookings-record input.pl-bookings-record__amount {
+    width: 6rem;
+}
+/* The member's own billed row (#1111): Pay $X under the status pills, clear of them. */
+.pl-bookings-bill-pay {
+    margin: 0.5rem 0 0;
+}
 .pl-bookings-add__note {
     font-size: 0.85rem;
     margin: 0.5rem 0 0;

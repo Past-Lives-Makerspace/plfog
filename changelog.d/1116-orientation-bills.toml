@@ -1,0 +1,21 @@
+bump = "minor"
+date = "2026-11-06"
+audience = ["members", "orientors", "guild-leads"]
+feature = "orientations.bookings"
+guidance = "shots"
+target = "orientations.record"
+title = "Orientors can bill for an orientation that already happened"
+changes = [
+  "On the Orientations Bookings tab, Record Orientation has a new Send a bill box. Pick the orientation and its price fills in for you; change it if you need to.",
+  "The member counts as oriented right away and gets one email with a Pay button. Nothing is posted to Discord.",
+  "The bill shows on the Bookings tab as Unpaid or Paid, and a paid bill counts in the Payment Report and payouts like any paid orientation.",
+]
+
+[[shots]]
+caption = "On the Bookings tab, press Record Orientation, pick the member and orientation, and leave Send a bill on. The price fills in for you."
+
+[[shots]]
+caption = "The orientation shows under Past with Unpaid beside it until the member pays."
+
+[[shots]]
+caption = "The member opens the bill from their email and presses Pay."

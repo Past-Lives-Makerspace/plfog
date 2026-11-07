@@ -3,11 +3,19 @@ The Bookings tab's Record Orientation modal body (#630): the admin member edit f
 OrientationRecordForm with a Member picker, for an orientation done outside the app. Both
 pickers are text inputs over a datalist, matched exactly. Context: record_form (built with
 member=None and the viewer's types) and record_next (the tab's Oriented list).
+
+Send a bill and Amount (#1111) sit after Note. Picking an orientation fills Amount from
+record_form.bill_prices (label to dollars, "" for a free type) and ticks the box when there
+is a price; ticked, the intro and the button say the member is emailed a bill.
 {% endcomment %}
-<form method="post" action="{% url 'hub_orientation_record' %}" class="hub-form pl-bookings-record" data-bookings-record-form>
+{{ record_form.bill_prices|json_script:"orientation-record-bill-prices" }}
+<form method="post" action="{% url 'hub_orientation_record' %}" class="hub-form pl-bookings-record" data-bookings-record-form
+      x-data="{ sendBill: false, amount: '', prices: JSON.parse(document.getElementById('orientation-record-bill-prices').textContent) }"
+      @input="if ($event.target.name === 'orientation' && $event.target.value.trim().toLowerCase() in prices) { amount = prices[$event.target.value.trim().toLowerCase()]; sendBill = amount !== '' }">
   {% csrf_token %}
   <input type="hidden" name="next" value="{{ record_next }}">
-  <p class="hub-text-muted pl-bookings-record__intro">For an orientation done outside the app. Nothing is emailed or posted.</p>
+  <p class="hub-text-muted pl-bookings-record__intro" x-show="!sendBill">For an orientation done outside the app. Nothing is emailed or posted.</p>
+  <p class="hub-text-muted pl-bookings-record__intro" x-show="sendBill" x-cloak data-bookings-record-bill-intro>For an orientation done outside the app. The member is emailed a bill to pay online.</p>
   {% include "components/form_field.html" with field=record_form.member field_hint="Start typing and pick from the list." %}
   <datalist id="orientation-record-member-options">
     {% for label in record_form.member_options %}<option value="{{ label }}"></option>{% endfor %}
@@ -19,8 +27,12 @@ member=None and the viewer's types) and record_next (the tab's Oriented list).
   {% include "components/form_field.html" with field=record_form.completed_on %}
   {% include "components/form_field.html" with field=record_form.oriented_by %}
   {% include "components/form_field.html" with field=record_form.note %}
+  {% include "components/form_field.html" with field=record_form.send_bill %}
+  <div x-show="sendBill" x-cloak data-bookings-record-amount>
+    {% include "components/form_field.html" with field=record_form.bill_amount field_hint="Filled from the orientation's price. Change it if they owe something else." %}
+  </div>
   <div class="pl-modal__actions">
     <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'orientation-record')">Cancel</button>
-    <button type="submit" class="pl-btn pl-btn--primary">Record Orientation</button>
+    <button type="submit" class="pl-btn pl-btn--primary" data-bookings-record-submit x-text="sendBill ? 'Record and Send Bill' : 'Record Orientation'">Record Orientation</button>
   </div>
 </form>

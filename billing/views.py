@@ -42,6 +42,7 @@ _CHECKOUT_COMPLETED_HANDLERS = [
     membership_webhook_handlers.handle_reservation_checkout_completed,
     membership_webhook_handlers.handle_cubby_checkout_completed,
     webhook_handlers.handle_late_fee_checkout_completed,
+    webhook_handlers.handle_orientation_bill_checkout_completed,
 ]
 _CHECKOUT_EXPIRED_HANDLERS = [
     classes_webhook_handlers.handle_checkout_session_expired,

@@ -2524,7 +2524,8 @@ class Payout(models.Model):
             return cast("Any", self.reservation).created_at
         if self.cubby_payment_id is not None:
             return cast("Any", self.cubby_payment).paid_at
-        return cast("Any", self.orientation_booking).requested_at
+        # A bill's paid_at (#1111), else requested_at: OrientationBooking.money_at.
+        return cast("Any", self.orientation_booking).money_at
 
     def send(self) -> None:
         """Transfer the share to the payee's Stripe account, linked to the original charge.

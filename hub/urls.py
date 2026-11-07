@@ -287,6 +287,22 @@ urlpatterns = [
         views.orientation_block_cancel,
         name="hub_orientation_block_cancel",
     ),
+    path("orientation/bills/<int:booking_pk>/", orientations_views.hub_orientation_bill, name="hub_orientation_bill"),
+    path(
+        "orientation/bills/<int:booking_pk>/pay/",
+        orientations_views.hub_orientation_bill_pay,
+        name="hub_orientation_bill_pay",
+    ),
+    path(
+        "orientation/bills/return/<str:token>/",
+        orientations_views.hub_orientation_bill_return,
+        name="hub_orientation_bill_return",
+    ),
+    path(
+        "orientation/bills/cancelled/<str:token>/",
+        orientations_views.hub_orientation_bill_checkout_cancelled,
+        name="hub_orientation_bill_checkout_cancelled",
+    ),
     path("orientation/bookings/<int:booking_pk>/", views.orientation_booking, name="hub_orientation_booking"),
     path("orientation/bookings/<int:booking_pk>/messages/", views.orientation_message, name="hub_orientation_message"),
     path("orientation/bookings/<int:booking_pk>/respond/", views.orientation_respond, name="hub_orientation_respond"),

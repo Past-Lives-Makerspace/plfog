@@ -86,6 +86,8 @@ class BookingRow:
     can_finish_paying: bool = False
     can_cancel_mine: bool = False
     can_pay_fee: bool = False
+    #: The viewer's own unpaid bill (#1111): the row's Pay $X button and View Bill item.
+    can_pay_bill: bool = False
     can_move: bool = False
     late_cancel_warning: str = ""
     #: The Waive modal's form, built only for a row that offers Waive Late Fee.
@@ -241,6 +243,7 @@ def build_row(
     status = booking.status
     upcoming = booking.slot.starts_at >= timezone.now()
     fee = row.late_fee
+    row.can_pay_bill = is_own and booking.bill_is_unpaid
     if can_manage:
         if status == OrientationBooking.Status.PENDING_PAYMENT:
             return row

@@ -12,6 +12,7 @@ the request helpers are imported from it.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, cast
 
 from django.conf import settings
@@ -24,6 +25,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
+from billing import orientation_bills
 from hub.calendar_pages import calendar_nav_params, orientations_calendar_context
 from hub.forms import (
     NewOrientationTypeForm,
@@ -45,6 +47,8 @@ from membership.models import (
     Guild,
     Member,
     OrientationAvailabilityBlock,
+    OrientationBooking,
+    OrientationError,
     OrientationRecord,
     OrientationSlot,
     OrientationType,
@@ -56,6 +60,8 @@ from membership.permissions import (
     manageable_orientation_types,
     manages_orientations,
 )
+
+logger = logging.getLogger(__name__)
 
 #: How many times a card lists before it says "More times" (the owner page lists them all).
 CARD_TIME_CAP = 3
@@ -394,6 +400,31 @@ def hub_orientation_type_photo_delete(request: HttpRequest, pk: int) -> HttpResp
     return redirect(back)
 
 
+def _record_with_bill(request: HttpRequest, form: OrientationRecordForm, back: str) -> HttpResponse:
+    """Record Orientation with Send a bill ticked (#1111): a billed booking and its one email.
+
+    A refusal the service raises (no account, a live booking, an amount) and a double click
+    that hits the one live booking per type constraint both land back with the reason and
+    write nothing. A sent bill lands on the tab's Past list, Oriented = Yes, where its row is:
+    the posted ``next`` is the Oriented list's Upcoming chip, which a past orientation is not on.
+    """
+    member = form.recorded_member
+    try:
+        booking = form.send_bill(sent_by=cast(User, request.user))
+    except OrientationError as exc:
+        messages.error(request, str(exc))
+        return redirect(back)
+    except IntegrityError:
+        messages.error(request, f"{member.display_name} already has a booking for this orientation.")
+        return redirect(back)
+    messages.success(
+        request,
+        f"Recorded the {booking.orientation_type.name} orientation for {member.display_name} "
+        f"and sent a {booking.bill_amount_display} bill.",
+    )
+    return redirect(f"{_orientation_bookings_tab()}&show=past&oriented=yes")
+
+
 @login_required
 @require_POST
 def hub_orientation_record(request: HttpRequest) -> HttpResponse:
@@ -415,6 +446,8 @@ def hub_orientation_record(request: HttpRequest) -> HttpResponse:
         for error in dict.fromkeys(str(message) for field_errors in form.errors.values() for message in field_errors):
             messages.error(request, error)
         return redirect(back)
+    if form.sends_bill:
+        return _record_with_bill(request, form, back)
     try:
         # A savepoint: a double click passes clean() twice and the second save hits the
         # one record per member per type constraint; answer it as the form's duplicate refusal.
@@ -445,3 +478,100 @@ def hub_orientation_record_remove(request: HttpRequest, pk: int) -> HttpResponse
     record.remove(removed_by=cast(User, request.user))
     messages.success(request, f"Removed the {name} orientation record for {member_name}.")
     return redirect(_safe_next(request, _orientation_bookings_tab()))
+
+
+# --- A bill for an orientation that already happened (#1111) -----------------------------
+
+
+def _own_bill_or_404(request: HttpRequest, booking_pk: int) -> OrientationBooking:
+    """The request member's own billed booking, whatever its state, else 404."""
+    booking = get_object_or_404(orientation_bills.bills(), pk=booking_pk)
+    member = _get_member(request)
+    if member is None or booking.member_id != member.pk:
+        raise Http404("No such bill.")
+    return booking
+
+
+@login_required
+def hub_orientation_bill(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """The bill's own page (#1111): what it is for, the amount, where it stands, and Pay while unpaid.
+
+    The bill email links here rather than straight to Stripe: a GET never mints a session
+    (mail clients prefetch links), so the page shows the bill and only its POST pays it.
+    """
+    booking = _own_bill_or_404(request, booking_pk)
+    return render(request, "hub/orientation_bill.html", {**_get_hub_context(request), **_bill_context(booking)})
+
+
+@login_required
+@require_POST
+def hub_orientation_bill_pay(request: HttpRequest, booking_pk: int) -> HttpResponse:
+    """Pay an unpaid bill (#1111): mint a fresh Checkout Session and go there.
+
+    The member's own bill only, else 404; a paid or cancelled bill is refused back to its page.
+    """
+    booking = _own_bill_or_404(request, booking_pk)
+    try:
+        checkout_url = orientation_bills.start_bill_checkout(booking)
+    except OrientationError as exc:
+        messages.error(request, str(exc))
+        return redirect("hub_orientation_bill", booking_pk=booking.pk)
+    except Exception:
+        logger.exception("Orientation bill checkout failed for booking %s.", booking.pk)
+        messages.error(request, "We couldn't open the payment page just now. Try again in a minute.")
+        return redirect("hub_orientation_bill", booking_pk=booking.pk)
+    return redirect(checkout_url)
+
+
+@login_required
+def hub_orientation_bill_return(request: HttpRequest, token: str) -> HttpResponse:
+    """The Stripe ``success_url`` landing for a bill (#1111): paid, not confirmed yet, or a bad token.
+
+    An unpaid bill is reconciled against Stripe at once (race safe against the webhook), so
+    the page normally reads Paid on the first visit; otherwise it says Stripe has not
+    confirmed yet and keeps the Pay button. A bad token renders 400.
+    """
+    from django.core.signing import BadSignature
+
+    try:
+        booking = orientation_bills.read_checkout_token(token)
+    except (BadSignature, OrientationBooking.DoesNotExist):
+        return render(
+            request, "hub/orientation_bill.html", {**_get_hub_context(request), "state": "invalid"}, status=400
+        )
+    member = _get_member(request)
+    if member is None or booking.member_id != member.pk:
+        raise Http404("No such bill.")
+    if booking.bill_is_unpaid and orientation_bills.reconcile_landed_checkout(booking) == "paid":
+        booking.refresh_from_db()
+    context = _bill_context(booking)
+    if booking.bill_is_unpaid:
+        context["state"] = "pending"
+    return render(request, "hub/orientation_bill.html", {**_get_hub_context(request), **context})
+
+
+@login_required
+def hub_orientation_bill_checkout_cancelled(request: HttpRequest, token: str) -> HttpResponse:
+    """The Stripe ``cancel_url`` landing for a bill (#1111): it is still due; back to its page."""
+    from django.core.signing import BadSignature
+
+    try:
+        booking = orientation_bills.read_checkout_token(token)
+    except (BadSignature, OrientationBooking.DoesNotExist):
+        return redirect("hub_home")
+    member = _get_member(request)
+    if member is None or booking.member_id != member.pk:
+        raise Http404("No such bill.")
+    if booking.bill_is_unpaid:
+        messages.info(request, "Your bill is still due. Pay it from the Pay button any time.")
+    return redirect("hub_orientation_bill", booking_pk=booking.pk)
+
+
+def _bill_context(booking: OrientationBooking) -> dict[str, Any]:
+    """What the bill page reads: the booking, its state, what it is for and who ran it."""
+    return {
+        "bill": booking,
+        "state": booking.bill_state,
+        "bill_item": orientation_bills.item_label(booking),
+        "bill_oriented_by": orientation_bills.oriented_by_name(booking),
+    }
