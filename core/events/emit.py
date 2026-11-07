@@ -64,6 +64,7 @@ def emit(
     suppress_guild_broadcast: bool = False,
     discord_mention: str = "",
     override_preferences: bool = False,
+    log_activity: bool = True,
 ) -> EmitResult:
     """Emit one event: log activity, resolve recipients, fan out to channels.
 
@@ -149,6 +150,9 @@ def emit(
             (via :func:`dataclasses.replace` in ``message_for``), so the embed post carries
             the ping ``content`` + ``allowed_mentions`` gate. Blank leaves every payload
             byte-identical. Only the announcement composer sets it.
+        log_activity: ``False`` skips the event's activity row. For a sender that splits one
+            event into several emits (one per recipient, each with their own links, #1127)
+            and logs the row on the first only.
 
     Returns:
         An :class:`EmitResult` describing what was logged and delivered.
@@ -163,7 +167,7 @@ def emit(
     explicit_emails = [email_to] if isinstance(email_to, str) else list(email_to or [])
 
     activity: SiteActivity | None = None
-    if event.activity_kind is not None:
+    if event.activity_kind is not None and log_activity:
         activity = SiteActivity.log(event.activity_kind, actor=actor, target=target)
 
     recipients = resolvers.resolve(event.recipient, ctx)

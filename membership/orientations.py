@@ -51,6 +51,9 @@ logger = logging.getLogger(__name__)
 _ACTION_SALT = "orientation-action"
 _ACTION_MAX_AGE = 90 * 24 * 3600  # 90 days — long enough to schedule, bounded for safety
 _ACTIONS = frozenset({"confirm", "decline", "cancel", "accept_time", "keep_time"})
+#: Marks a link minted for the one person whose email carries it (#1127). Links minted before
+#: carry no marker: a shared slot's went out to many people stamped with the guild lead.
+_ADDRESSED_VERSION = 2
 #: The member's answers to a proposed new time (#853). Their links carry the proposal they answer.
 PROPOSAL_ACTIONS = frozenset({"accept_time", "keep_time"})
 
@@ -76,7 +79,7 @@ def make_action_token(
     ``proposal`` stamps an Accept or Keep link with the proposal it answers
     (:attr:`OrientationBooking.proposal_key`), so a replaced proposal's links go stale.
     """
-    payload: dict[str, Any] = {"booking": booking.pk, "action": action}
+    payload: dict[str, Any] = {"booking": booking.pk, "action": action, "v": _ADDRESSED_VERSION}
     if recipient is not None:
         payload["recipient"] = recipient.pk
     if proposal:
@@ -114,15 +117,34 @@ def read_action_proposal(token: str) -> str:
     return str(data["proposal"]) if "proposal" in data else ""
 
 
+def read_action_addressed(token: str) -> bool:
+    """Whether a link was minted for the person it names, so whoever clicks it is that person (#1127).
+
+    True for a link with a recipient minted since #1127, which mints each request email's
+    links for its one reader. A link from before carries no marker (a shared slot's request
+    went to many people stamped with the guild lead), so its recipient says nothing about
+    who clicked. Read after :func:`read_action_token` has vetted the token, so it only decodes.
+    """
+    data = signing.loads(token, salt=_ACTION_SALT, max_age=_ACTION_MAX_AGE)
+    return "recipient" in data and data.get("v") == _ADDRESSED_VERSION
+
+
 def apply_token_action(
-    booking: OrientationBooking, action: str, *, recipient: Member | None = None, proposal: str = ""
+    booking: OrientationBooking,
+    action: str,
+    *,
+    recipient: Member | None = None,
+    proposal: str = "",
+    addressed: bool = False,
 ) -> str:
     """Apply an email-link action, honoring valid state transitions.
 
     ``recipient`` (from the token payload) attributes side effects — a paid
     booking's automatic refund credits the person whose link was clicked;
     ``None`` leaves the refund initiator as "System". ``proposal`` is the proposal an
-    Accept or Keep link answers (:func:`read_action_proposal`).
+    Accept or Keep link answers (:func:`read_action_proposal`). ``addressed``
+    (:func:`read_action_addressed`) says the recipient is who clicked: only then does a
+    confirm name them to the guild lead.
 
     Returns a short status: "confirmed", "declined", "cancelled", "accepted", "kept",
     an Accept or Keep link's refusal from :func:`answer_proposal` ("stale", "passed",
@@ -144,9 +166,11 @@ def apply_token_action(
     if booking.status != statuses.REQUESTED:
         return "already"
     if action == "confirm":
-        # The link's addressee is who confirmed it. That is also who the booking credits by
-        # default (the slot's orientor, else the guild lead), so passing it changes no credit.
-        confirm_orientation(booking, oriented_by=recipient)
+        # Credit (and a paid booking's payout) goes to the link's addressee only while they
+        # still run this booking; a link lives 90 days, and an old lead's must not be paid.
+        # Otherwise the booking's own default applies, exactly as before.
+        runner = recipient if recipient is not None and booking.may_be_run_by(recipient) else None
+        confirm_orientation(booking, oriented_by=runner, confirmed_by=recipient if addressed else None)
         return "confirmed"
     decline_orientation(booking, actor=actor)
     return "declined"
@@ -1040,12 +1064,8 @@ def request_resolver_context(booking: OrientationBooking) -> dict[str, Any]:
     return {"guild": booking.guild, "slot": booking.slot}
 
 
-def _lead_if_sole_audience(booking: OrientationBooking) -> Member | None:
-    """The guild lead when a guild booking's request reaches the lead and nobody else, else ``None``."""
-    lead = cast("Guild", booking.guild).guild_lead
-    if lead is None or lead.user_id is None:
-        return None
-    return lead if orientor_audience(booking) == {lead.user_id} else None
+#: ``confirm_orientation``'s default: whoever ran it also confirmed it.
+_SAME_AS_RUNNER = object()
 
 
 def _emit_lead_request(booking: OrientationBooking) -> None:
@@ -1054,32 +1074,50 @@ def _emit_lead_request(booking: OrientationBooking) -> None:
     One audience for every channel, the ``orientation_requested`` resolver
     (:func:`core.events.resolvers.guild_orienters_or_equipment_managers`): a guild's
     personal slot reaches the Orientor booked, a shared slot every Orientor (the lead
-    when there are none), and equipment its managers. Each person's own Email switch decides
-    the email (#524), which goes to their notification address. The activity row is
-    logged by the caller.
+    when there are none), and equipment its managers. The email is forced (#1127) and goes
+    to each person's notification address. The activity row is logged by the caller.
+
+    A guild's request goes out once per person, each email's Confirm and Decline links
+    minted for its reader (#1127): an email-link confirm credits, and names to the guild
+    lead, the Orientor who clicked, and an email-link decline credits them with a paid
+    booking's refund. Every send shares one period, which the delivery ledger keys per
+    person, so a re-run still sends nobody anything twice; only the first logs the event's
+    activity row. Equipment keeps one send whose links carry the slot's manager, or nobody.
     """
-    # One body goes to the whole audience, so the confirm/decline links carry the
-    # slot's primary responder as the token recipient: a paid booking's email-link decline
-    # credits them, and an email-link confirm is theirs (the lead hears of it unless the
-    # lead clicked). A personal slot's is its orientor. A guild's shared slot has one only
-    # when the request reaches the lead alone (no Orientors, #1127); with several Orientors
-    # nobody knows in advance who clicks, so the link is unattributed.
-    primary_responder: Member | None
-    if booking.slot.orienter_id is not None:
-        primary_responder = booking.slot.orienter
-    elif booking.orientation_type.is_equipment_owned:
-        # Managers confirm explicitly, so an email-link decline is unattributed;
+    from core.events.resolvers import guild_orienters_or_equipment_managers
+    from membership.models import Member
+
+    if booking.orientation_type.is_equipment_owned:
+        # Managers confirm explicitly, so a shared slot's email-link decline is unattributed;
         # make_action_token accepts recipient=None.
-        primary_responder = None
-    else:
-        primary_responder = _lead_if_sole_audience(booking)
+        responder = booking.slot.orienter if booking.slot.orienter_id is not None else None
+        _send_request(booking, responder=responder, recipient_user_ids=None, log_activity=True)
+        return
+    user_ids = [user.pk for user, _reason in guild_orienters_or_equipment_managers(request_resolver_context(booking))]
+    if not user_ids:
+        # Nobody to tell; the send still logs the event's activity row, as it always did.
+        _send_request(booking, responder=None, recipient_user_ids=None, log_activity=True)
+        return
+    members = {member.user_id: member for member in Member.objects.filter(user_id__in=user_ids)}
+    for index, user_id in enumerate(user_ids):
+        _send_request(booking, responder=members[user_id], recipient_user_ids={user_id}, log_activity=index == 0)
+
+
+def _send_request(
+    booking: OrientationBooking,
+    *,
+    responder: Member | None,
+    recipient_user_ids: set[int] | None,
+    log_activity: bool,
+) -> None:
+    """One request send: the email and bell, its Confirm and Decline links minted for ``responder``."""
     ctx = _context(
         booking,
         # The member's newest message: the request's note, shown as the email's Note line.
         member_message=booking.latest_message(from_staff=False),
         respond_url=_absolute_url(reverse("hub_orientation_respond", args=[booking.pk])),
-        confirm_url=_action_url(booking, "confirm", recipient=primary_responder),
-        decline_url=_action_url(booking, "decline", recipient=primary_responder),
+        confirm_url=_action_url(booking, "confirm", recipient=responder),
+        decline_url=_action_url(booking, "decline", recipient=responder),
     )
     emit_with_email_shell(
         "orientation_requested",
@@ -1092,16 +1130,24 @@ def _emit_lead_request(booking: OrientationBooking) -> None:
         in_app_body=f"{booking.member.display_name} requested an orientation for {booking.orientation_type.owner_name}.",
         url=reverse("hub_orientation_respond", args=[booking.pk]),
         period=f"booking:{booking.pk}:request",
+        recipient_user_ids=recipient_user_ids,
+        log_activity=log_activity,
     )
 
 
-def confirm_orientation(booking: OrientationBooking, *, oriented_by: Member | None = None) -> None:
+def confirm_orientation(
+    booking: OrientationBooking,
+    *,
+    oriented_by: Member | None = None,
+    confirmed_by: Member | None | object = _SAME_AS_RUNNER,
+) -> None:
     """Confirm a request: update state, email the member a CONFIRMED invite, log + notify.
 
-    ``oriented_by`` credits the actual runner (Decision 7) and is who confirmed it: the view
-    passes the acting member, an email link its addressee. When omitted the booking model
-    still defaults to the slot's orientor, then the guild lead. The guild lead hears of the
-    confirmation unless they confirmed it (:func:`_tell_lead_of_confirmation`).
+    ``oriented_by`` credits the actual runner (Decision 7); the view passes the acting member.
+    When omitted the booking model still defaults to the slot's orientor, then the guild lead.
+    ``confirmed_by`` is who confirmed it, for the guild lead's notice
+    (:func:`_tell_lead_of_confirmation`): by default the ``oriented_by`` passed in; an email
+    link passes its addressee, or ``None`` when nobody knows who clicked.
     """
     from membership.late_cancel import booking_sentence, policy_for
 
@@ -1119,7 +1165,8 @@ def confirm_orientation(booking: OrientationBooking, *, oriented_by: Member | No
         in_app_title="Orientation confirmed",
         in_app_body=f"Your orientation for {booking.orientation_type.owner_name} is confirmed.",
     )
-    _tell_lead_of_confirmation(booking, confirmer=oriented_by)
+    confirmer = oriented_by if confirmed_by is _SAME_AS_RUNNER else cast("Member | None", confirmed_by)
+    _tell_lead_of_confirmation(booking, confirmer=confirmer)
 
 
 def _tell_lead_of_confirmation(booking: OrientationBooking, *, confirmer: Member | None) -> None:
@@ -1127,8 +1174,8 @@ def _tell_lead_of_confirmation(booking: OrientationBooking, *, confirmer: Member
 
     The lead no longer gets every request, so this is how they hear the outcome. Guild owned
     only (equipment keeps its own routing), and nothing when the lead confirmed it themselves.
-    ``confirmer`` ``None`` means nobody knows who did (an unattributed email link, which only
-    the Orientors of a shared slot receive), so the lead hears and it reads "An Orientor".
+    ``confirmer`` ``None`` means nobody knows who did (an email link from before #1127, a
+    move with no actor), so the lead hears and it reads "Someone".
     Sends once per booking whichever way it was confirmed.
     """
     from core.events.registry import ORIENTATION_CONFIRMED_TO_LEAD
@@ -1150,7 +1197,7 @@ def _tell_lead_of_confirmation(booking: OrientationBooking, *, confirmer: Member
             "orientation_name": booking.orientation_type.name,
             "owner_name": booking.orientation_type.owner_name,
             "starts_at": _when(booking.slot.starts_at),
-            "confirmer_name": confirmer.display_name if confirmer is not None else "An Orientor",
+            "confirmer_name": confirmer.display_name if confirmer is not None else "Someone",
             "booking_url": _absolute_url(reverse("hub_orientation_respond", args=[booking.pk])),
         },
         url=reverse("hub_orientation_respond", args=[booking.pk]),

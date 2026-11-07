@@ -456,6 +456,20 @@ def describe_guild_orienters_or_equipment_managers():
         )
         assert _user_pks(recipients) == {orienter.user.pk}
 
+    def it_sends_a_personal_slot_to_the_orientors_once_its_orienter_left_the_staff():
+        # #1127 review: remove_staff keeps their booked slots; the request must still reach someone who acts.
+        from tests.membership.factories import OrientationSlotFactory
+
+        guild, _lead, orienter, _treasurer = _staffed_guild("goem_left")
+        remaining = _linked("goem_left_remaining")
+        GuildStaffMembershipFactory(guild=guild, member=remaining, role=GuildStaffMembership.Role.ORIENTER)
+        personal = OrientationSlotFactory(guild=guild, orienter=orienter)
+        guild.staff_memberships.filter(member=orienter).delete()
+        recipients = resolvers.resolve(
+            Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS, {"guild": guild, "slot": personal}
+        )
+        assert _user_pks(recipients) == {remaining.user.pk}
+
     def it_sends_a_personal_slot_to_the_lead_when_its_orienter_has_no_account():
         from tests.membership.factories import MemberFactory, OrientationSlotFactory
 

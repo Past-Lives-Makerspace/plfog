@@ -185,29 +185,51 @@ def describe_email_link_confirmations():
         token = _token(next(m for m in mail.outbox if m.to == [orientor.primary_email]), "confirm")
         decoded, action, recipient = orientations.read_action_token(token)
 
-        assert orientations.apply_token_action(decoded, action, recipient=recipient) == "confirmed"
+        assert (
+            orientations.apply_token_action(
+                decoded, action, recipient=recipient, addressed=orientations.read_action_addressed(token)
+            )
+            == "confirmed"
+        )
 
         decoded.refresh_from_db()
         assert decoded.oriented_by == orientor
         emails, _bells = _lead_notices(lead)
         assert "Confirmed by: Olive Orientor0" in emails[0].body
 
-    def it_leaves_a_shared_slot_link_unattributed_when_several_orientors_get_it():
+    def it_mints_each_orientors_links_for_that_orientor_and_credits_the_one_who_clicked():
         guild, lead, orientors = _guild("t2", orientors=2)
         booking = _booking(guild, "t2")
         orientations._emit_lead_request(booking)
-        token = _token(next(m for m in mail.outbox if m.to == [orientors[0].primary_email]), "confirm")
+        for orientor in orientors:
+            [email] = [m for m in mail.outbox if m.to == [orientor.primary_email]]
+            for action in ("confirm", "decline"):
+                assert orientations.read_action_token(_token(email, action))[2] == orientor
+        token = _token(next(m for m in mail.outbox if m.to == [orientors[1].primary_email]), "confirm")
         decoded, action, recipient = orientations.read_action_token(token)
-        assert recipient is None
 
-        orientations.apply_token_action(decoded, action, recipient=recipient)
+        orientations.apply_token_action(decoded, action, recipient=recipient, addressed=True)
 
         decoded.refresh_from_db()
-        # Credit is unchanged from before #1127: the default runner, the guild lead.
-        assert decoded.oriented_by == lead
+        # #1127 review: the Orientor who confirmed is credited (and paid), not the lead who never got it.
+        assert decoded.oriented_by == orientors[1]
         emails, bells = _lead_notices(lead)
-        assert "Confirmed by: An Orientor" in emails[0].body
+        assert "Confirmed by: Olive Orientor1" in emails[0].body
         assert len(bells) == 1
+
+    def it_sends_each_orientor_one_email_and_one_bell_and_logs_one_activity_row():
+        from core.models import SiteActivity
+
+        guild, _lead, orientors = _guild("t2b", orientors=2)
+        booking = _booking(guild, "t2b")
+        orientations._emit_lead_request(booking)
+        orientations._emit_lead_request(booking)  # a re-run is deduped per person
+
+        for orientor in orientors:
+            assert len([m for m in mail.outbox if m.to == [orientor.primary_email]]) == 1
+            assert Notification.objects.filter(user=orientor.user, trigger="orientation_requested").count() == 1
+        # One untargeted row per send, as before the links were minted per person.
+        assert SiteActivity.objects.filter(kind="orientation_requested", target_id=None).count() == 2
 
     def it_sends_the_lead_nothing_when_the_lead_alone_got_the_request_and_clicked():
         guild, lead, _none = _guild("t3", orientors=0)
@@ -218,7 +240,9 @@ def describe_email_link_confirmations():
         assert recipient == lead
         mail.outbox.clear()
 
-        orientations.apply_token_action(decoded, action, recipient=recipient)
+        orientations.apply_token_action(
+            decoded, action, recipient=recipient, addressed=orientations.read_action_addressed(token)
+        )
 
         assert _lead_notices(lead) == ([], [])
 
@@ -424,3 +448,185 @@ def describe_the_request_email_is_always_on():
         assert request[Channel.DISCORD_DM].present
         assert not request[Channel.DISCORD_DM].forced
         assert rows[ORIENTATION_MESSAGE_TO_ORIENTORS][Channel.EMAIL].is_editable
+
+
+def describe_a_removed_or_departed_orientors_slot():
+    """#1127 review: a personal slot narrows to its Orientor only while they still run orientations here."""
+
+    def _setup(prefix):
+        guild, lead, [bob, carol] = _guild(prefix, orientors=2)
+        bob_row = guild.staff_memberships.get(member=bob)
+        slot = OrientationSlotFactory(guild=guild, orienter=bob, enabled_settings=False, seats=4)
+        first = OrientationBookingFactory(slot=slot, member=_member(f"{prefix}_first"))
+        return guild, lead, bob, bob_row, carol, slot, first
+
+    def _request_reach(booking):
+        # The request's fan-out for a booking already on the slot: a paid request fires it from
+        # the Stripe webhook, which can land after the Orientor left (the slot stops taking new
+        # bookings then, so a fresh request never reaches here).
+        mail.outbox.clear()
+        Notification.objects.filter(trigger="orientation_requested").delete()
+        orientations._emit_lead_request(booking)
+        staff = {a for m in mail.outbox for a in m.to}
+        bells = set(Notification.objects.filter(trigger="orientation_requested").values_list("user_id", flat=True))
+        return staff, bells
+
+    def it_sends_a_late_request_to_the_remaining_orientors_after_removal():
+        guild, lead, bob, bob_row, carol, _slot, first = _setup("rm1")
+        guild.remove_staff(bob_row)
+        first.refresh_from_db()
+
+        staff, bells = _request_reach(first)
+
+        assert staff == {carol.primary_email}
+        assert bells == {carol.user_id}
+
+    def it_sends_a_member_message_on_an_existing_booking_to_the_remaining_orientors():
+        guild, lead, bob, bob_row, carol, _slot, first = _setup("rm2")
+        guild.remove_staff(bob_row)
+
+        message = first.post_message(author=first.member.user, body="Zzcan we move?")
+
+        assert message.orientor_user_ids() == {carol.user_id}
+
+    def it_skips_an_orientor_who_is_no_longer_active():
+        guild, lead, bob, _row, carol, _slot, first = _setup("rm3")
+        bob.status = Member.Status.FORMER
+        bob.save(update_fields=["status"])
+        first.refresh_from_db()
+
+        staff, _bells = _request_reach(first)
+
+        assert staff == {carol.primary_email}
+
+    def it_never_sends_a_request_to_a_deleted_accounts_placeholder_address():
+        from membership.services.account_deletion import delete_own_account
+
+        guild, lead, bob, _row, carol, _slot, first = _setup("rm4")
+        delete_own_account(bob)
+        first.refresh_from_db()
+
+        staff, _bells = _request_reach(first)
+
+        assert staff == {carol.primary_email}
+
+    def it_still_narrows_to_the_lead_on_the_leads_own_slot():
+        guild, lead, _orientors = _guild("rm5", orientors=1)
+        booking = _booking(guild, "rm5", orienter=lead)
+
+        staff, _bells = _request_reach(booking)
+
+        assert staff == {lead.primary_email}
+
+
+def describe_old_email_links():
+    """#1127 review: links last 90 days, so a link minted before this change must not misattribute."""
+
+    def _old_token(booking, action, recipient):
+        from django.core import signing
+
+        # The pre-#1127 payload: no version marker.
+        return signing.dumps(
+            {"booking": booking.pk, "action": action, "recipient": recipient.pk}, salt=orientations._ACTION_SALT
+        )
+
+    def it_keeps_the_credit_default_when_the_links_addressee_no_longer_runs_the_guild():
+        old_lead = _member("ol1_old", "Old Lead")
+        guild = GuildFactory(guild_lead=old_lead)
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        booking = _booking(guild, "ol1")
+        new_lead = _member("ol1_new", "New Lead")
+        guild.guild_lead = new_lead
+        guild.save(update_fields=["guild_lead"])
+        token = _old_token(booking, "confirm", old_lead)
+        decoded, action, recipient = orientations.read_action_token(token)
+
+        orientations.apply_token_action(
+            decoded, action, recipient=recipient, addressed=orientations.read_action_addressed(token)
+        )
+
+        decoded.refresh_from_db()
+        assert decoded.oriented_by == new_lead
+        _emails, bells = _lead_notices(new_lead)
+        assert bells[0].body.startswith("Someone confirmed")
+
+    def it_tells_the_lead_when_a_pre_change_link_stamped_with_the_lead_is_used():
+        guild, lead, _orientors = _guild("ol2")
+        booking = _booking(guild, "ol2")
+        token = _old_token(booking, "confirm", lead)
+        decoded, action, recipient = orientations.read_action_token(token)
+        assert orientations.read_action_addressed(token) is False
+
+        orientations.apply_token_action(
+            decoded, action, recipient=recipient, addressed=orientations.read_action_addressed(token)
+        )
+
+        decoded.refresh_from_db()
+        assert decoded.oriented_by == lead  # the credit default, exactly as before
+        emails, bells = _lead_notices(lead)
+        assert "Confirmed by: Someone" in emails[0].body
+        assert len(bells) == 1
+
+    def it_marks_a_new_link_as_addressed():
+        guild, lead, [orientor] = _guild("ol3")
+        booking = _booking(guild, "ol3")
+        token = orientations.make_action_token(booking, "confirm", recipient=orientor)
+        assert orientations.read_action_addressed(token) is True
+        assert orientations.read_action_addressed(orientations.make_action_token(booking, "confirm")) is False
+
+    def it_confirms_through_the_action_page_and_names_the_orientor(client: Client):
+        guild, lead, [orientor] = _guild("ol4")
+        booking = _booking(guild, "ol4")
+        token = orientations.make_action_token(booking, "confirm", recipient=orientor)
+
+        response = client.post(reverse("hub_orientation_action", args=[token]))
+
+        assert response.status_code == 200
+        booking.refresh_from_db()
+        assert booking.oriented_by == orientor
+        emails, _bells = _lead_notices(lead)
+        assert "Confirmed by: Olive Orientor0" in emails[0].body
+
+
+def describe_an_unknown_confirmer():
+    def it_names_someone_when_a_move_has_no_actor():
+        guild, lead, _orientors = _guild("u1")
+        booking = _booking(guild, "u1")
+        local = timezone.localtime(timezone.now() + timedelta(days=5)).replace(
+            hour=14, minute=0, second=0, microsecond=0
+        )
+
+        orientations.move_orientation(booking, local, actor=None)
+
+        _emails, bells = _lead_notices(lead)
+        assert bells[0].body.startswith("Someone confirmed Maya Member's")
+
+
+def describe_the_cancel_ping_after_an_orientor_left():
+    def it_rings_the_remaining_orientors_not_the_ex_staffer():
+        guild, lead, [bob, carol] = _guild("cx1", orientors=2)
+        booking = _booking(guild, "cx1", orienter=bob)
+        guild.remove_staff(guild.staff_memberships.get(member=bob))
+        Notification.objects.all().delete()
+
+        orientations.cancel_orientation(booking, actor_label="Maya Member")
+
+        rung = set(Notification.objects.filter(trigger="orientation_requested").values_list("user_id", flat=True))
+        assert rung == {carol.user_id}
+
+
+def describe_a_link_with_no_recipient():
+    def it_keeps_the_credit_default_and_tells_the_lead_someone_confirmed():
+        guild, lead, _orientors = _guild("nr1")
+        booking = _booking(guild, "nr1")
+        token = orientations.make_action_token(booking, "confirm")
+        decoded, action, recipient = orientations.read_action_token(token)
+
+        orientations.apply_token_action(
+            decoded, action, recipient=recipient, addressed=orientations.read_action_addressed(token)
+        )
+
+        decoded.refresh_from_db()
+        assert decoded.oriented_by == lead
+        emails, _bells = _lead_notices(lead)
+        assert "Confirmed by: Someone" in emails[0].body
