@@ -542,6 +542,8 @@ EQUIPMENT_CREDIT_GRANTED = "equipment.credit_granted"  # a manager gave you hour
 BILLING_LATE_FEE_PAID = "billing.late_fee_paid"  # the receipt for a paid late cancellation fee
 BILLING_LATE_FEE_WAIVED = "billing.late_fee_waived"  # an unpaid late cancellation fee was forgiven
 BILLING_ORIENTATION_BILL = "billing.orientation_bill"  # an orientor billed you for an orientation you took (#1111)
+BILLING_ORIENTATION_BILL_REMINDER = "billing.orientation_bill_reminder"  # your orientation bill is still unpaid (#1120)
+BILLING_ORIENTATION_BILL_UNPAID = "billing.orientation_bill_unpaid"  # a bill you sent is unpaid at 30 days (#1120)
 BILLING_PAYOUT_FAILED_ADMIN = "billing.payout_failed_admin"  # Stripe rejected a payout transfer (#662)
 BILLING_PAYOUTS_INVITE = "billing.payouts_invite"  # a payee's first owed share: set up payouts (#662)
 BILLING_PAYOUT_REVERSAL_FAILED_ADMIN = "billing.payout_reversal_failed_admin"  # a share take back failed (#662)
@@ -1305,6 +1307,32 @@ _NEW_EVENTS: list[EventType] = [
         category="Billing",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # billing.orientation_bill_reminder — the bill email again, worded as a reminder, from the
+    # daily send_orientation_bill_reminders job 7, 14 and 30 days after the bill went out (#1120).
+    # Its own key, like class_reminder and event.reminder beside what they remind of: its own
+    # subject, gallery card and settings row. Forced like the bill: money is still owed.
+    EventType(
+        key=BILLING_ORIENTATION_BILL_REMINDER,
+        label="Orientation bill reminder",
+        description="A reminder that a bill for an orientation you took is still unpaid.",
+        category="Billing",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # billing.orientation_bill_unpaid — the 30 day reminder also tells the orientor who ran it
+    # (the bill's Oriented by, through orientation_runner; nobody when they have no account),
+    # so a person can resend or cancel it from the Bookings tab (#1120). A per booking role
+    # like INSTRUCTOR, so it stays a member topic row rather than an Admin / Permissions one.
+    EventType(
+        key=BILLING_ORIENTATION_BILL_UNPAID,
+        label="Orientation bill still unpaid",
+        description="A bill you sent for an orientation you ran is still unpaid after 30 days.",
+        category="Orientations",
+        recipient=Recipients.ORIENTATION_RUNNER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
     # billing.payout_failed_admin — Stripe rejected an instructor or orientor share (#662).

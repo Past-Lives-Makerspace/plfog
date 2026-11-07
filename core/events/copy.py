@@ -3029,6 +3029,129 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # billing.orientation_bill_reminder — the bill email again with reminder wording (#1120): the
+    # same details and Pay link, plus the day it was sent. The daily job sends it at 7, 14 and
+    # 30 days while the bill is unpaid.
+    "billing.orientation_bill_reminder": EventCopy(
+        placeholders=(
+            "member_name",
+            "orientation_name",
+            "owner_name",
+            "oriented_on",
+            "oriented_by_name",
+            "bill_amount",
+            "billed_on",
+            "bill_url",
+        ),
+        sample_context={
+            "member_name": "Robin Vale",
+            "orientation_name": "Lathe Basics",
+            "owner_name": "Wood Shop",
+            "oriented_on": "Tuesday, November 3",
+            "oriented_by_name": "Sam Turner",
+            "bill_amount": "$40",
+            "billed_on": "Wednesday, November 4",
+            "bill_url": "https://pastlives.example/orientation/bills/12/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Reminder: your {{ orientation_name }} orientation bill",
+                body_text="{{ bill_amount }} for the {{ orientation_name }} orientation is still unpaid. Pay it online.",
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Reminder: your {{ orientation_name }} orientation bill",
+                body_text=(
+                    "Hi {{ member_name }},\n\n"
+                    "This is a reminder that your bill for the {{ orientation_name }} orientation with "
+                    "{{ owner_name }} is still unpaid. We sent it on {{ billed_on }}.\n\n"
+                    "Orientation: {{ orientation_name }}, {{ owner_name }}\n"
+                    "Day: {{ oriented_on }}\n"
+                    "Run by: {{ oriented_by_name }}\n"
+                    "Amount: {{ bill_amount }}\n\n"
+                    "Pay it online: {{ bill_url }}\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ member_name }},</p>"
+                    "<p>This is a reminder that your bill for the <strong>{{ orientation_name }}</strong> "
+                    "orientation with {{ owner_name }} is still unpaid. We sent it on {{ billed_on }}.</p>"
+                    "<p>Orientation: {{ orientation_name }}, {{ owner_name }}<br>"
+                    "Day: {{ oriented_on }}<br>"
+                    "Run by: {{ oriented_by_name }}<br>"
+                    "Amount: <strong>{{ bill_amount }}</strong></p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ bill_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Pay {{ bill_amount }}</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # billing.orientation_bill_unpaid — the orientor who ran it hears that a bill they sent is
+    # still unpaid at the last reminder (#1120), after ``unpaid_days`` (the last of BILL_REMINDER_DAYS): the member, the orientation, the amount and
+    # the Bookings tab's Past list, where the bill's row offers Resend Bill and Cancel Bill.
+    "billing.orientation_bill_unpaid": EventCopy(
+        placeholders=(
+            "orientor_name",
+            "member_name",
+            "orientation_name",
+            "owner_name",
+            "bill_amount",
+            "billed_on",
+            "unpaid_days",
+            "reached_line",
+            "bookings_url",
+        ),
+        sample_context={
+            "orientor_name": "Sam Turner",
+            "member_name": "Robin Vale",
+            "orientation_name": "Lathe Basics",
+            "owner_name": "Wood Shop",
+            "bill_amount": "$40",
+            "billed_on": "Wednesday, November 4",
+            "unpaid_days": "30",
+            "reached_line": "We've reminded them by email.",
+            "bookings_url": "https://pastlives.example/orientations/?view=bookings&show=past",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ member_name }} has not paid their orientation bill",
+                body_text=(
+                    "{{ bill_amount }} for the {{ orientation_name }} orientation, sent {{ billed_on }}, "
+                    "is still unpaid. Resend or cancel it from the Bookings tab."
+                ),
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="{{ member_name }} has not paid their {{ orientation_name }} orientation bill",
+                body_text=(
+                    "Hi {{ orientor_name }},\n\n"
+                    "The bill you sent {{ member_name }} for the {{ orientation_name }} orientation is "
+                    "still unpaid after {{ unpaid_days }} days. {{ reached_line }}\n\n"
+                    "Member: {{ member_name }}\n"
+                    "Orientation: {{ orientation_name }}, {{ owner_name }}\n"
+                    "Amount: {{ bill_amount }}\n"
+                    "Sent on: {{ billed_on }}\n\n"
+                    "You can resend or cancel it from the Bookings tab: {{ bookings_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ orientor_name }},</p>"
+                    "<p>The bill you sent {{ member_name }} for the <strong>{{ orientation_name }}</strong> "
+                    "orientation is still unpaid after {{ unpaid_days }} days. {{ reached_line }}</p>"
+                    "<p>Member: {{ member_name }}<br>"
+                    "Orientation: {{ orientation_name }}, {{ owner_name }}<br>"
+                    "Amount: <strong>{{ bill_amount }}</strong><br>"
+                    "Sent on: {{ billed_on }}</p>"
+                    "<p>You can resend or cancel it from the Bookings tab.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ bookings_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Open Bookings</a></p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     # billing.late_fee_waived — an unpaid late cancellation fee was forgiven (#456, part 3).
     # Who waived it is deliberately not named; the member learns the fee is gone and that
     # they can book again, with the owner page as the one call to action.

@@ -65,6 +65,7 @@ _DISPATCHER_DAILY = {
     "sweep_stale_refunds",
     "sync_stripe_fees",
     "send_overdue_review_alerts",
+    "send_orientation_bill_reminders",
     "welcome_new_members",
     "send_wiki_guild_digest",
     "check_needs_attention",

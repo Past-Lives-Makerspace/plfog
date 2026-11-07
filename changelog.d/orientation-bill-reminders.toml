@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-11-06"
+audience = ["members", "orientors", "guild-leads"]
+feature = "orientations.bookings"
+title = "Unpaid orientation bills send reminders"
+changes = [
+  "If you have an unpaid orientation bill, we email you a reminder 7, 14 and 30 days after it was sent, each with a Pay button. Reminders stop as soon as you pay or the bill is cancelled.",
+  "If a bill is still unpaid after 30 days, the orientor who ran it hears about it so they can follow up, resend or cancel it.",
+]

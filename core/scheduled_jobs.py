@@ -408,6 +408,17 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.DAILY,
     ),
     ScheduledJob(
+        key="send_orientation_bill_reminders",
+        name="Orientation bill reminders",
+        description=(
+            "Reminds members of an unpaid orientation bill 7, 14 and 30 days after it was sent, "
+            "and tells the orientor who ran it when it is still unpaid at 30 days."
+        ),
+        command="send_orientation_bill_reminders",
+        schedule_label="Daily ~6 AM",
+        cadence=Cadence.DAILY,
+    ),
+    ScheduledJob(
         key="send_wiki_guild_digest",
         name="Guild wiki digest",
         description=(

@@ -65,6 +65,8 @@ _BRAND_NEW_KEYS = {
     "billing.late_fee_paid",
     "billing.late_fee_waived",
     "billing.orientation_bill",
+    "billing.orientation_bill_reminder",
+    "billing.orientation_bill_unpaid",
     "billing.payout_failed_admin",
     "billing.payouts_invite",
     "billing.payout_reversal_failed_admin",
