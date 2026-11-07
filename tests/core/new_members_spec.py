@@ -19,6 +19,7 @@ from django.urls import reverse
 from core.factories import TransactionalEmailLogFactory
 from core.models import ScheduledJobState, TransactionalEmailLog
 from core.new_members import (
+    NewMemberRow,
     AIRTABLE_TIMEOUT,
     LOGIN_INVITE_KIND,
     LOOKUP_LIMIT,
@@ -166,6 +167,16 @@ def describe_welcome_for():
         welcome = _welcome(_new_member(member_type=Member.MemberType.WORK_TRADE))
         assert welcome.text == "Not sent: not a paying member"
 
+    def it_says_the_address_belongs_to_another_account():
+        welcome = welcome_for(
+            _with_status(_new_member()),
+            None,
+            job_on=True,
+            next_run=datetime(2026, 11, 7, 13, tzinfo=UTC),
+            address_taken=True,
+        )
+        assert (welcome.state, welcome.text) == ("not_sent", "Not sent: this email belongs to another member's account")
+
     def it_says_the_automation_is_off():
         welcome = _welcome(_new_member(), job_on=False)
         assert welcome.text == "Not sent: welcome emails are turned off"
@@ -241,16 +252,62 @@ def describe_new_member_rows():
         def _linked(n: int) -> None:
             _sign_up(_new_member(_pre_signup_email=f"many{n}@example.com"))
 
+        # One linked and one unlinked member: each kind costs its queries once, however many there are.
         _linked(0)
-        with CaptureQueriesContext(connection) as one:
+        _new_member()
+        with CaptureQueriesContext(connection) as few:
             new_member_rows(days=30, never_only=False, now=NOW)
-        for n in range(1, 5):
+        for n in range(1, 4):
             _linked(n)
         _new_member()
         with CaptureQueriesContext(connection) as many:
             rows = new_member_rows(days=30, never_only=False, now=NOW)
         assert len(rows) == 6
-        assert len(many) == len(one)
+        assert len(many) == len(few)
+
+
+def describe_an_address_another_account_holds():
+    def _owner(email: str) -> User:
+        """An account, with its own member, holding ``email``."""
+        user = User.objects.create_user(username=f"owner-{email}", email=email)
+        assert Member.objects.filter(user=user).exists()
+        return user
+
+    def _rows() -> dict[int, NewMemberRow]:
+        return {row.member.pk: row for row in new_member_rows(days=30, never_only=False, now=NOW)}
+
+    def it_says_not_sent_where_the_job_would_skip_them_every_morning(mailoutbox):
+        from django.core.management import call_command
+
+        _welcome_on()
+        _owner("dup@example.com")
+        member = _new_member(_pre_signup_email="dup@example.com")
+        call_command("welcome_new_members")
+        member.refresh_from_db()
+        assert member.welcome_email_sent_at is None
+        assert mailoutbox == []
+        assert _rows()[member.pk].welcome.text == "Not sent: this email belongs to another member's account"
+
+    def it_matches_the_address_ignoring_case_and_spaces():
+        _welcome_on()
+        _owner("Dup.Case@Example.com")
+        member = _new_member(_pre_signup_email=" dup.case@example.COM ")
+        assert _rows()[member.pk].welcome.state == "not_sent"
+
+    def it_leaves_an_account_with_no_member_alone_since_the_job_links_it():
+        _welcome_on()
+        member = _new_member(_pre_signup_email="spare@example.com")
+        spare = User.objects.create_user(username="spare", email="other@example.com")
+        Member.objects.filter(user=spare).delete()
+        User.objects.filter(pk=spare.pk).update(email="spare@example.com")
+        assert _rows()[member.pk].welcome.state == "scheduled"
+
+    def it_never_flags_a_linked_member():
+        _welcome_on()
+        member = _new_member(_pre_signup_email="mine@example.com")
+        _sign_up(member)
+        _owner("")  # an account with a blank address must not match a linked member's blank one
+        assert _rows()[member.pk].welcome.state == "scheduled"
 
 
 def describe_count_and_empty_lines():
@@ -348,6 +405,23 @@ def describe_look_up():
             )
         ]
 
+    def it_says_imports_are_paused_instead_of_a_time_when_the_pull_is_off(airtable):
+        ScheduledJobState.objects.create(task_key="airtable_pull", enabled=False)
+        airtable.all.return_value = [
+            _record(
+                "recPAUSED",
+                **{
+                    "Member Name": "Linnet Abbe",
+                    "Email": "linnet@example.com",
+                    "Status": "Active",
+                    "Role": "Standard Member",
+                },
+            )
+        ]
+        assert [line.text for line in look_up("Linnet", now=NOW)] == [
+            "Linnet Abbe is in Airtable but not imported yet. Imports from Airtable are paused."
+        ]
+
     def it_says_not_active_so_no_welcome(airtable):
         airtable.all.return_value = [
             _record(
@@ -402,13 +476,13 @@ def describe_look_up():
         airtable.all.side_effect = ConnectionError("down")
         MemberFactory(full_legal_name="Iolo Brand")
         assert [(line.tone, line.label, line.text) for line in look_up("Iolo", now=NOW)] == [
-            ("warn", "Airtable unreachable", "Couldn't reach Airtable. Only the portal was searched."),
+            ("warn", "Airtable search failed", "Couldn't search Airtable. Only the portal was searched."),
             ("ok", "In the portal", "Iolo Brand is in the portal."),
         ]
 
     def it_says_not_in_the_portal_when_airtable_is_down_and_the_portal_has_nobody(airtable):
         airtable.all.side_effect = ConnectionError("down")
         assert [(line.tone, line.label, line.text) for line in look_up("nobody", now=NOW)] == [
-            ("warn", "Airtable unreachable", "Couldn't reach Airtable. Only the portal was searched."),
+            ("warn", "Airtable search failed", "Couldn't search Airtable. Only the portal was searched."),
             ("danger", "Not found", "Not in the portal."),
         ]

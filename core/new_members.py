@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 WINDOW_CHOICES = (30, 60, 90)
 DEFAULT_WINDOW = 30
 WELCOME_JOB = "welcome_new_members"
+AIRTABLE_PULL_JOB = "airtable_pull"
 # The event Member.send_login_invite emits, so the trigger_kind its email is logged under.
 LOGIN_INVITE_KIND = "member.login_invite"
 # An admin is waiting on the page: give up on Airtable quickly and never retry.
@@ -139,14 +140,51 @@ def _latest_login_invites(addresses: Iterable[str]) -> dict[str, TransactionalEm
     return {log.to_email: log for log in logs.order_by("created_at", "pk")}
 
 
+def _addresses_owned_elsewhere(addresses: Iterable[str]) -> set[str]:
+    """Which of these lowercased addresses already belong to another member's account, in one query.
+
+    ``provision_user_for_member``'s own rule: it reuses the first User whose email matches
+    (``email__iexact``, so the lowest pk) and gives up when that User is linked to a different
+    member. The addresses come from unlinked members, so any linked owner is a different one.
+    """
+    from django.contrib.auth import get_user_model
+    from django.db.models.functions import Lower
+
+    users = (
+        get_user_model()
+        .objects.annotate(lower_email=Lower("email"))
+        .filter(lower_email__in={address for address in addresses if address})
+        .order_by("pk")
+        .values_list("lower_email", "member__pk")
+    )
+    first_owner: dict[str, int | None] = {}
+    for email, member_pk in users:
+        first_owner.setdefault(email, member_pk)
+    return {email for email, member_pk in first_owner.items() if member_pk is not None}
+
+
+def _provisioning_address(member: Member) -> str:
+    """The address ``provision_user_for_member`` would make an account for: blank for a linked member."""
+    if member.user_id is not None:
+        return ""
+    return (member._pre_signup_email or "").strip().lower()
+
+
 def welcome_for(
-    member: Member, latest_invite: TransactionalEmailLog | None, *, job_on: bool, next_run: datetime
+    member: Member,
+    latest_invite: TransactionalEmailLog | None,
+    *,
+    job_on: bool,
+    next_run: datetime,
+    address_taken: bool = False,
 ) -> Welcome:
     """Where ``member``'s welcome stands, by the conditions the welcome job itself applies.
 
     The "not sent" reasons are ``Member.objects.awaiting_welcome_email()`` read one condition
     at a time, so the tab can never promise an email the job would not send. ``member`` must
-    carry ``with_email_status``'s ``has_email``.
+    carry ``with_email_status``'s ``has_email``. ``address_taken`` is an unlinked member whose
+    address another member's account already holds: the job cannot make them an account, so
+    it skips them every morning and logs no email.
     """
     if member.welcome_email_sent_at is not None:
         return Welcome("sent", f"Sent {local_when(member.welcome_email_sent_at)}")
@@ -159,6 +197,8 @@ def welcome_for(
         return Welcome("not_sent", f"Not sent: not Active ({member.get_status_display()})")
     if member.member_type != Member.MemberType.STANDARD:
         return Welcome("not_sent", "Not sent: not a paying member")
+    if address_taken:
+        return Welcome("not_sent", "Not sent: this email belongs to another member's account")
     if not job_on:
         return Welcome("not_sent", "Not sent: welcome emails are turned off")
     return Welcome("scheduled", f"Goes out at the next morning run, {local_when(next_run)}")
@@ -192,10 +232,21 @@ def new_member_rows(*, days: int, never_only: bool, now: datetime) -> list[NewMe
         members = members.filter(Q(user__isnull=True) | Q(user__last_login__isnull=True))
     addressed = [(member, member.primary_email) for member in members]
     invites = _latest_login_invites(email for _member, email in addressed if email)
+    taken = _addresses_owned_elsewhere(_provisioning_address(member) for member, _email in addressed)
     job_on = ScheduledJobState.objects.is_enabled(WELCOME_JOB)
     next_run = next_run_at(now, DAILY_UTC_HOUR)
     return [
-        NewMemberRow(member, email, welcome_for(member, invites.get(email), job_on=job_on, next_run=next_run))
+        NewMemberRow(
+            member,
+            email,
+            welcome_for(
+                member,
+                invites.get(email),
+                job_on=job_on,
+                next_run=next_run,
+                address_taken=_provisioning_address(member) in taken,
+            ),
+        )
         for member, email in addressed
     ]
 
@@ -262,7 +313,7 @@ def search_airtable_members(text: str) -> list[RecordDict]:
         raise AirtableUnavailableError(str(exc)) from exc
 
 
-def _airtable_line(record: RecordDict, *, next_import: datetime) -> LookupLine:
+def _airtable_line(record: RecordDict, *, next_import: datetime, imports_on: bool) -> LookupLine:
     """Where one Airtable person the portal has not imported stands, by the import's own rules.
 
     The pull skips a record with no email and builds the rest through
@@ -293,8 +344,9 @@ def _airtable_line(record: RecordDict, *, next_import: datetime) -> LookupLine:
             tone="neutral",
             label="No welcome email",
         )
+    when = f"The next import runs {local_when(next_import)}." if imports_on else "Imports from Airtable are paused."
     return LookupLine(
-        f"{name} is in Airtable but not imported yet. The next import runs {local_when(next_import)}.",
+        f"{name} is in Airtable but not imported yet. {when}",
         tone="warn",
         label="Not imported yet",
     )
@@ -324,7 +376,7 @@ def look_up(text: str, *, now: datetime) -> list[LookupLine]:
     if records is None:
         lines.append(
             LookupLine(
-                "Couldn't reach Airtable. Only the portal was searched.", tone="warn", label="Airtable unreachable"
+                "Couldn't search Airtable. Only the portal was searched.", tone="warn", label="Airtable search failed"
             )
         )
     lines += [
@@ -338,7 +390,8 @@ def look_up(text: str, *, now: datetime) -> list[LookupLine]:
         for member in sorted(portal.values(), key=lambda m: m.display_name.casefold())
     ]
     next_import = next_run_at(now, AIRTABLE_PULL_UTC_HOUR)
-    lines += [_airtable_line(record, next_import=next_import) for record in not_imported]
+    imports_on = ScheduledJobState.objects.is_enabled(AIRTABLE_PULL_JOB)
+    lines += [_airtable_line(record, next_import=next_import, imports_on=imports_on) for record in not_imported]
     if not portal and not not_imported:
         lines.append(
             LookupLine("Not in the portal.", tone="danger", label="Not found")

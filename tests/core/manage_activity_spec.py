@@ -669,7 +669,7 @@ def describe_new_members_tab():
         member = MemberFactory(full_legal_name="Marisol Quench")
         airtable.all.side_effect = TimeoutError("read timed out")
         content = _tab(client, nm_q="Marisol")
-        assert "Couldn&#x27;t reach Airtable. Only the portal was searched." in content
+        assert "Couldn&#x27;t search Airtable. Only the portal was searched." in content
         assert "Marisol Quench is in the portal." in content
         assert reverse("hub_admin_member_edit", args=[member.pk]) in content
 
