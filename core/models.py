@@ -2296,6 +2296,8 @@ SITE_ACTIVITY_CATEGORIES: dict[str, tuple[str, tuple[SiteActivity.Kind, ...]]] =
             _Kind.LATE_FEE_PAID,
             _Kind.LATE_FEE_WAIVED,
             _Kind.LATE_FEE_REFUNDED,
+            _Kind.ORIENTATION_BILL_SENT,
+            _Kind.ORIENTATION_BILL_CANCELLED,
             _Kind.RECONCILIATION_SNAPSHOT_TAKEN,
             _Kind.RECONCILIATION_SNAPSHOT_DELETED,
         ),

@@ -31,6 +31,7 @@ pytestmark = pytest.mark.django_db
 
 KEY_ATTR = re.compile(r'data-whats-new-key="([^"]*)"')
 OPEN_HREF = re.compile(r'href="([^"]*)" class="hub-btn hub-btn--sm" data-whats-new-open')
+SHOW_ATTR = re.compile(r'data-whats-new-show="([^"]*)"')
 
 
 def _entries() -> list[dict[str, Any]]:
@@ -51,7 +52,13 @@ def _entries() -> list[dict[str, Any]]:
 
 
 @pytest.fixture
-def everything_new(monkeypatch):
+def one_page(monkeypatch):
+    """Every entry on the modal's first page, so no key is walked off it by the ones before."""
+    monkeypatch.setattr("core.whats_new.PAGE_SIZE", len(GUIDANCE))
+
+
+@pytest.fixture
+def everything_new(monkeypatch, one_page):
     monkeypatch.setattr("plfog.version.CHANGELOG", _entries())
 
 
@@ -114,14 +121,20 @@ def describe_the_modal_open_on_every_feature_page():
     def it_never_links_to_the_page_it_is_open_on(client: Client, everything_new, admin_lead, key):
         url = url_for(key, admin_lead)
         path = url.split("?")[0]
+        here_targets = {
+            guidance.target
+            for other, guidance in GUIDANCE.items()
+            if guidance.target and url_for(other, admin_lead).split("?")[0] == path
+        }
         for tab in TABS:
             html = _modal_on(client, url, tab)
             own = [href for href in OPEN_HREF.findall(html) if href.split("?")[0] == path]
             assert not own, f"{key}: the modal open on {url} links to it: {own}"
-            # No entry names a target here, so the page's own entry draws no button at all.
-            assert "data-whats-new-show" not in html, f"{key}: Show me with no target on the {tab} tab"
+            # No fragment names a target, so Show me rings only a registry default of a feature on this page.
+            stray = set(SHOW_ATTR.findall(html)) - here_targets
+            assert not stray, f"{key}: Show me for {sorted(stray)} on the {tab} tab, a target of no feature here"
 
-    def it_shows_me_for_an_entry_that_names_a_control_on_that_page(client: Client, monkeypatch, admin_lead):
+    def it_shows_me_for_an_entry_that_names_a_control_on_that_page(client: Client, monkeypatch, one_page, admin_lead):
         entries = _entries()
         teach = next(entry for entry in entries if entry["feature"] == "classes.teach")
         teach["target"] = "classes.new-class"

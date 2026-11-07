@@ -11,9 +11,9 @@
 {% block content %}
 {% if add_orientation_guilds %}
 {# The "+ Add an Orientation" button on every tab for admins, officers and guild leadership (#637). #}
-{% include "components/page_header.html" with title="Orientations" description="Get trained on a guild or a tool before you book it." action_include="hub/partials/add_orientation_action.html" %}
+{% include "components/page_header.html" with title="Orientations" description="Get trained on a guild or a tool before you book it." action_include="hub/partials/add_orientation_action.html" new_key="orientations.bookings" %}
 {% else %}
-{% include "components/page_header.html" with title="Orientations" description="Get trained on a guild or a tool before you book it." %}
+{% include "components/page_header.html" with title="Orientations" description="Get trained on a guild or a tool before you book it." new_key="orientations.bookings" %}
 {% endif %}
 
 {% if unpaid_late_fee %}
