@@ -872,7 +872,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     # when a block still has room for that type's duration — computed live, so booked
     # segments, cancellations, and expired holds are always reflected.
     upcoming_blocks = (
-        list(guild.orientation_blocks.upcoming().select_related("orienter", "guild").order_by("starts_at"))
+        list(guild.orientation_blocks.offered().select_related("orienter", "guild").order_by("starts_at"))
         if show_orientation and orientation is not None and not orientation.is_closed
         else []
     )

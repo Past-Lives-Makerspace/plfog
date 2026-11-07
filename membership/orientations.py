@@ -1773,28 +1773,43 @@ def _owner_accepting(rule: OrientationAvailability) -> bool:
     return settings_obj is not None and settings_obj.is_accepting and guild.orientation_types.active().exists()
 
 
-def _rule_generates(rule: OrientationAvailability, *, runners_by_equipment: dict[int, set[int]]) -> bool:
+def _orientor_ids_for(
+    item: OrientationAvailability | OrientationSlot | OrientationAvailabilityBlock,
+    cache: dict[tuple[str, int], set[int]],
+) -> set[int]:
+    """Who runs orientations now for the guild or tool that owns ``item`` (#1129), read once per owner.
+
+    The one predicate, ``Guild.orientor_ids`` or ``Equipment.orientor_ids``: an Active
+    member who is the guild's lead or staff, or one of the tool's Orientors. ``cache``
+    lives for one run, so six personal rules on one owner cost one lookup, not six. A
+    guild owned row, slot or window has ``guild`` set; an equipment owned one reaches its
+    tool through its type.
+    """
+    if item.guild_id is not None:
+        key = ("guild", item.guild_id)
+        if key not in cache:
+            cache[key] = cast("Guild", item.guild).orientor_ids()
+        return cache[key]
+    equipment = cast("Equipment", cast("OrientationType", item.orientation_type).equipment)
+    key = ("equipment", equipment.pk)
+    if key not in cache:
+        cache[key] = equipment.orientor_ids()
+    return cache[key]
+
+
+def _rule_generates(rule: OrientationAvailability, *, orientors: dict[tuple[str, int], set[int]]) -> bool:
     """The per-rule gate: an accepting owner, and a personal rule's orientor still current.
 
-    A stale personal rule — its orientor left the guild's leadership (or stopped
-    running orientations on the equipment) without the hub's retirement flow (a
-    lead-FK change, a Django-admin removal) — must never materialize new slots.
-    ``runners_by_equipment`` caches each tool's ``orienter_members()`` ids for the run,
-    so six personal rules on one tool cost one lookup, not six. That is the same narrow
-    set the Orientation Schedule lists, so a rule generates exactly while its owner is
-    shown as an orientor — the guild branch above reads ``leadership_members()`` for the
-    identical reason.
+    A stale personal rule (its orientor left the guild's leadership, stopped running the
+    tool's orientations, or stopped being an Active member, without a retirement flow
+    running: a Django admin edit, a bulk status update) must never materialize new
+    slots. ``orientors`` is the run's :func:`_orientor_ids_for` cache.
     """
     if not _owner_accepting(rule):
         return False
     if rule.orienter_id is None:
         return True
-    if rule.guild_id is not None:
-        return rule.orienter_id in {member.pk for member in cast("Guild", rule.guild).leadership_members()}
-    equipment = cast("Equipment", cast("OrientationType", rule.orientation_type).equipment)
-    if equipment.pk not in runners_by_equipment:
-        runners_by_equipment[equipment.pk] = {member.pk for member in equipment.orienter_members()}
-    return rule.orienter_id in runners_by_equipment[equipment.pk]
+    return rule.orienter_id in _orientor_ids_for(rule, orientors)
 
 
 def _retire_off_grid(rule: OrientationAvailability, spans: list[tuple[datetime, datetime]]) -> None:
@@ -1973,7 +1988,7 @@ def generate_slots(
         rules = rules.filter(guild=guild)
     if equipment is not None:
         rules = rules.filter(orientation_type__equipment=equipment)
-    runners_by_equipment: dict[int, set[int]] = {}
+    orientors: dict[tuple[str, int], set[int]] = {}
     days_off_by_orienter = _days_off_by_orienter(today=today, window_weeks=window_weeks)
     eligible = [
         (
@@ -1986,7 +2001,7 @@ def generate_slots(
             ),
         )
         for rule in rules
-        if _rule_generates(rule, runners_by_equipment=runners_by_equipment)
+        if _rule_generates(rule, orientors=orientors)
     ]
     for rule, spans in eligible:
         if rule.is_open:
@@ -2183,6 +2198,81 @@ def retire_equipment_orienter(equipment: Equipment, member: Member) -> tuple[int
         .count()
     )
     return removed, booked_remaining
+
+
+@dataclass(frozen=True)
+class StaleOrientorSweep:
+    """What :func:`retire_stale_orientor_hours` retired (#1129)."""
+
+    #: Recurring hours rows deleted.
+    rules: int
+    #: Open future times (generated or posted slots, open windows) removed.
+    times: int
+    #: Future times kept because they hold a live request, checkout or confirmed booking.
+    kept: int
+
+
+def retire_stale_orientor_hours(*, member: Member | None = None) -> StaleOrientorSweep:
+    """Retire every personal hours row and open future time whose orientor no longer runs its owner's orientations.
+
+    Stale means outside the one predicate (:func:`_orientor_ids_for`): no longer an Active
+    member, or no longer the guild's lead or staff (the tool's Orientors, for equipment). It
+    catches every way someone stops: a lead replaced or cleared, a membership lapsing or
+    suspended, a staff row removed in Django admin. Each stale row goes through
+    :func:`retire_rule` (its open times removed, the row deleted). A stale posted time
+    (MANUAL) or one off window no row owns goes through the same retirement as a rule's
+    own times: deleted when untouched, cancelled when it carries booking history, kept
+    (capped to the seats taken) when it holds a live booking, so a lead can still move or
+    cancel it. A booking's own times (CUSTOM, FROM_BLOCK) are never touched, and no booking
+    or payment row is deleted.
+
+    Args:
+        member: Sweep only this person's hours (a lead change or a status change); None
+            sweeps everyone, as the daily job does.
+
+    Returns:
+        The counts, for the job's log line.
+    """
+    from membership.models import OrientationAvailability, OrientationAvailabilityBlock, OrientationSlot
+
+    now = timezone.now()
+    rules = OrientationAvailability.objects.filter(orienter__isnull=False).select_related(
+        "guild", "orientation_type__equipment"
+    )
+    slots = (
+        OrientationSlot.objects.filter(
+            orienter__isnull=False, source=OrientationSlot.Source.MANUAL, is_cancelled=False, starts_at__gte=now
+        )
+        .select_related("guild", "orientation_type__equipment")
+        .with_seat_holding_count()
+        .with_booking_history_count()
+    )
+    windows = OrientationAvailabilityBlock.objects.filter(
+        availability__isnull=True, is_cancelled=False, starts_at__gte=now
+    ).select_related("guild")
+    if member is not None:
+        rules = rules.filter(orienter=member)
+        slots = slots.filter(orienter=member)
+        windows = windows.filter(orienter=member)
+    orientors: dict[tuple[str, int], set[int]] = {}
+    rules_retired = removed = kept = 0
+    with transaction.atomic():
+        for rule in rules:
+            if rule.orienter_id in _orientor_ids_for(rule, orientors):
+                continue
+            rule_removed, rule_kept = retire_rule(rule)
+            rules_retired += 1
+            removed += rule_removed
+            kept += rule_kept
+        slots_removed, slots_kept = _retire_slots(
+            [slot for slot in slots if slot.orienter_id not in _orientor_ids_for(slot, orientors)]
+        )
+        windows_removed, windows_kept = _retire_windows(
+            [window for window in windows if window.orienter_id not in _orientor_ids_for(window, orientors)]
+        )
+    return StaleOrientorSweep(
+        rules=rules_retired, times=removed + slots_removed + windows_removed, kept=kept + slots_kept + windows_kept
+    )
 
 
 def member_joined_guild(guild: Guild, member: Member) -> None:
