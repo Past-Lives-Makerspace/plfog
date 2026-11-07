@@ -24,7 +24,11 @@ from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
 from stripe.params import RefundCreateParams, SubscriptionCancelParams, SubscriptionUpdateParams
 from stripe.params.billing_portal import SessionCreateParams as PortalSessionCreateParams
-from stripe.params.checkout import SessionCreateParams
+from stripe.params.checkout import (
+    SessionCreateParams,
+    SessionCreateParamsLineItemPriceDataProductData,
+    SessionCreateParamsPaymentIntentData,
+)
 
 if TYPE_CHECKING:
     from billing.models import BillingSettings
@@ -254,6 +258,8 @@ def create_checkout_session(
     metadata: dict[str, str],
     idempotency_key: str,
     expires_at: int | None = None,
+    hold_only: bool = False,
+    hold_note: str = "",
 ) -> dict[str, str]:
     """Create a hosted Stripe Checkout Session for a one-off payment.
 
@@ -265,10 +271,22 @@ def create_checkout_session(
     ``expires_at`` is an optional unix timestamp (Stripe allows 30 min–24 h out)
     after which the session dies server-side and fires ``checkout.session.expired``.
 
+    ``hold_only`` places a hold on the card instead of charging it (Stripe manual capture,
+    #1128): the PaymentIntent waits in ``requires_capture`` until :func:`capture_payment_intent`
+    charges it or :func:`cancel_payment_intent` releases it, and Stripe releases it on its own
+    after 7 days. ``hold_note`` is the line shown under the item and above the pay button
+    saying so. Orientations alone use it; every other checkout charges at once.
+
     Returns dict with 'id' and 'url' (the hosted Checkout page).
     The idempotency_key is REQUIRED to prevent duplicate sessions on retry.
     """
     client = _get_stripe_client()
+    product: SessionCreateParamsLineItemPriceDataProductData = {"name": product_name}
+    intent_data: SessionCreateParamsPaymentIntentData = {"metadata": metadata}
+    if hold_only:
+        intent_data["capture_method"] = "manual"
+    if hold_note:
+        product["description"] = hold_note
     params: SessionCreateParams = {
         "mode": "payment",
         "customer_email": customer_email,
@@ -278,15 +296,17 @@ def create_checkout_session(
                 "price_data": {
                     "currency": "usd",
                     "unit_amount": amount_cents,
-                    "product_data": {"name": product_name},
+                    "product_data": product,
                 },
             }
         ],
         "metadata": metadata,
-        "payment_intent_data": {"metadata": metadata},
+        "payment_intent_data": intent_data,
         "success_url": success_url,
         "cancel_url": cancel_url,
     }
+    if hold_note:
+        params["custom_text"] = {"submit": {"message": hold_note}}
     if expires_at is not None:
         params["expires_at"] = expires_at
     session = client.v1.checkout.sessions.create(
@@ -388,6 +408,47 @@ def _expandable_id(value: Any) -> str:
     if not value:
         return ""
     return value if isinstance(value, str) else str(value.id)
+
+
+def _intent_dict(intent: stripe.PaymentIntent) -> dict[str, Any]:
+    """The PaymentIntent fields a card hold (#1128) is decided on."""
+    return {
+        "id": intent.id,
+        "status": intent.status,
+        "amount": intent.amount,
+        "amount_capturable": intent.amount_capturable,
+        "amount_received": intent.amount_received,
+    }
+
+
+def retrieve_payment_intent(*, payment_intent_id: str) -> dict[str, Any]:
+    """A PaymentIntent's status and amounts, from whichever account holds it.
+
+    Returns dict with 'id', 'status' (``requires_capture`` for a card hold, ``succeeded`` once
+    charged, ``canceled`` once released, ...), 'amount', 'amount_capturable' (what a hold can
+    still charge) and 'amount_received' (what was charged). Stripe errors propagate.
+    """
+    return _intent_dict(_on_owning_account(lambda client: client.v1.payment_intents.retrieve(payment_intent_id)))
+
+
+def capture_payment_intent(*, payment_intent_id: str) -> dict[str, Any]:
+    """Charge a card hold in full (#1128). Returns :func:`retrieve_payment_intent`'s dict.
+
+    No idempotency key: Stripe captures a PaymentIntent once and refuses a second capture, and
+    a key would replay a transient failure for 24 hours. The caller reads the PaymentIntent
+    back after any error to learn what really happened. Stripe errors propagate.
+    """
+    return _intent_dict(_on_owning_account(lambda client: client.v1.payment_intents.capture(payment_intent_id)))
+
+
+def cancel_payment_intent(*, payment_intent_id: str) -> dict[str, Any]:
+    """Release a card hold without charging it (#1128). Returns :func:`retrieve_payment_intent`'s dict.
+
+    Cancelling a ``requires_capture`` PaymentIntent gives the held amount back to the card.
+    No idempotency key, for the reason :func:`capture_payment_intent` gives; a second cancel
+    is refused by Stripe and the caller reads the PaymentIntent back. Stripe errors propagate.
+    """
+    return _intent_dict(_on_owning_account(lambda client: client.v1.payment_intents.cancel(payment_intent_id)))
 
 
 def create_refund(*, payment_intent_id: str, amount_cents: int | None = None, idempotency_key: str) -> dict[str, Any]:

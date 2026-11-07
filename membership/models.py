@@ -14303,6 +14303,28 @@ class OrientationError(Exception):
     """Raised when an orientation booking can't be made or transitioned."""
 
 
+class HoldCaptureFailed(OrientationError):
+    """Stripe answered that a booking's card hold cannot be charged (#1128): it expired or the card declined.
+
+    The booking is not confirmed, and the caller declines it. The message is for whoever was confirming.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "We couldn't charge the member's card. The hold may have expired or the card was declined. "
+            "We declined the request and emailed them to book again."
+        )
+
+
+class HoldCaptureUnavailable(OrientationError):
+    """Stripe could not be reached to charge a booking's card hold (#1128). Nothing changed."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "We couldn't reach Stripe to charge the member's card, so nothing changed. Try again in a minute."
+        )
+
+
 class GuildOrientationSettings(models.Model):
     """Per-guild orientation configuration plus the lead-editable thank-you email.
 
@@ -16394,8 +16416,8 @@ class OrientationBooking(models.Model):
     amount_paid_cents = models.PositiveIntegerField(
         default=0,
         help_text=(
-            "Amount paid to book, in cents. 0 for free bookings. Set provisionally at "
-            "checkout start; the webhook's amount_total is canonical."
+            "Money in hand for this booking, in cents: what Stripe captured. 0 for a free booking and for a "
+            "card hold not yet charged (authorized_cents holds that). Payouts, refunds and reports read it."
         ),
     )
     stripe_session_id = models.CharField(
@@ -16405,7 +16427,29 @@ class OrientationBooking(models.Model):
         max_length=255,
         blank=True,
         default="",
-        help_text="Stripe PaymentIntent ID, stamped by the webhook on payment.",
+        help_text=(
+            "Stripe PaymentIntent ID, stamped when the checkout lands: a card hold to charge on confirm "
+            "(#1128), or a payment already taken."
+        ),
+    )
+    authorized_cents = models.PositiveIntegerField(
+        default=0,
+        # The release before #1128 inserts bookings without this column while the migration runs.
+        db_default=0,
+        help_text=(
+            "What the member's card is held for, in cents, while a paid request waits for an Orientor (#1128). "
+            "Never money in hand: confirming charges the hold and sets amount_paid_cents. 0 when no hold was placed."
+        ),
+    )
+    authorized_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the card hold was placed. A request still unconfirmed 6 days later is declined.",
+    )
+    hold_released_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When Stripe released the card hold of a request declined or cancelled before it was charged.",
     )
     requested_at = models.DateTimeField(auto_now_add=True)
     confirmed_at = models.DateTimeField(null=True, blank=True)
@@ -16477,8 +16521,8 @@ class OrientationBooking(models.Model):
         null=True,
         blank=True,
         help_text=(
-            "When the bill was paid. The Payments panel, Reconciliation and payouts date a booking by it "
-            "when set, else by requested_at; an ordinary booking never sets it."
+            "When the money landed: a bill's payment, or the charge of a card hold on confirm (#1128). "
+            "The Payments panel, Reconciliation and payouts date a booking by it when set, else by requested_at."
         ),
     )
     bill_reminder_step = models.PositiveSmallIntegerField(
@@ -16839,14 +16883,59 @@ class OrientationBooking(models.Model):
         self.paid_at = timezone.now()
         self.save(update_fields=["amount_paid_cents", "stripe_payment_id", "stripe_session_id", "paid_at"])
 
+    # --- A card hold charged only on confirm (#1128) -----------------------------------------
+
+    #: How long a card hold may wait for an Orientor before the request is declined and the hold
+    #: released: a day inside Stripe's 7 day limit on an uncaptured card payment.
+    HOLD_CONFIRM_WINDOW: ClassVar[timedelta] = timedelta(days=6)
+
+    @property
+    def hold_is_open(self) -> bool:
+        """Whether the member's card is held for this booking and not yet charged or released."""
+        return self.authorized_cents > 0 and self.amount_paid_cents == 0 and self.hold_released_at is None
+
+    @property
+    def hold_state(self) -> str:
+        """``"" | "held" | "released" | "captured"``: where this booking's card hold stands.
+
+        ``""`` for a booking that never held a card (free, a bill, or paid before #1128), so every
+        such booking keeps its old copy. ``"held"`` covers a decline or cancel whose release has
+        not gone through yet: the member is still not charged, and the sweep retries the release.
+        """
+        if self.authorized_cents == 0:
+            return ""
+        if self.amount_paid_cents > 0:
+            return "captured"
+        if self.hold_released_at is not None:
+            return "released"
+        return "held"
+
+    def record_hold(self, *, payment_intent: str, amount_cents: int) -> None:
+        """Note the card hold a landed checkout placed, in memory; the finalize path saves it under its lock."""
+        self.stripe_payment_id = payment_intent
+        self.authorized_cents = amount_cents
+        self.authorized_at = timezone.now()
+
+    def record_capture(self, amount_cents: int) -> None:
+        """The hold was charged: ``amount_cents`` is money in hand now. The caller holds the row lock."""
+        self.amount_paid_cents = amount_cents
+        self.paid_at = timezone.now()
+        self.save(update_fields=["amount_paid_cents", "paid_at"])
+
+    def record_hold_released(self) -> None:
+        """Stripe released the hold; nothing was charged. The caller holds the row lock."""
+        self.hold_released_at = timezone.now()
+        self.save(update_fields=["hold_released_at"])
+
     # --- When the money landed, for the finance readers (#1111) ---------------------------
 
     @property
     def money_at(self) -> datetime_type:
         """The moment the finance readers file this booking's payment under.
 
-        A bill's ``paid_at``; otherwise ``requested_at``, since a checkout's payment lands
-        within its hour. The query twin is :meth:`money_at_expression`.
+        ``paid_at`` when set (a bill's payment, or a card hold charged on confirm, #1128);
+        otherwise ``requested_at``, since a checkout that charged at once landed within its
+        hour. The query twin is :meth:`money_at_expression`.
         """
         return self.paid_at or self.requested_at
 

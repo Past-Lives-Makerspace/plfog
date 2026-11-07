@@ -2744,6 +2744,14 @@ def orientation_proposal_answer(request: HttpRequest, booking_pk: int) -> HttpRe
         messages.info(request, "That new time has already passed, so your orientation stays at its current time.")
     elif result == "unavailable":
         messages.info(request, "That new time can't be booked anymore, so your orientation stays at its current time.")
+    elif result == "card_failed":
+        messages.error(
+            request,
+            "We couldn't charge your card for the new time, so your request was declined. "
+            "You were not charged. Please book again.",
+        )
+    elif result == "try_again":
+        messages.error(request, "We couldn't reach our payment processor, so nothing changed. Try again in a minute.")
     else:
         messages.info(request, "That new time is no longer open. Your booking shows where things stand.")
     return _orientation_return(request, booking.orientation_type)
@@ -2981,6 +2989,12 @@ def orientation_checkout_cancelled(request: HttpRequest, token: str) -> HttpResp
     outcome = orientations.release_hold_if_unpaid(booking)
     if outcome == "released":
         messages.info(request, "No charge was made. Your card was not billed.")
+    elif outcome == "held":
+        messages.success(
+            request,
+            "Good news, your checkout already went through. Your booking request is in, "
+            "and your card is held, not charged, until an Orientor confirms.",
+        )
     elif outcome == "paid":
         messages.success(request, "Good news, your payment already went through. Your booking request is in.")
     else:
@@ -3008,6 +3022,12 @@ def orientation_checkout_cancel_hold(request: HttpRequest, booking_pk: int) -> H
     outcome = orientations.release_hold_if_unpaid(booking)
     if outcome == "released":
         messages.success(request, "Booking cancelled. You were not charged.")
+    elif outcome == "held":
+        messages.info(
+            request,
+            "Your checkout already went through, so this is now a request. "
+            "Cancel the request instead and the hold on your card is released.",
+        )
     elif outcome == "paid":
         messages.info(
             request,
@@ -3039,14 +3059,14 @@ def orientation_checkout_resume(request: HttpRequest, booking_pk: int) -> HttpRe
         return HttpResponse("Forbidden", status=403)
     try:
         session = stripe_utils.retrieve_checkout_session(session_id=booking.stripe_session_id)
+        landed = orientations.landed_payment(session)
     except Exception:
         logger.exception("Resume: could not retrieve Checkout session for booking %s.", booking.pk)
         messages.error(request, "We couldn't check your payment status just now. Try again in a minute.")
         return _owner_redirect(booking.orientation_type)
-    if session["payment_status"] == "paid":
-        orientations.finalize_paid_booking(
-            booking, payment_intent=session["payment_intent"], amount_total=session["amount_total"]
-        )
+    if landed is not None:
+        # Paid, or (#1128) the card is held: either way the checkout is done.
+        orientations.finalize_landed(booking, landed)
         return redirect("hub_orientation_checkout_return", token=orientations.make_checkout_token(booking))
     if session["status"] == "open" and session["url"]:
         return redirect(session["url"])

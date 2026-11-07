@@ -10,6 +10,8 @@ for {{ owner_name }}.
 it reaches your card.{% else %}Your {{ booking.amount_paid_cents|cents_as_price }} refund is on its way. Refunds usually
 reach your card in 5 to 10 business days.{% endif %}
 
+{% elif booking.hold_state %}{% load classes_tags %}{% if booking.hold_state == "released" %}We released the {{ booking.authorized_cents|cents_as_price }} hold on your card.{% else %}We're releasing the {{ booking.authorized_cents|cents_as_price }} hold on your card.{% endif %} You were not charged.
+
 {% endif %}{% if late_fee %}A {{ late_fee.amount_display }} late cancellation fee applies to this cancellation. Pay it here:
 {{ late_fee_pay_url }}
 You'll get a receipt once it's paid.

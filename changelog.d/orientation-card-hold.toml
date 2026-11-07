@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-11-07"
+audience = ["members", "orientors"]
+title = "Paid orientations hold your card and charge only once confirmed"
+changes = [
+  "Booking a paid orientation now places a hold on your card instead of charging it.",
+  "You are charged only when an Orientor confirms your time. If it is declined or cancelled first, the hold is released and you pay nothing.",
+  "A request no one confirms within 6 days is released automatically, and you get an email saying so.",
+]

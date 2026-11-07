@@ -25,9 +25,15 @@ The checkout landing card. States:
     {% if booking.slot.location %}<span class="hub-text-muted">· {{ booking.slot.location }}</span>{% endif %}
   </p>
   {% if booking.status == "declined" or booking.status == "cancelled" %}
+  {% if booking.hold_state == "held" or booking.hold_state == "released" %}
+  <p class="hub-text-muted" data-hold-note style="margin:0 0 1.5rem; font-size:0.95rem;">This booking was {{ booking.get_status_display|lower }}. The {{ booking.authorized_cents|cents_as_price }} hold on your card {% if booking.hold_state == "released" %}is released{% else %}is being released{% endif %}, and you were not charged.</p>
+  {% else %}
   <p class="hub-text-muted" style="margin:0 0 1.5rem; font-size:0.95rem;">This booking was {{ booking.get_status_display|lower }}. Your {{ booking.amount_paid_cents|cents_as_price }} comes back automatically as a full refund.</p>
+  {% endif %}
   {% elif booking.status == "confirmed" %}
   <p class="hub-text-muted" style="margin:0 0 1.5rem; font-size:0.95rem;">You paid {{ booking.amount_paid_cents|cents_as_price }}. You're all set. We've emailed you the details and a calendar invite.</p>
+  {% elif booking.hold_state == "held" %}
+  <p class="hub-text-muted" data-hold-note style="margin:0 0 1.5rem; font-size:0.95rem;">Your card is held for {{ booking.authorized_cents|cents_as_price }}, not charged. We sent your request to {% if booking.slot.orienter_first_name %}{{ booking.slot.orienter_first_name }}{% else %}the folks who run it{% endif %}. Watch for them to confirm your spot. <strong>You're charged only when an Orientor confirms. If they can't make it work, the hold is released and you pay nothing.</strong> We've emailed you the details and a calendar invite.</p>
   {% else %}
   <p class="hub-text-muted" style="margin:0 0 1.5rem; font-size:0.95rem;">You paid {{ booking.amount_paid_cents|cents_as_price }}. We sent your request to {% if booking.slot.orienter_first_name %}{{ booking.slot.orienter_first_name }}{% else %}the folks who run it{% endif %}. Watch for them to confirm your spot. <strong>If they can't make it work, your {{ booking.amount_paid_cents|cents_as_price }} comes back automatically.</strong> We've emailed you the details and a calendar invite.</p>
   {% endif %}

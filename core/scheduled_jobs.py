@@ -349,6 +349,17 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="release_orientation_card_holds",
+        name="Release unconfirmed orientation card holds",
+        description=(
+            "Declines paid orientation requests no Orientor confirmed within 6 days, releasing the hold on the "
+            "member's card before Stripe's 7 day limit and emailing them why."
+        ),
+        command="release_orientation_card_holds",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="release_reservation_payment_holds",
         name="Release abandoned reservation checkouts",
         description="Releases equipment time held by paid reservations whose checkout was never completed.",

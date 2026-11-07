@@ -12,6 +12,7 @@ from django.utils import timezone
 from core.models import SiteActivity
 from membership import orientations
 from membership.models import OrientationBooking, OrientationError, OrientationSlot
+from tests.membership.stripe_intents import charged_at_once
 from tests.membership.factories import (
     EquipmentFactory,
     EquipmentReservationFactory,
@@ -23,6 +24,17 @@ from tests.membership.factories import (
 )
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture(autouse=True)
+def _charged_at_once():
+    """A landed session here charged the card at once, as checkouts did before #1128.
+
+    The card hold road (manual capture) has its own spec: ``orientation_card_hold_spec.py``.
+    """
+    with charged_at_once():
+        yield
+
 
 _SESSION = {"id": "cs_test_1", "url": "https://checkout.stripe.example/cs_test_1"}
 
@@ -162,7 +174,8 @@ def describe_release_hold_if_unpaid():
     )
     def it_flips_a_paid_hold_to_requested_with_the_full_fan_out(mock_retrieve, hold):
         mail.outbox.clear()
-        assert orientations.release_hold_if_unpaid(hold) == "paid"
+        with charged_at_once(1600):
+            assert orientations.release_hold_if_unpaid(hold) == "paid"
         hold.refresh_from_db()
         assert hold.status == OrientationBooking.Status.REQUESTED
         assert hold.stripe_payment_id == "pi_9"

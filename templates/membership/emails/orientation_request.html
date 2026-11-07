@@ -4,7 +4,12 @@
 <p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">Orientation request received</p>
 <p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">We got your request to be oriented for <strong><a href="{{ owner_url }}" style="color: #0d4876; text-decoration: none;">{{ owner_name }}</a></strong>.</p>
 {% include "membership/emails/_slot.html" %}
-{% if booking.amount_paid_cents %}{% load classes_tags %}
+{% if booking.hold_state == "held" %}{% load classes_tags %}
+<div data-hold-note style="background: rgba(13, 72, 118, 0.06); border-radius: 8px; padding: 12px 16px; margin: 16px 0 0;">
+    <p style="margin: 0; font-size: 13px; color: #33424f; font-weight: 700;">We're holding {{ booking.authorized_cents|cents_as_price }} on your card. You're not charged yet.</p>
+    <p style="margin: 6px 0 0; font-size: 13px; color: #33424f; line-height: 1.6;">You're charged only when an Orientor confirms your time. If your request is declined or cancelled first, we release the hold and you pay nothing.</p>
+</div>
+{% elif booking.amount_paid_cents %}{% load classes_tags %}
 <div style="background: rgba(13, 72, 118, 0.06); border-radius: 8px; padding: 12px 16px; margin: 16px 0 0;">
     <p style="margin: 0; font-size: 13px; color: #33424f; font-weight: 700;">You paid {{ booking.amount_paid_cents|cents_as_price }}.</p>
     <p style="margin: 6px 0 0; font-size: 13px; color: #33424f; line-height: 1.6;">Your booking is a request until <a href="{{ owner_url }}" style="color: #0d4876;">{{ owner_name }}</a> confirms it. If they decline, or it's cancelled, your {{ booking.amount_paid_cents|cents_as_price }} comes back automatically as a full refund to your card.</p>

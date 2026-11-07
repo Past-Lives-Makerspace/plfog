@@ -16,7 +16,7 @@ modal's id, for Cancel). Nothing is refunded or charged on either road.
   {% include "components/form_field.html" with field=move_form.start_time %}
   {% include "components/radio_group.html" with field=move_form.mode %}
   {% include "components/form_field.html" with field=move_form.message %}
-  <p class="pl-form-note" data-orientation-move-money>{% if move_booking.amount_paid_cents %}Their {{ move_booking.amount_paid_cents|cents_as_price }} payment stays with the booking. Nothing is refunded or charged.{% else %}Nothing is refunded or charged.{% endif %}</p>
+  <p class="pl-form-note" data-orientation-move-money>{% if move_booking.hold_state == "held" %}Moving it now confirms the request and charges the {{ move_booking.authorized_cents|cents_as_price }} held on their card. Asking first charges it only if they accept.{% elif move_booking.amount_paid_cents %}Their {{ move_booking.amount_paid_cents|cents_as_price }} payment stays with the booking. Nothing is refunded or charged.{% else %}Nothing is refunded or charged.{% endif %}</p>
   <div class="pl-modal__actions">
     <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', '{{ move_modal_id }}')">Cancel</button>
     <button type="submit" class="pl-btn pl-btn--primary">Move Orientation</button>

@@ -59,6 +59,17 @@ _CHECKOUT_MAX_AGE = 30 * 24 * 3600  # 30 days — outlives any Checkout session 
 _CHECKOUT_SESSION_LIFETIME = timedelta(hours=1)  # Stripe expires_at; abandoned checkouts die server-side
 _HOLD_SWEEP_AGE = timedelta(hours=2)  # strictly after session expiry, so the sweep never races a live checkout
 
+#: What Checkout shows under the item and above the pay button: the card is held, not charged (#1128).
+CHECKOUT_HOLD_NOTE = (
+    "Your card is held, not charged, until an Orientor confirms your time. "
+    "If the request is declined or cancelled first, the hold is released and you pay nothing."
+)
+
+#: Why the system declined a request, for the decline email (#1128): its card would not charge on
+#: confirm, or nobody confirmed it before the hold had to be released.
+DECLINE_CARD_FAILED = "card_failed"
+DECLINE_HOLD_EXPIRED = "hold_expired"
+
 
 def _absolute_url(path: str) -> str:
     """Turn a relative hub path into an absolute URL using the member-site base."""
@@ -126,10 +137,11 @@ def apply_token_action(
 
     Returns a short status: "confirmed", "declined", "cancelled", "accepted", "kept",
     an Accept or Keep link's refusal from :func:`answer_proposal` ("stale", "passed",
-    "unavailable"), or "already" (when the booking was no longer in a state the action
-    applies to).
+    "unavailable"), "already" (when the booking was no longer in a state the action
+    applies to), or for a confirm whose card hold would not charge (#1128) "card_failed"
+    (declined, the member emailed) or "try_again" (Stripe unreachable, nothing changed).
     """
-    from membership.models import OrientationBooking
+    from membership.models import HoldCaptureFailed, HoldCaptureUnavailable, OrientationBooking, OrientationError
 
     if action in PROPOSAL_ACTIONS:
         return answer_proposal(booking, accept=action == "accept_time", proposal=proposal)
@@ -144,7 +156,15 @@ def apply_token_action(
     if booking.status != statuses.REQUESTED:
         return "already"
     if action == "confirm":
-        confirm_orientation(booking)
+        try:
+            confirm_orientation(booking)
+        except HoldCaptureFailed:
+            return "card_failed"
+        except HoldCaptureUnavailable:
+            return "try_again"
+        except OrientationError:
+            # A decline or cancel landed between the page and the click.
+            return "already"
         return "confirmed"
     decline_orientation(booking, actor=actor)
     return "declined"
@@ -587,6 +607,10 @@ def start_orientation_checkout(
     donation type the member's ``amount_cents`` once it clears the type's floors (#636),
     checked here as well as in the view so no road reaches Stripe with an amount it refuses.
 
+    The Checkout holds the card rather than charging it (#1128): confirming the request
+    charges it (:func:`confirm_orientation`), and declining, cancelling or six days with no
+    answer releases it. The custom time and open window checkouts come through here too.
+
     Creates the seat-holding ``PENDING_PAYMENT`` booking first (no emails, no
     activity, no notifications — nothing has happened yet), then the Checkout
     Session. A Stripe API failure deletes the hold (and its orphan custom slot)
@@ -607,9 +631,9 @@ def start_orientation_checkout(
 
     def create_hold() -> OrientationBooking:
         slot.ensure_bookable_for(member)
-        # amount_paid_cents stays 0 until money is actually in hand — the finalize
-        # step stamps it from the session's amount_total. A provisional amount here
-        # would make never-paid holds render as paid rows in staff surfaces.
+        # amount_paid_cents stays 0 until money is actually in hand: the finalize step
+        # records the card hold, and only confirming charges it. A provisional amount
+        # here would make never-paid holds render as paid rows in staff surfaces.
         hold = OrientationBooking.objects.create(
             slot=slot,
             guild=slot.guild,
@@ -640,6 +664,8 @@ def start_orientation_checkout(
             # revive an expired session — Resume mints fresh via re-booking instead.
             idempotency_key=f"orientation-checkout-{booking.pk}",
             expires_at=int((timezone.now() + _CHECKOUT_SESSION_LIFETIME).timestamp()),
+            hold_only=True,
+            hold_note=CHECKOUT_HOLD_NOTE,
         )
     except Exception:
         _delete_hold(booking)
@@ -701,8 +727,57 @@ def locked_booking_queryset() -> QuerySet[OrientationBooking]:
     return OrientationBooking.objects.select_for_update(of=("self",)).select_related("slot", "guild", "member").all()
 
 
+@dataclass(frozen=True)
+class LandedPayment:
+    """What a finished orientation Checkout put in hand: a card hold (#1128), or a charge taken at once."""
+
+    payment_intent: str
+    amount_cents: int
+    held: bool
+
+
+def landed_payment(session: dict[str, Any]) -> LandedPayment | None:
+    """What a Checkout Session put in hand, read from its PaymentIntent; ``None`` when nothing has landed.
+
+    Never decided on ``payment_status`` alone: a card hold (#1128) completes its session
+    without being paid, while a checkout opened before #1128 charged at once. The PaymentIntent
+    says which: ``requires_capture`` is a hold for ``amount_capturable``, ``succeeded`` a charge
+    of ``amount_received``. Anything else (still open, failed, processing) has not landed.
+
+    Raises:
+        Exception: Any Stripe error reading the PaymentIntent; the caller treats Stripe as unreachable.
+    """
+    from billing import stripe_utils
+
+    payment_intent = session.get("payment_intent") or ""
+    if not payment_intent or (session.get("status") != "complete" and session.get("payment_status") != "paid"):
+        return None
+    intent = stripe_utils.retrieve_payment_intent(payment_intent_id=payment_intent)
+    if intent["status"] == "requires_capture":
+        return LandedPayment(payment_intent=payment_intent, amount_cents=intent["amount_capturable"], held=True)
+    if intent["status"] == "succeeded":
+        return LandedPayment(payment_intent=payment_intent, amount_cents=intent["amount_received"], held=False)
+    return None
+
+
+def finalize_landed(booking: OrientationBooking, landed: LandedPayment, *, session_id: str = "") -> str:
+    """:func:`finalize_paid_booking` for what :func:`landed_payment` found."""
+    return finalize_paid_booking(
+        booking,
+        payment_intent=landed.payment_intent,
+        amount_total=landed.amount_cents,
+        session_id=session_id,
+        held=landed.held,
+    )
+
+
 def finalize_paid_booking(
-    booking: OrientationBooking, *, payment_intent: str, amount_total: int | None, session_id: str = ""
+    booking: OrientationBooking,
+    *,
+    payment_intent: str,
+    amount_total: int | None,
+    session_id: str = "",
+    held: bool = False,
 ) -> str:
     """Flip a ``PENDING_PAYMENT`` hold to ``REQUESTED`` with the full request fan-out.
 
@@ -715,6 +790,11 @@ def finalize_paid_booking(
 
     ``amount_total`` (from the session/webhook) is canonical; ``session_id``
     backfills a hold whose session id never got saved (crash mid-start).
+
+    ``held`` (#1128) means the card was only held for ``amount_total``: it is recorded as
+    ``authorized_cents``, never ``amount_paid_cents``, so no payout, report or refund counts
+    it until confirming charges it. Without ``held`` the money was taken at once (a checkout
+    opened before #1128) and lands in ``amount_paid_cents`` as before.
 
     A hold whose slot was cancelled while the member was paying is finalized and
     then immediately cancelled with the slot-cancelled fan-out (member email +
@@ -741,13 +821,27 @@ def finalize_paid_booking(
         locked.stripe_payment_id = payment_intent
         if session_id and not locked.stripe_session_id:
             locked.stripe_session_id = session_id
-        if amount_total is not None:
+        if held:
+            if amount_total is None:
+                raise ValueError(f"A card hold for orientation booking {locked.pk} landed with no amount.")
+            locked.record_hold(payment_intent=payment_intent, amount_cents=amount_total)
+        elif amount_total is not None:
             locked.amount_paid_cents = amount_total
-        locked.save(update_fields=["status", "stripe_payment_id", "stripe_session_id", "amount_paid_cents"])
+        locked.save(
+            update_fields=[
+                "status",
+                "stripe_payment_id",
+                "stripe_session_id",
+                "amount_paid_cents",
+                "authorized_cents",
+                "authorized_at",
+            ]
+        )
         slot_cancelled = locked.slot.is_cancelled
     if slot_cancelled:
         # Fan-out outside the lock. The request fan-out is skipped on purpose —
-        # the member gets one honest email: cancelled, with the refund promise.
+        # the member gets one honest email: cancelled, with the refund promise
+        # (or, for a card hold, the hold released).
         cancel_orientation(locked, actor_label="the guild")
         return "cancelled_slot"
     _fan_out_request(locked)
@@ -865,12 +959,12 @@ def release_hold_if_unpaid(booking: OrientationBooking) -> str:
     """Release a ``PENDING_PAYMENT`` hold — but only after verifying with Stripe.
 
     A hold can be paid-but-webhook-lagged, and deleting it would eat the member's
-    money. Returns ``"released"`` (unpaid — hold deleted, session expired
-    best-effort, orphan custom slot too), ``"paid"`` (kept and flipped to
-    REQUESTED with the full fan-out — the same recovery as the sweep), or
-    ``"unknown"`` (Stripe unreachable — hold kept). A hold with no stored
-    session id (crash between session create and save) is released outright —
-    there is nothing to verify or pay.
+    money (or strand a card hold, #1128). Returns ``"released"`` (nothing landed:
+    hold deleted, session expired best-effort, orphan custom slot too), ``"paid"`` or
+    ``"held"`` (the checkout landed as a charge or a card hold: kept and flipped to
+    REQUESTED with the full fan-out, the same recovery as the sweep), or ``"unknown"``
+    (Stripe unreachable — hold kept). A hold with no stored session id (crash between
+    session create and save) is released outright — there is nothing to verify or pay.
     """
     from billing import stripe_utils
 
@@ -879,12 +973,13 @@ def release_hold_if_unpaid(booking: OrientationBooking) -> str:
         return "released"
     try:
         session = stripe_utils.retrieve_checkout_session(session_id=booking.stripe_session_id)
+        landed = landed_payment(session)
     except Exception:
         logger.exception("Could not verify Checkout session for orientation hold %s; keeping it.", booking.pk)
         return "unknown"
-    if session["payment_status"] == "paid":
-        finalize_paid_booking(booking, payment_intent=session["payment_intent"], amount_total=session["amount_total"])
-        return "paid"
+    if landed is not None:
+        finalize_landed(booking, landed)
+        return "held" if landed.held else "paid"
     _delete_hold(booking)
     return "released"
 
@@ -895,13 +990,13 @@ def reconcile_landed_checkout(booking: OrientationBooking) -> str:
     The webhook is the primary finalize path, but it can lag — and on
     environments with no Stripe webhook endpoint it never arrives, stranding the
     member on the "Finalizing Your Payment" spinner forever. The success_url
-    landing asks Stripe directly and funnels a paid session through
-    :func:`finalize_paid_booking` (idempotent and race-safe against the
-    webhook), so the confirmation renders immediately.
+    landing asks Stripe directly and funnels a landed session (a charge, or a card
+    hold, #1128) through :func:`finalize_paid_booking` (idempotent and race-safe
+    against the webhook), so the confirmation renders immediately.
 
     Returns ``finalize_paid_booking``'s outcome (``"finalized"`` /
-    ``"cancelled_slot"`` / ``"already"`` / ``"gone"``) when Stripe says paid,
-    ``"pending"`` when the session is not paid yet (or there is no session id to
+    ``"cancelled_slot"`` / ``"already"`` / ``"gone"``) when the checkout landed,
+    ``"pending"`` when nothing has landed yet (or there is no session id to
     check — crash mid-start; the sweep owns that hold), or ``"unknown"`` when
     Stripe is unreachable (the poll retries).
     """
@@ -911,14 +1006,13 @@ def reconcile_landed_checkout(booking: OrientationBooking) -> str:
         return "pending"
     try:
         session = stripe_utils.retrieve_checkout_session(session_id=booking.stripe_session_id)
+        landed = landed_payment(session)
     except Exception:
         logger.exception("Landing reconcile: could not verify session for orientation hold %s.", booking.pk)
         return "unknown"
-    if session["payment_status"] != "paid":
+    if landed is None:
         return "pending"
-    return finalize_paid_booking(
-        booking, payment_intent=session["payment_intent"], amount_total=session["amount_total"]
-    )
+    return finalize_landed(booking, landed)
 
 
 def expire_payment_holds(*, now: datetime | None = None) -> tuple[int, int]:
@@ -926,10 +1020,10 @@ def expire_payment_holds(*, now: datetime | None = None) -> tuple[int, int]:
 
     For each ``PENDING_PAYMENT`` booking older than two hours (strictly after the
     one-hour session expiry, so a live checkout is never raced), retrieve its
-    Checkout Session and act on Stripe's answer: paid → flip to REQUESTED with
-    the full fan-out (**the sweep IS the lost-webhook recovery path**); expired
-    or unpaid → delete the hold and its orphan custom slot; Stripe unreachable →
-    skip this tick and log, the next tick retries. Idempotent.
+    Checkout Session and act on Stripe's answer: landed (a charge, or a card hold,
+    #1128) → flip to REQUESTED with the full fan-out (**the sweep IS the lost-webhook
+    recovery path**); expired or unpaid → delete the hold and its orphan custom slot;
+    Stripe unreachable → skip this tick and log, the next tick retries. Idempotent.
 
     Returns:
         ``(released, recovered)`` counts.
@@ -953,13 +1047,12 @@ def expire_payment_holds(*, now: datetime | None = None) -> tuple[int, int]:
             continue
         try:
             session = stripe_utils.retrieve_checkout_session(session_id=booking.stripe_session_id)
+            landed = landed_payment(session)
         except Exception:
             logger.exception("Hold sweep: could not verify session for booking %s; retrying next tick.", booking.pk)
             continue
-        if session["payment_status"] == "paid":
-            outcome = finalize_paid_booking(
-                booking, payment_intent=session["payment_intent"], amount_total=session["amount_total"]
-            )
+        if landed is not None:
+            outcome = finalize_landed(booking, landed)
             if outcome in ("finalized", "cancelled_slot"):
                 recovered += 1
             # "already"/"gone": a concurrent webhook or release won the race —
@@ -990,6 +1083,210 @@ def _refund_if_paid(booking: OrientationBooking, *, actor: User | None) -> None:
             "Automatic refund failed for orientation booking %s; flagged for retry in the Payments panel.",
             booking.pk,
         )
+
+
+# ── Card holds (#1128): charged on confirm, released otherwise ────────────────
+
+#: The booking columns a charge or a release writes, re-read onto the caller's instance.
+_HOLD_FIELDS = ["amount_paid_cents", "paid_at", "hold_released_at"]
+
+
+def _read_intent(payment_intent: str) -> dict[str, Any] | None:
+    """The PaymentIntent as Stripe has it now, or ``None`` when Stripe cannot be reached."""
+    from billing import stripe_utils
+
+    try:
+        return stripe_utils.retrieve_payment_intent(payment_intent_id=payment_intent)
+    except Exception:
+        logger.exception("Could not read PaymentIntent %s.", payment_intent)
+        return None
+
+
+def _charge_hold(locked: OrientationBooking) -> None:
+    """Charge the row-locked booking's card hold and record the money, or raise.
+
+    Runs inside the transaction that confirms the booking, so a refusal confirms nothing.
+    After a failed capture call the PaymentIntent is read back: already charged (a reply
+    lost on the way) counts as charged; still held, or unreadable, means Stripe did not
+    answer, so nothing changes; anything else (released on Stripe's 7 day limit, the card
+    refused) is a definite no.
+
+    Raises:
+        HoldCaptureUnavailable: Stripe could not be reached; try again.
+        HoldCaptureFailed: Stripe answered that the hold cannot be charged; decline the request.
+    """
+    from billing import stripe_utils
+    from membership.models import HoldCaptureFailed, HoldCaptureUnavailable
+
+    try:
+        intent = stripe_utils.capture_payment_intent(payment_intent_id=locked.stripe_payment_id)
+    except Exception:
+        logger.exception("Could not charge the card hold of orientation booking %s.", locked.pk)
+        read = _read_intent(locked.stripe_payment_id)
+        if read is None or read["status"] == "requires_capture":
+            raise HoldCaptureUnavailable from None
+        intent = read
+    if intent["status"] != "succeeded":
+        raise HoldCaptureFailed
+    locked.record_capture(intent["amount_received"])
+
+
+def _confirm_charging_hold(booking: OrientationBooking, *, oriented_by: Member | None) -> None:
+    """``booking.confirm()``, charging its card hold first when it holds one (#1128).
+
+    A booking that holds no card (free, paid before #1128) confirms exactly as before. A
+    held one decides on its row lock, so a decline or cancel that landed first is refused,
+    and is confirmed only once the charge succeeds, in the same transaction. A charge Stripe
+    refuses declines the request (:data:`DECLINE_CARD_FAILED`) and re-raises for the person
+    confirming; an unreachable Stripe changes nothing.
+
+    Raises:
+        OrientationError: The request was already answered.
+        HoldCaptureFailed: The card would not charge; the request is now declined.
+        HoldCaptureUnavailable: Stripe could not be reached; nothing changed.
+    """
+    from membership.models import HoldCaptureFailed, OrientationBooking, OrientationError
+
+    if not booking.hold_is_open:
+        booking.confirm(oriented_by=oriented_by)
+        return
+    try:
+        with transaction.atomic():
+            locked = _locked_booking(booking)
+            if locked.status != OrientationBooking.Status.REQUESTED:
+                raise OrientationError("This request was already answered.")
+            _charge_hold(locked)
+            locked.confirm(oriented_by=oriented_by)
+    except HoldCaptureFailed:
+        _decline_unconfirmed(booking, reason=DECLINE_CARD_FAILED)
+        raise
+    booking.refresh_from_db()
+
+
+def _release_locked_hold(locked: OrientationBooking) -> bool:
+    """Release the row-locked booking's card hold; ``False`` when Stripe did not release it.
+
+    After a failed cancel call the PaymentIntent is read back: already released counts as
+    released, and already charged (a capture whose reply never landed) is recorded as money
+    in hand, so the caller's refund gives it back.
+    """
+    from billing import stripe_utils
+
+    intent: dict[str, Any] | None
+    try:
+        intent = stripe_utils.cancel_payment_intent(payment_intent_id=locked.stripe_payment_id)
+    except Exception:
+        logger.exception("Could not release the card hold of orientation booking %s.", locked.pk)
+        intent = _read_intent(locked.stripe_payment_id)
+    if intent is None:
+        return False
+    if intent["status"] == "canceled":
+        locked.record_hold_released()
+        return True
+    if intent["status"] == "succeeded":
+        locked.record_capture(intent["amount_received"])
+        return True
+    return False
+
+
+def _release_hold(booking: OrientationBooking) -> bool:
+    """Release ``booking``'s uncharged card hold under its row lock; flag, don't block, on failure.
+
+    The release never undoes the decline or cancel that asked for it. When Stripe will not
+    release it, the Billing Administrators are told once and :func:`release_unconfirmed_holds`
+    tries again every 15 minutes; the member is still never charged, and Stripe releases the
+    hold itself 7 days after it was placed. A hold a racing confirm charged first is left for
+    the caller's refund. ``booking`` is refreshed with what was written.
+
+    Returns:
+        ``False`` only when the hold is still open.
+    """
+    with transaction.atomic():
+        locked = _locked_booking(booking)
+        released = not locked.hold_is_open or _release_locked_hold(locked)
+    booking.refresh_from_db(fields=_HOLD_FIELDS)
+    if not released:
+        _alert_hold_not_released(booking)
+    return released
+
+
+def _alert_hold_not_released(booking: OrientationBooking) -> None:
+    """Email the Billing Administrators that a declined or cancelled request still holds a card.
+
+    Sent through the orientation money alert (``membership.orientation_orphan_payment``, email
+    forced), once per booking.
+    """
+    from core.events.senders import emit_flat_email
+    from membership.webhook_handlers import _flat_html
+
+    body = (
+        f"The card hold on {booking.member.display_name}'s {booking.orientation_type.owner_name} orientation "
+        f"request (${booking.authorized_cents / 100:.2f}) was not released when the request was "
+        f"{booking.get_status_display().lower()}. They were not charged.\n\n"
+        "The app tries again every 15 minutes, and Stripe releases a hold on its own 7 days after it was "
+        "placed. To release it now, cancel the payment in the Stripe dashboard.\n\n"
+        f"Stripe payment: https://dashboard.stripe.com/payments/{booking.stripe_payment_id}\n"
+        f"Booking: {_absolute_url(reverse('hub_orientation_respond', args=[booking.pk]))}"
+    )
+    emit_flat_email(
+        "membership.orientation_orphan_payment",
+        subject="An orientation card hold was not released",
+        text_body=body,
+        html_body=_flat_html(body),
+        period=f"orientation-hold:{booking.pk}:release",
+    )
+
+
+def _give_money_back(booking: OrientationBooking, *, actor: User | None) -> None:
+    """On decline or cancel: release an uncharged card hold (#1128), else refund what was paid."""
+    if booking.hold_is_open:
+        _release_hold(booking)
+    _refund_if_paid(booking, actor=actor)
+
+
+def _decline_unconfirmed(booking: OrientationBooking, *, reason: str) -> bool:
+    """Decline a request the system gives up on: its card would not charge, or nobody confirmed it in time.
+
+    Decides on the row lock, so a confirm that landed first stands and nothing is declined.
+    ``reason`` (:data:`DECLINE_CARD_FAILED`, :data:`DECLINE_HOLD_EXPIRED`) words the email.
+
+    Returns:
+        Whether the request was declined.
+    """
+    from membership.models import OrientationBooking
+
+    with transaction.atomic():
+        locked = _locked_booking(booking)
+        if locked.status != OrientationBooking.Status.REQUESTED:
+            return False
+        locked.decline()
+    _after_decline(locked, actor=None, reason=reason)
+    return True
+
+
+def release_unconfirmed_holds(*, now: datetime | None = None) -> tuple[int, int]:
+    """The card hold sweep (#1128), every 15 minutes. Returns ``(declined, released)``.
+
+    A request still unconfirmed :attr:`OrientationBooking.HOLD_CONFIRM_WINDOW` (6 days) after
+    its card hold was placed is declined (:data:`DECLINE_HOLD_EXPIRED`): the hold is released
+    a day before Stripe's 7 day limit and the member is emailed why. Then every declined or
+    cancelled booking whose hold Stripe did not release earlier is released again.
+    """
+    from membership.models import OrientationBooking
+
+    statuses = OrientationBooking.Status
+    open_holds = OrientationBooking.objects.filter(
+        authorized_cents__gt=0, amount_paid_cents=0, hold_released_at__isnull=True
+    ).select_related("slot", "guild", "member")
+    cutoff = (now or timezone.now()) - OrientationBooking.HOLD_CONFIRM_WINDOW
+    declined = sum(
+        _decline_unconfirmed(booking, reason=DECLINE_HOLD_EXPIRED)
+        for booking in open_holds.filter(status=statuses.REQUESTED, authorized_at__lt=cutoff)
+    )
+    released = sum(
+        _release_hold(booking) for booking in open_holds.filter(status__in=[statuses.DECLINED, statuses.CANCELLED])
+    )
+    return declined, released
 
 
 #: A page's memo of orientation request audiences, keyed by :func:`_audience_key`.
@@ -1086,10 +1383,18 @@ def confirm_orientation(booking: OrientationBooking, *, oriented_by: Member | No
 
     ``oriented_by`` credits the actual runner (Decision 7). The view passes the acting
     member; when omitted the booking model still defaults to the guild lead.
+
+    A paid request's card hold is charged first (#1128, :func:`_confirm_charging_hold`), and
+    nothing below runs unless the charge went through.
+
+    Raises:
+        OrientationError: A held request was already answered.
+        HoldCaptureFailed: The card would not charge; the request is now declined.
+        HoldCaptureUnavailable: Stripe could not be reached; nothing changed.
     """
     from membership.late_cancel import booking_sentence, policy_for
 
-    booking.confirm(oriented_by=oriented_by)
+    _confirm_charging_hold(booking, oriented_by=oriented_by)
     actor = booking.oriented_by.user if booking.oriented_by is not None else None
     SiteActivity.log(SiteActivity.Kind.ORIENTATION_CONFIRMED, actor=actor, target=booking)
     _emit_member_email(
@@ -1106,8 +1411,9 @@ def confirm_orientation(booking: OrientationBooking, *, oriented_by: Member | No
 
 
 def decline_orientation(booking: OrientationBooking, *, note: str = "", actor: User | None = None) -> None:
-    """Decline a request: update state, auto-refund a paid booking, email the member, log + notify.
+    """Decline a request: update state, give the money back, email the member, log + notify.
 
+    The money: an uncharged card hold is released (#1128), a paid booking refunded in full.
     ``actor`` attributes the automatic refund (the acting user for authenticated
     declines; the token recipient's user for email-link declines; ``None`` = System).
     A ``note`` is posted on the booking's thread as ``actor``'s message in the same
@@ -1116,14 +1422,28 @@ def decline_orientation(booking: OrientationBooking, *, note: str = "", actor: U
     with transaction.atomic():
         booking.decline()
         decline_message = booking.write_message(author=actor, body=note)
-    _refund_if_paid(booking, actor=actor)
+    _after_decline(booking, actor=actor, decline_message=decline_message)
+
+
+def _after_decline(
+    booking: OrientationBooking,
+    *,
+    actor: User | None,
+    decline_message: OrientationBookingMessage | None = None,
+    reason: str = "",
+) -> None:
+    """Everything a decline does once its state is saved: money, activity, the member email, the slot.
+
+    ``reason`` is the system's own decline (:func:`_decline_unconfirmed`), which the email explains.
+    """
+    _give_money_back(booking, actor=actor)
     SiteActivity.log(SiteActivity.Kind.ORIENTATION_DECLINED, actor=None, target=booking)
     _emit_member_email(
         booking,
         action="decline",
         subject=f"About your orientation request — {booking.orientation_type.owner_name}",
         template="orientation_declined",
-        extra_context={"decline_message": decline_message},
+        extra_context={"decline_message": decline_message, "decline_reason": reason},
         ics=None,
         in_app_title="Orientation not confirmed",
         in_app_body=f"Your orientation request for {booking.orientation_type.owner_name} couldn't be confirmed.",
@@ -1135,10 +1455,11 @@ def decline_orientation(booking: OrientationBooking, *, note: str = "", actor: U
 def cancel_orientation(
     booking: OrientationBooking, *, actor_label: str, actor: User | None = None, self_cancel: bool = False
 ) -> LateCancellationFee | None:
-    """Cancel a booking: update state, auto-refund a paid booking, email the member, notify, log.
+    """Cancel a booking: update state, give the money back, email the member, notify, log.
 
     Member cancels, lead cancels, slot cancels, and no-login token cancels all route
-    through here — so every cancellation path refunds a paid booking automatically.
+    through here — so every cancellation path refunds a paid booking automatically, and
+    releases a request's uncharged card hold (#1128) with no refund at all.
 
     ``self_cancel`` marks the member cancelling their own booking (the hub button and
     their emailed link). Only that path can carry a late cancellation fee (#456), and only
@@ -1160,7 +1481,7 @@ def cancel_orientation(
         booking.cancel()
         if can_charge:
             fee = charge_if_late(booking)
-    _refund_if_paid(booking, actor=actor)
+    _give_money_back(booking, actor=actor)
     SiteActivity.log(SiteActivity.Kind.ORIENTATION_CANCELLED, actor=None, target=booking)
     _emit_member_email(
         booking,
@@ -1238,10 +1559,13 @@ def _move_locked(locked: OrientationBooking, starts_at: datetime, *, oriented_by
     the old slot's orientor and place. The guard, the slot, the move and the tidy of the slot
     it left (:func:`_tidy_left_slot`) share one savepoint under the equipment locks, so a
     refusal writes nothing and nobody can book a freed seat before the tidy decides on it.
-    Money is never touched.
+    A paid booking keeps its payment. A request's card hold (#1128) is charged last inside
+    the savepoint, since the move confirms it: a charge that fails undoes the move.
 
     Raises:
         OrientationError: The booking cannot move, the time is past or the equipment is reserved.
+        HoldCaptureFailed: The request's card would not charge; nothing moved.
+        HoldCaptureUnavailable: Stripe could not be reached; nothing moved.
     """
     from membership.models import OrientationBooking
 
@@ -1255,6 +1579,8 @@ def _move_locked(locked: OrientationBooking, starts_at: datetime, *, oriented_by
         slot = _create_custom_slot(orientation_type, starts_at, orienter=old_slot.orienter, location=old_slot.location)
         locked.move_to(slot, oriented_by=oriented_by)
         _tidy_left_slot(old_slot)
+        if was_request and locked.hold_is_open:
+            _charge_hold(locked)
     if was_request:
         actor = locked.oriented_by.user if locked.oriented_by is not None else None
         SiteActivity.log(SiteActivity.Kind.ORIENTATION_CONFIRMED, actor=actor, target=locked)
@@ -1262,11 +1588,16 @@ def _move_locked(locked: OrientationBooking, starts_at: datetime, *, oriented_by
 
 
 def _emit_moved(
-    booking: OrientationBooking, old_starts_at: datetime, *, message: OrientationBookingMessage | None = None
+    booking: OrientationBooking,
+    old_starts_at: datetime,
+    *,
+    message: OrientationBookingMessage | None = None,
+    charged_now: bool = False,
 ) -> None:
     """Email the member that their orientation moved: old and new time, an updated invite, the cancel link.
 
-    ``message`` is the leader's message posted with the move, shown in the email.
+    ``message`` is the leader's message posted with the move, shown in the email. ``charged_now``
+    says the move confirmed a request and charged its card hold (#1128), which the email tells.
     """
     owner_name = booking.orientation_type.owner_name
     _emit_member_email(
@@ -1275,7 +1606,7 @@ def _emit_moved(
         action=f"move:{booking.slot_id}",
         subject=f"Your {owner_name} orientation has a new time",
         template="orientation_moved",
-        extra_context={"old_starts_at": old_starts_at, "move_message": message},
+        extra_context={"old_starts_at": old_starts_at, "move_message": message, "charged_now": charged_now},
         ics=_ics(booking, method="REQUEST", status="CONFIRMED"),
         in_app_title="Your orientation moved",
         in_app_body=f"Your orientation for {owner_name} is now {_when(booking.slot.starts_at)}.",
@@ -1289,21 +1620,32 @@ def move_orientation(
 
     Decides on the row-locked booking, so a cancel that landed first is refused, and the
     email goes out only once the move has committed. The payment stays with the booking:
-    nothing is refunded or charged, and a later cancel by the member never carries a late
-    fee (:attr:`OrientationBooking.moved_by_guild`). A ``message`` is posted on the
-    booking's thread as the leader's in the same transaction and rides in the moved email.
+    nothing is refunded, and a later cancel by the member never carries a late fee
+    (:attr:`OrientationBooking.moved_by_guild`). Moving a request confirms it, so its card
+    hold (#1128) is charged; a card that will not charge declines the request instead. A
+    ``message`` is posted on the booking's thread as the leader's in the same transaction
+    and rides in the moved email.
 
     Returns:
         The moved booking, as saved.
 
     Raises:
         OrientationError: The booking cannot move, the time is past or the equipment is reserved.
+        HoldCaptureFailed: The request's card would not charge; it is now declined.
+        HoldCaptureUnavailable: Stripe could not be reached; nothing changed.
     """
-    with transaction.atomic():
-        locked = _locked_booking(booking)
-        old_starts_at = _move_locked(locked, starts_at, oriented_by=actor)
-        written = locked.write_message(author=_user_of(actor), body=message)
-    _emit_moved(locked, old_starts_at, message=written)
+    from membership.models import HoldCaptureFailed
+
+    try:
+        with transaction.atomic():
+            locked = _locked_booking(booking)
+            held = locked.hold_is_open
+            old_starts_at = _move_locked(locked, starts_at, oriented_by=actor)
+            written = locked.write_message(author=_user_of(actor), body=message)
+    except HoldCaptureFailed:
+        _decline_unconfirmed(booking, reason=DECLINE_CARD_FAILED)
+        raise
+    _emit_moved(locked, old_starts_at, message=written, charged_now=held)
     return locked
 
 
@@ -1422,29 +1764,41 @@ def answer_proposal(booking: OrientationBooking, *, accept: bool, proposal: str)
 
     Returns:
         ``"accepted"`` or ``"kept"``; a :func:`proposal_verdict` refusal (``"already"``,
-        ``"stale"``, ``"passed"``); or ``"unavailable"`` when the time can no longer be had
-        (the equipment was reserved since, or the orientation already happened).
+        ``"stale"``, ``"passed"``); ``"unavailable"`` when the time can no longer be had
+        (the equipment was reserved since, or the orientation already happened); or, when
+        accepting confirms a request whose card hold will not charge (#1128), ``"card_failed"``
+        (the request is declined and the member emailed) or ``"try_again"`` (Stripe
+        unreachable, nothing changed).
     """
-    from membership.models import OrientationError
+    from membership.models import HoldCaptureFailed, HoldCaptureUnavailable, OrientationError
 
     old_starts_at: datetime | None = None
-    with transaction.atomic():
-        locked = _locked_booking(booking)
-        verdict = proposal_verdict(locked, proposal)
-        if verdict:
-            return verdict
-        key = locked.proposal_key
-        if accept:
-            try:
-                old_starts_at = _move_locked(
-                    locked, cast(datetime, locked.proposed_starts_at), oriented_by=locked.proposed_by
-                )
-            except OrientationError:
-                return "unavailable"
-        else:
-            locked.clear_proposal()
+    try:
+        with transaction.atomic():
+            locked = _locked_booking(booking)
+            verdict = proposal_verdict(locked, proposal)
+            if verdict:
+                return verdict
+            key = locked.proposal_key
+            held = locked.hold_is_open
+            if accept:
+                try:
+                    old_starts_at = _move_locked(
+                        locked, cast(datetime, locked.proposed_starts_at), oriented_by=locked.proposed_by
+                    )
+                except (HoldCaptureFailed, HoldCaptureUnavailable):
+                    raise
+                except OrientationError:
+                    return "unavailable"
+            else:
+                locked.clear_proposal()
+    except HoldCaptureFailed:
+        _decline_unconfirmed(booking, reason=DECLINE_CARD_FAILED)
+        return "card_failed"
+    except HoldCaptureUnavailable:
+        return "try_again"
     if old_starts_at is not None:
-        _emit_moved(locked, old_starts_at)
+        _emit_moved(locked, old_starts_at, charged_now=held)
     _tell_leaders_of_answer(locked, key, accepted=accept)
     return "accepted" if accept else "kept"
 

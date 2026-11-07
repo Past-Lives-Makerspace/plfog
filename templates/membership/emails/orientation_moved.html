@@ -6,7 +6,7 @@
 <p style="margin: 0 0 4px; font-size: 13px; color: #55697a;">Was {{ old_starts_at|date:"l, F j" }} at {{ old_starts_at|time:"g:i A" }}</p>
 {% include "membership/emails/_slot.html" %}
 {% if move_message %}{% include "membership/emails/_booking_message.html" with message=move_message %}{% endif %}
-{% if booking.amount_paid_cents %}<p style="margin: 0 0 8px; font-size: 13px; color: #55697a; line-height: 1.6;">Your payment stays with this booking. Nothing was refunded or charged.</p>{% endif %}
+{% if charged_now %}{% load classes_tags %}<p data-hold-note style="margin: 0 0 8px; font-size: 13px; color: #55697a; line-height: 1.6;">Your orientation is confirmed, so we charged the {{ booking.amount_paid_cents|cents_as_price }} held on your card.</p>{% elif booking.amount_paid_cents %}<p style="margin: 0 0 8px; font-size: 13px; color: #55697a; line-height: 1.6;">Your payment stays with this booking. Nothing was refunded or charged.</p>{% endif %}
 <p style="margin: 0 0 16px; font-size: 13px; color: #55697a; line-height: 1.6;">We've attached an updated calendar invite. See you there!</p>
 <div style="text-align: center; margin: 24px 0 0;">
     <a href="{{ owner_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">View the {{ owner_page_label }}</a>

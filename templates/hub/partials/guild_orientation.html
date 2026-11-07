@@ -61,7 +61,7 @@ hides the Orientations tab otherwise), so there is no empty state here. Context:
 
       {% else %}
       {% if sec.type.is_paid %}
-      <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">You pay when you book. If the guild can't make it work, you get an automatic full refund.</p>
+      <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">Your card is held when you book and charged only when an Orientor confirms. If the guild can't make it work, the hold is released and you pay nothing.</p>
       {% endif %}
       {% if sec.slots %}
       {# Show 5 at a time with prev/next arrows so a long run of slots stays compact. #}
@@ -160,7 +160,7 @@ hides the Orientations tab otherwise), so there is no empty state here. Context:
           {% include "components/form_field.html" with field=custom_request_form.starts_at %}
           {% include "components/form_field.html" with field=custom_request_form.note %}
           <div x-show="typePk in suggestions" x-cloak>{% include "components/form_field.html" with field=custom_amount_form.amount field_hint="For a donation based orientation, you choose. $0 sends a free request; any other amount is at least $1." %}</div>
-          <p class="hub-text-muted" style="margin:0.75rem 0 0; font-size:0.85rem;">If the orientation you pick has a price or a donation, you pay when you book, with an automatic full refund if the guild can't make it work.</p>
+          <p class="hub-text-muted" style="margin:0.75rem 0 0; font-size:0.85rem;">If the orientation you pick has a price or a donation, your card is held when you book and charged only when an Orientor confirms. If the guild can't make it work, the hold is released.</p>
           <div style="display:flex; gap:0.5rem; margin-top:0.75rem;">
             <button type="submit" class="hub-btn hub-btn--sm hub-btn--primary">Send request</button>
             <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="showCustom = false">Cancel</button>

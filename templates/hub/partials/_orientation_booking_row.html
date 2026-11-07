@@ -32,6 +32,8 @@ is_staff_view (the staff columns) and viewer_has_refund_authority (the Paid colu
     {% endif %}{% endif %}
     {% if not is_staff_view and b.amount_paid_cents %}
     <span class="pl-bookings-table__paid">{% if b.refund_state == "full" or b.refund_state == "partial" %}Refunded{% else %}Paid {{ b.amount_paid_cents|cents_as_price }}{% endif %}</span>
+    {% elif not is_staff_view and b.hold_state == "held" %}
+    <span class="pl-bookings-table__paid" data-booking-hold>Card held {{ b.authorized_cents|cents_as_price }}</span>
     {% endif %}
     {% if row.can_pay_bill %}
     {# Unboosted: it answers with a redirect to Stripe Checkout (#1111). #}
@@ -43,7 +45,7 @@ is_staff_view (the staff columns) and viewer_has_refund_authority (the Paid colu
   </td>
   {% if is_staff_view %}
   <td data-label="Paid">
-    {% if not b.amount_paid_cents %}<span class="hub-text-muted">None</span>
+    {% if not b.amount_paid_cents %}<span class="hub-text-muted"{% if b.hold_state == "held" %} data-booking-hold>Card held {{ b.authorized_cents|cents_as_price }}{% else %}>None{% endif %}</span>
     {% elif b.refund_state == "failed" %}
     {{ b.amount_paid_cents|cents_as_price }} ·
     {% if viewer_has_refund_authority %}<a href="{% url 'billing_admin_dashboard' %}?tab=payments&source=orientation&status=failed" class="pl-bookings-table__failed">Refund failed</a>{% else %}<strong class="pl-bookings-table__failed">Refund failed</strong>{% endif %}
