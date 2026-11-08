@@ -409,6 +409,13 @@ def describe_the_orientation_request_row():
         assert get_event("orientation.message_to_orientors").channel(Channel.EMAIL).default is ChannelDefault.ON
 
 
+def describe_the_orientation_confirmed_row():
+    def it_goes_to_the_lead_and_the_co_leads():
+        # #1134: Co-Leads hear the outcome too; GUILD_LEAD stays lead only for guild_joined.
+        assert get_event("orientation.confirmed_to_lead").recipient is Recipients.GUILD_LEAD_AND_CO_LEADS
+        assert get_event("guild_joined").recipient is Recipients.GUILD_LEAD
+
+
 def describe_the_automation_failed_alert():
     def it_reaches_the_webmasters_on_the_bell_email_and_push_by_default():
         event = get_event("automation.failed")

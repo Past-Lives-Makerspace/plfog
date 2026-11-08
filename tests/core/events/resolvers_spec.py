@@ -350,6 +350,46 @@ def describe_resolve_dispatch():
         assert resolvers.get_resolver(Recipients.FOG_ADMINS) is resolvers.fog_admins
 
 
+def describe_guild_lead_and_co_leads():
+    """#1134: who hears an orientation was confirmed: the lead and every Active Co-Lead."""
+
+    def _linked(username):
+        from tests.membership.factories import MembershipPlanFactory
+
+        MembershipPlanFactory()
+        return User.objects.create_user(username=username, email=f"{username}@example.com").member
+
+    def it_reaches_the_lead_and_the_co_leads_and_no_other_staff():
+        lead = _linked("glc_lead")
+        guild = GuildFactory(guild_lead=lead)
+        co_lead = _linked("glc_colead")
+        GuildStaffMembershipFactory(guild=guild, member=co_lead, role=GuildStaffMembership.Role.CO_LEAD)
+        for name, role in (
+            ("glc_orientor", GuildStaffMembership.Role.ORIENTER),
+            ("glc_treasurer", GuildStaffMembership.Role.TREASURER),
+            ("glc_secretary", GuildStaffMembership.Role.SECRETARY),
+        ):
+            GuildStaffMembershipFactory(guild=guild, member=_linked(name), role=role)
+        GuildStaffMembershipFactory(guild=guild, role=GuildStaffMembership.Role.CO_LEAD)  # no account
+        recipients = resolvers.resolve(Recipients.GUILD_LEAD_AND_CO_LEADS, {"guild": guild})
+        assert _user_pks(recipients) == {lead.user.pk, co_lead.user.pk}
+
+    def it_skips_a_lead_or_co_lead_who_is_not_active():
+        lead = _linked("glc_i_lead")
+        lead.status = Member.Status.FORMER
+        lead.save(update_fields=["status"])
+        guild = GuildFactory(guild_lead=lead)
+        co_lead = _linked("glc_i_colead")
+        GuildStaffMembershipFactory(guild=guild, member=co_lead, role=GuildStaffMembership.Role.CO_LEAD)
+        assert _user_pks(resolvers.resolve(Recipients.GUILD_LEAD_AND_CO_LEADS, {"guild": guild})) == {co_lead.user.pk}
+
+    def it_reaches_the_co_leads_of_a_guild_with_no_lead():
+        guild = GuildFactory(guild_lead=None)
+        co_lead = _linked("glc_n_colead")
+        GuildStaffMembershipFactory(guild=guild, member=co_lead, role=GuildStaffMembership.Role.CO_LEAD)
+        assert _user_pks(resolvers.resolve(Recipients.GUILD_LEAD_AND_CO_LEADS, {"guild": guild})) == {co_lead.user.pk}
+
+
 def describe_guild_orienters_or_equipment_managers():
     """The composed orientation_requested audience — equipment leg vs guild leg, never a union."""
 

@@ -235,6 +235,38 @@ def describe_run_payouts():
         assert payout.status == Payout.Status.SENT
         assert fake.transfers[0]["destination"] == f"acct_{orientor.pk}"
 
+    def it_pays_the_orientor_whose_time_the_lead_confirmed():
+        # Felix: a lead confirming a paid request on an Orientor's own time pays that Orientor.
+        from membership import orientations
+        from membership.models import GuildStaffMembership
+        from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
+
+        _turn_on()
+        lead = _payee()
+        orientor = _payee()
+        guild = GuildFactory(guild_lead=lead)
+        GuildStaffMembershipFactory(guild=guild, member=orientor, role=GuildStaffMembership.Role.ORIENTER)
+        slot_at = NOW - timedelta(days=3)
+        slot = OrientationSlotFactory(
+            guild=guild, orienter=orientor, starts_at=slot_at, ends_at=slot_at + timedelta(hours=1)
+        )
+        booking = OrientationBookingFactory(
+            slot=slot,
+            amount_paid_cents=5000,
+            stripe_payment_id="pi_lead_confirm",
+            status=OrientationBooking.Status.REQUESTED,
+        )
+        OrientationBooking.objects.filter(pk=booking.pk).update(requested_at=NOW - timedelta(days=10))
+        booking.refresh_from_db()
+
+        orientations.confirm_orientation(booking, oriented_by=lead)
+        with _Stripe() as fake:
+            payouts.run_payouts(NOW)
+
+        payout = Payout.objects.get()
+        assert (payout.orientation_booking, payout.payee, payout.amount_cents) == (booking, orientor, 3500)
+        assert fake.transfers[0]["destination"] == f"acct_{orientor.pk}"
+
     def it_pays_the_split_of_what_was_collected_less_refunds():
         _turn_on()
         reg = _registration(_payee())

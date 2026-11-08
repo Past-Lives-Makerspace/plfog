@@ -16682,12 +16682,27 @@ class OrientationBooking(models.Model):
                 "payment lands, and the seat frees automatically if it doesn't."
             )
 
+    def _runner_for(self, slot: OrientationSlot, oriented_by: Member | None) -> Member | None:
+        """Who a confirmation on ``slot`` credits (and, on a paid booking, pays).
+
+        A personal slot whose orientor still runs the owner's orientations (the guild's or the
+        equipment's ``orientor_ids()``) credits that orientor, whoever confirmed it: a lead or
+        Co-Lead confirming an Orientor's own time does not take their credit (Felix, #1135).
+        Otherwise ``oriented_by``, then the slot's orientor, then the owner's default runner.
+        """
+        orienter = slot.orienter
+        if orienter is not None:
+            owner = self.orientation_type.equipment or self.orientation_type.guild
+            if owner is not None and orienter.pk in owner.orientor_ids():
+                return orienter
+        return oriented_by or orienter or self.orientation_type.default_runner()
+
     def confirm(self, *, oriented_by: Member | None = None) -> None:
-        """Accept the request; default the giver to the slot's orientor, then the owner's default runner."""
+        """Accept the request, crediting who runs it (:meth:`_runner_for`)."""
         self._refuse_checkout_hold()
         self.status = self.Status.CONFIRMED
         self.confirmed_at = timezone.now()
-        self.oriented_by = oriented_by or self.slot.orienter or self.orientation_type.default_runner()
+        self.oriented_by = self._runner_for(self.slot, oriented_by)
         self.save(update_fields=["status", "confirmed_at", "oriented_by"])
 
     def decline(self) -> None:
@@ -16771,8 +16786,10 @@ class OrientationBooking(models.Model):
 
         The payment columns are never touched: the paid amount and Stripe ids stay with the
         booking. A booking already confirmed keeps its confirmation time and its runner; a
-        request becomes confirmed now, credited to ``oriented_by`` (the leader who moved it,
-        or who proposed the time the member accepted), else the defaults :meth:`confirm` uses.
+        request becomes confirmed now, credited as :meth:`_runner_for` decides on the new slot
+        (which keeps the old slot's orientor): that orientor while they still run the owner's
+        orientations, else ``oriented_by`` (the leader who moved it, or who proposed the time the
+        member accepted), else the defaults.
         Any open proposal is cleared.
         """
         self.ensure_movable()
@@ -16781,7 +16798,7 @@ class OrientationBooking(models.Model):
         if self.status != self.Status.CONFIRMED:
             self.status = self.Status.CONFIRMED
             self.confirmed_at = now
-            self.oriented_by = oriented_by or slot.orienter or self.orientation_type.default_runner()
+            self.oriented_by = self._runner_for(slot, oriented_by)
             changed += ["status", "confirmed_at", "oriented_by"]
         if self.proposed_at is not None:
             self._drop_proposal()
