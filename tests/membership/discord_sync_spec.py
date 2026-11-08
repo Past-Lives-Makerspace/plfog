@@ -19,7 +19,7 @@ from factory.django import mute_signals
 
 from membership import discord_sync
 from membership.discord_sync import LinkOutcome
-from membership.models import DiscordLinkNudge, GuildMembership
+from membership.models import DiscordLinkNudge, GuildMembership, Member
 from tests.membership.factories import DiscordGuildEmojiFactory, GuildFactory, MemberFactory
 
 pytestmark = pytest.mark.django_db
@@ -444,12 +444,16 @@ def describe_DiscordLinkNudge():
 
 
 def describe_link_and_import():
-    def _mock_oauth(email: str, *, verified: bool = True, discord_user_id: str = "42"):
+    def _mock_oauth(email: str, *, verified: bool = True, discord_user_id: str = "42") -> respx.Route:
+        """Mock the code exchange and identity; returns the server join route for that account."""
         respx.post(_TOKEN_URL).mock(return_value=httpx.Response(200, json={"access_token": "tok"}))
         respx.get(_IDENTITY_URL).mock(
             return_value=httpx.Response(
                 200, json={"id": discord_user_id, "username": "jo", "email": email, "verified": verified}
             )
+        )
+        return respx.put(f"https://discord.com/api/v10/guilds/srv/members/{discord_user_id}").mock(
+            return_value=httpx.Response(201, json={})
         )
 
     @respx.mock
@@ -485,16 +489,36 @@ def describe_link_and_import():
             warn_on=date(2026, 10, 1),
             kicked_at=timezone.now(),
         )
-        _mock_oauth("jo@example.com")
+        join = _mock_oauth("jo@example.com")
         _mock_reactions({})
         _mock_roles()
-        join = respx.put("https://discord.com/api/v10/guilds/srv/members/42").mock(
-            return_value=httpx.Response(201, json={})
-        )
         assert discord_sync.link_and_import("code", _REDIRECT).outcome is LinkOutcome.LINKED
         assert join.calls.last.request.read() == b'{"access_token":"tok"}'
         removal.refresh_from_db()
         assert removal.rejoined_at is not None
+        from core.models import AutomationAction
+
+        assert AutomationAction.objects.filter(kind="discord_rejoin", result="ok").exists()
+
+    @respx.mock
+    def it_puts_a_member_who_is_not_active_on_the_server(sync_config):
+        member = _verified_member("jo@example.com")
+        Member.objects.filter(pk=member.pk).update(status=Member.Status.FORMER)
+        member.refresh_from_db()
+        join = _mock_oauth("jo@example.com")
+        _mock_reactions({})
+        _mock_roles()
+        assert discord_sync.link_and_import("code", _REDIRECT, member=member).outcome is LinkOutcome.LINKED
+        assert join.called
+
+    @respx.mock
+    def it_puts_someone_never_on_the_server_onto_it(sync_config):
+        _verified_member("jo@example.com")
+        join = _mock_oauth("jo@example.com")
+        _mock_reactions({})
+        _mock_roles()
+        assert discord_sync.link_and_import("code", _REDIRECT).outcome is LinkOutcome.LINKED
+        assert join.calls.last.request.read() == b'{"access_token":"tok"}'
 
     @respx.mock
     def it_does_not_email_on_an_empty_import(sync_config):

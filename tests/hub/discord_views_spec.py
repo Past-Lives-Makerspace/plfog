@@ -1,10 +1,12 @@
 """Discord account-linking views — connect (state + redirect), callback, disconnect.
 
-The callback's Discord HTTP is mocked with ``respx``; the OAuth ``state`` handshake is
-driven through the test client's session.
+The callback's Discord HTTP is mocked with ``respx``; the logged-in flow's ``state`` is the
+signed one ``discord_connect`` hands Discord (``_signed_state``), never a session value.
 """
 
 from __future__ import annotations
+
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import pytest
@@ -15,13 +17,14 @@ from django.test import Client
 from django.urls import reverse
 from factory.django import mute_signals
 
+from hub.discord_views import _signed_state, _state_is_for
 from tests.membership.factories import MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
 
 _TOKEN_URL = "https://discord.com/api/v10/oauth2/token"
 _IDENTITY_URL = "https://discord.com/api/v10/users/@me"
-_STATE_KEY = "discord_oauth_state"
+_JOIN_URL = "https://discord.com/api/v10/guilds/srv/members/424242"
 
 
 def _linked_user(username: str = "dl_member"):
@@ -42,15 +45,17 @@ def _notifications_url() -> str:
 
 
 def describe_discord_connect():
-    def it_redirects_to_discord_and_stores_state(settings):
+    def it_redirects_to_discord_with_a_state_signed_for_the_user(settings):
         settings.DISCORD_CLIENT_ID = "cid"
         settings.DISCORD_CLIENT_SECRET = "secret"
+        user = _linked_user()
         client = Client()
-        client.force_login(_linked_user())
+        client.force_login(user)
         response = client.get(reverse("hub_discord_connect"))
         assert response.status_code == 302
         assert response.url.startswith("https://discord.com/oauth2/authorize?")
-        assert client.session[_STATE_KEY]
+        state = parse_qs(urlparse(response.url).query)["state"][0]
+        assert _state_is_for(state, user.pk)
 
     def it_errors_when_discord_is_not_configured(settings):
         settings.DISCORD_CLIENT_ID = ""
@@ -60,7 +65,7 @@ def describe_discord_connect():
         response = client.get(reverse("hub_discord_connect"))
         assert response.status_code == 302
         assert response.url == _notifications_url()
-        assert _STATE_KEY not in client.session
+        assert "discord_oauth_state" not in client.session
 
     def it_errors_for_a_user_without_a_member():
         client = Client()
@@ -78,24 +83,18 @@ def describe_discord_callback():
         user = _linked_user()
         client = Client()
         client.force_login(user)
-        session = client.session
-        session[_STATE_KEY] = "state-token"
-        session.save()
         respx.post(_TOKEN_URL).mock(return_value=httpx.Response(200, json={"access_token": "abc"}))
         respx.get(_IDENTITY_URL).mock(return_value=httpx.Response(200, json={"id": "424242"}))
-        response = client.get(reverse("hub_discord_callback"), {"code": "the-code", "state": "state-token"})
+        response = client.get(reverse("hub_discord_callback"), {"code": "the-code", "state": _signed_state(user.pk)})
         assert response.status_code == 302
         assert response.url == _notifications_url()
         user.member.refresh_from_db()
         assert user.member.discord_user_id == "424242"
 
-    def it_rejects_a_mismatched_state():
+    def it_rejects_a_forged_state():
         user = _linked_user()
         client = Client()
         client.force_login(user)
-        session = client.session
-        session[_STATE_KEY] = "expected"
-        session.save()
         response = client.get(reverse("hub_discord_callback"), {"code": "c", "state": "forged"})
         assert response.status_code == 302
         assert response.url == _notifications_url()
@@ -116,10 +115,7 @@ def describe_discord_callback():
         user = _linked_user()
         client = Client()
         client.force_login(user)
-        session = client.session
-        session[_STATE_KEY] = "state-token"
-        session.save()
-        response = client.get(reverse("hub_discord_callback"), {"state": "state-token"})
+        response = client.get(reverse("hub_discord_callback"), {"state": _signed_state(user.pk)})
         assert response.status_code == 302
         assert response.url == _notifications_url()
         user.member.refresh_from_db()
@@ -139,12 +135,9 @@ def _configure_sync(settings):
     config.save()
 
 
-def _logged_in_with_state(user, state="state-token"):
+def _logged_in(user) -> Client:
     client = Client()
     client.force_login(user)
-    session = client.session
-    session[_STATE_KEY] = state
-    session.save()
     return client
 
 
@@ -157,11 +150,12 @@ def describe_discord_callback_outcomes():
         user = _linked_user("dl_import")
         guild = GuildFactory()
         DiscordGuildEmojiFactory(emoji="🔥", guild=guild)
-        client = _logged_in_with_state(user)
+        client = _logged_in(user)
         respx.post(_TOKEN_URL).mock(return_value=httpx.Response(200, json={"access_token": "abc"}))
         respx.get(_IDENTITY_URL).mock(return_value=httpx.Response(200, json={"id": "424242"}))
         respx.get(url__regex=r".+/reactions/.+").mock(return_value=httpx.Response(200, json=[{"id": "424242"}]))
-        response = client.get(reverse("hub_discord_callback"), {"code": "c", "state": "state-token"})
+        respx.put(_JOIN_URL).mock(return_value=httpx.Response(201, json={}))
+        response = client.get(reverse("hub_discord_callback"), {"code": "c", "state": _signed_state(user.pk)})
         assert response.status_code == 302
         from membership.models import GuildMembership
 
@@ -174,10 +168,10 @@ def describe_discord_callback_outcomes():
         _configure_sync(settings)
         MemberFactory(discord_user_id="424242")  # already owns it
         user = _linked_user("dl_elsewhere")
-        client = _logged_in_with_state(user)
+        client = _logged_in(user)
         respx.post(_TOKEN_URL).mock(return_value=httpx.Response(200, json={"access_token": "abc"}))
         respx.get(_IDENTITY_URL).mock(return_value=httpx.Response(200, json={"id": "424242"}))
-        response = client.get(reverse("hub_discord_callback"), {"code": "c", "state": "state-token"})
+        response = client.get(reverse("hub_discord_callback"), {"code": "c", "state": _signed_state(user.pk)})
         assert response.status_code == 302
         user.member.refresh_from_db()
         assert user.member.discord_is_linked is False
@@ -187,10 +181,10 @@ def describe_discord_callback_outcomes():
         _configure_sync(settings)
         user = _linked_user("dl_other")
         user.member.link_discord("999")
-        client = _logged_in_with_state(user)
+        client = _logged_in(user)
         respx.post(_TOKEN_URL).mock(return_value=httpx.Response(200, json={"access_token": "abc"}))
         respx.get(_IDENTITY_URL).mock(return_value=httpx.Response(200, json={"id": "424242"}))
-        response = client.get(reverse("hub_discord_callback"), {"code": "c", "state": "state-token"})
+        response = client.get(reverse("hub_discord_callback"), {"code": "c", "state": _signed_state(user.pk)})
         assert response.status_code == 302
         user.member.refresh_from_db()
         assert user.member.discord_user_id == "999"  # unchanged
@@ -199,9 +193,9 @@ def describe_discord_callback_outcomes():
     def it_shows_an_error_on_an_oauth_failure(settings):
         _configure_sync(settings)
         user = _linked_user("dl_fail")
-        client = _logged_in_with_state(user)
+        client = _logged_in(user)
         respx.post(_TOKEN_URL).mock(return_value=httpx.Response(400))
-        response = client.get(reverse("hub_discord_callback"), {"code": "c", "state": "state-token"})
+        response = client.get(reverse("hub_discord_callback"), {"code": "c", "state": _signed_state(user.pk)})
         assert response.status_code == 302
         user.member.refresh_from_db()
         assert user.member.discord_is_linked is False

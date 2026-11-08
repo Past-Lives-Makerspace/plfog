@@ -3,7 +3,7 @@
 {% block title %}User Settings{% endblock %}
 
 {% block content %}
-{% include "components/page_header.html" with title="User Settings" new_key="account.notifications" %}
+{% include "components/page_header.html" with title="User Settings" new_key="account" %}
 
 <div id="pl-settings-root"
      x-data="plSettingsRoot('{{ active_tab|default:"guilds" }}')"

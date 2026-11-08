@@ -530,6 +530,18 @@ _GUIDANCE_LIST = (
             "Turn push on with Push On This Device. In the iPhone and Android apps it works once the app is up to date.",
         ),
     ),
+    Guidance(
+        key="account.discord",
+        title="Discord",
+        url_name="hub_user_settings",
+        query={"tab": "notifications"},
+        target="account.discord-reconnect",
+        steps=(
+            "Open Settings from your profile menu and press Notifications.",
+            "Press Connect Discord and approve on Discord. You are put on the Past Lives Discord server with a role for each of your guilds.",
+            "Connected but not on the server? Press Reconnect Discord.",
+        ),
+    ),
 )
 
 #: Every registered feature by key. ``tests/core/guidance_spec.py`` holds each key to
@@ -549,7 +561,7 @@ def registered(key: str) -> bool:
 
 
 #: What an area key is called where a title is needed (a button's label, the modal's title); any other area keeps its own name.
-AREA_TITLES = {"admin": "Admin Tools", "guild": "Guilds", "home": "Home", "classes": "Classes"}
+AREA_TITLES = {"admin": "Admin Tools", "guild": "Guilds", "home": "Home", "classes": "Classes", "account": "Settings"}
 
 
 def title_for(key: str) -> str:

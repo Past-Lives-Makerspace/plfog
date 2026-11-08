@@ -1,0 +1,19 @@
+bump = "patch"
+date = "2026-11-07"
+audience = ["members"]
+feature = "account.discord"
+target = "account.discord-reconnect"
+guidance = "shots"
+requests = [14]
+title = "Connecting Discord puts you on the Past Lives Discord server"
+changes = [
+  "When you connect Discord in Settings, you are now added to the Past Lives Discord server with a role for each of your guilds. Before, connecting only linked your account, so people who had never joined the server stayed off it.",
+  "Connecting from the Android app now works. Discord sometimes opens the last step in your phone's browser, and the portal used to refuse it there and ask you to try again.",
+  "Already connected but not on the server? Open Settings, press Notifications and press Reconnect Discord.",
+]
+
+[[shots]]
+caption = "Open Settings, press Notifications, then press Reconnect Discord on the Discord card."
+
+[[shots]]
+caption = "Approve on Discord. You come back connected and on the Past Lives Discord server with your guild roles."

@@ -1,4 +1,4 @@
-"""Server membership calls through the FOG bot: removing, re-adding and listing people (#898).
+"""Server membership calls through the FOG bot: removing, adding and listing people (#898).
 
 Same bot-token REST idiom as :mod:`core.events.discord_roles`: the credential comes from
 :func:`core.events.discord_dm.bot_token`, so a blank token (unset, or ``ENVIRONMENT=staging``)
@@ -73,7 +73,7 @@ def kick_member(server_id: str, user_id: str, reason: str) -> KickOutcome:
 
 
 class JoinOutcome(StrEnum):
-    """What Discord said to putting a person back on the server."""
+    """What Discord said to putting a person on the server, for the first time or back after a removal."""
 
     ADDED = "added"
     ALREADY_THERE = "already_there"
@@ -82,10 +82,11 @@ class JoinOutcome(StrEnum):
 
 
 def add_member(server_id: str, user_id: str, access_token: str) -> JoinOutcome:
-    """Put ``user_id`` back on ``server_id`` with their own OAuth token (``PUT /guilds/{id}/members/{user}``).
+    """Put ``user_id`` on ``server_id`` with their own OAuth token (``PUT /guilds/{id}/members/{user}``).
 
-    Discord accepts this only with a token carrying the ``guilds.join`` scope, granted when the
-    person connects their Discord, so it is called from the connect flow and nowhere else.
+    Used for anyone who connects Discord, whether they were never on the server, left it or were
+    removed. Discord accepts this only with a token carrying the ``guilds.join`` scope, granted
+    when the person connects their Discord, so it is called from the connect flow and nowhere else.
 
     Returns:
         ``ADDED`` on 201, ``ALREADY_THERE`` on 204, ``REFUSED`` on a 403, ``DISABLED`` when the
@@ -95,7 +96,7 @@ def add_member(server_id: str, user_id: str, access_token: str) -> JoinOutcome:
         httpx.HTTPStatusError: On any other non-2xx.
         httpx.HTTPError: On a network error.
     """
-    if bot_disabled("member re-add"):
+    if bot_disabled("member join"):
         return JoinOutcome.DISABLED
     response = httpx.put(
         f"{API_BASE}/guilds/{server_id}/members/{user_id}",
@@ -108,10 +109,10 @@ def add_member(server_id: str, user_id: str, access_token: str) -> JoinOutcome:
     if response.status_code == 204:
         return JoinOutcome.ALREADY_THERE
     if response.status_code == 403:
-        logger.warning("Discord refused to re-add %s: %s", user_id, response.text[:300])
+        logger.warning("Discord refused to add %s to the server: %s", user_id, response.text[:300])
         return JoinOutcome.REFUSED
     raise httpx.HTTPStatusError(
-        f"Discord member re-add failed: {response.status_code} {response.text[:300]}",
+        f"Discord member join failed: {response.status_code} {response.text[:300]}",
         request=response.request,
         response=response,
     )

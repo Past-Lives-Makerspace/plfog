@@ -35,7 +35,7 @@ from core.events import discord_dm, discord_reactions, discord_roles
 from core.events.discord_dm import bot_disabled
 from core.events.discord_oauth import DiscordOAuthError, exchange_code, fetch_identity, resolve_member_from_code
 from core.events.senders import emit_with_email_shell
-from membership.discord_removal import put_back_if_removed
+from membership.discord_removal import put_on_server
 
 if TYPE_CHECKING:
     from membership.models import Guild, Member
@@ -295,6 +295,10 @@ def link_and_import(code: str, redirect_uri: str, *, member: Member | None = Non
       silently swap a connected account). Re-linking the SAME account falls through to
       ``LINKED`` (idempotent re-import).
 
+    A linked member is then put on the Discord server with their own ``guilds.join`` token,
+    whatever their status (:func:`membership.discord_removal.put_on_server`), before their guild
+    roles are pushed. That step never fails the link.
+
     Args:
         code: The OAuth authorization code.
         redirect_uri: The callback URL used throughout the flow.
@@ -321,7 +325,7 @@ def link_and_import(code: str, redirect_uri: str, *, member: Member | None = Non
         return LinkResult(LinkOutcome.ACCOUNT_HAS_OTHER_DISCORD)
 
     target.link_discord(identity.user_id, handle=identity.handle)
-    put_back_if_removed(target, identity.user_id, identity.access_token)
+    put_on_server(target, identity.user_id, identity.access_token)
     result = import_member_guilds(target)
     if result.guilds:
         _send_import_confirmation(target, result)
