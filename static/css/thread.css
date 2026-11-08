@@ -28,6 +28,9 @@
 .pl-thread-msg__role { padding: 0 0.35rem; border-radius: 4px; border: 1px solid var(--hub-border-strong); font-size: 0.7rem; }
 .pl-thread-msg__photos { margin-top: 0.75rem; }
 .pl-thread__empty { margin-top: 0.75rem; font-size: 0.875rem; color: var(--hub-text-muted); }
+/* The empty line is always in the page and shows once nothing is listed (the last message deleted in place, #1140). */
+.pl-thread-wrap:has(.pl-thread > li) .pl-thread__empty,
+[data-kiln-thread]:has(.pl-kiln-thread > li) .pl-kiln-thread__empty { display: none; }
 
 /* The composer under a thread, on both sides */
 .pl-thread-reply { margin-top: 1.5rem; }
@@ -83,3 +86,34 @@
 [data-theme="light"] .pl-thread-summary .hub-pill--ok { color: #1f7a52; }
 [data-theme="light"] .pl-thread-summary .hub-pill--neutral { color: #5b6675; }
 [data-theme="light"] .pl-thread-summary .hub-pill--warn { color: #9a6a00; }
+
+/* Changing a posted message (#1140): the "..." menu at the end of its author line, the "edited" marker after
+   the time, and the inline edit box (components/thread_message_edit.html). Kiln ticket messages share them. */
+/* The trigger keeps its 32px tap target but takes no height in the line, so a message with a menu reads like one without. */
+.pl-thread-msg__menu { margin: -0.5rem -0.5rem -0.5rem auto; align-self: center; line-height: 0; }
+.pl-thread-msg__menu .pl-row-menu__trigger { width: 32px; height: 32px; }
+.pl-thread-msg__edited { font-style: italic; }
+.pl-thread-edit { margin-top: 0.75rem; display: grid; gap: 0.75rem; }
+.pl-thread-edit .pl-form-group { margin-bottom: 0; }
+.pl-thread-edit textarea { min-height: 88px; }
+.pl-thread-edit__photo { display: grid; gap: 0.5rem; justify-items: start; width: 96px; }
+.pl-thread-edit__photo img {
+    width: 96px;
+    height: 96px;
+    object-fit: cover;
+    display: block;
+    border-radius: 6px;
+    border: 1px solid var(--hub-input-border, rgba(139, 151, 168, 0.3));
+    transition: opacity 0.15s ease;
+}
+.pl-thread-edit__remove { width: 100%; }
+.pl-thread-edit__remove-off { display: none; }
+/* A photo marked to go: dimmed, and its button offers to keep it. */
+.pl-thread-edit__photo:has(input:checked) img { opacity: 0.35; }
+.pl-thread-edit__photo:has(input:checked) .pl-thread-edit__remove-on { display: none; }
+.pl-thread-edit__photo:has(input:checked) .pl-thread-edit__remove-off { display: inline; }
+.pl-thread-edit__row { display: flex; gap: 0.75rem; justify-content: flex-end; flex-wrap: wrap; }
+.pl-thread-edit__row .hub-btn { min-height: 40px; }
+/* While its box is open a message takes the thread's whole width, so the text has room on a phone. */
+.pl-thread-msg.pl-thread-msg--editing,
+.pl-kiln-msg.pl-thread-msg--editing { max-width: 100%; width: 100%; }

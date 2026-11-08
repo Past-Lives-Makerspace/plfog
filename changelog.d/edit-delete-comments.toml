@@ -1,0 +1,21 @@
+bump = "minor"
+date = "2026-11-08"
+audience = ["members", "instructors", "orientors", "admins"]
+feature = "feedback.edit-messages"
+target = "feedback.edit-messages"
+guidance = "shots"
+title = "Edit or delete a message you sent"
+changes = [
+  "Every message you write can now be fixed or taken back: feedback replies, class messages, orientation and equipment reservation messages, and kiln ticket messages.",
+  "Press the ... on your message, then Edit to change the words or remove a photo, or Delete to take it off the thread. An edited message says edited.",
+  "Nobody gets a new notice when you edit or delete. Admins can edit or delete any message.",
+]
+
+[[shots]]
+caption = "Press the ... on a message you wrote. Admins see it on every message."
+
+[[shots]]
+caption = "Press Edit, fix the words or press Remove under a photo, then press Save."
+
+[[shots]]
+caption = "The message now says edited. To take it off the thread, press Delete and confirm. Nobody is notified."

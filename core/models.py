@@ -2633,6 +2633,15 @@ class Notification(models.Model):
     url = models.CharField(max_length=500, blank=True, default="", help_text="Where clicking navigates.")
     read_at = models.DateTimeField(null=True, blank=True, help_text="Set when the user reads it.")
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    period = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        help_text=(
+            "The emit's period that wrote it (one thread message's own key, e.g. feedback-comment-12), "
+            "so editing or deleting that message rewrites the row (#1140); blank on rows written before."
+        ),
+    )
 
     objects = NotificationQuerySet.as_manager()
 
@@ -2641,6 +2650,8 @@ class Notification(models.Model):
         indexes = [
             models.Index(fields=["user", "read_at"]),
             models.Index(fields=["user", "-created_at"]),
+            # Only rows that name a period are looked up by it (an edited or deleted thread message).
+            models.Index(fields=["period"], name="notif_period_idx", condition=~models.Q(period="")),
         ]
 
     def __str__(self) -> str:
@@ -4078,6 +4089,9 @@ class FeedbackComment(ThreadMessage):
     before comments existed, signed "Past Lives").
     """
 
+    THREAD_KIND: ClassVar[str] = "feedback"
+    NOTICE_PERIOD: ClassVar[str] = "feedback-comment-{pk}"
+
     request = models.ForeignKey(
         FeedbackRequest,
         on_delete=models.CASCADE,
@@ -4118,6 +4132,25 @@ class FeedbackComment(ThreadMessage):
             request.staff_seen_at = self.created_at
             FeedbackRequest.objects.filter(pk=request.pk).update(staff_seen_at=self.created_at)
 
+    def after_remove(self) -> None:
+        """A deleted sender's comment takes its Member replied pill with it when it was the unseen one.
+
+        ``member_replied_at`` is left alone while another sender's comment is still newer than an
+        admin last looked, and otherwise falls back to the newest sender's comment left (none: blank).
+        """
+        if self.is_from_staff:
+            return
+        request = FeedbackRequest.objects.get(pk=self.request_id)
+        if not request.has_member_reply:
+            return
+        mine = FeedbackComment.objects.filter(request_id=request.pk, author_id=request.user_id)
+        unseen = mine if request.staff_seen_at is None else mine.filter(created_at__gt=request.staff_seen_at)
+        if unseen.exists():
+            return
+        latest = mine.aggregate(latest=models.Max("created_at"))["latest"]
+        FeedbackRequest.objects.filter(pk=request.pk).update(member_replied_at=latest)
+        self.request.member_replied_at = latest
+
     def _tell_member_side(self) -> bool:
         """Tell the request's sender that Past Lives wrote this comment."""
         from core.events.emit import emit
@@ -4135,7 +4168,7 @@ class FeedbackComment(ThreadMessage):
                 "request_url": request.member_url,
             },
             url=request.member_url,
-            period=f"feedback-comment-{self.pk}",
+            period=self.notice_period,
         )
         return True
 
@@ -4174,7 +4207,7 @@ class FeedbackComment(ThreadMessage):
                 "inbox_url": request.inbox_url,
             },
             url=request.inbox_url,
-            period=f"feedback-comment-{self.pk}",
+            period=self.notice_period,
             recipient_user_ids=recipient_ids,
         )
 

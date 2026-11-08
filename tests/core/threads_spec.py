@@ -53,8 +53,9 @@ def describe_an_opening():
 
 def describe_the_thread_template():
     def _render(viewer_pk: int, messages: list[Any]) -> str:
-        # A plain context (no context processors): the template reads request.user.pk alone.
-        viewer = SimpleNamespace(user=SimpleNamespace(pk=viewer_pk))
+        # A plain context (no context processors): the template reads request.user.pk, and the "..."
+        # menu asks whether the viewer may change a message (a signed out viewer never may).
+        viewer = SimpleNamespace(user=SimpleNamespace(pk=viewer_pk, is_authenticated=False))
         return render_to_string(
             "components/thread.html",
             {

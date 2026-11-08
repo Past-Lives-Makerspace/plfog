@@ -26,7 +26,16 @@ from kiln.forms import (
     ReplyForm,
     UnloadForm,
 )
-from kiln.models import ClayOption, GlazeOption, KilnFiring, KilnFlag, KilnTicket, ListOption, ListOptionNameTaken
+from kiln.models import (
+    ClayOption,
+    GlazeOption,
+    KilnFiring,
+    KilnFlag,
+    KilnReply,
+    KilnTicket,
+    ListOption,
+    ListOptionNameTaken,
+)
 from kiln.services import (
     FiringAlreadyUnloaded,
     TicketDeleted,
@@ -209,7 +218,7 @@ def ticket_detail(request: HttpRequest, pk: int) -> HttpResponse:
     context = {
         "ticket": ticket,
         "photos": list(ticket.photos.all()),
-        "replies": list(ticket.replies.all()),
+        "replies": ticket.thread_replies(),
         "viewer": member,
         # A message refused a moment ago (a photo that did not pass) comes back in the box.
         "reply_form": ReplyForm(
@@ -234,7 +243,7 @@ def _unsent_key(ticket: KilnTicket) -> str:
 
 
 def _to_messages(ticket: KilnTicket) -> HttpResponse:
-    return redirect(f"{reverse('kiln:detail', args=[ticket.pk])}#kiln-messages")
+    return redirect(_messages_url(ticket))
 
 
 @login_required
@@ -257,6 +266,85 @@ def ticket_reply(request: HttpRequest, pk: int) -> HttpResponse:
         return _deleted_meanwhile(request, ticket, "your message was not sent")
     messages.success(request, "Message sent.")
     return _to_messages(ticket)
+
+
+def _changeable_reply(request: HttpRequest, pk: int, reply_pk: int) -> KilnReply:
+    """A message on a ticket the viewer may open, that they may change: its author, or an admin (#1140).
+
+    A ticket they cannot open, or a message not on it (or a deleted unload note), is a 404, like
+    every page of the ticket; someone else's message on a ticket they can open is a 403.
+    """
+    from hub.thread_views import check_may_change
+
+    member = _member(request)
+    ticket = _visible_ticket(member, pk, crew=can_run_kiln(member))
+    reply = next((r for r in ticket.thread_replies() if r.pk == reply_pk), None)
+    if reply is None:
+        raise Http404("No such message.")
+    check_may_change(request, reply, sees_thread=True)
+    return reply
+
+
+def _render_reply(request: HttpRequest, pk: int, reply_pk: int, form: Any) -> HttpResponse:
+    """One message as the ticket's thread draws it (``kiln/partials/_reply.html``), read again after the edit."""
+    member = _member(request)
+    ticket = _visible_ticket(member, pk, crew=can_run_kiln(member))
+    reply = next((r for r in ticket.thread_replies() if r.pk == reply_pk), None)
+    if reply is None:
+        raise Http404("The message was deleted meanwhile.")
+    return render(
+        request,
+        "kiln/partials/_reply.html",
+        {
+            "reply": reply,
+            "ticket": ticket,
+            "viewer": member,
+            "refused_edit": form,
+            "thread_next": _messages_url(ticket),
+        },
+    )
+
+
+def _messages_url(ticket: KilnTicket) -> str:
+    return f"{reverse('kiln:detail', args=[ticket.pk])}#kiln-messages"
+
+
+@login_required
+@kiln_open_required
+@maker_required
+@require_POST
+def reply_edit(request: HttpRequest, pk: int, reply_pk: int) -> HttpResponse:
+    """Edit a message on a ticket's thread, its text and its photo: its author, or an admin; tells nobody.
+
+    An unload note's text and photo can be edited too; what happened and the outcome stay.
+    """
+    from hub.thread_views import edit_message
+
+    reply = _changeable_reply(request, pk, reply_pk)
+    return edit_message(
+        request,
+        reply,
+        render_message=lambda form: _render_reply(request, pk, reply_pk, form),
+        back=_messages_url(reply.ticket),
+        body_max_length=KilnReply.BODY_MAX_LENGTH,
+        auto_id=f"{reply.dom_id}-%s",
+    )
+
+
+@login_required
+@kiln_open_required
+@maker_required
+@require_POST
+def reply_delete(request: HttpRequest, pk: int, reply_pk: int) -> HttpResponse:
+    """Delete a message from a ticket's thread for both sides: its author, or an admin; tells nobody.
+
+    An unload note leaves the thread but keeps its row as the firing's exception record
+    (:meth:`KilnReply.remove`), so the Kiln Log still counts the piece.
+    """
+    from hub.thread_views import delete_message
+
+    reply = _changeable_reply(request, pk, reply_pk)
+    return delete_message(request, reply, back=_messages_url(reply.ticket))
 
 
 def _deleted_meanwhile(request: HttpRequest, ticket: KilnTicket, what: str) -> HttpResponse:

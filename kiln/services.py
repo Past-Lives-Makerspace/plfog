@@ -21,6 +21,7 @@ from django.utils import dateformat, timezone
 from django.utils.html import format_html, format_html_join
 from django.utils.safestring import SafeString
 
+from core.files import delete_files_after_commit, delete_files_now
 from kiln.access import can_file_tickets, can_run_kiln, is_crew, kiln_home_url, kiln_is_open, maker_type_for
 from kiln.forms import ACTION_COVER, ACTION_REMOVE, ExceptionNote, KilnTicketForm
 from kiln.models import (
@@ -28,8 +29,6 @@ from kiln.models import (
     KilnFlag,
     KilnReply,
     KilnTicket,
-    delete_files_after_commit,
-    delete_files_now,
     member_name,
 )
 
@@ -327,8 +326,9 @@ def _notify_reply(reply: KilnReply) -> None:
         "ticket_url": ticket.member_url,
         **_photo_lines(reply, ticket.member_url),
     }
-    # The period is the message itself: each one notifies once, and a retry never twice.
-    period = f"reply-{reply.pk}"
+    # The period is the message itself: each one notifies once, and a retry never twice; an edit or
+    # delete finds the bell rows by it (KilnReply.notice_period, #1140).
+    period = reply.notice_period
     if reply.from_crew:
         emit(
             KILN_CREW_REPLIED,

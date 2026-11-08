@@ -392,6 +392,16 @@ def _guild_broadcast(
         skipped_duplicates.append((0, channel))
 
 
+def _channel_message(message_for: Callable[[Channel], Message], channel: Channel, period: str) -> Message:
+    """The message one channel delivers; the in-app one carries the emit's ``period``.
+
+    The bell row keeps it, so an edit or delete of the thread message it is about can find the
+    row again (``core.threads.rewrite_notices``, #1140).
+    """
+    message = message_for(channel)
+    return dataclasses.replace(message, period=period) if channel is Channel.IN_APP else message
+
+
 def _per_recipient_fan_out(
     *,
     event_key: str,
@@ -452,7 +462,9 @@ def _per_recipient_fan_out(
                     )
                 else:
                     was_delivered = adapter.deliver(
-                        user, message_for(channel), attachments=channel_attachments.get(channel)
+                        user,
+                        _channel_message(message_for, channel, period),
+                        attachments=channel_attachments.get(channel),
                     )
             except BaseException:
                 # BaseException, not Exception: a worker being shut down raises SystemExit

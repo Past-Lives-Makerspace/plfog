@@ -17370,6 +17370,9 @@ class OrientationBookingMessage(ThreadMessage):
     as the guild or the equipment (:attr:`staff_signature`).
     """
 
+    THREAD_KIND: ClassVar[str] = "booking"
+    NOTICE_PERIOD: ClassVar[str] = "orientation-message-{pk}"
+
     booking = models.ForeignKey(
         OrientationBooking,
         on_delete=models.CASCADE,
@@ -17435,7 +17438,7 @@ class OrientationBookingMessage(ThreadMessage):
                 "booking_url": member_absolute_url(booking.member_messages_url),
             },
             url=booking.member_messages_url,
-            period=f"orientation-message-{self.pk}",
+            period=self.notice_period,
         )
         return True
 
@@ -17463,7 +17466,7 @@ class OrientationBookingMessage(ThreadMessage):
                 "booking_url": member_absolute_url(booking.staff_messages_url),
             },
             url=booking.staff_messages_url,
-            period=f"orientation-message-{self.pk}",
+            period=self.notice_period,
             recipient_user_ids=recipient_ids,
         )
         return True
@@ -21426,7 +21429,12 @@ class EquipmentReservationMessage(ThreadMessage):
     the one ``equipment.reservation_needs_approval`` reaches, plus anyone on the manager side
     who already wrote here and still manages the item, minus the author
     (:meth:`manager_user_ids`). A manager side message signs with the equipment's name as its tag.
+    The unread cue (:meth:`EquipmentReservationQuerySet.with_unread_messages_for`) is read from the
+    messages themselves, so a deleted message leaves none behind.
     """
+
+    THREAD_KIND: ClassVar[str] = "reservation"
+    NOTICE_PERIOD: ClassVar[str] = "reservation-message-{pk}"
 
     reservation = models.ForeignKey(
         EquipmentReservation,

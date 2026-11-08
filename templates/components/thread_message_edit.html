@@ -1,0 +1,34 @@
+{% comment %}
+The inline edit box of one thread message (#1140), shown by its "..." menu's Edit in place of the text and photos. It
+holds the text and every photo with a Remove button (a hidden checkbox behind a real button, FRONTEND rule 3; the CSS
+dims a photo marked to go and the button then reads Keep). The photos are drawn only while the box is open (x-if), so
+the thread shows each photo once; Cancel closing the box drops any marks with them. Save posts message.edit_url over htmx and the server
+redraws the one message; Cancel folds the box and puts back what it held. Nobody is told either way. Shared by every
+thread (hub.thread_views) and by kiln ticket messages (kiln.views.reply_edit, which redraws kiln/partials/_reply.html).
+
+Context: message (edit_url, dom_id, edit_photos, BODY_MAX_LENGTH for kiln), refused_edit (a refused form, or none), request,
+viewer_is_staff, thread_next (the page to land on without htmx; the page itself when blank).
+{% endcomment %}
+{% load thread_tags %}
+{% message_edit_form message refused_edit as form %}
+<form class="pl-thread-edit" x-show="editing"{% if not refused_edit %} x-cloak{% endif %} hx-post="{{ message.edit_url }}" hx-target="{{ message.dom_selector }}" hx-swap="outerHTML" hx-select="unset" x-init="$watch('editing', (value) => value && $nextTick(() => $el.querySelector('textarea').focus()))" data-thread-edit-form>
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ thread_next|default:request.get_full_path }}">
+  <input type="hidden" name="viewer_is_staff" value="{% if viewer_is_staff %}1{% endif %}">
+  {% include "components/form_field.html" with field=form.body field_label="Edit message" field_hint_off=True %}
+  {% if message.edit_photos %}
+  {# Drawn only while the box is open, so the thread itself carries each photo once. #}
+  <template x-if="editing">
+  <div class="pl-thread-photos pl-thread-edit__photos">
+    {% for photo_pk, photo_url in message.edit_photos %}
+    <div class="pl-thread-edit__photo" data-thread-edit-photo="{{ photo_pk }}">
+      <img src="{{ photo_url }}" alt="Photo {{ forloop.counter }} with this message">
+      <input type="checkbox" name="remove_photos" value="{{ photo_pk }}" hidden{% if photo_pk in form.removing_ids %} checked{% endif %}>
+      <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-thread-edit__remove" data-photo="{{ forloop.counter }}" aria-pressed="{% if photo_pk in form.removing_ids %}true{% else %}false{% endif %}" aria-label="{% if photo_pk in form.removing_ids %}Keep{% else %}Remove{% endif %} photo {{ forloop.counter }}" onclick="var box = this.previousElementSibling; box.checked = !box.checked; this.setAttribute('aria-pressed', box.checked ? 'true' : 'false'); this.setAttribute('aria-label', (box.checked ? 'Keep' : 'Remove') + ' photo ' + this.dataset.photo);"><span class="pl-thread-edit__remove-on">Remove</span><span class="pl-thread-edit__remove-off">Keep</span></button>
+    </div>
+    {% endfor %}
+  </div>
+  </template>
+  {% endif %}
+  <div class="pl-thread-edit__row"><button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" data-thread-edit-cancel @click="editing = false; $el.closest('form').reset()">Cancel</button><button type="submit" class="hub-btn hub-btn--sm hub-btn--primary" data-thread-edit-save>Save</button></div>
+</form>

@@ -1,0 +1,18 @@
+{% comment %}
+One message on a kiln ticket's thread (kiln/partials/_thread.html draws every one; kiln.views.reply_edit redraws one).
+Its author and admins get the shared thread's "..." menu (components/thread_message_menu.html) with Edit, the shared
+inline box (components/thread_message_edit.html, its one photo removable), and Delete, whose confirm _thread.html
+renders. "edited" follows the time once it was changed. Context: reply, ticket, viewer, request, refused_edit.
+{% endcomment %}
+{% load thread_tags %}
+{% with can_change=reply|may_change:request %}
+<li class="pl-kiln-msg{% if reply.author_id == viewer.pk %} pl-kiln-msg--mine{% endif %}" data-reply="{{ reply.pk }}" data-thread-dom="{{ reply.dom_id }}"{% if can_change %} x-data="{ editing: {% if refused_edit %}true{% else %}false{% endif %} }" :class="editing && 'pl-thread-msg--editing'"{% endif %}>
+    <div class="pl-kiln-msg__who"><strong>{% if reply.author_id == viewer.pk %}You{% else %}{{ reply.author_name }}{% endif %}</strong>{% if reply.from_crew %}<span class="pl-kiln-msg__role">Kiln crew</span>{% endif %}<span>{{ reply.created_at|date:"D, M j · g:i a" }}</span>{% if reply.edited_at %}<span class="pl-thread-msg__edited" data-thread-edited>edited</span>{% endif %}{% if can_change %}<span class="pl-thread-msg__menu">{% include "components/row_actions.html" with menu_include="components/thread_message_menu.html" menu_label="Edit or delete this message" message=reply %}</span>{% endif %}</div>
+    {% if reply.is_unload_note %}<div class="pl-kiln-msg__unload" data-kiln-unload-note><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-{% if reply.outcome == 'back_to_queue' %}undo{% else %}flame{% endif %}"/></svg>{{ reply.get_what_happened_display }} · {{ reply.firing.name }} · {% if reply.outcome == "back_to_queue" %}back to the queue{% else %}fired{% endif %}</div>{% endif %}
+    <div class="pl-thread-msg__content"{% if can_change %} x-show="!editing"{% if refused_edit %} x-cloak{% endif %}{% endif %}>
+        <div class="pl-kiln-msg__body">{{ reply.body|linebreaksbr }}</div>
+        {% if reply.has_photo %}<a class="pl-kiln-msg__photo" href="{{ reply.image.url }}" target="_blank" rel="noopener" hx-boost="false" data-kiln-reply-photo><img src="{{ reply.tile.url }}" alt="Photo from {{ reply.author_name }}" loading="lazy"><span class="sr-only">, opens full size</span></a>{% endif %}
+    </div>
+    {% if can_change %}{% include "components/thread_message_edit.html" with message=reply %}{% endif %}
+</li>
+{% endwith %}

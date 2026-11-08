@@ -10,7 +10,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Sequence
 from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 from urllib.parse import parse_qs, urlsplit
 
@@ -18,6 +18,7 @@ from django.db import transaction
 from django import forms
 from django.conf import settings
 from django.core.exceptions import NON_FIELD_ERRORS
+from django.core.validators import MaxLengthValidator
 from django.db.models import Case, Q, QuerySet, TextChoices, Value, When
 from django.urls import reverse
 from django.utils import timezone
@@ -1025,6 +1026,49 @@ class ThreadMessageForm(forms.Form):
     def clean_photos(self) -> list[UploadedFile]:
         """Enforce the photo count and combined-size caps with plain messages."""
         return clean_feedback_photos(self.cleaned_data["photos"])
+
+    def error_summary(self) -> str:
+        """Every error as one sentence run, for a page that redirects with a message."""
+        return " ".join(str(message) for messages in self.errors.values() for message in messages)
+
+
+class ThreadMessageEditForm(forms.Form):
+    """An edit of one posted thread message (#1140): its new text and the photos to take off it.
+
+    Posting's rule holds: some text, or at least one photo kept. ``photo_ids`` are the message's
+    photos, the only values ``remove_photos`` accepts. A kiln message passes ``body_max_length``
+    (its posting box's cap); thread messages have none.
+    """
+
+    body = forms.CharField(required=False, label="Message", widget=forms.Textarea(attrs={"rows": 3}))
+    remove_photos = forms.TypedMultipleChoiceField(coerce=int, required=False, choices=())
+
+    def __init__(self, *args: Any, photo_ids: Sequence[int], body_max_length: int | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.photo_ids = list(photo_ids)
+        cast("forms.TypedMultipleChoiceField", self.fields["remove_photos"]).choices = [
+            (pk, pk) for pk in self.photo_ids
+        ]
+        if body_max_length is not None:
+            body = cast("forms.CharField", self.fields["body"])
+            body.max_length = body_max_length
+            body.validators.append(MaxLengthValidator(body_max_length))
+            body.widget.attrs["maxlength"] = str(body_max_length)
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        kept = set(self.photo_ids) - set(cleaned.get("remove_photos") or ())
+        if "body" in cleaned and not cleaned["body"] and not kept:
+            self.add_error("body", "Write something, or keep a photo.")
+        return cleaned
+
+    @property
+    def removing_ids(self) -> set[int]:
+        """The photos a refused edit had marked to remove, so the redrawn box keeps them marked."""
+        if not self.is_bound:
+            return set()
+        posted = cast("QueryDict", self.data).getlist("remove_photos")
+        return {int(value) for value in posted if value.isdigit()}
 
     def error_summary(self) -> str:
         """Every error as one sentence run, for a page that redirects with a message."""
