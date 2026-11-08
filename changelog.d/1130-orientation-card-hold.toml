@@ -1,6 +1,8 @@
 bump = "minor"
 date = "2026-11-07"
 audience = ["members", "orientors"]
+feature = "guild.orientations"
+guidance = "none"
 title = "Paid orientations hold your card and charge only once confirmed"
 changes = [
   "Booking a paid orientation now places a hold on your card instead of charging it.",
