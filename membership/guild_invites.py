@@ -15,7 +15,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from django.db.models import QuerySet
 from django.urls import reverse
 
@@ -127,10 +127,11 @@ def send_invites(guild: Guild, members: Iterable[Member], invited_by: Member | N
         if member.pk in member_ids or member.pk in invited_ids:
             result.skipped.append(member)
             continue
-        try:
-            with transaction.atomic():
-                invite = GuildInvite.objects.create(guild=guild, member=member, invited_by=invited_by)
-        except IntegrityError:
+        # get_or_create retries as a read when uq_guildinvite_open refuses a concurrent second send.
+        invite, created = GuildInvite.objects.get_or_create(
+            guild=guild, member=member, accepted_at=None, defaults={"invited_by": invited_by}
+        )
+        if not created:
             result.skipped.append(member)
             continue
         invited_ids.add(member.pk)

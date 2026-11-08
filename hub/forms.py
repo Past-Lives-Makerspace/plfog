@@ -3251,7 +3251,7 @@ class GuildInviteForm(forms.Form):
 
     def error_summary(self) -> str:
         """The first problem, for the error toast."""
-        return str(next(iter(self.errors.get("members", ["Pick at least one member to invite."]))))
+        return str(self.errors["members"][0])
 
 
 # The shared slot length and break choices: the guild and equipment rule forms and the one

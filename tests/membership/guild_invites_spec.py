@@ -7,7 +7,6 @@ joining with source "invite" closing the invite, and the rule for who may invite
 
 from __future__ import annotations
 
-from unittest import mock
 
 import pytest
 from django.contrib.auth.models import User
@@ -119,10 +118,16 @@ def describe_send_invites():
     def it_skips_a_member_a_concurrent_send_just_invited():
         guild = _guild()
         pick = _account("pick", "Pick Person")
-        with mock.patch.object(GuildInvite.objects, "create", side_effect=IntegrityError("uq_guildinvite_open")):
-            result = guild_invites.send_invites(guild, [pick], None)
+
+        def picks_while_another_send_lands():
+            # The other send opens its invite after this one took its snapshot of open invites.
+            GuildInvite.objects.create(guild=guild, member=pick)
+            yield pick
+
+        result = guild_invites.send_invites(guild, picks_while_another_send_lands(), None)
         assert result.sent == []
         assert result.skipped == [pick]
+        assert GuildInvite.objects.filter(guild=guild, member=pick).count() == 1
 
     def it_refuses_a_second_open_invite_in_the_database():
         guild = _guild()
