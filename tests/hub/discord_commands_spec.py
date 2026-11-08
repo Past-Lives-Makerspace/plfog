@@ -23,7 +23,7 @@ from core.events import discord as discord_module
 from core.events import discord_roles
 from hub.discord_commands import JOIN_GUILD, _guild_choices, _join_guild, _welcome_body
 from membership import orientations
-from membership.models import GuildMembership
+from membership.models import GuildInvite, GuildMembership
 from tests.membership.factories import (
     GuildFactory,
     GuildOrientationSettingsFactory,
@@ -67,6 +67,15 @@ def describe_join_guild_handler():
             _join_guild(_interaction(guild.slug), member)
             row = GuildMembership.objects.get(guild=guild, member=member)
             assert row.source == GuildMembership.Source.APP
+
+        def it_closes_an_open_guild_invite(spies):
+            # #1137: /join-guild is a join path, so the member's open invite to the guild closes.
+            guild = GuildFactory(discord_webhook_url=_WEBHOOK)
+            member = MemberFactory(discord_user_id="555")
+            invite = GuildInvite.objects.create(guild=guild, member=member)
+            _join_guild(_interaction(guild.slug), member)
+            invite.refresh_from_db()
+            assert not invite.is_open
 
         def it_ensures_the_discord_role(spies):
             guild = GuildFactory(discord_webhook_url=_WEBHOOK)

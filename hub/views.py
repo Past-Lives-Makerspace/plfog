@@ -103,6 +103,7 @@ from membership.models import (
     Equipment,
     FundingSnapshot,
     Guild,
+    GuildMembership,
     GuildStaffMembership,
     HelpCategory,
     LeadershipBadge,
@@ -802,6 +803,17 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     # must never see member names/avatars (the count-only chip lives in the hero).
     roster = guild.roster_members() if guild.show_members and member is not None else None
     is_member_of_guild = member is not None and guild.memberships.filter(member=member).exists()
+    # Share and Invite (#1137) show only on a guild members can see: a hidden guild's public link
+    # opens for nobody but its leaders. Invite is the guild's lead, staff and admins, members surface only.
+    shows_share = guild.is_active
+    can_invite_here = guild.is_active and can_manage_cubbies_here  # can_invite_to_guild, already off the guilds surface
+    from membership.guild_invites import banner_invite
+
+    guild_invite = (
+        banner_invite(guild, member, is_member=is_member_of_guild)
+        if member is not None and not guilds_surface
+        else None
+    )
 
     from classes.models import ClassOffering
 
@@ -989,6 +1001,9 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "roster": roster,
             "member": member,
             "is_member_of_guild": is_member_of_guild,
+            "shows_share": shows_share,
+            "can_invite_to_guild": can_invite_here,
+            "guild_invite": guild_invite,
             "member_count": member_count,
             "current_class_count": current_class_count,
             "past_class_count": past_class_count,
@@ -4277,34 +4292,31 @@ def _announce_join_to_discord(guild: Guild, member: Member) -> None:
         logger.exception("guild_join: Discord announce failed for guild=%s member=%s", guild.pk, member.pk)
 
 
-@login_required
-@require_POST
-def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
-    """Join a guild from the hero button (HTMX). Members-surface only.
+def join_guild_from_page(
+    guild: Guild, member: Member, *, source: str, send_welcome: bool, announce_discord: bool
+) -> tuple[bool, bool]:
+    """The deliberate web join both the hero Join and an invite banner's Join run (#1137).
 
-    The one deliberate web join path: records the subscription (fat model), stamps the
-    first-login prompt as answered, and — only when the member is newly joined AND left
-    the modal's "send welcome email" box checked AND the site-wide guild-welcome-email
-    switch is on — sends the guild's welcome email once (the toast only promises an
-    inbox check when a send was actually attempted).
-    Returns the flipped CTA plus the OOB sibling fragments and a success toast. An
-    unlinked account gets a guarded error toast and no row.
+    Records the subscription through :meth:`Member.subscribe_to_guild` (which closes any open
+    invite), stamps the first-login prompt as answered, and, only when the member is newly
+    joined, sends the guild's welcome email once (when asked for and the site-wide switch is
+    on) and posts the Discord hello (when asked for).
+
+    Returns:
+        ``(joined, welcomed)``: whether the subscription was new, and whether the welcome went out.
     """
-    guild = get_object_or_404(Guild, pk=pk)
-    member = _get_member(request)
-    if member is None:
-        response = HttpResponse(status=204)
-        trigger_toast(response, "Your account is not linked to a membership.", "error")
-        return response
-    joined = member.subscribe_to_guild(guild)
+    joined = member.subscribe_to_guild(guild, source)
     member.mark_guild_updates_answered()
-    welcomed = bool(
-        joined and request.POST.get("send_welcome") and SiteConfiguration.load().guild_welcome_email_enabled
-    )
+    welcomed = bool(joined and send_welcome and SiteConfiguration.load().guild_welcome_email_enabled)
     if welcomed:
         member.send_guild_welcome(guild)
-    if joined and request.POST.get("announce_discord"):
+    if joined and announce_discord:
         _announce_join_to_discord(guild, member)
+    return joined, welcomed
+
+
+def joined_guild_response(request: HttpRequest, guild: Guild, member: Member, *, welcomed: bool) -> HttpResponse:
+    """The flipped CTA with its OOB sibling fragments (the invite banner among them) and the joined toast."""
     ctx = _guild_cta_context(request, guild, member)
     ctx["oob"] = True
     response = render(request, "hub/partials/_guild_join_cta.html", ctx)
@@ -4315,6 +4327,34 @@ def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
     )
     trigger_toast(response, message, "success")
     return response
+
+
+@login_required
+@require_POST
+def guild_join(request: HttpRequest, pk: int) -> HttpResponse:
+    """Join a guild from the hero button (HTMX). Members-surface only.
+
+    The one deliberate web join path (:func:`join_guild_from_page`): the welcome email goes
+    out only when the member is newly joined AND left the modal's "send welcome email" box
+    checked AND the site-wide guild-welcome-email switch is on (the toast only promises an
+    inbox check when a send was actually attempted).
+    Returns the flipped CTA plus the OOB sibling fragments and a success toast. An
+    unlinked account gets a guarded error toast and no row.
+    """
+    guild = get_object_or_404(Guild, pk=pk)
+    member = _get_member(request)
+    if member is None:
+        response = HttpResponse(status=204)
+        trigger_toast(response, "Your account is not linked to a membership.", "error")
+        return response
+    _joined, welcomed = join_guild_from_page(
+        guild,
+        member,
+        source=GuildMembership.Source.APP,
+        send_welcome=bool(request.POST.get("send_welcome")),
+        announce_discord=bool(request.POST.get("announce_discord")),
+    )
+    return joined_guild_response(request, guild, member, welcomed=welcomed)
 
 
 @login_required

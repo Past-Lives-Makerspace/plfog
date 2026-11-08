@@ -1,8 +1,9 @@
 /*
- * The Share button on the public class page.
+ * The Share button on the public class page, the event page and the guild page (#1137).
  *
  * The button carries the facts as data attributes the server renders (data-share-url, the
- * class's readable public page; data-share-title; data-share-text). A click goes, in order:
+ * readable public page; data-share-title; data-share-text; data-share-dialog, the native
+ * sheet's title, "Share this class" when absent). A click goes, in order:
  *
  *   1. The Capacitor Share plugin, when the page runs inside the native app and the shell
  *      carries the plugin (mobile/capacitor.config.ts). Nothing in the app has it yet; this
@@ -17,7 +18,7 @@
  *      url to the clipboard; when that fails the wrapper reveals a readonly input holding the
  *      url so the person can copy it by hand.
  *
- * Loaded deferred from the detail page's classes_extra_head. The public surface extends
+ * Loaded deferred from each page's extra head (the class page's classes_extra_head). The public surface extends
  * hub/base.html, whose body is boosted, so this file runs once per document: it binds one
  * delegated click listener on document behind a flag on window (FRONTEND.md, Scripts under
  * hx-boost), and the inline x-data is markup, which Alpine initialises on every arrival.
@@ -53,7 +54,12 @@
     var plugin = nativeSharePlugin();
     if (plugin) {
       plugin
-        .share({ title: facts.title, text: facts.text, url: facts.url, dialogTitle: "Share this class" })
+        .share({
+          title: facts.title,
+          text: facts.text,
+          url: facts.url,
+          dialogTitle: button.getAttribute("data-share-dialog") || "Share this class",
+        })
         .catch(function () {}); // the person closed the sheet
       return;
     }

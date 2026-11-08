@@ -1,0 +1,22 @@
+bump = "minor"
+date = "2026-11-07"
+audience = ["members", "guild-staff", "admins"]
+feature = "guild.invite"
+target = "guild.invite"
+guidance = "shots"
+requests = [13]
+title = "Share a guild and invite members to join it"
+changes = [
+  "Every guild page has a Share button. Copy the guild's link, or send it by text or email, so anyone you send it to can read about the guild.",
+  "Guild leads, staff and admins also get an Invite button. Find members by name or email, tick as many as you like and press Send Invites.",
+  "Each person invited gets a notice and an email. They join by tapping Join on the guild page, and nobody is added to a guild until they do.",
+]
+
+[[shots]]
+caption = "Press Share beside the Join button to copy the guild's link, or send it by text or email."
+
+[[shots]]
+caption = "Guild leads, staff and admins press Invite, find members by name or email, tick them and press Send Invites."
+
+[[shots]]
+caption = "Each person invited gets a notice and an email, and joins by tapping Join on the guild page."

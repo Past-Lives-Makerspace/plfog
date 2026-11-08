@@ -1,0 +1,39 @@
+{% comment %}
+The Invite panel's body (#1137), loaded into the guild page's guild-invite modal by hub_guild_invite_panel:
+the composer's Add people shape (templates/hub/partials/_compose_recipient_picker.html), a search box
+that hides the rows that do not match, client side, and a checklist of every member not in the guild and
+not invited (membership.guild_invites.candidate_rows). Send Invites posts the ticked members to
+hub_guild_invite_send, which answers this body again with a toast and closes the modal once a send went out.
+{% endcomment %}
+<form class="pl-guild-invite" hx-post="{% url 'hub_guild_invite_send' guild.pk %}" hx-target="#guild-invite-body" hx-swap="innerHTML"
+      x-data="{ q: '', picked: 0 }"
+      @change="picked = $el.querySelectorAll('[data-guild-invite-pick]:checked').length"
+      data-guild-invite-panel>
+  {% csrf_token %}
+  <p class="pl-guild-invite__lead">Pick the members to invite. Each one gets a notice and an email with a Join button. Nobody joins until they tap Join.</p>
+  {% if candidates %}
+  <div class="pl-form-group pl-guild-invite__search">
+    <label class="pl-form-label" for="guild-invite-filter">Find members</label>
+    <input type="search" id="guild-invite-filter" autocomplete="off" placeholder="Type a name or email"
+           x-model="q" @keydown.enter.prevent data-guild-invite-filter>
+  </div>
+  <div class="pl-recipient-checklist pl-guild-invite__list" role="group" aria-label="Members to invite">
+    {% for pk, label in candidates %}
+    <label class="pl-recipient-checklist__row" data-guild-invite-row data-search="{{ label|lower }}"
+           x-show="!q.trim() || $el.dataset.search.includes(q.trim().toLowerCase())">
+      <input type="checkbox" name="members" value="{{ pk }}" data-guild-invite-pick>
+      <span class="pl-recipient-checklist__label">{{ label }}</span>
+    </label>
+    {% endfor %}
+    <p class="pl-recipient-checklist__empty" data-guild-invite-none x-cloak
+       x-show="q.trim() && !Array.from($root.querySelectorAll('[data-guild-invite-row]')).some((row) => row.dataset.search.includes(q.trim().toLowerCase()))">No members match.</p>
+  </div>
+  <div class="pl-modal__actions pl-guild-invite__actions">
+    <button type="submit" class="pl-btn pl-btn--primary" :disabled="!picked" disabled hx-disabled-elt="this" data-guild-invite-send>
+      Send Invites<span x-show="picked" x-text="' (' + picked + ')'"></span>
+    </button>
+  </div>
+  {% else %}
+  <p class="pl-recipient-checklist__empty pl-guild-invite__empty" data-guild-invite-empty>Every active member is already in this guild or has an invite to it.</p>
+  {% endif %}
+</form>

@@ -10,6 +10,8 @@
 <link rel="stylesheet" href="{% static 'css/locations.css' %}">
 <link rel="stylesheet" href="{% static 'css/new-guild.css' %}">
 <link rel="stylesheet" href="{% static 'css/guild-announcements.css' %}">
+{% if shows_share or can_invite_to_guild %}<link rel="stylesheet" href="{% static 'css/guild-invite.css' %}">{% endif %}
+{% if shows_share %}<script defer src="{% static 'js/class_share.js' %}"></script>{% endif %}
 {% if kiln_home %}<link rel="stylesheet" href="{% static 'css/kiln-tickets.css' %}">{% endif %}
 {% if show_polls_tab %}<link rel="stylesheet" href="{% static 'css/polls.css' %}">{% endif %}
 {% if cubby_tab %}<link rel="stylesheet" href="{% static 'css/cubbies.css' %}">{% endif %}
@@ -129,11 +131,23 @@
         {% if next_meeting %}<span class="hub-badge">{% if next_meeting.is_meeting %}Next meeting{% else %}Next up{% endif %} {{ next_meeting.when|date:"M j" }}</span>{% endif %}
     </div>
     <div class="pl-guild-statbar__actions">
+        {# Share (#1137) for everyone who can see a guild members can see, on both surfaces; Invite for its lead, staff and admins, members surface only. #}
+        {% if shows_share %}{% include "hub/partials/_guild_share.html" %}{% endif %}
+        {% if can_invite_to_guild %}
+        <button type="button" class="pl-btn pl-btn--secondary pl-guild-invite-btn" data-guild-invite-open data-guidance-target="guild.invite"
+                @click="$dispatch('open-modal', 'guild-invite')" @guild-invites-sent.window="$dispatch('close-modal', 'guild-invite')"
+                hx-get="{% url 'hub_guild_invite_panel' guild.pk %}" hx-target="#guild-invite-body" hx-swap="innerHTML">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
+            <span>Invite</span>
+        </button>
+        {% endif %}
         {# Members surface only, as the CTA is: the guilds host serves no hub_whats_new, so the button would open an empty modal there. #}
         {% if not is_guilds_surface %}{% whats_new_button "guild" %}{% walkthrough_button "guild-lead" guild %}{% endif %}
         {% include "hub/partials/_guild_join_cta.html" %}
     </div>
 </div>
+{% if member and not is_guilds_surface %}{% include "hub/partials/_guild_invite_banner.html" %}{% endif %}
+{% if can_invite_to_guild %}{% include "components/modal.html" with modal_id="guild-invite" modal_title="Invite Members" modal_size="md" %}{% endif %}
 {# What's New (#1007): the statbar button loads /whats-new/?feature=guild into this modal's body on open. #}
 {% include "hub/partials/_guild_location_status.html" %}
 

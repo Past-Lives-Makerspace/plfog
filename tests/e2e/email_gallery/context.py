@@ -1115,6 +1115,18 @@ def guild_staff_welcome_context(data: SampleData) -> dict[str, Any]:
     }
 
 
+def guild_invite_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``membership.guild_invites.notify_invited``: the guild's lead invited the sample member."""
+    from membership import guild_invites
+    from membership.models import GuildInvite
+
+    invite = GuildInvite.objects.create(guild=data.guild, member=data.member, invited_by=data.lead)
+    return {
+        "subject": guild_invites.invited_subject(invite),
+        "template_context": guild_invites.email_context(invite),
+    }
+
+
 def cubby_waitlist_opened_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``membership.cubby_waitlist.notify_opened``: B3 on the Glaze Wall opened, and the sample member was first in line."""
     from membership import cubby_waitlist

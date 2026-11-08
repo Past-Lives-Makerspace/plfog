@@ -1436,16 +1436,21 @@ class Member(StaffRequestMixin, models.Model):
             self.guild_updates_prompt_answered_at = timezone.now()
             self.save(update_fields=["guild_updates_prompt_answered_at"])
 
-    def subscribe_to_guild(self, guild: Guild) -> bool:
+    def subscribe_to_guild(self, guild: Guild, source: str = "app") -> bool:
         """Subscribe this member to ``guild``'s updates (idempotent).
 
-        The one subscribe path: records the app-sourced :class:`GuildMembership` row,
-        fires the ``guild_joined`` fan-out (lead "New follower" notice + activity row, no
-        email) only when the row is new or upgraded from a Discord reaction, and always
-        self-heals the Discord role (idempotent, best-effort). The member-facing welcome
-        email is a *separate*, deliberate-join-only send (:meth:`send_guild_welcome`) — it
-        is intentionally not fired here, so the first-login picker and Settings toggle stay
-        silent.
+        The one subscribe path: records the :class:`GuildMembership` row (``source`` is
+        ``app``, or ``invite`` when the member accepted a :class:`GuildInvite`; the manager
+        closes any open invite of theirs to the guild), fires the ``guild_joined`` fan-out (lead "New
+        follower" notice + activity row, no email) only when the row is new or upgraded from a
+        Discord reaction, and always self-heals the Discord role (idempotent, best-effort). The
+        member-facing welcome email is a *separate*, deliberate-join-only send
+        (:meth:`send_guild_welcome`) — it is intentionally not fired here, so the first-login
+        picker and Settings toggle stay silent.
+
+        Args:
+            guild: The guild to join.
+            source: The :class:`GuildMembership.Source` a new row is written with.
 
         Returns:
             Whether this was a new or upgraded subscription (the fan-out fired).
@@ -1453,7 +1458,7 @@ class Member(StaffRequestMixin, models.Model):
         from core.events import discord_roles
         from membership import orientations
 
-        _membership, created, upgraded = GuildMembership.objects.record_app_join(guild, self)
+        _membership, created, upgraded = GuildMembership.objects.record_app_join(guild, self, source)
         if created or upgraded:
             orientations.member_joined_guild(guild, self)
         discord_roles.on_membership_changed(guild, self, joined=True)
@@ -3437,6 +3442,11 @@ class Guild(HeroCropMixin, models.Model):
         from membership.logos import logo_prefix_for
 
         return logo_prefix_for(self.name)
+
+    @property
+    def public_url(self) -> str:
+        """The guild's public page on the guilds site, the link its Share button passes on (#1137)."""
+        return f"{settings.GUILDS_BASE_URL}{reverse('hub_guild_detail', args=[self.slug])}"
 
     def classes_link(self, *, guilds_surface: bool = False) -> VirtualLink:
         """The always-present "[Guild] Classes" link for this guild's detail page.
@@ -8903,28 +8913,47 @@ class GuildMembershipManager(models.Manager["GuildMembership"]):
     inbound removal (it is promoted to — and never demoted from — ``source="app"``).
     """
 
-    def record_app_join(self, guild: Guild, member: Member) -> tuple[GuildMembership, bool, bool]:
-        """In-app join. Create as ``source="app"``; UPGRADE an existing ``source="discord"``
-        row to ``source="app"`` (an explicit join outranks a standing reaction).
+    def record_app_join(self, guild: Guild, member: Member, source: str = "app") -> tuple[GuildMembership, bool, bool]:
+        """In-app join. Create as ``source`` (``app``, or ``invite`` for an accepted guild invite);
+        UPGRADE an existing ``source="discord"`` row to it (an explicit join outranks a standing
+        reaction). An ``app`` or ``invite`` row is never rewritten: both are explicit joins.
 
         Returns ``(membership, created, upgraded)`` — ``upgraded`` is True when an existing
         discord-sourced row was promoted, so the caller can fire the join side-effect (the
         guild lead never heard about the silent reaction; the real join is worth a notice).
         """
-        membership, created = self.get_or_create(guild=guild, member=member, defaults={"source": self.model.Source.APP})
+        membership, created = self.get_or_create(guild=guild, member=member, defaults={"source": source})
         upgraded = False
-        if not created and membership.source != self.model.Source.APP:
-            membership.source = self.model.Source.APP
+        if not created and membership.source == self.model.Source.DISCORD:
+            membership.source = source
             membership.save(update_fields=["source"])
             upgraded = True
+        _close_open_invites(guild, member)
         return membership, created, upgraded
 
     def record_discord_join(self, guild: Guild, member: Member) -> tuple[GuildMembership, bool]:
         """Inbound reaction mirror. Create as ``source="discord"``; NEVER downgrade an
         existing ``source="app"`` row (``get_or_create`` with ``defaults`` leaves it
-        untouched). Returns ``(membership, created)``.
+        untouched). A new row closes the member's open invite to the guild; an existing one
+        already did when it was written, so the 15 minute reconcile adds no write per reactor.
+        Returns ``(membership, created)``.
         """
-        return self.get_or_create(guild=guild, member=member, defaults={"source": self.model.Source.DISCORD})
+        membership, created = self.get_or_create(
+            guild=guild, member=member, defaults={"source": self.model.Source.DISCORD}
+        )
+        if created:
+            _close_open_invites(guild, member)
+        return membership, created
+
+
+def _close_open_invites(guild: Guild, member: Member) -> None:
+    """Close ``member``'s open :class:`GuildInvite` to ``guild``: they joined it (#1137).
+
+    Every join path writes its membership through :class:`GuildMembershipManager`, so this is
+    the one place an invite closes on a join: the hero Join, the invite banner, the Settings
+    toggle, the first-login picker, Discord's ``/join-guild`` and the reaction sync.
+    """
+    GuildInvite.objects.open().filter(guild=guild, member=member).update(accepted_at=timezone.now())
 
 
 class GuildMembership(models.Model):
@@ -8933,6 +8962,7 @@ class GuildMembership(models.Model):
     class Source(models.TextChoices):
         APP = "app", "In-app join"
         DISCORD = "discord", "Discord reaction"
+        INVITE = "invite", "Accepted an invite"
 
     guild = models.ForeignKey(Guild, on_delete=models.CASCADE, related_name="memberships", help_text="The guild.")
     member = models.ForeignKey(
@@ -8944,9 +8974,10 @@ class GuildMembership(models.Model):
         choices=Source.choices,
         default=Source.APP,
         help_text=(
-            "How this membership was created: an in-app join (app) or a Discord-reaction mirror "
-            "(discord). Inbound reaction sync only ever adds/removes 'discord' rows and never touches "
-            "'app' rows — this is what keeps the two directions from fighting."
+            "How this membership was created: an in-app join (app), an accepted guild invite (invite) "
+            "or a Discord-reaction mirror (discord). Inbound reaction sync only ever adds/removes "
+            "'discord' rows and never touches 'app' or 'invite' rows — this is what keeps the two "
+            "directions from fighting."
         ),
     )
 
@@ -8959,6 +8990,66 @@ class GuildMembership(models.Model):
 
     def __str__(self) -> str:
         return f"{self.member} in {self.guild.name}"
+
+
+class GuildInviteQuerySet(models.QuerySet["GuildInvite"]):
+    """Query helpers for :class:`GuildInvite`."""
+
+    def open(self) -> GuildInviteQuerySet:
+        """Invites nobody has acted on yet: the invitee has not joined the guild since."""
+        return self.filter(accepted_at__isnull=True)
+
+
+class GuildInvite(models.Model):
+    """One member asked to join a guild by its lead, its staff or an admin (#1137).
+
+    Nobody joins by being invited: the invitee taps Join on the guild page's invite banner,
+    which goes through :meth:`Member.subscribe_to_guild` like the hero Join. ``uq_guildinvite_open``
+    allows one open invite per member per guild, so sending again is a no op
+    (``membership.guild_invites.send_invites``). An invite closes (``accepted_at``) when the
+    invitee joins the guild, by the banner or any other way.
+    """
+
+    guild = models.ForeignKey(
+        Guild, on_delete=models.CASCADE, related_name="invites", help_text="The guild the member is asked to join."
+    )
+    member = models.ForeignKey(
+        Member, on_delete=models.CASCADE, related_name="guild_invites", help_text="The member invited."
+    )
+    invited_by = models.ForeignKey(
+        Member,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Who sent the invite: the guild's lead, one of its staff or an admin.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the invite was sent.")
+    accepted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the invitee joined the guild, by this invite or on their own. Empty while open.",
+    )
+
+    objects = GuildInviteQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["guild", "member"],
+                condition=models.Q(accepted_at__isnull=True),
+                name="uq_guildinvite_open",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member} invited to {self.guild.name}"
+
+    @property
+    def is_open(self) -> bool:
+        """Whether the invitee has not joined the guild since it was sent."""
+        return self.accepted_at is None
 
 
 class DiscordGuildEmojiManager(models.Manager["DiscordGuildEmoji"]):

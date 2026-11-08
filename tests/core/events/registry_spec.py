@@ -116,6 +116,7 @@ _BRAND_NEW_KEYS = {
     "cubbies.staff_rental_ended",
     "cubbies.waitlist_opened",
     "guild_staff.welcome",
+    "guild.invited",
 }
 
 # The five staff emails #524 moved off fixed address lists, pinned as a literal: who gets

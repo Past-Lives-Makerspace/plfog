@@ -19,7 +19,7 @@ from factory.django import mute_signals
 
 from membership import discord_sync
 from membership.discord_sync import LinkOutcome
-from membership.models import DiscordLinkNudge, GuildMembership
+from membership.models import DiscordLinkNudge, GuildInvite, GuildMembership
 from tests.membership.factories import DiscordGuildEmojiFactory, GuildFactory, MemberFactory
 
 pytestmark = pytest.mark.django_db
@@ -117,6 +117,19 @@ def describe_import_member_guilds():
         assert put.called  # the app guild's role was assigned on Discord
 
     @respx.mock
+    def it_pushes_a_guild_joined_by_an_accepted_invite_as_a_role(sync_config):
+        # #1137: a source="invite" row is an in-app join, so linking Discord gives its role too.
+        invite_guild = GuildFactory(discord_role_ids=["r9"])
+        member = MemberFactory(discord_user_id="u1")
+        GuildMembership.objects.record_app_join(invite_guild, member, GuildMembership.Source.INVITE)
+        put = respx.put(url__regex=r"https://discord\.com/api/v10/guilds/.+/members/u1/roles/r9").mock(
+            return_value=httpx.Response(204)
+        )
+        _mock_reactions({})
+        discord_sync.import_member_guilds(member)
+        assert put.called
+
+    @respx.mock
     def it_reports_incomplete_when_a_fetch_is_truncated(sync_config):
         g1, g2 = GuildFactory(name="A"), GuildFactory(name="B")
         DiscordGuildEmojiFactory(emoji="🔥", guild=g1)
@@ -161,6 +174,18 @@ def describe_reconcile_reactions():
         assert GuildMembership.objects.filter(
             guild=guild, member=member, source=GuildMembership.Source.DISCORD
         ).exists()
+
+    @respx.mock
+    def it_closes_an_open_guild_invite_when_a_reaction_joins_the_member(sync_config):
+        # #1137: the reaction sync is a join path too, so the invite banner never offers a guild they are in.
+        guild = GuildFactory()
+        DiscordGuildEmojiFactory(emoji="🔥", guild=guild)
+        member = MemberFactory(discord_user_id="u1")
+        invite = GuildInvite.objects.create(guild=guild, member=member)
+        _mock_reactions({"🔥": ["u1"]})
+        discord_sync.reconcile_reactions()
+        invite.refresh_from_db()
+        assert not invite.is_open
 
     @respx.mock
     def it_ignores_a_reactor_with_no_linked_member(sync_config):

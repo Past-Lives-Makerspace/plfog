@@ -173,9 +173,12 @@ def import_member_guilds(member: Member) -> ImportResult:
     for guild in reacted.values():
         GuildMembership.objects.record_discord_join(guild, member)
 
-    # Push the member's in-app guilds onto Discord as roles now that they're linked.
-    for membership in GuildMembership.objects.filter(member=member, source=GuildMembership.Source.APP).select_related(
-        "guild"
+    # Push the member's in-app guilds (joined in the app or by an accepted invite) onto Discord as
+    # roles now that they're linked.
+    for membership in (
+        GuildMembership.objects.filter(member=member)
+        .exclude(source=GuildMembership.Source.DISCORD)
+        .select_related("guild")
     ):
         discord_roles.on_membership_changed(membership.guild, member, joined=True)
 

@@ -1,0 +1,20 @@
+{% comment %}
+The invite banner (#1137): an open GuildInvite for the viewer (membership.guild_invites.banner_invite).
+Join posts to hub_guild_invite_accept, which joins through the hero Join's path and answers the flipped
+CTA; that response carries this wrapper again with oob, empty, so the banner goes. The wrapper always
+renders on the members surface for a linked member, so the hero Join's OOB swap clears it too.
+{% endcomment %}
+<div id="guild-invite-banner"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% if guild_invite %}
+  <div class="hub-card pl-guild-invite-banner" data-guild-invite-banner>
+    <div class="pl-guild-invite-banner__text">
+      <p class="pl-guild-invite-banner__title">{% if guild_invite.invited_by %}{{ guild_invite.invited_by.display_name }} invited you to join {{ guild.name }}{% else %}You're invited to join {{ guild.name }}{% endif %}</p>
+      <p class="pl-guild-invite-banner__hint">Join to get the guild's updates and appear on its roster. You can leave any time.</p>
+    </div>
+    <form hx-post="{% url 'hub_guild_invite_accept' guild_invite.pk %}" hx-target="#guild-join-cta" hx-swap="outerHTML" class="pl-guild-invite-banner__form">
+      {% csrf_token %}
+      <button type="submit" class="pl-btn pl-btn--primary" hx-disabled-elt="this" data-guild-invite-accept>Join {{ guild.name }}</button>
+    </form>
+  </div>
+  {% endif %}
+</div>

@@ -1,0 +1,149 @@
+/* Share and Invite on the guild page (#1137), loaded by hub/guild_detail.html when either shows.
+   Share is the class page's button and menu (.cp-share in cms-public.css) under the guild's own
+   names; Invite opens the guild-invite modal, whose body is the composer's Add people checklist
+   (.pl-recipient-checklist in hub.css). The invite banner sits under the stat chips. Token
+   fallbacks throughout, since the guilds host draws this page on its own light theme too. */
+
+/* With Share, Invite, What's New and the CTA the row can outgrow a phone: let it wrap, right aligned. */
+.pl-guild-statbar__actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* ── Share ── */
+.pl-guild-share {
+  position: relative;
+  display: inline-block;
+}
+.pl-guild-share__btn,
+.pl-guild-invite-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+/* The dropdown opens under the button, anchored to its right edge: the actions sit at the row's right. */
+.pl-guild-share__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 180px;
+  padding: 6px;
+  background: var(--hub-elevated, #ffffff);
+  border: 1px solid var(--hub-border-strong, rgba(9, 46, 76, 0.2));
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  z-index: 60;
+}
+.pl-guild-share__menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pl-guild-share__item {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--hub-text, #1d1e1e);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+a.pl-guild-share__item,
+a.pl-guild-share__item:visited {
+  color: var(--hub-text, #1d1e1e);
+}
+.pl-guild-share__item:hover,
+.pl-guild-share__item:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--hub-text, #1d1e1e);
+  text-decoration: none;
+}
+[data-theme="light"] .pl-guild-share__item:hover,
+[data-theme="light"] .pl-guild-share__item:focus-visible {
+  background: rgba(9, 46, 76, 0.07);
+}
+/* Shown only when the clipboard write failed: a readonly copy of the link to select by hand. */
+.pl-guild-share__manual {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 260px;
+  margin: 6px 0 2px;
+  padding: 7px 10px;
+  border: 1px solid var(--hub-input-border, rgba(9, 46, 76, 0.2));
+  border-radius: 6px;
+  background: var(--hub-input-bg, #ffffff);
+  color: var(--hub-text, #1d1e1e);
+  font-family: inherit;
+  font-size: 13px;
+}
+/* On a phone the row becomes the offset parent and the panel spans it, so the copy field never runs off screen. */
+@media (max-width: 480px) {
+  .pl-guild-statbar__actions { position: relative; }
+  .pl-guild-share { position: static; }
+  .pl-guild-share__panel { left: 0; right: 0; min-width: 0; }
+  .pl-guild-share__manual { min-width: 0; }
+}
+
+/* ── Invite panel (inside the guild-invite modal) ── */
+.pl-guild-invite__lead {
+  margin: 0 0 1rem;
+  color: var(--hub-text-muted, #5b6675);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.pl-guild-invite__search {
+  margin-bottom: 0.75rem;
+}
+.pl-guild-invite__search input {
+  max-width: 520px;
+}
+.pl-guild-invite__list {
+  max-height: 16rem;
+}
+.pl-guild-invite__actions {
+  margin-top: 1rem;
+}
+.pl-guild-invite__empty {
+  margin-top: 0.75rem;
+}
+
+/* ── Invite banner (under the stat chips) ── */
+.pl-guild-invite-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  margin: 0 0 1.5rem;
+  border-left: 4px solid var(--color-tuscan-yellow, #eeb44b);
+}
+.pl-guild-invite-banner__text {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+.pl-guild-invite-banner__title {
+  margin: 0;
+  font-weight: 700;
+  color: var(--hub-text, #1d1e1e);
+}
+.pl-guild-invite-banner__hint {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  color: var(--hub-text-muted, #5b6675);
+}
+.pl-guild-invite-banner__form {
+  margin: 0;
+}
+@media (max-width: 480px) {
+  .pl-guild-invite-banner__form,
+  .pl-guild-invite-banner__form .pl-btn {
+    width: 100%;
+  }
+}

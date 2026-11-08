@@ -93,6 +93,16 @@ def can_manage_cubbies(request: HttpRequest, guild: Guild) -> bool:
     return member is not None and (guild.guild_lead_id == member.pk or guild.is_staffed_by(member))
 
 
+def can_invite_to_guild(request: HttpRequest, guild: Guild) -> bool:
+    """True when this request may invite members to join ``guild`` (#1137).
+
+    The :func:`can_manage_cubbies` rule (an admin, the lead, or any staff member; the Guild
+    Officer tier opens nothing; ``view_as`` aware), on a guild members can see: a hidden guild
+    (``is_active`` off) opens for nobody but its own leaders, so an invitee could not reach it.
+    """
+    return guild.is_active and can_manage_cubbies(request, guild)
+
+
 def can_set_class_reviewers(request: HttpRequest, guild: Guild) -> bool:
     """True when this request may flip a staff member's Class Reviewer switch on ``guild`` (#816).
 
