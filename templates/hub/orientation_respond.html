@@ -20,6 +20,12 @@
     <p style="margin:0 0 0.25rem;">{{ booking.slot.starts_at|date:"l, F j" }} at {{ booking.slot.starts_at|time:"g:i A" }}{% if booking.slot.location %} · {{ booking.slot.location }}{% endif %}</p>
     <p class="hub-text-muted" style="margin:0 0 0.25rem;">Runs with: {% if booking.slot.orienter %}{{ booking.slot.orienter.display_name }}{% else %}Any orientor{% endif %}</p>
     <p class="hub-text-muted" style="margin:0 0 0.25rem;">Status: {{ booking.get_status_display }}</p>
+    {% if booking.hold_state == "held" or booking.hold_state == "released" %}
+    {# A card hold (#1128): money in hand only once confirming charges it. #}
+    <p style="margin:0.5rem 0 0.25rem; display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+      <span class="pl-price-chip" data-hold-chip="{{ booking.hold_state }}">{% if booking.hold_state == "held" %}Card held {{ booking.authorized_cents|cents_as_price }}{% else %}Hold released{% endif %}</span>
+    </p>
+    {% endif %}
     {% if booking.amount_paid_cents %}
     <p style="margin:0.5rem 0 0.25rem; display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
       <span class="pl-price-chip">Paid {{ booking.amount_paid_cents|cents_as_price }}</span>
@@ -62,6 +68,7 @@
       {% csrf_token %}
       <input type="hidden" name="action" value="confirm">
       <button type="submit" class="hub-btn hub-btn--primary">Confirm orientation</button>
+      {% if booking.hold_state == "held" %}<p class="pl-refund-note" data-hold-note="confirm">Confirming charges the {{ booking.authorized_cents|cents_as_price }} held on their card.</p>{% endif %}
     </form>
     <form method="post">
       {% csrf_token %}
@@ -70,7 +77,9 @@
         <label for="decline-note">Decline with an optional note (e.g. suggest another time). It goes in the decline email and the booking's messages:</label>
         <textarea id="decline-note" name="note" rows="3"></textarea>
       </div>
-      {% if booking.amount_paid_cents %}
+      {% if booking.hold_state == "held" %}
+      <p class="pl-refund-note" data-hold-note="decline">Declining releases the {{ booking.authorized_cents|cents_as_price }} hold on their card. Nothing is charged.</p>
+      {% elif booking.amount_paid_cents %}
       <p class="pl-refund-note">Declining refunds their {{ booking.amount_paid_cents|cents_as_price }} automatically.</p>
       {% endif %}
       <button type="submit" class="hub-btn hub-btn--sm hub-btn--danger">Decline request</button>

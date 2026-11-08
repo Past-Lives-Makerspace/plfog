@@ -10,6 +10,18 @@ Stripe. Context: booking_rows, bookings_next.
 {% with b=row.booking pk=row.booking.pk|stringformat:"s" name=row.booking.member.display_name %}
 {% if row.can_reply %}
 {% url 'hub_orientation_respond' b.pk as respond_url %}
+{% if b.hold_state == "held" %}
+{% with held=b.authorized_cents|cents_as_price %}
+{% with confirm_message="We'll email "|add:name|add:" that their time is set. Confirming charges the "|add:held|add:" held on their card." %}
+{% include "components/confirm_modal.html" with confirm_id="booking-confirm-"|add:pk confirm_title="Confirm This Orientation?" confirm_message=confirm_message confirm_action_url=respond_url confirm_field_name="action" confirm_field_value="confirm" confirm_next=bookings_next confirm_button_text="Confirm" confirm_button_style="primary" %}
+{% endwith %}
+{% endwith %}
+{% with held=b.authorized_cents|cents_as_price %}
+{% with decline_message="We'll email "|add:name|add:" and include your note, which also goes in the booking's messages. The "|add:held|add:" hold on their card is released, so nothing is charged." %}
+{% include "components/confirm_modal.html" with confirm_id="booking-decline-"|add:pk confirm_title="Decline This Request?" confirm_message=decline_message confirm_action_url=respond_url confirm_field_name="action" confirm_field_value="decline" confirm_next=bookings_next confirm_note_name="note" confirm_note_label="Note (optional)" confirm_note_placeholder="Suggest another time" confirm_button_text="Decline" %}
+{% endwith %}
+{% endwith %}
+{% else %}
 {% with confirm_message="We'll email "|add:name|add:" that their time is set." %}
 {% include "components/confirm_modal.html" with confirm_id="booking-confirm-"|add:pk confirm_title="Confirm This Orientation?" confirm_message=confirm_message confirm_action_url=respond_url confirm_field_name="action" confirm_field_value="confirm" confirm_next=bookings_next confirm_button_text="Confirm" confirm_button_style="primary" %}
 {% endwith %}
@@ -23,6 +35,7 @@ Stripe. Context: booking_rows, bookings_next.
 {% with decline_message="We'll email "|add:name|add:" and include your note, which also goes in the booking's messages." %}
 {% include "components/confirm_modal.html" with confirm_id="booking-decline-"|add:pk confirm_title="Decline This Request?" confirm_message=decline_message confirm_action_url=respond_url confirm_field_name="action" confirm_field_value="decline" confirm_next=bookings_next confirm_note_name="note" confirm_note_label="Note (optional)" confirm_note_placeholder="Suggest another time" confirm_button_text="Decline" %}
 {% endwith %}
+{% endif %}
 {% endif %}
 {% endif %}
 {% if row.can_move %}
@@ -84,7 +97,11 @@ Stripe. Context: booking_rows, bookings_next.
 {% endif %}
 {% if row.can_cancel_mine %}
 {% url 'hub_orientation_cancel_mine' b.pk as cancel_mine_url %}
-{% if b.amount_paid_cents %}
+{% if b.hold_state == "held" %}
+{% with cancel_mine_message="The hold on your card is released, so you're not charged. You can request a new orientation any time. "|add:row.late_cancel_warning %}
+{% include "components/confirm_modal.html" with confirm_id="booking-cancel-mine-"|add:pk confirm_title="Cancel Your Orientation?" confirm_message=cancel_mine_message confirm_action_url=cancel_mine_url confirm_next=bookings_next confirm_no_boost=True confirm_button_text="Cancel Orientation" %}
+{% endwith %}
+{% elif b.amount_paid_cents %}
 {% with cancel_mine_message="You'll get an automatic full refund. You can request a new orientation any time. "|add:row.late_cancel_warning %}
 {% include "components/confirm_modal.html" with confirm_id="booking-cancel-mine-"|add:pk confirm_title="Cancel Your Orientation?" confirm_message=cancel_mine_message confirm_action_url=cancel_mine_url confirm_next=bookings_next confirm_no_boost=True confirm_button_text="Cancel Orientation" %}
 {% endwith %}

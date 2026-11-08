@@ -7,7 +7,9 @@ Your orientation for {{ owner_name }} has a new time, and it's confirmed.
   Now: {{ slot.starts_at|date:"l, F j" }} at {{ slot.starts_at|time:"g:i A" }}{% if slot.with_label %} {{ slot.with_label }}{% endif %}
 {% if slot.location %}  Where: {{ slot.location }}
 {% endif %}{% if move_message %}
-{% include "membership/emails/_booking_message.txt" with message=move_message %}{% endif %}{% if booking.amount_paid_cents %}
+{% include "membership/emails/_booking_message.txt" with message=move_message %}{% endif %}{% if charged_now %}{% load classes_tags %}
+Your orientation is confirmed, so we charged the {{ booking.amount_paid_cents|cents_as_price }} held on your card.
+{% elif booking.amount_paid_cents %}
 Your payment stays with this booking. Nothing was refunded or charged.
 {% endif %}
 We've attached an updated calendar invite. See you there!

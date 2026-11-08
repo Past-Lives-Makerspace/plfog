@@ -23,6 +23,8 @@
     {% elif result == "stale" %}<h1 style="font-size:18px; margin:0 0 12px;">This New Time Is No Longer Open</h1><p style="font-size:14px; color:#96ACBB; line-height:1.6; margin:0;">It was answered already, or a different time was offered since. Sign in to the member hub to see where your orientation stands.</p>
     {% elif result == "passed" %}<h1 style="font-size:18px; margin:0 0 12px;">That New Time Has Passed</h1><p style="font-size:14px; color:#96ACBB; line-height:1.6; margin:0;">It came before an answer did, so your orientation stays on {{ booking.slot.starts_at|date:"l, F j" }} at {{ booking.slot.starts_at|time:"g:i A" }}.</p>
     {% elif result == "unavailable" %}<h1 style="font-size:18px; margin:0 0 12px;">That New Time Can't Be Booked</h1><p style="font-size:14px; color:#96ACBB; line-height:1.6; margin:0;">Your orientation can't move to that time anymore, so it stays at its current time. Sign in to the member hub to see where it stands.</p>
+    {% elif result == "card_failed" %}<h1 data-capture-result="card_failed" style="font-size:18px; margin:0 0 12px;">The Card Couldn't Be Charged</h1><p style="font-size:14px; color:#96ACBB; line-height:1.6; margin:0;">The hold on the card may have expired, or the card was declined. The request was declined, nothing was charged, and we emailed {% if action == "confirm" %}{{ booking.member.display_name }}{% else %}you{% endif %} to book again.</p>
+    {% elif result == "try_again" %}<h1 data-capture-result="try_again" style="font-size:18px; margin:0 0 12px;">Try Again in a Minute</h1><p style="font-size:14px; color:#96ACBB; line-height:1.6; margin:0;">We couldn't reach our payment processor to charge the card, so nothing changed. Open this link again in a minute.</p>
     {% else %}<h1 style="font-size:18px; margin:0 0 12px;">Already Handled</h1><p style="font-size:14px; color:#96ACBB; margin:0;">This orientation has already been resolved — nothing more to do.</p>{% endif %}
   {% else %}
     <h1 style="font-size:18px; margin:0 0 8px;">
@@ -41,7 +43,12 @@
       {{ booking.slot.starts_at|date:"l, F j" }} at {{ booking.slot.starts_at|time:"g:i A" }}{% if booking.slot.location %} · {{ booking.slot.location }}{% endif %}
     </p>
     {% endif %}
-    {% if booking.amount_paid_cents and action != "confirm" and action != "accept_time" and action != "keep_time" %}
+    {% if booking.hold_state == "held" %}
+    {# A card hold (#1128): confirming charges it, declining or cancelling releases it. #}
+    <p data-hold-note style="font-size:13px; color:#96ACBB; margin:0 0 20px;">
+      {% if action == "confirm" %}Confirming charges the {{ booking.authorized_cents|cents_as_price }} held on their card.{% elif action == "accept_time" %}Accepting confirms your orientation and charges the {{ booking.authorized_cents|cents_as_price }} held on your card.{% elif action == "keep_time" %}Your card stays held, not charged, until your orientation is confirmed.{% elif action == "decline" %}Declining releases the {{ booking.authorized_cents|cents_as_price }} hold on their card. Nothing is charged.{% else %}Cancelling releases the {{ booking.authorized_cents|cents_as_price }} hold on the card. Nothing is charged.{% endif %}
+    </p>
+    {% elif booking.amount_paid_cents and action != "confirm" and action != "accept_time" and action != "keep_time" %}
     <p style="font-size:13px; color:#96ACBB; margin:0 0 20px;">
       {% if action == "decline" %}Declining refunds their {{ booking.amount_paid_cents|cents_as_price }} automatically.{% else %}Cancelling refunds their {{ booking.amount_paid_cents|cents_as_price }} automatically.{% endif %}
     </p>

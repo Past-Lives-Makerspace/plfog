@@ -172,6 +172,158 @@ def describe_create_payment_intent():
         assert result["receipt_url"] == ""
 
 
+def describe_create_checkout_session():
+    def _create(client: MagicMock, **extra):
+        client.v1.checkout.sessions.create.return_value = MagicMock(id="cs_1", url="https://checkout.example/cs_1")
+        with patch("billing.stripe_utils._get_stripe_client", return_value=client):
+            stripe_utils.create_checkout_session(
+                amount_cents=1500,
+                product_name="Lathe orientation",
+                customer_email="a@example.com",
+                success_url="https://x/s",
+                cancel_url="https://x/c",
+                metadata={"kind": "orientation_booking"},
+                idempotency_key="k",
+                **extra,
+            )
+        return client.v1.checkout.sessions.create.call_args.kwargs["params"]
+
+    def it_charges_at_once_by_default_so_classes_and_reservations_are_unchanged():
+        params = _create(_mock_client())
+        assert "capture_method" not in params["payment_intent_data"]
+        assert "custom_text" not in params
+        assert params["line_items"][0]["price_data"]["product_data"] == {"name": "Lathe orientation"}
+
+    def it_holds_the_card_with_manual_capture_and_says_so_when_asked():
+        # #1128: an orientation checkout authorizes the card and charges it only on confirm.
+        params = _create(_mock_client(), hold_only=True, hold_note="Your card is held, not charged.")
+        assert params["payment_intent_data"]["capture_method"] == "manual"
+        assert params["payment_intent_data"]["metadata"] == {"kind": "orientation_booking"}
+        assert params["custom_text"] == {"submit": {"message": "Your card is held, not charged."}}
+        assert params["line_items"][0]["price_data"]["product_data"]["description"] == "Your card is held, not charged."
+
+
+def describe_payment_intent_calls():
+    def _intent(status: str) -> MagicMock:
+        return MagicMock(id="pi_1", status=status, amount=1500, amount_capturable=0, amount_received=1500)
+
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_reads_a_payment_intent(mock_get_client):
+        client = _mock_client()
+        client.v1.payment_intents.retrieve.return_value = MagicMock(
+            id="pi_1", status="requires_capture", amount=1500, amount_capturable=1500, amount_received=0
+        )
+        mock_get_client.return_value = client
+        assert stripe_utils.retrieve_payment_intent(payment_intent_id="pi_1") == {
+            "id": "pi_1",
+            "status": "requires_capture",
+            "amount": 1500,
+            "amount_capturable": 1500,
+            "amount_received": 0,
+            "capture_before": None,
+        }
+        client.v1.payment_intents.retrieve.assert_called_once_with("pi_1", params={"expand": ["latest_charge"]})
+
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_reads_stripes_capture_deadline_from_the_expanded_charge(mock_get_client):
+        client = _mock_client()
+        charge = stripe.Charge.construct_from(
+            {"id": "ch_1", "object": "charge", "payment_method_details": {"card": {"capture_before": 1_800_000_000}}},
+            "sk_test",
+        )
+        client.v1.payment_intents.retrieve.return_value = MagicMock(
+            id="pi_1",
+            status="requires_capture",
+            amount=1500,
+            amount_capturable=1500,
+            amount_received=0,
+            latest_charge=charge,
+        )
+        mock_get_client.return_value = client
+        assert stripe_utils.retrieve_payment_intent(payment_intent_id="pi_1")["capture_before"] == 1_800_000_000
+
+    @pytest.mark.parametrize(
+        "details",
+        [None, {"type": "cashapp"}],
+    )
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_reads_no_deadline_without_card_details(mock_get_client, details):
+        client = _mock_client()
+        charge = stripe.Charge.construct_from(
+            {"id": "ch_1", "object": "charge", "payment_method_details": details}, "sk"
+        )
+        client.v1.payment_intents.retrieve.return_value = MagicMock(
+            id="pi_1",
+            status="requires_capture",
+            amount=1500,
+            amount_capturable=1500,
+            amount_received=0,
+            latest_charge=charge,
+        )
+        mock_get_client.return_value = client
+        assert stripe_utils.retrieve_payment_intent(payment_intent_id="pi_1")["capture_before"] is None
+
+    @pytest.mark.parametrize(
+        "charge",
+        [
+            "ch_unexpanded",
+            stripe.Charge.construct_from({"id": "ch_1", "object": "charge"}, "sk"),
+        ],
+    )
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_reads_no_deadline_from_a_charge_missing_its_fields(mock_get_client, charge):
+        client = _mock_client()
+        client.v1.payment_intents.retrieve.return_value = stripe.PaymentIntent.construct_from(
+            {
+                "id": "pi_1",
+                "object": "payment_intent",
+                "status": "requires_capture",
+                "amount": 1500,
+                "amount_capturable": 1500,
+                "amount_received": 0,
+                "latest_charge": charge,
+            },
+            "sk",
+        )
+        mock_get_client.return_value = client
+        assert stripe_utils.retrieve_payment_intent(payment_intent_id="pi_1")["capture_before"] is None
+
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_reads_no_deadline_from_an_intent_sent_without_a_charge(mock_get_client):
+        client = _mock_client()
+        client.v1.payment_intents.retrieve.return_value = stripe.PaymentIntent.construct_from(
+            {
+                "id": "pi_1",
+                "object": "payment_intent",
+                "status": "requires_capture",
+                "amount": 1500,
+                "amount_capturable": 1500,
+                "amount_received": 0,
+            },
+            "sk",
+        )
+        mock_get_client.return_value = client
+        assert stripe_utils.retrieve_payment_intent(payment_intent_id="pi_1")["capture_before"] is None
+
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_captures_a_hold_with_no_idempotency_key(mock_get_client):
+        client = _mock_client()
+        client.v1.payment_intents.capture.return_value = _intent("succeeded")
+        mock_get_client.return_value = client
+        result = stripe_utils.capture_payment_intent(payment_intent_id="pi_1")
+        assert result["status"] == "succeeded"
+        assert result["amount_received"] == 1500
+        client.v1.payment_intents.capture.assert_called_once_with("pi_1")
+
+    @patch("billing.stripe_utils._get_stripe_client")
+    def it_cancels_a_hold(mock_get_client):
+        client = _mock_client()
+        client.v1.payment_intents.cancel.return_value = _intent("canceled")
+        mock_get_client.return_value = client
+        assert stripe_utils.cancel_payment_intent(payment_intent_id="pi_1")["status"] == "canceled"
+        client.v1.payment_intents.cancel.assert_called_once_with("pi_1")
+
+
 def describe_construct_webhook_event():
     @patch("billing.stripe_utils.stripe.Webhook.construct_event")
     def it_delegates_to_stripe_sdk(mock_construct, configured_billing_stripe):

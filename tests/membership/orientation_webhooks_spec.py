@@ -10,6 +10,7 @@ from django.core import mail
 from core.models import SiteActivity
 from membership import webhook_handlers
 from membership.models import OrientationBooking, OrientationSlot
+from tests.membership.stripe_intents import charged_at_once
 from tests.membership.factories import (
     GuildOrientationSettingsFactory,
     OrientationBookingFactory,
@@ -18,6 +19,16 @@ from tests.membership.factories import (
 )
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture(autouse=True)
+def _charged_at_once():
+    """Every session here charged the card at once, as checkouts did before #1128.
+
+    The card hold road (manual capture) has its own spec: ``orientation_card_hold_spec.py``.
+    """
+    with charged_at_once():
+        yield
 
 
 def _event(kind: str = "orientation_booking", *, booking_id=None, payment_status: str = "paid", **extra):
@@ -80,7 +91,8 @@ def describe_handle_checkout_session_completed():
 
     def it_stamps_the_webhooks_amount_total_as_canonical():
         hold = _hold(amount_paid_cents=1500)
-        webhook_handlers.handle_checkout_session_completed(_event(booking_id=hold.pk, amount_total=1600))
+        with charged_at_once(1600):
+            webhook_handlers.handle_checkout_session_completed(_event(booking_id=hold.pk, amount_total=1600))
         hold.refresh_from_db()
         assert hold.amount_paid_cents == 1600
 

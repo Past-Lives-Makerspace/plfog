@@ -48,6 +48,7 @@ _DISPATCHER_ALWAYS = {
     "announce_new_classes",
     "sync_interested_rsvps",
     "expire_orientation_payment_holds",
+    "release_orientation_card_holds",
     "release_reservation_payment_holds",
     "release_cubby_payment_holds",
     "release_abandoned_class_holds",

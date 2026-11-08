@@ -28,7 +28,7 @@ hub_orientation_block_starts. Context:
   {% include "components/form_field.html" with field=form.note %}
   {% if amount_form %}{% include "components/form_field.html" with field=amount_form.amount %}{% endif %}
   {% if orientation_type.is_paid %}
-  <p class="hub-text-muted" style="margin:0.75rem 0 0; font-size:0.85rem;">You pay {{ orientation_type.price_cents|cents_as_price }} when you book, with an automatic full refund if the guild can't make it work.</p>
+  <p class="hub-text-muted" style="margin:0.75rem 0 0; font-size:0.85rem;">Your card is held for {{ orientation_type.price_cents|cents_as_price }} when you book and charged only when an Orientor confirms. If the guild can't make it work, the hold is released.</p>
   {% endif %}
   <div style="margin-top:0.75rem;">
     {% if amount_form %}

@@ -104,6 +104,8 @@ class Recipients(str, Enum):
     # a refund (exactly the set ``refund_authority_required`` admits).
     REFUND_AUTHORITY = "refund_authority"
     GUILD_LEAD = "guild_lead"
+    # The lead plus every Active Co-Lead: who hears an orientation was confirmed (#1134).
+    GUILD_LEAD_AND_CO_LEADS = "guild_lead_and_co_leads"
     GUILD_MEMBERS = "guild_members"
     GUILD_ORIENTERS = "guild_orienters"
     # Composed (never a union): equipment in context -> the equipment's managers;
@@ -1624,18 +1626,18 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
-    # orientation.confirmed_to_lead — a guild orientation was confirmed by someone other than
-    # the guild lead (an Orientor, an admin, an email link), by Confirm, Move It Now or the
-    # member accepting a proposed time (#1127). The lead no longer gets every request, so this
-    # is how they hear the outcome: the member, the orientation, the time and who confirmed
-    # it. Guild owned only; equipment keeps its own routing. Once per booking. No activity
-    # row: confirming already logs ORIENTATION_CONFIRMED.
+    # orientation.confirmed_to_lead — a guild orientation was confirmed, by Confirm, Move It Now
+    # or the member accepting a proposed time (#1127). The lead and every Co-Lead (#1134) no
+    # longer get the requests, so this is how they hear the outcome: who is orienting whom, for
+    # what, when. Never to whoever runs it or confirmed it. Guild owned only; equipment keeps its
+    # own routing. Once per booking per person. No activity row: confirming already logs
+    # ORIENTATION_CONFIRMED.
     EventType(
         key=ORIENTATION_CONFIRMED_TO_LEAD,
         label="Orientation confirmed",
-        description="Someone else confirmed an orientation in a guild you lead.",
+        description="Someone else is running an orientation in a guild you lead or co-lead.",
         category="Orientations",
-        recipient=Recipients.GUILD_LEAD,
+        recipient=Recipients.GUILD_LEAD_AND_CO_LEADS,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),

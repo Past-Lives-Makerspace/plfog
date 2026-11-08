@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0269_orientation_bill_reminders"),
+        ("membership", "0270_orientation_card_hold"),
     ]
 
     operations = [

@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from membership import orientations
 from membership.models import OrientationBooking, OrientationSlot
+from tests.membership.stripe_intents import charged_at_once
 from tests.membership.factories import (
     GuildOrientationSettingsFactory,
     MemberFactory,
@@ -23,6 +24,17 @@ from tests.membership.factories import (
 )
 
 pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture(autouse=True)
+def _charged_at_once():
+    """A landed session here charged the card at once, as checkouts did before #1128.
+
+    The card hold road (manual capture) is covered in ``orientation_card_hold_views_spec.py``.
+    """
+    with charged_at_once():
+        yield
+
 
 _SESSION = {"id": "cs_view_1", "url": "https://checkout.stripe.example/cs_view_1"}
 

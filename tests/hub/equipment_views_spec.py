@@ -1210,7 +1210,7 @@ def describe_equipment_orientation_surface():
         assert 'id="equipment-orientation"' in content
         assert "Request" in content
         assert "$15" in content
-        assert "now through our secure checkout" in content  # paid confirm copy
+        assert "Our secure checkout holds $15 on your card." in content  # paid confirm copy (#1128)
 
     def it_shows_oriented_pending_and_hold_states(client: Client):
         from membership.models import OrientationBooking

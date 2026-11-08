@@ -314,6 +314,24 @@ def guild_lead(context: dict[str, Any]) -> list[Recipient]:
     return _members_to_recipients([lead], "guild_lead")
 
 
+def guild_lead_and_co_leads(context: dict[str, Any]) -> list[Recipient]:
+    """GUILD-SCOPED — the lead plus every staff member holding the Co-Lead role, Active only (#1134).
+
+    Who hears that a guild orientation was confirmed. Other staff (Orientors, secretaries,
+    treasurers) are not asked; a member who is not Active, or has no account, is skipped. The
+    sender leaves out whoever runs or confirmed the orientation. A missing ``guild`` key fails loudly.
+    """
+    from membership.models import GuildStaffMembership, Member
+
+    guild: Guild = _require(context, "guild")
+    leaders: list[Member] = []
+    if guild.guild_lead is not None:
+        leaders.append(guild.guild_lead)
+    rows = guild.staff_memberships.select_related("member__user").filter(role=GuildStaffMembership.Role.CO_LEAD)
+    leaders += [row.member for row in rows]
+    return _members_to_recipients([m for m in leaders if m.status == Member.Status.ACTIVE], "guild_lead_or_co_lead")
+
+
 def guild_members(context: dict[str, Any]) -> list[Recipient]:
     """GUILD-SCOPED — every active member who has joined the guild (Decision 4).
 
@@ -363,12 +381,12 @@ def guild_request_orientors(context: dict[str, Any]) -> list[Recipient]:
     """GUILD-SCOPED — who is told about a guild orientation request and its messages (#1127).
 
     * a personal slot: the Orientor the member booked, alone, while they still run this
-      guild's orientations (:func:`_runs_guild_orientations`). Leaving the staff keeps their
-      booked slots, so after that the slot is treated as shared;
+      guild's orientations (:meth:`membership.models.Guild.orientor_ids`). Leaving the
+      staff keeps their booked slots, so after that the slot is treated as shared;
     * a shared slot, a member's proposed time or no slot in context: every Active staff
       member holding the Orientor role.
 
-    The guild lead hears about the outcome instead (``orientation.confirmed_to_lead``).
+    The guild lead and Co-Leads hear about the outcome instead (``orientation.confirmed_to_lead``).
     A request is never unheard: when that audience reaches nobody (no Orientor, or none
     with an account) it goes to the guild lead, and with no reachable lead either to the
     whole :func:`guild_leadership`. A missing ``guild`` key fails loudly.
@@ -381,7 +399,7 @@ def guild_request_orientors(context: dict[str, Any]) -> list[Recipient]:
         slot is not None
         and slot.orienter_id is not None
         and slot.orienter is not None
-        and _runs_guild_orientations(guild, slot.orienter)
+        and slot.orienter_id in guild.orientor_ids()
     ):
         orientors = _members_to_recipients([slot.orienter], "guild_orienter")
     else:
@@ -429,20 +447,6 @@ def guild_orienters(context: dict[str, Any]) -> list[Recipient]:
             members.append(staff.member)
             seen.add(staff.member_id)
     return _members_to_recipients(members, "guild_orienter")
-
-
-def _runs_guild_orientations(guild: Guild, member: Member) -> bool:
-    """Whether ``member`` still runs ``guild``'s orientations: Active, and its lead or on its staff.
-
-    The rule :meth:`membership.models.OrientationSlot.is_bookable` applies to a personal slot,
-    plus Active, so a removed, former or deleted Orientor's still booked slot is not theirs to
-    hear about. Replaceable by ``member.pk in guild.orientor_ids()`` once that lands (#1129).
-    """
-    from membership.models import Member
-
-    if member.status != Member.Status.ACTIVE:
-        return False
-    return member.pk in {leader.pk for leader in guild.leadership_members()}
 
 
 def orientation_runner(context: dict[str, Any]) -> list[Recipient]:
@@ -819,6 +823,7 @@ _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.WEBMASTERS: webmasters,
     Recipients.REFUND_AUTHORITY: refund_authority,
     Recipients.GUILD_LEAD: guild_lead,
+    Recipients.GUILD_LEAD_AND_CO_LEADS: guild_lead_and_co_leads,
     Recipients.GUILD_MEMBERS: guild_members,
     Recipients.GUILD_ORIENTERS: guild_orienters,
     Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS: guild_orienters_or_equipment_managers,

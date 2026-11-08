@@ -2773,6 +2773,14 @@ def orientation_proposal_answer(request: HttpRequest, booking_pk: int) -> HttpRe
         messages.info(request, "That new time has already passed, so your orientation stays at its current time.")
     elif result == "unavailable":
         messages.info(request, "That new time can't be booked anymore, so your orientation stays at its current time.")
+    elif result == "card_failed":
+        messages.error(
+            request,
+            "We couldn't charge your card for the new time, so your request was declined. "
+            "You were not charged. Please book again.",
+        )
+    elif result == "try_again":
+        messages.error(request, "We couldn't reach our payment processor, so nothing changed. Try again in a minute.")
     else:
         messages.info(request, "That new time is no longer open. Your booking shows where things stand.")
     return _orientation_return(request, booking.orientation_type)
@@ -3010,6 +3018,12 @@ def orientation_checkout_cancelled(request: HttpRequest, token: str) -> HttpResp
     outcome = orientations.release_hold_if_unpaid(booking)
     if outcome == "released":
         messages.info(request, "No charge was made. Your card was not billed.")
+    elif outcome == "held":
+        messages.success(
+            request,
+            "Good news, your checkout already went through. Your booking request is in, "
+            "and your card is held, not charged, until an Orientor confirms.",
+        )
     elif outcome == "paid":
         messages.success(request, "Good news, your payment already went through. Your booking request is in.")
     else:
@@ -3037,6 +3051,12 @@ def orientation_checkout_cancel_hold(request: HttpRequest, booking_pk: int) -> H
     outcome = orientations.release_hold_if_unpaid(booking)
     if outcome == "released":
         messages.success(request, "Booking cancelled. You were not charged.")
+    elif outcome == "held":
+        messages.info(
+            request,
+            "Your checkout already went through, so this is now a request. "
+            "Cancel the request instead and the hold on your card is released.",
+        )
     elif outcome == "paid":
         messages.info(
             request,
@@ -3068,14 +3088,14 @@ def orientation_checkout_resume(request: HttpRequest, booking_pk: int) -> HttpRe
         return HttpResponse("Forbidden", status=403)
     try:
         session = stripe_utils.retrieve_checkout_session(session_id=booking.stripe_session_id)
+        landed = orientations.landed_payment(session)
     except Exception:
         logger.exception("Resume: could not retrieve Checkout session for booking %s.", booking.pk)
         messages.error(request, "We couldn't check your payment status just now. Try again in a minute.")
         return _owner_redirect(booking.orientation_type)
-    if session["payment_status"] == "paid":
-        orientations.finalize_paid_booking(
-            booking, payment_intent=session["payment_intent"], amount_total=session["amount_total"]
-        )
+    if landed is not None:
+        # Paid, or (#1128) the card is held: either way the checkout is done.
+        orientations.finalize_landed(booking, landed)
         return redirect("hub_orientation_checkout_return", token=orientations.make_checkout_token(booking))
     if session["status"] == "open" and session["url"]:
         return redirect(session["url"])
@@ -3365,11 +3385,11 @@ def orientation_add_member(request: HttpRequest) -> HttpResponse:
 def orientation_toggle_completed(request: HttpRequest, booking_pk: int) -> HttpResponse:
     """POST-only — set an orientation's completed flag (that booking's managers only).
 
-    ``completed=1`` marks it oriented, ``completed=0`` undoes that. Setting a state rather than
+    ``completed=1`` marks a confirmed booking oriented, ``completed=0`` undoes that. Setting a state rather than
     flipping one means two staff clicking Mark Oriented at once both get what they asked for;
     anything else is a 400. Lands on ``next`` when it is a local path, else the Bookings tab.
     """
-    from membership.models import OrientationBooking
+    from membership.models import OrientationBooking, OrientationError
 
     booking = get_object_or_404(
         OrientationBooking.objects.select_related("guild", "member", "orientation_type__equipment"), pk=booking_pk
@@ -3381,9 +3401,18 @@ def orientation_toggle_completed(request: HttpRequest, booking_pk: int) -> HttpR
     if wanted not in ("0", "1"):
         return HttpResponseBadRequest("Say completed=1 or completed=0.")
     completed = wanted == "1"
-    if completed and not booking.is_completed:
-        booking.mark_completed()
-        messages.success(request, f"Marked {booking.member.display_name} as oriented.")
+    if completed and not booking.is_completed and booking.status != OrientationBooking.Status.CONFIRMED:
+        # Only a confirmed booking happened (#1128): a request may still hold an uncharged card,
+        # and the sweep would release it, orienting the member for free. A bill is confirmed.
+        messages.error(request, "Only a confirmed orientation can be marked oriented. Confirm it first.")
+    elif completed and not booking.is_completed:
+        try:
+            booking.mark_completed()
+        except OrientationError as exc:
+            # A confirmed booking still holding an uncharged card (#1128, a deploy rollover race).
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, f"Marked {booking.member.display_name} as oriented.")
     elif not completed and booking.is_completed:
         booking.uncomplete()
         messages.success(request, f"{booking.member.display_name} is no longer marked oriented.")

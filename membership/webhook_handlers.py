@@ -9,11 +9,14 @@ coexist with the classes handlers on the same events.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
 
 from membership.models import EquipmentReservation, OrientationBooking
+
+if TYPE_CHECKING:
+    from membership.orientations import LandedPayment
 
 logger = logging.getLogger(__name__)
 
@@ -69,20 +72,51 @@ def _send_orphan_payment_alert(session: dict[str, Any], *, reason: str, item: st
     )
 
 
+def _release_orphan_hold(session: dict[str, Any], *, reason: str) -> None:
+    """Release a card hold (#1128) whose checkout landed with no booking to hold it for.
+
+    Nothing was charged, so there is nothing to refund: the hold is cancelled here. Only a
+    release Stripe refuses reaches the Billing Administrators, as the orphan alert, since
+    the hold would otherwise sit on the member's card until Stripe's 7 day limit.
+    """
+    from billing import stripe_utils
+
+    payment_intent = session.get("payment_intent") or ""
+    try:
+        stripe_utils.cancel_payment_intent(payment_intent_id=payment_intent)
+    except Exception:
+        logger.exception("Could not release orphaned orientation card hold %s.", payment_intent)
+        _send_orphan_payment_alert(
+            session, reason=f"{reason} Its card hold could not be released. Cancel the payment in Stripe."
+        )
+        return
+    logger.warning("Released orphaned orientation card hold %s: %s", payment_intent, reason)
+
+
+def _no_home(session: dict[str, Any], landed: LandedPayment, *, reason: str) -> None:
+    """A landed checkout with no booking to credit: release a card hold, or alert about a charge."""
+    if landed.held:
+        _release_orphan_hold(session, reason=reason)
+        return
+    _send_orphan_payment_alert(session, reason=reason)
+
+
 def handle_checkout_session_completed(event: dict[str, Any]) -> None:
-    """Finalize a paid orientation hold via the one shared finalize path.
+    """Finalize a landed orientation hold via the one shared finalize path.
 
-    Only acts on sessions tagged ``kind=orientation_booking``. Idempotent and
-    race-safe: :func:`membership.orientations.finalize_paid_booking` re-checks
-    the row under ``select_for_update``, so a re-delivery, a concurrent sweep
-    tick, or a Resume click each finalize at most once. Emails only ever go out
-    for money in hand — the fan-out fires HERE (inside finalize), never at
-    checkout start.
+    Only acts on sessions tagged ``kind=orientation_booking``. What landed is read from the
+    PaymentIntent (:func:`membership.orientations.landed_payment`): a card hold (#1128),
+    which completes the session without paying it, or a charge from a checkout opened
+    before #1128. Stripe unreachable raises, so the webhook answers 500 and Stripe sends it
+    again. Idempotent and race-safe: :func:`membership.orientations.finalize_paid_booking`
+    re-checks the row under ``select_for_update``, so a re-delivery, a concurrent sweep
+    tick, or a Resume click each finalize at most once. Emails only ever go out once the
+    checkout landed — the fan-out fires HERE (inside finalize), never at checkout start.
 
-    A paid session whose booking is missing, or whose booking advanced without
-    ever recording a payment (no ``stripe_payment_id``), is NOT a re-delivery —
-    it is money with no in-app home: logged at ERROR and alerted to the Billing
-    Administrators for a Stripe-dashboard refund.
+    A landed session whose booking is missing, or whose booking advanced without ever
+    recording a payment (no ``stripe_payment_id``), is NOT a re-delivery: a card hold is
+    released on the spot, and a charge is money with no in-app home, logged at ERROR and
+    alerted to the Billing Administrators for a Stripe-dashboard refund.
     """
     from membership import orientations
 
@@ -96,7 +130,8 @@ def handle_checkout_session_completed(event: dict[str, Any]) -> None:
         logger.warning("checkout.session.completed: missing booking_id in orientation metadata")
         return
 
-    if session.get("payment_status") != "paid":
+    landed = orientations.landed_payment(session)
+    if landed is None:
         logger.info(
             "checkout.session.completed: ignoring orientation session %s with payment_status=%s",
             session.get("id"),
@@ -107,50 +142,39 @@ def handle_checkout_session_completed(event: dict[str, Any]) -> None:
     booking = OrientationBooking.objects.select_related("slot", "guild", "member").filter(pk=booking_id).first()
     if booking is None:
         logger.error(
-            "checkout.session.completed: PAID orientation session %s (payment intent %s) has no "
-            "booking %s — money taken with no in-app trace. Refund from the Stripe dashboard.",
+            "checkout.session.completed: landed orientation session %s (payment intent %s) has no "
+            "booking %s — money taken or held with no in-app trace.",
             session.get("id"),
             session.get("payment_intent"),
             booking_id,
         )
-        _send_orphan_payment_alert(session, reason=f"Booking {booking_id} no longer exists.")
+        _no_home(session, landed, reason=f"Booking {booking_id} no longer exists.")
         return
 
-    amount_total = session.get("amount_total")
-    outcome = orientations.finalize_paid_booking(
-        booking,
-        payment_intent=session.get("payment_intent", "") or "",
-        amount_total=amount_total if isinstance(amount_total, int) else None,
-        session_id=session.get("id", "") or "",
-    )
+    outcome = orientations.finalize_landed(booking, landed, session_id=session.get("id", "") or "")
     if outcome == "gone":
         logger.error(
-            "checkout.session.completed: PAID orientation session %s (payment intent %s) — booking %s "
-            "vanished mid-finalize. Refund from the Stripe dashboard.",
+            "checkout.session.completed: landed orientation session %s (payment intent %s) — booking %s "
+            "vanished mid-finalize.",
             session.get("id"),
             session.get("payment_intent"),
             booking_id,
         )
-        _send_orphan_payment_alert(session, reason=f"Booking {booking_id} was deleted while the payment landed.")
+        _no_home(session, landed, reason=f"Booking {booking_id} was deleted while the payment landed.")
         return
     if outcome == "already":
         fresh = OrientationBooking.objects.filter(pk=booking.pk).first()
         if fresh is None or not fresh.stripe_payment_id:
-            # The booking advanced without a payment ever being recorded — a paid
-            # session landing here is NOT a webhook re-delivery. Money with no
-            # refund anchor: shout.
+            # The booking advanced without a payment ever being recorded — a landed
+            # session here is NOT a webhook re-delivery, and nothing anchors it.
             logger.error(
-                "checkout.session.completed: PAID orientation session %s (payment intent %s) landed on "
-                "booking %s which resolved without a recorded payment — no refund anchor exists. "
-                "Refund from the Stripe dashboard.",
+                "checkout.session.completed: landed orientation session %s (payment intent %s) on "
+                "booking %s which resolved without a recorded payment — no refund anchor exists.",
                 session.get("id"),
                 session.get("payment_intent"),
                 booking_id,
             )
-            _send_orphan_payment_alert(
-                session,
-                reason=f"Booking {booking_id} resolved without ever recording a payment.",
-            )
+            _no_home(session, landed, reason=f"Booking {booking_id} resolved without ever recording a payment.")
 
 
 def handle_checkout_session_expired(event: dict[str, Any]) -> None:

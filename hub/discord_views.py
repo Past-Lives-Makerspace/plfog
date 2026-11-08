@@ -5,7 +5,9 @@ request/response and the CSRF ``state`` handshake; the OAuth + import orchestrat
 in :func:`membership.discord_sync.link_and_import`:
 
 * ``/settings/discord/...`` — the **logged-in** connect/callback/disconnect (a member on
-  their settings page). State key ``discord_oauth_state``; lands on the Notifications tab.
+  their settings page). Its ``state`` is signed (:func:`_signed_state`) rather than kept in the
+  session, because the Android app starts Connect in its WebView and Discord hands the callback
+  to Chrome, a different cookie jar with the same signed-in member. Lands on the Notifications tab.
 * ``/discord/link/`` + ``/discord/link/callback/`` — the **anon-allowed** low-friction link
   posted *in Discord*: click once, and if your verified Discord email matches your Past
   Lives account you're linked and your guilds are set up, no FOG login required. State key
@@ -21,7 +23,9 @@ from __future__ import annotations
 import secrets
 
 from django.contrib import messages
+from django.core import signing
 from django.contrib.auth.decorators import login_required
+from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -30,10 +34,33 @@ from django.views.decorators.http import require_POST
 from core.events import discord_oauth
 from hub.views import _get_member
 
-# Session key holding the logged-in flow's CSRF ``state`` token (verified on the callback).
-_STATE_SESSION_KEY = "discord_oauth_state"
-# A DISTINCT key for the anon link flow, so two in-flight flows never overwrite each other.
+# Salt for the logged-in flow's signed ``state``, so no other signed value in the app passes for one.
+_STATE_SALT = "hub.discord_connect.state"
+# How long a signed ``state`` stays good: long enough to approve on Discord, short enough to go stale.
+_STATE_MAX_AGE_SECONDS = 600
+# Session key for the anon link flow's ``state``: it has no user to sign for.
 _LINK_STATE_SESSION_KEY = "discord_link_state"
+
+
+def _signed_state(user_pk: int | None) -> str:
+    """A ``state`` naming the user who pressed Connect, plus a nonce, signed with the secret key."""
+    return signing.dumps({"pk": user_pk, "nonce": secrets.token_urlsafe(16)}, salt=_STATE_SALT)
+
+
+def _state_is_for(state: str, user_pk: int | None) -> bool:
+    """Whether ``state`` is one we signed in the last ten minutes for this user, used for the first time.
+
+    Checked without the session, so a callback that lands in another browser signed in as the
+    same member still verifies. A forged, expired or other user's state is refused, and so is a
+    second use: the nonce is recorded in the shared cache for as long as the state could verify.
+    """
+    try:
+        payload = signing.loads(state, salt=_STATE_SALT, max_age=_STATE_MAX_AGE_SECONDS)
+    except signing.BadSignature:
+        return False
+    if payload["pk"] != user_pk:
+        return False
+    return bool(cache.add(f"discord-connect-state:{payload['nonce']}", True, _STATE_MAX_AGE_SECONDS))
 
 
 def _notifications_url() -> str:
@@ -43,7 +70,7 @@ def _notifications_url() -> str:
 
 @login_required
 def discord_connect(request: HttpRequest) -> HttpResponse:
-    """Start the logged-in OAuth flow: store a CSRF ``state`` and redirect to Discord."""
+    """Start the logged-in OAuth flow: sign a CSRF ``state`` for this user and redirect to Discord."""
     member = _get_member(request)
     if member is None:
         messages.error(request, "Your account is not linked to a membership.")
@@ -51,8 +78,7 @@ def discord_connect(request: HttpRequest) -> HttpResponse:
     if not discord_oauth.is_configured():
         messages.error(request, "Connecting Discord isn't available right now. Please try again later.")
         return redirect(_notifications_url())
-    state = secrets.token_urlsafe(32)
-    request.session[_STATE_SESSION_KEY] = state
+    state = _signed_state(request.user.pk)
     redirect_uri = request.build_absolute_uri(reverse("hub_discord_callback"))
     return redirect(discord_oauth.authorize_url(redirect_uri, state))
 
@@ -66,13 +92,12 @@ def discord_callback(request: HttpRequest) -> HttpResponse:
     if member is None:
         messages.error(request, "Your account is not linked to a membership.")
         return redirect("hub_user_settings")
-    expected_state = request.session.pop(_STATE_SESSION_KEY, None)
     if request.GET.get("error"):
         messages.info(request, "Discord connection was cancelled.")
         return redirect(_notifications_url())
     state = request.GET.get("state", "")
     code = request.GET.get("code", "")
-    if not code or not state or not expected_state or state != expected_state:
+    if not code or not state or not _state_is_for(state, request.user.pk):
         messages.error(request, "We couldn't verify that Discord sign-in. Please try connecting again.")
         return redirect(_notifications_url())
     redirect_uri = request.build_absolute_uri(reverse("hub_discord_callback"))

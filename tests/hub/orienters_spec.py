@@ -117,7 +117,10 @@ def describe_orienter_dashboard_and_booking_actions():
         guild = GuildFactory()
         user = _member_user("b_done")
         _make_orienter(guild, user)
-        booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
+        # Only a confirmed booking can be marked oriented (#1128).
+        booking = OrientationBookingFactory(
+            slot=OrientationSlotFactory(guild=guild), status=OrientationBooking.Status.CONFIRMED
+        )
         client.login(username="b_done", password="pass")
         response = client.post(reverse("hub_orientation_toggle_completed", args=[booking.pk]), {"completed": "1"})
         assert response.status_code == 302

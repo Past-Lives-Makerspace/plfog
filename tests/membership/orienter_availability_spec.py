@@ -225,9 +225,16 @@ def describe_confirm_crediting():
         booking.confirm()
         assert booking.oriented_by == guild.guild_lead
 
-    def it_lets_an_explicit_actor_win():
+    def it_keeps_a_current_orientors_credit_whoever_confirms():
+        # Felix (#1135): confirming another Orientor's own time credits, and pays, that Orientor.
         guild, (bob, alice) = _staffed_guild("Bob Placeholder", "Alice Ash")
         booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild, orienter=bob))
+        booking.confirm(oriented_by=alice)
+        assert booking.oriented_by == bob
+
+    def it_lets_an_explicit_actor_win_on_a_shared_slot():
+        guild, (_bob, alice) = _staffed_guild("Bob Placeholder", "Alice Ash")
+        booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
         booking.confirm(oriented_by=alice)
         assert booking.oriented_by == alice
 

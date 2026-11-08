@@ -16,7 +16,7 @@ from django.core.management import call_command
 
 from core.models import AutomationAction, SiteConfiguration
 from core.scheduled_jobs import Trigger, record_run
-from membership.discord_removal import RemovalPassError, process_removals, put_back_if_removed, run_cleanup_list
+from membership.discord_removal import RemovalPassError, process_removals, put_on_server, run_cleanup_list
 from membership.models import (
     DISCORD_CLEANUP_TEXT,
     DISCORD_REMOVAL_TASK_KEY,
@@ -562,7 +562,7 @@ def describe_put_back():
         assert "500 boom" in AutomationAction.objects.get(kind="discord_rejoin").detail
 
 
-def describe_put_back_if_removed():
+def describe_put_on_server():
     def _active_again(removal: DiscordRemoval) -> Member:
         member = removal.member
         Member.objects.filter(pk=member.pk).update(status=Member.Status.ACTIVE)
@@ -578,7 +578,7 @@ def describe_put_back_if_removed():
         GuildMembershipFactory(member=member, guild=discord_guild, source=GuildMembership.Source.DISCORD)
         join = respx.put(JOIN).mock(return_value=httpx.Response(201, json={}))
         roles = respx.put(url__regex=ROLE_RE).mock(return_value=httpx.Response(204))
-        assert put_back_if_removed(member, "111", "user-tok") is True
+        assert put_on_server(member, "111", "user-tok") is True
         assert join.called
         assert sorted(call.request.url.path.rsplit("/", 1)[-1] for call in roles.calls) == ["r1", "r2"]
 
@@ -591,33 +591,93 @@ def describe_put_back_if_removed():
         new = respx.put("https://discord.com/api/v10/guilds/srv1/members/555").mock(
             return_value=httpx.Response(201, json={})
         )
-        assert put_back_if_removed(member, "555", "new-account-tok") is True
+        assert put_on_server(member, "555", "new-account-tok") is True
         assert new.called
         assert not old.called
         assert DiscordRemoval.objects.get(member=member).rejoined_at is not None
 
-    def it_leaves_a_member_who_is_not_active():
+    @respx.mock
+    def it_puts_a_removed_member_back_whatever_their_status():
         removal = _kicked()
-        assert put_back_if_removed(removal.member, "111", "t") is False
+        assert removal.member.status == Member.Status.FORMER
+        respx.put(JOIN).mock(return_value=httpx.Response(201, json={}))
+        assert put_on_server(removal.member, "111", "t") is True
+        removal.refresh_from_db()
+        assert removal.rejoined_at is not None
 
     def it_needs_a_token():
         member = _active_again(_kicked())
-        assert put_back_if_removed(member, "111", "") is False
+        assert put_on_server(member, "111", "") is False
 
-    def it_needs_a_removal():
-        assert put_back_if_removed(MemberFactory(), "111", "t") is False
+    @respx.mock
+    def it_adds_someone_who_was_never_on_the_server():
+        join = respx.put(JOIN).mock(return_value=httpx.Response(201, json={}))
+        assert put_on_server(MemberFactory(), "111", "user-tok") is True
+        assert join.calls.last.request.read() == b'{"access_token":"user-tok"}'
+        assert join.calls.last.request.headers["Authorization"] == "Bot bot-tok"
+
+    @respx.mock
+    def it_adds_a_former_member_who_connects():
+        member = MemberFactory(status=Member.Status.FORMER)
+        join = respx.put(JOIN).mock(return_value=httpx.Response(201, json={}))
+        assert put_on_server(member, "111", "t") is True
+        assert join.called
+
+    @respx.mock
+    def it_pushes_every_guild_role_including_discord_sourced_ones_on_a_fresh_add():
+        # Someone who left the server on their own lost their Discord sourced roles too.
+        member = MemberFactory(discord_user_id="111")
+        GuildMembershipFactory(
+            member=member, guild=GuildFactory(discord_role_ids=["r2"]), source=GuildMembership.Source.DISCORD
+        )
+        GuildMembershipFactory(
+            member=member, guild=GuildFactory(discord_role_ids=["r1"]), source=GuildMembership.Source.APP
+        )
+        respx.put(JOIN).mock(return_value=httpx.Response(201, json={}))
+        roles = respx.put(url__regex=ROLE_RE).mock(return_value=httpx.Response(204))
+        assert put_on_server(member, "111", "t") is True
+        assert sorted(call.request.url.path.rsplit("/", 1)[-1] for call in roles.calls) == ["r1", "r2"]
+
+    @respx.mock
+    def it_pushes_no_roles_itself_when_they_were_already_there():
+        member = MemberFactory(discord_user_id="111")
+        GuildMembershipFactory(member=member, guild=GuildFactory(discord_role_ids=["r1"]))
+        respx.put(JOIN).mock(return_value=httpx.Response(204))
+        roles = respx.put(url__regex=ROLE_RE).mock(return_value=httpx.Response(204))
+        assert put_on_server(member, "111", "t") is True
+        assert not roles.called
+
+    @respx.mock
+    def it_swallows_a_network_error_on_a_first_join():
+        respx.put(JOIN).mock(side_effect=httpx.ConnectError("no route"))
+        assert put_on_server(MemberFactory(), "111", "t") is False
+
+    @respx.mock
+    def it_counts_already_on_the_server_as_success():
+        respx.put(JOIN).mock(return_value=httpx.Response(204))
+        assert put_on_server(MemberFactory(), "111", "t") is True
+
+    @respx.mock
+    def it_returns_false_when_discord_refuses():
+        respx.put(JOIN).mock(return_value=httpx.Response(403))
+        assert put_on_server(MemberFactory(), "111", "t") is False
+
+    @respx.mock
+    def it_swallows_a_discord_error():
+        respx.put(JOIN).mock(return_value=httpx.Response(500, text="boom"))
+        assert put_on_server(MemberFactory(), "111", "t") is False
 
     def it_does_nothing_without_a_bot_token(settings):
         member = _active_again(_kicked())
         settings.DISCORD_BOT_TOKEN = ""
-        assert put_back_if_removed(member, "111", "t") is False
+        assert put_on_server(member, "111", "t") is False
 
     def it_does_nothing_without_a_server_id():
         member = _active_again(_kicked())
         config = SiteConfiguration.load()
         config.discord_server_id = ""
         config.save()
-        assert put_back_if_removed(member, "111", "t") is False
+        assert put_on_server(member, "111", "t") is False
 
     @respx.mock
     def it_pushes_no_roles_when_the_re_add_fails():
@@ -625,7 +685,7 @@ def describe_put_back_if_removed():
         GuildMembershipFactory(member=member, guild=GuildFactory(discord_role_ids=["r1"]))
         respx.put(JOIN).mock(return_value=httpx.Response(403))
         roles = respx.put(url__regex=ROLE_RE).mock(return_value=httpx.Response(204))
-        assert put_back_if_removed(member, "111", "t") is False
+        assert put_on_server(member, "111", "t") is False
         assert not roles.called
 
 
