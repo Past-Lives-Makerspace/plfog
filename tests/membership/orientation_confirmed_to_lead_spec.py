@@ -393,6 +393,12 @@ def describe_the_settings_row():
         assert ORIENTATION_CONFIRMED_TO_LEAD in _keys(co_lead.user)
         assert ORIENTATION_CONFIRMED_TO_LEAD not in _keys(treasurer.user)
 
+    def it_hides_the_row_from_a_lead_who_is_not_active():
+        _guild_obj, lead, _orientors = _guild("s5")
+        lead.status = Member.Status.FORMER
+        lead.save(update_fields=["status"])
+        assert ORIENTATION_CONFIRMED_TO_LEAD not in _keys(lead.user)
+
     def it_hides_the_row_from_a_plain_member():
         assert ORIENTATION_CONFIRMED_TO_LEAD not in _keys(_member("s2_plain").user)
 
@@ -416,7 +422,7 @@ def describe_the_lead_keeps_every_action():
         personal.refresh_from_db()
         shared.refresh_from_db()
         assert personal.status == OrientationBooking.Status.CONFIRMED
-        assert personal.oriented_by == lead
+        assert personal.oriented_by == orientor  # the time's Orientor is credited
         assert shared.status == OrientationBooking.Status.DECLINED
         # The lead confirmed it, so the lead is not told of their own confirmation.
         assert _lead_notices(lead) == ([], [])
@@ -788,3 +794,150 @@ def describe_the_co_leads_hear_too():
         assert not [m for m in mail.outbox if m.to == [chris.primary_email]]
         assert not Notification.objects.filter(user=chris.user).exists()
         assert chris.user_id not in message.orientor_user_ids()
+
+
+def describe_a_personal_slot_confirmed_by_someone_else():
+    """#1135 review: the notice names the slot's Orientor, whoever the booking credits."""
+
+    def it_names_the_slots_orientor_when_the_lead_confirms_their_time_and_skips_them():
+        guild, lead, _orientors = _guild("ps1")
+        chris = _co_lead(guild, "ps1_chris", "Chris Colead")
+        dana = _co_lead(guild, "ps1_dana", "Dana Colead")
+        booking = _booking(guild, "ps1", orienter=chris)
+
+        orientations.confirm_orientation(booking, oriented_by=lead)
+
+        booking.refresh_from_db()
+        assert booking.oriented_by == chris  # Felix: the time's Orientor is credited (and paid)
+        assert _notices(chris) == ([], [])
+        assert _notices(lead) == ([], [])
+        emails, _bells = _notices(dana)
+        assert emails[0].subject.startswith("Chris Colead is orienting Maya Member for Wheel Throwing on ")
+
+    def it_names_the_slots_orientor_from_the_request_page(client: Client):
+        guild, lead, [orientor] = _guild("ps2")
+        chris = _co_lead(guild, "ps2_chris", "Chris Colead")
+        booking = _booking(guild, "ps2", orienter=orientor)
+        client.login(username="ps2_chris", password="pass")
+
+        client.post(reverse("hub_orientation_respond", args=[booking.pk]), {"action": "confirm"})
+
+        booking.refresh_from_db()
+        assert booking.oriented_by == orientor
+        assert _notices(chris) == ([], [])  # the confirmer is not told either
+        assert _notices(orientor) == ([], [])
+        emails, _bells = _notices(lead)
+        assert emails[0].subject.startswith("Olive Orientor0 is orienting")
+
+    def it_falls_back_to_who_is_credited_once_the_slots_orientor_left():
+        guild, lead, [orientor] = _guild("ps3")
+        chris = _co_lead(guild, "ps3_chris", "Chris Colead")
+        booking = _booking(guild, "ps3", orienter=orientor)
+        guild.remove_staff(guild.staff_memberships.get(member=orientor))
+        booking.refresh_from_db()
+
+        orientations.confirm_orientation(booking, oriented_by=lead)
+
+        emails, _bells = _notices(chris)
+        assert emails[0].subject.startswith("Lena Lead is orienting")
+
+
+def describe_credit_on_an_orientors_own_time():
+    """Felix: when a lead or Co-Lead confirms a request on another Orientor's own time, that Orientor is credited."""
+
+    def _soon() -> object:
+        local = timezone.localtime(timezone.now() + timedelta(days=5))
+        return local.replace(hour=14, minute=0, second=0, microsecond=0)
+
+    def it_credits_the_slots_orientor_whoever_confirms():
+        guild, lead, [orientor] = _guild("cr1")
+        booking = _booking(guild, "cr1", orienter=orientor)
+
+        booking.confirm(oriented_by=lead)
+
+        booking.refresh_from_db()
+        assert booking.oriented_by == orientor
+
+    def it_credits_who_confirmed_once_the_slots_orientor_left():
+        guild, lead, [orientor] = _guild("cr2")
+        booking = _booking(guild, "cr2", orienter=orientor)
+        guild.remove_staff(guild.staff_memberships.get(member=orientor))
+        booking.refresh_from_db()
+
+        booking.confirm(oriented_by=lead)
+
+        booking.refresh_from_db()
+        assert booking.oriented_by == lead
+
+    def it_keeps_todays_default_for_a_departed_orientor_when_nobody_is_passed():
+        guild, _lead, [orientor] = _guild("cr3")
+        booking = _booking(guild, "cr3", orienter=orientor)
+        orientor.status = Member.Status.FORMER
+        orientor.save(update_fields=["status"])
+        booking.refresh_from_db()
+
+        booking.confirm()
+
+        booking.refresh_from_db()
+        assert booking.oriented_by == orientor
+
+    def it_keeps_the_passed_runner_on_a_shared_slot():
+        guild, _lead, [orientor] = _guild("cr4")
+        booking = _booking(guild, "cr4")
+
+        booking.confirm(oriented_by=orientor)
+
+        booking.refresh_from_db()
+        assert booking.oriented_by == orientor
+
+    def it_credits_an_equipment_slots_manager_whoever_confirms():
+        from membership.models import EquipmentStaffMembership
+
+        equipment = EquipmentFactory()
+        manager = _member("cr5_manager")
+        other = _member("cr5_other")
+        for person in (manager, other):
+            EquipmentStaffMembership.objects.create(equipment=equipment, member=person)
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment)
+        booking = OrientationBookingFactory(
+            slot=OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type, orienter=manager),
+            member=_member("cr5_member"),
+        )
+
+        booking.confirm(oriented_by=other)
+
+        booking.refresh_from_db()
+        assert booking.oriented_by == manager
+
+    def it_credits_the_orientor_when_the_lead_moves_their_request():
+        guild, lead, [orientor] = _guild("cr6")
+        booking = _booking(guild, "cr6", orienter=orientor)
+
+        moved = orientations.move_orientation(booking, _soon(), actor=lead)
+
+        assert moved.slot.orienter == orientor  # the one off keeps the old slot's Orientor
+        assert moved.oriented_by == orientor
+
+    def it_credits_the_orientor_when_the_member_accepts_the_leads_proposed_time():
+        guild, lead, [orientor] = _guild("cr7")
+        booking = _booking(guild, "cr7", orienter=orientor)
+        orientations.propose_orientation_time(booking, _soon(), actor=lead)
+        booking.refresh_from_db()
+
+        orientations.answer_proposal(booking, accept=True, proposal=booking.proposal_key)
+
+        booking.refresh_from_db()
+        assert booking.oriented_by == orientor
+
+    def it_credits_the_orientor_when_the_lead_confirms_from_an_email_link():
+        guild, lead, [orientor] = _guild("cr8")
+        booking = _booking(guild, "cr8", orienter=orientor)
+        token = orientations.make_action_token(booking, "confirm", recipient=lead, addressed=True)
+        decoded, action, recipient = orientations.read_action_token(token)
+
+        orientations.apply_token_action(decoded, action, recipient=recipient, addressed=True)
+
+        decoded.refresh_from_db()
+        assert decoded.oriented_by == orientor
+        assert _notices(orientor) == ([], [])
+        assert _notices(lead) == ([], [])

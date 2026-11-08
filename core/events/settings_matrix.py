@@ -557,7 +557,8 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
         Recipients.GUILD_LEADERSHIP_OR_ADMINS: lead or profile.is_admin,
         Recipients.GUILD_LEAD: profile.leads_guild,
         # The lead and every Co-Lead hear an orientation was confirmed (#1134).
-        Recipients.GUILD_LEAD_AND_CO_LEADS: profile.leads_guild or profile.is_co_lead,
+        # The resolver skips a member who is not Active, so the row does too (like ALL_GUILD_LEADS).
+        Recipients.GUILD_LEAD_AND_CO_LEADS: (profile.leads_guild or profile.is_co_lead) and profile.is_active,
         # all_guild_leads resolves against Member.objects.active(), so a FORMER/SUSPENDED
         # lead/officer would see this row but never receive the mail — gate on is_active too.
         Recipients.ALL_GUILD_LEADS: (lead or profile.is_officer) and profile.is_active,

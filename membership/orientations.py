@@ -1191,9 +1191,11 @@ def _tell_lead_of_confirmation(booking: OrientationBooking, *, confirmer: Member
     """Email and bell the guild lead and every Co-Lead who is orienting whom, for what, when (#1127, #1134).
 
     They no longer get the requests, so this is how they hear the outcome. Guild owned only
-    (equipment keeps its own routing). Never to whoever runs it (``oriented_by``) or
-    confirmed it (``confirmer``): they did it. The email names the Orientor running it, else
-    the confirmer, else "Someone" (nobody credited, nobody known to have clicked).
+    (equipment keeps its own routing). Never to whoever runs it (``oriented_by``) or confirmed
+    it: they did it. The booking credits a personal slot's Orientor while they still run this
+    guild's orientations, whoever confirmed (:meth:`OrientationBooking._runner_for`), so the
+    email names ``oriented_by``, else the confirmer, else "Someone" (nobody credited, nobody
+    known to have clicked).
 
     One send per person (the ``guild_lead_and_co_leads`` audience), so each greets its reader
     by name; the shared period sends each person once per booking, whichever way it was
