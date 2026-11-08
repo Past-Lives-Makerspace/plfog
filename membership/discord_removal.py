@@ -109,6 +109,11 @@ def put_on_server(member: Member, discord_user_id: str, access_token: str) -> bo
     Someone Discord just added (201) also gets every guild membership pushed as a role, Discord
     sourced ones included: a person who left the server on their own lost those roles too.
 
+    There is deliberately no status check (Felix's decision on #1136, feedback request 14):
+    anyone who connects Discord is put on the server. A Former member cannot reach the logged in
+    Connect (the middleware locks them out of the portal), and the anonymous ``/discord/link/``
+    flow is posted inside the server, which a removed member can no longer see.
+
     Returns:
         True when they are on the server (added now, or already there).
     """
