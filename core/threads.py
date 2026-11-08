@@ -55,8 +55,8 @@ def rewrite_notices(period: str, old: str, new: str | None) -> int:
     Every thread notice carries the message's words in the bell row's body (alone, or after the
     author's name on a kiln ticket), so an edit swaps the old words for the new ones (``new``)
     and a delete (``None``) for a neutral line. Rows are matched on the exact period the notice
-    was emitted with, never on their text; within a matched row the old words are replaced where
-    they appear, and a row whose body was clipped below them is replaced whole. Nothing is sent;
+    was emitted with, never on their text; within a matched row the old words at the end of the body are
+    replaced, and a row whose body was clipped below them is replaced whole. Nothing is sent;
     email and push already delivered keep the old words.
 
     Returns:
@@ -69,7 +69,9 @@ def rewrite_notices(period: str, old: str, new: str | None) -> int:
     text = DELETED_NOTICE if new is None else (new or PHOTO_ONLY_NOTICE)
     rows = list(Notification.objects.filter(period=period))
     for row in rows:
-        body = row.body.replace(old, text, 1) if old and old in row.body else text
+        # The words always end the body, so only that tail is swapped: a short reply such as "Yes"
+        # may also sit inside the kiln author's name before it.
+        body = row.body[: -len(old)] + text if old and row.body.endswith(old) else text
         row.body = body if len(body) <= 500 else body[:499].rstrip() + "\u2026"
     Notification.objects.bulk_update(rows, ["body"])
     return len(rows)

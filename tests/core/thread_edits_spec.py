@@ -146,3 +146,29 @@ def describe_rewrite_notices():
         assert rewrite_notices("zz-p", "Zzshort", "y" * 600) == 1
         row.refresh_from_db()
         assert len(row.body) == 500 and row.body.endswith("\u2026")
+
+    def it_swaps_only_the_words_after_a_kiln_author_name_that_contains_them():
+        from core.models import Notification
+        from core.threads import DELETED_NOTICE, rewrite_notices
+
+        request = FeedbackRequestFactory()
+        row = Notification.objects.create(
+            user=request.user, trigger="zz", title="Zz", body="Yesenia Park: Yes", period="reply-zz"
+        )
+
+        assert rewrite_notices("reply-zz", "Yes", None) == 1
+        row.refresh_from_db()
+        assert row.body == f"Yesenia Park: {DELETED_NOTICE}"
+
+    def it_edits_the_tail_and_keeps_the_kiln_author_name():
+        from core.models import Notification
+        from core.threads import rewrite_notices
+
+        request = FeedbackRequestFactory()
+        row = Notification.objects.create(
+            user=request.user, trigger="zz", title="Zz", body="Yesenia Park: Yes", period="reply-zy"
+        )
+
+        rewrite_notices("reply-zy", "Yes", "Yes, Tuesday works")
+        row.refresh_from_db()
+        assert row.body == "Yesenia Park: Yes, Tuesday works"
