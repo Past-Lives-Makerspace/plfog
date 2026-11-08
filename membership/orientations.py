@@ -1188,39 +1188,48 @@ def confirm_orientation(
 
 
 def _tell_lead_of_confirmation(booking: OrientationBooking, *, confirmer: Member | None) -> None:
-    """Email and bell the guild lead that someone else confirmed a guild orientation (#1127).
+    """Email and bell the guild lead and every Co-Lead who is orienting whom, for what, when (#1127, #1134).
 
-    The lead no longer gets every request, so this is how they hear the outcome. Guild owned
-    only (equipment keeps its own routing), and nothing when the lead confirmed it themselves.
-    ``confirmer`` ``None`` means nobody knows who did (an email link from before #1127, a
-    move with no actor), so the lead hears and it reads "Someone".
-    Sends once per booking whichever way it was confirmed.
+    They no longer get the requests, so this is how they hear the outcome. Guild owned only
+    (equipment keeps its own routing). Never to whoever runs it (``oriented_by``) or
+    confirmed it (``confirmer``): they did it. The email names the Orientor running it, else
+    the confirmer, else "Someone" (nobody credited, nobody known to have clicked).
+
+    One send per person (the ``guild_lead_and_co_leads`` audience), so each greets its reader
+    by name; the shared period sends each person once per booking, whichever way it was
+    confirmed.
     """
     from core.events.registry import ORIENTATION_CONFIRMED_TO_LEAD
+    from core.events.resolvers import guild_lead_and_co_leads
 
     if booking.orientation_type.is_equipment_owned:
         return
     guild = cast("Guild", booking.guild)
-    lead = guild.guild_lead
-    if lead is None or (confirmer is not None and confirmer.pk == lead.pk):
+    runner = booking.oriented_by
+    did_it = {person.user_id for person in (runner, confirmer) if person is not None}
+    readers = [user for user, _reason in guild_lead_and_co_leads({"guild": guild}) if user.pk not in did_it]
+    if not readers:
         return
-    emit(
-        ORIENTATION_CONFIRMED_TO_LEAD,
-        actor=confirmer.user if confirmer is not None else None,
-        target=booking,
-        context={
-            "guild": guild,
-            "lead_name": lead.display_name,
-            "member_name": booking.member.display_name,
-            "orientation_name": booking.orientation_type.name,
-            "owner_name": booking.orientation_type.owner_name,
-            "starts_at": _when(booking.slot.starts_at),
-            "confirmer_name": confirmer.display_name if confirmer is not None else "Someone",
-            "booking_url": _absolute_url(reverse("hub_orientation_respond", args=[booking.pk])),
-        },
-        url=reverse("hub_orientation_respond", args=[booking.pk]),
-        period=f"booking:{booking.pk}:confirmed_lead",
-    )
+    named = runner or confirmer
+    context = {
+        "guild": guild,
+        "orientor_name": named.display_name if named is not None else "Someone",
+        "member_name": booking.member.display_name,
+        "orientation_name": booking.orientation_type.name,
+        "owner_name": booking.orientation_type.owner_name,
+        "starts_at": _when(booking.slot.starts_at),
+        "booking_url": _absolute_url(reverse("hub_orientation_respond", args=[booking.pk])),
+    }
+    for user in readers:
+        emit(
+            ORIENTATION_CONFIRMED_TO_LEAD,
+            actor=confirmer.user if confirmer is not None else None,
+            target=booking,
+            context={**context, "greeting_name": user.member.display_name},
+            url=reverse("hub_orientation_respond", args=[booking.pk]),
+            period=f"booking:{booking.pk}:confirmed_lead",
+            recipient_user_ids={user.pk},
+        )
 
 
 def decline_orientation(booking: OrientationBooking, *, note: str = "", actor: User | None = None) -> None:

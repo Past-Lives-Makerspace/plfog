@@ -68,10 +68,20 @@ def _booking(guild: object, prefix: str, *, orienter: Member | None = None, **kw
     return OrientationBookingFactory(slot=slot, member=_member(f"{prefix}_member", "Maya Member"), **kwargs)
 
 
-def _lead_notices(lead: Member) -> tuple[list[object], list[Notification]]:
-    emails = [m for m in mail.outbox if m.to == [lead.primary_email] and m.subject.startswith("Orientation confirmed:")]
-    bells = list(Notification.objects.filter(user=lead.user, trigger=ORIENTATION_CONFIRMED_TO_LEAD))
+def _notices(person: Member) -> tuple[list[object], list[Notification]]:
+    """The "is orienting" email and bell ``person`` got (#1127, #1134)."""
+    emails = [m for m in mail.outbox if m.to == [person.primary_email] and " is orienting " in m.subject]
+    bells = list(Notification.objects.filter(user=person.user, trigger=ORIENTATION_CONFIRMED_TO_LEAD))
     return emails, bells
+
+
+_lead_notices = _notices
+
+
+def _co_lead(guild: object, username: str, name: str = "Chris Colead") -> Member:
+    co_lead = _member(username, name)
+    GuildStaffMembershipFactory(guild=guild, member=co_lead, role=GuildStaffMembership.Role.CO_LEAD)
+    return co_lead
 
 
 def _token(email: object, action: str) -> str:
@@ -95,12 +105,13 @@ def describe_the_lead_hears_of_a_confirmation():
         assert len(bells) == 1
         when = orientations._when(booking.slot.starts_at)
         body = emails[0].body
-        assert emails[0].subject == "Orientation confirmed: Maya Member, Wheel Throwing"
-        for text in ("Maya Member", "Wheel Throwing", when, "Confirmed by: Olive Orientor0"):
-            assert text in body
+        sentence = f"Olive Orientor0 is orienting Maya Member for Wheel Throwing on {when}"
+        assert emails[0].subject == sentence
+        assert body.startswith("Hi Lena Lead,")
+        assert f"{sentence}." in body
         assert f"/orientation/bookings/{booking.pk}/respond/" in body
         assert bells[0].title == "Orientation confirmed"
-        assert bells[0].body == f"Olive Orientor0 confirmed Maya Member's Wheel Throwing orientation for {when}."
+        assert bells[0].body == f"{sentence}."
         assert bells[0].url == f"/orientation/bookings/{booking.pk}/respond/"
 
     def it_sends_the_lead_nothing_when_the_lead_confirms():
@@ -123,7 +134,7 @@ def describe_the_lead_hears_of_a_confirmation():
         bells = Notification.objects.filter(trigger=ORIENTATION_CONFIRMED_TO_LEAD)
         assert set(bells.values_list("user_id", flat=True)) == {lead.user_id}
 
-    def it_sends_nothing_for_a_guild_with_no_lead():
+    def it_sends_nothing_for_a_guild_with_no_lead_or_co_lead():
         guild = GuildFactory(guild_lead=None)
         orientor = _member("c4_orientor")
         GuildStaffMembershipFactory(guild=guild, member=orientor, role=GuildStaffMembership.Role.ORIENTER)
@@ -195,7 +206,7 @@ def describe_email_link_confirmations():
         decoded.refresh_from_db()
         assert decoded.oriented_by == orientor
         emails, _bells = _lead_notices(lead)
-        assert "Confirmed by: Olive Orientor0" in emails[0].body
+        assert emails[0].subject.startswith("Olive Orientor0 is orienting Maya Member for Wheel Throwing on ")
 
     def it_mints_each_orientors_links_for_that_orientor_and_credits_the_one_who_clicked():
         guild, lead, orientors = _guild("t2", orientors=2)
@@ -214,7 +225,7 @@ def describe_email_link_confirmations():
         # #1127 review: the Orientor who confirmed is credited (and paid), not the lead who never got it.
         assert decoded.oriented_by == orientors[1]
         emails, bells = _lead_notices(lead)
-        assert "Confirmed by: Olive Orientor1" in emails[0].body
+        assert emails[0].subject.startswith("Olive Orientor1 is orienting")
         assert len(bells) == 1
 
     def it_sends_each_orientor_one_email_and_one_bell_and_logs_one_activity_row():
@@ -271,7 +282,7 @@ def describe_confirming_by_a_move():
 
         _emails, bells = _lead_notices(lead)
         assert len(bells) == 1
-        assert bells[0].body.startswith("Olive Orientor0 confirmed Maya Member's")
+        assert bells[0].body.startswith("Olive Orientor0 is orienting Maya Member for")
 
     def it_says_nothing_when_a_confirmed_booking_moves():
         guild, lead, [orientor] = _guild("m2")
@@ -299,7 +310,7 @@ def describe_confirming_by_a_move():
 
         _emails, bells = _lead_notices(lead)
         assert len(bells) == 1
-        assert bells[0].body.startswith("Olive Orientor0 confirmed")
+        assert bells[0].body.startswith("Olive Orientor0 is orienting")
 
     def it_says_nothing_when_the_member_keeps_their_time():
         guild, lead, [orientor] = _guild("m5")
@@ -375,6 +386,13 @@ def describe_the_settings_row():
         assert cells[Channel.IN_APP].present
         assert cells[Channel.IN_APP].enabled
 
+    def it_shows_the_row_to_a_co_lead_but_not_a_treasurer():
+        guild, _lead, _orientors = _guild("s4")
+        co_lead = _co_lead(guild, "s4_colead")
+        treasurer = guild.staff_memberships.get(role=GuildStaffMembership.Role.TREASURER).member
+        assert ORIENTATION_CONFIRMED_TO_LEAD in _keys(co_lead.user)
+        assert ORIENTATION_CONFIRMED_TO_LEAD not in _keys(treasurer.user)
+
     def it_hides_the_row_from_a_plain_member():
         assert ORIENTATION_CONFIRMED_TO_LEAD not in _keys(_member("s2_plain").user)
 
@@ -412,7 +430,7 @@ def describe_the_lead_keeps_every_action():
 
         emails, bells = _lead_notices(lead)
         assert (len(emails), len(bells)) == (1, 1)
-        assert "Confirmed by: Olive Orientor0" in emails[0].body
+        assert emails[0].subject.startswith("Olive Orientor0 is orienting Maya Member for Wheel Throwing on ")
 
 
 def describe_the_request_email_is_always_on():
@@ -558,11 +576,12 @@ def describe_old_email_links():
 
         decoded.refresh_from_db()
         assert decoded.oriented_by == new_lead
-        _emails, bells = _lead_notices(new_lead)
-        assert bells[0].body.startswith("Someone confirmed")
+        # #1134: the credit default makes the new lead the runner, and the runner is not told.
+        assert _notices(new_lead) == ([], [])
 
-    def it_tells_the_lead_when_a_pre_change_link_stamped_with_the_lead_is_used():
+    def it_tells_the_co_leads_who_runs_it_when_a_pre_change_link_stamped_with_the_lead_is_used():
         guild, lead, _orientors = _guild("ol2")
+        co_lead = _co_lead(guild, "ol2_colead")
         booking = _booking(guild, "ol2")
         token = _old_token(booking, "confirm", lead)
         decoded, action, recipient = orientations.read_action_token(token)
@@ -574,8 +593,10 @@ def describe_old_email_links():
 
         decoded.refresh_from_db()
         assert decoded.oriented_by == lead  # the credit default, exactly as before
-        emails, bells = _lead_notices(lead)
-        assert "Confirmed by: Someone" in emails[0].body
+        # The lead is the runner on record, so the lead is not told; the Co-Lead hears who runs it.
+        assert _notices(lead) == ([], [])
+        emails, bells = _notices(co_lead)
+        assert emails[0].subject.startswith("Lena Lead is orienting Maya Member")
         assert len(bells) == 1
 
     def it_marks_only_a_link_minted_for_its_reader_as_addressed():
@@ -622,12 +643,14 @@ def describe_old_email_links():
         booking.refresh_from_db()
         assert booking.oriented_by == orientor
         emails, _bells = _lead_notices(lead)
-        assert "Confirmed by: Olive Orientor0" in emails[0].body
+        assert emails[0].subject.startswith("Olive Orientor0 is orienting Maya Member for Wheel Throwing on ")
 
 
-def describe_an_unknown_confirmer():
-    def it_names_someone_when_a_move_has_no_actor():
-        guild, lead, _orientors = _guild("u1")
+def describe_an_unknown_orientor():
+    def it_names_someone_when_nobody_runs_it_and_nobody_is_known_to_have_confirmed():
+        guild = GuildFactory(name="Zzconf u1 Guild", guild_lead=None)
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        co_lead = _co_lead(guild, "u1_colead")
         booking = _booking(guild, "u1")
         local = timezone.localtime(timezone.now() + timedelta(days=5)).replace(
             hour=14, minute=0, second=0, microsecond=0
@@ -635,8 +658,26 @@ def describe_an_unknown_confirmer():
 
         orientations.move_orientation(booking, local, actor=None)
 
-        _emails, bells = _lead_notices(lead)
-        assert bells[0].body.startswith("Someone confirmed Maya Member's")
+        booking.refresh_from_db()
+        assert booking.oriented_by is None
+        _emails, bells = _notices(co_lead)
+        assert bells[0].body.startswith("Someone is orienting Maya Member for Wheel Throwing on ")
+
+    def it_names_the_confirmer_when_nobody_is_credited_with_running_it():
+        guild = GuildFactory(name="Zzconf u2 Guild", guild_lead=None)
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        co_lead = _co_lead(guild, "u2_colead")
+        former = _member("u2_former", "Fay Former")
+        booking = _booking(guild, "u2")
+        token = orientations.make_action_token(booking, "confirm", recipient=former, addressed=True)
+        decoded, action, recipient = orientations.read_action_token(token)
+
+        orientations.apply_token_action(decoded, action, recipient=recipient, addressed=True)
+
+        decoded.refresh_from_db()
+        assert decoded.oriented_by is None
+        emails, _bells = _notices(co_lead)
+        assert emails[0].subject.startswith("Fay Former is orienting Maya Member")
 
 
 def describe_the_cancel_ping_after_an_orientor_left():
@@ -653,8 +694,9 @@ def describe_the_cancel_ping_after_an_orientor_left():
 
 
 def describe_a_link_with_no_recipient():
-    def it_keeps_the_credit_default_and_tells_the_lead_someone_confirmed():
+    def it_keeps_the_credit_default_and_names_that_runner_to_the_co_leads():
         guild, lead, _orientors = _guild("nr1")
+        co_lead = _co_lead(guild, "nr1_colead")
         booking = _booking(guild, "nr1")
         token = orientations.make_action_token(booking, "confirm")
         decoded, action, recipient = orientations.read_action_token(token)
@@ -665,5 +707,84 @@ def describe_a_link_with_no_recipient():
 
         decoded.refresh_from_db()
         assert decoded.oriented_by == lead
-        emails, _bells = _lead_notices(lead)
-        assert "Confirmed by: Someone" in emails[0].body
+        assert _notices(lead) == ([], [])
+        emails, _bells = _notices(co_lead)
+        assert emails[0].subject.startswith("Lena Lead is orienting")
+
+
+def describe_the_co_leads_hear_too():
+    """#1134: the lead and every Co-Lead get the confirmation, minus whoever runs it."""
+
+    def it_tells_the_lead_and_each_co_lead_once_each_greeting_them_by_name():
+        guild, lead, [orientor] = _guild("cl1")
+        chris = _co_lead(guild, "cl1_chris", "Chris Colead")
+        dana = _co_lead(guild, "cl1_dana", "Dana Colead")
+        booking = _booking(guild, "cl1")
+
+        orientations.confirm_orientation(booking, oriented_by=orientor)
+        orientations._tell_lead_of_confirmation(booking, confirmer=orientor)  # deduped per person
+
+        for person, name in ((lead, "Lena Lead"), (chris, "Chris Colead"), (dana, "Dana Colead")):
+            emails, bells = _notices(person)
+            assert (len(emails), len(bells)) == (1, 1), name
+            assert emails[0].body.startswith(f"Hi {name},")
+            assert emails[0].subject.startswith("Olive Orientor0 is orienting Maya Member for Wheel Throwing on ")
+        assert _notices(orientor) == ([], [])
+
+    def it_skips_a_co_lead_who_runs_the_orientation():
+        guild, lead, _orientors = _guild("cl2")
+        chris = _co_lead(guild, "cl2_chris")
+        booking = _booking(guild, "cl2")
+
+        orientations.confirm_orientation(booking, oriented_by=chris)
+
+        assert _notices(chris) == ([], [])
+        emails, _bells = _notices(lead)
+        assert emails[0].subject.startswith("Chris Colead is orienting Maya Member")
+
+    def it_skips_the_confirmer_when_someone_else_runs_it():
+        guild, lead, [orientor] = _guild("cl3")
+        chris = _co_lead(guild, "cl3_chris")
+        booking = _booking(guild, "cl3")
+
+        orientations.confirm_orientation(booking, oriented_by=orientor, confirmed_by=chris)
+
+        assert _notices(chris) == ([], [])
+        emails, _bells = _notices(lead)
+        assert emails[0].subject.startswith("Olive Orientor0 is orienting")
+
+    def it_skips_the_lead_who_runs_it_and_tells_the_co_lead():
+        guild, lead, _orientors = _guild("cl4")
+        chris = _co_lead(guild, "cl4_chris")
+        booking = _booking(guild, "cl4")
+
+        orientations.confirm_orientation(booking, oriented_by=lead)
+
+        assert _notices(lead) == ([], [])
+        emails, bells = _notices(chris)
+        assert (len(emails), len(bells)) == (1, 1)
+        assert emails[0].subject.startswith("Lena Lead is orienting Maya Member")
+
+    def it_skips_a_co_lead_who_is_no_longer_active():
+        guild, lead, [orientor] = _guild("cl5")
+        chris = _co_lead(guild, "cl5_chris")
+        chris.status = Member.Status.FORMER
+        chris.save(update_fields=["status"])
+        booking = _booking(guild, "cl5")
+
+        orientations.confirm_orientation(booking, oriented_by=orientor)
+
+        assert _notices(chris) == ([], [])
+        assert len(_notices(lead)[1]) == 1
+
+    def it_keeps_requests_and_messages_away_from_a_co_lead_who_is_not_running_it():
+        guild, _lead, [orientor] = _guild("cl6")
+        chris = _co_lead(guild, "cl6_chris")
+        booking = _booking(guild, "cl6")
+
+        orientations._emit_lead_request(booking)
+        message = booking.post_message(author=booking.member.user, body="Zzhello")
+
+        assert not [m for m in mail.outbox if m.to == [chris.primary_email]]
+        assert not Notification.objects.filter(user=chris.user).exists()
+        assert chris.user_id not in message.orientor_user_ids()

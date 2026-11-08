@@ -109,6 +109,7 @@ STAFF_RECIPIENTS: frozenset[Recipients] = frozenset(
         Recipients.GUILD_LEADERSHIP,
         Recipients.GUILD_LEADERSHIP_OR_ADMINS,
         Recipients.GUILD_LEAD,
+        Recipients.GUILD_LEAD_AND_CO_LEADS,
         Recipients.ALL_GUILD_LEADS,
         Recipients.GUILD_ORIENTERS,
         Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS,
@@ -191,6 +192,7 @@ _GROUPS_BY_RECIPIENT: dict[Recipients, tuple[PermissionGroup, ...]] = {
     ),
     Recipients.GUILD_LEADERSHIP: (PermissionGroup.GUILD_LEADERSHIP,),
     Recipients.GUILD_LEAD: (PermissionGroup.GUILD_LEADERSHIP,),
+    Recipients.GUILD_LEAD_AND_CO_LEADS: (PermissionGroup.GUILD_LEADERSHIP,),
     Recipients.GUILD_ORIENTERS: (PermissionGroup.GUILD_LEADERSHIP,),
     Recipients.ALL_GUILD_LEADS: (PermissionGroup.GUILD_LEADERSHIP,),
     Recipients.KILN_CREW: (PermissionGroup.GUILD_LEADERSHIP,),
@@ -466,6 +468,8 @@ class _StaffProfile:
     is_kiln_crew: bool = False
     # Holds a guild staff row marked Class Reviewer (#816).
     is_class_reviewer: bool = False
+    # Holds a guild staff row with the Co-Lead role (#1134).
+    is_co_lead: bool = False
 
     @property
     def is_leadership(self) -> bool:
@@ -526,6 +530,7 @@ def _staff_profile(user: User) -> _StaffProfile:
         leads_guild=leads_guild,
         staffs_guild=bool(staff_roles),
         is_orienter=GuildStaffMembership.Role.ORIENTER in staff_roles,
+        is_co_lead=GuildStaffMembership.Role.CO_LEAD in staff_roles,
         manages_equipment=member.equipment_staff_memberships.exists(),
         capabilities=frozenset(member.admin_capabilities.values_list("capability", flat=True)),
         # Kiln crew is a lead or a staff row, so a plain member is never asked about it.
@@ -551,6 +556,8 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
         Recipients.GUILD_LEADERSHIP: lead,
         Recipients.GUILD_LEADERSHIP_OR_ADMINS: lead or profile.is_admin,
         Recipients.GUILD_LEAD: profile.leads_guild,
+        # The lead and every Co-Lead hear an orientation was confirmed (#1134).
+        Recipients.GUILD_LEAD_AND_CO_LEADS: profile.leads_guild or profile.is_co_lead,
         # all_guild_leads resolves against Member.objects.active(), so a FORMER/SUSPENDED
         # lead/officer would see this row but never receive the mail — gate on is_active too.
         Recipients.ALL_GUILD_LEADS: (lead or profile.is_officer) and profile.is_active,
