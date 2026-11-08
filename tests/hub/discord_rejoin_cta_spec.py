@@ -92,3 +92,20 @@ def describe_discord_cta():
         removal.rejoined_at = timezone.now()
         removal.save()
         assert "data-discord-rejoin" not in client.get(SETTINGS).content.decode()
+
+
+def describe_guidance_target_on_every_state():
+    def it_rings_connect_before_discord_is_linked(client: Client):
+        member = _signed_in_member(client)
+        Member.objects.filter(pk=member.pk).update(discord_user_id="")
+        html = client.get(SETTINGS).content.decode()
+        assert html.count('data-guidance-target="account.discord-reconnect"') == 1
+        marked = html.split('data-guidance-target="account.discord-reconnect"', 1)[1]
+        assert marked.lstrip(">").startswith("Connect Discord")
+
+    def it_rings_rejoin_for_a_removed_member(client: Client):
+        _kicked(_signed_in_member(client))
+        html = client.get(SETTINGS).content.decode()
+        assert html.count('data-guidance-target="account.discord-reconnect"') == 1
+        marked = html.split('data-guidance-target="account.discord-reconnect"', 1)[0].rsplit("<a ", 1)[1]
+        assert "data-discord-rejoin" in marked

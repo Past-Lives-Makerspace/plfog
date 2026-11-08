@@ -38,7 +38,7 @@ Profile copy comes first in the page and is hidden there, and the ring takes the
   {% if member.discord_is_linked %}
     <div class="pl-discord-link__actions">
       {% if member.needs_discord_rejoin %}
-      <a href="{% url 'hub_discord_connect' %}" class="hub-btn hub-btn--sm hub-btn--primary" hx-boost="false" data-discord-rejoin>Rejoin the Discord</a>
+      <a href="{% url 'hub_discord_connect' %}" class="hub-btn hub-btn--sm hub-btn--primary" hx-boost="false" data-discord-rejoin{% if id_suffix == "notifications" %} data-guidance-target="account.discord-reconnect"{% endif %}>Rejoin the Discord</a>
       {% else %}
       <a href="{% url 'hub_discord_connect' %}" class="hub-btn hub-btn--sm hub-btn--primary" hx-boost="false" data-discord-reconnect{% if id_suffix == "notifications" %} data-guidance-target="account.discord-reconnect"{% endif %}>Reconnect Discord</a>
       {% endif %}
@@ -46,6 +46,6 @@ Profile copy comes first in the page and is hidden there, and the ring takes the
               @click="$dispatch('open-confirm', 'disconnect-discord-{{ id_suffix }}')">Disconnect</button>
     </div>
   {% else %}
-    <a href="{% url 'hub_discord_connect' %}" class="hub-btn hub-btn--sm hub-btn--primary" hx-boost="false">Connect Discord</a>
+    <a href="{% url 'hub_discord_connect' %}" class="hub-btn hub-btn--sm hub-btn--primary" hx-boost="false"{% if id_suffix == "notifications" %} data-guidance-target="account.discord-reconnect"{% endif %}>Connect Discord</a>
   {% endif %}
 </div>
