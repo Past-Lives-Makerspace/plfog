@@ -20,7 +20,13 @@ from django.urls import reverse
 
 from core.models import Notification
 from membership.models import Guild, GuildStaffMembership, Member
-from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, MemberFactory, MembershipPlanFactory
+from tests.membership.factories import (
+    GuildFactory,
+    GuildStaffMembershipFactory,
+    MemberFactory,
+    MembershipPlanFactory,
+    OrientationAvailabilityFactory,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -196,6 +202,20 @@ def describe_guild_lead():
         assert guild.guild_lead == erin
         assert _messages(response)[0] == "Erin Example is now the lead of Glass Guild. Old Lead is no longer its lead."
 
+    def it_says_the_old_leads_times_are_hidden_unless_they_are_staff(client: Client, admin: Member, erin: Member):
+        # The staffed case first: an unread message would carry into the next request.
+        kept = MemberFactory(full_legal_name="Kept Lead")
+        staffed = GuildFactory(name="Wood Guild", guild_lead=kept)
+        GuildStaffMembershipFactory(guild=staffed, member=kept, role=Role.ORIENTER)
+        response = client.post(reverse("hub_admin_member_guild_lead_set", args=[erin.pk]), {"guild": staffed.pk})
+        assert not any("orientation times are hidden" in m for m in _messages(response))
+
+        old = MemberFactory(full_legal_name="Old Lead")
+        guild = GuildFactory(name="Glass Guild", guild_lead=old)
+        OrientationAvailabilityFactory(guild=guild, orienter=old)
+        response = client.post(reverse("hub_admin_member_guild_lead_set", args=[erin.pk]), {"guild": guild.pk})
+        assert "Old Lead's orientation times are hidden. Add them as staff today to keep them." in _messages(response)
+
     def it_names_the_current_lead_in_the_picker(client: Client, admin: Member, erin: Member):
         GuildFactory(name="Glass Guild", guild_lead=MemberFactory(full_legal_name="Old Lead"))
         GuildFactory(name="Bare Guild")
@@ -219,6 +239,15 @@ def describe_guild_lead():
         guild.refresh_from_db()
         assert guild.guild_lead is None
         assert _messages(response) == ["Erin Example is no longer the lead of Glass Guild."]
+
+    def it_says_the_cleared_leads_times_are_hidden_when_they_have_some(client: Client, admin: Member, erin: Member):
+        guild = GuildFactory(name="Glass Guild", guild_lead=erin)
+        OrientationAvailabilityFactory(guild=guild, orienter=erin)
+        response = client.post(reverse("hub_admin_member_guild_lead_clear", args=[erin.pk, guild.pk]))
+        assert _messages(response) == [
+            "Erin Example is no longer the lead of Glass Guild.",
+            "Erin Example's orientation times are hidden. Add them as staff today to keep them.",
+        ]
 
 
 def describe_the_staff_tab_add_form():

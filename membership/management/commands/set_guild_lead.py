@@ -33,9 +33,11 @@ class Command(BaseCommand):
             previous = guild.clear_lead()
             who = previous.display_name if previous is not None else "(none)"
             self.stdout.write(self.style.SUCCESS(f"Cleared lead of '{guild.name}' (was {who})."))
+            self._note_hidden_times(guild, previous, None)
             return
 
         member = self._resolve_member(options["member"])
+        previous = guild.guild_lead
         warnings = guild.assign_lead(member)
         self.stdout.write(
             self.style.SUCCESS(
@@ -44,6 +46,13 @@ class Command(BaseCommand):
         )
         for warning in warnings:
             self.stdout.write(self.style.WARNING(f"  Warning: {warning}"))
+        self._note_hidden_times(guild, previous, member)
+
+    def _note_hidden_times(self, guild: Guild, previous: Member | None, new_lead: Member | None) -> None:
+        """Print :meth:`Guild.hidden_times_notice` when the old lead's orientation times are now hidden (#1129)."""
+        notice = guild.hidden_times_notice(previous, new_lead)
+        if notice:
+            self.stdout.write(self.style.WARNING(f"  {notice}"))
 
     def _resolve_guild(self, ref: str) -> Guild:
         if ref.isdigit():

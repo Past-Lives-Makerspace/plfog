@@ -99,17 +99,34 @@ def describe_request_orientation():
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_REQUESTED).exists()
         assert Notification.objects.filter(user=lead.user, trigger="orientation_requested").exists()
 
-    def it_also_emails_and_notifies_guild_staff():
+    def it_sends_a_shared_slot_request_to_every_orientor_and_not_the_rest_of_the_team():
+        # #1127: the Orientors act on a request; the lead, co-leads, secretaries and
+        # treasurers are not copied on it.
         guild, lead = _enabled_guild_with_lead("svc_lead_staff")
-        staff = _member_with_user("svc_staff")
-        GuildStaffMembershipFactory(guild=guild, member=staff, role=GuildStaffMembership.Role.CO_LEAD)
+        orientors = []
+        for name in ("svc_orientor_a", "svc_orientor_b"):
+            orientor = _member_with_user(name)
+            GuildStaffMembershipFactory(guild=guild, member=orientor, role=GuildStaffMembership.Role.ORIENTER)
+            orientors.append(orientor)
+        others = []
+        for name, role in (
+            ("svc_colead", GuildStaffMembership.Role.CO_LEAD),
+            ("svc_secretary", GuildStaffMembership.Role.SECRETARY),
+            ("svc_treasurer", GuildStaffMembership.Role.TREASURER),
+        ):
+            staff = _member_with_user(name)
+            GuildStaffMembershipFactory(guild=guild, member=staff, role=role)
+            others.append(staff)
         member = _member_with_user("svc_member_staff")
         slot = OrientationSlotFactory(guild=guild, enabled_settings=False)
 
         orientations.request_orientation(slot, member, note="hi")
 
-        recipients = {addr for m in mail.outbox for addr in m.to}
-        assert {member.primary_email, lead.primary_email, staff.primary_email} <= recipients
+        requests = [m for m in mail.outbox if m.subject.startswith("New orientation request")]
+        assert sorted(addr for m in requests for addr in m.to) == sorted(o.primary_email for o in orientors)
+        notified = set(Notification.objects.filter(trigger="orientation_requested").values_list("user_id", flat=True))
+        assert notified == {o.user_id for o in orientors}
+        assert lead.user_id not in notified
 
     def it_skips_the_lead_email_when_the_guild_has_no_lead():
         guild = GuildFactory()
@@ -121,20 +138,23 @@ def describe_request_orientation():
 
         assert [m.to for m in mail.outbox] == [[member.primary_email]]
 
-    def it_fans_the_in_app_request_out_to_all_orienters_not_just_the_lead():
-        # Decision 7: the in-app "needs a runner" ping reaches every orientor, fixing
-        # the old lead-only asymmetry (email→all, in-app→lead only).
+    def it_sends_a_personal_slot_request_to_that_orientor_alone():
+        # #1127: the Orientor the member booked gets the email and the bell; the lead and
+        # the guild's other Orientors do not.
         guild, lead = _enabled_guild_with_lead("o7_lead")
         orienter = _member_with_user("o7_orienter")
         GuildStaffMembershipFactory(guild=guild, member=orienter, role=GuildStaffMembership.Role.ORIENTER)
+        other = _member_with_user("o7_other")
+        GuildStaffMembershipFactory(guild=guild, member=other, role=GuildStaffMembership.Role.ORIENTER)
         member = _member_with_user("o7_member")
-        slot = OrientationSlotFactory(guild=guild, enabled_settings=False)
+        slot = OrientationSlotFactory(guild=guild, orienter=orienter, enabled_settings=False)
 
         orientations.request_orientation(slot, member)
 
+        requests = [m for m in mail.outbox if m.subject.startswith("New orientation request")]
+        assert [m.to for m in requests] == [[orienter.primary_email]]
         notified = set(Notification.objects.filter(trigger="orientation_requested").values_list("user_id", flat=True))
-        assert lead.user_id in notified
-        assert orienter.user_id in notified  # the orientor now gets the in-app ping too
+        assert notified == {orienter.user_id}
 
     def it_credits_the_actual_runner_who_confirms_not_the_lead():
         # Decision 7: confirm passes the acting staffer as oriented_by; the booking is

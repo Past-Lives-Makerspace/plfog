@@ -91,6 +91,7 @@ def emit_with_email_shell(
     period: str = "",
     recipient_user_ids: set[int] | None = None,
     digest_message: Message | None = None,
+    log_activity: bool = True,
 ) -> EmitResult:
     """Emit an event whose EMAIL channel uses a rich structural shell template.
 
@@ -128,6 +129,8 @@ def emit_with_email_shell(
         digest_message: For a digest event (#894), the line the 8 AM staff digest shows in
             place of the shell email: title, one line, absolute link. ``None`` lets the
             digest fall back to the in-app title and body.
+        log_activity: Passed through to :func:`~core.events.emit.emit`; ``False`` skips the
+            activity row for a sender that splits one event into several emits.
 
     Returns:
         The :class:`~core.events.emit.EmitResult`.
@@ -158,6 +161,7 @@ def emit_with_email_shell(
         email_to=email_to,
         period=period,
         recipient_user_ids=recipient_user_ids,
+        log_activity=log_activity,
     )
 
 

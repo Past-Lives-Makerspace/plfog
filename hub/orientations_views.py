@@ -192,7 +192,7 @@ def hub_orientations(request: HttpRequest) -> HttpResponse:
     slots_by_type, full_type_ids = _open_slots(bookable_types, Guild.orienter_name_labels_for(open_guilds.values()))
     blocks = (
         list(
-            OrientationAvailabilityBlock.objects.upcoming()
+            OrientationAvailabilityBlock.objects.offered()
             .filter(guild_id__in=set(open_guilds))
             .select_related("orienter", "guild")
             .order_by("starts_at")

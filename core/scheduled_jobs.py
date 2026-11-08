@@ -318,6 +318,18 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.DAILY,
     ),
     ScheduledJob(
+        # Before generation (daily jobs run in list order), so the night starts from current Orientors.
+        key="retire_stale_orientor_hours",
+        name="Retire hours of former Orientors",
+        description=(
+            "Removes open orientation times posted by people who no longer run that guild or tool, "
+            "or whose membership is no longer active. Times someone already booked stay."
+        ),
+        command="retire_stale_orientor_hours",
+        schedule_label="Nightly ~6 AM",
+        cadence=Cadence.DAILY,
+    ),
+    ScheduledJob(
         key="generate_orientation_slots",
         name="Generate orientation slots",
         description="Opens the next batch of bookable orientation time slots.",

@@ -153,7 +153,7 @@ hides the Orientations tab otherwise), so there is no empty state here. Context:
         Schedule an Orientation
       </button>
       <div x-show="showCustom" x-cloak style="max-width:420px;">
-        <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">Pick an orientation, propose your own time, and the guild lead will confirm it.</p>
+        <p class="hub-text-muted" style="margin:0 0 0.75rem; font-size:0.85rem;">Pick an orientation, propose your own time, and an Orientor will confirm it.</p>
         <form method="post" action="{% url 'hub_guild_orientation_request_custom' guild.pk %}" class="hub-form" hx-boost="false">
           {% csrf_token %}
           <div @change="amount = suggestions[typePk] ?? ''">{% include "components/form_field.html" with field=custom_request_form.orientation_type %}</div>

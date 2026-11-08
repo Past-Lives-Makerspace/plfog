@@ -120,8 +120,9 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.GUILD_MEMBERS: "Every active member of the guild.",
     Recipients.GUILD_ORIENTERS: "The guild's lead and everyone holding the orientor role.",
     Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS: (
-        "The guild's lead and staff (for a personal slot, the orientor booked plus the lead); "
-        "for an equipment orientation, the equipment's own managers and its guild's leadership "
+        "The guild's Orientors (for a personal slot, the Orientor booked), else its lead, else "
+        "its lead and staff; for an equipment orientation, the equipment's own managers and its "
+        "guild's leadership "
         "(the Equipment Administrators only for equipment nobody manages)."
     ),
     Recipients.ORIENTATION_RUNNER: "The staffer who claimed/ran the orientation.",
@@ -2190,6 +2191,65 @@ _CURATED: dict[str, EventCopy] = {
                     'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
                     "Read And Answer</a></p>"
                     "<p>You get this as an Orientor for {{ owner_name }}.</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
+    # orientation.confirmed_to_lead — someone other than the guild lead confirmed a guild
+    # orientation (#1127): the member, the orientation, the time and who confirmed it.
+    # booking_url is the request page the lead can still open and act on.
+    "orientation.confirmed_to_lead": EventCopy(
+        placeholders=(
+            "lead_name",
+            "member_name",
+            "orientation_name",
+            "owner_name",
+            "starts_at",
+            "confirmer_name",
+            "booking_url",
+        ),
+        sample_context={
+            "lead_name": "Jordan Reyes",
+            "member_name": "Maya Okafor",
+            "orientation_name": "Wheel Throwing",
+            "owner_name": "Ceramics Guild",
+            "starts_at": "Thursday, November 12 at 6:00 PM",
+            "confirmer_name": "Sam Turner",
+            "booking_url": "https://pastlives.example/orientation/bookings/12/respond/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="Orientation confirmed",
+                body_text=(
+                    "{{ confirmer_name }} confirmed {{ member_name }}'s {{ orientation_name }} orientation "
+                    "for {{ starts_at }}."
+                ),
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="Orientation confirmed: {{ member_name }}, {{ orientation_name }}",
+                body_text=(
+                    "Hi {{ lead_name }},\n\n"
+                    "{{ confirmer_name }} confirmed an orientation for {{ owner_name }}.\n\n"
+                    "Member: {{ member_name }}\n"
+                    "Orientation: {{ orientation_name }}\n"
+                    "When: {{ starts_at }}\n"
+                    "Confirmed by: {{ confirmer_name }}\n\n"
+                    "See the booking: {{ booking_url }}\n\n"
+                    "You get this as the guild lead for {{ owner_name }}.\n\nPast Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Hi {{ lead_name }},</p>"
+                    "<p>{{ confirmer_name }} confirmed an orientation for {{ owner_name }}.</p>"
+                    "<p><strong>Member:</strong> {{ member_name }}<br>"
+                    "<strong>Orientation:</strong> {{ orientation_name }}<br>"
+                    "<strong>When:</strong> {{ starts_at }}<br>"
+                    "<strong>Confirmed by:</strong> {{ confirmer_name }}</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ booking_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "See The Booking</a></p>"
+                    "<p>You get this as the guild lead for {{ owner_name }}.</p>"
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),

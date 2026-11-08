@@ -1,0 +1,10 @@
+bump = "patch"
+date = "2026-11-07"
+audience = ["members", "orientors", "guild-leads"]
+feature = "orientations.bookings"
+guidance = "none"
+title = "You can only book orientation times with people who still run them"
+changes = [
+  "When someone stops being a guild's lead or staff, or their membership ends or is paused, their open orientation times come off the schedule automatically.",
+  "Times that already have a booking stay, so a guild lead can move or cancel them.",
+]

@@ -562,6 +562,7 @@ FEEDBACK_COMMENT_ADDED = "feedback.comment_added"  # Past Lives wrote on a reque
 FEEDBACK_MEMBER_REPLIED = "feedback.member_replied"  # a sender wrote back on their request (the Webmasters)
 ORIENTATION_MESSAGE_TO_MEMBER = "orientation.message_to_member"  # an orientor wrote on your orientation booking
 ORIENTATION_MESSAGE_TO_ORIENTORS = "orientation.message_to_orientors"  # a member wrote on their orientation booking
+ORIENTATION_CONFIRMED_TO_LEAD = "orientation.confirmed_to_lead"  # someone else confirmed one in your guild (#1127)
 CLASS_MESSAGE_TO_INSTRUCTORS = "class.message_to_instructors"  # a reviewer wrote on your class (#975)
 CLASS_MESSAGE_TO_REVIEWERS = "class.message_to_reviewers"  # an instructor wrote on a class you review (#975)
 KILN_CREW_REPLIED = "kiln.crew_replied"  # the kiln crew wrote on your kiln ticket (#691)
@@ -1619,6 +1620,21 @@ _NEW_EVENTS: list[EventType] = [
         description="A member wrote on an orientation booking you run.",
         category="Orientations",
         recipient=Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # orientation.confirmed_to_lead — a guild orientation was confirmed by someone other than
+    # the guild lead (an Orientor, an admin, an email link), by Confirm, Move It Now or the
+    # member accepting a proposed time (#1127). The lead no longer gets every request, so this
+    # is how they hear the outcome: the member, the orientation, the time and who confirmed
+    # it. Guild owned only; equipment keeps its own routing. Once per booking. No activity
+    # row: confirming already logs ORIENTATION_CONFIRMED.
+    EventType(
+        key=ORIENTATION_CONFIRMED_TO_LEAD,
+        label="Orientation confirmed",
+        description="Someone else confirmed an orientation in a guild you lead.",
+        category="Orientations",
+        recipient=Recipients.GUILD_LEAD,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),

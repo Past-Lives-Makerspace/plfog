@@ -387,32 +387,100 @@ def describe_guild_orienters_or_equipment_managers():
         GuildStaffMembershipFactory(guild=guild, member=treasurer, role=GuildStaffMembership.Role.TREASURER)
         return guild, lead, orienter, treasurer
 
-    def it_routes_a_guild_shared_slot_to_the_whole_leadership():
-        # #524: one audience for the email and the bell. The email always went to the whole
-        # team; now the bell does too, so a treasurer who can confirm hears about it.
+    def it_routes_a_guild_shared_slot_to_its_orientors_only():
+        # #1127: the Orientors act on a request; the lead, co-leads, secretaries and
+        # treasurers are no longer copied on it.
         from tests.membership.factories import OrientationSlotFactory
 
-        guild, lead, orienter, treasurer = _staffed_guild("goem_s")
+        guild, _lead, orienter, _treasurer = _staffed_guild("goem_s")
+        second = _linked("goem_s_second")
+        GuildStaffMembershipFactory(guild=guild, member=second, role=GuildStaffMembership.Role.ORIENTER)
         shared = OrientationSlotFactory(guild=guild)
         recipients = resolvers.resolve(
             Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS, {"guild": guild, "slot": shared}
         )
-        assert _user_pks(recipients) == {lead.user.pk, orienter.user.pk, treasurer.user.pk}
+        assert _user_pks(recipients) == {orienter.user.pk, second.user.pk}
 
-    def it_routes_a_guild_context_with_no_slot_to_the_whole_leadership():
-        guild, lead, orienter, treasurer = _staffed_guild("goem_n")
+    def it_routes_a_guild_context_with_no_slot_like_a_shared_slot():
+        guild, _lead, orienter, _treasurer = _staffed_guild("goem_n")
         recipients = resolvers.resolve(Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS, {"guild": guild})
-        assert _user_pks(recipients) == {lead.user.pk, orienter.user.pk, treasurer.user.pk}
+        assert _user_pks(recipients) == {orienter.user.pk}
 
-    def it_narrows_a_guild_personal_slot_to_the_orienter_and_the_lead():
+    def it_routes_a_shared_slot_to_the_lead_when_the_guild_has_no_orientors():
         from tests.membership.factories import OrientationSlotFactory
 
-        guild, lead, orienter, _treasurer = _staffed_guild("goem_p")
+        lead = _linked("goem_l_lead")
+        guild = GuildFactory(guild_lead=lead)
+        treasurer = _linked("goem_l_treasurer")
+        GuildStaffMembershipFactory(guild=guild, member=treasurer, role=GuildStaffMembership.Role.TREASURER)
+        recipients = resolvers.resolve(
+            Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS,
+            {"guild": guild, "slot": OrientationSlotFactory(guild=guild)},
+        )
+        assert _user_pks(recipients) == {lead.user.pk}
+
+    def it_counts_an_orientor_without_an_account_as_nobody():
+        # A request is never unheard: an Orientor who cannot be reached sends it to the lead.
+        from tests.membership.factories import OrientationSlotFactory
+
+        lead = _linked("goem_u_lead")
+        guild = GuildFactory(guild_lead=lead)
+        GuildStaffMembershipFactory(guild=guild, role=GuildStaffMembership.Role.ORIENTER)
+        recipients = resolvers.resolve(
+            Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS,
+            {"guild": guild, "slot": OrientationSlotFactory(guild=guild)},
+        )
+        assert _user_pks(recipients) == {lead.user.pk}
+
+    def it_routes_to_the_whole_leadership_with_no_orientors_and_no_lead():
+        from tests.membership.factories import OrientationSlotFactory
+
+        guild = GuildFactory(guild_lead=None)
+        treasurer = _linked("goem_x_treasurer")
+        GuildStaffMembershipFactory(guild=guild, member=treasurer, role=GuildStaffMembership.Role.TREASURER)
+        recipients = resolvers.resolve(
+            Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS,
+            {"guild": guild, "slot": OrientationSlotFactory(guild=guild)},
+        )
+        assert _user_pks(recipients) == {treasurer.user.pk}
+
+    def it_narrows_a_guild_personal_slot_to_its_orienter_alone():
+        from tests.membership.factories import OrientationSlotFactory
+
+        guild, _lead, orienter, _treasurer = _staffed_guild("goem_p")
+        other = _linked("goem_p_other")
+        GuildStaffMembershipFactory(guild=guild, member=other, role=GuildStaffMembership.Role.ORIENTER)
         personal = OrientationSlotFactory(guild=guild, orienter=orienter)
         recipients = resolvers.resolve(
             Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS, {"guild": guild, "slot": personal}
         )
-        assert _user_pks(recipients) == {lead.user.pk, orienter.user.pk}
+        assert _user_pks(recipients) == {orienter.user.pk}
+
+    def it_sends_a_personal_slot_to_the_orientors_once_its_orienter_left_the_staff():
+        # #1127 review: remove_staff keeps their booked slots; the request must still reach someone who acts.
+        from tests.membership.factories import OrientationSlotFactory
+
+        guild, _lead, orienter, _treasurer = _staffed_guild("goem_left")
+        remaining = _linked("goem_left_remaining")
+        GuildStaffMembershipFactory(guild=guild, member=remaining, role=GuildStaffMembership.Role.ORIENTER)
+        personal = OrientationSlotFactory(guild=guild, orienter=orienter)
+        guild.staff_memberships.filter(member=orienter).delete()
+        recipients = resolvers.resolve(
+            Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS, {"guild": guild, "slot": personal}
+        )
+        assert _user_pks(recipients) == {remaining.user.pk}
+
+    def it_sends_a_personal_slot_to_the_lead_when_its_orienter_has_no_account():
+        from tests.membership.factories import MemberFactory, OrientationSlotFactory
+
+        lead = _linked("goem_pu_lead")
+        guild = GuildFactory(guild_lead=lead)
+        unlinked = MemberFactory(user=None)
+        personal = OrientationSlotFactory(guild=guild, orienter=unlinked)
+        recipients = resolvers.resolve(
+            Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS, {"guild": guild, "slot": personal}
+        )
+        assert _user_pks(recipients) == {lead.user.pk}
 
     def it_leaves_guild_orienters_itself_lead_plus_orienters():
         # Other callers use guild_orienters; the orientation audience change is not theirs.
