@@ -15,6 +15,12 @@ A member the bot removed from the Discord who is Active again (``needs_discord_r
 also gets Rejoin the Discord, the primary action beside Disconnect: the same connect flow, whose
 callback puts them back. Disconnect stays, because a member back on a different Discord account
 must disconnect the old one before connecting.
+
+Every other linked member gets Reconnect Discord, the same connect flow: connecting puts anyone on
+the server (Discord answers "already there" for someone who is), so a member linked before that
+fix, or who left the server, has a way back. Shown always, because the page never asks Discord.
+Its guidance target (account.discord-reconnect) sits on the Notifications placement only: the
+Profile copy comes first in the page and is hidden there, and the ring takes the first match.
 {% endcomment %}
 <div class="pl-discord-link">
   <div class="pl-discord-link__status">
@@ -24,7 +30,7 @@ must disconnect the old one before connecting.
     {% if member.needs_discord_rejoin %}
       <span>You were removed from the Past Lives Discord when your membership ended. Welcome back: rejoin to get back on the server with your guild roles.</span>
     {% elif member.discord_is_linked %}
-      <span>Discord connected — your guilds stay in sync both ways. Turn on the <strong>Discord</strong> column below to get notices as a DM.</span>
+      <span>Discord connected — your guilds stay in sync both ways. Turn on the <strong>Discord</strong> column below to get notices as a DM. Not on the Past Lives server? Reconnect to join it.</span>
     {% else %}
       <span>Connect Discord — we'll set up your guilds instantly, and you can get your Past Lives notifications as a direct message.</span>
     {% endif %}
@@ -33,6 +39,8 @@ must disconnect the old one before connecting.
     <div class="pl-discord-link__actions">
       {% if member.needs_discord_rejoin %}
       <a href="{% url 'hub_discord_connect' %}" class="hub-btn hub-btn--sm hub-btn--primary" hx-boost="false" data-discord-rejoin>Rejoin the Discord</a>
+      {% else %}
+      <a href="{% url 'hub_discord_connect' %}" class="hub-btn hub-btn--sm hub-btn--primary" hx-boost="false" data-discord-reconnect{% if id_suffix == "notifications" %} data-guidance-target="account.discord-reconnect"{% endif %}>Reconnect Discord</a>
       {% endif %}
       <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
               @click="$dispatch('open-confirm', 'disconnect-discord-{{ id_suffix }}')">Disconnect</button>

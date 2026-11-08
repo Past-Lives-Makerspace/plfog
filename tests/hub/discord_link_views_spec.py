@@ -93,6 +93,9 @@ def describe_discord_link_callback():
         _mock_oauth("jo@example.com", discord_user_id="42")
         respx.get(url__regex=r".+/reactions/.+").mock(return_value=httpx.Response(200, json=[{"id": "42"}]))
         respx.put(url__regex=r".+/roles/.+").mock(return_value=httpx.Response(204))
+        join = respx.put("https://discord.com/api/v10/guilds/srv/members/42").mock(
+            return_value=httpx.Response(201, json={})
+        )
         client = _client_with_state()
         response = client.get(reverse("hub_discord_link_callback"), {"code": "c", "state": "s"})
         assert response.status_code == 200
@@ -100,6 +103,8 @@ def describe_discord_link_callback():
         assert b"Glassworks" in response.content
         member.refresh_from_db()
         assert member.discord_user_id == "42"
+        # The anon flow shares the join: the person is put on the server too (feedback 14).
+        assert join.called
 
     @respx.mock
     def it_lands_on_needs_login_for_an_unverified_email(settings):

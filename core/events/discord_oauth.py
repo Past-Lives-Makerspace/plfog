@@ -43,7 +43,7 @@ class DiscordIdentity(NamedTuple):
             ``/users/@me``). The no-login auto-link fires ONLY when this is True — an
             unverified email proves nothing.
         access_token: The user's OAuth token. Its ``guilds.join`` scope is what lets the
-            bot put a removed member back on the server (#898); never stored.
+            bot put the person on the server as they connect; never stored.
     """
 
     user_id: str
@@ -60,8 +60,8 @@ TOKEN_URL = "https://discord.com/api/v10/oauth2/token"
 IDENTITY_URL = "https://discord.com/api/v10/users/@me"
 
 # ``identify`` learns the member's Discord id; ``email`` lets the no-login link flow
-# match the account by its verified email (spec §5.1); ``guilds.join`` lets the bot put a
-# member it removed back on the server when they return (#898).
+# match the account by its verified email (spec §5.1); ``guilds.join`` lets the bot put
+# whoever connects on the server, including a member it removed (#898).
 _SCOPE = "identify email guilds.join"
 _DEFAULT_TIMEOUT_SECONDS = 10.0
 
@@ -91,7 +91,8 @@ def authorize_url(redirect_uri: str, state: str) -> str:
     Args:
         redirect_uri: The exact callback URL registered on the Discord application
             (``<scheme>://<host>/settings/discord/callback/``).
-        state: A per-session CSRF token verified on the callback.
+        state: The CSRF token verified on the callback (signed for the logged-in flow,
+            kept in the session for the anon link flow).
     """
     params = {
         "response_type": "code",

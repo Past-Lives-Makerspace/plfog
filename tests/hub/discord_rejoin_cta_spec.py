@@ -58,6 +58,35 @@ def describe_discord_cta():
         assert "data-discord-rejoin" not in html
         assert "open-confirm', 'disconnect-discord-notifications" in html
 
+    def it_offers_reconnect_to_every_other_linked_member(client: Client):
+        # Connecting puts anyone on the server, so a member linked but off it has a way on (feedback 14).
+        _signed_in_member(client)
+        html = client.get(SETTINGS).content.decode()
+        actions = html.split('class="pl-discord-link__actions"', 1)[1].split("</div>", 1)[0]
+        assert "data-discord-reconnect" in actions
+        assert f'href="{reverse("hub_discord_connect")}"' in actions
+        assert actions.index("data-discord-reconnect") < actions.index("Disconnect")
+
+    def it_marks_only_the_notifications_reconnect_as_the_guidance_target(client: Client):
+        # The ring takes the first match, and the Profile copy comes first but is hidden on ?tab=notifications.
+        _signed_in_member(client)
+        html = client.get(SETTINGS).content.decode()
+        assert html.count('data-guidance-target="account.discord-reconnect"') == 1
+        marked = html.split('data-guidance-target="account.discord-reconnect"', 1)[0].rsplit("<a ", 1)[1]
+        assert "data-discord-reconnect" in marked
+        assert html.index("open-confirm', 'disconnect-discord-profile") < html.index("account.discord-reconnect")
+
+    def it_offers_rejoin_not_reconnect_to_a_removed_member(client: Client):
+        _kicked(_signed_in_member(client))
+        assert "data-discord-reconnect" not in client.get(SETTINGS).content.decode()
+
+    def it_offers_neither_before_discord_is_linked(client: Client):
+        member = _signed_in_member(client)
+        Member.objects.filter(pk=member.pk).update(discord_user_id="")
+        html = client.get(SETTINGS).content.decode()
+        assert "data-discord-reconnect" not in html
+        assert "data-discord-rejoin" not in html
+
     def it_stops_offering_once_they_are_back(client: Client):
         removal = _kicked(_signed_in_member(client))
         removal.rejoined_at = timezone.now()

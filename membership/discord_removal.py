@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+import httpx
 from django.db import transaction
 from django.utils import timezone
 
@@ -93,35 +94,56 @@ def _claim(pk: int, status: str) -> DiscordRemoval | None:
     )
 
 
-def put_back_if_removed(member: Member, discord_user_id: str, access_token: str) -> bool:
-    """Put an active member the bot removed back on the server as they connect Discord, with their roles.
+def put_on_server(member: Member, discord_user_id: str, access_token: str) -> bool:
+    """Put whoever just connected Discord on the server, whatever their member status. Never raises.
 
-    Runs in the connect flow right after the link is saved, and only for an Active member whose
-    account (or Discord id) has a removal not yet undone. Re-adding needs the member's own
-    ``guilds.join`` token, which is why nothing else can do it. After the re-add every guild
-    membership the member has is pushed back as a role, because the removal took them all;
+    Runs in the connect flow right after the link is saved. Adding someone needs their own
+    ``guilds.join`` token, which is why nothing else can do it. Discord answers 201 when it added
+    them and 204 when they were already there; both count. When the bot removed this member (or
+    this Discord account) and that removal is not undone, the removal is marked put back and every
+    guild membership they have is pushed back as a role, because the removal took them all;
     ``import_member_guilds`` then pushes the app ones again, which Discord treats as a no-op.
-    Never raises: the connect flow must finish whatever Discord says.
+    A blank bot token, a blank server id or a missing token skips quietly; a Discord or network
+    error is logged and the connect flow carries on.
+
+    Someone Discord just added (201) also gets every guild membership pushed as a role, Discord
+    sourced ones included: a person who left the server on their own lost those roles too.
 
     Returns:
-        True when the member was put back.
+        True when they are on the server (added now, or already there).
     """
-    from core.events.discord_roles import on_membership_changed
+    from core.events.discord_members import JoinOutcome, add_member
     from core.models import SiteConfiguration
     from membership.models import DiscordRemoval as Removal
-    from membership.models import GuildMembership, Member
 
-    if member.status != Member.Status.ACTIVE or not access_token:
-        return False
-    removal = Removal.objects.awaiting_rejoin(member, discord_user_id)
-    if removal is None or bot_disabled("member re-add"):
+    if not access_token or bot_disabled("member join"):
         return False
     server_id = SiteConfiguration.load().discord_server_id.strip()
-    if not server_id or not removal.put_back(server_id, discord_user_id, access_token, timezone.now()):
+    if not server_id:
         return False
+    removal = Removal.objects.awaiting_rejoin(member, discord_user_id)
+    if removal is not None:
+        if not removal.put_back(server_id, discord_user_id, access_token, timezone.now()):
+            return False
+        _push_every_role(member)
+        return True
+    try:
+        outcome = add_member(server_id, discord_user_id, access_token)
+    except httpx.HTTPError as exc:
+        logger.warning("Discord join for %s failed: %s", discord_user_id, exc)
+        return False
+    if outcome is JoinOutcome.ADDED:
+        _push_every_role(member)
+    return outcome in (JoinOutcome.ADDED, JoinOutcome.ALREADY_THERE)
+
+
+def _push_every_role(member: Member) -> None:
+    """Push every guild membership the member has, app and Discord sourced, as a role."""
+    from core.events.discord_roles import on_membership_changed
+    from membership.models import GuildMembership
+
     for membership in GuildMembership.objects.filter(member=member).select_related("guild"):
         on_membership_changed(membership.guild, member, joined=True)
-    return True
 
 
 @dataclass(frozen=True)
