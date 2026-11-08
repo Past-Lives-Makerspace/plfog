@@ -54,7 +54,7 @@ No stretched name link: the Book buttons are the tap targets.
 
     {% else %}
     {% if sec.type.is_paid %}
-    <p class="pl-orient-card__note">You pay when you book. If {% if sec.type.is_equipment_owned %}it can't happen{% else %}the guild can't make it work{% endif %}, you get an automatic full refund.</p>
+    <p class="pl-orient-card__note">Your card is held when you book and charged only when an Orientor confirms. If {% if sec.type.is_equipment_owned %}it can't happen{% else %}the guild can't make it work{% endif %}, the hold is released and you pay nothing.</p>
     {% endif %}
     {% if sec.slots or sec.blocks %}
     <ul class="pl-orient-card__slots">

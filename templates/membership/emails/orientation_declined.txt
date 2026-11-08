@@ -1,12 +1,14 @@
 Hi {{ greeting_name }},
 
 Thanks for your interest in {{ owner_name }}.
-{% if slot.orienter %}{{ slot.orienter_first_name }} wasn't able to confirm your requested orientation time.{% else %}Your requested orientation time couldn't be confirmed.{% endif %}
+{% if decline_reason == "card_failed" %}We couldn't charge your card when your request was confirmed, so we had to decline it.{% elif decline_reason == "hold_expired" %}Your request wasn't confirmed in time, so we closed it before the hold on your card ran out.{% elif slot.orienter %}{{ slot.orienter_first_name }} wasn't able to confirm your requested orientation time.{% else %}Your requested orientation time couldn't be confirmed.{% endif %}
 {% if decline_message %}
 {% include "membership/emails/_booking_message.txt" with message=decline_message %}{% endif %}
 {% if booking.amount_paid_cents %}{% load classes_tags %}{% if booking.refund_state == "failed" %}Your {{ booking.amount_paid_cents|cents_as_price }} refund is being processed. We will make sure
 it reaches your card.{% else %}Your {{ booking.amount_paid_cents|cents_as_price }} refund is on its way. Refunds usually
 reach your card in 5 to 10 business days.{% endif %}
+
+{% elif booking.hold_state %}{% load classes_tags %}{% if booking.hold_state == "released" %}We released the {{ booking.authorized_cents|cents_as_price }} hold on your card.{% else %}We're releasing the {{ booking.authorized_cents|cents_as_price }} hold on your card.{% endif %} You were not charged.
 
 {% endif %}We'd love to get you oriented ASAP. Pick another time on the {{ owner_page_label }}:
 {{ owner_url }}
