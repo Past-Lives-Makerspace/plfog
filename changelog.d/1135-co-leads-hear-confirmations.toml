@@ -1,11 +1,11 @@
 bump = "minor"
 date = "2026-11-07"
-audience = ["guild-leads", "orientors"]
+audience = ["guild-leads", "orientors", "equipment-managers"]
 feature = "orientations.bookings"
 guidance = "none"
 title = "Co-Leads hear when an orientation is confirmed"
 changes = [
   "When an orientation in your guild is confirmed, the guild lead and every Co-Lead get one short note saying who is orienting whom and when.",
   "Whoever is running that orientation does not get the note, and leaders still get no requests for orientations they are not running.",
-  "When a lead confirms an orientation on an Orientor's own time, that Orientor is credited and paid for it.",
+  "When someone else confirms an orientation on an Orientor's or equipment manager's own time, that person is credited and paid for it.",
 ]
