@@ -589,6 +589,7 @@ TOUR_CALENDAR_GONE = "tour.calendar_gone"  # the calendar you picked for tours i
 TOUR_CALENDAR_UNREAD = "tour.calendar_unread"  # your Google Calendar could not be read for over an hour (#951)
 GUILD_NEEDS_ATTENTION = "guild.needs_attention"  # a guild breaks a Needs attention rule (#953)
 GUILD_STAFF_WELCOME = "guild_staff.welcome"  # you were made a guild lead or staff: your tools and the rules (#1076)
+GUILD_INVITED = "guild.invited"  # a guild's lead, staff or an admin invited you to join it (#1137)
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -1922,6 +1923,19 @@ _NEW_EVENTS: list[EventType] = [
         category="Guilds",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # A guild invite (#1137): the guild's lead, staff or an admin asked you to join. Bell and email
+    # on, both switchable (an invitation, not something you must hear), once per invite from
+    # membership.guild_invites with the membership/emails/guild_invite.{txt,html} body. Nobody joins
+    # until they tap Join on the guild page's invite banner.
+    EventType(
+        key=GUILD_INVITED,
+        label="Invited to join a guild",
+        description="A guild's lead, staff or an admin invited you to join the guild.",
+        category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
 ]

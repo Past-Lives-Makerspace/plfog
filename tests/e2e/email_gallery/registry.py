@@ -666,6 +666,23 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="guild_staff_welcome_context",
     ),
     GalleryEmail(
+        key="guild_invite",
+        name="Invited to join a guild",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent once per invite when a guild's lead, staff or an admin picks the member in the guild "
+            "page's Invite panel (#1137). Join opens the guild page, whose invite banner joins in one tap; "
+            "the link itself never joins anyone."
+        ),
+        edit_pointer=_tpl("membership/emails", "guild_invite"),
+        audience="The member invited.",
+        event_keys=frozenset({"guild.invited"}),
+        text_template="membership/emails/guild_invite.txt",
+        html_template="membership/emails/guild_invite.html",
+        context_builder="guild_invite_context",
+    ),
+    GalleryEmail(
         key="orientation_time_proposed",
         name="Orientation new time proposed",
         section="Guilds & Orientations",

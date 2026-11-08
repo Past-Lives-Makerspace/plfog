@@ -3230,6 +3230,30 @@ class GuildJoinForm(forms.Form):
     )
 
 
+class GuildInviteForm(forms.Form):
+    """The guild page's Invite panel (#1137): the members ticked, any active member by pk.
+
+    The field takes every member someone may be invited as, not only the panel's list, so a
+    member who joined while the panel was open is skipped by ``guild_invites.send_invites``
+    rather than failing the whole send.
+    """
+
+    members = forms.ModelMultipleChoiceField(
+        queryset=Member.objects.none(),
+        error_messages={"required": "Pick at least one member to invite."},
+    )
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        from membership.guild_invites import inviteable_members
+
+        super().__init__(*args, **kwargs)
+        cast(forms.ModelMultipleChoiceField, self.fields["members"]).queryset = inviteable_members()
+
+    def error_summary(self) -> str:
+        """The first problem, for the error toast."""
+        return str(self.errors["members"][0])
+
+
 # The shared slot length and break choices: the guild and equipment rule forms and the one
 # time slot forms all read from these lists (Rule 20: no invented durations).
 _SLOT_DURATION_CHOICES: list[tuple[str, str]] = [

@@ -1,0 +1,11 @@
+{% autoescape off %}Hi {{ first_name }},
+
+{{ headline }} at Past Lives.
+{% if guild.about %}
+{{ guild.about|striptags|truncatewords:40 }}
+{% endif %}
+Join {{ guild.name }}: {{ join_url }}
+
+This opens the guild page. Tap Join there to become a member: you get the guild's updates and appear on its roster. You can leave any time. Not interested? Just ignore this email.
+
+{% include "membership/emails/_footer.txt" %}{% endautoescape %}

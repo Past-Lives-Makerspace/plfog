@@ -193,6 +193,31 @@ _GUIDANCE_LIST = (
             "The tabs along the top hold the rest: Guild Calendar, Orientations, Meetings, Cubbies, Wiki and Polls, where the guild has them.",
         ),
     ),
+    # Share and Invite (#1137): the guild page's hero actions.
+    Guidance(
+        key="guild.share",
+        title="Share a Guild",
+        url_name="hub_guild_detail",
+        url_kwargs=_guild_slug,
+        target="guild.share",
+        steps=(
+            "Open a guild's page and press Share beside the Join button.",
+            "On a phone or in the app, pick where to send the guild's link. Elsewhere, pick Copy link, Text or Email.",
+            "The link opens the guild's public page, which anyone can see without signing in.",
+        ),
+    ),
+    Guidance(
+        key="guild.invite",
+        title="Invite Members to a Guild",
+        url_name="hub_guild_detail",
+        url_kwargs=_guild_slug,
+        target="guild.invite",
+        steps=(
+            "Guild leads, guild staff and admins: open your guild's page and press Invite.",
+            "Type a name or email to find members, tick the ones to invite and press Send Invites.",
+            "Each one gets a notice and an email. They join when they tap Join on the guild page.",
+        ),
+    ),
     _guild_tab(
         "guild.cubbies",
         "Guild Cubbies",

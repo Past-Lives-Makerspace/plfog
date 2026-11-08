@@ -1,0 +1,45 @@
+{% comment %}
+The guild page's Share button (#1137), the class page's button and menu (templates/classes/public/detail.html):
+static/js/class_share.js reads the data attributes and opens the device share sheet (the Capacitor
+plugin in the app, navigator.share where the browser has it), else tells this wrapper to open the
+Copy / Text / Email menu through bubbling custom events, with the readonly link to copy by hand when
+the clipboard fails. It shares guild.public_url, the guilds site page that carries the OG tags.
+{% endcomment %}
+{% with share_title=guild.name %}
+{% with share_text=share_title|add:" at Past Lives Makerspace" %}
+{% with share_body=share_text|add:" "|add:guild.public_url %}
+<div class="pl-guild-share" data-share data-guild-share
+     x-data="{ open: false, copied: false, manual: false }"
+     @click.outside="open = false"
+     @keydown.escape.window="open = false"
+     @pl-share-menu="open = !open"
+     @pl-share-copied="copied = true; setTimeout(() => copied = false, 2000)"
+     @pl-share-manual="manual = true; $nextTick(() => $refs.manualUrl.select())">
+  <button type="button" class="pl-btn pl-btn--secondary pl-guild-share__btn"
+          data-share-url="{{ guild.public_url }}"
+          data-share-title="{{ share_title }}"
+          data-share-text="{{ share_text }}"
+          data-share-dialog="Share this guild"
+          data-guidance-target="guild.share"
+          aria-haspopup="menu" :aria-expanded="open">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+      <path d="M8.59 13.51l6.83 3.98"/><path d="M15.41 6.51l-6.82 3.98"/>
+    </svg>
+    <span>Share</span>
+  </button>
+  {# The panel positions the dropdown; the menu inside holds only menuitems (ARIA), and the by-hand copy field sits under it. #}
+  <div class="pl-guild-share__panel" x-show="open" x-cloak>
+    <div class="pl-guild-share__menu" role="menu" aria-label="Share this guild">
+      <button type="button" role="menuitem" class="pl-guild-share__item" data-share-copy="{{ guild.public_url }}"
+              x-text="copied ? 'Copied!' : 'Copy link'">Copy link</button>
+      <a role="menuitem" class="pl-guild-share__item" href="sms:?&body={{ share_body|urlencode:'' }}" @click="open = false">Text</a>
+      <a role="menuitem" class="pl-guild-share__item" href="mailto:?subject={{ share_title|urlencode:'' }}&body={{ share_body|urlencode:'' }}" @click="open = false">Email</a>
+    </div>
+    <input type="text" readonly class="pl-guild-share__manual" value="{{ guild.public_url }}" aria-label="Guild link"
+           x-show="manual" x-ref="manualUrl" @click="$el.select()">
+  </div>
+</div>
+{% endwith %}
+{% endwith %}
+{% endwith %}
