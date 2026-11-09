@@ -8617,9 +8617,13 @@ class AnnouncementDraft(models.Model):
         """
         from core.html_sanitize import sanitize_rich_html
 
+        from polls.models import EmailPollQuestion
+
         body_html = sanitize_rich_html(self.body)
         if self.kind == self.Kind.POLL:
-            if not self.poll.questions.exists():
+            # One query that also covers a Poll row with no EmailPoll at all: the reverse accessor
+            # would raise RelatedObjectDoesNotExist (a 500) where the sender should read a message.
+            if not EmailPollQuestion.objects.filter(poll__draft=self).exists():
                 raise ValidationError("Add at least one question before sending.")
         elif not body_html:
             raise ValidationError("Add a message before sending.")

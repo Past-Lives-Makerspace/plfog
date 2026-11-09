@@ -197,3 +197,37 @@ def describe_sending_a_poll_draft():
 
         with pytest.raises(ValidationError, match="Add a message"):
             draft.queue_send()
+
+
+def describe_review_fixes_part_2():
+    """Second review of part 2: each finding pinned."""
+
+    def it_refuses_a_poll_row_with_no_poll_as_a_message_not_a_500():
+        draft = AnnouncementDraftFactory(kind=AnnouncementDraft.Kind.POLL, body="")
+
+        with pytest.raises(ValidationError, match="Add at least one question"):
+            draft.queue_send()
+        with pytest.raises(ValidationError, match="Add at least one question"):
+            draft.send()
+        assert draft.sent_at is None
+
+    def it_logs_a_signed_in_open_of_the_email_link_without_its_token():
+        from django.test import Client
+        from django.urls import reverse
+
+        from core.models import PageView
+
+        member = _member("Ann Zorblax")
+        poll = _poll()
+        poll.open(timezone.now())
+        token = poll.make_answer_token(member)
+        client = Client()
+        client.force_login(member.user)
+
+        response = client.get(reverse("polls:email_poll_link", args=[token]))
+
+        assert response.status_code == 200
+        rows = list(PageView.objects.values_list("view_name", flat=True))
+        assert rows == ["polls:email_poll_link"]
+        stored = [str(value) for row in PageView.objects.values() for value in row.values()]
+        assert not any(token in value or token.split(":")[0] in value for value in stored)
