@@ -19,6 +19,7 @@ from polls.models import (
     BAD_LINK,
     DIFFERENT_GROUP,
     MAX_QUESTIONS,
+    NO_ANSWERS,
     OPEN_ANSWER_MAX_LENGTH,
     POLL_CLOSED,
     AnswerRefusedError,
@@ -35,7 +36,12 @@ from polls.models import (
     RunLength,
     validate_questions,
 )
-from tests.membership.factories import AnnouncementDraftFactory, MemberFactory
+from tests.membership.factories import (
+    AnnouncementDraftFactory,
+    GuildFactory,
+    GuildMembershipFactory,
+    MemberFactory,
+)
 from tests.polls.factories import EmailPollFactory, sent_email_poll
 
 pytestmark = pytest.mark.django_db
@@ -70,6 +76,11 @@ def _option(poll: EmailPoll, position: int, text: str) -> int:
     return EmailPollOption.objects.get(question__poll=poll, question__position=position, text=text).pk
 
 
+def _idea(poll: EmailPoll) -> dict[int, str]:
+    """An answer to the poll's first question, written: enough for an all open-ended poll."""
+    return {_question(poll, 0).pk: "Zorblax idea"}
+
+
 def _survey(**kwargs: object) -> EmailPoll:
     """A poll open at NOW with a Pick one, a Pick any and an open-ended question."""
     return sent_email_poll(SHOP, TOOLS, IDEAS, now=NOW, **kwargs)
@@ -88,9 +99,9 @@ def describe_validate_questions():
             ([QuestionSpec("x" * 201, QuestionKind.OPEN)], "longer than 200 characters"),
             ([QuestionSpec("Why?", "essay")], "unknown kind"),
             ([QuestionSpec("Why?", QuestionKind.OPEN, ("A",))], "takes no options"),
-            ([QuestionSpec("Pick", QuestionKind.PICK_ONE, ("A",))], "needs 2 to 4 options"),
-            ([QuestionSpec("Pick", QuestionKind.PICK_ANY, ("A", "B", "C", "D", "E"))], "needs 2 to 4 options"),
-            ([QuestionSpec("Pick", QuestionKind.PICK_ONE, ("A", " "))], "needs 2 to 4 options"),
+            ([QuestionSpec("Pick", QuestionKind.PICK_ONE, ("A",))], "needs 2 to 4 filled options"),
+            ([QuestionSpec("Pick", QuestionKind.PICK_ANY, ("A", "B", "C", "D", "E"))], "needs 2 to 4 filled options"),
+            ([QuestionSpec("Pick", QuestionKind.PICK_ONE, ("A", " "))], "needs 2 to 4 filled options"),
             ([QuestionSpec("Pick", QuestionKind.PICK_ONE, ("A", "x" * 121))], "longer than 120 characters"),
         ],
     )
@@ -329,9 +340,9 @@ def describe_answer():
         poll.record_recipients({alice.user_id})
         assert poll.answer_refusal(outsider, NOW) == DIFFERENT_GROUP
         with pytest.raises(AnswerRefusedError, match=DIFFERENT_GROUP):
-            poll.answer(member=outsider, answers={}, now=NOW)
+            poll.answer(member=outsider, answers=_idea(poll), now=NOW)
         assert poll.answer_refusal(alice, NOW) == ""
-        poll.answer(member=alice, answers={}, now=NOW)
+        poll.answer(member=alice, answers=_idea(poll), now=NOW)
 
     def it_lets_anyone_answer_a_poll_open_to_all():
         poll = sent_email_poll(IDEAS, now=NOW)
@@ -384,7 +395,7 @@ def describe_may_see_results():
             IDEAS, now=NOW, draft=AnnouncementDraftFactory(kind=AnnouncementDraft.Kind.POLL, author=sender.user)
         )
         answered = _account()
-        poll.answer(member=answered, answers={}, now=NOW)
+        poll.answer(member=answered, answers=_idea(poll), now=NOW)
         assert poll.may_see_results(sender)
         assert poll.may_see_results(_account(fog_role=Member.FogRole.ADMIN))
         assert poll.may_see_results(answered)
@@ -452,10 +463,10 @@ def describe_results():
 
 def describe_queries():
     def it_finds_sent_open_and_received_polls():
-        alice = _account()
         draft = EmailPollFactory()
         open_poll = _survey()
         closed = sent_email_poll(IDEAS, now=NOW - timedelta(days=30), run_days=RunLength.ONE_DAY)
+        alice = _account()
         open_poll.record_recipients({alice.user_id})
         assert set(EmailPoll.objects.sent()) == {open_poll, closed}
         assert list(EmailPoll.objects.open_at(NOW)) == [open_poll]
@@ -501,3 +512,103 @@ def describe_rows():
         poll.draft.delete()
         assert not EmailPoll.objects.exists()
         assert not EmailPollQuestion.objects.exists()
+
+
+def describe_review_fixes():
+    """Fix round 1 on #1143: each of the second reviewer's four defects."""
+
+    def describe_a_submission_must_answer_something():
+        def it_refuses_an_all_blank_submission_and_counts_nobody():
+            poll = sent_email_poll(IDEAS, QuestionSpec("Anything else?", QuestionKind.OPEN), now=NOW)
+            member = _account()
+            blanks = {_question(poll, 0).pk: "  ", _question(poll, 1).pk: ""}
+            for answers in (blanks, {}):
+                with pytest.raises(AnswerRefusedError, match=NO_ANSWERS):
+                    poll.answer(member=member, answers=answers, now=NOW)
+            assert not EmailPollResponse.objects.exists()
+            assert not poll.may_see_results(member)
+            assert poll.results().response_count == 0
+
+        def it_keeps_earlier_answers_when_an_update_blanks_everything():
+            poll = sent_email_poll(IDEAS, now=NOW)
+            member = _account()
+            poll.answer(member=member, answers=_idea(poll), now=NOW)
+            with pytest.raises(AnswerRefusedError, match=NO_ANSWERS):
+                poll.answer(member=member, answers={_question(poll, 0).pk: ""}, now=NOW)
+            assert list(EmailPollAnswer.objects.values_list("text", flat=True)) == ["Zorblax idea"]
+
+    def describe_recipients_are_recorded_when_it_opens():
+        def it_lets_its_recipients_answer_an_audience_only_poll_before_any_email_goes_out():
+            guild_member, outsider = _account(), _account()
+            guild = GuildFactory()
+            GuildMembershipFactory(guild=guild, member=guild_member)
+            draft = AnnouncementDraftFactory(
+                kind=AnnouncementDraft.Kind.POLL, audience=AnnouncementDraft.Audience.GUILD, guild=guild
+            )
+            poll = sent_email_poll(IDEAS, now=NOW, draft=draft, audience_only=True)
+            assert list(poll.recipients.values_list("member_id", flat=True)) == [guild_member.pk]
+            assert poll.answer_refusal(guild_member, NOW) == ""
+            assert poll.answer_refusal(outsider, NOW) == DIFFERENT_GROUP
+            assert list(EmailPoll.objects.sent_to(guild_member)) == [poll]
+
+        def it_records_a_site_poll_for_everyone_signed_in():
+            alice, bob = _account(), _account()
+            poll = sent_email_poll(IDEAS, now=NOW)
+            assert set(poll.recipients.values_list("member_id", flat=True)) == {alice.pk, bob.pk}
+
+        def it_records_nobody_new_when_sent_again():
+            poll = sent_email_poll(IDEAS, now=NOW)
+            latecomer = _account()
+            poll.open(NOW + timedelta(minutes=10))
+            assert not poll.is_recipient(latecomer)
+
+    def describe_blank_option_rows_are_dropped():
+        def it_counts_filled_options_and_stores_only_them():
+            spec = QuestionSpec("Which shop?", QuestionKind.PICK_ONE, ("Wood", "   ", " Metal ", ""))
+            validate_questions([spec])
+            poll = EmailPollFactory()
+            poll.replace_questions([spec])
+            assert [o.text for o in _question(poll, 0).options.all()] == ["Wood", "Metal"]
+
+        def it_takes_an_open_question_with_only_blank_option_rows():
+            poll = EmailPollFactory()
+            poll.replace_questions([QuestionSpec("Ideas?", QuestionKind.OPEN, ("", " "))])
+            assert not EmailPollOption.objects.exists()
+
+        def it_still_refuses_one_filled_option_among_blanks():
+            with pytest.raises(ValueError, match="needs 2 to 4 filled options"):
+                validate_questions([QuestionSpec("Pick", QuestionKind.PICK_ANY, ("A", "", "  "))])
+
+    def describe_picks_arrive_in_any_posted_shape():
+        @pytest.mark.parametrize("shape", ["int", "str", "list_of_str", "tuple", "padded"])
+        def it_accepts_a_pick_as_an_int_a_digit_string_or_a_list(shape):
+            poll = sent_email_poll(SHOP, now=NOW)
+            wood = _option(poll, 0, "Wood")
+            given = {
+                "int": wood,
+                "str": str(wood),
+                "list_of_str": [str(wood)],
+                "tuple": (wood,),
+                "padded": f" {wood} ",
+            }[shape]
+            response = poll.answer(member=_account(), answers={_question(poll, 0).pk: given}, now=NOW)
+            assert list(response.answers.values_list("option_id", flat=True)) == [wood]
+
+        def it_accepts_pick_any_as_mixed_ints_and_strings_once_each():
+            poll = sent_email_poll(TOOLS, now=NOW)
+            lathe, kiln = _option(poll, 0, "Lathe"), _option(poll, 0, "Kiln")
+            response = poll.answer(
+                member=_account(), answers={_question(poll, 0).pk: [lathe, str(kiln), str(lathe)]}, now=NOW
+            )
+            assert sorted(response.answers.values_list("option_id", flat=True)) == sorted([lathe, kiln])
+
+        @pytest.mark.parametrize("given", ["Wood", "", True, 2.0, [[1]], ["1x"], ["٣"], {"pk": 1}])
+        def it_refuses_anything_else_as_a_message(given):
+            poll = sent_email_poll(SHOP, now=NOW)
+            with pytest.raises(AnswerRefusedError, match="Pick from the choices for: Which shop?"):
+                poll.answer(member=_account(), answers={_question(poll, 0).pk: given}, now=NOW)
+
+        def it_refuses_a_bare_int_that_is_not_an_option():
+            poll = sent_email_poll(SHOP, now=NOW)
+            with pytest.raises(AnswerRefusedError, match="not part of this poll"):
+                poll.answer(member=_account(), answers={_question(poll, 0).pk: 999999}, now=NOW)

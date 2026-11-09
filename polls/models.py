@@ -550,7 +550,14 @@ _ANSWER_TOKEN_SALT = "polls.email-poll-answer"
 #: What a member outside the audience reads on the plain link of an audience only poll.
 DIFFERENT_GROUP = "This poll was sent to a different group."
 POLL_CLOSED = "This poll has closed."
+#: What a submission with every question left blank reads: a response always holds an answer.
+NO_ANSWERS = "Answer at least one question."
 BAD_LINK = "This link is not valid."
+
+
+#: One question's answer as :meth:`EmailPoll.answer` takes it: written text, or the option picked
+#: (an int or a string of digits) or a list of them.
+Given = str | int | list[int | str]
 
 
 class ReminderLead(models.IntegerChoices):
@@ -585,14 +592,19 @@ class QuestionSpec:
     kind: str
     options: tuple[str, ...] = ()
 
+    @property
+    def filled_options(self) -> list[str]:
+        """The options with text, stripped, in order: a blank option row is not an option."""
+        return [text for text in (option.strip() for option in self.options) if text]
+
 
 def validate_questions(specs: list[QuestionSpec]) -> None:
     """Refuse a question list an email poll cannot send.
 
     Raises:
         ValueError: No questions or more than ``MAX_QUESTIONS``, a blank or too long question, an
-            unknown kind, a pick question without 2 to 4 non blank options, an option too long, or
-            an open-ended question carrying options.
+            unknown kind, a pick question without 2 to 4 filled options (blank rows are dropped,
+            not counted), an option too long, or an open-ended question carrying a filled option.
     """
     if not specs:
         raise ValueError("Add at least one question.")
@@ -615,13 +627,13 @@ def _validate_question(number: int, spec: QuestionSpec) -> None:
         raise ValueError(f"Question {number} is longer than {QUESTION_MAX_LENGTH} characters.")
     if spec.kind not in QuestionKind.values:
         raise ValueError(f"Question {number} has an unknown kind: {spec.kind!r}.")
-    options = [option.strip() for option in spec.options]
+    options = spec.filled_options
     if spec.kind == QuestionKind.OPEN:
         if options:
             raise ValueError(f"Question {number} is open-ended and takes no options.")
         return
-    if not MIN_OPTIONS <= len(options) <= MAX_OPTIONS or not all(options):
-        raise ValueError(f"Question {number} needs {MIN_OPTIONS} to {MAX_OPTIONS} options, none blank.")
+    if not MIN_OPTIONS <= len(options) <= MAX_OPTIONS:
+        raise ValueError(f"Question {number} needs {MIN_OPTIONS} to {MAX_OPTIONS} filled options.")
     if any(len(option) > ANSWER_MAX_LENGTH for option in options):
         raise ValueError(f"An option in question {number} is longer than {ANSWER_MAX_LENGTH} characters.")
 
@@ -749,15 +761,19 @@ class EmailPoll(models.Model):
                 for position, spec in enumerate(specs)
             )
             EmailPollOption.objects.bulk_create(
-                EmailPollOption(question=question, position=position, text=text.strip())
+                EmailPollOption(question=question, position=position, text=text)
                 for question, spec in zip(questions, specs, strict=True)
-                for position, text in enumerate(spec.options)
+                for position, text in enumerate(spec.filled_options)
             )
 
     def open(self, now: datetime) -> None:
         """Open the poll at ``now`` (Send): it closes ``run_days`` later, and the reminder falls due before that.
 
-        Opening a poll already open keeps its first window, so a repeated Send changes nothing.
+        Who it goes to is recorded here, in the same transaction (:meth:`record_recipients` from
+        ``draft.poll_recipient_ids()``), so from the moment it opens its recipients can answer an
+        audience only poll and see it as theirs, even while a queued site send has not emailed
+        them yet. Opening a poll already open keeps its first window and recipients, so a
+        repeated Send changes nothing.
 
         Raises:
             ValueError: The poll has no questions.
@@ -771,7 +787,9 @@ class EmailPoll(models.Model):
         self.remind_at = (
             None if self.remind_days_before is None else self.closes_at - timedelta(days=self.remind_days_before)
         )
-        self.save(update_fields=["opens_at", "closes_at", "remind_at"])
+        with transaction.atomic():
+            self.save(update_fields=["opens_at", "closes_at", "remind_at"])
+            self.record_recipients(self.draft.poll_recipient_ids())
 
     def record_recipients(self, user_ids: set[int]) -> None:
         """Note who this poll was sent to: the member of each account in ``user_ids``.
@@ -828,17 +846,19 @@ class EmailPoll(models.Model):
             raise BadPollLinkError(POLL_CLOSED)
         return recipient.poll, recipient.member
 
-    def answer(self, *, member: Member, answers: dict[int, str | list[int]], now: datetime) -> EmailPollResponse:
+    def answer(self, *, member: Member, answers: dict[int, Given], now: datetime) -> EmailPollResponse:
         """Save ``member``'s answers, replacing any they gave before: the one way an answer is written.
 
-        ``answers`` maps a question's pk to the text written (open-ended) or the option pks picked.
-        Every pick question needs an answer (exactly one for Pick one); an open-ended one may be
-        left out or blank, and a blank one stores nothing.
+        ``answers`` maps a question's pk to the text written (open-ended) or the option picked: an
+        option pk as an int or a string of digits (as a form posts it), or a list of them. Every
+        pick question needs an answer (exactly one for Pick one); an open-ended one may be left
+        out or blank, and a blank one stores nothing, but a submission must answer something.
 
         Raises:
             AnswerRefusedError: The member may not answer (:meth:`answer_refusal`), a pick question
                 is unanswered, Pick one has more than one pick, a pick is not one of the question's
-                options, an answer has the wrong shape, or a written answer is too long.
+                options, an answer has the wrong shape, a written answer is too long, or nothing at
+                all was answered (``NO_ANSWERS``).
         """
         refusal = self.answer_refusal(member, now)
         if refusal:
@@ -846,6 +866,9 @@ class EmailPoll(models.Model):
         rows = [
             row for question in self.questions.prefetch_related("options") for row in _answer_rows(question, answers)
         ]
+        if not rows:
+            # Only an all open-ended poll gets here; an empty response would count as answered.
+            raise AnswerRefusedError(NO_ANSWERS)
         with transaction.atomic():
             response, created = EmailPollResponse.objects.get_or_create(poll=self, member=member)
             response = EmailPollResponse.objects.select_for_update().get(pk=response.pk)
@@ -870,7 +893,7 @@ class EmailPoll(models.Model):
         return EmailPollResults.load(self)
 
 
-def _answer_rows(question: EmailPollQuestion, answers: dict[int, str | list[int]]) -> list[EmailPollAnswer]:
+def _answer_rows(question: EmailPollQuestion, answers: dict[int, Given]) -> list[EmailPollAnswer]:
     """The answer rows ``answers`` gives ``question`` (unsaved, no response yet).
 
     Raises:
@@ -884,9 +907,7 @@ def _answer_rows(question: EmailPollQuestion, answers: dict[int, str | list[int]
         if len(text) > OPEN_ANSWER_MAX_LENGTH:
             raise AnswerRefusedError(f"Keep each written answer to {OPEN_ANSWER_MAX_LENGTH} characters or fewer.")
         return [EmailPollAnswer(question=question, text=text)] if text else []
-    if isinstance(given, str):
-        raise AnswerRefusedError(f"Pick from the choices for: {question.text}")
-    picked = list(dict.fromkeys(given or []))
+    picked = _picked_pks(question, given)
     if not picked:
         raise AnswerRefusedError(f"Answer this question: {question.text}")
     if question.kind == QuestionKind.PICK_ONE and len(picked) > 1:
@@ -895,6 +916,29 @@ def _answer_rows(question: EmailPollQuestion, answers: dict[int, str | list[int]
     if any(pk not in offered for pk in picked):
         raise AnswerRefusedError("That choice is not part of this poll.")
     return [EmailPollAnswer(question=question, option_id=pk) for pk in picked]
+
+
+def _picked_pks(question: EmailPollQuestion, given: Given | None) -> list[int]:
+    """The option pks ``given`` names for a pick question, once each, in order.
+
+    Takes an int, a string of digits, or a list or tuple of either; nothing given is no pick.
+
+    Raises:
+        AnswerRefusedError: Anything else (a word, a bool, a nested list), so a bad post is a
+            message for the member and never a 500.
+    """
+    if given is None:
+        return []
+    items = list(given) if isinstance(given, list | tuple) else [given]
+    picked: list[int] = []
+    for item in items:
+        if isinstance(item, int) and not isinstance(item, bool):
+            picked.append(item)
+        elif isinstance(item, str) and item.strip().isascii() and item.strip().isdigit():
+            picked.append(int(item.strip()))
+        else:
+            raise AnswerRefusedError(f"Pick from the choices for: {question.text}")
+    return list(dict.fromkeys(picked))
 
 
 class EmailPollQuestion(models.Model):
