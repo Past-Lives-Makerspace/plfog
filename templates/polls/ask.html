@@ -1,0 +1,38 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}{{ poll.draft.title }}{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/polls.css' %}">
+{% endblock %}
+{% block content %}
+{# An email poll's page (#1142): page is polls.models.EmailPollPage, form an EmailPollAnswerForm or None. #}
+<div class="pl-ask" data-email-poll="{{ poll.pk }}">
+  <header class="pl-ask__head">
+    <h1 class="hub-page-title">{{ poll.draft.title }}</h1>
+    {% if not page.outsider %}
+    {% if poll.intro %}<p class="pl-ask__intro">{{ poll.intro|linebreaksbr }}</p>{% endif %}
+    <p class="pl-ask__closes" data-email-poll-closes>{% if page.is_open %}<span class="pl-ask__state pl-ask__state--open">Open</span> Closes {{ poll.closes_label }}{% else %}<span class="pl-ask__state">Closed</span> Closed {{ poll.closes_label }}{% endif %}</p>
+    {% endif %}
+  </header>
+
+  {% if page.outsider %}
+  <div class="hub-card pl-ask__notice" data-email-poll-outsider><p>This poll was sent to a different group.</p></div>
+  {% else %}
+  {% if form %}
+  <form method="post" class="pl-ask__form" data-email-poll-form novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="pl-ask__alert" role="alert" data-email-poll-error>{% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}</div>{% endif %}
+    {% for row in form.rows %}{% include "polls/partials/_ask_question.html" with row=row %}{% endfor %}
+    <div class="pl-ask__actions">
+      <button type="submit" class="pl-btn pl-btn--primary pl-ask__submit" data-email-poll-submit>{% if page.has_answered %}Update Answers{% else %}Send Answers{% endif %}</button>
+    </div>
+  </form>
+  {% elif not page.results %}
+  <div class="hub-card pl-ask__notice" data-email-poll-closed><p>Closed. This poll is no longer taking answers.</p></div>
+  {% endif %}
+  {% if page.results %}{% include "polls/partials/_ask_results.html" with results=page.results %}{% endif %}
+  {% endif %}
+
+  {% if user.is_authenticated %}<p class="pl-ask__more"><a href="{% url 'polls:mine' %}" class="hub-link" data-email-poll-list-link>See All Your Polls →</a></p>{% endif %}
+</div>
+{% endblock %}

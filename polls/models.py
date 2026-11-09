@@ -19,12 +19,12 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.core import signing
 from django.db import IntegrityError, models, transaction
-from django.db.models import Count, OuterRef, Q, Subquery
+from django.db.models import Count, Exists, OuterRef, Q, Subquery
 from django.utils import timezone
 
 if TYPE_CHECKING:
@@ -550,6 +550,10 @@ _ANSWER_TOKEN_SALT = "polls.email-poll-answer"
 #: What a member outside the audience reads on the plain link of an audience only poll.
 DIFFERENT_GROUP = "This poll was sent to a different group."
 POLL_CLOSED = "This poll has closed."
+#: The event each recipient's go-live email is emitted under (#1142 part 2).
+EMAIL_POLL_LIVE = "polls.email_poll_live"
+#: The member announcement email switch the poll emails follow besides their own.
+_ANNOUNCEMENT_EVENT = "site_announcement"
 #: What a submission with every question left blank reads: a response always holds an answer.
 NO_ANSWERS = "Answer at least one question."
 BAD_LINK = "This link is not valid."
@@ -650,6 +654,16 @@ class EmailPollQuerySet(models.QuerySet["EmailPoll"]):
     def sent_to(self, member: Member) -> EmailPollQuerySet:
         """Polls sent to ``member``."""
         return self.filter(recipients__member=member)
+
+    def listed_for(self, member: Member) -> EmailPollQuerySet:
+        """The Polls page: every poll sent to ``member``, newest first, each with ``answered`` annotated."""
+        answered = EmailPollResponse.objects.filter(poll=OuterRef("pk"), member=member)
+        return (
+            self.sent_to(member)
+            .select_related("draft")
+            .annotate(answered=Exists(answered))
+            .order_by("-opens_at", "-pk")
+        )
 
     def reminders_due(self, now: datetime) -> EmailPollQuerySet:
         """Open polls whose reminder time has come and whose reminder has not gone out."""
@@ -892,6 +906,143 @@ class EmailPoll(models.Model):
         """Every question's results and the per person table, in four queries."""
         return EmailPollResults.load(self)
 
+    def answers_of(self, member: Member) -> dict[int, str | list[int]]:
+        """``member``'s saved answers by question pk: the text written, or the option pks picked. Empty if none."""
+        saved: dict[int, str | list[int]] = {}
+        for answer in EmailPollAnswer.objects.filter(response__poll=self, response__member=member).order_by("pk"):
+            if answer.option_id is None:
+                saved[answer.question_id] = answer.text
+            else:
+                picks = saved.setdefault(answer.question_id, [])
+                assert isinstance(picks, list)  # one question is never both written and picked
+                picks.append(answer.option_id)
+        return saved
+
+    @property
+    def answer_path(self) -> str:
+        """The plain link: anyone signed in may open it (only recipients may answer an audience only poll)."""
+        from django.urls import reverse
+
+        return reverse("polls:email_poll", args=[self.pk])
+
+    def answer_link(self, member: Member) -> str:
+        """``member``'s personal link, absolute for an email: it answers as them without signing in."""
+        from django.urls import reverse
+
+        from core.urls_util import member_absolute_url
+
+        return member_absolute_url(reverse("polls:email_poll_link", args=[self.make_answer_token(member)]))
+
+    def deliver(self) -> int:
+        """Email the go-live notice to everyone recorded at :meth:`open`, each with their personal link.
+
+        Never works out the recipients again: it reads the ones :meth:`open` recorded, so the
+        people emailed are exactly the people the poll admits. Sends nothing when the draft's
+        Email when it goes live is off. Skips anyone who turned off the makerspace announcement
+        email on Settings; the event's own Email switch applies inside ``emit`` as well. Every
+        email shares the period ``email_poll:<pk>:live`` and the ledger keys on each person, so a
+        retried send (the site queue) emails only those the first run did not reach.
+
+        Returns:
+            How many people were emailed.
+
+        Raises:
+            ValueError: The poll has not been opened.
+        """
+        from core.events.registry import Channel
+        from core.events.senders import emit_with_email_shell
+
+        if not self.is_sent:
+            raise ValueError("Open the poll before emailing it.")
+        if not self.draft.send_email:
+            return 0
+        recipients = list(self.recipients.select_related("member__user").filter(member__user__isnull=False))
+        muted = _announcement_email_off({cast(int, recipient.member.user_id) for recipient in recipients})
+        question_count = self.questions.count()
+        emailed = 0
+        for recipient in recipients:
+            member = recipient.member
+            if member.user_id in muted:
+                continue
+            result = emit_with_email_shell(
+                EMAIL_POLL_LIVE,
+                actor=self.draft.author,
+                context={"user": member.user},
+                subject=self.email_subject,
+                text_template="polls/emails/email_poll_live.txt",
+                html_template="polls/emails/email_poll_live.html",
+                template_context=self._email_context(member, question_count),
+                url=self.answer_path,
+                period=f"email_poll:{self.pk}:live",
+                recipient_user_ids={cast(int, member.user_id)},
+                log_activity=False,
+            )
+            emailed += sum(1 for _user_pk, channel in result.delivered if channel is Channel.EMAIL)
+        return emailed
+
+    @property
+    def email_subject(self) -> str:
+        """The emails' subject: ``Poll: <title>``."""
+        return f"Poll: {self.draft.title}"
+
+    def _email_context(self, member: Member, question_count: int) -> dict[str, Any]:
+        """What ``polls/emails/email_poll_live.{txt,html}`` read for ``member``."""
+        from django.urls import reverse
+
+        from core.urls_util import member_absolute_url
+
+        return {
+            "first_name": member.display_name.split(" ")[0],
+            "title": self.draft.title,
+            "intro": self.intro,
+            "question_count": question_count,
+            "closes_label": self.closes_label,
+            "answer_url": self.answer_link(member),
+            "polls_url": member_absolute_url(reverse("polls:mine")),
+        }
+
+
+def _announcement_email_off(user_ids: set[int]) -> set[int]:
+    """The accounts among ``user_ids`` that turned the makerspace announcement email off, in one query."""
+    from core.models import NotificationPreference
+
+    return set(
+        NotificationPreference.objects.filter(
+            user_id__in=list(user_ids), event_key=_ANNOUNCEMENT_EVENT, channel="email", enabled=False
+        ).values_list("user_id", flat=True)
+    )
+
+
+@dataclass(frozen=True)
+class EmailPollPage:
+    """One email poll as one member sees its page (#1142 part 2).
+
+    ``outsider`` is a member an audience only poll was not sent to (and who is not its sender
+    or an admin): they see "This poll was sent to a different group." and nothing more.
+    ``results`` is set only for those :meth:`EmailPoll.may_see_results` allows.
+    """
+
+    poll: EmailPoll
+    is_open: bool
+    outsider: bool
+    can_answer: bool
+    has_answered: bool
+    results: EmailPollResults | None
+
+    @classmethod
+    def load(cls, poll: EmailPoll, member: Member, now: datetime) -> EmailPollPage:
+        """The page for ``member`` at ``now``."""
+        sees_results = poll.may_see_results(member)
+        outsider = not sees_results and poll.audience_only and not poll.is_recipient(member)
+        return cls(
+            poll=poll,
+            is_open=poll.is_open(now),
+            outsider=outsider,
+            can_answer=not outsider and poll.answer_refusal(member, now) == "",
+            has_answered=poll.responses.filter(member=member).exists(),
+            results=poll.results() if sees_results else None,
+        )
+
 
 def _answer_rows(question: EmailPollQuestion, answers: dict[int, Given]) -> list[EmailPollAnswer]:
     """The answer rows ``answers`` gives ``question`` (unsaved, no response yet).
@@ -1061,8 +1212,13 @@ class EmailPollAnswer(models.Model):
 
 @dataclass(frozen=True)
 class OptionResult:
-    """One option's count and its share of everyone who answered, rounded."""
+    """One option's count and its share of everyone who answered, rounded.
 
+    ``pk`` is the option's, so the shared tally partial (``_poll_results.html``) can compare it
+    with ``my_choice_pk`` and never mark every row as the viewer's.
+    """
+
+    pk: int
     text: str
     votes: int
     percent: int
@@ -1126,6 +1282,7 @@ class EmailPollResults:
                 question=question,
                 options=tuple(
                     OptionResult(
+                        pk=option.pk,
                         text=option.text,
                         votes=votes[option.pk],
                         percent=round(100 * votes[option.pk] / total) if total else 0,

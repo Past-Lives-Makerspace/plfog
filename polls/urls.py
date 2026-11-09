@@ -13,4 +13,7 @@ urlpatterns = [
     path("manage/<int:pk>/close/", views.polls_admin_close, name="admin_close"),
     path("guild/<slug:slug>/new/", views.guild_poll_new, name="guild_new"),
     path("guild/<slug:slug>/<int:pk>/close/", views.guild_poll_close, name="guild_close"),
+    path("ask/<int:pk>/", views.email_poll, name="email_poll"),
+    path("ask/link/<str:token>/", views.email_poll_link, name="email_poll_link"),
+    path("mine/", views.my_email_polls, name="mine"),
 ]

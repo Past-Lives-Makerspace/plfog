@@ -590,6 +590,7 @@ TOUR_CALENDAR_UNREAD = "tour.calendar_unread"  # your Google Calendar could not 
 GUILD_NEEDS_ATTENTION = "guild.needs_attention"  # a guild breaks a Needs attention rule (#953)
 GUILD_STAFF_WELCOME = "guild_staff.welcome"  # you were made a guild lead or staff: your tools and the rules (#1076)
 GUILD_INVITED = "guild.invited"  # a guild's lead, staff or an admin invited you to join it (#1137)
+POLLS_EMAIL_POLL_LIVE = "polls.email_poll_live"  # a poll from Email Members went live, with your link (#1142)
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -1936,6 +1937,19 @@ _NEW_EVENTS: list[EventType] = [
         category="Guilds",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # polls.email_poll_live (#1142 part 2): a poll sent from Email Members opened. One email per
+    # recipient, because each carries that member's own answer link. Email only: no bell and no
+    # push (posting a poll as a push is out of scope). Switchable here, and EmailPoll.deliver also
+    # skips anyone who turned off the makerspace announcement email.
+    EventType(
+        key=POLLS_EMAIL_POLL_LIVE,
+        label="A poll was sent to you",
+        description="Someone sent you a poll from Email Members, with a link to answer it.",
+        category="Announcements",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_EMAIL_ON,),
         activity_kind=None,
     ),
 ]

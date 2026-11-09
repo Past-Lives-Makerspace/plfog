@@ -1,0 +1,34 @@
+{# An email poll's results (#1142): results is polls.models.EmailPollResults. Bars reuse the Home poll card's tally; the Responses table scrolls in its own region on a phone. #}
+<section class="pl-ask__results" data-email-poll-results aria-labelledby="email-poll-results-title">
+  <h2 class="pl-ask__heading" id="email-poll-results-title">Results</h2>
+  {% if results.response_count %}
+  <p class="pl-ask__count" data-email-poll-count>{{ results.response_count }} answer{{ results.response_count|pluralize }}</p>
+  {% for item in results.questions %}
+  <div class="hub-card pl-ask__result" data-email-poll-result="{{ item.question.pk }}">
+    <h3 class="pl-ask__result-title">{{ item.question.text }}</h3>
+    {% if item.options %}
+    {% include "polls/partials/_poll_results.html" with results=item.options %}
+    {% elif item.written %}
+    <ul class="pl-ask__replies">
+      {% for reply in item.written %}<li class="pl-ask__reply"><span class="pl-ask__reply-name">{{ reply.name }}</span><p class="pl-ask__reply-text">{{ reply.text|linebreaksbr }}</p></li>{% endfor %}
+    </ul>
+    {% else %}
+    <p class="hub-text-muted">No written answers.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+  <div class="hub-card pl-ask__result">
+    <h3 class="pl-ask__result-title">Responses</h3>
+    <div class="pl-ask__table-wrap" role="region" aria-label="Responses" tabindex="0" data-email-poll-table>
+      <table class="pl-ask__table">
+        <thead><tr><th scope="col">Name</th>{% for item in results.questions %}<th scope="col">{{ item.question.text }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for row in results.rows %}<tr><th scope="row">{{ row.name }}</th>{% for cell in row.cells %}<td>{{ cell|default:"–" }}</td>{% endfor %}</tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <div class="hub-card"><p class="hub-text-muted" data-email-poll-empty>No answers yet.</p></div>
+  {% endif %}
+</section>
