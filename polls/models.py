@@ -614,6 +614,11 @@ class PollDraft:
     audience_only: bool
     questions: list[QuestionSpec]
 
+    @property
+    def signature(self) -> list[tuple[str, str, tuple[str, ...]]]:
+        """The questions as a repeat is compared on: text, kind and options in order, as they are stored."""
+        return [question_signature(spec.text, spec.kind, spec.filled_options) for spec in self.questions]
+
     def apply_to(self, draft: AnnouncementDraft) -> None:
         """Make ``draft`` this poll's row, unsaved: kind Poll, its title, and every email only channel off."""
         from membership.models import AnnouncementDraft, GuildAnnouncement
@@ -629,6 +634,11 @@ class PollDraft:
         draft.discord_post_as_me = False
         draft.mark_as_urgent = False
         draft.expires_at = None
+
+
+def question_signature(text: str, kind: str, options: list[str]) -> tuple[str, str, tuple[str, ...]]:
+    """One question as two polls are compared (#1142): its text, its kind and its options, open-ended keeping none."""
+    return (text.strip(), kind, () if kind == QuestionKind.OPEN else tuple(options))
 
 
 def validate_questions(specs: list[QuestionSpec]) -> None:
@@ -803,6 +813,14 @@ class EmailPoll(models.Model):
         poll.save(update_fields=["intro", "run_days", "remind_days_before", "audience_only"])
         poll.replace_questions(data.questions)
         return poll
+
+    @property
+    def signature(self) -> list[tuple[str, str, tuple[str, ...]]]:
+        """The saved questions as :attr:`PollDraft.signature` reads a composed one, in two queries."""
+        return [
+            question_signature(question.text, question.kind, [option.text for option in question.options.all()])
+            for question in self.questions.prefetch_related("options")
+        ]
 
     def replace_questions(self, specs: list[QuestionSpec]) -> None:
         """Save ``specs`` as this draft poll's questions, in order, replacing any it had.

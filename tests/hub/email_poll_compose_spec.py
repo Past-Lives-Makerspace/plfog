@@ -326,3 +326,35 @@ def describe_sending_a_poll():
         )
         assert response.status_code == 200
         assert not AnnouncementDraft.objects.exists()
+
+
+def describe_fix_round_1():
+    """Second review of part 3: each finding pinned."""
+
+    def it_sends_a_same_title_poll_with_other_questions_as_a_new_send():
+        client = Client()
+        _admin(client)
+        client.post(SEND, _poll_data(_question(0, "Which zorblax shop?")))
+        client.post(SEND, _poll_data(_question(0, "Which zorblax night?")))
+        client.post(SEND, _poll_data(_question(0, "Which zorblax shop?", options=("Zormetal", "Zorwood"))))
+        client.post(SEND, _poll_data(_question(0, "Which zorblax shop?", QuestionKind.PICK_ANY)))
+        assert AnnouncementDraft.objects.filter(kind=AnnouncementDraft.Kind.POLL).count() == 4
+
+    def it_still_folds_the_same_poll_sent_twice():
+        client = Client()
+        _admin(client)
+        data = _poll_data(_question(0, "Which zorblax shop?", options=("Zorwood", "", "Zormetal")))
+        client.post(SEND, data)
+        client.post(SEND, data)
+        assert AnnouncementDraft.objects.count() == 1
+
+    def it_counts_members_apart_from_email_only_addresses_in_the_confirm():
+        client = Client()
+        _admin(client)
+
+        html = client.get(COMPOSE).content.decode()
+
+        assert '@click="readPollReach(); sendModalOpen = true" data-compose-poll-send>' in html
+        assert 'x-text="pollReach.members" data-compose-poll-members' in html
+        assert 'pollReach.emailOnly > 0" x-cloak data-compose-poll-email-only>' in html
+        assert "left out: polls reach members only." in html

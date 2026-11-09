@@ -6815,6 +6815,7 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
         featured_class: "ClassOffering | None" = None,
         kind: str = "email",
         title: str | None = None,
+        questions: "list[tuple[str, str, tuple[str, ...]]] | None" = None,
     ) -> "AnnouncementDraft | None":
         """The row ``author`` sent, queued or started sending within the resend window as this same send.
 
@@ -6842,8 +6843,10 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
             added_recipients: The people added on top, as the row stores them (``{}`` for none).
             featured_class: The class a past students email features, else ``None``.
             kind: What the row sends (``AnnouncementDraft.Kind``): an email never repeats a poll.
-            title: A poll's title (#1142). A poll has no body, so its title is what tells two
-                polls to the same people apart; ``None`` for an email, whose body does that.
+            title: A poll's title (#1142). A poll has no body, so its title and ``questions`` are
+                what tell two polls to the same people apart; ``None`` for an email, whose body does that.
+            questions: A poll's questions as ``polls.models.PollDraft.signature`` gives them (text,
+                kind and options in order): two polls with one title but other questions are two sends.
 
         Returns:
             The newest such row, or ``None``.
@@ -6870,7 +6873,9 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
             (
                 row
                 for row in candidates
-                if row.recipient_selection == recipient_selection and row.added_recipients == added_recipients
+                if row.recipient_selection == recipient_selection
+                and row.added_recipients == added_recipients
+                and (questions is None or row.poll_signature == questions)
             ),
             None,
         )
@@ -8213,7 +8218,8 @@ class AnnouncementDraft(models.Model):
             class_offering=cd["class_offering"],
             body="" if poll is not None else cd["body"],
             kind=cls.Kind.POLL if poll is not None else cls.Kind.EMAIL,
-            title=poll.title if poll is not None else None,
+            title=poll.title.strip() if poll is not None else None,
+            questions=poll.signature if poll is not None else None,
             # Normalized as save_from_form stores them, so a stored row compares equal to its repeat.
             recipient_selection=cd["recipient_selection"] or {},
             added_recipients=cd["added_recipients"] or {},
@@ -8502,6 +8508,14 @@ class AnnouncementDraft(models.Model):
             Recipients.ALL_ACTIVE_MEMBERS, {"include_never_logged_in": self.include_never_logged_in}
         )
         return {user.pk for user, _reason in everyone}
+
+    @property
+    def poll_signature(self) -> "list[tuple[str, str, tuple[str, ...]]]":
+        """This poll row's questions as a repeat is compared on (``polls.models.EmailPoll.signature``); empty with no poll."""
+        from polls.models import EmailPoll
+
+        poll = EmailPoll.objects.filter(draft=self).first()
+        return [] if poll is None else poll.signature
 
     def _send_poll(self) -> tuple[int, int]:
         """:meth:`send` for a poll (#1142): open it, email its recipients their links, mark it sent.

@@ -48,6 +48,6 @@ drops the row (a gap in the indexes is an empty row the server skips) and + Add 
           hx-post="{% url 'hub_compose_save_draft' %}" hx-include="closest form" hx-swap="none">
     <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Save draft
   </button>
-  <button type="button" class="hub-btn hub-btn--primary" @click="sendModalOpen = true" data-compose-poll-send>Send poll</button>
+  <button type="button" class="hub-btn hub-btn--primary" @click="readPollReach(); sendModalOpen = true" data-compose-poll-send>Send poll</button>
 </div>
 {% endif %}

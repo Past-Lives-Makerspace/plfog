@@ -36,6 +36,32 @@
        days: {{ poll_form.selected_days }},
        remindOn: {{ poll_form.remind.value|yesno:'true,false' }},
        pollEmailOn: {{ poll_form.send_email.value|yesno:'true,false' }},
+       pollReach: { members: 0, emailOnly: 0 },
+       readPollReach() {
+         // A poll reaches member accounts only (#1142): an address with no account (a mailing list
+         // row, a class guest, an instructor with none, a typed one) is counted apart, never as a recipient.
+         let members = 0, emailOnly = 0;
+         if (this.audience === 'site') {
+           const never = document.querySelector('input[name=include_never_logged_in]');
+           members = never && never.checked ? this.siteReach.everyone : this.siteReach.loggedIn;
+           const seen = new Set();
+           document.querySelectorAll('input[name=added_recipients]:checked').forEach(b => {
+             if (seen.has(b.value)) { return; }
+             seen.add(b.value);
+             if (b.hasAttribute('data-email-only')) { emailOnly += 1; } else { members += 1; }
+           });
+         } else if (this.audience === 'instructor') {
+           members = this.instructorReach.users;
+           emailOnly = this.instructorReach.emailOnly;
+         } else if (document.querySelectorAll('input[name=recipients]').length) {
+           document.querySelectorAll('input[name=recipients]:checked').forEach(b => {
+             if (b.value.startsWith('user:')) { members += 1; } else { emailOnly += 1; }
+           });
+         } else {
+           members = this.recipientCount;
+         }
+         this.pollReach = { members: members, emailOnly: emailOnly };
+       },
        closes() { const when = new Date(Date.now() + this.days * 86400000); const zone = { timeZone: 'America/Los_Angeles' }; return 'Closes ' + when.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', ...zone }) + ' at ' + when.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', ...zone }); },
        audience: '{{ audience_value|escapejs }}',
        pushOn: {{ form.push_enabled.value|yesno:'true,false' }},
@@ -339,7 +365,8 @@
           <button type="button" @click="sendModalOpen = false" class="pl-modal__close" aria-label="Close">&times;</button>
         </div>
         <div class="pl-modal__body">
-          <p class="pl-compose-confirm" x-show="kind === 'poll'" x-cloak data-compose-poll-confirm>This opens the poll for <strong x-text="recipientCount"></strong> recipient(s)<span x-show="pollEmailOn"> and emails each their own link <span x-text="audience === 'site' ? 'within 15 minutes' : 'right now'">right now</span></span><span x-show="!pollEmailOn"> right now</span>. It can't be edited once sent.</p>
+          <p class="pl-compose-confirm" x-show="kind === 'poll'" x-cloak data-compose-poll-confirm>This opens the poll for <strong x-text="pollReach.members" data-compose-poll-members></strong> member(s)<span x-show="pollEmailOn"> and emails each their own link <span x-text="audience === 'site' ? 'within 15 minutes' : 'right now'">right now</span></span><span x-show="!pollEmailOn"> right now</span>. It can't be edited once sent.</p>
+          <p class="pl-compose-confirm" x-show="kind === 'poll' &amp;&amp; pollReach.emailOnly > 0" x-cloak data-compose-poll-email-only><span x-text="pollReach.emailOnly"></span> <span x-text="pollReach.emailOnly === 1 ? 'email-only address is' : 'email-only addresses are'"></span> left out: polls reach members only.</p>
           <p style="margin: 0 0 1.5rem;" x-show="kind === 'email' &amp;&amp; !guildPageOnly()">This will send the email to <strong x-text="recipientCount"></strong> recipient(s) <span data-send-timing x-text="audience === 'site' ? 'within 15 minutes' : 'right now'">right now</span>. This can't be undone.</p>
           <p style="margin: 0 0 1.5rem;" x-show="kind === 'email' &amp;&amp; guildPageOnly()" x-cloak data-compose-guild-page-only-confirm>This will post it to the top of the guild page right now. Nobody is notified.</p>
           <div class="pl-modal__actions">
