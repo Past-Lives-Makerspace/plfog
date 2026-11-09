@@ -1,0 +1,53 @@
+{% comment %}
+The Poll side of Email Members (#1142). Included twice from hub/announcement_compose.html: part "questions"
+(title, intro and the question list, under the audience) and part "settings" (Runs for, the three switches
+and the actions, under Recipients). poll_form is hub.forms.EmailPollComposeForm, question_formset an
+EmailPollQuestionFormSet (extra=0; + Add question clones the <template>, as the guild FAQ editor does).
+Each question is a plPollQuestion component: its type shows or hides the options, + Add option shows the
+next of four rows, and Remove shifts the rows below it up. The list is plPollQuestions: Delete question
+drops the row (a gap in the indexes is an empty row the server skips) and + Add question stops at the cap.
+{% endcomment %}
+{% if part == "questions" %}
+<div class="pl-poll-q" data-compose-poll-fields>
+  {% include "components/form_field.html" with field=poll_form.title %}
+  {% include "components/form_field.html" with field=poll_form.intro %}
+</div>
+<div class="pl-compose-section" data-compose-poll-questions
+     x-data="plPollQuestions({{ question_formset.forms|length }}, {{ max_questions }})">
+  <h2 class="pl-compose-section__title">Questions</h2>
+  {{ question_formset.management_form }}
+  {% for error in question_formset.non_form_errors %}<p class="pl-field-error" data-compose-poll-list-error>{{ error }}</p>{% endfor %}
+  <div class="pl-poll-q__list" data-formset-rows x-ref="rows">
+    {% for qform in question_formset %}{% include "hub/partials/_poll_compose_question.html" with qform=qform %}{% endfor %}
+  </div>
+  <template x-ref="template" data-formset-template>{% include "hub/partials/_poll_compose_question.html" with qform=question_formset.empty_form %}</template>
+  <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-poll-q__add" x-show="count < max" @click="add()" data-compose-poll-add-question>+ Add question</button>
+</div>
+{% else %}
+<div class="pl-compose-section" data-compose-poll-settings>
+  <h2 class="pl-compose-section__title">How It Runs</h2>
+  <p class="pl-poll-compose__label" id="email-poll-runs-for">Runs for</p>
+  <div class="pl-poll-compose__lengths" role="radiogroup" aria-labelledby="email-poll-runs-for" data-poll-lengths>
+    {% for value, label in poll_form.fields.run_days.choices %}
+    <label class="pl-poll-compose__length"><input type="radio" name="{{ poll_form.run_days.html_name }}" value="{{ value }}" x-model.number="days"{% if value == poll_form.selected_days %} checked{% endif %}><span>{{ label }}</span></label>
+    {% endfor %}
+  </div>
+  <p class="pl-poll-compose__closes" x-text="closes()" data-compose-poll-closes>Closes {{ poll_form.closes_preview }}</p>
+  {% for error in poll_form.run_days.errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+  <div class="pl-poll-q__switches">
+    {% include "components/toggle.html" with field=poll_form.send_email toggle_label="Email when it goes live" toggle_description="Everyone it goes to gets an email with their own Answer the Poll link." %}
+    {% include "components/toggle.html" with field=poll_form.remind toggle_label="Remind before it closes" toggle_description="One reminder to those who have not answered yet." %}
+    <div class="pl-poll-q__remind" x-show="remindOn" x-cloak data-compose-poll-remind>
+      {% include "components/form_field.html" with field=poll_form.remind_days_before %}
+    </div>
+    {% include "components/toggle.html" with field=poll_form.audience_only toggle_label="Only the people it was sent to can answer" toggle_description="Anyone else who opens the poll's link is told it was sent to a different group." %}
+  </div>
+</div>
+<div class="pl-wizard-actions">
+  <button type="button" class="hub-btn hub-btn--ghost" data-compose-poll-save
+          hx-post="{% url 'hub_compose_save_draft' %}" hx-include="closest form" hx-swap="none">
+    <span class="htmx-indicator pl-spin" aria-hidden="true"></span> Save draft
+  </button>
+  <button type="button" class="hub-btn hub-btn--primary" @click="sendModalOpen = true" data-compose-poll-send>Send poll</button>
+</div>
+{% endif %}

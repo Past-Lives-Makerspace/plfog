@@ -146,10 +146,12 @@ def describe_hub_compose_page():
         back = f'<a href="{reverse("hub_announcements")}" class="hub-btn hub-btn--sm hub-btn--ghost" data-compose-back>'
         assert content.count(back) == 1
         assert content.count("data-compose-save-draft") == 2
+        # Two on the Email side, one on the Poll side (#1142, data-compose-poll-save).
         assert (
             content.count(f'hx-post="{reverse("hub_compose_save_draft")}" hx-include="closest form" hx-swap="none"')
-            == 2
+            == 3
         )
+        assert content.count("data-compose-poll-save") == 1
         assert 'id="compose-drafts"' not in content
 
     def it_has_no_drafts_list_partial_left_for_anything_to_include(settings):
@@ -171,7 +173,8 @@ def describe_hub_compose_page():
         assert first_save < content.index('goPreview()" :disabled')
         second_save = content.index("data-compose-save-draft", first_save + 1)
         assert content.index('@click="phase = 1">&larr; Back</button>') < second_save
-        assert second_save < content.index('@click="sendModalOpen = true"')
+        # The Email side's Send (the Poll side's Send poll opens the same modal, #1142).
+        assert second_save < content.index('@click="sendModalOpen = true" data-compose-send>')
 
     def it_shows_no_back_link_to_a_lock_only_instructor_with_nothing_saved(client: Client):
         _user, _member, offering = _instructor(
@@ -679,10 +682,12 @@ def describe_guild_page_only_send():
             '<span x-show="!guildPageOnly()">Send email</span><span x-show="guildPageOnly()" x-cloak>'
             "Post to guild page</span>"
         ) in content
+        # The confirm lines also read the Email | Poll picker (#1142): a poll has its own line.
         assert (
-            f'x-show="guildPageOnly()" x-cloak data-compose-guild-page-only-confirm>{_PAGE_ONLY_CONFIRM}</p>' in content
+            f"x-show=\"kind === 'email' &amp;&amp; guildPageOnly()\" x-cloak data-compose-guild-page-only-confirm>{_PAGE_ONLY_CONFIRM}</p>"
+            in content
         )
-        assert 'x-show="!guildPageOnly()">This will send the email to' in content
+        assert "x-show=\"kind === 'email' &amp;&amp; !guildPageOnly()\">This will send the email to" in content
 
     def it_posts_to_the_guild_page_and_tells_nobody(client: Client, mailoutbox):
         guild = GuildFactory()

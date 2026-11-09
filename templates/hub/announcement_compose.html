@@ -5,6 +5,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/announcement-compose.css' %}">
 <link rel="stylesheet" href="{% static 'css/guild-announcements.css' %}">
+<link rel="stylesheet" href="{% static 'css/polls.css' %}">
 {% endblock %}
 {% block content %}
 {% include "_components/rich_editor_assets.html" %}
@@ -31,6 +32,11 @@
 <div class="hub-card pl-wizard"
      x-data="{
        phase: 1,
+       kind: '{{ compose_kind }}',
+       days: {{ poll_form.selected_days }},
+       remindOn: {{ poll_form.remind.value|yesno:'true,false' }},
+       pollEmailOn: {{ poll_form.send_email.value|yesno:'true,false' }},
+       closes() { const when = new Date(Date.now() + this.days * 86400000); const zone = { timeZone: 'America/Los_Angeles' }; return 'Closes ' + when.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', ...zone }) + ' at ' + when.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', ...zone }); },
        audience: '{{ audience_value|escapejs }}',
        pushOn: {{ form.push_enabled.value|yesno:'true,false' }},
        emailOn: {{ form.send_email.value|yesno:'true,false' }},
@@ -81,6 +87,13 @@
      @compose-count.window="recipientCount = audience === 'site' ? siteCount() : audience === 'instructor' ? instructorCount() : $event.detail.count"
      @compose-body.window="hasBody = $event.detail.has">
 
+  {# Email or Poll (#1142): a two way choice, not a tab row, so both words show on a phone too; the hidden kind input in the form posts it. #}
+  <div class="pl-compose-kind" role="radiogroup" aria-label="What to send" data-compose-kind-choice>
+    <label class="pl-compose-kind__option"><input type="radio" name="compose_kind_choice" value="email" x-model="kind" @change="phase = 1" data-compose-kind="email"{% if compose_kind == "email" %} checked{% endif %}><span>Email</span></label>
+    <label class="pl-compose-kind__option"><input type="radio" name="compose_kind_choice" value="poll" x-model="kind" @change="phase = 1" data-compose-kind="poll"{% if compose_kind == "poll" %} checked{% endif %}><span>Poll</span></label>
+  </div>
+
+  <div x-show="kind === 'email'"{% if compose_kind == "poll" %} x-cloak{% endif %}>
   {% tab_picker "Compose Steps" %}
   <div class="pl-phase-tabs" role="tablist" aria-label="Compose steps">
     <button type="button" class="pl-phase-tab" role="tab" :aria-selected="phase === 1"
@@ -89,6 +102,7 @@
             :class="{ 'pl-phase-tab--active': phase === 2 }" @click="goPreview()">2. Preview &amp; send</button>
   </div>
   {% endtab_picker %}
+  </div>
 
   {# Send is a plain, unvalidated full page POST (hx-boost off, novalidate), as form.submit() made it; requestSubmit() keeps that and fires the submit busy_submit.html locks on. #}
   {# Multipart for the image (#1064): enctype for the Send POST, hx-encoding for every hx-post button inside (htmx reads it from the closest ancestor, never a form's enctype). #}
@@ -97,6 +111,7 @@
         hx-boost="false" novalidate data-pl-busy-submit data-pl-busy-label="Sending...">
     {% csrf_token %}
     <input type="hidden" id="compose-draft-pk" name="draft_pk" value="{{ draft.pk|default:'' }}">
+    <input type="hidden" name="kind" value="{{ compose_kind }}" :value="kind" data-compose-kind-input>
 
     {% if form.non_field_errors %}
     <div class="pl-field-errors pl-wizard-errors">{% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}</div>
@@ -111,6 +126,7 @@
       {% include "components/form_field.html" with field=form.audience field_label="Who is this for?" %}
       {% endif %}
 
+      <div x-show="kind === 'email'"{% if compose_kind == "poll" %} x-cloak{% endif %} data-compose-email-fields>
       {% include "hub/partials/_compose_subject_field.html" with oob=False %}
       {% include "components/form_field.html" with field=form.body %}
       {% include "hub/partials/_compose_image_field.html" with current_image=compose_image errors=form.image.errors lost=compose_image_lost max_bytes=max_upload_image_bytes oob=False %}
@@ -119,6 +135,10 @@
         {% include "components/form_field.html" with field=form.featured_class %}
       </div>
       {% endif %}
+      </div>
+      <div x-show="kind === 'poll'"{% if compose_kind == "email" %} x-cloak{% endif %} data-compose-poll>
+        {% include "hub/partials/_poll_compose.html" with part="questions" %}
+      </div>
 
       <div class="pl-compose-section" x-show="audience.startsWith('guild') || audience.startsWith('class') || audience === 'students'" x-cloak>
         <h2 class="pl-compose-section__title">Recipients</h2>
@@ -174,6 +194,11 @@
       </div>
       {% endif %}
 
+      <div x-show="kind === 'poll'"{% if compose_kind == "email" %} x-cloak{% endif %}>
+        {% include "hub/partials/_poll_compose.html" with part="settings" %}
+      </div>
+
+      <div x-show="kind === 'email'"{% if compose_kind == "poll" %} x-cloak{% endif %} data-compose-email-delivery>
       <div class="pl-compose-section">
         <h2 class="pl-compose-section__title">Delivery</h2>
         {% include "components/toggle.html" with field=form.push_enabled toggle_label="Push notification" toggle_description="Send it to recipients' phones as a push notification." %}
@@ -212,6 +237,7 @@
         <button type="button" class="hub-btn hub-btn--primary" @click="goPreview()" :disabled="!hasBody" data-guidance-target="announcements.preview-send">
           Preview &amp; send &rarr;
         </button>
+      </div>
       </div>
     </div>
 
@@ -313,8 +339,9 @@
           <button type="button" @click="sendModalOpen = false" class="pl-modal__close" aria-label="Close">&times;</button>
         </div>
         <div class="pl-modal__body">
-          <p style="margin: 0 0 1.5rem;" x-show="!guildPageOnly()">This will send the email to <strong x-text="recipientCount"></strong> recipient(s) <span data-send-timing x-text="audience === 'site' ? 'within 15 minutes' : 'right now'">right now</span>. This can't be undone.</p>
-          <p style="margin: 0 0 1.5rem;" x-show="guildPageOnly()" x-cloak data-compose-guild-page-only-confirm>This will post it to the top of the guild page right now. Nobody is notified.</p>
+          <p class="pl-compose-confirm" x-show="kind === 'poll'" x-cloak data-compose-poll-confirm>This opens the poll for <strong x-text="recipientCount"></strong> recipient(s)<span x-show="pollEmailOn"> and emails each their own link <span x-text="audience === 'site' ? 'within 15 minutes' : 'right now'">right now</span></span><span x-show="!pollEmailOn"> right now</span>. It can't be edited once sent.</p>
+          <p style="margin: 0 0 1.5rem;" x-show="kind === 'email' &amp;&amp; !guildPageOnly()">This will send the email to <strong x-text="recipientCount"></strong> recipient(s) <span data-send-timing x-text="audience === 'site' ? 'within 15 minutes' : 'right now'">right now</span>. This can't be undone.</p>
+          <p style="margin: 0 0 1.5rem;" x-show="kind === 'email' &amp;&amp; guildPageOnly()" x-cloak data-compose-guild-page-only-confirm>This will post it to the top of the guild page right now. Nobody is notified.</p>
           <div class="pl-modal__actions">
             <button type="button" class="hub-btn hub-btn--primary" data-pl-busy @click="$refs.wizardForm.requestSubmit()">Yes, send it</button>
             <button type="button" class="hub-btn hub-btn--ghost" data-pl-busy="hold" @click="sendModalOpen = false">Cancel</button>
@@ -325,6 +352,7 @@
   </form>
 </div>
 {% include "components/busy_submit.html" %}
+{% include "hub/partials/_poll_compose_script.html" %}
 
 <script>
 (function () {

@@ -88,7 +88,8 @@ drafts_count, sent_count, can_send_release (the admin only Release Update card, 
           {% else %}
           <a href="{% url 'hub_compose_resume' row.pk %}" class="pl-announcements-table__title">{{ row.title }}</a>
           {% endif %}
-          <span class="pl-announcements-table__excerpt">{{ row.message_excerpt|default:"No message yet." }}</span>
+          {% if row.kind == "poll" %}<span class="pl-announcements-table__excerpt"><span class="hub-pill hub-pill--neutral" data-announcement-kind="poll">Poll</span></span>{% else %}
+          <span class="pl-announcements-table__excerpt">{{ row.message_excerpt|default:"No message yet." }}</span>{% endif %}
         </td>
         <td data-label="Audience">{{ row.audience_label }}</td>
         <td data-label="Channels" data-channels>{{ row.channel_labels|join:" · " }}</td>

@@ -82,6 +82,7 @@ if TYPE_CHECKING:
     from core.events.channels import Channel, Message
     from core.events.discord_identity import DiscordIdentity
     from core.events.emit import EmitResult
+    from polls.models import PollDraft
 
 logger = logging.getLogger(__name__)
 
@@ -6812,6 +6813,8 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
         recipient_selection: dict[str, Any],
         added_recipients: dict[str, Any],
         featured_class: "ClassOffering | None" = None,
+        kind: str = "email",
+        title: str | None = None,
     ) -> "AnnouncementDraft | None":
         """The row ``author`` sent, queued or started sending within the resend window as this same send.
 
@@ -6838,6 +6841,9 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
             recipient_selection: The chosen recipients as the row stores them (``{}`` for everyone).
             added_recipients: The people added on top, as the row stores them (``{}`` for none).
             featured_class: The class a past students email features, else ``None``.
+            kind: What the row sends (``AnnouncementDraft.Kind``): an email never repeats a poll.
+            title: A poll's title (#1142). A poll has no body, so its title is what tells two
+                polls to the same people apart; ``None`` for an email, whose body does that.
 
         Returns:
             The newest such row, or ``None``.
@@ -6851,7 +6857,9 @@ class AnnouncementDraftQuerySet(models.QuerySet["AnnouncementDraft"]):
                 class_offering=class_offering,
                 featured_class=featured_class,
                 body=body,
+                kind=kind,
                 created_at__gte=since,
+                **({} if title is None else {"title": title}),
             )
             .exclude(sent_at__isnull=True, send_requested_at__isnull=True, send_attempts=0)
             .order_by("-created_at", "-pk")
@@ -7470,6 +7478,9 @@ class AnnouncementDraft(models.Model):
         """
         if self.posts_to_guild_page_only:
             return ["Guild page only"]
+        if self.kind == self.Kind.POLL:
+            # A poll (#1142) uses only its live email; the poll itself is what members open.
+            return ["Email"] if self.send_email else ["No email"]
         labels = []
         if self.send_email:
             labels.append("Email")
@@ -8105,9 +8116,19 @@ class AnnouncementDraft(models.Model):
 
     @classmethod
     def save_from_form(
-        cls, form: Any, author: "User", instance: "AnnouncementDraft | None" = None
+        cls,
+        form: Any,
+        author: "User",
+        instance: "AnnouncementDraft | None" = None,
+        poll: "PollDraft | None" = None,
     ) -> "AnnouncementDraft":
         """Upsert a draft from a validated :class:`~hub.forms.AnnouncementComposeForm`.
+
+        With ``poll`` (#1142) the row is a poll: its title is the poll's, its body blank, and push,
+        Discord, urgency and the guild page expiry are saved off, since a poll uses none of them;
+        "Email when it goes live" is ``send_email``. The :class:`polls.models.EmailPoll` and its
+        questions are written in the same transaction, so a poll row never exists without them.
+        Without it the row is an email, and any poll it was before is removed.
 
         Creates a new row or updates ``instance`` in place from the split audience/guild and
         the sanitized body. A ``GUILD`` audience without a guild fails loudly (also enforced
@@ -8162,16 +8183,27 @@ class AnnouncementDraft(models.Model):
         # once every field it depends on (audience/guild/class/urgent) is set (#1039). The form drops
         # the Subject field on a results announcement, so its cleaned data carries none.
         draft.title = draft.title_from_subject(cd.get("subject", ""))
-        draft.save()
+        draft.kind = cls.Kind.EMAIL
+        if poll is not None:
+            poll.apply_to(draft)
+        from polls.models import EmailPoll
+
+        with transaction.atomic():
+            draft.save()
+            if poll is not None:
+                EmailPoll.save_for_draft(draft, poll)
+            else:
+                EmailPoll.objects.filter(draft=draft).delete()
         return draft
 
     @classmethod
-    def recent_twin_of(cls, form: Any, author: "User") -> "AnnouncementDraft | None":
+    def recent_twin_of(cls, form: Any, author: "User", poll: "PollDraft | None" = None) -> "AnnouncementDraft | None":
         """The sent or queued row a fresh compose repeats, read from a validated form, else ``None``.
 
         The composer calls this before :meth:`save_from_form` on a POST with no ``draft_pk``, so a
         repeat of a send that already went out is refused by that row's own guards instead of
         becoming a second row and a second send (:meth:`AnnouncementDraftQuerySet.recent_twin`).
+        A poll (#1142) matches only a poll with the same title, since its body is always blank.
         """
         cd = form.cleaned_data
         return cls.objects.recent_twin(
@@ -8179,7 +8211,9 @@ class AnnouncementDraft(models.Model):
             audience=cd["audience"],
             guild=cd["guild"],
             class_offering=cd["class_offering"],
-            body=cd["body"],
+            body="" if poll is not None else cd["body"],
+            kind=cls.Kind.POLL if poll is not None else cls.Kind.EMAIL,
+            title=poll.title if poll is not None else None,
             # Normalized as save_from_form stores them, so a stored row compares equal to its repeat.
             recipient_selection=cd["recipient_selection"] or {},
             added_recipients=cd["added_recipients"] or {},

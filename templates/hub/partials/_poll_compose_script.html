@@ -1,0 +1,45 @@
+{# The poll composer's two Alpine components (#1142), registered on either side of alpine:init as FRONTEND.md asks of an inline page script. #}
+<script>
+(function () {
+  function register() {
+    // The question list: + Add question clones the empty form (its __prefix__ becomes the next index and
+    // TOTAL_FORMS grows); Delete question drops the row, leaving a gap the server reads as an empty row.
+    window.Alpine.data("plPollQuestions", function (count, max) {
+      return {
+        count: count,
+        max: max,
+        add: function () {
+          var total = this.$root.querySelector('input[name="question-TOTAL_FORMS"]');
+          var index = parseInt(total.value, 10);
+          var holder = document.createElement("div");
+          holder.innerHTML = this.$refs.template.innerHTML.replaceAll("__prefix__", index);
+          var row = holder.firstElementChild;
+          this.$refs.rows.appendChild(row);
+          total.value = index + 1;
+          this.count += 1;
+          var first = row.querySelector("input[type=text]");
+          if (first) { first.focus(); }
+        },
+        deleteQuestion: function (button) {
+          button.closest("[data-formset-row]").remove();
+          this.count -= 1;
+        }
+      };
+    });
+    // One question: its type shows the options for Pick one and Pick any; Remove shifts the rows below up.
+    window.Alpine.data("plPollQuestion", function (kind, shown) {
+      return {
+        kind: kind,
+        shown: shown,
+        remove: function (index) {
+          var inputs = Array.prototype.slice.call(this.$root.querySelectorAll("[data-option-input]"));
+          for (var i = index; i < inputs.length - 1; i += 1) { inputs[i].value = inputs[i + 1].value; }
+          inputs[inputs.length - 1].value = "";
+          if (this.shown > 2) { this.shown -= 1; }
+        }
+      };
+    });
+  }
+  if (window.Alpine) { register(); } else { document.addEventListener("alpine:init", register); }
+})();
+</script>

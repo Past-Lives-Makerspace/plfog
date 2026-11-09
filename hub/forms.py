@@ -33,6 +33,21 @@ if TYPE_CHECKING:
     from membership.models import AnnouncementDraft, GuildStaffMembership
 
 from core.html_sanitize import clean_rich_body, clean_rich_html, limit_rich_text
+from polls.models import (
+    ANSWER_MAX_LENGTH,
+    INTRO_MAX_LENGTH,
+    MAX_OPTIONS,
+    MAX_QUESTIONS,
+    MIN_OPTIONS,
+    QUESTION_MAX_LENGTH,
+    EmailPoll,
+    PollDraft,
+    QuestionKind,
+    QuestionSpec,
+    ReminderLead,
+    RunLength,
+    closes_label,
+)
 from core.validators import (
     ALLOWED_WIKI_IMAGE_EXTENSIONS,
     validate_image_pixels,
@@ -6585,6 +6600,221 @@ class AnnouncementComposeForm(forms.Form):
             "users": [int(v.split(":", 1)[1]) for v in chosen_users],
             "custom": [v.split(":", 1)[1] for v in chosen_custom],
         }
+
+
+class EmailPollComposeForm(forms.Form):
+    """The Poll side of Email Members (#1142): title, intro, how long it runs and its three switches.
+
+    Its questions are :class:`EmailPollQuestionFormSet`; the audience and recipients stay on
+    :class:`AnnouncementComposeForm`, so a poll reaches whoever an email to that audience would.
+    """
+
+    prefix = "poll"
+
+    title = forms.CharField(
+        max_length=300,
+        label="Title",
+        error_messages={"required": "Give the poll a title."},
+        help_text="What the poll is about. It is the email's subject: Poll: <title>.",
+    )
+    intro = forms.CharField(
+        required=False,
+        max_length=INTRO_MAX_LENGTH,
+        label="Intro (optional)",
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="A short note above the questions and in the email.",
+    )
+    run_days = forms.TypedChoiceField(
+        choices=RunLength.choices, coerce=int, initial=RunLength.ONE_WEEK, label="Runs for", widget=forms.RadioSelect
+    )
+    send_email = forms.BooleanField(
+        required=False,
+        initial=True,
+        label="Email when it goes live",
+        widget=forms.CheckboxInput(attrs={"x-on:change": "pollEmailOn = $el.checked"}),
+    )
+    remind = forms.BooleanField(
+        required=False,
+        initial=False,
+        label="Remind before it closes",
+        widget=forms.CheckboxInput(attrs={"x-on:change": "remindOn = $el.checked"}),
+    )
+    remind_days_before = forms.TypedChoiceField(
+        choices=ReminderLead.choices,
+        coerce=int,
+        required=False,
+        initial=ReminderLead.ONE_DAY,
+        label="When to remind",
+    )
+    audience_only = forms.BooleanField(required=False, initial=False, label="Only the people it was sent to can answer")
+
+    def clean(self) -> dict[str, Any]:
+        """Refuse a reminder that would go out before the poll opens; without the switch, no reminder."""
+        cleaned = super().clean() or {}
+        if not cleaned.get("remind"):
+            cleaned["remind_days_before"] = None
+            return cleaned
+        days = cleaned.get("remind_days_before")
+        run_days = cleaned.get("run_days")
+        if days is None:
+            self.add_error("remind_days_before", "Pick when to remind.")
+        elif run_days is not None and days >= run_days:
+            self.add_error(
+                "remind_days_before",
+                "That reminder would go out before the poll opens. Pick an earlier reminder or a longer run.",
+            )
+        return cleaned
+
+    @property
+    def selected_days(self) -> int:
+        """The Runs for chip shown as chosen: what was posted when it is a length, else a week."""
+        value = str(self["run_days"].value())
+        lengths = {str(length.value): int(length.value) for length in RunLength}
+        return lengths[value] if value in lengths else int(RunLength.ONE_WEEK)
+
+    @property
+    def closes_preview(self) -> str:
+        """The Closes line before any script runs: now plus the chosen length, as the server writes it."""
+        return closes_label(timezone.now() + timedelta(days=self.selected_days))
+
+    def draft_data(self, questions: BaseEmailPollQuestionFormSet) -> PollDraft:
+        """The validated poll for :meth:`AnnouncementDraft.save_from_form`."""
+        cd = self.cleaned_data
+        return PollDraft(
+            title=cd["title"],
+            intro=cd["intro"],
+            run_days=cd["run_days"],
+            send_email=cd["send_email"],
+            remind_days_before=cd["remind_days_before"],
+            audience_only=cd["audience_only"],
+            questions=questions.specs,
+        )
+
+    @classmethod
+    def initial_for(cls, poll: EmailPoll | None) -> dict[str, Any]:
+        """A saved draft poll as the form's initial values, or the defaults for a new one."""
+        if poll is None:
+            return {}
+        return {
+            "title": poll.draft.title,
+            "intro": poll.intro,
+            "run_days": poll.run_days,
+            "send_email": poll.draft.send_email,
+            "remind": poll.remind_days_before is not None,
+            "remind_days_before": poll.remind_days_before or ReminderLead.ONE_DAY,
+            "audience_only": poll.audience_only,
+        }
+
+
+#: The option fields each question carries; rows past the filled ones stay hidden until + Add option.
+OPTION_FIELDS = tuple(f"option_{n}" for n in range(1, MAX_OPTIONS + 1))
+
+
+class EmailPollQuestionForm(forms.Form):
+    """One question in the poll composer: its text, its type and up to four options."""
+
+    text = forms.CharField(
+        max_length=QUESTION_MAX_LENGTH, label="Question", error_messages={"required": "Write the question."}
+    )
+    kind = forms.ChoiceField(choices=QuestionKind.choices, initial=QuestionKind.PICK_ONE, label="Type")
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        """Add the four option fields, each optional: blank rows are dropped, never counted."""
+        super().__init__(*args, **kwargs)
+        for number, name in enumerate(OPTION_FIELDS, start=1):
+            self.fields[name] = forms.CharField(required=False, max_length=ANSWER_MAX_LENGTH, label=f"Option {number}")
+
+    def has_changed(self) -> bool:
+        """Whether anything was typed: a row with no question and no option is empty, whatever its type.
+
+        The type select always posts a value, so without this an added row left blank, or the gap
+        a deleted row leaves, would read as a question missing its text.
+        """
+        return any((self.data.get(self.add_prefix(name)) or "").strip() for name in ("text", *OPTION_FIELDS))
+
+    def clean(self) -> dict[str, Any]:
+        """A pick question needs 2 to 4 filled options; an open-ended one keeps none."""
+        cleaned = super().clean() or {}
+        if cleaned.get("kind") in (QuestionKind.PICK_ONE, QuestionKind.PICK_ANY):
+            filled = self.spec_options(cleaned)
+            if not MIN_OPTIONS <= len(filled) <= MAX_OPTIONS:
+                self.add_error(None, f"Give this question {MIN_OPTIONS} to {MAX_OPTIONS} options.")
+        return cleaned
+
+    @staticmethod
+    def spec_options(cleaned: dict[str, Any]) -> list[str]:
+        """The filled options in order, blank rows dropped (the model's ``QuestionSpec.filled_options``)."""
+        return QuestionSpec("", "", tuple(cleaned.get(name) or "" for name in OPTION_FIELDS)).filled_options
+
+    @property
+    def spec(self) -> QuestionSpec:
+        """This question for :meth:`polls.models.EmailPoll.replace_questions`."""
+        cd = self.cleaned_data
+        options = () if cd["kind"] == QuestionKind.OPEN else tuple(self.spec_options(cd))
+        return QuestionSpec(text=cd["text"], kind=cd["kind"], options=options)
+
+    @property
+    def option_rows(self) -> list[forms.BoundField]:
+        """The four option fields, in order, for the template."""
+        return [self[name] for name in OPTION_FIELDS]
+
+    @property
+    def options_shown(self) -> int:
+        """How many option rows start visible: the filled ones, at least two."""
+        filled = sum(1 for name in OPTION_FIELDS if (self[name].value() or "").strip())
+        return max(MIN_OPTIONS, filled)
+
+
+class BaseEmailPollQuestionFormSet(forms.BaseFormSet):  # type: ignore[type-arg]
+    """The question list: one to ten questions; an untouched added row is skipped.
+
+    Removing a row in the browser leaves a gap in the posted indexes, so a bound set counts every
+    row as an added one (``initial_form_count`` is 0): a missing or untouched row is empty and
+    skipped rather than an error on a question nobody can see. For the same reason the posted row
+    count may run past ten; ``validate_max`` counts only the rows with something in them.
+    """
+
+    default_error_messages = {
+        **forms.BaseFormSet.default_error_messages,
+        "too_many_forms": "A poll has at most %(num)d questions.",
+    }
+
+    def initial_form_count(self) -> int:
+        """No initial rows once posted, so every row may be left out."""
+        return 0 if self.is_bound else super().initial_form_count()
+
+    def clean(self) -> None:
+        """At least one question."""
+        super().clean()
+        if not any(self.errors) and not self.specs:
+            raise forms.ValidationError("Add at least one question.")
+
+    @property
+    def specs(self) -> list[QuestionSpec]:
+        """The written questions in order."""
+        return [form.spec for form in self.forms if form.cleaned_data]
+
+    @classmethod
+    def initial_for(cls, poll: EmailPoll | None) -> list[dict[str, Any]]:
+        """A saved draft's questions as initial rows, or one blank question for a new poll."""
+        if poll is None:
+            return [{"kind": QuestionKind.PICK_ONE}]
+        rows = []
+        for question in poll.questions.prefetch_related("options"):
+            row: dict[str, Any] = {"text": question.text, "kind": question.kind}
+            for name, option in zip(OPTION_FIELDS, question.options.all(), strict=False):
+                row[name] = option.text
+            rows.append(row)
+        return rows or [{"kind": QuestionKind.PICK_ONE}]
+
+
+EmailPollQuestionFormSet = forms.formset_factory(
+    EmailPollQuestionForm,
+    formset=BaseEmailPollQuestionFormSet,
+    extra=0,
+    max_num=MAX_QUESTIONS,
+    validate_max=True,
+)
 
 
 class ReleaseAnnouncementForm(forms.Form):
