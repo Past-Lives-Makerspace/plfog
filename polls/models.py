@@ -9,15 +9,20 @@ posting while one is open there is refused. A member votes once per poll, held b
 constraint: by picking an answer, or (#925 part 3, where the poll allows it) by writing their own.
 A picked answer is a count and never shown by name; a written one is listed under the counts with
 the member's name or "Anonymous", as they chose. Nothing here notifies anyone.
+
+Email polls (#1142) are a separate feature at the end of this module: a poll of up to ten
+questions sent from Email Members, carried by an ``AnnouncementDraft`` of kind Poll.
 """
 
 from __future__ import annotations
 
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
+from django.core import signing
 from django.db import IntegrityError, models, transaction
 from django.db.models import Count, OuterRef, Q, Subquery
 from django.utils import timezone
@@ -530,3 +535,579 @@ class GuildPolls:
         cards = PollCard.for_polls(polls, member, now) if polls else []
         open_cards = [card for card in cards if card.is_open]
         return cls(open=open_cards[0] if open_cards else None, past=[card for card in cards if not card.is_open])
+
+
+# Email polls (#1142): a poll of up to ten questions sent from Email Members to any audience it
+# emails. It rides on an AnnouncementDraft whose ``kind`` is Poll (the draft holds the title, the
+# audience and the send); these tables hold the questions, who it was sent to and their answers.
+
+MAX_QUESTIONS = 10
+MIN_OPTIONS = 2
+MAX_OPTIONS = 4
+INTRO_MAX_LENGTH = 500
+OPEN_ANSWER_MAX_LENGTH = 2000
+_ANSWER_TOKEN_SALT = "polls.email-poll-answer"
+#: What a member outside the audience reads on the plain link of an audience only poll.
+DIFFERENT_GROUP = "This poll was sent to a different group."
+POLL_CLOSED = "This poll has closed."
+BAD_LINK = "This link is not valid."
+
+
+class ReminderLead(models.IntegerChoices):
+    """How long before closing an email poll's one reminder goes out (#1142)."""
+
+    ONE_DAY = 1, "1 day before closing"
+    TWO_DAYS = 2, "2 days before closing"
+    THREE_DAYS = 3, "3 days before closing"
+
+
+class QuestionKind(models.TextChoices):
+    """What kind of answer an email poll question takes (#1142)."""
+
+    OPEN = "open", "Open-ended"
+    PICK_ONE = "one", "Pick one"
+    PICK_ANY = "any", "Pick any"
+
+
+class BadPollLinkError(Exception):
+    """An emailed poll link that is tampered, names no recipient, or whose poll has closed."""
+
+
+class AnswerRefusedError(Exception):
+    """Answers that cannot be saved; the message is written for the member."""
+
+
+@dataclass(frozen=True)
+class QuestionSpec:
+    """One question as the composer hands it over: its text, its kind and, for a pick kind, its options."""
+
+    text: str
+    kind: str
+    options: tuple[str, ...] = ()
+
+
+def validate_questions(specs: list[QuestionSpec]) -> None:
+    """Refuse a question list an email poll cannot send.
+
+    Raises:
+        ValueError: No questions or more than ``MAX_QUESTIONS``, a blank or too long question, an
+            unknown kind, a pick question without 2 to 4 non blank options, an option too long, or
+            an open-ended question carrying options.
+    """
+    if not specs:
+        raise ValueError("Add at least one question.")
+    if len(specs) > MAX_QUESTIONS:
+        raise ValueError(f"A poll has at most {MAX_QUESTIONS} questions.")
+    for number, spec in enumerate(specs, start=1):
+        _validate_question(number, spec)
+
+
+def _validate_question(number: int, spec: QuestionSpec) -> None:
+    """Refuse one question, named by its ``number`` from 1 (see :func:`validate_questions`).
+
+    Raises:
+        ValueError: As :func:`validate_questions` describes, for this question.
+    """
+    text = spec.text.strip()
+    if not text:
+        raise ValueError(f"Question {number} needs its text.")
+    if len(text) > QUESTION_MAX_LENGTH:
+        raise ValueError(f"Question {number} is longer than {QUESTION_MAX_LENGTH} characters.")
+    if spec.kind not in QuestionKind.values:
+        raise ValueError(f"Question {number} has an unknown kind: {spec.kind!r}.")
+    options = [option.strip() for option in spec.options]
+    if spec.kind == QuestionKind.OPEN:
+        if options:
+            raise ValueError(f"Question {number} is open-ended and takes no options.")
+        return
+    if not MIN_OPTIONS <= len(options) <= MAX_OPTIONS or not all(options):
+        raise ValueError(f"Question {number} needs {MIN_OPTIONS} to {MAX_OPTIONS} options, none blank.")
+    if any(len(option) > ANSWER_MAX_LENGTH for option in options):
+        raise ValueError(f"An option in question {number} is longer than {ANSWER_MAX_LENGTH} characters.")
+
+
+class EmailPollQuerySet(models.QuerySet["EmailPoll"]):
+    def sent(self) -> EmailPollQuerySet:
+        """Polls that went live (Send stamped their window)."""
+        return self.filter(opens_at__isnull=False)
+
+    def open_at(self, now: datetime) -> EmailPollQuerySet:
+        """Polls open at ``now``."""
+        return self.filter(opens_at__lte=now, closes_at__gt=now)
+
+    def sent_to(self, member: Member) -> EmailPollQuerySet:
+        """Polls sent to ``member``."""
+        return self.filter(recipients__member=member)
+
+    def reminders_due(self, now: datetime) -> EmailPollQuerySet:
+        """Open polls whose reminder time has come and whose reminder has not gone out."""
+        return self.open_at(now).filter(remind_at__lte=now, reminder_sent_at__isnull=True)
+
+
+class EmailPoll(models.Model):
+    """A poll of up to ten questions sent from Email Members (#1142).
+
+    Its title, audience, sender and send belong to its :class:`~membership.models.AnnouncementDraft`
+    (``kind`` Poll), so drafts, audiences and the site queue work as they do for an email. It opens
+    at Send (:meth:`open`) and closes on its own after ``run_days``; nothing can close it early.
+    """
+
+    draft = models.OneToOneField(
+        "membership.AnnouncementDraft",
+        on_delete=models.CASCADE,
+        related_name="poll",
+        help_text="The Email Members row that carries this poll's title, audience, sender and send.",
+    )
+    intro = models.TextField(
+        max_length=INTRO_MAX_LENGTH,
+        blank=True,
+        default="",
+        help_text="An optional short note above the questions and in the email.",
+    )
+    run_days = models.PositiveSmallIntegerField(
+        choices=RunLength.choices,
+        default=RunLength.ONE_WEEK,
+        help_text="How many days the poll stays open after Send.",
+    )
+    remind_days_before = models.PositiveSmallIntegerField(
+        choices=ReminderLead.choices,
+        null=True,
+        blank=True,
+        help_text="Days before closing to remind recipients who have not answered. Blank sends no reminder.",
+    )
+    audience_only = models.BooleanField(
+        default=False,
+        help_text="Only the people it was sent to may answer through the plain link.",
+    )
+    opens_at = models.DateTimeField(null=True, blank=True, help_text="When Send opened it. Blank while a draft.")
+    closes_at = models.DateTimeField(null=True, blank=True, help_text="When answering ends. Blank while a draft.")
+    remind_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the reminder is due, set at Send. Blank with no reminder."
+    )
+    reminder_sent_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the reminder went out. Blank until it does."
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the poll was first saved.")
+
+    objects = EmailPollQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-opens_at", "-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(opens_at__isnull=True) | Q(closes_at__gt=models.F("opens_at")),
+                name="emailpoll_closes_after_opens",
+            ),
+            models.CheckConstraint(
+                condition=Q(remind_days_before__isnull=True) | Q(remind_days_before__lt=models.F("run_days")),
+                name="emailpoll_remind_in_run",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["closes_at", "opens_at"], name="emailpoll_window_idx"),
+            models.Index(fields=["remind_at"], name="emailpoll_remind_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return self.draft.title
+
+    @property
+    def is_sent(self) -> bool:
+        """Whether Send has opened it."""
+        return self.opens_at is not None
+
+    def is_open(self, now: datetime) -> bool:
+        """Whether members can answer at ``now``."""
+        if self.opens_at is None or self.closes_at is None:
+            return False
+        return self.opens_at <= now < self.closes_at
+
+    @property
+    def closes_label(self) -> str:
+        """When answering ends, in Portland time.
+
+        Raises:
+            ValueError: The poll has not been sent, so it has no closing time.
+        """
+        if self.closes_at is None:
+            raise ValueError("A poll has no closing time until it is sent.")
+        return closes_label(self.closes_at)
+
+    def replace_questions(self, specs: list[QuestionSpec]) -> None:
+        """Save ``specs`` as this draft poll's questions, in order, replacing any it had.
+
+        Raises:
+            ValueError: The poll was sent (its questions are fixed), or :func:`validate_questions` refuses.
+        """
+        if self.is_sent:
+            raise ValueError("A sent poll's questions cannot change.")
+        validate_questions(specs)
+        with transaction.atomic():
+            self.questions.all().delete()
+            questions = EmailPollQuestion.objects.bulk_create(
+                EmailPollQuestion(poll=self, position=position, text=spec.text.strip(), kind=spec.kind)
+                for position, spec in enumerate(specs)
+            )
+            EmailPollOption.objects.bulk_create(
+                EmailPollOption(question=question, position=position, text=text.strip())
+                for question, spec in zip(questions, specs, strict=True)
+                for position, text in enumerate(spec.options)
+            )
+
+    def open(self, now: datetime) -> None:
+        """Open the poll at ``now`` (Send): it closes ``run_days`` later, and the reminder falls due before that.
+
+        Opening a poll already open keeps its first window, so a repeated Send changes nothing.
+
+        Raises:
+            ValueError: The poll has no questions.
+        """
+        if self.is_sent:
+            return
+        if not self.questions.exists():
+            raise ValueError("Add at least one question.")
+        self.opens_at = now
+        self.closes_at = now + timedelta(days=self.run_days)
+        self.remind_at = (
+            None if self.remind_days_before is None else self.closes_at - timedelta(days=self.remind_days_before)
+        )
+        self.save(update_fields=["opens_at", "closes_at", "remind_at"])
+
+    def record_recipients(self, user_ids: set[int]) -> None:
+        """Note who this poll was sent to: the member of each account in ``user_ids``.
+
+        An account with no member is left out. Recording someone twice changes nothing, so a
+        retried send can record again.
+        """
+        from membership.models import Member
+
+        member_pks = Member.objects.filter(user_id__in=list(user_ids)).values_list("pk", flat=True)
+        EmailPollRecipient.objects.bulk_create(
+            (EmailPollRecipient(poll=self, member_id=pk) for pk in member_pks), ignore_conflicts=True
+        )
+
+    def is_recipient(self, member: Member) -> bool:
+        """Whether this poll was sent to ``member``."""
+        return self.recipients.filter(member=member).exists()
+
+    def answer_refusal(self, member: Member, now: datetime) -> str:
+        """Why ``member`` may not answer at ``now``, or ``""`` when they may.
+
+        Closed (or never sent) polls refuse everyone; an audience only poll refuses anyone it was not sent to.
+        """
+        if not self.is_open(now):
+            return POLL_CLOSED
+        if self.audience_only and not self.is_recipient(member):
+            return DIFFERENT_GROUP
+        return ""
+
+    def make_answer_token(self, member: Member) -> str:
+        """The personal token in ``member``'s email link: it names them and this poll."""
+        return signing.dumps({"poll": self.pk, "member": member.pk}, salt=_ANSWER_TOKEN_SALT)
+
+    @staticmethod
+    def read_answer_token(token: str, now: datetime) -> tuple[EmailPoll, Member]:
+        """The poll and member an emailed link names, while the poll is open.
+
+        Raises:
+            BadPollLinkError: The token is tampered or unreadable, names someone the poll was not
+                sent to, or its poll has closed (the message says which, for the member).
+        """
+        try:
+            data = signing.loads(token, salt=_ANSWER_TOKEN_SALT)
+        except signing.BadSignature as error:
+            raise BadPollLinkError(BAD_LINK) from error
+        recipient = (
+            EmailPollRecipient.objects.select_related("poll__draft", "member")
+            .filter(poll_id=data["poll"], member_id=data["member"])
+            .first()
+        )
+        if recipient is None:
+            raise BadPollLinkError(BAD_LINK)
+        if not recipient.poll.is_open(now):
+            raise BadPollLinkError(POLL_CLOSED)
+        return recipient.poll, recipient.member
+
+    def answer(self, *, member: Member, answers: dict[int, str | list[int]], now: datetime) -> EmailPollResponse:
+        """Save ``member``'s answers, replacing any they gave before: the one way an answer is written.
+
+        ``answers`` maps a question's pk to the text written (open-ended) or the option pks picked.
+        Every pick question needs an answer (exactly one for Pick one); an open-ended one may be
+        left out or blank, and a blank one stores nothing.
+
+        Raises:
+            AnswerRefusedError: The member may not answer (:meth:`answer_refusal`), a pick question
+                is unanswered, Pick one has more than one pick, a pick is not one of the question's
+                options, an answer has the wrong shape, or a written answer is too long.
+        """
+        refusal = self.answer_refusal(member, now)
+        if refusal:
+            raise AnswerRefusedError(refusal)
+        rows = [
+            row for question in self.questions.prefetch_related("options") for row in _answer_rows(question, answers)
+        ]
+        with transaction.atomic():
+            response, created = EmailPollResponse.objects.get_or_create(poll=self, member=member)
+            response = EmailPollResponse.objects.select_for_update().get(pk=response.pk)
+            if not created:
+                response.save(update_fields=["updated_at"])
+            response.answers.all().delete()
+            for row in rows:
+                row.response = response
+            EmailPollAnswer.objects.bulk_create(rows)
+        return response
+
+    def may_see_results(self, member: Member | None) -> bool:
+        """Whether ``member`` may see the results: the sender, an admin, or someone who answered."""
+        if member is None:
+            return False
+        if member.is_fog_admin or (member.user_id is not None and member.user_id == self.draft.author_id):
+            return True
+        return self.responses.filter(member=member).exists()
+
+    def results(self) -> EmailPollResults:
+        """Every question's results and the per person table, in four queries."""
+        return EmailPollResults.load(self)
+
+
+def _answer_rows(question: EmailPollQuestion, answers: dict[int, str | list[int]]) -> list[EmailPollAnswer]:
+    """The answer rows ``answers`` gives ``question`` (unsaved, no response yet).
+
+    Raises:
+        AnswerRefusedError: See :meth:`EmailPoll.answer`.
+    """
+    given = answers.get(question.pk)  # A question left out is unanswered, which only an open one may be.
+    if question.kind == QuestionKind.OPEN:
+        if given is not None and not isinstance(given, str):
+            raise AnswerRefusedError(f"Write your answer to: {question.text}")
+        text = (given or "").strip()
+        if len(text) > OPEN_ANSWER_MAX_LENGTH:
+            raise AnswerRefusedError(f"Keep each written answer to {OPEN_ANSWER_MAX_LENGTH} characters or fewer.")
+        return [EmailPollAnswer(question=question, text=text)] if text else []
+    if isinstance(given, str):
+        raise AnswerRefusedError(f"Pick from the choices for: {question.text}")
+    picked = list(dict.fromkeys(given or []))
+    if not picked:
+        raise AnswerRefusedError(f"Answer this question: {question.text}")
+    if question.kind == QuestionKind.PICK_ONE and len(picked) > 1:
+        raise AnswerRefusedError(f"Pick one answer for: {question.text}")
+    offered = {option.pk for option in question.options.all()}
+    if any(pk not in offered for pk in picked):
+        raise AnswerRefusedError("That choice is not part of this poll.")
+    return [EmailPollAnswer(question=question, option_id=pk) for pk in picked]
+
+
+class EmailPollQuestion(models.Model):
+    """One question of an email poll, in the order the sender wrote them."""
+
+    poll = models.ForeignKey(
+        EmailPoll, on_delete=models.CASCADE, related_name="questions", help_text="The poll this question is in."
+    )
+    position = models.PositiveSmallIntegerField(help_text="Its place in the poll, from 0.")
+    text = models.CharField(max_length=QUESTION_MAX_LENGTH, help_text="The question as members read it.")
+    kind = models.CharField(max_length=4, choices=QuestionKind.choices, help_text="What kind of answer it takes.")
+
+    class Meta:
+        ordering = ["poll", "position"]
+        constraints = [models.UniqueConstraint(fields=["poll", "position"], name="emailpollq_one_per_position")]
+
+    def __str__(self) -> str:
+        return self.text
+
+
+class EmailPollOption(models.Model):
+    """One choice of a Pick one or Pick any question, in the order the sender wrote them."""
+
+    question = models.ForeignKey(
+        EmailPollQuestion, on_delete=models.CASCADE, related_name="options", help_text="The question it answers."
+    )
+    position = models.PositiveSmallIntegerField(help_text="Its place in the list, from 0.")
+    text = models.CharField(max_length=ANSWER_MAX_LENGTH, help_text="The choice as members read it.")
+
+    class Meta:
+        ordering = ["question", "position"]
+        constraints = [models.UniqueConstraint(fields=["question", "position"], name="emailpollopt_one_per_position")]
+
+    def __str__(self) -> str:
+        return self.text
+
+
+class EmailPollRecipient(models.Model):
+    """One member an email poll was sent to, recorded at send."""
+
+    poll = models.ForeignKey(EmailPoll, on_delete=models.CASCADE, related_name="recipients", help_text="The poll sent.")
+    member = models.ForeignKey(
+        "membership.Member",
+        on_delete=models.CASCADE,
+        related_name="email_poll_receipts",
+        help_text="Who it was sent to.",
+    )
+    sent_at = models.DateTimeField(auto_now_add=True, help_text="When it was recorded as sent to them.")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["poll", "member"], name="emailpollrecipient_once")]
+
+    def __str__(self) -> str:
+        return f"Poll {self.poll_id} sent to member {self.member_id}"
+
+
+class EmailPollResponse(models.Model):
+    """One member's answers to one email poll; Update Answers rewrites them in place."""
+
+    poll = models.ForeignKey(
+        EmailPoll, on_delete=models.CASCADE, related_name="responses", help_text="The poll answered."
+    )
+    member = models.ForeignKey(
+        "membership.Member",
+        on_delete=models.CASCADE,
+        related_name="email_poll_responses",
+        help_text="Who answered.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When they first answered.")
+    updated_at = models.DateTimeField(auto_now=True, help_text="When they last sent or updated their answers.")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["poll", "member"], name="emailpollresponse_once")]
+
+    def __str__(self) -> str:
+        return f"Member {self.member_id} answered poll {self.poll_id}"
+
+
+class EmailPollAnswer(models.Model):
+    """One answer within a response: a picked option (a Pick any question may have several) or written text."""
+
+    response = models.ForeignKey(
+        EmailPollResponse, on_delete=models.CASCADE, related_name="answers", help_text="The response it is part of."
+    )
+    question = models.ForeignKey(
+        EmailPollQuestion, on_delete=models.CASCADE, related_name="answers", help_text="The question it answers."
+    )
+    option = models.ForeignKey(
+        EmailPollOption,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="answers",
+        help_text="The option picked. Blank for a written answer.",
+    )
+    text = models.TextField(
+        max_length=OPEN_ANSWER_MAX_LENGTH,
+        blank=True,
+        default="",
+        help_text="The written answer to an open-ended question. Blank for a picked option.",
+    )
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(Q(option__isnull=False) & Q(text="")) | (Q(option__isnull=True) & ~Q(text="")),
+                name="emailpollans_option_xor_text",
+            ),
+            models.UniqueConstraint(
+                fields=["response", "option"], condition=Q(option__isnull=False), name="emailpollans_one_per_option"
+            ),
+            models.UniqueConstraint(
+                fields=["response", "question"], condition=Q(option__isnull=True), name="emailpollans_one_text"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Answer to question {self.question_id}"
+
+
+@dataclass(frozen=True)
+class OptionResult:
+    """One option's count and its share of everyone who answered, rounded."""
+
+    text: str
+    votes: int
+    percent: int
+
+
+@dataclass(frozen=True)
+class WrittenReply:
+    """One written answer with the name of the member who wrote it."""
+
+    name: str
+    text: str
+
+
+@dataclass(frozen=True)
+class QuestionResult:
+    """One question's results: option bars for a pick question, written answers for an open one."""
+
+    question: EmailPollQuestion
+    options: tuple[OptionResult, ...]
+    written: tuple[WrittenReply, ...]
+
+
+@dataclass(frozen=True)
+class ResponseRow:
+    """One person's row of the Responses table: their name, then one cell per question in order."""
+
+    name: str
+    cells: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class EmailPollResults:
+    """An email poll's results (#1142): each question's tally or written answers, and one row per person."""
+
+    questions: tuple[QuestionResult, ...]
+    rows: tuple[ResponseRow, ...]
+
+    @property
+    def response_count(self) -> int:
+        """How many people answered."""
+        return len(self.rows)
+
+    @classmethod
+    def load(cls, poll: EmailPoll) -> EmailPollResults:
+        """Build the results in four queries: questions, options, responses, answers.
+
+        A percent is the share of everyone who answered the poll, so Pick any shares can add past 100.
+        """
+        questions = list(poll.questions.prefetch_related("options"))
+        responses = list(poll.responses.select_related("member").order_by("created_at", "pk"))
+        option_text = {option.pk: option.text for question in questions for option in question.options.all()}
+        given: dict[tuple[int, int], list[EmailPollAnswer]] = defaultdict(list)
+        for answer in EmailPollAnswer.objects.filter(response__poll=poll).order_by("pk"):
+            given[(answer.response_id, answer.question_id)].append(answer)
+        votes = Counter(
+            answer.option_id for answers in given.values() for answer in answers if answer.option_id is not None
+        )
+        total = len(responses)
+        results = tuple(
+            QuestionResult(
+                question=question,
+                options=tuple(
+                    OptionResult(
+                        text=option.text,
+                        votes=votes[option.pk],
+                        percent=round(100 * votes[option.pk] / total) if total else 0,
+                    )
+                    for option in question.options.all()
+                ),
+                written=tuple(
+                    WrittenReply(name=response.member.display_name, text=answer.text)
+                    for response in responses
+                    for answer in given[(response.pk, question.pk)]
+                    if answer.option_id is None
+                ),
+            )
+            for question in questions
+        )
+        rows = tuple(
+            ResponseRow(
+                name=response.member.display_name,
+                cells=tuple(
+                    ", ".join(
+                        answer.text if answer.option_id is None else option_text[answer.option_id]
+                        for answer in given[(response.pk, question.pk)]
+                    )
+                    for question in questions
+                ),
+            )
+            for response in responses
+        )
+        return cls(questions=results, rows=rows)

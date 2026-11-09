@@ -7052,6 +7052,12 @@ class AnnouncementDraft(models.Model):
         EVERYONE = "everyone", "@everyone"
         ROLE = "role", "@[Guild role]"
 
+    class Kind(models.TextChoices):
+        """What the row sends (#1142): an email, or a poll whose questions live in ``polls.EmailPoll``."""
+
+        EMAIL = "email", "Email"
+        POLL = "poll", "Poll"
+
     class DraftState(models.TextChoices):
         """Where an announcement is, derived from its fields and never stored (:attr:`state`)."""
 
@@ -7070,6 +7076,13 @@ class AnnouncementDraft(models.Model):
             "Who last saved this announcement, and the sender once it is sent (the send actor and the "
             "email's From line). Blank on a results draft the system made, until someone saves or sends it."
         ),
+    )
+    kind = models.CharField(
+        max_length=5,
+        choices=Kind.choices,
+        default=Kind.EMAIL,
+        db_default=Kind.EMAIL,
+        help_text="What this row sends: an email, or a poll of questions (#1142) whose questions are its EmailPoll.",
     )
     audience = models.CharField(
         max_length=10,
@@ -8422,6 +8435,37 @@ class AnnouncementDraft(models.Model):
             if snapshot is not None:
                 snapshot.mark_results_announced()
         return counts
+
+    def poll_recipient_ids(self) -> set[int]:
+        """The accounts a poll to this audience is sent to (#1142): who the same email reaches, members only.
+
+        Each audience reads the same set its email send passes, selection and added people
+        included. Email-only addresses (guests, mailing list addresses, instructors with no
+        account) are left out, because a poll is answered as a member.
+        """
+        from core.events import resolvers
+        from core.events.registry import Recipients
+
+        if self.audience == self.Audience.LEADS:
+            return self._leads_recipient_ids()
+        if self.audience == self.Audience.INSTRUCTORS:
+            return self._instructor_recipients()[0]
+        if self.audience == self.Audience.STUDENTS:
+            return self._student_recipients()[0]
+        if self.audience == self.Audience.CLASS:
+            return self._class_recipients()[0]
+        selected = self._selected_recipient_ids()
+        if self.audience == self.Audience.GUILD:
+            return selected if selected is not None else cast(Guild, self.guild).announcement_member_ids()
+        site_user_ids, _site_emails = self._site_recipients()
+        if site_user_ids is not None:
+            return site_user_ids
+        if selected is not None:
+            return selected
+        everyone = resolvers.resolve(
+            Recipients.ALL_ACTIVE_MEMBERS, {"include_never_logged_in": self.include_never_logged_in}
+        )
+        return {user.pk for user, _reason in everyone}
 
     def _leads_recipient_ids(self) -> set[int]:
         """The user pks a ``LEADS`` announcement reaches: the ``all_guild_leads`` resolver, nothing added."""

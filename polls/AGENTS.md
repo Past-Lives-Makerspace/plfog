@@ -18,6 +18,23 @@ Written answers (#925 part 3): `WrittenAnswer.from_vote` is the only place an au
 
 `PollCard` is one poll as one member sees it (tally, written answers, their own answer, `has_voted`, `shows_choices`, `offers_write_in`). `for_polls` builds a page in two queries, three when any poll takes written answers; `open_for(member, now)` is Home's card (site wide only), one query with no poll open and three with one. `GuildPolls.load(guild, member, now)` is a guild's Polls tab: `open` (a card or None) and `past` (closed cards, newest first), one query with no polls and three with some; falsy when the guild has none.
 
+## Email polls (#1142, part 1 of 4: models and rules only, no page or email yet)
+
+A poll of up to ten questions sent from Email Members. It rides on an `membership.AnnouncementDraft` whose `kind` is `Poll` (`AnnouncementDraft.Kind`, default `Email`): the draft holds the title, audience, selection, sender, `send_email` (Email when it goes live) and the site queue. `AnnouncementDraft.poll_recipient_ids()` is who a poll to that audience goes to: the accounts the same email reaches, selection and added people included, email-only addresses left out. Separate from `Poll` above, which it never touches.
+
+| Model | Notes |
+|---|---|
+| `EmailPoll` | draft (one-to-one, `related_name="poll"`, deleted with it), intro (500), run_days (`RunLength`), remind_days_before (`ReminderLead` 1 to 3, blank for none; `emailpoll_remind_in_run` keeps it under run_days), audience_only, opens_at / closes_at / remind_at (blank while a draft, set by `open(now)`, which keeps the first window on a repeat), reminder_sent_at. `replace_questions(specs)` (draft only, `validate_questions`), `record_recipients(user_ids)` (idempotent), `answer_refusal(member, now)` (`POLL_CLOSED`, `DIFFERENT_GROUP`), `answer(member, answers, now)` (the one writer: replaces the member's answers under a row lock; every pick question answered, Pick one exactly one, open-ended may be blank and stores nothing), `may_see_results(member)` (sender, admin, or answered), `results()`. Queryset: `sent()`, `open_at(now)`, `sent_to(member)`, `reminders_due(now)`. |
+| `EmailPollQuestion` | poll, position, text (200), kind (`QuestionKind`: Open-ended, Pick one, Pick any). |
+| `EmailPollOption` | question, position, text (120); 2 to 4 per pick question. |
+| `EmailPollRecipient` | poll, member, sent_at; one per pair. Who it was sent to, recorded at send. |
+| `EmailPollResponse` | poll, member, created_at, updated_at; one per pair. |
+| `EmailPollAnswer` | response, question, option (nullable), text; exactly one of option and text, one row per picked option, one text row per question. |
+
+The email link's token: `make_answer_token(member)` signs `{"poll", "member"}` with its own salt; `EmailPoll.read_answer_token(token, now)` raises `BadPollLinkError` (`BAD_LINK` or `POLL_CLOSED`) for a tampered token, a member the poll was not sent to, or a closed poll. It names who answers; it never signs anyone in.
+
+`EmailPollResults.load(poll)`: per question `OptionResult`s (count and percent of everyone who answered, so Pick any can add past 100) and `WrittenReply`s (name, text), then one `ResponseRow` per person (name, one cell per question). Four queries however many answered.
+
 ## Views (`polls/views.py`, `polls/urls.py`, mounted at `/polls/`, members host only via `MEMBER_ONLY_PATH_PREFIXES`)
 
 | URL name | Path | What |
