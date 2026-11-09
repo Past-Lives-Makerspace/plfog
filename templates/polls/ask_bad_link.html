@@ -1,0 +1,16 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Poll Link{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/polls.css' %}">
+{% endblock %}
+{% block content %}
+{# A poll email link that is tampered, unknown, or whose poll has closed (#1142): a friendly page, never an error. #}
+<div class="pl-ask" data-email-poll-bad-link>
+  <div class="hub-card pl-ask__notice pl-ask__notice--link">
+    <h1 class="pl-ask__notice-title">{% if is_closed %}This Poll Has Closed{% else %}This Link Doesn't Work{% endif %}</h1>
+    <p>{% if is_closed %}It is no longer taking answers. Sign in to see your polls and any results you can view.{% else %}It may have been copied incompletely. Sign in to find the poll on your Polls page.{% endif %}</p>
+    <a href="{{ sign_in_url }}" class="pl-btn pl-btn--primary pl-btn--spaced" hx-boost="false" data-email-poll-sign-in>Sign In</a>
+  </div>
+</div>
+{% endblock %}

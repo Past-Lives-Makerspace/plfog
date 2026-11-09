@@ -439,7 +439,7 @@
                             {% if guild.is_new_guild %}<span class="hub-sidebar__guild-name" title="{{ guild.name }}">{{ guild.name }}</span>{% else %}{{ guild.name }}{% endif %}
                             {% if guild.is_new_guild %}<span class="hub-sidebar__tags">{% endif %}
                             {% if not guild.is_active %}<span class="hub-sidebar__private" title="Hidden from members: only admins and this guild's staff see it">Hidden</span>{% endif %}
-                            {% if guild.is_new_guild %}<span class="hub-sidebar__private hub-sidebar__private--newguild" title="New Guild" aria-label="New Guild" data-sidebar-newguild>New</span></span>{% endif %}
+                            {% if guild.is_new_guild %}<span class="hub-sidebar__newguild-dot" title="New Guild" role="img" aria-label="New Guild" data-sidebar-newguild></span></span>{% endif %}
                         </a>
                         {% endfor %}
                     </div>

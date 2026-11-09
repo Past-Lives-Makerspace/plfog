@@ -117,6 +117,7 @@ _BRAND_NEW_KEYS = {
     "cubbies.waitlist_opened",
     "guild_staff.welcome",
     "guild.invited",
+    "polls.email_poll_live",
 }
 
 # The five staff emails #524 moved off fixed address lists, pinned as a literal: who gets
@@ -196,6 +197,8 @@ def describe_event_registry():
                 # A plain post to the portal alerts channel; the admin queue and Home carry the rest (#817).
                 "class_review_overdue",
                 "orientation.completed",
+                # A poll's go-live email carries each member's own answer link; no bell or push (#1142).
+                "polls.email_poll_live",
                 # The five #524 staff emails never had a bell; they stay email only.
                 *_STAFF_EMAIL_EVENTS,
             }

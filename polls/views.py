@@ -6,6 +6,10 @@ marked) so it swaps in place on Home or a guild's Polls tab; a plain post redire
 a site wide poll, close the open one and list past site wide polls with their totals. The guild
 views post and close a guild's poll, for whoever ``membership.permissions.can_edit_guild``
 allows. Nothing here shows who voted for what, and nothing notifies anyone.
+
+Email polls (#1142): the answer page by its plain link (signed in) or by a member's personal
+email link (no sign in; the token names who answers), and the Polls page of every one sent to
+the member. Results show only to those ``EmailPoll.may_see_results`` allows.
 """
 
 from __future__ import annotations
@@ -29,10 +33,15 @@ from hub.view_as import fog_admin_required
 from hub.views import _get_hub_context, _get_member
 from membership.models import Guild
 from membership.permissions import can_edit_guild
-from polls.forms import NewPollForm, WriteInForm
+from polls.forms import EmailPollAnswerForm, NewPollForm, WriteInForm
 from polls.models import (
     ANSWER_MAX_LENGTH,
+    BAD_LINK,
     MAX_CHOICES,
+    AnswerRefusedError,
+    BadPollLinkError,
+    EmailPoll,
+    EmailPollPage,
     Poll,
     PollAlreadyOpenError,
     PollCard,
@@ -43,6 +52,8 @@ from polls.models import (
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
+
+    from membership.models import Member
 
 #: Polls per page on Past Polls.
 PER_PAGE = 10
@@ -248,3 +259,86 @@ def guild_poll_close(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
     poll.close(timezone.now())
     messages.success(request, "Poll closed.")
     return redirect(_guild_tab(guild))
+
+
+# --- Email polls (#1142) ----------------------------------------------------------------------
+
+
+@login_required
+def email_poll(request: HttpRequest, pk: int) -> HttpResponse:
+    """The plain link: answer, update and see results, signed in as yourself.
+
+    Any signed in member may open it. On an audience only poll anyone it was not sent to (who is
+    not its sender or an admin) sees "This poll was sent to a different group." and nothing more.
+    A poll still in drafts is a 404.
+    """
+    poll = get_object_or_404(EmailPoll.objects.sent().select_related("draft"), pk=pk)
+    member = _get_member(request)
+    if member is None:
+        raise PermissionDenied("Polls are for members.")
+    return _email_poll_page(request, poll, member, here=poll.answer_path)
+
+
+def email_poll_link(request: HttpRequest, token: str) -> HttpResponse:
+    """The personal email link: answers as the member the token names, without signing in.
+
+    It works while the poll is open. A tampered or unknown token, or one whose poll has closed,
+    lands on a friendly page with a Sign in link, never an error page. GET only shows the page,
+    so a mail client opening the link answers nothing.
+    """
+    try:
+        poll, member = EmailPoll.read_answer_token(token, timezone.now())
+    except BadPollLinkError as error:
+        message = str(error)
+        status = 400 if message == BAD_LINK else 200
+        sign_in = f"{reverse('account_login')}?next={reverse('polls:mine')}"
+        return render(
+            request,
+            "polls/ask_bad_link.html",
+            {**_get_hub_context(request), "message": message, "is_closed": message != BAD_LINK, "sign_in_url": sign_in},
+            status=status,
+        )
+    return _email_poll_page(request, poll, member, here=request.path)
+
+
+def _email_poll_page(request: HttpRequest, poll: EmailPoll, member: Member, *, here: str) -> HttpResponse:
+    """Show the poll for ``member``, or save their answers on a POST and come back to ``here``."""
+    now = timezone.now()
+    page = EmailPollPage.load(poll, member, now)
+    questions = list(poll.questions.prefetch_related("options"))
+    form = None
+    if page.can_answer:
+        if request.method == "POST":
+            form = EmailPollAnswerForm(request.POST, questions=questions)
+            if form.is_valid():
+                try:
+                    poll.answer(member=member, answers=form.answers, now=now)
+                except AnswerRefusedError as error:
+                    form.add_error(None, str(error))
+                else:
+                    messages.success(
+                        request, "Your answers are updated." if page.has_answered else "Thanks, your answers are in."
+                    )
+                    return redirect(here)
+        else:
+            form = EmailPollAnswerForm(questions=questions, saved=poll.answers_of(member))
+    return render(
+        request,
+        "polls/ask.html",
+        {**_get_hub_context(request), "page": page, "poll": poll, "form": form, "questions": questions},
+    )
+
+
+@login_required
+def my_email_polls(request: HttpRequest) -> HttpResponse:
+    """The Polls page: every poll sent to this member, newest first, open or closed, with what they can do."""
+    member = _get_member(request)
+    if member is None:
+        raise PermissionDenied("Polls are for members.")
+    polls = list(EmailPoll.objects.listed_for(member))
+    now = timezone.now()
+    return render(
+        request,
+        "polls/mine.html",
+        {**_get_hub_context(request), "rows": [(poll, poll.is_open(now)) for poll in polls]},
+    )

@@ -582,3 +582,337 @@
     padding: 0;
     border-bottom: none;
 }
+
+/* ---- Email polls (#1142): the answer page, its results, the bad link page and the Polls page.
+   Theme tokens only, so both themes follow; one column, mobile first. ---- */
+.pl-ask {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    max-width: 720px;
+}
+
+.pl-ask__head {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.pl-ask__intro {
+    margin: 0;
+    color: var(--hub-text);
+    line-height: 1.6;
+}
+
+.pl-ask__closes,
+.pl-ask-list__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--hub-text-muted);
+}
+
+.pl-ask__state {
+    padding: 0.0625rem 0.5rem;
+    border-radius: 999px;
+    background-color: var(--hub-surface);
+    color: var(--hub-text-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.pl-ask__state--open {
+    background-color: rgba(238, 180, 75, 0.18);
+    color: var(--hub-link);
+}
+
+.pl-ask__form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.pl-ask__question {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
+    margin: 0;
+}
+
+.pl-ask__question--error {
+    border-color: var(--color-error);
+}
+
+.pl-ask__legend {
+    display: flex;
+    gap: 0.625rem;
+    align-items: baseline;
+    padding: 0;
+    font-family: var(--font-heading);
+    font-size: 1.05rem;
+    font-weight: 700;
+    line-height: 1.35;
+    color: var(--hub-text);
+}
+
+/* A fieldset's legend sits on its border unless floated; floating keeps it inside the card. */
+.pl-ask__question > .pl-ask__legend {
+    float: left;
+    width: 100%;
+}
+
+.pl-ask__question > .pl-ask__legend + * {
+    clear: both;
+}
+
+.pl-ask__number {
+    flex: none;
+    color: var(--hub-link);
+}
+
+.pl-ask__hint {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--hub-text-muted);
+}
+
+.pl-ask__options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+/* A large tappable row: the whole row is the label, at least 3rem tall. */
+.pl-ask__option {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 3rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--hub-input-border);
+    border-radius: 10px;
+    background-color: var(--hub-input-bg);
+    color: var(--hub-text);
+    cursor: pointer;
+}
+
+.pl-ask__option:hover {
+    border-color: var(--hub-border-strong);
+}
+
+.pl-ask__option:has(.pl-ask__input:checked) {
+    border-color: var(--color-tuscan-yellow);
+    background-color: rgba(238, 180, 75, 0.12);
+}
+
+.pl-ask__option:has(.pl-ask__input:focus-visible) {
+    outline: 2px solid var(--hub-blue);
+    outline-offset: 2px;
+}
+
+.pl-ask__input {
+    flex: none;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin: 0;
+    accent-color: var(--color-tuscan-yellow);
+}
+
+.pl-ask__option-text {
+    line-height: 1.4;
+}
+
+.pl-ask__written-field {
+    margin: 0;
+}
+
+.pl-ask__written-field textarea {
+    width: 100%;
+    resize: vertical;
+}
+
+.pl-ask__field-error,
+.pl-ask__alert p {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--color-error);
+}
+
+.pl-ask__alert {
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    background-color: var(--color-error-bg);
+}
+
+.pl-ask__actions {
+    margin-top: 0.25rem;
+}
+
+.pl-ask__submit {
+    min-height: 3rem;
+}
+
+.pl-ask__notice p {
+    margin: 0;
+    color: var(--hub-text);
+}
+
+.pl-ask__notice--link {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+}
+
+.pl-ask__notice-title {
+    margin: 0;
+    font-family: var(--font-heading);
+    font-size: 1.25rem;
+    color: var(--hub-text);
+}
+
+.pl-ask__results {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 0.5rem;
+}
+
+.pl-ask__heading {
+    margin: 0;
+    font-family: var(--font-heading);
+    font-size: 1.25rem;
+    color: var(--hub-text);
+}
+
+.pl-ask__count {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--hub-text-muted);
+}
+
+.pl-ask__result {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.pl-ask__result-title {
+    margin: 0;
+    font-family: var(--font-heading);
+    font-size: 1rem;
+    color: var(--hub-text);
+}
+
+.pl-ask__replies {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.pl-ask__reply {
+    padding: 0.75rem 1rem;
+    border-radius: 10px;
+    background-color: var(--hub-surface);
+}
+
+.pl-ask__reply-name {
+    display: block;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--hub-text-muted);
+}
+
+.pl-ask__reply-text {
+    margin: 0.25rem 0 0;
+    color: var(--hub-text);
+    line-height: 1.5;
+}
+
+/* The Responses table scrolls inside its own region, so a phone never scrolls the page sideways. */
+.pl-ask__table-wrap {
+    overflow-x: auto;
+    max-width: 100%;
+    border: 1px solid var(--hub-border);
+    border-radius: 10px;
+}
+
+.pl-ask__table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.pl-ask__table th,
+.pl-ask__table td {
+    padding: 0.625rem 0.875rem;
+    border-bottom: 1px solid var(--hub-border);
+    text-align: left;
+    vertical-align: top;
+    color: var(--hub-text);
+    min-width: 9rem;
+}
+
+.pl-ask__table thead th {
+    background-color: var(--hub-surface);
+    color: var(--hub-text-muted);
+    font-weight: 700;
+}
+
+.pl-ask__table tbody tr:last-child > * {
+    border-bottom: none;
+}
+
+.pl-ask__more {
+    margin: 0;
+}
+
+.pl-ask-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    max-width: 720px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.pl-ask-list__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+}
+
+.pl-ask-list__text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    min-width: 0;
+}
+
+.pl-ask-list__title {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    color: var(--hub-text);
+    text-decoration: none;
+}
+
+.pl-ask-list__title:hover {
+    color: var(--hub-link);
+}
+
+@media (max-width: 480px) {
+    .pl-ask-list__action {
+        width: 100%;
+        justify-content: center;
+    }
+}

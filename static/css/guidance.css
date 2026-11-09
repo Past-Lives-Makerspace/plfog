@@ -1,4 +1,4 @@
-/* Guidance (#1007): the New! badge, the What's New button and the inside of the What's New modal,
+/* Guidance (#1007): the New! badge (a gold dot since 2026-11-09), the What's New button and the inside of the What's New modal,
    lifted from mockups/1007-whats-new.html as Felix approved it. Tokens only; the badge gradient
    mixes the theme's tuscan yellow with a warm orange. Loaded by hub/base.html on every hub page.
    Part 2 ships the button and the modal; the badge classes wait here for part 3's tag. Every
@@ -14,53 +14,24 @@
     --pl-new-ring: color-mix(in srgb, var(--color-tuscan-yellow) 55%, transparent);
 }
 
-/* ---- The New! badge: rides after any label (tab, card title, sidebar link, page title) ---- */
+/* ---- The New! badge: rides after any label (tab, card title, sidebar link, page title) ----
+   A tiny gold dot. Its "New!" text stays in the markup as the accessible name ("Reservations
+   New!") and is drawn at zero size, so a screen reader still hears it and nobody sees a word. */
 .pl-new {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.18em;
-    margin-left: 0.45em;
-    padding: 0.14em 0.55em 0.12em 0.45em;
-    font-family: var(--font-heading);
-    font-size: 0.62rem;
-    font-weight: 900;
-    line-height: 1.2;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
-    color: var(--pl-new-text);
-    background: linear-gradient(135deg, var(--pl-new-from) 0%, var(--pl-new-mid) 55%, var(--pl-new-to) 100%);
-    border-radius: 999px;
-    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.22), inset 0 0 0 1px rgba(255, 255, 255, 0.28);
-    transform: rotate(4deg) translateY(-0.12em);
-    opacity: 0.88;
-    vertical-align: middle;
-    position: relative;
+    display: inline-block;
+    width: 0.4375rem;
+    height: 0.4375rem;
+    margin-left: 0.4em;
+    border-radius: 50%;
+    background: var(--color-tuscan-yellow);
+    font-size: 0;
+    line-height: 0;
+    color: transparent;
     overflow: hidden;
-    white-space: nowrap;
-    flex-shrink: 0; /* a flex item with overflow hidden would shrink and clip its own text */
-    animation: pl-new-pop 0.55s cubic-bezier(0.2, 1.5, 0.4, 1) both;
+    vertical-align: middle;
+    flex-shrink: 0;
 }
-/* The sparkle is decoration: the second `content` gives it empty alternative text so it stays out of
-   the accessible name ("Reservations New!", not "Reservations ✦ New!"); a browser without the
-   slash syntax keeps the first line and draws it anyway. */
-.pl-new::before { content: "\2726"; content: "\2726" / ""; font-size: 0.95em; line-height: 1; }
-.pl-new::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(110deg, transparent 30%, rgba(255, 255, 255, 0.6) 50%, transparent 70%);
-    transform: translateX(-130%);
-    animation: pl-new-shine 10s ease-in-out 1s infinite; /* one sweep, then still for the rest of the 10 s */
-}
-@keyframes pl-new-pop {
-    from { transform: rotate(4deg) translateY(-0.12em) scale(0.4); opacity: 0; }
-    to { transform: rotate(4deg) translateY(-0.12em) scale(1); opacity: 0.88; }
-}
-@keyframes pl-new-shine { 0% { transform: translateX(-130%); } 12% { transform: translateX(130%); } 100% { transform: translateX(130%); } }
-.vote-tab .pl-new { margin-left: 0.4em; }
-.hub-page-title .pl-new { font-size: 0.72rem; margin-left: 0.6em; }
-.pl-tool-card__title .pl-new { margin-left: 0.4em; }
-.hub-sidebar__link .pl-new { margin-left: auto; transform: rotate(4deg); }
+.hub-sidebar__link .pl-new { margin-left: auto; }
 
 /* The phone section picker carries the badge: a dot on the summary, the badge in the list */
 .pl-tab-picker__summary .pl-new-dot {
@@ -69,7 +40,6 @@
     box-shadow: 0 0 0 2px var(--hub-card-bg);
     margin-left: 0.4rem; flex: 0 0 auto;
 }
-.pl-tab-picker__item .pl-new { margin-left: 0.5em; }
 
 /* ---- The What's New button: labelled on Home, an icon on feature pages ---- */
 .pl-whats-new-btn {
@@ -116,7 +86,7 @@
     7% { transform: rotate(-6deg); }
 }
 @media (prefers-reduced-motion: reduce) {
-    .pl-new, .pl-new::after, .pl-whats-new-btn--unseen, .pl-whats-new-btn--unseen svg { animation: none; }
+    .pl-whats-new-btn--unseen, .pl-whats-new-btn--unseen svg { animation: none; }
 }
 /* ---- Inside the What's New modal ---- */
 .pl-wn-tabs { margin: -0.25rem 0 0.25rem; }

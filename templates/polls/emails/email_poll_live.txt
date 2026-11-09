@@ -1,0 +1,15 @@
+{% autoescape off %}Hi {{ first_name }},
+
+You have a new poll: {{ title }}
+{% if intro %}
+{{ intro }}
+{% endif %}
+{{ question_count }} question{{ question_count|pluralize }}. Closes {{ closes_label }}.
+
+Answer the Poll: {{ answer_url }}
+
+This link is just for you and answers without signing in. You can change your answers until the poll closes.
+
+All your polls: {{ polls_url }}
+
+{% include "membership/emails/_footer.txt" %}{% endautoescape %}

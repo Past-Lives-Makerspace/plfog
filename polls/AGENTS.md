@@ -18,6 +18,27 @@ Written answers (#925 part 3): `WrittenAnswer.from_vote` is the only place an au
 
 `PollCard` is one poll as one member sees it (tally, written answers, their own answer, `has_voted`, `shows_choices`, `offers_write_in`). `for_polls` builds a page in two queries, three when any poll takes written answers; `open_for(member, now)` is Home's card (site wide only), one query with no poll open and three with one. `GuildPolls.load(guild, member, now)` is a guild's Polls tab: `open` (a card or None) and `past` (closed cards, newest first), one query with no polls and three with some; falsy when the guild has none.
 
+## Email polls (#1142; part 1 models and rules, part 2 the pages and the live email)
+
+A poll of up to ten questions sent from Email Members. It rides on an `membership.AnnouncementDraft` whose `kind` is `Poll` (`AnnouncementDraft.Kind`, default `Email`): the draft holds the title, audience, selection, sender, `send_email` (Email when it goes live) and the site queue. `AnnouncementDraft.poll_recipient_ids()` is who a poll to that audience goes to: the accounts the same email reaches, selection and added people included, email-only addresses left out. Separate from `Poll` above, which it never touches.
+
+| Model | Notes |
+|---|---|
+| `EmailPoll` | draft (one-to-one, `related_name="poll"`, deleted with it), intro (500), run_days (`RunLength`), remind_days_before (`ReminderLead` 1 to 3, blank for none; `emailpoll_remind_in_run` keeps it under run_days), audience_only, opens_at / closes_at / remind_at (blank while a draft, set by `open(now)`, which also records the recipients from `draft.poll_recipient_ids()` in the same transaction, so an audience only poll admits them before a queued email goes out, and keeps the first window and recipients on a repeat), reminder_sent_at. `replace_questions(specs)` (draft only, `validate_questions`; blank option rows are dropped, not counted: `QuestionSpec.filled_options`), `record_recipients(user_ids)` (idempotent), `answer_refusal(member, now)` (`POLL_CLOSED`, `DIFFERENT_GROUP`), `answer(member, answers, now)` (the one writer: replaces the member's answers under a row lock; every pick question answered, Pick one exactly one, open-ended may be blank and stores nothing, but a submission that answers nothing is refused with `NO_ANSWERS`, so every response holds an answer; a pick arrives as an int, a string of digits or a list of either, anything else is `AnswerRefusedError`, never a 500), `may_see_results(member)` (sender, admin, or answered), `results()`. Queryset: `sent()`, `open_at(now)`, `sent_to(member)`, `reminders_due(now)`. |
+| `EmailPollQuestion` | poll, position, text (200), kind (`QuestionKind`: Open-ended, Pick one, Pick any). |
+| `EmailPollOption` | question, position, text (120); 2 to 4 per pick question. |
+| `EmailPollRecipient` | poll, member, sent_at; one per pair. Who it was sent to, recorded at send. |
+| `EmailPollResponse` | poll, member, created_at, updated_at; one per pair. |
+| `EmailPollAnswer` | response, question, option (nullable), text; exactly one of option and text, one row per picked option, one text row per question. |
+
+The email link's token: `make_answer_token(member)` signs `{"poll", "member"}` with its own salt; `EmailPoll.read_answer_token(token, now)` raises `BadPollLinkError` (`BAD_LINK` or `POLL_CLOSED`) for a tampered token, a member the poll was not sent to, or a closed poll. It names who answers; it never signs anyone in.
+
+`EmailPollResults.load(poll)`: per question `OptionResult`s (count and percent of everyone who answered, so Pick any can add past 100) and `WrittenReply`s (name, text), then one `ResponseRow` per person (name, one cell per question). Four queries however many answered.
+
+Part 2. `AnnouncementDraft.send()` on a poll row (`kind` Poll) runs `_send_poll`: `EmailPoll.open(now)` (a no-op when Send already opened it), `deliver()`, then stamps `sent_at` and `delivery_period` `email_poll:<pk>:live`; `_checked_content` lets a poll's body be blank and requires a question instead. Push, Discord and the bell are never used. `deliver()` emails only the recipients recorded at open, never recomputing them: one `polls.email_poll_live` per person (email only, switchable, `polls/emails/email_poll_live.{txt,html}`: subject "Poll: <title>", intro, question count, closing time, one Answer the Poll button carrying `answer_link(member)`), skipping anyone who turned off the `site_announcement` email (`_announcement_email_off`, one query); a shared period means a retried queue run emails nobody twice. Nothing when the draft's `send_email` (Email when it goes live) is off. The repeat-send guards (`sending_in_request`, `recent_twin`) sit in front of `open()` in the composer, wired in part 3.
+
+`EmailPollPage.load(poll, member, now)` is the page's state: `outsider` (audience only, not a recipient, not sender or admin), `can_answer`, `has_answered`, `results` (only where `may_see_results`). `answers_of(member)` fills in a saved response. `polls.forms.EmailPollAnswerForm` has one `q<pk>` field per question (Pick one required, Pick any required, Open-ended optional) and its `rows` (`AnswerRow`, `ChoiceRow`) drive the template; the model still decides.
+
 ## Views (`polls/views.py`, `polls/urls.py`, mounted at `/polls/`, members host only via `MEMBER_ONLY_PATH_PREFIXES`)
 
 | URL name | Path | What |
@@ -29,6 +50,9 @@ Written answers (#925 part 3): `WrittenAnswer.from_vote` is the only place an au
 | `polls:admin_close` | `/polls/manage/<pk>/close/` | Close now. |
 | `polls:admin_poll` | `/polls/manage/<pk>/` | One poll's results, counts only. |
 | `polls:guild_new` | `/polls/guild/<slug>/new/` | Post a guild poll. `membership.permissions.can_edit_guild` (the guild's lead and staff, guild officers, admins) or 403. A refusal (bad form, a poll already open in the guild) comes back on the guild's Polls tab as an error message. |
+| `polls:email_poll` | `/polls/ask/<pk>/` | An email poll's plain link (#1142), signed in: the questions (`polls/ask.html`, `partials/_ask_question.html`: large tappable rows, a textarea in `.hub-form-group`, Send Answers or Update Answers), results below once allowed (`partials/_ask_results.html`: the Home card's bars through `_poll_results.html`, written answers with names, the Responses table in its own scrolling region, "No answers yet."), "Closed" for someone who never answered, and only "This poll was sent to a different group." for an outsider. A draft is a 404. A post saves and redirects back; a refusal re-renders at 200. |
+| `polls:email_poll_link` | `/polls/ask/link/<token>/` | The personal email link: the same page answering as the token's member with no sign in and no session. GET answers nothing. A bad or unknown token (400) or a closed poll's (200) lands on `polls/ask_bad_link.html` with Sign In (next: the Polls page). |
+| `polls:mine` | `/polls/mine/` | The Polls page (`polls/mine.html`): every email poll sent to the member, newest first (`EmailPollQuerySet.listed_for`, `answered` annotated, one query), Open or Closed with the date, and Answer, Update or View Results; "No polls yet." |
 | `polls:guild_close` | `/polls/guild/<slug>/<pk>/close/` | Close now on that guild's poll; same gate; another guild's poll is a 404. |
 
 ## Where polls show
