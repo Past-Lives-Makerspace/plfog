@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-11-09"
+title = "New things are marked with a small gold dot"
+changes = [
+  "Tabs, sidebar links and tool cards with something new now show a small gold dot instead of a New tag.",
+  "New guilds in the sidebar get the same gold dot.",
+]

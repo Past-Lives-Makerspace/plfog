@@ -397,13 +397,15 @@ a:hover { color: var(--hub-link-hover); }
     white-space: nowrap;
 }
 
-/* A New Guild's tag (#1086): the Hidden tag's shape and size in gold, reading "New" so the
-   guild's name keeps its one line; a hidden New Guild carries both tags side by side. */
-.hub-sidebar__private--newguild {
-    border-color: var(--color-tuscan-yellow);
+/* A New Guild's mark (#1086): a tiny gold dot, the New! badge's shape, so the guild's name keeps
+   its one line; a hidden New Guild carries Hidden and the dot side by side. */
+.hub-sidebar__newguild-dot {
+    display: inline-block;
+    width: 0.4375rem;
+    height: 0.4375rem;
+    border-radius: 50%;
     background: var(--color-tuscan-yellow);
-    color: #061f33;
-    font-weight: 700;
+    flex-shrink: 0;
 }
 
 .hub-sidebar__tags {
@@ -429,12 +431,6 @@ a:hover { color: var(--hub-link-hover); }
 .hub-sidebar__link--tagged {
     gap: 0.375rem;
     padding-right: 0.5rem;
-}
-
-/* The gold fill is its own edge, so the New tag drops the outline the Hidden tag needs. */
-.hub-sidebar__tags .hub-sidebar__private--newguild {
-    border-width: 0;
-    padding: 0.0625rem 0.25rem;
 }
 
 /* A New Guild's name keeps one line beside its tags, ending in an ellipsis when it runs long. */

@@ -109,7 +109,7 @@ The modal at `/whats-new/` (#1007) that lists what shipped, by role: three tabs,
 _Avoid_: release notes, announcements, changelog (for the modal itself), a Release model.
 
 **New! badge**:
-The small mark after a label (a tab, a card, a quick link, a sidebar link) saying that thing shipped something in the last 30 days the viewer has not looked at. `{% new_badge "<feature key>" %}`.
+The tiny gold dot after a label (a tab, a card, a quick link, a sidebar link) saying that thing shipped something in the last 30 days the viewer has not looked at. `{% new_badge "<feature key>" %}`.
 _Avoid_: new pill, notification dot (that is the bell's), unread.
 
 **Guidance**:
