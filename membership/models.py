@@ -8230,6 +8230,8 @@ class AnnouncementDraft(models.Model):
         if self.author is None:
             raise ValueError("An announcement needs a sender before it goes out.")
         body_html = self._check_sendable()
+        if self.kind == self.Kind.POLL:
+            return self._send_poll()
 
         discord_on = self.discord_enabled
         mention_str = self._mention_literal() if discord_on else ""
@@ -8467,6 +8469,29 @@ class AnnouncementDraft(models.Model):
         )
         return {user.pk for user, _reason in everyone}
 
+    def _send_poll(self) -> tuple[int, int]:
+        """:meth:`send` for a poll (#1142): open it, email its recipients their links, mark it sent.
+
+        :meth:`EmailPoll.open` keeps the first window and recipients when Send already opened it,
+        so this is safe to reach from the site queue after the request opened the poll. The
+        recipients are the ones recorded at open; :meth:`EmailPoll.deliver` never recomputes
+        them. Push, Discord and the bell are never used for a poll.
+
+        Returns:
+            ``(emailed, total)``: how many were emailed, of everyone it was sent to.
+        """
+        poll = self.poll
+        poll.open(timezone.now())
+        emailed = poll.deliver()
+        total = poll.recipients.count()
+        with transaction.atomic():
+            self.sent_at = timezone.now()
+            self.send_requested_at = None
+            self.send_error = ""
+            self.delivery_period = f"email_poll:{poll.pk}:live"
+            self.save(update_fields=["sent_at", "send_requested_at", "send_error", "delivery_period", "updated_at"])
+        return emailed, total
+
     def _leads_recipient_ids(self) -> set[int]:
         """The user pks a ``LEADS`` announcement reaches: the ``all_guild_leads`` resolver, nothing added."""
         from core.events import resolvers
@@ -8566,13 +8591,9 @@ class AnnouncementDraft(models.Model):
             ValidationError: If the body sanitizes empty, or the audience has no target.
             ResultsAlreadySentError: If this is a results announcement whose results were already sent.
         """
-        from core.html_sanitize import sanitize_rich_html
-
         if self.sent_at is not None:
             raise AlreadySentError(ANNOUNCEMENT_ALREADY_SENT)
-        body_html = sanitize_rich_html(self.body)
-        if not body_html:
-            raise ValidationError("Add a message before sending.")
+        body_html = self._checked_content()
         if self.audience == self.Audience.GUILD and self.guild is None:
             raise ValidationError("Choose a guild for this announcement.")
         if self.audience == self.Audience.CLASS and self.class_offering is None:
@@ -8584,6 +8605,28 @@ class AnnouncementDraft(models.Model):
                 raise ValidationError(RESULTS_ANNOUNCEMENT_AUDIENCE_ERROR)
             if FundingSnapshot.objects.filter(pk=self.funding_snapshot_id, results_sent_at__isnull=False).exists():
                 raise ResultsAlreadySentError("These results were already sent.")
+        return body_html
+
+    def _checked_content(self) -> str:
+        """The sanitized body, refusing a row with nothing to send: an email with no message, or a poll with no question.
+
+        A poll (#1142) has questions instead of a message, so its body may be blank.
+
+        Raises:
+            ValidationError: An email whose body sanitizes empty, or a poll whose EmailPoll has no question.
+        """
+        from core.html_sanitize import sanitize_rich_html
+
+        from polls.models import EmailPollQuestion
+
+        body_html = sanitize_rich_html(self.body)
+        if self.kind == self.Kind.POLL:
+            # One query that also covers a Poll row with no EmailPoll at all: the reverse accessor
+            # would raise RelatedObjectDoesNotExist (a 500) where the sender should read a message.
+            if not EmailPollQuestion.objects.filter(poll__draft=self).exists():
+                raise ValidationError("Add at least one question before sending.")
+        elif not body_html:
+            raise ValidationError("Add a message before sending.")
         return body_html
 
     def send_in_request(self) -> tuple[int, int]:

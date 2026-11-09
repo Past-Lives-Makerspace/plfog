@@ -1,10 +1,12 @@
 """The New Poll form (#708, back in #925): a question, two to six answers and how many days it runs.
 
-One form for Admin Tools > Polls (site wide) and a guild's Polls tab.
+One form for Admin Tools > Polls (site wide) and a guild's Polls tab. Also the email poll answer
+form (#1142): one field per question of a poll sent from Email Members.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -16,8 +18,11 @@ from polls.models import (
     DEFAULT_DAYS,
     MAX_CHOICES,
     MIN_CHOICES,
+    OPEN_ANSWER_MAX_LENGTH,
     QUESTION_MAX_LENGTH,
+    Given,
     Poll,
+    QuestionKind,
     RunLength,
     closes_label,
 )
@@ -27,6 +32,7 @@ if TYPE_CHECKING:
     from django.http import QueryDict
 
     from membership.models import Guild
+    from polls.models import EmailPollQuestion
 
 
 class NewPollForm(forms.Form):
@@ -144,3 +150,104 @@ class WriteInForm(forms.Form):
     def is_anonymous(self) -> bool:
         """Post anonymously, unless the member turned the switch off on the rendered form."""
         return self.cleaned_data["anonymous"] or not self.cleaned_data["shown"]
+
+
+@dataclass(frozen=True)
+class ChoiceRow:
+    """One option row as the answer page draws it: the value posted, its text, and whether it is ticked."""
+
+    value: str
+    text: str
+    checked: bool
+
+
+@dataclass(frozen=True)
+class AnswerRow:
+    """One question card on the answer page: the question, its field, and its option rows (pick kinds)."""
+
+    number: int
+    question: EmailPollQuestion
+    field: forms.BoundField
+    choices: tuple[ChoiceRow, ...]
+
+    @property
+    def hint(self) -> str:
+        """What the card asks for under the question."""
+        return {
+            QuestionKind.PICK_ONE: "Pick one.",
+            QuestionKind.PICK_ANY: "Pick any that apply.",
+            QuestionKind.OPEN: "Optional.",
+        }[QuestionKind(self.question.kind)]
+
+
+class EmailPollAnswerForm(forms.Form):
+    """The answer page's form (#1142): one field per question, named ``q<pk>``.
+
+    Pick one is a required choice, Pick any a required multiple choice, Open-ended an optional
+    text. The form only reads what was posted; :meth:`polls.models.EmailPoll.answer` decides
+    whether it may be saved.
+    """
+
+    def __init__(
+        self,
+        *args: Any,
+        questions: list[EmailPollQuestion],
+        saved: dict[int, str | list[int]] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Build the fields for ``questions`` (options prefetched); ``saved`` fills in an earlier response."""
+        super().__init__(*args, **kwargs)
+        self.questions = questions
+        for question in questions:
+            name = self.field_name(question)
+            choices = [(str(option.pk), option.text) for option in question.options.all()]
+            if question.kind == QuestionKind.PICK_ONE:
+                self.fields[name] = forms.ChoiceField(
+                    choices=choices,
+                    error_messages={"required": "Pick an answer.", "invalid_choice": "Pick one of the choices."},
+                )
+            elif question.kind == QuestionKind.PICK_ANY:
+                self.fields[name] = forms.MultipleChoiceField(
+                    choices=choices,
+                    error_messages={"required": "Pick at least one.", "invalid_choice": "Pick from the choices."},
+                )
+            else:
+                self.fields[name] = forms.CharField(
+                    required=False, max_length=OPEN_ANSWER_MAX_LENGTH, widget=forms.Textarea(attrs={"rows": 4})
+                )
+            if saved is not None and question.pk in saved:
+                self.initial[name] = _initial(question, saved[question.pk])
+
+    @staticmethod
+    def field_name(question: EmailPollQuestion) -> str:
+        """The posted name of ``question``'s answer."""
+        return f"q{question.pk}"
+
+    @property
+    def answers(self) -> dict[int, Given]:
+        """The cleaned answers by question pk, as :meth:`polls.models.EmailPoll.answer` takes them."""
+        return {question.pk: self.cleaned_data[self.field_name(question)] for question in self.questions}
+
+    @property
+    def rows(self) -> list[AnswerRow]:
+        """One card per question, with each option row ticked from what was posted or saved."""
+        rows = []
+        for number, question in enumerate(self.questions, start=1):
+            field = self[self.field_name(question)]
+            value = field.value()
+            picked = {str(item) for item in value} if isinstance(value, list) else {str(value)}
+            choices = tuple(
+                ChoiceRow(value=str(option.pk), text=option.text, checked=str(option.pk) in picked)
+                for option in question.options.all()
+            )
+            rows.append(AnswerRow(number=number, question=question, field=field, choices=choices))
+        return rows
+
+
+def _initial(question: EmailPollQuestion, saved: str | list[int]) -> str | list[str]:
+    """A saved answer as the field shows it: the text, the one pick, or the picks, as strings."""
+    if isinstance(saved, str):
+        return saved
+    if question.kind == QuestionKind.PICK_ONE:
+        return str(saved[0])
+    return [str(pk) for pk in saved]
