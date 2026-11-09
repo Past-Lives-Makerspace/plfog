@@ -151,6 +151,24 @@
     }
 }
 
+/* A row whose actions are the "..." menu (the Polls tab, #1142) pins it to the card's first line
+   when rows stack, as the Bookings tab does, instead of leaving it alone on a last line. */
+@container (max-width: 910px) {
+    .pl-announcements-table tr:has(.pl-row-menu) {
+        position: relative;
+    }
+    .pl-announcements-table tr:has(.pl-row-menu) td.pl-announcements-table__lead {
+        padding-right: 2.75rem;
+    }
+    .pl-announcements-table td.pl-announcements-table__actions-cell:has(.pl-row-menu) {
+        position: absolute;
+        top: 0.25rem;
+        right: 0.5rem;
+        width: auto;
+        padding: 0;
+    }
+}
+
 /* --- The sent view ---------------------------------------------------------- */
 
 .pl-announcements-back {

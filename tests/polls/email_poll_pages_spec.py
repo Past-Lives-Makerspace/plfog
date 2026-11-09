@@ -92,7 +92,7 @@ def describe_the_plain_link():
         assert f'type="checkbox" name="q{_pk(poll, 1)}" value="{_pk(poll, 1, "Zorkiln")}"' in html
         assert 'class="hub-form-group pl-ask__written-field"' in html
         assert f'<textarea name="q{_pk(poll, 2)}"' in html
-        assert "data-email-poll-submit>Send Answers</button>" in html
+        assert 'data-guidance-target="home.email-polls-answer">Send Answers</button>' in html
         assert "Closes " + poll.closes_label in html
         assert "data-email-poll-results" not in html
 
@@ -105,7 +105,7 @@ def describe_the_plain_link():
         assert response.status_code == 302
         assert response.url == poll.answer_path
         html = _html(client.get(poll.answer_path))
-        assert "data-email-poll-submit>Update Answers</button>" in html
+        assert 'data-guidance-target="home.email-polls-answer">Update Answers</button>' in html
         assert f'value="{_pk(poll, 0, "Zorwood")}" checked' in html
         assert f'value="{_pk(poll, 1, "Zorkiln")}" checked' in html
         assert f'value="{_pk(poll, 1, "Zorlaser")}" checked' not in html

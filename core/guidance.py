@@ -171,6 +171,18 @@ _GUIDANCE_LIST = (
         ),
     ),
     Guidance(
+        key="home.email-polls",
+        title="Polls Sent to You",
+        url_name="polls:mine",
+        steps=(
+            "A poll someone sends you from Email Members shows under Needs Attention on Home, and comes by email.",
+            "Tap Answer, pick your answers and press Send Answers. You can change them until the poll closes.",
+            "Once you answer, the poll shows everyone's results.",
+            "The Polls page lists every poll sent to you, open or closed.",
+            "Senders: in Email Members choose Poll, write up to 10 questions and pick who gets it. The Polls tab shows how many answered.",
+        ),
+    ),
+    Guidance(
         key="home.tour",
         title="Take the Tour",
         url_name="hub_home",

@@ -98,6 +98,25 @@
 {% include "hub/partials/_onboarding_checklist.html" %}
 {% endif %}
 
+{# --- Needs Attention (#1142): open polls from Email Members sent to this member and not yet answered; omitted when there are none --- #}
+{% if needs_attention_polls %}
+<section class="hub-card pl-home-block" data-block="needs-attention" data-guidance-target="home.email-polls">
+    <h2 class="pl-home-heading">Needs Attention</h2>
+    <ul class="pl-teaching">
+        {% for poll in needs_attention_polls %}
+        <li class="pl-teaching__row" data-needs-attention-poll="{{ poll.pk }}">
+            <span class="pl-teaching__body">
+                <span class="pl-teaching__title">{{ poll.draft.title }}</span>
+                <span class="pl-teaching__note hub-text-muted">Closes {{ poll.closes_label }}</span>
+            </span>
+            <a href="{{ poll.answer_path }}" class="pl-btn pl-btn--primary pl-btn--sm" data-needs-attention-answer>Answer</a>
+        </li>
+        {% endfor %}
+    </ul>
+    <a href="{% url 'polls:mine' %}" class="pl-home-block__more" data-needs-attention-polls-link>See All Your Polls →</a>
+</section>
+{% endif %}
+
 {# --- Overdue reviews (#817): admins and CMS Administrators, omitted when none have waited 3 days --- #}
 {% if overdue_reviews %}
 <div class="hub-card pl-home-block" data-block="overdue-reviews">

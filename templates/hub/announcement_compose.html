@@ -114,7 +114,7 @@
      @compose-body.window="hasBody = $event.detail.has">
 
   {# Email or Poll (#1142): a two way choice, not a tab row, so both words show on a phone too; the hidden kind input in the form posts it. #}
-  <div class="pl-compose-kind" role="radiogroup" aria-label="What to send" data-compose-kind-choice>
+  <div class="pl-compose-kind" role="radiogroup" aria-label="What to send" data-compose-kind-choice data-guidance-target="admin.email-members-poll">
     <label class="pl-compose-kind__option"><input type="radio" name="compose_kind_choice" value="email" x-model="kind" @change="phase = 1" data-compose-kind="email"{% if compose_kind == "email" %} checked{% endif %}><span>Email</span></label>
     <label class="pl-compose-kind__option"><input type="radio" name="compose_kind_choice" value="poll" x-model="kind" @change="phase = 1" data-compose-kind="poll"{% if compose_kind == "poll" %} checked{% endif %}><span>Poll</span></label>
   </div>

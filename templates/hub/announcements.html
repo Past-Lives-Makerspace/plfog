@@ -17,7 +17,8 @@ false) sees that tab alone.
 
 Context: tab, can_open, mailing_lists ([(Guild, url)]), rows ([(AnnouncementDraft, people reached or None, emails sent or None,
 AnnouncementProgress or None)]; the last three only on the Sent tab), page, base_params,
-drafts_count, sent_count, can_send_release (the admin only Release Update card, #922).
+drafts_count, sent_count, polls_count, can_send_release (the admin only Release Update card, #922). The Polls tab (?tab=polls, #1142)
+reads poll_rows ([(EmailPoll with sent_count and answered_count, is_open)]).
 {% endcomment %}
 {% url 'hub_compose' as compose_url %}
 {% if can_open %}
@@ -31,6 +32,7 @@ drafts_count, sent_count, can_send_release (the admin only Release Update card, 
   {% if can_open %}
   <a href="{% url 'hub_announcements' %}?tab=drafts" class="vote-tab{% if tab == 'drafts' %} vote-tab--active{% endif %}"{% if tab == 'drafts' %} aria-current="page"{% endif %} data-announcements-tab="drafts">Drafts <span class="hub-badge vote-tab__count" data-announcements-count="drafts">{{ drafts_count }}</span></a>
   <a href="{% url 'hub_announcements' %}?tab=sent" class="vote-tab{% if tab == 'sent' %} vote-tab--active{% endif %}"{% if tab == 'sent' %} aria-current="page"{% endif %} data-announcements-tab="sent">Sent <span class="hub-badge vote-tab__count" data-announcements-count="sent">{{ sent_count }}</span></a>
+  <a href="{% url 'hub_announcements' %}?tab=polls" class="vote-tab{% if tab == 'polls' %} vote-tab--active{% endif %}"{% if tab == 'polls' %} aria-current="page"{% endif %} data-announcements-tab="polls">Polls <span class="hub-badge vote-tab__count" data-announcements-count="polls">{{ polls_count }}</span></a>
   {% endif %}
   {% if mailing_lists %}
   <a href="{% url 'hub_announcements' %}?tab=mailing-lists" class="vote-tab{% if tab == 'mailing-lists' %} vote-tab--active{% endif %}"{% if tab == 'mailing-lists' %} aria-current="page"{% endif %} data-announcements-tab="mailing-lists">Mailing Lists <span class="hub-badge vote-tab__count" data-announcements-count="mailing-lists">{{ mailing_lists|length }}</span></a>
@@ -51,6 +53,45 @@ drafts_count, sent_count, can_send_release (the admin only Release Update card, 
     </li>
     {% endfor %}
   </ul>
+</div>
+{% elif tab == 'polls' %}
+{# The Polls tab (#1142): each sent poll with its audience, how many answered of those it went to, open or closed, and View Results. #}
+<div class="hub-card pl-announcements-card" data-announcements-polls>
+  {% if poll_rows %}
+  <table class="pl-members-table pl-announcements-table" data-announcements-table="polls">
+    <thead>
+      <tr>
+        <th scope="col">Poll</th>
+        <th scope="col">Audience</th>
+        <th scope="col">Answered</th>
+        <th scope="col">Status</th>
+        <th scope="col">Closes</th>
+        <th scope="col"><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for poll, is_open in poll_rows %}
+      <tr data-announcement-poll="{{ poll.pk }}">
+        <td data-label="Poll" class="pl-announcements-table__lead"><a href="{{ poll.answer_path }}" class="pl-announcements-table__title">{{ poll.draft.title }}</a></td>
+        <td data-label="Audience">{{ poll.draft.audience_label }}</td>
+        <td data-label="Answered" data-poll-answered>{{ poll.answered_count }} of {{ poll.sent_count }} answered</td>
+        <td data-label="Status"><span class="hub-pill {% if is_open %}hub-pill--ok{% else %}hub-pill--neutral{% endif %}" data-poll-state>{% if is_open %}Open{% else %}Closed{% endif %}</span></td>
+        <td data-label="Closes" class="pl-announcements-table__when">{{ poll.closes_label }}</td>
+        <td data-label="Actions" class="pl-announcements-table__actions-cell">
+          <div class="pl-announcements-table__actions">
+            {% with menu_label="Actions for "|add:poll.draft.title %}
+            {% include "components/row_actions.html" with menu_include="hub/partials/_announcement_poll_menu.html" menu_label=menu_label %}
+            {% endwith %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% include "components/table_pagination.html" %}
+  {% else %}
+  <p class="pl-announcements-empty" data-announcements-empty="polls">No polls sent yet. Each poll you send from Email Members is listed here with how many have answered.</p>
+  {% endif %}
 </div>
 {% else %}
 <div class="hub-card pl-announcements-card" x-data>

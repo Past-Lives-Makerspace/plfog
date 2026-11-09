@@ -7445,7 +7445,13 @@ class AnnouncementDraft(models.Model):
 
     @property
     def event_key(self) -> str:
-        """The notification event this announcement emits, which keys its rows on the delivery ledger."""
+        """The notification event this announcement emits, which keys its rows on the delivery ledger.
+
+        A poll (#1142) emits its live email (``polls.email_poll_live``), so its Sent row reads the
+        people that email reached.
+        """
+        if self.kind == self.Kind.POLL:
+            return "polls.email_poll_live"
         return self._trigger_kind()
 
     @property

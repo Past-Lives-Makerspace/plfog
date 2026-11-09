@@ -96,7 +96,9 @@ def describe_the_composer():
         assert 'data-compose-kind="email"' in html
         assert 'data-compose-kind="poll"' in html
         # Both choices show at every width: a radio group, never a tab row the phone picker would fold.
-        choice = html.split("data-compose-kind-choice>")[1].split("</div>")[0]
+        choice = html.split('data-compose-kind-choice data-guidance-target="admin.email-members-poll">')[1].split(
+            "</div>"
+        )[0]
         assert "<span>Email</span>" in choice and "<span>Poll</span>" in choice
         assert 'role="radiogroup" aria-label="What to send"' in html
         assert 'value="email" x-model="kind"' in choice and "checked" in choice.split("<span>Email</span>")[0]

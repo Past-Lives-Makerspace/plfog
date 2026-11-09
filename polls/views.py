@@ -276,7 +276,19 @@ def email_poll(request: HttpRequest, pk: int) -> HttpResponse:
     member = _get_member(request)
     if member is None:
         raise PermissionDenied("Polls are for members.")
-    return _email_poll_page(request, poll, member, here=poll.answer_path)
+    return _email_poll_page(request, poll, member, here=poll.answer_path, is_sender=_sends_poll(request, member, poll))
+
+
+def _sends_poll(request: HttpRequest, member: Member, poll: EmailPoll) -> bool:
+    """Whether this request may open the poll's row on Email Members, so counts as one of its senders.
+
+    The one rule Email Members uses (``hub.views._announcement_rows``): a guild's lead and staff,
+    a class's instructors, whoever saved it, and admins, view-as aware.
+    """
+    from hub.views import _announcement_rows
+    from membership.models import AnnouncementDraft
+
+    return _announcement_rows(request, member, within=AnnouncementDraft.objects.filter(pk=poll.draft_id)).exists()
 
 
 def email_poll_link(request: HttpRequest, token: str) -> HttpResponse:
@@ -301,10 +313,16 @@ def email_poll_link(request: HttpRequest, token: str) -> HttpResponse:
     return _email_poll_page(request, poll, member, here=request.path)
 
 
-def _email_poll_page(request: HttpRequest, poll: EmailPoll, member: Member, *, here: str) -> HttpResponse:
-    """Show the poll for ``member``, or save their answers on a POST and come back to ``here``."""
+def _email_poll_page(
+    request: HttpRequest, poll: EmailPoll, member: Member, *, here: str, is_sender: bool = False
+) -> HttpResponse:
+    """Show the poll for ``member``, or save their answers on a POST and come back to ``here``.
+
+    ``is_sender`` (the plain link only) shows a sender the results without their answering; the
+    emailed link names a member, not a sender.
+    """
     now = timezone.now()
-    page = EmailPollPage.load(poll, member, now)
+    page = EmailPollPage.load(poll, member, now, is_sender=is_sender)
     questions = list(poll.questions.prefetch_related("options"))
     form = None
     if page.can_answer:

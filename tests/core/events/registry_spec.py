@@ -118,6 +118,7 @@ _BRAND_NEW_KEYS = {
     "guild_staff.welcome",
     "guild.invited",
     "polls.email_poll_live",
+    "polls.email_poll_reminder",
 }
 
 # The five staff emails #524 moved off fixed address lists, pinned as a literal: who gets
@@ -199,6 +200,7 @@ def describe_event_registry():
                 "orientation.completed",
                 # A poll's go-live email carries each member's own answer link; no bell or push (#1142).
                 "polls.email_poll_live",
+                "polls.email_poll_reminder",
                 # The five #524 staff emails never had a bell; they stay email only.
                 *_STAFF_EMAIL_EVENTS,
             }
