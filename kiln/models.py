@@ -11,17 +11,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import IntegrityError, models, transaction
 from django.utils import timezone
 
+from core.files import delete_files_after_commit
 from core.images import normalize_image
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Collection
 
     from django.core.files.uploadedfile import UploadedFile
     from django.db.models.fields.files import FieldFile
@@ -375,6 +376,10 @@ class KilnTicket(models.Model):
         cleared = [f for f in self.flags.all() if f.cleared_at is not None]
         return self.open_flags() + cleared
 
+    def thread_replies(self) -> list[KilnReply]:
+        """The messages the thread shows, oldest first: every reply but a deleted unload note (prefetched replies)."""
+        return [r for r in self.replies.all() if r.removed_at is None]
+
     def returned_to_queue(self) -> list[KilnReply]:
         """The crew's notes that sent this piece back to the queue at an unload, oldest first.
 
@@ -696,20 +701,6 @@ def store_photo(image: FieldFile, tile: FieldFile, upload: UploadedFile) -> None
     tile.save("tile.jpg", normalize_image(upload, max_long_edge=TILE_LONG_EDGE), save=False)
 
 
-def delete_files_now(files: Iterable[FieldFile]) -> None:
-    """Remove stored files whose rows were never saved (or are already gone for good)."""
-    for file in files:
-        if file.name:
-            file.storage.delete(file.name)
-
-
-def delete_files_after_commit(files: Iterable[FieldFile]) -> None:
-    """Remove stored files once the delete of the rows that named them commits; a rollback keeps them."""
-    named = [file for file in files if file.name]
-    if named:
-        transaction.on_commit(lambda: delete_files_now(named), robust=True)
-
-
 def _yes_no(value: bool | None) -> str:
     """A nullable answer as the form's "yes" / "no" / "" value."""
     if value is None:
@@ -956,7 +947,15 @@ class KilnReply(models.Model):
     reply too, with ``firing``, ``what_happened`` and ``outcome`` set: the exception record
     the timeline and the kiln log read. It reaches the maker in the ready for pickup notice,
     never as a separate message notification.
+
+    Its author or an admin may edit it (:meth:`edit`, stamping ``edited_at``) or delete it
+    (:meth:`remove`), telling nobody (#1140). A deleted unload note keeps its row, cleared of its
+    text and photo and marked ``removed_at``, because the Kiln Log, the firing's page and the
+    ticket's timeline count it; it leaves the thread (:meth:`KilnTicket.thread_replies`).
     """
+
+    #: The longest message the thread takes, posting (``kiln.forms.ReplyForm``) or editing.
+    BODY_MAX_LENGTH: ClassVar[int] = 2000
 
     class WhatHappened(models.TextChoices):
         CRACKED = "cracked", "Cracked"
@@ -1011,6 +1010,16 @@ class KilnReply(models.Model):
         blank=True,
         help_text="A small copy of the attached photo for the thread; blank for none.",
     )
+    edited_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When its author or an admin last changed it; blank when it reads as sent.",
+    )
+    removed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When an unload note was deleted from the thread; the row stays as the firing's exception record.",
+    )
 
     class Meta:
         ordering = ["created_at", "pk"]
@@ -1048,6 +1057,111 @@ class KilnReply(models.Model):
     @property
     def photo_files(self) -> list[FieldFile]:
         return [self.image, self.tile]
+
+    @property
+    def author_user_id(self) -> int | None:
+        """The account that wrote it, which may change it (``membership.permissions.can_change_message``)."""
+        return self.author.user_id
+
+    @property
+    def dom_id(self) -> str:
+        return f"kiln-msg-{self.pk}"
+
+    @property
+    def dom_selector(self) -> str:
+        """The CSS selector of this message's element, which an edit or a delete swaps."""
+        return f"[data-thread-dom='{self.dom_id}']"
+
+    @property
+    def edit_url(self) -> str:
+        from django.urls import reverse
+
+        return reverse("kiln:reply_edit", args=[self.ticket_id, self.pk])
+
+    @property
+    def delete_url(self) -> str:
+        from django.urls import reverse
+
+        return reverse("kiln:reply_delete", args=[self.ticket_id, self.pk])
+
+    @property
+    def photo_ids(self) -> list[int]:
+        """What an edit may remove: the one photo, named by this message's pk."""
+        return [self.pk] if self.has_photo else []
+
+    @property
+    def edit_photos(self) -> list[tuple[int, str]]:
+        """The photo as ``(pk, url)`` for the edit box (``components/thread_message_edit.html``)."""
+        return [(self.pk, (self.tile or self.image).url)] if self.has_photo else []
+
+    @property
+    def notice_period(self) -> str:
+        """The ``period`` a message's notice is emitted with (``kiln.services._notify_reply``)."""
+        return f"reply-{self.pk}"
+
+    def edit(self, *, body: str, remove_photo_ids: Collection[int] = ()) -> bool:
+        """Change the text and maybe remove the photo, telling nobody; the shared thread's rule.
+
+        The row is locked and read again first, so a delete or a photo removal that committed
+        meanwhile is seen. The bell rows its notice wrote get the new words
+        (``core.threads.rewrite_notices``).
+
+        Returns:
+            Whether anything changed (``edited_at`` is stamped then).
+
+        Raises:
+            core.threads.EmptyMessageError: No text would be left and no photo.
+            KilnReply.DoesNotExist: It was deleted meanwhile (an unload note: taken off the thread).
+        """
+        from core.threads import EmptyMessageError, rewrite_notices
+
+        body = body.strip()
+        with transaction.atomic():
+            current = KilnReply.objects.select_for_update().filter(pk=self.pk, removed_at__isnull=True).first()
+            if current is None:
+                raise KilnReply.DoesNotExist(f"Kiln message {self.pk} was deleted.")
+            self.image, self.tile = current.image.name, current.tile.name
+            removing = self.has_photo and self.pk in set(remove_photo_ids)
+            if not body and (removing or not self.has_photo):
+                raise EmptyMessageError("A message needs some text or a photo.")
+            if body == current.body and not removing:
+                return False
+            files = self.photo_files if removing else []
+            old = current.body
+            self.body = body
+            self.edited_at = timezone.now()
+            if removing:
+                self.image = None
+                self.tile = None
+            self.save(update_fields=["body", "edited_at", "image", "tile"])
+            delete_files_after_commit(files)
+            rewrite_notices(self.notice_period, old, body)
+        return True
+
+    def remove(self) -> None:
+        """Delete this message and its photo for everyone, telling nobody.
+
+        An unload note keeps its row as the firing's exception record (what happened, the
+        outcome), so the Kiln Log's counts, the firing's page and the timeline still read it:
+        its text and photo are cleared and ``removed_at`` takes it off the thread. Its words in
+        the ready for pickup notice stay, as that notice covers every piece of the firing. A
+        message's own bell rows lose its words (``core.threads.rewrite_notices``).
+        """
+        from core.threads import rewrite_notices
+
+        files = self.photo_files
+        period, old = self.notice_period, self.body
+        with transaction.atomic():
+            if self.is_unload_note:
+                self.body = ""
+                self.image = None
+                self.tile = None
+                self.removed_at = timezone.now()
+                self.save(update_fields=["body", "image", "tile", "removed_at"])
+            else:
+                self.delete()
+            rewrite_notices(period, old, None)
+            delete_files_after_commit(files)
 
     def attach_photo(self, upload: UploadedFile) -> None:
         """Store ``upload`` as this message's one photo (#1026), resized like a ticket photo; the row is not saved."""

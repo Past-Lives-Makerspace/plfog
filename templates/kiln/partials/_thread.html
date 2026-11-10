@@ -6,23 +6,24 @@ notifies the other side. Expects ticket, replies, viewer, reply_form and as_crew
 A crew message or unload note may carry one photo (#1026), shown under it for both sides; tapping
 it opens the full size photo. Only the crew's box on another maker's ticket takes one, so it is
 multipart and not boosted (file uploads); the maker's box is unchanged.
+Each message is kiln/partials/_reply.html, with the shared thread's "..." menu for its author and admins (#1140);
+the Delete confirms sit here, after the list, so redrawing a message after an edit never adds a second modal.
 {% endcomment %}
+{% load thread_tags %}
 <div class="hub-card" id="kiln-messages" data-kiln-thread>
     <h2 class="pl-kiln-card-title"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-msg"/></svg>Messages</h2>
     {% if replies %}
     <ol class="pl-kiln-thread">
         {% for reply in replies %}
-        <li class="pl-kiln-msg{% if reply.author_id == viewer.pk %} pl-kiln-msg--mine{% endif %}" data-reply="{{ reply.pk }}">
-            <div class="pl-kiln-msg__who"><strong>{% if reply.author_id == viewer.pk %}You{% else %}{{ reply.author_name }}{% endif %}</strong>{% if reply.from_crew %}<span class="pl-kiln-msg__role">Kiln crew</span>{% endif %}<span>{{ reply.created_at|date:"D, M j · g:i a" }}</span></div>
-            {% if reply.is_unload_note %}<div class="pl-kiln-msg__unload" data-kiln-unload-note><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-{% if reply.outcome == 'back_to_queue' %}undo{% else %}flame{% endif %}"/></svg>{{ reply.get_what_happened_display }} · {{ reply.firing.name }} · {% if reply.outcome == "back_to_queue" %}back to the queue{% else %}fired{% endif %}</div>{% endif %}
-            <div class="pl-kiln-msg__body">{{ reply.body|linebreaksbr }}</div>
-            {% if reply.has_photo %}<a class="pl-kiln-msg__photo" href="{{ reply.image.url }}" target="_blank" rel="noopener" hx-boost="false" data-kiln-reply-photo><img src="{{ reply.tile.url }}" alt="Photo from {{ reply.author_name }}" loading="lazy"><span class="sr-only">, opens full size</span></a>{% endif %}
-        </li>
+        {% include "kiln/partials/_reply.html" %}
         {% endfor %}
     </ol>
-    {% else %}
-    <p class="pl-kiln-thread__empty">{% if as_crew %}No messages yet. Ask {{ ticket.maker_name }} about anything on this piece.{% else %}No messages yet. Ask the crew about anything on this piece, or answer them here.{% endif %}</p>
+    {% for reply in replies %}{% if reply|may_change:request %}
+    {% include "components/confirm_modal.html" with confirm_id=reply.dom_id|add:"-delete" confirm_title="Delete this message?" confirm_message="It goes from the thread for everyone, with any photo. Nobody is told. This cannot be undone." confirm_hx_post=reply.delete_url confirm_hx_target=reply.dom_selector confirm_button_text="Delete" %}
+    {% endif %}{% endfor %}
     {% endif %}
+    {# Always drawn; thread.css hides it while a message is listed, so deleting the last one shows it. #}
+    <p class="pl-kiln-thread__empty" data-kiln-thread-empty>{% if as_crew %}No messages yet. Ask {{ ticket.maker_name }} about anything on this piece.{% else %}No messages yet. Ask the crew about anything on this piece, or answer them here.{% endif %}</p>
     {% if as_crew and ticket.maker_id != viewer.pk %}
     <form method="post" action="{% url 'kiln:reply' ticket.pk %}" class="pl-kiln-reply" enctype="multipart/form-data" hx-boost="false">
         {% csrf_token %}

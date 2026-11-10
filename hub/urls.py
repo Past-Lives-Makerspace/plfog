@@ -25,6 +25,7 @@ from . import (
     orientations_views,
     spotlight_views,
     staff_onboarding_views,
+    thread_views,
     usage_views,
     views,
     whats_new_views,
@@ -859,6 +860,9 @@ urlpatterns = [
     ),
     path("feedback/", views.beta_feedback, name="hub_beta_feedback"),
     path("feedback/<int:pk>/comment/", views.feedback_comment, name="hub_feedback_comment"),
+    # Edit or delete a posted message on any shared thread (#1140): its author or an admin.
+    path("threads/<str:kind>/<int:pk>/edit/", thread_views.thread_message_edit, name="hub_thread_message_edit"),
+    path("threads/<str:kind>/<int:pk>/delete/", thread_views.thread_message_delete, name="hub_thread_message_delete"),
     path("tab/", views.tab_detail, name="hub_tab_detail"),
     path("tab/history/", views.tab_history, name="hub_tab_history"),
     path("tab/void/<int:entry_pk>/", views.void_tab_entry, name="hub_void_tab_entry"),

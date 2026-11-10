@@ -503,7 +503,7 @@ def notify_message_to_member(message: EquipmentReservationMessage) -> None:
             **_placeholder_context(reservation),
         },
         url=reservation.member_messages_url,
-        period=f"reservation-message-{message.pk}",
+        period=message.notice_period,
     )
 
 
@@ -528,7 +528,7 @@ def notify_message_to_managers(message: EquipmentReservationMessage, recipient_i
             **_placeholder_context(reservation),
         },
         url=reservation.staff_messages_url,
-        period=f"reservation-message-{message.pk}",
+        period=message.notice_period,
         recipient_user_ids=recipient_ids,
     )
 

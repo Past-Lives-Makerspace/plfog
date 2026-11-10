@@ -10,7 +10,7 @@ Context: feedback_rows ((request, reply form) pairs from FeedbackRequest.objects
 open_request_pk (int or None).
 {% endcomment %}
 <section class="hub-card pl-feedback-requests" id="your-requests" data-feedback-requests>
-  <h2 class="pl-feedback-requests__title">Your Requests</h2>
+  <h2 class="pl-feedback-requests__title" data-guidance-target="feedback.edit-messages">Your Requests</h2>
   {% if feedback_rows %}
   <div class="pl-feedback-requests__list">
     {% for item, reply_form in feedback_rows %}

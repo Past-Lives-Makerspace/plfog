@@ -104,6 +104,10 @@ class Message:
     discord_avatar_url: str = ""
     stop_link: StopLink | None = None
     discord_image_url: str = ""
+    #: The emit's ``period`` (one message's own key, e.g. ``feedback-comment-12``), set by the
+    #: fan out on the in-app message only, so the bell row can be found again by what it is about
+    #: (``core.models.Notification.period``, #1140).
+    period: str = ""
 
 
 @runtime_checkable
@@ -172,6 +176,7 @@ class InAppAdapter:
             title=_fit(message.title, 200),
             body=_fit(message.body, 500),
             url=notification_click_url(message.url),
+            period=_fit(message.period, 100),
         )
         # The row is written or the create raised — reaching here means delivered.
         return True

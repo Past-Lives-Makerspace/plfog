@@ -544,6 +544,19 @@ _GUIDANCE_LIST = (
             "A closed request says what to do instead. You can still reply if you need more help.",
         ),
     ),
+    # Edit or delete a posted message on any thread (#1140): the Feedback page is every member's own thread.
+    Guidance(
+        key="feedback.edit-messages",
+        title="Edit or Delete a Message",
+        url_name="hub_beta_feedback",
+        target="feedback.edit-messages",
+        steps=(
+            "On any conversation, press the ... beside a message you wrote. Admins see it on every message.",
+            "Press Edit to change the words or remove a photo, then Save. The message then says edited.",
+            "Press Delete and confirm to take it off the thread for everyone, photos too.",
+            "Nobody is notified when you edit or delete.",
+        ),
+    ),
     Guidance(
         key="account.notifications",
         title="Notification Settings",

@@ -37,7 +37,7 @@
                 {% elif row.note %}<span class="pl-kiln-unload__out"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-msg"/></svg>Fired, with a note: {{ row.note.get_what_happened_display|lower }}</span>
                 {% elif firing.is_unloaded %}<span class="pl-kiln-unload__out"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-check"/></svg>Fired</span>
                 {% else %}<span class="pl-kiln-unload__out"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-flame"/></svg>In the kiln</span>{% endif %}
-                {% if row.note %}<span class="pl-kiln-unload__note">{{ row.note.body|linebreaksbr }}</span>{% endif %}
+                {% if row.note.body %}<span class="pl-kiln-unload__note">{{ row.note.body|linebreaksbr }}</span>{% endif %}
             </span>
         </a>
     </li>

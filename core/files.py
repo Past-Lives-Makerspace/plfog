@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from django.core.files.storage import default_storage
-from django.db import models
+from django.db import models, transaction
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from django.db.models.fields.files import FieldFile
 
 
 def delete_if_unreferenced(
@@ -64,3 +71,21 @@ def delete_orphan_on_replace(instance: models.Model, field_name: str) -> None:
     new_name = getattr(new_file, "name", "") or ""
     if old_file and old_file.name and old_file.name != new_name:
         delete_if_unreferenced(model, field_name, old_file.name, exclude_pk=instance.pk)
+
+
+def delete_files_now(files: Iterable[FieldFile]) -> None:
+    """Remove stored files whose rows were never saved (or are already gone for good)."""
+    for file in files:
+        if file.name:
+            file.storage.delete(file.name)
+
+
+def delete_files_after_commit(files: Iterable[FieldFile]) -> None:
+    """Remove stored files once the delete of the rows that named them commits; a rollback keeps them.
+
+    The one way a removed photo leaves storage (kiln tickets, thread messages): the names are
+    read now, so a row cleared or deleted in the same transaction still has its file removed.
+    """
+    named = [file for file in files if file.name]
+    if named:
+        transaction.on_commit(lambda: delete_files_now(named), robust=True)

@@ -4530,6 +4530,8 @@ class ClassMessage(ThreadMessage):
     """
 
     STAFF_SIGNATURE: ClassVar[str] = "Reviewer"
+    THREAD_KIND: ClassVar[str] = "class"
+    NOTICE_PERIOD: ClassVar[str] = "class-message-{pk}"
 
     class_offering = models.ForeignKey(
         ClassOffering,
@@ -4626,7 +4628,7 @@ class ClassMessage(ThreadMessage):
                 "messages_url": _absolute_url(offering.messages_path),
             },
             url=offering.messages_path,
-            period=f"class-message-{self.pk}",
+            period=self.notice_period,
             recipient_user_ids=recipient_user_ids,
         )
 

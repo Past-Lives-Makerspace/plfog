@@ -1,0 +1,3 @@
+{# A thread message's "..." items (#1140), inside the li's editing scope: Edit opens the inline box, Delete opens the confirm components/thread.html renders. #}
+<button type="button" class="pl-row-menu__item" role="menuitem" data-thread-edit @click="closeAndRefocus(); editing = true">Edit</button>
+<button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem" data-thread-delete @click="closeAndRefocus(); $dispatch('open-confirm', '{{ message.dom_id }}-delete')">Delete</button>

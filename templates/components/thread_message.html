@@ -1,0 +1,28 @@
+{% comment %}
+One message on a conversation thread (components/thread.html draws every one; hub.thread_views redraws one after an
+edit). For its author and admins (thread_tags.may_change) it carries a "..." menu with Edit and Delete (#1140): Edit
+folds the text and photos away for the inline box (components/thread_message_edit.html), and Delete opens the confirm
+that components/thread.html renders outside the message, so redrawing it never doubles the modal. "edited" follows
+the time once the message was changed.
+
+Context: message, viewer_is_staff, request; refused_edit (a refused ThreadMessageEditForm, which opens the box).
+{% endcomment %}
+{% load thread_tags %}
+{% with can_change=message|may_change:request %}
+<li class="pl-thread-msg{% if message.is_from_staff == viewer_is_staff %} pl-thread-msg--mine{% endif %}" {% if message.pk %}data-thread-dom="{{ message.dom_id }}" data-thread-message="{{ message.pk }}"{% else %}data-thread-opening{% endif %} data-from="{% if message.is_from_staff %}staff{% else %}member{% endif %}"{% if can_change %} x-data="{ editing: {% if refused_edit %}true{% else %}false{% endif %} }" :class="editing && 'pl-thread-msg--editing'"{% endif %}>
+  <div class="pl-thread-msg__who"><strong>{% if not message.is_from_staff and message.author_id and message.author_id == request.user.pk %}You{% else %}{{ message.author_name }}{% endif %}</strong>{% if message.shows_staff_tag %}<span class="pl-thread-msg__role">{{ message.staff_signature }}</span>{% endif %}<span>{{ message.created_at|date:"D, M j · g:i a" }}</span>{% if message.edited_at %}<span class="pl-thread-msg__edited" data-thread-edited>edited</span>{% endif %}{% if can_change %}<span class="pl-thread-msg__menu">{% include "components/row_actions.html" with menu_include="components/thread_message_menu.html" menu_label="Edit or delete this message" %}</span>{% endif %}</div>
+  <div class="pl-thread-msg__content"{% if can_change %} x-show="!editing"{% if refused_edit %} x-cloak{% endif %}{% endif %}>
+    <div class="pl-thread-msg__body">{{ message.body|linebreaksbr }}</div>
+    {% with photos=message.thread_photos %}
+    {% if photos %}
+    <div class="pl-thread-photos pl-thread-msg__photos">
+      {% for photo in photos %}
+      <a href="{{ photo.image.url }}" target="_blank" rel="noopener" hx-boost="false" class="pl-thread-photos__item"><img src="{{ photo.image.url }}" alt="Photo {{ forloop.counter }} with this message" loading="lazy"></a>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+  </div>
+  {% if can_change %}{% include "components/thread_message_edit.html" %}{% endif %}
+</li>
+{% endwith %}

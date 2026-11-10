@@ -4,7 +4,8 @@ Each non blank note becomes a reviewer's message, by the decider when recorded, 
 decision, oldest first; the admin's auto-close system note and blank notes add nothing. The
 notes stay on the approvals. The reverse removes exactly the carried messages. Uses Django's
 ``MigrationExecutor`` (the pattern of guild_class_types_spec); each test restores head in a
-``finally``.
+``finally``. Messages are read through the historical model at 0096: the head model names
+columns a later migration adds (``edited_at``, #1140).
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from django.db.migrations.executor import MigrationExecutor
 from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory, UserFactory
-from classes.models import ClassApproval, ClassMessage
+from classes.models import ClassApproval
 from classes.spec.migrations._head import migrate_all_to_head
 
 _APP = "classes"
@@ -25,8 +26,10 @@ _BEFORE = "0095_class_messages"
 _AFTER = "0096_approval_notes_to_messages"
 
 
-def _migrate(target: str) -> None:
-    MigrationExecutor(connection).migrate([(_APP, target)])
+def _migrate(target: str):
+    executor = MigrationExecutor(connection)
+    executor.migrate([(_APP, target)])
+    return executor.loader.project_state([(_APP, target)]).apps
 
 
 def _approval(offering, *, notes: str, decided_at=None, decided_by=None, role=ClassApproval.Role.ADMIN):
@@ -58,14 +61,14 @@ def describe_migration_0096_approval_notes_to_messages():
             _approval(offering, notes="Approved automatically when an admin gave final approval.", decided_at=now)
             _migrate(_BEFORE)
 
-            _migrate(_AFTER)
+            ClassMessage = _migrate(_AFTER).get_model(_APP, "ClassMessage")
 
-            carried = list(ClassMessage.objects.filter(class_offering=offering).order_by("created_at", "pk"))
+            carried = list(ClassMessage.objects.filter(class_offering_id=offering.pk).order_by("created_at", "pk"))
             assert [(m.body, m.author_id, m.created_at) for m in carried] == [
                 ("Zzfirst round", None, earlier.decided_at),
                 ("Zzsecond round", lead.pk, later.decided_at),
             ]
-            [lone] = ClassMessage.objects.filter(class_offering=other)
+            [lone] = ClassMessage.objects.filter(class_offering_id=other.pk)
             assert (lone.body, lone.created_at) == ("Zzno date", undated.created_at)
             assert ClassApproval.objects.get(pk=later.pk).notes == "  Zzsecond round  "
         finally:
@@ -76,8 +79,8 @@ def describe_migration_0096_approval_notes_to_messages():
             offering = ClassOfferingFactory(title="Zz reverse mugs")
             _approval(offering, notes="Zzcarried", decided_at=timezone.now())
             _migrate(_BEFORE)
-            _migrate(_AFTER)
-            ClassMessage.objects.create(class_offering=offering, body="Zzwritten since")
+            ClassMessage = _migrate(_AFTER).get_model(_APP, "ClassMessage")
+            ClassMessage.objects.create(class_offering_id=offering.pk, body="Zzwritten since")
 
             _migrate(_BEFORE)
 

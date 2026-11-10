@@ -56,6 +56,30 @@ def _is_effective_admin(request: HttpRequest) -> bool:
     return view_as is not None and view_as.is_admin
 
 
+def is_actual_admin(request: HttpRequest) -> bool:
+    """True when the user's own role is admin, whatever ``view_as`` previews: ``fog_admin_required``'s test.
+
+    A preview neither grants nor removes it, so an admin previewing as a member keeps the power
+    and nobody previewing gains it.
+    """
+    view_as = getattr(request, "view_as", None)
+    return view_as is not None and view_as.actual_is_admin
+
+
+def can_change_message(request: HttpRequest, author_user_id: int | None) -> bool:
+    """True when this request may edit or delete a thread message (#1140): its author, or an admin.
+
+    Covers every thread (``core.threads``) and kiln ticket messages. The admin test is the actual
+    role (:func:`is_actual_admin`), so an admin may change any message, a carried over note with no
+    author included. The caller has already checked the viewer may see the thread.
+    """
+    if not request.user.is_authenticated:
+        return False
+    if is_actual_admin(request):
+        return True
+    return author_user_id is not None and author_user_id == request.user.pk
+
+
 def _editing_member(request: HttpRequest) -> Member | None:
     """The linked Member behind this request when it may act as a member, else None.
 
