@@ -59,6 +59,7 @@ _DISPATCHER_ALWAYS = {
     "fetch_video_thumbnails",
     "process_discord_removals",
     "queue_discord_pings",
+    "check_task_queue",
 }
 _DISPATCHER_DAILY = {
     "sync_all_sources",

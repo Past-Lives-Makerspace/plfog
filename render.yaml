@@ -79,7 +79,7 @@ services:
   # - type: worker
   #   name: plfog-worker
   #   runtime: docker
-  #   dockerCommand: python manage.py db_worker --queue-name "*"
+  #   dockerCommand: python manage.py db_worker --no-reload
 
   # Nightly Airtable → Django sync (pulls AT changes into the database)
   # Requires env vars: DATABASE_URL, DJANGO_SECRET_KEY, AIRTABLE_API_TOKEN,

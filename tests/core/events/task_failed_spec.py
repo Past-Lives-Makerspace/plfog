@@ -13,14 +13,15 @@ from unittest.mock import patch
 import pytest
 from django.conf import settings
 from django.core import mail
+from django.core.management import call_command
 from django.tasks import task
 from django.urls import reverse
 from django_tasks_db.management.commands.db_worker import Worker
 from django_tasks_db.models import DBTaskResult
 
-from core.models import Notification, PushSubscription
-from core.scheduled_jobs import failed_tasks_path
-from core.tasks import enqueue_on_commit
+from core.models import EventDelivery, Notification, PushSubscription
+from core.scheduled_jobs import ALERT_PERIOD_MAX, alert_task_failed, failed_tasks_path, task_period_key
+from core.tasks import ABANDONED_AFTER, enqueue_on_commit
 from membership.models import AdminCapability
 
 pytestmark = pytest.mark.django_db
@@ -153,7 +154,7 @@ def describe_the_worker():
 
     def _worker() -> Worker:
         return Worker(
-            queue_names=["*"],
+            queue_names=["default"],
             interval=0,
             batch=True,
             backend_name="default",
@@ -178,3 +179,120 @@ def describe_the_worker():
         [bell] = _bells(holder)
         assert bell.title == "Background task send_to_discord failed"
         assert "Error: Discord said no to event 31\n" in bell.body
+
+    def it_sends_no_second_alert_from_the_watch_for_a_failure_the_signal_reported(
+        linked_member, pushed, django_capture_on_commit_callbacks
+    ):
+        holder = _webmaster(linked_member)
+        _run(django_capture_on_commit_callbacks, send_to_discord, 31)
+        _drain()
+
+        call_command("check_task_queue")
+
+        assert len(_bells(holder)) == 1
+        assert len(mail.outbox) == 1
+
+
+def _failed_row(task_path: str, *, traceback: str, class_path: str = "builtins.ValueError") -> DBTaskResult:
+    from django.utils import timezone
+
+    return DBTaskResult.objects.create(
+        task_path=task_path,
+        args_kwargs={"args": [], "kwargs": {}},
+        backend_name="default",
+        status="FAILED",
+        finished_at=timezone.now(),
+        exception_class_path=class_path,
+        traceback=traceback,
+    )
+
+
+@pytest.mark.usefixtures("midday_now")
+def describe_the_watch():
+    """``check_task_queue`` alerts on failures the ``task_finished`` signal never reported."""
+
+    def it_alerts_once_a_day_for_a_task_whose_code_no_longer_imports(linked_member, pushed):
+        # The worker marks such a task FAILED in run_task without sending task_finished.
+        holder = _webmaster(linked_member)
+        _failed_row(
+            "events.tasks.retired_send",
+            class_path="builtins.ModuleNotFoundError",
+            traceback="Traceback (most recent call last):\nModuleNotFoundError: No module named 'events.tasks'\n",
+        )
+
+        call_command("check_task_queue")
+        call_command("check_task_queue")
+
+        [bell] = _bells(holder)
+        assert bell.title == "Background task retired_send failed"
+        assert "Error: No module named 'events.tasks'\n" in bell.body
+        assert len(mail.outbox) == 1
+
+    def it_alerts_for_a_task_it_marked_abandoned(linked_member, pushed):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        holder = _webmaster(linked_member)
+        row = DBTaskResult.objects.create(
+            task_path="tests.core.events.task_failed_spec.works",
+            args_kwargs={"args": [], "kwargs": {}},
+            backend_name="default",
+            status="RUNNING",
+        )
+        DBTaskResult.objects.filter(pk=row.pk).update(started_at=timezone.now() - ABANDONED_AFTER - timedelta(hours=1))
+
+        call_command("check_task_queue")
+
+        [bell] = _bells(holder)
+        assert bell.title == "Background task works failed"
+        assert "Error: The worker stopped while this task was running" in bell.body
+
+
+def describe_a_failed_enqueue():
+    @pytest.mark.usefixtures("midday_now")
+    def it_alerts_the_webmasters_and_never_raises_into_the_save(
+        linked_member, pushed, django_capture_on_commit_callbacks
+    ):
+        from django.tasks.backends.immediate import ImmediateBackend
+
+        holder = _webmaster(linked_member)
+
+        with patch.object(ImmediateBackend, "enqueue", side_effect=RuntimeError("queue table missing")):
+            _run(django_capture_on_commit_callbacks, works)
+
+        [bell] = _bells(holder)
+        assert bell.title == "Background task works failed"
+        assert "Error: It could not be queued: queue table missing\n" in bell.body
+
+
+def describe_the_alert_period():
+    def it_keeps_a_short_path_readable():
+        assert task_period_key("events.tasks.announce") == "task:events.tasks.announce"
+
+    def it_fits_a_long_path_in_the_bell_rows_period_column():
+        long_path = "membership." + "very_long_module_name." * 6 + "announce_everything"
+        other = "membership." + "very_long_module_name." * 6 + "announce_something_else"
+
+        key = task_period_key(long_path)
+
+        assert len(f"automation.failed:{key}:2026-11-09") == ALERT_PERIOD_MAX
+        assert key == task_period_key(long_path)
+        assert key != task_period_key(other)
+
+    @pytest.mark.usefixtures("midday_now")
+    def it_writes_every_period_within_its_column(linked_member, pushed):
+        from django.utils import timezone
+
+        holder = _webmaster(linked_member)
+        long_path = "membership." + "very_long_module_name." * 6 + "announce_everything"
+
+        alert_task_failed(
+            task_path=long_path, task_name="announce_everything", finished_at=timezone.now(), error_lines=["x"]
+        )
+
+        [bell] = _bells(holder)
+        assert 0 < len(bell.period) <= Notification._meta.get_field("period").max_length
+        periods = list(EventDelivery.objects.values_list("period", flat=True))
+        assert periods
+        assert all(len(period) <= EventDelivery._meta.get_field("period").max_length for period in periods)

@@ -213,10 +213,17 @@ class SiteConfigurationAdmin(ModelAdmin):
 
 # The durable task queue's results (core/tasks.py), shown in the unfold theme. The package
 # registers its own read only admin; this keeps its columns, filters and permissions and
-# only swaps the base class, so the failed and pending tasks list looks like every other.
+# swaps the base class (so the list looks like every other) and lets superusers delete rows.
 admin.site.unregister(DBTaskResult)
 
 
 @admin.register(DBTaskResult)
 class DBTaskResultAdmin(PackageTaskResultAdmin, ModelAdmin):
-    """Failed, pending and finished background tasks; read only, as the package ships it."""
+    """Failed, pending and finished background tasks; read only, except a superuser may delete.
+
+    Deleting is how a person clears a task they have dealt with (one that will never run, or a
+    failure already handled) without waiting for ``prune_task_results``.
+    """
+
+    def has_delete_permission(self, request: HttpRequest, obj: DBTaskResult | None = None) -> bool:
+        return request.user.is_superuser

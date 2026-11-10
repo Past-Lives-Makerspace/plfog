@@ -44,8 +44,8 @@ migrate: ## Run Django migrations
 server: ## Start Django dev server
 	.venv/bin/python manage.py runserver
 
-worker: ## Start the task queue worker (runs enqueued tasks; reloads on code changes)
-	.venv/bin/python manage.py db_worker --queue-name '*'
+worker: ## Start the task queue worker (runs queued tasks; restarts on code changes while DJANGO_DEBUG is on)
+	.venv/bin/python manage.py db_worker
 
 test: ## Run tests
 	.venv/bin/pytest

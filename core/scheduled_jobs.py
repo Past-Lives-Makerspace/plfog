@@ -466,14 +466,22 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
     ScheduledJob(
         key="prune_task_results",
         name="Background task cleanup",
-        description=(
-            "Deletes finished background task results: successes after 30 days, failures after 90. "
-            "Fails, which alerts the Webmasters, when a background task has waited or run over an hour, "
-            "because then the task worker is down or died mid run."
-        ),
+        description="Deletes finished background task results: successes after 30 days, failures after 90.",
         command="prune_task_results",
         schedule_label="Daily ~6 AM",
         cadence=Cadence.DAILY,
+    ),
+    ScheduledJob(
+        key="check_task_queue",
+        name="Background task watch",
+        description=(
+            "Alerts the Webmasters about every background task that failed, and fails when a task has "
+            "waited over an hour for the task worker or run over an hour. A task still running after "
+            "6 hours is marked failed, because the worker that ran it is gone."
+        ),
+        command="check_task_queue",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
     ),
     # Must stay after sync_all_sources: daily jobs run in list order, and the check reads the
     # Google rows that import brings in (#953).
@@ -689,7 +697,7 @@ def alert_task_failed(*, task_path: str, task_name: str, finished_at: datetime |
 
     def describe() -> _Failure:
         return _Failure(
-            period_key=f"task:{task_path}",
+            period_key=task_period_key(task_path),
             name=f"Background task {task_name}",
             failed_at=finished_at,
             error_lines=error_lines,
@@ -699,6 +707,29 @@ def alert_task_failed(*, task_path: str, task_name: str, finished_at: datetime |
         )
 
     _alert_twice(describe, f"the {task_path} task")
+
+
+# The bell row keeps the emit's period (``Notification.period``, 100 characters, the tighter of
+# it and the delivery ledger's 120), so a task alert's period is held to it.
+ALERT_PERIOD_MAX = 100
+
+
+def task_period_key(task_path: str) -> str:
+    """The ledger key for a task's alert: ``task:<module path>``, shortened to fit when long.
+
+    A path too long keeps its start and ends with a hash of the whole path, so two long paths
+    with the same start still alert apart, and the same path always gets the same key.
+    """
+    import hashlib
+
+    from core.events.registry import AUTOMATION_FAILED
+
+    key = f"task:{task_path}"
+    room = ALERT_PERIOD_MAX - len(f"{AUTOMATION_FAILED}::2026-01-01")  # the period around the key
+    if len(key) <= room:
+        return key
+    digest = hashlib.sha256(task_path.encode()).hexdigest()[:16]
+    return f"{key[: room - len(digest) - 1]}#{digest}"
 
 
 def failed_tasks_path() -> str:

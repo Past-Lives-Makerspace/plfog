@@ -1,11 +1,11 @@
-"""Specs for ``prune_task_results``: the daily tending of the durable task queue (#1150)."""
+"""Specs for ``prune_task_results``: the daily pruning of the durable task queue (#1150)."""
 
 from __future__ import annotations
 
 from datetime import timedelta
 
 import pytest
-from django.core.management import CommandError, call_command
+from django.core.management import call_command
 from django.utils import timezone
 from django_tasks_db.models import DBTaskResult
 
@@ -59,21 +59,3 @@ def describe_prune_task_results():
         assert _left() == {str(recent_success.pk), str(recent_failure.pk)}
         assert str(old_success.pk) not in _left()
         assert str(old_failure.pk) not in _left()
-
-    def it_passes_when_nothing_is_stuck():
-        _result("READY", hours_ago=0.5)
-        _result("RUNNING", hours_ago=0.5)
-
-        call_command("prune_task_results")
-
-    def it_fails_when_a_task_has_waited_over_an_hour_for_a_worker():
-        _result("READY", hours_ago=2)
-
-        with pytest.raises(CommandError, match="1 background task\\(s\\) waited over an hour"):
-            call_command("prune_task_results")
-
-    def it_fails_when_a_task_has_run_over_an_hour():
-        _result("RUNNING", hours_ago=2)
-
-        with pytest.raises(CommandError, match="1 background task\\(s\\) have run over an hour"):
-            call_command("prune_task_results")
