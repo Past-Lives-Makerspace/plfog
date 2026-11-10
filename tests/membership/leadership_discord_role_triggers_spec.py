@@ -311,24 +311,45 @@ def describe_discord_link():
         assert _queued(callbacks) == []
 
     @respx.mock
-    def it_takes_the_managed_roles_off_the_old_account_on_unlink(discord_on, django_capture_on_commit_callbacks):
+    def it_leaves_a_sitting_leads_roles_alone_on_unlink(discord_on, django_capture_on_commit_callbacks):
         member = MemberFactory(discord_user_id="4242")
-        respx.get(f"{API}/guilds/srv/members/4242").mock(
-            return_value=httpx.Response(200, json={"roles": ["111", "999"]})
-        )
-        delete = respx.delete(url__regex=r".+").mock(return_value=httpx.Response(204))
-        with django_capture_on_commit_callbacks(execute=True):
-            member.unlink_discord()
-            assert not delete.called
-        assert [call.request.url.path for call in delete.calls] == ["/api/v10/guilds/srv/members/4242/roles/111"]
-
-    @respx.mock
-    def it_sends_nothing_when_an_unlinked_member_unlinks_again(discord_on, django_capture_on_commit_callbacks):
-        member = MemberFactory(discord_user_id="")
+        GuildFactory(guild_lead=member)
         route = respx.route().mock(return_value=httpx.Response(204))
         with django_capture_on_commit_callbacks(execute=True):
             member.unlink_discord()
         assert not route.called
+
+    @respx.mock
+    def it_strips_the_old_account_then_reconciles_the_new_one_on_a_swap(discord_on, django_capture_on_commit_callbacks):
+        member = MemberFactory(discord_user_id="4242")
+        respx.get(f"{API}/guilds/srv/members/4242").mock(
+            return_value=httpx.Response(200, json={"roles": ["111", "222", "999"]})
+        )
+        _settled(django_capture_on_commit_callbacks, lambda: LeadershipListingFactory(member=member))
+        respx.get(f"{API}/guilds/srv/members/5353").mock(return_value=httpx.Response(200, json={"roles": []}))
+        delete = respx.delete(url__regex=r".+").mock(return_value=httpx.Response(204))
+        put = respx.put(url__regex=r".+").mock(return_value=httpx.Response(204))
+        with django_capture_on_commit_callbacks(execute=True):
+            member.link_discord("5353")
+            assert not delete.called
+        assert sorted(call.request.url.path for call in delete.calls) == [
+            "/api/v10/guilds/srv/members/4242/roles/111",
+            "/api/v10/guilds/srv/members/4242/roles/222",
+        ]
+        assert sorted(call.request.url.path for call in put.calls) == [
+            "/api/v10/guilds/srv/members/5353/roles/111",
+            "/api/v10/guilds/srv/members/5353/roles/222",
+        ]
+
+    @respx.mock
+    def it_strips_nothing_when_relinking_the_same_account(discord_on, django_capture_on_commit_callbacks):
+        member = MemberFactory(discord_user_id="4242")
+        respx.get(f"{API}/guilds/srv/members/4242").mock(return_value=httpx.Response(200, json={"roles": ["111"]}))
+        delete = respx.delete(url__regex=r".+").mock(return_value=httpx.Response(204))
+        with django_capture_on_commit_callbacks(execute=True):
+            member.link_discord("4242")
+        # The reconcile alone runs: they earn nothing, so leadership comes off once.
+        assert delete.call_count == 1
 
 
 def describe_account_deletion():

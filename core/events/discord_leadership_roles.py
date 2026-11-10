@@ -23,10 +23,12 @@ and do not, and DELETEs each managed role they hold and should not; a role outsi
 set (guild member roles, Member, anything else) is never touched, and a second run sends
 nothing. Member access roles (``discord_member_role_id`` and every guild's
 ``discord_role_ids``) are never managed, even if an id was typed into both places. Every Discord
-call is the best-effort idiom of :mod:`core.events.discord_roles` (a 429 is waited out and tried
-once more), and a blank bot token (staging) sends nothing. A call that still fails is not raised
-where it happens: the task bodies raise :class:`LeadershipRoleSyncError` at the end, after every
-other change was tried, so the task is recorded FAILED and the Webmasters are alerted.
+call is the best-effort idiom of :mod:`core.events.discord_roles`, with a 429 waited out and tried
+once more (this is background work, never a web request), and a blank bot token (staging) sends
+nothing. A call that still fails, or a 403 (the bot's role sits below a managed role, the likeliest
+setup mistake), is not raised where it happens: the task bodies raise :class:`LeadershipRoleSyncError`
+at the end, after every other change was tried, so the task is recorded FAILED and the Webmasters
+are alerted.
 
 Callers never reconcile inline: :func:`reconcile_on_commit` enqueues the
 :func:`reconcile_leadership_roles` task once the save commits, once per member per transaction.
@@ -206,7 +208,8 @@ class RoleChanges:
     Attributes:
         added: Role ids Discord accepted adding.
         removed: Role ids Discord accepted removing.
-        failed: Role ids whose call still failed after its retry (a network error, a 429, a 5xx).
+        failed: Role ids whose call still failed after its retry (a network error, a 429, a 5xx)
+            or was refused (a 403: the bot's role sits below it).
         read_failed: The member's roles could not be read, so nothing was changed.
     """
 
@@ -217,7 +220,7 @@ class RoleChanges:
 
     @property
     def ok(self) -> bool:
-        """Whether every call that was needed went through (a benign 403 or 404 counts as through)."""
+        """Whether every call that was needed went through (a 404, the member gone, counts as through)."""
         return not self.failed and not self.read_failed
 
     def raise_if_failed(self, who: str) -> None:
@@ -244,14 +247,18 @@ def server_id() -> str:
     return (SiteConfiguration.load().discord_server_id or "").strip()
 
 
+#: Outcomes a leadership task reports: a failure after the retry, and a 403 (the bot's role too low).
+_REPORTED = frozenset({RoleOutcome.FAILED, RoleOutcome.REFUSED})
+
+
 def _apply(server: str, user_id: str, to_add: Iterable[str], to_remove: Iterable[str], changes: RoleChanges) -> None:
     """Send each PUT and DELETE, recording what went through and what failed; every one is tried."""
     for method, role_ids, done in (("PUT", to_add, changes.added), ("DELETE", to_remove, changes.removed)):
         for role_id in role_ids:
-            outcome = role_outcome(method, server, user_id, role_id)
+            outcome = role_outcome(method, server, user_id, role_id, retry=True)
             if outcome is RoleOutcome.DONE:
                 done.append(role_id)
-            elif outcome is RoleOutcome.FAILED:
+            elif outcome in _REPORTED:
                 changes.failed.append(role_id)
 
 
@@ -259,7 +266,7 @@ def _held(server: str, user_id: str, current: Iterable[str] | None, changes: Rol
     """The roles ``user_id`` holds: ``current`` when given, else one read (a failed read is recorded)."""
     if current is not None:
         return set(current)
-    read = read_member_roles(server, user_id)
+    read = read_member_roles(server, user_id, retry=True)
     changes.read_failed = read.failed
     return read.roles
 
@@ -309,9 +316,9 @@ def strip_managed_roles(
 ) -> RoleChanges:
     """Take every managed role off a Discord account the app no longer links to anyone. Never raises on Discord.
 
-    For an account a member unlinked or deleted, and for a server member holding a managed
-    role whom no linked member answers to (the command). Reads their roles once unless
-    ``current`` is given.
+    For the account of a deleted member, the account a member swapped for another, and (with
+    the command's ``--strip-unlinked``) a server member holding a managed role whom no linked
+    member answers to. Reads their roles once unless ``current`` is given.
     """
     changes = RoleChanges()
     server = server_id()
@@ -345,7 +352,7 @@ def reconcile_leadership_roles(member_id: int) -> None:
 
 @task
 def strip_leadership_roles(discord_user_id: str) -> None:
-    """Take every managed role off a Discord account that was unlinked or whose member was deleted. Safe twice.
+    """Take every managed role off a Discord account the app stopped linking (deleted, or swapped). Safe twice.
 
     Keyed by the Discord id, because the member row no longer carries it when this runs.
 
@@ -374,13 +381,13 @@ def remove_retired_role(role_id: str) -> None:
     settings = LeadershipRoleSettings.load()
     if not role_id or not server or role_id in settings.managed or role_id in settings.access_role_ids:
         return
-    roster = server_member_role_ids(server)
+    roster = server_member_role_ids(server, retry=True)
     if roster is None:
         raise LeadershipRoleSyncError(f"Could not read the Discord member list to retire role {role_id}.")
     failed = [
         user_id
         for user_id, roles in roster.items()
-        if role_id in roles and role_outcome("DELETE", server, user_id, role_id) is RoleOutcome.FAILED
+        if role_id in roles and role_outcome("DELETE", server, user_id, role_id, retry=True) in _REPORTED
     ]
     if failed:
         raise LeadershipRoleSyncError(f"Could not take role {role_id} off {len(failed)} Discord accounts.")
@@ -398,26 +405,29 @@ def role_id_conflicts(
     member_role_id: str,
     leadership_role_id: str,
     guild_officers_role_id: str,
-    guilds: dict[int, tuple[str, list[str]]],
+    guilds: dict[int, tuple[str, list[str], bool]],
 ) -> tuple[dict[str, str], dict[int, str]]:
     """Why the role ids as they would be saved clash, for the Site Settings save to refuse.
 
     The managed ids (leadership, Guild Officers, each guild's lead role) must all differ from
-    one another and from every member access role (the Member role and any guild's member
-    role ids); otherwise the sync would hand out or take away access.
+    every member access role (the Member role and any guild's member role ids, every guild
+    counted), or the sync would hand out or take away access; leadership and Guild Officers
+    must differ, and a lead role may be neither. Two visible guilds may not share a lead role
+    id; a hidden or deleted guild's old one may be reused.
 
     Args:
         member_role_id: ``discord_member_role_id``.
         leadership_role_id: ``discord_leadership_role_id``.
         guild_officers_role_id: ``discord_guild_officers_role_id``.
-        guilds: Guild pk to (its lead role id, its member role ids), for every guild. A lead
-            role id two guilds share is reported on the later one in this order.
+        guilds: Guild pk to (its lead role id, its member role ids, whether it is visible:
+            active and not deleted), for every guild. A lead role id two visible guilds share
+            is reported on the later one in this order.
 
     Returns:
         (Site Settings field name to message, guild pk to message for its lead role id).
     """
     access = {member_role_id.strip()} | {
-        str(role_id).strip() for _lead, member_ids in guilds.values() for role_id in member_ids
+        str(role_id).strip() for _lead, member_ids, _live in guilds.values() for role_id in member_ids
     }
     access.discard("")
     site_errors: dict[str, str] = {}
@@ -432,7 +442,7 @@ def role_id_conflicts(
     elif officers and officers == leadership:
         site_errors["discord_guild_officers_role_id"] = "Guild Officers needs its own role, not the leadership role."
     seen: set[str] = set()
-    for pk, (raw_lead, _member_ids) in guilds.items():
+    for pk, (raw_lead, _member_ids, live) in guilds.items():
         lead = raw_lead.strip()
         if not lead:
             continue
@@ -440,9 +450,10 @@ def role_id_conflicts(
             guild_errors[pk] = access_message
         elif lead in (leadership, officers):
             guild_errors[pk] = "A guild lead role needs its own role, not the leadership or Guild Officers role."
-        elif lead in seen:
+        elif live and lead in seen:
             guild_errors[pk] = "Another guild already uses this lead role id."
-        seen.add(lead)
+        if live:
+            seen.add(lead)
     return site_errors, guild_errors
 
 

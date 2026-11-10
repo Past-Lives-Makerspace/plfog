@@ -124,17 +124,42 @@ def describe_dry_run():
 
 
 def describe_unlinked_holders():
-    @respx.mock
-    def it_lists_and_strips_a_holder_no_linked_member_answers_to(configured):
+    @pytest.fixture
+    def strangers(configured):
+        MemberFactory(full_legal_name="Pat Pending", discord_handle="@Pat.Lead")
+        MemberFactory(full_legal_name="Only At", discord_handle="@")
         respx.get(LIST_URL).mock(
-            return_value=httpx.Response(200, json=[{"user": {"id": "66"}, "roles": ["111", "999"]}])
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {"user": {"id": "66", "username": "ghost"}, "roles": ["111", "999"]},
+                    {"user": {"id": "77", "username": "pat.lead"}, "roles": ["222"]},
+                ],
+            )
         )
+
+    @respx.mock
+    def it_lists_each_with_their_username_and_marks_a_handle_match(strangers):
+        out = _run()
+        assert "Discord account ghost (66), no linked member: remove leadership" in out
+        assert "Discord account pat.lead (77), no linked member (matches unlinked app member Pat Pending): " in out
+
+    @respx.mock
+    def it_leaves_them_alone_on_a_plain_apply(strangers):
         delete = respx.delete(url__regex=r".+").mock(return_value=httpx.Response(204))
-        assert "Discord account 66 (no linked member): remove leadership" in _run()
+        _run("--apply")
         assert not delete.called
-        out = _run("--apply")
+
+    @respx.mock
+    def it_strips_the_unmatched_ones_with_strip_unlinked(strangers):
+        delete = respx.delete(url__regex=r".+").mock(return_value=httpx.Response(204))
+        out = _run("--apply", "--strip-unlinked")
         assert [call.request.url.path for call in delete.calls] == ["/api/v10/guilds/srv/members/66/roles/111"]
         assert "Added 0 roles and removed 1." in out
+
+    def it_refuses_strip_unlinked_without_apply(configured):
+        with pytest.raises(CommandError, match="needs --apply"):
+            _run("--strip-unlinked")
 
 
 def describe_failures():
@@ -148,6 +173,12 @@ def describe_failures():
         out = _run("--apply")
         assert "Added 0 roles and removed 2." in out
         assert "3 role changes failed; see the log, then run --apply again." in out
+
+    @respx.mock
+    def it_counts_a_403_as_a_failure(drift):
+        respx.put(url__regex=r".+").mock(return_value=httpx.Response(403))
+        respx.delete(url__regex=r".+").mock(return_value=httpx.Response(403))
+        assert "5 role changes failed" in _run("--apply")
 
     def it_stops_when_the_bot_token_is_blank(configured, settings):
         settings.DISCORD_BOT_TOKEN = ""

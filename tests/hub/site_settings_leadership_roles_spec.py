@@ -113,13 +113,35 @@ def describe_role_id_clashes():
         assert "Hidden Hall lead role id:" in resp.content.decode()
         assert SiteConfiguration.load().discord_leadership_role_id == ""
 
-    def it_saves_another_tab_against_the_stored_guild_rows(admin_client: Client):
+    def it_does_not_check_a_save_from_another_tab(admin_client: Client):
+        config = SiteConfiguration.load()
+        config.discord_member_role_id = "900"
+        config.discord_leadership_role_id = "900"
+        config.save()
         resp = admin_client.post(
             reverse("hub_admin_site_settings"),
-            _post(submitted_tab="general", discord_leadership_role_id="900"),
+            _post(submitted_tab="general", discord_member_role_id="900", discord_leadership_role_id="900"),
         )
         assert resp.status_code == 302
-        assert SiteConfiguration.load().discord_leadership_role_id == "900"
+
+    def it_lets_a_visible_guild_reuse_a_hidden_guilds_old_lead_role_id(admin_client: Client):
+        GuildFactory(name="Old Hall", is_active=False, discord_lead_role_id="950")
+        guild = GuildFactory(name="New Hall")
+        resp = admin_client.post(
+            reverse("hub_admin_site_settings"),
+            _post(
+                **{
+                    "guildroles-TOTAL_FORMS": "1",
+                    "guildroles-INITIAL_FORMS": "1",
+                    "guildroles-0-id": str(guild.pk),
+                    "guildroles-0-discord_role_ids": "",
+                    "guildroles-0-discord_lead_role_id": "950",
+                }
+            ),
+        )
+        assert resp.status_code == 302
+        guild.refresh_from_db()
+        assert guild.discord_lead_role_id == "950"
 
 
 def describe_guild_lead_role_id():

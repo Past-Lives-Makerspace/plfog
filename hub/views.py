@@ -10585,28 +10585,32 @@ def _sync_info_post_if_changed(request: HttpRequest, form: SiteSettingsForm) -> 
         )
 
 
-def _refuse_role_id_conflicts(request: HttpRequest, form: SiteSettingsForm, role_formset: Any | None) -> bool:
+def _refuse_role_id_conflicts(request: HttpRequest, form: SiteSettingsForm, role_formset: Any) -> bool:
     """Put an error on each Discord role id that clashes (#1148) and say whether there was one.
 
-    The site form and the per guild role table post together, so the check reads both as they
-    would be saved, with every other guild as stored: the managed ids (leadership, Guild
-    Officers, each guild's lead role) must differ from each other and from every member access
-    role. A clash on a guild the table does not show (a hidden one) goes out as a page message.
+    Run on a Discord tab save only; the other tabs post no Discord ids. The site form and the
+    per guild role table post together, so the check reads both as they would be saved, with
+    every other guild as stored (:func:`role_id_conflicts` has the rules). A clash on a guild
+    the table does not show (a hidden one) goes out as a page message.
     """
     from core.events.discord_leadership_roles import role_id_conflicts
 
-    posted = {f.instance.pk: f for f in role_formset or [] if f.instance.pk is not None}
+    posted = {f.instance.pk: f for f in role_formset if f.instance.pk is not None}
     stored = {
-        pk: (lead, list(member_ids or []), name)
-        for pk, lead, member_ids, name in Guild.all_objects.values_list(
-            "pk", "discord_lead_role_id", "discord_role_ids", "name"
+        pk: (lead, list(member_ids or []), name, is_active and deleted_at is None)
+        for pk, lead, member_ids, name, is_active, deleted_at in Guild.all_objects.values_list(
+            "pk", "discord_lead_role_id", "discord_role_ids", "name", "is_active", "deleted_at"
         )
     }
-    guilds: dict[int, tuple[str, list[str]]] = {
-        pk: (lead, member_ids) for pk, (lead, member_ids, _name) in stored.items() if pk not in posted
+    guilds: dict[int, tuple[str, list[str], bool]] = {
+        pk: (lead, member_ids, live) for pk, (lead, member_ids, _name, live) in stored.items() if pk not in posted
     }
     for pk, guild_form in posted.items():
-        guilds[pk] = (guild_form.cleaned_data["discord_lead_role_id"], guild_form.cleaned_data["discord_role_ids"])
+        guilds[pk] = (
+            guild_form.cleaned_data["discord_lead_role_id"],
+            guild_form.cleaned_data["discord_role_ids"],
+            stored[pk][3],
+        )
     site_errors, guild_errors = role_id_conflicts(
         member_role_id=form.cleaned_data.get("discord_member_role_id") or "",
         leadership_role_id=form.cleaned_data.get("discord_leadership_role_id") or "",
@@ -10651,7 +10655,7 @@ def _save_site_settings(
         form.is_valid()
         and feed_formset.is_valid()
         and discord_ok
-        and not _refuse_role_id_conflicts(request, form, role_formset if is_discord else None)
+        and not (is_discord and _refuse_role_id_conflicts(request, form, role_formset))
     ):
         form.save()
         _sync_info_post_if_changed(request, form)

@@ -3,7 +3,10 @@
 Dry run by default: for every linked member whose managed roles differ from what the app says
 they should hold, one line with the roles it would add and remove, by name. A server member
 who holds a managed role but whom no linked member answers to (they unlinked, their account
-was deleted, or they were never linked) gets a line too, and ``--apply`` takes those roles off.
+was deleted, or they never linked) gets a line too, with their Discord username, marked
+"(matches unlinked app member X)" when that username is an unlinked member's typed Discord
+handle. ``--apply`` leaves those people alone; ``--apply --strip-unlinked`` also takes their
+managed roles off, except from the matched ones, who may be real leaders yet to link.
 Members who should hold a role but have no linked Discord are listed once at the end.
 ``--apply`` makes the changes and prints how many roles were added and removed, and how many
 calls failed. Reads the server's member list once (one request per thousand members), never one
@@ -31,7 +34,7 @@ from core.events.discord_leadership_roles import (
     server_id,
     strip_managed_roles,
 )
-from core.events.discord_roles import server_member_role_ids
+from core.events.discord_roles import ServerMember, server_members
 from membership.models import Member
 
 
@@ -53,6 +56,12 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--apply", action="store_true", help="Make the changes instead of listing them.")
+        parser.add_argument(
+            "--strip-unlinked",
+            action="store_true",
+            help="With --apply, also take managed roles off server members no linked member answers to "
+            "(never one whose username matches an unlinked member's Discord handle).",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         server = server_id()
@@ -61,9 +70,12 @@ class Command(BaseCommand):
         if off:
             self.stdout.write(off)
             return
-        roster = server_member_role_ids(server)
-        if roster is None:
+        if options["strip_unlinked"] and not options["apply"]:
+            raise CommandError("--strip-unlinked takes roles off people, so it needs --apply.")
+        members = server_members(server, retry=True)
+        if members is None:
             raise CommandError("Could not read the Discord server's member list; see the log for why.")
+        roster = {user_id: member.roles for user_id, member in members.items()}
 
         apply = options["apply"]
         tally = _Tally()
@@ -86,7 +98,7 @@ class Command(BaseCommand):
                 self.stdout.write(f"{member.display_name} ({user_id}): {self._describe(to_add, to_remove, settings)}")
                 if apply:
                     tally.count(reconcile_member(member, current=current, settings=settings))
-        self._strip_strangers(roster, settings, tally, apply=apply)
+        self._strangers(members, settings, tally, strip=options["strip_unlinked"])
         self._summarize(unlinked, tally, apply=apply)
 
     @staticmethod
@@ -100,19 +112,33 @@ class Command(BaseCommand):
             return "No leadership, Guild Officers or guild lead role id is set, so there is nothing to sync."
         return ""
 
-    def _strip_strangers(
-        self, roster: dict[str, set[str]], settings: LeadershipRoleSettings, tally: _Tally, *, apply: bool
+    def _strangers(
+        self, members: dict[str, ServerMember], settings: LeadershipRoleSettings, tally: _Tally, *, strip: bool
     ) -> None:
-        """Server members holding a managed role whom no linked member answers to: list them, and strip on apply."""
+        """Server members holding a managed role whom no linked member answers to; strip them when asked.
+
+        One whose username is an unlinked member's typed Discord handle is marked and never
+        stripped: they are likely a real leader who has not linked yet.
+        """
         linked = set(Member.objects.exclude(discord_user_id="").values_list("discord_user_id", flat=True))
-        for user_id in sorted(roster):
-            held = sorted(roster[user_id] & settings.managed)
+        handles: dict[str, str] = {}
+        for member in Member.objects.filter(discord_user_id="").exclude(discord_handle=""):
+            if _handle(member.discord_handle):
+                handles.setdefault(_handle(member.discord_handle), member.display_name)
+        for user_id in sorted(members):
+            server_member = members[user_id]
+            held = sorted(server_member.roles & settings.managed)
             if not held or user_id in linked:
                 continue
             tally.differing += 1
-            self.stdout.write(f"Discord account {user_id} (no linked member): {self._describe([], held, settings)}")
-            if apply:
-                tally.count(strip_managed_roles(user_id, current=roster[user_id], settings=settings))
+            match = handles.get(_handle(server_member.username))
+            marker = f" (matches unlinked app member {match})" if match else ""
+            self.stdout.write(
+                f"Discord account {server_member.username or user_id} ({user_id}), no linked member{marker}: "
+                f"{self._describe([], held, settings)}"
+            )
+            if strip and not match:
+                tally.count(strip_managed_roles(user_id, current=server_member.roles, settings=settings))
 
     @staticmethod
     def _candidates(
@@ -149,3 +175,8 @@ class Command(BaseCommand):
         if to_remove:
             parts.append("remove " + ", ".join(settings.role_name(role_id) for role_id in to_remove))
         return "; ".join(parts)
+
+
+def _handle(value: str) -> str:
+    """A Discord username or typed handle compared loosely: no leading @, no surrounding space, any case."""
+    return value.strip().lstrip("@").strip().casefold()

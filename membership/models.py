@@ -1619,6 +1619,7 @@ class Member(StaffRequestMixin, models.Model):
                 :attr:`discord_handle` **only when it is currently blank** — a handle the
                 member typed themselves is never overwritten.
         """
+        previous_id = (self.discord_user_id or "").strip()
         self.discord_user_id = discord_user_id.strip()
         self.discord_linked_at = timezone.now()
         update_fields = ["discord_user_id", "discord_linked_at"]
@@ -1626,19 +1627,20 @@ class Member(StaffRequestMixin, models.Model):
             self.discord_handle = handle.strip()
             update_fields.append("discord_handle")
         self.save(update_fields=update_fields)
-        from core.events.discord_leadership_roles import reconcile_on_commit
+        from core.events.discord_leadership_roles import reconcile_on_commit, strip_on_commit
 
+        if previous_id and previous_id != self.discord_user_id:
+            # A swapped account loses the app's roles before the new one gets them (#1148).
+            strip_on_commit(previous_id)
         reconcile_on_commit(self.pk)
 
     def unlink_discord(self) -> None:
         """Clear the linked Discord account (the member opts out of DMs entirely).
 
-        Every leadership role the app manages comes off the old account after the commit
-        (#1148): the sync skips unlinked members, so it would otherwise never take them back.
+        Their Discord leadership roles stay (#1148): disconnecting Discord stops DMs and must
+        not take a sitting lead's roles away. The role sync skips a member with no linked
+        account, so nothing is reconciled; ``sync_leadership_roles`` lists such holders.
         """
-        from core.events.discord_leadership_roles import strip_on_commit
-
-        strip_on_commit(self.discord_user_id)
         self.discord_user_id = ""
         self.discord_linked_at = None
         self.save(update_fields=["discord_user_id", "discord_linked_at"])

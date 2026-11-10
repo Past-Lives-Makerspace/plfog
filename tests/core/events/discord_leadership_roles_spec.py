@@ -28,6 +28,7 @@ from core.events.discord_leadership_roles import (
     role_id_conflicts,
     strip_leadership_roles,
     strip_managed_roles,
+    strip_on_commit,
 )
 from core.models import SiteConfiguration
 from membership.models import GuildStaffMembership, LeadershipTab, Member
@@ -486,7 +487,7 @@ def describe_rate_limits():
         route = respx.put(url__regex=r".+").mock(
             side_effect=[httpx.Response(429, headers={"Retry-After": "2.5"}), httpx.Response(204)]
         )
-        assert discord_roles.role_outcome("PUT", "srv", "u1", "1") is discord_roles.RoleOutcome.DONE
+        assert discord_roles.role_outcome("PUT", "srv", "u1", "1", retry=True) is discord_roles.RoleOutcome.DONE
         assert route.call_count == 2
         assert no_wait == [2.5]
 
@@ -495,7 +496,7 @@ def describe_rate_limits():
         respx.put(url__regex=r".+").mock(
             side_effect=[httpx.Response(429, json={"retry_after": 60}), httpx.Response(204)]
         )
-        discord_roles.role_outcome("PUT", "srv", "u1", "1")
+        discord_roles.role_outcome("PUT", "srv", "u1", "1", retry=True)
         assert no_wait == [10.0]
 
     @respx.mock
@@ -511,7 +512,7 @@ def describe_rate_limits():
             ]
         )
         for _ in range(3):
-            assert discord_roles.role_outcome("PUT", "srv", "u1", "1") is discord_roles.RoleOutcome.DONE
+            assert discord_roles.role_outcome("PUT", "srv", "u1", "1", retry=True) is discord_roles.RoleOutcome.DONE
         assert no_wait == [1.0, 1.0, 1.0]
 
     def it_really_waits_outside_specs(monkeypatch):
@@ -522,15 +523,26 @@ def describe_rate_limits():
 
     @respx.mock
     def it_fails_after_a_second_429(no_wait):
-        respx.delete(url__regex=r".+").mock(return_value=httpx.Response(429))
-        assert discord_roles.role_outcome("DELETE", "srv", "u1", "1") is discord_roles.RoleOutcome.FAILED
-        assert discord_roles.remove_role("srv", "u1", "1") is False
+        route = respx.delete(url__regex=r".+").mock(return_value=httpx.Response(429))
+        assert discord_roles.role_outcome("DELETE", "srv", "u1", "1", retry=True) is discord_roles.RoleOutcome.FAILED
+        assert route.call_count == 2
 
     @respx.mock
-    def it_calls_a_403_and_a_blank_id_benign_and_a_5xx_failed():
+    def it_fails_fast_without_waiting_unless_asked(no_wait):
+        route = respx.delete(url__regex=r".+").mock(return_value=httpx.Response(429))
+        respx.get(f"{API}/guilds/srv/members/u1").mock(return_value=httpx.Response(429))
+        assert discord_roles.role_outcome("DELETE", "srv", "u1", "1") is discord_roles.RoleOutcome.FAILED
+        assert discord_roles.remove_role("srv", "u1", "1") is False
+        assert discord_roles.read_member_roles("srv", "u1").failed
+        assert route.call_count == 2
+        assert no_wait == []
+
+    @respx.mock
+    def it_calls_a_403_refused_a_blank_id_benign_and_a_5xx_failed():
         respx.put(f"{API}/guilds/srv/members/u1/roles/1").mock(return_value=httpx.Response(403))
         respx.put(f"{API}/guilds/srv/members/u1/roles/2").mock(return_value=httpx.Response(503))
-        assert discord_roles.role_outcome("PUT", "srv", "u1", "1") is discord_roles.RoleOutcome.BENIGN
+        assert discord_roles.role_outcome("PUT", "srv", "u1", "1") is discord_roles.RoleOutcome.REFUSED
+        assert discord_roles.assign_role("srv", "u1", "1") is False
         assert discord_roles.role_outcome("PUT", "srv", "", "1") is discord_roles.RoleOutcome.BENIGN
         assert discord_roles.role_outcome("PUT", "srv", "u1", "2") is discord_roles.RoleOutcome.FAILED
 
@@ -541,16 +553,35 @@ def describe_rate_limits():
         )
         respx.get(f"{API}/guilds/srv/members/u2").mock(return_value=httpx.Response(404))
         respx.get(f"{API}/guilds/srv/members/u3").mock(return_value=httpx.Response(500))
-        assert discord_roles.read_member_roles("srv", "u1") == discord_roles.RolesRead({"5"})
+        assert discord_roles.read_member_roles("srv", "u1", retry=True) == discord_roles.RolesRead({"5"})
         assert discord_roles.read_member_roles("srv", "u2") == discord_roles.RolesRead(None)
         assert discord_roles.read_member_roles("srv", "u3") == discord_roles.RolesRead(None, failed=True)
 
     @respx.mock
-    def it_keeps_the_join_and_leave_sync_from_ever_raising(no_wait):
+    def it_keeps_the_join_and_leave_sync_from_raising_or_waiting(no_wait):
         member = MemberFactory(discord_user_id="u1")
-        guild = GuildFactory(discord_role_ids=["5"])
-        respx.put(url__regex=r".+").mock(return_value=httpx.Response(429))
+        guild = GuildFactory(discord_role_ids=["5", "6"])
+        put = respx.put(url__regex=r".+").mock(
+            side_effect=[httpx.Response(429, headers={"Retry-After": "3"}), httpx.Response(403)]
+        )
         discord_roles.on_membership_changed(guild, member, joined=True)
+        assert put.call_count == 2
+        assert no_wait == []
+
+
+def describe_server_members():
+    @respx.mock
+    def it_reads_each_members_username_and_roles():
+        respx.get(f"{API}/guilds/srv/members").mock(
+            return_value=httpx.Response(
+                200, json=[{"user": {"id": "1", "username": "amber"}, "roles": ["5"]}, {"user": {"id": "2"}}]
+            )
+        )
+        found = discord_roles.server_members("srv")
+        assert found == {
+            "1": discord_roles.ServerMember(username="amber", roles={"5"}),
+            "2": discord_roles.ServerMember(username="", roles=set()),
+        }
 
 
 def describe_member_access_roles():
@@ -586,6 +617,43 @@ def describe_failing_tasks():
         respx.get(f"{API}/guilds/srv/members/u1").mock(return_value=httpx.Response(500))
         with pytest.raises(LeadershipRoleSyncError, match="Could not read"):
             reconcile_leadership_roles.call(member.pk)
+
+
+def describe_refused_roles():
+    @respx.mock
+    def it_fails_the_reconcile_task_on_a_403():
+        member = MemberFactory(discord_user_id="u1")
+        LeadershipListingFactory(member=member)
+        _member_get("u1", [])
+        respx.put(url__regex=r".+").mock(return_value=httpx.Response(403))
+        with pytest.raises(LeadershipRoleSyncError, match=LEADERSHIP):
+            reconcile_leadership_roles.call(member.pk)
+
+    @respx.mock
+    def it_fails_the_retire_task_on_a_403():
+        respx.get(f"{API}/guilds/srv/members").mock(
+            return_value=httpx.Response(200, json=[{"user": {"id": "u1"}, "roles": ["777"]}])
+        )
+        respx.delete(url__regex=r".+").mock(return_value=httpx.Response(403))
+        with pytest.raises(LeadershipRoleSyncError):
+            remove_retired_role.call("777")
+
+
+def describe_benign_outcomes():
+    @respx.mock
+    def it_counts_a_member_who_left_mid_reconcile_as_through():
+        member = MemberFactory(discord_user_id="u1")
+        LeadershipListingFactory(member=member)
+        _member_get("u1", [])
+        respx.put(url__regex=r".+").mock(return_value=httpx.Response(404))
+        changes = reconcile_member(member)
+        assert changes.ok
+        assert changes.added == []
+
+    def it_queues_no_strip_for_a_blank_discord_id(django_capture_on_commit_callbacks):
+        with django_capture_on_commit_callbacks() as callbacks:
+            strip_on_commit("  ")
+        assert callbacks == []
 
 
 def describe_strip_managed_roles():
@@ -632,7 +700,7 @@ def describe_role_id_conflicts():
             "member_role_id": "1",
             "leadership_role_id": "10",
             "guild_officers_role_id": "20",
-            "guilds": {1: ("30", ["2"]), 2: ("40", ["3"])},
+            "guilds": {1: ("30", ["2"], True), 2: ("40", ["3"], True)},
         }
         values.update(overrides)
         return role_id_conflicts(**values)  # type: ignore[arg-type]
@@ -649,9 +717,26 @@ def describe_role_id_conflicts():
         assert "own role" in site["discord_guild_officers_role_id"]
 
     def it_refuses_lead_ids_that_clash():
-        _site, guilds = _check(guilds={1: ("2", ["2"]), 2: ("10", []), 3: ("30", []), 4: ("30", []), 5: ("", [])})
+        _site, guilds = _check(
+            guilds={
+                1: ("2", ["2"], True),
+                2: ("10", [], True),
+                3: ("30", [], True),
+                4: ("30", [], True),
+                5: ("", [], True),
+            }
+        )
         assert set(guilds) == {1, 2, 4}
         assert "Another guild" in guilds[4]
+
+    def it_lets_a_hidden_or_deleted_guilds_old_lead_id_be_reused():
+        _site, guilds = _check(guilds={1: ("30", [], False), 2: ("30", [], True), 3: ("30", [], False)})
+        assert guilds == {}
+
+    def it_still_checks_a_hidden_guilds_member_roles_and_lead_against_access():
+        site, guilds = _check(leadership_role_id="9", guilds={1: ("1", ["9"], False)})
+        assert set(site) == {"discord_leadership_role_id"}
+        assert set(guilds) == {1}
 
 
 def describe_scan_fallback():

@@ -72,10 +72,17 @@ def _request(method: str, url: str, params: dict[str, str | int] | None) -> http
         return None
 
 
-def _send(method: str, url: str, params: dict[str, str | int] | None = None) -> httpx.Response | None:
-    """One bot request, retried once after a 429's wait. None on a network error. Never raises."""
+def _send(
+    method: str, url: str, params: dict[str, str | int] | None = None, *, retry: bool = False
+) -> httpx.Response | None:
+    """One bot request. None on a network error. Never raises.
+
+    With ``retry`` a 429 is waited out and tried once more. Off by default, because the web
+    requests that call these helpers (guild join and leave, ``/join-guild``) must answer at
+    once; only background work (the leadership role tasks and command) opts in.
+    """
     response = _request(method, url, params)
-    if response is not None and response.status_code == 429:
+    if retry and response is not None and response.status_code == 429:
         _sleep(_retry_after(response))
         response = _request(method, url, params)
     return response
@@ -85,22 +92,25 @@ class RoleOutcome(StrEnum):
     """What a role PUT or DELETE came to."""
 
     DONE = "done"
-    #: Nothing to do or nothing worth retrying: blank token or id, 403 (bot role too low), 404 (they left).
+    #: Nothing to do: a blank token or id, or a 404 (they left the server).
     BENIGN = "benign"
+    #: A 403: the bot lacks Manage Roles or its role sits below the target role. Benign for
+    #: the join and leave sync, a setup mistake worth reporting for the leadership roles.
+    REFUSED = "refused"
     #: Worth reporting: a network error, a 429 after the retry, a 5xx or another error.
     FAILED = "failed"
 
 
-def role_outcome(method: str, server_id: str, user_id: str, role_id: str) -> RoleOutcome:
+def role_outcome(method: str, server_id: str, user_id: str, role_id: str, *, retry: bool = False) -> RoleOutcome:
     """Issue one PUT/DELETE against a member's role and say how it went. Never raises.
 
-    A 429 is waited out (``Retry-After``, at most 10 seconds) and retried once. A 404 (the
-    member left the server) and a 403 (bot missing Manage Roles, or its role sits below the
-    target role) are benign: logged, nothing to retry.
+    With ``retry`` a 429 is waited out (``Retry-After``, at most 10 seconds) and tried once
+    more. A 404 (the member left the server) is benign; a 403 (bot missing Manage Roles, or
+    its role sits below the target role) is ``REFUSED``. Both are logged.
     """
     if bot_disabled(f"role {method}") or not server_id or not user_id or not role_id:
         return RoleOutcome.BENIGN
-    response = _send(method, f"{API_BASE}/guilds/{server_id}/members/{user_id}/roles/{role_id}")
+    response = _send(method, f"{API_BASE}/guilds/{server_id}/members/{user_id}/roles/{role_id}", retry=retry)
     if response is None:
         return RoleOutcome.FAILED
     if response.is_success:
@@ -112,13 +122,13 @@ def role_outcome(method: str, server_id: str, user_id: str, role_id: str) -> Rol
             response.status_code,
             role_id,
         )
-        return RoleOutcome.BENIGN
+        return RoleOutcome.REFUSED if response.status_code == 403 else RoleOutcome.BENIGN
     logger.warning("Discord role %s failed: %s %s", method, response.status_code, response.text[:300])
     return RoleOutcome.FAILED
 
 
 def _role_request(method: str, server_id: str, user_id: str, role_id: str) -> bool:
-    """Issue one PUT/DELETE against a member's role. Best-effort: ``True`` only on a 2xx, never raises."""
+    """Issue one PUT/DELETE against a member's role. Best-effort: ``True`` only on a 2xx, never raises or waits."""
     return role_outcome(method, server_id, user_id, role_id) is RoleOutcome.DONE
 
 
@@ -144,7 +154,7 @@ class RolesRead:
     failed: bool = False
 
 
-def read_member_roles(server_id: str, user_id: str) -> RolesRead:
+def read_member_roles(server_id: str, user_id: str, *, retry: bool = False) -> RolesRead:
     """The role ids ``user_id`` holds on ``server_id`` (``GET /guilds/{id}/members/{user}``). Never raises.
 
     ``roles`` is None when nothing can be read. That is quiet (``failed`` False) for a blank
@@ -154,7 +164,7 @@ def read_member_roles(server_id: str, user_id: str) -> RolesRead:
     """
     if bot_disabled("member roles read") or not server_id or not user_id:
         return RolesRead(None)
-    response = _send("GET", f"{API_BASE}/guilds/{server_id}/members/{user_id}")
+    response = _send("GET", f"{API_BASE}/guilds/{server_id}/members/{user_id}", retry=retry)
     if response is not None and response.status_code == 404:
         return RolesRead(None)
     body = _json_body(response)
@@ -182,29 +192,52 @@ def _json_body(response: httpx.Response | None) -> object | None:
         return None
 
 
-def server_member_role_ids(server_id: str) -> dict[str, set[str]] | None:
-    """Every member of ``server_id`` as ``{Discord user id: role ids}``, paging 1000 at a time. Never raises.
+@dataclass(frozen=True)
+class ServerMember:
+    """One member of the Discord server as the member list gives it."""
+
+    username: str
+    roles: set[str]
+
+
+def server_members(server_id: str, *, retry: bool = False) -> dict[str, ServerMember] | None:
+    """Every member of ``server_id`` by Discord user id, paging 1000 at a time. Never raises.
 
     One request per thousand members instead of one per member. Empty when the bot token
     or the server id is blank (nothing to do). None when any page cannot be read (a network
-    error, a 429 after the retry, a non-2xx such as a 403 when the Server Members intent is
-    off), so a caller never mistakes a partial list for the server and can report the failure.
+    error, a 429, a non-2xx such as a 403 when the Server Members intent is off), so a caller
+    never mistakes a partial list for the server and can report the failure.
     """
     if bot_disabled("member list") or not server_id:
         return {}
-    found: dict[str, set[str]] = {}
+    found: dict[str, ServerMember] = {}
     after = "0"
     while True:
         page = _json_body(
-            _send("GET", f"{API_BASE}/guilds/{server_id}/members", {"limit": _MEMBERS_PAGE_SIZE, "after": after})
+            _send(
+                "GET",
+                f"{API_BASE}/guilds/{server_id}/members",
+                {"limit": _MEMBERS_PAGE_SIZE, "after": after},
+                retry=retry,
+            )
         )
         if not isinstance(page, list):
             return None
         for entry in page:
-            found[str(entry["user"]["id"])] = {str(role_id) for role_id in entry.get("roles", [])}
+            user = entry["user"]
+            found[str(user["id"])] = ServerMember(
+                username=str(user.get("username", "")),
+                roles={str(role_id) for role_id in entry.get("roles", [])},
+            )
         if len(page) < _MEMBERS_PAGE_SIZE:
             return found
         after = str(page[-1]["user"]["id"])
+
+
+def server_member_role_ids(server_id: str, *, retry: bool = False) -> dict[str, set[str]] | None:
+    """Every member of ``server_id`` as ``{Discord user id: role ids}`` (:func:`server_members`)."""
+    members = server_members(server_id, retry=retry)
+    return None if members is None else {user_id: member.roles for user_id, member in members.items()}
 
 
 def on_membership_changed(guild: Guild, member: Member, *, joined: bool) -> None:
