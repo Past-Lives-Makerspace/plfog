@@ -1,8 +1,8 @@
 """BDD specs for the Reservations page's Bookings tab (#627).
 
 Who sees which rows (a member only their own, cancelled ones included; a manager the equipment
-they manage plus their own; an admin and the EQUIPMENT holder everything; an officer with no
-equipment role only their own), each row's "..." menu per role and state, the guarded sort and
+they manage plus their own; an admin and the EQUIPMENT holder everything; a lead whose guild
+owns no equipment only their own), each row's "..." menu per role and state, the guarded sort and
 dates, the lazy pane, the preview rule, and the cancel endpoint landing back on the tab. Member
 names are factory strings no changelog could contain (STANDARDS.md §8).
 """
@@ -215,7 +215,7 @@ def describe_a_member_who_manages_nothing():
         assert "data-bookings-empty" in content
 
 
-def describe_managers_officers_and_admins():
+def describe_managers_leads_and_admins():
     def it_shows_a_manager_their_equipment_and_their_own_and_nothing_else(client: Client):
         manager, tool = _manager(client)
         managed = _reservation(tool, name="Mira Managedrow")
@@ -242,9 +242,10 @@ def describe_managers_officers_and_admins():
         GuildStaffMembershipFactory(guild=guild, member=staff, role=GuildStaffMembership.Role.TREASURER)
         assert _in_table(_tab(client), owned)
 
-    def it_gives_an_officer_without_equipment_roles_only_their_own(client: Client):
-        officer = _login(client, "rt_officer", fog_role=Member.FogRole.GUILD_OFFICER)
-        mine = _reservation(member=officer)
+    def it_gives_a_lead_whose_guild_owns_no_equipment_only_their_own(client: Client):
+        runner = _login(client, "rt_toolless_lead")
+        GuildFactory(guild_lead=runner)
+        mine = _reservation(member=runner)
         other = _reservation(EquipmentFactory(guild=GuildFactory()))
         content = _tab(client)
         assert 'data-bookings-pane="member"' in content
@@ -278,12 +279,12 @@ def describe_managers_officers_and_admins():
         assert stranger.status == EquipmentReservation.Status.CANCELLED
 
     def it_reads_the_menu_s_managed_set_the_way_the_list_does(client: Client):
-        # An admin previewing as an officer: no capability in the list, so their own row on
-        # equipment they do not otherwise run gets the member menu, not the staff one.
-        admin = _login(client, "rt_preview_officer", fog_role=Member.FogRole.ADMIN)
+        # An admin previewing as a member who leads a guild: no capability in the list, so their own
+        # row on equipment they do not otherwise run gets the member menu, not the staff one.
+        admin = _login(client, "rt_preview_lead", fog_role=Member.FogRole.ADMIN)
         admin.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
         session = client.session
-        session["view_as_role"] = "guild_officer"
+        session["view_as_role"] = "member"
         session.save()
         lead_tool = EquipmentFactory(guild=GuildFactory(guild_lead=admin))
         own = _reservation(EquipmentFactory(name="Unrun Kiln"), member=admin)

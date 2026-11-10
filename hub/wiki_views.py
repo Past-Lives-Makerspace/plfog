@@ -754,7 +754,7 @@ def _create_page_from_form(
     rather than a second one written out here. It matters: ``can_moderate_wiki_scope`` is
     true for any ``GuildStaffMembership`` row, so deciding "published or not" on that
     alone let a guild orientor, secretary or treasurer create a page wearing the Official
-    chip — which brief §4 and §5.2 lock to admins and officers. Routing through
+    chip — which brief §4 and §5.2 lock to admins (ADR 0004 retired the officer role that shared it). Routing through
     ``publish_proposal`` gives the create path exactly the outcomes the queue already
     gives: effective staff land Official, a guild lead or staff land Guild verified, and
     everyone else stays a held proposal for a second read.
@@ -2303,7 +2303,7 @@ def hub_wiki_revert(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
     revert rewrites the page's title, body and facts wholesale — it is an edit, and the
     edit gate is the one that keeps Official content away from a guild's staff. Without
     it a guild treasurer refused the Edit button on a safety policy could open History and
-    rewrite the whole thing with the Official chip still on it, no officer involved.
+    rewrite the whole thing with the Official chip still on it, no admin involved.
     ``revert_to`` deliberately does not touch ``status``, so nothing downstream catches it.
     """
     page = _page_or_none(slug)

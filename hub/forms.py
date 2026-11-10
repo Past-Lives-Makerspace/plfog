@@ -561,13 +561,13 @@ class ProfileSettingsForm(MemberPhotoFormBase):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        # Admins, Guild Officers, Guild Leads, and Instructors are always listed —
+        # Admins, Guild Leads, Guild Staff, and Instructors are always listed —
         # the field gets force-true on save and is shown disabled with a note.
         if self.instance and self.instance.pk and self.instance.must_be_listed_in_directory:
             field = self.fields["show_in_directory"]
             field.disabled = True
             field.initial = True
-            field.help_text = "Your role (admin, officer, guild lead, or instructor) requires a public profile."
+            field.help_text = "Your role (admin, guild lead, guild staff, or instructor) requires a public profile."
 
         current = self.instance.directory_visibility if self.instance and self.instance.pk else {}
         for field_name in Member.DIRECTORY_TOGGLEABLE_FIELDS:
@@ -1188,7 +1188,6 @@ class MemberAdminEditForm(forms.ModelForm):
 
     ROLE_CHOICES: list[tuple[str, str]] = [
         (Member.FogRole.ADMIN, "Admin"),
-        (Member.FogRole.GUILD_OFFICER, "Guild Officer"),
         (Member.FogRole.MEMBER, "Member"),
         (Member.ADMIN_ROLE_GUEST, "Guest"),
     ]
@@ -1197,7 +1196,7 @@ class MemberAdminEditForm(forms.ModelForm):
         choices=ROLE_CHOICES,
         label="Role",
         help_text=(
-            "Admin / Guild Officer / Member set the hierarchy role. "
+            "Admin / Member set the hierarchy role. Guild authority comes from leading or staffing a guild. "
             "Guest deactivates the member (no hub access). "
             "Instructor is now a permission on the Permissions tab, not a role."
         ),

@@ -3,12 +3,12 @@
 See docs/superpowers/plans/2026-04-09-funding-snapshot-overhaul.md.
 
 The schema already makes ``Member.member_type`` and ``Member.fog_role`` fully
-orthogonal fields — a guild officer can be work-trade, an admin can be an
+orthogonal fields — an admin can be work-trade or an
 employee, etc. These specs prove that:
 
-1. Non-paying officer votes count toward guild allocation but don't contribute
+1. Non-paying admin votes (work-trade, employee) count toward guild allocation but don't contribute
    to the funding pool.
-2. Paying officer votes count toward both.
+2. Paying admin votes count toward both.
 3. The $1,000 minimum pool floor kicks in correctly at the boundaries.
 4. ``raw_votes`` is populated with denormalized role info so the analyzer can
    re-slice historical snapshots.
@@ -35,39 +35,25 @@ def three_guilds(db):
 
 @pytest.mark.django_db
 def describe_snapshot_with_mixed_roles():
-    def it_counts_non_paying_officer_votes_for_allocation_not_pool(three_guilds):
+    def it_counts_a_work_trade_admins_vote_for_allocation_with_the_pool_at_the_floor(three_guilds):
         g1, g2, g3 = three_guilds
-        officer = MemberFactory(
+        admin = MemberFactory(
             member_type=Member.MemberType.WORK_TRADE,
-            fog_role=Member.FogRole.GUILD_OFFICER,
-            full_legal_name="Oscar Officer",
+            fog_role=Member.FogRole.ADMIN,
+            full_legal_name="Oscar Admin",
         )
-        VotePreferenceFactory(member=officer, guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
+        VotePreferenceFactory(member=admin, guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
 
         snap = FundingSnapshot.take(minimum_pool=Decimal("1000"))
 
         assert snap is not None
-        # Officer is non-paying → contributor_count=0, contributed pool=0
+        # Admin is non-paying → contributor_count=0, contributed pool=0
         assert snap.contributor_count == 0
         # But their vote drives the allocation
         assert snap.results["votes_cast"] == 1
         # Pool is at the floor
         assert snap.funding_pool == Decimal("1000.00")
         assert snap.minimum_pool == Decimal("1000.00")
-
-    def it_counts_paying_officer_contribution_to_pool(three_guilds):
-        g1, g2, g3 = three_guilds
-        officer = MemberFactory(
-            member_type=Member.MemberType.STANDARD,
-            fog_role=Member.FogRole.GUILD_OFFICER,
-        )
-        VotePreferenceFactory(member=officer, guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
-
-        snap = FundingSnapshot.take(minimum_pool=Decimal("0"))
-
-        assert snap is not None
-        assert snap.contributor_count == 1
-        assert snap.funding_pool == Decimal("10.00")
 
     def it_counts_paying_admin_contribution_to_pool(three_guilds):
         g1, g2, g3 = three_guilds
@@ -145,7 +131,7 @@ def describe_snapshot_with_mixed_roles():
         g1, g2, g3 = three_guilds
         officer = MemberFactory(
             member_type=Member.MemberType.WORK_TRADE,
-            fog_role=Member.FogRole.GUILD_OFFICER,
+            fog_role=Member.FogRole.ADMIN,
             full_legal_name="Alice Officer",
         )
         paying = MemberFactory(
@@ -164,7 +150,7 @@ def describe_snapshot_with_mixed_roles():
 
         alice = by_name["Alice Officer"]
         assert alice["member_type"] == Member.MemberType.WORK_TRADE
-        assert alice["fog_role"] == Member.FogRole.GUILD_OFFICER
+        assert alice["fog_role"] == Member.FogRole.ADMIN
         assert alice["is_paying"] is False
         assert alice["guild_1st_name"] == "Ceramics"
 

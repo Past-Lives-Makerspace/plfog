@@ -9,10 +9,17 @@ from __future__ import annotations
 
 import pytest
 
-from membership.models import Member
+from membership.models import GuildStaffMembership, Member
 from tests.membership.factories import GuildFactory, MemberFactory
 
 pytestmark = pytest.mark.django_db
+
+
+def _staffer(**fields: object) -> Member:
+    """A member who holds a staff row (Secretary) on a guild they do not lead."""
+    member = MemberFactory(**fields)
+    GuildStaffMembership.objects.create(guild=GuildFactory(), member=member, role=GuildStaffMembership.Role.SECRETARY)
+    return member
 
 
 def describe_directory_visible():
@@ -28,8 +35,8 @@ def describe_directory_visible():
         member = MemberFactory(show_in_directory=False, fog_role=Member.FogRole.ADMIN)
         assert member in Member.objects.directory_visible()
 
-    def it_includes_an_opted_out_guild_officer():
-        member = MemberFactory(show_in_directory=False, fog_role=Member.FogRole.GUILD_OFFICER)
+    def it_includes_an_opted_out_guild_staffer():
+        member = _staffer(show_in_directory=False)
         assert member in Member.objects.directory_visible()
 
     def it_includes_an_opted_out_guild_lead():
@@ -61,8 +68,8 @@ def describe_directory_visible():
         member = MemberFactory(show_in_directory=False, fog_role=Member.FogRole.ADMIN, hide_from_directory=True)
         assert member not in Member.objects.directory_visible()
 
-    def it_excludes_a_hidden_guild_officer():
-        member = MemberFactory(show_in_directory=False, fog_role=Member.FogRole.GUILD_OFFICER, hide_from_directory=True)
+    def it_excludes_a_hidden_guild_staffer():
+        member = _staffer(show_in_directory=False, hide_from_directory=True)
         assert member not in Member.objects.directory_visible()
 
     def it_excludes_a_hidden_guild_lead():

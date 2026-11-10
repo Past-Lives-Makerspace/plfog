@@ -106,9 +106,10 @@ def describe_an_active_member():
         assert b"data-door-code-form" not in content
         assert b"Quillon Setter" not in content
 
-    def it_sees_the_code_as_a_guild_officer_too(client: Client):
+    def it_sees_the_code_as_a_guild_lead_too(client: Client):
         _set_code()
-        _login(client, "doorofficer", fog_role=Member.FogRole.GUILD_OFFICER)
+        user = _login(client, "doorlead_sees")
+        GuildFactory(guild_lead=user.member)
 
         content = client.get(HOME).content
 
@@ -534,13 +535,9 @@ def describe_saving_a_new_code():
 
 
 def describe_a_crafted_post_from_a_non_admin():
-    @pytest.mark.parametrize(
-        "fog_role",
-        [Member.FogRole.MEMBER, Member.FogRole.GUILD_OFFICER],
-    )
-    def it_is_refused_and_changes_nothing(client: Client, fog_role: str):
+    def it_is_refused_and_changes_nothing(client: Client):
         _set_code("1111#")
-        _login(client, f"doorcraft{fog_role}", fog_role=fog_role)
+        _login(client, "doorcraftmember")
 
         response = client.post(SAVE, {"door_code": FAKE_CODE})
 

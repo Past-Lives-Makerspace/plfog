@@ -226,7 +226,7 @@ def _guild_tab(guild: Guild) -> str:
 @login_required
 @require_POST
 def guild_poll_new(request: HttpRequest, slug: str) -> HttpResponse:
-    """Open a guild poll now (#925 AC 7, 8): this guild's leads, staff, officers and admins only.
+    """Open a guild poll now (#925 AC 7, 8): this guild's leads, staff and admins only.
 
     A refusal (a field is wrong, or the guild already has a poll open) comes back on the Polls
     tab as an error message; the browser's own checks on the form catch the common mistakes first.

@@ -133,12 +133,6 @@ def describe_equipment_sheet_access():
         _login(client, "eq_plain")
         assert _statuses(client, _equipment_urls(equipment)) == [403, 403, 403]
 
-    def it_forbids_a_guild_officer_who_runs_nothing_here(client: Client):
-        # Officers get no blanket equipment grant (can_manage_equipment's site tier is admin only).
-        equipment = _tool()
-        _login(client, "eq_officer", fog_role=Member.FogRole.GUILD_OFFICER)
-        assert _statuses(client, _equipment_urls(equipment)) == [403, 403, 403]
-
     def it_forbids_the_lead_of_another_guild(client: Client):
         equipment = _tool()
         GuildFactory(name="Qrsheet Elsewhere", guild_lead=_login(client, "eq_other_lead"))
@@ -325,10 +319,9 @@ def describe_orientation_sheet_access_for_a_guild_type():
         GuildStaffMembershipFactory(guild=orientation_type.guild, member=_login(client, "ot_staff"))
         assert _statuses(client, _type_urls(orientation_type)) == [200, 200, 200]
 
-    @pytest.mark.parametrize("fog_role", [Member.FogRole.ADMIN, Member.FogRole.GUILD_OFFICER])
-    def it_opens_to_admins_and_officers(client: Client, fog_role: str):
+    def it_opens_to_admins(client: Client):
         orientation_type = _guild_type()
-        _login(client, f"ot_{fog_role}", fog_role=fog_role)
+        _login(client, "ot_admin", fog_role=Member.FogRole.ADMIN)
         assert _statuses(client, _type_urls(orientation_type)) == [200, 200, 200]
 
     def it_forbids_a_plain_member(client: Client):
@@ -368,9 +361,9 @@ def describe_orientation_sheet_access_for_a_tool_type():
         _login(client, "tt_plain")
         assert _statuses(client, _type_urls(orientation_type)) == [403, 403, 403]
 
-    def it_forbids_a_guild_officer(client: Client):
+    def it_forbids_the_lead_of_a_guild_that_does_not_own_the_tool(client: Client):
         orientation_type = _tool_type()
-        _login(client, "tt_officer", fog_role=Member.FogRole.GUILD_OFFICER)
+        GuildFactory(name="Qrsheet Toolless Guild", guild_lead=_login(client, "tt_other_lead"))
         assert _statuses(client, _type_urls(orientation_type)) == [403, 403, 403]
 
     def it_forbids_the_staff_of_another_tool(client: Client):

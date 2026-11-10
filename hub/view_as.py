@@ -4,7 +4,10 @@ A user's *actual* roles are derived from ``member.fog_role``. Admins can pick
 a *view-as* role via the topbar dropdown — the picked role name is stored in
 ``request.session["view_as_role"]``.
 
-Hierarchy roles are a linear ladder: admin > guild_officer > member.
+Hierarchy roles are a linear ladder: admin > member. There is no guild officer
+rung (ADR 0004): guild authority comes from leading or staffing a guild, which a
+member keeps under any preview. A session still holding the retired
+``"guild_officer"`` pick is ignored and reads as the user's actual roles.
 Effective roles are every role from the user's actual set that sits at or
 below the picked role. When no role is picked (or the picked role is the
 user's highest), effective == actual.
@@ -28,17 +31,15 @@ if TYPE_CHECKING:
 _ViewFunc = Callable[..., "HttpResponseBase"]
 
 ROLE_MEMBER = "member"
-ROLE_GUILD_OFFICER = "guild_officer"
 ROLE_ADMIN = "admin"
 ROLE_GUEST = "guest"
 
-ALL_ROLES: frozenset[str] = frozenset({ROLE_MEMBER, ROLE_GUILD_OFFICER, ROLE_ADMIN, ROLE_GUEST})
+ALL_ROLES: frozenset[str] = frozenset({ROLE_MEMBER, ROLE_ADMIN, ROLE_GUEST})
 
-ROLE_HIERARCHY: tuple[str, ...] = (ROLE_MEMBER, ROLE_GUILD_OFFICER, ROLE_ADMIN)
+ROLE_HIERARCHY: tuple[str, ...] = (ROLE_MEMBER, ROLE_ADMIN)
 
 ROLE_LABELS: tuple[tuple[str, str], ...] = (
     (ROLE_ADMIN, "Admin"),
-    (ROLE_GUILD_OFFICER, "Guild Officer"),
     (ROLE_MEMBER, "Member"),
     (ROLE_GUEST, "Guest"),
 )
@@ -63,13 +64,11 @@ def compute_actual_roles(user: "AbstractBaseUser | AnonymousUser | None") -> fro
     roles: set[str] = set()
     if member is not None and member.status == MemberModel.Status.ACTIVE:
         if member.fog_role == MemberModel.FogRole.ADMIN:
-            roles.update({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER})
-        elif member.fog_role == MemberModel.FogRole.GUILD_OFFICER:
-            roles.update({ROLE_GUILD_OFFICER, ROLE_MEMBER})
+            roles.update({ROLE_ADMIN, ROLE_MEMBER})
         else:
             roles.add(ROLE_MEMBER)
     if getattr(user, "is_superuser", False):
-        roles.update({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER})
+        roles.update({ROLE_ADMIN, ROLE_MEMBER})
     if not roles:
         roles.add(ROLE_GUEST)
     return frozenset(roles)
@@ -101,7 +100,7 @@ def _read_picked_role(session, actual: frozenset[str]) -> str | None:  # noqa: A
         return None
     if raw in actual:
         return raw
-    if ROLE_ADMIN in actual and raw in {ROLE_GUEST, ROLE_MEMBER, ROLE_GUILD_OFFICER, ROLE_ADMIN}:
+    if ROLE_ADMIN in actual and raw in ALL_ROLES:
         return raw
     return None
 
@@ -136,14 +135,6 @@ class ViewAs:
         return self.has_actual(ROLE_ADMIN)
 
     @property
-    def actual_is_guild_officer(self) -> bool:
-        return self.has_actual(ROLE_GUILD_OFFICER)
-
-    @property
-    def is_guild_officer(self) -> bool:
-        return self.has(ROLE_GUILD_OFFICER)
-
-    @property
     def is_member(self) -> bool:
         return self.has(ROLE_MEMBER)
 
@@ -171,13 +162,9 @@ class ViewAs:
     def show_dropdown(self) -> bool:
         """The "Viewing as" dropdown is for users who can preview other roles.
 
-        Admins can preview every role. Guild officers can downgrade to Member.
-        Plain members and guests don't see it.
+        Admins can preview every role. Plain members and guests don't see it.
         """
-        if ROLE_ADMIN in self.actual:
-            return True
-        hierarchy_roles = self.actual & frozenset(ROLE_HIERARCHY)
-        return len(hierarchy_roles - {ROLE_MEMBER}) > 0
+        return ROLE_ADMIN in self.actual
 
     @property
     def current_label(self) -> str:

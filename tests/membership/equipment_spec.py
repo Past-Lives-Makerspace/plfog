@@ -356,9 +356,10 @@ def describe_member_can_manage_equipment():
         GuildFactory(guild_lead=lead)
         assert lead.can_manage_equipment(EquipmentFactory(guild=GuildFactory())) is False
 
-    def it_denies_a_guild_officer_without_a_grant():
-        officer = MemberFactory(fog_role=Member.FogRole.GUILD_OFFICER)
-        assert officer.can_manage_equipment(EquipmentFactory()) is False
+    def it_denies_the_lead_of_another_guild_without_a_grant():
+        lead = MemberFactory()
+        GuildFactory(guild_lead=lead)
+        assert lead.can_manage_equipment(EquipmentFactory(guild=GuildFactory())) is False
 
 
 def describe_member_can_create_equipment():

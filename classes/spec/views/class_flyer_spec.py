@@ -10,7 +10,7 @@ from django.utils.timezone import localtime
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, SeriesClassOfferingFactory, UserFactory
 from classes.models import ClassOffering
-from membership.models import Member
+from membership.models import GuildStaffMembership, Member
 from tests.membership.factories import GuildFactory
 
 Status = ClassOffering.Status
@@ -22,8 +22,8 @@ ARTIFACTS = [
     pytest.param(lambda pk: reverse("classes:class_qr", args=[pk, "png"]), id="qr-png"),
 ]
 # Every editor can_edit_class admits who is not an admin: each is a distinct leg of that
-# helper (instructor, guild lead FK, guild officer fog_role), so each is exercised.
-NON_ADMIN_EDITORS = ["instructor", "guild_lead", "guild_officer"]
+# helper (instructor, guild lead FK, guild staff row), so each is exercised.
+NON_ADMIN_EDITORS = ["instructor", "guild_lead", "guild_staff"]
 # The reasons are pinned as literals here on purpose: a spec that compared against the
 # property would pass whatever it said.
 PENDING_REASON = "The printable flyer and QR downloads unlock once this class is approved and published."
@@ -187,18 +187,17 @@ def describe_class_flyer():
 def describe_lock_until_published():
     @pytest.fixture
     def actors(member_user, admin_user, db):
-        """Every editor of one guild-led class: its instructor, the guild lead, a guild officer, an admin."""
+        """Every editor of one guild-led class: its instructor, the guild lead, a guild staffer, an admin."""
         lead_user = UserFactory(username="flyer-lead@example.com")
         guild = GuildFactory(name="Flyer Guild", guild_lead=Member.objects.get(user=lead_user))
-        officer_user = UserFactory(username="flyer-officer@example.com")
-        officer = officer_user.member
-        officer.fog_role = Member.FogRole.GUILD_OFFICER
-        officer.save(update_fields=["fog_role"])
-        officer.sync_user_permissions()
+        staff_user = UserFactory(username="flyer-staff@example.com")
+        GuildStaffMembership.objects.create(
+            guild=guild, member=staff_user.member, role=GuildStaffMembership.Role.CO_LEAD
+        )
         return {
             "instructor": member_user,
             "guild_lead": lead_user,
-            "guild_officer": officer_user,
+            "guild_staff": staff_user,
             "admin": admin_user,
             "guild": guild,
         }

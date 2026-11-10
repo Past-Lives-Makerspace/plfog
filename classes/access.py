@@ -233,17 +233,11 @@ def _guild_access() -> ClassAccess:
     not read the surviving False on ``can_view_registrations`` as a claim that names are hidden
     from this population; it only means the Registrations TAB is not theirs.
 
-    **Read "this population" wider than the docstring's first line.** This row is not reached
-    only by the lead or staffer of the class's own guild. ``class_access``'s guild leg asks
-    ``can_edit_class``, which short-circuits on ``is_effective_staff``, so a **site-wide guild
-    officer holding the teaching grant lands here on every class in the catalog** — the long
-    comment above ``class_access`` spells that out, and it has been true since #399. Flipping
-    ``can_send_email`` therefore hands that member the composer, and every registrant's name and
-    email, on classes they neither teach nor have any guild claim on. That is accepted for the
-    same reason as the lead's case and one more: the same short-circuit in ``_can_edit_guild``
-    already lets them address every guild's full membership through the same composer, so
-    withholding one class roster would be inconsistency, not protection. Anyone narrowing this
-    row later should narrow the leg, not the flag.
+    **This population is the class's own guild leadership only.** ``class_access``'s guild leg
+    asks ``can_edit_class``, whose only cross-guild short-circuit is an admin, and leg 1 has
+    already caught admins. Before ADR 0004 a site-wide Guild Officer also landed here on every
+    class in the catalog; that role is retired. Anyone narrowing this row later should narrow
+    the leg, not the flag.
     """
     return ClassAccess(
         role=ROLE_GUILD,
@@ -328,20 +322,12 @@ def leads_or_staffs(member: Member, offering: ClassOffering) -> bool:
 # more — no Overview, no roster, no waitlist, no discount codes, no lifecycle actions.
 #
 # The precondition is WAIVED for that population, not dropped from the leg. Dropping it
-# outright would admit two populations ruling 23 does not name, because ``can_edit_class``
-# is broader than "guild lead or staff of this class": it short-circuits on
-# ``is_effective_staff``, so every site-wide guild officer would reach EVERY class, and its
-# last clause is the instructor check, so anyone merely *named* instructor of a class would
-# reach it without ever being granted teaching. The CMS round 2 plan (PLAN.md §2, now in git
-# history) named the first of those as the reason the precondition existed, and ruling 6 — do not widen anyone's access in this
-# ticket — still governs everyone ruling 23 does not name.
-#
-# What the precondition actually denies is the second of those two: a named-but-ungranted
-# instructor. It does NOT deny the first, because a site-wide guild officer who holds the
-# teaching grant satisfies ``member.can_create_classes`` outright and so reaches this leg on
-# every class. That is not new and not a widening — before #399 ``editable_by`` returned the
-# whole catalog for an officer — but do not read this paragraph as a claim that they are
-# refused here. They are not.
+# outright would admit a population ruling 23 does not name, because ``can_edit_class``
+# is broader than "guild lead or staff of this class": its last clause is the instructor
+# check, so anyone merely *named* instructor of a class would reach it without ever being
+# granted teaching. Ruling 6 (do not widen anyone's access in this ticket) still governs
+# everyone ruling 23 does not name. (Its admin short-circuit adds nobody here: leg 1 has
+# already caught admins, and ADR 0004 retired the cross-guild Guild Officer role.)
 #
 # The instructor leg keeps its ``can_create_classes`` precondition unconditionally, which
 # is the real predicate behind ``teaching_member_required``.
@@ -358,8 +344,7 @@ def class_access(request: HttpRequest, offering: ClassOffering) -> ClassAccess |
     3. :func:`membership.permissions.can_edit_class`, plus either teaching access or
        ruling 23's waiver (:func:`leads_or_staffs`) — the guild set. Legs 1 and 2 have
        already caught admins and the instructor, so what this leg adds is guild
-       lead-or-staff, plus the site-wide guild officers ``can_edit_class`` lets through on
-       its ``is_effective_staff`` short-circuit, who have reached this leg since #399.
+       lead-or-staff of the class's own guild.
 
     **The ``CLASS_APPROVER`` grant is not a leg** (ruling 25). It is read once, before the
     legs are walked, and then unioned into whichever set matched

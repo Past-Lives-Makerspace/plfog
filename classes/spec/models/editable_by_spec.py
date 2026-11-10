@@ -1,8 +1,8 @@
 """BDD specs for ClassOfferingQuerySet.editable_by — who may edit which classes.
 
 Guild leads (purely from the ``Guild.guild_lead`` FK) may edit any class in
-their guild's categories; instructors may edit their own; admins and guild
-officers may edit everything.
+their guild's categories; instructors may edit their own; only admins may edit
+everything (ADR 0004 retired the cross-guild Guild Officer role).
 """
 
 from __future__ import annotations
@@ -26,10 +26,11 @@ def describe_editable_by():
         assert a in result
         assert b in result
 
-    def it_returns_everything_for_guild_officers():
-        officer = MemberFactory(fog_role=Member.FogRole.GUILD_OFFICER)
-        offering = ClassOfferingFactory(slug="ed-officer")
-        assert offering in ClassOffering.objects.editable_by(officer)
+    def it_gives_a_guild_lead_nothing_in_another_guild():
+        lead = MemberFactory()
+        GuildFactory(guild_lead=lead)
+        other_guilds = ClassOfferingFactory(slug="ed-other-guild", category=CategoryFactory(guild=GuildFactory()))
+        assert other_guilds not in ClassOffering.objects.editable_by(lead)
 
     def it_includes_classes_the_member_instructs():
         me = MemberFactory()

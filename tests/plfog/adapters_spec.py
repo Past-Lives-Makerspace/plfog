@@ -376,18 +376,22 @@ def describe_AdminRedirectAccountAdapter():
                 assert user.is_staff is True
                 assert user.is_superuser is True
 
-            def it_grants_staff_only_for_guild_officer(settings):
+            def it_grants_no_staff_for_leading_a_guild(settings):
                 from plfog.adapters import AdminRedirectAccountAdapter
+                from tests.membership.factories import GuildFactory
 
                 settings.ADMIN_DOMAINS = []
                 adapter = AdminRedirectAccountAdapter()
 
-                user = _create_user_with_fog_role("go", "guild_officer")
+                user = _create_user_with_fog_role("go", "member")
+                user.is_staff = True
+                user.save(update_fields=["is_staff"])
+                GuildFactory(guild_lead=user.member)
 
                 adapter._sync_permissions(user)
                 user.refresh_from_db()
 
-                assert user.is_staff is True
+                assert user.is_staff is False
                 assert user.is_superuser is False
 
             def it_removes_staff_for_member_fog_role(settings):
@@ -500,13 +504,13 @@ def describe_AdminRedirectAccountAdapter():
             settings.ADMIN_DOMAINS = []
             adapter = AdminRedirectAccountAdapter()
 
-            user = _create_user_with_fog_role("logtest", "guild_officer")
+            user = _create_user_with_fog_role("logtest", "admin")
 
             with caplog.at_level(logging.INFO, logger="plfog.adapters"):
                 adapter._sync_permissions(user)
 
             assert "Permissions synced for logtest@other.com" in caplog.text
-            assert "fog_role: guild_officer" in caplog.text
+            assert "fog_role: admin" in caplog.text
 
     def describe_is_open_for_signup():
         def it_returns_true_in_open_mode(rf):

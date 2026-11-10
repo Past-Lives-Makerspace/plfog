@@ -114,7 +114,7 @@ def describe_take_funding_snapshot_command():
         g3 = GuildFactory(name="G3")
         member = MemberFactory(
             member_type=Member.MemberType.WORK_TRADE,
-            fog_role=Member.FogRole.GUILD_OFFICER,
+            fog_role=Member.FogRole.ADMIN,
             full_legal_name="Alice Officer",
         )
         VotePreferenceFactory(member=member, guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
@@ -128,7 +128,7 @@ def describe_take_funding_snapshot_command():
         assert row["member_id"] == member.pk
         assert row["member_name"] == "Alice Officer"
         assert row["member_type"] == Member.MemberType.WORK_TRADE
-        assert row["fog_role"] == Member.FogRole.GUILD_OFFICER
+        assert row["fog_role"] == Member.FogRole.ADMIN
         assert row["is_paying"] is False
         assert row["guild_1st_name"] == "G1"
         assert row["guild_1st_id"] == g1.pk

@@ -393,20 +393,20 @@ def describe_what_you_run():
         assert "data-run-empty" in content
         assert "Nothing is running orientations yet. Add one above." in content
 
-    def it_gives_an_officer_every_guild_with_settings_and_only_the_equipment_they_staff(client: Client):
-        # An officer edits every guild but has no blanket equipment grant (manageable_equipment_ids).
-        officer = _login(client, "mb_run_officer", fog_role=Member.FogRole.GUILD_OFFICER)
-        with_settings = GuildFactory(name="Officer Settings Guild")
-        GuildOrientationSettingsFactory(guild=with_settings)
-        GuildFactory(name="Officer Bare Guild")
+    def it_gives_a_lead_only_their_own_guild_and_the_equipment_they_run(client: Client):
+        # ADR 0004: a lead runs their own guild, never another guild with settings, and no blanket equipment grant.
+        runner = _login(client, "mb_run_one_lead")
+        own = _led_guild(runner, name="Own Settings Guild")
+        elsewhere = GuildFactory(name="Elsewhere Settings Guild")
+        GuildOrientationSettingsFactory(guild=elsewhere)
         EquipmentFactory(name="Unstaffed Tool")
-        EquipmentFactory(name="Officer Guild Tool", guild=with_settings)
+        EquipmentFactory(name="Elsewhere Guild Tool", guild=elsewhere)
         content = _what_you_run(_page(client))
-        assert f'data-run-guild="{with_settings.pk}"' in content
-        assert "Officer Bare Guild" not in content
+        assert f'data-run-guild="{own.pk}"' in content
+        assert f'data-run-guild="{elsewhere.pk}"' not in content
         assert "data-run-equipment=" not in content
-        staffed = EquipmentFactory(name="Officer Staffed Tool")
-        EquipmentStaffMembershipFactory(equipment=staffed, member=officer)
+        staffed = EquipmentFactory(name="Lead Staffed Tool")
+        EquipmentStaffMembershipFactory(equipment=staffed, member=runner)
         content = _what_you_run(_page(client))
         assert content.count("data-run-equipment=") == 1
         assert f'data-run-equipment="{staffed.pk}"' in content

@@ -282,7 +282,7 @@ def officers_closing_soon_occurrences(now: datetime) -> Iterable[ScheduledOccurr
     Gated on ``VotingSettings.reminders_enabled`` *and* ``send_officer_reminder_enabled``.
     Same close anchor/offset as the member reminders, so it fires in the same tick. This
     is one shared occurrence — the ``ALL_GUILD_LEADS`` resolver expands it to every active
-    guild lead, staffer, and FOG guild officer, and ``emit`` fans out per recipient
+    guild lead and staffer, and ``emit`` fans out per recipient
     (deduped on ``user:<pk>`` × the ``voting:YYYY-MM`` period). The context carries live
     turnout so officers can see how many members still need to vote before rallying them.
     """

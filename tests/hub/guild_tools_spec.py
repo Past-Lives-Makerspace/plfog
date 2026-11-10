@@ -1,4 +1,4 @@
-"""BDD specs for Guild Tools (#921): the tools page as guild officers, leads and staff see it.
+"""BDD specs for Guild Tools (#921): the tools page as guild leads and staff see it.
 
 An admin (view as aware) keeps Admin Tools. Anyone else who runs a guild sees the same page as
 Guild Tools, with a section for one guild they run and a picker when they run more. Instructors
@@ -99,7 +99,6 @@ def _guild_section_hrefs(client: Client, query: str = "") -> list[str]:
 
 
 _GUILD_CARDS = ["Guild Settings", "Orientations", "Reservations", "Cubbies", "Events"]
-_OFFICER_GUILD_CARDS = [card for card in _GUILD_CARDS if card != "Cubbies"]
 
 
 def describe_guild_tools():
@@ -149,22 +148,18 @@ def describe_guild_tools():
             assert response.status_code == 302
             assert response.url == reverse("hub_home")
 
-    def describe_an_admin_viewing_as_a_guild_officer():
-        def it_sees_guild_tools_with_every_active_guild_in_the_picker(client: Client):
-            _login(client, "gt_admin_officer", superuser=True)
-            first = GuildFactory(name="Aa Officer Guild")
-            GuildFactory(name="Bb Officer Guild")
-            GuildFactory(name="Hidden Officer Guild", is_active=False)
+    def describe_an_admin_whose_session_still_holds_guild_officer():
+        def it_keeps_admin_tools_because_the_stale_pick_reads_as_no_preview(client: Client):
+            # ADR 0004 retired the role; a session picked before the deploy must neither crash
+            # nor narrow the admin to a preview.
+            _login(client, "gt_admin_stale", superuser=True)
+            GuildFactory(name="Aa Stale Guild")
             _view_as(client, "guild_officer")
-            body = client.get(_TOOLS).content.decode()
-            assert _page_title(body) == "Guild Tools"
-            picker = re.search(r"data-tools-guild-picker.*?</form>", body, re.S)
-            assert picker is not None
-            assert "Aa Officer Guild" in picker.group(0)
-            assert "Bb Officer Guild" in picker.group(0)
-            assert "Hidden Officer Guild" not in picker.group(0)
-            # Previewing as an officer, the admin is refused the Cubbies card like one (#1015).
-            assert _guild_section_hrefs(client) == _guild_cards(first, cubbies=False)
+            response = client.get(_TOOLS)
+            assert response.status_code == 200
+            body = response.content.decode()
+            assert _page_title(body) == "Admin Tools"
+            assert _sidebar_label(body) == "Admin Tools"
 
     def describe_a_guild_lead():
         def it_says_guild_tools_in_the_sidebar_the_home_quick_link_and_the_page(client: Client):
@@ -241,40 +236,17 @@ def describe_guild_tools():
             _staff_two(client, "gt_two_title")
             assert _page_title(client.get(_TOOLS).content.decode()) == "Guild Tools"
 
-    def describe_a_guild_officer():
-        def it_sees_guild_tools_for_every_active_guild(client: Client):
-            member = _login(client, "gt_officer")
-            member.fog_role = Member.FogRole.GUILD_OFFICER
-            member.save(update_fields=["fog_role"])
-            first = GuildFactory(name="Aa Real Officer Guild")
-            GuildFactory(name="Bb Real Officer Guild")
+    def describe_a_lead_beside_other_guilds():
+        def it_sees_only_their_own_guild_with_no_picker(client: Client):
+            # ADR 0004: leading one guild opens Guild Tools for that guild alone, never every guild.
+            member = _login(client, "gt_lead_beside")
+            GuildFactory(name="Aa Other Guild")
+            mine = GuildFactory(name="Bb Own Guild", guild_lead=member)
             body = client.get(_TOOLS).content.decode()
             assert _sidebar_label(body) == "Guild Tools"
-            assert "data-tools-guild-picker" in body
-            assert _guild_section_hrefs(client) == _guild_cards(first, cubbies=False)
-
-        def it_gets_the_cubbies_card_only_for_a_guild_it_leads_or_staffs(client: Client):
-            # #1015: the officer's Guild Tools shows Guild Settings, Orientations, Reservations and
-            # Events for every guild, and Cubbies only where they are the lead or on the staff.
-            member = _login(client, "gt_officer_cubbies")
-            member.fog_role = Member.FogRole.GUILD_OFFICER
-            member.save(update_fields=["fog_role"])
-            theirs = GuildFactory(name="Aa Other Guild")
-            mine = GuildFactory(name="Bb Own Guild", guild_lead=member)
-            assert "data-tool-guild-cubbies" not in client.get(_TOOLS).content.decode()
-            assert _sections(client)[0] == ("guild", "Aa Other Guild", _OFFICER_GUILD_CARDS)
-            assert _guild_section_hrefs(client) == _guild_cards(theirs, cubbies=False)
-            assert "data-tool-guild-cubbies" in client.get(f"{_TOOLS}?guild={mine.pk}").content.decode()
-            assert _sections(client, f"?guild={mine.pk}")[0] == ("guild", "Bb Own Guild", _GUILD_CARDS)
-            assert _guild_section_hrefs(client, f"?guild={mine.pk}") == _guild_cards(mine)
-
-        def it_shows_no_guild_section_when_there_is_no_active_guild(client: Client):
-            member = _login(client, "gt_officer_none")
-            member.fog_role = Member.FogRole.GUILD_OFFICER
-            member.save(update_fields=["fog_role"])
-            sections = _sections(client)
-            assert _page_title(client.get(_TOOLS).content.decode()) == "Guild Tools"
-            assert sections == [("reports", "Reports", ["Orientation Bookings"])]
+            assert "data-tools-guild-picker" not in body
+            assert _sections(client)[0] == ("guild", "Bb Own Guild", _GUILD_CARDS)
+            assert _guild_section_hrefs(client) == _guild_cards(mine)
 
     def describe_an_instructor_who_is_not_guild_staff():
         def it_keeps_admin_tools_exactly_as_before(client: Client):
@@ -365,10 +337,8 @@ def describe_runs_a_guild():
         request.view_as = ViewAs.for_request(request)
         return request
 
-    def it_is_true_for_a_guild_officer_without_a_query(django_assert_num_queries, client: Client):
-        member = _login(client, "gt_runs_officer")
-        member.fog_role = Member.FogRole.GUILD_OFFICER
-        member.save(update_fields=["fog_role"])
+    def it_is_true_for_an_admin_without_a_query(django_assert_num_queries, client: Client):
+        member = _login(client, "gt_runs_admin", superuser=True)
         request = _request(member)
         with django_assert_num_queries(0):
             assert runs_a_guild(request) is True

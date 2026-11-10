@@ -12,7 +12,7 @@ from membership.models import Member
 class Command(BaseCommand):
     """Set the fog_role for a member identified by email."""
 
-    help = "Set a member's FOG role (member, guild_officer, admin)."
+    help = "Set a member's FOG role (member, admin)."
 
     def add_arguments(self, parser: CommandParser) -> None:
         """Define positional arguments."""

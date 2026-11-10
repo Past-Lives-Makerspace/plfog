@@ -102,16 +102,6 @@ def describe_the_settings_tab():
         assert listing.count('<span class="hub-pill hub-pill--ok">Active</span>') == 2
         assert listing.count('<span class="hub-pill hub-pill--neutral">Inactive</span>') == 1
 
-    def it_leaves_the_manage_link_off_for_a_viewer_who_cannot_manage_the_item(client: Client):
-        # A guild officer edits every guild but gets no blanket grant over equipment.
-        _user(username="rs_officer", fog_role=Member.FogRole.GUILD_OFFICER)
-        client.login(username="rs_officer", password="pass")
-        guild = GuildFactory()
-        saw = EquipmentFactory(name="Zebrawood Bandsaw", guild=guild)
-        response = client.get(reverse("hub_guild_edit", args=[guild.pk]))
-        assert response.context["reservable_items"] == [{"equipment": saw, "can_manage": False}]
-        assert reverse("hub_equipment_manage", args=[saw.slug]) not in response.content.decode()
-
     def it_shows_the_empty_state_without_the_add_link_for_a_lead(client: Client):
         _user_obj, guild = _lead(client, "rs_empty")
         content = _settings(client, guild)
@@ -159,9 +149,9 @@ def describe_the_item_list_query_count():
         with_one, with_six = _one_then_six(client, guild)
         assert with_six == with_one
 
-    def it_holds_steady_for_an_officer(client: Client):
-        _user("rs_q_officer", fog_role=Member.FogRole.GUILD_OFFICER)
-        client.login(username="rs_q_officer", password="pass")
+    def it_holds_steady_for_an_admin(client: Client):
+        _user("rs_q_admin", fog_role=Member.FogRole.ADMIN)
+        client.login(username="rs_q_admin", password="pass")
         with_one, with_six = _one_then_six(client, GuildFactory())
         assert with_six == with_one
 

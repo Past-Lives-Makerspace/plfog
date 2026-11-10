@@ -13,7 +13,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.test import RequestFactory
 
 from classes.factories import UserFactory
-from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER, ViewAs
+from hub.view_as import ROLE_ADMIN, ROLE_MEMBER, ViewAs
 from membership.models import GuildStaffMembership, Member, WikiPage
 from membership.permissions import (
     can_edit_wiki_page,
@@ -71,7 +71,7 @@ def describe_can_edit_wiki_page():
             assert can_edit_wiki_page(request, WikiPageFactory(official=True)) is False
 
         def it_denies_the_guild_lead_of_its_own_guild():
-            # Official is policy, safety, and money. A lead is not an officer.
+            # Official is policy, safety, and money: admins only (ADR 0004), not a guild's lead.
             user = UserFactory(username="lead@example.com")
             guild = GuildFactory(guild_lead=user.member)
             request = _request(user, roles={ROLE_MEMBER})
@@ -79,7 +79,7 @@ def describe_can_edit_wiki_page():
 
     def describe_an_archived_page():
         def it_allows_effective_staff():
-            request = _request(UserFactory(username="officer@example.com"), roles={ROLE_GUILD_OFFICER, ROLE_MEMBER})
+            request = _request(UserFactory(username="admin-arch@example.com"), roles={ROLE_ADMIN, ROLE_MEMBER})
             assert can_edit_wiki_page(request, WikiPageFactory(archived=True)) is True
 
         def it_allows_the_guild_lead_of_its_own_guild():
@@ -188,7 +188,7 @@ def describe_can_verify_wiki_page():
 
     def describe_a_space_wide_page():
         def it_allows_effective_staff():
-            request = _request(UserFactory(username="officer2@example.com"), roles={ROLE_GUILD_OFFICER, ROLE_MEMBER})
+            request = _request(UserFactory(username="admin-verify@example.com"), roles={ROLE_ADMIN, ROLE_MEMBER})
             assert can_verify_wiki_page(request, WikiPageFactory()) is True
 
         def it_denies_a_plain_member():

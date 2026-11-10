@@ -869,26 +869,9 @@ def describe_member_fog_roles():
             member = MemberFactory(fog_role=Member.FogRole.ADMIN)
             assert member.is_fog_admin is True
 
-        def it_is_false_for_guild_officer():
-            member = MemberFactory(fog_role=Member.FogRole.GUILD_OFFICER)
-            assert member.is_fog_admin is False
-
         def it_is_false_for_member():
             member = MemberFactory(fog_role=Member.FogRole.MEMBER)
             assert member.is_fog_admin is False
-
-    def describe_is_guild_officer():
-        def it_is_true_for_guild_officer():
-            member = MemberFactory(fog_role=Member.FogRole.GUILD_OFFICER)
-            assert member.is_guild_officer is True
-
-        def it_is_false_for_admin():
-            member = MemberFactory(fog_role=Member.FogRole.ADMIN)
-            assert member.is_guild_officer is False
-
-        def it_is_false_for_member():
-            member = MemberFactory(fog_role=Member.FogRole.MEMBER)
-            assert member.is_guild_officer is False
 
     def describe_can_edit_guild():
         def it_is_true_for_admin_on_any_guild():
@@ -896,10 +879,11 @@ def describe_member_fog_roles():
             guild = GuildFactory()
             assert member.can_edit_guild(guild) is True
 
-        def it_is_true_for_guild_officer_on_any_guild():
-            member = MemberFactory(fog_role=Member.FogRole.GUILD_OFFICER)
-            guild = GuildFactory()
-            assert member.can_edit_guild(guild) is True
+        def it_is_false_for_the_lead_of_another_guild():
+            # ADR 0004: leading guild A is no authority over guild B; only an admin edits every guild.
+            lead = MemberFactory(fog_role=Member.FogRole.MEMBER)
+            GuildFactory(guild_lead=lead)
+            assert lead.can_edit_guild(GuildFactory()) is False
 
         def it_is_true_for_the_guilds_own_lead():
             lead = MemberFactory(fog_role=Member.FogRole.MEMBER)
@@ -925,16 +909,17 @@ def describe_member_fog_roles():
             assert user.is_staff is True
             assert user.is_superuser is True
 
-        def it_grants_staff_only_for_guild_officer():
+        def it_grants_no_django_staff_for_leading_a_guild():
             user = User.objects.create_user(username="sync_go", email="sync_go@example.com", password="pass")
+            user.is_staff = True
+            user.save(update_fields=["is_staff"])
             member = user.member
-            member.fog_role = Member.FogRole.GUILD_OFFICER
-            member.save(update_fields=["fog_role"])
+            GuildFactory(guild_lead=member)
 
             member.sync_user_permissions()
             user.refresh_from_db()
 
-            assert user.is_staff is True
+            assert user.is_staff is False
             assert user.is_superuser is False
 
         def it_removes_privileges_for_member():
@@ -975,40 +960,39 @@ def describe_member_fog_roles():
             target.refresh_from_db()
             assert target.fog_role == Member.FogRole.ADMIN
 
-        def it_allows_guild_officer_to_set_member():
-            officer = MemberFactory(fog_role=Member.FogRole.GUILD_OFFICER)
-            target = MemberFactory(fog_role=Member.FogRole.GUILD_OFFICER)
+        def it_allows_admin_to_demote_an_admin():
+            admin = MemberFactory(fog_role=Member.FogRole.ADMIN)
+            target = MemberFactory(fog_role=Member.FogRole.ADMIN)
 
-            target.set_fog_role(Member.FogRole.MEMBER, changed_by=officer)
+            target.set_fog_role(Member.FogRole.MEMBER, changed_by=admin)
+
+            target.refresh_from_db()
+            assert target.fog_role == Member.FogRole.MEMBER
+
+        def it_prevents_a_guild_lead_from_changing_roles():
+            lead = MemberFactory(fog_role=Member.FogRole.MEMBER)
+            GuildFactory(guild_lead=lead)
+            target = MemberFactory(fog_role=Member.FogRole.MEMBER)
+
+            with pytest.raises(PermissionError, match="Only admins can change roles"):
+                target.set_fog_role(Member.FogRole.ADMIN, changed_by=lead)
 
             target.refresh_from_db()
             assert target.fog_role == Member.FogRole.MEMBER
 
-        def it_allows_guild_officer_to_set_guild_officer():
-            officer = MemberFactory(fog_role=Member.FogRole.GUILD_OFFICER)
-            target = MemberFactory(fog_role=Member.FogRole.MEMBER)
+        def it_refuses_the_retired_guild_officer_role():
+            admin = MemberFactory(fog_role=Member.FogRole.ADMIN)
+            target = MemberFactory()
 
-            target.set_fog_role(Member.FogRole.GUILD_OFFICER, changed_by=officer)
-
-            target.refresh_from_db()
-            assert target.fog_role == Member.FogRole.GUILD_OFFICER
-
-        def it_prevents_guild_officer_from_granting_admin():
-            officer = MemberFactory(fog_role=Member.FogRole.GUILD_OFFICER)
-            target = MemberFactory(fog_role=Member.FogRole.MEMBER)
-
-            with pytest.raises(PermissionError, match="cannot grant admin"):
-                target.set_fog_role(Member.FogRole.ADMIN, changed_by=officer)
-
-            target.refresh_from_db()
-            assert target.fog_role == Member.FogRole.MEMBER
+            with pytest.raises(ValueError, match="Invalid role"):
+                target.set_fog_role("guild_officer", changed_by=admin)
 
         def it_prevents_regular_member_from_changing_roles():
             member = MemberFactory(fog_role=Member.FogRole.MEMBER)
             target = MemberFactory(fog_role=Member.FogRole.MEMBER)
 
-            with pytest.raises(PermissionError, match="Only admins and guild officers"):
-                target.set_fog_role(Member.FogRole.GUILD_OFFICER, changed_by=member)
+            with pytest.raises(PermissionError, match="Only admins can change roles"):
+                target.set_fog_role(Member.FogRole.ADMIN, changed_by=member)
 
         def it_raises_on_invalid_role():
             admin = MemberFactory(fog_role=Member.FogRole.ADMIN)
@@ -1022,8 +1006,8 @@ def describe_member_fog_roles():
             target = user.member
             admin = MemberFactory(fog_role=Member.FogRole.ADMIN)
 
-            target.set_fog_role(Member.FogRole.GUILD_OFFICER, changed_by=admin)
+            target.set_fog_role(Member.FogRole.ADMIN, changed_by=admin)
 
             user.refresh_from_db()
             assert user.is_staff is True
-            assert user.is_superuser is False
+            assert user.is_superuser is True

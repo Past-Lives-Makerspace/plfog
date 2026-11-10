@@ -14,7 +14,7 @@ from unfold.admin import ModelAdmin as UnfoldModelAdmin
 
 # Models intentionally NOT registered in the Django admin. Guild was moved out
 # of the admin in v1.6.0 — all guild editing happens on the public guild page
-# at /guilds/<id>/ for authorized users (admin, guild officer, or that guild's
+# at /guilds/<id>/ for authorized users (admin, or that guild's
 # lead). See hub/views.py for the replacement views.
 EXCLUDED_MODELS = {
     ("membership", "guild"),

@@ -301,7 +301,7 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
            primary addresses never carry a subaddress, and the aliases are used
            for role-accurate demo/training accounts that must keep exactly the
            fog_role they were assigned.
-        2. fog_role mapping — admin → full access, guild_officer → staff only.
+        2. fog_role mapping — admin → full access; guild leadership never earns ``is_staff``.
         3. Everyone else — no staff access (member hub only).
         """
         from membership.models import Member

@@ -25,15 +25,6 @@ def _make_admin(client, username):
     return user, member
 
 
-def _make_officer(client, username):
-    user = User.objects.create_user(username=username, email=f"{username}@example.com", password="pw12345!")
-    member = Member.objects.get(user=user)
-    member.fog_role = Member.FogRole.GUILD_OFFICER
-    member.save()
-    client.login(username=username, password="pw12345!")
-    return user, member
-
-
 def _preview_as(client, role):
     session = client.session
     session["view_as_role"] = role
@@ -125,21 +116,25 @@ def describe_view_as_admin_section():
         response = client.get(reverse("hub_user_settings") + "?tab=notifications")
         assert settings_matrix.ADMIN_SECTION not in _matrix_sections(response)
 
-    def it_shows_the_admin_section_when_an_admin_previews_as_officer(client):
-        _make_admin(client, "vaofficer")
+    def it_shows_the_admin_section_to_an_admin_whose_session_still_holds_guild_officer(client):
+        # A pick from before ADR 0004 retired the role reads as no preview at all.
+        _make_admin(client, "vastale")
         _preview_as(client, "guild_officer")
         response = client.get(reverse("hub_user_settings") + "?tab=notifications")
         assert settings_matrix.ADMIN_SECTION in _matrix_sections(response)
 
-    def it_hides_the_admin_section_when_an_officer_previews_as_member(client):
-        _make_officer(client, "offviewmember")
+    def it_keeps_the_admin_section_for_a_guild_lead_whose_session_picked_member(client):
+        # Member is a lead's own role, so the pick narrows nothing: only an admin previewing down hides it.
+        user = User.objects.create_user(username="leadpicked", email="leadpicked@example.com", password="pw12345!")
+        GuildFactory(guild_lead=Member.objects.get(user=user))
+        client.login(username="leadpicked", password="pw12345!")
         _preview_as(client, "member")
         response = client.get(reverse("hub_user_settings") + "?tab=notifications")
-        assert settings_matrix.ADMIN_SECTION not in _matrix_sections(response)
+        assert settings_matrix.ADMIN_SECTION in _matrix_sections(response)
 
     def it_keeps_the_admin_section_for_a_guild_lead_whose_role_is_member(client):
-        # A lead's fog_role is member, so include_staff stays True (the flag flips only when a
-        # higher-role holder previews down) — they keep the staff rows their led_guilds grant.
+        # A lead's fog_role is member, so include_staff stays True (the flag flips only when an
+        # admin previews down) — they keep the staff rows their led_guilds grant.
         user = User.objects.create_user(username="leadmember", email="lead@example.com", password="pw12345!")
         member = Member.objects.get(user=user)
         GuildFactory(guild_lead=member)

@@ -94,10 +94,10 @@ def describe_apply_filters():
     def it_filters_by_fog_role():
         rows = [
             _row(member_name="M", fog_role=Member.FogRole.MEMBER),
-            _row(member_name="O", fog_role=Member.FogRole.GUILD_OFFICER),
+            _row(member_name="A", fog_role=Member.FogRole.ADMIN),
         ]
-        result = _filter(rows, fog_roles=[Member.FogRole.GUILD_OFFICER])
-        assert [r["member_name"] for r in result] == ["O"]
+        result = _filter(rows, fog_roles=[Member.FogRole.ADMIN])
+        assert [r["member_name"] for r in result] == ["A"]
 
     def it_filters_by_paying_tristate():
         rows = [_row(member_name="Pay", is_paying=True), _row(member_name="Free", is_paying=False)]

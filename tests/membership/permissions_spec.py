@@ -14,7 +14,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.test import RequestFactory
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, UserFactory
-from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER, ViewAs
+from hub.view_as import ROLE_ADMIN, ROLE_MEMBER, ViewAs
 from membership.models import AdminCapability, CommunityEvent, GuildStaffMembership, Member
 from membership.permissions import (
     EventCreateMode,
@@ -60,12 +60,9 @@ def describe_member_can_edit_class():
         offering = ClassOfferingFactory(category=CategoryFactory(guild=guild))
         assert lead.can_edit_class(offering) is True
 
-    def it_allows_admins_and_officers():
+    def it_allows_admins():
         admin = MemberFactory(fog_role=Member.FogRole.ADMIN)
-        officer = MemberFactory(fog_role=Member.FogRole.GUILD_OFFICER)
-        offering = ClassOfferingFactory()
-        assert admin.can_edit_class(offering) is True
-        assert officer.can_edit_class(offering) is True
+        assert admin.can_edit_class(ClassOfferingFactory()) is True
 
     def it_denies_a_lead_of_another_guild():
         lead = MemberFactory()
@@ -169,13 +166,9 @@ def describe_request_helpers_without_view_as():
 
 
 def describe_request_helpers_via_views():
-    def it_lets_a_guild_officer_edit_any_guilds_class(client):
-        user = UserFactory(username="officer@example.com")
-        member = user.member
-        member.fog_role = Member.FogRole.GUILD_OFFICER
-        member.save(update_fields=["fog_role"])
-        member.sync_user_permissions()
-        offering = ClassOfferingFactory(category=CategoryFactory(guild=GuildFactory()))
+    def it_lets_a_guild_lead_edit_their_own_guilds_class(client):
+        user = UserFactory(username="own-lead@example.com")
+        offering = ClassOfferingFactory(category=CategoryFactory(guild=GuildFactory(guild_lead=user.member)))
         ct = ContentType.objects.get_for_model(offering)
 
         client.force_login(user)
@@ -186,6 +179,22 @@ def describe_request_helpers_via_views():
         )
 
         assert response.status_code == 200
+
+    def it_refuses_a_guild_lead_a_crafted_post_on_another_guilds_class(client):
+        # ADR 0004: leading guild A gives no authority over guild B's classes.
+        user = UserFactory(username="other-lead@example.com")
+        GuildFactory(guild_lead=user.member)
+        offering = ClassOfferingFactory(category=CategoryFactory(guild=GuildFactory()))
+        ct = ContentType.objects.get_for_model(offering)
+
+        client.force_login(user)
+        response = client.post(
+            "/hero-adjust/",
+            {"content_type_id": ct.id, "object_id": offering.id, "crop": {"x": 1, "y": 1, "w": 1, "h": 1}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 403
 
 
 def _granted_user(capability: str):
@@ -232,10 +241,12 @@ def describe_can_administer_events():
         user = _granted_user(AdminCapability.Capability.EVENT_CREATOR)
         assert can_administer_events(_request_as(user, roles={ROLE_MEMBER})) is False
 
-    def it_denies_a_plain_member_and_a_guild_officer():
+    def it_denies_a_plain_member_and_a_guild_lead():
         MembershipPlanFactory()
         assert can_administer_events(_request_as(UserFactory(), roles={ROLE_MEMBER})) is False
-        assert can_administer_events(_request_as(UserFactory(), roles={ROLE_GUILD_OFFICER, ROLE_MEMBER})) is False
+        lead = UserFactory()
+        GuildFactory(guild_lead=lead.member)
+        assert can_administer_events(_request_as(lead, roles={ROLE_MEMBER})) is False
 
     def it_denies_a_user_with_no_member_and_an_anonymous_request():
         user = UserFactory(username="no-member-events@example.com")
@@ -289,7 +300,7 @@ def describe_event_create_mode():
 def describe_can_edit_event():
     """The request-level ``can_edit_event`` (view_as-aware): the author of their own open
     proposal always may; otherwise site-wide events take ``can_administer_events`` and guild
-    events defer to ``can_edit_guild`` (lead / staff / admin / officer)."""
+    events defer to ``can_edit_guild`` (lead / staff / admin)."""
 
     def _member_user() -> Member:
         MembershipPlanFactory()
@@ -353,11 +364,13 @@ def describe_can_edit_event():
         assert event.submitted_by_id is None
         assert can_edit_event(request, event) is False
 
-    def it_denies_a_guild_officer_on_a_site_wide_event(db):
-        # Site-wide authoring belongs to admins and Calendar Administrators, so an officer,
-        # who CAN edit guild content, cannot edit a site-wide event.
+    def it_denies_a_guild_lead_on_a_site_wide_event(db):
+        # Site-wide authoring belongs to admins and Calendar Administrators, so a lead,
+        # who CAN edit their guild's content, cannot edit a site-wide event.
         event = CommunityEventFactory(community=True)
-        request = _request(UserFactory(), roles={ROLE_GUILD_OFFICER, ROLE_MEMBER})
+        lead = UserFactory()
+        GuildFactory(guild_lead=lead.member)
+        request = _request(lead, roles={ROLE_MEMBER})
         assert can_edit_event(request, event) is False
 
     def it_denies_an_admin_previewing_as_member_on_a_site_wide_event(db):

@@ -2469,22 +2469,19 @@ class PageView(models.Model):
         """The visitor's highest role for the row, without a query of its own (#1078).
 
         ``actual_roles`` is ``request.view_as.actual``, which the ViewAs middleware already read for
-        this request: Admin (a superuser, or an active admin member), Guild Staff for a guild officer,
-        and Signed In Guest for an account with no active membership come straight from it. A plain
-        member's finer role (Guild Staff as a guild lead or staff holder, else Instructor with a
+        this request: Admin (a superuser, or an active admin member) and Signed In Guest for an
+        account with no active membership come straight from it. A plain member's finer role (Guild Staff as a guild lead or staff holder, else Instructor with a
         public instructor profile, else Member) is a subquery the INSERT itself evaluates, so the
         row still costs one round trip.
         """
         from django.db.models import Case, CharField, Exists, OuterRef, Q, Subquery, Value, When
         from django.db.models.functions import Coalesce
 
-        from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER
+        from hub.view_as import ROLE_ADMIN, ROLE_MEMBER
         from membership.models import Guild, GuildStaffMembership, Member
 
         if ROLE_ADMIN in actual_roles:
             return cls.Role.ADMIN
-        if ROLE_GUILD_OFFICER in actual_roles:
-            return cls.Role.GUILD_STAFF
         if ROLE_MEMBER not in actual_roles:
             return cls.Role.GUEST
         runs_a_guild = Q(Exists(Guild.objects.filter(guild_lead=OuterRef("pk")))) | Q(

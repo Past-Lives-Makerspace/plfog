@@ -18,6 +18,7 @@ from core.events.registry import FEEDBACK_COMMENT_ADDED, FEEDBACK_REQUEST_UPDATE
 from core.models import FeedbackComment, FeedbackRequest, Notification
 from membership.models import Member
 from tests.core.factories import FeedbackRequestFactory
+from tests.membership.factories import GuildFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -126,8 +127,7 @@ def describe_admin_tools_card():
 
     def it_hides_the_card_from_a_non_admin(client: Client):
         user = _member(client, "lead")
-        user.member.fog_role = Member.FogRole.GUILD_OFFICER  # type: ignore[attr-defined]
-        user.member.save()  # type: ignore[attr-defined]
+        GuildFactory(guild_lead=user.member)  # type: ignore[attr-defined]
 
         body = client.get(reverse("hub_admin_tools")).content.decode()
 

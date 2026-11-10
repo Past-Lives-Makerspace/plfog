@@ -249,13 +249,13 @@ def describe_the_share_this_page_card():
         # The one who actually has can_edit on an archived page. Every other affordance is
         # gone there, and inviting somebody to print a sticker for it is no different.
         archived = WikiPageFactory(title="Old Saw", archived=True)
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(archived.get_absolute_url())
         assert b"Share This Page" not in response.content
 
     def it_is_present_for_that_moderator_once_the_page_is_live(client, db):
         live = WikiPageFactory(title="Table Saw")
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(live.get_absolute_url())
         assert b"Share This Page" in response.content
 
@@ -267,74 +267,74 @@ def describe_the_sticker_sheet():
         return WikiPageFactory(title="Table Saw", kind=WikiPage.Kind.MACHINE, equipment=tool, guild=tool.guild)
 
     def it_renders_one_cell_per_machine_page(client, db, machine_page):
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_stickers"))
         assert response.status_code == 200
         assert response.content.count(b'class="pl-wp-sticker"') == 1
 
     def it_prints_the_machine_name(client, db, machine_page):
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_stickers"))
         assert b"Table Saw" in response.content
 
     def it_prints_the_typed_short_link(client, db, machine_page):
         # A member with a dead phone battery has to be able to read it and type it.
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_stickers"))
         assert machine_page.sticker_url_typed.encode() in response.content
 
     def it_carries_its_own_print_stylesheet_and_no_member_chrome(client, db, machine_page):
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_stickers"))
         assert b"wiki-stickers.css" in response.content
         assert b"hub-sidebar" not in response.content
 
     def it_offers_a_real_print_button(client, db, machine_page):
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_stickers"))
         assert b"Print / Save as PDF" in response.content
 
     def it_shows_only_machine_pages_by_default(client, db, machine_page):
         WikiPageFactory(title="Finishing Walnut", kind=WikiPage.Kind.HOWTO)
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_stickers"))
         assert b"Finishing Walnut" not in response.content
 
     def it_narrows_to_one_guild(client, db, machine_page):
         other_tool = EquipmentFactory(name="Kiln", guild=GuildFactory(name="Ceramics"))
         WikiPageFactory(title="Kiln", kind=WikiPage.Kind.MACHINE, equipment=other_tool, guild=other_tool.guild)
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_stickers") + "?guild=woodworking")
         assert b"Table Saw" in response.content
         assert b"Kiln" not in response.content
 
     def it_can_be_asked_for_another_kind(client, db, machine_page):
         WikiPageFactory(title="Finishing Walnut", kind=WikiPage.Kind.HOWTO)
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_stickers") + "?kind=howto")
         assert b"Finishing Walnut" in response.content
         assert b"Table Saw" not in response.content
 
     def it_falls_back_to_machines_on_an_unknown_kind(client, db, machine_page):
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_stickers") + "?kind=nonsense")
         assert b"Table Saw" in response.content
 
     def it_leaves_archived_pages_off_the_sheet(client, db):
         tool = EquipmentFactory(name="Old Lathe")
         WikiPageFactory(title="Old Lathe", kind=WikiPage.Kind.MACHINE, equipment=tool, archived=True)
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_stickers"))
         assert b"Old Lathe" not in response.content
 
     def describe_when_nothing_matches():
         def it_says_to_run_the_seed_first(client, db):
-            _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+            _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
             response = client.get(reverse("hub_wiki_stickers"))
             assert b"Ask an admin to run the equipment seed" in response.content
 
         def it_says_the_same_for_an_unknown_guild(client, db, machine_page):
-            _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+            _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
             response = client.get(reverse("hub_wiki_stickers") + "?guild=no-such-guild")
             assert response.status_code == 200
             assert b"Ask an admin to run the equipment seed" in response.content
@@ -353,12 +353,12 @@ def describe_the_sticker_sheet():
             guild.save()
             assert client.get(reverse("hub_wiki_stickers")).status_code == 403
 
-        def it_lets_an_officer_in(client, db, machine_page):
-            _login(client, "officer@example.com", fog_role=Member.FogRole.GUILD_OFFICER)
+        def it_lets_an_admin_in(client, db, machine_page):
+            _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
             assert client.get(reverse("hub_wiki_stickers")).status_code == 200
 
         def it_still_renders_while_the_wiki_is_hidden(client, db, machine_page, _wiki_on):
-            _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+            _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
             hide("wiki")
             assert client.get(reverse("hub_wiki_stickers")).status_code == 200
 
@@ -370,7 +370,7 @@ def describe_the_wiki_homes_link_to_the_sheet():
         return WikiPageFactory(title="Table Saw", kind=WikiPage.Kind.MACHINE, equipment=tool)
 
     def it_shows_staff_the_way_to_print(client, db, machine_page):
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_home"))
         assert b"Print stickers" in response.content
 
@@ -500,7 +500,7 @@ def describe_the_sticker_sheet_and_held_back_pages():
         # thing stopping an unreviewed page being printed and taped to a wall.
         tool = EquipmentFactory(name="Table Saw")
         WikiPageFactory(title="Table Saw", kind=WikiPage.Kind.MACHINE, equipment=tool, is_published=False)
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_stickers"))
         assert b"Table Saw" not in response.content
         assert b"Ask an admin to run the equipment seed" in response.content
@@ -510,13 +510,13 @@ def describe_the_sticker_sheet_and_held_back_pages():
         guild_tool = EquipmentFactory(name="Table Saw", guild=GuildFactory(name="Woodworking"))
         WikiPageFactory(title="Table Saw", kind=WikiPage.Kind.MACHINE, equipment=guild_tool, guild=guild_tool.guild)
         WikiPageFactory(title="Air Compressor", kind=WikiPage.Kind.MACHINE, guild=None)
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_stickers") + "?guild=space-wide")
         assert b"Air Compressor" in response.content
         assert b"Table Saw" not in response.content
 
     def it_does_not_speak_the_enum_label_in_the_empty_state(client, db):
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_stickers") + "?kind=howto")
         assert b"No pages of that kind yet" in response.content
         # Only the machine sheet can honestly point at the equipment seeder.
@@ -525,7 +525,7 @@ def describe_the_sticker_sheet_and_held_back_pages():
     def it_names_the_page_for_a_screen_reader_without_printing_it(client, db):
         tool = EquipmentFactory(name="Table Saw")
         WikiPageFactory(title="Table Saw", kind=WikiPage.Kind.MACHINE, equipment=tool)
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_stickers"))
         assert b'<h1 class="pl-stickers-title">Wiki Stickers' in response.content
         # The heading sits inside the no-print toolbar, so it costs no printed sheet space.
@@ -538,7 +538,7 @@ def describe_the_print_stickers_link():
         guild = GuildFactory(name="Woodworking")
         tool = EquipmentFactory(name="Table Saw", guild=guild)
         WikiPageFactory(title="Table Saw", kind=WikiPage.Kind.MACHINE, equipment=tool, guild=guild)
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_home") + "?guild=woodworking")
         assert f"{reverse('hub_wiki_stickers')}?guild=woodworking".encode() in response.content
 
@@ -547,6 +547,6 @@ def describe_the_print_stickers_link():
         # sheet's space-wide branch unreachable from anywhere in the app.
         tool = EquipmentFactory(name="Table Saw")
         WikiPageFactory(title="Table Saw", kind=WikiPage.Kind.MACHINE, equipment=tool, guild=None)
-        _login(client, "officer@example.com", fog_role=Member.FogRole.ADMIN)
+        _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
         response = client.get(reverse("hub_wiki_home") + "?guild=space-wide")
         assert f"{reverse('hub_wiki_stickers')}?guild=space-wide".encode() in response.content

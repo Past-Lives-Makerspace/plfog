@@ -16,7 +16,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.test import RequestFactory
 
 from classes.factories import UserFactory
-from hub.view_as import ROLE_ADMIN, ROLE_GUEST, ROLE_GUILD_OFFICER, ROLE_MEMBER, ViewAs
+from hub.view_as import ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, ViewAs
 from membership.models import AdminCapability, Equipment, EquipmentReservation, GuildStaffMembership, Member
 from membership.permissions import can_manage_equipment, manageable_reservations, manages_equipment
 from tests.membership.factories import (
@@ -30,7 +30,7 @@ from tests.membership.factories import (
 
 pytestmark = pytest.mark.django_db
 
-ADMIN_ROLES = {ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}
+ADMIN_ROLES = {ROLE_ADMIN, ROLE_MEMBER}
 
 
 def _member() -> Member:
@@ -83,7 +83,6 @@ def _viewers(world: dict[str, Any]) -> dict[str, tuple[Any, set[str]]]:
         "guild B staff": (_request(staff_b, roles=member_roles), {"laser"}),
         "lathe staff": (_request(lathe_staff, roles=member_roles), {"lathe"}),
         "EQUIPMENT holder": (_request(holder, roles=member_roles), {"lathe", "saw", "laser", "room"}),
-        "officer (no blanket grant)": (_request(_member(), roles={ROLE_GUILD_OFFICER, ROLE_MEMBER}), set()),
         "admin": (_request(_member(), roles=ADMIN_ROLES), {"lathe", "saw", "laser", "room"}),
         "admin previewing as member": (_request(_member(), roles=ADMIN_ROLES, picked=ROLE_MEMBER), set()),
         "EQUIPMENT admin previewing as member": (
@@ -153,7 +152,6 @@ def describe_manages_equipment():
             "guild B staff": True,
             "lathe staff": True,
             "EQUIPMENT holder": True,
-            "officer (no blanket grant)": False,
             "admin": True,
             "admin previewing as member": False,
             "EQUIPMENT admin previewing as member": True,

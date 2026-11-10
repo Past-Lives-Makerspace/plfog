@@ -254,19 +254,15 @@ def describe_the_guild_leads_screen():
         assert "This class is in the <strong>Metalsmithing</strong> guild" in html
         assert "<strong>Ren Alvarez</strong>, who teaches it" in html
 
-    def it_writes_a_whole_sentence_when_the_category_has_no_guild(instructor, client, db):
-        # Production carries 86 guild-less categories. The guild leg admits a fog officer who
-        # also teaches on one of them, so the sentence has to hold together without a guild
-        # name to put in it.
-        instructor.fog_role = Member.FogRole.GUILD_OFFICER
-        instructor.save(update_fields=["fog_role"])
+    def it_serves_a_guildless_class_to_no_one_who_neither_teaches_it_nor_is_an_admin(instructor, client, db):
+        # Production carries 86 guild-less categories. Before ADR 0004 a fog Guild Officer who
+        # also teaches reached the guild leg on them; with the role retired nobody does, so a
+        # teaching member who is not this class's instructor gets a 404.
         offering = ClassOfferingFactory(
             slug="guildless", category=CategoryFactory(guild=None), instructor=InstructorFactory()
         )
         client.force_login(instructor.user)
-        html = _html(client, "classes:teach_class_emails", offering)
-        assert "You can edit this class and write its welcome email." in html
-        assert "guild, so you can edit it" not in html
+        assert client.get(reverse("classes:teach_class_emails", kwargs={"pk": offering.pk})).status_code == 404
 
     def it_serves_them_no_overview_no_roster_and_no_waitlist(guild_lead, guild_class, client):
         client.force_login(guild_lead.user)

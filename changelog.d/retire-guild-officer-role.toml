@@ -1,0 +1,9 @@
+bump = "patch"
+audience = ["guild-staff", "admins"]
+date = "2026-11-10"
+title = "Guild leads run their own guilds"
+changes = [
+  "Guild leads and staff can edit their own guild's settings, classes and orientations, and no longer anyone else's.",
+  "Guild Officer is no longer a role an admin hands out. Anyone who leads or staffs a guild is a guild officer, and only admins can edit every guild.",
+  "Leads and staff keep their officer access to the Knowledge Base.",
+]

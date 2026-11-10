@@ -16,7 +16,7 @@ from django.core import mail
 from django.utils import timezone
 
 from core.models import EventDelivery, Notification, NotificationPreference
-from membership.models import AnnouncementDraft, CommunityEvent, GuildAnnouncement, Member
+from membership.models import AnnouncementDraft, CommunityEvent, GuildAnnouncement, GuildStaffMembership
 from tests.membership.factories import CommunityEventFactory, GuildFactory, MeetingFactory, MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
@@ -36,9 +36,12 @@ def _lead(username: str) -> User:
     return user
 
 
-def _officer(username: str) -> User:
+def _staffer(username: str) -> User:
+    """A guild's staff member: guild leadership by a staff row, not by the lead FK."""
     user = _user(username)
-    Member.objects.filter(pk=user.member.pk).update(fog_role=Member.FogRole.GUILD_OFFICER)
+    GuildStaffMembership.objects.create(
+        guild=GuildFactory(), member=user.member, role=GuildStaffMembership.Role.SECRETARY
+    )
     return user
 
 
@@ -215,7 +218,7 @@ def describe_AnnouncementDraft_leads_audience():
 
     def it_counts_exactly_the_all_guild_leads_resolver():
         _lead("lead-a")
-        _officer("officer-a")
+        _staffer("staffer-a")
         _user("plain-a")
         assert AnnouncementDraft(audience=AnnouncementDraft.Audience.LEADS).recipient_count() == 2
 
@@ -224,7 +227,7 @@ def describe_AnnouncementDraft_leads_audience():
         def people(db):
             return {
                 "lead": _lead("lead-s"),
-                "officer": _officer("officer-s"),
+                "staffer": _staffer("staffer-s"),
                 "plain": _user("plain-s"),
                 "sender": _user("sender-s"),
             }
@@ -238,7 +241,7 @@ def describe_AnnouncementDraft_leads_audience():
             )
             emailed, total = draft.send()
             assert (emailed, total) == (2, 2)
-            leads = {f"user:{people['lead'].pk}", f"user:{people['officer'].pk}"}
+            leads = {f"user:{people['lead'].pk}", f"user:{people['staffer'].pk}"}
             assert _reached("in_app") == leads
             assert _reached("email") == leads
             draft.refresh_from_db()
@@ -257,7 +260,7 @@ def describe_AnnouncementDraft_leads_audience():
             )
             draft.send()
             assert f"user:{people['lead'].pk}" in _reached("in_app")
-            assert _reached("email") == {f"user:{people['officer'].pk}"}
+            assert _reached("email") == {f"user:{people['staffer'].pk}"}
 
         def it_posts_nothing_to_discord_with_no_channel(people):
             draft = AnnouncementDraft.objects.create(

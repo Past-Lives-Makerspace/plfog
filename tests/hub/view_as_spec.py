@@ -10,7 +10,6 @@ from django.test import RequestFactory
 
 from hub.view_as import (
     ROLE_ADMIN,
-    ROLE_GUILD_OFFICER,
     ROLE_MEMBER,
     ViewAs,
     ViewAsMiddleware,
@@ -47,13 +46,17 @@ def describe_compute_actual_roles():
         user = User.objects.get(pk=user.pk)
         assert compute_actual_roles(user) == frozenset({ROLE_GUEST})
 
-    def it_returns_admin_guild_officer_and_member_for_fog_admin():
+    def it_returns_admin_and_member_for_fog_admin():
         user, _ = _make_user_member(Member.FogRole.ADMIN, username="admin_u")
-        assert compute_actual_roles(user) == frozenset({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER})
+        assert compute_actual_roles(user) == frozenset({ROLE_ADMIN, ROLE_MEMBER})
 
-    def it_returns_guild_officer_and_member_for_fog_officer():
-        user, _ = _make_user_member(Member.FogRole.GUILD_OFFICER, username="officer_u")
-        assert compute_actual_roles(user) == frozenset({ROLE_GUILD_OFFICER, ROLE_MEMBER})
+    def it_gives_a_guild_lead_only_the_member_role():
+        """Leading a guild is a row, not a role (ADR 0004): it adds no view-as rung."""
+        from tests.membership.factories import GuildFactory
+
+        user, member = _make_user_member(Member.FogRole.MEMBER, username="lead_u")
+        GuildFactory(guild_lead=member)
+        assert compute_actual_roles(user) == frozenset({ROLE_MEMBER})
 
     def it_returns_only_member_for_regular_members():
         user, _ = _make_user_member(Member.FogRole.MEMBER, username="member_u")
@@ -63,25 +66,19 @@ def describe_compute_actual_roles():
         user = User.objects.create_superuser(username="root", email="r@x.com", password="p")
         Member.objects.filter(user=user).delete()
         user = User.objects.get(pk=user.pk)
-        assert compute_actual_roles(user) == frozenset({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER})
+        assert compute_actual_roles(user) == frozenset({ROLE_ADMIN, ROLE_MEMBER})
 
 
 def describe_ViewAs():
     def describe_default_view_as_role():
         def it_picks_the_highest_actual_role_when_nothing_is_picked():
-            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=None)
+            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_MEMBER}), picked=None)
             assert v.view_as_role == ROLE_ADMIN
-            assert v.effective == frozenset({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER})
+            assert v.effective == frozenset({ROLE_ADMIN, ROLE_MEMBER})
 
     def describe_effective_roles():
-        def it_caps_effective_to_roles_at_or_below_picked():
-            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=ROLE_GUILD_OFFICER)
-            assert v.is_admin is False
-            assert v.is_guild_officer is True
-            assert v.is_member is True
-
         def it_picking_member_reduces_effective_to_just_member():
-            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=ROLE_MEMBER)
+            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_MEMBER}), picked=ROLE_MEMBER)
             assert v.is_admin is False
             assert v.is_member is True
 
@@ -93,27 +90,21 @@ def describe_ViewAs():
 
     def describe_is_previewing():
         def it_is_false_when_nothing_is_picked():
-            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=None)
+            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_MEMBER}), picked=None)
             assert v.is_previewing is False
 
         def it_is_false_when_the_pick_is_the_users_own_highest_role():
-            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=ROLE_ADMIN)
+            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_MEMBER}), picked=ROLE_ADMIN)
             assert v.is_previewing is False
 
         def it_is_true_when_an_admin_downgrades_to_member():
-            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=ROLE_MEMBER)
+            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_MEMBER}), picked=ROLE_MEMBER)
             assert v.is_previewing is True
 
         def it_is_true_when_an_admin_previews_as_guest():
             from hub.view_as import ROLE_GUEST
 
-            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=ROLE_GUEST)
-            assert v.is_previewing is True
-
-        def it_is_true_when_a_non_admin_officer_downgrades_to_member():
-            # A capability gate suppressed while previewing stays suppressed for as long as
-            # this pick stands — they picked Member, so they see Member.
-            v = ViewAs(actual=frozenset({ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=ROLE_MEMBER)
+            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_MEMBER}), picked=ROLE_GUEST)
             assert v.is_previewing is True
 
         def it_is_false_for_a_plain_member_who_picks_their_only_role():
@@ -128,12 +119,12 @@ def describe_ViewAs():
 
     def describe_show_dropdown():
         def it_is_true_for_admins():
-            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=None)
+            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_MEMBER}), picked=None)
             assert v.show_dropdown is True
 
-        def it_is_true_for_guild_officers():
-            v = ViewAs(actual=frozenset({ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=None)
-            assert v.show_dropdown is True
+        def it_is_false_for_a_member_now_that_there_is_no_officer_rung():
+            v = ViewAs(actual=frozenset({ROLE_MEMBER}), picked=ROLE_MEMBER)
+            assert v.show_dropdown is False
 
         def it_is_false_for_plain_members():
             v = ViewAs(actual=frozenset({ROLE_MEMBER}), picked=None)
@@ -143,16 +134,22 @@ def describe_ViewAs():
         def it_lists_every_role_for_admins_so_they_can_preview():
             from hub.view_as import ROLE_GUEST
 
-            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=ROLE_GUILD_OFFICER)
+            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_MEMBER}), picked=ROLE_MEMBER)
             names = [row["name"] for row in v.dropdown_options]
-            assert names == [ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER, ROLE_GUEST]
+            assert names == [ROLE_ADMIN, ROLE_MEMBER, ROLE_GUEST]
             selected = [row["name"] for row in v.dropdown_options if row["selected"]]
-            assert selected == [ROLE_GUILD_OFFICER]
+            assert selected == [ROLE_MEMBER]
+
+        def it_never_offers_the_retired_guild_officer_role():
+            v = ViewAs(actual=frozenset({ROLE_ADMIN, ROLE_MEMBER}), picked=None)
+            labels = [row["label"] for row in v.dropdown_options]
+            assert "Guild Officer" not in labels
+            assert "guild_officer" not in [row["name"] for row in v.dropdown_options]
 
         def it_skips_roles_not_actually_held_for_non_admins():
-            v = ViewAs(actual=frozenset({ROLE_GUILD_OFFICER, ROLE_MEMBER}), picked=None)
+            v = ViewAs(actual=frozenset({ROLE_MEMBER}), picked=None)
             names = [row["name"] for row in v.dropdown_options]
-            assert names == [ROLE_GUILD_OFFICER, ROLE_MEMBER]
+            assert names == [ROLE_MEMBER]
 
 
 @pytest.mark.django_db
@@ -178,6 +175,30 @@ def describe_ViewAsMiddleware():
         user, _ = _make_user_member(Member.FogRole.ADMIN, username="mw_picked")
         request = rf.get("/")
         request.user = user
+        request.session = {"view_as_role": "member"}
+
+        captured: dict[str, object] = {}
+
+        def get_response(req):
+            captured["view_as"] = req.view_as
+            return "ok"
+
+        ViewAsMiddleware(get_response)(request)
+
+        assert captured["view_as"].view_as_role == ROLE_MEMBER
+        assert captured["view_as"].is_admin is False
+
+    @pytest.mark.parametrize(
+        ("fog_role", "expected_role", "expected_admin"),
+        [(Member.FogRole.ADMIN, ROLE_ADMIN, True), (Member.FogRole.MEMBER, ROLE_MEMBER, False)],
+    )
+    def it_reads_a_stale_guild_officer_pick_as_the_actual_roles(
+        rf: RequestFactory, fog_role: str, expected_role: str, expected_admin: bool
+    ):
+        """A session picked before ADR 0004 retired the role must not crash or narrow anything."""
+        user, _ = _make_user_member(fog_role, username=f"mw_stale_{fog_role}")
+        request = rf.get("/")
+        request.user = user
         request.session = {"view_as_role": "guild_officer"}
 
         captured: dict[str, object] = {}
@@ -188,8 +209,22 @@ def describe_ViewAsMiddleware():
 
         ViewAsMiddleware(get_response)(request)
 
-        assert captured["view_as"].view_as_role == ROLE_GUILD_OFFICER
-        assert captured["view_as"].is_admin is False
+        view_as = captured["view_as"]
+        assert view_as.view_as_role == expected_role
+        assert view_as.effective == view_as.actual
+        assert view_as.is_admin is expected_admin
+        assert view_as.is_previewing is False
+
+    def it_serves_a_page_to_an_admin_whose_session_still_holds_guild_officer(client):
+        user, _ = _make_user_member(Member.FogRole.ADMIN, username="stale_page_admin")
+        client.login(username=user.username, password="p")
+        session = client.session
+        session["view_as_role"] = "guild_officer"
+        session.save()
+
+        response = client.get("/guilds/voting/")
+
+        assert response.status_code == 200
 
     def it_ignores_picked_role_the_user_does_not_hold(rf: RequestFactory):
         user, _ = _make_user_member(Member.FogRole.MEMBER, username="mw_rogue")
@@ -216,12 +251,25 @@ def describe_view_as_set_endpoint():
 
         response = client.post(
             "/view-as/set/",
-            data=json.dumps({"role": "guild_officer"}),
+            data=json.dumps({"role": "member"}),
             content_type="application/json",
         )
 
         assert response.status_code == 200
-        assert client.session["view_as_role"] == "guild_officer"
+        assert client.session["view_as_role"] == "member"
+
+    def it_rejects_the_retired_guild_officer_role(client):
+        user, _ = _make_user_member(Member.FogRole.ADMIN, username="set_retired")
+        client.login(username=user.username, password="p")
+
+        response = client.post(
+            "/view-as/set/",
+            data=json.dumps({"role": "guild_officer"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert "view_as_role" not in client.session
 
     def it_rejects_unknown_role_names(client):
         user, _ = _make_user_member(Member.FogRole.ADMIN, username="set_wizard")
@@ -252,7 +300,7 @@ def describe_view_as_set_endpoint():
 
         user, _ = _make_user_member(Member.FogRole.ADMIN, username="set_preview")
         client.login(username=user.username, password="p")
-        for preview_role in ("guest", "member", "guild_officer"):
+        for preview_role in ("guest", "member"):
             response = client.post(
                 "/view-as/set/",
                 data=json.dumps({"role": preview_role}),
@@ -384,16 +432,19 @@ def describe_dropdown_in_hub_template():
         assert b"Your admin duties" in response.content
         assert b"Billing Administrator" in response.content
 
-    def it_omits_capability_toggles_for_a_non_admin_who_still_sees_the_dropdown(client):
-        # A guild officer gets the view-as dropdown (a downgrade tool) but is NOT an
-        # actual admin, so the self-service duty toggles must be absent.
-        user, _ = _make_user_member(Member.FogRole.GUILD_OFFICER, username="tmpl_cap_officer")
+    def it_omits_capability_toggles_and_the_dropdown_for_a_guild_lead(client):
+        # A guild lead holds no higher role to preview down from (ADR 0004), so there is no
+        # dropdown and no self-service duty toggles.
+        from tests.membership.factories import GuildFactory
+
+        user, member = _make_user_member(Member.FogRole.MEMBER, username="tmpl_cap_lead")
+        GuildFactory(guild_lead=member)
         client.login(username=user.username, password="p")
 
         response = client.get("/guilds/voting/")
 
         assert response.status_code == 200
-        assert b"pl-view-as-popover" in response.content
+        assert b"pl-view-as-popover" not in response.content
         assert b"Your admin duties" not in response.content
 
 
@@ -561,14 +612,17 @@ def describe_instructor_toggle_in_hub_template():
         assert 'type="checkbox" checked' in _toggle_input(body, "setInstructor")
         assert 'type="checkbox" checked' in _toggle_input(body, "setCapability")
 
-    def it_omits_the_instructor_toggle_for_a_non_admin_who_still_sees_the_dropdown(client):
-        user, _ = _make_user_member(Member.FogRole.GUILD_OFFICER, username="tmpl_inst_officer")
+    def it_omits_the_instructor_toggle_for_a_guild_lead(client):
+        from tests.membership.factories import GuildFactory
+
+        user, member = _make_user_member(Member.FogRole.MEMBER, username="tmpl_inst_lead")
+        GuildFactory(guild_lead=member)
         client.login(username=user.username, password="p")
 
         response = client.get("/guilds/voting/")
 
         assert response.status_code == 200
-        assert b"pl-view-as-popover" in response.content
+        assert b"pl-view-as-popover" not in response.content
         assert Member.INSTRUCTOR_PERMISSION_DESCRIPTION not in response.content.decode()
 
     def it_renders_a_help_tooltip_for_every_permission(client):

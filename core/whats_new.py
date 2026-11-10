@@ -362,8 +362,8 @@ class WhatsNew:
 
         ``members`` is :func:`hub.spotlight.sees_spotlight` for a viewer the preview lets act as
         a member (an admin previewing as a Guest is nobody, as the Door Code has it); the rest
-        follow from it. ``guild-staff`` is a guild officer, or a member who leads or staffs a
-        guild; ``admins`` is the admin role, or a member holding any admin capability, which a
+        follow from it. ``guild-staff`` is an admin (who edits every guild), or a member who leads
+        or staffs a guild; ``admins`` is the admin role, or a member holding any admin capability, which a
         preview drops the way :func:`membership.permissions._capability_counts` does. The finer
         keys read the member's own rows, in the one query :meth:`_flags` makes.
         """
@@ -377,7 +377,7 @@ class WhatsNew:
         held = {"members"}
         if member.is_instructor:
             held.add("instructors")
-        if view_as.is_guild_officer or flags["leads"] or flags["staffs"]:
+        if view_as.is_admin or flags["leads"] or flags["staffs"]:
             held.add("guild-staff")
         if flags["leads"] or flags["co_leads"]:
             held.add("guild-leads")

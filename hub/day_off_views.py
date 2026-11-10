@@ -51,7 +51,7 @@ def _reaches(request: HttpRequest, orienter: Member, roster: list[Member]) -> bo
 
     Edit Hours lets a lead edit any member's rows in that guild, and those rows only ever
     touch that guild. A day off cancels and emails across every guild and tool the person
-    orients on, so anyone short of effective staff (admin or officer) reaches only the people
+    orients on, so anyone short of an admin reaches only the people
     on the card they opened: the guild's leadership, or the equipment's orientors. One's own
     day off is unchanged, since the hours gate's self scope already requires being on it.
     """

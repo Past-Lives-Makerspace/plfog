@@ -1,7 +1,7 @@
 """Polls (#708, back in #925): someone asks one question, members pick one answer, and it closes on a date.
 
 A poll is site wide (``guild`` blank, posted by an admin, shown on Home) or a guild's (posted by
-that guild's leads, staff, officers or an admin, shown on the guild's Polls tab). A poll is open
+that guild's leads, staff or an admin, shown on the guild's Polls tab). A poll is open
 exactly while ``opens_at <= now < closes_at``, so it closes on its own and nothing has to run for
 that; Close now moves ``closes_at`` to now. Only one poll is open at a time in each scope (site
 wide, or one guild), which :meth:`Poll.post` keeps true (a time range cannot be a unique index):

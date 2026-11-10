@@ -1,6 +1,6 @@
 """BDD specs for the Orientations page's "+ Add an Orientation" button (#637, #680).
 
-Admins, guild officers and anyone who leads or staffs a guild see it in the page header on
+Admins and anyone who leads or staffs a guild see it in the page header on
 every tab, and for every one of them it is a plain link to the Add an Orientation page,
 where the guild is the first field; no guild menu renders for anyone. Assertions anchor on
 the ``data-add-orientation`` hooks and URLs, never on copy a changelog entry could carry
@@ -27,6 +27,7 @@ from tests.membership.factories import (
     EquipmentStaffMembershipFactory,
     GuildFactory,
     GuildStaffMembershipFactory,
+    MemberFactory,
     MembershipPlanFactory,
 )
 
@@ -84,10 +85,12 @@ def describe_who_sees_it():
         GuildFactory(name="Admin Seen Guild")
         assert HOOK in client.get(PAGE).content
 
-    def it_shows_for_a_guild_officer(client: Client):
-        _login(client, "ao_officer", Member.FogRole.GUILD_OFFICER)
-        GuildFactory(name="Officer Seen Guild")
+    def it_offers_a_lead_their_own_guild_and_never_another(client: Client):
+        member = _login(client, "ao_one_lead")
+        own = GuildFactory(name="Own Lead Guild", guild_lead=member)
+        GuildFactory(name="Another Lead's Guild", guild_lead=MemberFactory())
         assert HOOK in client.get(PAGE).content
+        assert _guild_choices(client.get(ADD_PAGE).content) == [own.pk]
 
     def it_shows_for_a_guild_lead(client: Client):
         member = _login(client, "ao_lead")
@@ -168,7 +171,7 @@ def describe_one_link_for_everyone():
             f'<a href="{ADD_PAGE}" class="hub-btn hub-btn--sm hub-btn--primary" data-add-orientation-link>' in content
         )
 
-    @pytest.mark.parametrize("fog_role", [Member.FogRole.MEMBER, Member.FogRole.ADMIN, Member.FogRole.GUILD_OFFICER])
+    @pytest.mark.parametrize("fog_role", [Member.FogRole.MEMBER, Member.FogRole.ADMIN])
     def it_links_a_viewer_of_several_guilds_to_the_add_page_with_no_menu(client: Client, fog_role: str):
         member = _login(client, "ao_several", fog_role)
         GuildFactory(name="Zinc Guild", guild_lead=member)
@@ -187,13 +190,12 @@ def describe_every_choice_is_editable():
         ("fog_role", "lead", "staff", "preview"),
         [
             (Member.FogRole.ADMIN, False, False, False),
-            (Member.FogRole.GUILD_OFFICER, False, False, False),
             (Member.FogRole.MEMBER, True, False, False),
             (Member.FogRole.MEMBER, False, True, False),
             (Member.FogRole.MEMBER, True, True, False),
             (Member.FogRole.MEMBER, False, False, False),
             (Member.FogRole.ADMIN, True, False, True),
-            (Member.FogRole.GUILD_OFFICER, False, True, True),
+            (Member.FogRole.ADMIN, False, True, True),
             (Member.FogRole.ADMIN, True, True, False),
         ],
     )
@@ -224,7 +226,7 @@ def describe_every_choice_is_editable():
         request.view_as = ViewAs.for_request(request)
         listed = guilds_for_new_orientation(request)
         # Every listed guild is editable, and every editable guild is listed, except that an
-        # admin or officer (not previewing) gets only the active ones: their menu is every
+        # admin (not previewing) gets only the active ones: their menu is every
         # guild, and hidden ones would only crowd it.
         every_guild = fog_role != Member.FogRole.MEMBER and not preview
         editable = [
