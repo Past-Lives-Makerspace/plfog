@@ -217,13 +217,14 @@ class TourHoursQuerySet(models.QuerySet["TourHours"]):
 
 
 def lock_guide_hours(guide: Member) -> None:
-    """Hold one guide's hours still until the transaction ends (#1160): ``SELECT ... FOR UPDATE`` on their member row.
+    """Hold one guide's hours still until the transaction ends (#1160): ``SELECT ... FOR NO KEY UPDATE`` on their member row.
 
     Every save of a guide's hours (the Every Week formset, Add Dates) takes this before it checks
     for overlaps and keeps the check and the write in the same transaction, so two saves at once
     (a guide and an admin, two tabs) queue here and the second sees the first's rows. The member
     row, not the hours rows: a save onto a weekday or date with no hours yet would find no hours
-    row to lock, and both saves would land.
+    row to lock, and both saves would land. NO KEY, because a booking's insert takes FOR KEY SHARE
+    on its guide's row while holding the hours rows, and a plain FOR UPDATE here would deadlock it.
 
     Raises:
         RuntimeError: outside a transaction, where the lock would end at once.
@@ -232,7 +233,7 @@ def lock_guide_hours(guide: Member) -> None:
 
     if not transaction.get_connection().in_atomic_block:
         raise RuntimeError("lock_guide_hours must run inside transaction.atomic().")
-    list(Member.objects.select_for_update().filter(pk=guide.pk).values_list("pk", flat=True))
+    list(Member.objects.select_for_update(no_key=True).filter(pk=guide.pk).values_list("pk", flat=True))
 
 
 class TourHours(models.Model):

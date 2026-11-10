@@ -576,7 +576,7 @@ def describe_saving_under_the_guide_lock():
         with CaptureQueriesContext(connection) as queries:
             assert client.post(DATES_SAVE, _post(guide, _ahead(2))).status_code == 302
         sql = [query["sql"] for query in queries.captured_queries]
-        lock = next(index for index, text in enumerate(sql) if "FOR UPDATE" in text)
+        lock = next(index for index, text in enumerate(sql) if "FOR NO KEY UPDATE" in text)
         assert '"membership_member"' in sql[lock] and str(guide.pk) in sql[lock]
         insert = next(index for index, text in enumerate(sql) if text.startswith('INSERT INTO "tours_tourhours"'))
         check = next(index for index, text in enumerate(sql) if '"tours_tourdayoff"' in text)
@@ -588,10 +588,41 @@ def describe_saving_under_the_guide_lock():
         with CaptureQueriesContext(connection) as queries:
             assert client.post(SAVE, _weekly_post(guide)).status_code == 302
         sql = [query["sql"] for query in queries.captured_queries]
-        lock = next(index for index, text in enumerate(sql) if "FOR UPDATE" in text)
+        lock = next(index for index, text in enumerate(sql) if "FOR NO KEY UPDATE" in text)
         assert '"membership_member"' in sql[lock]
         insert = next(index for index, text in enumerate(sql) if text.startswith('INSERT INTO "tours_tourhours"'))
         assert lock < insert
+
+    @pytest.mark.postgres_only
+    @pytest.mark.django_db(transaction=True)
+    def it_lets_a_booking_through_while_a_save_holds_the_guide():
+        # A booking's insert takes FOR KEY SHARE on its guide's member row; a plain FOR UPDATE
+        # there would block it, and with the hours rows locked the other way round, deadlock.
+        guide = make_guide()
+        held = threading.Event()
+        release = threading.Event()
+
+        def hold() -> None:
+            try:
+                with transaction.atomic():
+                    lock_guide_hours(guide)
+                    held.set()
+                    release.wait(5)
+            finally:
+                connection.close()
+
+        holder = threading.Thread(target=hold)
+        holder.start()
+        try:
+            assert held.wait(5)
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute("SET LOCAL lock_timeout = '2s'")
+                TourBookingFactory(guide=guide)
+        finally:
+            release.set()
+            holder.join()
+        assert TourBooking.objects.filter(guide=guide).count() == 1
 
     @pytest.mark.postgres_only
     @pytest.mark.django_db(transaction=True)
