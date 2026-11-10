@@ -6686,6 +6686,7 @@ class EmailPollComposeForm(forms.Form):
         label="When to remind",
     )
     audience_only = forms.BooleanField(required=False, initial=False, label="Only the people it was sent to can answer")
+    public_results = forms.BooleanField(required=False, initial=False, label="Public results")
 
     def clean(self) -> dict[str, Any]:
         """Refuse a reminder that would go out before the poll opens; without the switch, no reminder."""
@@ -6727,6 +6728,7 @@ class EmailPollComposeForm(forms.Form):
             remind_days_before=cd["remind_days_before"],
             audience_only=cd["audience_only"],
             questions=questions.specs,
+            public_results=cd["public_results"],
         )
 
     @classmethod
@@ -6742,6 +6744,7 @@ class EmailPollComposeForm(forms.Form):
             "remind": poll.remind_days_before is not None,
             "remind_days_before": poll.remind_days_before or ReminderLead.ONE_DAY,
             "audience_only": poll.audience_only,
+            "public_results": poll.public_results,
         }
 
 

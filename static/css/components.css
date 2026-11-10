@@ -2650,3 +2650,34 @@ select[multiple] option:checked {
     white-space: nowrap;
 }
 .pl-section-back__count { font-weight: 500; color: var(--hub-text-muted); }
+
+/* Actions in a card or section (FRONTEND.md): two peer creates as an equal width pair, primary first. */
+.pl-btn-pair {
+    display: inline-grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(10rem, 1fr);
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.pl-btn-pair .pl-btn { min-height: 40px; }
+
+/* The link that closes a card: goes elsewhere, Title Case, ends in an arrow, on its own line. */
+.pl-card-link {
+    display: flex;
+    align-items: center;
+    width: fit-content;
+    min-height: 2.5rem;
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--hub-link);
+}
+
+.pl-card-link:hover { color: var(--hub-link-hover); }
+
+@media (max-width: 639px) {
+    .pl-btn-pair { display: grid; grid-auto-flow: row; grid-auto-columns: 1fr; }
+    .pl-btn-pair .pl-btn { min-height: 48px; }
+    .pl-card-link { min-height: 3rem; }
+}

@@ -1,0 +1,22 @@
+bump = "minor"
+date = "2026-11-10"
+title = "Polls for guild leads"
+audience = ["guild-staff", "admins"]
+feature = "guild.email-polls"
+guidance = "shots"
+changes = [
+  "Guild Settings' Email Members tab has New Email and New Poll buttons, and Email Members has New poll beside New email.",
+  "A pick question can end with a write-in option you name, such as Another time; you see what each person typed.",
+  "Turn on Public results to let every member see the totals. Written answers and who picked what stay with you and admins.",
+  "When a poll closes, a results email with its totals waits in Drafts for you to add a note and send.",
+  "A poll to Guild leads also reaches every admin.",
+]
+
+[[shots]]
+caption = "In your guild's settings, open the Email Members tab and press New Poll."
+
+[[shots]]
+caption = "The composer opens on Poll with your guild chosen. Write your questions."
+
+[[shots]]
+caption = "The Polls tab in Email Members shows how many have answered."

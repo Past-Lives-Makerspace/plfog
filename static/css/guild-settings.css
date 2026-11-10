@@ -40,3 +40,8 @@
 .pl-guild-events__state {
     margin-top: 0.35rem;
 }
+
+/* Email Your Members (#1142): the card's frame, title and lead, out of inline styles. */
+.pl-guild-email-card { padding: 1.5rem; }
+.pl-guild-email-card__title { margin: 0 0 0.5rem; }
+.pl-guild-email-card__lead { font-size: 0.875rem; margin: 0; }

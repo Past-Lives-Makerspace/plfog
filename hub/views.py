@@ -5186,7 +5186,11 @@ def _compose_poll_context(
     from polls.models import MAX_OPTIONS, MAX_QUESTIONS
 
     poll_form, questions = poll_forms or _compose_poll_forms(request, draft)
-    opens_poll = (
+    # A fresh compose opens on Poll from ?kind=poll (#1142 AC16: Send a Poll, New poll).
+    fresh_poll = (
+        draft is None and request.method == "GET" and request.GET.get("kind") == AnnouncementDraft.Kind.POLL.value
+    )
+    opens_poll = fresh_poll or (
         _posts_poll(request)
         if request.method == "POST"
         else (draft is not None and draft.kind == AnnouncementDraft.Kind.POLL)
@@ -5462,6 +5466,7 @@ def _compose_preview_draft(request: HttpRequest) -> AnnouncementDraft:
         push_message=(request.POST.get("push_message") or "").strip(),
         discord_post_as_me=bool(request.POST.get("discord_post_as_me")),
         funding_snapshot=handled.funding_snapshot if handled is not None else None,
+        results_of_poll=handled.results_of_poll if handled is not None else None,
     )
     draft.title = draft.title_from_subject(request.POST.get("subject") or "")
     return draft

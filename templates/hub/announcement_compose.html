@@ -157,6 +157,14 @@
       <div x-show="kind === 'email'"{% if compose_kind == "poll" %} x-cloak{% endif %} data-compose-email-fields>
       {% include "hub/partials/_compose_subject_field.html" with oob=False %}
       {% include "components/form_field.html" with field=form.body %}
+      {% if draft.results_of_poll %}
+      {# A poll's results email (#1142 AC15): the bars the email shows under the message, built from the poll's counts and not editable here. #}
+      <div class="pl-compose-poll-results" data-compose-poll-results>
+        <p class="pl-form-label">Under Your Message</p>
+        <p class="pl-field-hint">The totals from {{ draft.results_of_poll.draft.title }}. They come from the poll and cannot be edited.</p>
+        <div class="pl-compose-poll-results__email">{{ draft.results_of_poll.results_email_html }}</div>
+      </div>
+      {% endif %}
       {% include "hub/partials/_compose_image_field.html" with current_image=compose_image errors=form.image.errors lost=compose_image_lost max_bytes=max_upload_image_bytes oob=False %}
       {% if form.featured_class.field.choices|length > 1 %}
       <div class="pl-wizard-field" x-show="audience === 'students'" x-cloak data-compose-featured-class>

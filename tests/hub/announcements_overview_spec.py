@@ -836,8 +836,8 @@ def describe_the_entry_points():
         guild = GuildFactory()
         _login_lead(client, guild)
         html = client.get(reverse("hub_guild_edit", args=[guild.pk]) + "?tab=announcements").content.decode()
-        assert f'href="{reverse("hub_compose")}?audience=guild:{guild.pk}" class="hub-btn hub-btn--primary"' in html
+        # The card's actions follow FRONTEND.md (#1142): New Email in the button pair, Drafts and Sent as the card link.
+        assert f'href="{reverse("hub_compose")}?audience=guild:{guild.pk}" class="pl-btn pl-btn--primary"' in html
         assert (
-            f'<a href="{reverse("hub_announcements")}" class="hub-btn hub-btn--ghost" data-guild-announcements-overview>'
-            in html
+            f'<a href="{reverse("hub_announcements")}" class="pl-card-link" data-guild-announcements-overview>' in html
         )

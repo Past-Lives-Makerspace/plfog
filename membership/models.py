@@ -7307,6 +7307,17 @@ class AnnouncementDraft(models.Model):
             "Deleting the snapshot leaves a plain site announcement."
         ),
     )
+    results_of_poll = models.ForeignKey(
+        "polls.EmailPoll",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="results_drafts",
+        help_text=(
+            "Set on the results email made when a poll closes (#1142): its bars show under the message, "
+            "and it reaches the people the poll was sent to. Deleting the poll leaves a plain email."
+        ),
+    )
     delivery_period = models.CharField(
         max_length=120,
         blank=True,
@@ -7333,6 +7344,11 @@ class AnnouncementDraft(models.Model):
             models.CheckConstraint(
                 condition=~models.Q(audience="class") | models.Q(class_offering__isnull=False),
                 name="ck_%(class)s_class_audience",
+            ),
+            models.UniqueConstraint(
+                fields=["results_of_poll"],
+                condition=models.Q(results_of_poll__isnull=False),
+                name="annodraft_one_results_draft",
             ),
         ]
 
@@ -8083,6 +8099,11 @@ class AnnouncementDraft(models.Model):
         if snapshot is not None:
             text_parts.append(snapshot.results_heading + "\n" + "\n".join(snapshot.allocation_lines()))
             results_html = snapshot.results_visual_html()
+        poll = self.results_of_poll
+        if poll is not None:
+            # A poll's results email (#1142 AC15): the bars come from the poll's counts, under the message.
+            text_parts.append("\n".join(poll.results_text_lines()))
+            results_html = poll.results_email_html()
         footer_html = ""
         card_html = ""
         text_tail = ""
@@ -8135,6 +8156,9 @@ class AnnouncementDraft(models.Model):
         from core.events import resolvers
         from core.events.registry import Recipients
 
+        fixed = self.results_recipient_ids()
+        if fixed is not None:
+            return len(fixed)
         if self.audience == self.Audience.LEADS:
             return len(self._leads_recipient_ids())
         if self.audience == self.Audience.INSTRUCTORS:
@@ -8312,6 +8336,8 @@ class AnnouncementDraft(models.Model):
         discord_on = self.discord_enabled
         mention_str = self._mention_literal() if discord_on else ""
         recipient_ids = self._selected_recipient_ids()
+        # A poll's results email (#1142 AC15) with no checklist reaches the people the poll went to.
+        fixed = self.results_recipient_ids()
         suppress_push = not self.push_enabled
         # Asked of Discord once, and only when a channel post goes out; a failed lookup posts as usual.
         identity = self.discord_sender_identity() if self.discord_on else None
@@ -8320,7 +8346,7 @@ class AnnouncementDraft(models.Model):
             site_url = _absolute_url("/")
             webhook = resolve_channel_webhook(self.discord_channel, None) if discord_on else ""
             period = self._site_delivery_period()
-            site_user_ids, site_emails = self._site_recipients()
+            site_user_ids, site_emails = (fixed, []) if fixed is not None else self._site_recipients()
             extra_emails = site_emails if self.send_email else []
             result = emit(
                 "site_announcement",
@@ -8370,7 +8396,7 @@ class AnnouncementDraft(models.Model):
                 suppress_broadcast=(webhook == ""),
                 suppress_email=not self.send_email,
                 suppress_push=suppress_push,
-                recipient_user_ids=self._leads_recipient_ids(),
+                recipient_user_ids=fixed if fixed is not None else self._leads_recipient_ids(),
                 discord_mention=mention_str,
                 override_preferences=self.mark_as_urgent,
             )
@@ -8385,7 +8411,7 @@ class AnnouncementDraft(models.Model):
             instructors_url = _absolute_url("/")
             webhook = resolve_channel_webhook(self.discord_channel, None) if discord_on else ""
             period = self._site_delivery_period()
-            instructor_ids, instructor_emails = self._instructor_recipients()
+            instructor_ids, instructor_emails = (fixed, []) if fixed is not None else self._instructor_recipients()
             extra_emails = instructor_emails if self.send_email else []
             result = emit(
                 "site_announcement",
@@ -8417,7 +8443,7 @@ class AnnouncementDraft(models.Model):
             # as a class send is: a few dozen people.
             students_url = _absolute_url("/")
             period = self._site_delivery_period()
-            student_ids, student_emails = self._student_recipients()
+            student_ids, student_emails = (fixed, []) if fixed is not None else self._student_recipients()
             # A guest gets only the email, so with Email off they get nothing (as All Instructors).
             guest_emails = student_emails if self.send_email else []
             result = emit(
@@ -8576,6 +8602,23 @@ class AnnouncementDraft(models.Model):
             self.delivery_period = f"email_poll:{poll.pk}:live"
             self.save(update_fields=["sent_at", "send_requested_at", "send_error", "delivery_period", "updated_at"])
         return emailed, total
+
+    def results_recipient_ids(self) -> "set[int] | None":
+        """Who a poll's results email reaches when its audience has no checklist (#1142 AC15), else ``None``.
+
+        Everyone, Guild leads, All Instructors and My Past Students send to exactly the accounts the
+        poll was sent to (a Guild leads poll's admins among them); a guild or class results email
+        reads its checklist, which starts as those same people. ``None`` for any other row.
+        """
+        if self.results_of_poll_id is None or self.audience in (self.Audience.GUILD, self.Audience.CLASS):
+            return None
+        from polls.models import EmailPollRecipient
+
+        return set(
+            EmailPollRecipient.objects.filter(poll_id=self.results_of_poll_id, member__user__isnull=False).values_list(
+                "member__user_id", flat=True
+            )
+        )
 
     def _leads_recipient_ids(self) -> set[int]:
         """The user pks a ``LEADS`` announcement reaches: the ``all_guild_leads`` resolver, nothing added."""

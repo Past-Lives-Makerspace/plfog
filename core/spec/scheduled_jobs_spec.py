@@ -57,6 +57,8 @@ _DISPATCHER_ALWAYS = {
     "send_queued_announcements",
     # Every tick: each email poll's one reminder, claimed once (#1142 part 4).
     "send_email_poll_reminders",
+    # Every tick: a closed email poll's results draft, made once (#1142 part 5b).
+    "draft_email_poll_results",
     "announce_live_requests",
     "fetch_video_thumbnails",
     "process_discord_removals",

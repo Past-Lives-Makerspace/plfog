@@ -28,6 +28,8 @@ from django.db import IntegrityError, models, transaction
 from django.db.models import Count, Exists, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce
 from django.utils import timezone
+from django.utils.html import escape
+from django.utils.safestring import SafeString, mark_safe
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -578,6 +580,14 @@ class ReminderLead(models.IntegerChoices):
     THREE_DAYS = 3, "3 days before closing"
 
 
+class ResultsLevel(models.TextChoices):
+    """How much of an email poll's results a viewer sees (#1142 AC14)."""
+
+    NONE = "none", "None"
+    TOTALS = "totals", "Totals"
+    FULL = "full", "Full"
+
+
 class QuestionKind(models.TextChoices):
     """What kind of answer an email poll question takes (#1142)."""
 
@@ -630,6 +640,7 @@ class PollDraft:
     remind_days_before: int | None
     audience_only: bool
     questions: list[QuestionSpec]
+    public_results: bool = False
 
     @property
     def signature(self) -> list[tuple[str, str, tuple[str, ...]]]:
@@ -750,6 +761,10 @@ class EmailPollQuerySet(models.QuerySet["EmailPoll"]):
         )
         return self.annotate(sent_count=Coalesce(Subquery(sent), 0), answered_count=Coalesce(Subquery(answered), 0))
 
+    def results_due(self, now: datetime) -> EmailPollQuerySet:
+        """Polls closed by ``now`` whose results email draft has not been made (#1142 AC15)."""
+        return self.sent().filter(closes_at__lte=now, results_drafted_at__isnull=True)
+
     def reminders_due(self, now: datetime) -> EmailPollQuerySet:
         """Open polls whose reminder time has come and whose reminder has not gone out."""
         return self.open_at(now).filter(remind_at__lte=now, reminder_sent_at__isnull=True)
@@ -789,6 +804,19 @@ class EmailPoll(models.Model):
     audience_only = models.BooleanField(
         default=False,
         help_text="Only the people it was sent to may answer through the plain link.",
+    )
+    public_results = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "Any signed in member may see the pick totals (#1142). Written answers, write-in text and who "
+            "picked what stay with the senders and admins."
+        ),
+    )
+    results_drafted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the results email draft was made after it closed. Blank until then; it is made once.",
     )
     opens_at = models.DateTimeField(null=True, blank=True, help_text="When Send opened it. Blank while a draft.")
     closes_at = models.DateTimeField(null=True, blank=True, help_text="When answering ends. Blank while a draft.")
@@ -856,7 +884,8 @@ class EmailPoll(models.Model):
         poll.run_days = data.run_days
         poll.remind_days_before = data.remind_days_before
         poll.audience_only = data.audience_only
-        poll.save(update_fields=["intro", "run_days", "remind_days_before", "audience_only"])
+        poll.public_results = data.public_results
+        poll.save(update_fields=["intro", "run_days", "remind_days_before", "audience_only", "public_results"])
         poll.replace_questions(data.questions)
         return poll
 
@@ -1019,22 +1048,87 @@ class EmailPoll(models.Model):
             EmailPollAnswer.objects.bulk_create(rows)
         return response
 
-    def may_see_results(self, member: Member | None, *, is_sender: bool = False) -> bool:
-        """Whether ``member`` may see the results: a sender, an admin, or someone who answered.
+    def results_level(self, member: Member | None, *, is_sender: bool = False) -> ResultsLevel:
+        """How much of the results ``member`` sees (#1142 AC14).
 
-        A sender is the draft's author, or anyone the caller found may open the poll's row on Email
-        Members (``is_sender``: ``hub.views._announcement_rows``, which needs the request), such as
-        a guild's co-lead or a class's co-instructor, who can already open, save over and send it.
+        Full (names, written answers, write-in text, the Responses table) for a sender and an
+        admin, and, while results are not public, for whoever answered. Totals (the bars only) for
+        any other member while :attr:`public_results` is on. None otherwise. A sender is the draft's
+        author, or anyone the caller found may open the poll's row on Email Members (``is_sender``:
+        ``hub.views._announcement_rows``, which needs the request), such as a guild's co-lead.
         """
         if member is None:
-            return False
+            return ResultsLevel.NONE
         if is_sender or member.is_fog_admin or (member.user_id is not None and member.user_id == self.draft.author_id):
-            return True
-        return self.responses.filter(member=member).exists()
+            return ResultsLevel.FULL
+        if self.public_results:
+            return ResultsLevel.TOTALS
+        return ResultsLevel.FULL if self.responses.filter(member=member).exists() else ResultsLevel.NONE
 
-    def results(self) -> EmailPollResults:
-        """Every question's results and the per person table, in four queries."""
-        return EmailPollResults.load(self)
+    def may_see_results(self, member: Member | None, *, is_sender: bool = False) -> bool:
+        """Whether ``member`` sees any results at all (:meth:`results_level` is not None)."""
+        return self.results_level(member, is_sender=is_sender) != ResultsLevel.NONE
+
+    def results(self, *, full: bool = True) -> EmailPollResults:
+        """The results: everything in four queries, or with ``full`` off the pick totals alone, which never reads a name."""
+        return EmailPollResults.load(self, full=full)
+
+    def results_email_html(self) -> SafeString:
+        """The results email's block under the sender's message (#1142 AC15): each pick question's bars.
+
+        App-built from the counts at render time and never from the editable message, so it never
+        passes the body sanitizer, as a funding snapshot's chart does. Totals only: no name, written
+        answer or write-in text. Empty with no pick question.
+        """
+        from django.template.loader import render_to_string
+
+        from core.events.templates import style_rich_email_fragment
+
+        results = self.results(full=False)
+        if not results.questions:
+            return mark_safe("")
+        heading = style_rich_email_fragment(f"<h3>{escape(self.results_heading)}</h3>")
+        chart = render_to_string("polls/emails/_results_chart.html", {"results": results})
+        return mark_safe(heading + chart)
+
+    @property
+    def results_heading(self) -> str:
+        """The line over the results email's bars: how many answered."""
+        count = self.responses.count()
+        return f"Poll results: {count} {'person' if count == 1 else 'people'} answered"
+
+    def results_text_lines(self) -> list[str]:
+        """The same totals as plain lines for the results email's text part."""
+        lines = [self.results_heading]
+        for item in self.results(full=False).questions:
+            lines.append(item.question.text)
+            lines.extend(f"  {option.text}: {option.votes} ({option.percent}%)" for option in item.options)
+        return lines
+
+    def create_results_draft(self) -> AnnouncementDraft:
+        """Make the results email draft (#1142 AC15): "Results: <title>", the poll's audience, linked here.
+
+        Its body is blank for the sender to write; the bars come from :meth:`results_email_html` under
+        it. A guild or class draft's checklist starts as exactly the people the poll was sent to,
+        with no mailing list address; any other audience sends to them directly
+        (``AnnouncementDraft.results_recipient_ids``). Nothing is sent.
+        """
+        from membership.models import AnnouncementDraft
+
+        source = self.draft
+        users = sorted(self.recipients.filter(member__user__isnull=False).values_list("member__user_id", flat=True))
+        return AnnouncementDraft.objects.create(
+            kind=AnnouncementDraft.Kind.EMAIL,
+            author=source.author,
+            title=f"Results: {source.title}"[:300],
+            body="",
+            audience=source.audience,
+            guild=source.guild,
+            class_offering=source.class_offering,
+            recipient_selection={"users": users, "custom": []},
+            include_waitlist=source.include_waitlist,
+            results_of_poll=self,
+        )
 
     def answers_of(self, member: Member) -> SavedAnswers:
         """``member``'s saved answers: by question pk, the text written or the option pks picked,
@@ -1179,7 +1273,8 @@ class EmailPollPage:
 
     ``outsider`` is a member an audience only poll was not sent to (and who is not its sender
     or an admin): they see "This poll was sent to a different group." and nothing more.
-    ``results`` is set only for those :meth:`EmailPoll.may_see_results` allows.
+    ``results`` is set only for those :meth:`EmailPoll.results_level` allows, and holds the pick
+    totals alone for a Totals viewer (#1142 AC14).
     """
 
     poll: EmailPoll
@@ -1192,15 +1287,15 @@ class EmailPollPage:
     @classmethod
     def load(cls, poll: EmailPoll, member: Member, now: datetime, *, is_sender: bool = False) -> EmailPollPage:
         """The page for ``member`` at ``now``; ``is_sender`` as :meth:`EmailPoll.may_see_results` takes it."""
-        sees_results = poll.may_see_results(member, is_sender=is_sender)
-        outsider = not sees_results and poll.audience_only and not poll.is_recipient(member)
+        level = poll.results_level(member, is_sender=is_sender)
+        outsider = level == ResultsLevel.NONE and poll.audience_only and not poll.is_recipient(member)
         return cls(
             poll=poll,
             is_open=poll.is_open(now),
             outsider=outsider,
             can_answer=not outsider and poll.answer_refusal(member, now) == "",
             has_answered=poll.responses.filter(member=member).exists(),
-            results=poll.results() if sees_results else None,
+            results=None if level == ResultsLevel.NONE else poll.results(full=level == ResultsLevel.FULL),
         )
 
 
@@ -1475,18 +1570,18 @@ class EmailPollResults:
 
     questions: tuple[QuestionResult, ...]
     rows: tuple[ResponseRow, ...]
-
-    @property
-    def response_count(self) -> int:
-        """How many people answered."""
-        return len(self.rows)
+    response_count: int
+    full: bool = True
 
     @classmethod
-    def load(cls, poll: EmailPoll) -> EmailPollResults:
+    def load(cls, poll: EmailPoll, *, full: bool = True) -> EmailPollResults:
         """Build the results in four queries: questions, options, responses, answers.
 
         A percent is the share of everyone who answered the poll, so Pick any shares can add past 100.
+        With ``full`` off (#1142 AC14) it is :meth:`totals`: no name, written answer or row is read.
         """
+        if not full:
+            return cls.totals(poll)
         questions = list(poll.questions.prefetch_related("options"))
         responses = list(poll.responses.select_related("member").order_by("created_at", "pk"))
         option_text = {option.pk: option.text for question in questions for option in question.options.all()}
@@ -1535,7 +1630,37 @@ class EmailPollResults:
             )
             for response in responses
         )
-        return cls(questions=results, rows=rows)
+        return cls(questions=results, rows=rows, response_count=total)
+
+    @classmethod
+    def totals(cls, poll: EmailPoll) -> EmailPollResults:
+        """The pick questions' counts and percents alone, in four queries that never read a member or any text."""
+        questions = list(poll.questions.exclude(kind=QuestionKind.OPEN).prefetch_related("options"))
+        total = poll.responses.count()
+        votes = dict(
+            EmailPollAnswer.objects.filter(response__poll=poll, option__isnull=False)
+            .values_list("option_id")
+            .annotate(n=Count("pk"))
+            .values_list("option_id", "n")
+        )
+        results = tuple(
+            QuestionResult(
+                question=question,
+                options=tuple(
+                    OptionResult(
+                        pk=option.pk,
+                        text=option.text,
+                        votes=votes.get(option.pk, 0),  # An option nobody picked has no row in the count.
+                        percent=round(100 * votes.get(option.pk, 0) / total) if total else 0,
+                        is_write_in=option.is_write_in,
+                    )
+                    for option in question.options.all()
+                ),
+                written=(),
+            )
+            for question in questions
+        )
+        return cls(questions=results, rows=(), response_count=total, full=False)
 
 
 @dataclass(frozen=True)
@@ -1569,3 +1694,40 @@ def send_due_poll_reminders(now: datetime) -> ReminderRun:
             continue
         polls += 1
     return ReminderRun(polls=polls, emailed=emailed, failed=failed)
+
+
+@dataclass(frozen=True)
+class ResultsDraftRun:
+    """One run of ``draft_email_poll_results``: drafts made, polls with no pick question, and polls that failed."""
+
+    drafted: int
+    failed: int
+    skipped: int = 0
+
+
+def draft_due_poll_results(now: datetime) -> ResultsDraftRun:
+    """Make each closed poll's results email draft, once: the 15 minute job (#1142 AC15).
+
+    Each poll is claimed with a conditional update on ``results_drafted_at``, and the draft links
+    back to it under a unique constraint, so two runs make one draft. A poll with no pick question
+    has no totals to send: it is marked handled and gets no draft. A poll whose draft fails
+    gives its claim back for the next run; one failing never stops the rest.
+    """
+    drafted = failed = skipped = 0
+    for pk in list(EmailPoll.objects.results_due(now).values_list("pk", flat=True)):
+        if not EmailPoll.objects.filter(pk=pk, results_drafted_at__isnull=True).update(results_drafted_at=now):
+            continue
+        if not EmailPollQuestion.objects.filter(poll_id=pk).exclude(kind=QuestionKind.OPEN).exists():
+            # Only open-ended questions: no totals to send, so no draft. The claim stays, so it is handled.
+            skipped += 1
+            continue
+        try:
+            with transaction.atomic():
+                EmailPoll.objects.select_related("draft").get(pk=pk).create_results_draft()
+        except Exception:
+            logger.exception("Email poll %s: its results draft failed; the next run tries again.", pk)
+            EmailPoll.objects.filter(pk=pk).update(results_drafted_at=None)
+            failed += 1
+            continue
+        drafted += 1
+    return ResultsDraftRun(drafted=drafted, failed=failed, skipped=skipped)

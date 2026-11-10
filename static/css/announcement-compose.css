@@ -297,3 +297,16 @@
     flex-wrap: wrap;
     gap: 0.5rem;
 }
+
+/* A poll's results email (#1142 AC15): the bars under the message, shown read-only as the email draws them (a light card, as in the email). */
+.pl-compose-poll-results {
+    margin: 1rem 0 1.5rem;
+}
+
+.pl-compose-poll-results__email {
+    margin-top: 0.75rem;
+    padding: 1rem 1.25rem;
+    border-radius: 10px;
+    background-color: #ffffff;
+    max-width: 640px;
+}

@@ -8,14 +8,14 @@
     <h3 class="pl-ask__result-title">{{ item.question.text }}</h3>
     {% if item.options %}
     {% include "polls/partials/_poll_results.html" with results=item.options %}
-    {% for option in item.options %}{% if option.written %}
+    {% if results.full %}{% for option in item.options %}{% if option.written %}
     <div class="pl-ask__write-ins" data-email-poll-write-ins="{{ option.pk }}">
       <p class="pl-ask__write-ins-title">{{ option.text }}: what people wrote</p>
       <ul class="pl-ask__replies">
         {% for reply in option.written %}<li class="pl-ask__reply"><span class="pl-ask__reply-name">{{ reply.name }}</span><p class="pl-ask__reply-text">{{ reply.text }}</p></li>{% endfor %}
       </ul>
     </div>
-    {% endif %}{% endfor %}
+    {% endif %}{% endfor %}{% endif %}
     {% elif item.written %}
     <ul class="pl-ask__replies">
       {% for reply in item.written %}<li class="pl-ask__reply"><span class="pl-ask__reply-name">{{ reply.name }}</span><p class="pl-ask__reply-text">{{ reply.text|linebreaksbr }}</p></li>{% endfor %}
@@ -25,6 +25,7 @@
     {% endif %}
   </div>
   {% endfor %}
+  {% if results.full %}
   <div class="hub-card pl-ask__result">
     <h3 class="pl-ask__result-title">Responses</h3>
     <div class="pl-ask__table-wrap" role="region" aria-label="Responses" tabindex="0" data-email-poll-table>
@@ -36,6 +37,9 @@
       </table>
     </div>
   </div>
+  {% else %}
+  <p class="hub-text-muted pl-ask__totals-note" data-email-poll-totals-only>Totals only. Written answers stay with whoever sent the poll.</p>
+  {% endif %}
   {% else %}
   <div class="hub-card"><p class="hub-text-muted" data-email-poll-empty>No answers yet.</p></div>
   {% endif %}

@@ -1,0 +1,29 @@
+{% comment %}
+Email-safe bars for a poll's results email (#1142 AC15), after membership/emails/_allocation_chart.html: one block per
+pick question, its text, then a row per option (the count and share of everyone who answered, a bar sized to that share).
+Table based with inline styles only, so it survives Gmail, Apple Mail and Outlook. results is a totals only
+polls.models.EmailPollResults: no names, no written answers, no write-in text; option and question text are escaped.
+{% endcomment %}
+{% for item in results.questions %}
+<p style="margin:16px 0 8px;color:#092E4C;font-size:15px;font-weight:700;line-height:1.35;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">{{ item.question.text }}</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:0 0 12px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+{% for option in item.options %}
+    <tr>
+        <td style="padding:0 0 6px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+                <tr>
+                    <td align="left" style="color:#33424f;font-size:14px;font-weight:600;line-height:1.3;padding:0 8px 5px 0;">{{ option.text }}</td>
+                    <td align="right" style="color:#0d4876;font-size:14px;font-weight:700;line-height:1.3;padding:0 0 5px;white-space:nowrap;">{{ option.votes }} &middot; {{ option.percent }}%</td>
+                </tr>
+            </table>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;background-color:#e6e9ee;border-radius:5px;">
+                <tr>
+                    {% if option.percent %}<td width="{{ option.percent }}%" style="height:14px;line-height:14px;font-size:0;background-color:#0d4876;background-image:linear-gradient(90deg,#0d4876,#d4a043);border-radius:5px;">&nbsp;</td>{% endif %}
+                    <td style="height:14px;line-height:14px;font-size:0;">&nbsp;</td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+{% endfor %}
+</table>
+{% endfor %}

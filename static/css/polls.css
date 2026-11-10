@@ -939,3 +939,8 @@
     font-weight: 700;
     color: var(--hub-text-muted);
 }
+
+.pl-ask__totals-note {
+    margin: 0;
+    font-size: 0.875rem;
+}
