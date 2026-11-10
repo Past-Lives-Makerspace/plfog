@@ -1853,6 +1853,18 @@ class SiteSettingsForm(_OwnFieldErrorsOnly):
             "discord_info_links_content": forms.Textarea(attrs={"rows": 14}),
         }
 
+    def save(self, commit: bool = True) -> SiteConfiguration:
+        """Write only this form's columns, as ``_SiteConfigurationSliceForm`` does.
+
+        A whole row save would put back, from the copy this page loaded, columns other code
+        writes meanwhile: the leadership directory sync's message ids, hash and date (#1149)
+        and the other pages' settings.
+        """
+        instance = cast(SiteConfiguration, super().save(commit=False))
+        if commit:
+            instance.save(update_fields=list(self._meta.fields or ()))
+        return instance
+
     def _clean_role_id(self, name: str) -> str:
         """A Discord role id is digits only; blank turns that role off."""
         value = str(self.cleaned_data.get(name) or "").strip()

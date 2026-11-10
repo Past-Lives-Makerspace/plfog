@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 from django.contrib.auth.models import User
 from django.test import Client
@@ -66,3 +68,29 @@ def describe_leadership_directory_channel_id():
         config.save()
         admin_client.post(reverse("hub_admin_site_settings"), _post(discord_leadership_directory_channel_id=""))
         assert SiteConfiguration.load().discord_leadership_directory_channel_id == ""
+
+    def it_never_writes_back_the_sync_state_a_sync_changed_meanwhile(admin_client: Client):
+        from hub.forms import SiteSettingsForm
+
+        config = SiteConfiguration.load()
+        form = SiteSettingsForm(_post(org_name="Renamed Space"), instance=config)
+        assert form.is_valid(), form.errors
+        SiteConfiguration.objects.filter(pk=config.pk).update(
+            discord_leadership_directory_message_ids=["501", "502"],
+            discord_leadership_directory_hash="abc",
+            discord_leadership_directory_updated_on=date(2026, 11, 9),
+        )
+        form.save()
+        saved = SiteConfiguration.load()
+        assert saved.org_name == "Renamed Space"
+        assert saved.discord_leadership_directory_message_ids == ["501", "502"]
+        assert saved.discord_leadership_directory_hash == "abc"
+        assert saved.discord_leadership_directory_updated_on == date(2026, 11, 9)
+
+    def it_writes_nothing_on_a_save_without_commit(admin_client: Client):
+        from hub.forms import SiteSettingsForm
+
+        form = SiteSettingsForm(_post(org_name="Not Yet"), instance=SiteConfiguration.load())
+        assert form.is_valid(), form.errors
+        assert form.save(commit=False).org_name == "Not Yet"
+        assert SiteConfiguration.load().org_name != "Not Yet"

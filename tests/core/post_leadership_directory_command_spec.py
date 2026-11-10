@@ -18,7 +18,12 @@ from core.models import SiteConfiguration
 pytestmark = pytest.mark.django_db
 
 CHANNEL = "968637078738976868"
-MESSAGES = f"https://discord.com/api/v10/channels/{CHANNEL}/messages"
+CHANNEL_URL = f"https://discord.com/api/v10/channels/{CHANNEL}"
+MESSAGES = f"{CHANNEL_URL}/messages"
+
+
+def _named_channel() -> respx.Route:
+    return respx.get(CHANNEL_URL).mock(return_value=httpx.Response(200, json={"name": "leadership-directory"}))
 
 
 @pytest.fixture
@@ -51,8 +56,10 @@ def describe_post_leadership_directory():
 
     @respx.mock
     def it_counts_what_a_wipe_would_delete_without_deleting(discord_on):
+        _named_channel()
         respx.get(MESSAGES).mock(return_value=httpx.Response(200, json=[{"id": "1"}, {"id": "2"}]))
         out = _run("--wipe")
+        assert "Channel: #leadership-directory (968637078738976868)" in out
         assert "Would delete 2 messages in the channel." in out
         assert all(call.request.method == "GET" for call in respx.calls)
 
@@ -83,6 +90,7 @@ def describe_post_leadership_directory():
         discord_on.discord_leadership_directory_message_ids = ["old"]
         discord_on.save()
         recent, older = [_snowflake(1), _snowflake(2)], [_snowflake(30)]
+        _named_channel()
         respx.get(MESSAGES).mock(return_value=httpx.Response(200, json=[{"id": mid} for mid in recent + older]))
         bulk = respx.post(f"{MESSAGES}/bulk-delete").mock(return_value=httpx.Response(204))
         single = respx.delete(f"{MESSAGES}/{older[0]}").mock(return_value=httpx.Response(204))
@@ -90,6 +98,7 @@ def describe_post_leadership_directory():
         out = _run("--wipe", "--apply")
         assert json.loads(bulk.calls[0].request.content) == {"messages": recent}
         assert single.call_count == 1 and post.call_count == 1
+        assert "Channel: #leadership-directory" in out
         assert "Deleted 3 messages." in out
         assert SiteConfiguration.load().discord_leadership_directory_message_ids == ["900"]
 
@@ -117,3 +126,16 @@ def describe_post_leadership_directory():
         respx.post(MESSAGES).mock(return_value=httpx.Response(500, text="down"))
         with pytest.raises(CommandError, match="could not be updated"):
             _run("--apply")
+
+    @respx.mock
+    def it_refuses_to_wipe_a_channel_it_cannot_read(discord_on):
+        respx.get(CHANNEL_URL).mock(return_value=httpx.Response(403, text="Missing Access"))
+        with pytest.raises(CommandError, match="Could not read channel"):
+            _run("--wipe", "--apply")
+        assert all(call.request.method == "GET" for call in respx.calls)
+
+    @respx.mock
+    def it_refuses_to_wipe_a_channel_with_no_name(discord_on):
+        respx.get(CHANNEL_URL).mock(return_value=httpx.Response(200, json={}))
+        with pytest.raises(CommandError, match="has no name"):
+            _run("--wipe")

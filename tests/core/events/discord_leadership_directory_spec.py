@@ -35,8 +35,13 @@ CHANNEL = "968637078738976868"
 MESSAGES = f"{API}/channels/{CHANNEL}/messages"
 
 
-def _people_tab() -> LeadershipTab:
-    return LeadershipTab.objects.get(kind=LeadershipTab.Kind.PEOPLE, title="Leadership")
+def _people_tab(intro: str = "") -> LeadershipTab:
+    """The seeded Leadership tab, its intro (migration 0190 seeds one) set to ``intro``."""
+    tab = LeadershipTab.objects.get(kind=LeadershipTab.Kind.PEOPLE, title="Leadership")
+    if tab.intro != intro:
+        tab.intro = intro
+        tab.save()
+    return tab
 
 
 def _configure(**overrides: Any) -> SiteConfiguration:
@@ -82,7 +87,7 @@ def describe_render_directory_payloads():
         LeadershipRoleFactory(listing=listing, title="Lead Engineer", email="")
         embed = _titled(dld.render_directory_payloads(), "✨ Leadership")
         assert embed["color"] == dld.PEOPLE_COLOR
-        assert embed["description"] == "**Alex** <@123456>\nTreasurer · Lead Engineer\n✉️ treasurer@example.com"
+        assert embed["description"] == "**Alex** <@123456>\nTreasurer · Lead Engineer\n✉️ treasurer\\@example.com"
 
     def it_mentions_a_verified_account_and_ignores_the_typed_handle():
         alex = MemberFactory(preferred_name="Alex", discord_user_id="123456", discord_handle="alex_typed")
@@ -98,6 +103,28 @@ def describe_render_directory_payloads():
         assert _titled(payloads, "✨ Leadership")["description"] == "**Sam** @sam\\_typed\nSecretary"
         header = payloads[0]["embeds"][0]["description"]
         assert "Tap a name to message them on Discord, or search their handle.\n" in header
+
+    def it_shows_a_tab_intro_under_its_title():
+        LeadershipListingFactory(tab=_people_tab(intro="Who runs [this]"), member=MemberFactory(preferred_name="Pat"))
+        description = _titled(dld.render_directory_payloads(), "✨ Leadership")["description"]
+        assert description == "*Who runs \\[this\\]*\n\n**Pat**"
+
+    def it_hides_even_a_verified_mention_when_the_handle_is_private():
+        alex = MemberFactory(
+            preferred_name="Alex", discord_user_id="123456", directory_visibility={"discord_handle": False}
+        )
+        LeadershipListingFactory(tab=_people_tab(), member=alex)
+        assert _titled(dld.render_directory_payloads(), "✨ Leadership")["description"] == "**Alex**"
+
+    def it_escapes_a_name_that_tries_to_build_a_link_or_a_mention():
+        evil = MemberFactory(preferred_name="**[Click me](https://evil.example) <@&123>**", discord_handle="@<@&999>")
+        LeadershipListingFactory(tab=_people_tab(), member=evil)
+        payloads = dld.render_directory_payloads()
+        description = _titled(payloads, "✨ Leadership")["description"]
+        assert description == ("**\\*\\*\\[Click me\\]\\(https://evil.example\\) \\<\\@&123\\>\\*\\***")
+        assert "<@" not in description and "](" not in description
+        assert "999" not in description  # a handle that is not a username is left out
+        assert "or search their handle" not in payloads[0]["embeds"][0]["description"]
 
     def it_shows_only_the_name_when_the_handle_is_private():
         sam = MemberFactory(
@@ -139,6 +166,15 @@ def describe_render_directory_payloads():
             "🏺 **Ceramics Guild**\n*Looking for a lead!*\n\n"
             "🪚 **Woodworking Guild**\n**Robin** <@777> & **Kai**\n\n"
             "🛠️ **Zine Guild**\n*Looking for a lead!*"
+        )
+
+    def it_shows_a_guild_lead_role_mention_and_contact_email_when_set():
+        GuildFactory(name="Glass Guild", discord_lead_role_id="4242", contact_email="glass@example.com")
+        GuildFactory(name="Tech Guild", discord_lead_role_id="", contact_email="")
+        description = _titled(dld.render_directory_payloads(), "🛠️ Guild Leads")["description"]
+        assert description == (
+            "🔮 **Glass Guild** <@&4242>\n*Looking for a lead!*\n✉️ glass\\@example.com\n\n"
+            "💻 **Tech Guild**\n*Looking for a lead!*"
         )
 
     def it_never_lists_the_example_guild_even_when_the_demo_setting_is_on():
@@ -193,11 +229,17 @@ def describe_limits():
     def it_splits_sixty_guilds_with_long_lines_within_every_discord_limit():
         for number in range(60):
             lead = MemberFactory(preferred_name=f"Lead {number} " + "x" * 90, discord_user_id=str(10**17 + number))
-            GuildFactory(name=f"Guild {number:02d} " + "y" * 80, guild_lead=lead)
+            GuildFactory(
+                name=f"Guild {number:02d} " + "y" * 80,
+                guild_lead=lead,
+                discord_lead_role_id=str(10**18 + number),
+                contact_email=f"guild{number}@example.com",
+            )
             co = MemberFactory(preferred_name=f"Co {number} " + "z" * 90)
             GuildStaffMembershipFactory(guild=GuildFactory(name=f"Guild {number:02d} " + "y" * 80), member=co)
+        tab = _people_tab(intro="The people who keep the makerspace running, and how to reach each of them.")
         for number in range(30):
-            listing = LeadershipListingFactory(tab=_people_tab(), member=MemberFactory(preferred_name=f"P{number}"))
+            listing = LeadershipListingFactory(tab=tab, member=MemberFactory(preferred_name=f"P{number}"))
             for line in range(3):
                 LeadershipRoleFactory(listing=listing, title=f"Role {line} " + "r" * 110, email=f"r{line}@example.com")
         payloads = dld.render_directory_payloads()
@@ -209,6 +251,7 @@ def describe_limits():
         text = "\n".join(embed["description"] for embed in _embeds(payloads))
         for number in range(60):
             assert f"Guild {number:02d} " in text  # nothing cut off
+            assert f"<@&{10**18 + number}>" in text and f"guild{number}\\@example.com" in text
         guild_embeds = [e for e in _embeds(payloads) if e["color"] == dld.GUILDS_COLOR]
         assert len(guild_embeds) > 1
         assert "title" in guild_embeds[0] and all("title" not in e for e in guild_embeds[1:])
@@ -337,8 +380,8 @@ def describe_sync_leadership_directory():
 
     @respx.mock
     def it_posts_the_extra_when_the_post_grows(discord_on):
-        for number in range(30):
-            GuildFactory(name=f"Guild {number:02d} " + "y" * 200)
+        for number in range(60):
+            GuildFactory(name=f"Guild {number:02d} " + "y" * 85)
         assert _payload_count() == 2
         _configure(discord_leadership_directory_message_ids=["501"], discord_leadership_directory_hash="old")
         edit = respx.patch(f"{MESSAGES}/501").mock(return_value=httpx.Response(200, json={}))
@@ -361,7 +404,7 @@ def describe_sync_leadership_directory():
     @respx.mock
     def it_stores_what_exists_and_fails_loudly_when_discord_errors(discord_on):
         for number in range(60):
-            GuildFactory(name=f"Guild {number:02d} " + "y" * 200)
+            GuildFactory(name=f"Guild {number:02d} " + "y" * 85)
         _configure(discord_leadership_directory_message_ids=["501"], discord_leadership_directory_hash="old")
         respx.patch(f"{MESSAGES}/501").mock(return_value=httpx.Response(200, json={}))
         respx.post(MESSAGES).mock(return_value=httpx.Response(500, text="boom"))
@@ -452,3 +495,100 @@ def describe_wipe_channel():
     def it_reads_a_message_time_from_its_id():
         at = datetime(2026, 11, 9, 12, 0, tzinfo=UTC)
         assert abs(dld.message_time(_snowflake(at)) - at) < timedelta(seconds=1)
+
+
+def describe_sync_failures():
+    @respx.mock
+    def it_fails_loudly_and_keeps_the_ids_when_an_edit_fails_for_another_reason(discord_on):
+        _configure(discord_leadership_directory_message_ids=["501"], discord_leadership_directory_hash="old")
+        respx.patch(f"{MESSAGES}/501").mock(return_value=httpx.Response(500, text="down"))
+        with pytest.raises(dld.LeadershipDirectorySyncError, match="500"):
+            dld.sync_leadership_directory.call()
+        config = SiteConfiguration.load()
+        assert config.discord_leadership_directory_message_ids == ["501"]
+        assert config.discord_leadership_directory_hash == ""
+
+    @respx.mock
+    def it_fails_loudly_when_discord_answers_a_post_with_no_id(discord_on):
+        respx.post(MESSAGES).mock(return_value=httpx.Response(200, json={}))
+        with pytest.raises(dld.LeadershipDirectorySyncError, match="no message id"):
+            dld.sync_leadership_directory.call()
+        assert SiteConfiguration.load().discord_leadership_directory_message_ids == []
+
+    @respx.mock
+    def it_writes_only_the_sync_state_and_never_undoes_a_settings_change(discord_on, monkeypatch):
+        respx.post(MESSAGES).mock(return_value=httpx.Response(200, json={"id": "501"}))
+        real_post = dld._Publisher._post
+
+        def post_while_an_admin_saves(self, payload):
+            SiteConfiguration.objects.filter(pk=1).update(org_name="Changed meanwhile")
+            return real_post(self, payload)
+
+        monkeypatch.setattr(dld._Publisher, "_post", post_while_an_admin_saves)
+        dld.sync_leadership_directory.call()
+        config = SiteConfiguration.load()
+        assert config.org_name == "Changed meanwhile"
+        assert config.discord_leadership_directory_message_ids == ["501"]
+
+
+class _FakeCursor:
+    def __init__(self, calls: list) -> None:
+        self.calls = calls
+
+    def __enter__(self) -> _FakeCursor:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+    def execute(self, sql: str, params: list) -> None:
+        self.calls.append((sql, params))
+
+
+class _FakeConnection:
+    def __init__(self, vendor: str) -> None:
+        self.vendor = vendor
+        self.calls: list = []
+
+    def cursor(self) -> _FakeCursor:
+        return _FakeCursor(self.calls)
+
+
+def describe_hold_sync_lock():
+    def it_takes_a_transaction_scoped_advisory_lock_on_postgres(monkeypatch):
+        fake = _FakeConnection("postgresql")
+        monkeypatch.setattr(dld.transaction, "get_connection", lambda: fake)
+        dld._hold_sync_lock()
+        assert fake.calls == [("SELECT pg_advisory_xact_lock(%s)", [dld.SYNC_LOCK_KEY])]
+
+    def it_does_nothing_elsewhere(monkeypatch):
+        fake = _FakeConnection("sqlite")
+        monkeypatch.setattr(dld.transaction, "get_connection", lambda: fake)
+        dld._hold_sync_lock()
+        assert fake.calls == []
+
+
+def describe_registered():
+    def it_answers_not_registered_when_django_internals_cannot_be_read(monkeypatch):
+        def broken():
+            raise AttributeError("run_on_commit moved")
+
+        monkeypatch.setattr(dld.transaction, "get_connection", broken)
+        assert dld._registered() is False
+
+
+def describe_payload_text():
+    def it_prints_titles_continuations_and_the_footer():
+        payloads = [
+            {"embeds": [{"title": "T", "description": "one"}, {"description": "two"}]},
+            {"embeds": [{"description": "three", "footer": {"text": "Updated today"}}]},
+        ]
+        assert dld.payload_text(payloads).split("\n") == [
+            "===== Message 1 of 2",
+            "## T",
+            "one",
+            "two",
+            "===== Message 2 of 2",
+            "three",
+            "-- Updated today",
+        ]

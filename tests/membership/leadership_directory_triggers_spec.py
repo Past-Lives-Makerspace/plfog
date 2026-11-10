@@ -157,6 +157,25 @@ def describe_guild_changes():
             Guild.objects.get(pk=guild.pk).soft_delete()
         assert _syncs(callbacks) == 1
 
+    def it_syncs_when_an_active_guild_changes_its_contact_email(django_capture_on_commit_callbacks):
+        guild = _settled(django_capture_on_commit_callbacks, lambda: Guild.objects.get(pk=GuildFactory().pk))
+        with django_capture_on_commit_callbacks() as callbacks:
+            guild.contact_email = "guild@example.com"
+            guild.save()
+        assert _syncs(callbacks) == 1
+
+    def it_does_not_sync_for_a_hidden_guild_or_a_guild_loaded_without_its_fields(django_capture_on_commit_callbacks):
+        hidden = _settled(
+            django_capture_on_commit_callbacks, lambda: Guild.objects.get(pk=GuildFactory(is_active=False).pk)
+        )
+        partial = Guild.objects.only("pk", "is_active").get(pk=GuildFactory().pk)
+        with django_capture_on_commit_callbacks() as callbacks:
+            hidden.name = "Still Hidden"
+            hidden.save()
+            partial.is_new_guild = True
+            partial.save(update_fields=["is_new_guild"])
+        assert _syncs(callbacks) == 0
+
     def it_syncs_when_an_active_guild_is_renamed_and_not_on_other_saves(django_capture_on_commit_callbacks):
         guild = _settled(django_capture_on_commit_callbacks, lambda: Guild.objects.get(pk=GuildFactory().pk))
         with django_capture_on_commit_callbacks(execute=True) as callbacks:
@@ -241,4 +260,4 @@ def describe_end_to_end():
             LeadershipRoleFactory(listing=listing, title="Lead Engineer")
         assert edit.call_count == 1
         embeds = json.loads(edit.calls[0].request.content)["embeds"]
-        assert any(embed.get("description") == "**Jo**\nTreasurer · Lead Engineer" for embed in embeds)
+        assert any("**Jo**\nTreasurer · Lead Engineer" in embed.get("description", "") for embed in embeds)

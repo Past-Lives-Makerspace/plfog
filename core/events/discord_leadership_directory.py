@@ -10,14 +10,16 @@ active guild (never the example guild, whatever ``display_demo_guild`` says).
 * :func:`render_directory_payloads` is the pure renderer: no HTTP, Discord's limits kept
   (a section too long for one embed continues in the next, and a message too full continues
   in the next message), and every payload carries ``allowed_mentions`` with an empty
-  ``parse``, so a mention links a name and never pings anyone. A member shows as a mention
-  only through their verified ``discord_user_id`` (``Member.link_discord``); a typed handle is
-  never printed.
+  ``parse``, so a mention links a name and never pings anyone. A member whose Discord handle
+  is not public shows as a bare name; otherwise as a mention through their verified
+  ``discord_user_id`` (``Member.link_discord``), else their typed handle as plain text when it
+  looks like a username. Member and admin text is escaped so it cannot build a link or mention.
+  Each guild shows its lead role mention and contact email when set; a People tab its intro.
 * :func:`sync_leadership_directory` is the task: it renders, and when the content hash equals
   the stored one and every stored message is still there it sends nothing; otherwise it edits
   the stored messages in order, posts any extra, deletes any surplus, and stores the ids and
-  hash. A stored message that is gone (404) means a fresh set is posted. It holds a row lock
-  on ``SiteConfiguration`` while it works, so two workers cannot both post.
+  hash. A stored message that is gone (404) means a fresh set is posted. A Postgres advisory
+  lock serializes syncs, so two workers cannot both post.
 * :func:`directory_on_commit` is what every change calls: one enqueue per transaction, at
   most one waiting sync in the queue, run about :data:`COALESCE_SECONDS` later so an admin's
   burst of autosaves ends in one set of edits.
@@ -124,19 +126,30 @@ def _size(text: str) -> int:
     return len(text.encode("utf-16-le")) // 2
 
 
+#: Characters escaped in member and admin text: markdown, and what could build a masked link,
+#: a mention (``<@id>``, ``<@&id>``), a heading or an ``@everyone``.
+_ESCAPED = ("\\", "*", "_", "~", "`", "|", "[", "]", "(", ")", "<", ">", "#", "@")
+#: A typed handle shows only when, after normalizing, it looks like a Discord username.
+_HANDLE_RE = re.compile(r"[A-Za-z0-9._]{2,32}")
+
+
 def _escape(text: str) -> str:
-    """``text`` with Discord markdown characters escaped, so a name never turns bold or italic."""
-    for char in ("\\", "*", "_", "~", "`", "|"):
+    """``text`` with every :data:`_ESCAPED` character backslash escaped, so it renders as typed and nothing more."""
+    for char in _ESCAPED:
         text = text.replace(char, f"\\{char}")
     return text
 
 
 def public_handle(member: Member) -> str:
-    """The member's typed Discord handle as ``@handle`` when their privacy settings show it, else ""."""
+    """The member's typed Discord handle as ``@handle``, or "" when it is hidden, blank or not a username.
+
+    Normalized first: spaces removed and leading ``@`` dropped. Shown only when the privacy
+    settings make it public and it matches :data:`_HANDLE_RE`.
+    """
     handle = re.sub(r"\s+", "", member.discord_handle or "").lstrip("@")
-    if not handle or not member.is_public("discord_handle"):
+    if not _HANDLE_RE.fullmatch(handle) or not member.is_public("discord_handle"):
         return ""
-    return f"@{handle}"
+    return f"@{_escape(handle)}"
 
 
 @dataclass(frozen=True)
@@ -148,17 +161,22 @@ class Person:
 
 
 def who(member: Member) -> Person:
-    """The name in bold, then a mention when their Discord is verified, else their public handle as plain text.
+    """The name in bold, then how to reach them on Discord when their privacy settings allow it.
 
-    A typed handle is not verified, so it is never a mention; a hidden one is never shown.
+    As on the web card (``_discord_row.html``): a member whose Discord handle is not public
+    shows the bare name, with no mention even when their account is verified. Otherwise a
+    verified account is a mention, and without one a typed handle is plain text (it is not
+    verified, so never a mention).
     """
     name = f"**{_escape(member.display_name.strip())}**"
+    if not member.is_public("discord_handle"):
+        return Person(name)
     user_id = (member.discord_user_id or "").strip()
     if user_id.isdigit():
         return Person(f"{name} <@{user_id}>")
     handle = public_handle(member)
     if handle:
-        return Person(f"{name} {_escape(handle)}", shows_handle=True)
+        return Person(f"{name} {handle}", shows_handle=True)
     return Person(name)
 
 
@@ -212,6 +230,8 @@ def _people_section(tab: LeadershipTab) -> Section:
         if emails:
             lines.append(f"✉️ {emails}")
         entries.append("\n".join(lines))
+    if entries and tab.intro.strip():
+        entries.insert(0, f"*{_escape(tab.intro.strip())}*")
     title = f"{PEOPLE_EMOJI} {tab.title.strip()}"
     return Section(title=title, color=PEOPLE_COLOR, entries=entries, shows_handle=shows_handle)
 
@@ -220,6 +240,19 @@ def _guild_leads(guild: Guild) -> list[Person]:
     """The guild's lead, then its Co-Leads."""
     people = [who(guild.guild_lead)] if guild.guild_lead is not None else []
     return people + [who(member) for member in guild.co_leads]
+
+
+def _guild_entry(guild: Guild, people: list[Person]) -> str:
+    """A guild's emoji, name and lead role mention (when configured); its leads; its contact email (when set)."""
+    role_id = (guild.discord_lead_role_id or "").strip()
+    heading = f"{guild_emoji(guild.name)} **{_escape(guild.name)}**"
+    if role_id.isdigit():
+        heading += f" <@&{role_id}>"
+    lines = [heading, " & ".join(person.text for person in people) if people else NO_LEAD_LINE]
+    email = (guild.contact_email or "").strip()
+    if email:
+        lines.append(f"✉️ {_escape(email)}")
+    return "\n".join(lines)
 
 
 def _guilds_section(tab: LeadershipTab) -> Section:
@@ -240,8 +273,7 @@ def _guilds_section(tab: LeadershipTab) -> Section:
     for guild in guilds:
         people = _guild_leads(guild)
         shows_handle = shows_handle or any(person.shows_handle for person in people)
-        leads = " & ".join(person.text for person in people) if people else NO_LEAD_LINE
-        entries.append(f"{guild_emoji(guild.name)} **{_escape(guild.name)}**\n{leads}")
+        entries.append(_guild_entry(guild, people))
     title = f"{GUILDS_EMOJI} {tab.title.strip()}"
     return Section(title=title, color=GUILDS_COLOR, entries=entries, shows_handle=shows_handle)
 
@@ -428,6 +460,22 @@ def _all_present(channel: str, stored: list[str]) -> bool:
     return bool(stored) and all(channel_message_exists(channel, message_id) for message_id in stored)
 
 
+#: The Postgres advisory lock key that serializes directory syncs ("plfog-1149" as a number).
+SYNC_LOCK_KEY = 1149_0001
+
+
+def _hold_sync_lock() -> None:
+    """Take the transaction scoped advisory lock that lets one sync run at a time; nothing off Postgres.
+
+    A lock on its own key, not on the ``SiteConfiguration`` row, so the Discord calls a sync
+    makes never block a Site Settings save. Released at the end of the sync's transaction.
+    """
+    connection = transaction.get_connection()
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(%s)", [SYNC_LOCK_KEY])
+
+
 @task
 def sync_leadership_directory() -> None:
     """Bring the Discord post in step with the Leadership Directory. Safe to run twice.
@@ -437,8 +485,10 @@ def sync_leadership_directory() -> None:
     there. When the content changed from a known hash, the footer date becomes today (Pacific)
     and is stored in ``discord_leadership_directory_updated_on``; otherwise (a gone message,
     a forced send with the hash cleared, a first post) the stored date stays, or today when
-    none is stored. Holds a row lock on ``SiteConfiguration`` from the hash check to the save,
-    so a second sync running at once waits and then finds nothing to do.
+    none is stored. Holds a Postgres advisory lock (:func:`_hold_sync_lock`) from the hash check
+    to the save, so a second sync running at once waits and then finds nothing to do; the
+    ``SiteConfiguration`` row itself is never locked across the Discord calls, and only the
+    three sync state columns are written, so a Site Settings save in between is never undone.
 
     Raises:
         LeadershipDirectorySyncError: A Discord call failed. Raised after the ids that exist
@@ -452,7 +502,8 @@ def sync_leadership_directory() -> None:
         return
     failure: DiscordChannelError | None = None
     with transaction.atomic():
-        config = SiteConfiguration.objects.select_for_update().get(pk=SiteConfiguration.load().pk)
+        _hold_sync_lock()
+        config = SiteConfiguration.load()
         embeds = directory_embeds()
         digest = content_hash(embeds)
         previous = config.discord_leadership_directory_hash
@@ -468,15 +519,10 @@ def sync_leadership_directory() -> None:
             publisher.run(with_footer(embeds, day))
         except DiscordChannelError as exc:
             failure = exc
-        config.discord_leadership_directory_message_ids = publisher.ids
-        config.discord_leadership_directory_hash = "" if failure else digest
-        config.discord_leadership_directory_updated_on = day
-        config.save(
-            update_fields=[
-                "discord_leadership_directory_message_ids",
-                "discord_leadership_directory_hash",
-                "discord_leadership_directory_updated_on",
-            ]
+        SiteConfiguration.objects.filter(pk=config.pk).update(
+            discord_leadership_directory_message_ids=publisher.ids,
+            discord_leadership_directory_hash="" if failure else digest,
+            discord_leadership_directory_updated_on=day,
         )
     if failure is not None:
         raise LeadershipDirectorySyncError(f"The leadership directory post could not be updated: {failure}")
@@ -538,8 +584,9 @@ def directory_on_commit() -> None:
     """Sync the Discord post shortly after this transaction commits; call it from anything the post shows.
 
     At most one callback per transaction, and none enqueued when a sync is already waiting
-    in the queue or the channel id is blank (both checked at commit, so a trigger costs no
-    query). A rolled back save enqueues nothing.
+    in the queue or the channel id is blank. Both are checked when the callback runs, so
+    inside a transaction a trigger costs no query until the commit; outside one Django runs
+    the callback at once, and those two queries run then. A rolled back save enqueues nothing.
     """
     if not _registered():
         transaction.on_commit(_SyncWhenCommitted(), robust=True)

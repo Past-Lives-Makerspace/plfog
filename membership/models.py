@@ -2871,13 +2871,17 @@ class Member(StaffRequestMixin, models.Model):
     )
 
     def _directory_identity(self) -> tuple[Any, ...] | None:
-        """A copy of the values the directory post reads, or None when a load deferred one of them.
+        """The values the directory post reads, or None when a load deferred one of them.
 
-        Copied, so an in place edit of ``directory_visibility`` still reads as a change.
+        ``directory_visibility`` is a dict and is copied, so an in place edit of it still reads
+        as a change; the rest are strings.
         """
         if not all(name in self.__dict__ for name in self.DIRECTORY_IDENTITY_FIELDS):
             return None
-        return tuple(copy.deepcopy(self.__dict__[name]) for name in self.DIRECTORY_IDENTITY_FIELDS)
+        return tuple(
+            copy.deepcopy(self.__dict__[name]) if name == "directory_visibility" else self.__dict__[name]
+            for name in self.DIRECTORY_IDENTITY_FIELDS
+        )
 
     def _sync_directory_if_renamed(self, update_fields: Iterable[str] | None) -> None:
         """Sync the Discord leadership directory when this save changed what it shows of someone on it.
@@ -3581,21 +3585,30 @@ class Guild(HeroCropMixin, models.Model):
         super().save(*args, **kwargs)
         if self.is_active and self.deleted_at is None:
             self.ensure_class_type()
-        loaded_name, self._loaded_name = self._loaded_name, self.__dict__.get("name")
-        if loaded_name is not None and loaded_name != self._loaded_name and self.is_active:
-            # The Discord leadership directory shows every active guild by name (#1149).
+        loaded, self._loaded_directory_fields = self._loaded_directory_fields, self._directory_fields()
+        if loaded is not None and loaded != self._loaded_directory_fields and self.is_active:
+            # The Discord leadership directory shows every active guild's name and contact email (#1149).
             from core.events.discord_leadership_directory import directory_on_commit
 
             directory_on_commit()
 
-    #: ``name`` as last read or written, so :meth:`save` can see a rename; ``None`` when unknown.
-    _loaded_name: str | None = None
+    #: The fields the Discord leadership directory post shows for a guild itself (#1149).
+    DIRECTORY_FIELDS = ("name", "contact_email")
+
+    #: :meth:`_directory_fields` as last read or written, so :meth:`save` can see a change; ``None`` when unknown.
+    _loaded_directory_fields: tuple[Any, ...] | None = None
+
+    def _directory_fields(self) -> tuple[Any, ...] | None:
+        """The loaded :data:`DIRECTORY_FIELDS` values, or None when a load deferred one of them."""
+        if not all(name in self.__dict__ for name in self.DIRECTORY_FIELDS):
+            return None
+        return tuple(self.__dict__[name] for name in self.DIRECTORY_FIELDS)
 
     @classmethod
     def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
-        """Remember the loaded ``name`` so a rename syncs the Discord leadership directory (#1149)."""
+        """Remember the loaded name and contact email so a change syncs the Discord leadership directory (#1149)."""
         instance = super().from_db(db, field_names, values, **kwargs)
-        instance._loaded_name = instance.__dict__.get("name")
+        instance._loaded_directory_fields = instance._directory_fields()
         return instance
 
     @property
