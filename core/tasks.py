@@ -170,7 +170,7 @@ def abandon_stuck_tasks(now: datetime) -> int:
     from django_tasks_db.models import DBTaskResult
 
     error = TaskAbandonedError(
-        f"The worker stopped while this task was running; it was still running after {ABANDONED_AFTER}."
+        f"The worker stopped while this task was running; it was still running after {ABANDONED_AFTER.total_seconds() // 3600:.0f} hours."
     )
     class_path = f"{TaskAbandonedError.__module__}.{TaskAbandonedError.__qualname__}"
     return (
