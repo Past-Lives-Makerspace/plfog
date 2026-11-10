@@ -591,6 +591,7 @@ GUILD_NEEDS_ATTENTION = "guild.needs_attention"  # a guild breaks a Needs attent
 GUILD_STAFF_WELCOME = "guild_staff.welcome"  # you were made a guild lead or staff: your tools and the rules (#1076)
 GUILD_INVITED = "guild.invited"  # a guild's lead, staff or an admin invited you to join it (#1137)
 POLLS_EMAIL_POLL_LIVE = "polls.email_poll_live"  # a poll from Email Members went live, with your link (#1142)
+POLLS_EMAIL_POLL_REMINDER = "polls.email_poll_reminder"  # a poll you have not answered closes soon (#1142)
 
 # event.reminder keeps Discord OFF (the bell is enough; per-offset channel posts would
 # clutter the guild channel) but declares it so a lead can flip it on later; happening-now
@@ -1947,6 +1948,17 @@ _NEW_EVENTS: list[EventType] = [
         key=POLLS_EMAIL_POLL_LIVE,
         label="A poll was sent to you",
         description="Someone sent you a poll from Email Members, with a link to answer it.",
+        category="Announcements",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_EMAIL_ON,),
+        activity_kind=None,
+    ),
+    # polls.email_poll_reminder (#1142 part 4): the one reminder a sender may ask for, to recipients
+    # who have not answered, from the send_email_poll_reminders job. Email only, like the live email.
+    EventType(
+        key=POLLS_EMAIL_POLL_REMINDER,
+        label="A poll you have not answered closes soon",
+        description="A reminder to answer a poll sent to you from Email Members before it closes.",
         category="Announcements",
         recipient=Recipients.SINGLE_USER,
         channels=(_EMAIL_ON,),

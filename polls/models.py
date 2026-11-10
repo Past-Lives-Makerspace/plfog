@@ -16,6 +16,7 @@ questions sent from Email Members, carried by an ``AnnouncementDraft`` of kind P
 
 from __future__ import annotations
 
+import logging
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -25,12 +26,15 @@ from django.conf import settings
 from django.core import signing
 from django.db import IntegrityError, models, transaction
 from django.db.models import Count, Exists, OuterRef, Q, Subquery
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
     from membership.models import AnnouncementDraft, Guild, Member
+
+logger = logging.getLogger(__name__)
 
 MIN_CHOICES = 2
 MAX_CHOICES = 6
@@ -552,6 +556,8 @@ DIFFERENT_GROUP = "This poll was sent to a different group."
 POLL_CLOSED = "This poll has closed."
 #: The event each recipient's go-live email is emitted under (#1142 part 2).
 EMAIL_POLL_LIVE = "polls.email_poll_live"
+#: The one reminder to recipients who have not answered (#1142 part 4).
+EMAIL_POLL_REMINDER = "polls.email_poll_reminder"
 #: The member announcement email switch the poll emails follow besides their own.
 _ANNOUNCEMENT_EVENT = "site_announcement"
 #: What a submission with every question left blank reads: a response always holds an answer.
@@ -703,6 +709,25 @@ class EmailPollQuerySet(models.QuerySet["EmailPoll"]):
             .annotate(answered=Exists(answered))
             .order_by("-opens_at", "-pk")
         )
+
+    def awaiting_answer(self, member: Member, now: datetime) -> EmailPollQuerySet:
+        """Home's Needs Attention (#1142 part 4): open polls sent to ``member`` they have not answered, closing soonest first."""
+        answered = EmailPollResponse.objects.filter(poll=OuterRef("pk"), member=member)
+        return (
+            self.open_at(now)
+            .sent_to(member)
+            .exclude(Exists(answered))
+            .select_related("draft")
+            .order_by("closes_at", "pk")
+        )
+
+    def with_counts(self) -> EmailPollQuerySet:
+        """Annotate ``sent_count`` (recipients) and ``answered_count`` (responses), in the one query."""
+        sent = EmailPollRecipient.objects.filter(poll=OuterRef("pk")).values("poll").annotate(n=Count("pk")).values("n")
+        answered = (
+            EmailPollResponse.objects.filter(poll=OuterRef("pk")).values("poll").annotate(n=Count("pk")).values("n")
+        )
+        return self.annotate(sent_count=Coalesce(Subquery(sent), 0), answered_count=Coalesce(Subquery(answered), 0))
 
     def reminders_due(self, now: datetime) -> EmailPollQuerySet:
         """Open polls whose reminder time has come and whose reminder has not gone out."""
@@ -957,11 +982,16 @@ class EmailPoll(models.Model):
             EmailPollAnswer.objects.bulk_create(rows)
         return response
 
-    def may_see_results(self, member: Member | None) -> bool:
-        """Whether ``member`` may see the results: the sender, an admin, or someone who answered."""
+    def may_see_results(self, member: Member | None, *, is_sender: bool = False) -> bool:
+        """Whether ``member`` may see the results: a sender, an admin, or someone who answered.
+
+        A sender is the draft's author, or anyone the caller found may open the poll's row on Email
+        Members (``is_sender``: ``hub.views._announcement_rows``, which needs the request), such as
+        a guild's co-lead or a class's co-instructor, who can already open, save over and send it.
+        """
         if member is None:
             return False
-        if member.is_fog_admin or (member.user_id is not None and member.user_id == self.draft.author_id):
+        if is_sender or member.is_fog_admin or (member.user_id is not None and member.user_id == self.draft.author_id):
             return True
         return self.responses.filter(member=member).exists()
 
@@ -1012,31 +1042,57 @@ class EmailPoll(models.Model):
         Raises:
             ValueError: The poll has not been opened.
         """
-        from core.events.registry import Channel
-        from core.events.senders import emit_with_email_shell
-
         if not self.is_sent:
             raise ValueError("Open the poll before emailing it.")
         if not self.draft.send_email:
             return 0
-        recipients = list(self.recipients.select_related("member__user").filter(member__user__isnull=False))
-        muted = _announcement_email_off({cast(int, recipient.member.user_id) for recipient in recipients})
+        return self._email_each(self.recipients.all(), EMAIL_POLL_LIVE, self.email_subject, "live")
+
+    def remind(self) -> int:
+        """Email the one reminder to everyone recorded at :meth:`open` who has not answered (#1142 part 4).
+
+        Sent whatever "Email when it goes live" says: the reminder is its own switch. Follows the
+        announcement email switch like :meth:`deliver`, under the period
+        ``email_poll:<pk>:reminder``, so a retried run reminds nobody twice.
+
+        Returns:
+            How many people were emailed.
+        """
+        answered = EmailPollResponse.objects.filter(poll=self).values("member_id")
+        waiting = self.recipients.exclude(member_id__in=answered)
+        return self._email_each(waiting, EMAIL_POLL_REMINDER, f"Poll closing soon: {self.draft.title}", "reminder")
+
+    def _email_each(self, recipients: models.QuerySet[EmailPollRecipient], event: str, subject: str, name: str) -> int:
+        """Emit ``event`` once per recipient with an account, each with their own link, as ``polls/emails/email_poll_<name>``.
+
+        One emit per person, because each email carries that member's token; every one shares the
+        period ``email_poll:<pk>:<name>`` and the ledger keys on the person. Anyone who turned off
+        the makerspace announcement email is skipped; the event's own Email switch applies in ``emit``.
+
+        Returns:
+            How many people were emailed.
+        """
+        from core.events.registry import Channel
+        from core.events.senders import emit_with_email_shell
+
+        rows = list(recipients.select_related("member__user").filter(member__user__isnull=False))
+        muted = _announcement_email_off({cast(int, row.member.user_id) for row in rows})
         question_count = self.questions.count()
         emailed = 0
-        for recipient in recipients:
-            member = recipient.member
+        for row in rows:
+            member = row.member
             if member.user_id in muted:
                 continue
             result = emit_with_email_shell(
-                EMAIL_POLL_LIVE,
+                event,
                 actor=self.draft.author,
                 context={"user": member.user},
-                subject=self.email_subject,
-                text_template="polls/emails/email_poll_live.txt",
-                html_template="polls/emails/email_poll_live.html",
+                subject=subject,
+                text_template=f"polls/emails/email_poll_{name}.txt",
+                html_template=f"polls/emails/email_poll_{name}.html",
                 template_context=self._email_context(member, question_count),
                 url=self.answer_path,
-                period=f"email_poll:{self.pk}:live",
+                period=f"email_poll:{self.pk}:{name}",
                 recipient_user_ids={cast(int, member.user_id)},
                 log_activity=False,
             )
@@ -1093,9 +1149,9 @@ class EmailPollPage:
     results: EmailPollResults | None
 
     @classmethod
-    def load(cls, poll: EmailPoll, member: Member, now: datetime) -> EmailPollPage:
-        """The page for ``member`` at ``now``."""
-        sees_results = poll.may_see_results(member)
+    def load(cls, poll: EmailPoll, member: Member, now: datetime, *, is_sender: bool = False) -> EmailPollPage:
+        """The page for ``member`` at ``now``; ``is_sender`` as :meth:`EmailPoll.may_see_results` takes it."""
+        sees_results = poll.may_see_results(member, is_sender=is_sender)
         outsider = not sees_results and poll.audience_only and not poll.is_recipient(member)
         return cls(
             poll=poll,
@@ -1375,3 +1431,36 @@ class EmailPollResults:
             for response in responses
         )
         return cls(questions=results, rows=rows)
+
+
+@dataclass(frozen=True)
+class ReminderRun:
+    """One run of ``send_email_poll_reminders``: polls reminded, people emailed, polls that failed."""
+
+    polls: int
+    emailed: int
+    failed: int
+
+
+def send_due_poll_reminders(now: datetime) -> ReminderRun:
+    """Send every poll's reminder whose time has come, once each: the 15 minute job (#1142 part 4).
+
+    Each due poll is claimed with a conditional update on ``reminder_sent_at``, so two runs at
+    once remind it once. A poll whose emails fail gives its claim back for the next run; the
+    ledger period ``email_poll:<pk>:reminder`` keeps anyone already reminded from a second one.
+    One poll failing never stops the rest.
+    """
+    polls = emailed = failed = 0
+    for pk in list(EmailPoll.objects.reminders_due(now).values_list("pk", flat=True)):
+        if not EmailPoll.objects.filter(pk=pk, reminder_sent_at__isnull=True).update(reminder_sent_at=now):
+            continue
+        poll = EmailPoll.objects.select_related("draft__author").get(pk=pk)
+        try:
+            emailed += poll.remind()
+        except Exception:
+            logger.exception("Email poll %s: the reminder failed; the next run tries again.", pk)
+            EmailPoll.objects.filter(pk=pk).update(reminder_sent_at=None)
+            failed += 1
+            continue
+        polls += 1
+    return ReminderRun(polls=polls, emailed=emailed, failed=failed)

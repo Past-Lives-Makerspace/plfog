@@ -129,6 +129,17 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         toggleable=False,
     ),
     ScheduledJob(
+        key="send_email_poll_reminders",
+        name="Poll reminders",
+        description=(
+            "Sends the one reminder a sender asked for to everyone a poll from Email Members went to "
+            "who has not answered, 1 to 3 days before it closes."
+        ),
+        command="send_email_poll_reminders",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="send_staff_digests",
         name="Staff request digest",
         description=("Sends each reviewer one email at 8 AM listing the class review requests still waiting on them."),

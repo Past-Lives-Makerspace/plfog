@@ -24,7 +24,7 @@
     {% if form.non_field_errors %}<div class="pl-ask__alert" role="alert" data-email-poll-error>{% for error in form.non_field_errors %}<p>{{ error }}</p>{% endfor %}</div>{% endif %}
     {% for row in form.rows %}{% include "polls/partials/_ask_question.html" with row=row %}{% endfor %}
     <div class="pl-ask__actions">
-      <button type="submit" class="pl-btn pl-btn--primary pl-ask__submit" data-email-poll-submit>{% if page.has_answered %}Update Answers{% else %}Send Answers{% endif %}</button>
+      <button type="submit" class="pl-btn pl-btn--primary pl-ask__submit" data-email-poll-submit data-guidance-target="home.email-polls-answer">{% if page.has_answered %}Update Answers{% else %}Send Answers{% endif %}</button>
     </div>
   </form>
   {% elif not page.results %}

@@ -1,0 +1,21 @@
+bump = "minor"
+date = "2026-11-09"
+title = "Polls from Email Members"
+audience = ["members", "guild-staff", "instructors", "admins"]
+feature = "home.email-polls"
+guidance = "shots"
+changes = [
+  "Whoever can email members can now send a poll instead: up to 10 questions, each open-ended, pick one or pick any.",
+  "Members answer from the email's link, no sign in needed, or from Needs Attention on Home, and can change their answers until the poll closes.",
+  "After answering you see everyone's results. The Polls page lists every poll sent to you.",
+  "Senders see how many have answered on the Polls tab in Email Members, and can send one reminder before it closes.",
+]
+
+[[shots]]
+caption = "Polls sent to you wait under Needs Attention on Home. Press Answer."
+
+[[shots]]
+caption = "Pick your answers and press Send Answers. You can change them until the poll closes."
+
+[[shots]]
+caption = "To send one, open Email Members and choose Poll at the top."

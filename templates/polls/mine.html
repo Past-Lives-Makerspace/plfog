@@ -6,7 +6,7 @@
 {% endblock %}
 {% block content %}
 {# The Polls page (#1142): every poll from Email Members sent to this member, newest first. rows is a list of (EmailPoll annotated with answered, is_open). #}
-{% include "components/page_header.html" with title="Polls" description="Polls sent to you from Email Members, newest first." %}
+{% include "components/page_header.html" with title="Polls" new_key="home.email-polls" description="Polls sent to you from Email Members, newest first." %}
 {% if rows %}
 <ul class="pl-ask-list" data-email-poll-list>
   {% for poll, is_open in rows %}

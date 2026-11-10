@@ -6236,8 +6236,11 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
                 "mailing_lists": [(guild, _mailing_list_url(guild)) for guild in guilds],
                 "drafts_count": rows.resumable().count() if can_open else 0,
                 "sent_count": rows.sent_or_sending().count() if can_open else 0,
+                "polls_count": _sent_polls(rows).count() if can_open else 0,
             },
         )
+    if asked == "polls":
+        return _polls_tab(request, rows, guilds)
     tab = "sent" if asked == "sent" else "drafts"
     rows = rows.select_related("guild", "class_offering", "author__member", "funding_snapshot")
     drafts = rows.resumable()
@@ -6269,9 +6272,56 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
             "base_params": table["base_params"],
             "drafts_count": drafts.count(),
             "sent_count": sent.count(),
+            "polls_count": _sent_polls(rows).count(),
             "can_open": True,
             "mailing_lists": [(guild, _mailing_list_url(guild)) for guild in guilds],
             # The release update composer moved here from Site Settings (#922); admins only.
+            "can_send_release": _viewing_as_admin(request),
+        },
+    )
+
+
+def _sent_polls(rows: AnnouncementDraftQuerySet) -> Any:
+    """The sent polls among the Email Members rows this request may see (#1142 part 4), newest first."""
+    from polls.models import EmailPoll
+
+    return EmailPoll.objects.sent().filter(draft__in=rows).order_by("-opens_at", "-pk")
+
+
+def _polls_tab(request: HttpRequest, rows: AnnouncementDraftQuerySet, guilds: list[Guild]) -> HttpResponse:
+    """Email Members' Polls tab (#1142 part 4): each sent poll this sender may see, its audience,
+    how many of those it went to answered, open or closed, and View Results. One query for the
+    page of polls, their counts annotated."""
+    from classes.table import prepare_table
+
+    polls = (
+        _sent_polls(rows).with_counts().select_related("draft__guild", "draft__class_offering", "draft__author__member")
+    )
+    table = prepare_table(
+        request,
+        polls,
+        search_fields=[],
+        default_sort="opens_at",
+        default_dir="desc",
+        per_page=25,
+        sortable=frozenset({"opens_at"}),
+    )
+    now = dj_timezone.now()
+    page_polls = list(table["page"].object_list)
+    return render(
+        request,
+        "hub/announcements.html",
+        {
+            **_get_hub_context(request),
+            "tab": "polls",
+            "poll_rows": [(poll, poll.is_open(now)) for poll in page_polls],
+            "page": table["page"],
+            "base_params": table["base_params"],
+            "drafts_count": rows.resumable().count(),
+            "sent_count": rows.sent_or_sending().count(),
+            "polls_count": table["page"].paginator.count,
+            "can_open": True,
+            "mailing_lists": [(guild, _mailing_list_url(guild)) for guild in guilds],
             "can_send_release": _viewing_as_admin(request),
         },
     )
