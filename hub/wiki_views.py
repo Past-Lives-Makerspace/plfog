@@ -87,6 +87,7 @@ from membership.permissions import (
     editable_meeting_scopes,
     editable_wiki_scopes,
     is_effective_staff,
+    manageable_guilds,
     moderatable_wiki_scopes,
     visible_wiki_pages,
 )
@@ -307,7 +308,9 @@ def hub_wiki_home(request: HttpRequest) -> HttpResponse:
             "open_review_count": open_review_count,
             # The printable sticker sheet's only entry point. Without it /wiki/stickers/
             # is a URL you have to already know, which is the same as not shipping it.
-            "can_print_stickers": is_effective_staff(request),
+            # Admin or a guild's lead or staff, the sheet's own gate: the same answer as
+            # can_review (an admin's space-wide scope, else the guilds they run), so no query.
+            "can_print_stickers": can_review,
             "has_any_page": visible.exists(),
         }
     )
@@ -1491,13 +1494,17 @@ def hub_wiki_qr_download(request: HttpRequest, slug: str) -> HttpResponse:
 def hub_wiki_stickers(request: HttpRequest) -> HttpResponse:
     """``/wiki/stickers/`` — a printable sheet of QR stickers, one shop at a time.
 
-    ``is_effective_staff`` rather than ``can_moderate_wiki_page``: a staff-wide printable
-    sheet has no single page in scope, so there is no page argument to moderate against.
+    An admin prints any guild's sheet or the space-wide one; a guild's lead or staff (a guild
+    officer, ADR 0004) prints only their own guilds' pages, whatever ``?guild=`` names. A
+    printable sheet has no single page in scope, so there is no page to moderate against.
 
     A standalone print document in the ``guild_flyer`` idiom — its own stylesheet, its own
     ``@page`` rule, black on white in both themes, no member chrome.
     """
-    if not is_effective_staff(request):
+    own_guild_ids = (
+        None if is_effective_staff(request) else list(manageable_guilds(request).values_list("pk", flat=True))
+    )
+    if own_guild_ids == []:
         return _forbidden()
     guild_slug = request.GET.get("guild", "").strip()
     space_wide_only = guild_slug == "space-wide"
@@ -1514,6 +1521,8 @@ def hub_wiki_stickers(request: HttpRequest) -> HttpResponse:
         pages = pages.space_wide()
     elif guild_slug and guild is None:
         pages = pages.none()
+    if own_guild_ids is not None:
+        pages = pages.filter(guild_id__in=own_guild_ids)
     return render(
         request,
         "hub/wiki_sticker_sheet.html",

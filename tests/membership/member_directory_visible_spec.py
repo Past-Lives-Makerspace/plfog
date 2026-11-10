@@ -35,8 +35,13 @@ def describe_directory_visible():
         member = MemberFactory(show_in_directory=False, fog_role=Member.FogRole.ADMIN)
         assert member in Member.objects.directory_visible()
 
-    def it_includes_an_opted_out_guild_staffer():
+    def it_leaves_out_an_opted_out_guild_staffer():
+        """Staff choose for themselves; only leads, admins and instructors are force listed."""
         member = _staffer(show_in_directory=False)
+        assert member not in Member.objects.directory_visible()
+
+    def it_includes_an_opted_in_guild_staffer():
+        member = _staffer(show_in_directory=True)
         assert member in Member.objects.directory_visible()
 
     def it_includes_an_opted_out_guild_lead():

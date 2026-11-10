@@ -561,13 +561,13 @@ class ProfileSettingsForm(MemberPhotoFormBase):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        # Admins, Guild Leads, Guild Staff, and Instructors are always listed —
+        # Admins, Guild Leads, and Instructors are always listed —
         # the field gets force-true on save and is shown disabled with a note.
         if self.instance and self.instance.pk and self.instance.must_be_listed_in_directory:
             field = self.fields["show_in_directory"]
             field.disabled = True
             field.initial = True
-            field.help_text = "Your role (admin, guild lead, guild staff, or instructor) requires a public profile."
+            field.help_text = "Your role (admin, guild lead, or instructor) requires a public profile."
 
         current = self.instance.directory_visibility if self.instance and self.instance.pk else {}
         for field_name in Member.DIRECTORY_TOGGLEABLE_FIELDS:

@@ -594,12 +594,11 @@ class MemberQuerySet(models.QuerySet):
         directory page, :meth:`Guild.roster_members`, and the Discord ``/members`` command
         all build on this filter so they can never drift. A member appears when they are
         ACTIVE and either opted in (``show_in_directory``) or hold a role the community
-        needs to reach: admin, guild lead, guild staff, or instructor.
+        needs to reach: admin, guild lead, or instructor. Guild staff choose for themselves.
         """
         must_show = (
             models.Q(fog_role=Member.FogRole.ADMIN)
             | models.Q(led_guilds__isnull=False)
-            | models.Q(guild_staff_roles__isnull=False)
             | models.Q(instructor_slug__gt="")
         )
         return (
@@ -912,7 +911,7 @@ class Member(StaffRequestMixin, models.Model):
         default=False,
         help_text=(
             "Ops-only override: never list this member in the member directory, even when their role "
-            "(admin, guild lead or staff, instructor) would normally force-list them. Used for the Help "
+            "(admin, guild lead, instructor) would normally force-list them. Used for the Help "
             "Center's example/demo accounts. Set via shell/admin, not member-editable."
         ),
     )
@@ -2552,14 +2551,14 @@ class Member(StaffRequestMixin, models.Model):
     def must_be_listed_in_directory(self) -> bool:
         """Roles that can never opt out of the member directory.
 
-        Admins, Guild Leads, Guild Staff, and Instructors are public-facing —
-        members need to be able to find them. They cannot hide via show_in_directory.
+        Admins, Guild Leads, and Instructors are public-facing — members need to be able to
+        find them. They cannot hide via show_in_directory. Guild staff choose for themselves.
         The ops-only ``hide_from_directory`` override trumps even these roles, so a
         hidden example account never reads as force-listed.
         """
         if self.hide_from_directory:
             return False
-        return self.is_fog_admin or self.is_guild_lead or self.is_guild_staff or self.is_instructor
+        return self.is_fog_admin or self.is_guild_lead or self.is_instructor
 
     def accept_member_agreement(self, request: HttpRequest, agreement_url: str) -> None:
         """Mark this member as having accepted the member agreement.

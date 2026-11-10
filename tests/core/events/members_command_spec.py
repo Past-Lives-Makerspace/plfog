@@ -23,7 +23,6 @@ from membership.discord_commands import (
 from membership.models import Member
 from tests.membership.factories import (
     GuildFactory,
-    GuildStaffMembershipFactory,
     GuildMembershipFactory,
     MemberContactFactory,
     MemberFactory,
@@ -121,9 +120,9 @@ def describe_members_privacy():
         assert hidden.display_name not in titles
 
     def it_shows_a_must_show_member_despite_their_opt_out(invoker):
-        staffer = MemberFactory(show_in_directory=False)
-        GuildStaffMembershipFactory(member=staffer)
-        assert staffer.display_name in [card["title"] for card in _cards(_invoke(invoker))]
+        lead = MemberFactory(show_in_directory=False)
+        GuildFactory(guild_lead=lead)
+        assert lead.display_name in [card["title"] for card in _cards(_invoke(invoker))]
 
     def it_gives_an_admin_invoker_no_bypass(linked_member):
         admin = linked_member(fog_role=Member.FogRole.ADMIN)

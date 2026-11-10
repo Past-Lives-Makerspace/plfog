@@ -6,8 +6,8 @@ could change other guilds' settings. A guild officer is now whoever leads or sta
 derived from those rows, and the only cross-guild tier is admin.
 
 The data step moves every holder to ``member`` and takes away the ``is_staff`` the role gave
-their login, as ``Member.sync_user_permissions`` now does for a member, leaving a superuser's
-flags alone. Their guild authority is unchanged: it comes from their lead and staff rows. The
+their login, as ``Member.sync_user_permissions`` now does for a member. A superuser's flags are
+left alone here; their next sign-in syncs them from the role, as it always has. Their guild authority is unchanged: it comes from their lead and staff rows. The
 reverse is a no-op, because who held the role is not recorded anywhere to put back.
 """
 
@@ -54,7 +54,7 @@ class Migration(migrations.Migration):
             name="hide_from_directory",
             field=models.BooleanField(
                 default=False,
-                help_text="Ops-only override: never list this member in the member directory, even when their role (admin, guild lead or staff, instructor) would normally force-list them. Used for the Help Center's example/demo accounts. Set via shell/admin, not member-editable.",
+                help_text="Ops-only override: never list this member in the member directory, even when their role (admin, guild lead, instructor) would normally force-list them. Used for the Help Center's example/demo accounts. Set via shell/admin, not member-editable.",
             ),
         ),
         migrations.AlterField(

@@ -344,14 +344,36 @@ def describe_the_sticker_sheet():
             _login(client, "member@example.com")
             assert client.get(reverse("hub_wiki_stickers")).status_code == 403
 
-        def it_403s_a_guild_lead(client, db, machine_page):
-            # The sheet is staff-wide and has no page in scope, so it takes
-            # is_effective_staff rather than a per-page moderation check.
-            user = _login(client, "lead@example.com")
-            guild = GuildFactory(name="Metal")
-            guild.guild_lead = user.member
-            guild.save()
-            assert client.get(reverse("hub_wiki_stickers")).status_code == 403
+        def describe_a_guild_lead():
+            """A lead is a guild officer (ADR 0004): their own guilds' sheet, never another's."""
+
+            @pytest.fixture
+            def lead_of_woodworking(client, machine_page):
+                user = _login(client, "lead@example.com")
+                machine_page.guild.guild_lead = user.member
+                machine_page.guild.save()
+                return user
+
+            @pytest.fixture
+            def kiln_page(db):
+                tool = EquipmentFactory(name="Kiln", guild=GuildFactory(name="Ceramics"))
+                return WikiPageFactory(title="Kiln", kind=WikiPage.Kind.MACHINE, equipment=tool, guild=tool.guild)
+
+            def it_prints_their_own_guilds_pages(client, db, lead_of_woodworking, kiln_page):
+                response = client.get(reverse("hub_wiki_stickers"))
+                assert response.status_code == 200
+                assert b"Table Saw" in response.content
+                assert b"Kiln" not in response.content
+
+            def it_prints_nothing_of_a_guild_they_do_not_run(client, db, lead_of_woodworking, kiln_page):
+                response = client.get(reverse("hub_wiki_stickers") + "?guild=ceramics")
+                assert response.status_code == 200
+                assert b"Kiln" not in response.content
+
+            def it_prints_no_space_wide_pages(client, db, lead_of_woodworking):
+                WikiPageFactory(title="Fire Exits", kind=WikiPage.Kind.MACHINE, guild=None)
+                response = client.get(reverse("hub_wiki_stickers") + "?guild=space-wide")
+                assert b"Fire Exits" not in response.content
 
         def it_lets_an_admin_in(client, db, machine_page):
             _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
@@ -371,6 +393,12 @@ def describe_the_wiki_homes_link_to_the_sheet():
 
     def it_shows_staff_the_way_to_print(client, db, machine_page):
         _login(client, "sticker_admin@example.com", fog_role=Member.FogRole.ADMIN)
+        response = client.get(reverse("hub_wiki_home"))
+        assert b"Print stickers" in response.content
+
+    def it_shows_a_guild_lead_the_way_to_print(client, db, machine_page):
+        user = _login(client, "lead@example.com")
+        GuildFactory(name="Metal", guild_lead=user.member)
         response = client.get(reverse("hub_wiki_home"))
         assert b"Print stickers" in response.content
 
