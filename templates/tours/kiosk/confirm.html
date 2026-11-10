@@ -8,7 +8,7 @@ check in. Context: booking.
 <section class="pl-kiosk__screen pl-kiosk__screen--center" data-kiosk-screen="confirm">
   <h1 class="pl-kiosk__title">Is This You?</h1>
   <p class="pl-kiosk__lead pl-kiosk__confirm-who" data-kiosk-confirm-who>{{ booking.kiosk_name }}, {{ booking.starts_at|time:"g:i A" }}</p>
-  <form method="post" action="{% url 'tours_kiosk:check_in' %}" class="pl-kiosk__choices pl-kiosk__choices--buttons" autocomplete="off" data-kiosk-confirm-form>
+  <form method="post" action="{% url 'tours_kiosk:check_in' %}" class="pl-kiosk__choices pl-kiosk__choices--buttons" autocomplete="off" data-kiosk-arrows data-kiosk-confirm-form>
     {% csrf_token %}
     <button type="submit" name="booking" value="{{ booking.pk }}" class="pl-kiosk__choice pl-kiosk__choice--primary" autofocus data-kiosk-confirm-yes>
       <span class="pl-kiosk__choice-title">Yes, Check Me In</span>
