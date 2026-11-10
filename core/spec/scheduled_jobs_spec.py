@@ -55,6 +55,8 @@ _DISPATCHER_ALWAYS = {
     "take_reconciliation_snapshot",
     "rollup_page_views",
     "send_queued_announcements",
+    # Every tick: each email poll's one reminder, claimed once (#1142 part 4).
+    "send_email_poll_reminders",
     "announce_live_requests",
     "fetch_video_thumbnails",
     "process_discord_removals",
