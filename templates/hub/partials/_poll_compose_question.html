@@ -1,0 +1,25 @@
+{# One question row in the poll composer (#1142): qform is an EmailPollQuestionForm, or the formset's empty form inside the <template>. #}
+<fieldset class="pl-poll-q__card" data-formset-row data-compose-poll-question
+          x-data="plPollQuestion('{{ qform.kind.value|default:'one'|escapejs }}', {{ qform.options_shown }})">
+  <legend class="pl-poll-q__legend">Question <span class="pl-poll-q__number" aria-hidden="true"></span></legend>
+  {% include "components/form_field.html" with field=qform.text %}
+  <div class="pl-form-group pl-poll-q__kind">
+    <label class="pl-form-label" for="{{ qform.kind.id_for_label }}">Type</label>
+    <select name="{{ qform.kind.html_name }}" id="{{ qform.kind.id_for_label }}" x-model="kind">
+      {% for value, label in qform.fields.kind.choices %}<option value="{{ value }}"{% if value == qform.kind.value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="pl-poll-q__options" x-show="kind !== 'open'" data-compose-poll-options>
+    <p class="pl-form-label">Options</p>
+    {% for option in qform.option_rows %}
+    <div class="pl-poll-q__option" x-show="shown >= {{ forloop.counter }}" data-compose-poll-option>
+      <label class="sr-only" for="{{ option.id_for_label }}">Option {{ forloop.counter }}</label>
+      <input type="text" name="{{ option.html_name }}" id="{{ option.id_for_label }}" value="{{ option.value|default_if_none:'' }}" maxlength="120" placeholder="Option {{ forloop.counter }}" data-option-input>
+      <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" @click="remove({{ forloop.counter0 }})" data-compose-poll-remove-option>Remove</button>
+    </div>
+    {% endfor %}
+    {% for error in qform.non_field_errors %}<p class="pl-field-error" data-compose-poll-question-error>{{ error }}</p>{% endfor %}
+    <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm pl-poll-q__add-option" x-show="shown < {{ max_options|default:4 }}" @click="shown++" data-compose-poll-add-option>+ Add option</button>
+  </div>
+  <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" @click="deleteQuestion($el)" data-compose-poll-delete-question>Delete question</button>
+</fieldset>

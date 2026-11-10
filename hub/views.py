@@ -5099,8 +5099,12 @@ def _render_compose(
     locked_label: str = "",
     compose_heading: str = "",
     compose_lead: str = "",
+    poll_forms: tuple[Any, Any] | None = None,
 ) -> HttpResponse:
     """Render the single-screen composer for GET and for an invalid-POST re-render (with errors).
+
+    The Email | Poll picker (#1142) opens on Poll for a saved poll or a posted one; ``poll_forms``
+    carries a refused poll's bound forms back with their errors.
 
     ``can_open_announcements`` shows the Back to Announcements link to whoever may open that page;
     a resumed ``draft`` carries the line saying who last saved it (or that the job made it).
@@ -5188,8 +5192,30 @@ def _render_compose(
             # The saved image the field shows (#1064); a re-render after Remove shows none.
             "compose_image": draft.image if draft is not None and draft.image and not remove_posted else None,
             "compose_image_lost": image_lost,
+            **_compose_poll_context(request, draft, poll_forms),
         },
     )
+
+
+def _compose_poll_context(
+    request: HttpRequest, draft: AnnouncementDraft | None, poll_forms: tuple[Any, Any] | None
+) -> dict[str, Any]:
+    """What the Poll side of the composer reads (#1142): its forms, which side opens, and the limits."""
+    from polls.models import MAX_OPTIONS, MAX_QUESTIONS
+
+    poll_form, questions = poll_forms or _compose_poll_forms(request, draft)
+    opens_poll = (
+        _posts_poll(request)
+        if request.method == "POST"
+        else (draft is not None and draft.kind == AnnouncementDraft.Kind.POLL)
+    )
+    return {
+        "poll_form": poll_form,
+        "question_formset": questions,
+        "compose_kind": "poll" if opens_poll else "email",
+        "max_questions": MAX_QUESTIONS,
+        "max_options": MAX_OPTIONS,
+    }
 
 
 def _compose_lock(requested: str | None, want_lock: bool) -> tuple[bool, str, str, str]:
@@ -5298,6 +5324,45 @@ def _compose_first_error(form: Any) -> str:
     for errors in form.errors.values():
         if errors:
             return str(errors[0])
+    return "Fix the highlighted fields before saving."
+
+
+def _posts_poll(request: HttpRequest) -> bool:
+    """Whether the composer posted its Poll side (#1142): the Email | Poll picker's hidden ``kind``."""
+    return request.POST.get("kind") == AnnouncementDraft.Kind.POLL.value
+
+
+def _compose_poll_forms(request: HttpRequest, draft: AnnouncementDraft | None) -> tuple[Any, Any]:
+    """The Poll side's form and question list: bound to a posted poll, else filled from ``draft``'s saved poll."""
+    from hub.forms import BaseEmailPollQuestionFormSet, EmailPollComposeForm, EmailPollQuestionFormSet
+    from polls.models import EmailPoll
+
+    if request.method == "POST" and _posts_poll(request):
+        return EmailPollComposeForm(request.POST), EmailPollQuestionFormSet(request.POST, prefix="question")
+    poll = EmailPoll.objects.filter(draft=draft).select_related("draft").first() if draft is not None else None
+    return (
+        EmailPollComposeForm(initial=EmailPollComposeForm.initial_for(poll)),
+        EmailPollQuestionFormSet(initial=BaseEmailPollQuestionFormSet.initial_for(poll), prefix="question"),
+    )
+
+
+def _validated_poll(request: HttpRequest, draft: AnnouncementDraft | None) -> tuple[Any, Any, Any]:
+    """The Poll side's form and questions, and the poll they make: ``None`` when it is not a poll or not valid."""
+    poll_form, questions = _compose_poll_forms(request, draft)
+    if not _posts_poll(request) or not (poll_form.is_valid() & questions.is_valid()):
+        return poll_form, questions, None
+    return poll_form, questions, poll_form.draft_data(questions)
+
+
+def _poll_first_error(poll_form: Any, questions: Any) -> str:
+    """The first poll error, for the Save draft toast: the title, a setting, the list, then a question."""
+    for errors in poll_form.errors.values():
+        return str(errors[0])
+    for error in questions.non_form_errors():
+        return str(error)
+    for number, errors in enumerate(questions.errors, start=1):
+        for field_errors in errors.values():
+            return f"Question {number}: {field_errors[0]}"
     return "Fix the highlighted fields before saving."
 
 
@@ -5484,7 +5549,15 @@ def _compose_save_posted(request: HttpRequest) -> AnnouncementDraft | HttpRespon
         response = HttpResponse(status=204)
         trigger_toast(response, _compose_first_error(form), "error")
         return response
-    return AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance)
+    poll = None
+    if _posts_poll(request):
+        poll_form, questions = _compose_poll_forms(request, instance)
+        if not (poll_form.is_valid() & questions.is_valid()):
+            response = HttpResponse(status=204)
+            trigger_toast(response, _poll_first_error(poll_form, questions), "error")
+            return response
+        poll = poll_form.draft_data(questions)
+    return AnnouncementDraft.save_from_form(form, cast(User, request.user), instance=instance, poll=poll)
 
 
 def _compose_saved_response(request: HttpRequest, draft: AnnouncementDraft, toast: str | None = None) -> HttpResponse:
@@ -5979,10 +6052,8 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
     (:attr:`AnnouncementDraft.sending_in_request`) is refused the same way before anything is
     saved, because saving it over would clear the in-flight mark.
     """
-    from django.core.exceptions import ValidationError
-
     from hub.forms import AnnouncementComposeForm
-    from membership.models import ANNOUNCEMENT_ALREADY_SENT, AlreadySentError, ResultsAlreadySentError
+    from membership.models import ANNOUNCEMENT_ALREADY_SENT, AlreadySentError
 
     raw = request.POST.get("audience") or ""
     forbidden = _compose_audience_forbidden(request, raw)
@@ -6000,15 +6071,17 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
             # would wipe the in-flight mark and send it twice, so it is refused before any save.
             return _compose_send_refused(request, instance, AlreadySentError(ANNOUNCEMENT_ALREADY_SENT))
     results_lock = _results_compose_lock(instance)
+    is_poll = _posts_poll(request)
     form = AnnouncementComposeForm(
         request.POST,
         request.FILES,
-        require_body=True,
+        require_body=not is_poll,
         results_announcement=results_lock is not None,
         draft=instance,
         **_compose_form_kwargs(request),
     )
-    if not form.is_valid():
+    poll_form, questions, poll = _validated_poll(request, instance)
+    if not (form.is_valid() & (poll is not None or not is_poll)):
         locked, locked_label, heading, lead = results_lock or _compose_lock(raw, bool(request.POST.get("lock")))
         return _render_compose(
             request,
@@ -6018,11 +6091,23 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
             locked_label=locked_label,
             compose_heading=heading,
             compose_lead=lead,
+            poll_forms=(poll_form, questions),
         )
     sender = cast(User, request.user)
-    draft = None if instance is not None else AnnouncementDraft.recent_twin_of(form, sender)
+    draft = None if instance is not None else AnnouncementDraft.recent_twin_of(form, sender, poll=poll)
     if draft is None:
-        draft = AnnouncementDraft.save_from_form(form, sender, instance=instance)
+        draft = AnnouncementDraft.save_from_form(form, sender, instance=instance, poll=poll)
+    if draft.kind == AnnouncementDraft.Kind.POLL:
+        return _send_poll_draft(request, draft)
+    return _send_email_draft(request, draft)
+
+
+def _send_email_draft(request: HttpRequest, draft: AnnouncementDraft) -> HttpResponse:
+    """Send a saved email row: a site send is queued, any other goes out in the request."""
+    from django.core.exceptions import ValidationError
+
+    from membership.models import AlreadySentError, ResultsAlreadySentError
+
     refusals = (AlreadySentError, ResultsAlreadySentError, ValidationError)
     if draft.audience == AnnouncementDraft.Audience.SITE:
         try:
@@ -6045,6 +6130,41 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
         else f"Email sent to {total} recipient(s)."
     )
     messages.success(request, sent_note)
+    return redirect(_announcements_sent_url())
+
+
+def _send_poll_draft(request: HttpRequest, draft: AnnouncementDraft) -> HttpResponse:
+    """Send a saved poll row (#1142): it opens now, and a site wide poll's emails go from the queue.
+
+    The repeat-send guards run first, as for an email: the caller already folded a repeated fresh
+    compose into the row it repeats (:meth:`AnnouncementDraft.recent_twin_of`), and here
+    :meth:`AnnouncementDraft.queue_send` (site) or :meth:`AnnouncementDraft.send_in_request` refuses a
+    row already sent or sending before anything opens. A site poll opens at Send, so members can
+    answer while the queue emails them; ``open`` keeps the first window when the job reaches it.
+    """
+    from django.core.exceptions import ValidationError
+    from django.utils import timezone
+
+    from membership.models import AlreadySentError, ResultsAlreadySentError
+
+    refusals = (AlreadySentError, ResultsAlreadySentError, ValidationError)
+    if draft.audience == AnnouncementDraft.Audience.SITE:
+        try:
+            draft.queue_send()
+        except refusals as exc:
+            return _compose_send_refused(request, draft, exc)
+        draft.poll.open(timezone.now())
+        reached = draft.poll.recipients.count()
+        note = f"Your poll is open for {reached} recipient(s)."
+        if draft.send_email:
+            note += " Its email reaches them within 15 minutes."
+        messages.success(request, note)
+        return redirect(_announcements_sent_url())
+    try:
+        emailed, total = draft.send_in_request()
+    except refusals as exc:
+        return _compose_send_refused(request, draft, exc)
+    messages.success(request, f"Your poll is open for {total} recipient(s). {emailed} emailed.")
     return redirect(_announcements_sent_url())
 
 

@@ -30,7 +30,7 @@ from django.utils import timezone
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
-    from membership.models import Guild, Member
+    from membership.models import AnnouncementDraft, Guild, Member
 
 MIN_CHOICES = 2
 MAX_CHOICES = 6
@@ -602,6 +602,45 @@ class QuestionSpec:
         return [text for text in (option.strip() for option in self.options) if text]
 
 
+@dataclass(frozen=True)
+class PollDraft:
+    """A poll as the Email Members composer hands it over (#1142 part 3): its settings and questions."""
+
+    title: str
+    intro: str
+    run_days: int
+    send_email: bool
+    remind_days_before: int | None
+    audience_only: bool
+    questions: list[QuestionSpec]
+
+    @property
+    def signature(self) -> list[tuple[str, str, tuple[str, ...]]]:
+        """The questions as a repeat is compared on: text, kind and options in order, as they are stored."""
+        return [question_signature(spec.text, spec.kind, spec.filled_options) for spec in self.questions]
+
+    def apply_to(self, draft: AnnouncementDraft) -> None:
+        """Make ``draft`` this poll's row, unsaved: kind Poll, its title, and every email only channel off."""
+        from membership.models import AnnouncementDraft, GuildAnnouncement
+
+        draft.kind = AnnouncementDraft.Kind.POLL
+        draft.title = self.title.strip()
+        draft.body = ""
+        draft.send_email = self.send_email
+        draft.push_enabled = False
+        draft.discord_enabled = False
+        draft.discord_channel = GuildAnnouncement.DiscordChannel.NONE
+        draft.mention = AnnouncementDraft.Mention.NONE
+        draft.discord_post_as_me = False
+        draft.mark_as_urgent = False
+        draft.expires_at = None
+
+
+def question_signature(text: str, kind: str, options: list[str]) -> tuple[str, str, tuple[str, ...]]:
+    """One question as two polls are compared (#1142): its text, its kind and its options, open-ended keeping none."""
+    return (text.strip(), kind, () if kind == QuestionKind.OPEN else tuple(options))
+
+
 def validate_questions(specs: list[QuestionSpec]) -> None:
     """Refuse a question list an email poll cannot send.
 
@@ -758,6 +797,30 @@ class EmailPoll(models.Model):
         if self.closes_at is None:
             raise ValueError("A poll has no closing time until it is sent.")
         return closes_label(self.closes_at)
+
+    @classmethod
+    def save_for_draft(cls, draft: AnnouncementDraft, data: PollDraft) -> EmailPoll:
+        """Write ``draft``'s poll from the composer: its settings and questions, creating it the first time.
+
+        Raises:
+            ValueError: The draft's poll was sent, or :func:`validate_questions` refuses the questions.
+        """
+        poll, _created = cls.objects.get_or_create(draft=draft)
+        poll.intro = data.intro.strip()
+        poll.run_days = data.run_days
+        poll.remind_days_before = data.remind_days_before
+        poll.audience_only = data.audience_only
+        poll.save(update_fields=["intro", "run_days", "remind_days_before", "audience_only"])
+        poll.replace_questions(data.questions)
+        return poll
+
+    @property
+    def signature(self) -> list[tuple[str, str, tuple[str, ...]]]:
+        """The saved questions as :attr:`PollDraft.signature` reads a composed one, in two queries."""
+        return [
+            question_signature(question.text, question.kind, [option.text for option in question.options.all()])
+            for question in self.questions.prefetch_related("options")
+        ]
 
     def replace_questions(self, specs: list[QuestionSpec]) -> None:
         """Save ``specs`` as this draft poll's questions, in order, replacing any it had.
