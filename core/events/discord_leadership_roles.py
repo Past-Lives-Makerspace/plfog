@@ -406,6 +406,7 @@ def role_id_conflicts(
     leadership_role_id: str,
     guild_officers_role_id: str,
     guilds: dict[int, tuple[str, list[str], bool]],
+    check_guild_rows: bool = True,
 ) -> tuple[dict[str, str], dict[int, str]]:
     """Why the role ids as they would be saved clash, for the Site Settings save to refuse.
 
@@ -422,6 +423,9 @@ def role_id_conflicts(
         guilds: Guild pk to (its lead role id, its member role ids, whether it is visible:
             active and not deleted), for every guild. A lead role id two visible guilds share
             is reported on the later one in this order.
+        check_guild_rows: Also judge each guild's lead role id (when the guild rows were
+            posted). Off, only the site fields are judged, and a stored lead role id equal to
+            leadership or Guild Officers is reported on that site field.
 
     Returns:
         (Site Settings field name to message, guild pk to message for its lead role id).
@@ -433,28 +437,44 @@ def role_id_conflicts(
     site_errors: dict[str, str] = {}
     guild_errors: dict[int, str] = {}
     access_message = "This id is a member access role (the Member role or a guild's role). Use a different role."
+    taken_message = "A guild already uses this id as its lead role. Use a different role."
     leadership = leadership_role_id.strip()
     officers = guild_officers_role_id.strip()
+    leads = {raw_lead.strip() for raw_lead, _member_ids, _live in guilds.values()} - {""}
     if leadership in access:
         site_errors["discord_leadership_role_id"] = access_message
+    elif not check_guild_rows and leadership in leads:
+        site_errors["discord_leadership_role_id"] = taken_message
     if officers in access:
         site_errors["discord_guild_officers_role_id"] = access_message
     elif officers and officers == leadership:
         site_errors["discord_guild_officers_role_id"] = "Guild Officers needs its own role, not the leadership role."
+    elif not check_guild_rows and officers in leads:
+        site_errors["discord_guild_officers_role_id"] = taken_message
+    if check_guild_rows:
+        guild_errors = _guild_row_conflicts(guilds, access, (leadership, officers), access_message)
+    return site_errors, guild_errors
+
+
+def _guild_row_conflicts(
+    guilds: dict[int, tuple[str, list[str], bool]], access: set[str], site_ids: tuple[str, str], access_message: str
+) -> dict[int, str]:
+    """Each guild whose lead role id is an access role, a site role, or another visible guild's."""
+    errors: dict[int, str] = {}
     seen: set[str] = set()
     for pk, (raw_lead, _member_ids, live) in guilds.items():
         lead = raw_lead.strip()
         if not lead:
             continue
         if lead in access:
-            guild_errors[pk] = access_message
-        elif lead in (leadership, officers):
-            guild_errors[pk] = "A guild lead role needs its own role, not the leadership or Guild Officers role."
+            errors[pk] = access_message
+        elif lead in site_ids:
+            errors[pk] = "A guild lead role needs its own role, not the leadership or Guild Officers role."
         elif live and lead in seen:
-            guild_errors[pk] = "Another guild already uses this lead role id."
+            errors[pk] = "Another guild already uses this lead role id."
         if live:
             seen.add(lead)
-    return site_errors, guild_errors
+    return errors
 
 
 class _ReconcileWhenCommitted:

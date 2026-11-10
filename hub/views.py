@@ -10585,17 +10585,19 @@ def _sync_info_post_if_changed(request: HttpRequest, form: SiteSettingsForm) -> 
         )
 
 
-def _refuse_role_id_conflicts(request: HttpRequest, form: SiteSettingsForm, role_formset: Any) -> bool:
+def _refuse_role_id_conflicts(request: HttpRequest, form: SiteSettingsForm, role_formset: Any | None) -> bool:
     """Put an error on each Discord role id that clashes (#1148) and say whether there was one.
 
-    Run on a Discord tab save only; the other tabs post no Discord ids. The site form and the
-    per guild role table post together, so the check reads both as they would be saved, with
-    every other guild as stored (:func:`role_id_conflicts` has the rules). A clash on a guild
-    the table does not show (a hidden one) goes out as a page message.
+    Run on every Site Settings save: the page is one form, so every save posts every site
+    field, the Discord ids included, whichever tab is showing. The site ids are judged
+    against the guilds as stored, or as posted when ``role_formset`` (the Discord tab's guild
+    rows, bound only when that tab submitted) is given; only then is each guild's lead role id
+    judged too (:func:`role_id_conflicts` has the rules). A clash on a guild the table does
+    not show (a hidden one) goes out as a page message.
     """
     from core.events.discord_leadership_roles import role_id_conflicts
 
-    posted = {f.instance.pk: f for f in role_formset if f.instance.pk is not None}
+    posted = {f.instance.pk: f for f in role_formset or [] if f.instance.pk is not None}
     stored = {
         pk: (lead, list(member_ids or []), name, is_active and deleted_at is None)
         for pk, lead, member_ids, name, is_active, deleted_at in Guild.all_objects.values_list(
@@ -10616,6 +10618,7 @@ def _refuse_role_id_conflicts(request: HttpRequest, form: SiteSettingsForm, role
         leadership_role_id=form.cleaned_data.get("discord_leadership_role_id") or "",
         guild_officers_role_id=form.cleaned_data.get("discord_guild_officers_role_id") or "",
         guilds=guilds,
+        check_guild_rows=role_formset is not None,
     )
     for field_name, message in site_errors.items():
         form.add_error(field_name, message)
@@ -10655,7 +10658,7 @@ def _save_site_settings(
         form.is_valid()
         and feed_formset.is_valid()
         and discord_ok
-        and not (is_discord and _refuse_role_id_conflicts(request, form, role_formset))
+        and not _refuse_role_id_conflicts(request, form, role_formset if is_discord else None)
     ):
         form.save()
         _sync_info_post_if_changed(request, form)

@@ -8,6 +8,7 @@ from django.test import Client
 from django.urls import reverse
 
 from core.models import SiteConfiguration
+from membership.models import Guild
 from tests.membership.factories import GuildFactory
 
 pytestmark = pytest.mark.django_db
@@ -113,16 +114,39 @@ def describe_role_id_clashes():
         assert "Hidden Hall lead role id:" in resp.content.decode()
         assert SiteConfiguration.load().discord_leadership_role_id == ""
 
-    def it_does_not_check_a_save_from_another_tab(admin_client: Client):
-        config = SiteConfiguration.load()
-        config.discord_member_role_id = "900"
-        config.discord_leadership_role_id = "900"
-        config.save()
+    def it_refuses_leadership_equal_to_officers_on_a_save_from_another_tab(admin_client: Client):
         resp = admin_client.post(
             reverse("hub_admin_site_settings"),
-            _post(submitted_tab="general", discord_member_role_id="900", discord_leadership_role_id="900"),
+            _post(
+                submitted_tab="general",
+                discord_leadership_role_id="910",
+                discord_guild_officers_role_id="910",
+                org_name="Changed Name",
+            ),
+        )
+        assert resp.status_code == 200
+        assert "Guild Officers needs its own role" in resp.content.decode()
+        config = SiteConfiguration.load()
+        assert config.discord_leadership_role_id == ""
+        assert config.org_name != "Changed Name"
+
+    def it_refuses_a_site_id_a_stored_guild_uses_as_its_lead_role_from_another_tab(admin_client: Client):
+        GuildFactory(name="Wood", discord_lead_role_id="920")
+        resp = admin_client.post(
+            reverse("hub_admin_site_settings"), _post(submitted_tab="general", discord_guild_officers_role_id="920")
+        )
+        assert resp.status_code == 200
+        assert "A guild already uses this id as its lead role." in resp.content.decode()
+        assert SiteConfiguration.load().discord_guild_officers_role_id == ""
+
+    def it_saves_another_tab_when_nothing_clashes(admin_client: Client):
+        GuildFactory(name="Wood", discord_lead_role_id="920")
+        GuildFactory(name="Copy", discord_lead_role_id="920")  # stored rows are not judged off the Discord tab
+        resp = admin_client.post(
+            reverse("hub_admin_site_settings"), _post(submitted_tab="general", discord_leadership_role_id="930")
         )
         assert resp.status_code == 302
+        assert SiteConfiguration.load().discord_leadership_role_id == "930"
 
     def it_lets_a_visible_guild_reuse_a_hidden_guilds_old_lead_role_id(admin_client: Client):
         GuildFactory(name="Old Hall", is_active=False, discord_lead_role_id="950")
@@ -142,6 +166,26 @@ def describe_role_id_clashes():
         assert resp.status_code == 302
         guild.refresh_from_db()
         assert guild.discord_lead_role_id == "950"
+        assert Guild.all_objects.get(name="Old Hall").discord_lead_role_id == ""
+
+    def it_releases_the_id_from_a_deleted_guild_too_and_leaves_visible_ones(admin_client: Client):
+        gone = GuildFactory(name="Gone Hall", discord_lead_role_id="960")
+        gone.soft_delete()
+        guild = GuildFactory(name="Fresh Hall")
+        resp = admin_client.post(
+            reverse("hub_admin_site_settings"),
+            _post(
+                **{
+                    "guildroles-TOTAL_FORMS": "1",
+                    "guildroles-INITIAL_FORMS": "1",
+                    "guildroles-0-id": str(guild.pk),
+                    "guildroles-0-discord_role_ids": "",
+                    "guildroles-0-discord_lead_role_id": "960",
+                }
+            ),
+        )
+        assert resp.status_code == 302
+        assert Guild.all_objects.get(pk=gone.pk).discord_lead_role_id == ""
 
 
 def describe_guild_lead_role_id():

@@ -582,6 +582,16 @@ def describe_server_members():
             "1": discord_roles.ServerMember(username="amber", roles={"5"}),
             "2": discord_roles.ServerMember(username="", roles=set()),
         }
+        assert found["2"].names == ()
+
+    @respx.mock
+    def it_reads_a_display_name_and_a_nickname():
+        respx.get(f"{API}/guilds/srv/members").mock(
+            return_value=httpx.Response(
+                200, json=[{"user": {"id": "1", "username": "a", "global_name": "Amber"}, "nick": "Amb", "roles": []}]
+            )
+        )
+        assert discord_roles.server_members("srv")["1"].names == ("a", "Amber", "Amb")
 
 
 def describe_member_access_roles():
@@ -728,6 +738,16 @@ def describe_role_id_conflicts():
         )
         assert set(guilds) == {1, 2, 4}
         assert "Another guild" in guilds[4]
+
+    def it_judges_only_the_site_fields_when_the_guild_rows_are_not_posted():
+        site, guilds = _check(
+            leadership_role_id="30",
+            guild_officers_role_id="40",
+            guilds={1: ("30", [], True), 2: ("40", [], False), 3: ("2", ["2"], True)},
+            check_guild_rows=False,
+        )
+        assert set(site) == {"discord_leadership_role_id", "discord_guild_officers_role_id"}
+        assert guilds == {}
 
     def it_lets_a_hidden_or_deleted_guilds_old_lead_id_be_reused():
         _site, guilds = _check(guilds={1: ("30", [], False), 2: ("30", [], True), 3: ("30", [], False)})

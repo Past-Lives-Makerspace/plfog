@@ -194,10 +194,17 @@ def _json_body(response: httpx.Response | None) -> object | None:
 
 @dataclass(frozen=True)
 class ServerMember:
-    """One member of the Discord server as the member list gives it."""
+    """One member of the Discord server as the member list gives it ("" where Discord gives none)."""
 
     username: str
     roles: set[str]
+    global_name: str = ""
+    nick: str = ""
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        """Every name they go by: username, display name, server nickname; blanks left out."""
+        return tuple(name for name in (self.username, self.global_name, self.nick) if name)
 
 
 def server_members(server_id: str, *, retry: bool = False) -> dict[str, ServerMember] | None:
@@ -226,8 +233,10 @@ def server_members(server_id: str, *, retry: bool = False) -> dict[str, ServerMe
         for entry in page:
             user = entry["user"]
             found[str(user["id"])] = ServerMember(
-                username=str(user.get("username", "")),
+                username=str(user.get("username") or ""),
                 roles={str(role_id) for role_id in entry.get("roles", [])},
+                global_name=str(user.get("global_name") or ""),
+                nick=str(entry.get("nick") or ""),
             )
         if len(page) < _MEMBERS_PAGE_SIZE:
             return found

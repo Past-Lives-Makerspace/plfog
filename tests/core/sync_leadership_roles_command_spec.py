@@ -157,6 +157,33 @@ def describe_unlinked_holders():
         assert [call.request.url.path for call in delete.calls] == ["/api/v10/guilds/srv/members/66/roles/111"]
         assert "Added 0 roles and removed 1." in out
 
+    @respx.mock
+    def it_matches_a_legacy_tag_a_display_name_and_a_nickname(configured):
+        MemberFactory(full_legal_name="Tag Holder", discord_handle="OldTag#1234")
+        MemberFactory(full_legal_name="Rosa Rivera", preferred_name="")
+        MemberFactory(full_legal_name="Nick Named", discord_handle="woodnick")
+        respx.get(LIST_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json=[
+                    {"user": {"id": "81", "username": "oldtag"}, "roles": ["111"]},
+                    {"user": {"id": "82", "username": "rr22", "global_name": "Rosa Rivera"}, "roles": ["111"]},
+                    {
+                        "user": {"id": "83", "username": "zz", "global_name": None},
+                        "nick": "@WoodNick",
+                        "roles": ["111"],
+                    },
+                    {"user": {"id": "84", "username": "nobody"}, "roles": ["111"]},
+                ],
+            )
+        )
+        delete = respx.delete(url__regex=r".+").mock(return_value=httpx.Response(204))
+        out = _run("--apply", "--strip-unlinked")
+        assert "oldtag (81), no linked member (matches unlinked app member Tag Holder)" in out
+        assert "rr22 (82), no linked member (matches unlinked app member Rosa Rivera)" in out
+        assert "zz (83), no linked member (matches unlinked app member Nick Named)" in out
+        assert [call.request.url.path for call in delete.calls] == ["/api/v10/guilds/srv/members/84/roles/111"]
+
     def it_refuses_strip_unlinked_without_apply(configured):
         with pytest.raises(CommandError, match="needs --apply"):
             _run("--strip-unlinked")

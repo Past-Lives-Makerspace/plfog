@@ -3569,6 +3569,25 @@ class Guild(HeroCropMixin, models.Model):
         self.save(update_fields=["deleted_at"])
         self.reconcile_leadership_roles()
 
+    def release_lead_role_id_from_hidden_guilds(self) -> int:
+        """Blank this guild's lead role id on every hidden or deleted guild that still holds it (#1148).
+
+        A visible guild may take a hidden guild's old lead role id; blanking it there in the
+        same save means showing that guild again later cannot hand the role to two leads.
+
+        Returns:
+            How many guilds let it go.
+        """
+        role_id = self.discord_lead_role_id.strip()
+        if not role_id:
+            return 0
+        return (
+            Guild.all_objects.exclude(pk=self.pk)
+            .filter(discord_lead_role_id=role_id)
+            .filter(models.Q(is_active=False) | models.Q(deleted_at__isnull=False))
+            .update(discord_lead_role_id="")
+        )
+
     def reconcile_leadership_roles(self) -> None:
         """Bring the Discord leadership roles of this guild's lead and staff in step, after the commit (#1148).
 

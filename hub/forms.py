@@ -2141,6 +2141,7 @@ class GuildRoleForm(forms.ModelForm):
             from core.tasks import enqueue_on_commit
 
             # The lead and Co-Leads get the new role; the old one comes off whoever still holds it.
+            guild.release_lead_role_id_from_hidden_guilds()
             guild.reconcile_leadership_roles()
             old_role_id = str(self.initial.get("discord_lead_role_id") or "").strip()
             if old_role_id:

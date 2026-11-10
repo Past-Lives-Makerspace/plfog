@@ -19,7 +19,7 @@ from django.db import transaction
 from core.events.discord_leadership_roles import _ReconcileWhenCommitted
 from core.models import SiteConfiguration
 from hub.forms import GuildRoleForm, GuildVisibilityForm
-from membership.models import GuildStaffMembership, LeadershipListing, LeadershipTab
+from membership.models import Guild, GuildStaffMembership, LeadershipListing, LeadershipTab
 from tests.membership.factories import (
     GuildFactory,
     GuildStaffMembershipFactory,
@@ -194,6 +194,26 @@ def describe_guild_changes():
         with django_capture_on_commit_callbacks(execute=True):
             form.save()
         assert not route.called
+
+    def it_releases_the_lead_role_id_only_from_hidden_and_deleted_guilds():
+        hidden = GuildFactory(name="Hidden", is_active=False, discord_lead_role_id="4321")
+        gone = GuildFactory(name="Gone", discord_lead_role_id="4321")
+        gone.soft_delete()
+        visible = GuildFactory(name="Visible", discord_lead_role_id="4321")
+        guild = GuildFactory(name="Taker")
+        form = GuildRoleForm({"discord_role_ids": "", "discord_lead_role_id": "4321"}, instance=guild)
+        assert form.is_valid()
+        form.save()
+        values = dict(
+            Guild.all_objects.filter(pk__in=[hidden.pk, gone.pk, visible.pk]).values_list(
+                "name", "discord_lead_role_id"
+            )
+        )
+        assert values == {"Hidden": "", "Gone": "", "Visible": "4321"}
+
+    def it_releases_nothing_when_the_lead_role_id_is_cleared():
+        GuildFactory(name="Hidden", is_active=False, discord_lead_role_id="")
+        assert GuildFactory(name="Blank").release_lead_role_id_from_hidden_guilds() == 0
 
     def it_queues_nothing_when_the_lead_role_id_is_unchanged(django_capture_on_commit_callbacks):
         guild = GuildFactory(guild_lead=MemberFactory(), discord_lead_role_id="4321")
