@@ -8,14 +8,17 @@
    The keyboard alone drives every screen (#1155, cairn's mouse went missing): with no mouse
    plugged in ("any-pointer: fine" false, rechecked when one comes or goes) the
    [data-kiosk-keys] badge says so and names the keys. Escape goes home; arrow keys move between
-   the items of a group (ARROW_GROUPS); the day strip is one tab stop, so Tab reaches the times;
-   Schedule a Tour focuses the picked day's first time, and its form the first field to fill. */
+   the items of a group (ARROW_GROUPS; Up and Down by row in a grid); Enter flips a switch rather
+   than submitting its form; the day strip is one tab stop, so Tab reaches the times; Schedule a
+   Tour focuses the picked day's first time, its form the first field to fill, and the pick list
+   its first name. */
 (function () {
     "use strict";
 
     // The kiosk's own groups, and the shared picker's day strip and times (tours/public/_picker.html).
     var ARROW_GROUPS = "[data-kiosk-arrows], .pl-tourpub__days, .pl-tourpub__times";
     var ARROW_STEP = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 };
+    var ARROW_ROWS = { ArrowUp: true, ArrowDown: true };
 
     function home(root) {
         window.location.replace(root.getAttribute("data-kiosk-home") || "/kiosk/");
@@ -50,12 +53,38 @@
         });
     }
 
+    // The nearest item in the next row up or down, closest to the same column; none in one row.
+    function nextRow(items, from, step) {
+        var at = from.getBoundingClientRect();
+        var best = null;
+        var bestScore = Infinity;
+        items.forEach(function (item) {
+            var box = item.getBoundingClientRect();
+            var down = (box.top - at.top) * step;
+            if (down <= 1) {
+                return;
+            }
+            var score = down * 1000 + Math.abs(box.left - at.left);
+            if (score < bestScore) {
+                bestScore = score;
+                best = item;
+            }
+        });
+        return best;
+    }
+
     function onKey(root, event) {
-        if (event.altKey || event.ctrlKey || event.metaKey) {
+        if (event.altKey || event.ctrlKey || event.metaKey || event.isComposing) {
             return;
         }
         if (event.key === "Escape") {
             home(root);
+            return;
+        }
+        // Enter on the account switch would submit the booking; on the kiosk it flips the switch.
+        if (event.key === "Enter" && event.target.matches && event.target.matches('input[type="checkbox"]')) {
+            event.preventDefault();
+            event.target.click();
             return;
         }
         var step = ARROW_STEP[event.key];
@@ -66,7 +95,7 @@
         }
         var items = groupItems(group);
         var at = items.indexOf(target);
-        var next = items[at + step];
+        var next = ARROW_ROWS[event.key] ? nextRow(items, target, step) : items[at + step];
         if (at < 0 || !next) {
             return;
         }
@@ -74,13 +103,16 @@
         next.focus();
     }
 
-    // Where the keyboard starts on Schedule a Tour: the form's first field to fill, else the
-    // picked day's first time, else the picked day. Home, check in and the rest autofocus in markup.
+    // Where the keyboard starts on Schedule a Tour (the form's first field to fill, else the picked
+    // day's first time, else the picked day) and on the pick list (its first name). Home, check in
+    // and the rest autofocus in markup.
     function placeFocus(root) {
         var form = root.querySelector("[data-tour-form]");
         var first = form
             ? form.querySelector('[aria-invalid="true"]') || form.querySelector('input[name="name"]')
-            : root.querySelector(".pl-tourpub__time") || root.querySelector('.pl-tourpub__day[aria-current="date"]');
+            : root.querySelector(".pl-tourpub__time") ||
+              root.querySelector('.pl-tourpub__day[aria-current="date"]') ||
+              root.querySelector("[data-kiosk-pick] [data-kiosk-name]");
         if (first) {
             first.focus();
         }

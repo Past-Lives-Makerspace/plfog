@@ -471,7 +471,11 @@
     text-align: center;
 }
 
-/* Room under the last control, so the pill never covers it. */
+/* Room under the last control, and a focused control scrolled in stops above the pill. */
 .cp-page .pl-kiosk[data-kiosk-keyboard] {
     padding-bottom: 7rem;
+}
+
+html:has(.pl-kiosk[data-kiosk-keyboard]) {
+    scroll-padding-bottom: 8rem;
 }

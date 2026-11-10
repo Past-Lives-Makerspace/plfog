@@ -354,6 +354,7 @@ def describe_tours_kiosk():
         TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
         key = FacilityTourSettings.load().rotate_kiosk_key()
         page.set_viewport_size(CAIRN)
+        page.clock.install()
         page.add_init_script(NO_MOUSE)
         page.goto(f"{live_server.url}{HOME}?key={key}")
         _at_home(page, live_server)
@@ -395,7 +396,7 @@ def describe_tours_kiosk():
         for _ in range(4):
             page.keyboard.press("Tab")
         _focused(page, f'[data-kiosk-name="{pat.pk}"]')
-        page.keyboard.press("ArrowDown")
+        page.keyboard.press("ArrowRight")
         _focused(page, f'[data-kiosk-name="{sam.pk}"]')
         page.keyboard.press("Enter")
         _screen(page, "confirm")
@@ -449,6 +450,10 @@ def describe_tours_kiosk():
         page.keyboard.press("Tab")
         _focused(page, 'input[name="create_account"]')
         _capture(page, "keyboard-form")
+        # Enter flips the switch, never books: the visitor turned the account off.
+        page.keyboard.press("Enter")
+        expect(page.locator('input[name="create_account"]')).not_to_be_checked()
+        assert not TourBooking.objects.filter(visitor_email="kim.keys@example.com").exists()
         page.keyboard.press("Tab")
         _focused(page, "[data-tour-form] button[type=submit]")
         page.keyboard.press("Enter")
