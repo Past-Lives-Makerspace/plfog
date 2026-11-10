@@ -10689,7 +10689,17 @@ def _save_site_settings(
             emoji_formset,
             role_formset,
         )
+    _point_to_hidden_discord_error(request, form, is_discord=is_discord)
     return None, form, feed_formset, emoji_formset, role_formset
+
+
+def _point_to_hidden_discord_error(request: HttpRequest, form: SiteSettingsForm, *, is_discord: bool) -> None:
+    """Say so when a save failed on a Discord field while another tab was showing.
+
+    The page re-renders on the tab that was showing, so the error would otherwise sit unseen.
+    """
+    if not is_discord and any(name.startswith("discord_") for name in form.errors):
+        messages.error(request, "Nothing was saved. Fix the highlighted field on the Discord tab.")
 
 
 _SITE_SETTINGS_TABS = frozenset({"brand", "general", "calendar", "emails", "discord"})

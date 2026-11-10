@@ -126,6 +126,7 @@ def describe_role_id_clashes():
         )
         assert resp.status_code == 200
         assert "Guild Officers needs its own role" in resp.content.decode()
+        assert "Fix the highlighted field on the Discord tab." in resp.content.decode()
         config = SiteConfiguration.load()
         assert config.discord_leadership_role_id == ""
         assert config.org_name != "Changed Name"
@@ -138,6 +139,14 @@ def describe_role_id_clashes():
         assert resp.status_code == 200
         assert "A guild already uses this id as its lead role." in resp.content.decode()
         assert SiteConfiguration.load().discord_guild_officers_role_id == ""
+
+    def it_says_nothing_extra_when_the_error_is_on_the_tab_showing(admin_client: Client):
+        resp = admin_client.post(
+            reverse("hub_admin_site_settings"),
+            _post(submitted_tab="discord", discord_leadership_role_id="910", discord_guild_officers_role_id="910"),
+        )
+        assert resp.status_code == 200
+        assert "Fix the highlighted field on the Discord tab." not in resp.content.decode()
 
     def it_saves_another_tab_when_nothing_clashes(admin_client: Client):
         GuildFactory(name="Wood", discord_lead_role_id="920")
