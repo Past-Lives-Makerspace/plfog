@@ -299,6 +299,9 @@ INSTALLED_APPS = [
     "allauth.account",
     "django_extensions",
     "anymail",
+    # The durable task queue's tables and admin (TASKS below, core/tasks.py). Listed before
+    # core so core/admin.py can re-register its admin in the unfold theme.
+    "django_tasks_db",
     # Project apps
     "core",
     "hub",
@@ -430,6 +433,16 @@ else:
             "LOCATION": "plfog_cache_table",
         }
     }
+
+# Durable task queue (django.tasks, core/tasks.py, docs/adr/0003-durable-task-queue.md).
+# Everywhere but pytest, an enqueued task is a row in Postgres that the separate
+# `python manage.py db_worker` process runs, so a redeploy of the web service never loses it;
+# local dev included, so run the worker beside the dev server (`make worker`) or tasks wait.
+# Under pytest the immediate backend runs a task at enqueue time, with no worker and no rows.
+if _IS_PYTEST:
+    TASKS = {"default": {"BACKEND": "django.tasks.backends.immediate.ImmediateBackend"}}
+else:
+    TASKS = {"default": {"BACKEND": "django_tasks_db.DatabaseBackend"}}
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -861,6 +874,12 @@ UNFOLD = {
                         "title": "Site Settings",
                         "icon": "settings",
                         "link": reverse_lazy("admin:core_siteconfiguration_changelist"),
+                        "permission": lambda request: request.user.is_superuser,
+                    },
+                    {
+                        "title": "Background Tasks",
+                        "icon": "pending_actions",
+                        "link": reverse_lazy("admin:django_tasks_database_dbtaskresult_changelist"),
                         "permission": lambda request: request.user.is_superuser,
                     },
                     {

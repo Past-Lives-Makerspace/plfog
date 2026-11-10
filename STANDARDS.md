@@ -21,6 +21,25 @@ How code in this repo is built and tested, and the traps that have cost real tim
 
 A view that reads `request.data`, checks dates, sets fields and sends mail is wrong; the same flow is a form's `clean_*`, a model's `renew()` and a three-line view. Prefer model methods to signals; use a signal only when the sender must not know about the receiver.
 
+**After save side effects go on the durable task queue.** New work that runs after a save (a Discord post, an email fan out, a call to an external API) is a task enqueued once the transaction commits, never a new `core.deferred.defer` call: a `defer` thread dies with every redeploy, and a queued task waits for the worker instead. Arguments are JSON ids, never model instances, and a task must be safe to run twice. Existing `defer` callers move over one at a time. The rules are in `core/tasks.py`, the reasons in `docs/adr/0003-durable-task-queue.md`.
+
+```python
+from django.tasks import task
+
+from core.tasks import enqueue_on_commit
+
+
+@task
+def announce_event(event_id: int) -> None:
+    event = CommunityEvent.objects.get(pk=event_id)
+    ...  # check what was already sent before sending
+
+
+enqueue_on_commit(announce_event, event.pk)  # in the model method that saved it
+```
+
+A spec runs the task through `django_capture_on_commit_callbacks(execute=True)`; under pytest the immediate backend runs it at that point, with no worker.
+
 ## 3. Models
 
 - `TextChoices` for every choice field, `help_text` on every field, `default=dict` (never `{}`), and a meaningful `__str__`.
@@ -69,6 +88,7 @@ Annotation-only imports go under `if TYPE_CHECKING:`; a runtime import that woul
 
 - Production runs on Render from `main`, and the Dockerfile `CMD` is the deploy: `migrate --noinput && seed_notification_templates --quiet && gunicorn`. Migrations apply while the previous release is still serving, so a migration must work with the old code: add before you remove, and prefer repairing data in a code path over a data migration that assumes the new code.
 - `render.yaml` is not linked to the Render service; a variable declared there never reaches production.
+- **The task worker** (`core/tasks.py`) is a Render Background Worker on the same repo and Dockerfile as the web service, deploying from `main` like it, with the Docker command `python manage.py db_worker --no-reload` in place of the `CMD`; `--no-reload` because the reloader follows `DEBUG`, which is on whenever `DJANGO_DEBUG` is unset. It needs the same environment variables as the web service (`ENVIRONMENT` included, so it is dark wherever the web process is); `render.yaml` carries it as a commented entry only. It runs no migrations; the web service does, so the worker can run new code on the old schema for a moment, and tasks enqueued by the previous release run on the new code: a task keeps accepting the arguments its last release enqueued. With no worker the web service still works and tasks wait in the table; the 15 minute `check_task_queue` job alerts the Webmasters when one has waited over an hour past when it was due, or has run over an hour (it marks one running over 6 hours failed). Locally, run `make worker` beside `make server`. Staging runs no worker yet, so tasks wait there.
 - Deploys do not run `seed_help_center` or `seed_example_guild`. Changes to `membership/help_content.py` or `membership/example_guild.py` reach production only when someone runs those commands against it.
 - Staging (`staging.pastlives.space`, the Hetzner VPS) is a clone of production that tracks `main` through its own deploy timer (`deploy/staging/README.md`). `ENVIRONMENT=staging` is the one switch that contains it: email goes only to staff, admins, instructors and `EMAIL_DELIVERY_ALLOWLIST` and is marked `[STAGING]`, every Discord resolver and the bot token answer blank, Mailchimp is disabled, and a STAGING ribbon sits on every page. A new outbound integration must go dark under that flag too.
 

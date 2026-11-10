@@ -8,6 +8,8 @@ from django import forms as dj_forms
 from django.contrib import admin, messages
 from django.http import HttpRequest, HttpResponse
 from django.utils.html import format_html
+from django_tasks_db.admin import DBTaskResultAdmin as PackageTaskResultAdmin
+from django_tasks_db.models import DBTaskResult
 from unfold.admin import ModelAdmin
 
 from .models import CalendarFeed, CopyReviewComment, SiteConfiguration
@@ -207,3 +209,21 @@ class SiteConfigurationAdmin(ModelAdmin):
 
         config = SiteConfiguration.load()
         return redirect(f"/admin/core/siteconfiguration/{config.pk}/change/")
+
+
+# The durable task queue's results (core/tasks.py), shown in the unfold theme. The package
+# registers its own read only admin; this keeps its columns, filters and permissions and
+# swaps the base class (so the list looks like every other) and lets superusers delete rows.
+admin.site.unregister(DBTaskResult)
+
+
+@admin.register(DBTaskResult)
+class DBTaskResultAdmin(PackageTaskResultAdmin, ModelAdmin):
+    """Failed, pending and finished background tasks; read only, except a superuser may delete.
+
+    Deleting is how a person clears a task they have dealt with (one that will never run, or a
+    failure already handled) without waiting for ``prune_task_results``.
+    """
+
+    def has_delete_permission(self, request: HttpRequest, obj: DBTaskResult | None = None) -> bool:
+        return request.user.is_superuser

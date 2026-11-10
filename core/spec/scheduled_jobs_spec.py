@@ -59,6 +59,7 @@ _DISPATCHER_ALWAYS = {
     "fetch_video_thumbnails",
     "process_discord_removals",
     "queue_discord_pings",
+    "check_task_queue",
 }
 _DISPATCHER_DAILY = {
     "sync_all_sources",
@@ -71,6 +72,7 @@ _DISPATCHER_DAILY = {
     "welcome_new_members",
     "send_wiki_guild_digest",
     "check_needs_attention",
+    "prune_task_results",
 }
 _DISPATCHER_WEEKLY = {"post_weekly_calendar_digest", "post_weekly_classes_digest"}
 
