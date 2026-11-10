@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -2857,6 +2858,54 @@ class Member(StaffRequestMixin, models.Model):
             # so one who leaves ACTIVE no longer asks in the admins' bell. Only on that change:
             # an ordinary save costs no query.
             self.clear_request_bells()
+        self._sync_directory_if_renamed(kwargs.get("update_fields"))
+
+    #: The fields the Discord leadership directory post reads for a person (#1149): the name, the
+    #: verified Discord id, the typed handle and the privacy settings that decide whether it shows.
+    DIRECTORY_IDENTITY_FIELDS = (
+        "full_legal_name",
+        "preferred_name",
+        "discord_user_id",
+        "discord_handle",
+        "directory_visibility",
+    )
+
+    def _directory_identity(self) -> tuple[Any, ...] | None:
+        """A copy of the values the directory post reads, or None when a load deferred one of them.
+
+        Copied, so an in place edit of ``directory_visibility`` still reads as a change.
+        """
+        if not all(name in self.__dict__ for name in self.DIRECTORY_IDENTITY_FIELDS):
+            return None
+        return tuple(copy.deepcopy(self.__dict__[name]) for name in self.DIRECTORY_IDENTITY_FIELDS)
+
+    def _sync_directory_if_renamed(self, update_fields: Iterable[str] | None) -> None:
+        """Sync the Discord leadership directory when this save changed what it shows of someone on it.
+
+        That is their name, verified Discord, typed handle or its privacy.
+
+        Compares with what ``from_db`` remembered, so an ordinary save (the nightly Airtable
+        pull) costs no query; only a real change asks whether they are on the directory.
+        """
+        loaded, self._loaded_directory_identity = self._loaded_directory_identity, self._directory_identity()
+        if self._state.adding or loaded is None or loaded == self._loaded_directory_identity:
+            return
+        if update_fields is not None and not set(update_fields) & set(self.DIRECTORY_IDENTITY_FIELDS):
+            return
+        if self.on_leadership_directory():
+            from core.events.discord_leadership_directory import directory_on_commit
+
+            directory_on_commit()
+
+    def on_leadership_directory(self) -> bool:
+        """Whether the Leadership Directory shows this member: listed on a People tab, or leading an active guild."""
+        return (
+            self.leadership_listings.filter(is_listed=True, tab__kind=LeadershipTab.Kind.PEOPLE).exists()
+            or self.led_guilds.filter(is_active=True).exists()
+            or self.guild_staff_roles.filter(
+                role=GuildStaffMembership.Role.CO_LEAD, guild__is_active=True, guild__deleted_at__isnull=True
+            ).exists()
+        )
 
     def _turning_former(self, update_fields: Iterable[str] | None) -> bool:
         """Whether this save moves an existing member from another status to Former.
@@ -2888,14 +2937,21 @@ class Member(StaffRequestMixin, models.Model):
     #: Whether ``instructor_oriented_at`` was set when last read or written; ``None`` when unknown.
     _loaded_teaching: bool | None = None
 
+    #: :meth:`_directory_identity` as last read or written; ``None`` when unknown.
+    _loaded_directory_identity: tuple[Any, ...] | None = None
+
     @classmethod
     def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
-        """Remember the loaded ``status`` and teaching grant so ``save`` can see them change (#894 part 3, #1065)."""
+        """Remember the loaded ``status``, teaching grant and directory identity so ``save`` can see them change.
+
+        (#894 part 3, #1065, #1149.)
+        """
         instance = super().from_db(db, field_names, values, **kwargs)
         # A deferred field is absent from __dict__; the save then sees no transition.
         instance._loaded_status = instance.__dict__.get("status")
         if "instructor_oriented_at" in instance.__dict__:
             instance._loaded_teaching = instance.__dict__["instructor_oriented_at"] is not None
+        instance._loaded_directory_identity = instance._directory_identity()
         return instance
 
 
@@ -3525,6 +3581,22 @@ class Guild(HeroCropMixin, models.Model):
         super().save(*args, **kwargs)
         if self.is_active and self.deleted_at is None:
             self.ensure_class_type()
+        loaded_name, self._loaded_name = self._loaded_name, self.__dict__.get("name")
+        if loaded_name is not None and loaded_name != self._loaded_name and self.is_active:
+            # The Discord leadership directory shows every active guild by name (#1149).
+            from core.events.discord_leadership_directory import directory_on_commit
+
+            directory_on_commit()
+
+    #: ``name`` as last read or written, so :meth:`save` can see a rename; ``None`` when unknown.
+    _loaded_name: str | None = None
+
+    @classmethod
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        """Remember the loaded ``name`` so a rename syncs the Discord leadership directory (#1149)."""
+        instance = super().from_db(db, field_names, values, **kwargs)
+        instance._loaded_name = instance.__dict__.get("name")
+        return instance
 
     @property
     def class_type_name(self) -> str:
@@ -3595,9 +3667,12 @@ class Guild(HeroCropMixin, models.Model):
         hidden, shown or deleted, or its lead role id changes. Who leads it changing goes
         through :meth:`assign_lead`, :meth:`clear_lead` and the staff methods instead.
         """
+        from core.events.discord_leadership_directory import directory_on_commit
         from core.events.discord_leadership_roles import reconcile_on_commit
 
         reconcile_on_commit(self.guild_lead_id, *self.staff_memberships.values_list("member_id", flat=True))
+        # Hidden, shown or deleted changes which guilds the Discord leadership directory lists (#1149).
+        directory_on_commit()
 
     def _unique_slug(self) -> str:
         """A URL slug derived from the guild name, suffixed (``-2``, ``-3``…) to stay unique."""
@@ -3858,9 +3933,11 @@ class Guild(HeroCropMixin, models.Model):
         previous = self.guild_lead
         self.guild_lead = member
         self.save(update_fields=["guild_lead"])
+        from core.events.discord_leadership_directory import directory_on_commit
         from core.events.discord_leadership_roles import reconcile_on_commit
 
         reconcile_on_commit(previous.pk if previous is not None else None, member.pk)
+        directory_on_commit()
         if previous is not None:
             self.drop_cubby_payee_unless_leader(previous)
         if previous != member and not self.staff_memberships.filter(member=member).exists():
@@ -3992,6 +4069,7 @@ class Guild(HeroCropMixin, models.Model):
             from core.events.discord_leadership_roles import reconcile_on_commit
 
             reconcile_on_commit(member.pk)
+            staff.sync_directory_if_co_lead()
             if first_role_here:
                 # Their first role on this guild welcomes them (#1076); a second title does not.
                 record_grant(member, self)
@@ -4016,6 +4094,7 @@ class Guild(HeroCropMixin, models.Model):
         from core.events.discord_leadership_roles import reconcile_on_commit
 
         reconcile_on_commit(member.pk)
+        staff.sync_directory_if_co_lead()
         self.drop_cubby_payee_unless_leader(member)
         if member.pk in {leader.pk for leader in self.leadership_members()}:
             return 0
@@ -4035,9 +4114,11 @@ class Guild(HeroCropMixin, models.Model):
         self.guild_lead = None
         self.save(update_fields=["guild_lead"])
         if previous is not None:
+            from core.events.discord_leadership_directory import directory_on_commit
             from core.events.discord_leadership_roles import reconcile_on_commit
 
             reconcile_on_commit(previous.pk)
+            directory_on_commit()
             self.drop_cubby_payee_unless_leader(previous)
         return previous
 
@@ -4450,12 +4531,21 @@ class GuildStaffMembership(models.Model):
         problem = self.title_problem(self.guild, self.member, role, custom_title, exclude_pk=self.pk)
         if problem:
             raise ValueError(problem)
+        was_co_lead = self.role == self.Role.CO_LEAD
         self.role = role
         self.custom_title = custom_title
         self.save(update_fields=["role", "custom_title"])
         from core.events.discord_leadership_roles import reconcile_on_commit
 
         reconcile_on_commit(self.member_id)
+        self.sync_directory_if_co_lead(was_co_lead=was_co_lead)
+
+    def sync_directory_if_co_lead(self, *, was_co_lead: bool = False) -> None:
+        """Sync the Discord leadership directory when this row is, or was, a Co-Lead: the post lists them (#1149)."""
+        if was_co_lead or self.role == self.Role.CO_LEAD:
+            from core.events.discord_leadership_directory import directory_on_commit
+
+            directory_on_commit()
 
     def __str__(self) -> str:
         return f"{self.member.display_name} — {self.display_title} of {self.guild.name}"
@@ -5260,6 +5350,13 @@ class OrgLink(models.Model):
         return f"{self.label} (Space & Org Info)"
 
 
+def _sync_leadership_directory() -> None:
+    """Sync the Discord leadership directory post after the commit (#1149); one sync per transaction."""
+    from core.events.discord_leadership_directory import directory_on_commit
+
+    directory_on_commit()
+
+
 class LeadershipPage(models.Model):
     """Singleton (pk=1) wording for the Leadership Directory page: the hero above the tabs.
 
@@ -5309,8 +5406,15 @@ class LeadershipPage(models.Model):
         return "Leadership Directory"
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        """Save the one row; an edit syncs the Discord leadership directory, which shows the title and lead line (#1149).
+
+        Creating the default row (:meth:`load`, which the render itself calls) is not an edit.
+        """
         self.pk = 1
+        editing = not self._state.adding
         super().save(*args, **kwargs)
+        if editing:
+            _sync_leadership_directory()
 
     @classmethod
     def load(cls) -> LeadershipPage:
@@ -5372,6 +5476,7 @@ class LeadershipTabQuerySet(models.QuerySet["LeadershipTab"]):
         for index, pk in enumerate(ids):
             tabs[pk].sort_order = index
         self.bulk_update(tabs.values(), ["sort_order"])
+        _sync_leadership_directory()
 
 
 class LeadershipTab(models.Model):
@@ -5459,11 +5564,20 @@ class LeadershipTab(models.Model):
         self._reconcile_discord_roles(member.pk)
         return listing
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Save the tab; the Discord leadership directory shows its title and place (#1149)."""
+        super().save(*args, **kwargs)
+        _sync_leadership_directory()
+
     def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
-        """Delete the tab and its cards; whoever was on show here has their Discord roles brought in step (#1148)."""
+        """Delete the tab and its cards; whoever was on show here has their Discord roles brought in step (#1148).
+
+        The Discord leadership directory drops the tab (#1149).
+        """
         listed = list(self.listings.filter(is_listed=True).values_list("member_id", flat=True))
         result = super().delete(*args, **kwargs)
         self._reconcile_discord_roles(*listed)
+        _sync_leadership_directory()
         return result
 
     def _reconcile_discord_roles(self, *member_ids: int) -> None:
@@ -5497,6 +5611,8 @@ class LeadershipTab(models.Model):
                 row.updated_at = now
                 moved.append(row)
         LeadershipListing.objects.bulk_update(moved, ["sort_order", "updated_at"])
+        if moved:
+            _sync_leadership_directory()
 
 
 class LeadershipListingQuerySet(models.QuerySet["LeadershipListing"]):
@@ -5629,6 +5745,17 @@ class LeadershipListing(models.Model):
         state = "listed" if self.is_listed else "unlisted"
         return f"{self.member.display_name} on {self.tab} ({state})"
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Save the card; the Discord leadership directory shows who is listed, and in what order (#1149)."""
+        super().save(*args, **kwargs)
+        _sync_leadership_directory()
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        """Delete the card; the Discord leadership directory drops it (#1149)."""
+        result = super().delete(*args, **kwargs)
+        _sync_leadership_directory()
+        return result
+
     def add_role(self, title: str, email: str) -> LeadershipRole:
         """Add a role line under the card's last one."""
         last = self.roles.aggregate(last=Max("sort_order"))["last"]
@@ -5674,6 +5801,17 @@ class LeadershipRole(models.Model):
 
     def __str__(self) -> str:
         return f"{self.title} ({self.listing.member.display_name})"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Save the line; the Discord leadership directory shows each title and email (#1149)."""
+        super().save(*args, **kwargs)
+        _sync_leadership_directory()
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        """Delete the line; the Discord leadership directory drops it (#1149)."""
+        result = super().delete(*args, **kwargs)
+        _sync_leadership_directory()
+        return result
 
 
 class LeadershipBadgeQuerySet(models.QuerySet["LeadershipBadge"]):
@@ -12224,14 +12362,14 @@ class CommunityEvent(StaffRequestMixin, HeroCropMixin, models.Model):
             return
         from core.integrations.discord_channel import DiscordChannelError, edit_channel_message
 
-        # components is sent only when restoring: omitted, Discord keeps whatever buttons are there.
-        buttons = {"components": self.discord_announcement_components()} if restore_buttons else {}
+        # components is sent only when restoring: omitted (None), Discord keeps whatever buttons are there.
+        buttons = self.discord_announcement_components() if restore_buttons else None
         try:
             edit_channel_message(
                 self.discord_announce_channel_id,
                 self.discord_announce_message_id,
                 [self.discord_announcement_embed()],
-                **buttons,
+                components=buttons,
             )
         except DiscordChannelError:
             logger.warning("refresh_discord_announcement failed for event %s", self.pk, exc_info=True)

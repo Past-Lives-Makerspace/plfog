@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-11-10"
+audience = ["admins"]
+title = "The Discord leadership directory keeps itself up to date"
+changes = [
+  "The post in Discord's leadership directory channel now comes from the Leadership Directory in the app and updates itself a few seconds after a lead, Co-Lead, listed person or role line changes.",
+  "Set the channel once in Site Settings, on the Discord tab.",
+]

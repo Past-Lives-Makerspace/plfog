@@ -17,6 +17,7 @@ from django.contrib.auth.models import User
 from django.core import mail
 from django.core.management import call_command
 
+from core.events.discord_leadership_directory import _SyncWhenCommitted
 from core.events.discord_leadership_roles import _ReconcileWhenCommitted
 from membership import staff_onboarding
 from membership.models import Guild, GuildStaffMembership, GuildStaffOnboardingEvent, Member
@@ -69,8 +70,9 @@ def describe_a_new_lead():
         with django_capture_on_commit_callbacks(execute=False) as callbacks:
             guild.assign_lead(member)
         assert mail.outbox == []
-        # The other callback is the Discord leadership role reconcile (#1148).
-        assert len([cb for cb in callbacks if not isinstance(cb, _ReconcileWhenCommitted)]) == 1
+        # The others are the Discord leadership role reconcile (#1148) and the directory post sync (#1149).
+        discord = (_ReconcileWhenCommitted, _SyncWhenCommitted)
+        assert len([cb for cb in callbacks if not isinstance(cb, discord)]) == 1
 
     def it_emails_a_lead_who_has_no_account_yet_at_their_staged_address(
         guild: Guild, django_capture_on_commit_callbacks

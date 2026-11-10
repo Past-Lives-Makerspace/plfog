@@ -1003,6 +1003,35 @@ class SiteConfiguration(models.Model):
             "Saving updates the pinned Discord post immediately."
         ),
     )
+    discord_leadership_directory_channel_id = models.CharField(
+        max_length=30,
+        blank=True,
+        default="",
+        verbose_name="Leadership directory channel id",
+        help_text=(
+            "The channel id of #leadership-directory, where FOG keeps a post that mirrors the "
+            "Leadership Directory (#1149). Blank turns the post off."
+        ),
+    )
+    discord_leadership_directory_message_ids = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="Leadership directory message ids",
+        help_text="The ids of FOG's messages in the leadership directory channel, in order. Written by the sync.",
+    )
+    discord_leadership_directory_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        verbose_name="Leadership directory content hash",
+        help_text="SHA256 of the directory post as last sent; an equal render sends nothing. Written by the sync.",
+    )
+    discord_leadership_directory_updated_on = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name="Leadership directory updated on",
+        help_text="The Pacific date the directory post's content last changed; its footer shows it. Written by the sync.",
+    )
     signage_default_slide_seconds = models.PositiveIntegerField(
         default=12,
         verbose_name="Default slide duration (seconds)",

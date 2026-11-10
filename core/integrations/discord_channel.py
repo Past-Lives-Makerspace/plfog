@@ -34,6 +34,8 @@ _RECENT_MESSAGES_LIMIT = 50
 MAX_EMBEDS_PER_MESSAGE = 10
 # The most messages one ``GET /channels/{id}/messages`` returns.
 MESSAGES_PAGE_LIMIT = 100
+# The most messages one bulk delete takes (and it takes at least 2, none older than 14 days).
+BULK_DELETE_MAX = 100
 # The most members one ``GET /guilds/{id}/members`` returns, and how many pages a read takes at most.
 MEMBERS_PAGE_LIMIT = 1000
 MEMBERS_MAX_PAGES = 10
@@ -168,20 +170,75 @@ def edit_channel_message(
     embeds: list[dict[str, Any]],
     *,
     components: list[dict[str, Any]] | None = None,
+    allowed_mentions: dict[str, Any] | None = None,
 ) -> None:
     """PATCH an existing bot message's embeds in place — the message id (and its pin) survive.
 
-    Used for the FOG-managed #important-info pinned post and the RSVP announcement refresh.
-    ``components`` is included only when provided: omit it to leave Discord's existing buttons
-    untouched (the RSVP refresh), or pass ``[]`` to strip them (a cancelled event). Same
-    fail-loudly contract and bounded single 429 retry as :func:`post_channel_message`.
+    Used for the FOG-managed #important-info pinned post, the RSVP announcement refresh and the
+    leadership directory post. ``components`` is included only when provided: omit it to leave
+    Discord's existing buttons untouched (the RSVP refresh), or pass ``[]`` to strip them (a
+    cancelled event). ``allowed_mentions`` likewise only when provided. Same fail-loudly
+    contract and bounded single 429 retry as :func:`post_channel_message`.
     """
     if bot_disabled("channel edit"):
         return
     payload: dict[str, Any] = {"embeds": embeds}
     if components is not None:
         payload["components"] = components
+    if allowed_mentions is not None:
+        payload["allowed_mentions"] = allowed_mentions
     _send_payload("PATCH", f"{API_BASE}/channels/{channel_id}/messages/{message_id}", payload, len(embeds))
+
+
+def channel_message_exists(channel_id: str, message_id: str) -> bool:
+    """Whether the message is still in the channel: False on a 404, True on a 2xx.
+
+    Raises :class:`DiscordChannelError` on any other failure (after the single 429 retry),
+    so a caller never reads an outage as a deleted message. False with a blank bot token.
+    """
+    if bot_disabled("channel read"):
+        return False
+    try:
+        _request("GET", f"{API_BASE}/channels/{channel_id}/messages/{message_id}")
+    except DiscordChannelError as exc:
+        if exc.status_code == 404:
+            return False
+        raise
+    return True
+
+
+def delete_channel_message(channel_id: str, message_id: str) -> bool:
+    """DELETE one message; return False when it was already gone (a 404), True when deleted.
+
+    Same fail-loudly contract and single 429 retry as :func:`post_channel_message`; a no-op
+    returning False with a blank bot token.
+    """
+    if bot_disabled("channel delete"):
+        return False
+    try:
+        _request("DELETE", f"{API_BASE}/channels/{channel_id}/messages/{message_id}")
+    except DiscordChannelError as exc:
+        if exc.status_code == 404:
+            return False
+        raise
+    return True
+
+
+def bulk_delete_channel_messages(channel_id: str, message_ids: list[str]) -> None:
+    """Delete 2 to :data:`BULK_DELETE_MAX` messages in one call (``POST .../messages/bulk-delete``).
+
+    Discord refuses a message older than 14 days here; the caller sends those one by one with
+    :func:`delete_channel_message`. Same fail-loudly contract and 429 retry; a no-op with a
+    blank bot token.
+
+    Raises:
+        ValueError: Fewer than 2 or more than :data:`BULK_DELETE_MAX` ids.
+    """
+    if not 2 <= len(message_ids) <= BULK_DELETE_MAX:
+        raise ValueError(f"Bulk delete takes 2 to {BULK_DELETE_MAX} messages, got {len(message_ids)}.")
+    if bot_disabled("channel bulk delete"):
+        return
+    _request("POST", f"{API_BASE}/channels/{channel_id}/messages/bulk-delete", {"messages": message_ids})
 
 
 def recent_bot_post_titles(channel_id: str, *, timeout: float = DEFAULT_TIMEOUT_SECONDS) -> list[str]:
