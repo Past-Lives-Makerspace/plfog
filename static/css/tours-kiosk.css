@@ -127,6 +127,12 @@
     outline-offset: 3px;
 }
 
+/* The account toggle hides its checkbox, so the outline goes on the switch the visitor sees. */
+.cp-page .pl-kiosk .pl-toggle input:focus-visible + .pl-toggle__slider {
+    outline: 3px solid var(--hub-blue);
+    outline-offset: 3px;
+}
+
 .cp-page .pl-kiosk__choices {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -380,4 +386,96 @@
     .cp-page .pl-kiosk__title--big {
         font-size: 40px;
     }
+}
+
+/* Keyboard only mode (#1155): tours-kiosk.js shows this while no mouse is plugged in. A navy pill
+   at the foot of the screen, the brand bar's navy in both themes, naming the keys that drive it. */
+.pl-kiosk-keys {
+    position: fixed;
+    left: 50%;
+    bottom: 1.5rem;
+    transform: translateX(-50%);
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 0.875rem 1.75rem 0.875rem 1.25rem;
+    border: 1px solid rgba(238, 180, 75, 0.35);
+    border-radius: 999px;
+    background: var(--color-navy);
+    color: var(--color-cream);
+    box-shadow: 0 12px 32px rgba(6, 31, 51, 0.35);
+    white-space: nowrap;
+}
+
+.pl-kiosk-keys[hidden] {
+    display: none;
+}
+
+.pl-kiosk-keys__icon {
+    flex: none;
+    color: var(--color-tuscan-yellow);
+}
+
+.pl-kiosk-keys__text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+}
+
+.pl-kiosk-keys__title {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 22px;
+    font-weight: 800;
+}
+
+.pl-kiosk-keys__note {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--color-tuscan-yellow);
+}
+
+.pl-kiosk-keys__hints {
+    display: flex;
+    gap: 1.5rem;
+    margin: 0;
+    padding: 0 0 0 1.5rem;
+    border-left: 1px solid rgba(244, 239, 221, 0.2);
+    list-style: none;
+}
+
+.pl-kiosk-keys__hints li {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 17px;
+}
+
+.pl-kiosk-keys__hints span {
+    margin-left: 0.25rem;
+}
+
+.pl-kiosk-keys kbd {
+    min-width: 2.25rem;
+    padding: 0.2rem 0.55rem;
+    border: 1px solid rgba(244, 239, 221, 0.35);
+    border-bottom-width: 3px;
+    border-radius: 6px;
+    background: rgba(244, 239, 221, 0.08);
+    color: var(--color-cream);
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+    text-align: center;
+}
+
+/* Room under the last control, and a focused control scrolled in stops above the pill. */
+.cp-page .pl-kiosk[data-kiosk-keyboard] {
+    padding-bottom: 7rem;
+}
+
+html:has(.pl-kiosk[data-kiosk-keyboard]) {
+    scroll-padding-bottom: 8rem;
 }

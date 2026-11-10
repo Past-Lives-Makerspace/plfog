@@ -5,7 +5,7 @@ Context: bookings.
 {% endcomment %}
 <form method="post" action="{% url 'tours_kiosk:check_in' %}" autocomplete="off" data-kiosk-names-form>
   {% csrf_token %}
-  <ul class="pl-kiosk__names">
+  <ul class="pl-kiosk__names" data-kiosk-arrows>
     {% for booking in bookings %}
     <li>
       <button type="submit" name="pick" value="{{ booking.pk }}" class="pl-kiosk__name" data-kiosk-name="{{ booking.pk }}">
