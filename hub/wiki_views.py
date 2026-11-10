@@ -762,10 +762,10 @@ def _create_page_from_form(
     gives: effective staff land Official, a guild lead or staff land Guild verified, and
     everyone else stays a held proposal for a second read.
 
-    It also closes the secondary bug that arrangement had: a guild orientor who created an
-    Official page was instantly locked out of it, because ``can_edit_wiki_page`` answers
-    ``is_effective_staff`` on a published Official page and ``can_verify_wiki_page``
-    refuses Official outright. Landing Guild verified leaves it theirs to edit.
+    It also closed a secondary bug: a guild orientor who created an Official page was locked
+    out of it while ``can_edit_wiki_page`` answered admins only on Official pages. That gate
+    now admits the page's own guild lead and staff (ADR 0004), and Guild verified stays
+    theirs to verify as well as edit.
     """
     status = starter["status"]
     gated = bool(status)

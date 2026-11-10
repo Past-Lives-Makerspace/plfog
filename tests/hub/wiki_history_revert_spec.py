@@ -246,23 +246,30 @@ def describe_reverting():
             WikiPage.objects.filter(pk=page.pk).update(guild=guild)
             assert client.post(reverse("hub_wiki_revert", args=[page.slug, original.pk])).status_code == 302
 
-        def it_refuses_a_guild_moderator_on_an_official_page(client: Client):
+        def it_lets_the_guilds_lead_revert_its_official_page(client: Client):
             # A revert rewrites title, body and facts wholesale, so it follows the CONTENT
-            # gate too. Without that a guild treasurer refused the Edit button on a safety
-            # policy could rewrite it from History with the Official chip still on it.
+            # gate: a guild's lead and staff edit its Official pages (ADR 0004), so they revert them.
             _user, guild = login_lead(client, "rev_official_lead")
             page, original, _author = _page_with_two_versions()
             WikiPage.objects.filter(pk=page.pk).update(guild=guild, status=WikiPage.Status.OFFICIAL)
+            assert client.post(reverse("hub_wiki_revert", args=[page.slug, original.pk])).status_code == 302
+
+        def it_refuses_another_guilds_lead_on_an_official_page(client: Client):
+            # Without the content gate a lead from elsewhere could rewrite a safety policy
+            # from History with the Official chip still on it.
+            login_lead(client, "rev_official_outsider")
+            page, original, _author = _page_with_two_versions()
+            WikiPage.objects.filter(pk=page.pk).update(guild=GuildFactory(), status=WikiPage.Status.OFFICIAL)
             page.refresh_from_db()
             assert client.post(reverse("hub_wiki_revert", args=[page.slug, original.pk])).status_code == 403
             page.refresh_from_db()
             assert page.body == "<p>Two.</p>"
 
-        def it_hides_the_control_from_that_moderator(client: Client):
+        def it_shows_the_control_to_the_guilds_lead(client: Client):
             _user, guild = login_lead(client, "rev_official_lead2")
             page, _original, _author = _page_with_two_versions()
             WikiPage.objects.filter(pk=page.pk).update(guild=guild, status=WikiPage.Status.OFFICIAL)
-            assert b"Revert to This" not in client.get(_history_url(page)).content
+            assert b"Revert to This" in client.get(_history_url(page)).content
 
         def it_refuses_an_officer_whose_membership_has_lapsed(client: Client):
             # The quiet half of the conjunction: can_edit_wiki_page's active-member check

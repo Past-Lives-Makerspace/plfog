@@ -898,8 +898,9 @@ def can_edit_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
     ``admins_only_edit`` pages (#1076): effective admins only, checked before everything else,
     so neither guild leadership nor an author carve-out reaches them.
 
-    ``OFFICIAL`` pages: effective admins only (the retired Guild Officer role shared this until
-    ADR 0004) — a member sees no edit affordance at all, not a disabled one. An archived page: ``can_moderate_wiki_page``
+    ``OFFICIAL`` pages: an effective admin, or the page's own guild lead or staff (a guild
+    officer, ADR 0004); a space-wide Official page is admin only. Anyone else sees no edit
+    affordance at all, not a disabled one. An archived page: ``can_moderate_wiki_page``
     only — nothing about archiving requires a page to be locked to every plain member
     forever, but members cannot delete and cannot resurrect one either. Everything else:
     any ACTIVE member, live, with no approval queue (the locked "who may edit" rule).
@@ -941,7 +942,8 @@ def can_edit_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
     if page.status == WikiPage.Status.OFFICIAL:
         if _is_own_unpublished_proposal(request, page):
             return True
-        return is_effective_staff(request)
+        # An admin, or the page's own guild lead or staff (a guild officer, ADR 0004).
+        return can_moderate_wiki_page(request, page)
     if page.archived_at is not None:
         return can_moderate_wiki_page(request, page)
     member = _editing_member(request)

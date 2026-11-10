@@ -5,6 +5,6 @@ title = "Guild leads run their own guilds"
 changes = [
   "Guild leads and staff can edit their own guild's settings, classes and orientations, and no longer anyone else's.",
   "Guild Officer is no longer a role an admin hands out. Anyone who leads or staffs a guild is a guild officer, and only admins can edit every guild.",
-  "Every guild lead and staff member now gets officer access to the Knowledge Base, and can print wiki QR stickers for their own guild.",
-  "Editing Official wiki pages, moderating space wide wiki pages and the Django admin are now for admins only.",
+  "Every guild lead and staff member now gets officer access to the Knowledge Base, and can edit their own guild's Official wiki pages and print its wiki QR stickers.",
+  "Space wide Official wiki pages, moderating space wide wiki pages and the Django admin are now for admins only.",
 ]
