@@ -137,6 +137,16 @@ def describe_migration_0275_retire_guild_officer_role():
             officer.refresh_from_db()
             assert officer.fog_role == _migration.RETIRED_ROLE
 
+        def it_never_demotes_an_officer_made_admin_since():
+            officer = _officer("officer-promoted")
+            _run()
+            Member.objects.filter(pk=officer.pk).update(fog_role=Member.FogRole.ADMIN)
+
+            _migration.restore_guild_officers(apps, None)
+
+            officer.refresh_from_db()
+            assert officer.fog_role == Member.FogRole.ADMIN
+
         def it_touches_nobody_who_was_not_an_officer():
             member = MemberFactory(fog_role=Member.FogRole.MEMBER)
             _officer("officer-other")

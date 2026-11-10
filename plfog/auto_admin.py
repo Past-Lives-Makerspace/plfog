@@ -18,6 +18,9 @@ from unfold.admin import ModelAdmin as UnfoldModelAdmin
 # lead). See hub/views.py for the replacement views.
 EXCLUDED_MODELS = {
     ("membership", "guild"),
+    # Migration 0275's record of who held the retired Guild Officer role; only its reverse
+    # reads it, so an edit here would change what a rollback restores (ADR 0004).
+    ("membership", "retiredguildofficer"),
 }
 
 

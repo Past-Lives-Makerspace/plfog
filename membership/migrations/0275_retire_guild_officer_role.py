@@ -45,7 +45,8 @@ def restore_guild_officers(apps: Any, schema_editor: Any) -> None:
     user_model = apps.get_model("auth", "User")
 
     records = record_model.objects.all()
-    member_model.objects.filter(pk__in=records.values("member_id")).update(fog_role=RETIRED_ROLE)
+    # Only those still plain members: someone made an admin since keeps that.
+    member_model.objects.filter(pk__in=records.values("member_id"), fog_role="member").update(fog_role=RETIRED_ROLE)
     staff_user_ids = member_model.objects.filter(
         pk__in=records.filter(had_is_staff=True).values("member_id"), user__isnull=False
     ).values("user_id")
