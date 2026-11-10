@@ -931,11 +931,10 @@ def can_edit_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
     """
     from membership.models import Member, WikiPage
 
-    # OFFICIAL is checked FIRST. Testing archived first let an archived Official page in a
-    # guild fall through to the moderator leg, handing that guild's lead an edit right the
-    # locked rule never grants on Official content — and the author carve-out below is
-    # deliberately inside this branch and after the archived guard, so an archived
-    # proposal stays moderators-only.
+    # OFFICIAL is checked FIRST, so an archived Official page takes the Official rule (its own
+    # guild's lead and staff, or an admin) rather than falling through to the archived leg,
+    # and the author carve-out below sits inside this branch, so an archived proposal stays
+    # moderators only.
     if page.admins_only_edit:
         # The narrowest lock (#1076): admins only, ahead of every other leg, guild leadership included.
         return _is_effective_admin(request)

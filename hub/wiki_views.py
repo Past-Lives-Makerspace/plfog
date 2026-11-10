@@ -2309,10 +2309,9 @@ def hub_wiki_revert(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
     """``/wiki/p/<slug>/revert/<pk>/`` — put an older version back, on top, staff only.
 
     Gated on ``can_edit_wiki_page`` AS WELL AS ``can_moderate_wiki_page``, because a
-    revert rewrites the page's title, body and facts wholesale — it is an edit, and the
-    edit gate is the one that keeps Official content away from a guild's staff. Without
-    it a guild treasurer refused the Edit button on a safety policy could open History and
-    rewrite the whole thing with the Official chip still on it, no admin involved.
+    revert rewrites the page's title, body and facts wholesale — it is an edit, so it takes
+    the edit gate too, so whatever the edit rule refuses (a member who is no longer active,
+    a page the edit rule ever narrows below its moderators) stays refused from History.
     ``revert_to`` deliberately does not touch ``status``, so nothing downstream catches it.
     """
     page = _page_or_none(slug)

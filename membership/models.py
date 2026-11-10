@@ -22980,8 +22980,9 @@ class WikiPage(StaffRequestMixin, models.Model):
         clears the verification, and records ``unverified_reason``: a green check must
         never ride on unreviewed text.
 
-        An ``OFFICIAL`` page never reaches here from a member — ``can_edit_wiki_page``
-        refuses, and the reading page renders no edit affordance at all. This method never
+        An ``OFFICIAL`` page reaches here only from an admin or its own guild's lead or staff
+        (``can_edit_wiki_page``, ADR 0004), and its status stays Official: an Official page is
+        never verifiable, so only the Guild verified leg above changes status. This method never
         writes ``is_published``, which is what stops a member opening Edit on a held-back
         Safety page and publishing past the one gate the round has.
 
