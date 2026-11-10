@@ -293,14 +293,47 @@ def describe_leadership_directory():
         assert _queued(callbacks) == [listed.member_id]
         assert not LeadershipListing.objects.filter(pk=hidden.pk).exists()
 
-    def it_queues_the_listed_members_when_a_tab_changes_kind(django_capture_on_commit_callbacks):
-        listed = _settled(django_capture_on_commit_callbacks, LeadershipListingFactory)
-        LeadershipTab.objects.filter(kind=LeadershipTab.Kind.GUILD_LEADS).delete()
-        tab = listed.tab
+    def it_queues_nothing_for_a_card_on_the_guild_leads_tab(django_capture_on_commit_callbacks):
+        tab = LeadershipTab.objects.get(kind=LeadershipTab.Kind.GUILD_LEADS)
+        member = MemberFactory()
         with django_capture_on_commit_callbacks() as callbacks:
-            tab.kind = LeadershipTab.Kind.GUILD_LEADS
-            tab.save()
-        assert _queued(callbacks) == [listed.member_id]
+            tab.list_member(member, "Lead", "")
+            tab.delete()
+        assert _queued(callbacks) == []
+
+    def it_queues_nothing_when_an_already_listed_member_gets_another_line(django_capture_on_commit_callbacks):
+        listing = LeadershipListingFactory()
+        with django_capture_on_commit_callbacks() as callbacks:
+            listing.tab.list_member(listing.member, "Second line", "")
+        assert _queued(callbacks) == []
+
+    def it_queues_nothing_when_an_unlisted_card_is_taken_off_again(django_capture_on_commit_callbacks):
+        listing = LeadershipListingFactory(is_listed=False)
+        with django_capture_on_commit_callbacks() as callbacks:
+            listing.remove_from_tab()
+        assert _queued(callbacks) == []
+
+    def it_queues_each_member_the_roster_import_lists(django_capture_on_commit_callbacks):
+        from membership.leadership_roster import seed_roster
+
+        member = MemberFactory(full_legal_name="Roster Person")
+        roster = {
+            "team": [{"name": "Roster Person", "discord": "", "roles": [{"title": "Chair", "email": ""}]}],
+            "guild_channels": [],
+        }
+        with django_capture_on_commit_callbacks() as callbacks:
+            seed_roster(roster)
+        assert _queued(callbacks) == [member.pk]
+
+    def it_queues_a_listed_stray_card_settled_onto_a_people_tab(django_capture_on_commit_callbacks):
+        LeadershipTabFactory()
+        stray = LeadershipListing.objects.create(tab=None, member=MemberFactory(), is_listed=True)
+        hidden_stray = LeadershipListing.objects.create(tab=None, member=MemberFactory(), is_listed=False)
+        with django_capture_on_commit_callbacks() as callbacks:
+            assert LeadershipListing.objects.adopt_untabbed() == 2
+        assert _queued(callbacks) == [stray.member_id]
+        hidden_stray.refresh_from_db()
+        assert hidden_stray.tab is not None
 
     def it_queues_nothing_when_a_tab_is_renamed(django_capture_on_commit_callbacks):
         listed = LeadershipListingFactory()

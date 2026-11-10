@@ -10585,51 +10585,6 @@ def _sync_info_post_if_changed(request: HttpRequest, form: SiteSettingsForm) -> 
         )
 
 
-def _refuse_role_id_conflicts(request: HttpRequest, form: SiteSettingsForm, role_formset: Any | None) -> bool:
-    """Put an error on each Discord role id that clashes (#1148) and say whether there was one.
-
-    Run on every Site Settings save: the page is one form, so every save posts every site
-    field, the Discord ids included, whichever tab is showing. The site ids are judged
-    against the guilds as stored, or as posted when ``role_formset`` (the Discord tab's guild
-    rows, bound only when that tab submitted) is given; only then is each guild's lead role id
-    judged too (:func:`role_id_conflicts` has the rules). A clash on a guild the table does
-    not show (a hidden one) goes out as a page message.
-    """
-    from core.events.discord_leadership_roles import role_id_conflicts
-
-    posted = {f.instance.pk: f for f in role_formset or [] if f.instance.pk is not None}
-    stored = {
-        pk: (lead, list(member_ids or []), name, is_active and deleted_at is None)
-        for pk, lead, member_ids, name, is_active, deleted_at in Guild.all_objects.values_list(
-            "pk", "discord_lead_role_id", "discord_role_ids", "name", "is_active", "deleted_at"
-        )
-    }
-    guilds: dict[int, tuple[str, list[str], bool]] = {
-        pk: (lead, member_ids, live) for pk, (lead, member_ids, _name, live) in stored.items() if pk not in posted
-    }
-    for pk, guild_form in posted.items():
-        guilds[pk] = (
-            guild_form.cleaned_data["discord_lead_role_id"],
-            guild_form.cleaned_data["discord_role_ids"],
-            stored[pk][3],
-        )
-    site_errors, guild_errors = role_id_conflicts(
-        member_role_id=form.cleaned_data.get("discord_member_role_id") or "",
-        leadership_role_id=form.cleaned_data.get("discord_leadership_role_id") or "",
-        guild_officers_role_id=form.cleaned_data.get("discord_guild_officers_role_id") or "",
-        guilds=guilds,
-        check_guild_rows=role_formset is not None,
-    )
-    for field_name, message in site_errors.items():
-        form.add_error(field_name, message)
-    for pk, message in guild_errors.items():
-        if pk in posted:
-            posted[pk].add_error("discord_lead_role_id", message)
-        else:
-            messages.error(request, f"{stored[pk][2]} lead role id: {message}")
-    return bool(site_errors or guild_errors)
-
-
 def _save_site_settings(
     request: HttpRequest, config: Any, feed_queryset: Any, active_tab: str
 ) -> tuple[HttpResponse | None, SiteSettingsForm, Any, Any, Any]:
@@ -10658,7 +10613,7 @@ def _save_site_settings(
         form.is_valid()
         and feed_formset.is_valid()
         and discord_ok
-        and not _refuse_role_id_conflicts(request, form, role_formset if is_discord else None)
+        and form.check_discord_role_ids(role_formset if is_discord else None)
     ):
         form.save()
         _sync_info_post_if_changed(request, form)
@@ -10689,8 +10644,20 @@ def _save_site_settings(
             emoji_formset,
             role_formset,
         )
-    _point_to_hidden_discord_error(request, form, is_discord=is_discord)
+    _report_failed_save(request, form, is_discord=is_discord)
     return None, form, feed_formset, emoji_formset, role_formset
+
+
+def _report_failed_save(request: HttpRequest, form: SiteSettingsForm, *, is_discord: bool) -> None:
+    """Put a failed save's errors where they will be seen.
+
+    The page shows no form level errors, so each one (a hidden guild's clashing Discord role
+    id, #1148) goes out as a message; then an error on a Discord field behind another tab is
+    pointed out (:func:`_point_to_hidden_discord_error`).
+    """
+    for error in form.non_field_errors():
+        messages.error(request, str(error))
+    _point_to_hidden_discord_error(request, form, is_discord=is_discord)
 
 
 def _point_to_hidden_discord_error(request: HttpRequest, form: SiteSettingsForm, *, is_discord: bool) -> None:

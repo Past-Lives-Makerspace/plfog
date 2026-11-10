@@ -5434,17 +5434,45 @@ class LeadershipTab(models.Model):
         One row per tab and member, so this creates or relists in one ``update_or_create``.
         A relisted member keeps the lines they had on this tab, and the typed title is added
         only when they do not already hold it here, so adding someone back never doubles a
-        line. Their rows on other tabs are untouched.
+        line. Their rows on other tabs are untouched. A member newly on show on a People tab
+        has their Discord leadership roles brought in step after the commit (#1148).
         """
         last = self.listings.filter(is_listed=True).aggregate(last=Max("sort_order"))["last"]
         sort_order = 0 if last is None else last + 1
+        was_listed = self.listings.filter(member=member, is_listed=True).exists()
         with transaction.atomic():
             listing, _created = LeadershipListing.objects.update_or_create(
                 tab=self, member=member, defaults={"is_listed": True, "sort_order": sort_order}
             )
             if not listing.roles.filter(title=title).exists():
                 listing.add_role(title, email)
+            if not was_listed:
+                self._reconcile_discord_roles(member.pk)
         return listing
+
+    def add_listed(self, member: Member, sort_order: int) -> LeadershipListing:
+        """Make a card on show for ``member`` at ``sort_order``, with no role lines yet (the roster import).
+
+        The member's Discord leadership roles are brought in step after the commit (#1148).
+        """
+        listing = LeadershipListing.objects.create(tab=self, member=member, is_listed=True, sort_order=sort_order)
+        self._reconcile_discord_roles(member.pk)
+        return listing
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        """Delete the tab and its cards; whoever was on show here has their Discord roles brought in step (#1148)."""
+        listed = list(self.listings.filter(is_listed=True).values_list("member_id", flat=True))
+        result = super().delete(*args, **kwargs)
+        self._reconcile_discord_roles(*listed)
+        return result
+
+    def _reconcile_discord_roles(self, *member_ids: int) -> None:
+        """Enqueue the leadership role reconcile for these members after the commit; only a People tab earns roles."""
+        if self.kind != self.Kind.PEOPLE:
+            return
+        from core.events.discord_leadership_roles import reconcile_on_commit
+
+        reconcile_on_commit(*member_ids)
 
     def reorder_listings(self, ids: list[int]) -> None:
         """Put this tab's cards on show in the order ``ids`` gives, each at its index.
@@ -5526,6 +5554,9 @@ class LeadershipListingQuerySet(models.QuerySet["LeadershipListing"]):
                     stray.sort_order = next_place
                     next_place += 1
                     stray.save(update_fields=["tab", "sort_order", "updated_at"])
+                    if stray.is_listed:
+                        # A card now on show on a People tab may earn Discord roles (#1148).
+                        tab._reconcile_discord_roles(stray.member_id)
                     continue
                 held = set(existing.roles.values_list("title", flat=True))
                 for role in stray.roles.all():
@@ -5604,9 +5635,16 @@ class LeadershipListing(models.Model):
         return self.roles.create(title=title, email=email, sort_order=0 if last is None else last + 1)
 
     def remove_from_tab(self) -> None:
-        """Take the card off its tab and keep its role lines, so adding the member back restores them."""
+        """Take the card off its tab and keep its role lines, so adding the member back restores them.
+
+        A card that was on show has its member's Discord leadership roles brought in step
+        after the commit (#1148).
+        """
+        was_listed = self.is_listed
         self.is_listed = False
         self.save(update_fields=["is_listed", "updated_at"])
+        if was_listed and self.tab is not None:
+            self.tab._reconcile_discord_roles(self.member_id)
 
 
 class LeadershipRole(models.Model):

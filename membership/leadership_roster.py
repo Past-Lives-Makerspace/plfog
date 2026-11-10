@@ -30,7 +30,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from membership.models import Guild, LeadershipListing, LeadershipRole, LeadershipTab, Member
+from membership.models import Guild, LeadershipRole, LeadershipTab, Member
 
 _DISCORD_MENTION = re.compile(r"<@(\d+)>")
 
@@ -110,7 +110,7 @@ def seed_roster(roster: dict[str, Any], *, dry_run: bool = False) -> RosterRepor
         if dry_run:
             continue
         tab = tab or LeadershipTab.objects.add_people_tab("Leadership", "")
-        listing = LeadershipListing.objects.create(tab=tab, member=member, is_listed=True, sort_order=position)
+        listing = tab.add_listed(member, position)
         for index, role in enumerate(person["roles"]):
             LeadershipRole.objects.create(listing=listing, title=role["title"], email=role["email"], sort_order=index)
 

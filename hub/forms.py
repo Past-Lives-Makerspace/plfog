@@ -1865,6 +1865,50 @@ class SiteSettingsForm(_OwnFieldErrorsOnly):
     def clean_discord_guild_officers_role_id(self) -> str:
         return self._clean_role_id("discord_guild_officers_role_id")
 
+    def check_discord_role_ids(self, role_formset: forms.BaseModelFormSet[Guild, GuildRoleForm] | None) -> bool:
+        """Refuse Discord role ids that clash (#1148); call after this form and ``role_formset`` are valid.
+
+        The page is one form, so every save posts every site field, the Discord ids included,
+        whichever tab is showing: the site ids are always judged, against the guilds as stored
+        or, when ``role_formset`` (the Discord tab's guild rows, bound only when that tab
+        submitted) is given, as posted; only then is each guild's lead role id judged too
+        (:func:`core.events.discord_leadership_roles.role_id_conflicts` has the rules). Errors
+        go on the field, on the guild's row, or, for a guild the table does not show (a hidden
+        one), on this form as a non field error naming it.
+
+        Returns:
+            Whether the ids are fine.
+        """
+        from core.events.discord_leadership_roles import role_id_conflicts
+
+        posted = {row.instance.pk: row for row in role_formset or [] if row.instance.pk is not None}
+        stored = {
+            pk: (lead, list(member_ids or []), name, is_active and deleted_at is None)
+            for pk, lead, member_ids, name, is_active, deleted_at in Guild.all_objects.values_list(
+                "pk", "discord_lead_role_id", "discord_role_ids", "name", "is_active", "deleted_at"
+            )
+        }
+        guilds: dict[int, tuple[str, list[str], bool]] = {
+            pk: (lead, member_ids, live) for pk, (lead, member_ids, _name, live) in stored.items() if pk not in posted
+        }
+        for pk, row in posted.items():
+            guilds[pk] = (row.cleaned_data["discord_lead_role_id"], row.cleaned_data["discord_role_ids"], stored[pk][3])
+        site_errors, guild_errors = role_id_conflicts(
+            member_role_id=self.cleaned_data["discord_member_role_id"],
+            leadership_role_id=self.cleaned_data["discord_leadership_role_id"],
+            guild_officers_role_id=self.cleaned_data["discord_guild_officers_role_id"],
+            guilds=guilds,
+            check_guild_rows=role_formset is not None,
+        )
+        for field_name, message in site_errors.items():
+            self.add_error(field_name, message)
+        for pk, message in guild_errors.items():
+            if pk in posted:
+                posted[pk].add_error("discord_lead_role_id", message)
+            else:
+                self.add_error(None, f"{stored[pk][2]} lead role id: {message}")
+        return not (site_errors or guild_errors)
+
     def clean_discord_role_message_extra_ids(self) -> str:
         """Accept Discord message ids (digits only) and store them comma separated."""
         ids = split_discord_ids(self.cleaned_data["discord_role_message_extra_ids"])
