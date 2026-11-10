@@ -5,7 +5,7 @@ Run with ``pytest -m e2e``.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
@@ -34,7 +34,9 @@ def describe_overdue_reviews():
             instructor=InstructorFactory(full_legal_name="Erin Horgan Corrales"),
             category=CategoryFactory(guild=guild),
         )
-        ClassSessionFactory(class_offering=offering, starts_at=timezone.now() + timedelta(days=23, hours=1))
+        # Noon on the Pacific date 23 days out: now + 23 days crosses midnight late in the evening (#1152).
+        starts_at = timezone.make_aware(datetime.combine(timezone.localdate() + timedelta(days=23), time(12)))
+        ClassSessionFactory(class_offering=offering, starts_at=starts_at)
         gate = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
         ClassApproval.objects.filter(pk=gate.pk).update(created_at=timezone.now() - timedelta(days=15, hours=1))
 
