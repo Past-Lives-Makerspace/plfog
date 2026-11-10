@@ -5171,13 +5171,16 @@ def _render_compose(
             # The saved image the field shows (#1064); a re-render after Remove shows none.
             "compose_image": draft.image if draft is not None and draft.image and not remove_posted else None,
             "compose_image_lost": image_lost,
-            **_compose_poll_context(request, draft, poll_forms),
+            **_compose_poll_context(request, draft, poll_forms, form.fields["audience"].choices),
         },
     )
 
 
 def _compose_poll_context(
-    request: HttpRequest, draft: AnnouncementDraft | None, poll_forms: tuple[Any, Any] | None
+    request: HttpRequest,
+    draft: AnnouncementDraft | None,
+    poll_forms: tuple[Any, Any] | None,
+    audience_choices: Any,
 ) -> dict[str, Any]:
     """What the Poll side of the composer reads (#1142): its forms, which side opens, and the limits."""
     from polls.models import MAX_OPTIONS, MAX_QUESTIONS
@@ -5188,7 +5191,11 @@ def _compose_poll_context(
         if request.method == "POST"
         else (draft is not None and draft.kind == AnnouncementDraft.Kind.POLL)
     )
+    leads = AnnouncementDraft.Audience.LEADS.value
+    offers_leads = any(value == leads for value, _label in audience_choices)
     return {
+        # A Guild leads poll also reaches every admin (#1142 AC12): the Poll confirm counts them.
+        "poll_leads_reach": len(AnnouncementDraft(audience=leads).poll_recipient_ids()) if offers_leads else 0,
         "poll_form": poll_form,
         "question_formset": questions,
         "compose_kind": "poll" if opens_poll else "email",

@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from django.http import QueryDict
 
     from membership.models import Guild
-    from polls.models import EmailPollQuestion
+    from polls.models import EmailPollOption, EmailPollQuestion, SavedAnswers
 
 
 class NewPollForm(forms.Form):
@@ -159,6 +159,7 @@ class ChoiceRow:
     value: str
     text: str
     checked: bool
+    is_write_in: bool = False
 
 
 @dataclass(frozen=True)
@@ -169,6 +170,12 @@ class AnswerRow:
     question: EmailPollQuestion
     field: forms.BoundField
     choices: tuple[ChoiceRow, ...]
+    other: forms.BoundField | None = None
+
+    @property
+    def other_open(self) -> bool:
+        """Whether the write-in's text box starts open: its option is ticked."""
+        return any(choice.checked for choice in self.choices if choice.is_write_in)
 
     @property
     def hint(self) -> str:
@@ -192,10 +199,13 @@ class EmailPollAnswerForm(forms.Form):
         self,
         *args: Any,
         questions: list[EmailPollQuestion],
-        saved: dict[int, str | list[int]] | None = None,
+        saved: SavedAnswers | None = None,
         **kwargs: Any,
     ) -> None:
-        """Build the fields for ``questions`` (options prefetched); ``saved`` fills in an earlier response."""
+        """Build the fields for ``questions`` (options prefetched); ``saved`` fills in an earlier response.
+
+        A question with a write-in option (#1142 AC13) also gets ``q<pk>_other``, the text typed for it.
+        """
         super().__init__(*args, **kwargs)
         self.questions = questions
         for question in questions:
@@ -215,8 +225,31 @@ class EmailPollAnswerForm(forms.Form):
                 self.fields[name] = forms.CharField(
                     required=False, max_length=OPEN_ANSWER_MAX_LENGTH, widget=forms.Textarea(attrs={"rows": 4})
                 )
-            if saved is not None and question.pk in saved:
-                self.initial[name] = _initial(question, saved[question.pk])
+            if saved is not None and question.pk in saved.answers:
+                self.initial[name] = _initial(question, saved.answers[question.pk])
+            if self._write_in_of(question) is not None:
+                self.fields[self.other_name(question)] = forms.CharField(required=False, max_length=ANSWER_MAX_LENGTH)
+                if saved is not None and question.pk in saved.write_ins:
+                    self.initial[self.other_name(question)] = saved.write_ins[question.pk]
+
+    @staticmethod
+    def _write_in_of(question: EmailPollQuestion) -> EmailPollOption | None:
+        """The question's write-in option, or None (options prefetched, so no query)."""
+        return next((option for option in question.options.all() if option.is_write_in), None)
+
+    @staticmethod
+    def other_name(question: EmailPollQuestion) -> str:
+        """The posted name of the text typed for ``question``'s write-in option."""
+        return f"q{question.pk}_other"
+
+    @property
+    def write_ins(self) -> dict[int, str]:
+        """The text typed for each write-in, by question pk, as :meth:`polls.models.EmailPoll.answer` takes it."""
+        return {
+            question.pk: self.cleaned_data[self.other_name(question)]
+            for question in self.questions
+            if self.other_name(question) in self.fields
+        }
 
     @staticmethod
     def field_name(question: EmailPollQuestion) -> str:
@@ -237,10 +270,16 @@ class EmailPollAnswerForm(forms.Form):
             value = field.value()
             picked = {str(item) for item in value} if isinstance(value, list) else {str(value)}
             choices = tuple(
-                ChoiceRow(value=str(option.pk), text=option.text, checked=str(option.pk) in picked)
+                ChoiceRow(
+                    value=str(option.pk),
+                    text=option.text,
+                    checked=str(option.pk) in picked,
+                    is_write_in=option.is_write_in,
+                )
                 for option in question.options.all()
             )
-            rows.append(AnswerRow(number=number, question=question, field=field, choices=choices))
+            other = self[self.other_name(question)] if self.other_name(question) in self.fields else None
+            rows.append(AnswerRow(number=number, question=question, field=field, choices=choices, other=other))
         return rows
 
 

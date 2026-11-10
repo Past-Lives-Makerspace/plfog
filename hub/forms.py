@@ -6756,6 +6756,12 @@ class EmailPollQuestionForm(forms.Form):
         max_length=QUESTION_MAX_LENGTH, label="Question", error_messages={"required": "Write the question."}
     )
     kind = forms.ChoiceField(choices=QuestionKind.choices, initial=QuestionKind.PICK_ONE, label="Type")
+    write_in = forms.CharField(
+        required=False,
+        max_length=ANSWER_MAX_LENGTH,
+        label="Write-in option",
+        help_text="Its name, such as Another time. Picking it lets the member type their own answer.",
+    )
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Add the four option fields, each optional: blank rows are dropped, never counted."""
@@ -6769,15 +6775,19 @@ class EmailPollQuestionForm(forms.Form):
         The type select always posts a value, so without this an added row left blank, or the gap
         a deleted row leaves, would read as a question missing its text.
         """
-        return any((self.data.get(self.add_prefix(name)) or "").strip() for name in ("text", *OPTION_FIELDS))
+        return any(
+            (self.data.get(self.add_prefix(name)) or "").strip() for name in ("text", "write_in", *OPTION_FIELDS)
+        )
 
     def clean(self) -> dict[str, Any]:
-        """A pick question needs 2 to 4 filled options; an open-ended one keeps none."""
+        """A pick question needs 2 to 4 filled options, a write-in counting as one; an open-ended one keeps none."""
         cleaned = super().clean() or {}
         if cleaned.get("kind") in (QuestionKind.PICK_ONE, QuestionKind.PICK_ANY):
-            filled = self.spec_options(cleaned)
-            if not MIN_OPTIONS <= len(filled) <= MAX_OPTIONS:
-                self.add_error(None, f"Give this question {MIN_OPTIONS} to {MAX_OPTIONS} options.")
+            count = len(self.spec_options(cleaned)) + (1 if (cleaned.get("write_in") or "").strip() else 0)
+            if not MIN_OPTIONS <= count <= MAX_OPTIONS:
+                self.add_error(
+                    None, f"Give this question {MIN_OPTIONS} to {MAX_OPTIONS} options, a write-in counting as one."
+                )
         return cleaned
 
     @staticmethod
@@ -6789,8 +6799,11 @@ class EmailPollQuestionForm(forms.Form):
     def spec(self) -> QuestionSpec:
         """This question for :meth:`polls.models.EmailPoll.replace_questions`."""
         cd = self.cleaned_data
-        options = () if cd["kind"] == QuestionKind.OPEN else tuple(self.spec_options(cd))
-        return QuestionSpec(text=cd["text"], kind=cd["kind"], options=options)
+        if cd["kind"] == QuestionKind.OPEN:
+            return QuestionSpec(text=cd["text"], kind=cd["kind"])
+        return QuestionSpec(
+            text=cd["text"], kind=cd["kind"], options=tuple(self.spec_options(cd)), write_in=cd["write_in"]
+        )
 
     @property
     def option_rows(self) -> list[forms.BoundField]:
@@ -6799,9 +6812,14 @@ class EmailPollQuestionForm(forms.Form):
 
     @property
     def options_shown(self) -> int:
-        """How many option rows start visible: the filled ones, at least two."""
+        """How many option rows start visible: the filled ones, at least two, less one for a write-in."""
         filled = sum(1 for name in OPTION_FIELDS if (self[name].value() or "").strip())
-        return max(MIN_OPTIONS, filled)
+        return max(MIN_OPTIONS - (1 if self.has_write_in else 0), filled, 1)
+
+    @property
+    def has_write_in(self) -> bool:
+        """Whether the question carries a write-in option, so its row starts open."""
+        return bool((self["write_in"].value() or "").strip())
 
 
 class BaseEmailPollQuestionFormSet(forms.BaseFormSet):  # type: ignore[type-arg]
@@ -6841,8 +6859,10 @@ class BaseEmailPollQuestionFormSet(forms.BaseFormSet):  # type: ignore[type-arg]
         rows = []
         for question in poll.questions.prefetch_related("options"):
             row: dict[str, Any] = {"text": question.text, "kind": question.kind}
-            for name, option in zip(OPTION_FIELDS, question.options.all(), strict=False):
+            options = list(question.options.all())
+            for name, option in zip(OPTION_FIELDS, [o for o in options if not o.is_write_in], strict=False):
                 row[name] = option.text
+            row["write_in"] = next((o.text for o in options if o.is_write_in), "")
             rows.append(row)
         return rows or [{"kind": QuestionKind.PICK_ONE}]
 

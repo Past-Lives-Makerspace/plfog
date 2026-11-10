@@ -916,3 +916,26 @@
         justify-content: center;
     }
 }
+
+/* Write-in options (#1142 AC13): the answer page's own text box under the options, and the typed answers under the bars. */
+.pl-ask__other {
+    margin: 0;
+}
+
+.pl-ask__other input[type="text"] {
+    width: 100%;
+    max-width: 520px;
+}
+
+.pl-ask__write-ins {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.pl-ask__write-ins-title {
+    margin: 0;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--hub-text-muted);
+}

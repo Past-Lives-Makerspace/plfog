@@ -205,13 +205,11 @@ def describe_constraints():
         with pytest.raises(IntegrityError), transaction.atomic():
             EmailPoll.objects.filter(pk=poll.pk).update(opens_at=NOW, closes_at=NOW)
 
-    def it_refuses_an_answer_with_both_an_option_and_text():
+    def it_refuses_an_open_answer_with_no_text():
         poll = _survey()
         response = EmailPollResponse.objects.create(poll=poll, member=_account())
         with pytest.raises(IntegrityError), transaction.atomic():
-            EmailPollAnswer.objects.create(
-                response=response, question=_question(poll, 0), option_id=_option(poll, 0, "Wood"), text="also"
-            )
+            EmailPollAnswer.objects.create(response=response, question=_question(poll, 2), text="")
 
     def it_refuses_two_written_answers_to_one_question():
         poll = _survey()

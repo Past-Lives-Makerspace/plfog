@@ -1,16 +1,22 @@
-{# One question card on the email poll answer page (#1142). row is polls.forms.AnswerRow. Pick kinds are large tappable rows; an open question is a textarea in .hub-form-group. #}
-<fieldset class="hub-card pl-ask__question{% if row.field.errors %} pl-ask__question--error{% endif %}" data-email-poll-question="{{ row.question.pk }}"{% if row.field.errors %} aria-invalid="true"{% endif %}>
+{# One question card on the email poll answer page (#1142). row is polls.forms.AnswerRow. Pick kinds are large tappable rows; an open question is a textarea in .hub-form-group; a write-in option opens its own text box when picked (AC13). #}
+<fieldset class="hub-card pl-ask__question{% if row.field.errors %} pl-ask__question--error{% endif %}" data-email-poll-question="{{ row.question.pk }}"{% if row.field.errors %} aria-invalid="true"{% endif %}{% if row.other %} x-data="{ other: {{ row.other_open|yesno:'true,false' }} }"{% endif %}>
   <legend class="pl-ask__legend"><span class="pl-ask__number">{{ row.number }}</span>{{ row.question.text }}</legend>
   <p class="pl-ask__hint">{{ row.hint }}</p>
   {% if row.choices %}
-  <div class="pl-ask__options">
+  <div class="pl-ask__options"{% if row.other %} @change="other = $refs.writeIn.checked"{% endif %}>
     {% for choice in row.choices %}
     <label class="pl-ask__option">
-      <input type="{% if row.question.kind == 'one' %}radio{% else %}checkbox{% endif %}" name="{{ row.field.html_name }}" value="{{ choice.value }}"{% if choice.checked %} checked{% endif %} class="pl-ask__input">
+      <input type="{% if row.question.kind == 'one' %}radio{% else %}checkbox{% endif %}" name="{{ row.field.html_name }}" value="{{ choice.value }}"{% if choice.checked %} checked{% endif %} class="pl-ask__input"{% if choice.is_write_in %} x-ref="writeIn" data-email-poll-write-in{% endif %}>
       <span class="pl-ask__option-text">{{ choice.text }}</span>
     </label>
     {% endfor %}
   </div>
+  {% if row.other %}
+  <div class="hub-form-group pl-ask__other" x-show="other"{% if not row.other_open %} x-cloak{% endif %} data-email-poll-other>
+    <label for="{{ row.other.id_for_label }}">Your answer</label>
+    <input type="text" name="{{ row.other.html_name }}" id="{{ row.other.id_for_label }}" value="{{ row.other.value|default_if_none:'' }}" maxlength="120">
+  </div>
+  {% endif %}
   {% else %}
   <div class="hub-form-group pl-ask__written-field">
     <label for="{{ row.field.id_for_label }}">Your answer</label>

@@ -6974,6 +6974,15 @@ def _push_reachable(user_pks: "Iterable[int]") -> set[int]:
     )
 
 
+def _admin_user_ids() -> set[int]:
+    """The accounts of every Active admin, whether or not they lead a guild (#1142 AC12, polls only)."""
+    return set(
+        Member.objects.filter(
+            fog_role=Member.FogRole.ADMIN, status=Member.Status.ACTIVE, user__isnull=False, user__is_active=True
+        ).values_list("user_id", flat=True)
+    )
+
+
 @dataclass(frozen=True)
 class AnnouncementProgress:
     """How far a queued site send has got: ``done`` people reached so far, of ``total``."""
@@ -8516,7 +8525,8 @@ class AnnouncementDraft(models.Model):
         from core.events.registry import Recipients
 
         if self.audience == self.Audience.LEADS:
-            return self._leads_recipient_ids()
+            # A Guild leads poll also reaches every admin (#1142 AC12); the email audience does not.
+            return self._leads_recipient_ids() | _admin_user_ids()
         if self.audience == self.Audience.INSTRUCTORS:
             return self._instructor_recipients()[0]
         if self.audience == self.Audience.STUDENTS:

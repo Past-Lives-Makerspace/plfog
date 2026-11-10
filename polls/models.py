@@ -601,11 +601,22 @@ class QuestionSpec:
     text: str
     kind: str
     options: tuple[str, ...] = ()
+    write_in: str = ""
 
     @property
     def filled_options(self) -> list[str]:
         """The options with text, stripped, in order: a blank option row is not an option."""
         return [text for text in (option.strip() for option in self.options) if text]
+
+    @property
+    def write_in_label(self) -> str:
+        """The write-in option's name (#1142 AC13), stripped; blank when the question has none."""
+        return self.write_in.strip()
+
+    @property
+    def option_count(self) -> int:
+        """The options members choose from, the write-in included: the number held to 2 to 4."""
+        return len(self.filled_options) + (1 if self.write_in_label else 0)
 
 
 @dataclass(frozen=True)
@@ -623,7 +634,10 @@ class PollDraft:
     @property
     def signature(self) -> list[tuple[str, str, tuple[str, ...]]]:
         """The questions as a repeat is compared on: text, kind and options in order, as they are stored."""
-        return [question_signature(spec.text, spec.kind, spec.filled_options) for spec in self.questions]
+        return [
+            question_signature(spec.text, spec.kind, _signed_options(spec.filled_options, spec.write_in_label))
+            for spec in self.questions
+        ]
 
     def apply_to(self, draft: AnnouncementDraft) -> None:
         """Make ``draft`` this poll's row, unsaved: kind Poll, its title, and every email only channel off."""
@@ -640,6 +654,11 @@ class PollDraft:
         draft.discord_post_as_me = False
         draft.mark_as_urgent = False
         draft.expires_at = None
+
+
+def _signed_options(options: list[str], write_in: str) -> list[str]:
+    """Options as a signature lists them: the write-in last, marked, so it never matches a plain option."""
+    return [*options, f"write-in: {write_in}"] if write_in else options
 
 
 def question_signature(text: str, kind: str, options: list[str]) -> tuple[str, str, tuple[str, ...]]:
@@ -678,12 +697,14 @@ def _validate_question(number: int, spec: QuestionSpec) -> None:
         raise ValueError(f"Question {number} has an unknown kind: {spec.kind!r}.")
     options = spec.filled_options
     if spec.kind == QuestionKind.OPEN:
-        if options:
+        if options or spec.write_in_label:
             raise ValueError(f"Question {number} is open-ended and takes no options.")
         return
-    if not MIN_OPTIONS <= len(options) <= MAX_OPTIONS:
-        raise ValueError(f"Question {number} needs {MIN_OPTIONS} to {MAX_OPTIONS} filled options.")
-    if any(len(option) > ANSWER_MAX_LENGTH for option in options):
+    if not MIN_OPTIONS <= spec.option_count <= MAX_OPTIONS:
+        raise ValueError(
+            f"Question {number} needs {MIN_OPTIONS} to {MAX_OPTIONS} filled options, the write-in included."
+        )
+    if any(len(option) > ANSWER_MAX_LENGTH for option in [*options, spec.write_in_label]):
         raise ValueError(f"An option in question {number} is longer than {ANSWER_MAX_LENGTH} characters.")
 
 
@@ -843,7 +864,14 @@ class EmailPoll(models.Model):
     def signature(self) -> list[tuple[str, str, tuple[str, ...]]]:
         """The saved questions as :attr:`PollDraft.signature` reads a composed one, in two queries."""
         return [
-            question_signature(question.text, question.kind, [option.text for option in question.options.all()])
+            question_signature(
+                question.text,
+                question.kind,
+                _signed_options(
+                    [option.text for option in question.options.all() if not option.is_write_in],
+                    next((option.text for option in question.options.all() if option.is_write_in), ""),
+                ),
+            )
             for question in self.questions.prefetch_related("options")
         ]
 
@@ -863,9 +891,9 @@ class EmailPoll(models.Model):
                 for position, spec in enumerate(specs)
             )
             EmailPollOption.objects.bulk_create(
-                EmailPollOption(question=question, position=position, text=text)
+                EmailPollOption(question=question, position=position, text=text, is_write_in=is_write_in)
                 for question, spec in zip(questions, specs, strict=True)
-                for position, text in enumerate(spec.filled_options)
+                for position, (text, is_write_in) in enumerate(_option_rows(spec))
             )
 
     def open(self, now: datetime) -> None:
@@ -948,7 +976,14 @@ class EmailPoll(models.Model):
             raise BadPollLinkError(POLL_CLOSED)
         return recipient.poll, recipient.member
 
-    def answer(self, *, member: Member, answers: dict[int, Given], now: datetime) -> EmailPollResponse:
+    def answer(
+        self,
+        *,
+        member: Member,
+        answers: dict[int, Given],
+        now: datetime,
+        write_ins: dict[int, str] | None = None,
+    ) -> EmailPollResponse:
         """Save ``member``'s answers, replacing any they gave before: the one way an answer is written.
 
         ``answers`` maps a question's pk to the text written (open-ended) or the option picked: an
@@ -966,7 +1001,9 @@ class EmailPoll(models.Model):
         if refusal:
             raise AnswerRefusedError(refusal)
         rows = [
-            row for question in self.questions.prefetch_related("options") for row in _answer_rows(question, answers)
+            row
+            for question in self.questions.prefetch_related("options")
+            for row in _answer_rows(question, answers, write_ins or {})
         ]
         if not rows:
             # Only an all open-ended poll gets here; an empty response would count as answered.
@@ -999,17 +1036,21 @@ class EmailPoll(models.Model):
         """Every question's results and the per person table, in four queries."""
         return EmailPollResults.load(self)
 
-    def answers_of(self, member: Member) -> dict[int, str | list[int]]:
-        """``member``'s saved answers by question pk: the text written, or the option pks picked. Empty if none."""
+    def answers_of(self, member: Member) -> SavedAnswers:
+        """``member``'s saved answers: by question pk, the text written or the option pks picked,
+        and the text typed for any write-in they picked. Empty if none. One query."""
         saved: dict[int, str | list[int]] = {}
+        write_ins: dict[int, str] = {}
         for answer in EmailPollAnswer.objects.filter(response__poll=self, response__member=member).order_by("pk"):
             if answer.option_id is None:
                 saved[answer.question_id] = answer.text
-            else:
-                picks = saved.setdefault(answer.question_id, [])
-                assert isinstance(picks, list)  # one question is never both written and picked
-                picks.append(answer.option_id)
-        return saved
+                continue
+            picks = saved.setdefault(answer.question_id, [])
+            assert isinstance(picks, list)  # one question is never both written and picked
+            picks.append(answer.option_id)
+            if answer.text:
+                write_ins[answer.question_id] = answer.text
+        return SavedAnswers(answers=saved, write_ins=write_ins)
 
     @property
     def answer_path(self) -> str:
@@ -1163,8 +1204,19 @@ class EmailPollPage:
         )
 
 
-def _answer_rows(question: EmailPollQuestion, answers: dict[int, Given]) -> list[EmailPollAnswer]:
+def _option_rows(spec: QuestionSpec) -> list[tuple[str, bool]]:
+    """A question's options to store, in order: ``(text, is_write_in)``, the write-in last."""
+    rows = [(text, False) for text in spec.filled_options]
+    return [*rows, (spec.write_in_label, True)] if spec.write_in_label else rows
+
+
+def _answer_rows(
+    question: EmailPollQuestion, answers: dict[int, Given], write_ins: dict[int, str]
+) -> list[EmailPollAnswer]:
     """The answer rows ``answers`` gives ``question`` (unsaved, no response yet).
+
+    A picked write-in option (#1142 AC13) carries the text the member typed for it, from
+    ``write_ins``; text for a write-in nobody picked is dropped.
 
     Raises:
         AnswerRefusedError: See :meth:`EmailPoll.answer`.
@@ -1182,10 +1234,29 @@ def _answer_rows(question: EmailPollQuestion, answers: dict[int, Given]) -> list
         raise AnswerRefusedError(f"Answer this question: {question.text}")
     if question.kind == QuestionKind.PICK_ONE and len(picked) > 1:
         raise AnswerRefusedError(f"Pick one answer for: {question.text}")
-    offered = {option.pk for option in question.options.all()}
+    offered = {option.pk: option for option in question.options.all()}
     if any(pk not in offered for pk in picked):
         raise AnswerRefusedError("That choice is not part of this poll.")
-    return [EmailPollAnswer(question=question, option_id=pk) for pk in picked]
+    return [
+        EmailPollAnswer(question=question, option_id=pk, text=_write_in_text(offered[pk], question, write_ins))
+        for pk in picked
+    ]
+
+
+def _write_in_text(option: EmailPollOption, question: EmailPollQuestion, write_ins: dict[int, str]) -> str:
+    """What the member typed for a picked write-in option; blank for any other option.
+
+    Raises:
+        AnswerRefusedError: A picked write-in with no text, or text over ``ANSWER_MAX_LENGTH``.
+    """
+    if not option.is_write_in:
+        return ""
+    text = (write_ins.get(question.pk) or "").strip()  # Missing text is refused just below.
+    if not text:
+        raise AnswerRefusedError(f"Write your answer for {option.text}.")
+    if len(text) > ANSWER_MAX_LENGTH:
+        raise AnswerRefusedError(f"Keep your answer for {option.text} to {ANSWER_MAX_LENGTH} characters or fewer.")
+    return text
 
 
 def _picked_pks(question: EmailPollQuestion, given: Given | None) -> list[int]:
@@ -1237,10 +1308,20 @@ class EmailPollOption(models.Model):
     )
     position = models.PositiveSmallIntegerField(help_text="Its place in the list, from 0.")
     text = models.CharField(max_length=ANSWER_MAX_LENGTH, help_text="The choice as members read it.")
+    is_write_in = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="The question's write-in (#1142): picking it asks the member to type their own answer. Always last.",
+    )
 
     class Meta:
         ordering = ["question", "position"]
-        constraints = [models.UniqueConstraint(fields=["question", "position"], name="emailpollopt_one_per_position")]
+        constraints = [
+            models.UniqueConstraint(fields=["question", "position"], name="emailpollopt_one_per_position"),
+            models.UniqueConstraint(
+                fields=["question"], condition=Q(is_write_in=True), name="emailpollopt_one_write_in"
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.text
@@ -1308,14 +1389,16 @@ class EmailPollAnswer(models.Model):
         max_length=OPEN_ANSWER_MAX_LENGTH,
         blank=True,
         default="",
-        help_text="The written answer to an open-ended question. Blank for a picked option.",
+        help_text="The written answer to an open-ended question, or what was typed for a picked write-in option.",
     )
 
     class Meta:
         constraints = [
+            # An open-ended answer has text; an option answer may carry text only for a write-in,
+            # which EmailPoll.answer holds (a constraint cannot read the option's is_write_in).
             models.CheckConstraint(
-                condition=(Q(option__isnull=False) & Q(text="")) | (Q(option__isnull=True) & ~Q(text="")),
-                name="emailpollans_option_xor_text",
+                condition=Q(option__isnull=False) | ~Q(text=""),
+                name="emailpollans_open_has_text",
             ),
             models.UniqueConstraint(
                 fields=["response", "option"], condition=Q(option__isnull=False), name="emailpollans_one_per_option"
@@ -1327,6 +1410,22 @@ class EmailPollAnswer(models.Model):
 
     def __str__(self) -> str:
         return f"Answer to question {self.question_id}"
+
+
+def _cell_text(answer: EmailPollAnswer, option_text: dict[int, str]) -> str:
+    """One answer as a Responses table cell: the text written, the option, or ``Option: what they typed``."""
+    if answer.option_id is None:
+        return answer.text
+    label = option_text[answer.option_id]
+    return f"{label}: {answer.text}" if answer.text else label
+
+
+@dataclass(frozen=True)
+class SavedAnswers:
+    """A member's saved response as the answer form fills it in: picks or text, and write-in text."""
+
+    answers: dict[int, str | list[int]]
+    write_ins: dict[int, str]
 
 
 @dataclass(frozen=True)
@@ -1341,6 +1440,8 @@ class OptionResult:
     text: str
     votes: int
     percent: int
+    is_write_in: bool = False
+    written: tuple[WrittenReply, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1405,6 +1506,13 @@ class EmailPollResults:
                         text=option.text,
                         votes=votes[option.pk],
                         percent=round(100 * votes[option.pk] / total) if total else 0,
+                        is_write_in=option.is_write_in,
+                        written=tuple(
+                            WrittenReply(name=response.member.display_name, text=answer.text)
+                            for response in responses
+                            for answer in given[(response.pk, question.pk)]
+                            if answer.option_id == option.pk and answer.text
+                        ),
                     )
                     for option in question.options.all()
                 ),
@@ -1421,10 +1529,7 @@ class EmailPollResults:
             ResponseRow(
                 name=response.member.display_name,
                 cells=tuple(
-                    ", ".join(
-                        answer.text if answer.option_id is None else option_text[answer.option_id]
-                        for answer in given[(response.pk, question.pk)]
-                    )
+                    ", ".join(_cell_text(answer, option_text) for answer in given[(response.pk, question.pk)])
                     for question in questions
                 ),
             )

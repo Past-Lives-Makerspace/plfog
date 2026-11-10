@@ -50,6 +50,8 @@
              seen.add(b.value);
              if (b.hasAttribute('data-email-only')) { emailOnly += 1; } else { members += 1; }
            });
+         } else if (this.audience === 'leads') {
+           members = {{ poll_leads_reach }};
          } else if (this.audience === 'instructor') {
            members = this.instructorReach.users;
            emailOnly = this.instructorReach.emailOnly;

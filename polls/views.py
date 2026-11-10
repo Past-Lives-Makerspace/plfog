@@ -330,7 +330,7 @@ def _email_poll_page(
             form = EmailPollAnswerForm(request.POST, questions=questions)
             if form.is_valid():
                 try:
-                    poll.answer(member=member, answers=form.answers, now=now)
+                    poll.answer(member=member, answers=form.answers, now=now, write_ins=form.write_ins)
                 except AnswerRefusedError as error:
                     form.add_error(None, str(error))
                 else:
