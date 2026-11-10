@@ -10609,7 +10609,12 @@ def _save_site_settings(
         role_formset = GuildRoleFormSet(queryset=role_queryset, prefix="guildroles")
 
     discord_ok = (emoji_formset.is_valid() and role_formset.is_valid()) if is_discord else True
-    if form.is_valid() and feed_formset.is_valid() and discord_ok:
+    if (
+        form.is_valid()
+        and feed_formset.is_valid()
+        and discord_ok
+        and form.check_discord_role_ids(role_formset if is_discord else None)
+    ):
         form.save()
         _sync_info_post_if_changed(request, form)
         instances = feed_formset.save(commit=False)
@@ -10639,7 +10644,29 @@ def _save_site_settings(
             emoji_formset,
             role_formset,
         )
+    _report_failed_save(request, form, is_discord=is_discord)
     return None, form, feed_formset, emoji_formset, role_formset
+
+
+def _report_failed_save(request: HttpRequest, form: SiteSettingsForm, *, is_discord: bool) -> None:
+    """Put a failed save's errors where they will be seen.
+
+    The page shows no form level errors, so each one (a hidden guild's clashing Discord role
+    id, #1148) goes out as a message; then an error on a Discord field behind another tab is
+    pointed out (:func:`_point_to_hidden_discord_error`).
+    """
+    for error in form.non_field_errors():
+        messages.error(request, str(error))
+    _point_to_hidden_discord_error(request, form, is_discord=is_discord)
+
+
+def _point_to_hidden_discord_error(request: HttpRequest, form: SiteSettingsForm, *, is_discord: bool) -> None:
+    """Say so when a save failed on a Discord field while another tab was showing.
+
+    The page re-renders on the tab that was showing, so the error would otherwise sit unseen.
+    """
+    if not is_discord and any(name.startswith("discord_") for name in form.errors):
+        messages.error(request, "Nothing was saved. Fix the highlighted field on the Discord tab.")
 
 
 _SITE_SETTINGS_TABS = frozenset({"brand", "general", "calendar", "emails", "discord"})

@@ -110,6 +110,11 @@ def delete_own_account(member: "Member") -> None:
         member._pre_signup_email = ""
         member.phone = ""
         member.discord_handle = ""
+        # Leadership roles on Discord come off the account after the commit (#1148), keyed by
+        # its Discord id because the row is about to lose it.
+        from core.events.discord_leadership_roles import strip_on_commit
+
+        strip_on_commit(member.discord_user_id)
         member.discord_user_id = ""
         member.discord_linked_at = None
         member.pronouns = ""

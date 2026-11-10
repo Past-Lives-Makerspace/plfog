@@ -1,0 +1,8 @@
+bump = "minor"
+date = "2026-11-10"
+audience = ["admins"]
+title = "Discord leadership roles follow the member app"
+changes = [
+  "Making someone a guild lead or Co-Lead, adding or removing guild staff, or listing someone on the Leadership Directory now gives or takes their Discord leadership roles on its own. Set the role ids once in Site Settings, on the Discord tab.",
+  "Only members who linked their Discord account are updated.",
+]

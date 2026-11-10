@@ -1619,6 +1619,7 @@ class Member(StaffRequestMixin, models.Model):
                 :attr:`discord_handle` **only when it is currently blank** — a handle the
                 member typed themselves is never overwritten.
         """
+        previous_id = (self.discord_user_id or "").strip()
         self.discord_user_id = discord_user_id.strip()
         self.discord_linked_at = timezone.now()
         update_fields = ["discord_user_id", "discord_linked_at"]
@@ -1626,9 +1627,20 @@ class Member(StaffRequestMixin, models.Model):
             self.discord_handle = handle.strip()
             update_fields.append("discord_handle")
         self.save(update_fields=update_fields)
+        from core.events.discord_leadership_roles import reconcile_on_commit, strip_on_commit
+
+        if previous_id and previous_id != self.discord_user_id:
+            # A swapped account loses the app's roles before the new one gets them (#1148).
+            strip_on_commit(previous_id)
+        reconcile_on_commit(self.pk)
 
     def unlink_discord(self) -> None:
-        """Clear the linked Discord account (the member opts out of DMs entirely)."""
+        """Clear the linked Discord account (the member opts out of DMs entirely).
+
+        Their Discord leadership roles stay (#1148): disconnecting Discord stops DMs and must
+        not take a sitting lead's roles away. The role sync skips a member with no linked
+        account, so nothing is reconciled; ``sync_leadership_roles`` lists such holders.
+        """
         self.discord_user_id = ""
         self.discord_linked_at = None
         self.save(update_fields=["discord_user_id", "discord_linked_at"])
@@ -3247,6 +3259,16 @@ class Guild(HeroCropMixin, models.Model):
             "inbound (a member's Discord reaction) accepts ANY emoji mapped to the guild."
         ),
     )
+    discord_lead_role_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        verbose_name="Discord lead role id",
+        help_text=(
+            "The Discord role this guild's lead and Co-Leads hold, kept in step with the app (#1148). "
+            "Blank: no lead role is added or removed for this guild."
+        ),
+    )
     calendar_color = models.CharField(
         max_length=7,
         blank=True,
@@ -3545,6 +3567,37 @@ class Guild(HeroCropMixin, models.Model):
         """
         self.deleted_at = timezone.now()
         self.save(update_fields=["deleted_at"])
+        self.reconcile_leadership_roles()
+
+    def release_lead_role_id_from_hidden_guilds(self) -> int:
+        """Blank this guild's lead role id on every hidden or deleted guild that still holds it (#1148).
+
+        A visible guild may take a hidden guild's old lead role id; blanking it there in the
+        same save means showing that guild again later cannot hand the role to two leads.
+
+        Returns:
+            How many guilds let it go.
+        """
+        role_id = self.discord_lead_role_id.strip()
+        if not role_id:
+            return 0
+        return (
+            Guild.all_objects.exclude(pk=self.pk)
+            .filter(discord_lead_role_id=role_id)
+            .filter(models.Q(is_active=False) | models.Q(deleted_at__isnull=False))
+            .update(discord_lead_role_id="")
+        )
+
+    def reconcile_leadership_roles(self) -> None:
+        """Bring the Discord leadership roles of this guild's lead and staff in step, after the commit (#1148).
+
+        Called when something about the guild changes what its leaders should hold: it is
+        hidden, shown or deleted, or its lead role id changes. Who leads it changing goes
+        through :meth:`assign_lead`, :meth:`clear_lead` and the staff methods instead.
+        """
+        from core.events.discord_leadership_roles import reconcile_on_commit
+
+        reconcile_on_commit(self.guild_lead_id, *self.staff_memberships.values_list("member_id", flat=True))
 
     def _unique_slug(self) -> str:
         """A URL slug derived from the guild name, suffixed (``-2``, ``-3``…) to stay unique."""
@@ -3805,6 +3858,9 @@ class Guild(HeroCropMixin, models.Model):
         previous = self.guild_lead
         self.guild_lead = member
         self.save(update_fields=["guild_lead"])
+        from core.events.discord_leadership_roles import reconcile_on_commit
+
+        reconcile_on_commit(previous.pk if previous is not None else None, member.pk)
         if previous is not None:
             self.drop_cubby_payee_unless_leader(previous)
         if previous != member and not self.staff_memberships.filter(member=member).exists():
@@ -3933,6 +3989,9 @@ class Guild(HeroCropMixin, models.Model):
             )
             if class_reviewer:
                 self.set_class_reviewer(member, True)
+            from core.events.discord_leadership_roles import reconcile_on_commit
+
+            reconcile_on_commit(member.pk)
             if first_role_here:
                 # Their first role on this guild welcomes them (#1076); a second title does not.
                 record_grant(member, self)
@@ -3954,6 +4013,9 @@ class Guild(HeroCropMixin, models.Model):
             raise ValueError(f"That staff row is not on {self.name}.")
         member = staff.member
         staff.delete()
+        from core.events.discord_leadership_roles import reconcile_on_commit
+
+        reconcile_on_commit(member.pk)
         self.drop_cubby_payee_unless_leader(member)
         if member.pk in {leader.pk for leader in self.leadership_members()}:
             return 0
@@ -3973,6 +4035,9 @@ class Guild(HeroCropMixin, models.Model):
         self.guild_lead = None
         self.save(update_fields=["guild_lead"])
         if previous is not None:
+            from core.events.discord_leadership_roles import reconcile_on_commit
+
+            reconcile_on_commit(previous.pk)
             self.drop_cubby_payee_unless_leader(previous)
         return previous
 
@@ -4388,6 +4453,9 @@ class GuildStaffMembership(models.Model):
         self.role = role
         self.custom_title = custom_title
         self.save(update_fields=["role", "custom_title"])
+        from core.events.discord_leadership_roles import reconcile_on_commit
+
+        reconcile_on_commit(self.member_id)
 
     def __str__(self) -> str:
         return f"{self.member.display_name} — {self.display_title} of {self.guild.name}"
@@ -5366,17 +5434,45 @@ class LeadershipTab(models.Model):
         One row per tab and member, so this creates or relists in one ``update_or_create``.
         A relisted member keeps the lines they had on this tab, and the typed title is added
         only when they do not already hold it here, so adding someone back never doubles a
-        line. Their rows on other tabs are untouched.
+        line. Their rows on other tabs are untouched. A member newly on show on a People tab
+        has their Discord leadership roles brought in step after the commit (#1148).
         """
         last = self.listings.filter(is_listed=True).aggregate(last=Max("sort_order"))["last"]
         sort_order = 0 if last is None else last + 1
+        was_listed = self.listings.filter(member=member, is_listed=True).exists()
         with transaction.atomic():
             listing, _created = LeadershipListing.objects.update_or_create(
                 tab=self, member=member, defaults={"is_listed": True, "sort_order": sort_order}
             )
             if not listing.roles.filter(title=title).exists():
                 listing.add_role(title, email)
+            if not was_listed:
+                self._reconcile_discord_roles(member.pk)
         return listing
+
+    def add_listed(self, member: Member, sort_order: int) -> LeadershipListing:
+        """Make a card on show for ``member`` at ``sort_order``, with no role lines yet (the roster import).
+
+        The member's Discord leadership roles are brought in step after the commit (#1148).
+        """
+        listing = LeadershipListing.objects.create(tab=self, member=member, is_listed=True, sort_order=sort_order)
+        self._reconcile_discord_roles(member.pk)
+        return listing
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        """Delete the tab and its cards; whoever was on show here has their Discord roles brought in step (#1148)."""
+        listed = list(self.listings.filter(is_listed=True).values_list("member_id", flat=True))
+        result = super().delete(*args, **kwargs)
+        self._reconcile_discord_roles(*listed)
+        return result
+
+    def _reconcile_discord_roles(self, *member_ids: int) -> None:
+        """Enqueue the leadership role reconcile for these members after the commit; only a People tab earns roles."""
+        if self.kind != self.Kind.PEOPLE:
+            return
+        from core.events.discord_leadership_roles import reconcile_on_commit
+
+        reconcile_on_commit(*member_ids)
 
     def reorder_listings(self, ids: list[int]) -> None:
         """Put this tab's cards on show in the order ``ids`` gives, each at its index.
@@ -5458,6 +5554,9 @@ class LeadershipListingQuerySet(models.QuerySet["LeadershipListing"]):
                     stray.sort_order = next_place
                     next_place += 1
                     stray.save(update_fields=["tab", "sort_order", "updated_at"])
+                    if stray.is_listed:
+                        # A card now on show on a People tab may earn Discord roles (#1148).
+                        tab._reconcile_discord_roles(stray.member_id)
                     continue
                 held = set(existing.roles.values_list("title", flat=True))
                 for role in stray.roles.all():
@@ -5536,9 +5635,16 @@ class LeadershipListing(models.Model):
         return self.roles.create(title=title, email=email, sort_order=0 if last is None else last + 1)
 
     def remove_from_tab(self) -> None:
-        """Take the card off its tab and keep its role lines, so adding the member back restores them."""
+        """Take the card off its tab and keep its role lines, so adding the member back restores them.
+
+        A card that was on show has its member's Discord leadership roles brought in step
+        after the commit (#1148).
+        """
+        was_listed = self.is_listed
         self.is_listed = False
         self.save(update_fields=["is_listed", "updated_at"])
+        if was_listed and self.tab is not None:
+            self.tab._reconcile_discord_roles(self.member_id)
 
 
 class LeadershipRole(models.Model):
