@@ -14,7 +14,7 @@ import pytest
 from django.apps import apps
 from django.contrib.auth import get_user_model
 
-from membership.models import GuildStaffMembership, Member
+from membership.models import GuildStaffMembership, Member, RetiredGuildOfficer
 from tests.membership.factories import GuildFactory, MemberFactory
 
 _migration = import_module("membership.migrations.0275_retire_guild_officer_role")
@@ -104,10 +104,45 @@ def describe_migration_0275_retire_guild_officer_role():
         assert lead.can_edit_guild(elsewhere) is False
         assert staffer.can_edit_guild(elsewhere) is False
 
-    def it_is_a_no_op_in_reverse():
-        _officer("officer-reverse")
+    def it_records_each_officer_and_whether_their_login_had_staff():
+        officer = _officer("officer-record")
+        no_login = MemberFactory(user=None)
+        Member.objects.filter(pk=no_login.pk).update(fog_role=_migration.RETIRED_ROLE)
+
         _run()
 
-        _migration.Migration.operations[0].reverse_code(apps, None)
+        records = {r.member_id: r.had_is_staff for r in RetiredGuildOfficer.objects.all()}
+        assert records == {officer.pk: True, no_login.pk: False}
 
-        assert not Member.objects.filter(fog_role=_migration.RETIRED_ROLE).exists()
+    def describe_the_reverse():
+        def it_puts_the_role_and_the_staff_flag_back():
+            officer = _officer("officer-reverse")
+            _run()
+
+            _migration.restore_guild_officers(apps, None)
+
+            officer.refresh_from_db()
+            officer.user.refresh_from_db()
+            assert officer.fog_role == _migration.RETIRED_ROLE
+            assert officer.user.is_staff is True
+            assert not RetiredGuildOfficer.objects.exists()
+
+        def it_restores_an_officer_with_no_login():
+            officer = MemberFactory(user=None)
+            Member.objects.filter(pk=officer.pk).update(fog_role=_migration.RETIRED_ROLE)
+            _run()
+
+            _migration.restore_guild_officers(apps, None)
+
+            officer.refresh_from_db()
+            assert officer.fog_role == _migration.RETIRED_ROLE
+
+        def it_touches_nobody_who_was_not_an_officer():
+            member = MemberFactory(fog_role=Member.FogRole.MEMBER)
+            _officer("officer-other")
+            _run()
+
+            _migration.restore_guild_officers(apps, None)
+
+            member.refresh_from_db()
+            assert member.fog_role == Member.FogRole.MEMBER

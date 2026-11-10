@@ -60,7 +60,7 @@ Three places an email can live for a Member. Future agents MUST understand which
 
 Never set `is_staff`/`is_superuser` directly — always go through `set_fog_role()`.
 
-**There is no Guild Officer role** (`docs/adr/0004-guild-officer-is-leadership-not-a-role.md`). Migration `0275` moved every `guild_officer` holder to `member` and took away the `is_staff` it gave them. A guild officer is a member who leads or staffs a guild, derived from those rows; the rule everywhere is own guild = leadership, every guild = admin. Never reintroduce a hand set cross-guild tier: `membership.permissions.is_effective_staff` keeps its name but means an effective admin.
+**There is no Guild Officer role** (`docs/adr/0004-guild-officer-is-leadership-not-a-role.md`). Migration `0275` moved every `guild_officer` holder to `member` and took away the `is_staff` it gave them, recording each in `RetiredGuildOfficer` (who held it, and whether their login had `is_staff`), which only the migration's reverse reads. A guild officer is a member who leads or staffs a guild, derived from those rows; the rule everywhere is own guild = leadership, every guild = admin. Never reintroduce a hand set cross-guild tier: `membership.permissions.is_effective_staff` keeps its name but means an effective admin.
 
 ## Guild Leads — edit authority
 

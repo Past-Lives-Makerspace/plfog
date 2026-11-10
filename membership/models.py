@@ -4398,6 +4398,21 @@ class Guild(HeroCropMixin, models.Model):
         return self.discord_channel_name
 
 
+class RetiredGuildOfficer(models.Model):
+    """One member who held the retired Guild Officer role when migration 0275 ran (ADR 0004).
+
+    Written once by that migration and read only by its reverse, which puts the role and the
+    login's ``is_staff`` back. Nothing in the app reads it; it is also the record of who held it.
+    """
+
+    member = models.OneToOneField(Member, on_delete=models.CASCADE, related_name="+")
+    had_is_staff = models.BooleanField(default=False)
+    retired_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"Retired Guild Officer: {self.member}"
+
+
 class GuildStaffMembership(models.Model):
     """A member's leadership role on a guild, beyond the single ``Guild.guild_lead`` FK.
 

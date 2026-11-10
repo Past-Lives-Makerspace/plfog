@@ -5,30 +5,52 @@ carried Django ``is_staff``. It had drifted onto nearly every guild lead and Co-
 could change other guilds' settings. A guild officer is now whoever leads or staffs a guild,
 derived from those rows, and the only cross-guild tier is admin.
 
-The data step moves every holder to ``member`` and takes away the ``is_staff`` the role gave
-their login, as ``Member.sync_user_permissions`` now does for a member. A superuser's flags are
-left alone here; their next sign-in syncs them from the role, as it always has. Their guild authority is unchanged: it comes from their lead and staff rows. The
-reverse is a no-op, because who held the role is not recorded anywhere to put back.
+The data step first records each holder in ``RetiredGuildOfficer`` with whether their login
+had ``is_staff``, then moves them to ``member`` and takes that ``is_staff`` away, as
+``Member.sync_user_permissions`` now does for a member. A superuser's flags are left alone here;
+their next sign-in syncs them from the role, as it always has. Their guild authority is
+unchanged: it comes from their lead and staff rows. The reverse reads the record and puts the
+role and ``is_staff`` back.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+import django.db.models.deletion
 from django.db import migrations, models
 
 RETIRED_ROLE = "guild_officer"
 
 
 def retire_guild_officers(apps: Any, schema_editor: Any) -> None:
-    """Make every Guild Officer a member and drop the ``is_staff`` the role gave their login."""
+    """Record every Guild Officer, make them a member and drop the ``is_staff`` the role gave their login."""
     member_model = apps.get_model("membership", "Member")
+    record_model = apps.get_model("membership", "RetiredGuildOfficer")
     user_model = apps.get_model("auth", "User")
 
-    officers = member_model.objects.filter(fog_role=RETIRED_ROLE)
+    officers = member_model.objects.filter(fog_role=RETIRED_ROLE).select_related("user")
+    record_model.objects.bulk_create(
+        record_model(member=officer, had_is_staff=bool(officer.user and officer.user.is_staff)) for officer in officers
+    )
     user_ids = list(officers.filter(user__isnull=False).values_list("user_id", flat=True))
     user_model.objects.filter(pk__in=user_ids, is_superuser=False).update(is_staff=False)
     officers.update(fog_role="member")
+
+
+def restore_guild_officers(apps: Any, schema_editor: Any) -> None:
+    """Put the role back on every recorded member, and ``is_staff`` on the logins that had it."""
+    member_model = apps.get_model("membership", "Member")
+    record_model = apps.get_model("membership", "RetiredGuildOfficer")
+    user_model = apps.get_model("auth", "User")
+
+    records = record_model.objects.all()
+    member_model.objects.filter(pk__in=records.values("member_id")).update(fog_role=RETIRED_ROLE)
+    staff_user_ids = member_model.objects.filter(
+        pk__in=records.filter(had_is_staff=True).values("member_id"), user__isnull=False
+    ).values("user_id")
+    user_model.objects.filter(pk__in=staff_user_ids).update(is_staff=True)
+    records.delete()
 
 
 class Migration(migrations.Migration):
@@ -38,7 +60,21 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(retire_guild_officers, migrations.RunPython.noop),
+        migrations.CreateModel(
+            name="RetiredGuildOfficer",
+            fields=[
+                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("had_is_staff", models.BooleanField(default=False)),
+                ("retired_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "member",
+                    models.OneToOneField(
+                        on_delete=django.db.models.deletion.CASCADE, related_name="+", to="membership.member"
+                    ),
+                ),
+            ],
+        ),
+        migrations.RunPython(retire_guild_officers, restore_guild_officers),
         migrations.AlterField(
             model_name="member",
             name="fog_role",
