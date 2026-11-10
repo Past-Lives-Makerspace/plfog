@@ -74,7 +74,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak class="pl-settings-tab pl-settings-tab--tight">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_reservations_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_member_role_id' and field.name != 'discord_leadership_role_id' and field.name != 'discord_guild_officers_role_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'discord_role_message_extra_ids' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'eventbrite_sync_enabled' and field.name != 'discord_calendar_channel_id' and field.name != 'discord_calendar_posts_enabled' and field.name != 'discord_classes_channel_id' and field.name != 'discord_classes_posts_enabled' and field.name != 'discord_info_channel_id' and field.name != 'discord_info_message_id' and field.name != 'discord_info_links_content' and field.name != 'org_name' and field.name != 'org_short_name' and field.name != 'org_legal_name' and field.name != 'org_logo' and field.name != 'org_primary_color' and field.name != 'org_support_email' and field.name != 'org_website_url' and field.name != 'google_play_url' and field.name != 'app_store_url' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_reservations_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_member_role_id' and field.name != 'discord_leadership_role_id' and field.name != 'discord_guild_officers_role_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'discord_role_message_extra_ids' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'eventbrite_sync_enabled' and field.name != 'discord_calendar_channel_id' and field.name != 'discord_calendar_posts_enabled' and field.name != 'discord_classes_channel_id' and field.name != 'discord_classes_posts_enabled' and field.name != 'discord_info_channel_id' and field.name != 'discord_info_message_id' and field.name != 'discord_info_links_content' and field.name != 'discord_leadership_directory_channel_id' and field.name != 'org_name' and field.name != 'org_short_name' and field.name != 'org_legal_name' and field.name != 'org_logo' and field.name != 'org_primary_color' and field.name != 'org_support_email' and field.name != 'org_website_url' and field.name != 'google_play_url' and field.name != 'app_store_url' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -295,6 +295,18 @@
         {% include "components/form_field.html" with field=form.discord_info_channel_id field_hint="The channel id of #important-info (Discord → right-click the channel → Copy Channel ID). Blank disables syncing." %}
         {% include "components/form_field.html" with field=form.discord_info_message_id field_hint="The id of the bot's pinned message in that channel (right-click the message → Copy Message ID). The Member Portal edits it in place." %}
         {% include "components/form_field.html" with field=form.discord_info_links_content field_hint="Discord-flavored markdown (**bold**, bare URLs auto-link). The bot-commands embed below it is generated automatically from the registered slash commands — nothing to edit here." %}
+      </div>
+
+      {# ---- #leadership-directory post (#1149) ---- #}
+      <div class="hub-card" style="padding:1.5rem;">
+        <div style="margin-bottom:1.25rem;">
+          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Leadership Directory Post</h2>
+          <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
+            FOG keeps a post in this channel that shows the Leadership Directory, and edits it in place
+            shortly after anything on the directory changes.
+          </p>
+        </div>
+        {% include "components/form_field.html" with field=form.discord_leadership_directory_channel_id field_hint="The channel id of #leadership-directory (Discord, right-click the channel, Copy Channel ID). Blank turns the post off." %}
       </div>
 
       {# ---- D2: Emoji → guild map (list editor) ---- #}

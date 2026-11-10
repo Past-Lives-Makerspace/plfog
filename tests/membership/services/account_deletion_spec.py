@@ -19,6 +19,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from PIL import Image
 
+from core.events.discord_leadership_directory import _SyncWhenCommitted
 from core.models import (
     BiometricCredential,
     FcmDevice,
@@ -360,6 +361,15 @@ def describe_delete_own_account():
 
         guild.refresh_from_db()
         assert guild.guild_lead_id is None
+
+    def it_syncs_the_discord_leadership_directory_post(django_capture_on_commit_callbacks):
+        # The lead and staff rows go by bulk writes that skip the model methods (#1149).
+        with django_capture_on_commit_callbacks(execute=True):
+            member = _linked_member()
+            GuildFactory(guild_lead=member)
+        with django_capture_on_commit_callbacks() as callbacks:
+            delete_own_account(member)
+        assert len([cb for cb in callbacks if isinstance(cb, _SyncWhenCommitted)]) == 1
 
     def it_removes_guild_staff_memberships():
         member = _linked_member()

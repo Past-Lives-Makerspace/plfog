@@ -16,6 +16,7 @@ from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.utils import timezone
 
+from core.events.discord_leadership_directory import _SyncWhenCommitted
 from core.models import Notification
 from membership import orientations
 from membership.models import (
@@ -279,7 +280,8 @@ def describe_a_member_leaving_active():
         with django_capture_on_commit_callbacks() as callbacks:
             orientor.full_legal_name = "Renamed Person"
             orientor.save()
-        assert callbacks == []
+        # A lead's rename syncs the Discord leadership directory post (#1149); nothing else is queued.
+        assert [cb for cb in callbacks if not isinstance(cb, _SyncWhenCommitted)] == []
         assert OrientationAvailability.objects.filter(pk=rule.pk).exists()
 
     def it_leaves_other_orientors_alone(django_capture_on_commit_callbacks):

@@ -1840,6 +1840,7 @@ class SiteSettingsForm(_OwnFieldErrorsOnly):
             "discord_info_channel_id",
             "discord_info_message_id",
             "discord_info_links_content",
+            "discord_leadership_directory_channel_id",
         ]
         widgets = {
             "org_primary_color": forms.TextInput(attrs={"type": "color"}),
@@ -1851,6 +1852,18 @@ class SiteSettingsForm(_OwnFieldErrorsOnly):
             "public_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
             "discord_info_links_content": forms.Textarea(attrs={"rows": 14}),
         }
+
+    def save(self, commit: bool = True) -> SiteConfiguration:
+        """Write only this form's columns, as ``_SiteConfigurationSliceForm`` does.
+
+        A whole row save would put back, from the copy this page loaded, columns other code
+        writes meanwhile: the leadership directory sync's message ids, hash and date (#1149)
+        and the other pages' settings.
+        """
+        instance = cast(SiteConfiguration, super().save(commit=False))
+        if commit:
+            instance.save(update_fields=list(self._meta.fields or ()))
+        return instance
 
     def _clean_role_id(self, name: str) -> str:
         """A Discord role id is digits only; blank turns that role off."""
@@ -1864,6 +1877,13 @@ class SiteSettingsForm(_OwnFieldErrorsOnly):
 
     def clean_discord_guild_officers_role_id(self) -> str:
         return self._clean_role_id("discord_guild_officers_role_id")
+
+    def clean_discord_leadership_directory_channel_id(self) -> str:
+        """A Discord channel id is digits only; blank turns the leadership directory post off (#1149)."""
+        value = str(self.cleaned_data.get("discord_leadership_directory_channel_id") or "").strip()
+        if value and not re.fullmatch(r"[0-9]+", value):
+            raise forms.ValidationError("A Discord channel id is numbers only. Leave it blank to turn the post off.")
+        return value
 
     def check_discord_role_ids(self, role_formset: forms.BaseModelFormSet[Guild, GuildRoleForm] | None) -> bool:
         """Refuse Discord role ids that clash (#1148); call after this form and ``role_formset`` are valid.
