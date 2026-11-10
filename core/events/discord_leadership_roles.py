@@ -21,11 +21,17 @@ not get it back (Felix, 2026-11-09). :func:`desired_role_ids` is the only place 
 :func:`reconcile_member` reads the member's roles once, then PUTs each role they should hold
 and do not, and DELETEs each managed role they hold and should not; a role outside the managed
 set (guild member roles, Member, anything else) is never touched, and a second run sends
-nothing. Every Discord call is the best-effort idiom of :mod:`core.events.discord_roles`, so
-nothing here raises on a Discord failure and a blank bot token (staging) sends nothing.
+nothing. Member access roles (``discord_member_role_id`` and every guild's
+``discord_role_ids``) are never managed, even if an id was typed into both places. Every Discord
+call is the best-effort idiom of :mod:`core.events.discord_roles` (a 429 is waited out and tried
+once more), and a blank bot token (staging) sends nothing. A call that still fails is not raised
+where it happens: the task bodies raise :class:`LeadershipRoleSyncError` at the end, after every
+other change was tried, so the task is recorded FAILED and the Webmasters are alerted.
 
 Callers never reconcile inline: :func:`reconcile_on_commit` enqueues the
 :func:`reconcile_leadership_roles` task once the save commits, once per member per transaction.
+Correctness relies on one serial worker: two workers running at once could run two reconciles
+for one member out of order.
 """
 
 from __future__ import annotations
@@ -37,13 +43,19 @@ from typing import TYPE_CHECKING
 from django.db import transaction
 from django.tasks import task
 
-from core.events.discord_roles import assign_role, member_role_ids, remove_role, server_member_role_ids
+from core.events.discord_roles import RoleOutcome, read_member_roles, role_outcome, server_member_role_ids
 from core.tasks import enqueue_on_commit
 
 if TYPE_CHECKING:
     from membership.models import Member
 
 LEADERSHIP_NAME = "leadership"
+
+
+class LeadershipRoleSyncError(Exception):
+    """A Discord call a role task needed still failed after its retry; raised so the task fails loudly."""
+
+
 GUILD_OFFICERS_NAME = "Guild Officers"
 
 
@@ -76,12 +88,15 @@ class LeadershipRoleSettings:
         lead_role_ids: Guild pk to its ``discord_lead_role_id``, for every guild that has one,
             hidden and deleted guilds too, so their lead roles stay managed and are taken back.
         guild_names: Guild pk to name, for :meth:`role_name`.
+        access_role_ids: Roles that give members access and are never managed here:
+            ``discord_member_role_id`` and every guild's ``discord_role_ids``.
     """
 
     leadership_role_id: str = ""
     guild_officers_role_id: str = ""
     lead_role_ids: dict[int, str] = field(default_factory=dict)
     guild_names: dict[int, str] = field(default_factory=dict)
+    access_role_ids: frozenset[str] = frozenset()
 
     @classmethod
     def load(cls) -> LeadershipRoleSettings:
@@ -92,23 +107,31 @@ class LeadershipRoleSettings:
         config = SiteConfiguration.load()
         lead_role_ids: dict[int, str] = {}
         guild_names: dict[int, str] = {}
-        for pk, name, role_id in Guild.all_objects.exclude(discord_lead_role_id="").values_list(
-            "pk", "name", "discord_lead_role_id"
+        access = {(config.discord_member_role_id or "").strip()}
+        for pk, name, role_id, member_role_ids in Guild.all_objects.values_list(
+            "pk", "name", "discord_lead_role_id", "discord_role_ids"
         ):
-            lead_role_ids[pk] = role_id.strip()
-            guild_names[pk] = name
+            access.update(str(member_role_id).strip() for member_role_id in member_role_ids or [])
+            if role_id.strip():
+                lead_role_ids[pk] = role_id.strip()
+                guild_names[pk] = name
         return cls(
             leadership_role_id=config.discord_leadership_role_id.strip(),
             guild_officers_role_id=config.discord_guild_officers_role_id.strip(),
             lead_role_ids=lead_role_ids,
             guild_names=guild_names,
+            access_role_ids=frozenset(role_id for role_id in access if role_id),
         )
 
     @property
     def managed(self) -> frozenset[str]:
-        """Every role id the app adds and removes; nothing outside it is ever touched."""
+        """Every role id the app adds and removes; nothing outside it is ever touched.
+
+        A member access role is taken out even when an id was also typed in as a managed
+        one, the second guard behind the Site Settings check (:func:`role_id_conflicts`).
+        """
         ids = {self.leadership_role_id, self.guild_officers_role_id, *self.lead_role_ids.values()}
-        return frozenset(role_id for role_id in ids if role_id)
+        return frozenset(role_id for role_id in ids if role_id) - self.access_role_ids
 
     def role_name(self, role_id: str) -> str:
         """A readable name for a managed role id, for the command's report."""
@@ -136,7 +159,7 @@ def desired_role_ids(facts: LeadershipFacts, settings: LeadershipRoleSettings) -
         wanted.add(settings.leadership_role_id)
     if facts.led_guild_ids or facts.other_staff or facts.listed:
         wanted.add(settings.guild_officers_role_id)
-    return frozenset(role_id for role_id in wanted if role_id)
+    return frozenset(role_id for role_id in wanted if role_id) & settings.managed
 
 
 def leadership_facts(member_ids: Iterable[int] | None = None) -> dict[int, LeadershipFacts]:
@@ -178,10 +201,31 @@ def leadership_facts(member_ids: Iterable[int] | None = None) -> dict[int, Leade
 
 @dataclass
 class RoleChanges:
-    """The role ids one reconcile added and removed (only the calls Discord accepted)."""
+    """What one reconcile or strip did.
+
+    Attributes:
+        added: Role ids Discord accepted adding.
+        removed: Role ids Discord accepted removing.
+        failed: Role ids whose call still failed after its retry (a network error, a 429, a 5xx).
+        read_failed: The member's roles could not be read, so nothing was changed.
+    """
 
     added: list[str] = field(default_factory=list)
     removed: list[str] = field(default_factory=list)
+    failed: list[str] = field(default_factory=list)
+    read_failed: bool = False
+
+    @property
+    def ok(self) -> bool:
+        """Whether every call that was needed went through (a benign 403 or 404 counts as through)."""
+        return not self.failed and not self.read_failed
+
+    def raise_if_failed(self, who: str) -> None:
+        """Raise :class:`LeadershipRoleSyncError` naming ``who`` when anything failed; call it last."""
+        if self.read_failed:
+            raise LeadershipRoleSyncError(f"Could not read the Discord roles of {who}.")
+        if self.failed:
+            raise LeadershipRoleSyncError(f"Discord role changes failed for {who}: {', '.join(self.failed)}.")
 
 
 def plan_changes(
@@ -198,6 +242,26 @@ def server_id() -> str:
     from core.models import SiteConfiguration
 
     return (SiteConfiguration.load().discord_server_id or "").strip()
+
+
+def _apply(server: str, user_id: str, to_add: Iterable[str], to_remove: Iterable[str], changes: RoleChanges) -> None:
+    """Send each PUT and DELETE, recording what went through and what failed; every one is tried."""
+    for method, role_ids, done in (("PUT", to_add, changes.added), ("DELETE", to_remove, changes.removed)):
+        for role_id in role_ids:
+            outcome = role_outcome(method, server, user_id, role_id)
+            if outcome is RoleOutcome.DONE:
+                done.append(role_id)
+            elif outcome is RoleOutcome.FAILED:
+                changes.failed.append(role_id)
+
+
+def _held(server: str, user_id: str, current: Iterable[str] | None, changes: RoleChanges) -> set[str] | None:
+    """The roles ``user_id`` holds: ``current`` when given, else one read (a failed read is recorded)."""
+    if current is not None:
+        return set(current)
+    read = read_member_roles(server, user_id)
+    changes.read_failed = read.failed
+    return read.roles
 
 
 def reconcile_member(
@@ -218,7 +282,7 @@ def reconcile_member(
         settings: The configured ids, when the caller already loaded them.
 
     Returns:
-        What Discord accepted.
+        What went through and what failed.
     """
     changes = RoleChanges()
     server = server_id()
@@ -228,28 +292,67 @@ def reconcile_member(
     settings = settings or LeadershipRoleSettings.load()
     if not settings.managed:
         return changes
-    held = member_role_ids(server, user_id) if current is None else set(current)
+    held = _held(server, user_id, current, changes)
     if held is None:
         return changes
     facts = leadership_facts([member.pk]).get(member.pk, NO_FACTS)
     to_add, to_remove = plan_changes(facts, held, settings)
-    for role_id in to_add:
-        if assign_role(server, user_id, role_id):
-            changes.added.append(role_id)
-    for role_id in to_remove:
-        if remove_role(server, user_id, role_id):
-            changes.removed.append(role_id)
+    _apply(server, user_id, to_add, to_remove, changes)
+    return changes
+
+
+def strip_managed_roles(
+    discord_user_id: str,
+    *,
+    current: Iterable[str] | None = None,
+    settings: LeadershipRoleSettings | None = None,
+) -> RoleChanges:
+    """Take every managed role off a Discord account the app no longer links to anyone. Never raises on Discord.
+
+    For an account a member unlinked or deleted, and for a server member holding a managed
+    role whom no linked member answers to (the command). Reads their roles once unless
+    ``current`` is given.
+    """
+    changes = RoleChanges()
+    server = server_id()
+    user_id = (discord_user_id or "").strip()
+    if not server or not user_id:
+        return changes
+    settings = settings or LeadershipRoleSettings.load()
+    if not settings.managed:
+        return changes
+    held = _held(server, user_id, current, changes)
+    if held is None:
+        return changes
+    _apply(server, user_id, (), sorted(held & settings.managed), changes)
     return changes
 
 
 @task
 def reconcile_leadership_roles(member_id: int) -> None:
-    """Reconcile one member's leadership roles on Discord. Safe to run twice; a gone member is skipped."""
+    """Reconcile one member's leadership roles on Discord. Safe to run twice; a gone member is skipped.
+
+    Raises:
+        LeadershipRoleSyncError: A Discord call still failed after its retry, raised after
+            every other change was tried, so the task is recorded FAILED and alerts.
+    """
     from membership.models import Member
 
     member = Member.objects.filter(pk=member_id).first()
     if member is not None:
-        reconcile_member(member)
+        reconcile_member(member).raise_if_failed(f"member {member_id}")
+
+
+@task
+def strip_leadership_roles(discord_user_id: str) -> None:
+    """Take every managed role off a Discord account that was unlinked or whose member was deleted. Safe twice.
+
+    Keyed by the Discord id, because the member row no longer carries it when this runs.
+
+    Raises:
+        LeadershipRoleSyncError: A Discord call still failed after its retry.
+    """
+    strip_managed_roles(discord_user_id).raise_if_failed(f"Discord account {discord_user_id}")
 
 
 @task
@@ -258,20 +361,89 @@ def remove_retired_role(role_id: str) -> None:
 
     Enqueued when a guild's ``discord_lead_role_id`` changes away from ``role_id``: the
     reconcile only manages ids still configured, so the old one would otherwise stay on its
-    holders. Skips a blank id, and one still configured anywhere (another guild's lead role,
-    leadership, Guild Officers), since then the reconcile owns it. Reads the member list once;
-    every call is best effort and never raises.
+    holders. Skips a blank id, one still configured anywhere (another guild's lead role,
+    leadership, Guild Officers), since then the reconcile owns it, and a member access role
+    (``discord_member_role_id``, any guild's ``discord_role_ids``). Reads the member list once.
+
+    Raises:
+        LeadershipRoleSyncError: The member list could not be read, or a removal still failed
+            after its retry (raised after every holder was tried).
     """
     role_id = (role_id or "").strip()
     server = server_id()
-    if not role_id or not server or role_id in LeadershipRoleSettings.load().managed:
+    settings = LeadershipRoleSettings.load()
+    if not role_id or not server or role_id in settings.managed or role_id in settings.access_role_ids:
         return
     roster = server_member_role_ids(server)
     if roster is None:
-        return
-    for user_id, roles in roster.items():
-        if role_id in roles:
-            remove_role(server, user_id, role_id)
+        raise LeadershipRoleSyncError(f"Could not read the Discord member list to retire role {role_id}.")
+    failed = [
+        user_id
+        for user_id, roles in roster.items()
+        if role_id in roles and role_outcome("DELETE", server, user_id, role_id) is RoleOutcome.FAILED
+    ]
+    if failed:
+        raise LeadershipRoleSyncError(f"Could not take role {role_id} off {len(failed)} Discord accounts.")
+
+
+def strip_on_commit(discord_user_id: str) -> None:
+    """Enqueue :func:`strip_leadership_roles` for this Discord id after commit; a blank id does nothing."""
+    user_id = (discord_user_id or "").strip()
+    if user_id:
+        enqueue_on_commit(strip_leadership_roles, user_id)
+
+
+def role_id_conflicts(
+    *,
+    member_role_id: str,
+    leadership_role_id: str,
+    guild_officers_role_id: str,
+    guilds: dict[int, tuple[str, list[str]]],
+) -> tuple[dict[str, str], dict[int, str]]:
+    """Why the role ids as they would be saved clash, for the Site Settings save to refuse.
+
+    The managed ids (leadership, Guild Officers, each guild's lead role) must all differ from
+    one another and from every member access role (the Member role and any guild's member
+    role ids); otherwise the sync would hand out or take away access.
+
+    Args:
+        member_role_id: ``discord_member_role_id``.
+        leadership_role_id: ``discord_leadership_role_id``.
+        guild_officers_role_id: ``discord_guild_officers_role_id``.
+        guilds: Guild pk to (its lead role id, its member role ids), for every guild. A lead
+            role id two guilds share is reported on the later one in this order.
+
+    Returns:
+        (Site Settings field name to message, guild pk to message for its lead role id).
+    """
+    access = {member_role_id.strip()} | {
+        str(role_id).strip() for _lead, member_ids in guilds.values() for role_id in member_ids
+    }
+    access.discard("")
+    site_errors: dict[str, str] = {}
+    guild_errors: dict[int, str] = {}
+    access_message = "This id is a member access role (the Member role or a guild's role). Use a different role."
+    leadership = leadership_role_id.strip()
+    officers = guild_officers_role_id.strip()
+    if leadership in access:
+        site_errors["discord_leadership_role_id"] = access_message
+    if officers in access:
+        site_errors["discord_guild_officers_role_id"] = access_message
+    elif officers and officers == leadership:
+        site_errors["discord_guild_officers_role_id"] = "Guild Officers needs its own role, not the leadership role."
+    seen: set[str] = set()
+    for pk, (raw_lead, _member_ids) in guilds.items():
+        lead = raw_lead.strip()
+        if not lead:
+            continue
+        if lead in access:
+            guild_errors[pk] = access_message
+        elif lead in (leadership, officers):
+            guild_errors[pk] = "A guild lead role needs its own role, not the leadership or Guild Officers role."
+        elif lead in seen:
+            guild_errors[pk] = "Another guild already uses this lead role id."
+        seen.add(lead)
+    return site_errors, guild_errors
 
 
 class _ReconcileWhenCommitted:
@@ -291,6 +463,23 @@ class _ReconcileWhenCommitted:
         enqueue_on_commit(reconcile_leadership_roles, self.member_id)
 
 
+def _waiting_member_ids() -> set[int]:
+    """Members whose reconcile is already waiting on this transaction's commit.
+
+    Reads ``run_on_commit``, which is Django's internal list. If its shape ever changes this
+    answers empty, and the only cost is a duplicate task (harmless: the reconcile is safe to
+    run twice), never a missed one.
+    """
+    try:
+        return {
+            func.member_id
+            for _sids, func, _robust in transaction.get_connection().run_on_commit
+            if isinstance(func, _ReconcileWhenCommitted) and not func.fired
+        }
+    except Exception:  # noqa: BLE001 - dedupe is an optimisation; plain registration is always correct.
+        return set()
+
+
 def reconcile_on_commit(*member_ids: int | None) -> None:
     """Enqueue :func:`reconcile_leadership_roles` for each member once the transaction commits.
 
@@ -299,12 +488,7 @@ def reconcile_on_commit(*member_ids: int | None) -> None:
     drops the callback and enqueues nothing. None ids are ignored, so a caller can pass an
     absent previous lead as is.
     """
-    connection = transaction.get_connection()
-    waiting = {
-        func.member_id
-        for _sids, func, _robust in connection.run_on_commit
-        if isinstance(func, _ReconcileWhenCommitted) and not func.fired
-    }
+    waiting = _waiting_member_ids()
     for member_id in dict.fromkeys(member_ids):
         if member_id is None or member_id in waiting:
             continue

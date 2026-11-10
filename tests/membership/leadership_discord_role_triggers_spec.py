@@ -33,6 +33,20 @@ pytestmark = pytest.mark.django_db
 T = TypeVar("T")
 
 
+API = "https://discord.com/api/v10"
+
+
+@pytest.fixture
+def discord_on(settings):
+    settings.DISCORD_BOT_TOKEN = "bot-tok"
+    config = SiteConfiguration.load()
+    config.discord_server_id = "srv"
+    config.discord_leadership_role_id = "111"
+    config.discord_guild_officers_role_id = "222"
+    config.save()
+    return config
+
+
 def _settled(django_capture_on_commit_callbacks: Callable[..., Any], build: Callable[[], T]) -> T:
     """Build the setup and fire its own commit callbacks, so a spec sees only what its action queues.
 
@@ -200,10 +214,16 @@ def describe_guild_changes():
             visibility_form.save(commit=False)
         assert _queued(callbacks) == []
 
-    def it_refuses_a_lead_role_id_that_is_not_a_number():
-        form = GuildRoleForm({"discord_role_ids": "", "discord_lead_role_id": "Wood Lead"}, instance=GuildFactory())
+    @pytest.mark.parametrize("value", ["Wood Lead", "\u00b2\u00b3", "12 34"])
+    def it_refuses_a_lead_role_id_that_is_not_ascii_digits(value):
+        form = GuildRoleForm({"discord_role_ids": "", "discord_lead_role_id": value}, instance=GuildFactory())
         assert not form.is_valid()
         assert "digits only" in form.errors["discord_lead_role_id"][0]
+
+    def it_refuses_superscript_digits_in_the_member_role_ids():
+        form = GuildRoleForm({"discord_role_ids": "12 \u00b2", "discord_lead_role_id": ""}, instance=GuildFactory())
+        assert not form.is_valid()
+        assert "discord_role_ids" in form.errors
 
     def it_queues_the_lead_when_the_guild_is_deleted(django_capture_on_commit_callbacks):
         lead = MemberFactory()
@@ -284,11 +304,51 @@ def describe_discord_link():
             member.link_discord("4242")
         assert _queued(callbacks) == [member.pk]
 
-    def it_queues_nothing_on_unlink(django_capture_on_commit_callbacks):
+    def it_queues_no_reconcile_on_unlink(django_capture_on_commit_callbacks):
         member = MemberFactory(discord_user_id="4242")
         with django_capture_on_commit_callbacks() as callbacks:
             member.unlink_discord()
         assert _queued(callbacks) == []
+
+    @respx.mock
+    def it_takes_the_managed_roles_off_the_old_account_on_unlink(discord_on, django_capture_on_commit_callbacks):
+        member = MemberFactory(discord_user_id="4242")
+        respx.get(f"{API}/guilds/srv/members/4242").mock(
+            return_value=httpx.Response(200, json={"roles": ["111", "999"]})
+        )
+        delete = respx.delete(url__regex=r".+").mock(return_value=httpx.Response(204))
+        with django_capture_on_commit_callbacks(execute=True):
+            member.unlink_discord()
+            assert not delete.called
+        assert [call.request.url.path for call in delete.calls] == ["/api/v10/guilds/srv/members/4242/roles/111"]
+
+    @respx.mock
+    def it_sends_nothing_when_an_unlinked_member_unlinks_again(discord_on, django_capture_on_commit_callbacks):
+        member = MemberFactory(discord_user_id="")
+        route = respx.route().mock(return_value=httpx.Response(204))
+        with django_capture_on_commit_callbacks(execute=True):
+            member.unlink_discord()
+        assert not route.called
+
+
+def describe_account_deletion():
+    @respx.mock
+    def it_takes_the_managed_roles_off_the_deleted_members_discord(discord_on, django_capture_on_commit_callbacks):
+        from membership.services.account_deletion import delete_own_account
+        from membership.services.provisioning import provision_user_for_member
+
+        member = MemberFactory(discord_user_id="5151")
+        provision_user_for_member(member)
+        member.refresh_from_db()
+        respx.get(f"{API}/guilds/srv/members/5151").mock(
+            return_value=httpx.Response(200, json={"roles": ["111", "222", "999"]})
+        )
+        delete = respx.delete(url__regex=r".+").mock(return_value=httpx.Response(204))
+        with django_capture_on_commit_callbacks(execute=True):
+            delete_own_account(member)
+        member.refresh_from_db()
+        assert member.discord_user_id == ""
+        assert sorted(call.request.url.path.rsplit("/", 1)[1] for call in delete.calls) == ["111", "222"]
 
 
 def describe_end_to_end():

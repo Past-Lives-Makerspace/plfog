@@ -56,11 +56,70 @@ def describe_site_role_ids():
         assert config.discord_leadership_role_id == "1534"
         assert config.discord_guild_officers_role_id == "1535"
 
-    def it_refuses_an_id_that_is_not_a_number(admin_client: Client):
-        resp = admin_client.post(reverse("hub_admin_site_settings"), _post(discord_guild_officers_role_id="officers"))
+    @pytest.mark.parametrize("value", ["officers", "\u00b9\u00b2"])
+    def it_refuses_an_id_that_is_not_a_number(admin_client: Client, value: str):
+        resp = admin_client.post(reverse("hub_admin_site_settings"), _post(discord_guild_officers_role_id=value))
         assert resp.status_code == 200
         assert "A Discord role id is numbers only" in resp.content.decode()
         assert SiteConfiguration.load().discord_guild_officers_role_id == ""
+
+
+def describe_role_id_clashes():
+    def it_refuses_leadership_equal_to_the_member_role_and_saves_nothing(admin_client: Client):
+        resp = admin_client.post(
+            reverse("hub_admin_site_settings"),
+            _post(discord_member_role_id="500", discord_leadership_role_id="500", org_name="Changed Name"),
+        )
+        assert resp.status_code == 200
+        assert "member access role" in resp.content.decode()
+        config = SiteConfiguration.load()
+        assert config.discord_leadership_role_id == ""
+        assert config.org_name != "Changed Name"
+
+    def it_refuses_officers_equal_to_a_guild_member_role(admin_client: Client):
+        GuildFactory(discord_role_ids=["600"], is_active=False)
+        resp = admin_client.post(reverse("hub_admin_site_settings"), _post(discord_guild_officers_role_id="600"))
+        assert resp.status_code == 200
+        assert SiteConfiguration.load().discord_guild_officers_role_id == ""
+
+    def it_refuses_a_lead_role_shared_by_two_guilds_on_the_row_and_saves_neither(admin_client: Client):
+        first = GuildFactory(name="Alpha")
+        second = GuildFactory(name="Beta")
+        resp = admin_client.post(
+            reverse("hub_admin_site_settings"),
+            _post(
+                **{
+                    "guildroles-TOTAL_FORMS": "2",
+                    "guildroles-INITIAL_FORMS": "2",
+                    "guildroles-0-id": str(first.pk),
+                    "guildroles-0-discord_role_ids": "",
+                    "guildroles-0-discord_lead_role_id": "700",
+                    "guildroles-1-id": str(second.pk),
+                    "guildroles-1-discord_role_ids": "",
+                    "guildroles-1-discord_lead_role_id": "700",
+                }
+            ),
+        )
+        assert resp.status_code == 200
+        assert "Another guild already uses this lead role id." in resp.content.decode()
+        first.refresh_from_db()
+        assert first.discord_lead_role_id == ""
+
+    def it_names_a_hidden_guild_whose_lead_role_clashes(admin_client: Client):
+        GuildFactory(name="Hidden Hall", is_active=False, discord_lead_role_id="800")
+        resp = admin_client.post(
+            reverse("hub_admin_site_settings"), _post(discord_leadership_role_id="800"), follow=True
+        )
+        assert "Hidden Hall lead role id:" in resp.content.decode()
+        assert SiteConfiguration.load().discord_leadership_role_id == ""
+
+    def it_saves_another_tab_against_the_stored_guild_rows(admin_client: Client):
+        resp = admin_client.post(
+            reverse("hub_admin_site_settings"),
+            _post(submitted_tab="general", discord_leadership_role_id="900"),
+        )
+        assert resp.status_code == 302
+        assert SiteConfiguration.load().discord_leadership_role_id == "900"
 
 
 def describe_guild_lead_role_id():

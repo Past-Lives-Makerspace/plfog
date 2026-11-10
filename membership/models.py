@@ -1633,9 +1633,12 @@ class Member(StaffRequestMixin, models.Model):
     def unlink_discord(self) -> None:
         """Clear the linked Discord account (the member opts out of DMs entirely).
 
-        Their Discord leadership roles are left as they are: the role sync skips a member with
-        no linked account, so there is nobody to reconcile (#1148).
+        Every leadership role the app manages comes off the old account after the commit
+        (#1148): the sync skips unlinked members, so it would otherwise never take them back.
         """
+        from core.events.discord_leadership_roles import strip_on_commit
+
+        strip_on_commit(self.discord_user_id)
         self.discord_user_id = ""
         self.discord_linked_at = None
         self.save(update_fields=["discord_user_id", "discord_linked_at"])

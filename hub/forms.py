@@ -1855,7 +1855,7 @@ class SiteSettingsForm(_OwnFieldErrorsOnly):
     def _clean_role_id(self, name: str) -> str:
         """A Discord role id is digits only; blank turns that role off."""
         value = str(self.cleaned_data.get(name) or "").strip()
-        if value and not value.isdigit():
+        if value and not re.fullmatch(r"[0-9]+", value):
             raise forms.ValidationError("A Discord role id is numbers only. Leave it blank to turn this role off.")
         return value
 
@@ -2121,17 +2121,15 @@ class GuildRoleForm(forms.ModelForm):
 
     def clean_discord_lead_role_id(self) -> str:
         value = (self.cleaned_data.get("discord_lead_role_id") or "").strip()
-        if value and not value.isdigit():
+        if value and not re.fullmatch(r"[0-9]+", value):
             raise forms.ValidationError(f"'{value}' is not a valid Discord role id (digits only).")
         return value
 
     def clean_discord_role_ids(self) -> list[str]:
-        import re
-
         raw = self.cleaned_data.get("discord_role_ids", "") or ""
         ids = [token for token in re.split(r"[,\s]+", raw.strip()) if token]
         for token in ids:
-            if not token.isdigit():
+            if not re.fullmatch(r"[0-9]+", token):
                 raise forms.ValidationError(f"'{token}' is not a valid Discord role id (digits only).")
         return ids
 

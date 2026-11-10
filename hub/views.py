@@ -10585,6 +10585,44 @@ def _sync_info_post_if_changed(request: HttpRequest, form: SiteSettingsForm) -> 
         )
 
 
+def _refuse_role_id_conflicts(request: HttpRequest, form: SiteSettingsForm, role_formset: Any | None) -> bool:
+    """Put an error on each Discord role id that clashes (#1148) and say whether there was one.
+
+    The site form and the per guild role table post together, so the check reads both as they
+    would be saved, with every other guild as stored: the managed ids (leadership, Guild
+    Officers, each guild's lead role) must differ from each other and from every member access
+    role. A clash on a guild the table does not show (a hidden one) goes out as a page message.
+    """
+    from core.events.discord_leadership_roles import role_id_conflicts
+
+    posted = {f.instance.pk: f for f in role_formset or [] if f.instance.pk is not None}
+    stored = {
+        pk: (lead, list(member_ids or []), name)
+        for pk, lead, member_ids, name in Guild.all_objects.values_list(
+            "pk", "discord_lead_role_id", "discord_role_ids", "name"
+        )
+    }
+    guilds: dict[int, tuple[str, list[str]]] = {
+        pk: (lead, member_ids) for pk, (lead, member_ids, _name) in stored.items() if pk not in posted
+    }
+    for pk, guild_form in posted.items():
+        guilds[pk] = (guild_form.cleaned_data["discord_lead_role_id"], guild_form.cleaned_data["discord_role_ids"])
+    site_errors, guild_errors = role_id_conflicts(
+        member_role_id=form.cleaned_data.get("discord_member_role_id") or "",
+        leadership_role_id=form.cleaned_data.get("discord_leadership_role_id") or "",
+        guild_officers_role_id=form.cleaned_data.get("discord_guild_officers_role_id") or "",
+        guilds=guilds,
+    )
+    for field_name, message in site_errors.items():
+        form.add_error(field_name, message)
+    for pk, message in guild_errors.items():
+        if pk in posted:
+            posted[pk].add_error("discord_lead_role_id", message)
+        else:
+            messages.error(request, f"{stored[pk][2]} lead role id: {message}")
+    return bool(site_errors or guild_errors)
+
+
 def _save_site_settings(
     request: HttpRequest, config: Any, feed_queryset: Any, active_tab: str
 ) -> tuple[HttpResponse | None, SiteSettingsForm, Any, Any, Any]:
@@ -10609,7 +10647,12 @@ def _save_site_settings(
         role_formset = GuildRoleFormSet(queryset=role_queryset, prefix="guildroles")
 
     discord_ok = (emoji_formset.is_valid() and role_formset.is_valid()) if is_discord else True
-    if form.is_valid() and feed_formset.is_valid() and discord_ok:
+    if (
+        form.is_valid()
+        and feed_formset.is_valid()
+        and discord_ok
+        and not _refuse_role_id_conflicts(request, form, role_formset if is_discord else None)
+    ):
         form.save()
         _sync_info_post_if_changed(request, form)
         instances = feed_formset.save(commit=False)

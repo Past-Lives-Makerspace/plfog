@@ -123,6 +123,37 @@ def describe_dry_run():
             _run()
 
 
+def describe_unlinked_holders():
+    @respx.mock
+    def it_lists_and_strips_a_holder_no_linked_member_answers_to(configured):
+        respx.get(LIST_URL).mock(
+            return_value=httpx.Response(200, json=[{"user": {"id": "66"}, "roles": ["111", "999"]}])
+        )
+        delete = respx.delete(url__regex=r".+").mock(return_value=httpx.Response(204))
+        assert "Discord account 66 (no linked member): remove leadership" in _run()
+        assert not delete.called
+        out = _run("--apply")
+        assert [call.request.url.path for call in delete.calls] == ["/api/v10/guilds/srv/members/66/roles/111"]
+        assert "Added 0 roles and removed 1." in out
+
+
+def describe_failures():
+    @respx.mock
+    def it_reports_failed_changes_in_the_summary(drift, monkeypatch):
+        from core.events import discord_roles
+
+        monkeypatch.setattr(discord_roles, "_sleep", lambda seconds: None)
+        respx.put(url__regex=r".+").mock(return_value=httpx.Response(429))
+        respx.delete(url__regex=r".+").mock(return_value=httpx.Response(204))
+        out = _run("--apply")
+        assert "Added 0 roles and removed 2." in out
+        assert "3 role changes failed; see the log, then run --apply again." in out
+
+    def it_stops_when_the_bot_token_is_blank(configured, settings):
+        settings.DISCORD_BOT_TOKEN = ""
+        assert "bot token is blank" in _run()
+
+
 def describe_apply():
     @respx.mock
     def it_makes_the_changes_and_counts_them(drift):
