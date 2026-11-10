@@ -4405,9 +4405,17 @@ class RetiredGuildOfficer(models.Model):
     login's ``is_staff`` back. Nothing in the app reads it; it is also the record of who held it.
     """
 
-    member = models.OneToOneField(Member, on_delete=models.CASCADE, related_name="+")
-    had_is_staff = models.BooleanField(default=False)
-    retired_at = models.DateTimeField(auto_now_add=True)
+    member = models.OneToOneField(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="+",
+        help_text="The member who held the Guild Officer role when migration 0275 retired it.",
+    )
+    had_is_staff = models.BooleanField(
+        default=False,
+        help_text="Whether their login had is_staff then; the reverse gives it back only to those who did.",
+    )
+    retired_at = models.DateTimeField(auto_now_add=True, help_text="When migration 0275 recorded them.")
 
     def __str__(self) -> str:
         return f"Retired Guild Officer: {self.member}"

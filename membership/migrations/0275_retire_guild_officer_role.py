@@ -65,12 +65,21 @@ class Migration(migrations.Migration):
             name="RetiredGuildOfficer",
             fields=[
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("had_is_staff", models.BooleanField(default=False)),
-                ("retired_at", models.DateTimeField(auto_now_add=True)),
+                (
+                    "had_is_staff",
+                    models.BooleanField(
+                        default=False,
+                        help_text="Whether their login had is_staff then; the reverse gives it back only to those who did.",
+                    ),
+                ),
+                ("retired_at", models.DateTimeField(auto_now_add=True, help_text="When migration 0275 recorded them.")),
                 (
                     "member",
                     models.OneToOneField(
-                        on_delete=django.db.models.deletion.CASCADE, related_name="+", to="membership.member"
+                        help_text="The member who held the Guild Officer role when migration 0275 retired it.",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
+                        to="membership.member",
                     ),
                 ),
             ],
