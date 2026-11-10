@@ -7,10 +7,10 @@ from typing import Any
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
-from membership.models import Member, VotePreference
+from membership.models import LeadershipListing, LeadershipTab, Member, VotePreference
 
 logger = logging.getLogger(__name__)
 
@@ -219,3 +219,77 @@ def _connect_request_bell_clearing() -> None:
 
 
 _connect_request_bell_clearing()
+
+
+# --- Discord leadership roles follow the Leadership Directory (#1148) ---
+#
+# A People tab listing is written from several places (Add a Person, Remove from Tab, the roster
+# import, ``adopt_untabbed``, and a tab's delete cascading to its cards), so these receivers,
+# rather than each writer, enqueue the member's role reconcile. Lead and staff changes have
+# single model paths and call it there instead. Each save is compared with the row as stored,
+# so a reorder or a rename enqueues nothing.
+
+_LISTING_FIELDS = frozenset({"is_listed", "tab", "tab_id"})
+
+
+def _touches(update_fields: Any, fields: frozenset[str]) -> bool:
+    """Whether a save with these ``update_fields`` can write any of ``fields`` (None writes them all)."""
+    return update_fields is None or bool(fields & set(update_fields))
+
+
+@receiver(pre_save, sender=LeadershipListing)
+def _remember_listing_state(
+    sender: type, instance: LeadershipListing, update_fields: Any = None, **kwargs: Any
+) -> None:
+    """Note whether the card was on show and on which tab, before this save."""
+    instance._leadership_was = None  # type: ignore[attr-defined]
+    if instance.pk is not None and _touches(update_fields, _LISTING_FIELDS):
+        instance._leadership_was = (  # type: ignore[attr-defined]
+            LeadershipListing.objects.filter(pk=instance.pk).values_list("is_listed", "tab_id").first()
+        )
+
+
+@receiver(post_save, sender=LeadershipListing)
+def _reconcile_after_listing_save(
+    sender: type, instance: LeadershipListing, created: bool, update_fields: Any = None, **kwargs: Any
+) -> None:
+    """A card put on show, taken off or moved to another tab changes what its member should hold."""
+    from core.events.discord_leadership_roles import reconcile_on_commit
+
+    if created:
+        if instance.is_listed:
+            reconcile_on_commit(instance.member_id)
+        return
+    was = getattr(instance, "_leadership_was", None)
+    if was is not None and was != (instance.is_listed, instance.tab_id):
+        reconcile_on_commit(instance.member_id)
+
+
+@receiver(post_delete, sender=LeadershipListing)
+def _reconcile_after_listing_delete(sender: type, instance: LeadershipListing, **kwargs: Any) -> None:
+    """A deleted card on show (alone, or with its deleted tab) may take leadership away."""
+    from core.events.discord_leadership_roles import reconcile_on_commit
+
+    if instance.is_listed:
+        reconcile_on_commit(instance.member_id)
+
+
+@receiver(pre_save, sender=LeadershipTab)
+def _remember_tab_kind(sender: type, instance: LeadershipTab, update_fields: Any = None, **kwargs: Any) -> None:
+    """Note the tab's kind before this save; only a People tab's cards earn roles."""
+    instance._leadership_old_kind = None  # type: ignore[attr-defined]
+    if instance.pk is not None and _touches(update_fields, frozenset({"kind"})):
+        instance._leadership_old_kind = (  # type: ignore[attr-defined]
+            LeadershipTab.objects.filter(pk=instance.pk).values_list("kind", flat=True).first()
+        )
+
+
+@receiver(post_save, sender=LeadershipTab)
+def _reconcile_after_tab_kind_change(sender: type, instance: LeadershipTab, created: bool, **kwargs: Any) -> None:
+    """A tab that changes kind changes what every member listed on it should hold."""
+    from core.events.discord_leadership_roles import reconcile_on_commit
+
+    old_kind = getattr(instance, "_leadership_old_kind", None)
+    if created or old_kind is None or old_kind == instance.kind:
+        return
+    reconcile_on_commit(*instance.listings.filter(is_listed=True).values_list("member_id", flat=True))

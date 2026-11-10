@@ -74,6 +74,64 @@ def remove_role(server_id: str, user_id: str, role_id: str) -> bool:
     return _role_request("DELETE", server_id, user_id, role_id)
 
 
+#: The most members ``GET /guilds/{id}/members`` returns per page.
+_MEMBERS_PAGE_SIZE = 1000
+
+
+def _get_json(url: str, params: dict[str, str | int] | None = None) -> object | None:
+    """One best-effort bot ``GET``; the decoded JSON on a 2xx, else None. Never raises."""
+    try:
+        response = httpx.get(url, params=params, headers=_auth_headers(), timeout=_DEFAULT_TIMEOUT_SECONDS)
+    except httpx.HTTPError as exc:
+        logger.warning("Discord GET failed (network error): %s", exc)
+        return None
+    if not response.is_success:
+        logger.warning("Discord GET %s failed: %s %s", url, response.status_code, response.text[:300])
+        return None
+    try:
+        return response.json()
+    except ValueError:
+        logger.warning("Discord GET %s answered with something that is not JSON", url)
+        return None
+
+
+def member_role_ids(server_id: str, user_id: str) -> set[str] | None:
+    """The role ids ``user_id`` holds on ``server_id`` (``GET /guilds/{id}/members/{user}``). Best-effort.
+
+    Returns None when nothing can be read: a blank token or id, a network error, any non-2xx
+    (404 when they are not on the server) or an answer without a ``roles`` list. A caller
+    never writes roles from a None, so an unreadable member is left exactly as they are.
+    """
+    if bot_disabled("member roles read") or not server_id or not user_id:
+        return None
+    body = _get_json(f"{API_BASE}/guilds/{server_id}/members/{user_id}")
+    if not isinstance(body, dict) or not isinstance(body.get("roles"), list):
+        return None
+    return {str(role_id) for role_id in body["roles"]}
+
+
+def server_member_role_ids(server_id: str) -> dict[str, set[str]] | None:
+    """Every member of ``server_id`` as ``{Discord user id: role ids}``, paging 1000 at a time. Best-effort.
+
+    One request per thousand members instead of one per member. Returns None when any page
+    cannot be read (a blank token or id, a network error, a non-2xx such as a 403 when the
+    Server Members intent is off), so a caller never mistakes a partial list for the server.
+    """
+    if bot_disabled("member list") or not server_id:
+        return None
+    found: dict[str, set[str]] = {}
+    after = "0"
+    while True:
+        page = _get_json(f"{API_BASE}/guilds/{server_id}/members", {"limit": _MEMBERS_PAGE_SIZE, "after": after})
+        if not isinstance(page, list):
+            return None
+        for entry in page:
+            found[str(entry["user"]["id"])] = {str(role_id) for role_id in entry.get("roles", [])}
+        if len(page) < _MEMBERS_PAGE_SIZE:
+            return found
+        after = str(page[-1]["user"]["id"])
+
+
 def on_membership_changed(guild: Guild, member: Member, *, joined: bool) -> None:
     """Mirror an in-app guild join/leave onto Discord as a role change. Best-effort.
 

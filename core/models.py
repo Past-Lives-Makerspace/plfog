@@ -679,6 +679,23 @@ class SiteConfiguration(models.Model):
         help_text="The Discord role every member has; channels it cannot see are never read. "
         "Blank: Discord pings are not queued for Spotlight.",
     )
+    discord_leadership_role_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        verbose_name="Leadership role id",
+        help_text="The Discord leadership role, held by guild leads, Co-Leads and people listed on a "
+        "Leadership Directory People tab, kept in step with the app (#1148). Blank: never added or removed.",
+    )
+    discord_guild_officers_role_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        verbose_name="Guild Officers role id",
+        help_text="The Discord Guild Officers role, held by guild leads and every guild staff role and by "
+        "people listed on a Leadership Directory People tab, kept in step with the app (#1148). "
+        "Blank: never added or removed.",
+    )
     discord_role_message_channel_id = models.CharField(
         max_length=32,
         blank=True,

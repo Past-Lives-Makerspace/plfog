@@ -1626,9 +1626,16 @@ class Member(StaffRequestMixin, models.Model):
             self.discord_handle = handle.strip()
             update_fields.append("discord_handle")
         self.save(update_fields=update_fields)
+        from core.events.discord_leadership_roles import reconcile_on_commit
+
+        reconcile_on_commit(self.pk)
 
     def unlink_discord(self) -> None:
-        """Clear the linked Discord account (the member opts out of DMs entirely)."""
+        """Clear the linked Discord account (the member opts out of DMs entirely).
+
+        Their Discord leadership roles are left as they are: the role sync skips a member with
+        no linked account, so there is nobody to reconcile (#1148).
+        """
         self.discord_user_id = ""
         self.discord_linked_at = None
         self.save(update_fields=["discord_user_id", "discord_linked_at"])
@@ -3247,6 +3254,16 @@ class Guild(HeroCropMixin, models.Model):
             "inbound (a member's Discord reaction) accepts ANY emoji mapped to the guild."
         ),
     )
+    discord_lead_role_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        verbose_name="Discord lead role id",
+        help_text=(
+            "The Discord role this guild's lead and Co-Leads hold, kept in step with the app (#1148). "
+            "Blank: no lead role is added or removed for this guild."
+        ),
+    )
     calendar_color = models.CharField(
         max_length=7,
         blank=True,
@@ -3545,6 +3562,18 @@ class Guild(HeroCropMixin, models.Model):
         """
         self.deleted_at = timezone.now()
         self.save(update_fields=["deleted_at"])
+        self.reconcile_leadership_roles()
+
+    def reconcile_leadership_roles(self) -> None:
+        """Bring the Discord leadership roles of this guild's lead and staff in step, after the commit (#1148).
+
+        Called when something about the guild changes what its leaders should hold: it is
+        hidden, shown or deleted, or its lead role id changes. Who leads it changing goes
+        through :meth:`assign_lead`, :meth:`clear_lead` and the staff methods instead.
+        """
+        from core.events.discord_leadership_roles import reconcile_on_commit
+
+        reconcile_on_commit(self.guild_lead_id, *self.staff_memberships.values_list("member_id", flat=True))
 
     def _unique_slug(self) -> str:
         """A URL slug derived from the guild name, suffixed (``-2``, ``-3``…) to stay unique."""
@@ -3805,6 +3834,9 @@ class Guild(HeroCropMixin, models.Model):
         previous = self.guild_lead
         self.guild_lead = member
         self.save(update_fields=["guild_lead"])
+        from core.events.discord_leadership_roles import reconcile_on_commit
+
+        reconcile_on_commit(previous.pk if previous is not None else None, member.pk)
         if previous is not None:
             self.drop_cubby_payee_unless_leader(previous)
         if previous != member and not self.staff_memberships.filter(member=member).exists():
@@ -3933,6 +3965,9 @@ class Guild(HeroCropMixin, models.Model):
             )
             if class_reviewer:
                 self.set_class_reviewer(member, True)
+            from core.events.discord_leadership_roles import reconcile_on_commit
+
+            reconcile_on_commit(member.pk)
             if first_role_here:
                 # Their first role on this guild welcomes them (#1076); a second title does not.
                 record_grant(member, self)
@@ -3954,6 +3989,9 @@ class Guild(HeroCropMixin, models.Model):
             raise ValueError(f"That staff row is not on {self.name}.")
         member = staff.member
         staff.delete()
+        from core.events.discord_leadership_roles import reconcile_on_commit
+
+        reconcile_on_commit(member.pk)
         self.drop_cubby_payee_unless_leader(member)
         if member.pk in {leader.pk for leader in self.leadership_members()}:
             return 0
@@ -3973,6 +4011,9 @@ class Guild(HeroCropMixin, models.Model):
         self.guild_lead = None
         self.save(update_fields=["guild_lead"])
         if previous is not None:
+            from core.events.discord_leadership_roles import reconcile_on_commit
+
+            reconcile_on_commit(previous.pk)
             self.drop_cubby_payee_unless_leader(previous)
         return previous
 
@@ -4388,6 +4429,9 @@ class GuildStaffMembership(models.Model):
         self.role = role
         self.custom_title = custom_title
         self.save(update_fields=["role", "custom_title"])
+        from core.events.discord_leadership_roles import reconcile_on_commit
+
+        reconcile_on_commit(self.member_id)
 
     def __str__(self) -> str:
         return f"{self.member.display_name} — {self.display_title} of {self.guild.name}"

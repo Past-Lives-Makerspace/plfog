@@ -1822,6 +1822,8 @@ class SiteSettingsForm(_OwnFieldErrorsOnly):
             "discord_reservations_webhook_url",
             "discord_server_id",
             "discord_member_role_id",
+            "discord_leadership_role_id",
+            "discord_guild_officers_role_id",
             "discord_role_message_channel_id",
             "discord_role_message_id",
             "discord_role_message_extra_ids",
@@ -1849,6 +1851,19 @@ class SiteSettingsForm(_OwnFieldErrorsOnly):
             "public_google_calendar_id": forms.TextInput(attrs={"placeholder": "abc123@group.calendar.google.com"}),
             "discord_info_links_content": forms.Textarea(attrs={"rows": 14}),
         }
+
+    def _clean_role_id(self, name: str) -> str:
+        """A Discord role id is digits only; blank turns that role off."""
+        value = str(self.cleaned_data.get(name) or "").strip()
+        if value and not value.isdigit():
+            raise forms.ValidationError("A Discord role id is numbers only. Leave it blank to turn this role off.")
+        return value
+
+    def clean_discord_leadership_role_id(self) -> str:
+        return self._clean_role_id("discord_leadership_role_id")
+
+    def clean_discord_guild_officers_role_id(self) -> str:
+        return self._clean_role_id("discord_guild_officers_role_id")
 
     def clean_discord_role_message_extra_ids(self) -> str:
         """Accept Discord message ids (digits only) and store them comma separated."""
@@ -2094,12 +2109,21 @@ class GuildRoleForm(forms.ModelForm):
 
     class Meta:
         model = Guild
-        fields: list[str] = []  # ``discord_role_ids`` is handled as a declared field below.
+        # ``discord_role_ids`` is handled as a declared field below.
+        fields: list[str] = ["discord_lead_role_id"]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         if self.instance and self.instance.pk:
             self.fields["discord_role_ids"].initial = " ".join(self.instance.discord_role_ids or [])
+            self.fields["discord_lead_role_id"].label = f"{self.instance.name} lead role id"
+        self.fields["discord_lead_role_id"].widget.attrs["placeholder"] = "e.g. 123456789012345678"
+
+    def clean_discord_lead_role_id(self) -> str:
+        value = (self.cleaned_data.get("discord_lead_role_id") or "").strip()
+        if value and not value.isdigit():
+            raise forms.ValidationError(f"'{value}' is not a valid Discord role id (digits only).")
+        return value
 
     def clean_discord_role_ids(self) -> list[str]:
         import re
@@ -2113,7 +2137,17 @@ class GuildRoleForm(forms.ModelForm):
 
     def save(self, commit: bool = True) -> Guild:
         self.instance.discord_role_ids = self.cleaned_data["discord_role_ids"]
-        return cast(Guild, super().save(commit=commit))
+        guild = cast(Guild, super().save(commit=commit))
+        if commit and "discord_lead_role_id" in self.changed_data:
+            from core.events.discord_leadership_roles import remove_retired_role
+            from core.tasks import enqueue_on_commit
+
+            # The lead and Co-Leads get the new role; the old one comes off whoever still holds it.
+            guild.reconcile_leadership_roles()
+            old_role_id = str(self.initial.get("discord_lead_role_id") or "").strip()
+            if old_role_id:
+                enqueue_on_commit(remove_retired_role, old_role_id)
+        return guild
 
 
 GuildRoleFormSet = forms.modelformset_factory(
@@ -5590,6 +5624,13 @@ class GuildVisibilityForm(forms.ModelForm):
                 "Turn it off when the guild graduates."
             ),
         }
+
+    def save(self, commit: bool = True) -> Guild:
+        """Save the switches; hiding or showing the guild brings its leaders' Discord roles in step (#1148)."""
+        guild = cast(Guild, super().save(commit=commit))
+        if commit and "is_active" in self.changed_data:
+            guild.reconcile_leadership_roles()
+        return guild
 
     @classmethod
     def for_row(cls, guild: Guild) -> Self:
