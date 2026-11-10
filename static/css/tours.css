@@ -455,6 +455,9 @@
 .pl-tours-dates .pl-tours-refused {
     margin: 0 0 1.5rem;
 }
+.pl-tours-dates__hint {
+    margin-top: 0;
+}
 .pl-tours-cal {
     max-width: 26rem;
 }

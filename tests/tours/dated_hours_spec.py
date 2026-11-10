@@ -30,7 +30,7 @@ from tours import booking as booking_service
 from tours.availability import open_tour_at, open_tours
 from tours.booking import TourFullError, Visitor, book_tour
 from tours.forms import TourDatesForm
-from tours.models import FacilityTourSettings, TourBooking, TourDayOff, TourHours, day_label
+from tours.models import FacilityTourSettings, TourBooking, TourDayOff, TourHours, day_label, lock_guide_hours
 
 pytestmark = pytest.mark.django_db
 
@@ -70,6 +70,19 @@ def _post(guide: Member, *days: date, **values: str) -> dict[str, Any]:
     }
     data.update(values)
     return data
+
+
+def _weekly_post(guide: Member, **values: str) -> dict[str, str]:
+    """One new Every Week row: Tuesday 4:00 to 6:00 PM, 60 minute tours, 4 seats unless given."""
+    row = {"weekday": "1", "start_time": "16:00", "end_time": "18:00", "tour_minutes": "60", "seats": "4", **values}
+    return {
+        "guide": str(guide.pk),
+        "hours-TOTAL_FORMS": "1",
+        "hours-INITIAL_FORMS": "0",
+        "hours-MIN_NUM_FORMS": "0",
+        "hours-MAX_NUM_FORMS": "1000",
+        **{f"hours-0-{name}": value for name, value in row.items()},
+    }
 
 
 def _errors(content: str) -> list[str]:
@@ -122,10 +135,12 @@ def describe_the_model():
 
     def it_reads_one_line_per_dated_window(guide: Member):
         assert _dated(guide, date(2026, 11, 15)).dated_summary == (
-            "Sun, Nov 15 · 11:00 AM to 3:00 PM · 60 minute tours · 6 seats"
+            "Sun, Nov 15 · 11:00 AM to 3:00 PM · 1 hour each · 6 seats"
         )
         one = _dated(guide, date(2026, 11, 14), start_time=time(12, 30), end_time=time(13, 30), seats=1)
-        assert one.dated_summary == "Sat, Nov 14 · 12:30 PM to 1:30 PM · 60 minute tours · 1 seat"
+        assert one.dated_summary == "Sat, Nov 14 · 12:30 PM to 1:30 PM · 1 hour each · 1 seat"
+        odd = _dated(guide, date(2026, 11, 13), tour_minutes=75)
+        assert odd.dated_summary == "Fri, Nov 13 · 11:00 AM to 3:00 PM · 75 minutes each · 6 seats"
         assert str(one) == "Gina Guide: Sat 2026-11-14 12:30 to 13:30"
 
     def it_refuses_a_dated_summary_for_weekly_hours(guide: Member):
@@ -393,6 +408,8 @@ def describe_adding_dates():
         FacilityTourSettings.objects.update(default_tour_minutes=75, default_seats=8)
         content = signed_in(guide).get(HOURS).content.decode()
         assert "plTourDates('tour-dates-config', false)" in content
+        assert "data-tour-dates-hint>Tap each day you are free. Tap it again to unpick.</p>" in content
+        assert 'x-show="!open" @click="open = true"' in content
         assert 'name="seats" value="8"' in content
         assert '<option value="75" selected>75</option>' in content
         assert 'data-guidance-target="tours.add-dates"' in content
@@ -497,6 +514,36 @@ def describe_the_every_week_section():
         assert TourHours.objects.weekly().count() == 1
         assert TourHours.objects.filter(pk=dated.pk).exists()
 
+    def it_refuses_weekly_hours_over_upcoming_dated_hours_naming_the_soonest_date(guide: Member):
+        later, soon = _ahead(5, weeks=2), _ahead(5)
+        _dated(guide, later)
+        _dated(guide, soon, start_time=time(12), end_time=time(14))
+        _dated(guide, soon - timedelta(weeks=2), start_time=time(9), end_time=time(17))  # passed: never named
+        data = _weekly_post(guide, weekday="5", start_time="11:00", end_time="16:00")
+        response = signed_in(guide).post(SAVE, data)
+        assert response.status_code == 200
+        assert (
+            f"Every Saturday 11:00 AM to 4:00 PM overlaps your hours on {day_label(soon)}, 12:00 PM to 2:00 PM."
+            in response.content.decode()
+        )
+        assert not TourHours.objects.weekly().exists()
+
+    def it_lets_weekly_hours_beside_dated_hours_that_day_through(guide: Member):
+        _dated(guide, _ahead(5))
+        assert (
+            signed_in(guide)
+            .post(SAVE, _weekly_post(guide, weekday="5", start_time="15:00", end_time="17:00"))
+            .status_code
+            == 302
+        )
+        assert TourHours.objects.weekly().count() == 1
+
+    def it_ignores_past_dated_hours(guide: Member):
+        past = timezone.localdate() - timedelta(days=3)
+        _dated(guide, past)
+        data = _weekly_post(guide, weekday=str(past.weekday()), start_time="11:00", end_time="15:00")
+        assert signed_in(guide).post(SAVE, data).status_code == 302
+
 
 def describe_an_admin_for_another_guide():
     def it_adds_and_deletes_dates_for_them(admin: Member, guide: Member):
@@ -515,3 +562,70 @@ def describe_an_admin_for_another_guide():
         other = make_guide()
         assert signed_in(guide).post(DATES_SAVE, _post(other, _ahead(2))).status_code == 403
         assert not TourHours.objects.exists()
+
+
+def describe_saving_under_the_guide_lock():
+    @pytest.mark.django_db(transaction=True)
+    def it_refuses_to_lock_outside_a_transaction():
+        with pytest.raises(RuntimeError, match="transaction.atomic"):
+            lock_guide_hours(make_guide())
+
+    @pytest.mark.postgres_only
+    def it_locks_the_guide_before_checking_and_adding_dates(guide: Member):
+        client = signed_in(guide)
+        with CaptureQueriesContext(connection) as queries:
+            assert client.post(DATES_SAVE, _post(guide, _ahead(2))).status_code == 302
+        sql = [query["sql"] for query in queries.captured_queries]
+        lock = next(index for index, text in enumerate(sql) if "FOR UPDATE" in text)
+        assert '"membership_member"' in sql[lock] and str(guide.pk) in sql[lock]
+        insert = next(index for index, text in enumerate(sql) if text.startswith('INSERT INTO "tours_tourhours"'))
+        check = next(index for index, text in enumerate(sql) if '"tours_tourdayoff"' in text)
+        assert lock < check < insert
+
+    @pytest.mark.postgres_only
+    def it_locks_the_guide_before_checking_and_saving_weekly_hours(guide: Member):
+        client = signed_in(guide)
+        with CaptureQueriesContext(connection) as queries:
+            assert client.post(SAVE, _weekly_post(guide)).status_code == 302
+        sql = [query["sql"] for query in queries.captured_queries]
+        lock = next(index for index, text in enumerate(sql) if "FOR UPDATE" in text)
+        assert '"membership_member"' in sql[lock]
+        insert = next(index for index, text in enumerate(sql) if text.startswith('INSERT INTO "tours_tourhours"'))
+        assert lock < insert
+
+    @pytest.mark.postgres_only
+    @pytest.mark.django_db(transaction=True)
+    def it_keeps_one_of_two_clashing_saves_onto_an_empty_date(admin: Member):
+        guide = make_guide(full_legal_name="Gina Guide")
+        FacilityTourSettings.load()
+        day = _ahead(5)
+        clients = [signed_in(guide), signed_in(admin)]
+        posts = [
+            _post(guide, day, start_time="11:00", end_time="15:00", seats="6"),
+            _post(guide, day, start_time="13:00", end_time="17:00", seats="10"),
+        ]
+        real_save = TourDatesForm.save
+        start = threading.Barrier(2)
+        codes: list[int] = []
+
+        def slow_save(form: TourDatesForm) -> list[TourHours]:
+            # Widen the gap between the overlap check and the write: without the lock both saves
+            # would pass the check here and both windows would land.
+            clock.sleep(0.3)
+            return real_save(form)
+
+        def save(number: int) -> None:
+            try:
+                start.wait()
+                codes.append(clients[number].post(DATES_SAVE, posts[number]).status_code)
+            finally:
+                connection.close()
+
+        with patch.object(TourDatesForm, "save", slow_save):
+            threads = [threading.Thread(target=save, args=(number,)) for number in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        assert sorted(codes) == [200, 302]
+        assert TourHours.objects.filter(guide=guide, date=day).count() == 1

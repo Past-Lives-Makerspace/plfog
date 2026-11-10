@@ -167,6 +167,7 @@ def _shoot_1160(page, name: str, selector: str, target: str) -> None:
     from tests.e2e.guidance import shoot
 
     page.set_viewport_size({"width": 1280, "height": 800})
+    page.evaluate("() => document.activeElement && document.activeElement.blur()")
     _center(page, selector)
     shoot(page, Path(CAPTURE_1160_DIR) / name, target=target)
 
@@ -176,6 +177,7 @@ def _pictures_1160(page, name: str, selector: str) -> None:
     if not CAPTURE_1160_DIR:
         return
     out = Path(CAPTURE_1160_DIR)
+    page.evaluate("() => document.activeElement && document.activeElement.blur()")
     page.evaluate("() => document.querySelectorAll('style[data-guidance-ring]').forEach((s) => s.remove())")
     page.set_viewport_size({"width": 1280, "height": 800})
     page.evaluate(
@@ -218,6 +220,9 @@ def describe_available_on():
 
         page.locator("[data-tour-dates-add]").click()
         page.locator("[data-tour-dates-panel]").wait_for(state="visible")
+        page.locator("[data-tour-dates-add]").wait_for(state="hidden")
+        page.locator("[data-tour-dates-empty]").wait_for(state="hidden")
+        page.get_by_text("Tap each day you are free. Tap it again to unpick.").wait_for()
         today = timezone.localdate()
         assert page.locator("[data-tour-dates-month]").inner_text() == f"{today:%B %Y}"
         assert page.locator("[data-tour-dates-prev]").is_disabled()
@@ -266,7 +271,7 @@ def describe_available_on():
         rows = page.locator("[data-tour-dated]")
         assert rows.count() == 3
         assert rows.first.inner_text().startswith(
-            f"{saturday:%a, %b} {saturday.day} · 11:00 AM to 3:00 PM · 60 minute tours · 6 seats"
+            f"{saturday:%a, %b} {saturday.day} · 11:00 AM to 3:00 PM · 1 hour each · 6 seats"
         )
         assert not page.locator("[data-tour-dates-panel]").is_visible()
         assert page.locator("[data-tour-hours-row]").count() == 1
@@ -307,5 +312,6 @@ def describe_available_on():
         assert not TourHours.objects.exists()
         page.locator("[data-tour-dates-cancel]").click()
         page.locator("[data-tour-dates-panel]").wait_for(state="hidden")
+        page.locator("[data-tour-dates-add]").wait_for(state="visible")
         page.locator("[data-tour-dates-add]").click()
         assert page.locator("[data-tour-dates-count]").inner_text() == "0 dates picked"

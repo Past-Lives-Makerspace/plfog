@@ -25,6 +25,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Q
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
@@ -67,6 +68,7 @@ from tours.models import (
     TourDayOff,
     TourHours,
     guide_filter,
+    lock_guide_hours,
 )
 from tours.notify import short_when, when_label
 from tours.picker import build_picker, find_tour, guide_and_start
@@ -246,9 +248,15 @@ def tour_hours_save(request: HttpRequest) -> HttpResponse:
     """
     target = _target_guide(request, request.POST.get("guide", ""))
     formset = _hours_formset(target, request.POST)
-    if not formset.is_valid():
+    # The overlap check and the save share one lock on the guide (#1160), so a save at the same
+    # moment cannot land a clashing row between them.
+    with transaction.atomic():
+        lock_guide_hours(target)
+        saved = formset.is_valid()
+        if saved:
+            formset.save()
+    if not saved:
         return _render_hours(request, target, formset=formset, hours_refused=True)
-    formset.save()
     messages.success(request, "Tour hours saved.")
     return redirect(_hours_url(_viewer(request), target))
 
@@ -303,9 +311,14 @@ def tour_dates_save(request: HttpRequest) -> HttpResponse:
     """
     target = _target_guide(request, request.POST.get("guide", ""))
     form = _dates_form(target, request.POST)
-    if not form.is_valid():
+    added = 0
+    with transaction.atomic():
+        lock_guide_hours(target)
+        saved = form.is_valid()
+        if saved:
+            added = len(form.save())
+    if not saved:
         return _render_hours(request, target, dates_form=form)
-    added = len(form.save())
     messages.success(request, f"Added {added} date{'' if added == 1 else 's'}.")
     return redirect(_hours_url(_viewer(request), target))
 

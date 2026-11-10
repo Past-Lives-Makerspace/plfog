@@ -50,6 +50,15 @@ def day_label(day: date) -> str:
     return f"{day:%a, %b} {day.day}"
 
 
+def _length_label(minutes: int) -> str:
+    """``1 hour``, ``45 minutes``: a tour length in the weekly editor's own words (its select's labels)."""
+    from hub.forms import _SLOT_DURATION_CHOICES, _duration_choice_label
+
+    labels = dict(_SLOT_DURATION_CHOICES)
+    key = str(minutes)
+    return labels[key] if key in labels else _duration_choice_label(minutes)
+
+
 def _clock_label(value: time) -> str:
     """``11:00 AM``, ``12:30 PM``: the half hour selects' own words."""
     from hub.forms import _meeting_time_label  # hub.forms imports models across the apps
@@ -207,6 +216,25 @@ class TourHoursQuerySet(models.QuerySet["TourHours"]):
         return self.filter(Q(date__isnull=True) | Q(date__range=(first, last)))
 
 
+def lock_guide_hours(guide: Member) -> None:
+    """Hold one guide's hours still until the transaction ends (#1160): ``SELECT ... FOR UPDATE`` on their member row.
+
+    Every save of a guide's hours (the Every Week formset, Add Dates) takes this before it checks
+    for overlaps and keeps the check and the write in the same transaction, so two saves at once
+    (a guide and an admin, two tabs) queue here and the second sees the first's rows. The member
+    row, not the hours rows: a save onto a weekday or date with no hours yet would find no hours
+    row to lock, and both saves would land.
+
+    Raises:
+        RuntimeError: outside a transaction, where the lock would end at once.
+    """
+    from django.db import transaction
+
+    if not transaction.get_connection().in_atomic_block:
+        raise RuntimeError("lock_guide_hours must run inside transaction.atomic().")
+    list(Member.objects.select_for_update().filter(pk=guide.pk).values_list("pk", flat=True))
+
+
 class TourHours(models.Model):
     """One window in which a guide gives tours, carved into tours of ``tour_minutes`` each.
 
@@ -329,11 +357,11 @@ class TourHours(models.Model):
 
     @property
     def dated_summary(self) -> str:
-        """The Available On list's line (#1160): ``Sat, Nov 15 · 11:00 AM to 3:00 PM · 60 minute tours · 6 seats``."""
+        """The Available On list's line (#1160), worded as the weekly rows are: ``Sat, Nov 15 · 11:00 AM to 3:00 PM · 1 hour each · 6 seats``."""
         if self.date is None:
             raise ValueError("Only dated tour hours have a dated summary.")
         seats = f"{self.seats} seat{'' if self.seats == 1 else 's'}"
-        return f"{day_label(self.date)} · {self.times_label} · {self.tour_minutes} minute tours · {seats}"
+        return f"{day_label(self.date)} · {self.times_label} · {_length_label(self.tour_minutes)} each · {seats}"
 
     def carve_spans(self, day: Day) -> list[tuple[datetime, datetime]]:
         """The aware local ``(start, end)`` of every tour this window yields on ``day``.

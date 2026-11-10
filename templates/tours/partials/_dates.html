@@ -2,7 +2,7 @@
 The Available On card on the Tours page's My Hours tab (#1160, tours.views._render_hours): hours on
 picked dates for a guide whose schedule changes week to week. The upcoming dated windows are listed
 soonest first, each with Delete behind a confirm. + Add Dates reveals the panel (x-show, closed by
-default): a month calendar (plTourDates, static/js/tour_dates.js) whose picks post as hidden
+default; the button and the empty line hide while it is open, and Cancel brings them back): a month calendar (plTourDates, static/js/tour_dates.js) whose picks post as hidden
 `dates` inputs, then From, To, Tour length and Seats once for all of them. A refused save reopens
 the panel with its picks, fields and one message per problem (tours.views.tour_dates_save).
 
@@ -29,11 +29,11 @@ TourDatesForm), open_dates (start open), dates_calendar (the calendar's config).
       {% endfor %}
     </ul>
     {% else %}
-    <p class="hub-text-muted pl-tours-panel__empty" data-tour-dates-empty>No dates added yet. Add the days you are free, a month at a time if you like.</p>
+    <p class="hub-text-muted pl-tours-panel__empty" x-show="!open"{% if open_dates %} x-cloak{% endif %} data-tour-dates-empty>No dates added yet. Add the days you are free, a month at a time if you like.</p>
     {% endif %}
   </div>
 
-  <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-panel__add" @click="open = !open" :aria-expanded="open ? 'true' : 'false'" data-guidance-target="tours.add-dates" data-tour-dates-add>+ Add Dates</button>
+  <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-panel__add" x-show="!open"{% if open_dates %} x-cloak{% endif %} @click="open = true" data-guidance-target="tours.add-dates" data-tour-dates-add>+ Add Dates</button>
 
   <form method="post" action="{% url 'tours:dates_save' %}" class="hub-form pl-tours-dates" x-show="open"{% if not open_dates %} x-cloak{% endif %} data-tour-dates-panel>
     {% csrf_token %}
@@ -45,6 +45,7 @@ TourDatesForm), open_dates (start open), dates_calendar (the calendar's config).
     </div>
     {% endif %}
 
+    <p class="pl-form-note pl-tours-dates__hint" data-tour-dates-hint>Tap each day you are free. Tap it again to unpick.</p>
     <div class="pl-tours-cal" data-guidance-target="tours.dates-calendar" data-tour-dates-calendar>
       <div class="pl-tours-cal__head">
         <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-cal__step" @click="step(-1)" :disabled="!canGoBack" aria-label="Previous month" data-tour-dates-prev>&larr;</button>

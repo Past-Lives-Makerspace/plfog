@@ -141,6 +141,7 @@ class _TourHoursBaseFormSet(forms.BaseInlineFormSet):
                     raise forms.ValidationError(
                         f"Two of these rows overlap on {row.get_weekday_display()}. A guide gives one tour at a time."
                     )
+        self._refuse_clash_with_dated(rows)
         carried = {form.instance.pk for form in self.forms if form.instance.pk is not None}
         for saved in self.get_queryset().exclude(pk__in=carried):
             for row in rows:
@@ -150,6 +151,21 @@ class _TourHoursBaseFormSet(forms.BaseInlineFormSet):
                         f"{_meeting_time_label(saved.start_time.hour, saved.start_time.minute)} to "
                         f"{_meeting_time_label(saved.end_time.hour, saved.end_time.minute)} that this page "
                         "does not show. Reload the page and try again."
+                    )
+
+    def _refuse_clash_with_dated(self, rows: list[TourHours]) -> None:
+        """Refuse a weekly row that overlaps upcoming dated hours (#1160) on its weekday, naming the date."""
+        if not rows:
+            return
+        dated = TourHours.objects.upcoming_dated().filter(
+            guide=self.instance, weekday__in={row.weekday for row in rows}
+        )
+        for other in dated:
+            for row in rows:
+                if row.overlaps(other):
+                    raise forms.ValidationError(
+                        f"Every {row.get_weekday_display()} {row.times_label} overlaps your hours on "
+                        f"{day_label(cast(date, other.date))}, {other.times_label}."
                     )
 
 
@@ -283,7 +299,11 @@ class TourDatesForm(forms.Form):
         return problems
 
     def save(self) -> list[TourHours]:
-        """Write every picked date's hours at once: all of them or, on any failure, none."""
+        """Write every picked date's hours at once: all of them or, on any failure, none.
+
+        The view validates and saves under :func:`tours.models.lock_guide_hours`, in one
+        transaction, so the overlap check still holds when the rows are written.
+        """
         with transaction.atomic():
             return TourHours.objects.bulk_create(self.rows)
 
