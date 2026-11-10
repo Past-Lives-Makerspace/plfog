@@ -57,6 +57,7 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 - `SiteConfiguration` — singleton (pk=1); controls RegistrationMode (open / invite_only)
 - `Invite` — email invite with pre-created Member placeholder; accepted on signup
 - `PushSubscription` — Web Push subscription per user
+- `core/tasks.py` — the durable task queue (#1150, ADR 0003): `enqueue_on_commit` for `@task` work after a save, run by the `db_worker` process; a failed task alerts the Webmasters (`automation.failed`); `prune_task_results` tends it daily
 - `core/threads.py` — the shared conversation thread: abstract `ThreadMessage` / `ThreadPhoto` bases each domain builds its own tables on (`FeedbackComment`, `OrientationBookingMessage`), with one rule for who hears a message
 - `Notification` / `NotificationPreference` — per-user in-app notifications + per-trigger channel prefs (see `core/triggers.py` catalogue, `core/notifications.py` dispatch)
 - `TransactionalEmailLog` — logs every email sent via `core.email.send()` (sync; console in dev, Resend in prod)

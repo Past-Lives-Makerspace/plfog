@@ -71,6 +71,7 @@ _DISPATCHER_DAILY = {
     "welcome_new_members",
     "send_wiki_guild_digest",
     "check_needs_attention",
+    "prune_task_results",
 }
 _DISPATCHER_WEEKLY = {"post_weekly_calendar_digest", "post_weekly_classes_digest"}
 

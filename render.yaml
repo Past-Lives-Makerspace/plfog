@@ -71,6 +71,16 @@ services:
     previews:
       generation: automatic
 
+  # The durable task queue's worker (core/tasks.py, docs/adr/0003-durable-task-queue.md).
+  # Commented out on purpose: this blueprint is not applied, so an entry here creates nothing.
+  # It is made by hand in the Render dashboard as a Background Worker: same repo, same
+  # Dockerfile, deploys from main, the Docker command below in place of the CMD (it runs no
+  # migrations; the web service does), and the same environment variables as the web service.
+  # - type: worker
+  #   name: plfog-worker
+  #   runtime: docker
+  #   dockerCommand: python manage.py db_worker --queue-name "*"
+
   # Nightly Airtable → Django sync (pulls AT changes into the database)
   # Requires env vars: DATABASE_URL, DJANGO_SECRET_KEY, AIRTABLE_API_TOKEN,
   # AIRTABLE_BASE_ID, AIRTABLE_SYNC_ENABLED=true (set in Render dashboard)

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -463,6 +463,18 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         schedule_label="Nightly ~6 AM",
         cadence=Cadence.DAILY,
     ),
+    ScheduledJob(
+        key="prune_task_results",
+        name="Background task cleanup",
+        description=(
+            "Deletes finished background task results: successes after 30 days, failures after 90. "
+            "Fails, which alerts the Webmasters, when a background task has waited or run over an hour, "
+            "because then the task worker is down or died mid run."
+        ),
+        command="prune_task_results",
+        schedule_label="Daily ~6 AM",
+        cadence=Cadence.DAILY,
+    ),
     # Must stay after sync_all_sources: daily jobs run in list order, and the check reads the
     # Google rows that import brings in (#953).
     ScheduledJob(
@@ -646,12 +658,77 @@ def alert_webmasters(run: ScheduledTaskRun, exc: Exception | None = None) -> Non
 
     Never raises: each pass logs its own failure with ``logger.exception``.
     """
-    _alert_pass(run, exc, suppress_email=True)
-    _alert_pass(run, exc, suppress_push=True)
+
+    def describe() -> _Failure:
+        # .get, not [key]: a KeyError here would be swallowed by _alert_pass and cost the
+        # whole alert, so a key the registry no longer knows is named by its key instead.
+        job = JOBS_BY_KEY.get(run.task_key)
+        return _Failure(
+            period_key=run.task_key,
+            name=job.name if job is not None else run.task_key,
+            failed_at=run.finished_at,
+            # run.error is str(exc), not a traceback, so the headline is the FIRST line.
+            error_lines=run.error.splitlines(),
+            fallback=type(exc).__name__ if exc is not None else "no message",
+            path=automations_path(),
+            where="the run history on the Automations page",
+        )
+
+    _alert_twice(describe, f"the {run.task_key} automation")
+
+
+def alert_task_failed(*, task_path: str, task_name: str, finished_at: datetime | None, error_lines: list[str]) -> None:
+    """Tell the Webmasters that a durable queue task failed: at most one alert per task per Pacific day.
+
+    The same ``automation.failed`` alert as :func:`alert_webmasters`, with the same plain text,
+    the same two passes and the same once a day ledger; its period is the task's module path
+    plus the Pacific date. ``error_lines`` is the failed exception's message (the receiver in
+    ``core/tasks.py`` cuts it out of the traceback), and its first line is the headline. The
+    link opens the failed tasks in the admin. Never raises.
+    """
+
+    def describe() -> _Failure:
+        return _Failure(
+            period_key=f"task:{task_path}",
+            name=f"Background task {task_name}",
+            failed_at=finished_at,
+            error_lines=error_lines,
+            fallback="no message",
+            path=failed_tasks_path(),
+            where="the failed background tasks in the admin",
+        )
+
+    _alert_twice(describe, f"the {task_path} task")
+
+
+def failed_tasks_path() -> str:
+    """The admin list of failed durable queue tasks (``django_tasks_db``'s ``DBTaskResult``)."""
+    from django.urls import reverse
+
+    return f"{reverse('admin:django_tasks_database_dbtaskresult_changelist')}?status__exact=FAILED"
+
+
+@dataclass(frozen=True)
+class _Failure:
+    """What one failure alert says, whether a scheduled job or a durable queue task failed."""
+
+    period_key: str
+    name: str
+    failed_at: datetime | None
+    error_lines: list[str]
+    fallback: str
+    path: str
+    where: str
+
+
+def _alert_twice(describe: Callable[[], _Failure], subject: str) -> None:
+    """Bell and push first, then the email (see :func:`alert_webmasters` for why two passes)."""
+    _alert_pass(describe, subject, suppress_email=True)
+    _alert_pass(describe, subject, suppress_push=True)
 
 
 def _alert_pass(
-    run: ScheduledTaskRun, exc: Exception | None, *, suppress_email: bool = False, suppress_push: bool = False
+    describe: Callable[[], _Failure], subject: str, *, suppress_email: bool = False, suppress_push: bool = False
 ) -> None:
     """One emit of the failure alert, logging instead of raising (see :func:`alert_webmasters`)."""
     from django.conf import settings
@@ -663,17 +740,14 @@ def _alert_pass(
     from core.events.registry import AUTOMATION_FAILED, Channel
 
     try:
-        # .get, not [key]: a KeyError here would be swallowed by the except below and cost the
-        # whole alert, so a key the registry no longer knows is named by its key instead.
-        job = JOBS_BY_KEY.get(run.task_key)
-        title = f"{job.name if job is not None else run.task_key} failed"
-        failed_at = timezone.localtime(run.finished_at)
-        error_lines = [line.strip() for line in run.error.splitlines() if line.strip()]
-        # run.error is str(exc), not a traceback, so the headline is the FIRST line. Later lines are
-        # detail that must stay out of an inbox and a push tray: psycopg's "DETAIL: Key (email)=(...)"
-        # carries member data, and httpx ends with a "For more information check: <url>" footer.
-        fallback = type(exc).__name__ if exc is not None else "no message"
-        error = Truncator(error_lines[0]).chars(ALERT_ERROR_LIMIT) if error_lines else fallback
+        failure = describe()
+        title = f"{failure.name} failed"
+        failed_at = timezone.localtime(failure.failed_at)
+        error_lines = [line.strip() for line in failure.error_lines if line.strip()]
+        # Later lines are detail that must stay out of an inbox and a push tray: psycopg's
+        # "DETAIL: Key (email)=(...)" carries member data, and httpx ends with a
+        # "For more information check: <url>" footer.
+        error = Truncator(error_lines[0]).chars(ALERT_ERROR_LIMIT) if error_lines else failure.fallback
         when = date_format(failed_at, r"l, F j \a\t g:i A")  # Saturday, October 3 at 6:15 AM
         body = "\n".join(
             [
@@ -682,11 +756,10 @@ def _alert_pass(
                 "You will get at most one alert a day for this automation.",
             ]
         )
-        path = automations_path()
-        link = f"{settings.MEMBER_BASE_URL.rstrip('/')}{path}"
+        link = f"{settings.MEMBER_BASE_URL.rstrip('/')}{failure.path}"
         email = Message(
             title=title,
-            body=f"{body}\n\nSee the run history on the Automations page: {link}",
+            body=f"{body}\n\nSee {failure.where}: {link}",
             url=link,
             trigger_kind=AUTOMATION_FAILED,
         )
@@ -695,17 +768,17 @@ def _alert_pass(
             context={},
             title=title,
             body=body,
-            url=path,
-            period=f"{AUTOMATION_FAILED}:{run.task_key}:{failed_at:%Y-%m-%d}",
+            url=failure.path,
+            period=f"{AUTOMATION_FAILED}:{failure.period_key}:{failed_at:%Y-%m-%d}",
             messages={Channel.EMAIL: email},
             suppress_email=suppress_email,
             suppress_push=suppress_push,
         )
     except Exception:
         logger.exception(
-            "Could not send the Webmasters the %s alert that the %s automation failed",
+            "Could not send the Webmasters the %s alert that %s failed",
             "email" if suppress_push else "bell and push",
-            run.task_key,
+            subject,
         )
 
 
