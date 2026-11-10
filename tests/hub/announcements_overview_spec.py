@@ -414,7 +414,7 @@ def describe_who_sees_what():
             session.save()
             response = client.get(reverse("hub_announcements"))
             assert response.status_code == 302
-            assert response.url == reverse("hub_guild_announcement_propose")
+            assert response.url == reverse("hub_home")
             assert _messages(response) == [_compose_refusal_message(response.wsgi_request)]
 
     def describe_a_guild_lead():
@@ -485,7 +485,7 @@ def describe_who_sees_what():
             _instructor(client, "lockonly", status=ClassOffering.Status.DRAFT, slug=False)
             response = client.get(reverse("hub_announcements"))
             assert response.status_code == 302
-            assert response.url == reverse("hub_guild_announcement_propose")
+            assert response.url == reverse("hub_home")
 
     def describe_an_unlinked_account():
         def it_sees_nothing_and_is_refused(client: Client):
@@ -495,7 +495,7 @@ def describe_who_sees_what():
             AnnouncementDraftFactory(author=user, audience=_GUILD, guild=GuildFactory())
             response = client.get(reverse("hub_announcements"))
             assert response.status_code == 302
-            assert response.url == reverse("hub_guild_announcement_propose")
+            assert response.url == reverse("hub_home")
 
     def describe_the_gate():
         def it_is_asked_once_per_distinct_audience_never_per_row(client: Client, monkeypatch):
@@ -520,14 +520,14 @@ def describe_who_sees_what():
             assert {row.guild for row in rows} == {guild}
 
     def describe_a_plain_member():
-        def it_is_sent_to_propose_with_the_refusal(client: Client):
+        def it_is_sent_home_with_the_refusal(client: Client):
             MembershipPlanFactory()
             User.objects.create_user(username="plain", email="plain@x.com", password="p")
             client.login(username="plain", password="p")
             AnnouncementDraftFactory(sent=True)
             response = client.get(reverse("hub_announcements"))
             assert response.status_code == 302
-            assert response.url == reverse("hub_guild_announcement_propose")
+            assert response.url == reverse("hub_home")
             assert _messages(response) == [COMPOSE_REFUSAL]
 
         def it_cannot_open_a_sent_record(client: Client):

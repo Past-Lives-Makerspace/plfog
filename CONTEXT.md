@@ -85,7 +85,7 @@ A short notice an admin posts for every member, crawling across the top of Home 
 _Avoid_: announcement for this, now that the word belongs to neither tool.
 
 **Guild announcement**:
-A news post on a guild page (`membership.GuildAnnouncement`): what an Email Members send to a guild leaves behind, or a member's suggestion a lead approved. Members read these as their guild's announcements (the guild page section, Home's Latest From Your Guilds, "Suggest an announcement"), and that reading stays.
+A news post on a guild page (`membership.GuildAnnouncement`): what an Email Members send to a guild leaves behind. Members read these as their guild's announcements (the guild page section, Home's Latest From Your Guilds), and that reading stays. Members no longer suggest them (#1157).
 _Avoid_: calling the tool that makes them "Announcements".
 
 **Facility tour**:

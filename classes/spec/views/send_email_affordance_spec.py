@@ -20,7 +20,7 @@ only because ``classes/access.py`` was the stricter of them, which #414's review
 construction".
 
 **A refusal is never silent.** ``hub_compose`` answered a viewer it would not admit with a bare
-``redirect`` to the propose flow, and ``templates/hub/base.html`` puts ``hx-boost="true"`` on the
+``redirect`` to Home, and ``templates/hub/base.html`` puts ``hx-boost="true"`` on the
 body, so the page simply became an unrelated form with no explanation. It now carries a message,
 which :class:`core.middleware.ToastFlashMiddleware` hands across the boosted redirect in the
 ``pl_toast`` cookie. The composer's three HTMX POST paths carry the same sentence as a toast on
@@ -273,11 +273,11 @@ def describe_the_send_email_link():
 
 def describe_a_refused_composer_says_why():
     def describe_the_page_entry():
-        def it_still_sends_a_refused_viewer_to_the_propose_flow(member_user, roster_class, client):
+        def it_still_sends_a_refused_viewer_home(member_user, roster_class, client):
             client.force_login(member_user)
             response = client.get(_compose_url(roster_class))
             assert response.status_code == 302
-            assert response.url == reverse("hub_guild_announcement_propose")
+            assert response.url == reverse("hub_home")
 
         def it_hands_that_reason_across_a_boosted_redirect(member_user, roster_class, client):
             # hx-boost swaps the destination's body, and the message-bearing render is not
@@ -299,7 +299,7 @@ def describe_a_refused_composer_says_why():
             assert "Switch it back to Admin" in said
             assert GENERIC_REFUSAL not in said
 
-        def it_points_everyone_else_at_the_propose_flow(member_user, roster_class, client):
+        def it_gives_everyone_else_the_plain_refusal(member_user, roster_class, client):
             # The other branch, pinned against the same pair: a plain member is never told to go
             # and change a switcher they do not have.
             client.force_login(member_user)
@@ -647,7 +647,7 @@ def describe_the_audience_list_offers_only_what_the_send_accepts():
 
         They keep the public instructor page on purpose. ``_can_compose`` admits them on
         ``is_instructor``, so the composer still renders and the dropdown is observable at all;
-        without the slug they are bounced to the propose flow and there is no list to inspect.
+        without the slug they are bounced to Home and there is no list to inspect.
         """
         MembershipPlanFactory()
         user = UserFactory(username="affordance-revoked@example.com")

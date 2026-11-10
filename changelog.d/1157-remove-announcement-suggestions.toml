@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-11-10"
+title = "Announcement suggestions are gone"
+audience = ["members", "guild-staff"]
+guidance = "none"
+changes = [
+  "The Suggest an announcement button is gone from guild pages, along with the suggestion page.",
+  "Guild leads no longer see the Member Suggestions switch or the review queue in Guild Settings. Posting announcements to your guild through Email Members works as before.",
+]

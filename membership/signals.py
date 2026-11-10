@@ -196,7 +196,6 @@ def _connect_request_bell_clearing() -> None:
     from core.signals import clear_request_bells_on_delete
     from membership.models import (
         CommunityEvent,
-        GuildAnnouncement,
         MeetingItemProposal,
         Member,
         SpaceRequest,
@@ -207,7 +206,6 @@ def _connect_request_bell_clearing() -> None:
     for model in (
         SpaceRequest,
         CommunityEvent,
-        GuildAnnouncement,
         MeetingItemProposal,
         WikiReport,
         WikiPage,

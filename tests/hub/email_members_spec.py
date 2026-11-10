@@ -144,7 +144,7 @@ def describe_the_mailing_lists_tab():
         _login_user(client, "ml_none")
         response = client.get(_tab_url())
         assert response.status_code == 302
-        assert response["Location"] == reverse("hub_guild_announcement_propose")
+        assert response["Location"] == reverse("hub_home")
 
     def it_scopes_an_admin_previewing_as_a_member_to_the_guild_they_lead(client: Client):
         user = _login_admin(client, "ml_preview")

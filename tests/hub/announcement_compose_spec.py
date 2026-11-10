@@ -1,8 +1,8 @@
 """The announcement compose wizard views (/announcements/compose/) — page, drafts, send, mention.
 
 Covers: GET renders both phases, the Back to Email Members link and both Save draft buttons;
-audience gating (admins see site-wide, leads see their guilds, plain members get bounced to
-propose); shared drafts (anyone who may address a draft's stored audience may resume, save over,
+audience gating (admins see site-wide, leads see their guilds, plain members get bounced
+Home); shared drafts (anyone who may address a draft's stored audience may resume, save over,
 send or delete it; anyone else gets a 404 or a refusal, never the row); Save draft's upsert, its
 HX-Replace-Url and toasts; the recipient-count HTMX endpoint; the direct test-send (never the
 spine); send permission re-checks, the guild materialization and the landing on the Sent tab;
@@ -195,11 +195,11 @@ def describe_hub_compose_page():
         assert 'value="site"' not in content
         assert f'value="guild:{guild.pk}"' in content
 
-    def it_bounces_a_plain_member_to_the_propose_flow(client: Client):
+    def it_bounces_a_plain_member_home(client: Client):
         _login_plain(client)
         response = client.get(reverse("hub_compose"))
         assert response.status_code == 302
-        assert response.url == reverse("hub_guild_announcement_propose")
+        assert response.url == reverse("hub_home")
 
     def it_has_exactly_one_wizard_form_and_only_send_is_a_submit(client: Client):
         _login_admin(client)
@@ -1384,7 +1384,7 @@ def describe_locked_composer():
 def describe_teaching_instructor_gate():
     def it_admits_a_slugless_teaching_instructor_to_the_locked_composer(client: Client):
         # The bug: is_instructor is the public-profile flag, so a real teacher without a slug
-        # bounced to the propose flow. The class page's button URL must land on the composer.
+        # bounced to Home. The class page's button URL must land on the composer.
         _user, _member, offering = _instructor(client, username="noslug", slug=False)
         response = client.get(f"{reverse('hub_compose')}?audience=class:{offering.pk}&lock=1")
         assert response.status_code == 200
@@ -1446,11 +1446,11 @@ def describe_teaching_instructor_gate():
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         response = client.get(f"{reverse('hub_compose')}?audience=class:{offering.pk}&lock=1")
         assert response.status_code == 302
-        assert response.url == reverse("hub_guild_announcement_propose")
+        assert response.url == reverse("hub_home")
 
     def it_resumes_a_lock_only_teachers_own_draft(client: Client):
         # Saved from the locked composer; the resume URL carries no ?audience, so the gate
-        # must judge the draft's own class audience instead of bouncing to propose.
+        # must judge the draft's own class audience instead of bouncing Home.
         user, _member, offering = _instructor(
             client, username="draftresume", slug=False, status=ClassOffering.Status.DRAFT
         )
@@ -1481,7 +1481,7 @@ def describe_teaching_instructor_gate():
         guild = GuildFactory()
         response = client.get(f"{reverse('hub_compose')}?audience=guild:{guild.pk}&lock=1")
         assert response.status_code == 302
-        assert response.url == reverse("hub_guild_announcement_propose")
+        assert response.url == reverse("hub_home")
 
 
 def describe_send_announcement_entry_points():
@@ -1720,7 +1720,7 @@ def describe_hub_compose_roster_handoff():
             f"{reverse('hub_compose')}?audience=class:{offering.pk}&lock=1&recipients=custom:one@example.com"
         )
         assert response.status_code == 302
-        assert response.url == reverse("hub_guild_announcement_propose")
+        assert response.url == reverse("hub_home")
 
     def it_leaves_a_resumed_drafts_own_selection_alone(client: Client):
         """A draft may hold an off-roster member added via "add anyone" — never filter that."""

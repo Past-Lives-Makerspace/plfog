@@ -623,18 +623,6 @@ def describe_mailing_list_autosave():
         assert plain.context["mailing_list_formset"].errors[0]["email"]
 
 
-def describe_announcement_settings_autosave():
-    def it_answers_saved_and_keeps_the_redirect_without_the_header(client: Client):
-        _user, guild = _lead(client, "ann")
-        url = reverse("hub_guild_announcement_settings_save", args=[guild.pk])
-        response = client.post(url, {"allow_member_announcement_suggestions": "on"}, **AUTOSAVE)
-        assert response.status_code == 200
-        assert response.json()["saved"] is True
-        guild.refresh_from_db()
-        assert guild.allow_member_announcement_suggestions is True
-        assert client.post(url, {}).status_code == 302
-
-
 def describe_guild_edit_page_autosave_markup():
     def it_renders_the_pill_the_lead_line_and_no_save_button_on_any_autosave_section(client: Client):
         _user, guild = _admin(client, "markup")
@@ -649,9 +637,9 @@ def describe_guild_edit_page_autosave_markup():
             assert "requestSubmit()" not in content.replace(
                 "document.getElementById('times-bulk-form').requestSubmit();", ""
             )
-        # Main, visibility, FAQ, links, mailing list, announcement settings and reservations
-        # (the welcome form rides a feature switch).
-        assert assert_autosave_forms_have_no_submit(settings_page) >= 7
+        # Main, visibility, FAQ, links, mailing list and reservations (the welcome form rides a
+        # feature switch; #1157 removed the Member Suggestions form).
+        assert assert_autosave_forms_have_no_submit(settings_page) >= 6
         # Orientation settings, types, thank-you and guild hours, on their own page since #672.
         assert assert_autosave_forms_have_no_submit(orientations_page) >= 4
 
@@ -666,7 +654,6 @@ def describe_guild_edit_page_autosave_markup():
             reverse("hub_guild_faq_save", args=[guild.pk]),
             reverse("hub_guild_links_save", args=[guild.pk]),
             reverse("hub_guild_mailing_list_save", args=[guild.pk]),
-            reverse("hub_guild_announcement_settings_save", args=[guild.pk]),
             reverse("hub_guild_reservations_settings_save", args=[guild.pk]),
         ):
             assert re.search(rf'<form[^>]*action="{re.escape(action)}"[^>]*data-autosave', content), action

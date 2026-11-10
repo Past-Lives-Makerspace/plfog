@@ -494,7 +494,6 @@ RELEASE_PUBLISHED = "release.published"
 EVENT_GUILD_PUBLISHED = "event.guild_published"
 EVENT_COMMUNITY_PUBLISHED = "event.community_published"
 EVENT_LEAD_MEETING_PUBLISHED = "event.lead_meeting_published"
-GUILD_ANNOUNCEMENT_SUBMITTED = "guild_announcement.submitted"
 # Instructor-raised staff notices on a live class (class-lifecycle spec PR 2).
 CLASS_CANCELLED_ADMIN_NOTICE = "class_cancelled_admin_notice"
 CLASS_CHANGE_REQUESTED = "class_change_requested"
@@ -503,9 +502,6 @@ INSTRUCTOR_APPLICATION_RECEIVED = "instructor_application_received"
 INSTRUCTOR_APPLICATION_APPROVED = "instructor_application_approved"
 INSTRUCTOR_APPLICATION_DECLINED = "instructor_application_declined"
 WIKI_GUILD_DIGEST_MONTHLY = "wiki.guild_digest_monthly"
-GUILD_ANNOUNCEMENT_APPROVED = "guild_announcement.approved"
-GUILD_ANNOUNCEMENT_CHANGES_REQUESTED = "guild_announcement.changes_requested"
-GUILD_ANNOUNCEMENT_DECLINED = "guild_announcement.declined"
 EVENT_SUBMITTED = "event.submitted"
 EVENT_APPROVED = "event.approved"
 EVENT_CHANGES_REQUESTED = "event.changes_requested"
@@ -786,48 +782,6 @@ _NEW_EVENTS: list[EventType] = [
         category="Events",
         recipient=Recipients.ALL_GUILD_LEADS,
         channels=(_IN_APP_ON, _EMAIL_ON, _DISCORD_ON),
-        activity_kind=None,
-    ),
-    # 10. guild_announcement.submitted — a member proposed an announcement for a guild; it
-    #     lands in the reviewer queue. Goes to the guild's leadership (lead + staff); admins
-    #     also see it in the queue. A per-person workflow reply: in-app + email, no Discord.
-    EventType(
-        key=GUILD_ANNOUNCEMENT_SUBMITTED,
-        label="Announcement proposal submitted",
-        description="A member proposed a guild announcement that needs review.",
-        category="Guilds",
-        recipient=Recipients.GUILD_LEADERSHIP,
-        channels=(_IN_APP_ON, _EMAIL_ON),
-        activity_kind=None,
-    ),
-    # 11. guild_announcement.approved — the proposer hears their announcement is posted.
-    EventType(
-        key=GUILD_ANNOUNCEMENT_APPROVED,
-        label="Your announcement was approved",
-        description="A reviewer approved a member's proposed announcement and it's now posted.",
-        category="Guilds",
-        recipient=Recipients.SINGLE_USER,
-        channels=(_IN_APP_ON, _EMAIL_ON),
-        activity_kind=None,
-    ),
-    # 12. guild_announcement.changes_requested — the proposer is asked to edit + resubmit.
-    EventType(
-        key=GUILD_ANNOUNCEMENT_CHANGES_REQUESTED,
-        label="Changes requested on your announcement",
-        description="A reviewer asked the proposer to adjust their announcement and resubmit.",
-        category="Guilds",
-        recipient=Recipients.SINGLE_USER,
-        channels=(_IN_APP_ON, _EMAIL_ON),
-        activity_kind=None,
-    ),
-    # 13. guild_announcement.declined — the proposal was turned down.
-    EventType(
-        key=GUILD_ANNOUNCEMENT_DECLINED,
-        label="Your announcement wasn't posted",
-        description="A reviewer declined a member's proposed announcement.",
-        category="Guilds",
-        recipient=Recipients.SINGLE_USER,
-        channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
     # 14. event.submitted — a member proposed a Calendar event; it lands in the
@@ -1978,7 +1932,6 @@ _DIGEST_EMAIL_EVENTS: frozenset[str] = frozenset(
         "space.cubby_requested",
         "discount_code.requested",
         "event.submitted",
-        "guild_announcement.submitted",
         "wiki.page_reported",
         "wiki.page_proposed",
         "instructor_application_received",

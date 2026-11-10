@@ -417,11 +417,6 @@ def describe_row_groups():
             "A reviewer approved your class or asked you for changes.",
             "Teaching",
         ),
-        "group.announcement_decision": (
-            "Updates to your announcement",
-            "Your proposed announcement was approved, sent back for changes, or declined.",
-            "Guilds",
-        ),
         "group.feedback_request": (
             "Updates to your requests",
             "Something you sent is planned, being built, live, not planned, not a bug or closed, "
@@ -504,8 +499,8 @@ def describe_row_groups():
             # The prefix a group's keys share is NOT its scope. Scoped by prefix, "event."
             # would drag in event.submitted, event.reminder, event.happening_now and
             # event.community_published; "space." would drag in the lease events;
-            # event.submitted and guild_announcement.submitted are approval REQUESTS
-            # routed to staff through a different emit helper. Every one of those has to
+            # event.submitted is an approval REQUEST routed to staff through a different
+            # emit helper. Every one of those has to
             # keep posting under its own key.
             #
             # Asserted through _post_key_for, never against _GROUP_BY_EVENT_KEY: that dict
@@ -524,8 +519,7 @@ def describe_row_groups():
                         checked += 1
                         assert settings_matrix._post_key_for(event) == event.key
             assert checked >= 4, "expected several same-namespace keys a prefix match would have swallowed"
-            for key in ("event.submitted", "guild_announcement.submitted"):
-                assert settings_matrix._post_key_for(get_event(key)) == key
+            assert settings_matrix._post_key_for(get_event("event.submitted")) == "event.submitted"
 
         def it_still_renders_a_submitted_sibling_as_its_own_staff_row(db):
             user = User.objects.create_user(username="grp4", email="grp4@example.com")

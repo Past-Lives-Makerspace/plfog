@@ -5589,62 +5589,6 @@ class GuildAnnouncementForm(forms.ModelForm):
         return channel
 
 
-class GuildAnnouncementProposalForm(forms.ModelForm):
-    """A member proposing a guild announcement for a lead/admin to review.
-
-    Any logged-in member can propose to any guild: they pick the guild and write the
-    post, but NOT the outbound channels — a reviewer decides whether to also email the
-    guild's members and post to Discord at approval time (see
-    :class:`GuildAnnouncementDecisionForm`).
-    """
-
-    class Meta:
-        model = GuildAnnouncement
-        fields = ["guild", "title", "body", "expires_at"]
-        widgets = {
-            "body": forms.Textarea(attrs={"rows": 4}),
-            "expires_at": forms.DateInput(attrs={"type": "date"}),
-        }
-        labels = {"guild": "Guild", "expires_at": "Hide after (optional)"}
-        help_texts = {
-            "guild": "Which guild is this announcement for?",
-            "expires_at": "Leave blank to keep it up indefinitely.",
-        }
-
-    def __init__(self, *args: Any, fixed_guild: Guild | None = None, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        guild_field = cast(forms.ModelChoiceField, self.fields["guild"])
-        # New proposals may only target guilds that are taking member suggestions. An
-        # existing proposal keeps its own guild selectable even if that guild has since
-        # turned suggestions off, so a CHANGES_REQUESTED proposal can be revised and
-        # resubmitted without being repointed at a different guild.
-        active = Guild.objects.filter(is_active=True)
-        if self.instance.pk:
-            guild_field.queryset = active.filter(
-                Q(allow_member_announcement_suggestions=True) | Q(pk=self.instance.guild_id)
-            ).order_by("name")
-        else:
-            guild_field.queryset = active.filter(allow_member_announcement_suggestions=True).order_by("name")
-        guild_field.required = True
-        guild_field.error_messages["invalid_choice"] = "This guild isn't taking member suggestions right now."
-        if fixed_guild is not None and not self.is_bound:
-            guild_field.initial = fixed_guild.pk
-
-
-class GuildAnnouncementSettingsForm(forms.ModelForm):
-    """Guild-lead toggle for whether members may suggest announcements for this guild.
-
-    A single boolean on :class:`~membership.models.Guild`, rendered as a toggle on the
-    Announcements tab of the guild editor. Turning it off hides the member suggestion
-    button and excludes the guild from the proposal form's guild picker for new proposals.
-    """
-
-    class Meta:
-        model = Guild
-        fields = ["allow_member_announcement_suggestions"]
-        labels = {"allow_member_announcement_suggestions": "Let members suggest announcements"}
-
-
 class GuildReservationsSettingsForm(forms.ModelForm):
     """Guild-lead toggle for the guild page's Reservations tab (#502).
 
@@ -5716,58 +5660,6 @@ class GuildVisibilityForm(forms.ModelForm):
     def row_form_id(guild: Guild) -> str:
         """The id of a Guilds page row's ``<form>``, which that row's switches name with ``form=``."""
         return f"guild-row-{guild.pk}"
-
-
-class GuildAnnouncementDecisionForm(forms.Form):
-    """A reviewer's decision on a proposed guild announcement.
-
-    Approving also chooses the outbound channels: whether to email the guild's members
-    (``send_email``, default on) and which Discord channel to post to (``discord_channel``,
-    the same picker the lead's own post form uses) — the reviewer, not the proposer, owns
-    those. Pass ``guild=`` so unconfigured channels render disabled and validate. The channel
-    field is optional on the form because the changes/decline modals don't render it; the view
-    only reads it on an approve. ``notes`` is required for the two outcomes that send the
-    proposer a reason (changes / decline), so an empty note is a real validation error.
-    """
-
-    DECISION_CHOICES = [("approve", "Approve"), ("changes", "Request changes"), ("decline", "Decline")]
-
-    decision = forms.ChoiceField(choices=DECISION_CHOICES)
-    notes = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 3}))
-    send_email = forms.BooleanField(required=False, initial=True)
-    discord_channel = forms.ChoiceField(
-        required=False,
-        choices=GuildAnnouncement.DiscordChannel.choices,
-        widget=ChannelRadioSelect,
-        label="Post to Discord channel",
-    )
-
-    def __init__(
-        self, *args: Any, guild: Guild | None = None, config: SiteConfiguration | None = None, **kwargs: Any
-    ) -> None:
-        super().__init__(*args, **kwargs)
-        configured = _configured_discord_channels(guild, config)
-        widget = cast(ChannelRadioSelect, self.fields["discord_channel"].widget)
-        widget.configured_channels = configured
-        if not self.is_bound:
-            self.fields["discord_channel"].initial = _default_discord_channel(configured)
-
-    def clean_discord_channel(self) -> str:
-        channel = cast(str, self.cleaned_data.get("discord_channel") or "")
-        if not channel:
-            return ""
-        widget = cast(ChannelRadioSelect, self.fields["discord_channel"].widget)
-        if channel != GuildAnnouncement.DiscordChannel.NONE and channel not in widget.configured_channels:
-            raise forms.ValidationError(_CHANNEL_UNCONFIGURED_ERROR)
-        return channel
-
-    def clean(self) -> dict[str, Any]:
-        cleaned = cast(dict[str, Any], super().clean())
-        decision = cleaned.get("decision")
-        notes = (cleaned.get("notes") or "").strip()
-        if decision in ("changes", "decline") and not notes:
-            self.add_error("notes", "Add a note so the proposer knows why.")
-        return cleaned
 
 
 class PushTestForm(forms.Form):
