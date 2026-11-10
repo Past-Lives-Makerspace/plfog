@@ -41,6 +41,22 @@ DEFAULT_CLOSED_MESSAGE = "We are not booking tours right now. Please check back 
 TOUR_ADDRESS = "Past Lives Makerspace, 2808 SE 9th Ave, Portland, OR 97202"
 
 
+#: ``datetime.date`` under a name ``TourHours.date`` (the field) does not shadow in the class body.
+Day = date
+
+
+def day_label(day: date) -> str:
+    """``Sat, Nov 15``: how a single day reads on the My Hours tab and in its messages."""
+    return f"{day:%a, %b} {day.day}"
+
+
+def _clock_label(value: time) -> str:
+    """``11:00 AM``, ``12:30 PM``: the half hour selects' own words."""
+    from hub.forms import _meeting_time_label  # hub.forms imports models across the apps
+
+    return _meeting_time_label(value.hour, value.minute)
+
+
 def guide_filter(prefix: str = "") -> Q:
     """Who gives tours, as a ``Q`` on ``Member`` (or on a relation to it through ``prefix``).
 
@@ -174,14 +190,34 @@ class TourHoursQuerySet(models.QuerySet["TourHours"]):
         """One guide's rows, in week order."""
         return self.filter(guide=guide).order_by("weekday", "start_time")
 
+    def weekly(self) -> TourHoursQuerySet:
+        """Rows that repeat every week (no ``date``): the Every Week editor's rows."""
+        return self.filter(date__isnull=True)
+
+    def dated(self) -> TourHoursQuerySet:
+        """Rows for one date each (#1160): the Available On list's rows."""
+        return self.filter(date__isnull=False)
+
+    def upcoming_dated(self) -> TourHoursQuerySet:
+        """Dated rows from today on, soonest first: what the Available On list shows. Past ones stay stored."""
+        return self.filter(date__gte=timezone.localdate()).order_by("date", "start_time")
+
+    def touching_days(self, first: date, last: date) -> TourHoursQuerySet:
+        """Every weekly row, and the dated rows from ``first`` to ``last``: what can yield a tour in that range."""
+        return self.filter(Q(date__isnull=True) | Q(date__range=(first, last)))
+
 
 class TourHours(models.Model):
-    """One weekly window in which a guide gives tours, carved into tours of ``tour_minutes`` each.
+    """One window in which a guide gives tours, carved into tours of ``tour_minutes`` each.
 
     Tuesday 4:00 to 6:00 PM with 60 minute tours is two tours, at 4:00 and 5:00, each with
     ``seats`` places. Two guides with the same hours offer two separate tours. One guide's rows
-    may not overlap (``TourHoursFormSet`` refuses it), so a guide and a start time name at most one
-    row, which is what a booking locks (:func:`tours.availability.open_tour_at`).
+    may not overlap (``TourHoursFormSet`` and ``TourDatesForm`` refuse it), so a guide and a start
+    time name at most one row, which is what a booking locks (:func:`tours.availability.open_tour_at`).
+
+    A row with no ``date`` repeats every week on ``weekday``. A row with a ``date`` (#1160) is that
+    one day only; its ``weekday`` is still stored, equal to the date's (a check constraint holds
+    the two together), so the booking lock's weekday query covers it unchanged.
     """
 
     class Weekday(models.IntegerChoices):
@@ -200,7 +236,13 @@ class TourHours(models.Model):
         help_text="The person who gives the tours in this window.",
     )
     weekday = models.PositiveSmallIntegerField(
-        choices=Weekday.choices, help_text="The day of the week these hours recur on (0 is Monday)."
+        choices=Weekday.choices,
+        help_text="The day of the week these hours recur on (0 is Monday); for dated hours, the date's weekday.",
+    )
+    date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="The one local day these hours are for (#1160). Blank for hours that repeat every week.",
     )
     start_time = models.TimeField(help_text="When the first tour can start, on a half hour mark.")
     end_time = models.TimeField(help_text="When the last tour must be over, on a half hour mark.")
@@ -229,12 +271,17 @@ class TourHours(models.Model):
             ),
             models.CheckConstraint(condition=Q(tour_minutes__gt=0), name="ck_tourhours_minutes_positive"),
             models.CheckConstraint(condition=Q(seats__gt=0), name="ck_tourhours_seats_positive"),
+            # Dated hours keep their date's weekday (0 is Monday, ISO counts Monday as 1), so the
+            # booking lock's weekday query finds them.
+            models.CheckConstraint(
+                condition=Q(date__isnull=True) | Q(weekday=models.F("date__iso_week_day") - 1),
+                name="ck_tourhours_date_weekday",
+            ),
         ]
 
     def __str__(self) -> str:
-        return (
-            f"{self.guide.display_name}: {self.get_weekday_display()} {self.start_time:%H:%M} to {self.end_time:%H:%M}"
-        )
+        day = f"{self.date:%a %Y-%m-%d}" if self.date is not None else self.get_weekday_display()
+        return f"{self.guide.display_name}: {day} {self.start_time:%H:%M} to {self.end_time:%H:%M}"
 
     def clean(self) -> None:
         """Half hour marks and room for at least one tour (the Django admin runs this too)."""
@@ -258,10 +305,37 @@ class TourHours(models.Model):
         return (self.end_time.hour * 60 + self.end_time.minute) - (self.start_time.hour * 60 + self.start_time.minute)
 
     def overlaps(self, other: TourHours) -> bool:
-        """Whether ``other`` falls on the same weekday and shares any minute with this window."""
-        return self.weekday == other.weekday and self.start_time < other.end_time and other.start_time < self.end_time
+        """Whether ``other`` can fall on the same day and shares any minute with this window.
 
-    def carve_spans(self, day: date) -> list[tuple[datetime, datetime]]:
+        Two weekly rows clash on the same weekday; a dated row clashes with a weekly row of its
+        weekday and with another dated row of the same date; two different dates never do.
+        """
+        if self.weekday != other.weekday:
+            return False
+        if self.date is not None and other.date is not None and self.date != other.date:
+            return False
+        return self.start_time < other.end_time and other.start_time < self.end_time
+
+    def applies_on(self, day: Day) -> bool:
+        """Whether this row yields tours on ``day``: its weekday for weekly hours, its date for dated ones."""
+        if self.date is not None:
+            return self.date == day
+        return self.weekday == day.weekday()
+
+    @property
+    def times_label(self) -> str:
+        """``11:00 AM to 3:00 PM``."""
+        return f"{_clock_label(self.start_time)} to {_clock_label(self.end_time)}"
+
+    @property
+    def dated_summary(self) -> str:
+        """The Available On list's line (#1160): ``Sat, Nov 15 · 11:00 AM to 3:00 PM · 60 minute tours · 6 seats``."""
+        if self.date is None:
+            raise ValueError("Only dated tour hours have a dated summary.")
+        seats = f"{self.seats} seat{'' if self.seats == 1 else 's'}"
+        return f"{day_label(self.date)} · {self.times_label} · {self.tour_minutes} minute tours · {seats}"
+
+    def carve_spans(self, day: Day) -> list[tuple[datetime, datetime]]:
         """The aware local ``(start, end)`` of every tour this window yields on ``day``.
 
         Steps from ``start_time`` by ``tour_minutes`` on the wall clock while a whole tour still fits
@@ -298,6 +372,16 @@ class TourDayOffQuerySet(models.QuerySet["TourDayOff"]):
     def touching(self, first: date, last: date) -> TourDayOffQuerySet:
         """Days off that cover any day from ``first`` to ``last`` (both included)."""
         return self.filter(starts_on__lte=last, ends_on__gte=first)
+
+    def covered_days(self, first: date, last: date) -> list[date]:
+        """Every day from ``first`` to ``last`` one of these days off covers, in order (one query)."""
+        days: set[date] = set()
+        for day_off in self.touching(first, last):
+            day = max(day_off.starts_on, first)
+            while day <= min(day_off.ends_on, last):
+                days.add(day)
+                day += timedelta(days=1)
+        return sorted(days)
 
 
 class TourDayOff(models.Model):

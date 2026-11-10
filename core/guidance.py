@@ -570,6 +570,17 @@ _GUIDANCE_LIST = (
         ),
     ),
     Guidance(
+        key="tours.hours",
+        title="Tour Hours",
+        url_name="tours:hours",
+        steps=(
+            "Open the Tours card on the Tools page and press My Hours.",
+            "Every Week is for hours that repeat. If your schedule changes from week to week, use Available On.",
+            "Press + Add Dates, tap the days you are free, set From, To, Tour length and Seats, then press Add.",
+            "Visitors can book tours on those dates. Delete a date from the list if your plans change.",
+        ),
+    ),
+    Guidance(
         key="account.notifications",
         title="Notification Settings",
         url_name="hub_user_settings",

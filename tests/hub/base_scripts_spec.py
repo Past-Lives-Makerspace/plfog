@@ -43,6 +43,7 @@ HEAD_ORDER = (
     "js/guidance.js",
     "js/pl-rotator.js",
     "js/pl-upcoming-queue.js",
+    "js/tour_dates.js",
     "js/alpine.min.js",
     "js/biometric-auth.js",
     "js/app-store-badges.js",

@@ -1,0 +1,22 @@
+bump = "minor"
+date = "2026-11-10"
+audience = ["admins"]
+feature = "tours.hours"
+guidance = "shots"
+target = "tours.add-dates"
+title = "Tour Guides can set hours on picked dates"
+changes = [
+  "My Hours on the Tours page has a new Available On section for a schedule that changes from week to week.",
+  "Press + Add Dates, tap the days you are free on the calendar, and set From, To, Tour length and Seats once for all of them.",
+  "Visitors, the front desk kiosk and staff reschedule offer tours on those dates, with the same notice, seats and days off as weekly hours.",
+  "Upcoming dates are listed soonest first, and each can be deleted. The weekly section is now called Every Week.",
+]
+
+[[shots]]
+caption = "On the Tours page, open My Hours and press + Add Dates under Available On."
+
+[[shots]]
+caption = "Tap the days you are free, set From, To, Tour length and Seats, then press Add."
+
+[[shots]]
+caption = "Your dates are listed soonest first. Press Delete on one if your plans change."

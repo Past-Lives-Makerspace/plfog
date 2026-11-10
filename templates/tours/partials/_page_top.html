@@ -10,7 +10,7 @@ viewer has no Tools page).
 {% load tab_picker %}
 {# No Tools page to go back to (an admin previewing as a member or guest has none): no link. #}
 {% if tools_page_title %}<p class="pl-tours-back"><a href="{% url 'hub_admin_tools' %}" class="hub-btn hub-btn--sm hub-btn--ghost" data-tours-back>&larr; Back to {{ tools_page_title }}</a></p>{% endif %}
-{% include "components/page_header.html" with title="Tours" description="Facility tours for people curious about Past Lives. See who is coming, mark past tours, set the weekly hours you can give tours, and mark the days you are away." %}
+{% include "components/page_header.html" with title="Tours" description="Facility tours for people curious about Past Lives. See who is coming, mark past tours, set the hours you can give tours, and mark the days you are away." new_key="tours.hours" %}
 
 {% tab_picker "Tours" %}
 <nav class="pl-tabs" aria-label="Tours">
