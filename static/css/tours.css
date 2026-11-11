@@ -441,3 +441,116 @@
     flex-wrap: wrap;
     margin-top: 1rem;
 }
+
+/* Available On (#1160): + Add Dates opens the panel, a month calendar (plTourDates,
+   static/js/tour_dates.js) above one set of hours for every picked day. Seven columns that shrink
+   to the card, so a 390px phone fits the grid with no sideways scroll and every day stays a 40px
+   target. Picked days wear the New! gold (guidance.css tokens); a day with hours carries a dot, a
+   day off is struck through. */
+.pl-tours-dates {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--hub-border);
+}
+.pl-tours-dates .pl-tours-refused {
+    margin: 0 0 1.5rem;
+}
+.pl-tours-dates__hint {
+    margin-top: 0;
+}
+.pl-tours-cal {
+    max-width: 26rem;
+}
+.pl-tours-cal__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+.pl-tours-cal__step {
+    min-width: 2.5rem;
+    min-height: 2.5rem;
+}
+.pl-tours-cal__month {
+    color: var(--hub-text);
+    font-weight: 700;
+}
+.pl-tours-cal__grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 0.25rem;
+    margin-top: 0.75rem;
+}
+.pl-tours-cal__weekday {
+    text-align: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--hub-text-muted);
+    padding-bottom: 0.25rem;
+}
+.pl-tours-cal__day {
+    position: relative;
+    min-height: 2.5rem;
+    min-width: 0;
+    padding: 0;
+    border: 1px solid var(--hub-border);
+    border-radius: 8px;
+    background: var(--hub-surface);
+    color: var(--hub-text);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+.pl-tours-cal__day:hover:not(:disabled) {
+    border-color: var(--pl-new-mid, #eeb44b);
+}
+.pl-tours-cal__day:focus-visible {
+    outline: 2px solid var(--hub-blue);
+    outline-offset: 2px;
+}
+.pl-tours-cal__day:disabled {
+    cursor: default;
+    opacity: 0.35;
+}
+.pl-tours-cal__day--blank,
+.pl-tours-cal__day--blank:disabled {
+    visibility: hidden;
+}
+.pl-tours-cal__day--off {
+    text-decoration: line-through;
+    color: var(--hub-text-muted);
+}
+.pl-tours-cal__day--dated::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: 0.25rem;
+    width: 0.3125rem;
+    height: 0.3125rem;
+    margin-left: -0.15625rem;
+    border-radius: 50%;
+    background: var(--hub-blue);
+}
+.pl-tours-cal__day--picked {
+    border-color: transparent;
+    background: linear-gradient(135deg, var(--pl-new-from, #ffd36a), var(--pl-new-to, #f08a3e));
+    color: var(--pl-new-text, #092e4b);
+}
+.pl-tours-cal__day--picked.pl-tours-cal__day--off {
+    color: var(--pl-new-text, #092e4b);
+}
+.pl-tours-cal__day--picked.pl-tours-cal__day--dated::after {
+    background: var(--pl-new-text, #092e4b);
+}
+.pl-tours-cal__count {
+    margin: 0.75rem 0 1.5rem;
+}
+.pl-tours-dates__actions {
+    justify-content: flex-start;
+}
+
+@media (max-width: 480px) {
+    .pl-tours-cal {
+        max-width: none;
+    }
+}

@@ -12,6 +12,8 @@ from datetime import date, time, timedelta
 from typing import Any, cast
 
 from django import forms
+from django.db import transaction
+from django.http import QueryDict
 from django.utils import timezone
 
 from hub.forms import (
@@ -22,10 +24,21 @@ from hub.forms import (
     half_hour_time_choices,
 )
 from membership.models import Member
-from tours.models import MAX_SEATS, FacilityTourSettings, TourCalendarConnection, TourDayOff, TourHours
+from tours.models import (
+    MAX_SEATS,
+    FacilityTourSettings,
+    TourCalendarConnection,
+    TourDayOff,
+    TourHours,
+    day_label,
+)
 
 #: The longest run of days one day off may cover.
 MAX_DAY_OFF_DAYS = 366
+#: How far ahead dated hours may be added (#1160), in days: the calendar disables the days past it.
+MAX_DATED_DAYS_AHEAD = 365
+#: The shared tour lengths, shown in minutes, as the Available On field's label and its list ("60 minute tours") read.
+_LENGTH_CHOICES: list[tuple[str, str]] = [(value, value) for value, _label in _SLOT_DURATION_CHOICES]
 
 _NARROW = "pl-tours-input--narrow"
 _TEXT = "pl-tours-input--text"
@@ -128,6 +141,7 @@ class _TourHoursBaseFormSet(forms.BaseInlineFormSet):
                     raise forms.ValidationError(
                         f"Two of these rows overlap on {row.get_weekday_display()}. A guide gives one tour at a time."
                     )
+        self._refuse_clash_with_dated(rows)
         carried = {form.instance.pk for form in self.forms if form.instance.pk is not None}
         for saved in self.get_queryset().exclude(pk__in=carried):
             for row in rows:
@@ -137,6 +151,21 @@ class _TourHoursBaseFormSet(forms.BaseInlineFormSet):
                         f"{_meeting_time_label(saved.start_time.hour, saved.start_time.minute)} to "
                         f"{_meeting_time_label(saved.end_time.hour, saved.end_time.minute)} that this page "
                         "does not show. Reload the page and try again."
+                    )
+
+    def _refuse_clash_with_dated(self, rows: list[TourHours]) -> None:
+        """Refuse a weekly row that overlaps upcoming dated hours (#1160) on its weekday, naming the date."""
+        if not rows:
+            return
+        dated = TourHours.objects.upcoming_dated().filter(
+            guide=self.instance, weekday__in={row.weekday for row in rows}
+        )
+        for other in dated:
+            for row in rows:
+                if row.overlaps(other):
+                    raise forms.ValidationError(
+                        f"Every {row.get_weekday_display()} {row.times_label} overlaps your hours on "
+                        f"{day_label(cast(date, other.date))}, {other.times_label}."
                     )
 
 
@@ -149,6 +178,134 @@ TourHoursFormSet = forms.inlineformset_factory(
     extra=0,
     can_delete=True,
 )
+
+
+class TourDatesForm(forms.Form):
+    """Hours on picked dates (#1160): the Available On panel's calendar picks plus one set of hours.
+
+    ``dates`` arrives as one ``YYYY-MM-DD`` value per picked day (the calendar writes a hidden
+    input each). Every date is checked before anything is saved, and :meth:`save` writes them all
+    in one transaction, so a refused save keeps nothing. A date is refused when it has passed, is
+    more than a year ahead, falls on a day off, or overlaps the guide's weekly hours that weekday
+    or hours already on that date; each problem is its own message, naming the date.
+    """
+
+    start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="From")
+    end_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="To")
+    tour_minutes = forms.TypedChoiceField(coerce=int, choices=_LENGTH_CHOICES, label="Tour length (minutes)")
+    seats = forms.IntegerField(
+        min_value=1,
+        max_value=MAX_SEATS,
+        label="Seats",
+        widget=forms.NumberInput(attrs={"min": "1", "max": str(MAX_SEATS), "class": _NARROW}),
+        error_messages={"min_value": "Use 1 to 50 seats.", "max_value": "Use 1 to 50 seats."},
+    )
+
+    def __init__(self, *args: Any, guide: Member, defaults: FacilityTourSettings, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.guide = guide
+        #: The rows :meth:`save` writes, one per picked date, set once :meth:`clean` passes.
+        self.rows: list[TourHours] = []
+        default = str(defaults.default_tour_minutes)
+        if default not in dict(_LENGTH_CHOICES):
+            cast(forms.TypedChoiceField, self.fields["tour_minutes"]).choices = [*_LENGTH_CHOICES, (default, default)]
+        self.initial.setdefault("tour_minutes", defaults.default_tour_minutes)
+        self.initial.setdefault("seats", defaults.default_seats)
+        self.picked = self._read_dates()
+
+    def _read_dates(self) -> list[date]:
+        """The posted dates, each once and in order; a value that is not a date is dropped (the calendar never sends one)."""
+        if not self.is_bound:
+            return []
+        days: set[date] = set()
+        for raw in cast("QueryDict", self.data).getlist("dates"):
+            try:
+                days.add(date.fromisoformat(raw))
+            except ValueError:
+                continue
+        return sorted(days)
+
+    @property
+    def picked_iso(self) -> list[str]:
+        """The picked dates as ``YYYY-MM-DD``, for the calendar to show them picked again after a refused save."""
+        return [day.isoformat() for day in self.picked]
+
+    def clean_start_time(self) -> time:
+        return _parse_half_hour(self.cleaned_data["start_time"])
+
+    def clean_end_time(self) -> time:
+        return _parse_half_hour(self.cleaned_data["end_time"])
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = cast(dict[str, Any], super().clean())
+        if not self.picked:
+            self.add_error(None, "Pick at least one date.")
+        if self.errors:
+            return cleaned
+        rows = [self._row(day, cleaned) for day in self.picked]
+        try:
+            rows[0].clean()
+        except forms.ValidationError as error:
+            for field, messages in error.message_dict.items():
+                self.add_error(field if field in self.fields else None, messages)
+            return cleaned
+        for problem in self._problems(rows):
+            self.add_error(None, problem)
+        self.rows = rows
+        return cleaned
+
+    def _row(self, day: date, cleaned: dict[str, Any]) -> TourHours:
+        return TourHours(
+            guide=self.guide,
+            date=day,
+            weekday=day.weekday(),
+            start_time=cleaned["start_time"],
+            end_time=cleaned["end_time"],
+            tour_minutes=cleaned["tour_minutes"],
+            seats=cleaned["seats"],
+        )
+
+    def _problems(self, rows: list[TourHours]) -> list[str]:
+        """One message per refused date, in date order: out of range, a day off, or a clash."""
+        today = timezone.localdate()
+        last = today + timedelta(days=MAX_DATED_DAYS_AHEAD)
+        first_day, last_day = cast(date, rows[0].date), cast(date, rows[-1].date)
+        days_off = list(TourDayOff.objects.filter(guide=self.guide).touching(first_day, last_day))
+        saved = list(
+            TourHours.objects.filter(guide=self.guide, weekday__in={row.weekday for row in rows}).touching_days(
+                first_day, last_day
+            )
+        )
+        problems: list[str] = []
+        for row in rows:
+            day = cast(date, row.date)
+            label = day_label(day)
+            if day < today:
+                problems.append(f"{label} has passed. Pick today or a day ahead.")
+            elif day > last:
+                problems.append(f"{label} is more than a year ahead.")
+            elif any(day_off.covers(day) for day_off in days_off):
+                problems.append(f"{label} is a day off. Delete the day off first.")
+            else:
+                for other in saved:
+                    if not row.overlaps(other):
+                        continue
+                    if other.date is None:
+                        problems.append(
+                            f"{label}: overlaps your weekly {other.get_weekday_display()} hours, {other.times_label}."
+                        )
+                    else:
+                        problems.append(f"{label}: overlaps hours already on that date, {other.times_label}.")
+        return problems
+
+    def save(self) -> list[TourHours]:
+        """Write every picked date's hours at once: all of them or, on any failure, none.
+
+        The view validates and saves under :func:`tours.models.lock_guide_hours`, in one
+        transaction, so the overlap check still holds when the rows are written.
+        """
+        with transaction.atomic():
+            return TourHours.objects.bulk_create(self.rows)
 
 
 class TourDayOffForm(forms.ModelForm):

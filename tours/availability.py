@@ -5,6 +5,9 @@ the days a guide is off, everything past the booking horizon and everything insi
 notice (:class:`~tours.models.FacilityTourSettings`), and counts the seats bookings hold. A change
 to the hours, a day off or a setting is in the very next answer.
 
+Weekly hours yield tours on their weekday; dated hours (#1160) on their one date. Both follow the
+same notice, horizon, seats, days off and busy time rules, and both are locked the same way.
+
 Two entry points:
 
 - :func:`open_tours` lists the tours visitors can book over a range of days (the booking page's
@@ -166,7 +169,7 @@ def open_tours(
     last_day = min(last_day, window.last_day)
     if last_day < first_day:
         return []
-    rows_query = TourHours.objects.offered().select_related("guide")
+    rows_query = TourHours.objects.offered().touching_days(first_day, last_day).select_related("guide")
     if guide is not None:
         rows_query = rows_query.filter(guide=guide)
     rows = list(rows_query)
@@ -184,7 +187,7 @@ def open_tours(
     while day <= last_day:
         off = {day_off.guide_id for day_off in days_off if day_off.covers(day)}
         for row in rows:
-            if row.weekday != day.weekday() or row.guide_id in off:
+            if not row.applies_on(day) or row.guide_id in off:
                 continue
             for span_start, span_end in row.carve_spans(day):
                 starts_at, ends_at = span_start.astimezone(UTC), span_end.astimezone(UTC)
@@ -223,8 +226,8 @@ def open_tour_at(
     Args:
         guide: the tour's guide.
         starts_at: the tour's aware start.
-        lock: lock the guide's hours rows for that weekday (``SELECT ... FOR UPDATE``) before the
-            seats are counted. Booking passes True inside ``transaction.atomic()`` and saves its
+        lock: lock the guide's hours rows for that weekday, weekly and dated for that date alike
+            (``SELECT ... FOR UPDATE``), before the seats are counted. Booking passes True inside ``transaction.atomic()`` and saves its
             row before the transaction ends; every booking of one tour takes the same lock, so
             the seat count each one reads includes every booking committed before it.
         now: the moment to judge the horizon and notice from; defaults to now.
@@ -244,7 +247,7 @@ def open_tour_at(
     if not window.admits(starts_at):
         return None
     day = timezone.localdate(starts_at)
-    rows_query = TourHours.objects.offered().filter(guide=guide, weekday=day.weekday())
+    rows_query = TourHours.objects.offered().filter(guide=guide, weekday=day.weekday()).touching_days(day, day)
     if lock:
         rows_query = rows_query.select_for_update()
     for row in rows_query:

@@ -128,7 +128,7 @@ def describe_my_hours():
     def it_shows_the_empty_state_before_any_hours(guide: Member):
         content = signed_in(guide).get(HOURS).content.decode()
         assert "data-tour-hours-empty>No tour hours yet. Add the times you can give tours.</p>" in content
-        assert "My Tour Hours" in content
+        assert ">Every Week</h2>" in content
         assert "data-tour-guide-picker" not in content
 
     def it_saves_tuesday_afternoon_hours_and_shows_them_on_reload(guide: Member):
@@ -220,7 +220,7 @@ def describe_another_guides_hours():
         assert f'<option value="{guide.pk}">Gina Guide</option>' in content
         assert "data-tour-guides-empty" not in content
         content = client.get(f"{HOURS}?guide={guide.pk}").content.decode()
-        assert "Gina Guide's Tour Hours" in content
+        assert f'<option value="{guide.pk}" selected>Gina Guide</option>' in content
         assert f'<input type="hidden" name="guide" value="{guide.pk}">' in content
         response = client.post(SAVE, _hours_post(guide, {}))
         assert response["Location"] == f"{HOURS}?guide={guide.pk}"
@@ -302,7 +302,7 @@ def describe_days_off():
         assert response.status_code == 200
         content = response.content.decode()
         assert "data-tour-day-off-reopen" in content
-        assert "My Tour Hours" in content
+        assert ">Every Week</h2>" in content
 
     def it_refuses_a_guide_saving_another_guides_day_off(guide: Member):
         other = make_guide()
