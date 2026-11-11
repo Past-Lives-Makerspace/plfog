@@ -145,10 +145,6 @@ def describe_audiences_for():
         EquipmentStaffMembershipFactory(member=member)
         assert audiences_for(_request(member.user)) == {"members", "equipment-managers"}
 
-    def it_puts_a_guild_officer_under_guild_staff():
-        member = _member(fog_role=Member.FogRole.GUILD_OFFICER)
-        assert audiences_for(_request(member.user)) == {"members", "guild-staff"}
-
     def it_puts_an_admin_under_admins_and_guild_staff():
         member = _member(fog_role=Member.FogRole.ADMIN)
         assert audiences_for(_request(member.user)) == {"members", "guild-staff", "admins"}
@@ -191,7 +187,7 @@ def describe_audiences_for():
             assert audiences_for(_request(user)) == frozenset()
 
     def it_costs_one_query_however_many_roles_there_are(django_assert_num_queries):
-        member = _member(fog_role=Member.FogRole.GUILD_OFFICER, instructor_slug="ada")
+        member = _member(fog_role=Member.FogRole.ADMIN, instructor_slug="ada")
         GuildFactory(guild_lead=member)
         GuildStaffMembershipFactory(member=member, role=GuildStaffMembership.Role.TREASURER, can_review_classes=True)
         EquipmentStaffMembershipFactory(member=member)

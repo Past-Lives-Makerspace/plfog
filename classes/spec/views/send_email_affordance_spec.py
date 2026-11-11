@@ -217,7 +217,7 @@ def describe_the_send_email_link():
 
         @pytest.mark.parametrize(
             "preview",
-            ["guild_officer", "member", "guest"],
+            ["member", "guest"],
         )
         def it_offers_nothing_where_the_composer_refuses(preview, admin_user, roster_class, client):
             client.force_login(admin_user)
@@ -225,9 +225,17 @@ def describe_the_send_email_link():
             assert client.get(_compose_url(roster_class)).status_code == 302
             # Every zero is pinned to the status that explains it, so a tab that started
             # answering 500 could never be mistaken for a tab that correctly hid the link.
-            # All three previews close the screen outright, Guild Officer included: an admin
-            # previewing it neither leads nor staffs this class's guild, so no leg matches.
+            # Both previews close the screen outright: an admin previewing them neither leads
+            # nor staffs this class's guild, so no leg matches.
             assert _screen_probe(client, roster_class) == SCREEN_CLOSED
+
+        def it_reads_a_stale_guild_officer_pick_as_the_admin_themselves(admin_user, roster_class, client):
+            # ADR 0004 retired the Guild Officer rung. A session saved before the deploy still
+            # holds "guild_officer"; it is ignored, so the admin sees what they hold.
+            client.force_login(admin_user)
+            _preview_as(client, "guild_officer")
+            assert _screen_probe(client, roster_class) == FULLY_OFFERED
+            assert client.get(_compose_url(roster_class)).status_code == 200
 
         def it_admits_the_classs_own_instructor_it_offers_the_link_to(instructor, roster_class, client):
             client.force_login(instructor.user)
@@ -338,26 +346,20 @@ SEND_LOGIN_REDIRECT = (302, 0)
 #: lesson twice in one round — one ``capacity=4`` fixture hid a blocker on the last-seat path, and
 #: one shared email address hid an unauthenticated account takeover. This feature is *about*
 #: roles, so the role axis is varied on purpose and the refusals are carried in the same table as
-#: the admissions, at the same weight. Five of these rows send and eight do not, and each of the
+#: the admissions, at the same weight. Four of these rows send and eight do not, and each of the
 #: eight is refused for a different reason: a preview that closes the screen, a guild that is not
 #: theirs, a grant whose contract is approve-and-nothing-else, a name on a class without the
 #: teaching access behind it, no claim at all, and no session at all.
 #:
-#: ``guild_officer_with_grant`` is the row this table was missing on its first pass, and it is
-#: the one with the widest reach of the five: a site-wide guild officer holding the teaching
-#: grant is judged on a class they neither teach nor hold the guild of, and is admitted anyway,
-#: because ``can_edit_class`` short-circuits on ``is_effective_staff`` and lands them on the
-#: guild row for the whole catalog. It is deliberate (see ``classes.access._guild_access``) and
-#: it is here so that it is deliberate *visibly* — a relaxation nobody can read off the table is
-#: one that was arrived at quietly, which is the thing this ticket's plan file exists to prevent.
-#: The second entry in its tuple is the point: the reach is catalog-wide, not guild-wide.
+#: ``other_guild_lead_with_grant`` replaced a ``guild_officer_with_grant`` row (ADR 0004). That
+#: row was admitted on every class in the catalog through the retired Guild Officer role; leading
+#: another guild with the teaching grant now reaches nothing on this class, which is the point.
 ROLE_MATRIX = {
     "admin": (True, SEND_ACCEPTED),
     "instructor": (True, SEND_ACCEPTED),
     "guild_lead": (True, SEND_ACCEPTED),
     "guild_staffer": (True, SEND_ACCEPTED),
-    "guild_officer_with_grant": (True, SEND_ACCEPTED),
-    "admin_previewing_guild_officer": (False, SEND_REFUSED),
+    "other_guild_lead_with_grant": (False, SEND_REFUSED),
     "admin_previewing_member": (False, SEND_REFUSED),
     "admin_previewing_guest": (False, SEND_REFUSED),
     "other_guild_lead": (False, SEND_REFUSED),
@@ -445,18 +447,15 @@ def sign_in(db, admin_user, member_user, instructor, guild_lead, roster_class, c
             GuildStaffMembershipFactory(guild=roster_class.category.guild, member=staffer)
             client.force_login(staffer.user)
             return roster_class
-        if role == "guild_officer_with_grant":
-            # No guild relationship to this class at all, and they do not teach it. They are
-            # admitted by can_edit_class's is_effective_staff short-circuit, which puts them on
-            # the guild row for every class in the catalog. The teaching grant is load-bearing:
-            # it_denies_a_fog_guild_officer_without_teaching_access in access_spec pins that the
-            # same officer WITHOUT it is refused, so this row must carry it to be the real shape.
-            officer = _fresh_member("affordance-officer@example.com", "Marta Quill")
-            officer.fog_role = Member.FogRole.GUILD_OFFICER
-            officer.instructor_oriented_at = timezone.now()
-            officer.save(update_fields=["fog_role", "instructor_oriented_at"])
-            officer.sync_user_permissions()
-            client.force_login(officer.user)
+        if role == "other_guild_lead_with_grant":
+            # Leads another guild and holds the teaching grant, but neither teaches this class
+            # nor holds its guild. Before ADR 0004 the Guild Officer role admitted exactly this
+            # shape on every class; nothing does now.
+            lead = _fresh_member("affordance-granted-lead@example.com", "Marta Quill")
+            lead.instructor_oriented_at = timezone.now()
+            lead.save(update_fields=["instructor_oriented_at"])
+            GuildFactory(name="Glass", guild_lead=lead)
+            client.force_login(lead.user)
             return roster_class
         if role == "other_guild_lead":
             # Leading *a* guild is not leading *this* one. Without this row, "guild lead" and
@@ -612,7 +611,7 @@ def describe_the_populations_that_are_still_refused():
         assert _screen_probe(client, offering) == SCREEN_CLOSED
         assert _send_outcome(client, offering) == SEND_REFUSED
 
-    @pytest.mark.parametrize("role", ["admin_previewing_guild_officer", "admin_previewing_member"])
+    @pytest.mark.parametrize("role", ["admin_previewing_member", "admin_previewing_guest"])
     def it_refuses_an_admin_previewing_a_lower_role(role, sign_in, client):
         # Criterion 4, unchanged: class_access is view-as aware, so the whole screen 404s and the
         # send is refused on the role being looked through, not on the account holding it.

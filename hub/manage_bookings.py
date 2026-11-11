@@ -160,7 +160,7 @@ def _orientation_meta(orientation_type: OrientationType) -> str:
 def _guild_cards(request: HttpRequest) -> list[GuildCard]:
     """What You Run's guild cards: every guild in scope, its settings, active orientations and hours count, in three queries.
 
-    Admins and officers run every active guild, so theirs are narrowed to the guilds with an
+    Admins run every active guild, so theirs are narrowed to the guilds with an
     orientation settings row (a guild that never opened orientations has nothing to run); a lead
     or staffer sees each guild they lead or staff, settings row or not, with an Off chip until
     one exists.
@@ -198,7 +198,7 @@ def _equipment_cards(request: HttpRequest) -> list[EquipmentCard]:
     """What You Run's equipment cards: every item in scope with its chip and how many requests await approval, in one query.
 
     The site tier (an admin or an EQUIPMENT capability holder, :func:`manages_all_equipment`)
-    sees every active item; everyone else, an officer included, sees exactly what
+    sees every active item; everyone else sees exactly what
     :func:`manageable_equipment` says they lead, staff or manage, retired gear included, since
     a retired tool stays with the people assigned to it. The preview is honoured like the
     Bookings tabs.

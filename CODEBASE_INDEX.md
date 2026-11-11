@@ -136,7 +136,7 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 /tour/                          The visitor's tour pages, ONLY on tours.pastlives.space (TOURS_HOSTS), whose root is the booking page; /tour/b/<token>/ (and reschedule/, cancel/) from the emails
 /kiln/                          Kiln tickets (a guest's home; members land on the Ceramics Guild page's ?tab=kiln; /kiln/load/, /kiln/unload/, /kiln/log/, /kiln/lists/ for the crew and admins)
 /guilds/<pk>/cubbies/           A guild's Cubbies manager (#977): Layout, a cubby's page at /cubbies/<pk>/, Pricing at /guilds/<pk>/cubbies/pricing/; /cubbies/ opens the first guild the viewer runs
-/tools/                         Admin Tools for admins, Guild Tools for guild officers, leads and staff (#912, #921; hub/guild_tools.py)
+/tools/                         Admin Tools for admins, Guild Tools for guild leads and staff (#912, #921; hub/guild_tools.py)
 /manage/spotlight/              Admin Tools > Spotlight (#708): the Spotlight messages that crawl across the top of Home (#935)
 /manage/site-settings/          Site Settings: Brand, General, Calendar, Emails, Discord
 /manage/member-agreement/, /manage/features/, /manage/cms/, /manage/automations/
@@ -191,7 +191,7 @@ Root `conftest.py` provides:
 - **VotePreference + FundingSnapshot** sync TO Airtable on save (outbound only).
 - **Tab.add_entry()** uses `select_for_update()` + `transaction.atomic()` to prevent race conditions on balance checks.
 - **Tab charges to guilds** use Stripe Connect destination charges (`create_destination_payment_intent`); charges without a guild use standard PaymentIntents.
-- **Fog roles** map to Django permissions: admin→is_superuser+is_staff, guild_officer→is_staff, member→neither.
+- **Fog roles** map to Django permissions: admin→is_superuser+is_staff, member→neither. There is no Guild Officer role (ADR 0004): guild authority comes from leading or staffing a guild.
 - **Class approval** is a *sequential* state machine in `ClassOffering` / `ClassApproval`: submit creates only the first gate (guild lead if the category's guild has a lead, else admin); guild-lead approval escalates and creates the admin gate; publish requires all required roles approved.
 - **All transactional email** goes through the single choke-point `core.email.send()` (logs to `TransactionalEmailLog`). Senders live in `classes/emails.py`. Event/notification routing is `core/triggers.py` + `core/notifications.py` (in-app always; email/push on per-user opt-in).
 - **Scheduled jobs** run via `core/management/commands/run_scheduled_tasks.py` (Render `cron` every 15 min, `render.yaml`). NB: `classes` reminder/follow-up emails are *not yet* wired into this dispatcher (see the event-driven-notifications spike).

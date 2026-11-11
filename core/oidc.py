@@ -13,6 +13,10 @@ human-readable reason, which is what makes a support question answerable without
 **Only what the client asked for.** Each claim sits behind a scope, so the KB has to request
 ``roles`` to be told anything about authority. A future client that only needs a name gets a name.
 
+**Guild leadership is an officer there.** Leading or staffing a guild earns the KB's officer tier
+whatever the role says. This app has no officer role (ADR 0004): a guild officer is whoever leads
+or staffs a guild, so the KB's OFFICER tier is derived from that, never from ``fog_role``.
+
 **An admin here is staff there.** ``KB_LEVELS`` maps ``admin`` onto the KB's staff tier, which
 reads documents carrying third-party contact details. That is the consequence of this app owning
 the tiers, and it is deliberate: the alternative was a second ladder to keep in step. It also means
@@ -43,7 +47,6 @@ if TYPE_CHECKING:
 # added fails there rather than drifting.
 KB_LEVELS: dict[str, int] = {
     "member": 10,
-    "guild_officer": 20,
     "admin": 40,
 }
 
@@ -51,9 +54,18 @@ KB_LEVELS: dict[str, int] = {
 # tier: they see what a stranger sees, which is the safe reading of "we do not know who this is".
 NO_MEMBERSHIP_LEVEL = 0
 
+# The KB's OFFICER tier, which a guild's lead or staff holds whatever their role. Raises a member,
+# never lowers an admin.
+GUILD_LEADERSHIP_LEVEL = 20
+
+
+def is_guild_leadership(member: Member | None) -> bool:
+    """Whether this member leads or staffs any guild: the ``is_guild_leadership`` claim."""
+    return bool(member and (member.is_guild_lead or member.is_guild_staff))
+
 
 def kb_level_for(member: Member | None) -> int:
-    """The KB tier this member holds.
+    """The KB tier this member holds: their role's tier, raised to officer for guild leadership.
 
     Indexed, not `.get()`: `KB_LEVELS` covers every `FogRole` and a spec holds it to that, so a
     missing key is a bug and this project fails loudly. The quiet alternative is worse than a
@@ -62,7 +74,10 @@ def kb_level_for(member: Member | None) -> int:
     """
     if member is None:
         return NO_MEMBERSHIP_LEVEL
-    return KB_LEVELS[member.fog_role]
+    level = KB_LEVELS[member.fog_role]
+    if level < GUILD_LEADERSHIP_LEVEL and is_guild_leadership(member):
+        return GUILD_LEADERSHIP_LEVEL
+    return level
 
 
 def _member_of(user: AbstractBaseUser) -> Member | None:
@@ -100,5 +115,5 @@ class FogOAuth2Validator(OAuth2Validator):
             # guilds: the KB has no guild-scoped documents, so naming them would be sending data
             # across a boundary for no reader — and `leadership` is per-guild here, which does not
             # translate into a tier there anyway.
-            "is_guild_leadership": bool(member and (member.is_guild_lead or member.is_guild_staff)),
+            "is_guild_leadership": is_guild_leadership(member),
         }

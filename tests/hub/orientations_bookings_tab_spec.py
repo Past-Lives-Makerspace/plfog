@@ -1,7 +1,7 @@
 """BDD specs for the Orientations page's Bookings tab (#626), which replaced the staff dashboard.
 
-Who sees which rows (a member only their own; a lead their guilds' and their own; an officer
-every guild's; an admin everything), the same scope on the CSV export and the recorded list,
+Who sees which rows (a member only their own; a lead their guilds' and their own, never
+another guild's; an admin everything), the same scope on the CSV export and the recorded list,
 each row's "..." menu per role and state, the guarded sort, the lazy pane, the old URL's
 redirect, and the endpoints the menu posts to landing back on the tab. Member names are
 factory strings no changelog could contain (STANDARDS.md §8).
@@ -374,14 +374,15 @@ def describe_a_guild_lead():
         assert client.post(reverse("billing_orientation_refund", args=[paid.pk]), {"amount": "15"}).status_code == 403
 
 
-def describe_officers_and_admins():
-    def it_shows_an_officer_every_guild_booking_but_no_equipment_one(client: Client):
-        _login(client, "bt_officer", fog_role=Member.FogRole.GUILD_OFFICER)
-        alpha = _booking(GuildFactory(), name="Officer Alphasee")
-        beta = _booking(GuildFactory(), name="Officer Betasee")
-        tool = _equipment_booking(EquipmentFactory(), name="Officer Toolnot")
+def describe_other_guilds_and_admins():
+    def it_shows_a_lead_their_guilds_bookings_but_not_another_guilds(client: Client):
+        lead = _login(client, "bt_one_lead")
+        alpha = _booking(GuildFactory(guild_lead=lead), name="Lead Alphasee")
+        beta = _booking(GuildFactory(), name="Lead Betanot")
+        tool = _equipment_booking(EquipmentFactory(), name="Lead Toolnot")
         content = _tab(client)
-        assert _in_table(content, alpha) and _in_table(content, beta)
+        assert _in_table(content, alpha)
+        assert not _in_table(content, beta)
         assert not _in_table(content, tool)
 
     def it_shows_an_admin_everything(client: Client):

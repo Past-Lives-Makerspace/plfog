@@ -13,7 +13,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.test import RequestFactory
 
 from classes.factories import UserFactory
-from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_GUEST, ROLE_MEMBER, ViewAs
+from hub.view_as import ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, ViewAs
 from membership.models import AdminCapability, Equipment, GuildStaffMembership, Member
 from membership.permissions import (
     can_create_equipment,
@@ -66,12 +66,6 @@ def describe_can_manage_equipment():
         member.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
         request = _request(member.user, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_MEMBER)
         assert can_manage_equipment(request, EquipmentFactory()) is True
-
-    def it_denies_a_guild_officer_without_any_grant():
-        # The site tier is deliberately narrower than is_effective_staff (spec §5).
-        member = _member_user()
-        request = _request(member.user, roles={ROLE_GUILD_OFFICER, ROLE_MEMBER})
-        assert can_manage_equipment(request, EquipmentFactory()) is False
 
     def it_allows_an_equipment_capability_holder():
         member = _member_user()
@@ -162,7 +156,6 @@ def describe_manageable_equipment_ids():
                 _request(world["capability"].user, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_GUEST),
                 everything,
             ),
-            ("guild officer", _request(_member_user().user, roles={ROLE_GUILD_OFFICER, ROLE_MEMBER}), set()),
             ("lead", _request(world["lead"].user, roles={ROLE_MEMBER}), {"a1", "a2", "b1"}),
             ("guild staff", _request(world["staff"].user, roles={ROLE_MEMBER}), {"a1", "a2"}),
             ("equipment manager", _request(world["manager"].user, roles={ROLE_MEMBER}), {"solo"}),
@@ -232,9 +225,8 @@ def describe_manageable_equipment_ids():
             request = _request(staff.user, roles={ROLE_MEMBER})
             assert _count(request, _guild_items(one, 1)) == _count(request, _guild_items(six, 6))
 
-        def it_asks_the_same_for_one_item_or_six_for_an_officer():
-            officer = _member_user()
-            request = _request(officer.user, roles={ROLE_GUILD_OFFICER, ROLE_MEMBER})
+        def it_asks_the_same_for_one_item_or_six_for_a_plain_member():
+            request = _request(_member_user().user, roles={ROLE_MEMBER})
             assert _count(request, _guild_items(GuildFactory(), 1)) == _count(request, _guild_items(GuildFactory(), 6))
 
 

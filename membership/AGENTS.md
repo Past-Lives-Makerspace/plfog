@@ -54,18 +54,19 @@ Three places an email can live for a Member. Future agents MUST understand which
 
 ## Fog Roles → Django Permissions
 
-`Member.set_fog_role()` calls `sync_user_permissions()` which sets:
+`fog_role` is `admin` or `member`; only an admin may change it. `Member.set_fog_role()` calls `sync_user_permissions()` which sets:
 - `admin` → `is_superuser=True`, `is_staff=True`
-- `guild_officer` → `is_superuser=False`, `is_staff=True`
 - `member` → both False
 
 Never set `is_staff`/`is_superuser` directly — always go through `set_fog_role()`.
 
+**There is no Guild Officer role** (`docs/adr/0004-guild-officer-is-leadership-not-a-role.md`). Migration `0275` moved every `guild_officer` holder to `member` and took away the `is_staff` it gave them, recording each in `RetiredGuildOfficer` (who held it, and whether their login had `is_staff`), which only the migration's reverse reads. A guild officer is a member who leads or staffs a guild, derived from those rows; the rule everywhere is own guild = leadership, every guild = admin. Never reintroduce a hand set cross-guild tier: `membership.permissions.is_effective_staff` keeps its name but means an effective admin.
+
 ## Guild Leads — edit authority
 
-A guild's lead is **only** the `Guild.guild_lead` FK (→ Member). That FK alone grants edit rights — no FOG role, Django group, or `is_staff` flag required. `fog_role` (admin / guild_officer) is a *separate*, cross-guild staff tier and keeps working independently.
+A guild's lead is **only** the `Guild.guild_lead` FK (→ Member). That FK alone grants edit rights — no FOG role, Django group, or `is_staff` flag required. The admin `fog_role` is the only cross-guild tier (ADR 0004).
 
-- **One source of truth for "who may edit what":** `membership/permissions.py` — `can_edit_guild(request, guild)`, `can_manage_cubbies(request, guild)` (a guild's cubbies, #1015: its lead and staff, and admins; the Guild Officer tier opens nothing, and `cubby_guilds` is its queryset twin), `can_invite_to_guild(request, guild)` (#1137: the same rule on a guild members can see), `can_edit_class(request, offering)`, `can_edit_category(request, category)` (all `view_as`-aware). For role-based checks (commands, model logic, tests) use `Member.can_edit_guild` / `Member.can_edit_class` and `ClassOffering.objects.editable_by(member)`. Don't reimplement these inline in views.
+- **One source of truth for "who may edit what":** `membership/permissions.py` — `can_edit_guild(request, guild)`, `can_manage_cubbies(request, guild)` (a guild's cubbies, #1015: its lead and staff, and admins; `cubby_guilds` is its queryset twin), `can_invite_to_guild(request, guild)` (#1137: the same rule on a guild members can see), `can_edit_class(request, offering)`, `can_edit_category(request, category)` (all `view_as`-aware). For role-based checks (commands, model logic, tests) use `Member.can_edit_guild` / `Member.can_edit_class` and `ClassOffering.objects.editable_by(member)`. Don't reimplement these inline in views.
 - Never gate a guild-lead surface on `is_staff`, `fog_role`, or `member_type` — that reintroduces the drift that left real leads unable to save. `MemberType.GUILD_LEAD` is an Airtable label only and grants nothing.
 - Guild was removed from the Django admin (v1.6.0). Assign a lead with `manage.py set_guild_lead --guild <name|id> --member <email>` (it warns if that member has no linked user). Detect drift with `manage.py audit_guild_leads` (leads with no login, inactive leads, guilds with no lead).
 

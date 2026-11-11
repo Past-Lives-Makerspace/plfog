@@ -618,7 +618,7 @@ def all_active_members(context: dict[str, Any]) -> list[Recipient]:
 
 
 def all_guild_leads(context: dict[str, Any]) -> list[Recipient]:
-    """CROSS-GUILD — every active guild lead, officer, or staffer site-wide.
+    """CROSS-GUILD — every active guild lead or staffer site-wide.
 
     The audience for the Guild Lead Meeting. Unlike :func:`guild_leadership` (per-guild,
     reads ``context["guild"]``) this is the union across all guilds and takes no guild —
@@ -631,9 +631,7 @@ def all_guild_leads(context: dict[str, Any]) -> list[Recipient]:
 
     leads = (
         Member.objects.active()
-        .filter(
-            Q(led_guilds__isnull=False) | Q(guild_staff_roles__isnull=False) | Q(fog_role=Member.FogRole.GUILD_OFFICER)
-        )
+        .filter(Q(led_guilds__isnull=False) | Q(guild_staff_roles__isnull=False))
         # ACTIVATION GATE — never broadcast to an account that has never signed in.
         .filter(user__last_login__isnull=False)
         .select_related("user")
@@ -747,7 +745,7 @@ def wiki_scope_leadership(context: dict[str, Any]) -> list[Recipient]:
     Deliberately NOT :func:`guild_leadership_or_admins`'s union: a Woodworking typo that
     emails six admins trains them to ignore the event, and then the one report that
     mattered goes unread too. Admins still see every report in the queue, which is the
-    "officers second" leg of the routing rule.
+    "admins second" leg of the routing rule.
     """
     guild: Guild | None = _require(context, "guild")
     if guild is not None:

@@ -594,11 +594,10 @@ class MemberQuerySet(models.QuerySet):
         directory page, :meth:`Guild.roster_members`, and the Discord ``/members`` command
         all build on this filter so they can never drift. A member appears when they are
         ACTIVE and either opted in (``show_in_directory``) or hold a role the community
-        needs to reach: admin, guild officer, guild lead, or instructor.
+        needs to reach: admin, guild lead, or instructor. Guild staff choose for themselves.
         """
         must_show = (
             models.Q(fog_role=Member.FogRole.ADMIN)
-            | models.Q(fog_role=Member.FogRole.GUILD_OFFICER)
             | models.Q(led_guilds__isnull=False)
             | models.Q(instructor_slug__gt="")
         )
@@ -702,7 +701,6 @@ class Member(StaffRequestMixin, models.Model):
 
     class FogRole(models.TextChoices):
         MEMBER = "member", "Member"
-        GUILD_OFFICER = "guild_officer", "Guild Officer"
         ADMIN = "admin", "Admin"
 
     class TeachingApplicationState(models.TextChoices):
@@ -897,7 +895,7 @@ class Member(StaffRequestMixin, models.Model):
         max_length=20,
         choices=FogRole.choices,
         default=FogRole.MEMBER,
-        help_text="FOG access level: admin (full access), guild officer (no site settings), member (hub only).",
+        help_text="FOG access level: admin (full access) or member. Guild authority comes from leading or staffing a guild.",
     )
     join_date = models.DateField(null=True, blank=True)
     cancellation_date = models.DateField(null=True, blank=True)
@@ -913,7 +911,7 @@ class Member(StaffRequestMixin, models.Model):
         default=False,
         help_text=(
             "Ops-only override: never list this member in the member directory, even when their role "
-            "(admin, officer, guild lead, instructor) would normally force-list them. Used for the Help "
+            "(admin, guild lead, instructor) would normally force-list them. Used for the Help "
             "Center's example/demo accounts. Set via shell/admin, not member-editable."
         ),
     )
@@ -1794,11 +1792,6 @@ class Member(StaffRequestMixin, models.Model):
         """True when fog_role is admin (full access)."""
         return self.fog_role == self.FogRole.ADMIN
 
-    @property
-    def is_guild_officer(self) -> bool:
-        """True when fog_role is guild_officer (admin access without site settings)."""
-        return self.fog_role == self.FogRole.GUILD_OFFICER
-
     def has_admin_capability(self, capability: str) -> bool:
         """True when this member holds the given :class:`AdminCapability` grant.
 
@@ -1856,11 +1849,11 @@ class Member(StaffRequestMixin, models.Model):
     def can_edit_guild(self, guild: Guild) -> bool:
         """True when this member may edit the given guild.
 
-        Editors are admins, officers, the guild's lead (the ``Guild.guild_lead`` FK),
-        and anyone holding a staff role on the guild — every staff role carries the
-        same edit authority as the lead.
+        Editors are admins, the guild's lead (the ``Guild.guild_lead`` FK), and anyone
+        holding a staff role on the guild — every staff role carries the same edit
+        authority as the lead. Only an admin edits a guild they do not lead or staff.
         """
-        return self.is_fog_admin or self.is_guild_officer or guild.guild_lead_id == self.pk or guild.is_staffed_by(self)
+        return self.is_fog_admin or guild.guild_lead_id == self.pk or guild.is_staffed_by(self)
 
     def can_manage_orientations(self, guild: Guild) -> bool:
         """True when this member may run the guild's orientations.
@@ -1875,12 +1868,12 @@ class Member(StaffRequestMixin, models.Model):
     def can_edit_class(self, offering: ClassOffering) -> bool:
         """True when this member may edit the class offering.
 
-        Editors are admins/officers, the lead or any staff member of the class's
+        Editors are admins, the lead or any staff member of the class's
         category's guild, or the class's own instructor. Role-based — use
         ``membership.permissions.can_edit_class`` in views to honor ``view_as``
         preview mode.
         """
-        if self.is_fog_admin or self.is_guild_officer:
+        if self.is_fog_admin:
             return True
         guild = offering.category.guild
         if guild is not None and (guild.guild_lead_id == self.pk or guild.is_staffed_by(self)):
@@ -1915,8 +1908,8 @@ class Member(StaffRequestMixin, models.Model):
         """The pks of ``items`` this member manages below the site tier.
 
         Guild tier — the owning guild's lead or any staff member: that guild's items;
-        resource tier — an :class:`EquipmentStaffMembership` row: that item. Guild officers
-        get no blanket grant. At most two queries: the member's staff roles on the items'
+        resource tier — an :class:`EquipmentStaffMembership` row: that item. Leading a guild
+        gives no blanket grant over other guilds' items. At most two queries: the member's staff roles on the items'
         guilds they do not lead, and their equipment staff rows on whatever is left. Each
         item's ``guild`` should be loaded (``select_related`` or the guild's own manager).
         """
@@ -2558,14 +2551,14 @@ class Member(StaffRequestMixin, models.Model):
     def must_be_listed_in_directory(self) -> bool:
         """Roles that can never opt out of the member directory.
 
-        Admins, Guild Officers, Guild Leads, and Instructors are public-facing —
-        members need to be able to find them. They cannot hide via show_in_directory.
+        Admins, Guild Leads, and Instructors are public-facing — members need to be able to
+        find them. They cannot hide via show_in_directory. Guild staff choose for themselves.
         The ops-only ``hide_from_directory`` override trumps even these roles, so a
         hidden example account never reads as force-listed.
         """
         if self.hide_from_directory:
             return False
-        return self.is_fog_admin or self.is_guild_officer or self.is_guild_lead or self.is_instructor
+        return self.is_fog_admin or self.is_guild_lead or self.is_instructor
 
     def accept_member_agreement(self, request: HttpRequest, agreement_url: str) -> None:
         """Mark this member as having accepted the member agreement.
@@ -2598,7 +2591,7 @@ class Member(StaffRequestMixin, models.Model):
     def apply_admin_role(self, picked_role: str, *, keep_status: bool = False) -> None:
         """Apply a role token from the admin Member edit form.
 
-        Maps the dropdown's role token (`admin` / `guild_officer` / `member` /
+        Maps the dropdown's role token (`admin` / `member` /
         `instructor` / `guest`) onto the right combination of `fog_role`,
         `status`, and instructor_slug. Idempotent — re-promoting an existing
         instructor is a no-op if they already have a slug.
@@ -2655,8 +2648,7 @@ class Member(StaffRequestMixin, models.Model):
     def set_fog_role(self, new_role: str, *, changed_by: Member) -> None:
         """Change this member's fog_role with permission checks.
 
-        Admins can assign any role. Guild officers can assign member or guild_officer
-        but not admin. Regular members cannot change roles.
+        Only admins can assign roles.
 
         Args:
             new_role: The FogRole value to set.
@@ -2669,13 +2661,8 @@ class Member(StaffRequestMixin, models.Model):
         if new_role not in {c.value for c in self.FogRole}:
             raise ValueError(f"Invalid role: {new_role}")
 
-        if changed_by.is_fog_admin:
-            pass  # admins can do anything
-        elif changed_by.is_guild_officer:
-            if new_role == self.FogRole.ADMIN:
-                raise PermissionError("Guild officers cannot grant admin access.")
-        else:
-            raise PermissionError("Only admins and guild officers can change roles.")
+        if not changed_by.is_fog_admin:
+            raise PermissionError("Only admins can change roles.")
 
         self.fog_role = new_role
         self.save(update_fields=["fog_role"])
@@ -2684,16 +2671,14 @@ class Member(StaffRequestMixin, models.Model):
     def sync_user_permissions(self) -> None:
         """Set is_staff/is_superuser on the linked User based on fog_role.
 
-        Admin gets full access. Guild officers get staff access but not
-        superuser. Members lose staff access. Skips save if nothing changed.
+        Admin gets full access; everyone else loses staff access. Guild leadership
+        never earns Django ``is_staff``. Skips save if nothing changed.
         """
         if self.user is None:
             return
 
         if self.is_fog_admin:
             new_staff, new_super = True, True
-        elif self.is_guild_officer:
-            new_staff, new_super = True, False
         else:
             new_staff, new_super = False, False
 
@@ -4411,6 +4396,29 @@ class Guild(HeroCropMixin, models.Model):
             self.discord_channel_name = name
             self.save(update_fields=["discord_channel_name"])
         return self.discord_channel_name
+
+
+class RetiredGuildOfficer(models.Model):
+    """One member who held the retired Guild Officer role when migration 0275 ran (ADR 0004).
+
+    Written once by that migration and read only by its reverse, which puts the role and the
+    login's ``is_staff`` back. Nothing in the app reads it; it is also the record of who held it.
+    """
+
+    member = models.OneToOneField(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="+",
+        help_text="The member who held the Guild Officer role when migration 0275 retired it.",
+    )
+    had_is_staff = models.BooleanField(
+        default=False,
+        help_text="Whether their login had is_staff then; the reverse gives it back only to those who did.",
+    )
+    retired_at = models.DateTimeField(auto_now_add=True, help_text="When migration 0275 recorded them.")
+
+    def __str__(self) -> str:
+        return f"Retired Guild Officer: {self.member}"
 
 
 class GuildStaffMembership(models.Model):
@@ -7360,7 +7368,7 @@ class AnnouncementDraft(models.Model):
         default=Audience.SITE,
         help_text=(
             "Who hears it: everyone site-wide, one guild's joined members, a class's registrants, "
-            "every guild lead, officer and staffer, every active instructor, or everyone who took a "
+            "every guild lead and staffer, every active instructor, or everyone who took a "
             "class the sender teaches."
         ),
     )
@@ -8574,7 +8582,7 @@ class AnnouncementDraft(models.Model):
             total = result.recipient_count + len(extra_emails)
             counts = (total if self.send_email else 0, total)
         elif self.audience == self.Audience.LEADS:
-            # Every guild lead, officer and staffer, by the same rule the Guild Lead Meeting's
+            # Every guild lead and staffer, by the same rule the Guild Lead Meeting's
             # own announcement uses (``all_guild_leads``). The set is passed explicitly, so the
             # site_announcement key's everyone audience never receives it; each lead's own
             # makerspace announcement preferences still apply. Sent in the request: a few dozen.
@@ -22619,8 +22627,8 @@ class WikiPage(StaffRequestMixin, models.Model):
         # The release before this one still inserts pages during the deploy.
         db_default=False,
         help_text=(
-            "Only admins may edit or moderate this page; members and guild officers read it. Narrower "
-            "than Official, which guild officers may also edit. Set on the Guild Staff Rules and Tools page."
+            "Only admins may edit or moderate this page; everyone else reads it. Unlike Official, a guild's "
+            "lead and staff cannot archive it either. Set on the Guild Staff Rules and Tools page."
         ),
     )
     is_published = models.BooleanField(
@@ -22995,8 +23003,9 @@ class WikiPage(StaffRequestMixin, models.Model):
         clears the verification, and records ``unverified_reason``: a green check must
         never ride on unreviewed text.
 
-        An ``OFFICIAL`` page never reaches here from a member — ``can_edit_wiki_page``
-        refuses, and the reading page renders no edit affordance at all. This method never
+        An ``OFFICIAL`` page reaches here only from an admin or its own guild's lead or staff
+        (``can_edit_wiki_page``, ADR 0004), and its status stays Official: an Official page is
+        never verifiable, so only the Guild verified leg above changes status. This method never
         writes ``is_published``, which is what stops a member opening Edit on a held-back
         Safety page and publishing past the one gate the round has.
 
@@ -23900,7 +23909,7 @@ def _wiki_role_label(member: Member, guild: Guild | None) -> str:
         member: The verifier.
         guild: The page's scope, or None for a space-wide page.
 
-    "Admin" is claimed ONLY for a member who actually holds the admin or guild-officer FOG
+    "Admin" is claimed ONLY for a member who actually holds the admin FOG
     role. It used to be the fallthrough for anybody the guild branches did not recognize,
     which meant a verifier reaching the page by some other authority was frozen into the
     page as an administrator forever. A credit that can invent authority is worse than no
@@ -23921,7 +23930,7 @@ def _wiki_role_label(member: Member, guild: Guild | None) -> str:
         staff = guild.staff_memberships.filter(member=member).first()
         if staff is not None:
             return f"{guild.name} {staff.display_title.lower()}"
-    if member.is_fog_admin or member.is_guild_officer:
+    if member.is_fog_admin:
         return "Admin"
     return ""
 

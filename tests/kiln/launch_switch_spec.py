@@ -95,10 +95,13 @@ def describe_while_closed():
         assert not is_crew(admin)  # crew notifications stay with the lead and staff
         assert _has_tab(client, kiln_guild.slug)
 
-    def it_keeps_the_crew_screens_from_a_guild_officer(closed, kiln_guild, make_member):
-        officer = make_member(fog_role=Member.FogRole.GUILD_OFFICER)
+    def it_keeps_the_crew_screens_from_another_guilds_lead(closed, kiln_guild, make_member):
+        from tests.membership.factories import GuildFactory
 
-        assert not can_run_kiln(officer)
+        other_lead = make_member()
+        GuildFactory(guild_lead=other_lead)
+
+        assert not can_run_kiln(other_lead)
         assert not can_run_kiln(None)
 
     def it_gives_a_member_a_404_on_every_kiln_url(closed, kiln_guild, maker, maker_client):

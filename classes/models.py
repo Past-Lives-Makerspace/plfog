@@ -640,11 +640,11 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
     def editable_by(self, member: "Member") -> "ClassOfferingQuerySet":
         """Offerings this member may edit.
 
-        Admins and guild officers may edit any class. Everyone else may edit the
-        classes they instruct plus any class whose category belongs to a guild they
-        lead or hold a staff role on.
+        Admins may edit any class. Everyone else may edit the classes they instruct
+        plus any class whose category belongs to a guild they lead or hold a staff
+        role on.
         """
-        if member.is_fog_admin or member.is_guild_officer:
+        if member.is_fog_admin:
             return self
         return self.filter(
             Q(instructors=member)

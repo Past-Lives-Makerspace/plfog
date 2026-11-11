@@ -341,7 +341,7 @@ def _removable_record_ids(request: HttpRequest, records: list[OrientationRecord]
 
 
 def _scope_guilds(request: HttpRequest, member: Member | None) -> list[Guild]:
-    """The Guild filter's options: every active guild for an admin or officer, else the viewer's own."""
+    """The Guild filter's options: every active guild for an admin, else the viewer's own."""
     if is_effective_staff(request):
         return list(Guild.objects.filter(is_active=True).order_by("name"))
     if member is None:

@@ -1187,7 +1187,7 @@ def _guild_attention_context(request: HttpRequest, guild: Guild) -> dict[str, An
     test, not a row count. The review list holds only what this viewer reviews (the lead and
     Class Reviewers, #816, via ``awaiting_guild_lead``), so plain staff see the section with an
     empty review list. Both queues are viewer-scoped, so an
-    admin or guild officer looking at a guild they do not staff gets two empty lists — and
+    admin looking at a guild they do not staff gets two empty lists — and
     telling them "all clear" would be a lie about a guild that really does have reviews
     waiting. They are shown nothing at all instead.
     """
@@ -1374,7 +1374,7 @@ def _guild_orientations_context(
     can_edit_others_hours = can_edit_orienter_hours(request, guild, None)
     leadership = guild.leadership_members()
     leadership_ids = {m.pk for m in leadership}
-    # An admin/officer who is not on this guild's leadership gets no self row in the overview —
+    # An admin who is not on this guild's leadership gets no self row in the overview —
     # their personal rules would never generate slots (the save 403s that scope too). They clean
     # up any leftover rows via the Edit Hours modal on the Former Staff row. show_my_hours_card
     # now gates whether the viewer sees the Orientation Schedule (their own row within it).
@@ -1482,8 +1482,8 @@ def _guild_edit_context(
     recipients = guild.announcement_recipients()
 
     # The Reservations tab's item list (#502): every item the guild owns, active first, with a
-    # Manage link only where the viewer may manage that item (an officer edits the guild but
-    # does not manage its items), decided for the whole list at once.
+    # Manage link only where the viewer may manage that item (editing the guild is not managing
+    # its items), decided for the whole list at once.
     reservable_items = list(guild.equipment.order_by("-is_active", "name"))
     manageable_ids = manageable_equipment_ids(request, reservable_items)
 
@@ -1544,7 +1544,7 @@ def _guild_edit_context(
         # The Reservations tab (#502): the guild page toggle, then the guild's items.
         "reservations_settings_form": GuildReservationsSettingsForm(instance=guild),
         # The Cubbies tab (#977): the guild page switch; the shelves live on the Cubbies manager.
-        # Only whoever runs the guild's cubbies sees it (#1015): the lead, staff and admins, not every officer.
+        # Only whoever runs the guild's cubbies sees it (#1015): the lead, staff and admins.
         "cubbies_settings_form": GuildCubbiesSettingsForm(instance=guild),
         "can_manage_cubbies": can_manage_cubbies(request, guild),
         "reservable_items": [{"equipment": item, "can_manage": item.pk in manageable_ids} for item in reservable_items],
@@ -1554,7 +1554,7 @@ def _guild_edit_context(
 
 @login_required
 def guild_edit(request: HttpRequest, pk: int) -> HttpResponse:
-    """Full guild edit page (GET) + handler (POST). Admin, officer, or this guild's lead/staff only.
+    """Full guild edit page (GET) + handler (POST). Admin, or this guild's lead/staff only.
 
     Meeting Notes and Events are in-page tabs here (see ``_guild_edit_context``), not separate
     pages. Orientations moved to their own page (#672): a GET for the old ``?tab=orientations``
@@ -1610,7 +1610,7 @@ def _render_guild_orientations(request: HttpRequest, guild: Guild, **bound: Any)
 def guild_orientations(request: HttpRequest, pk: int) -> HttpResponse:
     """The guild's Orientations page (#672): every orientation setting for one guild, under its own title.
 
-    Gated exactly like Guild Settings (``_require_can_edit_guild``): admins, officers, and the
+    Gated exactly like Guild Settings (``_require_can_edit_guild``): admins and the
     guild's lead and staff. An orientor sees only their own Edit Hours row; a lead or admin
     sees everyone's (``_guild_orientations_context``). Each card saves through its own
     endpoint, which lands back here.
@@ -2213,7 +2213,7 @@ def _flash_hidden_times(request: HttpRequest, guild: Guild, previous: Member | N
 def guild_lead_set(request: HttpRequest, pk: int) -> HttpResponse:
     """POST-only — a fog admin sets or replaces this guild's lead (``Guild.guild_lead``).
 
-    Admin-only by policy: leads and staff manage the officer roster below, but the lead FK
+    Admin-only by policy: leads and staff manage the staff roster below, but the lead FK
     itself is appointed by an admin (the web counterpart of the ``set_guild_lead`` command).
     """
     from hub.forms import GuildLeadForm
@@ -3457,7 +3457,7 @@ def _surface_product_errors(request: HttpRequest, form: Any, formset: Any) -> No
 def guild_product_create(request: HttpRequest, pk: int) -> HttpResponse:
     """POST-only — create a Product for this guild with its revenue splits.
 
-    Permission: admin / guild_officer / this guild's lead.
+    Permission: admin, or this guild's lead or staff.
     """
     from billing.forms import ProductForm, build_product_split_formset
     from billing.models import Product
@@ -3488,7 +3488,7 @@ def guild_product_create(request: HttpRequest, pk: int) -> HttpResponse:
 def guild_product_update(request: HttpRequest, pk: int, product_pk: int) -> HttpResponse:
     """POST-only — update a Product (and its revenue splits) for this guild.
 
-    Permission: admin / guild_officer / this guild's lead.
+    Permission: admin, or this guild's lead or staff.
     """
     from billing.forms import ProductForm, build_product_split_formset
     from billing.models import Product
@@ -4008,9 +4008,9 @@ def _notification_email_form(
 def _settings_include_staff(request: HttpRequest) -> bool:
     """Whether the Admin / Permissions notification section should render (and save).
 
-    An admin/officer previewing the page as a Member or Guest must not see — or, on save,
-    wipe — the section. The flag flips only when a higher-role holder is previewing down; an
-    actual plain member (incl. a guild lead whose ``fog_role`` is member) always keeps their
+    An admin previewing the page as a Member or Guest must not see — or, on save, wipe — the
+    section. The flag flips only when an admin is previewing down; an actual plain member
+    (incl. a guild lead, whose ``fog_role`` is member) always keeps their
     staff rows. GET and the subsequent POST share the session-backed view-as choice, so build
     and save agree (§5.2 — the save-without-flag wipe trap).
     """
@@ -4018,8 +4018,7 @@ def _settings_include_staff(request: HttpRequest) -> bool:
     if va is None:
         return True
     previewing_down = va.view_as_role in (ROLE_MEMBER, ROLE_GUEST)
-    higher_role_holder = va.actual_is_admin or va.actual_is_guild_officer
-    return not (previewing_down and higher_role_holder)
+    return not (previewing_down and va.actual_is_admin)
 
 
 def _settings_active_tab(request: HttpRequest, member: Member | None, *, payouts_tab_shown: bool) -> str:
@@ -4640,18 +4639,6 @@ def _can_announce_to_class(request: HttpRequest, offering: ClassOffering) -> boo
     * A **guild lead or staffer** on a class in their own guild is admitted (#371 item 1). They
       were already shown the composer — ``_can_compose`` admits them on their staffed guild — and
       then refused on Send with a 403. Now the Send succeeds, and the link is offered.
-    * A **site-wide guild officer who holds the teaching grant** is admitted on **every class in
-      the catalog**, including classes they neither teach nor hold any guild relationship to.
-      ``class_access``'s guild leg asks ``membership.permissions.can_edit_class``, which
-      short-circuits on ``is_effective_staff``, so that member has reached ``_guild_access()``
-      catalog-wide since #399 (``classes/access.py`` says so outright above ``class_access``).
-      Until now that bought them the Emails tab without the Send; now it also buys them the Send
-      and, through the composer's picker, every registrant's name and email on any class.
-      Allowed deliberately rather than by oversight: that same member can already address every
-      guild's full membership through this same composer, because ``_can_edit_guild``
-      short-circuits on ``is_effective_staff`` too, so refusing them one class roster while
-      handing them every guild roster would be an inconsistency rather than a protection.
-      ``ROLE_MATRIX`` carries them as ``guild_officer_with_grant``.
     * A member merely **named as a class's instructor who was never granted teaching access** is
       refused, where the old two-clause expression admitted them on ``instructor_id`` alone.
       ``class_access``'s instructor leg has always required ``member.can_create_classes`` as well
@@ -4787,9 +4774,9 @@ def _tools_page_title(request: HttpRequest, member: Member | None) -> str | None
     """What the tools page (``hub_admin_tools``, its sidebar entry and Home quick link) is called here, or None.
 
     "Admin Tools" for an admin (view as aware). "Guild Tools" for anyone else who runs a guild
-    (#921): a guild officer, or the lead or a staff member of a guild, through the ``view_as``
-    aware :func:`~hub.guild_tools.runs_a_guild`, so an admin previewing as a guild officer, or
-    as the member they are when they lead a guild, sees the page as that viewer would. Then,
+    (#921): the lead or a staff member of a guild, through the ``view_as`` aware
+    :func:`~hub.guild_tools.runs_a_guild`, so an admin previewing as the member they are when
+    they lead a guild sees the page as that viewer would. Then,
     unchanged, "Admin Tools" for an instructor (by the public profile flag or by actually
     teaching, same as :func:`_can_compose`), a Billing Administrator (Payments and Reports), a
     Calendar Administrator (Manage Events) or a Tour Guide (Tours, #947). An actual admin previewing below admin who runs no
@@ -4915,9 +4902,6 @@ def _announcement_rows(
     * rows addressed to a guild they lead or staff (:func:`_compose_editable_guilds`),
     * rows addressed to a class they teach, or a class in one of those guilds (#371),
     * rows they last saved, which catches a target reached through a class page's locked link.
-
-    So a site-wide guild officer, whose gate would admit every guild, sees their own guilds' rows
-    and their own saves rather than every guild's mail.
 
     Args:
         request: The request, carrying ``view_as`` from the middleware.
@@ -5904,7 +5888,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
 
     Its cards are grouped into Manage, Tools, Reports and Webmaster (#912), and Guild Tools adds a
     section for one guild the viewer runs (``?guild=<pk>`` picks it, :class:`GuildToolsGuilds`).
-    Open to whoever :func:`_tools_page_title` names it for (admin, guild officer, lead or staff,
+    Open to whoever :func:`_tools_page_title` names it for (admin, lead or staff,
     instructor, Billing or Calendar Administrator); each card shows only to whoever can use it,
     and a section with no card it may open is not rendered. View as aware for actual admins: an
     admin previewing as a plain member is bounced home, and others with no tool are too.
@@ -5928,7 +5912,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
     # rather than is_admin (view-as-aware) like the other tool_* flags, so a non-admin capability
     # holder keeps them whatever they preview. Do not "fix" this to is_admin. An actual admin
     # previewing below admin reaches this page only as Guild Tools (#921), and sees it as the
-    # lead or officer they preview would, so their own admin standing must not add these cards.
+    # lead they preview would, so their own admin standing must not add these cards.
     view_as = getattr(request, "view_as", None)
     previewing_admin = view_as is not None and view_as.actual_is_admin and not is_admin
     tool_payments = tool_reports = has_billing_admin_access(request) and not previewing_admin
@@ -6202,8 +6186,7 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
     ``?tab=sent`` and ``?tab=mailing-lists`` (#920), server rendered so links, Back and pagination
     work. Mailing Lists shows when :func:`membership.permissions.manageable_guilds` is not empty,
     and each row opens that guild's Your Mailing List card in Guild Settings. Someone who has a
-    mailing list but may not see Drafts or Sent (an officer on no guild's staff) gets that tab
-    alone. Rows come from
+    mailing list but may not see Drafts or Sent gets that tab alone. Rows come from
     :func:`_announcement_rows` (admins see every row; leads, staff and instructors see their
     audiences'). Drafts sort by last edit; Sent by when it went out or was queued
     (``Coalesce(sent_at, send_requested_at)``), so a queued row heads the list. The Sent tab reads

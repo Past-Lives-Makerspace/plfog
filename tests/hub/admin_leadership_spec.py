@@ -32,6 +32,7 @@ from membership.models import (
     Member,
 )
 from tests.membership.factories import (
+    GuildFactory,
     LeadershipBadgeFactory,
     LeadershipListingFactory,
     LeadershipRoleFactory,
@@ -196,9 +197,10 @@ def describe_editor_gating():
             assert client.post(url, payload).status_code == 403, url
         _untouched()
 
-    def it_forbids_a_guild_officer_too(client: Client):
+    def it_forbids_a_guild_lead_too(client: Client):
         endpoints = _endpoints()
-        _login(client, "officer", Member.FogRole.GUILD_OFFICER)
+        lead = _login(client, "lead", Member.FogRole.MEMBER)
+        GuildFactory(guild_lead=lead)
         for url, payload in endpoints.values():
             assert client.post(url, payload).status_code == 403, url
         _untouched()

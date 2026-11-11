@@ -14,7 +14,7 @@ from factory.django import mute_signals
 
 from billing.models import Product, ProductRevenueSplit
 from hub.forms import GuildEditForm
-from membership.models import Guild, GuildFAQItem, GuildImage, GuildLink, Member
+from membership.models import Guild, GuildFAQItem, GuildImage, GuildLink, GuildStaffMembership, Member
 from tests.membership.factories import (
     GuildAnnouncementFactory,
     GuildFactory,
@@ -105,14 +105,16 @@ def describe_guild_product_create():
         assert product.guild == guild
         assert product.splits.count() == 2
 
-    def it_guild_officer_can_create_a_product(client: Client):
-        _user_with_role("officer1", fog_role=Member.FogRole.GUILD_OFFICER)
+    def it_refuses_the_lead_of_another_guild(client: Client):
+        # ADR 0004: leading one guild gives no authority over another guild's products.
+        user = _user_with_role("other_lead1", fog_role=Member.FogRole.MEMBER)
+        GuildFactory(guild_lead=user.member)
         guild = GuildFactory()
-        client.login(username="officer1", password="pass")
+        client.login(username="other_lead1", password="pass")
         url = reverse("hub_guild_product_create", args=[guild.pk])
         response = client.post(url, data=_product_post_payload(guild))
-        assert response.status_code == 302
-        assert Product.objects.count() == 1
+        assert response.status_code == 403
+        assert Product.objects.count() == 0
 
     def it_guild_lead_can_create_a_product_for_their_guild(client: Client):
         user = _user_with_role("lead1", fog_role=Member.FogRole.MEMBER)
@@ -190,16 +192,18 @@ def describe_guild_product_update():
         assert product.price == Decimal("20.00")
         assert Product.objects.count() == 1
 
-    def it_allows_guild_officer_to_update(client: Client):
-        _user_with_role("officer_upd", fog_role=Member.FogRole.GUILD_OFFICER)
+    def it_refuses_the_lead_of_another_guild(client: Client):
+        user = _user_with_role("other_lead_upd", fog_role=Member.FogRole.MEMBER)
+        GuildFactory(guild_lead=user.member)
         guild = GuildFactory()
         product = _make_product(guild)
-        client.login(username="officer_upd", password="pass")
+        original = product.name
+        client.login(username="other_lead_upd", password="pass")
         url = reverse("hub_guild_product_update", args=[guild.pk, product.pk])
-        response = client.post(url, data=_update_payload(guild, name="OfficerEdit"))
-        assert response.status_code == 302
+        response = client.post(url, data=_update_payload(guild, name="CrossGuildEdit"))
+        assert response.status_code == 403
         product.refresh_from_db()
-        assert product.name == "OfficerEdit"
+        assert product.name == original
 
     def it_allows_the_guild_lead_to_update(client: Client):
         user = _user_with_role("lead_upd", fog_role=Member.FogRole.MEMBER)
@@ -353,6 +357,30 @@ def describe_guild_edit():
         assert response.status_code == 302
         guild.refresh_from_db()
         assert guild.name == "Lead Edit"
+
+    def it_refuses_a_crafted_settings_save_from_the_lead_of_another_guild(client: Client):
+        # ADR 0004: the lead of guild A posting guild B's Guild Settings form gets a 403 and
+        # changes nothing. Before, the hand set Guild Officer role let nearly every lead do this.
+        user = _user_with_role("lead_a_e", fog_role=Member.FogRole.MEMBER)
+        GuildFactory(guild_lead=user.member, name="Guild A")
+        guild_b = GuildFactory(name="Guild B", about="B's own words")
+        client.login(username="lead_a_e", password="pass")
+        url = reverse("hub_guild_edit", args=[guild_b.pk])
+        response = client.post(url, data={"name": "Taken Over", "about": "", **_empty_guild_formsets()})
+        assert response.status_code == 403
+        guild_b.refresh_from_db()
+        assert (guild_b.name, guild_b.about) == ("Guild B", "B's own words")
+
+    def it_refuses_a_crafted_settings_save_from_the_staff_of_another_guild(client: Client):
+        user = _user_with_role("staff_a_e", fog_role=Member.FogRole.MEMBER)
+        GuildStaffMembership.objects.create(guild=GuildFactory(name="Guild A"), member=user.member, role="co_lead")
+        guild_b = GuildFactory(name="Guild B")
+        client.login(username="staff_a_e", password="pass")
+        url = reverse("hub_guild_edit", args=[guild_b.pk])
+        response = client.post(url, data={"name": "Taken Over", "about": "", **_empty_guild_formsets()})
+        assert response.status_code == 403
+        guild_b.refresh_from_db()
+        assert guild_b.name == "Guild B"
 
     def it_regular_member_cannot_edit(client: Client):
         _user_with_role("reg_e", fog_role=Member.FogRole.MEMBER)
@@ -1239,14 +1267,6 @@ def describe_guild_delete():
         user = _user_with_role("del_lead", fog_role=Member.FogRole.MEMBER)
         guild = GuildFactory(guild_lead=user.member)
         client.login(username="del_lead", password="pass")
-        response = client.post(reverse("hub_guild_delete", args=[guild.pk]))
-        assert response.status_code == 403
-        assert Guild.objects.filter(pk=guild.pk).exists()
-
-    def it_guild_officer_cannot_delete(client: Client):
-        _user_with_role("del_officer", fog_role=Member.FogRole.GUILD_OFFICER)
-        guild = GuildFactory()
-        client.login(username="del_officer", password="pass")
         response = client.post(reverse("hub_guild_delete", args=[guild.pk]))
         assert response.status_code == 403
         assert Guild.objects.filter(pk=guild.pk).exists()

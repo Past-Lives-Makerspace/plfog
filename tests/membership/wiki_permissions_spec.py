@@ -13,7 +13,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.test import RequestFactory
 
 from classes.factories import UserFactory
-from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER, ViewAs
+from hub.view_as import ROLE_ADMIN, ROLE_MEMBER, ViewAs
 from membership.models import GuildStaffMembership, Member, WikiPage
 from membership.permissions import (
     can_edit_wiki_page,
@@ -70,16 +70,44 @@ def describe_can_edit_wiki_page():
             request = _request(UserFactory(username="member@example.com"), roles={ROLE_MEMBER})
             assert can_edit_wiki_page(request, WikiPageFactory(official=True)) is False
 
-        def it_denies_the_guild_lead_of_its_own_guild():
-            # Official is policy, safety, and money. A lead is not an officer.
+        def it_allows_the_guild_lead_of_its_own_guild():
+            # A guild's lead and staff are its guild officers (ADR 0004): they edit its Official pages.
             user = UserFactory(username="lead@example.com")
             guild = GuildFactory(guild_lead=user.member)
             request = _request(user, roles={ROLE_MEMBER})
-            assert can_edit_wiki_page(request, WikiPageFactory(official=True, guild=guild)) is False
+            assert can_edit_wiki_page(request, WikiPageFactory(official=True, guild=guild)) is True
+
+        def it_allows_guild_staff_of_its_own_guild():
+            user = UserFactory(username="treasurer@example.com")
+            guild = GuildFactory()
+            GuildStaffMembership.objects.create(
+                guild=guild, member=user.member, role=GuildStaffMembership.Role.TREASURER
+            )
+            request = _request(user, roles={ROLE_MEMBER})
+            assert can_edit_wiki_page(request, WikiPageFactory(official=True, guild=guild)) is True
+
+        def it_denies_the_lead_of_another_guild():
+            user = UserFactory(username="otherlead@example.com")
+            GuildFactory(guild_lead=user.member)
+            request = _request(user, roles={ROLE_MEMBER})
+            assert can_edit_wiki_page(request, WikiPageFactory(official=True, guild=GuildFactory())) is False
+
+        def it_denies_a_guild_lead_on_a_space_wide_official_page():
+            user = UserFactory(username="spacelead@example.com")
+            GuildFactory(guild_lead=user.member)
+            request = _request(user, roles={ROLE_MEMBER})
+            assert can_edit_wiki_page(request, WikiPageFactory(official=True, guild=None)) is False
+
+        def it_denies_the_guild_lead_on_an_admins_only_page():
+            user = UserFactory(username="lockedlead@example.com")
+            guild = GuildFactory(guild_lead=user.member)
+            page = WikiPageFactory(official=True, guild=guild, admins_only_edit=True)
+            request = _request(user, roles={ROLE_MEMBER})
+            assert can_edit_wiki_page(request, page) is False
 
     def describe_an_archived_page():
         def it_allows_effective_staff():
-            request = _request(UserFactory(username="officer@example.com"), roles={ROLE_GUILD_OFFICER, ROLE_MEMBER})
+            request = _request(UserFactory(username="admin-arch@example.com"), roles={ROLE_ADMIN, ROLE_MEMBER})
             assert can_edit_wiki_page(request, WikiPageFactory(archived=True)) is True
 
         def it_allows_the_guild_lead_of_its_own_guild():
@@ -92,12 +120,12 @@ def describe_can_edit_wiki_page():
             request = _request(UserFactory(username="plain@example.com"), roles={ROLE_MEMBER})
             assert can_edit_wiki_page(request, WikiPageFactory(archived=True)) is False
 
-        def it_still_denies_a_guild_lead_when_the_archived_page_is_official():
-            # Official outranks archived. Checking archived first handed the guild's lead
-            # an edit right on Official content, which the locked rule never grants.
+        def it_denies_another_guilds_lead_when_the_archived_page_is_official():
+            # Official outranks archived: an archived Official page takes the Official rule,
+            # its own guild's officers or an admin, never a lead from elsewhere.
             user = UserFactory(username="archofficial@example.com")
-            guild = GuildFactory(guild_lead=user.member)
-            page = WikiPageFactory(archived=True, official=True, guild=guild)
+            GuildFactory(guild_lead=user.member)
+            page = WikiPageFactory(archived=True, official=True, guild=GuildFactory())
             request = _request(user, roles={ROLE_MEMBER})
             assert can_edit_wiki_page(request, page) is False
 
@@ -188,7 +216,7 @@ def describe_can_verify_wiki_page():
 
     def describe_a_space_wide_page():
         def it_allows_effective_staff():
-            request = _request(UserFactory(username="officer2@example.com"), roles={ROLE_GUILD_OFFICER, ROLE_MEMBER})
+            request = _request(UserFactory(username="admin-verify@example.com"), roles={ROLE_ADMIN, ROLE_MEMBER})
             assert can_verify_wiki_page(request, WikiPageFactory()) is True
 
         def it_denies_a_plain_member():

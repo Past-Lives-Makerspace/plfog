@@ -50,10 +50,9 @@ The tab strip, and the section list or back row that takes its place on a phone,
 {% comment %}Why this viewer can do some of it and not the rest. Keyed on the role rather than
 on a capability because the sentence is about the role: the guild leg is the only population
 that holds Edit without holding the roster, and the line names the guild that gave it to them.
-Leg 4 of `class_access` also admits a fog officer, whose class may have no guild at all (86 in
-production), so the guild clause drops out rather than leaving a hole in the sentence — and the
-sentence says the class is in the guild rather than naming the reader a lead, which is true for
-a lead, a staffer and an officer alike.{% endcomment %}
+The guild clause drops out when the class has no guild rather than leaving a hole in the
+sentence, and the sentence says the class is in the guild rather than naming the reader a lead,
+which is true for a lead and a staffer alike.{% endcomment %}
 <div class="pl-class-context">
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="pl-class-context__icon"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
     <span>{% if guild_grants_access %}This class is in the <strong>{{ offering.category.guild.name }}</strong> guild, so you can edit it and write its welcome email.{% else %}You can edit this class and write its welcome email.{% endif %} Sign-ups, the waitlist and cancelling belong to {% if offering.instructor %}<strong>{{ offering.instructor.display_name }}</strong>, who teaches it{% else %}whoever teaches it{% endif %}.</span>

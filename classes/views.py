@@ -510,17 +510,17 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
         .prefetch_related("sessions", "instructor_rows"),
         slug=slug,
     )
-    from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER
+    from hub.view_as import ROLE_ADMIN
     from membership.permissions import can_edit_class
 
     view_as = getattr(request, "view_as", None)
     # is_admin reflects the *actual* role — used for banners/admin links on the page.
-    is_admin = view_as is not None and (view_as.has_actual(ROLE_ADMIN) or view_as.has_actual(ROLE_GUILD_OFFICER))
+    is_admin = view_as is not None and view_as.has_actual(ROLE_ADMIN)
 
     member = getattr(request.user, "member", None)
     is_instructor = member is not None and offering.teaches(member)
 
-    # One shared rule decides edit rights: admin/officer, the lead of the
+    # One shared rule decides edit rights: an admin, the lead or staff of the
     # category's guild (FK only), or the instructor. view_as preview is honored.
     can_edit_offering = can_edit_class(request, offering)
     edit_url = _class_page_edit_url(request, offering) if can_edit_offering else None
@@ -1611,7 +1611,7 @@ def classes_registrations_access_required(view_func: _ViewFunc) -> _ViewFunc:
 def _scoped_registrations(request: HttpRequest) -> QuerySet[Registration]:
     """Registrations this request may see.
 
-    Admins and guild officers see every registration; everyone else sees only
+    Admins see every registration; everyone else sees only
     those for classes they can edit (a class they instruct, or one in a guild
     they lead). Callers are gated by ``classes_registrations_access_required``,
     so a non-admin here always has a linked member.
@@ -3968,11 +3968,11 @@ def class_preview(request: HttpRequest, pk: int) -> HttpResponse:
     )
     from membership.models import Member as MemberModel
 
-    from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER
+    from hub.view_as import ROLE_ADMIN
 
     view_as = getattr(request, "view_as", None)
-    # Admins and Officers always get edit rights for heroes.
-    is_admin = view_as is not None and (view_as.has_actual(ROLE_ADMIN) or view_as.has_actual(ROLE_GUILD_OFFICER))
+    # Admins always get edit rights for heroes.
+    is_admin = view_as is not None and view_as.has_actual(ROLE_ADMIN)
 
     assert request.user.is_authenticated  # @login_required guarantees a real User
     user_member = MemberModel.objects.filter(user=request.user).first()
@@ -6004,7 +6004,7 @@ def _registration_manageable_or_403(request: HttpRequest, pk: int) -> Registrati
     Actual admins (preview-independent) manage any registration; everyone else
     must have the class in ``ClassOffering.objects.editable_by`` — the same
     population as the read gate: instructors for their own classes, guild
-    leads/staff for their guild's classes, guild officers everywhere.
+    leads/staff for their guild's classes.
     """
     from django.core.exceptions import PermissionDenied
 
@@ -6274,7 +6274,7 @@ def registration_move(request: HttpRequest, pk: int) -> HttpResponse:
 
     Gating is stricter than the other roster actions: actual admins may move
     anyone anywhere upcoming, but a non-admin must be the source class's own
-    instructor (guild leads/officers who can otherwise manage the roster get a
+    instructor (guild leads and staff who can otherwise manage the roster get a
     403), and their form only offers other
     upcoming classes they instruct, so a crafted POST at someone else's class
     fails validation. Plain POST + redirect: after a move the row belongs to a

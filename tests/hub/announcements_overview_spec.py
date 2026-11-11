@@ -452,19 +452,16 @@ def describe_who_sees_what():
             assert client.post(reverse("hub_compose_delete_draft", args=[draft.pk])).status_code == 404
             assert AnnouncementDraft.objects.filter(pk=draft.pk).exists()
 
-    def describe_a_guild_officer():
-        def it_sees_its_staffed_guilds_and_its_own_saves_not_every_guild(client: Client):
-            from membership.models import Member
-
+    def describe_a_guild_lead_with_a_save_addressed_elsewhere():
+        def it_sees_only_its_own_guilds_rows_even_one_it_saved_for_another_guild(client: Client):
+            # ADR 0004: only the retired Guild Officer's gate admitted another guild's audience, so a
+            # lead's own save addressed to a guild they do not run stays out of their list.
             guild, other = GuildFactory(), GuildFactory()
-            user = _login_lead(client, guild, username="officer")
-            member = user.member
-            member.fog_role = Member.FogRole.GUILD_OFFICER
-            member.save(update_fields=["fog_role"])
+            user = _login_lead(client, guild, username="lead_saver")
             own = AnnouncementDraftFactory(audience=_GUILD, guild=guild)
-            saved_elsewhere = AnnouncementDraftFactory(author=user, audience=_GUILD, guild=other)
+            AnnouncementDraftFactory(author=user, audience=_GUILD, guild=other)
             AnnouncementDraftFactory(audience=_GUILD, guild=other)
-            assert set(_row_pks(_page(client))) == {own.pk, saved_elsewhere.pk}
+            assert set(_row_pks(_page(client))) == {own.pk}
 
     def describe_an_instructor():
         def it_sees_its_own_classes_rows_and_not_another_instructors(client: Client):

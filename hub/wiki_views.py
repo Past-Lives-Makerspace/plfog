@@ -87,6 +87,7 @@ from membership.permissions import (
     editable_meeting_scopes,
     editable_wiki_scopes,
     is_effective_staff,
+    manageable_guilds,
     moderatable_wiki_scopes,
     visible_wiki_pages,
 )
@@ -307,7 +308,9 @@ def hub_wiki_home(request: HttpRequest) -> HttpResponse:
             "open_review_count": open_review_count,
             # The printable sticker sheet's only entry point. Without it /wiki/stickers/
             # is a URL you have to already know, which is the same as not shipping it.
-            "can_print_stickers": is_effective_staff(request),
+            # Admin or a guild's lead or staff, the sheet's own gate: the same answer as
+            # can_review (an admin's space-wide scope, else the guilds they run), so no query.
+            "can_print_stickers": can_review,
             "has_any_page": visible.exists(),
         }
     )
@@ -754,15 +757,15 @@ def _create_page_from_form(
     rather than a second one written out here. It matters: ``can_moderate_wiki_scope`` is
     true for any ``GuildStaffMembership`` row, so deciding "published or not" on that
     alone let a guild orientor, secretary or treasurer create a page wearing the Official
-    chip — which brief §4 and §5.2 lock to admins and officers. Routing through
+    chip — which brief §4 and §5.2 lock to admins (ADR 0004 retired the officer role that shared it). Routing through
     ``publish_proposal`` gives the create path exactly the outcomes the queue already
     gives: effective staff land Official, a guild lead or staff land Guild verified, and
     everyone else stays a held proposal for a second read.
 
-    It also closes the secondary bug that arrangement had: a guild orientor who created an
-    Official page was instantly locked out of it, because ``can_edit_wiki_page`` answers
-    ``is_effective_staff`` on a published Official page and ``can_verify_wiki_page``
-    refuses Official outright. Landing Guild verified leaves it theirs to edit.
+    It also closed a secondary bug: a guild orientor who created an Official page was locked
+    out of it while ``can_edit_wiki_page`` answered admins only on Official pages. That gate
+    now admits the page's own guild lead and staff (ADR 0004), and Guild verified stays
+    theirs to verify as well as edit.
     """
     status = starter["status"]
     gated = bool(status)
@@ -1491,13 +1494,17 @@ def hub_wiki_qr_download(request: HttpRequest, slug: str) -> HttpResponse:
 def hub_wiki_stickers(request: HttpRequest) -> HttpResponse:
     """``/wiki/stickers/`` — a printable sheet of QR stickers, one shop at a time.
 
-    ``is_effective_staff`` rather than ``can_moderate_wiki_page``: a staff-wide printable
-    sheet has no single page in scope, so there is no page argument to moderate against.
+    An admin prints any guild's sheet or the space-wide one; a guild's lead or staff (a guild
+    officer, ADR 0004) prints only their own guilds' pages, whatever ``?guild=`` names. A
+    printable sheet has no single page in scope, so there is no page to moderate against.
 
     A standalone print document in the ``guild_flyer`` idiom — its own stylesheet, its own
     ``@page`` rule, black on white in both themes, no member chrome.
     """
-    if not is_effective_staff(request):
+    own_guild_ids = (
+        None if is_effective_staff(request) else list(manageable_guilds(request).values_list("pk", flat=True))
+    )
+    if own_guild_ids == []:
         return _forbidden()
     guild_slug = request.GET.get("guild", "").strip()
     space_wide_only = guild_slug == "space-wide"
@@ -1514,6 +1521,8 @@ def hub_wiki_stickers(request: HttpRequest) -> HttpResponse:
         pages = pages.space_wide()
     elif guild_slug and guild is None:
         pages = pages.none()
+    if own_guild_ids is not None:
+        pages = pages.filter(guild_id__in=own_guild_ids)
     return render(
         request,
         "hub/wiki_sticker_sheet.html",
@@ -2300,10 +2309,9 @@ def hub_wiki_revert(request: HttpRequest, slug: str, pk: int) -> HttpResponse:
     """``/wiki/p/<slug>/revert/<pk>/`` — put an older version back, on top, staff only.
 
     Gated on ``can_edit_wiki_page`` AS WELL AS ``can_moderate_wiki_page``, because a
-    revert rewrites the page's title, body and facts wholesale — it is an edit, and the
-    edit gate is the one that keeps Official content away from a guild's staff. Without
-    it a guild treasurer refused the Edit button on a safety policy could open History and
-    rewrite the whole thing with the Official chip still on it, no officer involved.
+    revert rewrites the page's title, body and facts wholesale — it is an edit, so it takes
+    the edit gate too, so whatever the edit rule refuses (a member who is no longer active,
+    a page the edit rule ever narrows below its moderators) stays refused from History.
     ``revert_to`` deliberately does not touch ``status``, so nothing downstream catches it.
     """
     page = _page_or_none(slug)

@@ -2,8 +2,8 @@
 
 Every manage URL is refused (403) to a plain member and to another guild's staff, including a
 crafted POST naming a cubby or unit of a guild they do not run: the guild is read from the
-record, never the URL. Admins reach every guild; a Guild Officer only a guild they lead or staff
-(#1015). Assertions anchor on markup and factory strings (STANDARDS.md, section 8).
+record, never the URL. Admins reach every guild; a lead or staff member only a guild they lead or
+staff (#1015). Assertions anchor on markup and factory strings (STANDARDS.md, section 8).
 """
 
 from __future__ import annotations
@@ -134,15 +134,16 @@ def describe_permissions():
         for method, url, data in _manage_urls(guild, unit, cubby):
             assert getattr(client, method)(url, data).status_code in (200, 302), url
 
-    def it_refuses_a_guild_officer_who_neither_leads_nor_staffs_the_guild(client: Client):
-        # #1015: the Guild Officer role alone opens no guild's cubbies, and with no guild of their
-        # own there is no manager for Admin Tools' Cubbies card to open.
-        _login(client, "roaming_officer", fog_role=Member.FogRole.GUILD_OFFICER)
+    def it_refuses_the_lead_of_another_guild(client: Client):
+        # #1015, ADR 0004: leading one guild opens no other guild's cubbies; Admin Tools' Cubbies
+        # card opens their own guild's manager, never this one.
+        lead = _login(client, "roaming_lead")
+        own = GuildFactory(name="Their Own Guild", guild_lead=lead)
         guild, unit, cubby = _theirs()
         size = (unit.rows, unit.columns)
         for method, url, data in _manage_urls(guild, unit, cubby):
             assert getattr(client, method)(url, data).status_code == 403, url
-        assert client.get(reverse("hub_cubbies_home")).status_code == 403
+        assert client.get(reverse("hub_cubbies_home")).url == reverse("hub_guild_cubbies", args=[own.pk])
         cubby.refresh_from_db()
         guild.refresh_from_db()
         unit.refresh_from_db()
@@ -150,10 +151,10 @@ def describe_permissions():
         assert (unit.name, unit.rows, unit.columns) == ("Their Shelf", *size) and not unit.is_archived
         assert not Cubby.objects.filter(unit__guild=guild).exclude(pk=cubby.pk).exists()
 
-    def it_lets_a_guild_officer_in_as_the_guilds_lead_or_staff(client: Client):
-        officer = _login(client, "own_officer", fog_role=Member.FogRole.GUILD_OFFICER)
+    def it_lets_a_member_in_while_they_lead_or_staff_the_guild(client: Client):
+        runner = _login(client, "own_lead")
         guild, unit, cubby = _theirs()
-        guild.guild_lead = officer
+        guild.guild_lead = runner
         guild.save(update_fields=["guild_lead"])
         for method, url, data in _manage_urls(guild, unit, cubby):
             assert getattr(client, method)(url, data).status_code in (200, 302), url
@@ -161,14 +162,14 @@ def describe_permissions():
         guild.guild_lead = None
         guild.save(update_fields=["guild_lead"])
         assert client.get(reverse("hub_guild_cubbies", args=[guild.pk])).status_code == 403
-        GuildStaffMembership.objects.create(guild=guild, member=officer, role="secretary")
+        GuildStaffMembership.objects.create(guild=guild, member=runner, role="secretary")
         for method, url, data in _manage_urls(guild, unit, cubby):
             assert getattr(client, method)(url, data).status_code in (200, 302), url
 
-    def it_refuses_an_admin_previewing_as_a_guild_officer(client: Client):
+    def it_refuses_an_admin_previewing_as_a_member(client: Client):
         _login(client, "preview_admin", fog_role=Member.FogRole.ADMIN)
         session = client.session
-        session["view_as_role"] = "guild_officer"
+        session["view_as_role"] = "member"
         session.save()
         guild, unit, cubby = _theirs()
         for method, url, data in _manage_urls(guild, unit, cubby):

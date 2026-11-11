@@ -109,12 +109,12 @@ def describe_a_member_proposing_a_safety_page():
         assert page.is_published is True
         assert page.status == WikiPage.Status.OFFICIAL
 
-    def describe_a_guild_moderator_who_is_not_an_officer():
+    def describe_a_guild_moderator_who_is_not_an_admin():
         def it_publishes_guild_verified_and_never_official(client: Client):
             # can_moderate_wiki_scope is true for ANY GuildStaffMembership row, so deciding
             # published-or-not on it alone let an orientor, secretary or treasurer create a
-            # page wearing the Official chip. Brief §4 and §5.2 lock Official to admins and
-            # officers, so the create path lands exactly where the queue's Publish does.
+            # page wearing the Official chip. Brief §4 and §5.2 lock Official to admins
+            # (ADR 0004), so the create path lands exactly where the queue's Publish does.
             user = login(client, "gate_orienter")
             guild = GuildFactory()
             # A guild's orientor is a member of it; the New-page scope picker offers the
@@ -140,13 +140,13 @@ def describe_a_member_proposing_a_safety_page():
             page = WikiPage.objects.get(title="Treasurer Written Rules")
             assert client.get(reverse("hub_wiki_edit", args=[page.slug])).status_code == 200
 
-        def it_still_lands_official_when_they_are_also_an_officer(client: Client):
-            user = login(client, "gate_officer", fog_role=Member.FogRole.GUILD_OFFICER)
+        def it_still_lands_official_when_they_are_also_an_admin(client: Client):
+            user = login(client, "gate_staff_admin", fog_role=Member.FogRole.ADMIN)
             guild = GuildFactory()
             GuildMembershipFactory(guild=guild, member=user.member)
             GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
-            _create(client, "safety", title="Officer Written Rules", guild=guild)
-            assert WikiPage.objects.get(title="Officer Written Rules").status == WikiPage.Status.OFFICIAL
+            _create(client, "safety", title="Admin Staff Written Rules", guild=guild)
+            assert WikiPage.objects.get(title="Admin Staff Written Rules").status == WikiPage.Status.OFFICIAL
 
     def it_tells_the_scopes_moderators_that_a_proposal_is_waiting(client: Client):
         # The held screen promises "the leads have it, and you will hear back", so somebody

@@ -29,7 +29,7 @@ def describe_set_fog_role_command():
             call_command("set_fog_role", "nobody@example.com", "admin")
 
     def it_shows_old_and_new_role_in_output():
-        member = MemberFactory(_pre_signup_email="lead@example.com", fog_role=Member.FogRole.GUILD_OFFICER)
+        member = MemberFactory(_pre_signup_email="lead@example.com", fog_role=Member.FogRole.ADMIN)
 
         out = StringIO()
         call_command("set_fog_role", "lead@example.com", "member", stdout=out)
@@ -37,5 +37,9 @@ def describe_set_fog_role_command():
         member.refresh_from_db()
         assert member.fog_role == Member.FogRole.MEMBER
         output = out.getvalue()
-        assert "Guild Officer" in output
-        assert "Member" in output
+        assert "from 'Admin' to 'Member'" in output
+
+    def it_refuses_the_retired_guild_officer_role():
+        MemberFactory(_pre_signup_email="officer@example.com")
+        with pytest.raises(CommandError, match="invalid choice"):
+            call_command("set_fog_role", "officer@example.com", "guild_officer")

@@ -20,7 +20,7 @@ from django.utils import timezone
 
 from membership import staff_onboarding
 from membership.models import Guild, GuildStaffOnboardingEvent, Member, WikiPage
-from tests.membership.factories import GuildFactory, MembershipPlanFactory
+from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -238,11 +238,12 @@ def describe_seed_wiki_staff_rules():
         assert _client(admin).get(reverse("hub_wiki_edit", args=[page.slug])).status_code == 200
         assert page.admins_only_edit
 
-    def it_gives_a_guild_officer_read_only():
+    def it_gives_a_guild_co_lead_read_only():
         call_command("seed_wiki_staff_rules")
         page = WikiPage.objects.get(title=staff_onboarding.RULES_PAGE_TITLE)
-        officer = _member("corvin", fog_role=Member.FogRole.GUILD_OFFICER)
-        client = _client(officer)
+        co_lead = _member("corvin")
+        GuildStaffMembershipFactory(guild=GuildFactory(), member=co_lead, role="co_lead")
+        client = _client(co_lead)
         assert client.get(reverse("hub_wiki_page", args=[page.slug])).status_code == 200
         assert client.get(reverse("hub_wiki_edit", args=[page.slug])).status_code == 403
         assert client.post(reverse("hub_wiki_edit", args=[page.slug]), {"title": "Changed"}).status_code == 403
@@ -283,7 +284,6 @@ def describe_the_admins_only_wiki_level():
         page.save(update_fields=["admins_only_edit"])
         for username, role, allowed in (
             ("ada", Member.FogRole.ADMIN, True),
-            ("odo", Member.FogRole.GUILD_OFFICER, False),
             ("mab", Member.FogRole.MEMBER, False),
         ):
             member = _member(username, fog_role=role)

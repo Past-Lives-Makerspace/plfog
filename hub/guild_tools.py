@@ -1,4 +1,4 @@
-"""Guild Tools (#921): the tools page as guild officers, leads and staff see it.
+"""Guild Tools (#921): the tools page as guild leads and staff see it.
 
 ``/tools/`` (``hub_admin_tools``) is one page under two names. An admin (``view_as`` aware) sees
 Admin Tools, exactly as before. Anyone else who runs a guild sees Guild Tools: the same page,
@@ -31,11 +31,11 @@ GUILD_TOOLS_TITLE = "Guild Tools"
 
 
 def runs_a_guild(request: HttpRequest) -> bool:
-    """True when this request runs a guild: a guild officer, or a guild's lead or staff (``view_as`` aware).
+    """True when this request runs a guild: an admin, or a guild's lead or staff (``view_as`` aware).
 
-    An officer is effective staff and edits every guild, so no query is made for one; anyone
-    else costs one EXISTS over the guilds they lead or staff. Read on every hub page through the
-    sidebar. The caller asks about admins first, since an admin is effective staff too.
+    An admin edits every guild, so no query is made for one; anyone else costs one EXISTS over
+    the guilds they lead or staff. Read on every hub page through the sidebar. The caller asks
+    about admins first, so in practice this answers for leads and staff.
     """
     return is_effective_staff(request) or manageable_guilds(request).exists()
 
@@ -47,7 +47,7 @@ class GuildToolsGuilds:
     Attributes:
         guilds: every guild :func:`~membership.permissions.manageable_guilds` gives this
             request, name ordered: the guilds they lead or staff, or every active guild for an
-            officer.
+            admin.
         selected: the guild whose cards show, from ``?guild=<pk>`` when it names one of
             ``guilds``, else the first; None when there is no guild at all.
     """
