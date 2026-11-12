@@ -689,6 +689,87 @@ def describe_put_on_server():
         assert not roles.called
 
 
+def describe_put_on_server_member_role():
+    """Feedback request 15: without the Member role a connected member sees only #choose-your-guild."""
+
+    MEMBER_ROLE = "https://discord.com/api/v10/guilds/srv1/members/111/roles/mrole"
+
+    @pytest.fixture(autouse=True)
+    def _member_role():
+        config = SiteConfiguration.load()
+        config.discord_member_role_id = "mrole"
+        config.save()
+
+    @pytest.mark.parametrize("answer", [201, 204])
+    @respx.mock
+    def it_gives_an_active_member_the_member_role(answer):
+        respx.put(JOIN).mock(return_value=httpx.Response(answer))
+        role = respx.put(MEMBER_ROLE).mock(return_value=httpx.Response(204))
+        assert put_on_server(MemberFactory(), "111", "t") is True
+        assert role.call_count == 1
+        assert role.calls.last.request.headers["Authorization"] == "Bot bot-tok"
+
+    @respx.mock
+    def it_gives_the_member_role_to_an_active_member_put_back():
+        removal = _kicked()
+        Member.objects.filter(pk=removal.member.pk).update(status=Member.Status.ACTIVE)
+        removal.member.refresh_from_db()
+        respx.put(JOIN).mock(return_value=httpx.Response(201, json={}))
+        role = respx.put(MEMBER_ROLE).mock(return_value=httpx.Response(204))
+        assert put_on_server(removal.member, "111", "t") is True
+        assert role.called
+
+    @pytest.mark.parametrize(
+        "status",
+        [Member.Status.INVITED, Member.Status.FORMER, Member.Status.SUSPENDED, Member.Status.GUEST],
+    )
+    @respx.mock
+    def it_gives_no_member_role_to_anyone_not_active(status):
+        respx.put(JOIN).mock(return_value=httpx.Response(201, json={}))
+        role = respx.put(MEMBER_ROLE).mock(return_value=httpx.Response(204))
+        assert put_on_server(MemberFactory(status=status), "111", "t") is True
+        assert not role.called
+
+    @respx.mock
+    def it_gives_no_member_role_to_a_removed_member_put_back_who_is_not_active():
+        removal = _kicked()
+        respx.put(JOIN).mock(return_value=httpx.Response(201, json={}))
+        role = respx.put(MEMBER_ROLE).mock(return_value=httpx.Response(204))
+        assert put_on_server(removal.member, "111", "t") is True
+        assert not role.called
+
+    @respx.mock
+    def it_gives_no_role_when_the_role_id_is_blank():
+        config = SiteConfiguration.load()
+        config.discord_member_role_id = "  "
+        config.save()
+        respx.put(JOIN).mock(return_value=httpx.Response(204))
+        roles = respx.put(url__regex=ROLE_RE).mock(return_value=httpx.Response(204))
+        assert put_on_server(MemberFactory(), "111", "t") is True
+        assert not roles.called
+
+    @respx.mock
+    def it_gives_no_role_when_the_join_fails():
+        respx.put(JOIN).mock(return_value=httpx.Response(403))
+        role = respx.put(MEMBER_ROLE).mock(return_value=httpx.Response(204))
+        assert put_on_server(MemberFactory(), "111", "t") is False
+        assert not role.called
+
+    @pytest.mark.parametrize("answer", [403, 500])
+    @respx.mock
+    def it_still_counts_the_join_when_the_role_call_fails(answer, caplog):
+        respx.put(JOIN).mock(return_value=httpx.Response(204))
+        respx.put(MEMBER_ROLE).mock(return_value=httpx.Response(answer, text="no"))
+        assert put_on_server(MemberFactory(), "111", "t") is True
+        assert "Discord Member role for 111 was not given." in caplog.text
+
+    @respx.mock
+    def it_still_counts_the_join_on_a_network_error_giving_the_role():
+        respx.put(JOIN).mock(return_value=httpx.Response(204))
+        respx.put(MEMBER_ROLE).mock(side_effect=httpx.ConnectError("no route"))
+        assert put_on_server(MemberFactory(), "111", "t") is True
+
+
 def describe_run_cleanup_list():
     IDS = {"ghost": "222", "active": "333", "queued": "444"}
 

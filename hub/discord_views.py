@@ -83,6 +83,14 @@ def discord_connect(request: HttpRequest) -> HttpResponse:
     return redirect(discord_oauth.authorize_url(redirect_uri, state))
 
 
+#: The flash after a logged-in connect. The guild import runs on the task queue, so the
+#: request no longer knows the guilds (feedback request 15).
+_LINKED_MESSAGE = (
+    "Your Discord account is connected. Your guilds are being set up now; "
+    "if you picked any in Discord, we'll email you the list."
+)
+
+
 @login_required
 def discord_callback(request: HttpRequest) -> HttpResponse:
     """Finish the logged-in OAuth flow: verify ``state``, link, and import guilds."""
@@ -103,14 +111,7 @@ def discord_callback(request: HttpRequest) -> HttpResponse:
     redirect_uri = request.build_absolute_uri(reverse("hub_discord_callback"))
     result = link_and_import(code, redirect_uri, member=member)
     if result.outcome is LinkOutcome.LINKED:
-        if result.guilds:
-            messages.success(
-                request,
-                f"Your Discord account is connected — we set you up in {len(result.guilds)} "
-                f"guild{'' if len(result.guilds) == 1 else 's'}.",
-            )
-        else:
-            messages.success(request, "Your Discord account is connected — you can now get notices as a DM.")
+        messages.success(request, _LINKED_MESSAGE)
     elif result.outcome is LinkOutcome.ALREADY_LINKED_ELSEWHERE:
         messages.error(request, "That Discord account is already connected to a different Past Lives account.")
     elif result.outcome is LinkOutcome.ACCOUNT_HAS_OTHER_DISCORD:
@@ -168,7 +169,7 @@ def discord_link_callback(request: HttpRequest) -> HttpResponse:
     member = _get_member(request)  # set when the visitor happens to be logged in, else None
     result = link_and_import(code, redirect_uri, member=member)
     if result.outcome is LinkOutcome.LINKED:
-        return _render_landing(request, state="linked", guilds=result.guilds, complete=result.complete)
+        return _render_landing(request, state="linked")
     if result.outcome is LinkOutcome.NEEDS_LOGIN:
         return _render_landing(request, state="needs_login")
     if result.outcome is LinkOutcome.ALREADY_LINKED_ELSEWHERE:
@@ -178,15 +179,8 @@ def discord_link_callback(request: HttpRequest) -> HttpResponse:
     return _render_landing(request, state="oauth_failed")
 
 
-def _render_landing(
-    request: HttpRequest,
-    *,
-    state: str,
-    guilds: list | None = None,
-    complete: bool = True,
-) -> HttpResponse:
+def _render_landing(request: HttpRequest, *, state: str) -> HttpResponse:
     """Render the anon link-outcome landing for one state (every state has a button)."""
-    guild_links = [{"name": g.name, "url": reverse("hub_guild_detail", args=[g.slug])} for g in (guilds or [])]
     connect_next = reverse("hub_discord_connect")
     login_next_url = f"{reverse('account_login')}?next={connect_next}"
     signup_next_url = f"{reverse('account_signup')}?next={connect_next}"
@@ -195,8 +189,6 @@ def _render_landing(
         "hub/discord_link_landing.html",
         {
             "state": state,
-            "guilds": guild_links,
-            "complete": complete,
             "retry_url": reverse("hub_discord_link_start"),
             "login_url": reverse("account_login"),
             "login_next_url": login_next_url,

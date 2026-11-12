@@ -15,7 +15,7 @@ import respx
 from django.contrib.auth.models import User
 from django.contrib.messages import get_messages
 from django.core import signing
-from django.test import Client
+from django.test import Client, TestCase
 from django.urls import reverse
 
 from hub.discord_views import _signed_state
@@ -71,7 +71,8 @@ def _mock_discord(join: httpx.Response | None = None) -> tuple[respx.Route, resp
 
 def _connect(user: User) -> list[str]:
     """Run the callback with a state signed for ``user``; returns the flash messages."""
-    response = _browser(user).get(reverse("hub_discord_callback"), {"code": "c", "state": _signed_state(user.pk)})
+    with TestCase.captureOnCommitCallbacks(execute=True):
+        response = _browser(user).get(reverse("hub_discord_callback"), {"code": "c", "state": _signed_state(user.pk)})
     assert response.url == f"{reverse('hub_user_settings')}?tab=notifications"
     return _messages(response)
 

@@ -482,20 +482,41 @@ def describe_link_and_import():
         )
 
     @respx.mock
-    def it_links_and_sends_one_confirmation_on_a_verified_match(sync_config):
+    def it_links_and_sends_one_confirmation_on_a_verified_match(sync_config, django_capture_on_commit_callbacks):
         member = _verified_member("jo@example.com")
         guild = GuildFactory()
         DiscordGuildEmojiFactory(emoji="🔥", guild=guild)
         _mock_oauth("jo@example.com")
         _mock_reactions({"🔥": ["42"]})
         _mock_roles()
-        result = discord_sync.link_and_import("code", _REDIRECT)
+        with django_capture_on_commit_callbacks(execute=True):
+            result = discord_sync.link_and_import("code", _REDIRECT)
         assert result.outcome is LinkOutcome.LINKED
-        assert [g.name for g in result.guilds] == [guild.name]
+        assert result.member == member
+        assert GuildMembership.objects.filter(guild=guild, member=member).exists()
         member.refresh_from_db()
         assert member.discord_user_id == "42"
         assert len(mail.outbox) == 1
         assert mail.outbox[0].to == [member.primary_email]
+
+    @respx.mock
+    def it_queues_the_import_and_reads_no_reactions_itself(sync_config, django_capture_on_commit_callbacks):
+        # Feedback request 15: reading every reaction inline ran the callback past 30 seconds.
+        member = _verified_member("jo@example.com")
+        DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
+        _mock_oauth("jo@example.com")
+        reactions = respx.get(url__regex=_REACTIONS_RE).mock(return_value=httpx.Response(200, json=[{"id": "42"}]))
+        _mock_roles()
+        with django_capture_on_commit_callbacks(execute=False) as callbacks:
+            result = discord_sync.link_and_import("code", _REDIRECT)
+        assert result.outcome is LinkOutcome.LINKED
+        assert not reactions.called
+        assert not GuildMembership.objects.filter(member=member).exists()
+        assert mail.outbox == []
+        for callback in callbacks:  # the commit: the queued import runs now
+            callback()
+        assert reactions.called
+        assert len(mail.outbox) == 1
 
     @respx.mock
     def it_puts_a_member_the_bot_removed_back_on_the_server(sync_config):
@@ -546,27 +567,15 @@ def describe_link_and_import():
         assert join.calls.last.request.read() == b'{"access_token":"tok"}'
 
     @respx.mock
-    def it_does_not_email_on_an_empty_import(sync_config):
+    def it_does_not_email_on_an_empty_import(sync_config, django_capture_on_commit_callbacks):
         _verified_member("jo@example.com")
         _mock_oauth("jo@example.com")
         _mock_reactions({})
         _mock_roles()
-        result = discord_sync.link_and_import("code", _REDIRECT)
+        with django_capture_on_commit_callbacks(execute=True):
+            result = discord_sync.link_and_import("code", _REDIRECT)
         assert result.outcome is LinkOutcome.LINKED
-        assert result.guilds == []
         assert mail.outbox == []
-
-    @respx.mock
-    def it_carries_the_incomplete_flag(sync_config):
-        _verified_member("jo@example.com")
-        g = GuildFactory()
-        DiscordGuildEmojiFactory(emoji="🔥", guild=g)
-        _mock_oauth("jo@example.com")
-        _mock_reactions({"🔥": ["42"]}, flaky=["🔥"])
-        _mock_roles()
-        result = discord_sync.link_and_import("code", _REDIRECT)
-        # 🔥 truncated → the member is never seen, so no guild AND incomplete.
-        assert result.complete is False
 
     @respx.mock
     def it_needs_login_when_the_email_is_unverified(sync_config):
@@ -621,3 +630,36 @@ def describe_link_and_import():
         assert result.outcome is LinkOutcome.LINKED
         member.refresh_from_db()
         assert member.discord_user_id == "42"
+
+
+def describe_import_discord_guilds():
+    @respx.mock
+    def it_imports_the_guilds_and_sends_the_confirmation(sync_config, django_capture_on_commit_callbacks):
+        from core.tasks import enqueue_on_commit
+
+        member = MemberFactory(discord_user_id="42")
+        guild = GuildFactory(name="Glassworks")
+        DiscordGuildEmojiFactory(emoji="🔥", guild=guild)
+        _mock_reactions({"🔥": ["42"]})
+        _mock_roles()
+        with django_capture_on_commit_callbacks(execute=True):
+            enqueue_on_commit(discord_sync.import_discord_guilds, member.pk)
+        assert GuildMembership.objects.filter(guild=guild, member=member, source="discord").exists()
+        assert len(mail.outbox) == 1
+        assert "Glassworks" in mail.outbox[0].body
+
+    @respx.mock
+    def it_sends_one_email_when_run_twice(sync_config, django_capture_on_commit_callbacks):
+        from core.tasks import enqueue_on_commit
+
+        member = MemberFactory(discord_user_id="42")
+        member.link_discord("42")
+        guild = GuildFactory()
+        DiscordGuildEmojiFactory(emoji="🔥", guild=guild)
+        _mock_reactions({"🔥": ["42"]})
+        _mock_roles()
+        with django_capture_on_commit_callbacks(execute=True):
+            enqueue_on_commit(discord_sync.import_discord_guilds, member.pk)
+            enqueue_on_commit(discord_sync.import_discord_guilds, member.pk)
+        assert GuildMembership.objects.filter(guild=guild, member=member).count() == 1
+        assert len(mail.outbox) == 1

@@ -85,7 +85,9 @@ def describe_discord_link_start():
 
 def describe_discord_link_callback():
     @respx.mock
-    def it_links_and_lands_with_guilds_on_a_verified_match(settings):
+    def it_links_and_lands_with_guilds_on_a_verified_match(settings, django_capture_on_commit_callbacks):
+        from membership.models import GuildMembership
+
         _configure(settings)
         member = _verified_member("jo@example.com")
         guild = GuildFactory(name="Glassworks")
@@ -97,10 +99,12 @@ def describe_discord_link_callback():
             return_value=httpx.Response(201, json={})
         )
         client = _client_with_state()
-        response = client.get(reverse("hub_discord_link_callback"), {"code": "c", "state": "s"})
+        with django_capture_on_commit_callbacks(execute=True):
+            response = client.get(reverse("hub_discord_link_callback"), {"code": "c", "state": "s"})
         assert response.status_code == 200
         assert b"Discord Connected" in response.content
-        assert b"Glassworks" in response.content
+        assert b"If you picked any in Discord, we'll email you the list." in response.content
+        assert GuildMembership.objects.filter(guild=guild, member=member).exists()
         member.refresh_from_db()
         assert member.discord_user_id == "42"
         # The anon flow shares the join: the person is put on the server too (feedback 14).

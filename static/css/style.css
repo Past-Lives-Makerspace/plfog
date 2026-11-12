@@ -457,29 +457,6 @@ p:last-child {
     color: #5865F2;
 }
 
-.pl-discord-landing__guilds {
-    list-style: none;
-    margin: 0 0 var(--spacing-lg);
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-xs);
-}
-
-.pl-discord-landing__guilds li {
-    text-align: center;
-}
-
-.pl-discord-landing__guilds a {
-    color: var(--color-tuscan-yellow);
-    text-decoration: none;
-    font-weight: 400;
-}
-
-.pl-discord-landing__guilds a:hover {
-    text-decoration: underline;
-}
-
 .pl-discord-landing__note {
     text-align: center;
     color: var(--color-text-muted);

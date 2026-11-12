@@ -11,17 +11,7 @@
   <div class="auth-card">
     {% if state == "linked" %}
       <h1 class="auth-page__title">Discord Connected</h1>
-      {% if guilds %}
-        <p class="auth-page__subtitle">We set you up in {{ guilds|length }} guild{{ guilds|length|pluralize }}.</p>
-        <ul class="pl-discord-landing__guilds">
-          {% for g in guilds %}<li><a href="{{ g.url }}">{{ g.name }}</a></li>{% endfor %}
-        </ul>
-        {% if not complete %}
-        <p class="pl-discord-landing__note">A few more may still be syncing — check back in about 15 minutes.</p>
-        {% endif %}
-      {% else %}
-        <p class="auth-page__subtitle">You're all set.</p>
-      {% endif %}
+      <p class="auth-page__subtitle">Your guilds are being set up now. If you picked any in Discord, we'll email you the list.</p>
       {% if user.is_authenticated %}
       <a href="{{ guilds_url }}" class="btn btn--primary btn--full">Go to My Guilds</a>
       {% else %}

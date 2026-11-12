@@ -109,6 +109,12 @@ def put_on_server(member: Member, discord_user_id: str, access_token: str) -> bo
     Someone Discord just added (201) also gets every guild membership pushed as a role, Discord
     sourced ones included: a person who left the server on their own lost those roles too.
 
+    Whenever they end up on the server (added, already there, or put back), an active member is
+    also given the Member role (``SiteConfiguration.discord_member_role_id``), without which they
+    see only #choose-your-guild (feedback request 15). Guests, invited, former and suspended
+    members are not, and a blank role id gives nobody it. A refused or failed role call is
+    logged by :func:`core.events.discord_roles.assign_role` and the connect carries on.
+
     There is deliberately no status check (Felix's decision on #1136, feedback request 14):
     anyone who connects Discord is put on the server. A Former member cannot reach the logged in
     Connect (the middleware locks them out of the portal), and the anonymous ``/discord/link/``
@@ -131,6 +137,7 @@ def put_on_server(member: Member, discord_user_id: str, access_token: str) -> bo
         if not removal.put_back(server_id, discord_user_id, access_token, timezone.now()):
             return False
         _push_every_role(member)
+        _give_member_role(member, server_id, discord_user_id)
         return True
     try:
         outcome = add_member(server_id, discord_user_id, access_token)
@@ -139,7 +146,23 @@ def put_on_server(member: Member, discord_user_id: str, access_token: str) -> bo
         return False
     if outcome is JoinOutcome.ADDED:
         _push_every_role(member)
-    return outcome in (JoinOutcome.ADDED, JoinOutcome.ALREADY_THERE)
+    if outcome not in (JoinOutcome.ADDED, JoinOutcome.ALREADY_THERE):
+        return False
+    _give_member_role(member, server_id, discord_user_id)
+    return True
+
+
+def _give_member_role(member: Member, server_id: str, discord_user_id: str) -> None:
+    """Give an active member the server's Member role. Never raises; a blank role id skips."""
+    from core.events.discord_roles import assign_role
+    from core.models import SiteConfiguration
+    from membership.models import Member as MemberModel
+
+    role_id = SiteConfiguration.load().discord_member_role_id.strip()
+    if not role_id or member.status != MemberModel.Status.ACTIVE:
+        return
+    if not assign_role(server_id, discord_user_id, role_id):
+        logger.warning("Discord Member role for %s was not given.", discord_user_id)
 
 
 def _push_every_role(member: Member) -> None:

@@ -1,0 +1,11 @@
+bump = "patch"
+date = "2026-11-12"
+audience = "members"
+guidance = "none"
+title = "Connecting Discord works again and opens the server's channels"
+changes = [
+  "Connecting your Discord account no longer ends on an error page.",
+  "Active members who connect are given the Discord Member role, so they see the server's channels instead of only #choose-your-guild.",
+  "Your guilds are set up right after you connect. If you picked any in Discord, we email you the list.",
+]
+requests = [15]
