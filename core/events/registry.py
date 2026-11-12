@@ -586,6 +586,7 @@ TOUR_CALENDAR_UNREAD = "tour.calendar_unread"  # your Google Calendar could not 
 GUILD_NEEDS_ATTENTION = "guild.needs_attention"  # a guild breaks a Needs attention rule (#953)
 GUILD_STAFF_WELCOME = "guild_staff.welcome"  # you were made a guild lead or staff: your tools and the rules (#1076)
 GUILD_INVITED = "guild.invited"  # a guild's lead, staff or an admin invited you to join it (#1137)
+PERMISSION_GRANTED = "permission.granted"  # an admin turned on a permission for you: what it does and where (#1163)
 POLLS_EMAIL_POLL_LIVE = "polls.email_poll_live"  # a poll from Email Members went live, with your link (#1142)
 POLLS_EMAIL_POLL_REMINDER = "polls.email_poll_reminder"  # a poll you have not answered closes soon (#1142)
 
@@ -1877,6 +1878,19 @@ _NEW_EVENTS: list[EventType] = [
         label="Welcome to Guild Staff Tools",
         description="You were made a guild lead or staff member. Your tools and the rules for running your guild.",
         category="Guilds",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # A permission turned on for you by someone else (#1163): an admin capability, Instructor, the
+    # Admin role or a guild's Class Reviewer. Bell on, email forced (nobody should hold a duty they do
+    # not know about), one per save from membership.permission_grants with the
+    # membership/emails/permission_granted.{txt,html} body.
+    EventType(
+        key=PERMISSION_GRANTED,
+        label="Permission granted",
+        description="Someone turned on a permission for you. What it lets you do and where to go.",
+        category="Membership",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_FORCED),
         activity_kind=None,
