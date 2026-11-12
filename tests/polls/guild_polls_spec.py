@@ -267,9 +267,8 @@ def describe_who_posts():
 
         assert Poll.objects.for_guild(guild).count() == 1
 
-    @pytest.mark.parametrize("role", [Member.FogRole.ADMIN, Member.FogRole.GUILD_OFFICER])
-    def it_lets_an_admin_or_officer_post_in_any_guild(client: Client, role: str):
-        _login(client, f"zorblax{role}", role=role)
+    def it_lets_an_admin_post_in_any_guild(client: Client):
+        _login(client, "zorblaxadmin", role=Member.FogRole.ADMIN)
         guild = GuildFactory()
 
         client.post(reverse("polls:guild_new", args=[guild.slug]), _form())

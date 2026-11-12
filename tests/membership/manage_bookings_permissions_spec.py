@@ -91,9 +91,6 @@ def describe_runs_bookings():
         with django_assert_num_queries(0):
             assert runs_bookings(request) is True
 
-    def it_is_true_for_a_guild_officer(rf):
-        assert runs_bookings(_request(rf, _member(Member.FogRole.GUILD_OFFICER))) is True
-
     def it_is_true_for_a_member_who_leads_a_guild(rf):
         member = _member()
         GuildFactory(guild_lead=member)
@@ -218,7 +215,6 @@ def describe_manageable_equipment():
         items["guild_owned"].guild.guild_lead = lead
         items["guild_owned"].guild.save(update_fields=["guild_lead"])
         assert manages_all_equipment(_request(rf, lead)) is False
-        assert manages_all_equipment(_request(rf, _member(Member.FogRole.GUILD_OFFICER))) is False
         assert manages_all_equipment(_request(rf, None)) is False
 
     def it_never_repeats_an_item_a_member_reaches_two_ways(rf, items):

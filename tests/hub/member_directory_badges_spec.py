@@ -19,6 +19,7 @@ from django.urls import reverse
 
 from membership.models import LeadershipBadge, Member
 from tests.membership.factories import (
+    GuildFactory,
     LeadershipBadgeFactory,
     LeadershipListingFactory,
     LeadershipTabFactory,
@@ -130,7 +131,8 @@ def describe_badges_on_a_directory_card():
             assert list(badge.members.all()) == []
 
         def it_has_a_take_post_refused_and_nothing_taken(client: Client):
-            _login(client, "viewer7", Member.FogRole.GUILD_OFFICER)
+            lead = _login(client, "viewer7", Member.FogRole.MEMBER)
+            GuildFactory(guild_lead=lead)
             dixie = _dixie()
             badge = LeadershipBadgeFactory()
             badge.give(dixie)

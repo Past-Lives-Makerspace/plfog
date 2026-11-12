@@ -35,9 +35,8 @@ pytestmark = pytest.mark.django_db
 class _ViewAs:
     """The shape ``request.view_as`` carries, so the preview-aware helpers can read it."""
 
-    def __init__(self, *, is_admin: bool = False, is_guild_officer: bool = False, is_member: bool = True) -> None:
+    def __init__(self, *, is_admin: bool = False, is_member: bool = True) -> None:
         self.is_admin = is_admin
-        self.is_guild_officer = is_guild_officer
         self.is_member = is_member
 
 
@@ -109,11 +108,6 @@ def describe_can_verify_wiki_page():
             admin = _member("verify_admin", fog_role=Member.FogRole.ADMIN)
             page = WikiPageFactory(guild=GuildFactory())
             assert can_verify_wiki_page(_request_for(admin, view_as=_ViewAs(is_admin=True)), page) is True
-
-        def it_admits_a_guild_officer(db):
-            officer = _member("verify_officer", fog_role=Member.FogRole.GUILD_OFFICER)
-            page = WikiPageFactory(guild=GuildFactory())
-            assert can_verify_wiki_page(_request_for(officer, view_as=_ViewAs(is_guild_officer=True)), page) is True
 
         def it_honors_the_view_as_preview(db):
             """An admin previewing as a member sees what a member sees, and can do what one can."""
@@ -389,10 +383,10 @@ def describe_the_frozen_role_label():
         assert _wiki_role_label(plain, guild) == ""
         assert _wiki_role_label(plain, None) == ""
 
-    def it_still_says_Admin_for_a_real_admin_or_officer(db):
-        assert _wiki_role_label(_member("label_real_admin", fog_role=Member.FogRole.ADMIN), None) == "Admin"
-        officer = _member("label_real_officer", fog_role=Member.FogRole.GUILD_OFFICER)
-        assert _wiki_role_label(officer, GuildFactory(name="Woodworking")) == "Admin"
+    def it_still_says_Admin_for_a_real_admin(db):
+        admin = _member("label_real_admin", fog_role=Member.FogRole.ADMIN)
+        assert _wiki_role_label(admin, None) == "Admin"
+        assert _wiki_role_label(admin, GuildFactory(name="Woodworking")) == "Admin"
 
     def it_survives_the_verifiers_staff_row_being_deleted(db):
         """The whole point of denormalizing: the credit is a statement about the past."""

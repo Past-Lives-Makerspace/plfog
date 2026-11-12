@@ -53,21 +53,21 @@ def member_client():
 
 
 def _mixed_votes():
-    """A paying standard member and a non-paying guild officer, each with a vote."""
+    """A paying standard member and a non-paying admin, each with a vote."""
     g1, g2, g3 = GuildFactory(name="Ceramics"), GuildFactory(name="Textiles"), GuildFactory(name="Wood")
     paying = MemberFactory(
         member_type=Member.MemberType.STANDARD,
         fog_role=Member.FogRole.MEMBER,
         full_legal_name="Alice Standard",
     )
-    officer = MemberFactory(
+    unpaid_admin = MemberFactory(
         member_type=Member.MemberType.WORK_TRADE,
-        fog_role=Member.FogRole.GUILD_OFFICER,
-        full_legal_name="Oscar Officer",
+        fog_role=Member.FogRole.ADMIN,
+        full_legal_name="Oscar Overseer",
     )
     VotePreferenceFactory(member=paying, guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
-    VotePreferenceFactory(member=officer, guild_1st=g2, guild_2nd=g3, guild_3rd=g1)
-    return paying, officer
+    VotePreferenceFactory(member=unpaid_admin, guild_1st=g2, guild_2nd=g3, guild_3rd=g1)
+    return paying, unpaid_admin
 
 
 def describe_gating():
@@ -153,7 +153,7 @@ def describe_history_detail():
         snap = _stored(admin_client)
         content = admin_client.get(reverse("hub_admin_voting_history_detail", args=[snap.pk])).content
         assert b"Alice Standard" in content
-        assert b"Oscar Officer" in content
+        assert b"Oscar Overseer" in content
         assert b"Per-Guild Allocation" in content
         assert b"Individual votes" in content
 
@@ -163,7 +163,7 @@ def describe_history_detail():
         resp = admin_client.get(url, {"member_type": Member.MemberType.STANDARD})
         assert resp.context["total_count"] == 1
         assert b"Alice Standard" in resp.content
-        assert b"Oscar Officer" not in resp.content
+        assert b"Oscar Overseer" not in resp.content
 
     def it_filters_by_paying_tristate_via_get(admin_client):
         snap = _stored(admin_client)

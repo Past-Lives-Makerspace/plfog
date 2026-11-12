@@ -6,10 +6,17 @@ import pytest
 from django.contrib.auth.models import User
 
 from classes.factories import InstructorFactory
-from membership.models import Member
+from membership.models import GuildStaffMembership, Member
 from tests.membership.factories import GuildFactory, MemberFactory
 
 pytestmark = pytest.mark.django_db
+
+
+def _staffer(**fields: object) -> Member:
+    """A member who holds a staff row (Secretary) on a guild they do not lead."""
+    member = MemberFactory(**fields)
+    GuildStaffMembership.objects.create(guild=GuildFactory(), member=member, role=GuildStaffMembership.Role.SECRETARY)
+    return member
 
 
 def describe_must_be_listed_in_directory():
@@ -17,9 +24,11 @@ def describe_must_be_listed_in_directory():
         member = MemberFactory(fog_role=Member.FogRole.ADMIN)
         assert member.must_be_listed_in_directory is True
 
-    def it_is_true_for_guild_officers():
-        member = MemberFactory(fog_role=Member.FogRole.GUILD_OFFICER)
-        assert member.must_be_listed_in_directory is True
+    def it_is_false_for_guild_staff():
+        """Staff choose for themselves; only leads, admins and instructors are force listed."""
+        member = _staffer()
+        assert member.is_guild_staff is True
+        assert member.must_be_listed_in_directory is False
 
     def it_is_true_for_guild_leads():
         member = MemberFactory(fog_role=Member.FogRole.MEMBER)
@@ -57,9 +66,9 @@ def describe_must_be_listed_in_directory():
         assert member.is_fog_admin is True
         assert member.must_be_listed_in_directory is False
 
-    def it_is_false_for_a_hidden_guild_officer():
-        member = MemberFactory(fog_role=Member.FogRole.GUILD_OFFICER, hide_from_directory=True)
-        assert member.is_guild_officer is True
+    def it_is_false_for_a_hidden_guild_staffer():
+        member = _staffer(hide_from_directory=True)
+        assert member.is_guild_staff is True
         assert member.must_be_listed_in_directory is False
 
     def it_is_false_for_a_hidden_guild_lead():
@@ -100,10 +109,17 @@ def describe_profile_settings_form_protects_locked_roles():
         saved = form.save()
         assert saved.show_in_directory is True
 
+    def it_leaves_the_field_open_for_guild_staff():
+        from hub.forms import ProfileSettingsForm
+
+        form = ProfileSettingsForm(instance=_staffer())
+        assert form.fields["show_in_directory"].disabled is False
+
     def it_disables_the_field_for_protected_roles():
         from hub.forms import ProfileSettingsForm
 
-        member = MemberFactory(fog_role=Member.FogRole.GUILD_OFFICER)
+        member = MemberFactory()
+        GuildFactory(guild_lead=member)
         form = ProfileSettingsForm(instance=member)
         assert form.fields["show_in_directory"].disabled is True
 

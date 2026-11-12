@@ -50,7 +50,7 @@ def describe_channels():
 
 @pytest.mark.django_db
 def describe_all_guild_leads_resolver():
-    def it_returns_leads_officers_and_staff_but_not_plain_members():
+    def it_returns_leads_and_staff_but_not_admins_or_plain_members():
         MembershipPlanFactory()
         lead = _signed_up_member("lead")
         GuildFactory(guild_lead=lead)
@@ -58,15 +58,16 @@ def describe_all_guild_leads_resolver():
         GuildStaffMembership.objects.create(
             guild=GuildFactory(), member=staff, role=GuildStaffMembership.Role.TREASURER
         )
-        officer = _signed_up_member("officer")
-        officer.fog_role = Member.FogRole.GUILD_OFFICER
-        officer.save(update_fields=["fog_role"])
+        # An admin who leads nothing is not guild leadership (ADR 0004).
+        admin = _signed_up_member("admin")
+        admin.fog_role = Member.FogRole.ADMIN
+        admin.save(update_fields=["fog_role"])
         plain = _signed_up_member("plain")
 
         user_pks = {user.pk for user, _reason in all_guild_leads({})}
         assert lead.user.pk in user_pks
         assert staff.user.pk in user_pks
-        assert officer.user.pk in user_pks
+        assert admin.user.pk not in user_pks
         assert plain.user.pk not in user_pks
 
     def it_excludes_a_lead_with_no_usable_account():

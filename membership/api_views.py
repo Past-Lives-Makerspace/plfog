@@ -23,7 +23,7 @@ from membership.serializers import (
 
 # "instructor" is a permission now (granted via the member-edit Permissions tab), NOT a
 # role — it must not be set through set-role, whose "instructor" branch also reset
-# fog_role/status and so would silently demote an admin/officer or reactivate a former member.
+# fog_role/status and so would silently demote an admin or reactivate a former member.
 _VALID_ROLES = set(Member.FogRole.values) | {"guest"}
 
 

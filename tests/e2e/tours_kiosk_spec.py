@@ -13,6 +13,11 @@ fake clock, so no spec waits real seconds.
 
 The Settings tab's kiosk link is the second spec (the members host, signed in as an admin).
 
+The third spec drives the kiosk on the keyboard alone (#1155, cairn's mouse went missing): with no
+mouse plugged in the Keyboard Only Mode badge shows, and arrow keys, Tab, Enter and Escape check a
+visitor in and book a tour. ``matchMedia("(any-pointer: fine)")`` is stubbed, since headless
+Chromium reports a mouse; ``window.__plMouse(true)`` plugs one in.
+
 ``CAPTURE_950_DIR=<dir>`` saves every kiosk screen (home, check in, list, confirm, welcome, pick list, no match, schedule picker,
 form, confirmation) at cairn's 1920 by 1080 in both themes, and the
 Settings tab's kiosk section at desktop (1100) and phone (390, sidebar drawer closed) widths in both
@@ -130,6 +135,20 @@ def _goes_home_on_its_own(page, live_server, screen: str) -> None:
 def _at_home(page, live_server) -> None:
     page.wait_for_url(f"{live_server.url}{HOME}")
     _screen(page, "home")
+
+
+# Headless Chromium always reports a mouse: this answers "(any-pointer: fine)" from window.__plMouse.
+NO_MOUSE = """(() => {
+    const listeners = [];
+    const fine = { matches: false, media: "(any-pointer: fine)", addEventListener: (_, f) => listeners.push(f), removeEventListener() {} };
+    const real = window.matchMedia.bind(window);
+    window.matchMedia = (query) => (query === "(any-pointer: fine)" ? fine : real(query));
+    window.__plMouse = (on) => { fine.matches = on; listeners.forEach((f) => f({ matches: on })); };
+})();"""
+
+
+def _focused(page, selector: str) -> None:
+    expect(page.locator(selector)).to_be_focused()
 
 
 def _check_in_screen(page) -> None:
@@ -320,3 +339,128 @@ def describe_tours_kiosk():
         rotated = FacilityTourSettings.load().kiosk_key
         assert rotated and rotated != key
         expect(page.locator("[data-tour-kiosk-url]")).to_have_value(f"{settings.TOURS_BASE_URL}{HOME}?key={rotated}")
+
+    def it_works_from_the_keyboard_alone(live_server, page, settings):
+        settings.TOURS_HOSTS = [urlparse(live_server.url).hostname]
+        settings.TOURS_BASE_URL = live_server.url
+        guide = _member(GUIDE_EMAIL, "Gina Guide")
+        guide.admin_capabilities.create(capability=AdminCapability.Capability.TOUR_GUIDE)
+        today = timezone.localdate()
+        pat = TourBookingFactory(
+            guide=guide, starts_at=local(today, 15), visitor_name="Pat Lee", visitor_email="pat.lee@example.com"
+        )
+        sam = TourBookingFactory(guide=guide, starts_at=local(today, 16), visitor_name="Sam Rivera")
+        day = today + timedelta(days=4)
+        TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
+        key = FacilityTourSettings.load().rotate_kiosk_key()
+        page.set_viewport_size(CAIRN)
+        page.clock.install()
+        page.add_init_script(NO_MOUSE)
+        page.goto(f"{live_server.url}{HOME}?key={key}")
+        _at_home(page, live_server)
+
+        # No mouse: the badge names the keys. Plugging one in hides it, pulling it out shows it again.
+        badge = page.locator("[data-kiosk-keys]")
+        expect(badge).to_be_visible()
+        expect(badge).to_contain_text("Keyboard Only Mode")
+        expect(badge).to_contain_text("No mouse detected")
+        _capture(page, "keyboard-home")
+        page.evaluate("() => window.__plMouse(true)")
+        expect(badge).to_be_hidden()
+        page.evaluate("() => window.__plMouse(false)")
+        expect(badge).to_be_visible()
+
+        # Home: the arrow keys move between the two cards, Enter opens one.
+        _focused(page, '[data-kiosk-go="check-in"]')
+        page.keyboard.press("ArrowRight")
+        _focused(page, '[data-kiosk-go="book"]')
+        page.keyboard.press("ArrowLeft")
+        _focused(page, '[data-kiosk-go="check-in"]')
+        page.keyboard.press("Enter")
+        _screen(page, "check-in")
+
+        # Check in by email: typed into the focused field, Enter, then Done on the welcome.
+        _focused(page, "#kiosk-email")
+        page.keyboard.type("pat.lee@example.com")
+        page.keyboard.press("Enter")
+        _screen(page, "welcome")
+        _focused(page, "[data-kiosk-done-button]")
+        page.keyboard.press("Enter")
+        _at_home(page, live_server)
+        pat.refresh_from_db()
+        assert pat.checked_in_at is not None
+
+        # Check in by name from the list: Tab past the two forms, arrow down the names, confirm.
+        page.keyboard.press("Enter")
+        _screen(page, "check-in")
+        for _ in range(4):
+            page.keyboard.press("Tab")
+        _focused(page, f'[data-kiosk-name="{pat.pk}"]')
+        page.keyboard.press("ArrowRight")
+        _focused(page, f'[data-kiosk-name="{sam.pk}"]')
+        page.keyboard.press("Enter")
+        _screen(page, "confirm")
+        _focused(page, "[data-kiosk-confirm-yes]")
+        page.keyboard.press("ArrowRight")
+        _focused(page, "[data-kiosk-not-me]")
+        page.keyboard.press("ArrowLeft")
+        page.keyboard.press("Enter")
+        _screen(page, "welcome")
+        sam.refresh_from_db()
+        assert sam.checked_in_at is not None
+        page.keyboard.press("Enter")
+        _at_home(page, live_server)
+
+        # Escape starts over from anywhere, half typed or not.
+        page.keyboard.press("Enter")
+        _screen(page, "check-in")
+        page.keyboard.type("half.typed@")
+        page.keyboard.press("Escape")
+        _at_home(page, live_server)
+
+        # Schedule a tour: the picked day's first time has the focus, the day strip is one tab stop.
+        page.keyboard.press("ArrowRight")
+        page.keyboard.press("Enter")
+        _screen(page, "book")
+        first_time = page.locator(".pl-tourpub__time").filter(has_text="4:00 PM")
+        expect(first_time).to_be_focused()
+        _capture(page, "keyboard-picker")
+        page.keyboard.press("ArrowRight")
+        expect(page.locator(".pl-tourpub__time").filter(has_text="5:00 PM")).to_be_focused()
+        page.keyboard.press("ArrowLeft")
+        page.keyboard.press("Shift+Tab")
+        _focused(page, f'[data-tour-day="{day:%Y-%m-%d}"]')
+        page.keyboard.press("ArrowRight")
+        _focused(page, f'[data-tour-day="{day + timedelta(days=7):%Y-%m-%d}"]')
+        page.keyboard.press("ArrowLeft")
+        page.keyboard.press("Tab")
+        expect(first_time).to_be_focused()
+        page.keyboard.press("Enter")
+
+        # The form: its first field has the focus; Tab through, a digit picks the party size.
+        expect(page.locator("[data-tour-form]")).to_be_visible()
+        _focused(page, 'input[name="name"]')
+        page.keyboard.type("Kim Keys")
+        page.keyboard.press("Tab")
+        page.keyboard.type("kim.keys@example.com")
+        page.keyboard.press("Tab")
+        page.keyboard.press("Tab")
+        _focused(page, 'select[name="party_size"]')
+        page.keyboard.type("2")
+        page.keyboard.press("Tab")
+        _focused(page, 'input[name="create_account"]')
+        _capture(page, "keyboard-form")
+        # Enter flips the switch, never books: the visitor turned the account off.
+        page.keyboard.press("Enter")
+        expect(page.locator('input[name="create_account"]')).not_to_be_checked()
+        assert not TourBooking.objects.filter(visitor_email="kim.keys@example.com").exists()
+        page.keyboard.press("Tab")
+        _focused(page, "[data-tour-form] button[type=submit]")
+        page.keyboard.press("Enter")
+        _screen(page, "booked")
+        _focused(page, "[data-kiosk-done-button]")
+        kim = TourBooking.objects.get(visitor_email="kim.keys@example.com")
+        assert kim.source == TourBooking.Source.KIOSK and kim.party_size == 2
+        assert kim.starts_at == local(day, 16)
+        page.keyboard.press("Enter")
+        _at_home(page, live_server)

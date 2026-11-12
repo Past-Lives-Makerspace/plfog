@@ -66,7 +66,7 @@ class Guidance:
 
 def _a_guild(member: Member, *, staffed_only: bool) -> Guild:
     """The guild a member's guild entries open: one they staff, else one they belong to, else,
-    for an admin or officer who can open every guild page, the first active one.
+    for an admin who can open every guild page, the first active one.
 
     ``staffed_only`` is for pages that need lead authority (the guild edit page), where a plain
     membership is not enough. Raises ``ValueError`` when there is no such guild.
@@ -76,7 +76,7 @@ def _a_guild(member: Member, *, staffed_only: bool) -> Guild:
     guild = member.staffed_guilds.order_by("name").first()
     if guild is None and not staffed_only:
         guild = Guild.objects.filter(memberships__member=member, is_active=True).order_by("name").first()
-    if guild is None and (member.is_fog_admin or member.is_guild_officer):
+    if guild is None and member.is_fog_admin:
         guild = Guild.objects.filter(is_active=True).order_by("name").first()
     if guild is None:
         raise ValueError(f"Member {member.pk} has no guild to open this guidance on")
@@ -324,7 +324,7 @@ _GUIDANCE_LIST = (
         (
             "Open your guild's page and press the Polls tab. It shows once the guild has a poll.",
             "Tap an answer to vote once. The results show right away.",
-            "Guild leads, staff, officers and admins post and close the guild's polls from the tab, one open poll at a time.",
+            "Guild leads, staff and admins post and close the guild's polls from the tab, one open poll at a time.",
         ),
     ),
     Guidance(
@@ -567,6 +567,17 @@ _GUIDANCE_LIST = (
             "Press Edit to change the words or remove a photo, then Save. The message then says edited.",
             "Press Delete and confirm to take it off the thread for everyone, photos too.",
             "Nobody is notified when you edit or delete.",
+        ),
+    ),
+    Guidance(
+        key="tours.hours",
+        title="Tour Hours",
+        url_name="tours:hours",
+        steps=(
+            "Open the Tours card on the Tools page and press My Hours.",
+            "Every Week is for hours that repeat. If your schedule changes from week to week, use Available On.",
+            "Press + Add Dates, tap the days you are free, set From, To, Tour length and Seats, then press Add.",
+            "Visitors can book tours on those dates. Delete a date from the list if your plans change.",
         ),
     ),
     Guidance(

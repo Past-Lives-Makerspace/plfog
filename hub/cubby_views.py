@@ -1,7 +1,7 @@
 """The staff Cubbies manager (#977): a guild's shelf units, its cubbies, its Pricing and the tab switch.
 
 Every view is gated by :func:`membership.permissions.can_manage_cubbies` (#1015: admins reach
-every guild; a lead or staff member only their own; the Guild Officer role alone opens nothing).
+every guild; a lead or staff member only their own).
 A view that names a shelf unit or a cubby
 reads the guild from that record, never from the URL, so a crafted POST naming another guild's
 cubby is refused for anyone who does not run that guild.

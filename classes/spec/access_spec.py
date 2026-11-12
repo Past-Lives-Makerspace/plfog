@@ -377,24 +377,14 @@ def describe_guild_authority_without_teaching_access():
     def describe_and_nobody_else_ruling_6():
         """The waiver is scoped to ruling 23's population; ``can_edit_class`` is broader."""
 
-        def it_denies_a_site_wide_guild_officer_on_a_class_outside_their_guilds(db):
-            # can_edit_class short-circuits on is_effective_staff, so it says yes here —
-            # but a fog guild officer with no teaching grant is not ruling 23's population,
-            # and the CMS round 2 plan (PLAN.md §2, now in git history) named exactly them
-            # as the reason the precondition exists.
-            user, member = _user_with_member(fog_role=Member.FogRole.GUILD_OFFICER)
-            assert member.can_create_classes is False
+        def it_denies_a_teaching_lead_of_another_guild(db):
+            # ADR 0004: no cross-guild Guild Officer tier, so leading guild A with the
+            # teaching grant opens nothing on guild B's class.
+            user, member = _teaching_member()
+            GuildFactory(guild_lead=member)
             offering = ClassOfferingFactory(category=CategoryFactory(guild=GuildFactory()))
-            assert can_edit_class(_request(user), offering) is True
+            assert can_edit_class(_request(user), offering) is False
             assert class_access(_request(user), offering) is None
-
-        def it_still_admits_a_site_wide_guild_officer_who_holds_the_teaching_grant(db):
-            # Unchanged from before this ticket: the precondition is what they satisfy.
-            user, _member = _user_with_member(
-                fog_role=Member.FogRole.GUILD_OFFICER, instructor_oriented_at=timezone.now()
-            )
-            offering = ClassOfferingFactory(category=CategoryFactory(guild=GuildFactory()))
-            assert _access_or_fail(_request(user), offering).role == ROLE_GUILD
 
         def it_denies_a_named_instructor_who_was_never_granted_teaching(db):
             # can_edit_class's last clause is the instructor check, so it says yes; leg 3
@@ -665,62 +655,17 @@ def describe_a_class_approver_who_is_also_the_instructor_or_the_guild():
             composed = _access_or_fail(_request(user), _guild_class(member))
             assert _capabilities(composed) == _capabilities(plain) | _capabilities(reviewer_access)
 
-    def describe_and_is_a_site_wide_guild_officer():
-        """A fog guild officer with teaching access reaches the guild leg on EVERY class.
+    def describe_and_leads_another_guild():
+        """A teaching lead of another guild holding the grant composes nothing onto it (ADR 0004).
 
-        Not ruling 25's named population, but ``can_edit_class`` short-circuits on
-        ``is_effective_staff`` and lets them through, so they compose. That is safe for the
-        same reason the ruling's own population is: without the grant this officer already
-        held the guild row on every class, and with it alone they already held the reviewer
-        row on every class, so the union hands them nothing new. The point of these specs is
-        that the grant must not *cost* them anything either — before ruling 25 it took the
-        guild row away, and a naive fix would take the Overview away instead.
+        Before ADR 0004 a fog Guild Officer reached the guild leg on every class and composed
+        here; the role is retired, so leading guild A adds no row on guild B's class and the
+        grant alone answers: the plain reviewer row.
         """
 
-        @pytest.fixture
-        def approving_officer(db) -> ClassAccess:
-            user, member = _user_with_member(
-                fog_role=Member.FogRole.GUILD_OFFICER, instructor_oriented_at=timezone.now()
-            )
-            member.admin_capabilities.create(capability=CLASS_APPROVER)
-            return _access_or_fail(_request(user), ClassOfferingFactory(category=CategoryFactory(guild=GuildFactory())))
-
-        def it_gets_the_composed_guild_set(approving_officer):
-            assert approving_officer.role == ROLE_GUILD
-
-        def it_keeps_the_edit_the_guild_row_gave_them(approving_officer):
-            assert approving_officer.can_edit is True
-
-        def it_keeps_the_overview_the_grant_gave_them(approving_officer):
-            # The reviewer set they used to get was Overview and Approve; the union keeps
-            # both, so their review queue still opens.
-            assert approving_officer.can_view_overview is True
-
-        def it_keeps_approve(approving_officer):
-            assert approving_officer.can_approve is True
-
-        def it_is_still_denied_the_roster_and_the_lifecycle_actions(approving_officer):
-            assert approving_officer.can_view_registrations is False
-            assert approving_officer.can_administer is False
-            assert approving_officer.can_submit is False
-
-        def it_composes_the_same_way_on_a_guild_less_category(db):
-            # The 86 production classes under a NULL guild. The officer reaches the leg
-            # through is_effective_staff, so the union must hold there too. (The NULL guard
-            # in leads_or_staffs is covered by it_denies_a_fog_guild_officer_without_teaching_access
-            # below, which is the case that actually calls it.)
-            user, member = _user_with_member(
-                fog_role=Member.FogRole.GUILD_OFFICER, instructor_oriented_at=timezone.now()
-            )
-            member.admin_capabilities.create(capability=CLASS_APPROVER)
-            access = _access_or_fail(_request(user), ClassOfferingFactory(category=CategoryFactory(guild=None)))
-            assert access.role == ROLE_GUILD
-            assert (access.can_edit, access.can_view_overview, access.can_approve) == (True, True, True)
-
-        def it_stays_the_plain_reviewer_without_the_teaching_grant(db, reviewer_access):
-            # No teaching grant means the guild leg's precondition fails (ruling 6), so
-            # there is no row to union with and nothing about them changes.
-            user, member = _user_with_member(fog_role=Member.FogRole.GUILD_OFFICER)
+        def it_is_the_plain_reviewer(db, reviewer_access):
+            user, member = _teaching_member()
+            GuildFactory(guild_lead=member)
             member.admin_capabilities.create(capability=CLASS_APPROVER)
             offering = ClassOfferingFactory(category=CategoryFactory(guild=GuildFactory()))
             assert _access_or_fail(_request(user), offering) == reviewer_access
@@ -786,7 +731,7 @@ def describe_a_class_approver_who_is_also_the_instructor_or_the_guild():
             # the reviewer row. Both halves are asserted, because a refactor that keeps the
             # suppression on can_approve while hoisting can_view_overview out of the branch
             # would hand a previewing admin the Overview on someone else's class.
-            user, member = _user_with_member(fog_role=Member.FogRole.GUILD_OFFICER)
+            user, member = _user_with_member(fog_role=Member.FogRole.ADMIN)
             member.admin_capabilities.create(capability=CLASS_APPROVER)
             offering = _guild_class(member)
             access = _access_or_fail(_request(user, picked=ROLE_MEMBER), offering)
@@ -796,9 +741,7 @@ def describe_a_class_approver_who_is_also_the_instructor_or_the_guild():
             assert access.can_view_overview is False
 
         def it_grants_no_approve_on_the_composed_instructor_set(db):
-            user, member = _user_with_member(
-                fog_role=Member.FogRole.GUILD_OFFICER, instructor_oriented_at=timezone.now()
-            )
+            user, member = _user_with_member(fog_role=Member.FogRole.ADMIN, instructor_oriented_at=timezone.now())
             member.admin_capabilities.create(capability=CLASS_APPROVER)
             offering = ClassOfferingFactory(instructor=member)
             access = _access_or_fail(_request(user, picked=ROLE_MEMBER), offering)
@@ -919,28 +862,26 @@ def describe_an_admin_previewing_as_guest():
         assert class_access(_request(user, picked=ROLE_GUEST), _guild_class(member)) is None
 
 
-def describe_a_guild_officer_who_downgrades_to_member():
-    """Criterion 14 — a non-admin loses a CLASS_APPROVER Overview while the pick stands."""
+def describe_an_admin_class_approver_who_previews_as_member():
+    """Criterion 14 — a CLASS_APPROVER Overview is lost while the Member pick stands.
 
-    def it_is_the_reviewer_while_viewing_as_themselves(db):
-        user, member = _user_with_member(fog_role=Member.FogRole.GUILD_OFFICER)
-        member.admin_capabilities.create(capability=CLASS_APPROVER)
-        assert _access_or_fail(_request(user), ClassOfferingFactory()).role == ROLE_REVIEWER
+    Only an admin can preview a lower role since ADR 0004 retired the Guild Officer rung.
+    """
 
     def it_loses_the_reviewer_set_while_the_member_pick_stands(db):
-        user, member = _user_with_member(fog_role=Member.FogRole.GUILD_OFFICER)
+        user, member = _user_with_member(fog_role=Member.FogRole.ADMIN)
         member.admin_capabilities.create(capability=CLASS_APPROVER)
         offering = ClassOfferingFactory(category=CategoryFactory(guild=None))
         # They picked Member, so they see Member: no reviewer Overview, and no guild leg
         # either, because is_effective_staff reads the effective role.
         assert class_access(_request(user, picked=ROLE_MEMBER), offering) is None
 
-    def it_regains_the_reviewer_set_on_switching_back(db):
-        user, member = _user_with_member(fog_role=Member.FogRole.GUILD_OFFICER)
+    def it_regains_full_access_on_switching_back(db):
+        user, member = _user_with_member(fog_role=Member.FogRole.ADMIN)
         member.admin_capabilities.create(capability=CLASS_APPROVER)
         offering = ClassOfferingFactory(category=CategoryFactory(guild=None))
         assert class_access(_request(user, picked=ROLE_MEMBER), offering) is None
-        assert _access_or_fail(_request(user), offering).role == ROLE_REVIEWER
+        assert _access_or_fail(_request(user), offering).role == ROLE_ADMIN
 
 
 def describe_the_existing_edit_rules_are_untouched():
@@ -1016,7 +957,7 @@ def describe_where_class_access_and_can_edit_class_disagree():
     def it_agrees_again_once_the_holder_previews_a_lower_role(db):
         # Previewing suppresses the reviewer leg, so the guild leg is reached and the two
         # answers line up: both say this person may edit.
-        user, member = _user_with_member(fog_role=Member.FogRole.GUILD_OFFICER)
+        user, member = _user_with_member(fog_role=Member.FogRole.ADMIN)
         member.admin_capabilities.create(capability=CLASS_APPROVER)
         offering = _guild_class(member)
         request = _request(user, picked=ROLE_MEMBER)
@@ -1062,18 +1003,10 @@ def describe_a_class_whose_category_has_no_guild():
         offering = ClassOfferingFactory(category=CategoryFactory(guild=None), instructor=member)
         assert _access_or_fail(_request(user), offering).role == ROLE_INSTRUCTOR
 
-    def it_gives_a_fog_guild_officer_with_teaching_access_the_guild_set(db):
-        # The guild leg reached through is_effective_staff rather than through a guild FK,
-        # which is the only way to reach leg 4 at all on a guild-less category. The waiver
-        # runs on the way past and must not raise on the NULL guild.
-        user, _member = _user_with_member(fog_role=Member.FogRole.GUILD_OFFICER, instructor_oriented_at=timezone.now())
-        offering = ClassOfferingFactory(category=CategoryFactory(guild=None))
-        assert _access_or_fail(_request(user), offering).role == ROLE_GUILD
-
-    def it_denies_a_fog_guild_officer_without_teaching_access(db):
-        # Ruling 6: the waiver cannot cover them, and a NULL guild is exactly where
-        # leads_or_staffs would raise if it read guild.guild_lead_id unguarded.
-        user, _member = _user_with_member(fog_role=Member.FogRole.GUILD_OFFICER)
+    def it_denies_a_teaching_member_who_neither_teaches_it_nor_is_an_admin(db):
+        # Before ADR 0004 a fog Guild Officer reached the guild leg here through
+        # is_effective_staff; nobody but an admin or the instructor reaches a guild-less class now.
+        user, _member = _teaching_member()
         offering = ClassOfferingFactory(category=CategoryFactory(guild=None))
         assert class_access(_request(user), offering) is None
 

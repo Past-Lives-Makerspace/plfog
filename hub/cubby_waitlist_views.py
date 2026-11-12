@@ -4,7 +4,7 @@ Cubbies tab, and guild staff's Remove on the Rentals tab's Waitlist chip.
 Every change is :mod:`membership.cubby_waitlist`; these views parse, call and answer with a message
 the hub shows as a toast. Remove reads the guild from the entry and answers 404 to anyone
 :func:`membership.permissions.can_manage_cubbies` refuses (a lead or staff member of another
-guild, or a Guild Officer who runs no guild, #1015), admins passing everywhere. The member is not
+guild, #1015), admins passing everywhere. The member is not
 told they were removed.
 """
 

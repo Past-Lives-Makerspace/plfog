@@ -3,7 +3,7 @@
 The Cubbies tab's full card with Notify Me When One Opens and its joined card with the place and
 Leave the List; the buttons' toasts and refusals; the staff Rentals tab's Waitlist chip with its
 list, phone cards, Remove confirm and empty state; Remove as a 404 to another guild's staff and to
-a Guild Officer who does not run the guild (#1015) and open to admins, telling the member nothing;
+a member who does not run the guild (#1015) and open to admins, telling the member nothing;
 and the Cubbies tab switch coming on telling the line.
 Assertions anchor on markup and factory strings (STANDARDS.md, section 8).
 """
@@ -270,24 +270,24 @@ def describe_remove():
         entry.refresh_from_db()
         assert not entry.is_waiting
 
-    def it_is_a_404_to_a_guild_officer_until_they_staff_the_guild(client: Client):
-        # #1015: the Guild Officer role alone opens no guild's waitlist; a staff row there does.
-        officer = _login(client, "roving_officer", fog_role=Member.FogRole.GUILD_OFFICER)
+    def it_is_a_404_to_a_member_until_they_staff_the_guild(client: Client):
+        # #1015: only a staff row there opens a guild's waitlist.
+        joiner = _login(client, "roving_member")
         guild = _guild()
         (entry,) = _wait(guild, "Verity")
         assert client.post(entry.remove_url).status_code == 404
         entry.refresh_from_db()
         assert entry.is_waiting
-        GuildStaffMembershipFactory(guild=guild, member=officer)
+        GuildStaffMembershipFactory(guild=guild, member=joiner)
         assert client.post(entry.remove_url).status_code == 302
         entry.refresh_from_db()
         assert not entry.is_waiting
 
-    def it_is_a_404_to_an_admin_previewing_as_a_guild_officer(client: Client):
+    def it_is_a_404_to_an_admin_previewing_as_a_member(client: Client):
         # #1015: the preview is refused like the role it shows.
         _login(client, "preview_admin", fog_role=Member.FogRole.ADMIN)
         session = client.session
-        session["view_as_role"] = "guild_officer"
+        session["view_as_role"] = "member"
         session.save()
         (entry,) = _wait(_guild(), "Verity")
         assert client.post(entry.remove_url).status_code == 404

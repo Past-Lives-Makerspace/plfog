@@ -2,9 +2,9 @@
 
 Guild-lead authority comes **solely** from the ``Guild.guild_lead`` foreign key.
 No FOG role, Django group, or ``is_staff`` flag is required: the moment a Member
-is set as a guild's lead, they can edit that guild and its classes. ``fog_role``
-(admin / guild_officer) is a *separate*, cross-guild staff tier and keeps working
-as before.
+is set as a guild's lead, they can edit that guild and its classes. The admin
+``fog_role`` is the only cross-guild tier: own guild = leadership, every guild = admin.
+A "guild officer" is a member who leads or staffs a guild, never a role (ADR 0004).
 
 These request-level helpers honor ``view_as`` preview mode — an admin previewing
 as a lower role sees exactly what that viewer would. For role-independent checks
@@ -41,17 +41,18 @@ if TYPE_CHECKING:
 
 
 def is_effective_staff(request: HttpRequest) -> bool:
-    """True when the request's *effective* role is admin or guild officer.
+    """True when the request's *effective* role is admin: the one tier that edits every guild and class.
 
     "Effective" means it respects ``view_as`` preview — an admin previewing as a
-    member is not effective staff. These two roles can edit any guild or class.
+    member is not effective staff. The name predates ADR 0004, which retired the
+    cross-guild Guild Officer role; it now means exactly :func:`_is_effective_admin`.
     """
     view_as = getattr(request, "view_as", None)
-    return view_as is not None and (view_as.is_admin or view_as.is_guild_officer)
+    return view_as is not None and view_as.is_admin
 
 
 def _is_effective_admin(request: HttpRequest) -> bool:
-    """True when the request's effective role is admin (``view_as`` aware): not a guild officer."""
+    """True when the request's effective role is admin (``view_as`` aware)."""
     view_as = getattr(request, "view_as", None)
     return view_as is not None and view_as.is_admin
 
@@ -96,7 +97,7 @@ def _editing_member(request: HttpRequest) -> Member | None:
 
 
 def can_edit_guild(request: HttpRequest, guild: Guild) -> bool:
-    """True when this request may edit the guild: admin/officer, the lead, or any staff member."""
+    """True when this request may edit the guild: admin, the lead, or any staff member."""
     if is_effective_staff(request):
         return True
     member = _editing_member(request)
@@ -106,9 +107,9 @@ def can_edit_guild(request: HttpRequest, guild: Guild) -> bool:
 def can_manage_cubbies(request: HttpRequest, guild: Guild) -> bool:
     """True when this request may run the guild's cubbies (#1015): an admin, the lead, or any staff member.
 
-    Narrower than :func:`can_edit_guild`: a guild's shelves, prices, rentals and waitlist are
-    the guild's own business, so the Guild Officer tier opens nothing here. ``view_as`` aware,
-    so an admin previewing as a lower role is refused like that role.
+    The :func:`can_edit_guild` rule: a guild's shelves, prices, rentals and waitlist are the
+    guild's own business. ``view_as`` aware, so an admin previewing as a lower role is refused
+    like that role.
     """
     view_as = getattr(request, "view_as", None)
     if view_as is not None and view_as.is_admin:
@@ -120,8 +121,8 @@ def can_manage_cubbies(request: HttpRequest, guild: Guild) -> bool:
 def can_invite_to_guild(request: HttpRequest, guild: Guild) -> bool:
     """True when this request may invite members to join ``guild`` (#1137).
 
-    The :func:`can_manage_cubbies` rule (an admin, the lead, or any staff member; the Guild
-    Officer tier opens nothing; ``view_as`` aware), on a guild members can see: a hidden guild
+    The :func:`can_manage_cubbies` rule (an admin, the lead, or any staff member; ``view_as``
+    aware), on a guild members can see: a hidden guild
     (``is_active`` off) opens for nobody but its own leaders, so an invitee could not reach it.
     """
     return guild.is_active and can_manage_cubbies(request, guild)
@@ -131,7 +132,7 @@ def can_set_class_reviewers(request: HttpRequest, guild: Guild) -> bool:
     """True when this request may flip a staff member's Class Reviewer switch on ``guild`` (#816).
 
     Narrower than :func:`can_edit_guild`: only an admin (``view_as`` aware) or the guild's own
-    lead. Staff and guild officers see the switch but cannot change it, because choosing who
+    lead. Staff see the switch but cannot change it, because choosing who
     reviews classes for the guild is the lead's call.
     """
     view_as = getattr(request, "view_as", None)
@@ -185,7 +186,7 @@ def sidebar_guilds(request: HttpRequest) -> QuerySet[Guild]:
 def manageable_guilds(request: HttpRequest) -> QuerySet[Guild]:
     """The guilds this request may edit, name-ordered, as a queryset (one query when read).
 
-    The queryset form of :func:`can_edit_guild`: effective staff (admin or officer) get every
+    The queryset form of :func:`can_edit_guild`: an effective admin gets every
     active guild, so their lists skip the hidden ones; anyone else gets every guild they lead or
     staff, hidden ones included, because the guild settings page and its orientations still
     work for a hidden guild. Same legs, same ``view_as`` preview, so every guild listed passes
@@ -208,8 +209,7 @@ def cubby_guilds(request: HttpRequest) -> QuerySet[Guild]:
     every active guild; anyone else gets every guild they lead or staff, hidden ones included,
     because the manager still works for a hidden guild. Same legs, same ``view_as`` preview, so
     every guild listed passes :func:`can_manage_cubbies`; an admin also passes it for a hidden
-    guild, which this list leaves out, as :func:`manageable_guilds` does. A Guild Officer who
-    leads or staffs no guild gets nothing.
+    guild, which this list leaves out, as :func:`manageable_guilds` does.
     """
     from membership.models import Guild
 
@@ -237,8 +237,8 @@ def member_runs_anything(member: Member) -> bool:
     The role question behind the Manage Bookings sidebar entry and its Your Hours card, asked
     of the member's actual rows (no ``view_as``): one EXISTS over the three leadership joins,
     where :attr:`Member.is_guild_lead`, :attr:`Member.is_guild_staff` and an equipment staff
-    read would cost three. Admin and officer tiers are not leadership; the request form,
-    :func:`runs_bookings`, adds them.
+    read would cost three. The admin tier is not leadership; the request form,
+    :func:`runs_bookings`, adds it.
     """
     from membership.models import Member
 
@@ -256,7 +256,7 @@ def member_runs_anything(member: Member) -> bool:
 def runs_bookings(request: HttpRequest) -> bool:
     """True when this request runs orientations or equipment: the Manage Bookings gate (#768).
 
-    An admin or officer (``view_as`` aware, no query), else a member who leads or staffs a
+    An admin (``view_as`` aware, no query), else a member who leads or staffs a
     guild or holds an equipment staff row (:func:`member_runs_anything`, one query). Read on
     every hub page for the sidebar, so it deliberately asks about roles, never rows, and
     skips the EQUIPMENT capability leg :func:`manages_orientations` carries: that is a
@@ -281,12 +281,12 @@ def can_manage_orientations(request: HttpRequest, guild: Guild) -> bool:
 def can_edit_orienter_hours(request: HttpRequest, guild: Guild, orienter: Member | None) -> bool:
     """True when this request may edit ``orienter``'s recurring orientation hours in ``guild``.
 
-    Own hours: anyone who may manage the guild's orientations (lead, staff, admin,
-    officer) — but ONLY while actually on this guild's leadership. An admin/officer who
+    Own hours: anyone who may manage the guild's orientations (lead, staff, admin) — but
+    ONLY while actually on this guild's leadership. An admin who
     is not on the guild's staff must not publish hours for themselves: ``generate_slots``
     skips non-leadership personal rules, so such a save would be a silent no-op — fail
     loudly here instead (they can still edit-on-behalf, the ``orienter != self`` path).
-    Someone else's hours, or the guild-level rows (``orienter is None``): admin/officer
+    Someone else's hours, or the guild-level rows (``orienter is None``): an admin
     or the ``guild_lead`` holder only. This is deliberately the first intra-staff
     authority distinction (a locked spec decision) — widening it later happens here.
     """
@@ -344,8 +344,7 @@ def manageable_equipment_ids(request: HttpRequest, items: Iterable[Equipment]) -
 
     The request side of :meth:`Member.manageable_equipment_ids`, which holds the three tiers:
     the site tier is read here, the guild and resource tiers are the editing member's
-    :meth:`Member.led_or_staffed_equipment_ids`. Guild officers get no blanket grant — the
-    site tier is deliberately narrower than ``is_effective_staff``.
+    :meth:`Member.led_or_staffed_equipment_ids`. Guild leadership gets no blanket grant.
 
     The admin leg honors ``view_as`` preview, but the capability leg is deliberately
     **preview-independent** — it reads the request's actual linked member, like every
@@ -394,7 +393,7 @@ def _orientation_owner_scope(
     """The rows whose orientation this request may run, as a ``Q`` over an orientation type.
 
     The queryset form of ``hub.views._require_can_manage_booking``: a guild owned row
-    follows ``can_manage_orientations`` on its guild (admin or officer, else the guild's lead
+    follows ``can_manage_orientations`` on its guild (an admin, else the guild's lead
     or staff), an equipment owned row follows ``can_manage_equipment`` on its equipment
     (admin, the EQUIPMENT capability, else the owning guild's lead or staff or an equipment
     staff row). ``type_path`` reaches the orientation type from the queried model
@@ -492,7 +491,7 @@ def holds_orientor_role(request: HttpRequest) -> bool:
     """True when this request's member holds the Orientor role on any guild (#1097).
 
     The audience of the Orientations page payouts card: the people who give orientations and
-    get paid for them. Narrower than :func:`manages_orientations` on purpose; admins, officers,
+    get paid for them. Narrower than :func:`manages_orientations` on purpose; admins,
     EQUIPMENT holders, leads and other staff roles do not count unless they also hold the role.
     ``view_as`` aware through :func:`_editing_member`, so a preview below Member sees no card.
     """
@@ -508,7 +507,7 @@ def holds_orientor_role(request: HttpRequest) -> bool:
 def manages_orientations(request: HttpRequest, *, honour_preview: bool = False) -> bool:
     """True when this request runs some orientation: the gate on the staff endpoints (export, Add Member).
 
-    An admin or officer (``view_as`` aware), an EQUIPMENT capability holder (preview
+    An admin (``view_as`` aware), an EQUIPMENT capability holder (preview
     independent, like :func:`manageable_equipment_ids`), or a member who leads or staffs any
     guild or staffs any equipment. It asks about roles, not rows, so a new lead with nothing
     booked yet still gets the staff view (Add Member, the hours nudge). ``honour_preview``
@@ -534,8 +533,7 @@ def _equipment_scope(request: HttpRequest, *, honour_preview: bool, prefix: str 
 
     The queryset form of :func:`can_manage_equipment`: a full admin (``view_as`` aware) or an
     EQUIPMENT capability holder manages all of it; otherwise the owning guild's lead or staff,
-    or an equipment staff row. Guild officers get no blanket grant, as in
-    :func:`manageable_equipment_ids`. ``prefix`` reaches the equipment from the queried model
+    or an equipment staff row, as in :func:`manageable_equipment_ids`. ``prefix`` reaches the equipment from the queried model
     (``""`` for :class:`Equipment` itself, ``"equipment__"`` for a reservation).
     """
     from membership.models import AdminCapability
@@ -617,7 +615,7 @@ def manages_equipment(request: HttpRequest, *, honour_preview: bool = False) -> 
 
     A full admin (``view_as`` aware), an EQUIPMENT capability holder, or a member who leads or
     staffs a guild that owns equipment, or holds an equipment staff row. A guild lead whose
-    guild owns nothing, and a guild officer, manage no equipment. ``honour_preview`` drops a
+    guild owns nothing manages no equipment. ``honour_preview`` drops a
     capability the viewer is previewing away.
     """
     from membership.models import AdminCapability, Equipment
@@ -734,7 +732,7 @@ def is_own_open_proposal(request: HttpRequest, event: CommunityEvent) -> bool:
 def can_edit_class(request: HttpRequest, offering: ClassOffering) -> bool:
     """True when this request may edit the class offering.
 
-    Editors are admins/officers, the lead or any staff member of the class's category's
+    Editors are admins, the lead or any staff member of the class's category's
     guild, or the class's own instructor.
     """
     if is_effective_staff(request):
@@ -772,7 +770,7 @@ def can_edit_event(request: HttpRequest, event: CommunityEvent) -> bool:
     actually save it. The author of their own open proposal always may
     (:func:`is_own_open_proposal`), and so may whoever :func:`can_administer_events` (an
     admin or a Calendar Administrator manages every event, guild ones included). Otherwise
-    a guild event defers to :func:`can_edit_guild` (lead / staff / officer) and a site-wide
+    a guild event defers to :func:`can_edit_guild` (lead / staff / admin) and a site-wide
     one is closed. Honors ``view_as`` preview like the other helpers.
     """
     if is_own_open_proposal(request, event) or can_administer_events(request):
@@ -784,8 +782,8 @@ def can_edit_event(request: HttpRequest, event: CommunityEvent) -> bool:
 def can_edit_meeting(request: HttpRequest, meeting: Meeting) -> bool:
     """True when this request may edit the meeting's workspace.
 
-    A guild meeting defers to :func:`can_edit_guild` (lead / staff / admin / officer).
-    A council meeting (no guild) is editable by effective staff or anyone holding
+    A guild meeting defers to :func:`can_edit_guild` (lead / staff / admin).
+    A council meeting (no guild) is editable by an admin or anyone holding
     lead/staff authority in ANY guild — the same membership test the
     ``all_guild_leads`` resolver applies. Honors ``view_as`` preview like the other
     helpers.
@@ -804,7 +802,7 @@ def editable_meeting_scopes(request: HttpRequest) -> tuple[list[Guild], bool]:
 
     The bulk companion to :func:`can_edit_guild` / :func:`can_edit_meeting` for surfaces
     that need every editable scope at once (the Meetings home §6.2, the create modal) —
-    two queries instead of one per guild, same answers. Effective staff edit everything;
+    two queries instead of one per guild, same answers. An admin edits everything;
     otherwise the member's led/staffed guilds are editable, and holding lead/staff
     authority in ANY guild grants the council scope (§5.1).
     """
@@ -822,7 +820,7 @@ def editable_meeting_scopes(request: HttpRequest) -> tuple[list[Guild], bool]:
 def can_edit_category(request: HttpRequest, category: Category) -> bool:
     """True when this request may edit the category — its guild's lead, or staff.
 
-    A category with no guild can only be edited by admins/officers.
+    A category with no guild can only be edited by admins.
     """
     guild = category.guild
     if guild is not None:
@@ -852,13 +850,13 @@ def can_moderate_wiki_scope(request: HttpRequest, guild: Guild | None) -> bool:
 
 
 def can_moderate_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
-    """True for effective staff, or for the page's own guild lead or any staff role.
+    """True for an effective admin, or for the page's own guild lead or any staff role.
 
     Page-scoped rather than request-scoped, and that is the whole point: a guild lead must
-    be able to archive a bad page in their own guild without pulling in an officer, and
+    be able to archive a bad page in their own guild without pulling in an admin, and
     :func:`is_effective_staff` alone cannot express that. ``can_edit_guild`` already covers
     co-lead, secretary, treasurer and orientor. A space-wide page (``guild`` is None) is
-    moderatable by effective staff only.
+    moderatable by admins only.
     """
     if page.admins_only_edit:
         # An admins-only page is archived and restored by admins only, as it is edited (#1076).
@@ -872,7 +870,7 @@ def moderatable_wiki_scopes(request: HttpRequest) -> tuple[list[Guild], bool]:
     Reuses :func:`editable_meeting_scopes`'s cheap two-query guild list but deliberately
     REPLACES its council boolean: that helper grants the council scope to anyone holding
     lead or staff authority in ANY guild, which is right for meetings and would hand every
-    guild lead the whole site-wide wiki. Space-wide pages are effective-staff only.
+    guild lead the whole site-wide wiki. Space-wide pages are admin only.
     """
     guilds, _council = editable_meeting_scopes(request)
     return guilds, is_effective_staff(request)
@@ -898,9 +896,10 @@ def can_edit_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
     """True when this request may edit the page's title, body, facts, and attachments.
 
     ``admins_only_edit`` pages (#1076): effective admins only, checked before everything else,
-    so neither a guild officer nor an author carve-out reaches them.
+    so neither guild leadership nor an author carve-out reaches them.
 
-    ``OFFICIAL`` pages: effective staff only (admins/officers) — a member sees no edit
+    ``OFFICIAL`` pages: an effective admin, or the page's own guild lead or staff (a guild
+    officer, ADR 0004); a space-wide Official page is admin only. Anyone else sees no edit
     affordance at all, not a disabled one. An archived page: ``can_moderate_wiki_page``
     only — nothing about archiving requires a page to be locked to every plain member
     forever, but members cannot delete and cannot resurrect one either. Everything else:
@@ -932,18 +931,18 @@ def can_edit_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
     """
     from membership.models import Member, WikiPage
 
-    # OFFICIAL is checked FIRST. Testing archived first let an archived Official page in a
-    # guild fall through to the moderator leg, handing that guild's lead an edit right the
-    # locked rule never grants on Official content — and the author carve-out below is
-    # deliberately inside this branch and after the archived guard, so an archived
-    # proposal stays moderators-only.
+    # OFFICIAL is checked FIRST, so an archived Official page takes the Official rule (its own
+    # guild's lead and staff, or an admin) rather than falling through to the archived leg,
+    # and the author carve-out below sits inside this branch, so an archived proposal stays
+    # moderators only.
     if page.admins_only_edit:
-        # The narrowest lock (#1076): admins only, ahead of every other leg, officers included.
+        # The narrowest lock (#1076): admins only, ahead of every other leg, guild leadership included.
         return _is_effective_admin(request)
     if page.status == WikiPage.Status.OFFICIAL:
         if _is_own_unpublished_proposal(request, page):
             return True
-        return is_effective_staff(request)
+        # An admin, or the page's own guild lead or staff (a guild officer, ADR 0004).
+        return can_moderate_wiki_page(request, page)
     if page.archived_at is not None:
         return can_moderate_wiki_page(request, page)
     member = _editing_member(request)
@@ -962,7 +961,7 @@ def can_verify_wiki_page(request: HttpRequest, page: WikiPage) -> bool:
     An OFFICIAL page is never verifiable, by anyone — this guard runs first, before any
     authority test. Otherwise: a guild-scoped page defers to :func:`can_edit_guild`
     (lead, every staff role, orientors included via the staff-role fold-in), and a
-    space-wide page takes :func:`is_effective_staff`.
+    space-wide page takes an admin (:func:`is_effective_staff`).
 
     **A tool's own ``EquipmentStaffMembership`` orientors are deliberately NOT admitted
     here.** Brief section 9.1 rules that "equipment orientors who are not guild staff stay
@@ -1000,7 +999,7 @@ def editable_wiki_scopes(request: HttpRequest) -> tuple[list[Guild], bool]:
 
     The bulk companion for the New-page scope picker, mirroring
     :func:`editable_meeting_scopes`. Every active member may create a space-wide page
-    and a page in any guild they have joined; staff get every guild.
+    and a page in any guild they have joined; an admin gets every guild.
     """
     from membership.models import Guild, Member
 

@@ -93,7 +93,7 @@ CATEGORY_ORDER: tuple[str, ...] = (
 # The one section that collects every event a viewer gets because of a role or an admin
 # permission (approval requests + admin-only alerts) instead of scattering them through the
 # member topics. Rendered FIRST, and shown only to a viewer with at least one row in it
-# (_eligible_for); a plain member never sees it. When an admin/officer previews the page as
+# (_eligible_for); a plain member never sees it. When an admin previews the page as
 # a Member or Guest, the section is omitted entirely (include_staff_section=False).
 ADMIN_SECTION = "Admin / Permissions"
 
@@ -447,7 +447,6 @@ class _StaffProfile:
 
     is_admin: bool
     is_active: bool
-    is_officer: bool
     leads_guild: bool
     staffs_guild: bool
     is_orienter: bool
@@ -472,8 +471,8 @@ class _StaffProfile:
     def holds(self, group: PermissionGroup) -> bool:
         """Whether this viewer holds ``group``, the permission a row can reach them through.
 
-        Guild leadership covers leading a guild, holding any guild staff role, or being a
-        guild officer (the ALL_GUILD_LEADS audience); Equipment manager is a per-tool staff
+        Guild leadership covers leading a guild or holding any guild staff role (the
+        ALL_GUILD_LEADS audience); Equipment manager is a per-tool staff
         row. The capability groups are the matching :class:`AdminCapability` grant.
         """
         from membership.models import AdminCapability
@@ -491,7 +490,7 @@ class _StaffProfile:
             PermissionGroup.EQUIPMENT: capability.EQUIPMENT in caps,
             PermissionGroup.WEBMASTER: capability.WEBMASTER in caps,
             PermissionGroup.TOUR_GUIDE: capability.TOUR_GUIDE in caps,
-            PermissionGroup.GUILD_LEADERSHIP: self.is_leadership or self.is_officer,
+            PermissionGroup.GUILD_LEADERSHIP: self.is_leadership,
             PermissionGroup.EQUIPMENT_MANAGER: self.manages_equipment,
         }
         return held[group]
@@ -508,14 +507,13 @@ def _staff_profile(user: User) -> _StaffProfile:
 
     member = Member.objects.filter(user=user).only("id", "fog_role", "status").first()
     if member is None:
-        return _StaffProfile(False, False, False, False, False, False, False, frozenset())
+        return _StaffProfile(False, False, False, False, False, False, frozenset())
     staff_rows = list(member.guild_staff_roles.values_list("role", "can_review_classes"))
     staff_roles = {role for role, _reviews in staff_rows}
     leads_guild = member.led_guilds.exists()
     return _StaffProfile(
         is_admin=member.fog_role == Member.FogRole.ADMIN,
         is_active=member.status == Member.Status.ACTIVE,
-        is_officer=member.fog_role == Member.FogRole.GUILD_OFFICER,
         leads_guild=leads_guild,
         staffs_guild=bool(staff_roles),
         is_orienter=GuildStaffMembership.Role.ORIENTER in staff_roles,
@@ -549,8 +547,8 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
         # The resolver skips a member who is not Active, so the row does too (like ALL_GUILD_LEADS).
         Recipients.GUILD_LEAD_AND_CO_LEADS: (profile.leads_guild or profile.is_co_lead) and profile.is_active,
         # all_guild_leads resolves against Member.objects.active(), so a FORMER/SUSPENDED
-        # lead/officer would see this row but never receive the mail — gate on is_active too.
-        Recipients.ALL_GUILD_LEADS: (lead or profile.is_officer) and profile.is_active,
+        # lead would see this row but never receive the mail — gate on is_active too.
+        Recipients.ALL_GUILD_LEADS: lead and profile.is_active,
         Recipients.GUILD_ORIENTERS: profile.leads_guild or profile.is_orienter,
         # Every audience of the composed orientation_requested resolver: a guild's Orientors,
         # its lead when it has none, its whole team when it has no lead either (#1127), or an
@@ -636,7 +634,7 @@ def _visible_events(profile: _StaffProfile, *, include_staff_section: bool = Tru
     role (:func:`_eligible_for`). A plain member sees none of them; an admin sees only the
     duties they hold plus the admin/leadership alerts.
 
-    When ``include_staff_section`` is ``False`` (an admin/officer previewing the page as a
+    When ``include_staff_section`` is ``False`` (an admin previewing the page as a
     Member or Guest), every staff/leadership/admin event is dropped up front — before the
     eligibility check — so Admin / Permissions is omitted entirely.
     """
@@ -725,7 +723,7 @@ def build_matrix(user: User, *, include_staff_section: bool = True) -> list[Matr
     of the siblings would not send. A member holding a mix therefore sees the row off, and
     flattens the group on their next save — the approved rule, not a bug.
 
-    When ``include_staff_section`` is ``False`` (an admin/officer previewing as Member or
+    When ``include_staff_section`` is ``False`` (an admin previewing as Member or
     Guest), Admin / Permissions and any staff-only channel columns are omitted.
 
     Raises:
@@ -828,7 +826,7 @@ def save_matrix(
     ``group.`` key.
 
     ``include_staff_section`` **must** match the flag the GET render used. When it is
-    ``False`` (an admin/officer saving while previewing as Member/Guest), the staff-event
+    ``False`` (an admin saving while previewing as Member/Guest), the staff-event
     rows were never rendered, so their checkboxes are absent from the POST — iterating them
     here would write ``enabled=False`` and silently wipe the admin's own staff prefs. The
     flag drops those events from the iteration entirely, the same protective pattern as the

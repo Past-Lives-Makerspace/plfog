@@ -27,7 +27,7 @@ from core.tours import (
     tours_for,
 )
 from membership.models import Member
-from tests.membership.factories import GuildFactory
+from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -167,7 +167,7 @@ def describe_TOURS():
         assert "Your Public Page" in lead_step_titles
         assert "Your Wishlist" in lead_step_titles
 
-    def describe_guild_lead_url_fallback_for_admins_and_officers():
+    def describe_guild_lead_url_fallback_for_admins():
         def it_falls_back_to_the_first_active_guild_ordered_by_name_for_an_admin():
             admin = _member("admin-fallback", fog_role=Member.FogRole.ADMIN)
             GuildFactory(name="Aaa Inactive Guild", is_active=False)  # alphabetically first, but skipped
@@ -178,13 +178,11 @@ def describe_TOURS():
 
             assert url == f"/guilds/{alpha.pk}/edit/?tour=guild-lead"
 
-        def it_falls_back_to_the_first_active_guild_for_a_guild_officer():
-            officer = _member("officer-fallback", fog_role=Member.FogRole.GUILD_OFFICER)
-            only_active = GuildFactory(name="Only Active Guild", is_active=True)
+        def it_gives_a_member_who_staffs_no_guild_no_fallback():
+            plain = _member("plain-fallback")
+            GuildFactory(name="Only Active Guild", is_active=True)
 
-            url = entry_url_for(TOURS["guild-lead"], officer)
-
-            assert url == f"/guilds/{only_active.pk}/edit/?tour=guild-lead"
+            assert TOURS["guild-lead"].audience(plain) is False
 
         def it_prefers_an_admins_own_staffed_guild_over_the_fallback():
             admin = _member("admin-owns", fog_role=Member.FogRole.ADMIN)
@@ -239,12 +237,11 @@ def describe_TOURS():
             admin = _member("admin-inactive-only", fog_role=Member.FogRole.ADMIN)
             assert TOURS["guild-lead"].audience(admin) is False
 
-        def it_admits_guild_officers_to_the_lead_tour_even_without_staffing_a_guild():
-            GuildFactory(name="Audience Officer Guild", is_active=True)
-            officer = _member("officer-audience", fog_role=Member.FogRole.GUILD_OFFICER)
-            assert officer.is_guild_lead is False
-            assert officer.is_guild_staff is False
-            assert TOURS["guild-lead"].audience(officer) is True
+        def it_admits_a_guild_staffer_to_the_lead_tour():
+            staffer = _member("staff-audience")
+            GuildStaffMembershipFactory(member=staffer)
+            assert staffer.is_guild_lead is False
+            assert TOURS["guild-lead"].audience(staffer) is True
 
 
 def describe_tours_for():
@@ -289,17 +286,10 @@ def describe_tours_for():
             "admin",
         ]
 
-    def it_includes_the_lead_tour_for_guild_officers_who_staff_no_guild():
-        GuildFactory(name="Rows Officer Guild", is_active=True)
-        officer = _member("tf-officer", fog_role=Member.FogRole.GUILD_OFFICER)
-        assert [t.key for t in tours_for(officer)] == [
-            "member-welcome",
-            "guild-lead",
-            "guild-cubbies",
-            "guild-reservations",
-            "guild-email-members",
-            "guild-orientations",
-        ]
+    def it_leaves_the_lead_tours_out_for_a_member_who_staffs_no_guild():
+        GuildFactory(name="Rows Plain Guild", is_active=True)
+        plain = _member("tf-plain")
+        assert "guild-lead" not in [t.key for t in tours_for(plain)]
 
 
 def describe_help_card_rows():

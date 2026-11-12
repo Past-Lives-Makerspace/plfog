@@ -216,7 +216,7 @@ def _manage_bookings_nav(request: HttpRequest) -> dict[str, Any] | None:
     """The sidebar's Manage Bookings entry (#768), or ``None`` for anyone who runs nothing.
 
     One home for everyone who runs orientations or equipment, the way Teaching is for classes.
-    The gate is :func:`membership.permissions.runs_bookings`: an admin or officer (``view_as``
+    The gate is :func:`membership.permissions.runs_bookings`: an admin (``view_as``
     aware, so a preview shows the member's sidebar, and no query), else a member who leads or
     staffs a guild or holds an equipment staff row, in ONE query. That query is the whole cost
     the entry adds to every hub page for a member with nothing to run, and
@@ -285,7 +285,7 @@ def _tools_page_title(request: HttpRequest, member: Member | None) -> str | None
 
     Delegates to the page's own gate (``hub.views._tools_page_title``) so the entry, its label
     and the page can never disagree: anyone whose elevated perms unlock a tool sees it (admin,
-    guild officer, lead or staff, instructor), and an actual admin previewing as a plain member
+    lead or staff, instructor), and an actual admin previewing as a plain member
     who runs no guild does not.
     """
     from hub.views import _tools_page_title as _gate

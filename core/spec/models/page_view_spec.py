@@ -37,14 +37,12 @@ def describe_record():
         assert _recorded_role(User.objects.create_superuser("su", "su@example.com", "p")) == PageView.Role.ADMIN
         assert _recorded_role(_user_with(MemberFactory(fog_role=Member.FogRole.ADMIN))) == PageView.Role.ADMIN
 
-    def it_records_a_guild_officer_lead_or_staff_holder_as_guild_staff():
-        officer = _user_with(MemberFactory(fog_role=Member.FogRole.GUILD_OFFICER))
+    def it_records_a_lead_or_staff_holder_as_guild_staff():
         lead_member = MemberFactory()
         GuildFactory(guild_lead=lead_member)
         staff_member = MemberFactory()
         GuildStaffMembershipFactory(member=staff_member)
 
-        assert _recorded_role(officer) == PageView.Role.GUILD_STAFF
         assert _recorded_role(_user_with(lead_member)) == PageView.Role.GUILD_STAFF
         assert _recorded_role(_user_with(staff_member)) == PageView.Role.GUILD_STAFF
 

@@ -15,6 +15,8 @@ from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.utils import timezone
 
+from tests.membership.factories import GuildFactory
+
 _APP = "polls"
 _BEFORE = "0001_initial"
 _AFTER = "0002_poll_guild"
@@ -54,13 +56,14 @@ def describe_migration_0002_poll_guild():
     def it_reverses_by_deleting_guild_polls_and_keeping_site_wide_ones():
         try:
             apps = _migrate(_AFTER)
-            Guild = apps.get_model("membership", "Guild")
             Poll = apps.get_model(_APP, "Poll")
             PollChoice = apps.get_model(_APP, "PollChoice")
             now = timezone.now()
-            guild = Guild.objects.create(name="Zorblax Guild", slug="zorblax-guild")
+            # Only polls is rolled back, so the guild table keeps today's columns (#1153 added a
+            # required one the historical Guild model never knew): make the guild with today's model.
+            guild = GuildFactory(name="Zorblax Guild")
             guild_poll = Poll.objects.create(
-                question="Zorblax guild?", opens_at=now, closes_at=now + timedelta(days=7), guild=guild
+                question="Zorblax guild?", opens_at=now, closes_at=now + timedelta(days=7), guild_id=guild.pk
             )
             PollChoice.objects.create(poll=guild_poll, text="Zorblax answer", position=0)
             Poll.objects.create(question="Zorblax site?", opens_at=now, closes_at=now + timedelta(days=7))

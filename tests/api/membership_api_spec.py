@@ -66,9 +66,14 @@ def describe_MemberViewSet():
         def it_calls_apply_admin_role(admin_client, admin_member):
             target = MemberFactory(fog_role=Member.FogRole.MEMBER)
             with patch.object(Member, "apply_admin_role") as mock_apply:
-                response = admin_client.post(f"/api/v1/members/{target.id}/set-role/", {"role": "guild_officer"})
+                response = admin_client.post(f"/api/v1/members/{target.id}/set-role/", {"role": "admin"})
             assert response.status_code == status.HTTP_200_OK
-            mock_apply.assert_called_once_with("guild_officer")
+            mock_apply.assert_called_once_with("admin")
+
+        def it_rejects_the_retired_guild_officer_role(admin_client, admin_member):
+            target = MemberFactory(fog_role=Member.FogRole.MEMBER)
+            response = admin_client.post(f"/api/v1/members/{target.id}/set-role/", {"role": "guild_officer"})
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
 
         def it_rejects_invalid_roles(admin_client, admin_member):
             response = admin_client.post(f"/api/v1/members/{admin_member.id}/set-role/", {"role": "supervillain"})
@@ -76,7 +81,7 @@ def describe_MemberViewSet():
 
         def it_rejects_instructor_which_is_a_permission_not_a_role(admin_client, admin_member):
             # Instructor moved to a Permissions-tab toggle; set-role must not accept it (the old
-            # path also reset fog_role/status, silently demoting an admin/officer).
+            # path also reset fog_role/status, silently demoting an admin).
             target = MemberFactory(fog_role=Member.FogRole.ADMIN)
             response = admin_client.post(f"/api/v1/members/{target.id}/set-role/", {"role": "instructor"})
             assert response.status_code == status.HTTP_400_BAD_REQUEST

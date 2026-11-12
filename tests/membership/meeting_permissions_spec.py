@@ -8,7 +8,7 @@ from django.contrib.auth.models import AnonymousUser, User
 from django.test import RequestFactory
 from django.utils import timezone
 
-from hub.view_as import ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER, ViewAs
+from hub.view_as import ROLE_ADMIN, ROLE_MEMBER, ViewAs
 from membership.models import GuildStaffMembership
 from membership.permissions import can_edit_meeting
 from tests.membership.factories import (
@@ -66,11 +66,6 @@ def describe_can_edit_meeting():
             assert (
                 can_edit_meeting(_request(admin, roles={ROLE_ADMIN, ROLE_MEMBER}), MeetingFactory(guild=None)) is True
             )
-
-        def it_allows_a_guild_officer():
-            officer = _user("officer")
-            request = _request(officer, roles={ROLE_GUILD_OFFICER, ROLE_MEMBER})
-            assert can_edit_meeting(request, MeetingFactory(guild=None)) is True
 
         def it_allows_any_guilds_lead_or_staff():
             lead = _user("anylead")

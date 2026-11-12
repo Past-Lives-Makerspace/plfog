@@ -428,11 +428,11 @@ def describe_config_selects():
         result, draft = _preview(lead, title="X", when="tomorrow 6pm")  # No guild
         assert f"eventcfg:shape:{draft.pk}" in _custom_ids(result)
 
-    def it_offers_the_what_it_is_select_to_a_guild_officer_who_staffs_no_guild(linked_member):
-        # is_effective_staff admits the cross-guild Guild Officer tier, so the web composer
+    def it_offers_the_what_it_is_select_to_an_admin_who_staffs_no_guild(linked_member):
+        # is_effective_staff admits an admin, the one cross-guild tier, so the web composer
         # asks them. Discord must agree or the same person gets two different answers.
-        officer = linked_member(fog_role=Member.FogRole.GUILD_OFFICER)
-        result, draft = _preview(officer, title="X", when="tomorrow 6pm")
+        admin = linked_member(fog_role=Member.FogRole.ADMIN)
+        result, draft = _preview(admin, title="X", when="tomorrow 6pm")
         assert f"eventcfg:shape:{draft.pk}" in _custom_ids(result)
 
     def it_omits_the_what_it_is_select_from_a_plain_members_card(linked_member):

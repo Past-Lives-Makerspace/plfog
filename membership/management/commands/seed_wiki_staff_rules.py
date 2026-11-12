@@ -5,7 +5,7 @@ which falls back to the wiki home until it exists). It states the rule Felix set
 that orientations, reservations, equipment and email lists run through the Member Portal and
 nowhere else, and where each Guild Staff Tool lives.
 
-It is seeded Official and admins only: members and guild officers read it, only admins edit it. Like the
+It is seeded Official and admins only: members and guild leadership read it, only admins edit it. Like the
 other wiki seeders it never touches a page that exists: a live space-wide page with this
 title, in any state and by any author, is left as it is. It is NOT part of any deploy; run it by
 hand once after the release.
@@ -70,7 +70,7 @@ class Command(BaseCommand):
         if options["dry_run"]:
             self.stdout.write(f"Would add '{RULES_PAGE_TITLE}'.")
             return
-        # Official, and admins only: members and guild officers read it, only admins edit or
+        # Official, and admins only: members and guild leadership read it, only admins edit or
         # archive it (WikiPage.admins_only_edit, membership.permissions.can_edit_wiki_page).
         page = WikiPage.objects.create_page(
             title=RULES_PAGE_TITLE,

@@ -2,7 +2,7 @@
 
 Share renders for every viewer of a guild members can see, on the members site and on the guilds
 site, carrying the guild's public link. Invite (the button, the panel and Send Invites) is the
-guild's lead, its staff and admins only: a Guild Officer, a plain member, a guest and an admin
+guild's lead, its staff and admins only: another guild's lead, a plain member, a guest and an admin
 previewing as a member are refused with nothing sent, and neither button shows on a hidden guild.
 An invite is accepted only by its invitee, from the banner's Join, which joins through the hero
 Join's path; opening the guild page never joins anyone. Assertions anchor on markup and factory strings.
@@ -91,13 +91,14 @@ def describe_invite_permissions():
             assert GuildInvite.objects.filter(guild=guild, member=pick, invited_by=sender).exists()
         assert len(mail.outbox) == 3
 
-    def it_refuses_an_officer_a_member_and_an_admin_previewing_as_a_member(client: Client):
+    def it_refuses_another_guilds_lead_a_member_and_an_admin_previewing_as_a_member(client: Client):
         guild = _guild()
         pick = _account("pick", "Pick Person")
-        officer = _account("officer", "Officer Person", fog_role=Member.FogRole.GUILD_OFFICER)
+        other_lead = _account("other_lead", "Other Lead Person")
+        GuildFactory(name="Elsewhere Guild", guild_lead=other_lead)
         plain = _account("plain", "Plain Member")
         admin = _account("admin", "Admin Person", fog_role=Member.FogRole.ADMIN)
-        for viewer in (officer, plain, admin):
+        for viewer in (other_lead, plain, admin):
             _login(client, viewer)
             if viewer is admin:
                 session = client.session

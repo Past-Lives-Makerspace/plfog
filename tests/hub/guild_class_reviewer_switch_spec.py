@@ -120,11 +120,6 @@ def describe_the_switch_endpoint():
         assert client.post(setup.url(setup.staff.member), {"on": "on"}).status_code == 403
         assert setup.flags(setup.staff) == {False}
 
-    def it_refuses_a_guild_officer(client: Client, setup: _Guild):
-        _user("crofficer", fog_role=Member.FogRole.GUILD_OFFICER)
-        client.login(username="crofficer", password="pass")
-        assert client.post(setup.url(setup.staff.member), {"on": "on"}).status_code == 403
-
     def it_refuses_an_outsider(client: Client, setup: _Guild):
         _user("crstranger")
         client.login(username="crstranger", password="pass")

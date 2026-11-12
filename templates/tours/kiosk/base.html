@@ -2,8 +2,8 @@
 {% load static %}
 {% comment %}
 The front desk kiosk's chrome (#950, tours.kiosk_views): the tours site's page with its topbar
-swapped for a plain brand bar (no site navigation, no sign in), and large controls a mouse and a
-keyboard can drive at cairn's 1920 by 1080. Every link and form here is a full page load
+swapped for a plain brand bar (no site navigation, no sign in), and large controls a mouse or the
+keyboard alone can drive at cairn's 1920 by 1080 (the keyboard badge, #1155). Every link and form here is a full page load
 (hx-boost off) and static/js/tours-kiosk.js returns home after idle_seconds without input, or
 done_seconds after a finished check in or booking (0 is off). Children fill kiosk_content.
 {% endcomment %}
@@ -32,4 +32,17 @@ done_seconds after a finished check in or booking (0 is off). Children fill kios
 <div class="pl-kiosk" hx-boost="false" data-kiosk data-kiosk-home="{% url 'tours_kiosk:home' %}" data-kiosk-idle="{{ idle_seconds }}" data-kiosk-done="{{ done_seconds }}">
   {% block kiosk_content %}{% endblock %}
 </div>
+{# Shown by tours-kiosk.js while no mouse is plugged in (#1155): the keyboard alone drives every screen. #}
+<aside class="pl-kiosk-keys" role="status" aria-label="Keyboard only mode" hidden data-kiosk-keys>
+  <svg class="pl-kiosk-keys__icon" viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M18 14h.01M9 14h6"/></svg>
+  <div class="pl-kiosk-keys__text">
+    <span class="pl-kiosk-keys__title">Keyboard Only Mode</span>
+    <span class="pl-kiosk-keys__note">No mouse detected</span>
+  </div>
+  <ul class="pl-kiosk-keys__hints">
+    <li><kbd>Tab</kbd><kbd aria-label="Arrow keys">&larr; &rarr;</kbd><span>Move</span></li>
+    <li><kbd>Enter</kbd><span>Choose</span></li>
+    <li><kbd>Esc</kbd><span>Start Over</span></li>
+  </ul>
+</aside>
 {% endblock %}

@@ -12,7 +12,7 @@ schedule a tour. Context: limited.
   <h1 class="pl-kiosk__title">We Could Not Find a Tour Today</h1>
   <p class="pl-kiosk__lead">Check the spelling, or try the email you booked with.</p>
   {% endif %}
-  <div class="pl-kiosk__choices pl-kiosk__choices--buttons">
+  <div class="pl-kiosk__choices pl-kiosk__choices--buttons" data-kiosk-arrows>
     <a href="{% url 'tours_kiosk:check_in' %}" class="pl-kiosk__choice pl-kiosk__choice--primary" autofocus data-kiosk-try-again>
       <span class="pl-kiosk__choice-title">Try Again</span>
     </a>

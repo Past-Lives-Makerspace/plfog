@@ -42,8 +42,8 @@ def _member_user(**member_fields):
 
 def describe_fog_role_claim():
     def it_sends_the_role_the_member_actually_holds(db):
-        user = _member_user(fog_role=Member.FogRole.GUILD_OFFICER)
-        assert _claims(user)["fog_role"] == Member.FogRole.GUILD_OFFICER
+        user = _member_user(fog_role=Member.FogRole.ADMIN)
+        assert _claims(user)["fog_role"] == Member.FogRole.ADMIN
 
 
 def describe_the_name_claim():
@@ -86,12 +86,37 @@ def describe_the_kb_level_claim():
     def it_gives_a_member_the_member_tier(db):
         assert _claims(_member_user(fog_role=Member.FogRole.MEMBER))["kb_level"] == 10
 
-    def it_gives_a_guild_officer_the_officer_tier(db):
-        assert _claims(_member_user(fog_role=Member.FogRole.GUILD_OFFICER))["kb_level"] == 20
-
     def it_gives_an_admin_the_staff_tier(db):
         """An admin here reads the KB's staff documents, which carry third-party contacts."""
         assert _claims(_member_user(fog_role=Member.FogRole.ADMIN))["kb_level"] == 40
+
+    def it_gives_a_guild_lead_the_officer_tier(db):
+        """A lead reads the officer documents: leadership is what makes a guild officer."""
+        from tests.membership.factories import GuildFactory
+
+        user = _member_user(fog_role=Member.FogRole.MEMBER)
+        GuildFactory(guild_lead=user.member)
+        user.refresh_from_db()
+        assert _claims(user)["kb_level"] == 20
+
+    def it_gives_guild_staff_the_officer_tier(db):
+        from membership.models import GuildStaffMembership
+        from tests.membership.factories import GuildFactory
+
+        user = _member_user(fog_role=Member.FogRole.MEMBER)
+        GuildStaffMembership.objects.create(
+            guild=GuildFactory(), member=user.member, role=GuildStaffMembership.Role.CO_LEAD
+        )
+        user.refresh_from_db()
+        assert _claims(user)["kb_level"] == 20
+
+    def it_never_lowers_an_admin_who_also_leads_a_guild(db):
+        from tests.membership.factories import GuildFactory
+
+        user = _member_user(fog_role=Member.FogRole.ADMIN)
+        GuildFactory(guild_lead=user.member)
+        user.refresh_from_db()
+        assert _claims(user)["kb_level"] == 40
 
     def it_covers_every_role_so_a_new_one_cannot_be_forgotten(db):
         """A FogRole with no entry would silently grant PUBLIC. Fail here instead of in the KB."""

@@ -135,7 +135,7 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.INVITEE: "The person being invited (addressed by email; no account yet).",
     Recipients.LEASE_TENANT: "The member holding the space agreement.",
     Recipients.ALL_ACTIVE_MEMBERS: "Every active member.",
-    Recipients.ALL_GUILD_LEADS: "Every guild lead, officer, and staffer (cross-guild).",
+    Recipients.ALL_GUILD_LEADS: "Every guild lead and staffer (cross-guild).",
     Recipients.EVENT_AUDIENCE: (
         "Whoever the event's launch announcement reached — the guild's members, all guild leads, "
         "or every active member, by scope."

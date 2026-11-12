@@ -690,9 +690,9 @@ _NEW_EVENTS: list[EventType] = [
         activity_kind=None,
         email_shell="light",
     ),
-    # 4c. voting.officers_closing_soon — the heads-up to guild leadership (leads, guild
-    #    staff, and FOG guild officers) fired at the same lead as the member reminders,
-    #    carrying turnout so officers can rally their guilds before close. One shared
+    # 4c. voting.officers_closing_soon — the heads-up to guild leadership (leads and guild
+    #    staff) fired at the same lead as the member reminders,
+    #    carrying turnout so leadership can rally their guilds before close. One shared
     #    message (no per-member ballot), so a broadcast-style recipient list is correct.
     EventType(
         key=VOTING_OFFICERS_CLOSING_SOON,
@@ -772,7 +772,7 @@ _NEW_EVENTS: list[EventType] = [
         activity_kind=None,
     ),
     # 9. event.lead_meeting_published — an admin posts the cross-guild Guild Lead Meeting.
-    #    Notifies every guild lead/officer/staffer site-wide; in-app on, email ON by default
+    #    Notifies every guild lead and staffer site-wide; in-app on, email ON by default
     #    (owner call, copy-review 2026-08-18), Discord on (central). The event still shows on
     #    the Calendar for all members.
     EventType(

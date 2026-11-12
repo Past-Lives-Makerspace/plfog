@@ -8,7 +8,6 @@ from django.test import Client
 from django.urls import reverse
 
 from hub.view_as import ROLE_MEMBER, SESSION_ROLE_KEY
-from membership.models import Member
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 
 pytestmark = pytest.mark.django_db
@@ -63,14 +62,12 @@ def describe_the_admin_tools_cards():
         assert "data-tool-email-members" in html
         assert "data-tool-mailing-lists" not in html
 
-    def it_shows_manage_mailing_lists_to_a_guild_officer_by_their_tier(client: Client):
-        user = _login_user(client, "em_officer")
+    def it_shows_manage_mailing_lists_to_an_instructor_who_also_leads_a_guild(client: Client):
+        user = _login_user(client, "em_teaching_lead")
         member = user.member  # type: ignore[attr-defined]
-        member.instructor_slug = "em-officer"
-        member.fog_role = Member.FogRole.GUILD_OFFICER
-        member.save(update_fields=["instructor_slug", "fog_role"])
-        member.sync_user_permissions()
-        GuildFactory()  # an officer may edit every active guild, though they lead none
+        member.instructor_slug = "em-teaching-lead"
+        member.save(update_fields=["instructor_slug"])
+        GuildFactory(guild_lead=member)
         html = client.get(reverse("hub_admin_tools")).content.decode()
         assert "data-tool-mailing-lists" in html
 
@@ -124,21 +121,6 @@ def describe_the_mailing_lists_tab():
         assert response.context["tab"] == "drafts"
         assert 'data-announcements-tab="mailing-lists"' not in html
         assert "data-mailing-lists" not in html
-
-    def it_gives_an_officer_on_no_guild_staff_the_tab_alone(client: Client):
-        user = _login_user(client, "ml_officer")
-        member = user.member  # type: ignore[attr-defined]
-        member.fog_role = Member.FogRole.GUILD_OFFICER
-        member.save(update_fields=["fog_role"])
-        member.sync_user_permissions()
-        guild = GuildFactory()
-        response = client.get(reverse("hub_announcements"))
-        html = response.content.decode()
-        assert response.status_code == 200
-        assert response.context["tab"] == "mailing-lists"
-        assert f'data-mailing-list-guild="{guild.pk}"' in html
-        assert 'data-announcements-tab="drafts"' not in html
-        assert "New email" not in html
 
     def it_still_refuses_someone_who_runs_no_guild_and_cannot_email(client: Client):
         _login_user(client, "ml_none")

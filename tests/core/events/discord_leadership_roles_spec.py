@@ -227,8 +227,7 @@ def describe_leadership_facts():
 
     def it_gives_nothing_for_a_fog_role():
         admin = MemberFactory(fog_role=Member.FogRole.ADMIN)
-        officer = MemberFactory(fog_role=Member.FogRole.GUILD_OFFICER)
-        assert leadership_facts([admin.pk, officer.pk]) == {}
+        assert leadership_facts([admin.pk]) == {}
 
     def it_reads_everyone_when_no_ids_are_given():
         lead = MemberFactory()

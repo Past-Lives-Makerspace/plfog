@@ -7,8 +7,9 @@
 {% block content %}
 {% comment %}
 The Tours page's My Hours tab (#947, tours.views.tour_hours), for Tour Guides and admins: a guide's
-weekly tour hours (rows of day, from, until, tour length and seats, each cut into back to back
-tours), their days off, and their Google Calendar (#951, tours/partials/_google_calendar.html). An
+Every Week hours (rows of day, from, until, tour length and seats, each cut into back to back
+tours), their Available On hours on picked dates (#1160, tours/partials/_dates.html), their days
+off, and their Google Calendar (#951, tours/partials/_google_calendar.html). An
 admin picks whose hours to edit with the guide picker, which names each guide's calendar state. The page opens
 on Upcoming (tours/bookings.html, #949); admins also get the Settings tab (tours/settings.html).
 {% endcomment %}
@@ -73,8 +74,8 @@ on Upcoming (tours/bookings.html, #949); admins also get the Settings tab (tours
   {% csrf_token %}
   <input type="hidden" name="guide" value="{{ target.pk }}">
   <div class="hub-card pl-tours-panel" data-tour-hours>
-    <h2 class="hub-detail-label pl-tours-panel__title">{% if is_self %}My Tour Hours{% else %}{{ target.display_name }}'s Tour Hours{% endif %}</h2>
-    <p class="hub-text-muted pl-tours-panel__intro">Each row is cut into back to back tours. Tuesday 4:00 to 6:00 PM with 1 hour tours offers a 4:00 and a 5:00 tour, each with its own seats.</p>
+    <h2 class="hub-detail-label pl-tours-panel__title">Every Week</h2>
+    <p class="hub-text-muted pl-tours-panel__intro">Hours that repeat every week. If your schedule changes from week to week, leave this empty and use Available On.</p>
     {{ formset.management_form }}
     {% for error in formset.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
     <div id="tour-hours-rows" class="pl-tours-rows" data-tour-hours-rows>
@@ -117,6 +118,8 @@ on Upcoming (tours/bookings.html, #949); admins also get the Settings tab (tours
     <button type="submit" class="pl-btn pl-btn--primary" data-tour-hours-save>Save</button>
   </div>
 </form>
+
+{% include "tours/partials/_dates.html" %}
 
 <div class="hub-card pl-tours-panel pl-tours-days-off" data-tour-days-off>
   <h2 class="hub-detail-label pl-tours-panel__title">Days Off</h2>

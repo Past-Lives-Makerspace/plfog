@@ -4,7 +4,7 @@ The tab (tiles, chips, the sortable table and its phone cards, End Rental's conf
 reason, Assign a Cubby), Export CSV, Assign (Comped or Paid Another Way, refusals reopening the
 modal), End Rental, a member's Cancel Rental on an assigned rental, and the Pricing tab's split bar.
 Every URL is a 404 to anyone who does not run the guild, a crafted POST naming another guild's cubby
-or rental included; admins reach every guild, a Guild Officer only one they lead or staff (#1015).
+or rental included; admins reach every guild, a lead or staff member only their own (#1015).
 Assertions anchor on markup and factory strings.
 """
 
@@ -118,10 +118,11 @@ def describe_the_rentals_tab():
         client.login(username="root_admin", password="pass")
         assert client.get(_rentals_url(other)).status_code == 200
 
-    def it_is_a_404_to_a_guild_officer_until_they_lead_or_staff_the_guild(client: Client):
-        # #1015: the Guild Officer role alone opens no guild's Rentals, CSV, Assign or End Rental; a staff row there does.
-        officer = _account("roving_officer", "Roving Officerly", fog_role=Member.FogRole.GUILD_OFFICER)
-        client.login(username="roving_officer", password="pass")
+    def it_is_a_404_to_another_guilds_lead_until_they_staff_this_guild(client: Client):
+        # #1015, ADR 0004: leading another guild opens no guild's Rentals, CSV, Assign or End Rental; a staff row here does.
+        other_lead = _account("roving_lead", "Roving Leadly")
+        GuildFactory(name="Elsewhere Guild", guild_lead=other_lead)
+        client.login(username="roving_lead", password="pass")
         guild = GuildFactory(name="Kettlewick Pottery Guild", show_cubbies_tab=True)
         rental = CubbyRentalFactory(
             cubby=_cubby(guild), source=Source.COMPED, amount_cents=0, stripe_subscription_id=None
@@ -135,7 +136,7 @@ def describe_the_rentals_tab():
         assert client.post(end, {"reason": "Not yours."}).status_code == 404
         rental.refresh_from_db()
         assert rental.status == Status.ACTIVE
-        GuildStaffMembershipFactory(guild=guild, member=officer)
+        GuildStaffMembershipFactory(guild=guild, member=other_lead)
         assert client.get(_rentals_url(guild)).status_code == 200
         assert client.get(csv_url).status_code == 200
         assert client.post(assign, {"source": "comped"}).status_code == 200  # the modal reopens with what is missing
@@ -143,12 +144,12 @@ def describe_the_rentals_tab():
         rental.refresh_from_db()
         assert rental.status == Status.ENDED
 
-    def it_is_a_404_to_an_admin_previewing_as_a_guild_officer(client: Client):
+    def it_is_a_404_to_an_admin_previewing_as_a_member(client: Client):
         # #1015: the preview is refused like the role it shows, on Rentals, CSV, Assign and End Rental.
         _account("preview_admin", "Preview Admin", fog_role=Member.FogRole.ADMIN)
         client.login(username="preview_admin", password="pass")
         session = client.session
-        session["view_as_role"] = "guild_officer"
+        session["view_as_role"] = "member"
         session.save()
         guild = GuildFactory(name="Kettlewick Pottery Guild", show_cubbies_tab=True)
         rental = CubbyRentalFactory(

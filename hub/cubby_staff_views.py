@@ -5,8 +5,7 @@ Its Waitlist chip (#980, ``?show=waitlist``) lists who waits for a cubby, with R
 
 Mockup views manage-rentals, rentals-phone, rentals-end and assign in ``mockups/guild-cubbies.html``.
 Every view reads its guild and answers 404 to anyone :func:`membership.permissions.can_manage_cubbies`
-refuses (#1015): a guild's lead and staff reach only their own guild, admins every guild, and the
-Guild Officer role alone none. End
+refuses (#1015): a guild's lead and staff reach only their own guild, admins every guild. End
 Rental reads the guild from the rental, and Assign checks that the posted cubby is this guild's, so a
 crafted POST naming another guild's rental or cubby is a 404 for this guild's staff. The rules and
 every change are :mod:`membership.cubby_rentals`; these views parse, call and answer.

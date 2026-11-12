@@ -19,7 +19,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.test import RequestFactory
 
 from classes.factories import UserFactory
-from hub.view_as import ROLE_ADMIN, ROLE_GUEST, ROLE_GUILD_OFFICER, ROLE_MEMBER, ViewAs
+from hub.view_as import ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, ViewAs
 from hub.views import _require_can_manage_booking, _require_can_run_orientation_type
 from membership.models import (
     AdminCapability,
@@ -106,7 +106,6 @@ def _viewers(world: dict[str, Any]) -> dict[str, tuple[Any, set[str]]]:
     EquipmentStaffMembershipFactory(equipment=world["tool_x"], member=tool_staff)
     holder = _member()
     holder.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
-    officer = _member()
     admin = _member()
     previewing_admin = _member()
     member_roles = {ROLE_MEMBER}
@@ -118,10 +117,9 @@ def _viewers(world: dict[str, Any]) -> dict[str, tuple[Any, set[str]]]:
         "guild B staff (owns tool Y)": (_request(staff_b, roles=member_roles), {"b", "y"}),
         "tool X staff": (_request(tool_staff, roles=member_roles), {"x"}),
         "EQUIPMENT holder": (_request(holder, roles=member_roles), {"x", "y"}),
-        "officer": (_request(officer, roles={ROLE_GUILD_OFFICER, ROLE_MEMBER}), {"a", "b"}),
-        "admin": (_request(admin, roles={ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}), {"a", "b", "x", "y"}),
+        "admin": (_request(admin, roles={ROLE_ADMIN, ROLE_MEMBER}), {"a", "b", "x", "y"}),
         "admin previewing as member": (
-            _request(previewing_admin, roles={ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}, picked=ROLE_MEMBER),
+            _request(previewing_admin, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_MEMBER),
             set(),
         ),
         "lead previewing as guest": (_request(lead_a, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_GUEST), set()),
@@ -144,7 +142,7 @@ def describe_manageable_orientation_bookings():
     def it_narrows_the_queryset_it_is_given():
         world = _world()
         admin = _member()
-        request = _request(admin, roles={ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER})
+        request = _request(admin, roles={ROLE_ADMIN, ROLE_MEMBER})
         only_a = OrientationBooking.objects.filter(pk=world["bookings"]["a"].pk)
         assert list(manageable_orientation_bookings(request, only_a)) == [world["bookings"]["a"]]
 
@@ -181,9 +179,7 @@ def describe_manageable_orientation_records():
         )
         request = _request(lead_b, roles={ROLE_MEMBER})
         assert set(manageable_orientation_records(request, OrientationRecord.objects.all())) == {on_b, on_y}
-        officer = _request(_member(), roles={ROLE_GUILD_OFFICER, ROLE_MEMBER})
-        assert set(manageable_orientation_records(officer, OrientationRecord.objects.all())) == {on_a, on_b}
-        admin = _request(_member(), roles={ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER})
+        admin = _request(_member(), roles={ROLE_ADMIN, ROLE_MEMBER})
         assert set(manageable_orientation_records(admin, OrientationRecord.objects.all())) == {on_a, on_b, on_x, on_y}
 
 
@@ -233,7 +229,6 @@ def describe_manages_orientations():
             "guild B staff (owns tool Y)": True,
             "tool X staff": True,
             "EQUIPMENT holder": True,
-            "officer": True,
             "admin": True,
             "admin previewing as member": False,
             "lead previewing as guest": False,
@@ -251,7 +246,7 @@ def describe_honour_preview():
     def _previewing_admin_with_equipment() -> Any:
         admin = _member()
         admin.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
-        return _request(admin, roles={ROLE_ADMIN, ROLE_GUILD_OFFICER, ROLE_MEMBER}, picked=ROLE_MEMBER)
+        return _request(admin, roles={ROLE_ADMIN, ROLE_MEMBER}, picked=ROLE_MEMBER)
 
     def it_drops_a_previewed_capability_from_the_list_scope_only():
         world = _world()

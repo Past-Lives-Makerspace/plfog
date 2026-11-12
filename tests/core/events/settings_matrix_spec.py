@@ -10,7 +10,7 @@ from core.events.registry import Channel, Recipients, all_events, get_event
 from core.events.settings_matrix import ADMIN_SECTION, PermissionGroup
 from core.models import NotificationPreference
 from membership.models import AdminCapability, Member
-from tests.membership.factories import GuildFactory
+from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -232,17 +232,23 @@ def describe_admin_section():
             assert _placement(user, COMPOSITE_EVENT) == (ADMIN_SECTION, "Guild leadership")
             assert _section_of(user, CAP_EVENT) is None
 
-    def describe_a_guild_officer():
+    def describe_the_all_guild_leads_rows():
         # voting.officers_closing_soon routes to ALL_GUILD_LEADS, whose resolver filters to
-        # active members — so the row must track Member.status, not just the role.
+        # active guild leads and staff — so the row must track Member.status and leadership.
         ALL_LEADS_EVENT = "voting.officers_closing_soon"
 
-        def it_shows_all_guild_leads_rows_to_an_active_officer(db):
-            user = _member_user("officer1", fog_role=Member.FogRole.GUILD_OFFICER)
+        def it_shows_them_to_an_active_guild_staffer(db):
+            user = _member_user("staffer1")
+            GuildStaffMembershipFactory(member=Member.objects.get(user=user))
             assert _placement(user, ALL_LEADS_EVENT) == (ADMIN_SECTION, "Guild leadership")
 
-        def it_hides_all_guild_leads_rows_from_a_former_officer(db):
-            user = _member_user("officer2", fog_role=Member.FogRole.GUILD_OFFICER, status=Member.Status.FORMER)
+        def it_hides_them_from_a_former_guild_staffer(db):
+            user = _member_user("staffer2", status=Member.Status.FORMER)
+            GuildStaffMembershipFactory(member=Member.objects.get(user=user))
+            assert _section_of(user, ALL_LEADS_EVENT) is None
+
+        def it_hides_them_from_an_admin_who_leads_nothing(db):
+            user = _member_user("admin-no-guild", fog_role=Member.FogRole.ADMIN)
             assert _section_of(user, ALL_LEADS_EVENT) is None
 
     def describe_which_events_land_there():
@@ -377,7 +383,6 @@ def _profile(**overrides):
     fields = {
         "is_admin": False,
         "is_active": True,
-        "is_officer": False,
         "leads_guild": False,
         "staffs_guild": False,
         "is_orienter": False,
@@ -391,7 +396,6 @@ def _profile(**overrides):
 def _single_standing_profiles():
     profiles = [
         _profile(is_admin=True),
-        _profile(is_officer=True),
         _profile(leads_guild=True),
         _profile(staffs_guild=True),
         _profile(staffs_guild=True, is_orienter=True),

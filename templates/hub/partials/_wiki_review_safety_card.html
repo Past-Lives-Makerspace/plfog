@@ -32,7 +32,7 @@ that card would destroy #wiki-decline-<pk>-body before the reply could land in i
 {% if publishes_as_official %}
 {% include "components/confirm_modal.html" with confirm_id="publish-"|add:proposal_pk confirm_title="Publish this safety page?" confirm_message="This publishes as an Official page. Members will not be able to edit it." confirm_button_text="Publish" confirm_button_style="primary" confirm_hx_post=publish_url confirm_hx_target="#safety-"|add:proposal_pk %}
 {% else %}
-{% include "components/confirm_modal.html" with confirm_id="publish-"|add:proposal_pk confirm_title="Publish this safety page?" confirm_message="Publishing as the guild's lead marks this Guild Verified. An officer can make it Official." confirm_button_text="Publish" confirm_button_style="primary" confirm_hx_post=publish_url confirm_hx_target="#safety-"|add:proposal_pk %}
+{% include "components/confirm_modal.html" with confirm_id="publish-"|add:proposal_pk confirm_title="Publish this safety page?" confirm_message="Publishing as the guild's lead marks this Guild Verified. An admin can make it Official." confirm_button_text="Publish" confirm_button_style="primary" confirm_hx_post=publish_url confirm_hx_target="#safety-"|add:proposal_pk %}
 {% endif %}
 {% include "components/modal.html" with modal_id="wiki-decline-"|add:proposal_pk modal_title="Send This Back" modal_size="md" modal_body_include="hub/partials/_wiki_decline_form.html" %}
 {% endwith %}

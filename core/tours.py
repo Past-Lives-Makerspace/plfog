@@ -80,12 +80,12 @@ def _any_member(member: Member) -> bool:
 
 
 def _guild_lead_or_staff(member: Member) -> bool:
-    # Admins and guild officers can edit every guild page (membership.permissions),
+    # Admins can edit every guild page (membership.permissions),
     # so the guild-lead tour is theirs too. They need an active guild to run it on
     # (the entry URL is a guild edit page), so an empty-guilds site doesn't offer it.
     if member.is_guild_lead or member.is_guild_staff:
         return True
-    if member.is_fog_admin or member.is_guild_officer:
+    if member.is_fog_admin:
         from membership.models import Guild
 
         return Guild.objects.filter(is_active=True).exists()
@@ -107,10 +107,10 @@ def _admin_audience(member: Member) -> bool:
 
 def _first_staffed_guild_pk(member: Member) -> dict[str, Any]:
     # Any guild the member leads/staffs works: the tour targets the tab strip,
-    # identical on every guild. Admins/officers staff no guild of their own, so
+    # identical on every guild. An admin may staff no guild of their own, so
     # they fall back to the first active guild (they can edit every guild page).
     guild = member.staffed_guilds.first()
-    if guild is None and (member.is_fog_admin or member.is_guild_officer):
+    if guild is None and member.is_fog_admin:
         from membership.models import Guild
 
         guild = Guild.objects.filter(is_active=True).order_by("name").first()
