@@ -20,7 +20,7 @@ import pytest
 from django.test import Client
 from django.urls import reverse
 
-from core.features import FEATURES, FeatureState
+from core.features import FEATURES, FEATURES_BY_KEY, FeatureState
 from core.models import FeatureSwitch, SiteConfiguration
 
 pytestmark = pytest.mark.django_db
@@ -44,7 +44,9 @@ def _feature_post_data(states: dict[str, str] | None = None, messages: dict[str,
     invalid one.
     """
     FeatureSwitch.objects.sync_registry()
-    rows = list(FeatureSwitch.objects.all())  # Meta.ordering = feature_key, same as the formset
+    rows = list(
+        FeatureSwitch.objects.filter(feature_key__in=FEATURES_BY_KEY)
+    )  # Meta.ordering = feature_key, same as the formset
     states = states or {}
     messages = messages or {}
     data = {
@@ -80,8 +82,8 @@ def describe_saving_a_state_through_the_view():
 
     def it_round_trips_hidden(client: Client):
         _superuser(client)
-        client.post(URL, _settings_post(states={"meetings": FeatureState.HIDDEN}))
-        assert _state_of("meetings") == FeatureState.HIDDEN
+        client.post(URL, _settings_post(states={"directory": FeatureState.HIDDEN}))
+        assert _state_of("directory") == FeatureState.HIDDEN
 
     def it_comes_back_to_on(client: Client):
         """All three states through the view, not just through the form.
@@ -312,7 +314,9 @@ def describe_the_my_tab_card():
         _superuser(client, "mytabcard")
         FeatureSwitch.objects.sync_registry()
         html = client.get(URL).content.decode()
-        index = [row.feature_key for row in FeatureSwitch.objects.all()].index("my_tab")
+        index = [row.feature_key for row in FeatureSwitch.objects.filter(feature_key__in=FEATURES_BY_KEY)].index(
+            "my_tab"
+        )
         assert "My Tab" in html
         assert "The one switch here that does more than the sidebar." in html
         for state in ("on", "soon", "hidden"):
@@ -338,7 +342,7 @@ def describe_a_row_error():
         _superuser(client)
         data = _settings_post()
         FeatureSwitch.objects.sync_registry()
-        index = [row.feature_key for row in FeatureSwitch.objects.all()].index("wiki")
+        index = [row.feature_key for row in FeatureSwitch.objects.filter(feature_key__in=FEATURES_BY_KEY)].index("wiki")
         data[f"features-{index}-state"] = "sideways"
         before = _state_of("wiki")
         response = client.post(URL, data)
@@ -366,3 +370,39 @@ def describe_a_row_error():
         html = client.get(URL).content.decode()
         assert "data-row-errors" not in html
         assert "data-unmatched-row-errors" not in html
+
+
+def describe_a_retired_feature_row():
+    """A key that left the registry keeps its row (sync_registry never deletes one) but has no card.
+
+    Production keeps a Hidden ``meetings`` row after #1171 removed the Meetings feature.
+    """
+
+    def _page_post(client: Client, states: dict[str, str]) -> dict[str, str]:
+        """The POST the rendered page makes: the management form plus the fields of each card."""
+        response = client.get(URL)
+        formset = response.context["feature_formset"]
+        data = {"late_cancel_notice_hours": "24", "late_cancel_grace_hours": "2"}
+        for name, field in formset.management_form.fields.items():
+            data[formset.management_form.add_prefix(name)] = str(
+                formset.management_form.initial.get(name, field.initial)
+            )
+        for row in response.context["feature_rows"]:
+            form = row["form"]
+            data[form.add_prefix("id")] = str(form.instance.pk)
+            data[form.add_prefix("state")] = states.get(form.instance.feature_key, form.instance.state)
+            data[form.add_prefix("message")] = form.instance.message
+        return data
+
+    def it_does_not_block_save(client: Client):
+        _superuser(client)
+        FeatureSwitch.objects.update_or_create(feature_key="meetings", defaults={"state": FeatureState.HIDDEN})
+        response = client.post(URL, _page_post(client, {"voting": FeatureState.SOON}))
+        assert response.status_code == 302
+        assert _state_of("voting") == FeatureState.SOON
+
+    def it_keeps_the_row_as_it_was(client: Client):
+        _superuser(client)
+        FeatureSwitch.objects.update_or_create(feature_key="meetings", defaults={"state": FeatureState.HIDDEN})
+        client.post(URL, _page_post(client, {}))
+        assert _state_of("meetings") == FeatureState.HIDDEN

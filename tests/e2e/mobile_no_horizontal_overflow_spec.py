@@ -31,7 +31,6 @@ from tests.membership.factories import (
     GuildLinkFactory,
     GuildStaffMembershipFactory,
     LeadershipBadgeFactory,
-    MeetingFactory,
     MemberFactory,
     MembershipPlanFactory,
 )
@@ -50,7 +49,6 @@ PAGES = [
     ("guild_detail", "hub_guild_detail", (GUILD_SLUG,)),
     ("member_directory", "hub_member_directory", ()),
     ("user_settings", "hub_user_settings", ()),
-    ("meetings_home", "hub_meetings", ()),
     ("hub_home", "hub_home", ()),
 ]
 
@@ -84,7 +82,6 @@ def _seed_world() -> None:
         LeadershipBadgeFactory(label=label).give(guild.guild_lead)
     GuildStaffMembershipFactory(guild=guild, member=MemberFactory(full_legal_name="Bartholomew Cavendish"))
     GuildLinkFactory(guild=guild, label="Ravelry group", url="https://example.com/ravelry")
-    MeetingFactory(guild=guild)
 
 
 def describe_mobile_no_horizontal_overflow():

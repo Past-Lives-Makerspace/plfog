@@ -20,6 +20,7 @@ from tests.membership.factories import (
     CommunityEventFactory,
     GuildFactory,
     MeetingFactory,
+    MeetingItemProposalFactory,
     MembershipPlanFactory,
 )
 
@@ -100,11 +101,6 @@ def describe_Meeting():
         def it_allows_a_special_title_on_a_special_meeting():
             meeting = MeetingFactory(is_special=True, special_title="Planning")
             assert meeting.pk is not None
-
-    def describe_absolute_url():
-        def it_points_at_the_workspace_route():
-            meeting = MeetingFactory()
-            assert meeting.absolute_url.endswith(f"/meetings/{meeting.pk}/")
 
     def describe_queryset():
         def describe_upcoming():
@@ -460,3 +456,11 @@ def describe_calendar_mismatch():
 
     def it_has_no_linked_occurrence_while_unlinked():
         assert MeetingFactory(event=None).linked_occurrence_starts_at is None
+
+
+def describe_MeetingItemProposal():
+    def describe_request_bell_path():
+        def it_is_the_link_its_bell_rows_were_written_with():
+            """The meeting page is gone (#1171); the path stays literal so old bell rows still clear."""
+            proposal = MeetingItemProposalFactory()
+            assert proposal.request_bell_path == f"/meetings/{proposal.meeting_id}/#proposal-{proposal.pk}"

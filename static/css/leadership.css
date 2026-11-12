@@ -7,8 +7,8 @@
    Loaded by templates/hub/leadership_directory.html and, for the admin page's own rules at
    the end, templates/hub/admin/leadership.html. The hero comes from hub.css (.pl-guild-hero,
    .pl-teach-hero); the editor's people rows reuse hub.css's Slideshow row classes
-   (.pl-slide-card, .pl-slide-grip, .pl-slide-move__btn) and its save state pill is the meeting
-   workspace's (.pl-meeting-savestate). The phone rules sit at the end so they win over the
+   (.pl-slide-card, .pl-slide-grip, .pl-slide-move__btn) and its save state pill is the shared
+   .pl-meeting-savestate. The phone rules sit at the end so they win over the
    unconditional ones above them. */
 
 .pl-leadership {

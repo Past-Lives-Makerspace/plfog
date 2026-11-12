@@ -110,7 +110,6 @@ from membership.models import (
     LeadershipListing,
     LeadershipPage,
     LeadershipTab,
-    Meeting,
     Member,
     MemberContact,
     OrgInfoPage,
@@ -780,25 +779,16 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     announcement = published_announcements.active().first()
     published_announcement_count = published_announcements.count()
     has_past_announcements = published_announcement_count > 1
-    # The Meetings tab (§6.4, #891). Its Meetings feature parts (the next meeting and the past
-    # meetings, #1113) follow the switch and are built only while it is on; the guild's meeting
-    # notes (the ones leads post in the editor) show on the tab whatever the switch says, to
-    # signed in viewers, newest meeting first (Meta.ordering), attachments in the same prefetch.
-    # The tab shows on the members surface when the feature is on, the guild has notes, or the
-    # viewer can edit it, so a lead's empty state can point at the editor.
-    meetings_feature_on = is_on("meetings") and not guilds_surface
+    # The Meetings tab (#891) holds the guild's meeting notes (the ones leads post in the editor),
+    # for signed in viewers, newest meeting first (Meta.ordering), attachments in the same prefetch.
+    # It shows on the members surface when the guild has notes or the viewer can edit it, so a
+    # lead's empty state can point at the editor.
     meeting_notes = (
         list(guild.meeting_notes.prefetch_related("attachments"))
         if not guilds_surface and request.user.is_authenticated
         else []
     )
-    show_meetings_tab = not guilds_surface and (meetings_feature_on or bool(meeting_notes) or can_edit_this_guild)
-    next_guild_meeting = None
-    past_meetings: list[Meeting] = []
-    if meetings_feature_on:
-        guild_meetings = Meeting.objects.for_scope(guild).select_related("guild")
-        next_guild_meeting = guild_meetings.upcoming().first()
-        past_meetings = list(guild_meetings.past().order_by("-scheduled_date", "-pk")[:5])
+    show_meetings_tab = not guilds_surface and (bool(meeting_notes) or can_edit_this_guild)
     # Gate the roster on the viewer, not just the guild opt-in: an anonymous guest
     # must never see member names/avatars (the count-only chip lives in the hero).
     roster = guild.roster_members() if guild.show_members and member is not None else None
@@ -969,7 +959,8 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     from membership.models import NextMeetingSources
     from membership.services.location_status import guild_location_statuses
 
-    meeting_sources = NextMeetingSources.load([guild], with_meetings=is_on("meetings"))
+    # Meeting rows stay out of the Next Meeting card: the Meetings page that scheduled them is gone (#1171).
+    meeting_sources = NextMeetingSources.load([guild], with_meetings=False)
     return render(
         request,
         "hub/guild_detail.html",
@@ -992,12 +983,8 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "has_past_announcements": has_past_announcements,
             # Every post expired: "No current announcements." rather than "No announcements yet."
             "has_published_announcements": published_announcement_count > 0,
-            "next_guild_meeting": next_guild_meeting,
-            # The Next Meeting card and its stat chip show the soonest of anything (#953); the
-            # Meetings tab's "Schedule it" reads the soonest meeting. One load feeds both.
+            # The Next Meeting card and its stat chip show the soonest of anything (#953).
             "next_meeting": guild.next_meeting_occurrence(meeting_sources),
-            "next_scheduled_meeting": guild.next_meeting_occurrence(meeting_sources, meetings_only=True),
-            "past_meetings": past_meetings,
             "roster": roster,
             "member": member,
             "is_member_of_guild": is_member_of_guild,
@@ -9974,11 +9961,16 @@ def _automation_jobstate_queryset() -> Any:
 
 def _feature_switch_queryset() -> Any:
     """State rows for every registry feature, seeding any that are missing first so the formset
-    always has a row to bind (the Automations pattern; the panel is always in the DOM)."""
+    always has a row to bind (the Automations pattern; the panel is always in the DOM).
+
+    A retired feature's row stays in the table but has no card, so it stays out of the formset:
+    bound but never posted, it would fail as a required field and block Save (#1171).
+    """
+    from core.features import FEATURES_BY_KEY
     from core.models import FeatureSwitch
 
     FeatureSwitch.objects.sync_registry()
-    return FeatureSwitch.objects.all()
+    return FeatureSwitch.objects.filter(feature_key__in=FEATURES_BY_KEY)
 
 
 def _build_feature_rows(formset: Any) -> list[dict[str, Any]]:
