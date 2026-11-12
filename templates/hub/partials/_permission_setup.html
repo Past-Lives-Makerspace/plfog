@@ -11,10 +11,10 @@ back on after a button), tab (the page's tab, so the Guide tab leaves out Open t
 {% with spec=setup.spec %}
 {% if setup.finished %}
 <div class="hub-card pl-perm-done" data-permission-setup="{{ spec.permission }}" data-setup-done>
-  <span class="pl-perm-done__badge">{% include "hub/partials/leadership/_badge_pills.html" with badges=setup.badges list_class="pl-directory-badges" %}</span>
+  {% if setup.badges %}<span class="pl-perm-done__badge">{% include "hub/partials/leadership/_badge_pills.html" with badges=setup.badges list_class="pl-directory-badges" %}</span>{% endif %}
   <div class="pl-perm-done__text">
     <p class="pl-perm-done__title">{{ spec.done_title }}</p>
-    <p class="pl-perm-done__line">{{ spec.done_line }}</p>
+    <p class="pl-perm-done__line">{{ setup.done_line }}</p>
     {% if setup.facts.stats %}
     <ul class="pl-perm-done__stats" aria-label="Your {{ spec.label }} tally">
       {% for stat in setup.facts.stats %}

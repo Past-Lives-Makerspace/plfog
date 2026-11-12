@@ -101,7 +101,10 @@ class PermissionSetupSpec:
     #: The tab that shows the permission's wiki page and brings a hidden card back.
     guide_url_name: str
     done_title: str
+    #: The folded card's line while the member holds the badge.
     done_line: str
+    #: The line instead, once an admin has taken the badge away on the Badges page.
+    done_line_without_badge: str
     #: The one rule the folded card states, e.g. how a guide is paid. Never a tracked figure.
     rule_line: str
     #: The toast the member sees once, when setup finishes.
@@ -115,6 +118,11 @@ class PermissionSetupSpec:
         from membership.models import AdminCapability
 
         return AdminCapability.Capability(self.permission).label
+
+    def email_steps(self, member: Member) -> tuple[SetupStep, ...]:
+        """The steps the grant email lists: those this site can do now, by the same check the card uses."""
+        unavailable = self.facts(member).unavailable
+        return tuple(step for step in self.steps if step.key not in unavailable)
 
     def step(self, key: str) -> SetupStep:
         """The step called ``key``.
@@ -166,11 +174,20 @@ class SetupState:
     just_finished: bool
 
     @classmethod
-    def load(cls, member: Member, permission: str) -> SetupState | None:
+    def evaluate(cls, member: Member, permission: str) -> None:
+        """Finish setup if every required step is now done, without using up the toast.
+
+        For a save path that may finish setup for someone else (an admin marking a guide's tour
+        Attended): the badge lands at once, and the guide still sees the toast on their next visit.
+        """
+        cls.load(member, permission, celebrate=False)
+
+    @classmethod
+    def load(cls, member: Member, permission: str, *, celebrate: bool = True) -> SetupState | None:
         """The member's card for ``permission``, or None when they were not granted it or it has no card.
 
         Finishes setup (the badge, :meth:`PermissionSetup.finish`) the first time every required
-        step is done, and celebrates it once (:meth:`PermissionSetup.celebrate`).
+        step is done, and, unless ``celebrate`` is False, celebrates it once (:meth:`PermissionSetup.celebrate`).
         """
         from membership.models import AdminCapability, PermissionSetup
 
@@ -197,7 +214,7 @@ class SetupState:
             steps=steps,
             facts=facts,
             granter_name=granter_name or "an admin",
-            just_finished=row.celebrate(),
+            just_finished=row.celebrate() if celebrate else False,
         )
 
     @property
@@ -207,12 +224,20 @@ class SetupState:
 
     @property
     def badges(self) -> list[LeadershipBadge]:
-        """The badge setup earned, as the pill list the directory draws (empty before it is earned)."""
+        """The badge setup earned, as the pill list the directory draws: only while the member holds it.
+
+        Empty before setup finishes, and after an admin takes the badge away on the Badges page.
+        """
         from membership.models import LeadershipBadge
 
         if not self.finished:
             return []
-        return list(LeadershipBadge.objects.filter(permission=self.spec.permission))
+        return list(LeadershipBadge.objects.filter(permission=self.spec.permission, members=self.row.member_id))
+
+    @property
+    def done_line(self) -> str:
+        """The folded card's line, true to whether the member still holds the badge."""
+        return self.spec.done_line if self.badges else self.spec.done_line_without_badge
 
     @property
     def hidden(self) -> bool:

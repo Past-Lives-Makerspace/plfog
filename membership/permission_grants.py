@@ -79,7 +79,7 @@ def card_title(grant: str, guild: Guild | None) -> str:
     return title
 
 
-def _card(grant: str, guide: PermissionGuide, guild: Guild | None) -> dict[str, Any]:
+def _card(member: Member, grant: str, guide: PermissionGuide, guild: Guild | None) -> dict[str, Any]:
     from membership.permission_setup import spec_for
 
     card: dict[str, Any] = {
@@ -93,7 +93,7 @@ def _card(grant: str, guide: PermissionGuide, guild: Guild | None) -> dict[str, 
     if spec is not None:
         setup_url = member_absolute_url(reverse(spec.page_url_name))
         card.update(
-            steps=[step.email_line for step in spec.steps],
+            steps=[step.email_line for step in spec.email_steps(member)],
             page_name=spec.page_name,
             rule_line=spec.rule_line,
             pages=[("Get Set Up", setup_url)],
@@ -113,7 +113,7 @@ def email_context(member: Member, grant: str, granter: Member | None, guild: Gui
         "headline": granted_subject(grant, guild),
         "granter_name": granter.display_name if granter is not None else "An admin",
         "help_contact": granter.display_name if granter is not None else "an admin",
-        "card": _card(grant, AdminCapability.GUIDES[grant], guild),
+        "card": _card(member, grant, AdminCapability.GUIDES[grant], guild),
         "portal_url": member_absolute_url(reverse("hub_home")),
     }
 

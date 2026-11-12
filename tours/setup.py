@@ -68,6 +68,7 @@ TOUR_GUIDE_SETUP = PermissionSetupSpec(
     guide_url_name="tours:guide",
     done_title="You're a Tour Guide",
     done_line="Your badge now shows on your Member Directory card, so members know who to ask about tours.",
+    done_line_without_badge="You're set up to give tours.",
     rule_line=PAY_RULE,
     celebration="Your Tour Guide badge is on your Member Directory card.",
     facts=tour_guide_facts,

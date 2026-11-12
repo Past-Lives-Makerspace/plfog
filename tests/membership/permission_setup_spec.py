@@ -11,6 +11,7 @@ Names are factory strings no changelog could contain (STANDARDS.md section 8).
 from __future__ import annotations
 
 import importlib
+from datetime import timedelta
 
 import pytest
 from django.apps import apps as django_apps
@@ -230,6 +231,27 @@ def describe_SetupState_load():
             stats = _load(guide).facts.stats
             assert [(stat.label, stat.value) for stat in stats] == [("Tours Given", 2), ("Visitors", 6)]
 
+        def it_drops_the_pill_and_the_badge_line_once_an_admin_takes_the_badge():
+            guide = _guide()
+            _do_required(guide)
+            assert _load(guide).done_line == tour_setup.TOUR_GUIDE_SETUP.done_line
+            LeadershipBadge.objects.get(permission=TOUR_GUIDE).take(guide)
+            state = _load(guide)
+            assert state.finished
+            assert state.badges == []
+            assert state.done_line == "You're set up to give tours."
+
+        def it_shows_only_the_members_own_badge():
+            guide = _guide()
+            _do_required(guide)
+            _load(guide)
+            other = _guide()
+            _do_required(other)
+            _load(other)
+            LeadershipBadge.objects.get(permission=TOUR_GUIDE).take(guide)
+            assert _load(guide).badges == []
+            assert len(_load(other).badges) == 1
+
         def it_has_no_badges_before_finishing():
             assert _load(_guide()).badges == []
 
@@ -250,6 +272,43 @@ def describe_SetupState_load():
             assert _load(guide).hidden
             _load(guide).row.show()
             assert not _load(guide).hidden
+
+
+def describe_marking_attended_from_the_save_path():
+    def it_gives_the_badge_without_the_guide_opening_tours_and_keeps_their_toast():
+        from tours.booking import mark_tour_outcome
+
+        guide = _guide()
+        TourHoursFactory(guide=guide)
+        PermissionSetup.for_member(guide, TOUR_GUIDE).mark_read(tour_setup.LEARN)
+        starts = timezone.now() - timedelta(hours=2)
+        booking = TourBookingFactory(guide=guide, starts_at=starts, ends_at=starts + timedelta(hours=1))
+        mark_tour_outcome(booking, TourBooking.Status.ATTENDED)
+        assert guide.leadership_badges.filter(permission=TOUR_GUIDE).exists()
+        row = PermissionSetup.objects.get(member=guide)
+        assert row.completed_at is not None
+        assert row.celebrated_at is None
+        assert _load(guide).just_finished
+
+    def it_changes_nothing_for_a_guide_without_the_grant():
+        from tours.booking import mark_tour_outcome
+
+        admin_guide = MemberFactory()
+        starts = timezone.now() - timedelta(hours=2)
+        booking = TourBookingFactory(guide=admin_guide, starts_at=starts, ends_at=starts + timedelta(hours=1))
+        mark_tour_outcome(booking, TourBooking.Status.ATTENDED)
+        assert not PermissionSetup.objects.filter(member=admin_guide).exists()
+        assert not LeadershipBadge.objects.filter(permission=TOUR_GUIDE).exists()
+
+    def it_leaves_a_guide_with_steps_left_unfinished():
+        from tours.booking import mark_tour_outcome
+
+        guide = _guide()
+        starts = timezone.now() - timedelta(hours=2)
+        booking = TourBookingFactory(guide=guide, starts_at=starts, ends_at=starts + timedelta(hours=1))
+        mark_tour_outcome(booking, TourBooking.Status.NO_SHOW)
+        mark_tour_outcome(booking, TourBooking.Status.ATTENDED)
+        assert PermissionSetup.objects.get(member=guide).completed_at is None
 
 
 def describe_revoking_tour_guide():

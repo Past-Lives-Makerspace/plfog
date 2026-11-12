@@ -74,6 +74,8 @@ def _restore_latest_migrations(request: pytest.FixtureRequest, django_db_blocker
         leaves = executor.loader.graph.leaf_nodes()
         if executor.migration_plan(leaves):
             executor.migrate(leaves)
+            # Migrating forward ran 0278 again; later specs expect the wiki empty.
+            _drop_seeded_guide_pages()
 
 
 @pytest.fixture(autouse=True)
@@ -111,28 +113,22 @@ def _fake_stripe_keys(settings):
     settings.STRIPE_FIELD_ENCRYPTION_KEY = "b4-PlK9DFN7ABVCQwOHuQXMydh5IUj1ysLKGJOqMEWI="
 
 
-@pytest.fixture(autouse=True)
-def _without_seeded_guide_pages(request: pytest.FixtureRequest) -> None:
-    """Start every database spec with the wiki as empty as it was before #1167.
+def _drop_seeded_guide_pages() -> None:
+    """Remove the pages migration ``membership.0278`` seeds, so specs start with the wiki as empty as before #1167.
 
-    Migration ``membership.0278`` seeds the Tour Guide Guide page on deploy, and the test
-    database is built from the migrations, so without this every wiki list, count and search
-    spec would meet one page nobody made. A spec about that page asks for ``tour_guide_guide``.
-    A migration spec is left alone: it moves the schema to before ``guide_for`` existed.
+    The test database is built from the migrations, so without this every wiki list, count and
+    search spec would meet one page nobody made. A spec about that page asks for ``tour_guide_guide``.
     """
-    if "migration" in str(request.path):
-        return
-    if request.node.get_closest_marker("django_db") is not None:
-        request.getfixturevalue("_django_db_helper")
-    elif "transactional_db" in request.fixturenames:
-        request.getfixturevalue("transactional_db")
-    elif "db" in request.fixturenames:
-        request.getfixturevalue("db")
-    else:
-        return
     from membership.models import WikiPage
 
     WikiPage.objects.exclude(guide_for="").delete()
+
+
+@pytest.fixture(scope="session")
+def django_db_setup(django_db_setup: None, django_db_blocker: DjangoDbBlocker) -> None:
+    """pytest-django's database, built from the migrations, without the seeded guide pages (once per session)."""
+    with django_db_blocker.unblock():
+        _drop_seeded_guide_pages()
 
 
 @pytest.fixture

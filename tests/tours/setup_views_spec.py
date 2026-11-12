@@ -104,6 +104,20 @@ def describe_the_card_on_the_tours_page():
         assert tour_setup.TOUR_GUIDE_SETUP.celebration not in _flashes(client.get(UPCOMING))
 
 
+def describe_the_folded_card_after_an_admin_takes_the_badge():
+    def it_shows_no_pill_and_no_directory_claim(guide: Member):
+        _ready_but_first_tour(guide)
+        _past(guide, status=TourBooking.Status.ATTENDED)
+        client = signed_in(guide)
+        client.get(UPCOMING)
+        LeadershipBadge.objects.get(permission=TOUR_GUIDE).take(guide)
+        content = client.get(UPCOMING).content.decode()
+        assert "data-setup-done" in content
+        assert "pl-perm-done__badge" not in content
+        assert "Your badge now shows on your Member Directory card" not in content
+        assert "You&#x27;re set up to give tours." in content
+
+
 def describe_the_buttons():
     def it_ticks_the_reading_step_on_got_it_and_lands_on_next(guide: Member):
         response = signed_in(guide).post(_url("got_it"), {"step": tour_setup.LEARN, "next": GUIDE})
