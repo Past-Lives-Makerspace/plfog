@@ -686,26 +686,6 @@ ACCOUNT_RATE_LIMITS: dict[str, str] | bool = False if DEBUG else {"request_login
 LOGIN_CODE_HOURLY_LIMIT = int(os.environ.get("LOGIN_CODE_HOURLY_LIMIT", "100"))
 LOGIN_CODE_DAILY_LIMIT = int(os.environ.get("LOGIN_CODE_DAILY_LIMIT", "500"))
 
-# Auto-admin: comma-separated list of email domains that get admin privileges on login.
-# Empty/unset means no auto-admin. Malformed values raise ValueError at startup.
-_admin_domains_raw = os.environ.get("ADMIN_DOMAINS", "")
-if _admin_domains_raw.strip():
-    _parsed_domains: list[str] = []
-    for _domain in _admin_domains_raw.split(","):
-        _domain = _domain.strip().lower()
-        if not _domain:
-            raise ValueError(f"ADMIN_DOMAINS contains an empty domain entry: {_admin_domains_raw!r}")
-        if "@" in _domain:
-            raise ValueError(f"ADMIN_DOMAINS should contain domain names, not email addresses: {_domain!r}")
-        if " " in _domain:
-            raise ValueError(f"ADMIN_DOMAINS contains a domain with spaces: {_domain!r}")
-        if "." not in _domain:
-            raise ValueError(f"ADMIN_DOMAINS contains an invalid domain (no dot): {_domain!r}")
-        _parsed_domains.append(_domain)
-    ADMIN_DOMAINS: list[str] = _parsed_domains
-else:
-    ADMIN_DOMAINS = []
-
 EMAIL_BACKEND = os.environ.get(
     "EMAIL_BACKEND",
     "django.core.mail.backends.console.EmailBackend" if DEBUG else "anymail.backends.resend.EmailBackend",
