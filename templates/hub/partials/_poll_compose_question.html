@@ -28,7 +28,7 @@
       <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" x-show="total() < {{ max_options|default:4 }}" @click="shown++" data-compose-poll-add-option>+ Add option</button>
       <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" x-show="!writeIn &amp;&amp; total() < {{ max_options|default:4 }}" @click="writeIn = true; $nextTick(() => $refs.writeInInput.focus())" data-compose-poll-add-write-in>+ Add write-in option</button>
     </div>
-    <p class="pl-field-hint" x-show="writeIn" x-cloak>Members who pick it type their own answer. It counts as one of the 4 options, and only you and admins see what they typed when results are public.</p>
+    <p class="pl-field-hint" x-show="writeIn" x-cloak>Members who pick it type their own answer. It counts as one of the 4 options, and results list what each person typed.</p>
   </div>
   <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" @click="deleteQuestion($el)" data-compose-poll-delete-question>Delete question</button>
 </fieldset>
