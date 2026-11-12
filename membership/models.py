@@ -4763,7 +4763,7 @@ class AdminCapability(models.Model):
             "Gets an alert when an automation fails, such as the reminder emails, saying what broke and when. "
             "Admins can open its run history from the alert."
         ),
-        Capability.TOUR_GUIDE: "Gives facility tours: sets their own tour hours and hears about bookings in them.",
+        Capability.TOUR_GUIDE: "Gives facility tours: sets tour hours and hears about bookings in them.",
     }
 
     #: The three grants that are not capabilities but send the same email (#1163).

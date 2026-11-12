@@ -121,7 +121,7 @@ def describe_capabilities_form():
         assert list(form.fields)[-1] == "cap_tour_guide"
         assert form.fields["cap_tour_guide"].label == "Tour Guide"
         assert form.fields["cap_tour_guide"].help_text == (
-            "Gives facility tours: sets their own tour hours and hears about bookings in them."
+            "Gives facility tours: sets tour hours and hears about bookings in them."
         )
 
     def it_initializes_the_tour_guide_toggle_from_an_existing_grant():
