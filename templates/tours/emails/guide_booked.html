@@ -1,7 +1,8 @@
 {% extends "membership/emails/_base.html" %}
 {% block content %}
-<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">{% if actor_name %}Tour moved to you{% else %}New tour booked{% endif %}</p>
-<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">{% if actor_name %}{{ actor_name }} moved <strong>{{ booking.visitor_name }}</strong>'s tour for {{ people }} to you. The visitor has been emailed.{% else %}<strong>{{ booking.visitor_name }}</strong> booked a tour for {{ people }}.{% endif %}</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">{% if booking.is_request %}New tour request{% elif actor_name %}Tour moved to you{% else %}New tour booked{% endif %}</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">{% if booking.is_request %}<strong>{{ booking.visitor_name }}</strong> asked for a <a href="{{ request_url }}" style="color: #0d4876;">tour</a> for {{ people }}. Their seats are held until you confirm or decline it, and they are emailed either way.</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;"><strong>Confirm by {{ confirm_by }}.</strong> A request still waiting then is cancelled and the visitor told.{% elif actor_name %}{{ actor_name }} moved <strong>{{ booking.visitor_name }}</strong>'s tour for {{ people }} to you. The visitor has been emailed.{% else %}<strong>{{ booking.visitor_name }}</strong> booked a tour for {{ people }}.{% endif %}</p>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 8px 0 16px;">
 <tr>
 <td style="padding: 12px 0; border-top: 1px solid rgba(13, 72, 118, 0.12);">
@@ -12,7 +13,14 @@
 </td>
 </tr>
 </table>
+{% if booking.is_request %}
+<div style="text-align: center; margin: 24px 0 0;">
+    <a href="{{ request_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Confirm</a>
+</div>
+<p style="margin: 16px 0 0; text-align: center; font-size: 12px; color: #55697a;">Can't give it? <a href="{{ request_url }}" style="color: #0d4876;">Decline</a> on your Upcoming tab.</p>
+{% else %}
 <div style="text-align: center; margin: 24px 0 0;">
     <a href="{{ tours_page_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Open Tours</a>
 </div>
+{% endif %}
 {% endblock %}

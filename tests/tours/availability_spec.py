@@ -165,12 +165,13 @@ def describe_open_tours():
             "11:00",
         ]
 
-    def it_costs_four_queries_however_long_the_range(guide: Member, django_assert_num_queries):
+    def it_costs_five_queries_however_long_the_range(guide: Member, django_assert_num_queries):
         TourHoursFactory(guide=guide)
         TourDayOffFactory(guide=guide, starts_on=TUESDAY)
         TourBookingFactory(guide=guide, starts_at=local(TUESDAY + timedelta(days=7), 16))
         FacilityTourSettings.load()
-        with django_assert_num_queries(4):
+        # Settings, hours, days off, seats, and the Confirm First guides' own notice (#1166).
+        with django_assert_num_queries(5):
             open_tours(MONDAY, MONDAY + timedelta(days=30), now=NOW)
 
     def it_asks_nothing_more_once_no_guide_has_hours(django_assert_num_queries):

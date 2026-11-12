@@ -1,0 +1,12 @@
+{% extends "tours/emails/_base.html" %}
+{% block content %}
+<p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ greeting_name }},</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">We got your tour request</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">Your guide confirms each tour of <a href="{{ manage_url }}" style="color: #0d4876; text-decoration: none; font-weight: 700;">Past Lives Makerspace</a> before it is booked. Your spot is held until they answer.</p>
+{% include "tours/emails/_tour.html" %}
+<p style="margin: 0 0 16px; font-size: 13px; color: #55697a; line-height: 1.6;">Your guide has until <strong>{{ confirm_by }}</strong> to confirm. Once they do, we email you again with a calendar invite. If they have not by then, the request is cancelled and we let you know.{% if notice_hours %} Tours with this guide are booked at least {{ notice_hours }} hours ahead.{% endif %}</p>
+<div style="text-align: center; margin: 24px 0 0;">
+    <a href="{{ manage_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">View Your Request</a>
+</div>
+<p style="margin: 16px 0 0; text-align: center; font-size: 12px; color: #55697a;">Can't make it? <a href="{{ cancel_url }}" style="color: #0d4876;">Cancel your request</a></p>
+{% endblock %}

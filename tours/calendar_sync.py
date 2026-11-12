@@ -631,7 +631,9 @@ def sync_booking(row: TourCalendarSync, *, now: datetime, guard: RunGuard | None
     booking = row.booking
     connection = _guide_connection(booking)
     deadline = Deadline(WRITE_DEADLINE_SECONDS, guard)
-    want = booking.status != TourBooking.Status.CANCELLED and connection is not None
+    # A request (#1166) goes on the guide's calendar only once they confirm it.
+    unwanted = (TourBooking.Status.CANCELLED, TourBooking.Status.PENDING)
+    want = booking.status not in unwanted and connection is not None
     in_place = (
         connection is not None and row.connection_id == connection.pk and row.calendar_id == connection.calendar_id
     )

@@ -104,6 +104,26 @@ def enqueue_on_commit(task: Task[..., Any], *args: Any, **kwargs: Any) -> None:
     transaction.on_commit(lambda: _enqueue(task, stored["args"], stored["kwargs"]), robust=True)
 
 
+def enqueue_at_on_commit(task: Task[..., Any], run_after: datetime, *args: Any, **kwargs: Any) -> None:
+    """Like :func:`enqueue_on_commit`, but the task waits until ``run_after`` (an aware datetime).
+
+    The database backend keeps the row until then and the worker claims it only once it is due,
+    so a deadline needs no polling job. Under pytest the immediate backend cannot wait, so nothing
+    is queued there: a spec runs the task itself, or swaps in the dummy backend to see the queued
+    row and its ``run_after``.
+
+    Raises:
+        ValueError: ``run_after`` is naive.
+        TypeError: An argument is not JSON.
+    """
+    if not timezone.is_aware(run_after):
+        raise ValueError("run_after must be an aware datetime.")
+    if not task.get_backend().supports_defer:
+        logger.info("Not queueing %s for %s: this task backend cannot wait.", task.module_path, run_after)
+        return
+    enqueue_on_commit(task.using(run_after=run_after), *args, **kwargs)
+
+
 def _enqueue(task: Task[..., Any], args: list[Any], kwargs: dict[str, Any]) -> None:
     """Enqueue now; a failure is logged and alerts the Webmasters instead of raising."""
     try:

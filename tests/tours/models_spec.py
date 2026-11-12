@@ -176,12 +176,13 @@ def describe_tour_booking():
         assert len(first.self_serve_token) >= 40
         assert first.self_serve_token != second.self_serve_token
 
-    def it_holds_seats_only_while_booked_or_attended():
+    def it_holds_seats_while_booked_attended_or_requested():
         assert [TourBookingFactory.build(status=status).holds_seats for status in TourBooking.Status.values] == [
             True,
             False,
             True,
             False,
+            True,
         ]
 
     def it_names_the_visitor_party_and_local_start():

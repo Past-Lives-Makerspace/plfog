@@ -231,11 +231,11 @@ def describe_what_visitors_are_offered():
         assert tour is not None and (tour.hours_id, tour.seats, tour.seats_left) == (row.pk, 6, 6)
         assert open_tour_at(guide, local(NEXT_SATURDAY, 11), now=NOW) is None
 
-    def it_reads_only_the_dated_rows_in_range_in_the_same_four_queries(guide: Member, django_assert_num_queries):
+    def it_reads_only_the_dated_rows_in_range_in_the_same_five_queries(guide: Member, django_assert_num_queries):
         _dated(guide, SATURDAY)
         _dated(guide, NEXT_SATURDAY + timedelta(days=7))
         FacilityTourSettings.load()
-        with django_assert_num_queries(4):
+        with django_assert_num_queries(5):
             tours = open_tours(SATURDAY, NEXT_SATURDAY, now=NOW)
         assert len(tours) == 4
 

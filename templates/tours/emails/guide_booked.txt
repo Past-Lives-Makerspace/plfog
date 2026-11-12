@@ -1,4 +1,8 @@
-{% autoescape off %}{% if actor_name %}Tour moved to you
+{% autoescape off %}{% if booking.is_request %}New tour request
+
+{{ booking.visitor_name }} asked for a tour for {{ people }}. Their seats are held until you confirm or decline it, and they are emailed either way.
+
+Confirm by {{ confirm_by }}. A request still waiting then is cancelled and the visitor told.{% elif actor_name %}Tour moved to you
 
 {{ actor_name }} moved {{ booking.visitor_name }}'s tour for {{ people }} to you. The visitor has been emailed.{% else %}New tour booked
 
@@ -7,5 +11,5 @@
   When: {{ when }}
   Visitor: {{ booking.visitor_email }}{% if booking.visitor_phone %}, {{ booking.visitor_phone }}{% endif %}
 
-Open Tours: {{ tours_page_url }}
+{% if booking.is_request %}Confirm or decline: {{ request_url }}{% else %}Open Tours: {{ tours_page_url }}{% endif %}
 {% include "membership/emails/_footer.txt" %}{% endautoescape %}

@@ -194,7 +194,7 @@ def book(request: HttpRequest) -> HttpResponse:
     tour_settings = FacilityTourSettings.load()
     if not tour_settings.accepting_bookings:
         return _render(request, "tours/kiosk/book.html", {"closed_message": tour_settings.closed_message})
-    tours = all_open_tours()
+    tours = all_open_tours(kiosk=True)
     if request.method == "POST":
         attempt = post_booking(request, tours, offer_account=True, kiosk=True)
         if attempt.booking is not None:
@@ -206,7 +206,7 @@ def book(request: HttpRequest) -> HttpResponse:
             request.session[BOOK_RESULT] = {"already": True}
             return redirect("tours_kiosk:booked")
         if attempt.error:
-            tours = all_open_tours()
+            tours = all_open_tours(kiosk=True)
     else:
         chosen = find_tour(tours, request.GET.get("tour", ""))
         attempt = Attempt(chosen=chosen)

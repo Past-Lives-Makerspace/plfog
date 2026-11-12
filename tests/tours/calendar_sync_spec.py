@@ -366,6 +366,22 @@ def describe_sync_booking():
         assert route.called
         assert (row.event_id, row.connection_id, row.due) == ("", None, False)
 
+    @respx.mock(assert_all_called=False)
+    def it_writes_a_request_only_once_the_guide_confirms_it(
+        respx_mock: Any, connection: TourCalendarConnection, booking: TourBooking
+    ):
+        route = respx_mock.post(PRIMARY).mock(return_value=httpx.Response(200, json={"id": "created"}))
+        booking.status = TourBooking.Status.PENDING
+        booking.save()
+        row = _row(booking)
+        _sync()
+        assert not route.called and TourCalendarSync.objects.get(pk=row.pk).event_id == ""
+        booking.status = TourBooking.Status.BOOKED
+        booking.save()
+        calendar_sync.mark_due(booking.pk)
+        _sync()
+        assert route.called and TourCalendarSync.objects.get(pk=row.pk).event_id == "created"
+
     def it_has_nothing_to_do_for_a_cancelled_tour_never_written(
         connection: TourCalendarConnection, booking: TourBooking
     ):

@@ -2,7 +2,8 @@
 {% comment %}
 The visitor's booking (#948, tours.public_views.manage), opened from the email or right after
 booking (just = "booked"), moving ("moved") or cancelling ("cancelled"). Reschedule and Cancel
-show while refusal is empty. Context: booking, when, refusal, just, address, support_email.
+show while refusal is empty. A request (#1166, booking.is_request) waits for its guide: the page
+says so and offers Cancel My Request alone. Context: booking, when, refusal, just, address, support_email.
 {% endcomment %}
 {% block title %}Your Tour | Past Lives Makerspace{% endblock %}
 
@@ -13,17 +14,23 @@ show while refusal is empty. Context: booking, when, refusal, just, address, sup
       <div class="detail-head">
         <div>
           <div class="dc-cat">{{ booking.get_status_display }}</div>
-          <h1 class="dc-title">{% if just == "booked" %}You're Booked{% elif just == "moved" %}Your Tour Moved{% elif booking.status == "cancelled" %}Your Tour Is Cancelled{% else %}Your Tour{% endif %}</h1>
+          <h1 class="dc-title">{% if booking.is_request %}{% if just == "booked" %}Request Sent{% else %}Your Tour Request{% endif %}{% elif just == "booked" %}You're Booked{% elif just == "moved" %}Your Tour Moved{% elif booking.status == "cancelled" %}Your Tour Is Cancelled{% else %}Your Tour{% endif %}</h1>
         </div>
       </div>
       <div class="detail-body">
-        {% if just == "booked" or just == "moved" %}
+        {% if booking.is_request and just != "cancelled" %}
+        <p class="pl-tourpub__lead" data-tour-requested>Your guide confirms each tour before it is booked, and has until <strong data-tour-confirm-by>{{ confirm_by }}</strong> to do so. Your spot is held until then. We emailed {{ booking.visitor_email }}, and we email you again with a calendar invite once they confirm, or if they have not by then.{% if notice_hours %} Tours with this guide are booked at least {{ notice_hours }} hours ahead.{% endif %}</p>
+        {% elif just == "booked" or just == "moved" %}
         <p class="pl-tourpub__lead" data-tour-confirmed>We emailed {{ booking.visitor_email }} a confirmation with a calendar invite. See you soon!</p>
         {% elif just == "cancelled" %}
         <p class="pl-tourpub__lead" data-tour-cancelled>Your tour is cancelled and we let your guide know. We emailed {{ booking.visitor_email }} to confirm.</p>
         {% endif %}
         {% include "tours/public/_details.html" %}
-        {% if not refusal %}
+        {% if not refusal and booking.is_request %}
+        <div class="pl-tourpub__actions">
+          <a href="{% url 'tours_public:cancel' booking.self_serve_token %}" class="back-link pl-tourpub__secondary" data-tour-cancel>Cancel My Request</a>
+        </div>
+        {% elif not refusal %}
         <div class="pl-tourpub__actions">
           <a href="{% url 'tours_public:reschedule' booking.self_serve_token %}" class="btn-reg" data-tour-reschedule>Reschedule</a>
           <a href="{% url 'tours_public:cancel' booking.self_serve_token %}" class="back-link pl-tourpub__secondary" data-tour-cancel>Cancel My Tour</a>

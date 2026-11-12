@@ -2,13 +2,16 @@
 One booking on the Tours page's Upcoming or Past tab (#949): when, status, the visitor with their
 party, email and phone (tap to mail or call), the guide and how it was booked, then the row's
 actions. Upcoming: Reschedule (loads the modal's body) and Cancel Tour (a confirm with an optional
-message to the visitor). Past: Attended and No Show, either changeable, posted over htmx so the
-row comes back in its new state (tours.views.tour_booking_mark).
+message to the visitor). A request (#1166) carries Confirm and Decline (a confirm with an optional
+message) instead, for the tour's own guide only (#1166, AC10: admins see it, never answer it), with its
+confirm by time; its id is the anchor the guide's request email and bell link to. Past: Attended
+and No Show, either changeable, posted over htmx so the row comes back in its new state
+(tours.views.tour_booking_mark).
 
-Context: booking, tab ("upcoming" or "past"), is_admin.
+Context: booking, tab ("upcoming" or "past"), is_admin, viewer_pk (the viewer's member pk).
 {% endcomment %}
 {% with pks=booking.pk|stringformat:"s" %}
-<li class="hub-card pl-tours-booking" data-tour-booking="{{ booking.pk }}">
+<li class="hub-card pl-tours-booking{% if booking.is_request %} pl-tours-booking--request{% endif %}" id="tour-booking-{{ booking.pk }}" data-tour-booking="{{ booking.pk }}">
   <div class="pl-tours-booking__head">
     <span class="pl-tours-booking__when" data-tour-booking-when>{{ booking.starts_at|date:"D, M j" }} · {{ booking.starts_at|time:"g:i A" }} to {{ booking.ends_at|time:"g:i A" }}</span>
     <span class="pl-status-badge pl-status-badge--{{ booking.status_badge }}" data-tour-booking-status="{{ booking.status }}">{% if tab == "past" and booking.status == "booked" %}Not Marked{% else %}{{ booking.get_status_display }}{% endif %}</span>
@@ -18,7 +21,20 @@ Context: booking, tab ("upcoming" or "past"), is_admin.
     <a href="mailto:{{ booking.visitor_email }}" data-tour-booking-email>{{ booking.visitor_email }}</a>{% if booking.visitor_phone %}<span class="pl-tours-booking__sep" aria-hidden="true">·</span><a href="tel:{{ booking.visitor_phone_href }}" data-tour-booking-phone>{{ booking.visitor_phone }}</a>{% endif %}
   </p>
   <p class="hub-text-muted pl-tours-booking__meta">{% if booking.guide %}Guide: {{ booking.guide.display_name }}{% else %}No guide assigned{% endif %} · Booked on the {{ booking.get_source_display|lower }}{% if booking.checked_in_at %} · <span data-tour-booking-checked-in>Checked in at {{ booking.checked_in_at|time:"g:i A" }}</span>{% endif %}</p>
-  {% if tab == "upcoming" %}
+  {% if tab == "upcoming" and booking.is_request %}
+  <p class="pl-tours-booking__confirm-by" data-tour-confirm-by>Confirm by {{ booking.confirm_by|date:"D, M j" }}, {{ booking.confirm_by|time:"g:i A" }}{% if booking.guide_id != viewer_pk %} · Only {{ booking.guide.display_name|default:"its guide" }} can confirm or decline it{% endif %}</p>
+  {% endif %}
+  {% if tab == "upcoming" and booking.is_request and booking.guide_id == viewer_pk %}
+  <div class="pl-tours-booking__actions">
+    <form method="post" action="{% url 'tours:booking_confirm' booking.pk %}" hx-post="{% url 'tours:booking_confirm' booking.pk %}">
+      {% csrf_token %}
+      <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm" data-tour-confirm="{{ booking.pk }}">Confirm</button>
+    </form>
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'tour-decline-{{ pks }}')" data-tour-decline="{{ booking.pk }}">Decline</button>
+  </div>
+  {% url 'tours:booking_decline' booking.pk as decline_url %}
+  {% include "components/confirm_modal.html" with confirm_id="tour-decline-"|add:pks confirm_title="Decline This Request?" confirm_message="The visitor is emailed and their seats are free again." confirm_hx_post=decline_url confirm_note_name="message" confirm_note_label="Message to the visitor (optional)" confirm_note_hint="Added to the email we send them." confirm_button_text="Decline" confirm_cancel_text="Keep It" %}
+  {% elif tab == "upcoming" and not booking.is_request %}
   <div class="pl-tours-booking__actions">
     <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
             hx-get="{% url 'tours:booking_reschedule' booking.pk %}" hx-target="#tour-reschedule-body" hx-swap="innerHTML"

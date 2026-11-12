@@ -1018,6 +1018,54 @@ def tour_guide_booked_context(data: SampleData) -> dict[str, Any]:
     return {"subject": f"New tour booked: {short_when(booking.starts_at)}", "template_context": guide_context(booking)}
 
 
+def tour_visitor_requested_context(data: SampleData) -> dict[str, Any]:
+    from tours.models import TourBooking
+
+    return _tour_visitor(data, "Your Past Lives tour request: {when}", status=TourBooking.Status.PENDING)
+
+
+def tour_visitor_declined_context(data: SampleData) -> dict[str, Any]:
+    from tours.models import TourBooking
+
+    context = _tour_visitor(data, "Your Past Lives tour request for {when}", status=TourBooking.Status.CANCELLED)
+    context["template_context"].update(
+        by_staff=True, note_label="A note from Gina", staff_message="I am away that weekend. Saturday the 21st is open."
+    )
+    return context
+
+
+def tour_visitor_lapsed_context(data: SampleData) -> dict[str, Any]:
+    from tours.models import TourBooking
+
+    return _tour_visitor(
+        data, "We could not confirm your Past Lives tour on {when}", status=TourBooking.Status.CANCELLED
+    )
+
+
+def tour_guide_lapsed_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``tours.notify.tell_guide_changed`` for a request that lapsed (#1166)."""
+    from tours.models import TourBooking
+    from tours.notify import guide_context, short_when
+
+    booking = _tour_booking(data, status=TourBooking.Status.CANCELLED)
+    return {
+        "subject": f"Tour request lapsed: {short_when(booking.starts_at)}",
+        "template_context": guide_context(booking, change="lapsed"),
+    }
+
+
+def tour_guide_request_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``tours.notify.tell_guide_booked`` for a request (#1166)."""
+    from tours.models import TourBooking
+    from tours.notify import guide_context, request_url, short_when
+
+    booking = _tour_booking(data, status=TourBooking.Status.PENDING)
+    return {
+        "subject": f"Tour request to confirm: {short_when(booking.starts_at)}",
+        "template_context": guide_context(booking, request_url=request_url(booking)),
+    }
+
+
 def tour_guide_calendar_broken_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``tours.calendar_sync.tell_guide_broken`` (#951)."""
     from tours.calendar_sync import broken_context

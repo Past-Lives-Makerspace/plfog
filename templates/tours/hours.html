@@ -9,7 +9,8 @@
 The Tours page's My Hours tab (#947, tours.views.tour_hours), for Tour Guides and admins: a guide's
 Every Week hours (rows of day, from, until, tour length and seats, each cut into back to back
 tours), their Available On hours on picked dates (#1160, tours/partials/_dates.html), their days
-off, and their Google Calendar (#951, tours/partials/_google_calendar.html). An
+off, their Google Calendar (#951, tours/partials/_google_calendar.html), and whether their
+bookings wait for their Confirm (#1166, tours/partials/_confirm_mode.html). An
 admin picks whose hours to edit with the guide picker, which names each guide's calendar state. The page opens
 on Upcoming (tours/bookings.html, #949); admins also get the Settings tab (tours/settings.html).
 {% endcomment %}
@@ -145,6 +146,8 @@ on Upcoming (tours/bookings.html, #949); admins also get the Settings tab (tours
 </div>
 
 {% include "tours/partials/_google_calendar.html" %}
+
+{% include "tours/partials/_confirm_mode.html" %}
 
 {% include "components/modal.html" with modal_id="tour-day-off-modal" modal_title="Add Day Off" modal_size="md" modal_body_include="tours/partials/_day_off_form.html" %}
 {% if open_day_off %}

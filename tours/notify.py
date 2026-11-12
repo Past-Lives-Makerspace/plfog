@@ -6,7 +6,8 @@ in ``templates/tours/emails/`` (:func:`core.events.senders.emit_with_email_shell
 - ``tour.visitor_update``: the visitor's confirmation, moved, cancelled and reminder emails, by
   address (``email_to``) since a visitor usually has no account. Each carries an ``.ics`` with
   the booking's stable UID and its SEQUENCE, and the Reschedule and Cancel links.
-- ``tour.booked``: the guide's "New tour booked" (email, bell and push).
+- ``tour.booked``: the guide's "New tour booked" (email, bell and push), or for a guide who confirms
+  first (#1166) "New tour request" with Confirm and Decline.
 - ``tour.visitor_changed``: the guide hears every move and cancel a visitor makes, and every one a
   staff member other than themselves makes (#949).
 - ``tour.checked_in``: the visitor checked in at the front desk kiosk (#950), bell and push only
@@ -38,7 +39,7 @@ from core.events.scheduler import ScheduledOccurrence
 from core.events.scheduling import DEFAULT_WINDOW
 from core.events.senders import email_shell_message, emit_with_email_shell
 from tours import signals
-from tours.models import TOUR_ADDRESS, FacilityTourSettings, TourBooking
+from tours.models import TOUR_ADDRESS, FacilityTourSettings, TourBooking, TourGuideSettings
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -115,6 +116,16 @@ def note_label(actor: User | None) -> str:
     return f"A note from {first or 'Past Lives'}"
 
 
+def request_anchor(booking: TourBooking) -> str:
+    """The id of the booking's row on the Upcoming tab, which a request's links scroll to (#1166)."""
+    return f"tour-booking-{booking.pk}"
+
+
+def request_url(booking: TourBooking) -> str:
+    """The booking's row on the Upcoming tab, absolute: where a guide confirms or declines a request."""
+    return f"{tours_page_url()}#{request_anchor(booking)}"
+
+
 def tours_page_url() -> str:
     """The Tours page's Upcoming tab, absolute, for the guide's emails."""
     return f"{settings.MEMBER_BASE_URL.rstrip('/')}{reverse('tours:upcoming')}"
@@ -166,6 +177,15 @@ def _ics_attachment(booking: TourBooking, *, cancelled: bool = False) -> tuple[s
     return ("tour.ics", build_ics(booking, cancelled=cancelled), "text/calendar")
 
 
+def guide_notice_hours(booking: TourBooking) -> int | None:
+    """How many hours ahead visitors book this request's guide (#1166), or None when it is not a request."""
+    if not booking.is_request or booking.guide_id is None:
+        return None
+    return TourGuideSettings.notice_hours_by_guide([booking.guide_id], FacilityTourSettings.load()).get(
+        booking.guide_id
+    )
+
+
 def support_email() -> str:
     """Where visitors write when they cannot change a tour online (Site Settings' support email)."""
     from core.models import SiteConfiguration
@@ -183,6 +203,8 @@ def visitor_context(booking: TourBooking, **extra: Any) -> dict[str, Any]:
         "guide_name": guide_first_name(booking.guide),
         "support_email": support_email(),
         "cancel_cutoff_hours": FacilityTourSettings.load().cancel_cutoff_hours,
+        "confirm_by": short_when(booking.confirm_by),
+        "notice_hours": guide_notice_hours(booking),
         **visitor_links(booking),
         **extra,
     }
@@ -193,13 +215,23 @@ _VISITOR_EMAILS: dict[str, tuple[str, str]] = {
     signals.BOOKED: ("visitor_confirmed", "Your Past Lives tour is booked: {when}"),
     signals.MOVED: ("visitor_moved", "Your Past Lives tour moved to {when}"),
     signals.CANCELLED: ("visitor_cancelled", "Your Past Lives tour on {when} is cancelled"),
+    signals.REQUESTED: ("visitor_requested", "Your Past Lives tour request: {when}"),
+    signals.CONFIRMED: ("visitor_confirmed", "Your Past Lives tour is confirmed: {when}"),
+    signals.DECLINED: ("visitor_declined", "Your Past Lives tour request for {when}"),
+    signals.LAPSED: ("visitor_lapsed", "We could not confirm your Past Lives tour on {when}"),
 }
+#: The visitor's emails that carry no calendar invite: nothing is on their calendar yet (#1166).
+_NO_INVITE: frozenset[str] = frozenset({signals.REQUESTED, signals.DECLINED, signals.LAPSED})
 
 
-def send_visitor_email(booking: TourBooking, change: str, **extra: Any) -> None:
-    """Email the visitor that their tour was booked, moved or cancelled, with the calendar invite."""
+def send_visitor_email(booking: TourBooking, change: str, *, was_request: bool = False, **extra: Any) -> None:
+    """Email the visitor that their tour was requested, booked, confirmed, moved, declined or cancelled.
+
+    Every one but a request, its decline, and a request's cancel (``was_request``) carries the calendar invite.
+    """
     template, subject = _VISITOR_EMAILS[change]
     cancelled = change == signals.CANCELLED
+    invite = change not in _NO_INVITE and not was_request
     emit_with_email_shell(
         VISITOR_EVENT,
         target=booking,
@@ -207,8 +239,8 @@ def send_visitor_email(booking: TourBooking, change: str, **extra: Any) -> None:
         subject=subject.format(when=short_when(booking.starts_at)),
         text_template=f"tours/emails/{template}.txt",
         html_template=f"tours/emails/{template}.html",
-        template_context=visitor_context(booking, **extra),
-        attachments=[_ics_attachment(booking, cancelled=cancelled)],
+        template_context=visitor_context(booking, was_request=was_request, **extra),
+        attachments=[_ics_attachment(booking, cancelled=cancelled)] if invite else [],
         email_to=booking.visitor_email,
         period=f"tour:{booking.pk}:{change}:{booking.sequence}",
         recipient_user_ids=set(),
@@ -222,17 +254,23 @@ def guide_context(booking: TourBooking, **extra: Any) -> dict[str, Any]:
         "when": when_label(booking.starts_at),
         "people": _people(booking),
         "tours_page_url": tours_page_url(),
+        "confirm_by": short_when(booking.confirm_by),
         **extra,
     }
 
 
 def tell_guide_booked(booking: TourBooking, guide: Member | None, *, actor_name: str = "") -> None:
-    """Tell ``guide`` (or the admins when there is none) a tour of theirs was booked.
+    """Tell ``guide`` (or the admins when there is none) a tour of theirs was booked, or requested (#1166).
 
-    With ``actor_name`` (#949) a staff member moved someone else's tour to this guide.
+    With ``actor_name`` (#949) a staff member moved someone else's tour to this guide. A request's
+    email offers Confirm and Decline, each opening the request on the Upcoming tab: a link in an
+    email never acts on its own, since mail scanners open links.
     """
     when = short_when(booking.starts_at)
-    if actor_name:
+    if booking.is_request:
+        title, subject = "New tour request", f"Tour request to confirm: {when}"
+        body = f"{booking.visitor_name}, {_people(booking)}, {when}. Confirm by {short_when(booking.confirm_by)}."
+    elif actor_name:
         title, subject = "Tour moved to you", f"Tour moved to you: {when}"
         body = f"{actor_name} moved {booking.visitor_name}'s tour, {_people(booking)}, to you: {when}."
     else:
@@ -245,10 +283,10 @@ def tell_guide_booked(booking: TourBooking, guide: Member | None, *, actor_name:
         subject=subject,
         text_template="tours/emails/guide_booked.txt",
         html_template="tours/emails/guide_booked.html",
-        template_context=guide_context(booking, actor_name=actor_name),
+        template_context=guide_context(booking, actor_name=actor_name, request_url=request_url(booking)),
         in_app_title=title,
         in_app_body=body,
-        url=reverse("tours:upcoming"),
+        url=f"{reverse('tours:upcoming')}#{request_anchor(booking)}",
         period=f"tour:{booking.pk}:booked:{guide.pk if guide else 0}:{booking.sequence}",
     )
 
@@ -271,7 +309,10 @@ def tell_guide_changed(
     stays_with_guide = guide is not None and booking.guide_id == guide.pk
     who = actor_name or booking.visitor_name
     whose = f"{booking.visitor_name}'s" if actor_name else "their"
-    if change == signals.CANCELLED:
+    if change == signals.LAPSED:
+        title, subject = "Tour request lapsed", f"Tour request lapsed: {when}"
+        body = f"{booking.visitor_name}'s request for {when} was not confirmed in time, so it was cancelled."
+    elif change == signals.CANCELLED:
         title, body = "Tour cancelled", f"{who} cancelled {whose} tour on {when}."
         subject = f"Tour cancelled: {when}"
     else:
@@ -312,25 +353,35 @@ def announce(
     previous_starts_at: datetime | None = None,
     actor: User | None = None,
     staff_message: str = "",
+    was_request: bool = False,
 ) -> None:
     """Every email and notice for a booking just booked, moved or cancelled (after commit).
 
     A visitor's move to another guide's tour tells the old guide it moved away and the new guide
     it was booked; a move within one guide's tours tells that guide once. A staff change
     (``actor``, #949) is told the same way to every guide involved except ``actor``.
+
+    A request (#1166) tells the guide as a booking does, with Confirm and Decline. Its confirm and
+    decline are the guide's (or an admin's) own answer and tell only the visitor.
     """
     send_visitor_email(
         booking,
         change,
+        was_request=was_request,
         previous_when=when_label(previous_starts_at) if previous_starts_at else "",
         staff_message=staff_message,
         by_staff=actor is not None,
         note_label=note_label(actor),
     )
+    if change in (signals.CONFIRMED, signals.DECLINED):
+        return
+    if change == signals.LAPSED:
+        tell_guide_changed(booking, booking.guide, change)
+        return
     if actor is not None:
         _tell_guides_staff_changed(booking, change, actor, previous_guide, previous_starts_at, staff_message)
         return
-    if change == signals.BOOKED:
+    if change in (signals.BOOKED, signals.REQUESTED):
         tell_guide_booked(booking, booking.guide)
         return
     if change == signals.CANCELLED:

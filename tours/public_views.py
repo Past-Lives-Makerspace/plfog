@@ -40,7 +40,7 @@ from tours.booking import (
 )
 from tours.forms import TourBookingForm
 from tours.models import MAX_HORIZON_DAYS, MAX_SEATS, TOUR_ADDRESS, FacilityTourSettings, TourBooking
-from tours.notify import guide_first_name, support_email, when_label
+from tours.notify import guide_first_name, guide_notice_hours, short_when, support_email, when_label
 from tours.picker import build_picker, find_tour, guide_and_start
 
 logger = logging.getLogger(__name__)
@@ -74,14 +74,15 @@ def tours_surface_only(view: View) -> View:
     return wrapped
 
 
-def all_open_tours() -> list[OpenTour]:
+def all_open_tours(*, kiosk: bool = False) -> list[OpenTour]:
     """Every tour visitors can book now (``open_tours`` clamps the range to the horizon and notice).
 
     A guide's Google Calendar busy times (#951) come from the cache the ``sync_tour_calendars`` job
     keeps: no visitor page or kiosk screen ever waits on Google.
     """
     today = timezone.localdate()
-    return open_tours(today, today + timedelta(days=MAX_HORIZON_DAYS))
+    # A Confirm First guide's own notice (#1166) binds website bookings, never a kiosk walk in.
+    return open_tours(today, today + timedelta(days=MAX_HORIZON_DAYS), guide_notice=not kiosk)
 
 
 def _offers_account(request: HttpRequest) -> bool:
@@ -252,7 +253,10 @@ def _refused(request: HttpRequest, booking: TourBooking, reason: str) -> HttpRes
 
 
 def _booking_context(booking: TourBooking) -> dict[str, Any]:
-    return {"booking": booking, "when": when_label(booking.starts_at), "guide_name": guide_first_name(booking.guide)}
+    context = {"booking": booking, "when": when_label(booking.starts_at), "guide_name": guide_first_name(booking.guide)}
+    if booking.is_request:
+        context.update(confirm_by=short_when(booking.confirm_by), notice_hours=guide_notice_hours(booking))
+    return context
 
 
 @tours_surface_only
@@ -281,12 +285,13 @@ def reschedule(request: HttpRequest, token: str) -> HttpResponse:
     """Pick another time for the booking (the same date strip), then confirm it with a POST.
 
     While Tour Settings is not accepting bookings no time is offered and a POST moves nothing:
-    the page shows the closed message, and the booking can still be cancelled.
+    the page shows the closed message, and the booking can still be cancelled. A request (#1166)
+    waits for its guide to confirm it before it can move.
     """
     booking = _booking(token)
     if booking is None:
         return _invalid(request)
-    reason = _refusal(booking)
+    reason = _refusal(booking) or ("request" if booking.is_request else "")
     if reason:
         return _refused(request, booking, reason)
     tour_settings = FacilityTourSettings.load()

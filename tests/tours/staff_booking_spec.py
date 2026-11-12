@@ -457,7 +457,13 @@ def describe_the_booking_lists_and_labels():
         for status in TourBooking.Status:
             booking.status = status
             badges[status.value] = booking.status_badge
-        assert badges == {"booked": "muted", "cancelled": "muted", "attended": "ok", "no_show": "fail"}
+        assert badges == {
+            "booked": "muted",
+            "cancelled": "muted",
+            "attended": "ok",
+            "no_show": "fail",
+            "pending": "warn",
+        }
 
     def it_records_how_it_was_booked(guide: Member):
         assert TourBookingFactory(guide=guide).source == TourBooking.Source.WEBSITE
