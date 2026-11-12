@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-11-12"
+audience = ["members", "guild-staff"]
+title = "A guild's next meeting moves on once today's has started"
+changes = [
+  "On the evening of a guild's regular monthly meeting, the guild page and the Meetings page now show next month's meeting instead of the one that already started.",
+]
