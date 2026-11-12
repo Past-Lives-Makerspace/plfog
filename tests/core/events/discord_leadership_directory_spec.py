@@ -239,13 +239,16 @@ def describe_render_directory_payloads():
 
 def describe_usernames():
     @respx.mock
-    def it_shows_a_verified_account_by_its_server_username_never_a_mention(on_server):
+    def it_links_a_verified_account_s_server_username_to_its_profile_never_a_mention(on_server):
         members = _server_members(("123456", "alex_real"), ("888", "someone_else"))
         alex = MemberFactory(preferred_name="Alex", discord_user_id="123456", discord_handle="@Alex - Wood Lead")
         LeadershipListingFactory(tab=_people_tab(), member=alex)
         payloads = dld.render_directory_payloads()
-        assert _titled(payloads, "✨ Leadership")["description"] == "**Alex** @alex\\_real"
-        assert dld.SEARCH_LINE + "\n" in payloads[0]["embeds"][0]["description"]
+        assert (
+            _titled(payloads, "✨ Leadership")["description"]
+            == "**Alex** [@alex\\_real](https://discord.com/users/123456)"
+        )
+        assert dld.SEARCH_LINE not in payloads[0]["embeds"][0]["description"]
         assert "<@1" not in json.dumps(payloads)
         assert members.call_count == 1
 
@@ -257,8 +260,9 @@ def describe_usernames():
         LeadershipListingFactory(tab=_people_tab(), member=MemberFactory(preferred_name="Pat", discord_user_id="3"))
         payloads = dld.render_directory_payloads()
         guilds = _titled(payloads, "🛠️ Guild Leads")["description"]
-        assert "**Robin** @robin.g" in guilds and "**Kai** @kai\\_k" in guilds
-        assert _titled(payloads, "✨ Leadership")["description"] == "**Pat** @pat"
+        assert "**Robin** [@robin.g](https://discord.com/users/1)" in guilds
+        assert "**Kai** [@kai\\_k](https://discord.com/users/2)" in guilds
+        assert _titled(payloads, "✨ Leadership")["description"] == "**Pat** [@pat](https://discord.com/users/3)"
         assert members.call_count == 1
 
     @respx.mock
