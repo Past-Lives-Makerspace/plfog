@@ -234,7 +234,9 @@ def describe_SetupState_load():
             assert _load(_guide()).badges == []
 
         def it_states_the_pay_rule_and_never_a_figure():
-            assert tour_setup.TOUR_GUIDE_SETUP.rule_line == "You're paid $50 when a visitor you toured becomes a member."
+            assert (
+                tour_setup.TOUR_GUIDE_SETUP.rule_line == "You're paid $50 when a visitor you toured becomes a member."
+            )
             labels = [stat.label for stat in tour_setup.tour_guide_facts(_guide()).stats]
             assert labels == ["Tours Given", "Visitors"]
 
@@ -306,6 +308,7 @@ def describe_PermissionSetup():
         assert str(row) == "Fenwick Tallow: Tour Guide setup"
 
 
+@pytest.mark.usefixtures("tour_guide_guide")
 def describe_guide_page():
     def _page(title: str, **kwargs) -> WikiPage:
         return WikiPage.objects.create(title=title, kind=WikiPage.Kind.HOWTO, body="<p>x</p>", **kwargs)
@@ -356,21 +359,23 @@ def describe_guide_page():
 def describe_seed_migration():
     seed_module = importlib.import_module("membership.migrations.0278_seed_tour_guide_guide")
 
+    @pytest.mark.usefixtures("tour_guide_guide")
     def it_does_nothing_when_a_page_is_already_linked():
         before = WikiPage.objects.count()
         seed_module.seed(django_apps, None)
         assert WikiPage.objects.count() == before
 
     def it_links_an_existing_page_of_that_title():
-        WikiPage.objects.filter(guide_for=TOUR_GUIDE).delete()
         existing = WikiPage.objects.create(title="Tour Guide Guide", kind=WikiPage.Kind.HOWTO, body="<p>ours</p>")
         seed_module.seed(django_apps, None)
         existing.refresh_from_db()
         assert existing.guide_for == TOUR_GUIDE
         assert existing.body == "<p>ours</p>"
 
+    def it_starts_every_other_spec_without_the_page():
+        assert not WikiPage.objects.exists()
+
     def it_makes_the_page_with_a_free_slug_and_code():
-        WikiPage.objects.filter(guide_for=TOUR_GUIDE).delete()
         WikiPage.objects.create(title="Tour Guide Guide", kind=WikiPage.Kind.HOWTO, archived_at=timezone.now())
         seed_module.seed(django_apps, None)
         page = WikiPage.objects.get(guide_for=TOUR_GUIDE)
@@ -379,10 +384,12 @@ def describe_seed_migration():
         assert "Getting Paid" in page.search_text
         assert "<h2>" not in page.search_text
 
+    @pytest.mark.usefixtures("tour_guide_guide")
     def it_deletes_an_untouched_page_on_reverse():
         seed_module.unseed(django_apps, None)
         assert not WikiPage.objects.filter(title="Tour Guide Guide").exists()
 
+    @pytest.mark.usefixtures("tour_guide_guide")
     def it_only_unlinks_an_edited_page_on_reverse():
         page = WikiPage.objects.get(guide_for=TOUR_GUIDE)
         WikiPage.objects.filter(pk=page.pk).update(body="<p>Edited by an admin</p>")

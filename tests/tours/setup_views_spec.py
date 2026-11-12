@@ -209,6 +209,7 @@ def describe_marking_the_first_tour_attended():
 
 
 def describe_the_guide_tab():
+    @pytest.mark.usefixtures("tour_guide_guide")
     def it_shows_the_linked_wiki_page(guide: Member):
         page = WikiPage.guide_page_for(TOUR_GUIDE)
         assert page is not None
@@ -220,19 +221,18 @@ def describe_the_guide_tab():
         assert "Open on the Wiki" in content
         assert "Ask an admin." in content
 
+    @pytest.mark.usefixtures("tour_guide_guide")
     def it_offers_an_admin_the_edit(admin: Member):
         content = signed_in(admin).get(GUIDE).content.decode()
         assert "Open to Edit on the Wiki" in content
         assert "Admins edit this page on the wiki." in content
 
     def it_says_there_is_none_yet_and_tells_an_admin_how(admin: Member):
-        WikiPage.objects.filter(guide_for=TOUR_GUIDE).update(guide_for="")
         content = signed_in(admin).get(GUIDE).content.decode()
         assert "data-guide-empty" in content
         assert "pick Tour Guide under Guide For" in content
 
     def it_says_none_yet_to_a_guide_without_the_admin_line(guide: Member):
-        WikiPage.objects.filter(guide_for=TOUR_GUIDE).update(guide_for="")
         content = signed_in(guide).get(GUIDE).content.decode()
         assert "data-guide-empty" in content
         assert "Guide For" not in content
