@@ -71,10 +71,20 @@ def _make_guide() -> Member:
     return member
 
 
-def _no_sideways_scroll(page) -> None:
+def _no_sideways_scroll(page, *, drawer: bool = True) -> None:
+    """At a phone's width nothing scrolls sideways; the hub sidebar is closed first, as a phone opens a page."""
     page.set_viewport_size(PHONE)
-    assert page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth")
+    if drawer:
+        page.evaluate("() => { Alpine.$data(document.body).sidebarOpen = false; }")
+        page.wait_for_timeout(300)
+    wide = page.evaluate(
+        "() => [...document.querySelectorAll('body *')].filter((el) => el.getBoundingClientRect().right > window.innerWidth + 1"
+        " && getComputedStyle(el).position !== 'fixed').slice(0, 5).map((el) => el.className || el.tagName)"
+    )
+    assert page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth"), wide
     page.set_viewport_size(DESKTOP)
+    if drawer:
+        page.evaluate("() => { Alpine.$data(document.body).sidebarOpen = true; }")
 
 
 def _html(message) -> str:
@@ -168,4 +178,4 @@ def describe_confirm_first():
         page.locator("[data-tour-cancel]").wait_for()
         assert TourBooking.objects.get().status == TourBooking.Status.PENDING
         _capture(page, "visitor-pending", drawer=False)
-        _no_sideways_scroll(page)
+        _no_sideways_scroll(page, drawer=False)
