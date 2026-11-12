@@ -18,7 +18,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.models import Notification
-from membership.models import Member
+from membership.models import AdminCapability, Member
 from tests.tours.conftest import make_guide, signed_in
 from tests.tours.factories import TourBookingFactory, TourHoursFactory, local
 from tours import booking as booking_service
@@ -108,6 +108,13 @@ def describe_the_guides_choice():
         chosen.confirm_mode = TourGuideSettings.ConfirmMode.FIRST
         assert chosen.summary == "Each new booking waits for you to confirm or decline it."
         assert str(chosen) == f"{guide} (Confirm First)"
+
+
+def describe_the_tour_guide_permission_email():
+    def it_describes_the_choice():
+        # permission_grants_spec holds that the email carries this line word for word.
+        how = AdminCapability.GUIDES[AdminCapability.Capability.TOUR_GUIDE].how
+        assert "confirmed automatically" in how and "Confirm First under Confirming Bookings" in how
 
 
 def describe_booking_a_guide_who_confirms_first():
