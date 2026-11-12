@@ -29,6 +29,7 @@ from tours.models import (
     FacilityTourSettings,
     TourCalendarConnection,
     TourDayOff,
+    TourGuideSettings,
     TourHours,
     day_label,
 )
@@ -493,6 +494,15 @@ class StaffTourMessageForm(forms.Form):
         widget=forms.Textarea(attrs={"rows": 3}),
         help_text="Added to the email we send them.",
     )
+
+
+class TourConfirmModeForm(forms.ModelForm):
+    """The My Hours tab's Confirming Bookings card (#1166): Confirm First or Confirm Automatically."""
+
+    class Meta:
+        model = TourGuideSettings
+        fields = ("confirm_mode",)
+        widgets = {"confirm_mode": forms.RadioSelect}
 
 
 class StaffRescheduleForm(StaffTourMessageForm):

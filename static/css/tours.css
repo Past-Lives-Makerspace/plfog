@@ -554,3 +554,60 @@
         max-width: none;
     }
 }
+
+/* Confirming Bookings (#1166): Confirm Automatically | Confirm First, both always visible, the chosen one gold. */
+.pl-tours-confirm {
+    display: inline-flex;
+    flex-wrap: wrap;
+    padding: 0.25rem;
+    border: 1px solid var(--hub-input-border);
+    border-radius: 999px;
+    background-color: var(--hub-surface);
+}
+.pl-tours-confirm__option {
+    position: relative;
+}
+.pl-tours-confirm__option input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+.pl-tours-confirm__option span {
+    display: inline-block;
+    padding: 0.5rem 1.25rem;
+    border-radius: 999px;
+    color: var(--hub-text-muted);
+    font-weight: 700;
+    text-align: center;
+    cursor: pointer;
+}
+.pl-tours-confirm__option input:checked + span {
+    background-color: var(--color-tuscan-yellow);
+    color: var(--color-navy);
+}
+.pl-tours-confirm__option input:focus-visible + span {
+    outline: 2px solid var(--hub-blue);
+    outline-offset: 2px;
+}
+.pl-tours-confirm__hint {
+    margin: 0.75rem 0 0;
+    font-size: 0.8125rem;
+    max-width: 46rem;
+}
+.pl-tours-confirm__save {
+    margin-top: 1.5rem;
+}
+
+@media (max-width: 480px) {
+    .pl-tours-confirm {
+        display: flex;
+        border-radius: 1rem;
+    }
+    .pl-tours-confirm__option {
+        flex: 1 1 100%;
+    }
+    .pl-tours-confirm__option span {
+        display: block;
+        border-radius: 0.75rem;
+    }
+}

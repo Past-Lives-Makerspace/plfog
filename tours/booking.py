@@ -30,7 +30,7 @@ from core.services.guest_account import ensure_guest_account, find_user_for_emai
 from membership.models import Member
 from tours import signals
 from tours.availability import open_tour_at
-from tours.models import FacilityTourSettings, TourBooking
+from tours.models import FacilityTourSettings, TourBooking, TourGuideSettings
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -93,6 +93,8 @@ STAFF_LOCKED_MESSAGES: dict[str, str] = {
     "cancelled": "This tour was already cancelled.",
     "past": "This tour has already started, so it can no longer be moved or cancelled.",
     "upcoming": "This tour has not started yet. Mark it after it starts.",
+    "answered": "This request was already answered.",
+    "request": "Confirm or decline this request first.",
 }
 
 
@@ -144,7 +146,9 @@ def book_tour(
     """Book ``visitor`` onto the guide's tour at ``starts_at``.
 
     ``source`` records how: the tours website, or the front desk kiosk (#950), which books under
-    the same notice and horizon.
+    the same notice and horizon. On the website, a guide who confirms first (#1166) gets a request
+    instead: it holds its seats like a booking until they confirm or decline it. The kiosk always
+    books at once, since the visitor is standing at the front desk.
 
     The booking links to ``user`` when the visitor is signed in, else to the account the email
     already belongs to (the account itself is left as it is). With neither and
@@ -172,6 +176,7 @@ def book_tour(
             raise TourAlreadyBookedError(ALREADY_BOOKED_MESSAGE)
         if tour.seats_left < visitor.party_size:
             raise TourFullError(tour.seats_left)
+        request = source != TourBooking.Source.KIOSK and TourGuideSettings.confirms_first(guide)
         booking = TourBooking.objects.create(
             guide=guide,
             starts_at=tour.starts_at,
@@ -182,8 +187,9 @@ def book_tour(
             visitor_phone=visitor.phone.strip(),
             user=account,
             source=source,
+            status=TourBooking.Status.PENDING if request else TourBooking.Status.BOOKED,
         )
-        _after_commit(booking, signals.BOOKED)
+        _after_commit(booking, signals.REQUESTED if request else signals.BOOKED)
     if account is None and create_account and not Member.objects.unlinked_with_email(visitor.email.strip()).exists():
         first, last = visitor.first_and_last
         made = ensure_guest_account(visitor.email, first_name=first, last_name=last)
@@ -261,14 +267,18 @@ def reschedule_tour(
     Locks the booking, then the tour it moves to, and counts that tour's seats under the lock.
     The invite's SEQUENCE goes up so the visitor's calendar replaces its copy.
 
+    A request (#1166) cannot move until its guide confirms it: the guide said yes to that time.
+
     Raises:
-        TourLockedError: the booking is cancelled, past, or inside the cancel cutoff.
+        TourLockedError: the booking is cancelled, past, inside the cancel cutoff, or a request.
         TourUnavailableError: no bookable tour then, or it is the booking's own tour.
         TourFullError: the tour has fewer seats left than the party.
     """
     moment = now or timezone.now()
     with transaction.atomic():
         locked = _locked_for_change(booking, moment)
+        if locked.is_request:
+            raise TourLockedError("request")
         return _move(locked, guide=guide, starts_at=starts_at, now=moment, staff=False)
 
 
@@ -308,24 +318,78 @@ def cancel_tour_by_visitor(booking: TourBooking, *, now: datetime | None = None)
     moment = now or timezone.now()
     with transaction.atomic():
         locked = _locked_for_change(booking, moment)
+        # A request (#1166) never sent a calendar invite, so its cancel email carries no retraction.
+        was_request = locked.is_request
         locked.status = TourBooking.Status.CANCELLED
         locked.cancelled_at = moment
         locked.cancelled_by = None
         locked.sequence += 1
         locked.save(update_fields=["status", "cancelled_at", "cancelled_by", "sequence"])
-        _after_commit(locked, signals.CANCELLED)
+        _after_commit(locked, signals.CANCELLED, was_request=was_request)
     return locked
 
 
 def _locked_for_staff(booking: TourBooking, now: datetime) -> TourBooking:
     """The booking's row, locked, after checking it is still booked and has not started (#949).
 
-    No cancel cutoff: staff may change a tour right up to its start.
+    No cancel cutoff: staff may change a tour right up to its start. A request (#1166) is confirmed
+    or declined, never moved or cancelled.
     """
     locked = TourBooking.objects.select_for_update().get(pk=booking.pk)
-    reason = locked.staff_refusal(now)
+    reason = "request" if locked.is_request and locked.starts_at > now else locked.staff_refusal(now)
     if reason:
         raise TourLockedError(reason)
+    return locked
+
+
+def _locked_request(booking: TourBooking, now: datetime) -> TourBooking:
+    """The request's row, locked, after checking it still waits for an answer and has not started (#1166)."""
+    locked = TourBooking.objects.select_for_update().get(pk=booking.pk)
+    if locked.status == TourBooking.Status.CANCELLED:
+        raise TourLockedError("cancelled")
+    if locked.starts_at <= now:
+        raise TourLockedError("past")
+    if not locked.is_request:
+        raise TourLockedError("answered")
+    return locked
+
+
+def confirm_tour_request(booking: TourBooking, *, actor: User, now: datetime | None = None) -> TourBooking:
+    """The guide (or an admin) confirms a visitor's request (#1166): it becomes a booked tour.
+
+    Its seats were held all along, so nothing is counted again. After commit the visitor gets the
+    booked email with the calendar invite, and the guide's Google Calendar gets the event.
+
+    Raises:
+        TourLockedError: the request was cancelled, already answered, or its tour has started.
+    """
+    moment = now or timezone.now()
+    with transaction.atomic():
+        locked = _locked_request(booking, moment)
+        locked.status = TourBooking.Status.BOOKED
+        locked.save(update_fields=["status"])
+        _after_commit(locked, signals.CONFIRMED, actor=actor)
+    return locked
+
+
+def decline_tour_request(
+    booking: TourBooking, *, actor: User, message: str = "", now: datetime | None = None
+) -> TourBooking:
+    """The guide (or an admin) declines a visitor's request (#1166), freeing its seats.
+
+    The visitor is emailed with ``message``; no calendar update, since no invite was ever sent.
+
+    Raises:
+        TourLockedError: the request was cancelled, already answered, or its tour has started.
+    """
+    moment = now or timezone.now()
+    with transaction.atomic():
+        locked = _locked_request(booking, moment)
+        locked.status = TourBooking.Status.CANCELLED
+        locked.cancelled_at = moment
+        locked.cancelled_by = actor
+        locked.save(update_fields=["status", "cancelled_at", "cancelled_by"])
+        _after_commit(locked, signals.DECLINED, actor=actor, staff_message=message.strip())
     return locked
 
 

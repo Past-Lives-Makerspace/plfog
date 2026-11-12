@@ -897,6 +897,51 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="tour_guide_booked_context",
     ),
     GalleryEmail(
+        key="tour_visitor_requested",
+        name="Tour request sent (visitor)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when a visitor books a tour of a guide who confirms first (#1166). No calendar invite yet: it comes with the confirmation once the guide presses Confirm."
+        ),
+        edit_pointer=_tpl("tours/emails", "visitor_requested"),
+        audience="The visitor who asked for the tour (by address).",
+        event_keys=frozenset({"tour.visitor_update"}),
+        text_template="tours/emails/visitor_requested.txt",
+        html_template="tours/emails/visitor_requested.html",
+        context_builder="tour_visitor_requested_context",
+    ),
+    GalleryEmail(
+        key="tour_visitor_declined",
+        name="Tour request declined (visitor)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when a Tour Guide or admin declines a visitor's tour request on the Upcoming tab (#1166), with their optional note. Its seats are free again."
+        ),
+        edit_pointer=_tpl("tours/emails", "visitor_declined"),
+        audience="The visitor who asked for the tour (by address).",
+        event_keys=frozenset({"tour.visitor_update"}),
+        text_template="tours/emails/visitor_declined.txt",
+        html_template="tours/emails/visitor_declined.html",
+        context_builder="tour_visitor_declined_context",
+    ),
+    GalleryEmail(
+        key="tour_guide_request",
+        name="New tour request (guide)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent to a guide who confirms first (#1166) when a visitor books one of their tours (with a bell and push). Confirm and Decline open the request on the Upcoming tab."
+        ),
+        edit_pointer=_tpl("tours/emails", "guide_booked"),
+        audience="The tour's guide.",
+        event_keys=frozenset({"tour.booked"}),
+        text_template="tours/emails/guide_booked.txt",
+        html_template="tours/emails/guide_booked.html",
+        context_builder="tour_guide_request_context",
+    ),
+    GalleryEmail(
         key="tour_guide_changed",
         name="Tour moved or cancelled (guide)",
         section="Guilds & Orientations",

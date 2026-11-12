@@ -1,0 +1,10 @@
+{% autoescape off %}Hi {{ greeting_name }},
+
+We got your tour request. Your guide confirms each tour of Past Lives Makerspace before it is booked. Your spot is held until they answer.
+
+{% include "tours/emails/_tour.txt" %}
+Once your guide confirms, we will email you again with a calendar invite.
+
+Your request: {{ manage_url }}
+Cancel: {{ cancel_url }}
+{% include "tours/emails/_footer.txt" %}{% endautoescape %}

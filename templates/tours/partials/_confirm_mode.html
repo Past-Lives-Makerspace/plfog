@@ -1,0 +1,19 @@
+{% comment %}
+The My Hours tab's Confirming Bookings card (#1166, tours.views.tour_confirm_mode_save): Confirm
+Automatically (the default, a visitor is booked at once) or Confirm First (a booking waits as a
+request holding its seats until the guide confirms or declines it on Upcoming). The two choices are
+a segmented pair, both always visible, the chosen one gold; Save is last. Context: confirm_form, target, is_self.
+{% endcomment %}
+<form method="post" action="{% url 'tours:confirm_mode_save' %}" class="hub-card pl-tours-panel" data-tour-confirm-mode>
+  {% csrf_token %}
+  <input type="hidden" name="guide" value="{{ target.pk }}">
+  <h2 class="hub-detail-label pl-tours-panel__title">Confirming Bookings</h2>
+  <p class="hub-text-muted pl-tours-panel__intro">What happens when a visitor books {% if is_self %}one of your tours{% else %}one of {{ target.display_name }}'s tours{% endif %} on the website. Bookings at the front desk kiosk are always confirmed at once.</p>
+  <div class="pl-tours-confirm" role="radiogroup" aria-label="Confirming bookings" data-guidance-target="tours.confirm-mode">
+    {% for choice in confirm_form.confirm_mode %}
+    <label class="pl-tours-confirm__option"><input type="radio" name="{{ choice.data.name }}" value="{{ choice.data.value }}"{% if choice.data.selected %} checked{% endif %} data-tour-confirm-choice="{{ choice.data.value }}"><span>{{ choice.choice_label }}</span></label>
+    {% endfor %}
+  </div>
+  <p class="hub-text-muted pl-tours-confirm__hint">Confirm First holds the visitor's seats as a request until you press Confirm or Decline on Upcoming. They are emailed either way.</p>
+  <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm pl-tours-confirm__save" data-tour-confirm-save>Save</button>
+</form>

@@ -47,6 +47,8 @@ from tours.booking import (
     TourBookingError,
     TourLockedError,
     cancel_tour_by_staff,
+    confirm_tour_request,
+    decline_tour_request,
     mark_tour_outcome,
     reschedule_tour_by_staff,
 )
@@ -56,6 +58,7 @@ from tours.forms import (
     StaffTourMessageForm,
     MAX_DATED_DAYS_AHEAD,
     TourCalendarChoiceForm,
+    TourConfirmModeForm,
     TourDatesForm,
     TourDayOffForm,
     TourHoursFormSet,
@@ -66,6 +69,7 @@ from tours.models import (
     TourBooking,
     TourCalendarConnection,
     TourDayOff,
+    TourGuideSettings,
     TourHours,
     guide_filter,
     lock_guide_hours,
@@ -228,6 +232,7 @@ def _render_hours(
             "open_dates": dates_form.is_bound,
             "dated_hours": dated,
             "dates_calendar": _calendar_config(target, dated, dates_form),
+            "confirm_form": TourConfirmModeForm(instance=TourGuideSettings.objects.filter(guide=target).first()),
         },
     )
 
@@ -258,6 +263,21 @@ def tour_hours_save(request: HttpRequest) -> HttpResponse:
     if not saved:
         return _render_hours(request, target, formset=formset, hours_refused=True)
     messages.success(request, "Tour hours saved.")
+    return redirect(_hours_url(_viewer(request), target))
+
+
+@tour_guide_access_required
+@require_POST
+def tour_confirm_mode_save(request: HttpRequest) -> HttpResponse:
+    """Save whether the guide's bookings wait for their Confirm (#1166): the Confirming Bookings card."""
+    target = _target_guide(request, request.POST.get("guide", ""))
+    instance = TourGuideSettings.objects.filter(guide=target).first() or TourGuideSettings(guide=target)
+    form = TourConfirmModeForm(request.POST, instance=instance)
+    if not form.is_valid():
+        messages.error(request, "Pick Confirm First or Confirm Automatically.")
+        return redirect(_hours_url(_viewer(request), target))
+    saved = form.save()
+    messages.success(request, f"Saved. {saved.summary}")
     return redirect(_hours_url(_viewer(request), target))
 
 
@@ -708,6 +728,44 @@ def tour_booking_cancel(request: HttpRequest, pk: int) -> HttpResponse:
         return _done(request)
     messages.success(
         request, f"{cancelled.visitor_name}'s tour on {short_when(cancelled.starts_at)} is cancelled. We emailed them."
+    )
+    return _done(request)
+
+
+@tour_guide_access_required
+@require_POST
+def tour_booking_confirm(request: HttpRequest, pk: int) -> HttpResponse:
+    """Confirm a visitor's request from the Upcoming tab (#1166): it becomes a booked tour, and the
+    visitor gets the booked email with the calendar invite."""
+    booking = _staff_booking(request, pk)
+    try:
+        confirmed = confirm_tour_request(booking, actor=cast("User", request.user))
+    except TourLockedError as exc:
+        messages.error(request, STAFF_LOCKED_MESSAGES[exc.reason])
+        return _done(request)
+    messages.success(
+        request, f"{confirmed.visitor_name}'s tour on {short_when(confirmed.starts_at)} is confirmed. We emailed them."
+    )
+    return _done(request)
+
+
+@tour_guide_access_required
+@require_POST
+def tour_booking_decline(request: HttpRequest, pk: int) -> HttpResponse:
+    """Decline a visitor's request from the Upcoming tab's confirm (#1166), with an optional message;
+    its seats are free again."""
+    booking = _staff_booking(request, pk)
+    form = StaffTourMessageForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, str(form.errors["message"][0]))
+        return _done(request)
+    try:
+        declined = decline_tour_request(booking, actor=cast("User", request.user), message=form.cleaned_data["message"])
+    except TourLockedError as exc:
+        messages.error(request, STAFF_LOCKED_MESSAGES[exc.reason])
+        return _done(request)
+    messages.success(
+        request, f"{declined.visitor_name}'s request for {short_when(declined.starts_at)} is declined. We emailed them."
     )
     return _done(request)
 

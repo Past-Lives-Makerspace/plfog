@@ -281,12 +281,13 @@ def reschedule(request: HttpRequest, token: str) -> HttpResponse:
     """Pick another time for the booking (the same date strip), then confirm it with a POST.
 
     While Tour Settings is not accepting bookings no time is offered and a POST moves nothing:
-    the page shows the closed message, and the booking can still be cancelled.
+    the page shows the closed message, and the booking can still be cancelled. A request (#1166)
+    waits for its guide to confirm it before it can move.
     """
     booking = _booking(token)
     if booking is None:
         return _invalid(request)
-    reason = _refusal(booking)
+    reason = _refusal(booking) or ("request" if booking.is_request else "")
     if reason:
         return _refused(request, booking, reason)
     tour_settings = FacilityTourSettings.load()

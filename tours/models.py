@@ -464,6 +464,60 @@ class TourDayOff(models.Model):
         return self.starts_on <= day <= self.ends_on
 
 
+class TourGuideSettings(models.Model):
+    """One guide's own tour choices (#1166): whether a visitor's booking waits for their Confirm.
+
+    Made the first time a guide saves the choice on My Hours. A guide with no row confirms
+    automatically, as every guide did before, so nothing changes until a guide picks Confirm First.
+    """
+
+    class ConfirmMode(models.TextChoices):
+        AUTOMATIC = "automatic", "Confirm Automatically"
+        FIRST = "first", "Confirm First"
+
+    guide = models.OneToOneField(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="tour_guide_settings",
+        help_text="The Tour Guide these choices are for.",
+    )
+    confirm_mode = models.CharField(
+        max_length=12,
+        choices=ConfirmMode.choices,
+        default=ConfirmMode.AUTOMATIC,
+        help_text=(
+            "Confirm Automatically books a visitor at once. Confirm First holds their seats as a request "
+            "until the guide confirms or declines it. The front desk kiosk always books at once."
+        ),
+    )
+    updated_at = models.DateTimeField(auto_now=True, help_text="When the guide last changed these choices.")
+
+    class Meta:
+        verbose_name = "tour guide settings"
+        verbose_name_plural = "tour guide settings"
+
+    def __str__(self) -> str:
+        return f"{self.guide} ({self.get_confirm_mode_display()})"
+
+    @property
+    def summary(self) -> str:
+        """What the choice means for the guide's next booking, in one sentence."""
+        if self.confirm_mode == self.ConfirmMode.FIRST:
+            return "Each new booking waits for you to confirm or decline it."
+        return "New bookings are confirmed at once, and you are told."
+
+    @classmethod
+    def confirm_mode_for(cls, guide: Member) -> str:
+        """The guide's :class:`ConfirmMode`: Confirm Automatically when they never chose."""
+        mode = cls.objects.filter(guide=guide).values_list("confirm_mode", flat=True).first()
+        return mode or cls.ConfirmMode.AUTOMATIC
+
+    @classmethod
+    def confirms_first(cls, guide: Member) -> bool:
+        """Whether a visitor's booking of this guide's tour waits as a request for their Confirm."""
+        return cls.confirm_mode_for(guide) == cls.ConfirmMode.FIRST
+
+
 def _new_self_serve_token() -> str:
     """The random token in a booking's reschedule and cancel links."""
     return secrets.token_urlsafe(32)
@@ -471,7 +525,7 @@ def _new_self_serve_token() -> str:
 
 class TourBookingQuerySet(models.QuerySet["TourBooking"]):
     def holding_seats(self) -> TourBookingQuerySet:
-        """Bookings that count against a tour's seats: booked or attended."""
+        """Bookings that count against a tour's seats: booked, attended, or a request awaiting its guide (#1166)."""
         return self.filter(status__in=TourBooking.HOLDS_SEATS)
 
     def seats_taken(self, guide: Member, starts_at: datetime) -> int:
@@ -494,8 +548,8 @@ class TourBookingQuerySet(models.QuerySet["TourBooking"]):
         return {(row["guide_id"], row["starts_at"].astimezone(UTC)): int(row["total"]) for row in rows}
 
     def upcoming(self, now: datetime) -> TourBookingQuerySet:
-        """The Tours page's Upcoming tab (#949): booked tours that have not started, soonest first."""
-        return self.filter(status=TourBooking.Status.BOOKED, starts_at__gt=now).order_by("starts_at", "pk")
+        """The Tours page's Upcoming tab (#949): booked tours and requests (#1166) that have not started, soonest first."""
+        return self.filter(status__in=TourBooking.UPCOMING, starts_at__gt=now).order_by("starts_at", "pk")
 
     def booked_on_day(self, day: date) -> TourBookingQuerySet:
         """The kiosk's list (#950): tours still booked that start on the local ``day``, by time then name.
@@ -511,10 +565,13 @@ class TourBookingQuerySet(models.QuerySet["TourBooking"]):
     def past(self, now: datetime) -> TourBookingQuerySet:
         """The Tours page's Past tab (#949): tours that have started and were not cancelled, newest first.
 
-        Booked ones are waiting to be marked attended or no show.
+        Booked ones are waiting to be marked attended or no show. A request its guide never answered
+        (#1166) never became a tour, so it is left out.
         """
         return (
-            self.filter(starts_at__lte=now).exclude(status=TourBooking.Status.CANCELLED).order_by("-starts_at", "-pk")
+            self.filter(starts_at__lte=now)
+            .exclude(status__in=[TourBooking.Status.CANCELLED, TourBooking.Status.PENDING])
+            .order_by("-starts_at", "-pk")
         )
 
 
@@ -533,13 +590,16 @@ class TourBooking(models.Model):
         CANCELLED = "cancelled", "Cancelled"
         ATTENDED = "attended", "Attended"
         NO_SHOW = "no_show", "No show"
+        PENDING = "pending", "Requested"
 
     class Source(models.TextChoices):
         WEBSITE = "website", "Website"
         KIOSK = "kiosk", "Kiosk"
 
     #: The statuses that take seats on the tour.
-    HOLDS_SEATS: ClassVar[tuple[str, ...]] = (Status.BOOKED, Status.ATTENDED)
+    HOLDS_SEATS: ClassVar[tuple[str, ...]] = (Status.BOOKED, Status.ATTENDED, Status.PENDING)
+    #: The statuses the Upcoming tab lists and a visitor may still cancel (#1166).
+    UPCOMING: ClassVar[tuple[str, ...]] = (Status.BOOKED, Status.PENDING)
 
     guide = models.ForeignKey(
         Member,
@@ -570,7 +630,10 @@ class TourBooking(models.Model):
         max_length=12,
         choices=Status.choices,
         default=Status.BOOKED,
-        help_text="Booked and attended take seats; cancelled and no show do not.",
+        help_text=(
+            "Booked, attended and requested (awaiting the guide's Confirm, #1166) take seats; "
+            "cancelled and no show do not."
+        ),
     )
     cancelled_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -617,7 +680,7 @@ class TourBooking(models.Model):
         indexes: ClassVar[list[models.Index]] = [
             models.Index(
                 fields=["guide", "starts_at"],
-                condition=Q(status__in=["booked", "attended"]),
+                condition=Q(status__in=["booked", "attended", "pending"]),
                 name="ix_tourbooking_seats",
             ),
         ]
@@ -635,6 +698,11 @@ class TourBooking(models.Model):
     def holds_seats(self) -> bool:
         """Whether this booking counts against its tour's seats."""
         return self.status in self.HOLDS_SEATS
+
+    @property
+    def is_request(self) -> bool:
+        """Whether this is a request still waiting for its guide to confirm or decline it (#1166)."""
+        return self.status == self.Status.PENDING
 
     @property
     def ics_uid(self) -> str:
@@ -673,6 +741,7 @@ class TourBooking(models.Model):
             self.Status.ATTENDED: "ok",
             self.Status.NO_SHOW: "fail",
             self.Status.CANCELLED: "muted",
+            self.Status.PENDING: "warn",
         }
         return tones[self.Status(self.status)]
 
@@ -693,11 +762,12 @@ class TourBooking(models.Model):
         ``"cancelled"`` for a cancelled tour, ``"past"`` for one that has started or been marked
         attended or no show, and ``"too_close"`` inside the cancel cutoff (Tour Settings). Checked
         on the GET that shows a page and again on the POST that acts, so a forged POST is refused
-        the same way.
+        the same way. A request (#1166) may be cancelled like a booking; only Reschedule waits for
+        the guide to confirm it (:func:`tours.booking.reschedule_tour`).
         """
         if self.status == self.Status.CANCELLED:
             return "cancelled"
-        if self.status != self.Status.BOOKED or self.starts_at <= now:
+        if self.status not in self.UPCOMING or self.starts_at <= now:
             return "past"
         if self.starts_at - now < timedelta(hours=cancel_cutoff_hours):
             return "too_close"
