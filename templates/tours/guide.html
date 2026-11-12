@@ -1,0 +1,57 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Tours: Guide{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/tours.css' %}">
+<link rel="stylesheet" href="{% static 'css/permission-setup.css' %}">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+The Tours page's Guide tab (#1167, tours.views.tour_guide): the wiki page an admin linked to Tour
+Guide (WikiPage.guide_for, picked on the page's Edit), rendered as the wiki renders it. A guide who
+hid their Get Set Up card brings it back here.
+
+Context: tab, is_admin, page (or None), facts, toc, can_edit, setup, setup_next.
+{% endcomment %}
+{% include "tours/partials/_page_top.html" %}
+
+{% if setup and setup.hidden %}
+<div class="hub-card pl-perm-guide__restore" data-setup-restore>
+  <p class="hub-text-muted">Your Get Set Up card is hidden.</p>
+  <form method="post" action="{% url 'hub_permission_setup_show' setup.spec.permission %}">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{% url 'tours:upcoming' %}">
+    <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Show the Get Set Up Card</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="pl-perm-guide">
+  {% if page %}
+  <div class="hub-card" data-guide-page="{{ page.slug }}">
+    <div class="pl-perm-guide__head">
+      <div class="pl-perm-guide__meta">
+        <span class="hub-pill hub-pill--{{ page.status_pill.0 }}">{{ page.status_pill.1 }}</span>
+        <span>Updated {{ page.updated_at|date:"M j" }}{% if page.updated_by %} by {{ page.updated_by.display_name }}{% endif %}</span>
+      </div>
+      <a href="{% url 'hub_wiki_page' page.slug %}" class="pl-btn pl-btn--secondary pl-btn--sm">{% if can_edit %}Open to Edit on the Wiki{% else %}Open on the Wiki{% endif %}</a>
+    </div>
+    {% if toc|length > 1 %}
+    <nav class="pl-wp-toc" aria-label="On this page">
+      {% for level, anchor, text in toc %}<a href="#{{ anchor }}" class="pl-wp-toc__chip">{{ text }}</a>{% endfor %}
+    </nav>
+    {% endif %}
+    {% include "hub/partials/_wiki_body.html" %}
+    <div class="pl-perm-guide__next">
+      <p class="hub-text-muted">Something missing or out of date? {% if setup %}Ask {{ setup.granter_name }}.{% else %}Admins edit this page on the wiki.{% endif %}</p>
+    </div>
+  </div>
+  {% else %}
+  <div class="hub-card pl-perm-guide__empty" data-guide-empty>
+    <p>There is no guide for Tour Guides yet.</p>
+    {% if is_admin %}<p class="hub-text-muted">Open any space wide wiki page's Edit and pick Tour Guide under Guide For. It shows here.</p>{% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

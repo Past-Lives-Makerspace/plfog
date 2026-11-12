@@ -23,6 +23,7 @@ from . import (
     meeting_views,
     notification_views,
     orientations_views,
+    permission_setup_views,
     spotlight_views,
     staff_onboarding_views,
     thread_views,
@@ -794,6 +795,20 @@ urlpatterns = [
     # "No thanks" and the tour runtime's end-of-tour hook both POST here.
     path("tours/<slug:tour_key>/state/", views.tour_state, name="hub_tour_state"),
     path("settings/onboarding/dismiss/", views.onboarding_dismiss, name="hub_onboarding_dismiss"),
+    path(
+        "setup/<str:permission>/got-it/",
+        permission_setup_views.permission_setup_got_it,
+        name="hub_permission_setup_got_it",
+    ),
+    path(
+        "setup/<str:permission>/skip/", permission_setup_views.permission_setup_skip, name="hub_permission_setup_skip"
+    ),
+    path(
+        "setup/<str:permission>/hide/", permission_setup_views.permission_setup_hide, name="hub_permission_setup_hide"
+    ),
+    path(
+        "setup/<str:permission>/show/", permission_setup_views.permission_setup_show, name="hub_permission_setup_show"
+    ),
     path("settings/", views.user_settings, name="hub_user_settings"),
     path(
         "settings/profile-photo/delete/",

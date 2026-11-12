@@ -5,8 +5,10 @@ Each grant method (:meth:`Member.sync_admin_capabilities`, :meth:`Member.grant_i
 turned on and hands that to :func:`record`, which enqueues one :func:`send_permission_granted`
 task per permission after the save commits. Each task rings the bell and sends one email about
 its permission: what it lets them do, how, and a button per page, worded from
-:attr:`AdminCapability.GUIDES`. A save that turns on two sends two emails (Felix: each email
-separate). A grant a member makes to themself sends nothing.
+:attr:`AdminCapability.GUIDES`. A permission with a Get Set Up card (#1167,
+:mod:`membership.permission_setup`) sends the card's step names and one Get Set Up button instead,
+so the email cannot drift from the page. A save that turns on two sends two emails (Felix: each
+email separate). A grant a member makes to themself sends nothing.
 """
 
 from __future__ import annotations
@@ -78,12 +80,25 @@ def card_title(grant: str, guild: Guild | None) -> str:
 
 
 def _card(grant: str, guide: PermissionGuide, guild: Guild | None) -> dict[str, Any]:
-    return {
+    from membership.permission_setup import spec_for
+
+    card: dict[str, Any] = {
         "title": card_title(grant, guild),
         "what": guide.what,
         "how": guide.how,
         "pages": [(page.label, _page_url(page)) for page in guide.pages],
+        "steps": [],
     }
+    spec = spec_for(grant)
+    if spec is not None:
+        setup_url = member_absolute_url(reverse(spec.page_url_name))
+        card.update(
+            steps=[step.email_line for step in spec.steps],
+            page_name=spec.page_name,
+            rule_line=spec.rule_line,
+            pages=[("Get Set Up", setup_url)],
+        )
+    return card
 
 
 def email_context(member: Member, grant: str, granter: Member | None, guild: Guild | None) -> dict[str, Any]:
@@ -133,7 +148,9 @@ def send_permission_granted(
         html_template="membership/emails/permission_granted.html",
         template_context=context,
         in_app_title=subject,
-        in_app_body="What it lets you do and where to find it.",
+        in_app_body="Get set up in a few short steps."
+        if context["card"]["steps"]
+        else "What it lets you do and where to find it.",
         url=context["card"]["pages"][0][1],
         email_to=member.primary_email or None,
         period=f"permission_granted:{batch}",

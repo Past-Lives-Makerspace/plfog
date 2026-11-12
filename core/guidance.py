@@ -596,6 +596,18 @@ _GUIDANCE_LIST = (
         ),
     ),
     Guidance(
+        key="tours.get-set-up",
+        title="Get Set Up as a Tour Guide",
+        url_name="tours:upcoming",
+        target="tours.get-set-up",
+        steps=(
+            "Open the Tours card on the Tools page. Get Set Up sits at the top while you have steps left.",
+            "Each step opens when you get to it. Most tick themselves once you do the thing: connect your calendar, set your hours, give your first tour.",
+            "Finish every step to earn the Tour Guide badge on your Member Directory card.",
+            "The Guide tab has the full guide, kept up to date by admins on the wiki.",
+        ),
+    ),
+    Guidance(
         key="account.notifications",
         title="Notification Settings",
         url_name="hub_user_settings",

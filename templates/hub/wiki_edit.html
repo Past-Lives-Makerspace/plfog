@@ -71,6 +71,9 @@ sit ABOVE it with room to breathe (Rule 18), never underneath.
         {% include "components/form_field.html" with field=form.guild %}
         {% include "components/form_field.html" with field=form.kind %}
         {% endif %}
+        {% if form.guide_for %}
+        {% include "components/form_field.html" with field=form.guide_for %}
+        {% endif %}
         {% if form.equipment %}
         {% include "components/form_field.html" with field=form.equipment %}
         {% endif %}

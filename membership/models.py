@@ -1818,6 +1818,7 @@ class Member(StaffRequestMixin, models.Model):
         to_remove = current - desired
         if to_remove:
             self.admin_capabilities.filter(capability__in=to_remove).delete()
+            PermissionSetup.withdraw(self, to_remove)
         added = [c for c in AdminCapability.Capability.values if c in desired - current]
         for capability in added:
             self.admin_capabilities.create(capability=capability, granted_by=granted_by)
@@ -1854,8 +1855,8 @@ class Member(StaffRequestMixin, models.Model):
             )
             if created:
                 record(self, [capability], granted_by=granted_by)
-        else:
-            self.admin_capabilities.filter(capability=capability).delete()
+        elif self.admin_capabilities.filter(capability=capability).delete()[0]:
+            PermissionSetup.withdraw(self, [capability])
 
     def can_edit_guild(self, guild: Guild) -> bool:
         """True when this member may edit the given guild.
@@ -4918,6 +4919,126 @@ class AdminCapability(models.Model):
         return f"{self.member.display_name} — {self.get_capability_display()}"
 
 
+class PermissionSetup(models.Model):
+    """One member's Get Set Up progress on one permission they were granted (#1167).
+
+    The steps themselves live in :mod:`membership.permission_setup`; most tick from what the member
+    has done, so this row keeps only what nothing else records: the reading steps they pressed Got
+    It on, the optional steps they skipped, whether they hid the card, and when setup finished (the
+    badge) and was celebrated (the toast, once). Made the first time the card shows.
+    """
+
+    member = models.ForeignKey(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="permission_setups",
+        help_text="The member setting the permission up.",
+    )
+    permission = models.CharField(
+        max_length=30,
+        choices=AdminCapability.Capability.choices,
+        help_text="Which permission this progress is for.",
+    )
+    read_steps = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Keys of the reading steps the member pressed Got It on.",
+    )
+    skipped_steps = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Keys of the optional steps the member chose to skip.",
+    )
+    hidden_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the member hid the card. Show the Get Set Up Card on the Guide tab clears it.",
+    )
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When every required step was done and the permission's badge was given.",
+    )
+    celebrated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the member was shown the toast for finishing, so it shows once.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the card first showed.")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["member", "permission"], name="uq_permsetup_member_perm"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.member.display_name}: {self.get_permission_display()} setup"
+
+    @classmethod
+    def for_member(cls, member: Member, permission: str) -> PermissionSetup:
+        """The member's row for ``permission``, made on first use."""
+        row, _created = cls.objects.get_or_create(member=member, permission=permission)
+        return row
+
+    def mark_read(self, step: str) -> None:
+        """Got It on a reading step; pressing it twice changes nothing."""
+        if step not in self.read_steps:
+            self.read_steps = [*self.read_steps, step]
+            self.save(update_fields=["read_steps"])
+
+    def skip(self, step: str) -> None:
+        """Skip This Step on an optional step; skipping it twice changes nothing."""
+        if step not in self.skipped_steps:
+            self.skipped_steps = [*self.skipped_steps, step]
+            self.save(update_fields=["skipped_steps"])
+
+    def hide(self) -> None:
+        """Hide the card; it comes back from the Guide tab."""
+        self.hidden_at = timezone.now()
+        self.save(update_fields=["hidden_at"])
+
+    def show(self) -> None:
+        """Bring a hidden card back."""
+        self.hidden_at = None
+        self.save(update_fields=["hidden_at"])
+
+    def finish(self) -> bool:
+        """Stamp setup finished and give the permission's badge, once.
+
+        One conditional UPDATE decides, so two requests finishing at the same moment give the
+        badge once. The badge is the :class:`LeadershipBadge` linked to the permission, made in the
+        house gold the first time anyone finishes, so admins can recolor or rename it later.
+
+        Returns:
+            True when this call finished it; False when it was already finished.
+        """
+        now = timezone.now()
+        claimed = PermissionSetup.objects.filter(pk=self.pk, completed_at__isnull=True).update(completed_at=now)
+        if not claimed:
+            return False
+        self.completed_at = now
+        LeadershipBadge.for_permission(self.permission).give(self.member)
+        return True
+
+    def celebrate(self) -> bool:
+        """True once after setup finished, for the toast; every later call is False."""
+        if self.completed_at is None:
+            return False
+        now = timezone.now()
+        claimed = PermissionSetup.objects.filter(pk=self.pk, celebrated_at__isnull=True).update(celebrated_at=now)
+        self.celebrated_at = self.celebrated_at or now
+        return bool(claimed)
+
+    @classmethod
+    def withdraw(cls, member: Member, permissions: Collection[str]) -> None:
+        """A revoked permission takes its badge back and opens setup again for a later grant."""
+        if not permissions:
+            return
+        cls.objects.filter(member=member, permission__in=permissions).update(completed_at=None, celebrated_at=None)
+        for badge in LeadershipBadge.objects.filter(permission__in=permissions):
+            badge.take(member)
+
+
 class GuildNeedsAttentionQuerySet(models.QuerySet):
     def open(self) -> GuildNeedsAttentionQuerySet:
         """The stretches still running: the guild still breaks the rule."""
@@ -6053,6 +6174,14 @@ class LeadershipBadge(models.Model):
         related_name="leadership_badges",
         help_text="The members who hold this badge; it shows on their Leadership Directory and Member Directory cards.",
     )
+    permission = models.CharField(
+        max_length=30,
+        blank=True,
+        default="",
+        db_default="",
+        choices=AdminCapability.Capability.choices,
+        help_text="The permission whose Get Set Up earns this badge (#1167), or blank for a badge admins give by hand.",
+    )
 
     objects = LeadershipBadgeQuerySet.as_manager()
 
@@ -6061,6 +6190,18 @@ class LeadershipBadge(models.Model):
 
     class Meta:
         ordering = ["id"]
+        constraints = [
+            models.UniqueConstraint(fields=["permission"], condition=~Q(permission=""), name="uq_badge_permission"),
+        ]
+
+    @classmethod
+    def for_permission(cls, permission: str) -> LeadershipBadge:
+        """The badge finishing ``permission``'s setup earns, made in the house gold on first use (#1167)."""
+        badge, _created = cls.objects.get_or_create(
+            permission=permission,
+            defaults={"label": AdminCapability.Capability(permission).label},
+        )
+        return badge
 
     def __str__(self) -> str:
         return self.label
@@ -22701,6 +22842,16 @@ class WikiPage(StaffRequestMixin, models.Model):
         help_text="The short code behind the /m/ sticker link. Filled once and never changed.",
     )
 
+    guide_for = models.CharField(
+        max_length=30,
+        blank=True,
+        default="",
+        db_default="",
+        choices=AdminCapability.Capability.choices,
+        help_text="The permission whose Guide tab shows this page (#1167). An admin picks it on the edit page; "
+        "one page per permission.",
+    )
+
     objects = WikiPageQuerySet.as_manager()
 
     class Meta:
@@ -22717,6 +22868,7 @@ class WikiPage(StaffRequestMixin, models.Model):
                 condition=Q(kind="machine", equipment__isnull=False),
                 name="uq_wikipage_machine_equip",
             ),
+            models.UniqueConstraint(fields=["guide_for"], condition=~Q(guide_for=""), name="uq_wikipage_guide_for"),
         ]
 
     #: The bell rows a decision clears (#894 part 3, :class:`core.models.StaffRequestMixin`).
@@ -23132,6 +23284,25 @@ class WikiPage(StaffRequestMixin, models.Model):
         from django.urls import reverse
 
         return reverse("hub_wiki_page", args=[self.slug])
+
+    @classmethod
+    def guide_page_for(cls, permission: str) -> WikiPage | None:
+        """The live page a permission's Guide tab shows (#1167), or None while none is picked."""
+        return cls.objects.published().not_archived().filter(guide_for=permission).first()
+
+    def make_guide_for(self, permission: str) -> None:
+        """Make this page the Guide tab's page for ``permission`` (blank: for none), moving the link off any other page.
+
+        One page per permission (``uq_wikipage_guide_for``), so picking a new page clears the old
+        one inside the same transaction.
+        """
+        if permission == self.guide_for:
+            return
+        with transaction.atomic():
+            if permission:
+                WikiPage.objects.filter(guide_for=permission).exclude(pk=self.pk).update(guide_for="")
+            self.guide_for = permission
+            self.save(update_fields=["guide_for"])
 
     @property
     def has_written_body(self) -> bool:

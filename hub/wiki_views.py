@@ -1052,6 +1052,8 @@ def _apply_page_edit(
     if can_moderate:
         page.equipment = form.cleaned_data["equipment"]
         page.save(update_fields=["equipment"])
+    if "guide_for" in form.fields:
+        page.make_guide_for(form.cleaned_data["guide_for"])
     _save_child_formsets(page, fact_formset, attachment_formset, member)
     if draft is not None:
         draft.delete()
