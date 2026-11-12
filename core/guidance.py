@@ -328,6 +328,20 @@ _GUIDANCE_LIST = (
         ),
     ),
     Guidance(
+        key="guild.email-polls",
+        title="Send a Poll to Your Guild",
+        url_name="hub_guild_edit",
+        url_kwargs=_staffed_guild_pk,
+        query={"tab": "announcements"},
+        target="guild.email-polls",
+        steps=(
+            "Guild leads and staff: open your guild's settings and press the Email Members tab.",
+            "Press New Poll. The composer opens on Poll with your guild chosen.",
+            "Write up to 10 questions. A pick question can end with a write-in option, and Public results lets every member see the totals.",
+            "The Polls tab in Email Members shows how many answered. When the poll closes, a results email waits in Drafts for you to finish.",
+        ),
+    ),
+    Guidance(
         key="guild.staff",
         title="Guild Staff",
         url_name="hub_guild_edit",

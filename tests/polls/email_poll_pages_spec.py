@@ -124,7 +124,7 @@ def describe_the_plain_link():
         poll = _survey()
         client.post(poll.answer_path, _post(poll))
         client.post(poll.answer_path, _post(poll, shop="Zormetal"))
-        assert poll.answers_of(member)[_pk(poll, 0)] == [_pk(poll, 0, "Zormetal")]
+        assert poll.answers_of(member).answers[_pk(poll, 0)] == [_pk(poll, 0, "Zormetal")]
         assert EmailPollResponse.objects.count() == 1
 
     def it_shows_a_missing_pick_beside_its_question_and_saves_nothing():

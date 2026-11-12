@@ -262,10 +262,6 @@
     color: var(--hub-text);
 }
 
-.pl-poll-q__add-option {
-    align-self: flex-start;
-}
-
 .pl-poll-q__add {
     margin-top: 1rem;
 }
@@ -286,4 +282,31 @@
 /* Buttons in a question card keep their own width; the card is a flex column, which would stretch them. */
 .pl-poll-q__card > .pl-btn {
     align-self: flex-start;
+}
+
+/* A question's write-in option (#1142 AC13): the same row as an option, named, and its two add buttons side by side. */
+.pl-poll-q__write-in-label {
+    flex: none;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: var(--hub-link);
+}
+
+.pl-poll-q__option-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+/* A poll's results email (#1142 AC15): the bars under the message, shown read-only as the email draws them (a light card, as in the email). */
+.pl-compose-poll-results {
+    margin: 1rem 0 1.5rem;
+}
+
+.pl-compose-poll-results__email {
+    margin-top: 0.75rem;
+    padding: 1rem 1.25rem;
+    border-radius: 10px;
+    background-color: #ffffff;
+    max-width: 640px;
 }

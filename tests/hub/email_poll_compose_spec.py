@@ -191,7 +191,7 @@ def describe_saving_a_poll_draft():
             (_poll_data(**{"poll-title": ""}), "Give the poll a title."),
             (
                 _poll_data(_question(0, "One option?", options=("Zorwood", "  "))),
-                "Question 1: Give this question 2 to 4 options.",
+                "Question 1: Give this question 2 to 4 options, a write-in counting as one.",
             ),
             (_poll_data(_question(0, "", options=("A", "B"))), "Question 1: Write the question."),
             (_poll_data(_question(0, "", options=()), total=1), "Add at least one question."),
@@ -226,7 +226,7 @@ def describe_resuming_and_listing():
         assert 'value="Zorblax Survey"' in html
         assert 'value="Which zorblax shop?"' in html
         assert 'value="Zorglass"' in html
-        assert "plPollQuestion('one', 3)" in html
+        assert "plPollQuestion('one', 3, false)" in html
 
     def it_tags_a_poll_on_the_drafts_tab():
         client = Client()
@@ -307,7 +307,10 @@ def describe_sending_a_poll():
 
         assert response.status_code == 200
         html = response.content.decode()
-        assert "data-compose-poll-question-error>Give this question 2 to 4 options.</p>" in html
+        assert (
+            "data-compose-poll-question-error>Give this question 2 to 4 options, a write-in counting as one.</p>"
+            in html
+        )
         assert "kind: 'poll'" in html
         assert 'value="Lonely zorblax?"' in html
         assert not AnnouncementDraft.objects.exists()

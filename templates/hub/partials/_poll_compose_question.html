@@ -1,6 +1,6 @@
 {# One question row in the poll composer (#1142): qform is an EmailPollQuestionForm, or the formset's empty form inside the <template>. #}
 <fieldset class="pl-poll-q__card" data-formset-row data-compose-poll-question
-          x-data="plPollQuestion('{{ qform.kind.value|default:'one'|escapejs }}', {{ qform.options_shown }})">
+          x-data="plPollQuestion('{{ qform.kind.value|default:'one'|escapejs }}', {{ qform.options_shown }}, {{ qform.has_write_in|yesno:'true,false' }})">
   <legend class="pl-poll-q__legend">Question <span class="pl-poll-q__number" aria-hidden="true"></span></legend>
   {% include "components/form_field.html" with field=qform.text %}
   <div class="pl-form-group pl-poll-q__kind">
@@ -18,8 +18,17 @@
       <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" @click="remove({{ forloop.counter0 }})" data-compose-poll-remove-option>Remove</button>
     </div>
     {% endfor %}
+    <div class="pl-poll-q__option pl-poll-q__option--write-in" x-show="writeIn" data-compose-poll-write-in>
+      <label class="pl-poll-q__write-in-label" for="{{ qform.write_in.id_for_label }}">Write-in</label>
+      <input type="text" name="{{ qform.write_in.html_name }}" id="{{ qform.write_in.id_for_label }}" value="{{ qform.write_in.value|default_if_none:'' }}" maxlength="120" placeholder="Another time" x-ref="writeInInput">
+      <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" @click="removeWriteIn()" data-compose-poll-remove-write-in>Remove</button>
+    </div>
     {% for error in qform.non_field_errors %}<p class="pl-field-error" data-compose-poll-question-error>{{ error }}</p>{% endfor %}
-    <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm pl-poll-q__add-option" x-show="shown < {{ max_options|default:4 }}" @click="shown++" data-compose-poll-add-option>+ Add option</button>
+    <div class="pl-poll-q__option-actions">
+      <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" x-show="total() < {{ max_options|default:4 }}" @click="shown++" data-compose-poll-add-option>+ Add option</button>
+      <button type="button" class="pl-btn pl-btn--ghost pl-btn--sm" x-show="!writeIn &amp;&amp; total() < {{ max_options|default:4 }}" @click="writeIn = true; $nextTick(() => $refs.writeInInput.focus())" data-compose-poll-add-write-in>+ Add write-in option</button>
+    </div>
+    <p class="pl-field-hint" x-show="writeIn" x-cloak>Members who pick it type their own answer. It counts as one of the 4 options, and results list what each person typed. With Public results on, only you and admins see what they typed.</p>
   </div>
   <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" @click="deleteQuestion($el)" data-compose-poll-delete-question>Delete question</button>
 </fieldset>

@@ -27,15 +27,23 @@
       };
     });
     // One question: its type shows the options for Pick one and Pick any; Remove shifts the rows below up.
-    window.Alpine.data("plPollQuestion", function (kind, shown) {
+    // A write-in option (#1142 AC13) counts toward the 4; at least 2 rows stay, counting it.
+    window.Alpine.data("plPollQuestion", function (kind, shown, writeIn) {
       return {
         kind: kind,
         shown: shown,
+        writeIn: writeIn,
+        total: function () { return this.shown + (this.writeIn ? 1 : 0); },
         remove: function (index) {
           var inputs = Array.prototype.slice.call(this.$root.querySelectorAll("[data-option-input]"));
           for (var i = index; i < inputs.length - 1; i += 1) { inputs[i].value = inputs[i + 1].value; }
           inputs[inputs.length - 1].value = "";
-          if (this.shown > 2) { this.shown -= 1; }
+          if (this.total() > 2) { this.shown -= 1; }
+        },
+        removeWriteIn: function () {
+          this.$refs.writeInInput.value = "";
+          this.writeIn = false;
+          if (this.shown < 2) { this.shown = 2; }
         }
       };
     });

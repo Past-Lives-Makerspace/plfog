@@ -5171,24 +5171,35 @@ def _render_compose(
             # The saved image the field shows (#1064); a re-render after Remove shows none.
             "compose_image": draft.image if draft is not None and draft.image and not remove_posted else None,
             "compose_image_lost": image_lost,
-            **_compose_poll_context(request, draft, poll_forms),
+            **_compose_poll_context(request, draft, poll_forms, form.fields["audience"].choices),
         },
     )
 
 
 def _compose_poll_context(
-    request: HttpRequest, draft: AnnouncementDraft | None, poll_forms: tuple[Any, Any] | None
+    request: HttpRequest,
+    draft: AnnouncementDraft | None,
+    poll_forms: tuple[Any, Any] | None,
+    audience_choices: Any,
 ) -> dict[str, Any]:
     """What the Poll side of the composer reads (#1142): its forms, which side opens, and the limits."""
     from polls.models import MAX_OPTIONS, MAX_QUESTIONS
 
     poll_form, questions = poll_forms or _compose_poll_forms(request, draft)
-    opens_poll = (
+    # A fresh compose opens on Poll from ?kind=poll (#1142 AC16: New Poll on Guild Settings and the Email Members header).
+    fresh_poll = (
+        draft is None and request.method == "GET" and request.GET.get("kind") == AnnouncementDraft.Kind.POLL.value
+    )
+    opens_poll = fresh_poll or (
         _posts_poll(request)
         if request.method == "POST"
         else (draft is not None and draft.kind == AnnouncementDraft.Kind.POLL)
     )
+    leads = AnnouncementDraft.Audience.LEADS.value
+    offers_leads = any(value == leads for value, _label in audience_choices)
     return {
+        # A Guild leads poll also reaches every admin (#1142 AC12): the Poll confirm counts them.
+        "poll_leads_reach": len(AnnouncementDraft(audience=leads).poll_recipient_ids()) if offers_leads else 0,
         "poll_form": poll_form,
         "question_formset": questions,
         "compose_kind": "poll" if opens_poll else "email",
@@ -5455,6 +5466,7 @@ def _compose_preview_draft(request: HttpRequest) -> AnnouncementDraft:
         push_message=(request.POST.get("push_message") or "").strip(),
         discord_post_as_me=bool(request.POST.get("discord_post_as_me")),
         funding_snapshot=handled.funding_snapshot if handled is not None else None,
+        results_of_poll=handled.results_of_poll if handled is not None else None,
     )
     draft.title = draft.title_from_subject(request.POST.get("subject") or "")
     return draft

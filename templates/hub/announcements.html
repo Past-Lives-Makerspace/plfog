@@ -22,7 +22,7 @@ reads poll_rows ([(EmailPoll with sent_count and answered_count, is_open)]).
 {% endcomment %}
 {% url 'hub_compose' as compose_url %}
 {% if can_open %}
-{% include "components/page_header.html" with title="Email Members" new_key="admin.email-members" description="Emails waiting to go out and the ones already sent. Each one can also post to Discord and sends an app notification. Open a draft to finish it." action_url=compose_url action_label="New email" action_class="hub-btn hub-btn--primary" action_help_key="announcements.new" %}
+{% include "components/page_header.html" with title="Email Members" new_key="admin.email-members" description="Emails waiting to go out and the ones already sent. Each one can also post to Discord and sends an app notification. Open a draft to finish it." action_include="hub/partials/_announcements_header_actions.html" %}
 {% else %}
 {% include "components/page_header.html" with title="Email Members" new_key="admin.email-members" description="Who each guild's emails reach: its members, plus the addresses added or imported." %}
 {% endif %}
@@ -32,7 +32,7 @@ reads poll_rows ([(EmailPoll with sent_count and answered_count, is_open)]).
   {% if can_open %}
   <a href="{% url 'hub_announcements' %}?tab=drafts" class="vote-tab{% if tab == 'drafts' %} vote-tab--active{% endif %}"{% if tab == 'drafts' %} aria-current="page"{% endif %} data-announcements-tab="drafts">Drafts <span class="hub-badge vote-tab__count" data-announcements-count="drafts">{{ drafts_count }}</span></a>
   <a href="{% url 'hub_announcements' %}?tab=sent" class="vote-tab{% if tab == 'sent' %} vote-tab--active{% endif %}"{% if tab == 'sent' %} aria-current="page"{% endif %} data-announcements-tab="sent">Sent <span class="hub-badge vote-tab__count" data-announcements-count="sent">{{ sent_count }}</span></a>
-  <a href="{% url 'hub_announcements' %}?tab=polls" class="vote-tab{% if tab == 'polls' %} vote-tab--active{% endif %}"{% if tab == 'polls' %} aria-current="page"{% endif %} data-announcements-tab="polls">Polls <span class="hub-badge vote-tab__count" data-announcements-count="polls">{{ polls_count }}</span></a>
+  <a href="{% url 'hub_announcements' %}?tab=polls" class="vote-tab{% if tab == 'polls' %} vote-tab--active{% endif %}"{% if tab == 'polls' %} aria-current="page"{% endif %} data-announcements-tab="polls" data-guidance-target="guild.email-polls-tab">Polls <span class="hub-badge vote-tab__count" data-announcements-count="polls">{{ polls_count }}</span></a>
   {% endif %}
   {% if mailing_lists %}
   <a href="{% url 'hub_announcements' %}?tab=mailing-lists" class="vote-tab{% if tab == 'mailing-lists' %} vote-tab--active{% endif %}"{% if tab == 'mailing-lists' %} aria-current="page"{% endif %} data-announcements-tab="mailing-lists">Mailing Lists <span class="hub-badge vote-tab__count" data-announcements-count="mailing-lists">{{ mailing_lists|length }}</span></a>

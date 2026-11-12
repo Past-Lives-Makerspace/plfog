@@ -28,6 +28,8 @@ from django.db import IntegrityError, models, transaction
 from django.db.models import Count, Exists, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce
 from django.utils import timezone
+from django.utils.html import escape
+from django.utils.safestring import SafeString, mark_safe
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -578,6 +580,14 @@ class ReminderLead(models.IntegerChoices):
     THREE_DAYS = 3, "3 days before closing"
 
 
+class ResultsLevel(models.TextChoices):
+    """How much of an email poll's results a viewer sees (#1142 AC14)."""
+
+    NONE = "none", "None"
+    TOTALS = "totals", "Totals"
+    FULL = "full", "Full"
+
+
 class QuestionKind(models.TextChoices):
     """What kind of answer an email poll question takes (#1142)."""
 
@@ -601,11 +611,22 @@ class QuestionSpec:
     text: str
     kind: str
     options: tuple[str, ...] = ()
+    write_in: str = ""
 
     @property
     def filled_options(self) -> list[str]:
         """The options with text, stripped, in order: a blank option row is not an option."""
         return [text for text in (option.strip() for option in self.options) if text]
+
+    @property
+    def write_in_label(self) -> str:
+        """The write-in option's name (#1142 AC13), stripped; blank when the question has none."""
+        return self.write_in.strip()
+
+    @property
+    def option_count(self) -> int:
+        """The options members choose from, the write-in included: the number held to 2 to 4."""
+        return len(self.filled_options) + (1 if self.write_in_label else 0)
 
 
 @dataclass(frozen=True)
@@ -619,11 +640,15 @@ class PollDraft:
     remind_days_before: int | None
     audience_only: bool
     questions: list[QuestionSpec]
+    public_results: bool = False
 
     @property
     def signature(self) -> list[tuple[str, str, tuple[str, ...]]]:
         """The questions as a repeat is compared on: text, kind and options in order, as they are stored."""
-        return [question_signature(spec.text, spec.kind, spec.filled_options) for spec in self.questions]
+        return [
+            question_signature(spec.text, spec.kind, _signed_options(spec.filled_options, spec.write_in_label))
+            for spec in self.questions
+        ]
 
     def apply_to(self, draft: AnnouncementDraft) -> None:
         """Make ``draft`` this poll's row, unsaved: kind Poll, its title, and every email only channel off."""
@@ -640,6 +665,11 @@ class PollDraft:
         draft.discord_post_as_me = False
         draft.mark_as_urgent = False
         draft.expires_at = None
+
+
+def _signed_options(options: list[str], write_in: str) -> list[str]:
+    """Options as a signature lists them: the write-in last, marked, so it never matches a plain option."""
+    return [*options, f"write-in: {write_in}"] if write_in else options
 
 
 def question_signature(text: str, kind: str, options: list[str]) -> tuple[str, str, tuple[str, ...]]:
@@ -678,12 +708,14 @@ def _validate_question(number: int, spec: QuestionSpec) -> None:
         raise ValueError(f"Question {number} has an unknown kind: {spec.kind!r}.")
     options = spec.filled_options
     if spec.kind == QuestionKind.OPEN:
-        if options:
+        if options or spec.write_in_label:
             raise ValueError(f"Question {number} is open-ended and takes no options.")
         return
-    if not MIN_OPTIONS <= len(options) <= MAX_OPTIONS:
-        raise ValueError(f"Question {number} needs {MIN_OPTIONS} to {MAX_OPTIONS} filled options.")
-    if any(len(option) > ANSWER_MAX_LENGTH for option in options):
+    if not MIN_OPTIONS <= spec.option_count <= MAX_OPTIONS:
+        raise ValueError(
+            f"Question {number} needs {MIN_OPTIONS} to {MAX_OPTIONS} filled options, the write-in included."
+        )
+    if any(len(option) > ANSWER_MAX_LENGTH for option in [*options, spec.write_in_label]):
         raise ValueError(f"An option in question {number} is longer than {ANSWER_MAX_LENGTH} characters.")
 
 
@@ -729,6 +761,10 @@ class EmailPollQuerySet(models.QuerySet["EmailPoll"]):
         )
         return self.annotate(sent_count=Coalesce(Subquery(sent), 0), answered_count=Coalesce(Subquery(answered), 0))
 
+    def results_due(self, now: datetime) -> EmailPollQuerySet:
+        """Polls closed by ``now`` whose results email draft has not been made (#1142 AC15)."""
+        return self.sent().filter(closes_at__lte=now, results_drafted_at__isnull=True)
+
     def reminders_due(self, now: datetime) -> EmailPollQuerySet:
         """Open polls whose reminder time has come and whose reminder has not gone out."""
         return self.open_at(now).filter(remind_at__lte=now, reminder_sent_at__isnull=True)
@@ -768,6 +804,19 @@ class EmailPoll(models.Model):
     audience_only = models.BooleanField(
         default=False,
         help_text="Only the people it was sent to may answer through the plain link.",
+    )
+    public_results = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "Any signed in member may see the pick totals (#1142). Written answers, write-in text and who "
+            "picked what stay with the senders and admins."
+        ),
+    )
+    results_drafted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the results email draft was made after it closed. Blank until then; it is made once.",
     )
     opens_at = models.DateTimeField(null=True, blank=True, help_text="When Send opened it. Blank while a draft.")
     closes_at = models.DateTimeField(null=True, blank=True, help_text="When answering ends. Blank while a draft.")
@@ -835,7 +884,8 @@ class EmailPoll(models.Model):
         poll.run_days = data.run_days
         poll.remind_days_before = data.remind_days_before
         poll.audience_only = data.audience_only
-        poll.save(update_fields=["intro", "run_days", "remind_days_before", "audience_only"])
+        poll.public_results = data.public_results
+        poll.save(update_fields=["intro", "run_days", "remind_days_before", "audience_only", "public_results"])
         poll.replace_questions(data.questions)
         return poll
 
@@ -843,7 +893,14 @@ class EmailPoll(models.Model):
     def signature(self) -> list[tuple[str, str, tuple[str, ...]]]:
         """The saved questions as :attr:`PollDraft.signature` reads a composed one, in two queries."""
         return [
-            question_signature(question.text, question.kind, [option.text for option in question.options.all()])
+            question_signature(
+                question.text,
+                question.kind,
+                _signed_options(
+                    [option.text for option in question.options.all() if not option.is_write_in],
+                    next((option.text for option in question.options.all() if option.is_write_in), ""),
+                ),
+            )
             for question in self.questions.prefetch_related("options")
         ]
 
@@ -863,9 +920,9 @@ class EmailPoll(models.Model):
                 for position, spec in enumerate(specs)
             )
             EmailPollOption.objects.bulk_create(
-                EmailPollOption(question=question, position=position, text=text)
+                EmailPollOption(question=question, position=position, text=text, is_write_in=is_write_in)
                 for question, spec in zip(questions, specs, strict=True)
-                for position, text in enumerate(spec.filled_options)
+                for position, (text, is_write_in) in enumerate(_option_rows(spec))
             )
 
     def open(self, now: datetime) -> None:
@@ -948,7 +1005,14 @@ class EmailPoll(models.Model):
             raise BadPollLinkError(POLL_CLOSED)
         return recipient.poll, recipient.member
 
-    def answer(self, *, member: Member, answers: dict[int, Given], now: datetime) -> EmailPollResponse:
+    def answer(
+        self,
+        *,
+        member: Member,
+        answers: dict[int, Given],
+        now: datetime,
+        write_ins: dict[int, str] | None = None,
+    ) -> EmailPollResponse:
         """Save ``member``'s answers, replacing any they gave before: the one way an answer is written.
 
         ``answers`` maps a question's pk to the text written (open-ended) or the option picked: an
@@ -966,7 +1030,9 @@ class EmailPoll(models.Model):
         if refusal:
             raise AnswerRefusedError(refusal)
         rows = [
-            row for question in self.questions.prefetch_related("options") for row in _answer_rows(question, answers)
+            row
+            for question in self.questions.prefetch_related("options")
+            for row in _answer_rows(question, answers, write_ins or {})
         ]
         if not rows:
             # Only an all open-ended poll gets here; an empty response would count as answered.
@@ -982,34 +1048,103 @@ class EmailPoll(models.Model):
             EmailPollAnswer.objects.bulk_create(rows)
         return response
 
-    def may_see_results(self, member: Member | None, *, is_sender: bool = False) -> bool:
-        """Whether ``member`` may see the results: a sender, an admin, or someone who answered.
+    def results_level(self, member: Member | None, *, is_sender: bool = False) -> ResultsLevel:
+        """How much of the results ``member`` sees (#1142 AC14).
 
-        A sender is the draft's author, or anyone the caller found may open the poll's row on Email
-        Members (``is_sender``: ``hub.views._announcement_rows``, which needs the request), such as
-        a guild's co-lead or a class's co-instructor, who can already open, save over and send it.
+        Full (names, written answers, write-in text, the Responses table) for a sender and an
+        admin, and, while results are not public, for whoever answered. Totals (the bars only) for
+        any other member while :attr:`public_results` is on. None otherwise. A sender is the draft's
+        author, or anyone the caller found may open the poll's row on Email Members (``is_sender``:
+        ``hub.views._announcement_rows``, which needs the request), such as a guild's co-lead.
         """
         if member is None:
-            return False
+            return ResultsLevel.NONE
         if is_sender or member.is_fog_admin or (member.user_id is not None and member.user_id == self.draft.author_id):
-            return True
-        return self.responses.filter(member=member).exists()
+            return ResultsLevel.FULL
+        if self.public_results:
+            return ResultsLevel.TOTALS
+        return ResultsLevel.FULL if self.responses.filter(member=member).exists() else ResultsLevel.NONE
 
-    def results(self) -> EmailPollResults:
-        """Every question's results and the per person table, in four queries."""
-        return EmailPollResults.load(self)
+    def may_see_results(self, member: Member | None, *, is_sender: bool = False) -> bool:
+        """Whether ``member`` sees any results at all (:meth:`results_level` is not None)."""
+        return self.results_level(member, is_sender=is_sender) != ResultsLevel.NONE
 
-    def answers_of(self, member: Member) -> dict[int, str | list[int]]:
-        """``member``'s saved answers by question pk: the text written, or the option pks picked. Empty if none."""
+    def results(self, *, full: bool = True) -> EmailPollResults:
+        """The results: everything in four queries, or with ``full`` off the pick totals alone, which never reads a name."""
+        return EmailPollResults.load(self, full=full)
+
+    def results_email_html(self) -> SafeString:
+        """The results email's block under the sender's message (#1142 AC15): each pick question's bars.
+
+        App-built from the counts at render time and never from the editable message, so it never
+        passes the body sanitizer, as a funding snapshot's chart does. Totals only: no name, written
+        answer or write-in text. Empty with no pick question.
+        """
+        from django.template.loader import render_to_string
+
+        from core.events.templates import style_rich_email_fragment
+
+        results = self.results(full=False)
+        if not results.questions:
+            return mark_safe("")
+        heading = style_rich_email_fragment(f"<h3>{escape(self.results_heading)}</h3>")
+        chart = render_to_string("polls/emails/_results_chart.html", {"results": results})
+        return mark_safe(heading + chart)
+
+    @property
+    def results_heading(self) -> str:
+        """The line over the results email's bars: how many answered."""
+        count = self.responses.count()
+        return f"Poll results: {count} {'person' if count == 1 else 'people'} answered"
+
+    def results_text_lines(self) -> list[str]:
+        """The same totals as plain lines for the results email's text part."""
+        lines = [self.results_heading]
+        for item in self.results(full=False).questions:
+            lines.append(item.question.text)
+            lines.extend(f"  {option.text}: {option.votes} ({option.percent}%)" for option in item.options)
+        return lines
+
+    def create_results_draft(self) -> AnnouncementDraft:
+        """Make the results email draft (#1142 AC15): "Results: <title>", the poll's audience, linked here.
+
+        Its body is blank for the sender to write; the bars come from :meth:`results_email_html` under
+        it. A guild or class draft's checklist starts as exactly the people the poll was sent to,
+        with no mailing list address; any other audience sends to them directly
+        (``AnnouncementDraft.results_recipient_ids``). Nothing is sent.
+        """
+        from membership.models import AnnouncementDraft
+
+        source = self.draft
+        users = sorted(self.recipients.filter(member__user__isnull=False).values_list("member__user_id", flat=True))
+        return AnnouncementDraft.objects.create(
+            kind=AnnouncementDraft.Kind.EMAIL,
+            author=source.author,
+            title=f"Results: {source.title}"[:300],
+            body="",
+            audience=source.audience,
+            guild=source.guild,
+            class_offering=source.class_offering,
+            recipient_selection={"users": users, "custom": []},
+            include_waitlist=source.include_waitlist,
+            results_of_poll=self,
+        )
+
+    def answers_of(self, member: Member) -> SavedAnswers:
+        """``member``'s saved answers: by question pk, the text written or the option pks picked,
+        and the text typed for any write-in they picked. Empty if none. One query."""
         saved: dict[int, str | list[int]] = {}
+        write_ins: dict[int, str] = {}
         for answer in EmailPollAnswer.objects.filter(response__poll=self, response__member=member).order_by("pk"):
             if answer.option_id is None:
                 saved[answer.question_id] = answer.text
-            else:
-                picks = saved.setdefault(answer.question_id, [])
-                assert isinstance(picks, list)  # one question is never both written and picked
-                picks.append(answer.option_id)
-        return saved
+                continue
+            picks = saved.setdefault(answer.question_id, [])
+            assert isinstance(picks, list)  # one question is never both written and picked
+            picks.append(answer.option_id)
+            if answer.text:
+                write_ins[answer.question_id] = answer.text
+        return SavedAnswers(answers=saved, write_ins=write_ins)
 
     @property
     def answer_path(self) -> str:
@@ -1138,7 +1273,8 @@ class EmailPollPage:
 
     ``outsider`` is a member an audience only poll was not sent to (and who is not its sender
     or an admin): they see "This poll was sent to a different group." and nothing more.
-    ``results`` is set only for those :meth:`EmailPoll.may_see_results` allows.
+    ``results`` is set only for those :meth:`EmailPoll.results_level` allows, and holds the pick
+    totals alone for a Totals viewer (#1142 AC14).
     """
 
     poll: EmailPoll
@@ -1151,20 +1287,31 @@ class EmailPollPage:
     @classmethod
     def load(cls, poll: EmailPoll, member: Member, now: datetime, *, is_sender: bool = False) -> EmailPollPage:
         """The page for ``member`` at ``now``; ``is_sender`` as :meth:`EmailPoll.may_see_results` takes it."""
-        sees_results = poll.may_see_results(member, is_sender=is_sender)
-        outsider = not sees_results and poll.audience_only and not poll.is_recipient(member)
+        level = poll.results_level(member, is_sender=is_sender)
+        outsider = level == ResultsLevel.NONE and poll.audience_only and not poll.is_recipient(member)
         return cls(
             poll=poll,
             is_open=poll.is_open(now),
             outsider=outsider,
             can_answer=not outsider and poll.answer_refusal(member, now) == "",
             has_answered=poll.responses.filter(member=member).exists(),
-            results=poll.results() if sees_results else None,
+            results=None if level == ResultsLevel.NONE else poll.results(full=level == ResultsLevel.FULL),
         )
 
 
-def _answer_rows(question: EmailPollQuestion, answers: dict[int, Given]) -> list[EmailPollAnswer]:
+def _option_rows(spec: QuestionSpec) -> list[tuple[str, bool]]:
+    """A question's options to store, in order: ``(text, is_write_in)``, the write-in last."""
+    rows = [(text, False) for text in spec.filled_options]
+    return [*rows, (spec.write_in_label, True)] if spec.write_in_label else rows
+
+
+def _answer_rows(
+    question: EmailPollQuestion, answers: dict[int, Given], write_ins: dict[int, str]
+) -> list[EmailPollAnswer]:
     """The answer rows ``answers`` gives ``question`` (unsaved, no response yet).
+
+    A picked write-in option (#1142 AC13) carries the text the member typed for it, from
+    ``write_ins``; text for a write-in nobody picked is dropped.
 
     Raises:
         AnswerRefusedError: See :meth:`EmailPoll.answer`.
@@ -1182,10 +1329,29 @@ def _answer_rows(question: EmailPollQuestion, answers: dict[int, Given]) -> list
         raise AnswerRefusedError(f"Answer this question: {question.text}")
     if question.kind == QuestionKind.PICK_ONE and len(picked) > 1:
         raise AnswerRefusedError(f"Pick one answer for: {question.text}")
-    offered = {option.pk for option in question.options.all()}
+    offered = {option.pk: option for option in question.options.all()}
     if any(pk not in offered for pk in picked):
         raise AnswerRefusedError("That choice is not part of this poll.")
-    return [EmailPollAnswer(question=question, option_id=pk) for pk in picked]
+    return [
+        EmailPollAnswer(question=question, option_id=pk, text=_write_in_text(offered[pk], question, write_ins))
+        for pk in picked
+    ]
+
+
+def _write_in_text(option: EmailPollOption, question: EmailPollQuestion, write_ins: dict[int, str]) -> str:
+    """What the member typed for a picked write-in option; blank for any other option.
+
+    Raises:
+        AnswerRefusedError: A picked write-in with no text, or text over ``ANSWER_MAX_LENGTH``.
+    """
+    if not option.is_write_in:
+        return ""
+    text = (write_ins.get(question.pk) or "").strip()  # Missing text is refused just below.
+    if not text:
+        raise AnswerRefusedError(f"Write your answer for {option.text}.")
+    if len(text) > ANSWER_MAX_LENGTH:
+        raise AnswerRefusedError(f"Keep your answer for {option.text} to {ANSWER_MAX_LENGTH} characters or fewer.")
+    return text
 
 
 def _picked_pks(question: EmailPollQuestion, given: Given | None) -> list[int]:
@@ -1237,10 +1403,20 @@ class EmailPollOption(models.Model):
     )
     position = models.PositiveSmallIntegerField(help_text="Its place in the list, from 0.")
     text = models.CharField(max_length=ANSWER_MAX_LENGTH, help_text="The choice as members read it.")
+    is_write_in = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="The question's write-in (#1142): picking it asks the member to type their own answer. Always last.",
+    )
 
     class Meta:
         ordering = ["question", "position"]
-        constraints = [models.UniqueConstraint(fields=["question", "position"], name="emailpollopt_one_per_position")]
+        constraints = [
+            models.UniqueConstraint(fields=["question", "position"], name="emailpollopt_one_per_position"),
+            models.UniqueConstraint(
+                fields=["question"], condition=Q(is_write_in=True), name="emailpollopt_one_write_in"
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.text
@@ -1308,14 +1484,16 @@ class EmailPollAnswer(models.Model):
         max_length=OPEN_ANSWER_MAX_LENGTH,
         blank=True,
         default="",
-        help_text="The written answer to an open-ended question. Blank for a picked option.",
+        help_text="The written answer to an open-ended question, or what was typed for a picked write-in option.",
     )
 
     class Meta:
         constraints = [
+            # An open-ended answer has text; an option answer may carry text only for a write-in,
+            # which EmailPoll.answer holds (a constraint cannot read the option's is_write_in).
             models.CheckConstraint(
-                condition=(Q(option__isnull=False) & Q(text="")) | (Q(option__isnull=True) & ~Q(text="")),
-                name="emailpollans_option_xor_text",
+                condition=Q(option__isnull=False) | ~Q(text=""),
+                name="emailpollans_open_has_text",
             ),
             models.UniqueConstraint(
                 fields=["response", "option"], condition=Q(option__isnull=False), name="emailpollans_one_per_option"
@@ -1327,6 +1505,22 @@ class EmailPollAnswer(models.Model):
 
     def __str__(self) -> str:
         return f"Answer to question {self.question_id}"
+
+
+def _cell_text(answer: EmailPollAnswer, option_text: dict[int, str]) -> str:
+    """One answer as a Responses table cell: the text written, the option, or ``Option: what they typed``."""
+    if answer.option_id is None:
+        return answer.text
+    label = option_text[answer.option_id]
+    return f"{label}: {answer.text}" if answer.text else label
+
+
+@dataclass(frozen=True)
+class SavedAnswers:
+    """A member's saved response as the answer form fills it in: picks or text, and write-in text."""
+
+    answers: dict[int, str | list[int]]
+    write_ins: dict[int, str]
 
 
 @dataclass(frozen=True)
@@ -1341,6 +1535,8 @@ class OptionResult:
     text: str
     votes: int
     percent: int
+    is_write_in: bool = False
+    written: tuple[WrittenReply, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1374,18 +1570,18 @@ class EmailPollResults:
 
     questions: tuple[QuestionResult, ...]
     rows: tuple[ResponseRow, ...]
-
-    @property
-    def response_count(self) -> int:
-        """How many people answered."""
-        return len(self.rows)
+    response_count: int
+    full: bool = True
 
     @classmethod
-    def load(cls, poll: EmailPoll) -> EmailPollResults:
+    def load(cls, poll: EmailPoll, *, full: bool = True) -> EmailPollResults:
         """Build the results in four queries: questions, options, responses, answers.
 
         A percent is the share of everyone who answered the poll, so Pick any shares can add past 100.
+        With ``full`` off (#1142 AC14) it is :meth:`totals`: no name, written answer or row is read.
         """
+        if not full:
+            return cls.totals(poll)
         questions = list(poll.questions.prefetch_related("options"))
         responses = list(poll.responses.select_related("member").order_by("created_at", "pk"))
         option_text = {option.pk: option.text for question in questions for option in question.options.all()}
@@ -1405,6 +1601,13 @@ class EmailPollResults:
                         text=option.text,
                         votes=votes[option.pk],
                         percent=round(100 * votes[option.pk] / total) if total else 0,
+                        is_write_in=option.is_write_in,
+                        written=tuple(
+                            WrittenReply(name=response.member.display_name, text=answer.text)
+                            for response in responses
+                            for answer in given[(response.pk, question.pk)]
+                            if answer.option_id == option.pk and answer.text
+                        ),
                     )
                     for option in question.options.all()
                 ),
@@ -1421,16 +1624,43 @@ class EmailPollResults:
             ResponseRow(
                 name=response.member.display_name,
                 cells=tuple(
-                    ", ".join(
-                        answer.text if answer.option_id is None else option_text[answer.option_id]
-                        for answer in given[(response.pk, question.pk)]
-                    )
+                    ", ".join(_cell_text(answer, option_text) for answer in given[(response.pk, question.pk)])
                     for question in questions
                 ),
             )
             for response in responses
         )
-        return cls(questions=results, rows=rows)
+        return cls(questions=results, rows=rows, response_count=total)
+
+    @classmethod
+    def totals(cls, poll: EmailPoll) -> EmailPollResults:
+        """The pick questions' counts and percents alone, in four queries that never read a member or any text."""
+        questions = list(poll.questions.exclude(kind=QuestionKind.OPEN).prefetch_related("options"))
+        total = poll.responses.count()
+        votes = dict(
+            EmailPollAnswer.objects.filter(response__poll=poll, option__isnull=False)
+            .values_list("option_id")
+            .annotate(n=Count("pk"))
+            .values_list("option_id", "n")
+        )
+        results = tuple(
+            QuestionResult(
+                question=question,
+                options=tuple(
+                    OptionResult(
+                        pk=option.pk,
+                        text=option.text,
+                        votes=votes.get(option.pk, 0),  # An option nobody picked has no row in the count.
+                        percent=round(100 * votes.get(option.pk, 0) / total) if total else 0,
+                        is_write_in=option.is_write_in,
+                    )
+                    for option in question.options.all()
+                ),
+                written=(),
+            )
+            for question in questions
+        )
+        return cls(questions=results, rows=(), response_count=total, full=False)
 
 
 @dataclass(frozen=True)
@@ -1464,3 +1694,40 @@ def send_due_poll_reminders(now: datetime) -> ReminderRun:
             continue
         polls += 1
     return ReminderRun(polls=polls, emailed=emailed, failed=failed)
+
+
+@dataclass(frozen=True)
+class ResultsDraftRun:
+    """One run of ``draft_email_poll_results``: drafts made, polls with no pick question, and polls that failed."""
+
+    drafted: int
+    failed: int
+    skipped: int = 0
+
+
+def draft_due_poll_results(now: datetime) -> ResultsDraftRun:
+    """Make each closed poll's results email draft, once: the 15 minute job (#1142 AC15).
+
+    Each poll is claimed with a conditional update on ``results_drafted_at``, and the draft links
+    back to it under a unique constraint, so two runs make one draft. A poll with no pick question
+    has no totals to send: it is marked handled and gets no draft. A poll whose draft fails
+    gives its claim back for the next run; one failing never stops the rest.
+    """
+    drafted = failed = skipped = 0
+    for pk in list(EmailPoll.objects.results_due(now).values_list("pk", flat=True)):
+        if not EmailPoll.objects.filter(pk=pk, results_drafted_at__isnull=True).update(results_drafted_at=now):
+            continue
+        if not EmailPollQuestion.objects.filter(poll_id=pk).exclude(kind=QuestionKind.OPEN).exists():
+            # Only open-ended questions: no totals to send, so no draft. The claim stays, so it is handled.
+            skipped += 1
+            continue
+        try:
+            with transaction.atomic():
+                EmailPoll.objects.select_related("draft").get(pk=pk).create_results_draft()
+        except Exception:
+            logger.exception("Email poll %s: its results draft failed; the next run tries again.", pk)
+            EmailPoll.objects.filter(pk=pk).update(results_drafted_at=None)
+            failed += 1
+            continue
+        drafted += 1
+    return ResultsDraftRun(drafted=drafted, failed=failed, skipped=skipped)

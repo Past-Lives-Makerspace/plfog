@@ -1,0 +1,6 @@
+{# Email Members' header actions (#1142 AC16): New Email then New Poll as a matched pair (FRONTEND.md, Actions in a Card or Section). Rendered in page_header's action slot. #}
+{% url 'hub_compose' as compose_url %}
+<span class="pl-btn-pair pl-btn-pair--header">
+  <a href="{{ compose_url }}" class="pl-btn pl-btn--primary" data-help-key="announcements.new">New Email</a>
+  <a href="{{ compose_url }}?kind=poll" class="pl-btn pl-btn--secondary" data-announcements-new-poll>New Poll</a>
+</span>

@@ -24,7 +24,7 @@ way back in: the modals are teleported to <body>, outside this root.
     <p class="pl-guild-settings__lead">Every change saves as you make it.</p>
   </div>
   <span class="pl-guild-settings__actions">
-    {% whats_new_button "guild.staff" %}
+    {% whats_new_button "guild" %}
     <span data-guidance-target="guild.walkthrough">{% walkthrough_button "guild-lead" guild %}</span>
     <span class="pl-meeting-savestate" data-save-pill
           :class="'pl-meeting-savestate--' + (pending > 0 ? 'saving' : state)"
@@ -719,13 +719,15 @@ confirm modal carries its own POST form, and template content can't nest a form.
     </div>
   </form>
 
-  <div class="hub-card" style="padding:1.5rem;">
-    <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.5rem;">Email Your Members</h2>
-    <p class="hub-text-muted" style="font-size:0.875rem; margin:0 0 1rem;">Write the message, preview the email, choose the Discord channel, and save a draft to finish later. It reaches your mailing list above, posts on your guild page and sends an app notification.</p>
-    <div class="pl-btn-row">
-      <a href="{% url 'hub_compose' %}?audience=guild:{{ guild.pk }}" class="hub-btn hub-btn--primary">Write an Email &rarr;</a>
-      <a href="{% url 'hub_announcements' %}" class="hub-btn hub-btn--ghost" data-guild-announcements-overview>Drafts and sent</a>
+  {# Email Your Members (#1142): two peer creates as a .pl-btn-pair, then the card link (FRONTEND.md, Actions in a Card or Section). #}
+  <div class="hub-card pl-guild-email-card" data-guild-email-card>
+    <h2 class="hub-detail-label pl-guild-email-card__title">Email Your Members</h2>
+    <p class="hub-text-muted pl-guild-email-card__lead">Send the people on your mailing list an email, or a poll of up to ten questions whose answers come back to you. An email also posts on your guild page and sends an app notification. Either one can wait as a draft.</p>
+    <div class="pl-btn-pair">
+      <a href="{% url 'hub_compose' %}?audience=guild:{{ guild.pk }}" class="pl-btn pl-btn--primary" data-guild-new-email>New Email</a>
+      <a href="{% url 'hub_compose' %}?audience=guild:{{ guild.pk }}&amp;kind=poll" class="pl-btn pl-btn--secondary" data-guild-send-poll data-guidance-target="guild.email-polls">New Poll</a>
     </div>
+    <a href="{% url 'hub_announcements' %}" class="pl-card-link" data-guild-announcements-overview>Drafts and Sent &rarr;</a>
   </div>
 
   <div class="hub-card" style="margin-top:1.5rem; padding:1.5rem;">

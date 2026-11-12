@@ -237,6 +237,18 @@ Omit all three and the modal renders exactly as before.
 {% include "components/confirm_modal.html" with confirm_id="void-charge" confirm_title="Void this charge?" confirm_message="This will remove the charge from the member's tab." confirm_action_url="/billing/void/42/" confirm_button_text="Void Charge" %}
 ```
 
+### Actions in a Card or Section
+
+How the buttons and links that end a card or section are drawn (#1142; the reference is Guild Settings' Email Your Members card).
+
+- **One button family.** Use `pl-btn` and never mix it with `hub-btn` in one row. Default size in a card or section, `pl-btn--sm` in a table or list row.
+- **One primary, first.** At most one `pl-btn--primary` per card, and it comes first.
+- **At most two buttons.** Two peer creates (New Email and New Poll) are a `.pl-btn-pair`: the primary, then a `pl-btn--secondary`, equal width (`components.css`).
+- **Going elsewhere is a link, not a button.** A `.pl-card-link` on its own line under the buttons, in Title Case, ending in "→" ("Drafts and Sent →"). Arrows go on links only, never on buttons.
+- **Labels are a verb and a noun in Title Case**: "New Email", "Send Answers", never "Write an email →".
+- **Delete is never in the row.** It lives in the thing's own menu or edit screen, behind a confirm (*Editable Lists & Destructive Actions*).
+- **Below 640px** the pair stacks full width at 48px tall, and a card link gets a 48px tap area.
+
 ## Editable Lists & Destructive Actions
 
 Mandatory for any page that edits a list of rows (a Django formset) or deletes something. These exist because getting them wrong has burned us repeatedly: blank rows blocking save, delete rendered as a toggle switch, buttons clashing with the field above.
@@ -450,7 +462,7 @@ All under `static/css/`. The pattern in use: one stylesheet per surface, linked 
 | `member-directory.css` | `hub/member_directory.html` | The Member Directory's additions since #650: a card's leadership badge pills and the line of Leadership Directory titles under the name (`.pl-directory-titles`). Its older card rules stay in `hub.css`; the pill itself (`.pl-leader-badge`) is in `components.css`. |
 | `leadership.css` | `hub/leadership_directory.html`, `hub/admin/leadership.html` | The Leadership Directory cards and its admin page. |
 | `voting-admin.css` | `hub/admin/voting_*.html` | Voting admin pages. |
-| `announcement-compose.css` | `hub/announcement_compose.html`, `hub/announcement_sent.html` | The Email Members composer's own additions (the Discord preview card, the back link, the line about a resumed draft, and the Poll side of #1142: the Email \| Poll segmented choice `.pl-compose-kind`, both options always visible, the question cards numbered by a CSS counter, option rows capped at 520px, the reminder select); its older styles still live in `hub.css`. The composer also loads `polls.css` for the Runs for chips. The sent view loads it for the preview cards. |
+| `announcement-compose.css` | `hub/announcement_compose.html`, `hub/announcement_sent.html` | The Email Members composer's own additions (the Discord preview card, the back link, the line about a resumed draft, and the Poll side of #1142: the Email \| Poll segmented choice `.pl-compose-kind`, both options always visible, the question cards numbered by a CSS counter, option rows capped at 520px, the reminder select, a question's write-in row, and a poll results draft's read-only totals card `.pl-compose-poll-results`); its older styles still live in `hub.css`. The composer also loads `polls.css` for the Runs for chips. The sent view loads it for the preview cards. |
 | `orientations.css` | `hub/orientations.html` | The Orientations page cards: owner line, meta line, the next bookable times, the Completed fold and the empty state. The member state rules they share with the guild and equipment pages stay in `hub.css`. |
 | `bookings-tab.css` | `hub/orientations.html`, `hub/equipment_index.html` | The Bookings tab both pages share (#626, #627): chips (and the Needs Approval chip's count, #748), the filter bar that folds into a Filters disclosure on phones, and the stacked `.pl-members-table` row with its "..." pinned to the first line. The staff view's Print QR Sheet menu (#631). |
 | `equipment-manage.css` | `hub/equipment_manage.html`, `hub/equipment_add.html` | The equipment Manage page's additions since #731: the `.pl-equip-panel` card spacing, an Opening Hours row collapsed to its summary line, the Ways to Qualify editor both pages share (#747, `.pl-equip-ways`, `.pl-equip-way`), the Needs approval switch and Needs Approval card rows (#748), and the Pricing card with its Who gets paid select, warn and status lines, and an unpaid hold's Upcoming row (#749). Its older rules stay in `hub.css`. |

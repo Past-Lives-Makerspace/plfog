@@ -140,6 +140,17 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="draft_email_poll_results",
+        name="Poll results drafts",
+        description=(
+            "When a poll from Email Members closes, makes a results email draft in Drafts with its totals, "
+            "for the sender to write a note and send."
+        ),
+        command="draft_email_poll_results",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="send_staff_digests",
         name="Staff request digest",
         description=("Sends each reviewer one email at 8 AM listing the class review requests still waiting on them."),
