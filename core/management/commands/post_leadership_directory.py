@@ -62,7 +62,10 @@ class Command(BaseCommand):
         if wipe and adopt:
             raise CommandError("Use --wipe or --adopt, not both.")
         adopted = _adopted_ids(adopt) if adopt else []
-        payloads = render_directory_payloads()
+        try:
+            payloads = render_directory_payloads()
+        except DiscordChannelError as exc:
+            raise CommandError(f"Could not read the Discord server's members for usernames. {exc}") from exc
         self.stdout.write(payload_text(payloads))
         channel = channel_id()
         if not channel or bot_disabled("leadership directory post"):

@@ -7,13 +7,16 @@ and so does a blank bot token, which is how staging stays dark). They read like 
 one embed per People tab with someone listed, and the Guild Leads embed, one line group per
 active guild (never the example guild, whatever ``display_demo_guild`` says).
 
-* :func:`render_directory_payloads` is the pure renderer: no HTTP, Discord's limits kept
+* :func:`render_directory_payloads` is the renderer: it sends nothing, its one Discord call
+  is a read of the server's member list (:class:`Usernames`), Discord's limits are kept
   (a section too long for one embed continues in the next, and a message too full continues
   in the next message), and every payload carries ``allowed_mentions`` with an empty
-  ``parse``, so a mention links a name and never pings anyone. A member whose Discord handle
-  is not public shows as a bare name; otherwise as a mention through their verified
-  ``discord_user_id`` (``Member.link_discord``), else their typed handle as plain text when it
-  looks like a username. Member and admin text is escaped so it cannot build a link or mention.
+  ``parse``, so the guild lead role mentions never ping anyone. A member whose Discord handle
+  is not public shows as a bare name; otherwise as their Discord username in plain text, read
+  through their verified ``discord_user_id`` (``Member.link_discord``), else their typed
+  handle when it looks like a username. Never a user mention: inside an embed, Discord shows
+  one as the display name, or "unknown-user" to anyone whose app has not loaded that member.
+  Member and admin text is escaped so it cannot build a link or mention.
   Each guild shows its lead role mention and contact email when set; a People tab its intro.
 * :func:`sync_leadership_directory` is the task: it renders, and when the content hash equals
   the stored one and every stored message is still there it sends nothing; otherwise it edits
@@ -54,10 +57,13 @@ from core.integrations.discord_channel import (
     delete_channel_message,
     edit_channel_message,
     post_channel_message,
+    server_members,
 )
 from core.tasks import enqueue_on_commit
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from django.tasks import Task
 
     from membership.models import Guild, LeadershipTab, Member
@@ -80,9 +86,8 @@ HEADER_EMOJI = "🙋"
 PEOPLE_EMOJI = "✨"
 GUILDS_EMOJI = "🛠️"
 NO_LEAD_LINE = "*Looking for a lead!*"
-TAP_LINE = "Tap a name to message them on Discord."
-#: The header line when someone is shown by a typed handle, which is plain text, not a link.
-TAP_OR_SEARCH_LINE = "Tap a name to message them on Discord, or search their handle."
+#: The header line when someone is shown by a handle, which is plain text, not a link.
+SEARCH_LINE = "Search a handle on Discord to message them."
 FOOTER_SUFFIX = "Kept current from the member app"
 
 #: A guild's heading emoji, by the start of its name; anything else gets :data:`GUILDS_EMOJI`.
@@ -152,29 +157,57 @@ def public_handle(member: Member) -> str:
     return f"@{_escape(handle)}"
 
 
+class Usernames:
+    """Discord usernames by user id, read from the server's member list once, the first time one is asked for.
+
+    So a render reads the list only when it shows a verified account, and never with a blank
+    ``SiteConfiguration.discord_server_id`` or bot token; then every answer is "". An id not
+    in the server (the member left it) is "" too. A failed read raises
+    :class:`DiscordChannelError`, so a sync fails loudly rather than posting names it could
+    not read.
+    """
+
+    def __init__(self) -> None:
+        self._by_id: dict[str, str] | None = None
+
+    def __call__(self, user_id: str) -> str:
+        """The username for ``user_id``, or "" when it cannot be known."""
+        if self._by_id is None:
+            self._by_id = self._read()
+        return self._by_id.get(user_id, "")
+
+    @staticmethod
+    def _read() -> dict[str, str]:
+        from core.events.discord_leadership_roles import server_id
+
+        server = server_id()
+        if not server or bot_disabled("leadership directory usernames"):
+            return {}
+        return {str(entry["user"]["id"]): str(entry["user"]["username"]) for entry in server_members(server)}
+
+
 @dataclass(frozen=True)
 class Person:
-    """A person as the post shows them, and whether that leans on a typed handle rather than a mention."""
+    """A person as the post shows them, and whether that includes a handle to search for."""
 
     text: str
     shows_handle: bool = False
 
 
-def who(member: Member) -> Person:
-    """The name in bold, then how to reach them on Discord when their privacy settings allow it.
+def who(member: Member, usernames: Callable[[str], str]) -> Person:
+    """The name in bold, then their Discord handle when their privacy settings allow it.
 
     As on the web card (``_discord_row.html``): a member whose Discord handle is not public
-    shows the bare name, with no mention even when their account is verified. Otherwise a
-    verified account is a mention, and without one a typed handle is plain text (it is not
-    verified, so never a mention).
+    shows the bare name. Otherwise a verified account shows its username from ``usernames``,
+    and without one (or when the account is not in the server) a typed handle shows when it
+    looks like a username. Both are plain text, never a mention.
     """
     name = f"**{_escape(member.display_name.strip())}**"
     if not member.is_public("discord_handle"):
         return Person(name)
     user_id = (member.discord_user_id or "").strip()
-    if user_id.isdigit():
-        return Person(f"{name} <@{user_id}>")
-    handle = public_handle(member)
+    username = usernames(user_id) if user_id.isdigit() else ""
+    handle = f"@{_escape(username)}" if username else public_handle(member)
     if handle:
         return Person(f"{name} {handle}", shows_handle=True)
     return Person(name)
@@ -200,13 +233,13 @@ class Section:
 
 
 def _header_section(*, handles_shown: bool) -> Section:
-    """The page title and lead line from ``LeadershipPage``, how to reach people, and the link to the web directory."""
+    """The page title and lead line from ``LeadershipPage``, the search line when a handle shows, and the web link."""
     from membership.models import LeadershipPage
 
     page = LeadershipPage.load()
     url = f"{settings.MEMBER_BASE_URL}{reverse('hub_leadership_directory')}"
-    tap = TAP_OR_SEARCH_LINE if handles_shown else TAP_LINE
-    lead = "\n".join(line for line in (page.hero_lead.strip(), tap) if line)
+    search = SEARCH_LINE if handles_shown else ""
+    lead = "\n".join(line for line in (page.hero_lead.strip(), search) if line)
     return Section(
         title=f"{HEADER_EMOJI} {page.hero_title.strip()}",
         color=HEADER_COLOR,
@@ -214,13 +247,13 @@ def _header_section(*, handles_shown: bool) -> Section:
     )
 
 
-def _people_section(tab: LeadershipTab) -> Section:
+def _people_section(tab: LeadershipTab, usernames: Callable[[str], str]) -> Section:
     """A People tab: each listed person, their role titles, and the roles' emails when there are any."""
     entries = []
     shows_handle = False
     for listing in tab.listed_listings:
         roles = list(listing.roles.all())
-        person = who(listing.member)
+        person = who(listing.member, usernames)
         shows_handle = shows_handle or person.shows_handle
         lines = [person.text]
         titles = " · ".join(_escape(role.title) for role in roles)
@@ -236,10 +269,10 @@ def _people_section(tab: LeadershipTab) -> Section:
     return Section(title=title, color=PEOPLE_COLOR, entries=entries, shows_handle=shows_handle)
 
 
-def _guild_leads(guild: Guild) -> list[Person]:
+def _guild_leads(guild: Guild, usernames: Callable[[str], str]) -> list[Person]:
     """The guild's lead, then its Co-Leads."""
-    people = [who(guild.guild_lead)] if guild.guild_lead is not None else []
-    return people + [who(member) for member in guild.co_leads]
+    people = [who(guild.guild_lead, usernames)] if guild.guild_lead is not None else []
+    return people + [who(member, usernames) for member in guild.co_leads]
 
 
 def _guild_entry(guild: Guild, people: list[Person]) -> str:
@@ -255,7 +288,7 @@ def _guild_entry(guild: Guild, people: list[Person]) -> str:
     return "\n".join(lines)
 
 
-def _guilds_section(tab: LeadershipTab) -> Section:
+def _guilds_section(tab: LeadershipTab, usernames: Callable[[str], str]) -> Section:
     """The Guild Leads tab: every active guild in name order, its lead and Co-Leads or the looking for a lead line.
 
     The example guild is never active, so it never shows.
@@ -271,7 +304,7 @@ def _guilds_section(tab: LeadershipTab) -> Section:
     entries = []
     shows_handle = False
     for guild in guilds:
-        people = _guild_leads(guild)
+        people = _guild_leads(guild, usernames)
         shows_handle = shows_handle or any(person.shows_handle for person in people)
         entries.append(_guild_entry(guild, people))
     title = f"{GUILDS_EMOJI} {tab.title.strip()}"
@@ -282,9 +315,10 @@ def directory_sections() -> list[Section]:
     """The header, then each tab the web page shows a member, in admin order; an empty one is left out."""
     from membership.models import LeadershipTab
 
+    usernames = Usernames()
     tabs = []
     for tab in LeadershipTab.objects.for_directory(include_empty=False):
-        section = _guilds_section(tab) if tab.is_guild_leads else _people_section(tab)
+        section = _guilds_section(tab, usernames) if tab.is_guild_leads else _people_section(tab, usernames)
         if section.entries:
             tabs.append(section)
     return [_header_section(handles_shown=any(section.shows_handle for section in tabs)), *tabs]
@@ -363,7 +397,7 @@ def with_footer(embeds: list[dict[str, Any]], day: date) -> list[dict[str, Any]]
 
 
 def render_directory_payloads(day: date | None = None) -> list[dict[str, Any]]:
-    """The directory as Discord message payloads, in order. Pure: reads the database, sends nothing.
+    """The directory as Discord message payloads, in order. Sends nothing; reads the database and :class:`Usernames`.
 
     Each payload is ``{"embeds": [...], "allowed_mentions": {"parse": []}}`` within Discord's
     limits; the last embed carries the "Updated" footer for ``day``, by default the stored
