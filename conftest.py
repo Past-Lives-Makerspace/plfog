@@ -118,7 +118,10 @@ def _without_seeded_guide_pages(request: pytest.FixtureRequest) -> None:
     Migration ``membership.0278`` seeds the Tour Guide Guide page on deploy, and the test
     database is built from the migrations, so without this every wiki list, count and search
     spec would meet one page nobody made. A spec about that page asks for ``tour_guide_guide``.
+    A migration spec is left alone: it moves the schema to before ``guide_for`` existed.
     """
+    if "migration" in str(request.path):
+        return
     if request.node.get_closest_marker("django_db") is not None:
         request.getfixturevalue("_django_db_helper")
     elif "transactional_db" in request.fixturenames:

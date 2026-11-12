@@ -95,14 +95,28 @@ def seed(apps, schema_editor) -> None:
     WikiRevision.objects.create(page=page, title=TITLE, body=BODY, facts=[], status="official", kind="save", note=NOTE)
 
 
+def _pointing_rows(WikiPage, pk: int) -> int:
+    """How many rows of any model point at page ``pk`` (revisions, facts, locks, drafts, reports)."""
+    total = 0
+    for relation in WikiPage._meta.related_objects:
+        total += relation.related_model._base_manager.filter(**{f"{relation.field.attname}": pk}).count()
+    return total
+
+
 def unseed(apps, schema_editor) -> None:
+    # Raw deletes: the cascade collector compares historical model classes across migration
+    # states and refuses, so the page goes only when its one seeded revision is all that
+    # points at it, and is otherwise unlinked.
     WikiPage = apps.get_model("membership", "WikiPage")
+    WikiRevision = apps.get_model("membership", "WikiRevision")
     for page in WikiPage.objects.filter(guide_for=PERMISSION):
-        if page.body == BODY and page.title == TITLE and page.revisions.count() == 1:
-            page.delete()
+        untouched = page.body == BODY and page.title == TITLE
+        revisions = WikiRevision._base_manager.filter(page_id=page.pk)
+        if untouched and revisions.count() == 1 and _pointing_rows(WikiPage, page.pk) == 1:
+            revisions._raw_delete(schema_editor.connection.alias)
+            WikiPage._base_manager.filter(pk=page.pk)._raw_delete(schema_editor.connection.alias)
         else:
-            page.guide_for = ""
-            page.save(update_fields=["guide_for"])
+            WikiPage.objects.filter(pk=page.pk).update(guide_for="")
 
 
 class Migration(migrations.Migration):

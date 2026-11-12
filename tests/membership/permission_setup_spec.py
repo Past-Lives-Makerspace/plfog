@@ -356,6 +356,13 @@ def describe_guide_page():
         assert WikiPage.guide_page_for(TOUR_GUIDE) is None
 
 
+class _Editor:
+    """The one thing ``unseed`` reads from a schema editor: its connection's alias."""
+
+    class connection:  # noqa: N801
+        alias = "default"
+
+
 def describe_seed_migration():
     seed_module = importlib.import_module("membership.migrations.0278_seed_tour_guide_guide")
 
@@ -386,13 +393,13 @@ def describe_seed_migration():
 
     @pytest.mark.usefixtures("tour_guide_guide")
     def it_deletes_an_untouched_page_on_reverse():
-        seed_module.unseed(django_apps, None)
+        seed_module.unseed(django_apps, _Editor())
         assert not WikiPage.objects.filter(title="Tour Guide Guide").exists()
 
     @pytest.mark.usefixtures("tour_guide_guide")
     def it_only_unlinks_an_edited_page_on_reverse():
         page = WikiPage.objects.get(guide_for=TOUR_GUIDE)
         WikiPage.objects.filter(pk=page.pk).update(body="<p>Edited by an admin</p>")
-        seed_module.unseed(django_apps, None)
+        seed_module.unseed(django_apps, _Editor())
         page.refresh_from_db()
         assert page.guide_for == ""
