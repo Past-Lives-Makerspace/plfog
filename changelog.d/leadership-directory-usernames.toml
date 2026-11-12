@@ -1,0 +1,8 @@
+bump = "patch"
+date = "2026-11-11"
+audience = ["admins"]
+title = "The Discord leadership directory shows each leader's Discord username"
+changes = [
+  "Each leader in Discord's leadership directory post now shows their Discord username, such as @alexeason_, read from Discord for anyone who linked their account, instead of a link that showed their nickname or \"unknown-user\".",
+  "Leaders who have not linked Discord still show the handle typed on their profile.",
+]
