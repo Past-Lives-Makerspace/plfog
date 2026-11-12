@@ -28,7 +28,7 @@ from django.utils.text import slugify
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
     from django.core.files.uploadedfile import UploadedFile
-    from django.http import HttpRequest, QueryDict
+    from django.http import QueryDict
 
     from classes.models import ClassOffering
     from membership.models import AnnouncementDraft, GuildStaffMembership
@@ -2772,38 +2772,6 @@ GuildMeetingNoteAttachmentFormSet = forms.inlineformset_factory(
     extra=0,
     can_delete=True,
 )
-
-
-class MeetingCreateForm(forms.Form):
-    """The '+ New meeting' modal (Meetings spec §6.2): For scope + Type, both per-user.
-
-    The For choices are permission-derived — the guilds this user can edit, plus
-    Council for everyone who passes :func:`~membership.permissions.can_edit_meeting`
-    for the council scope (admins AND any guild's lead/staff). A posted scope outside
-    the list is therefore a permission failure, which the create view returns as 403.
-    """
-
-    KIND_CHOICES = [("monthly", "Monthly"), ("special", "Special")]
-
-    scope = forms.ChoiceField(label="For", choices=[])
-    kind = forms.ChoiceField(label="Type", choices=KIND_CHOICES, initial="monthly")
-
-    def __init__(self, *args: Any, request: HttpRequest, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        from membership.permissions import editable_meeting_scopes
-
-        guilds, council = editable_meeting_scopes(request)
-        choices: list[tuple[str, str]] = [(str(guild.pk), guild.name) for guild in guilds]
-        if council:
-            choices.append(("council", "Council"))
-        cast(forms.ChoiceField, self.fields["scope"]).choices = choices
-
-    def scope_guild(self) -> Guild | None:
-        """The chosen scope as a Guild, or ``None`` for the council. Valid forms only."""
-        value = self.cleaned_data["scope"]
-        if value == "council":
-            return None
-        return Guild.objects.get(pk=int(value))
 
 
 class LateCancelFeeFormMixin(forms.ModelForm):

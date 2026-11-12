@@ -8,7 +8,7 @@ Django 5 app for Past Lives Makerspace (Portland, OR). Repo: github.com/Past-Liv
 |-----|------|
 | `core` | SiteConfiguration singleton (`SiteConfiguration.load()`), auth/invite flow, Web Push, event notification infrastructure (`core/events/`) |
 | `membership` | All domain models: Member, Guild, Meeting, CommunityEvent, MeetingItemProposal, FundingSnapshot, Space, Lease, VotePreference, etc. |
-| `hub` | All hub views and templates: `meeting_views.py`, `views.py`, `notification_views.py`, `forms.py`, calendar/Discord integrations |
+| `hub` | All hub views and templates: `views.py`, `notification_views.py`, `forms.py`, calendar/Discord integrations |
 | `billing` | Stripe billing |
 | `classes` | Class offerings, sessions, orientation |
 | `airtable_sync` | Read-only pull from Airtable (Member, Space, Lease) |

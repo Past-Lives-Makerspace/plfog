@@ -70,7 +70,7 @@ def admin_lead(client: Client) -> Member:
     ``classes.personal-code`` lives on one, and without it the page redirects to Teach at Past Lives.
     """
     MembershipPlanFactory()
-    for key in ("catalog", "teach", "meetings", "orientations", "equipment", "voting", "wiki", "guilds"):
+    for key in ("catalog", "teach", "orientations", "equipment", "voting", "wiki", "guilds"):
         turn_on(key)
     user = User.objects.create_user(username="lead", password="pass")
     member = user.member

@@ -415,7 +415,7 @@ def describe_can_edit_event():
 
 def describe_editable_meeting_scopes():
     """The bulk scope helper behind the Meetings home + create modal (§6.2) — the
-    same answers as can_edit_guild / can_edit_meeting, two queries total."""
+    same answers as can_edit_guild, two queries total."""
 
     def _request(user, *, roles: set[str] | None = None, picked: str | None = None):
         request = RequestFactory().get("/")

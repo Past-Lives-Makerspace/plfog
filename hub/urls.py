@@ -20,7 +20,6 @@ from . import (
     leadership_views,
     location_views,
     manage_bookings,
-    meeting_views,
     notification_views,
     orientations_views,
     spotlight_views,
@@ -33,18 +32,6 @@ from . import (
 )
 
 urlpatterns = [
-    # --- Meetings (spec §6.0) ---
-    path("meetings/", meeting_views.hub_meetings, name="hub_meetings"),
-    path("meetings/new/", meeting_views.hub_meeting_create, name="hub_meeting_create"),
-    path("meetings/<int:pk>/", meeting_views.hub_meeting, name="hub_meeting"),
-    path("meetings/<int:pk>/event/", meeting_views.hub_meeting_event, name="hub_meeting_event"),
-    path(
-        "meetings/<int:pk>/event/unlink/",
-        meeting_views.hub_meeting_event_unlink,
-        name="hub_meeting_event_unlink",
-    ),
-    path("meetings/<int:pk>/save/", meeting_views.hub_meeting_save, name="hub_meeting_save"),
-    path("meetings/<int:pk>/delete/", meeting_views.hub_meeting_delete, name="hub_meeting_delete"),
     path("guilds/voting/", views.guild_voting, name="hub_guild_voting"),
     path("guilds/voting/history/", views.snapshot_history, name="hub_snapshot_history"),
     path("guilds/voting/history/<int:pk>/", views.snapshot_detail, name="hub_snapshot_detail"),

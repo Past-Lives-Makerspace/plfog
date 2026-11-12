@@ -2532,7 +2532,6 @@ class PageView(models.Model):
         "hub_admin_usage": "Usage",
         "hub_community_calendar": "Calendar",
         "hub_guild_voting": "Guild Voting",
-        "hub_meetings": "Meetings",
         "hub_equipment_index": "Reservations",
         "hub_wiki_home": "Knowledge Base",
         "hub_help": "Help",

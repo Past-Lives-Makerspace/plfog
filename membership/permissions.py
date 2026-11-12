@@ -30,7 +30,6 @@ if TYPE_CHECKING:
         Equipment,
         EquipmentReservation,
         Guild,
-        Meeting,
         Member,
         OrientationBooking,
         OrientationRecord,
@@ -779,32 +778,13 @@ def can_edit_event(request: HttpRequest, event: CommunityEvent) -> bool:
     return guild is not None and can_edit_guild(request, guild)
 
 
-def can_edit_meeting(request: HttpRequest, meeting: Meeting) -> bool:
-    """True when this request may edit the meeting's workspace.
-
-    A guild meeting defers to :func:`can_edit_guild` (lead / staff / admin).
-    A council meeting (no guild) is editable by an admin or anyone holding
-    lead/staff authority in ANY guild — the same membership test the
-    ``all_guild_leads`` resolver applies. Honors ``view_as`` preview like the other
-    helpers.
-    """
-    guild = meeting.guild
-    if guild is not None:
-        return can_edit_guild(request, guild)
-    if is_effective_staff(request):
-        return True
-    member = _editing_member(request)
-    return member is not None and member.staffed_guilds.exists()
-
-
 def editable_meeting_scopes(request: HttpRequest) -> tuple[list[Guild], bool]:
     """The guilds this request may edit (name-ordered) plus council editability, cheaply.
 
-    The bulk companion to :func:`can_edit_guild` / :func:`can_edit_meeting` for surfaces
-    that need every editable scope at once (the Meetings home §6.2, the create modal) —
-    two queries instead of one per guild, same answers. An admin edits everything;
-    otherwise the member's led/staffed guilds are editable, and holding lead/staff
-    authority in ANY guild grants the council scope (§5.1).
+    The bulk companion to :func:`can_edit_guild` for surfaces that need every editable scope
+    at once (the event and wiki guild pickers): two queries instead of one per guild, same
+    answers. An admin edits everything; otherwise the member's led/staffed guilds are
+    editable, and holding lead/staff authority in ANY guild grants the space-wide scope.
     """
     from membership.models import Guild
 
