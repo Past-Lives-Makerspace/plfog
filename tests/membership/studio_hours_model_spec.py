@@ -169,6 +169,35 @@ def describe_next_meeting_occurrence():
         assert result.location == "Studio B"
         assert result.has_time is True
 
+    def describe_on_the_day_of_a_cadence_meeting():
+        # Wed Nov 11 2026 is the second Wednesday; the guild meets then at 6:30 PM.
+        def _second_wednesday_guild(meeting_time: time | None = time(18, 30)):
+            return GuildFactory(
+                meeting_cadence="monthly", meeting_weekday=2, meeting_week_of_month=2, meeting_time=meeting_time
+            )
+
+        def it_counts_the_meeting_before_it_starts(db):
+            guild = _second_wednesday_guild()
+            with patch("django.utils.timezone.now", return_value=_aware(2026, 11, 11, 17)):
+                result = guild.next_meeting_occurrence()
+            assert result is not None
+            assert result.when == _aware(2026, 11, 11, 18, 30)
+
+        def it_moves_to_the_next_month_once_it_has_started(db):
+            guild = _second_wednesday_guild()
+            with patch("django.utils.timezone.now", return_value=_aware(2026, 11, 11, 21, 26)):
+                result = guild.next_meeting_occurrence()
+            assert result is not None
+            assert result.when == _aware(2026, 12, 9, 18, 30)
+
+        def it_keeps_an_untimed_meeting_all_day(db):
+            guild = _second_wednesday_guild(meeting_time=None)
+            with patch("django.utils.timezone.now", return_value=_aware(2026, 11, 11, 21, 26)):
+                result = guild.next_meeting_occurrence()
+            assert result is not None
+            assert timezone.localdate(result.when) == datetime(2026, 11, 11).date()
+            assert result.has_time is False
+
     def it_prefers_a_sooner_event_meeting_over_the_legacy_cadence(db):
         now = timezone.now()
         today = timezone.localdate()

@@ -1,0 +1,8 @@
+bump = "minor"
+audience = ["members", "admins"]
+date = "2026-11-11"
+title = "You get an email when someone gives you a new permission"
+changes = [
+  "When an admin turns on a permission for you, such as Tour Guide, Instructor, Admin or Class Reviewer for a guild, you get an email and a notification saying what it lets you do, how to use it, and a button to each page.",
+  "Each permission gets its own email, even when several are turned on at once. Permissions you turn on for yourself send nothing.",
+]

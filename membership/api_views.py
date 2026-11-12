@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from allauth.account.models import EmailAddress
 from django.db.models import Prefetch
@@ -20,6 +20,9 @@ from membership.serializers import (
     MembershipPlanSerializer,
     MemberWriteSerializer,
 )
+
+if TYPE_CHECKING:
+    from django.contrib.auth.models import User
 
 # "instructor" is a permission now (granted via the member-edit Permissions tab), NOT a
 # role — it must not be set through set-role, whose "instructor" branch also reset
@@ -50,7 +53,7 @@ class MemberViewSet(viewsets.ModelViewSet):
         role = request.data.get("role", "")
         if role not in _VALID_ROLES:
             raise serializers.ValidationError({"role": f"Invalid role. Choose from: {sorted(_VALID_ROLES)}"})
-        instance.apply_admin_role(role)
+        instance.apply_admin_role(role, granted_by=cast("User", request.user))
         return Response(MemberSerializer(instance).data)
 
 

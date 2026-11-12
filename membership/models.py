@@ -1808,15 +1808,20 @@ class Member(StaffRequestMixin, models.Model):
 
         Grants each newly-checked capability (recording ``granted_by`` for audit) and
         revokes each unchecked one, leaving unchanged grants untouched. Idempotent — the
-        admin member-edit form calls it with the posted checkbox set on every save.
+        admin member-edit form calls it with the posted checkbox set on every save. Each newly
+        granted capability sends its own "You have been granted" email (#1163), unless it is their own.
         """
+        from membership.permission_grants import record
+
         desired = set(capabilities)
         current = set(self.admin_capabilities.values_list("capability", flat=True))
         to_remove = current - desired
         if to_remove:
             self.admin_capabilities.filter(capability__in=to_remove).delete()
-        for capability in desired - current:
+        added = [c for c in AdminCapability.Capability.values if c in desired - current]
+        for capability in added:
             self.admin_capabilities.create(capability=capability, granted_by=granted_by)
+        record(self, added, granted_by=granted_by)
 
     def set_admin_capability(self, capability: str, enabled: bool, *, granted_by: "User | None" = None) -> None:
         """Grant or revoke a single :class:`AdminCapability` on this member.
@@ -1842,7 +1847,13 @@ class Member(StaffRequestMixin, models.Model):
         if capability not in AdminCapability.Capability.values:
             raise ValueError(f"Unknown admin capability: {capability!r}")
         if enabled:
-            self.admin_capabilities.get_or_create(capability=capability, defaults={"granted_by": granted_by})
+            from membership.permission_grants import record
+
+            _row, created = self.admin_capabilities.get_or_create(
+                capability=capability, defaults={"granted_by": granted_by}
+            )
+            if created:
+                record(self, [capability], granted_by=granted_by)
         else:
             self.admin_capabilities.filter(capability=capability).delete()
 
@@ -2448,12 +2459,21 @@ class Member(StaffRequestMixin, models.Model):
         completed the instructor orientation just gains the bio page — and that page going live
         is still audited: ``grant_teaching`` no-ops when teaching was already unlocked, so the
         slug mint logs its own ``SiteActivity`` here rather than going unrecorded.
+
+        Someone else turning it on emails the member what it does (#1163), unless the grant
+        answers their teaching application, whose own approval email already says so.
         """
         from core.models import SiteActivity
+        from membership.permission_grants import record
 
         already_teaching = self.instructor_oriented_at is not None
+        # Answering an application already sends "you can teach now"; a second email would repeat it.
+        answers_application = not already_teaching and self.teaching_applied_at is not None
+        was_instructor = already_teaching and self.is_instructor
         minted = self.ensure_instructor_slug()
         self.grant_teaching(granted_by=granted_by)  # logs TEACHING_GRANTED unless already unlocked
+        if not was_instructor and not answers_application:
+            record(self, [AdminCapability.INSTRUCTOR], granted_by=granted_by.user if granted_by is not None else None)
         if minted and already_teaching:
             # The teaching half no-op'd, but the public page just went live — record it.
             SiteActivity.log(
@@ -2588,7 +2608,9 @@ class Member(StaffRequestMixin, models.Model):
     ADMIN_ROLE_INSTRUCTOR = "instructor"
     ADMIN_ROLE_GUEST = "guest"
 
-    def apply_admin_role(self, picked_role: str, *, keep_status: bool = False) -> None:
+    def apply_admin_role(
+        self, picked_role: str, *, keep_status: bool = False, granted_by: "User | None" = None
+    ) -> None:
         """Apply a role token from the admin Member edit form.
 
         Maps the dropdown's role token (`admin` / `member` /
@@ -2601,12 +2623,15 @@ class Member(StaffRequestMixin, models.Model):
             keep_status: True when the admin changed Status and left the role as it was. The
                 field they changed wins, so the role writes no status: a guest set to Active
                 stays Active instead of the pre-selected Guest role making them Former (#654).
+            granted_by: Who saved the role. A member newly made Admin by someone else is
+                emailed what it opens (#1163).
         """
         valid = {c.value for c in self.FogRole} | {self.ADMIN_ROLE_INSTRUCTOR, self.ADMIN_ROLE_GUEST}
         if picked_role not in valid:
             raise ValueError(f"Invalid admin role token: {picked_role!r}")
 
         unlocked_via_promotion = False
+        made_admin = picked_role == self.FogRole.ADMIN and self.fog_role != self.FogRole.ADMIN
         if picked_role == self.ADMIN_ROLE_INSTRUCTOR:
             self.fog_role = self.FogRole.MEMBER
             if not keep_status:
@@ -2633,6 +2658,10 @@ class Member(StaffRequestMixin, models.Model):
         else:
             self.fog_role = picked_role
         self.save()
+        if made_admin:
+            from membership.permission_grants import record
+
+            record(self, [AdminCapability.ADMIN_ROLE], granted_by=granted_by)
         if unlocked_via_promotion:
             self.clear_request_bells()
             from core.models import SiteActivity
@@ -3699,8 +3728,12 @@ class Guild(HeroCropMixin, models.Model):
     @property
     def next_meeting_at(self) -> date_type | None:
         """The next guild-meeting date from the cadence config + override, or None (TBA)."""
+        return self._next_meeting_from(timezone.localdate())
+
+    def _next_meeting_from(self, day: date_type) -> date_type | None:
+        """The first guild-meeting date on or after ``day``, as :attr:`next_meeting_at` reads it."""
         return _compute_next_meeting(
-            timezone.localdate(),
+            day,
             cadence=self.meeting_cadence,
             weekday=self.meeting_weekday,
             week_of_month=self.meeting_week_of_month,
@@ -3789,6 +3822,13 @@ class Guild(HeroCropMixin, models.Model):
                 )
             )
         legacy_date = self.next_meeting_at
+        if (
+            legacy_date is not None
+            and self.meeting_time is not None
+            and timezone.make_aware(datetime_type.combine(legacy_date, self.meeting_time)) < timezone.now()
+        ):
+            # Today's timed meeting has started, as a timed Meeting row from earlier today no longer counts.
+            legacy_date = self._next_meeting_from(legacy_date + timedelta(days=1))
         if legacy_date is not None:
             aware = timezone.make_aware(datetime_type.combine(legacy_date, self.meeting_time or time_type()))
             candidates.append(
@@ -4013,16 +4053,31 @@ class Guild(HeroCropMixin, models.Model):
             return True
         return self.staff_memberships.filter(member=member, can_review_classes=True).exists()
 
-    def set_class_reviewer(self, member: Member, on: bool) -> int:
+    def set_class_reviewer(self, member: Member, on: bool, *, granted_by: User | None = None) -> int:
         """Turn Class Reviewer on or off for every staff row ``member`` holds on this guild.
 
-        Sends nothing: flipping the switch is quiet by design. Returns how many rows the member
-        holds here, so a caller can refuse a member who is not on this guild's staff.
+        Turning it on for someone who was not reviewing here emails them what it does (#1163),
+        unless ``granted_by`` is the member themself; turning it off sends nothing. Returns how
+        many rows the member holds here, so a caller can refuse a member who is not on this
+        guild's staff.
         """
-        return self.staff_memberships.filter(member=member).update(can_review_classes=on)
+        rows = self.staff_memberships.filter(member=member)
+        newly_on = on and self.guild_lead_id != member.pk and not rows.filter(can_review_classes=True).exists()
+        held = rows.update(can_review_classes=on)
+        if newly_on and held:
+            from membership.permission_grants import record
+
+            record(member, [AdminCapability.CLASS_REVIEWER], granted_by=granted_by, guild=self)
+        return held
 
     def add_staff(
-        self, member: Member, *, role: str = "", custom_title: str = "", class_reviewer: bool = False
+        self,
+        member: Member,
+        *,
+        role: str = "",
+        custom_title: str = "",
+        class_reviewer: bool = False,
+        granted_by: User | None = None,
     ) -> GuildStaffMembership | None:
         """Add ``member`` to this guild's staff, the one path the Staff tab and the member edit page share (#968).
 
@@ -4037,6 +4092,7 @@ class Guild(HeroCropMixin, models.Model):
             role: A :class:`GuildStaffMembership.Role` value, or "".
             custom_title: A free text title, or "".
             class_reviewer: Turn Class Reviewer on for them here.
+            granted_by: Who added them, for the Class Reviewer email (#1163).
 
         Returns:
             The row added, or None when an existing member of the staff was only switched on.
@@ -4054,16 +4110,19 @@ class Guild(HeroCropMixin, models.Model):
 
         with transaction.atomic():
             if not role and not custom_title:
-                if self.set_class_reviewer(member, True):
+                if self.set_class_reviewer(member, True, granted_by=granted_by):
                     return None
                 custom_title = GuildStaffMembership.CLASS_REVIEWER_TITLE
-            reviews = class_reviewer or self.reviews_classes(member)
+            # The new row starts as their other rows here read; set_class_reviewer turns it on, so it
+            # can tell a new reviewer (who is emailed) from one already reviewing.
+            reviews = self.reviews_classes(member)
             first_role_here = not self.staff_memberships.filter(member=member).exists()
             staff = GuildStaffMembership.objects.create(
                 guild=self, member=member, role=role, custom_title=custom_title, can_review_classes=reviews
             )
             if class_reviewer:
-                self.set_class_reviewer(member, True)
+                self.set_class_reviewer(member, True, granted_by=granted_by)
+                staff.can_review_classes = True  # the update above wrote the row, not this instance
             from core.events.discord_leadership_roles import reconcile_on_commit
 
             reconcile_on_commit(member.pk)
@@ -4620,6 +4679,23 @@ class GuildStaffOnboardingEvent(models.Model):
         return f"{self.member} {self.get_action_display()} {self.created_at:%Y-%m-%d}"
 
 
+class GuidePage(NamedTuple):
+    """One page a newly granted permission opens, as a button in the email (#1163)."""
+
+    label: str
+    url_name: str
+    query: str = ""
+
+
+class PermissionGuide(NamedTuple):
+    """How the "You have been granted" email explains one permission (#1163)."""
+
+    title: str
+    what: str
+    how: str
+    pages: tuple[GuidePage, ...]
+
+
 class AdminCapability(models.Model):
     """A scoped admin authority granted to a member, beyond the ``fog_role`` tier.
 
@@ -4698,7 +4774,113 @@ class AdminCapability(models.Model):
             "Gets an alert when an automation fails, such as the reminder emails, saying what broke and when. "
             "Admins can open its run history from the alert."
         ),
-        Capability.TOUR_GUIDE: "Gives facility tours: sets their own tour hours and hears about bookings in them.",
+        Capability.TOUR_GUIDE: "Gives facility tours: sets tour hours and hears about bookings in them.",
+    }
+
+    #: The three grants that are not capabilities but send the same email (#1163).
+    INSTRUCTOR = "instructor"
+    ADMIN_ROLE = "admin_role"
+    CLASS_REVIEWER = "class_reviewer"
+
+    #: What a member just granted a permission reads in the "You have been granted" email (#1163):
+    #: its name, what it lets them do (the same line the Permissions tab shows, so the two cannot
+    #: drift), how to use it, and a button per page. Keyed by capability, plus the three grants
+    #: above. Written to the member ("you"). A duty with no page of its own links Notification
+    #: Settings, where the emails it brings are listed.
+    GUIDES: dict[str, PermissionGuide] = {
+        Capability.CLASS_APPROVER: PermissionGuide(
+            Capability.CLASS_APPROVER.label,
+            DESCRIPTIONS[Capability.CLASS_APPROVER],
+            "When a class needs review you get an email with a link to review it. Manage All Classes "
+            "lists every class.",
+            (GuidePage("Manage All Classes", "classes:admin_classes"),),
+        ),
+        Capability.SPACE_APPROVER: PermissionGuide(
+            Capability.SPACE_APPROVER.label,
+            DESCRIPTIONS[Capability.SPACE_APPROVER],
+            "Each request arrives by email and waits on Space Requests until you approve or decline it.",
+            (GuidePage("Space Requests", "hub_space_request_review_queue"),),
+        ),
+        Capability.DISCOUNT_APPROVER: PermissionGuide(
+            Capability.DISCOUNT_APPROVER.label,
+            DESCRIPTIONS[Capability.DISCOUNT_APPROVER],
+            "Each request arrives by email with a link to approve or decline it. You can choose how you "
+            "hear about them in your Notification Settings.",
+            (GuidePage("Notification Settings", "hub_user_settings", "?tab=notifications"),),
+        ),
+        Capability.EVENTS_APPROVER: PermissionGuide(
+            Capability.EVENTS_APPROVER.label,
+            DESCRIPTIONS[Capability.EVENTS_APPROVER],
+            "Proposals arrive by email. Manage Events lists every event, where you can review, edit, "
+            "duplicate or unpublish it.",
+            (GuidePage("Manage Events", "hub_admin_events"),),
+        ),
+        Capability.BILLING_APPROVER: PermissionGuide(
+            Capability.BILLING_APPROVER.label,
+            DESCRIPTIONS[Capability.BILLING_APPROVER],
+            "Open the Payments Dashboard to see payments. Failed payment alerts arrive by email.",
+            (GuidePage("Payments Dashboard", "billing_admin_dashboard"),),
+        ),
+        Capability.REFUNDS: PermissionGuide(
+            Capability.REFUNDS.label,
+            DESCRIPTIONS[Capability.REFUNDS],
+            "A Refund button now shows on the payment pages you can open. When an instructor cancels a class "
+            "with paid registrations, you get an email saying who needs a refund.",
+            (GuidePage("Notification Settings", "hub_user_settings", "?tab=notifications"),),
+        ),
+        Capability.EQUIPMENT: PermissionGuide(
+            Capability.EQUIPMENT.label,
+            DESCRIPTIONS[Capability.EQUIPMENT],
+            "Start from Add Equipment, or open any item on the Equipment page to manage it.",
+            (GuidePage("Add Equipment", "hub_equipment_add"), GuidePage("Equipment", "hub_equipment_index")),
+        ),
+        Capability.SPACE_MANAGER: PermissionGuide(
+            Capability.SPACE_MANAGER.label,
+            DESCRIPTIONS[Capability.SPACE_MANAGER],
+            "Add a room or space from Add Equipment. You manage each one you add from its own page.",
+            (GuidePage("Add a Space", "hub_equipment_add"),),
+        ),
+        Capability.EVENT_CREATOR: PermissionGuide(
+            "Event Creator",
+            DESCRIPTIONS[Capability.EVENT_CREATOR],
+            "Press Add Event on the Calendar, fill in the event and save it. It is announced once it "
+            "has been reviewed.",
+            (GuidePage("Add an Event", "hub_event_add"),),
+        ),
+        Capability.WEBMASTER: PermissionGuide(
+            Capability.WEBMASTER.label,
+            DESCRIPTIONS[Capability.WEBMASTER],
+            "There is nothing to open: the alert comes to you by email, at most once a day for each "
+            "automation. It is listed in your Notification Settings.",
+            (GuidePage("Notification Settings", "hub_user_settings", "?tab=notifications"),),
+        ),
+        Capability.TOUR_GUIDE: PermissionGuide(
+            Capability.TOUR_GUIDE.label,
+            DESCRIPTIONS[Capability.TOUR_GUIDE],
+            "Set the hours you can give tours on Tour Hours. Visitors book inside them, and each booking "
+            "shows on Upcoming Tours.",
+            (GuidePage("Tour Hours", "tours:hours"), GuidePage("Upcoming Tours", "tours:upcoming")),
+        ),
+        INSTRUCTOR: PermissionGuide(
+            "Instructor",
+            Member.INSTRUCTOR_PERMISSION_DESCRIPTION,
+            "Open Manage My Classes to create a class and send it for review. Your public instructor page "
+            "is edited from your teaching profile.",
+            (GuidePage("Manage My Classes", "classes:teach_overview"),),
+        ),
+        ADMIN_ROLE: PermissionGuide(
+            "Admin",
+            "Opens every admin page in the Member Portal, including members, guilds, classes and Site Settings.",
+            "Start from Admin Tools. Admin duties such as reviewing classes are separate permissions you can "
+            "turn on for yourself from the View As menu.",
+            (GuidePage("Admin Tools", "hub_admin_tools"), GuidePage("Manage Members", "hub_admin_members")),
+        ),
+        CLASS_REVIEWER: PermissionGuide(
+            "Class Reviewer",
+            "Gets the guild's class review requests and can approve its classes.",
+            "When one of the guild's classes needs review you get an email with a link to review and approve it.",
+            (GuidePage("Notification Settings", "hub_user_settings", "?tab=notifications"),),
+        ),
     }
 
     member = models.ForeignKey(

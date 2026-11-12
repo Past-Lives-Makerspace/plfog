@@ -14,6 +14,7 @@ from django.core.management.base import CommandError
 from django.utils import timezone
 
 from core.models import SiteConfiguration
+from tests.membership.factories import GuildFactory, MemberFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -126,6 +127,18 @@ def describe_post_leadership_directory():
         respx.post(MESSAGES).mock(return_value=httpx.Response(500, text="down"))
         with pytest.raises(CommandError, match="could not be updated"):
             _run("--apply")
+
+    @respx.mock
+    def it_fails_the_command_when_the_server_members_cannot_be_read(discord_on):
+        discord_on.discord_server_id = "933589656996565023"
+        discord_on.save()
+        GuildFactory(guild_lead=MemberFactory(discord_user_id="123456"))
+        respx.get("https://discord.com/api/v10/guilds/933589656996565023/members").mock(
+            return_value=httpx.Response(500, text="down")
+        )
+        with pytest.raises(CommandError, match="members for usernames"):
+            _run()
+        assert all(call.request.method == "GET" for call in respx.calls)
 
     @respx.mock
     def it_refuses_to_wipe_a_channel_it_cannot_read(discord_on):

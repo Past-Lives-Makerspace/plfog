@@ -2,13 +2,14 @@
 
 import html
 import re
+from dataclasses import replace
 
 import pytest
 from django.contrib.auth.models import User
 from django.urls import reverse
 
 from core.events import preferences, settings_matrix
-from core.events.registry import Channel
+from core.events.registry import Channel, ChannelDefault, ChannelSpec
 from core.models import NotificationPreference
 from membership.models import Member
 from tests.membership.factories import GuildFactory
@@ -453,7 +454,15 @@ def describe_bulk_controls():
                         assert offered == (channel in block.editable_channels), (scope, label)
                     assert (f"Turn on all channels for {scope}" in markup) == bool(block.editable_channels), scope
 
-        def it_renders_no_bulk_row_for_a_grid_with_nothing_to_flip(client):
+        def it_renders_no_bulk_row_for_a_grid_with_nothing_to_flip(client, monkeypatch):
+            # Membership was padlocked only while its every event was a forced email; the permission
+            # grant bell (#1163) is editable, so Membership is narrowed back to forced emails here.
+            forced_email = (ChannelSpec(Channel.EMAIL, ChannelDefault.FORCED),)
+            events = [
+                replace(event, channels=forced_email) if event.category == "Membership" else event
+                for event in settings_matrix.all_events()
+            ]
+            monkeypatch.setattr(settings_matrix, "all_events", lambda: events)
             User.objects.create_user(username="bk_none", email="bk_none@example.com", password="pw12345!")
             client.login(username="bk_none", password="pw12345!")
             response = client.get(reverse("hub_user_settings") + "?tab=notifications")
