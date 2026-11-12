@@ -4,7 +4,14 @@
 
 {{ card.title|upper }}
 What it does: {{ card.what }}
-How: {{ card.how }}
+
+HOW IT WORKS
+{% for line in card.works %}* {{ line }}
+{% endfor %}
+GET STARTED
+{% for text, label, url in card.steps %}{{ forloop.counter }}. {{ text }} Open {{ label }}: {{ url }}
+{% endfor %}
+PAGES
 {% for label, url in card.pages %}{{ label }}: {{ url }}
 {% endfor %}
 If you need any help, don't hesitate to ask {{ help_contact }}.

@@ -55,8 +55,12 @@ def record(member: Member, grants: Sequence[str], *, granted_by: User | None, gu
         )
 
 
-def _page_url(page: GuidePage) -> str:
-    """An email-ready link to one of a guide's pages."""
+def _page_url(page: GuidePage, guild: Guild | None) -> str:
+    """An email-ready link to one of a guide's pages; a per guild page opens the grant's guild."""
+    if page.per_guild:
+        if guild is None:
+            raise ValueError(f"{page.label} needs the guild the grant is for")
+        return member_absolute_url(f"{reverse(page.url_name, args=[guild.pk])}{page.query}")
     return member_absolute_url(f"{reverse(page.url_name)}{page.query}")
 
 
@@ -81,8 +85,9 @@ def _card(grant: str, guide: PermissionGuide, guild: Guild | None) -> dict[str, 
     return {
         "title": card_title(grant, guild),
         "what": guide.what,
-        "how": guide.how,
-        "pages": [(page.label, _page_url(page)) for page in guide.pages],
+        "works": list(guide.works),
+        "steps": [(step.text, step.page.label, _page_url(step.page, guild)) for step in guide.steps],
+        "pages": [(page.label, _page_url(page, guild)) for page in guide.pages],
     }
 
 

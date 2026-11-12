@@ -251,7 +251,11 @@ def describe_the_email():
         for body in (html, text):
             assert "You have been granted Tour Guide" in body
             assert guide.what in body
-            assert guide.how in body
+            for line in guide.works:
+                assert line in body
+            for step in guide.steps:
+                assert step.text in body
+                assert f"{base}{reverse(step.page.url_name)}" in body
             assert "Osric Wrenfield turned this on for you" in body
             assert "If you need any help, don't hesitate to ask Osric Wrenfield." in body.replace("&#x27;", "'")
             for page in guide.pages:
@@ -281,10 +285,21 @@ def describe_the_email():
         assert set(Cap.values) <= set(AdminCapability.GUIDES)
         for key, guide in AdminCapability.GUIDES.items():
             assert guide.pages, key
+            assert guide.works, key
+            assert guide.steps, key
+            for step in guide.steps:
+                reverse(step.page.url_name)
             if key in Cap.values:
                 assert guide.what == AdminCapability.DESCRIPTIONS[key]
             for page in guide.pages:
                 reverse(page.url_name)
+
+
+def describe_the_guide_copy():
+    def it_uses_no_dash_punctuation():
+        for key, guide in AdminCapability.GUIDES.items():
+            for line in (guide.title, guide.what, *guide.works, *(step.text for step in guide.steps)):
+                assert "\u2014" not in line and "\u2013" not in line and " - " not in line, (key, line)
 
 
 def describe_the_queue():

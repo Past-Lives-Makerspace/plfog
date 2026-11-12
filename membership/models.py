@@ -4674,14 +4674,44 @@ class GuidePage(NamedTuple):
     label: str
     url_name: str
     query: str = ""
+    #: The page takes the pk of the guild the grant is for (a Class Reviewer's guild).
+    per_guild: bool = False
+
+
+class GuideStep(NamedTuple):
+    """One numbered Get Started step in the permission email, linking the page it happens on (#1163)."""
+
+    text: str
+    page: GuidePage
+
+
+_TOUR_HOURS = GuidePage("My Hours", "tours:hours")
+_TEACH_OVERVIEW = GuidePage("Teaching Overview", "classes:teach_overview")
+_NOTIFICATION_SETTINGS = GuidePage("Notification Settings", "hub_user_settings", "?tab=notifications")
+_ALL_CLASSES = GuidePage("Manage All Classes", "classes:admin_classes")
+_SPACE_REQUESTS = GuidePage("Space Requests", "hub_space_request_review_queue")
+_MANAGE_EVENTS = GuidePage("Manage Events", "hub_admin_events")
+_CALENDAR = GuidePage("Calendar", "hub_community_calendar")
+_PAYMENTS = GuidePage("Payments Dashboard", "billing_admin_dashboard")
+_EQUIPMENT_ADD = GuidePage("Add Equipment", "hub_equipment_add")
+_RESERVATIONS = GuidePage("Reservations", "hub_equipment_index")
+_ADMIN_TOOLS = GuidePage("Admin Tools", "hub_admin_tools")
+_GUILD_PAGE = GuidePage("Guild Page", "hub_guild_edit", per_guild=True)
+_INSTRUCTOR_PROFILE = GuidePage("Instructor Profile", "classes:teach_profile")
 
 
 class PermissionGuide(NamedTuple):
-    """How the "You have been granted" email explains one permission (#1163)."""
+    """How the "You have been granted" email teaches one permission (#1163).
+
+    ``what`` is the one line the Permissions tab shows, ``works`` the How It Works bullets,
+    ``steps`` the numbered Get Started steps and ``pages`` the gold buttons. Every line must be
+    true in the code today.
+    """
 
     title: str
     what: str
-    how: str
+    works: tuple[str, ...]
+    steps: tuple[GuideStep, ...]
     pages: tuple[GuidePage, ...]
 
 
@@ -4780,95 +4810,247 @@ class AdminCapability(models.Model):
         Capability.CLASS_APPROVER: PermissionGuide(
             Capability.CLASS_APPROVER.label,
             DESCRIPTIONS[Capability.CLASS_APPROVER],
-            "When a class needs review you get an email with a link to review it. Manage All Classes "
-            "lists every class.",
-            (GuidePage("Manage All Classes", "classes:admin_classes"),),
+            (
+                "You review classes whose guild has no lead, and every class a guild lead has approved, "
+                "since a class is published only once an admin side reviewer approves it.",
+                "Each request rings your bell at once with a Review link. "
+                "The email comes in the 8 AM staff digest, and is left out if someone has already decided.",
+                "Manage All Classes lists every class. Open one to approve it or send it back with a note.",
+            ),
+            (
+                GuideStep(
+                    "Open Manage All Classes and pick the Needs review or Awaiting admin chip to see what is "
+                    "waiting. This email is the easiest way back to that page.",
+                    _ALL_CLASSES,
+                ),
+                GuideStep(
+                    "See which emails this brings you, and how they reach you, in Notification Settings.",
+                    _NOTIFICATION_SETTINGS,
+                ),
+            ),
+            (_ALL_CLASSES,),
         ),
         Capability.SPACE_APPROVER: PermissionGuide(
             Capability.SPACE_APPROVER.label,
             DESCRIPTIONS[Capability.SPACE_APPROVER],
-            "Each request arrives by email and waits on Space Requests until you approve or decline it.",
-            (GuidePage("Space Requests", "hub_space_request_review_queue"),),
+            (
+                "You review every studio space and shelf request, site wide.",
+                "Each request rings your bell at once with a link to it. "
+                "The email comes in the 8 AM staff digest, and is left out if someone has already decided.",
+                "You approve or decline on Space Requests Awaiting Review. A decline needs a note for the member.",
+            ),
+            (
+                GuideStep(
+                    "Open Space Requests Awaiting Review to see what is waiting. The menus do not link it, so "
+                    "keep this email or use the link in each request.",
+                    _SPACE_REQUESTS,
+                ),
+                GuideStep(
+                    "See which emails this brings you, and how they reach you, in Notification Settings.",
+                    _NOTIFICATION_SETTINGS,
+                ),
+            ),
+            (_SPACE_REQUESTS,),
         ),
         Capability.DISCOUNT_APPROVER: PermissionGuide(
             Capability.DISCOUNT_APPROVER.label,
             DESCRIPTIONS[Capability.DISCOUNT_APPROVER],
-            "Each request arrives by email with a link to approve or decline it. You can choose how you "
-            "hear about them in your Notification Settings.",
-            (GuidePage("Notification Settings", "hub_user_settings", "?tab=notifications"),),
+            (
+                "When an instructor asks for a discount code, you get the request with a link to approve or "
+                "decline it.",
+                "Each request rings your bell at once. "
+                "The email comes in the 8 AM staff digest, and is left out if someone has already decided.",
+                "There is no list page for these requests. Each one is reached from its own link.",
+            ),
+            (
+                GuideStep(
+                    "See which emails this brings you, and how they reach you, in Notification Settings.",
+                    _NOTIFICATION_SETTINGS,
+                ),
+            ),
+            (_NOTIFICATION_SETTINGS,),
         ),
         Capability.EVENTS_APPROVER: PermissionGuide(
             Capability.EVENTS_APPROVER.label,
             DESCRIPTIONS[Capability.EVENTS_APPROVER],
-            "Proposals arrive by email. Manage Events lists every event, where you can review, edit, "
-            "duplicate or unpublish it.",
-            (GuidePage("Manage Events", "hub_admin_events"),),
+            (
+                "You review Calendar proposals that are not for a guild. A guild's proposals go to its lead and staff.",
+                "Each proposal rings your bell at once. "
+                "The email comes in the 8 AM staff digest, and is left out if someone has already decided.",
+                "Events you add yourself are published straight away, and you can edit, delete or retry the "
+                "sync of any event that is not a guild's.",
+            ),
+            (
+                GuideStep("Open Manage Events and pick the Needs review chip to see what is waiting.", _MANAGE_EVENTS),
+                GuideStep("Press + Add event on the Calendar to add one of your own.", _CALENDAR),
+            ),
+            (_MANAGE_EVENTS, _CALENDAR),
         ),
         Capability.BILLING_APPROVER: PermissionGuide(
             Capability.BILLING_APPROVER.label,
             DESCRIPTIONS[Capability.BILLING_APPROVER],
-            "Open the Payments Dashboard to see payments. Failed payment alerts arrive by email.",
-            (GuidePage("Payments Dashboard", "billing_admin_dashboard"),),
+            (
+                "The Payments Dashboard shows its Overview, Open Tabs and Payments. Its Settings stay with admins.",
+                "You get an alert when a member's tab charge fails, a refund fails, a payout to a guild or "
+                "an instructor fails or cannot be taken back, or a late fee or orientation payment arrives "
+                "with nothing to match it to.",
+            ),
+            (
+                GuideStep("Open the Payments Dashboard, also a card on Admin Tools.", _PAYMENTS),
+                GuideStep(
+                    "See which alerts this brings you, and how they reach you, in Notification Settings.",
+                    _NOTIFICATION_SETTINGS,
+                ),
+            ),
+            (_PAYMENTS,),
         ),
         Capability.REFUNDS: PermissionGuide(
             Capability.REFUNDS.label,
             DESCRIPTIONS[Capability.REFUNDS],
-            "A Refund button now shows on the payment pages you can open. When an instructor cancels a class "
-            "with paid registrations, you get an email saying who needs a refund.",
-            (GuidePage("Notification Settings", "hub_user_settings", "?tab=notifications"),),
+            (
+                "A refund action now shows on pages you can already open: a class's Registrations rows, "
+                "orientation and reservation booking menus, and the Payments table.",
+                "When an instructor cancels a class with paid registrations, you get a notice that points "
+                "to that class's Registrations tab.",
+                "It opens no pages of its own.",
+            ),
+            (
+                GuideStep(
+                    "See which notices this brings you, and how they reach you, in Notification Settings.",
+                    _NOTIFICATION_SETTINGS,
+                ),
+            ),
+            (_NOTIFICATION_SETTINGS,),
         ),
         Capability.EQUIPMENT: PermissionGuide(
             Capability.EQUIPMENT.label,
             DESCRIPTIONS[Capability.EQUIPMENT],
-            "Start from Add Equipment, or open any item on the Equipment page to manage it.",
-            (GuidePage("Add Equipment", "hub_equipment_add"), GuidePage("Equipment", "hub_equipment_index")),
+            (
+                "You can add equipment of every kind and manage any item in the building.",
+                "You only hear about an item's bookings when it has no managers and no guild leadership to "
+                "hear about them.",
+            ),
+            (
+                GuideStep("Add a tool, room or space on Add Equipment.", _EQUIPMENT_ADD),
+                GuideStep(
+                    "Open any item from the Reservations page to change its details, staff, orientations and hours.",
+                    _RESERVATIONS,
+                ),
+            ),
+            (_EQUIPMENT_ADD, _RESERVATIONS),
         ),
         Capability.SPACE_MANAGER: PermissionGuide(
             Capability.SPACE_MANAGER.label,
             DESCRIPTIONS[Capability.SPACE_MANAGER],
-            "Add a room or space from Add Equipment. You manage each one you add from its own page.",
-            (GuidePage("Add a Space", "hub_equipment_add"),),
+            (
+                "You can add rooms and spaces members reserve, not tools.",
+                "Saving one makes you its manager and opens its page, where you manage it from then on.",
+            ),
+            (GuideStep("Add a room or space on Add Equipment.", _EQUIPMENT_ADD),),
+            (_EQUIPMENT_ADD,),
         ),
         Capability.EVENT_CREATOR: PermissionGuide(
             "Event Creator",
             DESCRIPTIONS[Capability.EVENT_CREATOR],
-            "Press Add Event on the Calendar, fill in the event and save it. It is announced once it "
-            "has been reviewed.",
-            (GuidePage("Add an Event", "hub_event_add"),),
+            (
+                "You can add events to the Calendar whatever the member event setting says.",
+                "Every event you save goes to review first and is announced once it is approved.",
+            ),
+            (GuideStep("Press + Add event on the Calendar, fill in your event and save it.", _CALENDAR),),
+            (_CALENDAR,),
         ),
         Capability.WEBMASTER: PermissionGuide(
             Capability.WEBMASTER.label,
             DESCRIPTIONS[Capability.WEBMASTER],
-            "There is nothing to open: the alert comes to you by email, at most once a day for each "
-            "automation. It is listed in your Notification Settings.",
-            (GuidePage("Notification Settings", "hub_user_settings", "?tab=notifications"),),
+            (
+                "When a scheduled automation fails you get an email saying what broke and when, at most once "
+                "a day for each automation.",
+                "You also get an email for each new request in the Feedback Inbox, and for each member reply to one.",
+                "There is nothing to open: the work is in the emails.",
+            ),
+            (
+                GuideStep(
+                    "See which emails this brings you, and how they reach you, in Notification Settings.",
+                    _NOTIFICATION_SETTINGS,
+                ),
+            ),
+            (_NOTIFICATION_SETTINGS,),
         ),
         Capability.TOUR_GUIDE: PermissionGuide(
             Capability.TOUR_GUIDE.label,
             DESCRIPTIONS[Capability.TOUR_GUIDE],
-            "Set the hours you can give tours on Tour Hours. Visitors book inside them, and each booking "
-            "shows on Upcoming Tours.",
-            (GuidePage("Tour Hours", "tours:hours"), GuidePage("Upcoming Tours", "tours:upcoming")),
+            (
+                "Visitors book an open time inside your hours on tours.pastlives.space, or at the front desk "
+                "kiosk in the lobby, where they also check in when they arrive.",
+                "A booking is confirmed at once. You get an email, a bell and a push, and you hear when a "
+                "visitor moves or cancels.",
+                "The Upcoming tab on the Tours page lists your bookings. You can reschedule or cancel a tour "
+                "there, and mark it Attended or No Show on the Past tab once it has started.",
+                "When a visitor you gave a tour to signs up to become a member, you are paid $50.",
+            ),
+            (
+                GuideStep(
+                    "Connect your Google Calendar on My Hours. Your tours land on it, and times it shows you "
+                    "busy are not offered to visitors.",
+                    _TOUR_HOURS,
+                ),
+                GuideStep(
+                    "Set your hours, Every Week or on dates you pick under Available On, with the tour length "
+                    "and how many seats each tour has (1 to 50).",
+                    _TOUR_HOURS,
+                ),
+                GuideStep(
+                    "Add days off under Days Off for when you are away. Your hours offer nothing on those days.",
+                    _TOUR_HOURS,
+                ),
+            ),
+            (_TOUR_HOURS, GuidePage("Upcoming Tours", "tours:upcoming")),
         ),
         INSTRUCTOR: PermissionGuide(
             "Instructor",
             Member.INSTRUCTOR_PERMISSION_DESCRIPTION,
-            "Open Manage My Classes to create a class and send it for review. Your public instructor page "
-            "is edited from your teaching profile.",
-            (GuidePage("Manage My Classes", "classes:teach_overview"),),
+            (
+                "A class you create starts as a draft. When you submit it, it goes to its guild's lead first "
+                "when the guild has one, then to an admin, and it is published once the admin approves it.",
+                "The Overview tab of your teaching pages shows what needs your attention, including a class a "
+                "reviewer sent back with a note.",
+                "Your public instructor page shows your photo, bio and links.",
+            ),
+            (
+                GuideStep("Add your photo, bio and links on the Instructor Profile tab.", _INSTRUCTOR_PROFILE),
+                GuideStep(
+                    "Press + New Class on the Overview tab, fill in your class and submit it for review. "
+                    "Show Me Around on the same page walks you through it.",
+                    _TEACH_OVERVIEW,
+                ),
+            ),
+            (_TEACH_OVERVIEW, _INSTRUCTOR_PROFILE),
         ),
         ADMIN_ROLE: PermissionGuide(
             "Admin",
             "Opens every admin page in the Member Portal, including members, guilds, classes and Site Settings.",
-            "Start from Admin Tools. Admin duties such as reviewing classes are separate permissions you can "
-            "turn on for yourself from the View As menu.",
-            (GuidePage("Admin Tools", "hub_admin_tools"), GuidePage("Manage Members", "hub_admin_members")),
+            (
+                "Admin Tools is your starting point for every admin page.",
+                "Admin duties such as reviewing classes or billing alerts are separate permissions. You hear "
+                "about them only once you turn them on for yourself.",
+            ),
+            (
+                GuideStep("Open Admin Tools to see every admin page.", _ADMIN_TOOLS),
+                GuideStep("Turn on the duties you want from the View As menu at the top of any page.", _ADMIN_TOOLS),
+            ),
+            (_ADMIN_TOOLS, GuidePage("Manage Members", "hub_admin_members")),
         ),
         CLASS_REVIEWER: PermissionGuide(
             "Class Reviewer",
             "Gets the guild's class review requests and can approve its classes.",
-            "When one of the guild's classes needs review you get an email with a link to review and approve it.",
-            (GuidePage("Notification Settings", "hub_user_settings", "?tab=notifications"),),
+            (
+                "When a class in the guild needs review you get a bell and an email with a Review link. "
+                "The email comes in the 8 AM staff digest, and is left out if someone has already decided.",
+                "A class you approve then goes to an admin, who publishes it.",
+                "The guild's page lists every class waiting on you under Needs Attention.",
+            ),
+            (GuideStep("Open the guild's page and look under Waiting on Your Review.", _GUILD_PAGE),),
+            (_GUILD_PAGE,),
         ),
     }
 
