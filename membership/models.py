@@ -3728,8 +3728,12 @@ class Guild(HeroCropMixin, models.Model):
     @property
     def next_meeting_at(self) -> date_type | None:
         """The next guild-meeting date from the cadence config + override, or None (TBA)."""
+        return self._next_meeting_from(timezone.localdate())
+
+    def _next_meeting_from(self, day: date_type) -> date_type | None:
+        """The first guild-meeting date on or after ``day``, as :attr:`next_meeting_at` reads it."""
         return _compute_next_meeting(
-            timezone.localdate(),
+            day,
             cadence=self.meeting_cadence,
             weekday=self.meeting_weekday,
             week_of_month=self.meeting_week_of_month,
@@ -3818,6 +3822,13 @@ class Guild(HeroCropMixin, models.Model):
                 )
             )
         legacy_date = self.next_meeting_at
+        if (
+            legacy_date is not None
+            and self.meeting_time is not None
+            and timezone.make_aware(datetime_type.combine(legacy_date, self.meeting_time)) < timezone.now()
+        ):
+            # Today's timed meeting has started, as a timed Meeting row from earlier today no longer counts.
+            legacy_date = self._next_meeting_from(legacy_date + timedelta(days=1))
         if legacy_date is not None:
             aware = timezone.make_aware(datetime_type.combine(legacy_date, self.meeting_time or time_type()))
             candidates.append(
