@@ -2661,6 +2661,8 @@ select[multiple] option:checked {
 }
 
 .pl-btn-pair .pl-btn { min-height: 40px; }
+/* In a page header's action slot the pair sits on the title's line, so it takes no top margin. */
+.pl-btn-pair--header { margin-top: 0; grid-auto-columns: minmax(7.5rem, 1fr); }
 
 /* The link that closes a card: goes elsewhere, Title Case, ends in an arrow, on its own line. */
 .pl-card-link {

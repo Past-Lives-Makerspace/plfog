@@ -5186,7 +5186,7 @@ def _compose_poll_context(
     from polls.models import MAX_OPTIONS, MAX_QUESTIONS
 
     poll_form, questions = poll_forms or _compose_poll_forms(request, draft)
-    # A fresh compose opens on Poll from ?kind=poll (#1142 AC16: Send a Poll, New poll).
+    # A fresh compose opens on Poll from ?kind=poll (#1142 AC16: New Poll on Guild Settings and the Email Members header).
     fresh_poll = (
         draft is None and request.method == "GET" and request.GET.get("kind") == AnnouncementDraft.Kind.POLL.value
     )

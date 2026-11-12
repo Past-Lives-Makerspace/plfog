@@ -354,7 +354,7 @@ def describe_public_results_deploy_safety():
 
 
 def describe_leads_find_polls():
-    """AC16, AC17 (#1142): New Poll on Guild Settings, New poll on Email Members, and the guild guidance."""
+    """AC16, AC17 (#1142): New Poll on Guild Settings, New Poll in the Email Members header, and the guild guidance."""
 
     def it_offers_new_poll_beside_new_email_on_guild_settings():
         guild = GuildFactory()
@@ -406,14 +406,15 @@ def describe_leads_find_polls():
 
         html = client.get(reverse("hub_announcements")).content.decode()
 
-        actions = html.split('<span class="pl-btn-row">')[1].split("</span>")[0]
+        actions = html.split('<span class="pl-btn-pair pl-btn-pair--header">')[1].split("</span>")[0]
         compose = reverse("hub_compose")
+        assert actions.index("New Email") < actions.index("New Poll")
         assert (
-            f'href="{compose}?kind=poll" class="hub-btn hub-btn--ghost" data-announcements-new-poll>New poll</a>'
+            f'href="{compose}" class="pl-btn pl-btn--primary" data-help-key="announcements.new">New Email</a>'
             in actions
         )
         assert (
-            f'href="{compose}" class="hub-btn hub-btn--primary" data-help-key="announcements.new">New email</a>'
+            f'href="{compose}?kind=poll" class="pl-btn pl-btn--secondary" data-announcements-new-poll>New Poll</a>'
             in actions
         )
 

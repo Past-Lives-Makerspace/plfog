@@ -5,7 +5,7 @@ audience = ["guild-staff", "admins"]
 feature = "guild.email-polls"
 guidance = "shots"
 changes = [
-  "Guild Settings' Email Members tab has New Email and New Poll buttons, and Email Members has New poll beside New email.",
+  "Guild Settings' Email Members tab has New Email and New Poll buttons, and the Email Members page has the same pair at the top.",
   "A pick question can end with a write-in option you name, such as Another time; you see what each person typed.",
   "Turn on Public results to let every member see the totals. Written answers and who picked what stay with you and admins.",
   "When a poll closes, a results email with its totals waits in Drafts for you to add a note and send.",
