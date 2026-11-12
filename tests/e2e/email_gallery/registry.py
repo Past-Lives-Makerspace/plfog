@@ -927,6 +927,36 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="tour_visitor_declined_context",
     ),
     GalleryEmail(
+        key="tour_visitor_lapsed",
+        name="Tour request lapsed (visitor)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent by the lapse task queued for a request's confirm by time (24 hours before the tour, #1166) when the guide never answered: the request is cancelled and its seats freed."
+        ),
+        edit_pointer=_tpl("tours/emails", "visitor_lapsed"),
+        audience="The visitor who asked for the tour (by address).",
+        event_keys=frozenset({"tour.visitor_update"}),
+        text_template="tours/emails/visitor_lapsed.txt",
+        html_template="tours/emails/visitor_lapsed.html",
+        context_builder="tour_visitor_lapsed_context",
+    ),
+    GalleryEmail(
+        key="tour_guide_lapsed",
+        name="Tour request lapsed (guide)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent to the guide (with a bell) when a request of theirs reached its confirm by time unanswered and was cancelled (#1166)."
+        ),
+        edit_pointer=_tpl("tours/emails", "guide_changed"),
+        audience="The tour's guide.",
+        event_keys=frozenset({"tour.visitor_changed"}),
+        text_template="tours/emails/guide_changed.txt",
+        html_template="tours/emails/guide_changed.html",
+        context_builder="tour_guide_lapsed_context",
+    ),
+    GalleryEmail(
         key="tour_guide_request",
         name="New tour request (guide)",
         section="Guilds & Orientations",

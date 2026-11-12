@@ -8,12 +8,15 @@ title = "Tour Guides can confirm each booking first"
 changes = [
   "My Hours on the Tours page has a new Confirming Bookings section: Confirm Automatically (as before) or Confirm First.",
   "With Confirm First, a visitor's booking waits as a request. Their seats are held, so the tour cannot fill up behind it.",
-  "You get an email and a push for each request. Press Confirm or Decline on it under Upcoming, and the visitor is emailed either way.",
+  "Set how far ahead visitors must book with you: 48 hours unless you change it, never less than the house minimum.",
+  "You get an email and a push for each request. Press Confirm or Decline on it under Upcoming by 24 hours before the tour; the visitor is emailed either way.",
+  "A request still waiting 24 hours before the tour is cancelled, and you and the visitor are told.",
+  "Only the tour's own guide can confirm or decline a request.",
   "Bookings made at the front desk kiosk are always confirmed at once.",
 ]
 
 [[shots]]
-caption = "On the Tours page, open My Hours, pick Confirm First under Confirming Bookings and press Save."
+caption = "On the Tours page, open My Hours, pick Confirm First under Confirming Bookings, set how many hours ahead visitors book, and press Save."
 
 [[shots]]
-caption = "Each request shows on Upcoming. Press Confirm to book it, or Decline to free the seats."
+caption = "Each request shows on Upcoming with its confirm by time. Press Confirm to book it, or Decline to free the seats."

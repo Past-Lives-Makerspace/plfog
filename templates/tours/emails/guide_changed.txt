@@ -1,6 +1,8 @@
-{% autoescape off %}{% if change == "cancelled" %}Tour cancelled{% else %}Tour moved{% endif %}
+{% autoescape off %}{% if change == "lapsed" %}Tour request lapsed{% elif change == "cancelled" %}Tour cancelled{% else %}Tour moved{% endif %}
 
-{% if actor_name %}{% if change == "cancelled" %}{{ actor_name }} cancelled {{ booking.visitor_name }}'s tour for {{ people }} on {{ when }}. The visitor has been emailed and the seats are open again.{% elif stays_with_guide %}{{ actor_name }} moved {{ booking.visitor_name }}'s tour for {{ people }} from {{ previous_when }} to {{ when }}. The visitor has been emailed.{% else %}{{ actor_name }} moved {{ booking.visitor_name }}'s tour for {{ people }} on {{ previous_when }} to {{ new_guide_name }}. It is off your schedule.{% endif %}
+{% if change == "lapsed" %}{{ booking.visitor_name }}'s request for {{ people }} on {{ when }} was not confirmed by its confirm by time, 24 hours before the tour. We cancelled it, freed the seats and told the visitor.
+
+{% elif actor_name %}{% if change == "cancelled" %}{{ actor_name }} cancelled {{ booking.visitor_name }}'s tour for {{ people }} on {{ when }}. The visitor has been emailed and the seats are open again.{% elif stays_with_guide %}{{ actor_name }} moved {{ booking.visitor_name }}'s tour for {{ people }} from {{ previous_when }} to {{ when }}. The visitor has been emailed.{% else %}{{ actor_name }} moved {{ booking.visitor_name }}'s tour for {{ people }} on {{ previous_when }} to {{ new_guide_name }}. It is off your schedule.{% endif %}
 
 {% include "tours/emails/_staff_message.txt" with note_label="Their note to the visitor" %}{% elif change == "cancelled" %}{{ booking.visitor_name }} cancelled their tour for {{ people }} on {{ when }}. Their seats are open again.
 

@@ -1,0 +1,8 @@
+{% autoescape off %}Hi {{ greeting_name }},
+
+We are sorry, your guide did not confirm your tour request for Past Lives Makerspace in time, so it is cancelled. Please pick another time.
+
+{% include "tours/emails/_tour.txt" %}
+
+Book another time: {{ book_url }}
+{% include "tours/emails/_footer.txt" %}{% endautoescape %}

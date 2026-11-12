@@ -497,12 +497,25 @@ class StaffTourMessageForm(forms.Form):
 
 
 class TourConfirmModeForm(forms.ModelForm):
-    """The My Hours tab's Confirming Bookings card (#1166): Confirm First or Confirm Automatically."""
+    """The My Hours tab's Confirming Bookings card (#1166): Confirm First or Confirm Automatically,
+    and under Confirm First how far ahead visitors must book."""
 
     class Meta:
         model = TourGuideSettings
-        fields = ("confirm_mode",)
-        widgets = {"confirm_mode": forms.RadioSelect}
+        fields = ("confirm_mode", "min_notice_hours")
+        labels = {"min_notice_hours": "Visitors book at least (hours ahead)"}
+        widgets = {
+            "confirm_mode": forms.RadioSelect,
+            "min_notice_hours": forms.NumberInput(attrs={"class": "pl-tours-input--narrow"}),
+        }
+
+    def clean_min_notice_hours(self) -> int:
+        """Never below Tour Settings' minimum notice, and over the 24 hours a request has to be confirmed by."""
+        hours = int(self.cleaned_data["min_notice_hours"])
+        house = FacilityTourSettings.load().min_notice_hours
+        if hours < house:
+            raise forms.ValidationError(f"At least {house} hours: the minimum notice in Tour Settings.")
+        return hours
 
 
 class StaffRescheduleForm(StaffTourMessageForm):

@@ -7,8 +7,8 @@ visitor and guide emails are sent by :mod:`tours.notify` directly, since the boo
 knows it wants them.
 
 Arguments: ``booking`` (the saved row) and ``change``, one of :data:`BOOKED`, :data:`MOVED`,
-:data:`CANCELLED`, or for a guide who confirms first (#1166) :data:`REQUESTED`, :data:`CONFIRMED`
-and :data:`DECLINED`. A move also passes ``previous_guide`` and ``previous_starts_at``; a move to
+:data:`CANCELLED`, or for a guide who confirms first (#1166) :data:`REQUESTED`, :data:`CONFIRMED`,
+:data:`DECLINED` and :data:`LAPSED`. A move also passes ``previous_guide`` and ``previous_starts_at``; a move to
 another guide's tour (a visitor's, or an admin's reassignment, #949) has ``previous_guide`` apart
 from ``booking.guide``. A change a Tour Guide or an admin made from the Tours page (#949) also
 passes ``actor`` (the User) and ``staff_message``; receivers take ``**kwargs``.
@@ -25,7 +25,9 @@ CANCELLED = "cancelled"
 REQUESTED = "requested"
 #: The guide (or an admin) confirmed a request: from here on it is a booked tour.
 CONFIRMED = "confirmed"
-#: The guide (or an admin) declined a request: its seats are free again.
+#: The guide declined a request: its seats are free again.
 DECLINED = "declined"
+#: Nobody answered a request by its confirm by time, 24 hours before the tour: it was cancelled.
+LAPSED = "lapsed"
 
 tour_booking_changed = Signal()

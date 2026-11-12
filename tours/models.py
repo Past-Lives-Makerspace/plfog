@@ -464,6 +464,10 @@ class TourDayOff(models.Model):
         return self.starts_on <= day <= self.ends_on
 
 
+#: A request (#1166) must be confirmed this many hours before its tour, or it lapses.
+CONFIRM_BEFORE_HOURS = 24
+
+
 class TourGuideSettings(models.Model):
     """One guide's own tour choices (#1166): whether a visitor's booking waits for their Confirm.
 
@@ -490,6 +494,20 @@ class TourGuideSettings(models.Model):
             "until the guide confirms or declines it. The front desk kiosk always books at once."
         ),
     )
+    min_notice_hours = models.PositiveSmallIntegerField(
+        default=48,
+        validators=[
+            MinValueValidator(
+                CONFIRM_BEFORE_HOURS + 1,
+                message="More than 24 hours, so there is time to answer before the confirm by time.",
+            ),
+            MaxValueValidator(336, message="At most 336 hours (two weeks)."),
+        ],
+        help_text=(
+            "Under Confirm First, how far ahead a visitor must book on the website (#1166). Never below Tour "
+            "Settings' minimum notice, and over the 24 hours before a tour by which a request must be confirmed."
+        ),
+    )
     updated_at = models.DateTimeField(auto_now=True, help_text="When the guide last changed these choices.")
 
     class Meta:
@@ -503,8 +521,23 @@ class TourGuideSettings(models.Model):
     def summary(self) -> str:
         """What the choice means for the guide's next booking, in one sentence."""
         if self.confirm_mode == self.ConfirmMode.FIRST:
-            return "Each new booking waits for you to confirm or decline it."
+            return (
+                f"Visitors book at least {self.min_notice_hours} hours ahead, and each booking waits for you "
+                "to confirm or decline it."
+            )
         return "New bookings are confirmed at once, and you are told."
+
+    @classmethod
+    def notice_hours_by_guide(cls, guide_ids: Iterable[int], house: FacilityTourSettings) -> dict[int, int]:
+        """The minimum notice, in hours, of each listed guide who confirms first: their own, never below the house's.
+
+        Guides who confirm automatically are left out; the house notice is theirs. One query.
+        """
+        rows = cls.objects.filter(guide_id__in=list(guide_ids), confirm_mode=cls.ConfirmMode.FIRST)
+        return {
+            guide_id: max(hours, house.min_notice_hours)
+            for guide_id, hours in rows.values_list("guide_id", "min_notice_hours")
+        }
 
     @classmethod
     def confirm_mode_for(cls, guide: Member) -> str:
@@ -698,6 +731,11 @@ class TourBooking(models.Model):
     def holds_seats(self) -> bool:
         """Whether this booking counts against its tour's seats."""
         return self.status in self.HOLDS_SEATS
+
+    @property
+    def confirm_by(self) -> datetime:
+        """When a request (#1166) lapses unless its guide answers: 24 hours before the tour, in UTC."""
+        return self.starts_at.astimezone(UTC) - timedelta(hours=CONFIRM_BEFORE_HOURS)
 
     @property
     def is_request(self) -> bool:

@@ -274,7 +274,7 @@ def tour_confirm_mode_save(request: HttpRequest) -> HttpResponse:
     instance = TourGuideSettings.objects.filter(guide=target).first() or TourGuideSettings(guide=target)
     form = TourConfirmModeForm(request.POST, instance=instance)
     if not form.is_valid():
-        messages.error(request, "Pick Confirm First or Confirm Automatically.")
+        messages.error(request, str(next(iter(form.errors.values()))[0]))
         return redirect(_hours_url(_viewer(request), target))
     saved = form.save()
     messages.success(request, f"Saved. {saved.summary}")
@@ -525,6 +525,7 @@ def _render_bookings(request: HttpRequest, tab: str) -> HttpResponse:
         {
             "tab": tab,
             "is_admin": is_admin,
+            "viewer_pk": _viewer(request).pk,
             "page": page,
             "bookings": list(page.object_list),
             "filter_guides": _filter_guides() if is_admin else [],
@@ -633,6 +634,18 @@ def _render_reschedule(
     )
 
 
+def _request_for_its_guide(request: HttpRequest, pk: int) -> TourBooking:
+    """The request a Confirm or Decline names, only for the tour's own guide (#1166).
+
+    Felix's rule overrides the admins see everything one here: an admin sees another guide's
+    request on Upcoming but never answers it for them (403).
+    """
+    booking = get_object_or_404(TourBooking.objects.select_related("guide"), pk=pk)
+    if booking.guide_id is None or booking.guide_id != _viewer(request).pk:
+        raise PermissionDenied("Only the tour's guide can confirm or decline it.")
+    return booking
+
+
 def _back_url(request: HttpRequest, fallback: str = "tours:upcoming") -> str:
     """The Tours page the action came from (htmx's ``HX-Current-URL``), else ``fallback``'s tab."""
     current = request.headers.get("HX-Current-URL", "")
@@ -737,7 +750,7 @@ def tour_booking_cancel(request: HttpRequest, pk: int) -> HttpResponse:
 def tour_booking_confirm(request: HttpRequest, pk: int) -> HttpResponse:
     """Confirm a visitor's request from the Upcoming tab (#1166): it becomes a booked tour, and the
     visitor gets the booked email with the calendar invite."""
-    booking = _staff_booking(request, pk)
+    booking = _request_for_its_guide(request, pk)
     try:
         confirmed = confirm_tour_request(booking, actor=cast("User", request.user))
     except TourLockedError as exc:
@@ -754,7 +767,7 @@ def tour_booking_confirm(request: HttpRequest, pk: int) -> HttpResponse:
 def tour_booking_decline(request: HttpRequest, pk: int) -> HttpResponse:
     """Decline a visitor's request from the Upcoming tab's confirm (#1166), with an optional message;
     its seats are free again."""
-    booking = _staff_booking(request, pk)
+    booking = _request_for_its_guide(request, pk)
     form = StaffTourMessageForm(request.POST)
     if not form.is_valid():
         messages.error(request, str(form.errors["message"][0]))
@@ -792,7 +805,7 @@ def tour_booking_mark(request: HttpRequest, pk: int) -> HttpResponse:
     response = render(
         request,
         "tours/partials/_booking_row.html",
-        {"booking": booking, "tab": PAST, "is_admin": _is_admin(request)},
+        {"booking": booking, "tab": PAST, "is_admin": _is_admin(request), "viewer_pk": _viewer(request).pk},
     )
     trigger_toast(response, text, tone)
     return response

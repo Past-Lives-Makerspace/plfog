@@ -1,7 +1,8 @@
 {% comment %}
 The My Hours tab's Confirming Bookings card (#1166, tours.views.tour_confirm_mode_save): Confirm
 Automatically (the default, a visitor is booked at once) or Confirm First (a booking waits as a
-request holding its seats until the guide confirms or declines it on Upcoming). The two choices are
+request holding its seats until the guide confirms or declines it on Upcoming, by 24 hours before
+the tour), and Confirm First's own minimum notice (default 48 hours). The two choices are
 a segmented pair, both always visible, the chosen one gold; Save is last. Context: confirm_form, target, is_self.
 {% endcomment %}
 <form method="post" action="{% url 'tours:confirm_mode_save' %}" class="hub-card pl-tours-panel" data-tour-confirm-mode>
@@ -14,6 +15,7 @@ a segmented pair, both always visible, the chosen one gold; Save is last. Contex
     <label class="pl-tours-confirm__option"><input type="radio" name="{{ choice.data.name }}" value="{{ choice.data.value }}"{% if choice.data.selected %} checked{% endif %} data-tour-confirm-choice="{{ choice.data.value }}"><span>{{ choice.choice_label }}</span></label>
     {% endfor %}
   </div>
-  <p class="hub-text-muted pl-tours-confirm__hint">Confirm First holds the visitor's seats as a request until you press Confirm or Decline on Upcoming. They are emailed either way.</p>
+  <p class="hub-text-muted pl-tours-confirm__hint">Confirm First holds the visitor's seats as a request until you press Confirm or Decline on Upcoming. They are emailed either way. Answer by 24 hours before the tour: a request still waiting then is cancelled and the visitor told.</p>
+  <div class="pl-tours-confirm__notice" data-tour-confirm-notice>{% include "components/form_field.html" with field=confirm_form.min_notice_hours field_hint="With Confirm First, visitors on the website only see your tours at least this far ahead, so you have time to answer. Never less than Tour Settings' minimum notice." %}</div>
   <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm pl-tours-confirm__save" data-tour-confirm-save>Save</button>
 </form>

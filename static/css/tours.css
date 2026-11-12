@@ -611,3 +611,11 @@
         border-radius: 0.75rem;
     }
 }
+.pl-tours-booking__confirm-by {
+    margin: 0.5rem 0 0;
+    font-size: 0.8125rem;
+    font-weight: 700;
+}
+.pl-tours-confirm__notice {
+    margin-top: 1.5rem;
+}

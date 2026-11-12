@@ -40,6 +40,7 @@ def _capture(page, name: str, *, drawer: bool = True) -> None:
     if not CAPTURE_DIR:
         return
     Path(CAPTURE_DIR).mkdir(parents=True, exist_ok=True)
+    page.evaluate("() => document.querySelectorAll('.plt-toast').forEach((el) => el.remove())")
     for size_name, size in (("desktop", DESKTOP), ("phone", PHONE)):
         page.set_viewport_size(size)
         if drawer:
@@ -50,7 +51,11 @@ def _capture(page, name: str, *, drawer: bool = True) -> None:
                 theme,
             )
             page.wait_for_timeout(500)
-            page.screenshot(path=str(Path(CAPTURE_DIR) / f"1166-{name}-{size_name}-{theme}.png"), full_page=True)
+            # The whole page in one viewport, so the fixed sidebar and top bar are drawn where they sit.
+            page.set_viewport_size({"width": size["width"], "height": page.evaluate("document.body.scrollHeight")})
+            page.wait_for_timeout(300)
+            page.screenshot(path=str(Path(CAPTURE_DIR) / f"1166-{name}-{size_name}-{theme}-v3.png"))
+            page.set_viewport_size(size)
     page.evaluate("() => document.documentElement.removeAttribute('data-theme')")
     page.set_viewport_size(DESKTOP)
 
@@ -95,7 +100,7 @@ def describe_confirm_first():
             shoot(page, Path(CAPTURE_DIR) / "step-1.png", target="tours.confirm-mode")
         with page.expect_navigation():
             card.locator("[data-tour-confirm-save]").click()
-        page.locator(".plt-msg", has_text="Each new booking waits for you").first.wait_for()
+        page.locator(".plt-msg", has_text="each booking waits for you").first.wait_for()
         assert TourGuideSettings.confirms_first(guide)
         page.locator("[data-tour-confirm-mode]").scroll_into_view_if_needed()
         _capture(page, "setting")

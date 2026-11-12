@@ -3,11 +3,12 @@ One booking on the Tours page's Upcoming or Past tab (#949): when, status, the v
 party, email and phone (tap to mail or call), the guide and how it was booked, then the row's
 actions. Upcoming: Reschedule (loads the modal's body) and Cancel Tour (a confirm with an optional
 message to the visitor). A request (#1166) carries Confirm and Decline (a confirm with an optional
-message) instead; its id is the anchor the guide's request email and bell link to. Past: Attended
+message) instead, for the tour's own guide only (#1166, AC10: admins see it, never answer it), with its
+confirm by time; its id is the anchor the guide's request email and bell link to. Past: Attended
 and No Show, either changeable, posted over htmx so the row comes back in its new state
 (tours.views.tour_booking_mark).
 
-Context: booking, tab ("upcoming" or "past"), is_admin.
+Context: booking, tab ("upcoming" or "past"), is_admin, viewer_pk (the viewer's member pk).
 {% endcomment %}
 {% with pks=booking.pk|stringformat:"s" %}
 <li class="hub-card pl-tours-booking{% if booking.is_request %} pl-tours-booking--request{% endif %}" id="tour-booking-{{ booking.pk }}" data-tour-booking="{{ booking.pk }}">
@@ -21,6 +22,9 @@ Context: booking, tab ("upcoming" or "past"), is_admin.
   </p>
   <p class="hub-text-muted pl-tours-booking__meta">{% if booking.guide %}Guide: {{ booking.guide.display_name }}{% else %}No guide assigned{% endif %} · Booked on the {{ booking.get_source_display|lower }}{% if booking.checked_in_at %} · <span data-tour-booking-checked-in>Checked in at {{ booking.checked_in_at|time:"g:i A" }}</span>{% endif %}</p>
   {% if tab == "upcoming" and booking.is_request %}
+  <p class="pl-tours-booking__confirm-by" data-tour-confirm-by>Confirm by {{ booking.confirm_by|date:"D, M j" }}, {{ booking.confirm_by|time:"g:i A" }}{% if booking.guide_id != viewer_pk %} · Only {{ booking.guide.display_name|default:"its guide" }} can confirm or decline it{% endif %}</p>
+  {% endif %}
+  {% if tab == "upcoming" and booking.is_request and booking.guide_id == viewer_pk %}
   <div class="pl-tours-booking__actions">
     <form method="post" action="{% url 'tours:booking_confirm' booking.pk %}" hx-post="{% url 'tours:booking_confirm' booking.pk %}">
       {% csrf_token %}
@@ -30,7 +34,7 @@ Context: booking, tab ("upcoming" or "past"), is_admin.
   </div>
   {% url 'tours:booking_decline' booking.pk as decline_url %}
   {% include "components/confirm_modal.html" with confirm_id="tour-decline-"|add:pks confirm_title="Decline This Request?" confirm_message="The visitor is emailed and their seats are free again." confirm_hx_post=decline_url confirm_note_name="message" confirm_note_label="Message to the visitor (optional)" confirm_note_hint="Added to the email we send them." confirm_button_text="Decline" confirm_cancel_text="Keep It" %}
-  {% elif tab == "upcoming" %}
+  {% elif tab == "upcoming" and not booking.is_request %}
   <div class="pl-tours-booking__actions">
     <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
             hx-get="{% url 'tours:booking_reschedule' booking.pk %}" hx-target="#tour-reschedule-body" hx-swap="innerHTML"

@@ -19,7 +19,7 @@ says so and offers Cancel My Request alone. Context: booking, when, refusal, jus
       </div>
       <div class="detail-body">
         {% if booking.is_request and just != "cancelled" %}
-        <p class="pl-tourpub__lead" data-tour-requested>Your guide confirms each tour before it is booked. We emailed {{ booking.visitor_email }}, and we will email you again with a calendar invite once they confirm. Your spot is held until then.</p>
+        <p class="pl-tourpub__lead" data-tour-requested>Your guide confirms each tour before it is booked, and has until <strong data-tour-confirm-by>{{ confirm_by }}</strong> to do so. Your spot is held until then. We emailed {{ booking.visitor_email }}, and we email you again with a calendar invite once they confirm, or if they have not by then.{% if notice_hours %} Tours with this guide are booked at least {{ notice_hours }} hours ahead.{% endif %}</p>
         {% elif just == "booked" or just == "moved" %}
         <p class="pl-tourpub__lead" data-tour-confirmed>We emailed {{ booking.visitor_email }} a confirmation with a calendar invite. See you soon!</p>
         {% elif just == "cancelled" %}

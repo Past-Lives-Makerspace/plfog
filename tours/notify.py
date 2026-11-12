@@ -39,7 +39,7 @@ from core.events.scheduler import ScheduledOccurrence
 from core.events.scheduling import DEFAULT_WINDOW
 from core.events.senders import email_shell_message, emit_with_email_shell
 from tours import signals
-from tours.models import TOUR_ADDRESS, FacilityTourSettings, TourBooking
+from tours.models import TOUR_ADDRESS, FacilityTourSettings, TourBooking, TourGuideSettings
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -177,6 +177,15 @@ def _ics_attachment(booking: TourBooking, *, cancelled: bool = False) -> tuple[s
     return ("tour.ics", build_ics(booking, cancelled=cancelled), "text/calendar")
 
 
+def guide_notice_hours(booking: TourBooking) -> int | None:
+    """How many hours ahead visitors book this request's guide (#1166), or None when it is not a request."""
+    if not booking.is_request or booking.guide_id is None:
+        return None
+    return TourGuideSettings.notice_hours_by_guide([booking.guide_id], FacilityTourSettings.load()).get(
+        booking.guide_id
+    )
+
+
 def support_email() -> str:
     """Where visitors write when they cannot change a tour online (Site Settings' support email)."""
     from core.models import SiteConfiguration
@@ -194,6 +203,8 @@ def visitor_context(booking: TourBooking, **extra: Any) -> dict[str, Any]:
         "guide_name": guide_first_name(booking.guide),
         "support_email": support_email(),
         "cancel_cutoff_hours": FacilityTourSettings.load().cancel_cutoff_hours,
+        "confirm_by": short_when(booking.confirm_by),
+        "notice_hours": guide_notice_hours(booking),
         **visitor_links(booking),
         **extra,
     }
@@ -207,9 +218,10 @@ _VISITOR_EMAILS: dict[str, tuple[str, str]] = {
     signals.REQUESTED: ("visitor_requested", "Your Past Lives tour request: {when}"),
     signals.CONFIRMED: ("visitor_confirmed", "Your Past Lives tour is confirmed: {when}"),
     signals.DECLINED: ("visitor_declined", "Your Past Lives tour request for {when}"),
+    signals.LAPSED: ("visitor_lapsed", "We could not confirm your Past Lives tour on {when}"),
 }
 #: The visitor's emails that carry no calendar invite: nothing is on their calendar yet (#1166).
-_NO_INVITE: frozenset[str] = frozenset({signals.REQUESTED, signals.DECLINED})
+_NO_INVITE: frozenset[str] = frozenset({signals.REQUESTED, signals.DECLINED, signals.LAPSED})
 
 
 def send_visitor_email(booking: TourBooking, change: str, *, was_request: bool = False, **extra: Any) -> None:
@@ -242,6 +254,7 @@ def guide_context(booking: TourBooking, **extra: Any) -> dict[str, Any]:
         "when": when_label(booking.starts_at),
         "people": _people(booking),
         "tours_page_url": tours_page_url(),
+        "confirm_by": short_when(booking.confirm_by),
         **extra,
     }
 
@@ -256,7 +269,7 @@ def tell_guide_booked(booking: TourBooking, guide: Member | None, *, actor_name:
     when = short_when(booking.starts_at)
     if booking.is_request:
         title, subject = "New tour request", f"Tour request to confirm: {when}"
-        body = f"{booking.visitor_name}, {_people(booking)}, {when}. Confirm or decline it."
+        body = f"{booking.visitor_name}, {_people(booking)}, {when}. Confirm by {short_when(booking.confirm_by)}."
     elif actor_name:
         title, subject = "Tour moved to you", f"Tour moved to you: {when}"
         body = f"{actor_name} moved {booking.visitor_name}'s tour, {_people(booking)}, to you: {when}."
@@ -296,7 +309,10 @@ def tell_guide_changed(
     stays_with_guide = guide is not None and booking.guide_id == guide.pk
     who = actor_name or booking.visitor_name
     whose = f"{booking.visitor_name}'s" if actor_name else "their"
-    if change == signals.CANCELLED:
+    if change == signals.LAPSED:
+        title, subject = "Tour request lapsed", f"Tour request lapsed: {when}"
+        body = f"{booking.visitor_name}'s request for {when} was not confirmed in time, so it was cancelled."
+    elif change == signals.CANCELLED:
         title, body = "Tour cancelled", f"{who} cancelled {whose} tour on {when}."
         subject = f"Tour cancelled: {when}"
     else:
@@ -358,6 +374,9 @@ def announce(
         note_label=note_label(actor),
     )
     if change in (signals.CONFIRMED, signals.DECLINED):
+        return
+    if change == signals.LAPSED:
+        tell_guide_changed(booking, booking.guide, change)
         return
     if actor is not None:
         _tell_guides_staff_changed(booking, change, actor, previous_guide, previous_starts_at, staff_message)

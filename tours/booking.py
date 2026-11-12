@@ -26,6 +26,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.models import UserProfile
+from core.tasks import enqueue_at_on_commit
 from core.services.guest_account import ensure_guest_account, find_user_for_email
 from membership.models import Member
 from tours import signals
@@ -94,6 +95,7 @@ STAFF_LOCKED_MESSAGES: dict[str, str] = {
     "past": "This tour has already started, so it can no longer be moved or cancelled.",
     "upcoming": "This tour has not started yet. Mark it after it starts.",
     "answered": "This request was already answered.",
+    "lapsed": "The confirm by time has passed, so this request was cancelled and the visitor told.",
     "request": "Confirm or decline this request first.",
 }
 
@@ -169,14 +171,15 @@ def book_tour(
     """
     account = user if user is not None and user.is_authenticated else find_user_for_email(visitor.email)
     with transaction.atomic():
-        tour = open_tour_at(guide, starts_at, lock=True, now=now)
+        kiosk = source == TourBooking.Source.KIOSK
+        tour = open_tour_at(guide, starts_at, lock=True, now=now, guide_notice=not kiosk)
         if tour is None:
             raise TourUnavailableError(GONE_MESSAGE)
         if _is_repeat(guide, tour.starts_at, visitor, now or timezone.now()):
             raise TourAlreadyBookedError(ALREADY_BOOKED_MESSAGE)
         if tour.seats_left < visitor.party_size:
             raise TourFullError(tour.seats_left)
-        request = source != TourBooking.Source.KIOSK and TourGuideSettings.confirms_first(guide)
+        request = not kiosk and TourGuideSettings.confirms_first(guide)
         booking = TourBooking.objects.create(
             guide=guide,
             starts_at=tour.starts_at,
@@ -190,6 +193,10 @@ def book_tour(
             status=TourBooking.Status.PENDING if request else TourBooking.Status.BOOKED,
         )
         _after_commit(booking, signals.REQUESTED if request else signals.BOOKED)
+        if request:
+            from tours.tasks import lapse_tour_request
+
+            enqueue_at_on_commit(lapse_tour_request, booking.confirm_by, booking.pk)
     if account is None and create_account and not Member.objects.unlinked_with_email(visitor.email.strip()).exists():
         first, last = visitor.first_and_last
         made = ensure_guest_account(visitor.email, first_name=first, last_name=last)
@@ -351,6 +358,31 @@ def _locked_request(booking: TourBooking, now: datetime) -> TourBooking:
         raise TourLockedError("past")
     if not locked.is_request:
         raise TourLockedError("answered")
+    if now >= locked.confirm_by:
+        raise TourLockedError("lapsed")
+    return locked
+
+
+def lapse_request(booking_id: int, *, now: datetime | None = None) -> TourBooking | None:
+    """Cancel a request its guide did not answer by its confirm by time (#1166), freeing its seats.
+
+    Run by :func:`tours.tasks.lapse_tour_request`, queued for the confirm by time when the request
+    was made. Safe to run twice and a no-op for a request already answered, cancelled, or (run
+    early) not yet due. The visitor is told it could not be confirmed, the guide that it lapsed.
+
+    Returns:
+        The cancelled booking, or None when there was nothing to do.
+    """
+    moment = now or timezone.now()
+    with transaction.atomic():
+        locked = TourBooking.objects.select_for_update().filter(pk=booking_id).first()
+        if locked is None or not locked.is_request or moment < locked.confirm_by:
+            return None
+        locked.status = TourBooking.Status.CANCELLED
+        locked.cancelled_at = moment
+        locked.cancelled_by = None
+        locked.save(update_fields=["status", "cancelled_at", "cancelled_by"])
+        _after_commit(locked, signals.LAPSED)
     return locked
 
 
