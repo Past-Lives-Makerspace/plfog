@@ -742,6 +742,13 @@ def describe_meetings_home():
 
         def it_shows_studio_hours_and_still_suggests_the_meeting(client: Client):
             # The row agrees with the guild page card (#953); Schedule it follows the meeting.
+            # The clock sits at 10 AM: on a meeting day after 4:30 PM, today's passed 6:30 PM
+            # meeting would sort ahead of studio hours two hours from now.
+            ten_am = timezone.localtime().replace(hour=10, minute=0, second=0, microsecond=0)
+            with patch("django.utils.timezone.now", return_value=ten_am):
+                _assert_studio_hours_row_suggests_the_meeting(client)
+
+        def _assert_studio_hours_row_suggests_the_meeting(client: Client) -> None:
             guild = _cadence_guild("Hoursmiths")
             start = timezone.now() + timedelta(hours=2)
             CommunityEventFactory(
