@@ -1116,14 +1116,14 @@ def guild_staff_welcome_context(data: SampleData) -> dict[str, Any]:
 
 
 def permission_granted_context(data: SampleData) -> dict[str, Any]:
-    """Mirrors ``membership.permission_grants.send_permission_granted``: the guild's lead turned on two duties."""
+    """Mirrors ``membership.permission_grants.send_permission_granted``: the guild's lead made the member a Tour Guide."""
     from membership import permission_grants
     from membership.models import AdminCapability
 
-    grants = [AdminCapability.Capability.EQUIPMENT, AdminCapability.Capability.TOUR_GUIDE]
+    grant = AdminCapability.Capability.TOUR_GUIDE
     return {
-        "subject": permission_grants.granted_subject(grants, None),
-        "template_context": permission_grants.email_context(data.member, grants, data.lead, None),
+        "subject": permission_grants.granted_subject(grant, None),
+        "template_context": permission_grants.email_context(data.member, grant, data.lead, None),
     }
 
 

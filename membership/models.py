@@ -1808,8 +1808,8 @@ class Member(StaffRequestMixin, models.Model):
 
         Grants each newly-checked capability (recording ``granted_by`` for audit) and
         revokes each unchecked one, leaving unchanged grants untouched. Idempotent — the
-        admin member-edit form calls it with the posted checkbox set on every save. Everything
-        newly granted goes in one "You have been granted" email (#1163), unless it is their own.
+        admin member-edit form calls it with the posted checkbox set on every save. Each newly
+        granted capability sends its own "You have been granted" email (#1163), unless it is their own.
         """
         from membership.permission_grants import record
 

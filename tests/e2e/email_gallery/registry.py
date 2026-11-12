@@ -671,9 +671,9 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         section="Guilds & Orientations",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent once per save when someone else turns on an admin capability, Instructor, the Admin role "
-            "or a guild's Class Reviewer for the member (#1163). One card per permission from "
-            "AdminCapability.GUIDES. A grant to yourself sends nothing."
+            "Sent once per permission when someone else turns on an admin capability, Instructor, the Admin "
+            "role or a guild's Class Reviewer for the member (#1163); two in one save send two. Its card "
+            "comes from AdminCapability.GUIDES. A grant to yourself sends nothing."
         ),
         edit_pointer=_tpl("membership/emails", "permission_granted"),
         audience="The member just granted the permission.",

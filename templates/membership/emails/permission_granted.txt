@@ -1,12 +1,12 @@
 {% autoescape off %}Hi {{ first_name }},
 
 {{ headline }}. {{ granter_name }} turned this on for you in the Member Portal: {{ portal_url }}
-{% for card in cards %}
+
 {{ card.title|upper }}
 What it does: {{ card.what }}
 How: {{ card.how }}
 {% for label, url in card.pages %}{{ label }}: {{ url }}
-{% endfor %}{% endfor %}
+{% endfor %}
 If you need any help, don't hesitate to ask {{ help_contact }}.
 
 {% include "membership/emails/_footer.txt" %}{% endautoescape %}

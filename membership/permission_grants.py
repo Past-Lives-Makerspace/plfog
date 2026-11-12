@@ -3,9 +3,10 @@
 Each grant method (:meth:`Member.sync_admin_capabilities`, :meth:`Member.grant_instructor`,
 :meth:`Member.apply_admin_role`, :meth:`Guild.set_class_reviewer`) works out what it newly
 turned on and hands that to :func:`record`, which enqueues one :func:`send_permission_granted`
-task after the save commits. The task rings the bell and sends one email listing every
-permission that save turned on, each with what it lets them do, how, and a button per page,
-worded from :attr:`AdminCapability.GUIDES`. A grant a member makes to themself sends nothing.
+task per permission after the save commits. Each task rings the bell and sends one email about
+its permission: what it lets them do, how, and a button per page, worded from
+:attr:`AdminCapability.GUIDES`. A save that turns on two sends two emails (Felix: each email
+separate). A grant a member makes to themself sends nothing.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ PERMISSION_GRANTED_EVENT = "permission.granted"
 
 
 def record(member: Member, grants: Sequence[str], *, granted_by: User | None, guild: Guild | None = None) -> None:
-    """Email ``member`` once this save commits about ``grants``, the permissions it newly turned on.
+    """Email ``member`` once this save commits, one email per permission in ``grants`` (newly turned on).
 
     Nothing is sent for an empty list or when ``granted_by`` is the member themself (the View As
     toggles, their own edit page). ``guild`` is the guild a Class Reviewer grant is for.
@@ -43,19 +44,15 @@ def record(member: Member, grants: Sequence[str], *, granted_by: User | None, gu
         return
     for grant in grants:
         AdminCapability.GUIDES[grant]  # fail at the save, not in the worker
-    enqueue_on_commit(
-        send_permission_granted,
-        member.pk,
-        list(grants),
-        granted_by.pk if granted_by is not None else None,
-        guild.pk if guild is not None else None,
-        uuid.uuid4().hex,
-    )
-
-
-def _joined(names: list[str]) -> str:
-    """``"A"``, ``"A and B"``, ``"A, B and C"``."""
-    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+    for grant in grants:
+        enqueue_on_commit(
+            send_permission_granted,
+            member.pk,
+            grant,
+            granted_by.pk if granted_by is not None else None,
+            guild.pk if guild is not None else None,
+            uuid.uuid4().hex,
+        )
 
 
 def _page_url(page: GuidePage) -> str:
@@ -63,9 +60,9 @@ def _page_url(page: GuidePage) -> str:
     return member_absolute_url(f"{reverse(page.url_name)}{page.query}")
 
 
-def granted_subject(grants: Sequence[str], guild: Guild | None) -> str:
+def granted_subject(grant: str, guild: Guild | None) -> str:
     """The email subject and the bell title: ``You have been granted Billing Administrator``."""
-    return f"You have been granted {_joined([card_title(grant, guild) for grant in grants])}"
+    return f"You have been granted {card_title(grant, guild)}"
 
 
 def card_title(grant: str, guild: Guild | None) -> str:
@@ -89,7 +86,7 @@ def _card(grant: str, guide: PermissionGuide, guild: Guild | None) -> dict[str, 
     }
 
 
-def email_context(member: Member, grants: Sequence[str], granter: Member | None, guild: Guild | None) -> dict[str, Any]:
+def email_context(member: Member, grant: str, granter: Member | None, guild: Guild | None) -> dict[str, Any]:
     """What ``membership/emails/permission_granted.{txt,html}`` reads.
 
     ``granter`` is whoever turned it on; None (a superuser with no member record) reads "An admin".
@@ -98,21 +95,21 @@ def email_context(member: Member, grants: Sequence[str], granter: Member | None,
 
     return {
         "first_name": member.display_name.split(" ")[0],
-        "headline": granted_subject(grants, guild),
+        "headline": granted_subject(grant, guild),
         "granter_name": granter.display_name if granter is not None else "An admin",
         "help_contact": granter.display_name if granter is not None else "an admin",
-        "cards": [_card(grant, AdminCapability.GUIDES[grant], guild) for grant in grants],
+        "card": _card(grant, AdminCapability.GUIDES[grant], guild),
         "portal_url": member_absolute_url(reverse("hub_home")),
     }
 
 
 @task
 def send_permission_granted(
-    member_id: int, grants: list[str], granted_by_id: int | None, guild_id: int | None, batch: str
+    member_id: int, grant: str, granted_by_id: int | None, guild_id: int | None, batch: str
 ) -> None:
-    """``permission.granted``: the bell and a forced email to the member, once per save.
+    """``permission.granted``: the bell and a forced email to the member about one permission.
 
-    Safe to run twice: ``batch`` is the save's own token, so the spine's delivery ledger drops a
+    Safe to run twice: ``batch`` is this grant's own token, so the spine's delivery ledger drops a
     second run. A member with no account still gets the email at their staged address.
     """
     from django.contrib.auth.models import User
@@ -124,8 +121,8 @@ def send_permission_granted(
     granted_by = User.objects.get(pk=granted_by_id) if granted_by_id is not None else None
     granter = Member.objects.filter(user=granted_by).first() if granted_by is not None else None
     guild = Guild.objects.get(pk=guild_id) if guild_id is not None else None
-    subject = granted_subject(grants, guild)
-    context = email_context(member, grants, granter, guild)
+    subject = granted_subject(grant, guild)
+    context = email_context(member, grant, granter, guild)
     emit_with_email_shell(
         PERMISSION_GRANTED_EVENT,
         actor=granted_by,
@@ -137,7 +134,7 @@ def send_permission_granted(
         template_context=context,
         in_app_title=subject,
         in_app_body="What it lets you do and where to find it.",
-        url=context["cards"][0]["pages"][0][1],
+        url=context["card"]["pages"][0][1],
         email_to=member.primary_email or None,
         period=f"permission_granted:{batch}",
     )

@@ -2,8 +2,9 @@
 
 Turning on an admin capability, Instructor, the Admin role or a guild's Class Reviewer for
 someone else rings their bell and emails them, once the save commits, what each permission lets
-them do, how, and a button per page, naming who turned it on. One save sends one email; a grant
-to yourself sends nothing; the task is safe to run twice; every send is an Email Log row.
+them do, how, and a button per page, naming who turned it on. Each permission sends its own
+email, even two in one save; a grant to yourself sends nothing; the task is safe to run twice;
+every send is an Email Log row.
 
 Names are factory strings no changelog could contain (STANDARDS.md section 8).
 """
@@ -69,14 +70,21 @@ def _html(email) -> str:
 
 
 def describe_admin_capabilities():
-    def it_emails_every_capability_one_save_turned_on_in_one_email(
+    def it_sends_each_capability_one_save_turned_on_its_own_email(
         granter: Member, pell: Member, django_capture_on_commit_callbacks
     ):
         with django_capture_on_commit_callbacks(execute=True):
             pell.sync_admin_capabilities([Cap.REFUNDS, Cap.BILLING_APPROVER], granted_by=granter.user)
-        [email] = _granted_emails()
-        assert email.to == ["pell@example.com"]
-        assert email.subject == "You have been granted Billing Administrator and Refunds"
+        emails = _granted_emails()
+        assert [e.to for e in emails] == [["pell@example.com"], ["pell@example.com"]]
+        assert sorted(e.subject for e in emails) == [
+            "You have been granted Billing Administrator",
+            "You have been granted Refunds",
+        ]
+        rows = TransactionalEmailLog.objects.filter(trigger_kind=permission_grants.PERMISSION_GRANTED_EVENT)
+        assert rows.count() == 2
+        bells = Notification.objects.filter(user=pell.user, trigger=permission_grants.PERMISSION_GRANTED_EVENT)
+        assert bells.count() == 2
 
     def it_emails_only_what_is_new(granter: Member, pell: Member, django_capture_on_commit_callbacks):
         pell.admin_capabilities.create(capability=Cap.REFUNDS)
@@ -282,12 +290,12 @@ def describe_the_email():
 def describe_the_queue():
     def it_sends_nothing_until_the_save_commits(granter: Member, pell: Member, django_capture_on_commit_callbacks):
         with django_capture_on_commit_callbacks(execute=False) as callbacks:
-            pell.sync_admin_capabilities([Cap.REFUNDS], granted_by=granter.user)
+            pell.sync_admin_capabilities([Cap.REFUNDS, Cap.WEBMASTER], granted_by=granter.user)
         assert _granted_emails() == []
-        assert len(callbacks) == 1
+        assert len(callbacks) == 2  # one task per permission
 
     def it_is_safe_to_run_twice(granter: Member, pell: Member):
-        args = (pell.pk, [Cap.REFUNDS], granter.user.pk, None, "batch-wren-1")
+        args = (pell.pk, Cap.REFUNDS, granter.user.pk, None, "batch-wren-1")
         permission_grants.send_permission_granted.call(*args)
         permission_grants.send_permission_granted.call(*args)
         assert len(_granted_emails()) == 1
@@ -315,7 +323,7 @@ def describe_the_email_log():
     def it_logs_a_failed_send_with_its_error(granter: Member, pell: Member):
         with patch("core.email._deliver", side_effect=RuntimeError("relay refused wren")):
             with suppress(RuntimeError):
-                permission_grants.send_permission_granted.call(pell.pk, [Cap.REFUNDS], granter.user.pk, None, "b2")
+                permission_grants.send_permission_granted.call(pell.pk, Cap.REFUNDS, granter.user.pk, None, "b2")
         log = TransactionalEmailLog.objects.get(trigger_kind=permission_grants.PERMISSION_GRANTED_EVENT)
         assert log.status == TransactionalEmailLog.Status.FAILED
         assert "relay refused wren" in log.error_message
