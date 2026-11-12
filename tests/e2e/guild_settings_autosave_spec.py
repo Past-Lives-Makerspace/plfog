@@ -4,8 +4,8 @@ Pytest's Django client never runs the autosave script, so this walks it in a rea
 typing in About saves after the pause and survives a reload; a bad link URL is refused
 inline with the typed value kept and nothing saved; a FAQ question typed in two steps is
 created once and edited in place, never duplicated; a saved link's Delete takes it off the
-page and the database; the member suggestions and Reservations toggles save at once (the
-second puts a Reservations tab on the guild page); typing then leaving at once, by a
+page and the database; the Reservations toggle saves at once and puts a
+Reservations tab on the guild page; typing then leaving at once, by a
 boosted in page link and by a hard sidebar link, still lands the save; and a photo dropped
 on a new orientation type while the row's first save is in flight still saves, because that
 save's answer clears only a file it sent.
@@ -46,7 +46,7 @@ SAVED_PAST = (
 def _admin_guild() -> Guild:
     """A guild and the plan the login signal needs to provision the admin's member."""
     MembershipPlanFactory()
-    return GuildFactory(name="Ceramics Guild", about="", allow_member_announcement_suggestions=False)
+    return GuildFactory(name="Ceramics Guild", about="")
 
 
 def _hide(guild: Guild) -> None:
@@ -343,22 +343,6 @@ def describe_guild_settings_autosave():
         assert list(GuildFAQItem.objects.filter(guild=guild).values_list("question", flat=True)) == [
             "What do I need to bring?"
         ]
-
-    def it_saves_the_member_suggestions_toggle_at_once(live_server, page, login_via_code):
-        guild = _admin_guild()
-        _sign_in_as_admin(login_via_code)
-        _open(page, live_server, guild, "announcements")
-
-        box = page.locator("#id_allow_member_announcement_suggestions")
-        expect(box).not_to_be_checked()
-        page.locator("label.pl-toggle", has=box).click()
-        _wait_saved(page, 1)
-        guild.refresh_from_db()
-        assert guild.allow_member_announcement_suggestions is True
-
-        page.reload()
-        page.wait_for_function(ALPINE_READY)
-        expect(page.locator("#id_allow_member_announcement_suggestions")).to_be_checked()
 
     def it_saves_the_reservations_toggle_and_the_guild_page_gains_the_tab(live_server, page, login_via_code):
         guild = _admin_guild()

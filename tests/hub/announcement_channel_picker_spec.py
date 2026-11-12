@@ -14,7 +14,6 @@ from django.template.loader import render_to_string
 from core.models import SiteConfiguration
 from hub.forms import (
     ChannelRadioSelect,
-    GuildAnnouncementDecisionForm,
     GuildAnnouncementForm,
     _configured_discord_channels,
     _default_discord_channel,
@@ -132,30 +131,6 @@ def describe_GuildAnnouncementForm_discord_channel():
         form = GuildAnnouncementForm({"title": "T", "body": "B", "expires_at": ""}, guild=guild)
         assert form.is_valid(), form.errors
         assert form.cleaned_data.get("discord_channel", "") == ""
-
-
-def describe_GuildAnnouncementDecisionForm_discord_channel():
-    def it_defaults_the_picker_from_the_guilds_configuration():
-        guild = GuildFactory(discord_webhook_url=_HOOK)
-        form = GuildAnnouncementDecisionForm(guild=guild)
-        assert form["discord_channel"].value() == _Channel.GUILD.value
-
-    def it_allows_a_blank_channel_on_a_decline():
-        # changes/decline post no picker → channel blank is fine (view only reads it on approve).
-        form = GuildAnnouncementDecisionForm({"decision": "decline", "notes": "no"}, guild=GuildFactory())
-        assert form.is_valid(), form.errors
-        assert form.cleaned_data["discord_channel"] == ""
-
-    def it_rejects_an_unconfigured_channel_on_approve():
-        form = GuildAnnouncementDecisionForm(
-            {"decision": "approve", "discord_channel": _Channel.LEADERSHIP.value}, guild=GuildFactory()
-        )
-        assert not form.is_valid()
-        assert "discord_channel" in form.errors
-
-    def it_tolerates_no_guild_kwarg():
-        form = GuildAnnouncementDecisionForm(guild=None)
-        assert form["discord_channel"].value() == _Channel.NONE.value
 
 
 def _render_picker(guild) -> str:

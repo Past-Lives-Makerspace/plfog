@@ -333,9 +333,8 @@ class RowGroup:
     price of a page a member can actually read.
 
     ``event_keys`` is always an explicit tuple and never a key prefix. ``event.submitted``
-    and ``guild_announcement.submitted`` share the prefix of the outcome notices below but
-    are approval *requests* routed to staff through a different emit helper; a prefix
-    match would swallow them.
+    shares the prefix of the outcome notices below but is an approval *request* routed to
+    staff through a different emit helper; a prefix match would swallow it.
     """
 
     group_id: str
@@ -362,16 +361,6 @@ ROW_GROUPS: tuple[RowGroup, ...] = (
         label="Updates to your class",
         description="A reviewer approved your class or asked you for changes.",
         event_keys=("instructor_class_approved", "instructor_changes_requested"),
-    ),
-    RowGroup(
-        group_id="group.announcement_decision",
-        label="Updates to your announcement",
-        description="Your proposed announcement was approved, sent back for changes, or declined.",
-        event_keys=(
-            "guild_announcement.approved",
-            "guild_announcement.changes_requested",
-            "guild_announcement.declined",
-        ),
     ),
     RowGroup(
         group_id="group.feedback_request",

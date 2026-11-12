@@ -933,12 +933,6 @@ def _submitted_events() -> dict[str, QuerySet[Any]]:
     return {"event": CommunityEvent.objects.awaiting_review()}
 
 
-def _submitted_announcements() -> dict[str, QuerySet[Any]]:
-    from membership.models import GuildAnnouncement
-
-    return {"announcement": GuildAnnouncement.objects.awaiting_review()}
-
-
 def _wiki_reports() -> dict[str, QuerySet[Any]]:
     from membership.models import WikiReport
 
@@ -970,7 +964,6 @@ _OPEN_CHECKS: dict[str, OpenCheckFn] = {
     "space.cubby_requested": _open_by_request(_space_requests),
     "discount_code.requested": _open_by_request(_discount_requests),
     "event.submitted": _open_by_request(_submitted_events),
-    "guild_announcement.submitted": _open_by_request(_submitted_announcements),
     "wiki.page_reported": _open_by_request(_wiki_reports),
     "wiki.page_proposed": _open_by_request(_wiki_proposals),
     "instructor_application_received": _open_by_request(_teaching_applications),

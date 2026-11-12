@@ -36,7 +36,6 @@ from core.urls_util import member_absolute_url, notification_click_url
 from membership.models import (
     AdminCapability,
     CommunityEvent,
-    GuildAnnouncement,
     Member,
     SpaceRequest,
     WikiPage,
@@ -45,7 +44,6 @@ from membership.models import (
 from tests.core.events.digest_support import digest_emails
 from tests.membership.factories import (
     CommunityEventFactory,
-    GuildAnnouncementFactory,
     MeetingItemProposalFactory,
     MemberFactory,
     SpaceRequestFactory,
@@ -60,7 +58,6 @@ PART_3_EVENTS = (
     "space.cubby_requested",
     "discount_code.requested",
     "event.submitted",
-    "guild_announcement.submitted",
     "wiki.page_reported",
     "wiki.page_proposed",
     "instructor_application_received",
@@ -241,28 +238,6 @@ def describe_event_submitted():
             event.submit_for_review(submitted_by=UserFactory(username="pat@example.com", email="pat@example.com"))
         assert notification_click_url(_emitted(fake, "event.submitted")["url"]) == event.request_bell_path
         _assert_delete_clears(event, "event.submitted")
-
-
-def describe_guild_announcement_submitted():
-    def it_is_open_while_pending_and_declining_clears_the_bell():
-        announcement = GuildAnnouncementFactory(pending=True)
-        _assert_lifecycle(
-            announcement,
-            "guild_announcement.submitted",
-            f"announcement:{announcement.pk}:submitted:1.0",
-            lambda: announcement.decline(reviewer=_approver_admin(), notes="Too long."),
-        )
-
-    def it_links_the_bell_to_the_announcement_in_the_review_queue_and_clears_it_on_delete():
-        announcement = GuildAnnouncementFactory(changes_requested=True)
-        with patch("core.events.emit.emit") as fake:
-            announcement.submit_for_review(
-                submitted_by=UserFactory(username="pat@example.com", email="pat@example.com")
-            )
-        sent = _emitted(fake, "guild_announcement.submitted")
-        assert notification_click_url(sent["url"]) == announcement.request_bell_path
-        assert announcement.moderation_state == GuildAnnouncement.ModerationState.PENDING
-        _assert_delete_clears(announcement, "guild_announcement.submitted")
 
 
 def describe_meeting_item_proposed():

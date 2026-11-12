@@ -1462,7 +1462,6 @@ def _guild_edit_context(
     Orientations have their own page and context (``_guild_orientations_context``, #672).
     """
     from hub.forms import (
-        GuildAnnouncementSettingsForm,
         GuildFAQItemFormSet,
         GuildLeadForm,
         GuildLinkFormSet,
@@ -1540,7 +1539,6 @@ def _guild_edit_context(
         "welcome_email_form": (
             welcome_email_form if welcome_email_form is not None else GuildWelcomeEmailForm(instance=settings_obj)
         ),
-        "announcement_settings_form": GuildAnnouncementSettingsForm(instance=guild),
         # The Reservations tab (#502): the guild page toggle, then the guild's items.
         "reservations_settings_form": GuildReservationsSettingsForm(instance=guild),
         # The Cubbies tab (#977): the guild page switch; the shelves live on the Cubbies manager.
@@ -4718,9 +4716,7 @@ def _can_enter_compose(request: HttpRequest, member: Member | None, raw_audience
 
 
 # What everyone who simply cannot compose is told; specs import it, so the copy cannot drift.
-COMPOSE_REFUSAL = (
-    "Your account cannot use Email Members. You can suggest an announcement for a guild here, and a lead reviews it."
-)
+COMPOSE_REFUSAL = "Your account cannot use Email Members."
 
 
 def _compose_refusal_message(request: HttpRequest) -> str:
@@ -4730,8 +4726,7 @@ def _compose_refusal_message(request: HttpRequest) -> str:
     A previewing admin is not short of rights: the role they are looking through is, and the way
     back is the "Viewing as" switcher, so the message points at it. Telling them they lacked
     permission would be the same untruth about this surface that #371 exists to remove. Everyone
-    else genuinely cannot compose, and the propose flow the page entry lands them on is their
-    answer.
+    else genuinely cannot compose, and is told so on Home.
 
     **Only ever called on a refusal**, and that precondition is what lets the branch test
     ``actual_is_admin`` alone. :func:`_can_enter_compose` admits everyone :func:`_can_compose`
@@ -5360,8 +5355,8 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
     ``?audience=guild:<pk>`` pre-scopes a fresh compose, and ``?recipients=<token>`` (repeatable,
     with ``?include_waitlist=1``) narrows the checklist to a roster hand-off — see
     :func:`_compose_preselection`. A member who can compose nothing (not an admin, leads no
-    guild) is redirected to the separate propose flow, carrying
-    :func:`_compose_refusal_message` so the landing is explained rather than silent.
+    guild) is redirected to Home, carrying :func:`_compose_refusal_message` so the landing is
+    explained rather than silent (#1157 removed the member suggestion page it used to land on).
     """
     from hub.forms import AnnouncementComposeForm
 
@@ -5393,10 +5388,10 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
         locked, locked_label, heading, lead = _compose_lock(requested, bool(request.GET.get("lock")))
     if not _can_enter_compose(request, member, requested):
         # The redirect alone is silent: hub/base.html boosts the hub body, so the refused page
-        # just becomes an unrelated propose form. The message is what makes it a refusal rather
-        # than a teleport, and ToastFlashMiddleware carries it across the boosted redirect.
+        # just becomes Home. The message is what makes it a refusal rather than a teleport, and
+        # ToastFlashMiddleware carries it across the boosted redirect.
         messages.error(request, _compose_refusal_message(request))
-        return redirect("hub_guild_announcement_propose")
+        return redirect("hub_home")
     if draft_pk is None:
         # After the gate on purpose: building the pre-selection reads a class roster, and an
         # unauthorized GET has no business making the server assemble one.
@@ -6194,7 +6189,7 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
     a sending row's progress (:meth:`AnnouncementDraft.send_progress`).
 
     Whoever may neither compose nor see a row is refused the way the composer refuses, view-as
-    aware: a message and the propose flow.
+    aware: a message and Home.
     """
     from django.db.models.functions import Coalesce
 
@@ -6205,7 +6200,7 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
     guilds = list(manageable_guilds(request))
     if not can_open and not guilds:
         messages.error(request, _compose_refusal_message(request))
-        return redirect("hub_guild_announcement_propose")
+        return redirect("hub_home")
     asked = request.GET.get("tab")
     rows = _announcement_rows(request, member)
     if guilds and (asked == "mailing-lists" or not can_open):
@@ -6461,29 +6456,6 @@ def guild_emails_save(request: HttpRequest, pk: int) -> HttpResponse:
             rerender=rerender_welcome,
         )
     raise Http404("Unknown email form.")
-
-
-@login_required
-@require_POST
-def guild_announcement_settings_save(request: HttpRequest, pk: int) -> HttpResponse:
-    """Save the Member Suggestions toggle from the Announcements tab. Editor only.
-
-    A single-boolean ModelForm on ``Guild`` — it cannot fail validation, so there is no
-    error branch beyond the edit gate. Redirects back to the Announcements tab.
-    """
-    from hub.forms import GuildAnnouncementSettingsForm
-
-    guild = get_object_or_404(Guild, pk=pk)
-    forbidden = _require_can_edit_guild(request, guild)
-    if forbidden is not None:
-        return forbidden
-    form = GuildAnnouncementSettingsForm(request.POST, instance=guild)
-    form.is_valid()  # single-boolean form; populates cleaned_data. save() below raises loudly if ever invalid.
-    form.save()
-    if wants_autosave(request):
-        return autosave_saved()
-    messages.success(request, "Member suggestions saved.")
-    return redirect(f"{reverse('hub_guild_edit', args=[guild.pk])}?tab=announcements")
 
 
 @login_required
@@ -7073,247 +7045,6 @@ def guild_announcement_edit(request: HttpRequest, pk: int, announcement_pk: int)
         "hub/partials/guild_announcement_edit_form.html",
         {"guild": guild, "announcement": announcement, "form": form},
     )
-
-
-# --- Member announcement proposals + reviewer queue -------------------------
-
-
-def _announcement_review_scope(request: HttpRequest) -> Any:
-    """The requester's announcement-review authority.
-
-    Returns ``True`` for an admin (every guild), a ``Guild`` queryset for a lead/staffer
-    (their guilds only), or ``None`` when the request may not review.
-    """
-    if _viewing_as_admin(request):
-        return True
-    member = _get_member(request)
-    if member is not None and member.staffed_guilds.exists():
-        return member.staffed_guilds
-    return None
-
-
-def _pending_announcements_for_scope(scope: Any) -> Any:
-    """The pending proposals visible to a reviewer ``scope`` (``True`` = admin/all).
-
-    Each returned announcement carries a ``channel_picker_field`` — a bound
-    ``discord_channel`` field from a per-guild :class:`GuildAnnouncementDecisionForm` — so the
-    approve modal renders the same Discord channel picker the lead's own post form uses, with
-    this guild's unconfigured channels disabled.
-    """
-    from core.models import SiteConfiguration
-    from hub.forms import GuildAnnouncementDecisionForm
-    from membership.models import GuildAnnouncement
-
-    pending = (
-        GuildAnnouncement.objects.awaiting_review().select_related("guild", "submitted_by").order_by("published_at")
-    )
-    announcements = list(pending if scope is True else pending.filter(guild__in=scope))
-    config = SiteConfiguration.load()
-    for announcement in announcements:
-        form = GuildAnnouncementDecisionForm(guild=announcement.guild, config=config)
-        announcement.channel_picker_field = form["discord_channel"]
-    return announcements
-
-
-@login_required
-def propose_guild_announcement(request: HttpRequest, pk: int | None = None) -> HttpResponse:
-    """Member "Suggest an announcement" page — create a new proposal, or edit/resubmit an
-    owned Pending/Changes-requested one.
-
-    Any logged-in member may propose an announcement for any guild; it always goes to the
-    guild's leads (or an admin) for review before it posts. Editing a changes-requested
-    proposal re-submits it (back to Pending).
-    """
-    from hub.forms import GuildAnnouncementProposalForm
-    from membership.models import GuildAnnouncement
-
-    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
-    editable_states = [
-        GuildAnnouncement.ModerationState.PENDING,
-        GuildAnnouncement.ModerationState.CHANGES_REQUESTED,
-    ]
-    if pk is None:
-        announcement = GuildAnnouncement()
-        editing = False
-        guild_pk = request.GET.get("guild")
-        # A ?guild=<disabled> degrades to the unfixed picker rather than pre-selecting a
-        # guild the form would reject.
-        fixed_guild = (
-            Guild.objects.filter(pk=guild_pk, is_active=True, allow_member_announcement_suggestions=True).first()
-            if guild_pk
-            else None
-        )
-    else:
-        announcement = get_object_or_404(
-            GuildAnnouncement, pk=pk, submitted_by=user, moderation_state__in=editable_states
-        )
-        editing = True
-        fixed_guild = announcement.guild
-
-    back_guild = announcement.guild if editing else fixed_guild
-    back_url = reverse("hub_guild_detail", args=[back_guild.slug]) if back_guild is not None else reverse("hub_home")
-
-    # A new proposal needs at least one guild taking suggestions; when none are, skip the
-    # form entirely and render a friendly empty-state card. The page stays reachable even
-    # with every suggest button hidden (hub_compose redirects non-composers here).
-    suggestible_exists = Guild.objects.filter(is_active=True, allow_member_announcement_suggestions=True).exists()
-    no_guilds_available = not editing and not suggestible_exists
-
-    form = None
-    if not no_guilds_available:
-        if request.method == "POST":
-            form = GuildAnnouncementProposalForm(request.POST, instance=announcement, fixed_guild=fixed_guild)
-            if form.is_valid():
-                announcement = form.save(commit=False)
-                if not editing:
-                    announcement.author = user
-                else:
-                    # Persist the edited title/body/guild first — submit_for_review then saves
-                    # only the moderation fields (update_fields), so the content edits would
-                    # otherwise be dropped for an already-saved row.
-                    announcement.save()
-                announcement.submit_for_review(submitted_by=user)
-                messages.success(
-                    request,
-                    "Thanks — your announcement was submitted for review. "
-                    "You'll get a note when a lead or admin responds.",
-                )
-                return redirect(reverse("hub_guild_detail", args=[announcement.guild.slug]))
-        else:
-            form = GuildAnnouncementProposalForm(instance=announcement, fixed_guild=fixed_guild)
-
-    ctx = _get_hub_context(request)
-    my_proposals = (
-        GuildAnnouncement.objects.filter(submitted_by=user)
-        .exclude(moderation_state=GuildAnnouncement.ModerationState.PUBLISHED)
-        .select_related("guild")
-        .order_by("-updated_at")
-    )
-    return render(
-        request,
-        "hub/propose_guild_announcement.html",
-        {
-            **ctx,
-            "announcement": announcement,
-            "form": form,
-            "editing": editing,
-            "back_url": back_url,
-            "my_proposals": my_proposals,
-            "no_guilds_available": no_guilds_available,
-        },
-    )
-
-
-@login_required
-@require_POST
-def guild_announcement_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
-    """The proposer withdraws (deletes) their own not-yet-posted proposal. POST only."""
-    from membership.models import GuildAnnouncement
-
-    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
-    announcement = get_object_or_404(
-        GuildAnnouncement,
-        pk=pk,
-        submitted_by=user,
-        moderation_state__in=[
-            GuildAnnouncement.ModerationState.PENDING,
-            GuildAnnouncement.ModerationState.CHANGES_REQUESTED,
-        ],
-    )
-    guild_slug = announcement.guild.slug
-    announcement.withdraw(by=user)
-    messages.success(request, "Proposal withdrawn.")
-    return redirect(reverse("hub_guild_detail", args=[guild_slug]))
-
-
-@login_required
-def guild_announcement_review_queue(request: HttpRequest) -> HttpResponse:
-    """The reviewer queue — member-proposed announcements a lead/admin can act on."""
-    scope = _announcement_review_scope(request)
-    if scope is None:
-        return HttpResponse("Forbidden", status=403)
-    ctx = _get_hub_context(request)
-    return render(
-        request,
-        "hub/guild_announcement_review_queue.html",
-        {
-            **ctx,
-            "pending_announcements": _pending_announcements_for_scope(scope),
-            "decision_form": None,
-            "open_decision_for": None,
-            "open_decision_kind": "",
-            "decision_note_value": "",
-            "decision_note_error": "",
-        },
-    )
-
-
-@login_required
-@require_POST
-def guild_announcement_review_decision(request: HttpRequest, pk: int) -> HttpResponse:
-    """Record a reviewer's decision (approve / request changes / decline) on a proposal.
-
-    Approving also carries the two outbound-channel toggles (email the guild's members /
-    post to the guild's Discord); they're persisted before publishing so
-    :meth:`GuildAnnouncement.notify_members` honors them.
-    """
-    from hub.forms import GuildAnnouncementDecisionForm
-    from membership.models import GuildAnnouncement, InvalidAnnouncementTransition
-
-    user: User = request.user  # type: ignore[assignment]  # @login_required guarantees User
-    scope = _announcement_review_scope(request)
-    if scope is None:
-        return HttpResponse("Forbidden", status=403)
-
-    # Scoped to the reviewer's authority (a lead can only touch their guilds), but NOT to a
-    # moderation state — a stale decision surfaces as a friendly "already handled" via the
-    # model guard rather than a bare 404.
-    if scope is True:
-        announcement = get_object_or_404(GuildAnnouncement, pk=pk)
-    else:
-        announcement = get_object_or_404(GuildAnnouncement, pk=pk, guild__in=scope)
-
-    # Approve carries its decision in the query string (the approve modal posts no notes);
-    # changes/decline post the decision + notes in the body.
-    data = request.POST.copy()
-    if not data.get("decision"):
-        data["decision"] = request.GET.get("decision", "")
-    form = GuildAnnouncementDecisionForm(data, guild=announcement.guild)
-    if not form.is_valid():
-        kind = data.get("decision", "")
-        return render(
-            request,
-            "hub/guild_announcement_review_queue.html",
-            {
-                **_get_hub_context(request),
-                "pending_announcements": _pending_announcements_for_scope(scope),
-                "decision_form": form,
-                "open_decision_for": announcement.pk,
-                "open_decision_kind": kind,
-                "decision_note_value": data.get("notes", ""),
-                "decision_note_error": " ".join(str(e) for e in form.errors.get("notes", [])),
-            },
-        )
-
-    decision = form.cleaned_data["decision"]
-    notes = form.cleaned_data["notes"]
-    try:
-        if decision == "approve":
-            announcement.approve(
-                reviewer=user,
-                send_email=form.cleaned_data["send_email"],
-                discord_channel=form.cleaned_data["discord_channel"] or None,
-            )
-            messages.success(request, "Announcement approved and posted.")
-        elif decision == "changes":
-            announcement.request_changes(reviewer=user, notes=notes)
-            messages.success(request, "Sent back to the proposer for changes.")
-        else:
-            announcement.decline(reviewer=user, notes=notes)
-            messages.success(request, "Proposal declined.")
-    except InvalidAnnouncementTransition:
-        messages.info(request, "That announcement was already handled.")
-    return redirect("hub_guild_announcement_review_queue")
 
 
 @login_required

@@ -592,12 +592,6 @@ TOURS: dict[str, Tour] = {
                 navigate="classes:admin_overview",
             ),
             TourStep(
-                target='[data-help-key="announcements.review-proposals"]',
-                title="Announcement Approvals",
-                body="Member proposed announcements wait here. Approve one to post it, or send it back with a note.",
-                navigate="hub_guild_announcement_review_queue",
-            ),
-            TourStep(
                 target='[data-help-key="admin.event-review"]',
                 title="Event Approvals",
                 body="Member proposed events wait here too. Approving one publishes it to the calendar and posts to Discord.",

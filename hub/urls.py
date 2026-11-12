@@ -400,7 +400,6 @@ urlpatterns = [
     # The Email Members page (#920; the sending feature was called Announcements): drafts and sent,
     # shared by everyone who may address each audience. The path keeps its old name, so every link
     # in an email or notification already sent still lands.
-    # The sent view is not announcements/<pk>/: announcements/<pk>/withdraw/ is a member's proposal.
     path("announcements/", views.announcements_overview, name="hub_announcements"),
     path("announcements/release/", views.email_members_release, name="hub_email_members_release"),
     path("mailing-lists/", views.manage_mailing_lists, name="hub_mailing_lists"),
@@ -427,32 +426,6 @@ urlpatterns = [
         views.hub_compose_delete_draft,
         name="hub_compose_delete_draft",
     ),
-    # Member-proposed announcements (any logged-in member proposes; a lead/admin reviews).
-    path(
-        "announcements/propose/",
-        views.propose_guild_announcement,
-        name="hub_guild_announcement_propose",
-    ),
-    path(
-        "announcements/propose/<int:pk>/edit/",
-        views.propose_guild_announcement,
-        name="hub_guild_announcement_propose_edit",
-    ),
-    path(
-        "announcements/<int:pk>/withdraw/",
-        views.guild_announcement_withdraw,
-        name="hub_guild_announcement_withdraw",
-    ),
-    path(
-        "announcements/review/",
-        views.guild_announcement_review_queue,
-        name="hub_guild_announcement_review_queue",
-    ),
-    path(
-        "announcements/review/<int:pk>/decision/",
-        views.guild_announcement_review_decision,
-        name="hub_guild_announcement_review_decision",
-    ),
     path("guilds/<int:pk>/join/", views.guild_join, name="hub_guild_join"),
     path("guilds/<int:pk>/leave/", views.guild_leave, name="hub_guild_leave"),
     path("guilds/<int:pk>/invite/", guild_invite_views.hub_guild_invite_panel, name="hub_guild_invite_panel"),
@@ -465,11 +438,6 @@ urlpatterns = [
     path("guilds/<int:pk>/emails/save/", views.guild_emails_save, name="hub_guild_emails_save"),
     path("guilds/<int:pk>/welcome-email/test/", views.guild_welcome_test, name="hub_guild_welcome_test"),
     path("guilds/<int:pk>/welcome-email/preview/", views.guild_welcome_preview, name="hub_guild_welcome_preview"),
-    path(
-        "guilds/<int:pk>/announcement-settings/save/",
-        views.guild_announcement_settings_save,
-        name="hub_guild_announcement_settings_save",
-    ),
     path(
         "guilds/<int:pk>/reservations/save/",
         views.guild_reservations_settings_save,
