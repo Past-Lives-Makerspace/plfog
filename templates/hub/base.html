@@ -220,11 +220,6 @@
 
             {% include "hub/partials/_sidebar_hq_link.html" %}
 
-            {# active_nav can't reverse the pk'd workspace route, so the whole /meetings/ section matches by path prefix (the Classes entry idiom). #}
-            {% active_path '/meetings/' as meetings_active %}
-            {% url 'hub_meetings' as meetings_url %}
-            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.meetings url=meetings_url label="Meetings" icon="hub/partials/nav_icons/_meetings.html" active=meetings_active new_key="guild.meetings" %}
-
             {% active_nav 'hub_member_directory' as directory_active %}
             {% url 'hub_member_directory' as directory_url %}
             {% include "hub/partials/_sidebar_feature_link.html" with feature=features.directory url=directory_url label="Member Directory" icon="hub/partials/nav_icons/_directory.html" active=directory_active %}
@@ -346,11 +341,6 @@
             {% url 'hub_guild_voting' as voting_url %}
             {% include "hub/partials/_sidebar_feature_link.html" with feature=features.voting url=voting_url label="Guild Voting" icon="hub/partials/nav_icons/_voting.html" active=voting_active help_key="voting.rank-guilds" new_key="guild.voting" %}
             {% endif %}
-
-            {# active_nav can't reverse the pk'd workspace route, so the whole /meetings/ section matches by path prefix (the Classes entry idiom). #}
-            {% active_path '/meetings/' as meetings_active %}
-            {% url 'hub_meetings' as meetings_url %}
-            {% include "hub/partials/_sidebar_feature_link.html" with feature=features.meetings url=meetings_url label="Meetings" icon="hub/partials/nav_icons/_meetings.html" active=meetings_active new_key="guild.meetings" %}
 
             {% active_nav 'hub_member_directory' as directory_active %}
             {% url 'hub_member_directory' as directory_url %}

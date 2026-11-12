@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-11-12"
+audience = ["admins"]
+title = "Discord usernames in the leadership directory open the leader's profile"
+changes = [
+  "In Discord's leadership directory post, each leader's username, such as @sam_maker, is a link again: tap it to open their Discord profile and message them.",
+]

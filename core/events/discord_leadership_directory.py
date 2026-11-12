@@ -12,10 +12,11 @@ active guild (never the example guild, whatever ``display_demo_guild`` says).
   (a section too long for one embed continues in the next, and a message too full continues
   in the next message), and every payload carries ``allowed_mentions`` with an empty
   ``parse``, so the guild lead role mentions never ping anyone. A member whose Discord handle
-  is not public shows as a bare name; otherwise as their Discord username in plain text, read
-  through their verified ``discord_user_id`` (``Member.link_discord``), else their typed
-  handle when it looks like a username. Never a user mention: inside an embed, Discord shows
-  one as the display name, or "unknown-user" to anyone whose app has not loaded that member.
+  is not public shows as a bare name; otherwise as their Discord username linked to their
+  profile, read through their verified ``discord_user_id`` (``Member.link_discord``), else
+  their typed handle in plain text when it looks like a username. Never a user mention:
+  inside an embed, Discord shows one as the display name, or "unknown-user" to anyone whose
+  app has not loaded that member.
   Member and admin text is escaped so it cannot build a link or mention.
   Each guild shows its lead role mention and contact email when set; a People tab its intro.
 * :func:`sync_leadership_directory` is the task: it renders, and when the content hash equals
@@ -86,7 +87,9 @@ HEADER_EMOJI = "🙋"
 PEOPLE_EMOJI = "✨"
 GUILDS_EMOJI = "🛠️"
 NO_LEAD_LINE = "*Looking for a lead!*"
-#: The header line when someone is shown by a handle, which is plain text, not a link.
+#: Where a verified account's username links: their profile, opened in the Discord app.
+PROFILE_URL = "https://discord.com/users/{user_id}"
+#: The header line when someone is shown by a typed handle, which is plain text, not a link.
 SEARCH_LINE = "Search a handle on Discord to message them."
 FOOTER_SUFFIX = "Kept current from the member app"
 
@@ -198,16 +201,19 @@ def who(member: Member, usernames: Callable[[str], str]) -> Person:
     """The name in bold, then their Discord handle when their privacy settings allow it.
 
     As on the web card (``_discord_row.html``): a member whose Discord handle is not public
-    shows the bare name. Otherwise a verified account shows its username from ``usernames``,
-    and without one (or when the account is not in the server) a typed handle shows when it
-    looks like a username. Both are plain text, never a mention.
+    shows the bare name. Otherwise a verified account shows its username from ``usernames`` as
+    a link to their Discord profile (:data:`PROFILE_URL`), and without one (or when the account
+    is not in the server) a typed handle shows as plain text when it looks like a username.
+    Never a mention, which Discord shows as the display name.
     """
     name = f"**{_escape(member.display_name.strip())}**"
     if not member.is_public("discord_handle"):
         return Person(name)
     user_id = (member.discord_user_id or "").strip()
     username = usernames(user_id) if user_id.isdigit() else ""
-    handle = f"@{_escape(username)}" if username else public_handle(member)
+    if username:
+        return Person(f"{name} [@{_escape(username)}]({PROFILE_URL.format(user_id=user_id)})")
+    handle = public_handle(member)
     if handle:
         return Person(f"{name} {handle}", shows_handle=True)
     return Person(name)

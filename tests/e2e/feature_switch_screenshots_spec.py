@@ -53,7 +53,7 @@ def describe_feature_switch_screenshots():
     def it_captures_the_features_tab(admin_page, live_server):
         """Shot 1 — Manage Features, with one feature set to Coming soon so its
         message input is visible in context."""
-        for key in ("meetings", "spaces", "orientations", "equipment", "directory", "teach", "wiki"):
+        for key in ("spaces", "orientations", "equipment", "directory", "teach", "wiki"):
             turn_on(key)
         coming_soon("voting", "Launching Sept 30th!")
         hide("guilds")
@@ -74,7 +74,7 @@ def describe_feature_switch_screenshots():
         the half of criterion 3 that a mouse screenshot cannot evidence. If this shot shows the
         bubble, the keyboard path works.
         """
-        for key in ("meetings", "spaces", "orientations", "equipment", "directory", "teach", "wiki"):
+        for key in ("spaces", "orientations", "equipment", "directory", "teach", "wiki"):
             turn_on(key)
         coming_soon("voting", "Launching Sept 30th!")
 
@@ -86,7 +86,7 @@ def describe_feature_switch_screenshots():
 
     def it_captures_the_same_entry_under_the_mouse(admin_page, live_server):
         """Shot 2b — the same entry on hover, which is what most people will actually do."""
-        for key in ("meetings", "spaces", "orientations", "equipment", "directory", "teach", "wiki"):
+        for key in ("spaces", "orientations", "equipment", "directory", "teach", "wiki"):
             turn_on(key)
         coming_soon("voting", "Launching Sept 30th!")
 
@@ -128,7 +128,7 @@ def describe_feature_switch_screenshots():
         Focused rather than hovered, for the same reason as shot 2: focus is the half of the
         behaviour a mouse screenshot cannot evidence.
         """
-        for key in ("meetings", "spaces", "orientations", "equipment", "directory", "teach", "wiki", "voting"):
+        for key in ("spaces", "orientations", "equipment", "directory", "teach", "wiki", "voting"):
             turn_on(key)
         coming_soon("catalog", "The new catalog opens in October")
 
@@ -159,12 +159,12 @@ def describe_feature_switch_screenshots():
 
     @pytest.mark.parametrize("theme", ["dark", "light"])
     def it_captures_a_hidden_feature_next_to_the_entries_that_remain(admin_page, live_server, theme):
-        """Shot 3 — Meetings hidden and Voting coming soon, so both off states read against the
+        """Shot 3 — Member Directory hidden and Voting coming soon, so both off states read against the
         live entries around them. Shot in BOTH themes: the Coming soon colour is a sidebar-scale
         de-emphasis and has to be visibly quieter on the light rail as well as the dark one."""
-        for key in ("spaces", "orientations", "equipment", "directory", "teach", "wiki"):
+        for key in ("spaces", "orientations", "equipment", "teach", "wiki"):
             turn_on(key)
-        hide("meetings")
+        hide("directory")
         coming_soon("voting", "Launching Sept 30th!")
         coming_soon("guilds", "Guild pages are on their way")
         Guild.objects.get_or_create(name="Ceramics Guild", defaults={"slug": "ceramics-guild", "is_active": True})
@@ -194,7 +194,6 @@ def describe_feature_switch_screenshots():
         """Shot 9 — My Tab (#416) in Coming soon, focused so its bubble shows. It renders for an
         admin now: the member only branch it used to sit behind is gone."""
         for key in (
-            "meetings",
             "spaces",
             "orientations",
             "equipment",

@@ -58,12 +58,12 @@ def active_path(context: dict[str, Any], prefix: str) -> str:
     """Return 'active' when the current path starts with ``prefix``.
 
     The path-prefix companion to :func:`active_nav`, which can only match a reversible URL
-    exactly. A section whose inner pages carry a pk (``/meetings/12/``) cannot be reversed
+    exactly. A section whose inner pages carry a pk (``/kiln/12/``) cannot be reversed
     without that pk, so its nav entry has always matched by prefix instead — this puts that
     test behind ``as`` so it can be handed to an include, which an inline ``{% if %}`` cannot.
 
     Examples:
-        {% active_path '/meetings/' as meetings_active %}
+        {% active_path '/kiln/' as kiln_active %}
     """
     request = context.get("request")
     if request is None:

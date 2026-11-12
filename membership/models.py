@@ -13027,13 +13027,6 @@ class Meeting(models.Model):
         return timezone.make_aware(datetime_type.combine(self.scheduled_date, self.scheduled_end_time))
 
     @property
-    def absolute_url(self) -> str:
-        """Absolute workspace URL for notifications — the §6.0 ``hub_meeting`` route."""
-        from django.urls import reverse
-
-        return f"{settings.MEMBER_BASE_URL}{reverse('hub_meeting', args=[self.pk])}"
-
-    @property
     def linked_occurrence_starts_at(self) -> datetime_type | None:
         """The linked occurrence's start: the event's local time-of-day on the pinned date.
 
@@ -13531,8 +13524,11 @@ class MeetingItemProposal(StaffRequestMixin, models.Model):
 
     @property
     def request_bell_path(self) -> str:
-        """The meeting page, anchored on this proposal, so each proposal's bell link is its own."""
-        return f"{reverse('hub_meeting', args=[self.meeting_id])}#proposal-{self.pk}"
+        """The link the proposal's bell rows were written with, so clearing them still matches.
+
+        Written literally: the meeting page it pointed at was removed in #1171.
+        """
+        return f"/meetings/{self.meeting_id}/#proposal-{self.pk}"
 
     def __str__(self) -> str:
         return f"{self.title} → {self.meeting} ({self.get_state_display()})"

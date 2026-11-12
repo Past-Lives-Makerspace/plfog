@@ -111,7 +111,6 @@ def describe_hub_nav_help_and_wiki_flags():
 # feature key → (a substring unique to its live nav entry, its visible label)
 _NAV_MARKERS: dict[str, tuple[bytes, bytes]] = {
     "catalog": (b'href="/classes/" class="hub-sidebar__link', b"Classes"),
-    "meetings": (b'href="/meetings/" class="hub-sidebar__link', b"Meetings"),
     "directory": (b'href="/members/" class="hub-sidebar__link', b"Member Directory"),
     "leadership": (b'href="/leadership/" class="hub-sidebar__link', b"Leadership Directory"),
     "spaces": (b'href="/spaces/" class="hub-sidebar__link', b"Spaces"),
@@ -202,7 +201,7 @@ def describe_a_coming_soon_feature():
 
     def it_falls_back_to_a_default_message_when_the_admin_writes_none(client: Client):
         _login_member(client)
-        coming_soon("meetings", "")
+        coming_soon("directory", "")
         assert DEFAULT_SOON_MESSAGE.encode() in _nav(client)
 
     def it_never_uses_a_native_title_attribute(client: Client):
