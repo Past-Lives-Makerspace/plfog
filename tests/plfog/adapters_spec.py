@@ -1,4 +1,4 @@
-"""BDD-style tests for plfog.adapters module — auto-admin, admin redirect, and signup gating."""
+"""BDD-style tests for plfog.adapters module: staff access from fog_role, admin redirect, and signup gating."""
 
 import logging
 from types import SimpleNamespace
@@ -60,19 +60,17 @@ def describe_AdminRedirectAccountAdapter():
                 adapter._sync_permissions.assert_called_once_with(user)
                 mock_super_login.assert_called_once_with(request, user)
 
-        def it_grants_admin_before_login_for_matching_domain(rf, settings):
+        def it_demotes_a_shared_guild_mailbox_on_login(rf):
+            """A pastlives.space guild mailbox signed in by its lead is a member, not a superuser."""
             from plfog.adapters import AdminRedirectAccountAdapter
 
-            settings.ADMIN_DOMAINS = ["example.com"]
             adapter = AdminRedirectAccountAdapter()
             request = rf.get("/")
 
-            user = User.objects.create_user(
-                username="admin",
-                email="admin@example.com",
-                password="testpass",
-            )
-            assert user.is_staff is False
+            user = User.objects.create_user(username="garden", email="gardenguild@pastlives.space", password="pass")
+            user.is_staff = True
+            user.is_superuser = True
+            user.save(update_fields=["is_staff", "is_superuser"])
 
             with patch.object(
                 AdminRedirectAccountAdapter.__bases__[0],
@@ -81,8 +79,8 @@ def describe_AdminRedirectAccountAdapter():
                 adapter.login(request, user)
 
             user.refresh_from_db()
-            assert user.is_staff is True
-            assert user.is_superuser is True
+            assert user.is_staff is False
+            assert user.is_superuser is False
 
     def describe_get_login_redirect_url():
         def it_lands_staff_on_hub_home(rf):
@@ -127,243 +125,40 @@ def describe_AdminRedirectAccountAdapter():
             assert url == reverse("hub_home")
 
     def describe_sync_permissions():
-        """Tests for _sync_permissions — ADMIN_DOMAINS override + Member role mapping."""
+        """Tests for _sync_permissions: staff access follows the Member fog_role, never the email domain."""
 
-        def describe_admin_domain_override():
-            def it_sets_is_staff_and_is_superuser(settings):
+        def describe_email_domain():
+            @pytest.mark.parametrize("email", ["writersguild@pastlives.space", "mark@roaming-panda.com"])
+            def it_grants_nothing_for_a_former_admin_domain(email):
                 from plfog.adapters import AdminRedirectAccountAdapter
 
-                settings.ADMIN_DOMAINS = ["example.com"]
                 adapter = AdminRedirectAccountAdapter()
+                user = User.objects.create_user(username=email.split("@")[0], email=email, password="pass")
 
-                user = MagicMock()
-                user.email = "admin@example.com"
-                user.is_staff = False
-                user.is_superuser = False
-                user.member = None  # no member attr needed for domain override
                 adapter._sync_permissions(user)
+                user.refresh_from_db()
 
-                assert user.is_staff is True
-                assert user.is_superuser is True
-                user.save.assert_called_once_with(update_fields=["is_staff", "is_superuser"])
+                assert user.is_staff is False
+                assert user.is_superuser is False
 
-            def it_does_not_grant_admin_with_empty_admin_domains(settings):
+            def it_leaves_a_user_with_no_member_alone():
                 from plfog.adapters import AdminRedirectAccountAdapter
 
-                settings.ADMIN_DOMAINS = []
                 adapter = AdminRedirectAccountAdapter()
-
                 user = MagicMock()
-                user.email = "user@example.com"
+                user.email = "admin@pastlives.space"
                 user.is_staff = False
                 user.is_superuser = False
                 user.member = None
-                adapter._sync_permissions(user)
 
-                user.save.assert_not_called()
-
-            def it_does_not_grant_admin_when_domain_does_not_match(settings):
-                from plfog.adapters import AdminRedirectAccountAdapter
-
-                settings.ADMIN_DOMAINS = ["example.com"]
-                adapter = AdminRedirectAccountAdapter()
-
-                user = MagicMock()
-                user.email = "user@other.com"
-                user.is_staff = False
-                user.is_superuser = False
-                user.member = None
-                adapter._sync_permissions(user)
-
-                user.save.assert_not_called()
-
-            def it_grants_admin_for_any_matching_domain(settings):
-                from plfog.adapters import AdminRedirectAccountAdapter
-
-                settings.ADMIN_DOMAINS = ["pastlives.space", "roaming-panda.com"]
-                adapter = AdminRedirectAccountAdapter()
-
-                user = MagicMock()
-                user.email = "mark@roaming-panda.com"
-                user.is_staff = False
-                user.is_superuser = False
-                adapter._sync_permissions(user)
-
-                assert user.is_staff is True
-                assert user.is_superuser is True
-
-            def it_matches_uppercase_email_domain(settings):
-                from plfog.adapters import AdminRedirectAccountAdapter
-
-                settings.ADMIN_DOMAINS = ["pastlives.space"]
-                adapter = AdminRedirectAccountAdapter()
-
-                user = MagicMock()
-                user.email = "User@PASTLIVES.SPACE"
-                user.is_staff = False
-                user.is_superuser = False
-                adapter._sync_permissions(user)
-
-                assert user.is_staff is True
-                assert user.is_superuser is True
-
-            def it_exempts_plus_addressed_emails_from_the_domain_grant(settings):
-                from plfog.adapters import AdminRedirectAccountAdapter
-
-                settings.ADMIN_DOMAINS = ["pastlives.space"]
-                adapter = AdminRedirectAccountAdapter()
-
-                user = MagicMock()
-                user.email = "counciltreasurer+member@pastlives.space"
-                user.is_staff = False
-                user.is_superuser = False
-                user.member = None
-                adapter._sync_permissions(user)
-
-                user.save.assert_not_called()
-
-            def it_syncs_fog_role_for_plus_addressed_emails_on_an_admin_domain(settings):
-                """A plus-alias falls through to the Member fog_role mapping instead of the grant."""
-                from plfog.adapters import AdminRedirectAccountAdapter
-
-                settings.ADMIN_DOMAINS = ["pastlives.space"]
-                adapter = AdminRedirectAccountAdapter()
-
-                user = MagicMock()
-                user.email = "counciltreasurer+admin@pastlives.space"
-                user.is_staff = False
-                user.is_superuser = False
-                adapter._sync_permissions(user)
-
-                user.member.sync_user_permissions.assert_called_once_with()
-
-            def it_does_not_match_subdomains(settings):
-                from plfog.adapters import AdminRedirectAccountAdapter
-
-                settings.ADMIN_DOMAINS = ["example.com"]
-                adapter = AdminRedirectAccountAdapter()
-
-                user = MagicMock()
-                user.email = "user@sub.example.com"
-                user.is_staff = False
-                user.is_superuser = False
-                user.member = None
-                adapter._sync_permissions(user)
-
-                user.save.assert_not_called()
-
-            def it_skips_save_when_user_already_has_admin_privileges(settings):
-                from plfog.adapters import AdminRedirectAccountAdapter
-
-                settings.ADMIN_DOMAINS = ["example.com"]
-                adapter = AdminRedirectAccountAdapter()
-
-                user = MagicMock()
-                user.email = "admin@example.com"
-                user.is_staff = True
-                user.is_superuser = True
-                adapter._sync_permissions(user)
-
-                user.save.assert_not_called()
-
-            def it_upgrades_when_only_is_staff_is_true(settings):
-                from plfog.adapters import AdminRedirectAccountAdapter
-
-                settings.ADMIN_DOMAINS = ["example.com"]
-                adapter = AdminRedirectAccountAdapter()
-
-                user = MagicMock()
-                user.email = "admin@example.com"
-                user.is_staff = True
-                user.is_superuser = False
-                adapter._sync_permissions(user)
-
-                assert user.is_staff is True
-                assert user.is_superuser is True
-                user.save.assert_called_once_with(update_fields=["is_staff", "is_superuser"])
-
-            def it_upgrades_when_only_is_superuser_is_true(settings):
-                from plfog.adapters import AdminRedirectAccountAdapter
-
-                settings.ADMIN_DOMAINS = ["example.com"]
-                adapter = AdminRedirectAccountAdapter()
-
-                user = MagicMock()
-                user.email = "admin@example.com"
-                user.is_staff = False
-                user.is_superuser = True
-                adapter._sync_permissions(user)
-
-                assert user.is_staff is True
-                assert user.is_superuser is True
-                user.save.assert_called_once_with(update_fields=["is_staff", "is_superuser"])
-
-            def it_skips_user_with_empty_email(settings):
-                from plfog.adapters import AdminRedirectAccountAdapter
-
-                settings.ADMIN_DOMAINS = ["example.com"]
-                adapter = AdminRedirectAccountAdapter()
-
-                user = MagicMock()
-                user.email = ""
-                user.is_staff = False
-                user.is_superuser = False
-                user.member = None
-                adapter._sync_permissions(user)
-
-                user.save.assert_not_called()
-
-            def it_skips_user_with_email_without_at_sign(settings):
-                from plfog.adapters import AdminRedirectAccountAdapter
-
-                settings.ADMIN_DOMAINS = ["example.com"]
-                adapter = AdminRedirectAccountAdapter()
-
-                user = MagicMock()
-                user.email = "noemail"
-                user.is_staff = False
-                user.is_superuser = False
-                user.member = None
-                adapter._sync_permissions(user)
-
-                user.save.assert_not_called()
-
-            def it_skips_user_with_none_email(settings):
-                from plfog.adapters import AdminRedirectAccountAdapter
-
-                settings.ADMIN_DOMAINS = ["example.com"]
-                adapter = AdminRedirectAccountAdapter()
-
-                user = MagicMock()
-                user.email = None
-                user.is_staff = False
-                user.is_superuser = False
-                user.member = None
-                adapter._sync_permissions(user)
-
-                user.save.assert_not_called()
-
-            def it_skips_when_admin_domains_not_configured(settings):
-                from plfog.adapters import AdminRedirectAccountAdapter
-
-                if hasattr(settings, "ADMIN_DOMAINS"):
-                    delattr(settings, "ADMIN_DOMAINS")
-                adapter = AdminRedirectAccountAdapter()
-
-                user = MagicMock()
-                user.email = "user@example.com"
-                user.is_staff = False
-                user.is_superuser = False
-                user.member = None
                 adapter._sync_permissions(user)
 
                 user.save.assert_not_called()
 
         def describe_fog_role_mapping():
-            def it_grants_full_admin_for_admin_fog_role(settings):
+            def it_grants_full_admin_for_admin_fog_role():
                 from plfog.adapters import AdminRedirectAccountAdapter
 
-                settings.ADMIN_DOMAINS = []
                 adapter = AdminRedirectAccountAdapter()
 
                 user = _create_user_with_fog_role("adm", "admin")
@@ -376,11 +171,10 @@ def describe_AdminRedirectAccountAdapter():
                 assert user.is_staff is True
                 assert user.is_superuser is True
 
-            def it_grants_no_staff_for_leading_a_guild(settings):
+            def it_grants_no_staff_for_leading_a_guild():
                 from plfog.adapters import AdminRedirectAccountAdapter
                 from tests.membership.factories import GuildFactory
 
-                settings.ADMIN_DOMAINS = []
                 adapter = AdminRedirectAccountAdapter()
 
                 user = _create_user_with_fog_role("go", "member")
@@ -394,10 +188,9 @@ def describe_AdminRedirectAccountAdapter():
                 assert user.is_staff is False
                 assert user.is_superuser is False
 
-            def it_removes_staff_for_member_fog_role(settings):
+            def it_removes_staff_for_member_fog_role():
                 from plfog.adapters import AdminRedirectAccountAdapter
 
-                settings.ADMIN_DOMAINS = []
                 adapter = AdminRedirectAccountAdapter()
 
                 user = _create_user_with_fog_role("std", "member")
@@ -411,10 +204,9 @@ def describe_AdminRedirectAccountAdapter():
                 assert user.is_staff is False
                 assert user.is_superuser is False
 
-            def it_does_not_save_when_permissions_already_match(settings):
+            def it_does_not_save_when_permissions_already_match():
                 from plfog.adapters import AdminRedirectAccountAdapter
 
-                settings.ADMIN_DOMAINS = []
                 adapter = AdminRedirectAccountAdapter()
 
                 user = _create_user_with_fog_role("nosave", "admin")
@@ -426,10 +218,9 @@ def describe_AdminRedirectAccountAdapter():
                     adapter._sync_permissions(user)
                     mock_save.assert_not_called()
 
-            def it_handles_user_with_no_member(settings):
+            def it_handles_user_with_no_member():
                 from plfog.adapters import AdminRedirectAccountAdapter
 
-                settings.ADMIN_DOMAINS = []
                 adapter = AdminRedirectAccountAdapter()
 
                 user = User.objects.create_user(username="nomember", email="nomember@other.com", password="pass")
@@ -444,64 +235,14 @@ def describe_AdminRedirectAccountAdapter():
                 adapter._sync_permissions(user)
                 user.refresh_from_db()
 
-                # No member, no domain match → no change
+                # No member → no change
                 assert user.is_staff is False
                 assert user.is_superuser is False
 
-            def it_admin_domain_takes_precedence_over_member_fog_role(settings):
-                from plfog.adapters import AdminRedirectAccountAdapter
-
-                settings.ADMIN_DOMAINS = ["example.com"]
-                adapter = AdminRedirectAccountAdapter()
-
-                user = User.objects.create_user(username="domwin", email="domwin@example.com", password="pass")
-                # fog_role defaults to "member" — domain override should still grant admin
-
-                adapter._sync_permissions(user)
-                user.refresh_from_db()
-
-                # Domain override wins — still gets admin despite member fog_role
-                assert user.is_staff is True
-                assert user.is_superuser is True
-
     def describe_sync_permissions_logging():
-        def it_logs_when_admin_is_granted_via_domain(settings, caplog):
+        def it_logs_when_syncing_from_fog_role(caplog):
             from plfog.adapters import AdminRedirectAccountAdapter
 
-            settings.ADMIN_DOMAINS = ["example.com"]
-            adapter = AdminRedirectAccountAdapter()
-
-            user = MagicMock()
-            user.email = "admin@example.com"
-            user.is_staff = False
-            user.is_superuser = False
-
-            with caplog.at_level(logging.INFO, logger="plfog.adapters"):
-                adapter._sync_permissions(user)
-
-            assert "Auto-admin granted to admin@example.com" in caplog.text
-            assert "domain: example.com" in caplog.text
-
-        def it_does_not_log_when_already_admin(settings, caplog):
-            from plfog.adapters import AdminRedirectAccountAdapter
-
-            settings.ADMIN_DOMAINS = ["example.com"]
-            adapter = AdminRedirectAccountAdapter()
-
-            user = MagicMock()
-            user.email = "admin@example.com"
-            user.is_staff = True
-            user.is_superuser = True
-
-            with caplog.at_level(logging.INFO, logger="plfog.adapters"):
-                adapter._sync_permissions(user)
-
-            assert "Auto-admin granted" not in caplog.text
-
-        def it_logs_when_syncing_from_fog_role(settings, caplog):
-            from plfog.adapters import AdminRedirectAccountAdapter
-
-            settings.ADMIN_DOMAINS = []
             adapter = AdminRedirectAccountAdapter()
 
             user = _create_user_with_fog_role("logtest", "admin")

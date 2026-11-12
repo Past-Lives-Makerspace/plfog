@@ -1,4 +1,4 @@
-"""Custom allauth adapter and forms for auto-admin domain privileges and login redirect."""
+"""Custom allauth adapter and forms: staff access from the member role, and login redirect."""
 
 from __future__ import annotations
 
@@ -77,13 +77,12 @@ def _kiln_is_open() -> bool:
 
 
 class AdminRedirectAccountAdapter(DefaultAccountAdapter):
-    """Grant admin privileges on login and route each surface to its landing page.
+    """Sync staff access on login and route each surface to its landing page.
 
-    On every login, if the user's email domain matches any domain in the
-    ADMIN_DOMAINS setting (case-insensitive), the user gets is_staff=True
-    and is_superuser=True. Plus-addressed emails are exempt from that grant
-    (see ``_sync_permissions``) so demo/training aliases keep their assigned
-    fog_role.
+    On every login, ``is_staff`` and ``is_superuser`` are set from the member's
+    ``fog_role`` (see ``_sync_permissions``). An email domain grants nothing: the
+    shared guild mailboxes on pastlives.space are signed in by whoever leads the
+    guild, and an earlier domain rule made each of them a superuser.
 
     After login (no ``?next=``), the public/book surface lands on the /account/
     overview; the members surface lands on the member Home — except a member who
@@ -295,32 +294,12 @@ class AdminRedirectAccountAdapter(DefaultAccountAdapter):
     def _sync_permissions(self, user: object) -> None:
         """Sync is_staff/is_superuser from the user's Member fog_role.
 
-        Priority order:
-        1. ADMIN_DOMAINS override — matching email domain always gets full admin.
-           Plus-addressed emails (a ``+`` in the local part) are exempt: staff
-           primary addresses never carry a subaddress, and the aliases are used
-           for role-accurate demo/training accounts that must keep exactly the
-           fog_role they were assigned.
-        2. fog_role mapping — admin → full access; guild leadership never earns ``is_staff``.
-        3. Everyone else — no staff access (member hub only).
+        Admin gets full access; everyone else, guild leadership included, gets the
+        member hub only. A user with no Member is left as it is.
         """
         from membership.models import Member
 
-        # 1. ADMIN_DOMAINS override (e.g. @plaza.codes always gets superuser)
-        admin_domains: list[str] = getattr(settings, "ADMIN_DOMAINS", [])
         email: str = getattr(user, "email", "") or ""
-        if admin_domains and email and "@" in email:
-            local_part, domain = email.rsplit("@", 1)
-            domain = domain.lower()
-            if domain in admin_domains and "+" not in local_part:
-                if not (user.is_staff and user.is_superuser):  # type: ignore[attr-defined]
-                    user.is_staff = True  # type: ignore[attr-defined]
-                    user.is_superuser = True  # type: ignore[attr-defined]
-                    user.save(update_fields=["is_staff", "is_superuser"])  # type: ignore[attr-defined]
-                    logger.info("Auto-admin granted to %s (domain: %s)", email, domain)
-                return
-
-        # 2. Sync from Member fog_role
         member: Member | None = getattr(user, "member", None)
         if member is not None:
             member.sync_user_permissions()
@@ -513,12 +492,10 @@ class GoldenTicketConfirmLoginCodeForm(ConfirmLoginCodeForm):
     longer strand a reviewer with a code that silently stopped working.
 
     SECURITY: this is a master key. Anyone holding ``PLAY_REVIEW_CODE`` can sign
-    in as any account that has an email address, including addresses on
-    ``ADMIN_DOMAINS``, which :meth:`AdminRedirectAccountAdapter._sync_permissions`
-    auto-grants ``is_staff`` and ``is_superuser``. Treat the value like a root
-    password: long, random, set only in the deploy environment, and rotated the
-    moment app-store review is finished. Leaving the env var unset disables the
-    behaviour entirely.
+    in as any account that has an email address, including every admin. Treat the
+    value like a root password: long, random, set only in the deploy environment,
+    and rotated the moment app-store review is finished. Leaving the env var unset
+    disables the behaviour entirely.
     """
 
     @staticmethod
