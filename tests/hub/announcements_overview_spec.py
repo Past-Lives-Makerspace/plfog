@@ -124,7 +124,7 @@ def describe_the_page():
         assert (_active(html, "drafts"), _active(html, "sent")) == (True, False)
         assert f'href="{reverse("hub_announcements")}?tab=sent"' in _tab(html, "sent")
         assert (
-            f'href="{reverse("hub_compose")}" class="hub-btn hub-btn--primary" data-help-key="announcements.new"'
+            f'href="{reverse("hub_compose")}" class="pl-btn pl-btn--primary" data-help-key="announcements.new"'
             in html
         )
 
