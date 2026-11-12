@@ -2120,6 +2120,7 @@ def guild_staff_add(request: HttpRequest, pk: int) -> HttpResponse:
             role=form.cleaned_data["role"] or "",
             custom_title=form.cleaned_data["custom_title"],
             class_reviewer=form.cleaned_data["class_reviewer"],
+            granted_by=cast(User, request.user),
         )
         messages.success(request, _staff_added_message(member, guild, staff))
     else:
@@ -2181,7 +2182,8 @@ def guild_staff_class_reviewer(request: HttpRequest, pk: int, member_pk: int) ->
     Only the guild lead and admins may (:func:`membership.permissions.can_set_class_reviewers`);
     anyone else gets a 403, and a member with no staff row on this guild a 404. The checkbox
     posts ``on`` when checked and omits it when unchecked, so its presence is the new state,
-    and every staff row the member holds here is set together. Nothing is sent to anyone.
+    and every staff row the member holds here is set together. Turning it on emails the member
+    what Class Reviewer does (#1163); turning it off sends nothing.
     """
     from membership.models import Member
     from membership.permissions import can_set_class_reviewers
@@ -2191,7 +2193,7 @@ def guild_staff_class_reviewer(request: HttpRequest, pk: int, member_pk: int) ->
         return HttpResponse("Forbidden", status=403)
     member = get_object_or_404(Member, pk=member_pk)
     on = "on" in request.POST
-    if guild.set_class_reviewer(member, on) == 0:
+    if guild.set_class_reviewer(member, on, granted_by=cast(User, request.user)) == 0:
         raise Http404("That member is not on this guild's staff.")
     response = HttpResponse(status=204)
     if on:
@@ -9492,7 +9494,9 @@ def admin_member_edit(request: HttpRequest, pk: int) -> HttpResponse:
             # The field the admin changed wins: a new Status with the role left alone is not
             # overridden by the role the page pre-selected (#654).
             status_only = "status" in form.changed_data and "role" not in form.changed_data
-            obj.apply_admin_role(form.cleaned_data["role"], keep_status=status_only)
+            obj.apply_admin_role(
+                form.cleaned_data["role"], keep_status=status_only, granted_by=cast(User, request.user)
+            )
             display = obj.full_legal_name or obj.primary_email or f"member #{obj.pk}"
             messages.success(request, f"Saved {display}.")
             return redirect("hub_admin_members")
@@ -9545,7 +9549,7 @@ def admin_member_guild_staff_add(request: HttpRequest, pk: int) -> HttpResponse:
 
     The same :meth:`Guild.add_staff` the Staff tab runs, so both pages show the same rows. With
     only Class Reviewer on, it turns that on for an existing staff member or adds them titled
-    "Class Reviewer". Silent: nothing is sent.
+    "Class Reviewer". A new Class Reviewer is emailed what it does (#1163); nothing else is sent.
     """
     member = get_object_or_404(Member, pk=pk)
     form = MemberGuildStaffForm(member, request.POST)
@@ -9558,6 +9562,7 @@ def admin_member_guild_staff_add(request: HttpRequest, pk: int) -> HttpResponse:
         role=form.cleaned_data["role"] or "",
         custom_title=form.cleaned_data["custom_title"],
         class_reviewer=form.cleaned_data["class_reviewer"],
+        granted_by=cast(User, request.user),
     )
     messages.success(request, _staff_added_message(member, guild, staff))
     return redirect(_member_permissions_url(member))

@@ -68,7 +68,7 @@ def describe_MemberViewSet():
             with patch.object(Member, "apply_admin_role") as mock_apply:
                 response = admin_client.post(f"/api/v1/members/{target.id}/set-role/", {"role": "admin"})
             assert response.status_code == status.HTTP_200_OK
-            mock_apply.assert_called_once_with("admin")
+            mock_apply.assert_called_once_with("admin", granted_by=admin_member.user)
 
         def it_rejects_the_retired_guild_officer_role(admin_client, admin_member):
             target = MemberFactory(fog_role=Member.FogRole.MEMBER)

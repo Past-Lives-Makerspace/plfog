@@ -666,6 +666,23 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="guild_staff_welcome_context",
     ),
     GalleryEmail(
+        key="permission_granted",
+        name="Permission granted",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent once per save when someone else turns on an admin capability, Instructor, the Admin role "
+            "or a guild's Class Reviewer for the member (#1163). One card per permission from "
+            "AdminCapability.GUIDES. A grant to yourself sends nothing."
+        ),
+        edit_pointer=_tpl("membership/emails", "permission_granted"),
+        audience="The member just granted the permission.",
+        event_keys=frozenset({"permission.granted"}),
+        text_template="membership/emails/permission_granted.txt",
+        html_template="membership/emails/permission_granted.html",
+        context_builder="permission_granted_context",
+    ),
+    GalleryEmail(
         key="guild_invite",
         name="Invited to join a guild",
         section="Guilds & Orientations",
