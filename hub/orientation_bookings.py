@@ -28,7 +28,14 @@ from django.utils import timezone
 
 from classes.table import prepare_table, table_search
 from hub.bookings_tab import date_param, late_fee_of, pane_query
-from membership.models import Guild, Member, OrientationBooking, OrientationRecord, OrientationType
+from membership.models import (
+    Guild,
+    Member,
+    OrientationBooking,
+    OrientationBookingQuerySet,
+    OrientationRecord,
+    OrientationType,
+)
 from membership.permissions import (
     is_effective_staff,
     manageable_orientation_bookings,
@@ -155,13 +162,15 @@ def _base_rows(
 def _needs_reply(
     request: HttpRequest, rows: QuerySet[OrientationBooking], *, honour_preview: bool = True
 ) -> QuerySet[OrientationBooking]:
-    """The requests in ``rows`` waiting on the viewer: requested, and in the scope they run.
+    """The requests in ``rows`` waiting on the viewer: pending, and in the scope they run.
 
-    The viewer's own request on an orientation someone else runs is theirs to wait on, not to
-    answer, so it is neither counted nor listed under Needs a Reply.
+    Pending is :meth:`OrientationBookingQuerySet.pending_condition`: requested, for a slot that has not
+    started. A request nobody answered before its time passed lists under Past and All, never
+    here (feedback request 16). The viewer's own request on an orientation someone else runs is
+    theirs to wait on, not to answer, so it is neither counted nor listed under Needs a Reply.
     """
     managed = _managed(request, honour_preview=honour_preview)
-    return rows.filter(status=OrientationBooking.Status.REQUESTED, pk__in=managed.values("pk"))
+    return rows.filter(OrientationBookingQuerySet.pending_condition(), pk__in=managed.values("pk"))
 
 
 def _apply_show(

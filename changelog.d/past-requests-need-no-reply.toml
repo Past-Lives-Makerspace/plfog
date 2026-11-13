@@ -1,0 +1,9 @@
+bump = "patch"
+audience = ["guild-leads", "orientors", "equipment-managers"]
+feature = "orientations.bookings"
+date = "2026-11-12"
+title = "Requests for a time that has passed stop asking for a reply"
+changes = [
+  "An orientation request nobody answered before its time came no longer shows under Needs a Reply, in Manage Bookings' Needs Attention or in an equipment's Pending Requests, and no longer counts toward those numbers.",
+  "It still shows under Past and All on the Bookings tab.",
+]

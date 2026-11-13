@@ -398,6 +398,22 @@ def describe_OrientationBookingQuerySet():
             confirmed.confirm()
             assert list(OrientationBooking.objects.pending()) == [requested]
 
+        def it_leaves_out_a_request_whose_slot_has_started():
+            # Feedback request 16: nobody can usefully answer a request for a time that has gone.
+            lapsed = OrientationBookingFactory()
+            lapsed.slot.starts_at = timezone.now() - timedelta(days=30)
+            lapsed.slot.ends_at = lapsed.slot.starts_at + timedelta(hours=1)
+            lapsed.slot.save(update_fields=["starts_at", "ends_at"])
+            upcoming = OrientationBookingFactory()
+            assert list(OrientationBooking.objects.pending()) == [upcoming]
+            assert lapsed in OrientationBooking.objects.all()
+
+        def it_counts_a_slot_starting_exactly_now_as_still_ahead():
+            booking = OrientationBookingFactory()
+            starts = booking.slot.starts_at
+            assert booking in OrientationBooking.objects.pending(now=starts)
+            assert booking not in OrientationBooking.objects.pending(now=starts + timedelta(microseconds=1))
+
     def describe_completed():
         def it_is_only_completed_bookings():
             done = OrientationBookingFactory()
