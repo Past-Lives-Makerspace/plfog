@@ -103,6 +103,18 @@ def describe_the_card_on_its_page():
         assert b"data-setup-done" in first.content
         assert cs.BILLING_ADMIN_SETUP.celebration not in _flashes(client.get(reverse("billing_admin_dashboard")))
 
+    @pytest.mark.parametrize(
+        ("capability", "where"),
+        [
+            (Cap.CLASS_APPROVER, "Manage All Classes"),
+            (Cap.EVENT_CREATOR, "the Calendar"),
+            (Cap.EQUIPMENT, "Reservations"),
+        ],
+    )
+    def it_says_where_a_hidden_card_comes_back_from(capability: str, where: str):
+        response = signed_in(_holder(capability)).post(reverse("hub_permission_setup_hide", args=[capability]))
+        assert _flashes(response) == [f"Get Set Up is hidden. Bring it back with Show Get Set Up on {where}."]
+
     def it_lands_got_it_back_on_the_page():
         member = _holder(Cap.EQUIPMENT)
         page = reverse("hub_equipment_index")

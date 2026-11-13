@@ -397,11 +397,12 @@ SPACE_MANAGER_SETUP = PermissionSetupSpec(
             key=LEARN,
             title="Learn How You Manage Your Spaces",
             note="About a minute to read",
-            why="Saving a space makes you its manager and opens its page.",
+            why="Saving a space opens its page, where you manage it from then on.",
             email_line="Learn how you manage your spaces",
             how=(
                 "Manage each space you add from its own page: its details, hours and staff.",
-                "Its bookings come to you as its manager.",
+                "Its bookings go to the people on its Staff tab and its guild's leadership, or, with neither, "
+                "to the Equipment Administrators. Check you are on its Staff tab to hear about them.",
             ),
             guide_section="Managing Your Spaces",
             got_it=True,

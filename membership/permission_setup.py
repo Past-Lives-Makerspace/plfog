@@ -130,6 +130,13 @@ class PermissionSetupSpec:
         return self.badge_label or self.label
 
     @property
+    def hidden_message(self) -> str:
+        """The toast after Hide: where this card comes back from."""
+        if self.guide_url_name:
+            return "Get Set Up is hidden. Bring it back from the Guide tab."
+        return f"Get Set Up is hidden. Bring it back with Show Get Set Up on {self.page_name}."
+
+    @property
     def page_url(self) -> str:
         """The page the card lives on."""
         return reverse(self.page_url_name)

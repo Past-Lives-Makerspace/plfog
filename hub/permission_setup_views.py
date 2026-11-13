@@ -133,7 +133,7 @@ def permission_setup_hide(request: HttpRequest, permission: str) -> HttpResponse
     """Hide the card for now; the Guide tab brings it back."""
     state = _state(request, permission)
     state.row.hide()
-    messages.info(request, "Get Set Up is hidden. Bring it back from the Guide tab.")
+    messages.info(request, state.spec.hidden_message)
     return _back(request, state)
 
 

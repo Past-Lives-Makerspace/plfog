@@ -125,8 +125,9 @@ PAGES = (
         "<p>Press + Add on Reservations to add a room or space members can reserve, such as the loading "
         "dock. Tools are not yours to add.</p>"
         "<h2>Managing Your Spaces</h2>"
-        "<p>Saving a space makes you its manager and opens its page. Manage it from there: its details, "
-        "hours and staff. Its bookings come to you as its manager.</p>",
+        "<p>Saving a space opens its page. Manage it from there: its details, hours and staff.</p>"
+        "<p>Its bookings go to the people on its Staff tab and its guild's leadership, or, with neither, to "
+        "the Equipment Administrators. Check you are on its Staff tab to hear about them.</p>",
     ),
 )
 

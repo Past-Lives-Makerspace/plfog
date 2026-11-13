@@ -228,3 +228,18 @@ def describe_the_seeded_guide_pages():
         edited.refresh_from_db()
         assert edited.guide_for == ""
         assert not WikiPage.objects.filter(title="CMS Administrator Guide").exists()
+
+
+def describe_space_manager_copy():
+    """An admin or Equipment Administrator who adds a space gets no staff row (#1167), so nothing says it does."""
+
+    WHERE_BOOKINGS_GO = "Its bookings go to the people on its Staff tab and its guild's leadership"
+
+    def it_never_says_saving_makes_you_manager_or_that_bookings_come_to_you():
+        step = cs.SPACE_MANAGER_SETUP.step(cs.LEARN)
+        seeded = dict((permission, body) for permission, _title, body in SEED.PAGES)[Cap.SPACE_MANAGER]
+        for text in (step.why, *step.how, seeded):
+            assert "makes you its manager" not in text
+            assert "come to you as its manager" not in text
+        assert any(line.startswith(WHERE_BOOKINGS_GO) for line in step.how)
+        assert WHERE_BOOKINGS_GO in seeded.replace("&#x27;", "'")
