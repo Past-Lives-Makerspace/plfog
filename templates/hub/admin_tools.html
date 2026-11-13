@@ -4,6 +4,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/admin-tools.css' %}">
 <link rel="stylesheet" href="{% static 'css/cubbies.css' %}">
+<link rel="stylesheet" href="{% static 'css/permission-setup.css' %}">
 {% endblock %}
 {% block content %}
 {# One page, two names (#921): Admin Tools for an admin, Guild Tools for anyone else who runs a guild (hub.views._tools_page_title). #}
@@ -19,6 +20,7 @@
   </div>
   {% if guild_tools %}{% whats_new_button "guild" %}{% else %}{% whats_new_button "admin" %}{% endif %}
 </div>
+{% include "hub/partials/_permission_setups.html" %}
 
 {# Four sections in Felix's order (#912), after Guild Tools' own guild section (#921); hub.views.ADMIN_TOOL_SECTIONS decides which render, so a section with no card the viewer may open is left out. #}
 <div class="pl-tools-sections" data-help-key="admin.tools-grid">

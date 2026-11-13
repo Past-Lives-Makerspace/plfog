@@ -61,7 +61,7 @@ def _attend(guide, party_size: int = 3) -> TourBooking:
 def describe_spec_for():
     def it_has_tour_guide_and_nothing_else_yet():
         assert spec_for(TOUR_GUIDE) is tour_setup.TOUR_GUIDE_SETUP
-        assert spec_for(AdminCapability.Capability.REFUNDS) is None
+        assert spec_for("not_a_permission") is None
 
     def it_raises_on_an_unknown_step():
         with pytest.raises(KeyError):
@@ -77,8 +77,7 @@ def describe_SetupState_load():
 
     def it_is_none_for_a_permission_with_no_card():
         member = MemberFactory()
-        member.admin_capabilities.create(capability=AdminCapability.Capability.REFUNDS)
-        assert SetupState.load(member, AdminCapability.Capability.REFUNDS) is None
+        assert SetupState.load(member, "not_a_permission") is None
 
     def describe_on_a_first_visit():
         def it_opens_the_calendar_step_when_google_is_set_up(google_on):

@@ -5,6 +5,7 @@
 {% block extra_head %}{{ block.super }}
 <link rel="stylesheet" href="{% static 'css/guild-settings.css' %}">
 <link rel="stylesheet" href="{% static 'css/cubbies.css' %}">
+<link rel="stylesheet" href="{% static 'css/permission-setup.css' %}">
 {% endblock %}
 {% block content %}
 {% include "_components/rich_editor_assets.html" %}
@@ -33,6 +34,8 @@ way back in: the modals are teleported to <body>, outside this root.
     <a href="{% url 'hub_guild_detail' guild.slug %}" class="hub-btn hub-btn--sm hub-btn--ghost">← Back to Guild Page</a>
   </span>
 </div>
+
+{% include "hub/partials/_permission_setups.html" %}
 
 {% comment %}Needs Attention (ruling 10) — the guild's own class-review queue, the FIRST
 section on the page and ABOVE the settings form below, so no control here can ever post it.

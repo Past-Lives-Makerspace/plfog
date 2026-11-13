@@ -47,7 +47,7 @@ def _back(request: HttpRequest, state: SetupState) -> HttpResponse:
         next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
     ):
         return redirect(next_url)
-    return redirect(state.spec.page_url)
+    return redirect(state.page_url)
 
 
 def page_setups(request: HttpRequest, *permissions: str) -> dict[str, Any]:
@@ -98,6 +98,7 @@ def permission_guide(request: HttpRequest, permission: str) -> HttpResponse:
             "toc": page.toc() if page is not None and page.has_written_body else [],
             "can_edit": page is not None and can_edit_wiki_page(request, page),
             "setup": state,
+            "back_url": state.page_url if state is not None else spec.page_url,
             "tab": "guide",
         },
     )

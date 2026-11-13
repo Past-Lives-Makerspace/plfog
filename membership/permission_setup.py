@@ -116,13 +116,21 @@ class PermissionSetupSpec:
     guide_url_name: str = ""
     #: The badge's name when it differs from the permission's (Can create events earns Event Creator).
     badge_label: str = ""
+    #: A query string for the card's page, e.g. "?tab=notifications".
+    page_query: str = ""
+    #: For a member's own page (a Class Reviewer's guild): where their card lives. Else ``page_url``.
+    page_url_for: Callable[[Member], str] | None = None
+    #: For a grant that is not an :class:`AdminCapability` (Instructor, Admin, Class Reviewer): who
+    #: granted it, "" when nothing records who, or None when the member does not hold it. A
+    #: capability is looked up on its row instead.
+    grant_of: Callable[[Member], str | None] | None = None
 
     @property
     def label(self) -> str:
         """The permission's name, e.g. Tour Guide."""
-        from membership.models import AdminCapability
+        from membership.models import SetupPermission
 
-        return AdminCapability.Capability(self.permission).label
+        return SetupPermission(self.permission).label
 
     @property
     def badge_name(self) -> str:
@@ -138,8 +146,28 @@ class PermissionSetupSpec:
 
     @property
     def page_url(self) -> str:
-        """The page the card lives on."""
-        return reverse(self.page_url_name)
+        """The page the card lives on, for anyone (a member's own page is :meth:`page_url_of`)."""
+        return f"{reverse(self.page_url_name)}{self.page_query}"
+
+    def page_url_of(self, member: Member) -> str:
+        """The page ``member``'s card lives on: their own (a Class Reviewer's guild) when the spec has one."""
+        return self.page_url_for(member) if self.page_url_for is not None else self.page_url
+
+    def granter(self, member: Member) -> str | None:
+        """Who granted ``member`` this permission ("" when nothing records who), or None when they do not hold it."""
+        from membership.models import AdminCapability
+
+        if self.grant_of is not None:
+            return self.grant_of(member)
+        grant = (
+            AdminCapability.objects.filter(member=member, capability=self.permission)
+            .select_related("granted_by__member")
+            .first()
+        )
+        if grant is None:
+            return None
+        granted_by = grant.granted_by
+        return user_display_name(granted_by) if granted_by is not None and granted_by.pk != member.user_id else ""
 
     @property
     def guide_url(self) -> str:
@@ -168,9 +196,10 @@ class PermissionSetupSpec:
 def specs() -> dict[str, PermissionSetupSpec]:
     """Every permission that has a Get Set Up card, by permission."""
     from membership.capability_setup import CAPABILITY_SETUPS
+    from membership.grant_setup import GRANT_SETUPS
     from tours.setup import TOUR_GUIDE_SETUP
 
-    return {spec.permission: spec for spec in (*CAPABILITY_SETUPS, TOUR_GUIDE_SETUP)}
+    return {spec.permission: spec for spec in (*CAPABILITY_SETUPS, *GRANT_SETUPS, TOUR_GUIDE_SETUP)}
 
 
 def spec_for(permission: str) -> PermissionSetupSpec | None:
@@ -196,6 +225,7 @@ class SetupState:
     """One member's card for one permission, read and brought up to date in one call (:meth:`load`)."""
 
     spec: PermissionSetupSpec
+    member: Member
     row: PermissionSetup
     steps: tuple[StepView, ...]
     facts: SetupFacts
@@ -223,10 +253,21 @@ class SetupState:
         if member is None:
             return []
         wanted = [permission for permission in permissions if spec_for(permission) is not None]
-        held = set(
-            AdminCapability.objects.filter(member=member, capability__in=wanted).values_list("capability", flat=True)
+        capabilities = [permission for permission in wanted if permission in AdminCapability.Capability.values]
+        held = (
+            set(
+                AdminCapability.objects.filter(member=member, capability__in=capabilities).values_list(
+                    "capability", flat=True
+                )
+            )
+            if capabilities
+            else set()
         )
-        states = (cls.load(member, permission) for permission in wanted if permission in held)
+        states = (
+            cls.load(member, permission)
+            for permission in wanted
+            if permission in held or permission not in capabilities
+        )
         return [state for state in states if state is not None]
 
     @classmethod
@@ -236,33 +277,33 @@ class SetupState:
         Finishes setup (the badge, :meth:`PermissionSetup.finish`) the first time every required
         step is done, and, unless ``celebrate`` is False, celebrates it once (:meth:`PermissionSetup.celebrate`).
         """
-        from membership.models import AdminCapability, PermissionSetup
+        from membership.models import PermissionSetup
 
         spec = spec_for(permission)
         if spec is None:
             return None
-        grant = (
-            AdminCapability.objects.filter(member=member, capability=permission)
-            .select_related("granted_by__member")
-            .first()
-        )
-        if grant is None:
+        granter_name = spec.granter(member)
+        if granter_name is None:
             return None
         row = PermissionSetup.for_member(member, permission)
         facts = spec.facts(member)
         steps = _step_views(spec, row, facts)
         if row.completed_at is None and _all_required_done(steps):
             row.finish()
-        granter = grant.granted_by
-        granter_name = user_display_name(granter) if granter is not None and granter.pk != member.user_id else ""
         return cls(
             spec=spec,
+            member=member,
             row=row,
             steps=steps,
             facts=facts,
             granter_name=granter_name or "an admin",
             just_finished=row.celebrate() if celebrate else False,
         )
+
+    @property
+    def page_url(self) -> str:
+        """The page this member's card lives on."""
+        return self.spec.page_url_of(self.member)
 
     @property
     def finished(self) -> bool:

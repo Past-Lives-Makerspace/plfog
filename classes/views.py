@@ -1888,6 +1888,8 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     # which a lead sees whether or not they teach anything themselves. Distinct classes.
     stats["needs_attention"] = stats["attention"] + len(guild_lead_pending) + len(guild_lead_awaiting_admin)
 
+    from membership.models import AdminCapability
+
     return render(
         request,
         "classes/teach/overview.html",
@@ -1909,6 +1911,7 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
             "payouts_nudge": payouts.needs_nudge(teaching_member),
             # The Instructor Resources card (#765), last on the page; nothing renders when empty.
             "instructor_resources": list(InstructorResource.objects.all()),
+            **page_setups(request, AdminCapability.INSTRUCTOR),
         },
     )
 

@@ -1,10 +1,12 @@
-"""Get Set Up cards (#1167, part 2) for the seven capabilities that have a page of their own.
+"""Get Set Up cards (#1167) for the capabilities: parts 2 and 3.
 
 Each is a :class:`~membership.permission_setup.PermissionSetupSpec`, as Tour Guide's is in
 :mod:`tours.setup`: a reading step ends with Got It, and every other step ticks from a row the
 member's own work already writes (a class review, a space request decision, an event). Billing
 Administrator and Equipment Administrator do work nothing records by person, so their cards are
-reading steps only and the badge comes on the last Got It. Every line is true in the code today.
+reading steps only and the badge comes on the last Got It. Part 3 adds the three with no page of
+their own (Discount Code Administrator, Refunds, Webmaster), whose cards sit on Notification
+Settings. Every line is true in the code today.
 """
 
 from __future__ import annotations
@@ -27,13 +29,14 @@ FIRST_EVENT = "first_event"
 ALERTS = "alerts"
 BOOKINGS = "bookings"
 FIRST_SPACE = "first_space"
+FIRST_REFUND = "first_refund"
 
 #: Every finished card says where the badge shows; the rest of the line is the permission's own.
 _ON_DIRECTORY = "Your badge now shows on your Member Directory card"
 _DIGEST = "The email comes in the 8 AM staff digest, and is left out if someone has already decided."
 
 
-def _facts(done: dict[str, int], stat_label: str = "", stat_key: str = "") -> SetupFacts:
+def facts_from_counts(done: dict[str, int], stat_label: str = "", stat_key: str = "") -> SetupFacts:
     """Facts from per-step counts: a step is done once its count is above zero."""
     return SetupFacts(
         done=frozenset(key for key, count in done.items() if count),
@@ -52,7 +55,7 @@ def class_review_facts(member: Member) -> SetupFacts:
             .exclude(decision="")
             .count()
         )
-    return _facts({FIRST_REVIEW: reviewed}, "Classes Reviewed", FIRST_REVIEW)
+    return facts_from_counts({FIRST_REVIEW: reviewed}, "Classes Reviewed", FIRST_REVIEW)
 
 
 def space_request_facts(member: Member) -> SetupFacts:
@@ -62,7 +65,7 @@ def space_request_facts(member: Member) -> SetupFacts:
     decided = 0
     if member.user_id is not None:
         decided = SpaceRequest.objects.filter(reviewed_by_id=member.user_id).count()
-    return _facts({FIRST_DECISION: decided}, "Requests Decided", FIRST_DECISION)
+    return facts_from_counts({FIRST_DECISION: decided}, "Requests Decided", FIRST_DECISION)
 
 
 def calendar_admin_facts(member: Member) -> SetupFacts:
@@ -73,7 +76,7 @@ def calendar_admin_facts(member: Member) -> SetupFacts:
     if member.user_id is not None:
         reviewed = CommunityEvent.objects.filter(reviewed_by_id=member.user_id).count()
         added = int(CommunityEvent.objects.filter(created_by_id=member.user_id).exists())
-    return _facts({FIRST_REVIEW: reviewed, OWN_EVENT: added}, "Proposals Reviewed", FIRST_REVIEW)
+    return facts_from_counts({FIRST_REVIEW: reviewed, OWN_EVENT: added}, "Proposals Reviewed", FIRST_REVIEW)
 
 
 def event_creator_facts(member: Member) -> SetupFacts:
@@ -87,7 +90,7 @@ def event_creator_facts(member: Member) -> SetupFacts:
         added = CommunityEvent.objects.filter(
             Q(created_by_id=member.user_id) | Q(submitted_by_id=member.user_id)
         ).count()
-    return _facts({FIRST_EVENT: added}, "Events Added", FIRST_EVENT)
+    return facts_from_counts({FIRST_EVENT: added}, "Events Added", FIRST_EVENT)
 
 
 def space_manager_facts(member: Member) -> SetupFacts:
@@ -109,7 +112,7 @@ def space_manager_facts(member: Member) -> SetupFacts:
         .distinct()
         .count()
     )
-    return _facts({FIRST_SPACE: added}, "Spaces Added", FIRST_SPACE)
+    return facts_from_counts({FIRST_SPACE: added}, "Spaces Added", FIRST_SPACE)
 
 
 def reading_only_facts(member: Member) -> SetupFacts:
@@ -410,7 +413,142 @@ SPACE_MANAGER_SETUP = PermissionSetupSpec(
     ),
 )
 
-#: The part 2 cards, in the order the Guide For picker lists them.
+
+def discount_request_facts(member: Member) -> SetupFacts:
+    """Discount Code Administrator: the instructors' code requests ``member`` has answered.
+
+    A plain code approved from its own link records no approver, so only requests count.
+    """
+    from classes.models import DiscountCodeRequest
+
+    answered = 0
+    if member.user_id is not None:
+        answered = DiscountCodeRequest.objects.filter(decided_by_id=member.user_id).count()
+    return facts_from_counts({FIRST_DECISION: answered})
+
+
+def refund_facts(member: Member) -> SetupFacts:
+    """Refunds: whether ``member`` has sent a refund from a payment page."""
+    from billing.models import PaymentRefund
+
+    sent = 0
+    if member.user_id is not None:
+        sent = int(PaymentRefund.objects.filter(initiated_by_id=member.user_id).exists())
+    return facts_from_counts({FIRST_REFUND: sent})
+
+
+#: Where the three permissions with no page of their own keep their card: the settings tab that
+#: lists the emails they bring, which every member can open.
+_NOTIFICATIONS = {
+    "page_url_name": "hub_user_settings",
+    "page_query": "?tab=notifications",
+    "page_name": "Notification Settings",
+}
+
+DISCOUNT_ADMIN_SETUP = PermissionSetupSpec(
+    permission=Capability.DISCOUNT_APPROVER,
+    title="Get Set Up to Approve Discount Codes",
+    lead="One thing to read, then one optional step.",
+    **_NOTIFICATIONS,
+    done_title="You're a Discount Code Administrator",
+    done_line=f"{_ON_DIRECTORY}, so instructors know who approves discount codes.",
+    done_line_without_badge="You're set up to approve discount codes.",
+    celebration="Your Discount Code Administrator badge is on your Member Directory card.",
+    facts=discount_request_facts,
+    steps=(
+        SetupStep(
+            key=LEARN,
+            title="Learn How Code Requests Reach You",
+            note="About a minute to read",
+            why="When an instructor makes or asks for a discount code that needs approval, it comes to you.",
+            email_line="Learn how code requests reach you",
+            how=(
+                f"Each one rings your bell at once with a link to approve or decline it. {_DIGEST}",
+                "There is no list page for these. Each one opens from its own link.",
+                "The emails are listed under Notification Settings below.",
+            ),
+            guide_section="How Requests Reach You",
+            got_it=True,
+        ),
+        SetupStep(
+            key=FIRST_DECISION,
+            title="Answer Your First Code Request",
+            note="When an instructor asks for a code",
+            why="When an instructor asks for a code, approve it or decline it with a note from its link.",
+            email_line="Answer your first code request (optional)",
+            guide_section="Deciding a Request",
+            optional=True,
+        ),
+    ),
+)
+
+REFUNDS_SETUP = PermissionSetupSpec(
+    permission=Capability.REFUNDS,
+    title="Get Set Up to Send Refunds",
+    lead="One thing to read, then one optional step.",
+    **_NOTIFICATIONS,
+    done_title="You Can Send Refunds",
+    done_line=f"{_ON_DIRECTORY}, so members know who can refund them.",
+    done_line_without_badge="You're set up to send refunds.",
+    celebration="Your Refunds badge is on your Member Directory card.",
+    facts=refund_facts,
+    steps=(
+        SetupStep(
+            key=LEARN,
+            title="Learn Where Refund Buttons Appear",
+            note="About a minute to read",
+            why="Refunds opens no pages of its own. It adds a refund action to pages you can already open.",
+            email_line="Learn where refund buttons appear",
+            how=(
+                "A class's Registrations rows, the orientation and reservation booking menus, and the Payments table.",
+                "When an instructor cancels a class with paid registrations, you get a notice pointing to "
+                "that class's Registrations tab.",
+            ),
+            guide_section="Where Refunds Happen",
+            got_it=True,
+        ),
+        SetupStep(
+            key=FIRST_REFUND,
+            title="Send Your First Refund",
+            note="When a member needs one",
+            why="When a member needs a refund, send it from the row's menu on any of those pages.",
+            email_line="Send your first refund (optional)",
+            guide_section="Where Refunds Happen",
+            optional=True,
+        ),
+    ),
+)
+
+WEBMASTER_SETUP = PermissionSetupSpec(
+    permission=Capability.WEBMASTER,
+    title="Get Set Up as a Webmaster",
+    lead="One thing to read. Nothing else to set up: the work comes to you by email.",
+    **_NOTIFICATIONS,
+    done_title="You're a Webmaster",
+    done_line=f"{_ON_DIRECTORY}, so members know who looks after the site.",
+    done_line_without_badge="You're set up as a Webmaster.",
+    celebration="Your Webmaster badge is on your Member Directory card.",
+    facts=reading_only_facts,
+    steps=(
+        SetupStep(
+            key=LEARN,
+            title="Learn What Comes to You",
+            note="About a minute to read",
+            why="There is nothing to open: the work is in the emails.",
+            email_line="Learn what comes to you",
+            how=(
+                "When a scheduled automation fails, you get an email saying what broke and when, at most "
+                "once a day for each automation.",
+                "You get an email for each new request in the Feedback Inbox, and for each member reply to one.",
+                "Both are listed under Notification Settings below.",
+            ),
+            guide_section="What Comes to You",
+            got_it=True,
+        ),
+    ),
+)
+
+#: The capability cards, in the order the Guide For picker lists them.
 CAPABILITY_SETUPS: tuple[PermissionSetupSpec, ...] = (
     CMS_ADMIN_SETUP,
     SPACE_ADMIN_SETUP,
@@ -419,4 +557,7 @@ CAPABILITY_SETUPS: tuple[PermissionSetupSpec, ...] = (
     BILLING_ADMIN_SETUP,
     EQUIPMENT_ADMIN_SETUP,
     SPACE_MANAGER_SETUP,
+    DISCOUNT_ADMIN_SETUP,
+    REFUNDS_SETUP,
+    WEBMASTER_SETUP,
 )

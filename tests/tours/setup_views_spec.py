@@ -163,7 +163,7 @@ def describe_the_buttons():
         assert signed_in(plain).post(_url(action), {"step": tour_setup.LEARN}).status_code == 404
 
     def it_is_a_404_for_a_permission_with_no_card(guide: Member):
-        url = reverse("hub_permission_setup_hide", args=[AdminCapability.Capability.REFUNDS])
+        url = reverse("hub_permission_setup_hide", args=["not_a_permission"])
         assert signed_in(guide).post(url).status_code == 404
 
     def it_refuses_a_get(guide: Member):

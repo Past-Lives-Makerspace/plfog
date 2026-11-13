@@ -1,9 +1,12 @@
 {% extends "hub/base.html" %}
-{% load tab_picker %}
+{% load static tab_picker %}
 {% block title %}User Settings{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'css/permission-setup.css' %}">{% endblock %}
 
 {% block content %}
 {% include "components/page_header.html" with title="User Settings" new_key="account" %}
+{# Discount Code Administrator, Refunds and Webmaster have no page of their own; their Get Set Up cards sit here, beside the emails they bring (#1167). #}
+{% include "hub/partials/_permission_setups.html" %}
 
 <div id="pl-settings-root"
      x-data="plSettingsRoot('{{ active_tab|default:"guilds" }}')"
