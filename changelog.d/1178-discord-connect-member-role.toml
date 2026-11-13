@@ -1,6 +1,7 @@
 bump = "patch"
 date = "2026-11-12"
 audience = "members"
+feature = "account.discord"
 guidance = "none"
 title = "Connecting Discord works again and opens the server's channels"
 changes = [
