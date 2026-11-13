@@ -439,17 +439,17 @@ def refund_facts(member: Member) -> SetupFacts:
 
 #: Where the three permissions with no page of their own keep their card: the settings tab that
 #: lists the emails they bring, which every member can open.
-_NOTIFICATIONS = {
-    "page_url_name": "hub_user_settings",
-    "page_query": "?tab=notifications",
-    "page_name": "Notification Settings",
-}
+_NOTIFICATIONS_URL_NAME = "hub_user_settings"
+_NOTIFICATIONS_QUERY = "?tab=notifications"
+_NOTIFICATIONS_NAME = "Notification Settings"
 
 DISCOUNT_ADMIN_SETUP = PermissionSetupSpec(
     permission=Capability.DISCOUNT_APPROVER,
     title="Get Set Up to Approve Discount Codes",
     lead="One thing to read, then one optional step.",
-    **_NOTIFICATIONS,
+    page_url_name=_NOTIFICATIONS_URL_NAME,
+    page_query=_NOTIFICATIONS_QUERY,
+    page_name=_NOTIFICATIONS_NAME,
     done_title="You're a Discount Code Administrator",
     done_line=f"{_ON_DIRECTORY}, so instructors know who approves discount codes.",
     done_line_without_badge="You're set up to approve discount codes.",
@@ -486,7 +486,9 @@ REFUNDS_SETUP = PermissionSetupSpec(
     permission=Capability.REFUNDS,
     title="Get Set Up to Send Refunds",
     lead="One thing to read, then one optional step.",
-    **_NOTIFICATIONS,
+    page_url_name=_NOTIFICATIONS_URL_NAME,
+    page_query=_NOTIFICATIONS_QUERY,
+    page_name=_NOTIFICATIONS_NAME,
     done_title="You Can Send Refunds",
     done_line=f"{_ON_DIRECTORY}, so members know who can refund them.",
     done_line_without_badge="You're set up to send refunds.",
@@ -523,7 +525,9 @@ WEBMASTER_SETUP = PermissionSetupSpec(
     permission=Capability.WEBMASTER,
     title="Get Set Up as a Webmaster",
     lead="One thing to read. Nothing else to set up: the work comes to you by email.",
-    **_NOTIFICATIONS,
+    page_url_name=_NOTIFICATIONS_URL_NAME,
+    page_query=_NOTIFICATIONS_QUERY,
+    page_name=_NOTIFICATIONS_NAME,
     done_title="You're a Webmaster",
     done_line=f"{_ON_DIRECTORY}, so members know who looks after the site.",
     done_line_without_badge="You're set up as a Webmaster.",
