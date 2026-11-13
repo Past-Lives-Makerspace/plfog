@@ -28,10 +28,11 @@ from core.htmx import wants_fragment
 from hub.event_exports import stream_event_guests_csv
 from hub.event_lifecycle import EVENT_FACETS
 from hub.forms import EventStaffGuestForm
+from hub.permission_setup_views import page_setups
 from hub.toast import trigger_toast
 from hub.view_as import events_admin_access_required
 from hub.views import _event_delete_confirm_message, _event_edit_url, _get_hub_context, _google_sync_enabled
-from membership.models import CommunityEvent, EventRSVP, EventUnpublishError, InvalidEventTransition
+from membership.models import AdminCapability, CommunityEvent, EventRSVP, EventUnpublishError, InvalidEventTransition
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -130,6 +131,7 @@ def hub_admin_events(request: HttpRequest) -> HttpResponse:
             "search_clear_url": _url_without("q"),
             "add_url": reverse("hub_event_add"),
             **table,
+            **page_setups(request, AdminCapability.Capability.EVENTS_APPROVER),
         },
     )
 

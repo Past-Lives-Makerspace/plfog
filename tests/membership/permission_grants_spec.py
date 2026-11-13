@@ -243,13 +243,13 @@ def describe_the_email():
         granter: Member, pell: Member, django_capture_on_commit_callbacks
     ):
         with django_capture_on_commit_callbacks(execute=True):
-            pell.sync_admin_capabilities([Cap.EQUIPMENT], granted_by=granter.user)
+            pell.sync_admin_capabilities([Cap.WEBMASTER], granted_by=granter.user)
         [email] = _granted_emails()
         html, text = _html(email), email.body
-        guide = AdminCapability.GUIDES[Cap.EQUIPMENT]
+        guide = AdminCapability.GUIDES[Cap.WEBMASTER]
         base = settings.MEMBER_BASE_URL.rstrip("/")
         for body in (html, text):
-            assert "You have been granted Equipment Administrator" in body
+            assert "You have been granted Webmaster" in body
             assert guide.what in body
             assert guide.how in body
             assert "Osric Wrenfield turned this on for you" in body

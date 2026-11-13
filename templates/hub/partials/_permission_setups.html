@@ -1,0 +1,21 @@
+{% comment %}
+Every Get Set Up card a page hosts for the viewer (#1167, part 2): one per permission they hold,
+stacked in the order the view named them. A card the member hid folds to one line here, with
+the Guide and Show Get Set Up, so the way back stays on the page.
+
+Context: setups (hub.permission_setup_views.page_setups), setup_next.
+{% endcomment %}
+{% for state in setups %}
+{% if state.hidden %}
+<div class="hub-card pl-perm-hidden" data-permission-setup-hidden="{{ state.spec.permission }}">
+  <p class="hub-text-muted"><a href="{{ state.spec.guide_url }}" class="pl-card-link">{{ state.spec.badge_name }} Guide</a> · Get Set Up is hidden.</p>
+  <form method="post" action="{% url 'hub_permission_setup_show' state.spec.permission %}">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ setup_next }}">
+    <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Show Get Set Up</button>
+  </form>
+</div>
+{% else %}
+<div{% if forloop.first %} data-guidance-target="permissions.get-set-up"{% endif %}>{% include "hub/partials/_permission_setup.html" with setup=state %}</div>
+{% endif %}
+{% endfor %}

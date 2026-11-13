@@ -3,6 +3,7 @@
 {% block title %}Manage Events{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/events-admin.css' %}">
+<link rel="stylesheet" href="{% static 'css/permission-setup.css' %}">
 {% endblock %}
 {% block content %}
 {% comment %}
@@ -14,6 +15,7 @@ The RSVPs column is the people count (party sizes summed, #831 part 4). The Even
 is a reserved slot: track B fills it once an event can be listed.
 {% endcomment %}
 {% include "components/page_header.html" with title="Manage Events" new_key="admin.events" description="Every event on the Calendar: proposals waiting for a review, what is scheduled, what is live and what has passed." action_url=add_url action_label="+ Add event" action_class="hub-btn hub-btn--primary hub-btn--sm" %}
+{% include "hub/partials/_permission_setups.html" %}
 
 <div class="hub-card pl-events-admin" data-events-admin>
   <div class="admin-toolbar">

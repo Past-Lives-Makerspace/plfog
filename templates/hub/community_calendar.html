@@ -9,6 +9,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/hub.css' %}">
 <link rel="stylesheet" href="{% static 'css/components.css' %}">
+<link rel="stylesheet" href="{% static 'css/permission-setup.css' %}">
 <style>
   [x-cloak]{display:none !important}
   body.calendar-portal { background: var(--hub-bg); }
@@ -63,6 +64,8 @@
     Events added to this calendar are also synced to the shared Past Lives Google Calendar.
 </p>
 {% endif %}
+
+{% include "hub/partials/_permission_setups.html" %}
 
 <div x-data="{ tab: new URLSearchParams(window.location.search).get('tab') === 'events' ? 'events' : 'calendar' }">
 

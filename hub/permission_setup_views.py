@@ -1,5 +1,8 @@
 """The Get Set Up card's buttons (#1167): Got It, Skip This Step, Hide and Show the Get Set Up Card.
 
+Also what a page needs to host the cards (:func:`page_setups`) and the shared Guide page
+(:func:`permission_guide`) for a permission whose page has no Guide tab of its own.
+
 Each is a small POST on the member's own :class:`~membership.models.PermissionSetup` row, for one
 permission they hold (a 404 for anyone else, the same as an unknown permission), and lands back
 on the page it came from (``next``), else the permission's own page. A Got It that finishes setup
@@ -8,16 +11,19 @@ gives the badge and shows its toast there.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import Http404, HttpResponse, HttpResponseBadRequest
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from membership.permission_setup import SetupState
+from hub.view_as import ROLE_ADMIN
+from membership.models import WikiPage
+from membership.permission_setup import SetupState, spec_for
+from membership.permissions import can_edit_wiki_page
 
 if TYPE_CHECKING:
     from django.http import HttpRequest
@@ -41,7 +47,60 @@ def _back(request: HttpRequest, state: SetupState) -> HttpResponse:
         next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()
     ):
         return redirect(next_url)
-    return redirect(state.spec.page_url_name)
+    return redirect(state.spec.page_url)
+
+
+def page_setups(request: HttpRequest, *permissions: str) -> dict[str, Any]:
+    """Context for a page hosting the Get Set Up cards of ``permissions``: those the viewer holds.
+
+    ``hub/partials/_permission_setups.html`` draws them. A load that finishes setup, or first sees
+    it finished, toasts the badge here.
+    """
+    member = getattr(request.user, "member", None) if request.user.is_authenticated else None
+    states = SetupState.for_page(member, permissions)
+    for state in states:
+        if state.just_finished:
+            messages.success(request, state.spec.celebration)
+    return {"setups": states, "setup_next": request.get_full_path()}
+
+
+@login_required
+def permission_guide(request: HttpRequest, permission: str) -> HttpResponse:
+    """The Guide page (#1167): the wiki page an admin linked to ``permission``, and a hidden card's way back.
+
+    For the holder and for admins (404 for anyone else). A permission whose page has a Guide tab of
+    its own (Tour Guide) goes there.
+    """
+    spec = spec_for(permission)
+    if spec is None:
+        raise Http404("No guide for this permission.")
+    if spec.guide_url_name:
+        return redirect(spec.guide_url)
+    member = getattr(request.user, "member", None)
+    state = SetupState.load(member, permission) if member is not None else None
+    view_as = getattr(request, "view_as", None)
+    is_admin = view_as is not None and view_as.has_actual(ROLE_ADMIN)
+    if state is None and not is_admin:
+        raise Http404("No guide for this permission.")
+    if state is not None and state.just_finished:
+        messages.success(request, spec.celebration)
+    page = WikiPage.guide_page_for(permission)
+    if page is not None:
+        page = WikiPage.objects.select_related("updated_by").prefetch_related("facts").get(pk=page.pk)
+    return render(
+        request,
+        "hub/permission_guide.html",
+        {
+            "spec": spec,
+            "is_admin": is_admin,
+            "page": page,
+            "facts": list(page.facts.all()) if page is not None else [],
+            "toc": page.toc() if page is not None and page.has_written_body else [],
+            "can_edit": page is not None and can_edit_wiki_page(request, page),
+            "setup": state,
+            "tab": "guide",
+        },
+    )
 
 
 @login_required

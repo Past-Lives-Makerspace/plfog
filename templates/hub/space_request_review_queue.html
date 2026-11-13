@@ -1,4 +1,6 @@
 {% extends "hub/base.html" %}
+{% load static %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'css/permission-setup.css' %}">{% endblock %}
 {% block title %}Space requests awaiting review — Past Lives Makerspace{% endblock %}
 {% block content %}
 <div x-data="{}"
@@ -12,6 +14,7 @@
         finalize the agreement yourself. It does not create one automatically.
     </p>
 
+    {% include "hub/partials/_permission_setups.html" %}
     <div class="hub-card pl-map-review">
         {% if pending_requests %}
         <div class="pl-map-review__list">

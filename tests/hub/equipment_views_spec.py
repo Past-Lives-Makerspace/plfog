@@ -449,7 +449,8 @@ def describe_equipment_index():
             # 40 since #935: the sidebar's Spotlight is a static version card, so neither of its two queries runs.
             # 39 since the hidden-guild sidebar: its guild list reads the demo guild setting inside its one query.
             # 40 with the usage log (#1078): its one insert.
-            with django_assert_num_queries(40):
+            # 41 with Get Set Up (#1167): the one query asking whether the viewer holds Equipment or Space Manager.
+            with django_assert_num_queries(41):
                 assert client.get(url).status_code == 200
 
         def it_answers_an_empty_grid_without_the_member_lookups(django_assert_num_queries):

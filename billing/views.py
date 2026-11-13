@@ -27,6 +27,7 @@ from billing.exceptions import TabLimitExceededError, TabLockedError
 from billing.forms import CONTEXT_ADMIN_DASHBOARD, TabItemForm
 from billing.models import BillingSettings, Payout, PayoutAccount, Tab, TabCharge, TabEntry
 from core.integrations.eventbrite import EventbriteError
+from hub.permission_setup_views import page_setups
 from hub.view_as import billing_admin_access_required, fog_admin_required, refund_authority_required
 
 if TYPE_CHECKING:
@@ -497,6 +498,9 @@ def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
     if active_tab == "reconciliation":
         context.update(_reconciliation_context(request))
 
+    from membership.models import AdminCapability
+
+    context.update(page_setups(request, AdminCapability.Capability.BILLING_APPROVER))
     return render(request, "billing/admin_dashboard.html", context)
 
 

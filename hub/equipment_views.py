@@ -43,6 +43,7 @@ from hub.forms import (
     EquipmentStaffAddForm,
     OrientationCustomRequestForm,
 )
+from hub.permission_setup_views import page_setups
 from hub.toast import trigger_toast
 from hub.reservation_bookings import reservation_bookings_context
 from hub.views import (
@@ -60,6 +61,7 @@ from hub.views import (
 from membership import equipment as equipment_service
 from core.htmx import wants_fragment
 from membership.models import (
+    AdminCapability,
     Equipment,
     EquipmentAgreementAcceptance,
     EquipmentCredit,
@@ -646,6 +648,7 @@ def hub_equipment_index(request: HttpRequest) -> HttpResponse:
             "calendar_key": CALENDAR_KEY,
             # The Bookings pane's own keys, merged in only when it opens (#627).
             **(reservation_bookings_context(request) if pane == "bookings" else {}),
+            **page_setups(request, AdminCapability.Capability.EQUIPMENT, AdminCapability.Capability.SPACE_MANAGER),
         },
     )
 

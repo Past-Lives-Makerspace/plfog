@@ -55,6 +55,7 @@ if TYPE_CHECKING:
     from membership.models import Member
 
 from hub.toast import trigger_toast
+from hub.permission_setup_views import page_setups
 from hub.view_as import classes_review_access_required, refund_authority_required
 
 from classes.access import (
@@ -4403,6 +4404,8 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
         if row.grouping_key in group_sizes:
             row.group_size = group_sizes[row.grouping_key]
             row.group_url = "?" + _url_without(group=row.grouping_key)
+    from membership.models import AdminCapability
+
     return render(
         request,
         "classes/admin/classes_list.html",
@@ -4422,6 +4425,7 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
             "selected_group": group_filter,
             "group_clear_url": _url_without("group"),
             **table,
+            **page_setups(request, AdminCapability.Capability.CLASS_APPROVER),
         },
     )
 

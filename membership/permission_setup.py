@@ -14,7 +14,7 @@ setup (the badge) the first time every required step is done.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -45,6 +45,8 @@ class SetupStep:
     email_line: str
     action_label: str = ""
     action_url_name: str = ""
+    #: A query string for the action's page, e.g. "?status=needs_review" for a filter chip.
+    action_query: str = ""
     #: The bullets inside the open step; reading steps show them in the body, others in a disclosure.
     how: tuple[str, ...] = ()
     how_title: str = "How It Works"
@@ -61,7 +63,7 @@ class SetupStep:
     @property
     def action_url(self) -> str:
         """Where the step's button and its closed row go, or "" for a step with no page."""
-        return reverse(self.action_url_name) if self.action_url_name else ""
+        return f"{reverse(self.action_url_name)}{self.action_query}" if self.action_url_name else ""
 
 
 @dataclass(frozen=True)
@@ -98,19 +100,22 @@ class PermissionSetupSpec:
     page_url_name: str
     #: That page's name in the grant email, e.g. "the Tours page".
     page_name: str
-    #: The tab that shows the permission's wiki page and brings a hidden card back.
-    guide_url_name: str
     done_title: str
     #: The folded card's line while the member holds the badge.
     done_line: str
     #: The line instead, once an admin has taken the badge away on the Badges page.
     done_line_without_badge: str
-    #: The one rule the folded card states, e.g. how a guide is paid. Never a tracked figure.
-    rule_line: str
     #: The toast the member sees once, when setup finishes.
     celebration: str
+    #: The one rule the folded card states, e.g. how a guide is paid. Never a tracked figure.
+    rule_line: str = ""
     #: ``(step key, title, lead)``: once that step is done the card's title and lead change to these.
     milestone: tuple[str, str, str] | None = None
+    #: The page's own tab showing the permission's wiki page, when it has one (Tours); else the
+    #: shared Guide page (``hub_permission_guide``) shows it.
+    guide_url_name: str = ""
+    #: The badge's name when it differs from the permission's (Can create events earns Event Creator).
+    badge_label: str = ""
 
     @property
     def label(self) -> str:
@@ -118,6 +123,23 @@ class PermissionSetupSpec:
         from membership.models import AdminCapability
 
         return AdminCapability.Capability(self.permission).label
+
+    @property
+    def badge_name(self) -> str:
+        """What the badge setup earns is called, e.g. Event Creator."""
+        return self.badge_label or self.label
+
+    @property
+    def page_url(self) -> str:
+        """The page the card lives on."""
+        return reverse(self.page_url_name)
+
+    @property
+    def guide_url(self) -> str:
+        """Where Open the Guide goes: the page's own Guide tab, else the shared Guide page."""
+        if self.guide_url_name:
+            return reverse(self.guide_url_name)
+        return reverse("hub_permission_guide", args=[self.permission])
 
     def email_steps(self, member: Member) -> tuple[SetupStep, ...]:
         """The steps the grant email lists: those this site can do now, by the same check the card uses."""
@@ -138,9 +160,10 @@ class PermissionSetupSpec:
 
 def specs() -> dict[str, PermissionSetupSpec]:
     """Every permission that has a Get Set Up card, by permission."""
+    from membership.capability_setup import CAPABILITY_SETUPS
     from tours.setup import TOUR_GUIDE_SETUP
 
-    return {TOUR_GUIDE_SETUP.permission: TOUR_GUIDE_SETUP}
+    return {spec.permission: spec for spec in (*CAPABILITY_SETUPS, TOUR_GUIDE_SETUP)}
 
 
 def spec_for(permission: str) -> PermissionSetupSpec | None:
@@ -181,6 +204,23 @@ class SetupState:
         Attended): the badge lands at once, and the guide still sees the toast on their next visit.
         """
         cls.load(member, permission, celebrate=False)
+
+    @classmethod
+    def for_page(cls, member: Member | None, permissions: Iterable[str]) -> list[SetupState]:
+        """The member's cards for the permissions a page hosts, in that order: only those they hold.
+
+        One query finds which they hold, so a page costs a single query for everyone else.
+        """
+        from membership.models import AdminCapability
+
+        if member is None:
+            return []
+        wanted = [permission for permission in permissions if spec_for(permission) is not None]
+        held = set(
+            AdminCapability.objects.filter(member=member, capability__in=wanted).values_list("capability", flat=True)
+        )
+        states = (cls.load(member, permission) for permission in wanted if permission in held)
+        return [state for state in states if state is not None]
 
     @classmethod
     def load(cls, member: Member, permission: str, *, celebrate: bool = True) -> SetupState | None:

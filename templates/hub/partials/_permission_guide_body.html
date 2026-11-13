@@ -1,0 +1,34 @@
+{% comment %}
+A permission's Guide (#1167): the wiki page an admin linked to it (WikiPage.guide_for), rendered as
+the wiki renders it, or a line saying there is none yet. Shared by the Tours Guide tab and the
+Guide page (hub/permission_guide.html).
+
+Context: page (or None), facts, toc, can_edit, is_admin, setup (or None), empty_line, guide_label.
+{% endcomment %}
+<div class="pl-perm-guide">
+  {% if page %}
+  <div class="hub-card" data-guide-page="{{ page.slug }}">
+    <div class="pl-perm-guide__head">
+      <div class="pl-perm-guide__meta">
+        <span class="hub-pill hub-pill--{{ page.status_pill.0 }}">{{ page.status_pill.1 }}</span>
+        <span>Updated {{ page.updated_at|date:"M j" }}{% if page.updated_by %} by {{ page.updated_by.display_name }}{% endif %}</span>
+      </div>
+      <a href="{% url 'hub_wiki_page' page.slug %}" class="pl-btn pl-btn--secondary pl-btn--sm">{% if can_edit %}Open to Edit on the Wiki{% else %}Open on the Wiki{% endif %}</a>
+    </div>
+    {% if toc|length > 1 %}
+    <nav class="pl-wp-toc" aria-label="On this page">
+      {% for level, anchor, text in toc %}<a href="#{{ anchor }}" class="pl-wp-toc__chip">{{ text }}</a>{% endfor %}
+    </nav>
+    {% endif %}
+    {% include "hub/partials/_wiki_body.html" %}
+    <div class="pl-perm-guide__next">
+      <p class="hub-text-muted">Something missing or out of date? {% if setup %}Ask {{ setup.granter_name }}.{% else %}Admins edit this page on the wiki.{% endif %}</p>
+    </div>
+  </div>
+  {% else %}
+  <div class="hub-card pl-perm-guide__empty" data-guide-empty>
+    <p>{{ empty_line }}</p>
+    {% if is_admin %}<p class="hub-text-muted">Open any space wide wiki page's Edit and pick {{ guide_label }} under Guide For. It shows here.</p>{% endif %}
+  </div>
+  {% endif %}
+</div>

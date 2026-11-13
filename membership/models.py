@@ -6197,10 +6197,11 @@ class LeadershipBadge(models.Model):
     @classmethod
     def for_permission(cls, permission: str) -> LeadershipBadge:
         """The badge finishing ``permission``'s setup earns, made in the house gold on first use (#1167)."""
-        badge, _created = cls.objects.get_or_create(
-            permission=permission,
-            defaults={"label": AdminCapability.Capability(permission).label},
-        )
+        from membership.permission_setup import spec_for
+
+        spec = spec_for(permission)
+        label = spec.badge_name if spec is not None else AdminCapability.Capability(permission).label
+        badge, _created = cls.objects.get_or_create(permission=permission, defaults={"label": label})
         return badge
 
     def __str__(self) -> str:

@@ -1,5 +1,6 @@
 {% extends "hub/base.html" %}
-{% load classes_tags guidance %}
+{% load static classes_tags guidance %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'css/permission-setup.css' %}">{% endblock %}
 
 {% block title %}Payments — Past Lives{% endblock %}
 
@@ -123,6 +124,8 @@
     <p class="pl-text-muted">Payment history across the makerspace.</p>
     {% endif %}
   </div>
+
+  {% if setups %}<div>{% include "hub/partials/_permission_setups.html" %}</div>{% endif %}
 
   {# --- Tab navigation (suppressed when only one tab would render) --- #}
   {% if features.my_tab.is_on or viewer_is_fog_admin %}

@@ -1,5 +1,8 @@
 {% extends "classes/admin/base.html" %}
-{% load classes_tags guidance %}
+{% load static classes_tags guidance %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'css/permission-setup.css' %}">{% endblock %}
+{# The CMS Administrator's Get Set Up card (#1167), above the portal card. #}
+{% block portal_top %}{% include "hub/partials/_permission_setups.html" %}{% endblock %}
 {% block portal_whats_new %}{% whats_new_button "classes.review" %}{% endblock %}
 {% block tab_content %}
 <div class="admin-toolbar">

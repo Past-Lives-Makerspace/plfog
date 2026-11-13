@@ -22,10 +22,10 @@ back on after a button), tab (the page's tab, so the Guide tab leaves out Open t
       {% endfor %}
     </ul>
     {% endif %}
-    <p class="pl-perm-done__rule">{{ spec.rule_line }}</p>
+    {% if spec.rule_line %}<p class="pl-perm-done__rule">{{ spec.rule_line }}</p>{% endif %}
   </div>
   <div class="pl-perm-done__actions">
-    {% if tab != "guide" %}<a href="{% url spec.guide_url_name %}" class="pl-btn pl-btn--secondary pl-btn--sm">Open the Guide</a>{% endif %}
+    {% if tab != "guide" %}<a href="{{ spec.guide_url }}" class="pl-btn pl-btn--secondary pl-btn--sm">Open the Guide</a>{% endif %}
     <form method="post" action="{% url 'hub_permission_setup_hide' spec.permission %}">
       {% csrf_token %}
       <input type="hidden" name="next" value="{{ setup_next }}">
@@ -90,7 +90,7 @@ back on after a button), tab (the page's tab, so the Guide tab leaves out Open t
             <ul class="pl-perm-step__list">
               {% if view.step.got_it %}{% for line in view.step.more %}<li>{{ line }}</li>{% endfor %}{% else %}{% for line in view.step.how %}<li>{{ line }}</li>{% endfor %}{% endif %}
             </ul>
-            {% if view.step.guide_section %}<p class="pl-perm-step__more"><a href="{% url spec.guide_url_name %}" class="pl-card-link">Read {{ view.step.guide_section }} in the Guide →</a></p>{% endif %}
+            {% if view.step.guide_section %}<p class="pl-perm-step__more"><a href="{{ spec.guide_url }}" class="pl-card-link">Read {{ view.step.guide_section }} in the Guide →</a></p>{% endif %}
           </div>
         </details>
         {% endif %}
@@ -124,7 +124,7 @@ back on after a button), tab (the page's tab, so the Guide tab leaves out Open t
     {% endif %}
     {% endfor %}
   </div>
-  <p class="pl-onboarding__progress hub-text-muted">{{ setup.done_count }} of {{ setup.counted|length }} done. Questions? Ask {{ setup.granter_name }}.</p>
+  <p class="pl-onboarding__progress hub-text-muted">{{ setup.done_count }} of {{ setup.counted|length }} done. Questions? Ask {{ setup.granter_name }}.{% if not spec.guide_url_name %} <a href="{{ spec.guide_url }}" class="pl-card-link" data-setup-guide>Open the Guide →</a>{% endif %}</p>
 </div>
 {% endif %}
 {% endwith %}
