@@ -61,7 +61,7 @@
     {% if form.capacity %}
         <div class="pl-seats-pair">
         {% include "components/form_field.html" with field=form.capacity %}
-        {% include "components/form_field.html" with field=form.minimum_signups %}
+        <div data-guidance-target="classes.minimum-signups">{% include "components/form_field.html" with field=form.minimum_signups %}</div>
         </div>
     {% else %}
         <p class="pl-compose-section__note" data-seats-flexible>Flexible classes have no seat cap. Students book one at a time with you.</p>

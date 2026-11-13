@@ -200,7 +200,7 @@ def describe_setting_the_minimum():
         instructor = _instructor()
         client.force_login(instructor.user)
         html = client.get(reverse("classes:teach_class_create")).content.decode()
-        pair = html[html.index('<div class="pl-seats-pair">') : html.index('data-seats-block="flexible"')]
+        pair = html[html.index('<div class="pl-seats-pair"') : html.index('data-seats-block="flexible"')]
         assert pair.index('name="capacity"') < pair.index('name="minimum_signups"')
 
     def it_renders_beside_capacity_on_the_live_edit_page(client: Client):
@@ -208,7 +208,7 @@ def describe_setting_the_minimum():
         offering = _live_class(starts_in=timedelta(days=10), instructor=instructor)
         client.force_login(instructor.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        pair = html[html.index('<div class="pl-seats-pair">') :]
+        pair = html[html.index('<div class="pl-seats-pair"') :]
         assert pair.index('name="capacity"') < pair.index('name="minimum_signups"')
         assert html.count('name="minimum_signups"') == 1
 
