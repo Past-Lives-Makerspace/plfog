@@ -37,6 +37,7 @@ _CHANNEL_LABELS: dict[Channel, str] = {
 _VOTING_AUTOMATIC = {"voting.closing_soon", "voting.vote_soon", "voting.officers_closing_soon"}
 _OTHER_AUTOMATIC = {
     "class_reminder": "Sent automatically before each class starts.",
+    "class.under_minimum": "Sent automatically a day before registration closes on a class under its minimum.",
     "event.reminder": "Sent automatically before an event starts.",
     "event.happening_now": "Sent automatically when an event is starting.",
     "lease_expiring": "Sent automatically as a space agreement nears its end date.",

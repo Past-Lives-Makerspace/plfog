@@ -397,6 +397,16 @@ def _refund_admin_url(refund: PaymentRefund) -> str:
     return _absolute_url(f"{reverse('billing_admin_dashboard')}?tab=payments&source=late_fee&status=failed")
 
 
+def alert_refund_failed(refund: PaymentRefund) -> None:
+    """Tell the Billing Administrators a refund nobody watched being issued failed, so they retry it.
+
+    For refunds an automatic path issues (a class its minimum cancelled, #1182): the refund
+    panel shows an admin's own failure inline, but an automatic one has no one on the page.
+    The same alert, copy and Retry link as an async failure.
+    """
+    _emit_refund_failed_alert(refund)
+
+
 def _emit_refund_failed_alert(refund: PaymentRefund) -> None:
     """Alert the Billing Administrators that an async refund failure needs a retry.
 

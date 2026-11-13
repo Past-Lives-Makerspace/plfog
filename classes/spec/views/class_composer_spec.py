@@ -272,6 +272,7 @@ def _full_payload(category, **extra) -> dict:
         "age_guardian_note": "Guardians welcome.",
         "price_cents": "80.00",
         "capacity": "8",
+        "minimum_signups": "",
         "scheduling_model": "flexible",
         "scheduling_type": "series_package",
         "flexible_note": "We will find a time together.",

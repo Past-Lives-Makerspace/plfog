@@ -346,8 +346,11 @@ Do not merge them.
         <h3 class="pl-compose-section__title">Seats</h3>
         {# The capacity field stays in the DOM under Flexible (hidden, still posted, never read for a flexible class); the note swaps with the model (#545). #}
         <div data-seats-block="fixed" x-show="schedulingModel === 'fixed'" x-cloak>
-          <p class="pl-compose-section__note">How many can attend.</p>
-          {% include "components/form_field.html" with field=form.capacity %}
+          <p class="pl-compose-section__note">How many can attend, and the fewest it needs to run.</p>
+          <div class="pl-seats-pair" data-guidance-target="classes.minimum-signups">
+            {% include "components/form_field.html" with field=form.capacity %}
+            {% include "components/form_field.html" with field=form.minimum_signups %}
+          </div>
         </div>
         <p class="pl-compose-section__note" data-seats-block="flexible" x-show="schedulingModel === 'flexible'" x-cloak>Flexible classes have no seat cap. Students book one at a time with you.</p>
         {% if is_admin %}

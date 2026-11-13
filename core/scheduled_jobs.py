@@ -194,6 +194,17 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="enforce_class_minimums",
+        name="Class minimum signups",
+        description=(
+            "Warns instructors a day before registration closes on a class under its minimum signups, "
+            "then cancels and refunds a class still under it once registration closes."
+        ),
+        command="enforce_class_minimums",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="publish_due_events",
         name="Publish scheduled events",
         description="Makes scheduled events and announcements go live at their planned time.",

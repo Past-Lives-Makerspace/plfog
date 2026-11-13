@@ -219,7 +219,7 @@ def describe_mark_paid():
 
 def describe_remove_by_staff():
     def it_cancels_a_seat_holder_and_fires_the_claim_link(db, mailoutbox):
-        offering = ClassOfferingFactory(capacity=1)
+        offering = ClassOfferingFactory(capacity=1, status=ClassOffering.Status.PUBLISHED)
         holder = RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
         waiting = RegistrationFactory(
             class_offering=offering, status=Registration.Status.WAITLISTED, email="waiting@example.com"

@@ -127,7 +127,9 @@ def describe_instructor_move():
 
     def it_promotes_the_source_waitlist_when_a_seat_holder_moves(client):
         mine = _login_instructor(client, "mv-wl@example.com", "mv-wl")
-        source = ClassOfferingFactory(slug="mv-wl-src", instructor=mine, capacity=1)
+        source = ClassOfferingFactory(
+            slug="mv-wl-src", instructor=mine, capacity=1, status=ClassOffering.Status.PUBLISHED
+        )
         target = _bookable_for(mine, "mv-wl-dst")
         reg = RegistrationFactory(class_offering=source, status=Registration.Status.CONFIRMED)
         waiting = RegistrationFactory(class_offering=source, status=Registration.Status.WAITLISTED)

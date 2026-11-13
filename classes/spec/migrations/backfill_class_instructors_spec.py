@@ -28,6 +28,11 @@ def _migrate(target: str) -> None:
     MigrationExecutor(connection).migrate([(_APP, target)])
 
 
+def _payee_id(pk: int) -> int | None:
+    """The class's payee, reading that one column: a class column added after 0092 is absent mid-step."""
+    return ClassOffering.objects.filter(pk=pk).values_list("instructor_id", flat=True).get()
+
+
 @pytest.mark.django_db(transaction=True)
 def describe_migration_0092_classinstructor():
     def it_copies_each_classs_instructor_into_a_row_stamped_with_the_classs_creation():
@@ -40,7 +45,7 @@ def describe_migration_0092_classinstructor():
             rows = list(ClassInstructor.objects.values_list("class_offering_id", "member_id", "added_at"))
             assert rows == [(taught.pk, teacher.pk, taught.created_at)]
             assert not ClassInstructor.objects.filter(class_offering=nobody).exists()
-            assert ClassOffering.objects.get(pk=taught.pk).instructor_id == teacher.pk
+            assert _payee_id(taught.pk) == teacher.pk
         finally:
             migrate_all_to_head()
 
@@ -52,8 +57,8 @@ def describe_migration_0092_classinstructor():
             ClassInstructor.objects.filter(class_offering=offering, member=b).update(
                 added_at=offering.created_at - timedelta(days=1)
             )
-            assert ClassOffering.objects.get(pk=offering.pk).instructor_id == a.pk
+            assert _payee_id(offering.pk) == a.pk
             _migrate(_BEFORE)
-            assert ClassOffering.objects.get(pk=offering.pk).instructor_id == b.pk
+            assert _payee_id(offering.pk) == b.pk
         finally:
             migrate_all_to_head()

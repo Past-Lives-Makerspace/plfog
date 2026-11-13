@@ -4626,6 +4626,7 @@ def _admin_composer(request: HttpRequest, pk: int) -> HttpResponse:
         and session_formset.is_valid()
         and faq_formset.is_valid()
         and form.accepts_eventbrite_listing(cast("User", request.user), faq_formset)
+        and form.accepts_registration_close(session_formset)
     ):
         form.save()
         runs: list[ClassOffering] = []

@@ -1,0 +1,22 @@
+bump = "minor"
+date = "2026-11-13"
+audience = ["instructors", "members"]
+title = "Classes can set a minimum number of signups"
+feature = "classes.teach"
+guidance = "shots"
+target = "classes.minimum-signups"
+changes = [
+  "Instructors can set Minimum signups next to Capacity when writing or editing a class. Leave it blank for no minimum.",
+  "A day before registration closes, the instructor gets an email if the class still needs more signups.",
+  "If the class is still short when registration closes, it cancels itself, everyone registered is told, and everyone who paid gets a full refund.",
+  "The class page shows how many signups a class needs to run and when that is decided.",
+]
+
+[[shots]]
+caption = "In the class builder, set Minimum signups next to Capacity."
+
+[[shots]]
+caption = "The class page tells people how many signups it needs and when that is decided."
+
+[[shots]]
+caption = "Once registration closes, the minimum is locked."

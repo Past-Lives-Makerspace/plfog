@@ -59,7 +59,10 @@
     {% include "components/form_field.html" with field=form.price_cents %}
     {% if offering.sale_is_active %}<p class="pl-field-hint" data-live-sale-hint>On sale: {{ offering.sale_savings_display }}. Change the sale from the manage page.</p>{% endif %}
     {% if form.capacity %}
+        <div class="pl-seats-pair">
         {% include "components/form_field.html" with field=form.capacity %}
+        <div data-guidance-target="classes.minimum-signups">{% include "components/form_field.html" with field=form.minimum_signups %}</div>
+        </div>
     {% else %}
         <p class="pl-compose-section__note" data-seats-flexible>Flexible classes have no seat cap. Students book one at a time with you.</p>
     {% endif %}
@@ -71,7 +74,7 @@
             {# Rendered by the banner photo field below, beside the cropper that writes it. #}
         {% elif field.name == 'instructors' or field.name == 'add_instructor' %}
             {# Rendered by the Instructors control above the loop. #}
-        {% elif field.name == 'title' or field.name == 'category' or field.name == 'price_cents' or field.name == 'capacity' or field.name == 'area' %}
+        {% elif field.name == 'title' or field.name == 'category' or field.name == 'price_cents' or field.name == 'capacity' or field.name == 'minimum_signups' or field.name == 'area' %}
             {# Rendered by name above the loop. #}
         {% elif field.is_hidden %}
             {{ field }}

@@ -562,6 +562,7 @@ ORIENTATION_MESSAGE_TO_MEMBER = "orientation.message_to_member"  # an orientor w
 ORIENTATION_MESSAGE_TO_ORIENTORS = "orientation.message_to_orientors"  # a member wrote on their orientation booking
 ORIENTATION_CONFIRMED_TO_LEAD = "orientation.confirmed_to_lead"  # someone else confirmed one in your guild (#1127)
 CLASS_MESSAGE_TO_INSTRUCTORS = "class.message_to_instructors"  # a reviewer wrote on your class (#975)
+CLASS_UNDER_MINIMUM = "class.under_minimum"  # a day before registration closes, still short (#1182)
 CLASS_MESSAGE_TO_REVIEWERS = "class.message_to_reviewers"  # an instructor wrote on a class you review (#975)
 KILN_CREW_REPLIED = "kiln.crew_replied"  # the kiln crew wrote on your kiln ticket (#691)
 KILN_MAKER_REPLIED = "kiln.maker_replied"  # a maker wrote on a kiln ticket (the kiln crew, #691)
@@ -1611,6 +1612,19 @@ _NEW_EVENTS: list[EventType] = [
         category="Teaching",
         recipient=Recipients.INSTRUCTOR,
         channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # class.under_minimum — a class with a minimum signups count is still short of it a day
+    # before registration closes (#1182). Every instructor of the class hears once (the period
+    # is the class), with the count, the minimum and when it will be cancelled. Email is forced:
+    # missing it costs the class. Fired by the enforce_class_minimums job's scheduler source.
+    EventType(
+        key=CLASS_UNDER_MINIMUM,
+        label="Class under its minimum signups",
+        description="A class you teach is short of its minimum a day before registration closes.",
+        category="Teaching",
+        recipient=Recipients.INSTRUCTOR,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
         activity_kind=None,
     ),
     # class.message_to_reviewers — an instructor posted a message on their class's thread

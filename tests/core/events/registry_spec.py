@@ -90,6 +90,7 @@ _BRAND_NEW_KEYS = {
     "equipment.reservation_message_to_managers",
     "class.message_to_instructors",
     "class.message_to_reviewers",
+    "class.under_minimum",
     "kiln.crew_replied",
     "kiln.maker_replied",
     "kiln.ready_for_pickup",

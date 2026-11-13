@@ -298,7 +298,7 @@ def describe_waitlist_spot_available_notification():
         member_user = UserFactory()
         # The ensure_user_has_member signal auto-creates an ACTIVE Member for member_user.
         member = member_user.member  # type: ignore[attr-defined]
-        offering = ClassOfferingFactory(capacity=1)
+        offering = ClassOfferingFactory(capacity=1, status=ClassOffering.Status.PUBLISHED)
         # Fill the one spot with a confirmed reg
         confirmed_reg = RegistrationFactory(
             class_offering=offering,

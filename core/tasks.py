@@ -104,6 +104,30 @@ def enqueue_on_commit(task: Task[..., Any], *args: Any, **kwargs: Any) -> None:
     transaction.on_commit(lambda: _enqueue(task, stored["args"], stored["kwargs"]), robust=True)
 
 
+def enqueue_in_transaction(task: Task[..., Any], *args: Any) -> None:
+    """Enqueue ``task`` now, inside the caller's transaction, so its row commits or rolls back with the save.
+
+    For work that must never be lost between a commit and its callback, such as a refund owed
+    for a status change (#1182): with the database backend the task row is written in the same
+    transaction as the change, so a process killed after the commit still leaves the task
+    queued, and a rollback leaves neither. The worker cannot see the row until the commit. A
+    failure to enqueue raises, rolling the change back with it. Under pytest the immediate
+    backend runs the task at once, inside the transaction.
+
+    Args:
+        task: A function decorated with ``@task`` from ``django.tasks``. It must be safe to run twice.
+        *args: JSON values only (ids, strings, numbers), never model instances.
+
+    Raises:
+        TypeError: An argument is not JSON.
+    """
+    try:
+        stored = json.loads(json.dumps(normalize_json({"args": args})))
+    except ValueError as exc:  # bytes that are not UTF-8
+        raise TypeError(f"Task arguments must be JSON: {exc}") from exc
+    task.enqueue(*stored["args"])
+
+
 def enqueue_at_on_commit(task: Task[..., Any], run_after: datetime, *args: Any, **kwargs: Any) -> None:
     """Like :func:`enqueue_on_commit`, but the task waits until ``run_after`` (an aware datetime).
 

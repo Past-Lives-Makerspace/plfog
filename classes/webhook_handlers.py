@@ -24,6 +24,7 @@ from classes.emails import (
 from classes.models import (
     EXPIRED_HOLD_CANCEL_REASON,
     FAILED_PAYMENT_CANCEL_REASON,
+    ClassOffering,
     DiscountCode,
     Registration,
 )
@@ -34,8 +35,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# What a paid session did to the registration it names.
-_Outcome = Literal["confirmed", "orphaned", "ignored"]
+# What a paid session did to the registration it names. "class_cancelled" is a payment that
+# landed after its class was cancelled: refunded in full, never a seat (#1182).
+_Outcome = Literal["confirmed", "orphaned", "ignored", "class_cancelled"]
 
 # Why a payment could not be given the seat it was made for. These land in the class's
 # activity feed and in the admin alert, so each one has to be true of the row it is stamped
@@ -115,9 +117,18 @@ def apply_paid_class_session(registration_id: int | str, session: dict[str, Any]
         if payment_intent and _payment_already_recorded(registration, payment_intent):
             return "ignored"
 
+        # The class row is locked too, so this serializes with a cancel: either the cancel's
+        # refund sweep sees this payment, or this sees the cancelled class (#1182).
+        offering = ClassOffering.objects.select_for_update().get(pk=registration.class_offering_id)
         outcome = _apply_paid_session(registration, session, payment_intent)
+        if outcome == "confirmed" and offering.status == ClassOffering.Status.CANCELLED:
+            registration.leave_cancelled_class()
+            outcome = "class_cancelled"
 
     if outcome == "ignored":
+        return outcome
+    if outcome == "class_cancelled":
+        offering.send_cancellation_notice(registration)
         return outcome
     if outcome == "orphaned":
         amount_total = session.get("amount_total")

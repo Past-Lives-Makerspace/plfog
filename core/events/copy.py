@@ -2184,6 +2184,59 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # class.under_minimum — a day before registration closes, the class is still short of its
+    # minimum signups (#1182). To every instructor; names the count, the minimum, how many more
+    # it needs and when it will be cancelled.
+    "class.under_minimum": EventCopy(
+        placeholders=(
+            "class_title",
+            "confirmed_count",
+            "minimum_signups",
+            "needed_count",
+            "cancel_at",
+            "manage_url",
+        ),
+        sample_context={
+            "class_title": "Make Two Mugs",
+            "confirmed_count": "2",
+            "minimum_signups": "4",
+            "needed_count": "2",
+            "cancel_at": "Friday, November 20 at 6:00 PM",
+            "manage_url": "https://pastlives.example/classes/teach/classes/12/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(
+                subject="{{ class_title }} needs {{ needed_count }} more signups",
+                body_text=(
+                    "{{ confirmed_count }} of the {{ minimum_signups }} it needs to run. "
+                    "It will be cancelled on {{ cancel_at }} if it is still short."
+                ),
+            ),
+            Channel.EMAIL: ChannelCopy(
+                subject="{{ class_title }} needs {{ needed_count }} more signups to run",
+                body_text=(
+                    "Your class {{ class_title }} has {{ confirmed_count }} confirmed signups. "
+                    "It needs {{ minimum_signups }} to run, so {{ needed_count }} more.\n\n"
+                    "If it is still short when registration closes on {{ cancel_at }}, it will be "
+                    "cancelled and everyone who signed up will be refunded.\n\n"
+                    "To run it anyway, lower or clear the minimum before then: {{ manage_url }}\n\n"
+                    "Past Lives Makerspace"
+                ),
+                body_html=(
+                    "<p>Your class <strong>{{ class_title }}</strong> has {{ confirmed_count }} confirmed "
+                    "signups. It needs {{ minimum_signups }} to run, so {{ needed_count }} more.</p>"
+                    "<p>If it is still short when registration closes on <strong>{{ cancel_at }}</strong>, "
+                    "it will be cancelled and everyone who signed up will be refunded.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ manage_url }}" '
+                    'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
+                    'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
+                    "Manage Your Class</a></p>"
+                    "<p>To run it anyway, lower or clear the minimum before then.</p>"
+                    "<p>Past Lives Makerspace</p>"
+                ),
+            ),
+        },
+    ),
     "class.message_to_reviewers": EventCopy(
         placeholders=("author_name", "class_title", "message_body", "messages_url"),
         sample_context={

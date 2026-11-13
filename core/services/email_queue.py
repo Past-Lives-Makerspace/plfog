@@ -261,20 +261,22 @@ Source: TypeAlias = "tuple[Callable[[datetime], Iterable[ScheduledOccurrence]], 
 def timed_email_sources() -> list[Source]:
     """The scheduler sources the cron's email jobs run, each with its reach per call.
 
-    * Class reminders select sessions in a one hour band, so one call shows an hour of sends.
+    * Class reminders, and the warning on a class under its minimum (#1182), select a one hour
+      band, so one call shows an hour of sends.
     * Event reminders and "starting now" look one tick ahead, so they are called every tick.
     * The voting reminders fire at one instant per cycle (the close less the lead days), so
       two calls a day apart see it, across a month change too.
 
     The Discord-only voting reminder is not listed: it sends no email.
     """
-    from classes.tasks import class_reminder_occurrences
+    from classes.tasks import class_reminder_occurrences, minimum_warning_occurrences
     from membership.events import event_happening_now_occurrences, event_reminder_occurrences
     from membership.voting import closing_soon_occurrences, officers_closing_soon_occurrences, vote_soon_occurrences
 
     whole_window = timedelta(hours=UPCOMING_HOURS) - DEFAULT_WINDOW
     return [
         (class_reminder_occurrences, timedelta(hours=1)),
+        (minimum_warning_occurrences, timedelta(hours=1)),
         (event_reminder_occurrences, DEFAULT_WINDOW),
         (event_happening_now_occurrences, DEFAULT_WINDOW),
         (closing_soon_occurrences, whole_window),

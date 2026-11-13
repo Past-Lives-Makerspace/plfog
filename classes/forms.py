@@ -562,6 +562,110 @@ class _RegistrationCutoffMixin:
             self.add_error("registration_cutoff_hours", REGISTRATION_CUTOFF_REQUIRED_MESSAGE)  # type: ignore[attr-defined]
 
 
+MINIMUM_SIGNUPS_OVER_CAPACITY_MESSAGE = "The minimum cannot be more than the class's {capacity} seats."
+MINIMUM_SIGNUPS_NEEDS_CUTOFF_MESSAGE = (
+    "A minimum needs the registration cutoff switched on: the class is decided when registration closes."
+)
+MINIMUM_SIGNUPS_LOCKED_NOTE = "Registration has closed, so the minimum is locked."
+MINIMUM_SIGNUPS_CLOSE_WOULD_CANCEL_MESSAGE = (
+    "This change closes registration now, and the class is under its minimum signups, so it would "
+    "be cancelled. Clear or lower the minimum first."
+)
+
+
+class _MinimumSignupsMixin:
+    """The Minimum signups box beside Capacity, on both composers and the live edit form (#1182).
+
+    Blank (or 0) stores no minimum. The box refuses a minimum over the capacity and one on a
+    class with the registration cutoff off, each on the field. On a live class whose
+    registration has closed the box is disabled, so a crafted POST cannot move it either: a
+    disabled field keeps its saved value whatever is posted. A flexible class stores none.
+    """
+
+    def setup_minimum_signups_field(self) -> None:
+        """Shape the box and lock it once a live class's registration has closed."""
+        fields = self.fields  # type: ignore[attr-defined]
+        instance: ClassOffering = self.instance  # type: ignore[attr-defined]
+        field = fields["minimum_signups"]
+        field.label = "Minimum signups"
+        field.help_text = "Leave blank for no minimum. Still under it when registration closes, the class cancels itself and everyone is refunded."
+        field.widget.attrs.update({"min": 0})
+        if instance.minimum_signups_locked:
+            field.disabled = True
+            field.help_text = MINIMUM_SIGNUPS_LOCKED_NOTE
+
+    def clean_minimum_signups_rules(self, *, capacity: int | None, cutoff_on: bool, flexible: bool) -> None:
+        """Normalise and refuse the minimum against the class's capacity and cutoff.
+
+        Args:
+            capacity: The capacity it may not exceed, or None when the capacity box failed its own checks.
+            cutoff_on: Whether the class closes registration before it starts.
+            flexible: A flexible class stores no minimum.
+        """
+        data = self.cleaned_data  # type: ignore[attr-defined]
+        if "minimum_signups" not in data or self.fields["minimum_signups"].disabled:  # type: ignore[attr-defined]
+            return
+        if flexible or not data["minimum_signups"]:
+            data["minimum_signups"] = None
+            return
+        minimum: int = data["minimum_signups"]
+        if capacity is not None and minimum > capacity:
+            self.add_error("minimum_signups", MINIMUM_SIGNUPS_OVER_CAPACITY_MESSAGE.format(capacity=capacity))  # type: ignore[attr-defined]
+        elif not cutoff_on:
+            self.add_error("minimum_signups", MINIMUM_SIGNUPS_NEEDS_CUTOFF_MESSAGE)  # type: ignore[attr-defined]
+
+    def accepts_registration_close(self, session_formset: BaseInlineFormSet) -> bool:
+        """After ``is_valid``: refuse dates that would close a live class under its minimum right now (#1182).
+
+        Raising the cutoff or moving the first session earlier can put the registration close in
+        the past, and the sweep would cancel the class on its next run. The refusal sits on the
+        hours box when the cutoff changed, else on the minimum.
+
+        Args:
+            session_formset: The posted, valid sessions; the earliest kept start is the new first session.
+
+        Returns:
+            True when the save may go ahead.
+        """
+        instance: ClassOffering = self.instance  # type: ignore[attr-defined]
+        data = self.cleaned_data  # type: ignore[attr-defined]
+        if instance.pk is None or data["scheduling_model"] == ClassOffering.SchedulingModel.FLEXIBLE:
+            return True
+        starts = [
+            form.cleaned_data["starts_at"]
+            for form in session_formset.forms
+            if form.cleaned_data and not form.cleaned_data["DELETE"]
+        ]
+        saved = ClassOffering.objects.get(pk=instance.pk)
+        if not saved.close_would_cancel_for_minimum(
+            first_session_at=min(starts) if starts else None,
+            cutoff_hours=data["registration_cutoff_hours"],
+            minimum=data["minimum_signups"],
+            now=timezone.now(),
+        ):
+            return True
+        field = (
+            "registration_cutoff_hours"
+            if data["registration_cutoff_hours"] != saved.registration_cutoff_hours
+            else "minimum_signups"
+        )
+        self.add_error(field, MINIMUM_SIGNUPS_CLOSE_WOULD_CANCEL_MESSAGE)  # type: ignore[attr-defined]
+        return False
+
+    def clean_minimum_signups_on_composer(self) -> None:
+        """The composer's check: capacity, cutoff and model as posted (after :meth:`clean_registration_cutoff`).
+
+        A box missing from ``cleaned_data`` failed its own checks and already carries that error,
+        so it neither counts as a capacity nor as the cutoff switched off.
+        """
+        data = self.cleaned_data  # type: ignore[attr-defined]
+        self.clean_minimum_signups_rules(
+            capacity=data["capacity"] if "capacity" in data else None,
+            cutoff_on="registration_cutoff_hours" not in data or data["registration_cutoff_hours"] is not None,
+            flexible="scheduling_model" in data and data["scheduling_model"] == ClassOffering.SchedulingModel.FLEXIBLE,
+        )
+
+
 class _RichDescriptionMixin:
     """The description is written in the rich-text editor and stored as its sanitized HTML.
 
@@ -1031,6 +1135,7 @@ class ClassOfferingForm(
     _SchedulingTypeMixin,
     _FlexibleWindowMixin,
     _RegistrationCutoffMixin,
+    _MinimumSignupsMixin,
     forms.ModelForm,
 ):
     """The admin composer form. The six ``sale_*`` fields live on :class:`ClassSaleForm`."""
@@ -1052,6 +1157,7 @@ class ClassOfferingForm(
             "age_guardian_note",
             "price_cents",
             "capacity",
+            "minimum_signups",
             "scheduling_model",
             "scheduling_type",
             "flexible_note",
@@ -1096,6 +1202,7 @@ class ClassOfferingForm(
         self.setup_scheduling_type_field()
         self.setup_flexible_window_fields()
         self.setup_registration_cutoff_fields()
+        self.setup_minimum_signups_field()
         self.setup_eventbrite_fields()
         setup_location_field(self, hint=CLASS_LOCATION_HINT)
 
@@ -1107,6 +1214,7 @@ class ClassOfferingForm(
         self.clean_price_against_live_sale()
         self.clean_flexible_window()
         self.clean_registration_cutoff()
+        self.clean_minimum_signups_on_composer()
         self.clean_eventbrite()
         return data
 
@@ -1133,6 +1241,7 @@ class TeachClassOfferingForm(
     _SchedulingTypeMixin,
     _FlexibleWindowMixin,
     _RegistrationCutoffMixin,
+    _MinimumSignupsMixin,
     forms.ModelForm,
 ):
     """Class form for teaching members — no `is_private`, slug auto-generated.
@@ -1158,6 +1267,7 @@ class TeachClassOfferingForm(
             "age_guardian_note",
             "price_cents",
             "capacity",
+            "minimum_signups",
             "scheduling_model",
             "scheduling_type",
             "flexible_note",
@@ -1214,6 +1324,7 @@ class TeachClassOfferingForm(
         self.setup_scheduling_type_field()
         self.setup_flexible_window_fields()
         self.setup_registration_cutoff_fields()
+        self.setup_minimum_signups_field()
         self.setup_eventbrite_fields()
         setup_location_field(self, hint=CLASS_LOCATION_HINT)
 
@@ -1225,6 +1336,7 @@ class TeachClassOfferingForm(
         self.clean_price_against_live_sale()
         self.clean_flexible_window()
         self.clean_registration_cutoff()
+        self.clean_minimum_signups_on_composer()
         self.clean_eventbrite()
         return data
 
@@ -2092,11 +2204,12 @@ class TeachPublishedClassForm(
     _HeroCropMixin,
     _PricingRulesMixin,
     _LiveSaleGuardMixin,
+    _MinimumSignupsMixin,
     forms.ModelForm,
 ):
     """What an instructor may edit on a LIVE class without re-review: everything but its dates.
 
-    The title, class type, price, capacity, location and age minimum (#1067), the subtitle
+    The title, class type, price, capacity, minimum signups (#1182), location and age minimum (#1067), the subtitle
     (#563), description, prep notes, materials, safety, guardian note, the flexible-scheduling
     note, the video, and the banner photo's crop box (the photo itself saves instantly through
     the hero upload route). The price runs the composer's rules: the $1.00 floor
@@ -2128,6 +2241,7 @@ class TeachPublishedClassForm(
             "category",
             "price_cents",
             "capacity",
+            "minimum_signups",
             "area",
             "subtitle",
             "description",
@@ -2157,8 +2271,10 @@ class TeachPublishedClassForm(
         if self.instance.is_flexible:
             setup_flexible_booking_text(self)
             del self.fields["capacity"]
+            del self.fields["minimum_signups"]
         else:
             del self.fields["flexible_booking_text"]
+            self.setup_minimum_signups_field()
         self.add_hero_crop_field()
         self.setup_instructors_fields(author=None, can_edit=can_edit_instructors)
 
@@ -2178,6 +2294,12 @@ class TeachPublishedClassForm(
     def clean(self) -> dict:
         data = super().clean() or {}
         self.clean_price_against_live_sale()
+        # The cutoff stays admin-only after publish, so the minimum is checked against the saved one.
+        self.clean_minimum_signups_rules(
+            capacity=data["capacity"] if "capacity" in data else None,
+            cutoff_on=self.instance.registration_cutoff_hours is not None,
+            flexible=self.instance.is_flexible,
+        )
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
