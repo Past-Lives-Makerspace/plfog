@@ -14,7 +14,6 @@ from django.utils.timezone import localtime
 
 from classes.emails import _absolute_url, build_class_reminder_occurrence
 from classes.models import (
-    MINIMUM_SIGNUPS_CANCEL_REASON,
     MINIMUM_SIGNUPS_WARNING_LEAD,
     ClassOffering,
     ClassSession,
@@ -161,12 +160,15 @@ def cancel_classes_under_minimum(now: datetime) -> int:
 
 
 @task
-def refund_for_minimum_cancel(registration_id: int) -> None:
-    """Refund one paid signup in full on a class its minimum cancelled (#1182).
+def refund_cancelled_class_payment(registration_id: int) -> None:
+    """Refund one paid signup in full on a cancelled class, with the class's cancellation reason (#1182).
 
-    Safe to run twice: a signup with nothing left to refund is skipped. A refund Stripe
-    refuses stays as its FAILED ledger row, and the Billing Administrators get the existing
-    refund failed alert with its Retry link, because nobody is on a page to see it fail.
+    Queued for every paid site signup when the minimum cancels a class, and for a payment that
+    lands after any cancel. Safe to run twice: a signup with nothing left to refund is skipped,
+    and so is one with a refund still PENDING at Stripe, which is money already on its way. A
+    refund Stripe refuses stays as its FAILED ledger row, and the Billing Administrators get the
+    existing refund failed alert for the newest one, with its Retry link, because nobody is on a
+    page to see it fail.
     """
     from billing.exceptions import AlreadyRefundedError, RefundError, RefundNotPossibleError
     from billing.models import PaymentRefund
@@ -175,12 +177,14 @@ def refund_for_minimum_cancel(registration_id: int) -> None:
     registration = Registration.objects.select_related("class_offering").get(pk=registration_id)
     if not registration.refund_payment_intent_id or registration.refundable_cents <= 0:
         return
+    if registration.refunds.filter(status=PaymentRefund.Status.PENDING).exists():
+        return
     try:
-        registration.issue_refund(reason=MINIMUM_SIGNUPS_CANCEL_REASON)
+        registration.issue_refund(reason=registration.class_offering.cancellation_reason)
     except (AlreadyRefundedError, RefundNotPossibleError):
         return
     except RefundError:
-        failed = registration.refunds.filter(status=PaymentRefund.Status.FAILED).first()
+        failed = registration.refunds.filter(status=PaymentRefund.Status.FAILED).order_by("-created_at", "-pk").first()
         if failed is None:
             raise
         alert_refund_failed(failed)

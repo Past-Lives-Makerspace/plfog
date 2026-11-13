@@ -179,6 +179,9 @@ TEACH_PAGE_FEATURE_ICONS: tuple[str, ...] = (
 #: quotes it to every registrant, and the refunds it starts record it.
 MINIMUM_SIGNUPS_CANCEL_REASON = "Not enough people signed up for this class to run."
 
+#: Who the refunders' notice says cancelled a class its minimum cancelled (``instructor_name`` in its copy).
+MINIMUM_SIGNUPS_CANCELLED_BY = "The minimum signups rule"
+
 #: How long before registration closes the instructors hear their class is under its minimum.
 MINIMUM_SIGNUPS_WARNING_LEAD = timedelta(hours=24)
 
@@ -452,9 +455,15 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         """The classes the minimum cancels at ``now``: registration closed, not started, still short (#1182).
 
         A catch-up sweep, not a tick window: a class whose cutoff passed while the job was down
-        is still caught on the next run, until its first session starts.
+        is still caught on the next run, until its first session starts. Only a class that was
+        live before its registration closed: one published after its close never took signups
+        against the minimum, so it is never cancelled by it. A legacy class with no publish
+        stamp counts as published long ago.
         """
-        return self.under_minimum().filter(minimum_decided_at__lte=now, first_session_at__gt=now)  # type: ignore[misc]  # django-stubs can't see annotate() aliases
+        published_before_close = Q(published_at__isnull=True) | Q(published_at__lt=F("minimum_decided_at"))
+        return self.under_minimum().filter(
+            published_before_close, minimum_decided_at__lte=now, first_session_at__gt=now
+        )  # type: ignore[misc]  # django-stubs can't see annotate() aliases
 
     def upcoming(self) -> "ClassOfferingQuerySet":
         """Classes that haven't started yet — any status, any visibility.
@@ -2262,13 +2271,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             "class_cancelled",
             actor=actor,
             target=self,
-            context={
-                "member_name": "there",
-                "class_title": self.title,
-                "class_starts_at": self.cancellation_date_label,
-                "classes_url": f"{settings.BOOK_BASE_URL}/classes/",
-                "reason": reason,
-            },
+            context=self.cancellation_notice_context(),
             url="/classes/",
             email_to=self.registrant_notice_emails,
             suppress_email=True,
@@ -2277,22 +2280,55 @@ class ClassOffering(HeroCropMixin, models.Model):
         self._notify_refund_authority_if_instructor_cancelled(actor)
         self.sync_eventbrite_listing()
 
+    def cancellation_notice_context(self) -> dict[str, str]:
+        """The ``class_cancelled`` email's context for this cancelled class, its saved reason included."""
+        return {
+            "member_name": "there",
+            "class_title": self.title,
+            "class_starts_at": self.cancellation_date_label,
+            "classes_url": f"{settings.BOOK_BASE_URL}/classes/",
+            "reason": self.cancellation_reason,
+        }
+
+    def send_cancellation_notice(self, registration: "Registration") -> None:
+        """Email one registrant the standard ``class_cancelled`` notice, and nobody else (#1182).
+
+        For a payment that landed after the class was cancelled: that person missed the notice
+        everyone else got. Email only, to their address: no bell row, no push and no broadcast,
+        which went out once with the cancel.
+        """
+        from core.events.emit import emit
+
+        emit(
+            "class_cancelled",
+            target=self,
+            context=self.cancellation_notice_context(),
+            url="/classes/",
+            email_to=registration.email,
+            recipient_user_ids=set(),
+            suppress_email=True,
+            suppress_broadcast=True,
+            period=f"offering:{self.pk}:cancelled:reg:{registration.pk}",
+        )
+
     def cancel_for_minimum(self, now: datetime) -> bool:
         """Cancel this class for too few signups and queue a full refund for every paid signup (#1182).
 
         Runs under a lock on the class row and re-checks :meth:`ClassOfferingQuerySet.due_minimum_cancel`
         inside it, so two runs of the sweep cancel a class once. The cancel is :meth:`cancel`
-        with no actor: the standard cancellation email to everyone booked, and no manual refund
-        notice to the refunders, because the refunds are already on their way. Each paid
-        signup made on this site gets its own durable refund task, queued on commit, so a
-        redeploy or one Stripe refusal never strands the rest. Eventbrite tickets are refunded
-        by an admin, as today.
+        with no actor: the standard cancellation email to everyone booked, and no instructor's
+        refund notice. Each paid signup made on this site gets its own durable refund task,
+        queued inside the same transaction as the cancel (:func:`core.tasks.enqueue_in_transaction`),
+        so the cancel and its refunds persist together or not at all, and one Stripe refusal
+        never strands the rest. A paid seat it cannot refund itself (an Eventbrite ticket, or a
+        paid row with no Stripe payment on file) is left to the refunders, who get the
+        ``class_cancelled_admin_notice`` naming how many.
 
         Returns:
             True when this call cancelled the class, False when it was no longer due.
         """
-        from classes.tasks import refund_for_minimum_cancel
-        from core.tasks import enqueue_on_commit
+        from classes.tasks import refund_cancelled_class_payment
+        from core.tasks import enqueue_in_transaction
 
         with transaction.atomic():
             locked = type(self).objects.select_for_update().get(pk=self.pk)
@@ -2300,12 +2336,19 @@ class ClassOffering(HeroCropMixin, models.Model):
                 return False
             locked.cancel(actor=None, reason=MINIMUM_SIGNUPS_CANCEL_REASON)
             paid = locked.registrations.filter(
-                source=RegistrationSource.SITE,
                 status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES,
                 amount_paid_cents__gt=0,
-            ).exclude(stripe_payment_id="")
-            for registration_pk in paid.values_list("pk", flat=True):
-                enqueue_on_commit(refund_for_minimum_cancel, registration_pk)
+            )
+            refundable = list(
+                paid.filter(source=RegistrationSource.SITE).exclude(stripe_payment_id="").values_list("pk", flat=True)
+            )
+            left_for_refunders = paid.count() - len(refundable)
+            if left_for_refunders:
+                locked._notify_refund_authority(
+                    actor=None, cancelled_by=MINIMUM_SIGNUPS_CANCELLED_BY, paid_count=left_for_refunders
+                )
+            for registration_pk in refundable:
+                enqueue_in_transaction(refund_cancelled_class_payment, registration_pk)
         self.refresh_from_db()
         return True
 
@@ -2323,6 +2366,14 @@ class ClassOffering(HeroCropMixin, models.Model):
         paid = self.paid_registration_count
         if not paid:
             return
+        self._notify_refund_authority(actor=actor, cancelled_by=actor_member.display_name, paid_count=paid)
+
+    def _notify_refund_authority(self, *, actor: "User | None", cancelled_by: str, paid_count: int) -> None:
+        """The ``class_cancelled_admin_notice`` to fog admins and REFUNDS holders: N paid signups need refunds.
+
+        ``cancelled_by`` fills the copy's ``instructor_name``: the instructor's name, or what
+        cancelled the class when no person did (#1182).
+        """
         from django.urls import reverse
 
         from classes.emails import _absolute_url
@@ -2342,9 +2393,9 @@ class ClassOffering(HeroCropMixin, models.Model):
             actor=actor,
             target=self,
             context={
-                "instructor_name": actor_member.display_name,
+                "instructor_name": cancelled_by,
                 "class_title": self.title,
-                "paid_count": str(paid),
+                "paid_count": str(paid_count),
                 "registrations_url": _absolute_url(registrations_path),
             },
             url=registrations_path,
@@ -3309,6 +3360,25 @@ class ClassOffering(HeroCropMixin, models.Model):
             return False
         closes_at = self.registration_closes_at
         return closes_at is not None and closes_at <= timezone.now()
+
+    def close_would_cancel_for_minimum(
+        self, *, first_session_at: datetime | None, cutoff_hours: int | None, minimum: int | None, now: datetime
+    ) -> bool:
+        """Whether saving these dates on this saved row would close registration on a class under its minimum (#1182).
+
+        True when this live class's registration is still open, the new first session and
+        cutoff put the close at or before ``now`` with the session still ahead, and its
+        confirmed signups are under ``minimum``: the sweep would cancel it on its next run.
+        Call it on the row as the database holds it, never on a form's instance, which
+        ``is_valid`` has already overwritten with the posted values.
+        """
+        if self.status != self.Status.PUBLISHED or not minimum or cutoff_hours is None or first_session_at is None:
+            return False
+        if self.minimum_signups_locked or first_session_at <= now:
+            return False
+        if first_session_at - timedelta(hours=cutoff_hours) > now:
+            return False
+        return self.registrations.filter(status=RegistrationStatus.CONFIRMED).count() < minimum
 
     @property
     def shows_minimum_signups(self) -> bool:
@@ -6845,6 +6915,21 @@ class Registration(models.Model):
             # Mailchimp must never block a cancellation, but a failure here (a bug or an
             # unexpected error) must not vanish — log it with a traceback instead.
             logger.exception("Mailchimp unsubscribe failed for registration %s", self.pk)
+
+    def leave_cancelled_class(self) -> None:
+        """A payment landed after its class was cancelled: give the seat back and queue a full refund (#1182).
+
+        Call inside the payment webhook's transaction. The signup is cancelled with the class's
+        own cancellation reason, and its refund task is queued in the same transaction
+        (:func:`core.tasks.enqueue_in_transaction`), so the two persist together. The payer is
+        told by :meth:`ClassOffering.send_cancellation_notice` once the transaction commits.
+        Whoever cancelled the class, an instructor, an admin or the minimum, it works the same.
+        """
+        from classes.tasks import refund_cancelled_class_payment
+        from core.tasks import enqueue_in_transaction
+
+        self.cancel(reason=self.class_offering.cancellation_reason)
+        enqueue_in_transaction(refund_cancelled_class_payment, self.pk)
 
     def mark_refunded(self, reason: str = "", actor: "User | None" = None, *, promote_waitlist: bool = True) -> None:
         """Record this registration as refunded — record-only, issues no Stripe refund.

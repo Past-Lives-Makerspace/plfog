@@ -45,13 +45,14 @@ from classes.tasks import (
     cancel_classes_under_minimum,
     enforce_class_minimums,
     minimum_warning_occurrences,
-    refund_for_minimum_cancel,
+    refund_cancelled_class_payment,
 )
 from core.events.scheduler import run_due
 from core.models import EventDelivery
 from core.scheduled_jobs import JOBS_BY_KEY, Cadence
 from core.services.email_queue import timed_email_sources
 from membership.models import Member
+from tests.membership.factories import MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -406,19 +407,19 @@ def describe_cancelling_at_the_close():
             offering = _closed_class(minimum=4, confirmed=1)
             sweep(timezone.now())
             registration = offering.registrations.get()
-            refund_for_minimum_cancel.call(registration.pk)
+            refund_cancelled_class_payment.call(registration.pk)
             assert registration.refunds.count() == 1
 
         def it_stops_quietly_when_the_refund_was_already_taken(mock_create):
             registration = _paid(_closed_class(minimum=4, confirmed=0))
             with patch.object(Registration, "issue_refund", side_effect=AlreadyRefundedError("done")):
-                refund_for_minimum_cancel.call(registration.pk)
+                refund_cancelled_class_payment.call(registration.pk)
 
         def it_raises_a_refusal_that_left_no_ledger_row(mock_create):
             registration = _paid(_closed_class(minimum=4, confirmed=0))
             with patch.object(Registration, "issue_refund", side_effect=RefundError("odd")):
                 with pytest.raises(RefundError):
-                    refund_for_minimum_cancel.call(registration.pk)
+                    refund_cancelled_class_payment.call(registration.pk)
 
     def it_leaves_a_class_whose_registration_is_still_open(mock_create, sweep):
         offering = _live_class(starts_in=timedelta(days=10), minimum=4, confirmed=1)
@@ -523,3 +524,336 @@ def describe_the_job():
         _closed_class(minimum=4, confirmed=1)
         call_command("enforce_class_minimums")
         assert "Sent 0 warning(s); cancelled 1 class(es)." in capsys.readouterr().out
+
+
+# --- Review fixes (#1182, round 1) ---------------------------------------------------------------
+
+
+def _late_session(registration: Registration, payment_intent: str = "pi_late_1") -> dict[str, Any]:
+    return {
+        "id": f"cs_{payment_intent}",
+        "payment_intent": payment_intent,
+        "amount_total": 5000,
+        "payment_status": "paid",
+        "metadata": {"kind": "class_registration", "registration_id": str(registration.pk)},
+    }
+
+
+def _pending(offering: ClassOffering) -> Registration:
+    n = next(_serial)
+    return RegistrationFactory(
+        class_offering=offering, status=Registration.Status.PENDING, email=f"late-{n}@example.com", amount_paid_cents=0
+    )
+
+
+def describe_a_payment_that_lands_on_a_cancelled_class():
+    """Fix 1: refunded in full, the seat cancelled, and the payer gets the class_cancelled email with its reason."""
+
+    def _land(registration: Registration, django_capture_on_commit_callbacks: Any) -> str:
+        from classes.webhook_handlers import apply_paid_class_session
+
+        with django_capture_on_commit_callbacks(execute=True):
+            return apply_paid_class_session(registration.pk, _late_session(registration))
+
+    def it_refunds_and_tells_the_payer_after_the_minimum_cancelled_it(
+        mock_create, sweep, django_capture_on_commit_callbacks
+    ):
+        offering = _closed_class(minimum=4, confirmed=1)
+        late = _pending(offering)
+        sweep(timezone.now())
+        mail.outbox.clear()
+        assert _land(late, django_capture_on_commit_callbacks) == "class_cancelled"
+        late.refresh_from_db()
+        refund = late.refunds.get()
+        assert (refund.status, refund.amount_cents) == (PaymentRefund.Status.SUCCEEDED, 5000)
+        assert late.status == Registration.Status.REFUNDED
+        assert late.confirmed_at is not None
+        to_payer = [m for m in mail.outbox if late.email in m.to]
+        assert any(MINIMUM_SIGNUPS_CANCEL_REASON in m.body for m in to_payer)
+        assert not any("confirmed" in m.subject.lower() for m in to_payer)
+
+    def it_does_the_same_after_a_manual_cancel(mock_create, django_capture_on_commit_callbacks):
+        offering = _live_class(starts_in=timedelta(days=10), minimum=None, confirmed=0)
+        late = _pending(offering)
+        offering.cancel(actor=None, reason="The kiln is down for repair.")
+        mail.outbox.clear()
+        assert _land(late, django_capture_on_commit_callbacks) == "class_cancelled"
+        late.refresh_from_db()
+        assert late.status == Registration.Status.REFUNDED
+        assert late.refunds.get().reason == "The kiln is down for repair."
+        to_payer = [m for m in mail.outbox if late.email in m.to]
+        assert len(to_payer) == 2  # the cancellation notice and the refund receipt
+        assert any("The kiln is down for repair." in m.body for m in to_payer)
+
+    def it_emails_only_the_payer(mock_create, django_capture_on_commit_callbacks):
+        offering = _live_class(starts_in=timedelta(days=10), minimum=None, confirmed=0)
+        late = _pending(offering)
+        offering.cancel(actor=None, reason="The kiln is down for repair.")
+        before = EventDelivery.objects.filter(event_key="class_cancelled").count()
+        _land(late, django_capture_on_commit_callbacks)
+        added = EventDelivery.objects.filter(event_key="class_cancelled").order_by("pk")[before:]
+        assert [row.target_ref for row in added] == [f"email:{late.email}"]
+
+    def it_still_confirms_on_a_live_class(mock_create, django_capture_on_commit_callbacks):
+        offering = _live_class(starts_in=timedelta(days=10), minimum=None, confirmed=0)
+        late = _pending(offering)
+        assert _land(late, django_capture_on_commit_callbacks) == "confirmed"
+        late.refresh_from_db()
+        assert late.status == Registration.Status.CONFIRMED
+        assert not late.refunds.exists()
+
+
+def describe_refunds_queued_with_the_cancel():
+    """Fix 2: the refund tasks are queued inside the cancel's transaction, so both persist or neither."""
+
+    def it_queues_each_refund_before_the_commit(mock_create, django_capture_on_commit_callbacks):
+        from django.db import connection
+
+        offering = _closed_class(minimum=4, confirmed=2)
+        seen: list[tuple[bool, str]] = []
+
+        def record(task: Any, registration_id: int) -> None:
+            assert task is refund_cancelled_class_payment
+            status = ClassOffering.objects.get(pk=offering.pk).status
+            seen.append((connection.in_atomic_block, status))
+
+        with django_capture_on_commit_callbacks(execute=False) as callbacks:
+            with patch("core.tasks.enqueue_in_transaction", side_effect=record):
+                assert offering.cancel_for_minimum(timezone.now()) is True
+        assert seen == [(True, ClassOffering.Status.CANCELLED)] * 2
+        assert callbacks == []
+
+    def it_leaves_the_class_live_when_a_refund_cannot_be_queued(mock_create):
+        offering = _closed_class(minimum=4, confirmed=1)
+        with patch("core.tasks.enqueue_in_transaction", side_effect=RuntimeError("queue down")):
+            with pytest.raises(RuntimeError):
+                offering.cancel_for_minimum(timezone.now())
+        offering.refresh_from_db()
+        assert offering.status == ClassOffering.Status.PUBLISHED
+
+    def it_refuses_a_task_argument_that_is_not_json():
+        from core.tasks import enqueue_in_transaction
+
+        with pytest.raises(TypeError):
+            enqueue_in_transaction(refund_cancelled_class_payment, object())
+
+    def it_refuses_bytes_that_are_not_utf8():
+        from core.tasks import enqueue_in_transaction
+
+        with pytest.raises(TypeError, match="JSON"):
+            enqueue_in_transaction(refund_cancelled_class_payment, b"\xff")
+
+
+def describe_paid_seats_the_cancel_cannot_refund():
+    """Fix 3: the refunders hear how many paid seats were left to them; nothing when every seat was refunded."""
+
+    def it_names_the_eventbrite_and_unrecorded_payments(mock_create, sweep):
+        from classes.models import MINIMUM_SIGNUPS_CANCELLED_BY
+
+        offering = _closed_class(minimum=5, confirmed=1)
+        _paid(offering, source=Registration.Source.EVENTBRITE, stripe_payment_id="")
+        _paid(offering, stripe_payment_id="")
+        with patch.object(ClassOffering, "_notify_refund_authority") as notify:
+            sweep(timezone.now())
+        notify.assert_called_once_with(actor=None, cancelled_by=MINIMUM_SIGNUPS_CANCELLED_BY, paid_count=2)
+
+    def it_sends_the_existing_notice(mock_create, sweep):
+        offering = _closed_class(minimum=5, confirmed=0)
+        _paid(offering, source=Registration.Source.EVENTBRITE, stripe_payment_id="")
+        with patch("core.events.emit.emit") as emit:
+            sweep(timezone.now())
+        notices = [c for c in emit.call_args_list if c.args[0] == "class_cancelled_admin_notice"]
+        assert len(notices) == 1
+        assert notices[0].kwargs["context"]["paid_count"] == "1"
+        assert notices[0].kwargs["context"]["class_title"] == offering.title
+
+    def it_says_nothing_when_every_paid_seat_was_refunded(mock_create, sweep):
+        _closed_class(minimum=5, confirmed=2)
+        with patch.object(ClassOffering, "_notify_refund_authority") as notify:
+            sweep(timezone.now())
+        notify.assert_not_called()
+
+
+def _admin_post(offering: ClassOffering, *, cutoff: str, starts_at: datetime, **extra: str) -> tuple[Any, Any]:
+    from classes.forms import ClassSessionFormSet
+
+    session = offering.sessions.get()
+    local = timezone.localtime(starts_at)
+    data = _composer_data(
+        title=offering.title,
+        instructors=[str(offering.instructor_id)],
+        category=str(offering.category_id),
+        capacity=str(offering.capacity),
+        minimum_signups=str(offering.minimum_signups or ""),
+        registration_cutoff_hours=cutoff,
+        **{
+            "sessions-TOTAL_FORMS": "1",
+            "sessions-INITIAL_FORMS": "1",
+            "sessions-MIN_NUM_FORMS": "0",
+            "sessions-MAX_NUM_FORMS": "1000",
+            "sessions-0-id": str(session.pk),
+            "sessions-0-class_offering": str(offering.pk),
+            "sessions-0-starts_at": local.strftime("%Y-%m-%dT%H:%M"),
+            "sessions-0-ends_at": (local + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M"),
+        },
+    )
+    data.update(extra)
+    form = ClassOfferingForm(data=data, instance=offering)
+    formset = ClassSessionFormSet(data, instance=offering, prefix="sessions")
+    assert form.is_valid(), form.errors
+    assert formset.is_valid(), formset.errors
+    return form, formset
+
+
+def describe_a_date_change_that_would_close_registration():
+    """Fix 4: a save moving the close from the future into the past on a class under its minimum is refused."""
+
+    def _open_class() -> ClassOffering:
+        # Registration closes in 12 hours (48h cutoff, first session 60h out), one of four signups.
+        return _live_class(starts_in=timedelta(hours=60), minimum=4, confirmed=1)
+
+    def it_refuses_raising_the_cutoff_past_now_on_the_hours_box():
+        offering = _open_class()
+        first = offering.sessions.get().starts_at
+        form, formset = _admin_post(offering, cutoff="72", starts_at=first)
+        assert form.accepts_registration_close(formset) is False
+        assert "would be cancelled" in form.errors["registration_cutoff_hours"][0]
+
+    def it_refuses_moving_the_first_session_earlier_on_the_minimum():
+        offering = _open_class()
+        form, formset = _admin_post(offering, cutoff="48", starts_at=timezone.now() + timedelta(hours=30))
+        assert form.accepts_registration_close(formset) is False
+        assert "Clear or lower the minimum first" in form.errors["minimum_signups"][0]
+
+    def it_accepts_the_same_move_with_the_minimum_cleared():
+        offering = _open_class()
+        form, formset = _admin_post(
+            offering, cutoff="72", starts_at=offering.sessions.get().starts_at, minimum_signups=""
+        )
+        assert form.accepts_registration_close(formset) is True
+
+    def it_accepts_a_class_at_its_minimum():
+        offering = _live_class(starts_in=timedelta(hours=60), minimum=1, confirmed=1)
+        form, formset = _admin_post(offering, cutoff="72", starts_at=offering.sessions.get().starts_at)
+        assert form.accepts_registration_close(formset) is True
+
+    def it_accepts_a_close_that_stays_ahead():
+        offering = _open_class()
+        form, formset = _admin_post(offering, cutoff="24", starts_at=offering.sessions.get().starts_at)
+        assert form.accepts_registration_close(formset) is True
+
+    def it_accepts_a_switch_to_flexible():
+        offering = _open_class()
+        form, formset = _admin_post(
+            offering,
+            cutoff="72",
+            starts_at=offering.sessions.get().starts_at,
+            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+        )
+        assert form.accepts_registration_close(formset) is True
+
+    def it_accepts_a_new_class():
+        from classes.forms import ClassSessionFormSet
+
+        form = ClassOfferingForm(data=_composer_data(minimum_signups="3"))
+        assert form.is_valid(), form.errors
+        assert form.accepts_registration_close(ClassSessionFormSet(prefix="sessions")) is True
+
+    def it_refuses_the_admin_composer_save(client: Client):
+        from django.contrib.auth.models import User
+
+        MembershipPlanFactory()
+        admin = User.objects.create_user(username="min-admin@example.com", email="min-admin@example.com")
+        admin.member.fog_role = Member.FogRole.ADMIN
+        admin.member.save(update_fields=["fog_role"])
+        admin.member.sync_user_permissions()
+        offering = _open_class()
+        form, _ = _admin_post(offering, cutoff="72", starts_at=offering.sessions.get().starts_at)
+        client.force_login(admin)
+        payload = {key: value for key, value in form.data.items()}
+        payload.update({"action": "save", "faq-TOTAL_FORMS": "0", "faq-INITIAL_FORMS": "0"})
+        response = client.post(reverse("classes:admin_class_edit", kwargs={"pk": offering.pk}), payload)
+        assert response.status_code == 200
+        from classes.forms import MINIMUM_SIGNUPS_CLOSE_WOULD_CANCEL_MESSAGE
+
+        assert response.context["form"].errors["registration_cutoff_hours"] == [
+            MINIMUM_SIGNUPS_CLOSE_WOULD_CANCEL_MESSAGE
+        ]
+        offering.refresh_from_db()
+        assert offering.registration_cutoff_hours == 48
+
+    def describe_the_model_check():
+        def _check(offering: ClassOffering, **overrides: Any) -> bool:
+            args: dict[str, Any] = {
+                "first_session_at": offering.sessions.get().starts_at,
+                "cutoff_hours": 72,
+                "minimum": offering.minimum_signups,
+                "now": timezone.now(),
+            }
+            args.update(overrides)
+            return offering.close_would_cancel_for_minimum(**args)
+
+        def it_is_true_for_the_move_that_closes_it():
+            assert _check(_open_class()) is True
+
+        def it_is_false_for_a_draft():
+            offering = _open_class()
+            offering.status = ClassOffering.Status.DRAFT
+            assert _check(offering) is False
+
+        def it_is_false_without_dates_or_cutoff():
+            offering = _open_class()
+            assert _check(offering, cutoff_hours=None) is False
+            assert _check(offering, first_session_at=None) is False
+
+        def it_is_false_once_registration_has_closed():
+            assert _check(_closed_class(minimum=4, confirmed=1)) is False
+
+        def it_is_false_for_a_session_already_started():
+            assert _check(_open_class(), first_session_at=timezone.now() - timedelta(minutes=5)) is False
+
+
+def describe_a_class_published_after_its_close():
+    """Fix 5: the sweep cancels only a class that was live before its registration closed."""
+
+    def it_leaves_a_class_published_after_the_close(mock_create, sweep):
+        offering = _closed_class(minimum=4, confirmed=1, published_at=timezone.now() - timedelta(hours=1))
+        assert sweep(timezone.now()) == 0
+        offering.refresh_from_db()
+        assert offering.status == ClassOffering.Status.PUBLISHED
+
+    def it_cancels_a_class_published_before_the_close(mock_create, sweep):
+        offering = _closed_class(minimum=4, confirmed=1, published_at=timezone.now() - timedelta(days=3))
+        assert sweep(timezone.now()) == 1
+        offering.refresh_from_db()
+        assert offering.status == ClassOffering.Status.CANCELLED
+
+
+def describe_a_refund_already_in_flight():
+    """Fix 6: a PENDING refund is money on its way, and the alert names the newest FAILED row."""
+
+    def it_sends_no_second_refund_while_one_is_pending(mock_create):
+        from tests.billing.factories import PaymentRefundFactory
+
+        offering = _live_class(starts_in=timedelta(days=10), minimum=None, confirmed=1)
+        registration = offering.registrations.get()
+        PaymentRefundFactory(registration=registration, amount_cents=5000, status=PaymentRefund.Status.PENDING)
+        refund_cancelled_class_payment.call(registration.pk)
+        mock_create.assert_not_called()
+        assert registration.refunds.count() == 1
+
+    def it_alerts_on_the_newest_failed_row(mock_create):
+        import stripe
+
+        from tests.billing.factories import PaymentRefundFactory
+
+        offering = _live_class(starts_in=timedelta(days=10), minimum=None, confirmed=1)
+        offering.cancel(actor=None, reason="The kiln is down for repair.")
+        registration = offering.registrations.get()
+        PaymentRefundFactory(registration=registration, amount_cents=5000, status=PaymentRefund.Status.FAILED)
+        mock_create.side_effect = stripe.InvalidRequestError("card closed", param=None)
+        with patch("billing.refunds._emit_refund_failed_alert") as alert:
+            refund_cancelled_class_payment.call(registration.pk)
+        newest = registration.refunds.filter(status=PaymentRefund.Status.FAILED).order_by("-created_at", "-pk").first()
+        assert newest is not None and newest.reason == "The kiln is down for repair."
+        alert.assert_called_once_with(newest)

@@ -567,6 +567,10 @@ MINIMUM_SIGNUPS_NEEDS_CUTOFF_MESSAGE = (
     "A minimum needs the registration cutoff switched on: the class is decided when registration closes."
 )
 MINIMUM_SIGNUPS_LOCKED_NOTE = "Registration has closed, so the minimum is locked."
+MINIMUM_SIGNUPS_CLOSE_WOULD_CANCEL_MESSAGE = (
+    "This change closes registration now, and the class is under its minimum signups, so it would "
+    "be cancelled. Clear or lower the minimum first."
+)
 
 
 class _MinimumSignupsMixin:
@@ -609,6 +613,44 @@ class _MinimumSignupsMixin:
             self.add_error("minimum_signups", MINIMUM_SIGNUPS_OVER_CAPACITY_MESSAGE.format(capacity=capacity))  # type: ignore[attr-defined]
         elif not cutoff_on:
             self.add_error("minimum_signups", MINIMUM_SIGNUPS_NEEDS_CUTOFF_MESSAGE)  # type: ignore[attr-defined]
+
+    def accepts_registration_close(self, session_formset: BaseInlineFormSet) -> bool:
+        """After ``is_valid``: refuse dates that would close a live class under its minimum right now (#1182).
+
+        Raising the cutoff or moving the first session earlier can put the registration close in
+        the past, and the sweep would cancel the class on its next run. The refusal sits on the
+        hours box when the cutoff changed, else on the minimum.
+
+        Args:
+            session_formset: The posted, valid sessions; the earliest kept start is the new first session.
+
+        Returns:
+            True when the save may go ahead.
+        """
+        instance: ClassOffering = self.instance  # type: ignore[attr-defined]
+        data = self.cleaned_data  # type: ignore[attr-defined]
+        if instance.pk is None or data["scheduling_model"] == ClassOffering.SchedulingModel.FLEXIBLE:
+            return True
+        starts = [
+            form.cleaned_data["starts_at"]
+            for form in session_formset.forms
+            if form.cleaned_data and not form.cleaned_data["DELETE"]
+        ]
+        saved = ClassOffering.objects.get(pk=instance.pk)
+        if not saved.close_would_cancel_for_minimum(
+            first_session_at=min(starts) if starts else None,
+            cutoff_hours=data["registration_cutoff_hours"],
+            minimum=data["minimum_signups"],
+            now=timezone.now(),
+        ):
+            return True
+        field = (
+            "registration_cutoff_hours"
+            if data["registration_cutoff_hours"] != saved.registration_cutoff_hours
+            else "minimum_signups"
+        )
+        self.add_error(field, MINIMUM_SIGNUPS_CLOSE_WOULD_CANCEL_MESSAGE)  # type: ignore[attr-defined]
+        return False
 
     def clean_minimum_signups_on_composer(self) -> None:
         """The composer's check: capacity, cutoff and model as posted (after :meth:`clean_registration_cutoff`).
