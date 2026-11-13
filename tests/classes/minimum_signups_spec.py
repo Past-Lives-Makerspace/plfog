@@ -197,6 +197,16 @@ def describe_setting_the_minimum():
         assert form.is_valid(), form.errors
         assert form.save().minimum_signups is None
 
+    def it_refuses_a_saved_minimum_left_alone_when_the_cutoff_goes_off(composer_form):
+        offering = ClassOfferingFactory(minimum_signups=3)
+        data = _composer_data(minimum_signups="3")
+        del data["registration_cutoff_enabled"]
+        form = composer_form(data=data, instance=offering)
+        assert not form.is_valid()
+        assert form.errors["minimum_signups"] == [MINIMUM_SIGNUPS_NEEDS_CUTOFF_MESSAGE]
+        offering.refresh_from_db()
+        assert offering.minimum_signups == 3
+
     def it_renders_one_in_the_new_class_composer(client: Client):
         client.force_login(_instructor().user)
         html = client.get(reverse("classes:teach_class_create")).content.decode()

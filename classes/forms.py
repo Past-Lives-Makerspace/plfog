@@ -617,8 +617,9 @@ class _MinimumSignupsMixin:
         minimum: int = data["minimum_signups"]
         if capacity is not None and minimum > capacity:
             self.add_error("minimum_signups", MINIMUM_SIGNUPS_OVER_CAPACITY_MESSAGE.format(capacity=capacity))  # type: ignore[attr-defined]
-        elif not cutoff_on and "minimum_signups" not in self.changed_data:  # type: ignore[attr-defined]
-            # The untouched starting value on a class that takes signups to the start: no minimum.
+        elif not cutoff_on and self.instance.pk is None and "minimum_signups" not in self.changed_data:  # type: ignore[attr-defined]
+            # A new class's untouched starting 1 on a class that takes signups to the start: no minimum.
+            # A saved minimum is never dropped silently; it is refused below like a typed one.
             data["minimum_signups"] = None
         elif not cutoff_on:
             self.add_error("minimum_signups", MINIMUM_SIGNUPS_NEEDS_CUTOFF_MESSAGE)  # type: ignore[attr-defined]
