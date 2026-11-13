@@ -122,14 +122,29 @@ def describe_tick_sources():
         CommunityEventFactory(community=True, submitted_by=member.user)
         assert _done(member, Cap.EVENT_CREATOR) == {cs.FIRST_EVENT}
 
-    def it_counts_rooms_and_spaces_a_space_manager_manages_but_not_tools():
+    def it_counts_a_room_or_space_the_member_added_but_not_a_tool():
         member = _holder(Cap.SPACE_MANAGER)
-        EquipmentStaffMembershipFactory(member=member, equipment=EquipmentFactory(kind=Equipment.Kind.TOOL))
+        EquipmentFactory(kind=Equipment.Kind.TOOL, added_by=member)
         assert _done(member, Cap.SPACE_MANAGER) == set()
-        EquipmentStaffMembershipFactory(member=member, equipment=EquipmentFactory(kind=Equipment.Kind.ROOM))
+        EquipmentFactory(kind=Equipment.Kind.ROOM, added_by=member)
         facts = cs.space_manager_facts(member)
         assert facts.done == {cs.FIRST_SPACE}
-        assert facts.stats[0].value == 1
+        assert [(stat.value, stat.label) for stat in facts.stats] == [(1, "Spaces Added")]
+
+    def it_counts_a_space_added_before_added_by_by_its_self_granted_staff_row_once():
+        member = _holder(Cap.SPACE_MANAGER)
+        space = EquipmentFactory(kind=Equipment.Kind.SPACE, added_by=member)
+        EquipmentStaffMembershipFactory(member=member, equipment=space, granted_by=member)
+        older = EquipmentFactory(kind=Equipment.Kind.SPACE)
+        EquipmentStaffMembershipFactory(member=member, equipment=older, granted_by=member)
+        assert cs.space_manager_facts(member).stats[0].value == 2
+
+    def it_does_not_count_a_space_someone_else_made_them_manager_of():
+        member = _holder(Cap.SPACE_MANAGER)
+        EquipmentStaffMembershipFactory(
+            member=member, equipment=EquipmentFactory(kind=Equipment.Kind.ROOM), granted_by=MemberFactory()
+        )
+        assert _done(member, Cap.SPACE_MANAGER) == set()
 
     @pytest.mark.parametrize(
         "capability", [Cap.CLASS_APPROVER, Cap.SPACE_APPROVER, Cap.EVENTS_APPROVER, Cap.EVENT_CREATOR]

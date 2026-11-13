@@ -19245,6 +19245,14 @@ class Equipment(HeroCropMixin, models.Model):
         default=Kind.TOOL,
         help_text="Whether this is a tool, a room, or a space. All of them live on the Reservations page.",
     )
+    added_by = models.ForeignKey(
+        "Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who added this on Add Equipment (#1167), or blank for an item added before it was recorded.",
+    )
     guild = models.ForeignKey(
         Guild,
         null=True,

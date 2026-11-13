@@ -419,3 +419,12 @@ def move_price_note_needed(move_form, reg) -> bool:
     nothing to warn about.
     """
     return move_form.is_instructor_scoped and move_form.any_target_price_differs(reg.amount_paid_cents)
+
+
+@register.simple_tag(takes_context=True)
+def reviews_classes(context: template.Context) -> bool:
+    """Whether the viewer may open the class review pages (admins and CMS Administrators), for the All Classes tab."""
+    from hub.view_as import has_classes_review_access
+
+    request = context.get("request")
+    return request is not None and has_classes_review_access(request)

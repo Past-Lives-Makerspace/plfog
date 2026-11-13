@@ -7,7 +7,7 @@
 {% block tab_content %}
 <div class="admin-toolbar">
     {% include "components/table_search.html" with q=q placeholder="Search classes…" preserved_fields=search_preserved_fields clear_url=search_clear_url %}
-    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_class_create' %}">+ New Class</a>
+    {% if request.view_as.actual_is_admin %}<a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_class_create' %}">+ New Class</a>{% endif %}
 </div>
 <div class="admin-filters pl-facets">
     {% for url, label, count, is_selected in status_filters %}

@@ -91,13 +91,25 @@ def event_creator_facts(member: Member) -> SetupFacts:
 
 
 def space_manager_facts(member: Member) -> SetupFacts:
-    """Space Manager: the rooms and spaces ``member`` manages, from the staff row Add Equipment writes."""
-    from membership.models import Equipment, EquipmentStaffMembership
+    """Space Manager: the rooms and spaces ``member`` added, in one query.
 
-    managed = EquipmentStaffMembership.objects.filter(
-        member=member, equipment__kind__in=[Equipment.Kind.ROOM, Equipment.Kind.SPACE]
-    ).count()
-    return _facts({FIRST_SPACE: managed}, "Spaces Managed", FIRST_SPACE)
+    ``Equipment.added_by`` records it since #1167; a space added before then counts by the staff
+    row Add Equipment gave a creator who could not otherwise manage it (granted by themself).
+    """
+    from django.db.models import F, Q
+
+    from membership.models import Equipment
+
+    added = (
+        Equipment.objects.filter(kind__in=[Equipment.Kind.ROOM, Equipment.Kind.SPACE])
+        .filter(
+            Q(added_by=member)
+            | Q(staff_memberships__member=member, staff_memberships__granted_by=F("staff_memberships__member"))
+        )
+        .distinct()
+        .count()
+    )
+    return _facts({FIRST_SPACE: added}, "Spaces Added", FIRST_SPACE)
 
 
 def reading_only_facts(member: Member) -> SetupFacts:

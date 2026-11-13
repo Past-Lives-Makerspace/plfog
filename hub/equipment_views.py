@@ -719,8 +719,9 @@ def hub_equipment_add(request: HttpRequest) -> HttpResponse:
         return HttpResponse("Forbidden", status=403)
     form = EquipmentForm(request.POST or None, request.FILES or None, **_form_scope(request))
     if request.method == "POST" and form.is_valid():
-        equipment = form.save()
         creator = _get_member(request)
+        form.instance.added_by = creator
+        equipment = form.save()
         if creator is not None and not can_manage_equipment(request, equipment):
             EquipmentStaffMembership.objects.create(equipment=equipment, member=creator, granted_by=creator)
         messages.success(request, "Equipment added.")

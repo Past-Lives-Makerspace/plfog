@@ -528,6 +528,18 @@ def describe_equipment_add():
         assert Equipment.objects.filter(name="Admin Saw").exists()
         assert not EquipmentStaffMembership.objects.filter(equipment__name="Admin Saw").exists()
 
+    def it_ticks_add_your_first_space_for_an_admin_space_manager_with_no_staff_row(client: Client):
+        """#1167: an admin who adds a room gets no staff row, so the step reads who added it."""
+        from membership.capability_setup import FIRST_SPACE, space_manager_facts
+
+        user = _login(client, "eq_add_admin_sm", fog_role=Member.FogRole.ADMIN)
+        user.member.admin_capabilities.create(capability=AdminCapability.Capability.SPACE_MANAGER)
+        client.post(reverse("hub_equipment_add"), {"name": "Admin Bay", "kind": "room", "is_active": "on"})
+        room = Equipment.objects.get(name="Admin Bay")
+        assert room.added_by == user.member
+        assert not EquipmentStaffMembership.objects.filter(equipment=room).exists()
+        assert space_manager_facts(user.member).done == {FIRST_SPACE}
+
     def describe_space_manager():
         """#502: a Space Manager adds rooms and spaces, never tools, and manages what they add."""
 

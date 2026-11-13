@@ -190,3 +190,26 @@ def describe_the_guide_page():
         from django.test import Client
 
         assert Client().get(_guide(Cap.EQUIPMENT)).status_code == 302
+
+
+def describe_the_all_classes_tab():
+    ALL_CLASSES = f'href="{reverse("classes:admin_classes")}"'.encode()
+    NEW_CLASS = f'href="{reverse("classes:admin_class_create")}"'.encode()
+
+    def it_shows_a_cms_administrator_all_classes_without_the_admin_only_tabs():
+        content = signed_in(_holder(Cap.CLASS_APPROVER)).get(reverse("classes:admin_classes")).content
+        assert ALL_CLASSES + b' class="vote-tab vote-tab--active"' in content
+        assert f'href="{reverse("classes:admin_activity")}"'.encode() not in content
+        assert f'href="{reverse("classes:admin_settings_hub")}"'.encode() not in content
+        assert NEW_CLASS not in content
+
+    def it_shows_an_admin_all_classes_and_new_class():
+        admin = MemberFactory(fog_role=Member.FogRole.ADMIN)
+        content = signed_in(admin).get(reverse("classes:admin_classes")).content
+        assert ALL_CLASSES in content and NEW_CLASS in content
+
+    def it_hides_all_classes_from_an_instructor_without_the_grant():
+        instructor = MemberFactory(full_legal_name="Bramwell Osk")
+        instructor.grant_instructor(granted_by=None)
+        content = signed_in(instructor).get(reverse("classes:teach_dashboard")).content
+        assert ALL_CLASSES not in content
