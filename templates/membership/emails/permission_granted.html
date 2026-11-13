@@ -1,4 +1,4 @@
-{% extends "membership/emails/notification_shell.html" %}{% comment %}permission.granted (#1163): someone turned on a permission for the member. One email per permission: its card says what it does, how, and has a gold button per page. Context from membership.permission_grants.email_context.{% endcomment %}{% block content %}
+{% extends "membership/emails/notification_shell.html" %}{% comment %}permission.granted (#1163): someone turned on a permission for the member. One email per permission: its card says what it does, how, and has a gold button per page; a permission with a Get Set Up card (#1167) lists its steps and one Get Set Up button instead. Context from membership.permission_grants.email_context.{% endcomment %}{% block content %}
 <p style="margin: 0 0 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #B07A12;">New Permission</p>
 <h1 style="margin: 0 0 14px; font-size: 24px; line-height: 1.25; color: #092E4C;">{{ headline }}</h1>
 <p style="margin: 0 0 22px;">Hi {{ first_name }}, {{ granter_name }} turned this on for you in the <a href="{{ portal_url }}" style="color: #092E4C; font-weight: 700;">Member Portal</a>. Here is what it lets you do and where to find it.</p>
@@ -7,9 +7,18 @@
     <p style="margin: 0 0 10px; font-size: 18px; font-weight: 700; line-height: 1.3; color: #092E4C;">{{ card.title }}</p>
     <p style="margin: 0 0 4px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #5B6B77;">What It Does</p>
     <p style="margin: 0 0 12px; font-size: 14px; line-height: 1.6; color: #33424f;">{{ card.what }}</p>
+    {% if card.steps %}
+    <p style="margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #5B6B77;">Get Set Up on {{ card.page_name }}</p>
+    <ol style="margin: 0 0 16px; padding: 0 0 0 22px; font-size: 14px; line-height: 1.7; color: #33424f;">
+      {% for step in card.steps %}<li>{{ step }}</li>{% endfor %}
+    </ol>
+    {% for label, url in card.pages %}<a href="{{ url }}" style="display: inline-block; margin: 0 8px 12px 0; padding: 11px 22px; border-radius: 8px; background: #EEB44B; color: #092E4C; font-size: 14px; font-weight: 700; text-decoration: none;">{{ label }}</a>{% endfor %}
+    <p style="margin: 2px 0 14px; font-size: 13px; line-height: 1.6; color: #5B6B77;">The page walks you through one step at a time. {{ card.rule_line }}</p>
+    {% else %}
     <p style="margin: 0 0 4px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #5B6B77;">How</p>
     <p style="margin: 0 0 14px; font-size: 14px; line-height: 1.6; color: #33424f;">{{ card.how }}</p>
     {% for label, url in card.pages %}<a href="{{ url }}" style="display: inline-block; margin: 0 8px 12px 0; padding: 11px 22px; border-radius: 8px; background: #EEB44B; color: #092E4C; font-size: 14px; font-weight: 700; text-decoration: none;">{{ label }}</a>{% endfor %}
+    {% endif %}
   </td></tr>
 </table>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 6px 0 0; background: #FFF7E6; border-radius: 6px;">

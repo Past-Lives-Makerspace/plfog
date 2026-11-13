@@ -28,7 +28,8 @@ from django.utils import timezone
 from core.models import UserProfile
 from core.tasks import enqueue_at_on_commit
 from core.services.guest_account import ensure_guest_account, find_user_for_email
-from membership.models import Member
+from membership.models import AdminCapability, Member
+from membership.permission_setup import SetupState
 from tours import signals
 from tours.availability import open_tour_at
 from tours.models import FacilityTourSettings, TourBooking, TourGuideSettings
@@ -517,6 +518,10 @@ def mark_tour_outcome(booking: TourBooking, outcome: str, *, now: datetime | Non
                 _stamp_completed_tour(locked.user, locked.starts_at)
             elif was_attended:
                 _unstamp_completed_tour(locked.user, locked.starts_at)
+        if outcome == TourBooking.Status.ATTENDED and locked.guide is not None:
+            # A first Attended tour can finish the guide's Get Set Up (#1167): the badge lands now,
+            # whoever marked it; the guide's toast waits for their next visit or this response.
+            SetupState.evaluate(locked.guide, AdminCapability.Capability.TOUR_GUIDE)
     return locked
 
 

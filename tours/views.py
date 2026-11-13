@@ -37,7 +37,9 @@ from django.views.decorators.http import require_POST
 from core.htmx import wants_fragment
 from hub.toast import trigger_toast
 from hub.view_as import ROLE_ADMIN, fog_admin_required, tour_guide_access_required
-from membership.models import Member
+from membership.models import AdminCapability, Member, WikiPage
+from membership.permission_setup import SetupState
+from membership.permissions import can_edit_wiki_page
 from tours import calendar_sync, google
 from tours.availability import OpenTour, open_tours
 from tours.booking import (
@@ -110,6 +112,19 @@ def _viewer(request: HttpRequest) -> Member:
     if member is None:
         raise Http404("This account has no member record.")
     return member
+
+
+def _setup(request: HttpRequest) -> dict[str, Any]:
+    """The viewer's own Get Set Up card for Tour Guide (#1167), for the top of every Tours tab.
+
+    None unless the viewer holds the grant (an admin without it gets no card). The load that
+    finishes setup, or first sees it finished, toasts the badge.
+    """
+    member: Member | None = getattr(request.user, "member", None)
+    state = SetupState.load(member, AdminCapability.Capability.TOUR_GUIDE) if member is not None else None
+    if state is not None and state.just_finished:
+        messages.success(request, state.spec.celebration)
+    return {"setup": state, "setup_next": request.get_full_path()}
 
 
 def _target_guide(request: HttpRequest, raw: str) -> Member:
@@ -233,6 +248,7 @@ def _render_hours(
             "dated_hours": dated,
             "dates_calendar": _calendar_config(target, dated, dates_form),
             "confirm_form": TourConfirmModeForm(instance=TourGuideSettings.objects.filter(guide=target).first()),
+            **_setup(request),
         },
     )
 
@@ -367,7 +383,28 @@ def tour_settings(request: HttpRequest) -> HttpResponse:
         form.save()
         messages.success(request, "Tour Settings saved.")
         return redirect("tours:settings")
-    return render(request, "tours/settings.html", {"form": form, "kiosk_url": _kiosk_url(instance)})
+    return render(request, "tours/settings.html", {"form": form, "kiosk_url": _kiosk_url(instance), **_setup(request)})
+
+
+@tour_guide_access_required
+def tour_guide(request: HttpRequest) -> HttpResponse:
+    """The Guide tab (#1167): the wiki page an admin linked to Tour Guide, and the way back to a hidden card."""
+    page = WikiPage.guide_page_for(AdminCapability.Capability.TOUR_GUIDE)
+    if page is not None:
+        page = WikiPage.objects.select_related("updated_by").prefetch_related("facts").get(pk=page.pk)
+    return render(
+        request,
+        "tours/guide.html",
+        {
+            "tab": "guide",
+            "is_admin": _is_admin(request),
+            "page": page,
+            "facts": list(page.facts.all()) if page is not None else [],
+            "toc": page.toc() if page is not None and page.has_written_body else [],
+            "can_edit": page is not None and can_edit_wiki_page(request, page),
+            **_setup(request),
+        },
+    )
 
 
 def _kiosk_url(house_rules: FacilityTourSettings) -> str:
@@ -531,6 +568,7 @@ def _render_bookings(request: HttpRequest, tab: str) -> HttpResponse:
             "filter_guides": _filter_guides() if is_admin else [],
             "filter_guide": guide if filtered else None,
             "base_params": urlencode({"guide": guide.pk}) if filtered and guide is not None else "",
+            **_setup(request),
         },
     )
 
@@ -783,6 +821,20 @@ def tour_booking_decline(request: HttpRequest, pk: int) -> HttpResponse:
     return _done(request)
 
 
+def _with_setup_finished(request: HttpRequest, booking: TourBooking, outcome: str, text: str) -> str:
+    """The Attended toast, plus the badge line when this tour finishes the guide's Get Set Up (#1167).
+
+    Only the guide's own mark celebrates; an admin marking someone else's tour finishes their
+    setup quietly, and the guide sees the toast on their next visit.
+    """
+    if outcome != TourBooking.Status.ATTENDED or booking.guide is None or booking.guide.user_id != request.user.pk:
+        return text
+    state = SetupState.load(booking.guide, AdminCapability.Capability.TOUR_GUIDE)
+    if state is None or not state.just_finished:
+        return text
+    return f"{text} {state.spec.celebration}"
+
+
 @tour_guide_access_required
 @require_POST
 def tour_booking_mark(request: HttpRequest, pk: int) -> HttpResponse:
@@ -799,6 +851,7 @@ def tour_booking_mark(request: HttpRequest, pk: int) -> HttpResponse:
     else:
         label = "attended" if outcome == TourBooking.Status.ATTENDED else "a no show"
         text, tone = f"{booking.visitor_name} marked {label}.", "success"
+        text = _with_setup_finished(request, booking, outcome, text)
     if request.headers.get("HX-Request") != "true":
         messages.add_message(request, messages.SUCCESS if tone == "success" else messages.ERROR, text)
         return redirect(_back_url(request, "tours:past"))

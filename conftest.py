@@ -1,5 +1,6 @@
 import os
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 
@@ -73,6 +74,8 @@ def _restore_latest_migrations(request: pytest.FixtureRequest, django_db_blocker
         leaves = executor.loader.graph.leaf_nodes()
         if executor.migration_plan(leaves):
             executor.migrate(leaves)
+            # Migrating forward ran 0278 again; later specs expect the wiki empty.
+            _drop_seeded_guide_pages()
 
 
 @pytest.fixture(autouse=True)
@@ -108,6 +111,37 @@ def _fake_stripe_keys(settings):
     `_fake_billing_stripe_settings` below for the autouse DB fixture that populates them.
     """
     settings.STRIPE_FIELD_ENCRYPTION_KEY = "b4-PlK9DFN7ABVCQwOHuQXMydh5IUj1ysLKGJOqMEWI="
+
+
+def _drop_seeded_guide_pages() -> None:
+    """Remove the pages migration ``membership.0278`` seeds, so specs start with the wiki as empty as before #1167.
+
+    The test database is built from the migrations, so without this every wiki list, count and
+    search spec would meet one page nobody made. A spec about that page asks for ``tour_guide_guide``.
+    """
+    from membership.models import WikiPage
+
+    WikiPage.objects.exclude(guide_for="").delete()
+
+
+@pytest.fixture(scope="session")
+def django_db_setup(django_db_setup: None, django_db_blocker: DjangoDbBlocker) -> None:
+    """pytest-django's database, built from the migrations, without the seeded guide pages (once per session)."""
+    with django_db_blocker.unblock():
+        _drop_seeded_guide_pages()
+
+
+@pytest.fixture
+def tour_guide_guide(db: None) -> Any:
+    """The Tour Guide Guide wiki page as migration ``membership.0278`` seeds it on deploy (#1167)."""
+    import importlib
+
+    from django.apps import apps
+
+    from membership.models import AdminCapability, WikiPage
+
+    importlib.import_module("membership.migrations.0278_seed_tour_guide_guide").seed(apps, None)
+    return WikiPage.guide_page_for(AdminCapability.Capability.TOUR_GUIDE)
 
 
 @pytest.fixture(autouse=True)

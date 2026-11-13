@@ -4,9 +4,16 @@
 
 {{ card.title|upper }}
 What it does: {{ card.what }}
-How: {{ card.how }}
+{% if card.steps %}
+Get set up in a few short steps on {{ card.page_name }}:
+{% for step in card.steps %}{{ forloop.counter }}. {{ step }}
+{% endfor %}
 {% for label, url in card.pages %}{{ label }}: {{ url }}
 {% endfor %}
+The page walks you through one step at a time. {{ card.rule_line }}
+{% else %}How: {{ card.how }}
+{% for label, url in card.pages %}{{ label }}: {{ url }}
+{% endfor %}{% endif %}
 If you need any help, don't hesitate to ask {{ help_contact }}.
 
 {% include "membership/emails/_footer.txt" %}{% endautoescape %}

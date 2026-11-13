@@ -69,6 +69,7 @@ from core.widgets import PageContentEditorWidget, RichBodyEditorWidget, RichText
 from membership.forms import member_picker_key, member_picker_labels, member_picker_lookup, setup_location_field
 from membership.markdown import sanitize_page_submission, sanitize_wiki_submission
 from membership.names import user_display_name, user_label, user_name_or_email
+from membership.permission_setup import spec_for
 from membership.models import (
     ANNOUNCEMENT_IMAGE_EXTENSIONS,
     ANNOUNCEMENT_IMAGE_INVALID,
@@ -8591,6 +8592,11 @@ class WikiPageForm(forms.Form):
         empty_label="Not about a specific tool",
         help_text="Links this page to the tool's official block and to its QR sticker.",
     )
+    guide_for = forms.ChoiceField(
+        required=False,
+        label="Guide For",
+        help_text="Shows this page on that permission's Guide tab, in place of any page picked before.",
+    )
 
     def __init__(self, *args: Any, page: WikiPage, can_moderate: bool = False, **kwargs: Any) -> None:
         kwargs.setdefault("initial", {})
@@ -8598,6 +8604,7 @@ class WikiPageForm(forms.Form):
             "title": page.title,
             "body": page.body,
             "equipment": page.equipment,
+            "guide_for": page.guide_for,
             **kwargs["initial"],
         }
         super().__init__(*args, **kwargs)
@@ -8613,6 +8620,15 @@ class WikiPageForm(forms.Form):
             # A member never sees this field at all — the hand-fix for a mis-seeded
             # equipment link is a moderator's tool, not a page-editing affordance.
             del self.fields["equipment"]
+        # Guide For (#1167): which permission's Guide tab shows this page. Space wide pages only, so
+        # the moderator here is an admin; a guild page never becomes a permission's guide.
+        if can_moderate and page.guild_id is None:
+            cast(forms.ChoiceField, self.fields["guide_for"]).choices = [
+                ("", "Not a permission's guide"),
+                *[(key, label) for key, label in AdminCapability.Capability.choices if spec_for(key) is not None],
+            ]
+        else:
+            del self.fields["guide_for"]
 
     def clean_title(self) -> str:
         """Same reserved-name guard as the create form; the slug itself never changes."""

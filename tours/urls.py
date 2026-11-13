@@ -14,6 +14,7 @@ app_name = "tours"
 urlpatterns = [
     path("", views.tour_upcoming, name="upcoming"),
     path("past/", views.tour_past, name="past"),
+    path("guide/", views.tour_guide, name="guide"),
     path("bookings/<int:pk>/reschedule/", views.tour_booking_reschedule, name="booking_reschedule"),
     path("bookings/<int:pk>/cancel/", views.tour_booking_cancel, name="booking_cancel"),
     path("bookings/<int:pk>/mark/", views.tour_booking_mark, name="booking_mark"),

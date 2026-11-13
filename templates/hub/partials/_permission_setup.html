@@ -1,0 +1,131 @@
+{% comment %}
+The Get Set Up card for a permission the viewer was granted (#1167), at the top of that
+permission's page above every tab: Home's Get Started checklist (.pl-onboarding) with one step
+open at a time, then, once setup is done, one strip with the badge, the tally and the rule.
+Hidden while the member hid it; the Guide tab brings it back.
+
+Context: setup (membership.permission_setup.SetupState or None), setup_next (the page to land
+back on after a button), tab (the page's tab, so the Guide tab leaves out Open the Guide).
+{% endcomment %}
+{% if setup and not setup.hidden %}
+{% with spec=setup.spec %}
+{% if setup.finished %}
+<div class="hub-card pl-perm-done" data-permission-setup="{{ spec.permission }}" data-setup-done>
+  {% if setup.badges %}<span class="pl-perm-done__badge">{% include "hub/partials/leadership/_badge_pills.html" with badges=setup.badges list_class="pl-directory-badges" %}</span>{% endif %}
+  <div class="pl-perm-done__text">
+    <p class="pl-perm-done__title">{{ spec.done_title }}</p>
+    <p class="pl-perm-done__line">{{ setup.done_line }}</p>
+    {% if setup.facts.stats %}
+    <ul class="pl-perm-done__stats" aria-label="Your {{ spec.label }} tally">
+      {% for stat in setup.facts.stats %}
+      <li class="pl-perm-done__stat"><span class="pl-perm-done__num">{{ stat.value }}</span><span class="pl-perm-done__label">{{ stat.label }}</span></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <p class="pl-perm-done__rule">{{ spec.rule_line }}</p>
+  </div>
+  <div class="pl-perm-done__actions">
+    {% if tab != "guide" %}<a href="{% url spec.guide_url_name %}" class="pl-btn pl-btn--secondary pl-btn--sm">Open the Guide</a>{% endif %}
+    <form method="post" action="{% url 'hub_permission_setup_hide' spec.permission %}">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ setup_next }}">
+      <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Hide</button>
+    </form>
+  </div>
+</div>
+{% else %}
+<div class="hub-card pl-onboarding pl-perm-setup" data-permission-setup="{{ spec.permission }}">
+  <form method="post" action="{% url 'hub_permission_setup_hide' spec.permission %}">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ setup_next }}">
+    <button type="submit" class="pl-onboarding__close" aria-label="Hide the Get Set Up card for now">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+    </button>
+  </form>
+  <p class="pl-perm-setup__eyebrow">New Permission · {{ spec.label }}</p>
+  <h2 class="pl-home-heading pl-onboarding__title">{{ setup.title }}</h2>
+  <p class="hub-text-muted pl-onboarding__lead">{{ setup.lead }}</p>
+  <progress class="pl-perm-setup__meter" max="{{ setup.counted|length }}" value="{{ setup.done_count }}" aria-label="Setup progress">{{ setup.done_count }} of {{ setup.counted|length }}</progress>
+  <div class="pl-onboarding__steps">
+    {% for view in setup.steps %}
+    {% if view.is_open %}
+    <div class="pl-perm-step" data-setup-step="{{ view.step.key }}" data-setup-open>
+      <div class="pl-onboarding-step">
+        {% include "hub/partials/_permission_setup_status.html" with done=False %}
+        <span class="pl-onboarding-step__body">
+          <span class="pl-onboarding-step__label">{{ view.step.title }}{% if view.step.optional %} <span class="pl-onboarding-step__tag">Optional</span>{% endif %}</span>
+          <span class="pl-onboarding-step__note hub-text-muted">Step {{ view.number }} of {{ setup.steps|length }}</span>
+        </span>
+      </div>
+      <div class="pl-perm-step__body">
+        <p class="pl-perm-step__why">{{ view.step.why }}</p>
+        {% if view.step.got_it and view.step.how %}
+        <ul class="pl-perm-step__list">
+          {% for line in view.step.how %}<li>{{ line }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+        {% if view.step.action_label %}
+        <div class="pl-perm-step__actions">
+          <a href="{{ view.step.action_url }}" class="pl-btn pl-btn--primary pl-btn--sm">{{ view.step.action_label }}</a>
+          {% if view.step.optional %}
+          <form method="post" action="{% url 'hub_permission_setup_skip' spec.permission %}">
+            {% csrf_token %}
+            <input type="hidden" name="step" value="{{ view.step.key }}">
+            <input type="hidden" name="next" value="{{ setup_next }}">
+            <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Skip This Step</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endif %}
+        {% if view.step.got_it and view.step.more or not view.step.got_it and view.step.how %}
+        <details class="pl-disclosure">
+          <summary class="pl-disclosure__summary">
+            <span class="pl-disclosure__text">
+              <span class="pl-disclosure__title">{% if view.step.got_it %}{{ view.step.more_title }}{% else %}{{ view.step.how_title }}{% endif %}</span>
+              <span class="pl-disclosure__hint">Tap to open.</span>
+            </span>
+            <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+          </summary>
+          <div class="pl-disclosure__body">
+            <ul class="pl-perm-step__list">
+              {% if view.step.got_it %}{% for line in view.step.more %}<li>{{ line }}</li>{% endfor %}{% else %}{% for line in view.step.how %}<li>{{ line }}</li>{% endfor %}{% endif %}
+            </ul>
+            {% if view.step.guide_section %}<p class="pl-perm-step__more"><a href="{% url spec.guide_url_name %}" class="pl-card-link">Read {{ view.step.guide_section }} in the Guide →</a></p>{% endif %}
+          </div>
+        </details>
+        {% endif %}
+        {% if view.step.got_it %}
+        <form method="post" action="{% url 'hub_permission_setup_got_it' spec.permission %}" class="pl-perm-step__actions pl-perm-step__got-it">
+          {% csrf_token %}
+          <input type="hidden" name="step" value="{{ view.step.key }}">
+          <input type="hidden" name="next" value="{{ setup_next }}">
+          <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm">Got It</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% elif view.step.action_url and not view.unavailable %}
+    <a href="{{ view.step.action_url }}" class="pl-onboarding-step{% if view.done or view.skipped %} pl-onboarding-step--done{% endif %}" data-setup-step="{{ view.step.key }}">
+      {% include "hub/partials/_permission_setup_status.html" with done=view.done %}
+      <span class="pl-onboarding-step__body">
+        <span class="pl-onboarding-step__label">{{ view.step.title }}{% if view.step.optional and not view.done %} <span class="pl-onboarding-step__tag">Optional</span>{% endif %}</span>
+        <span class="pl-onboarding-step__note hub-text-muted">{{ view.note }}</span>
+      </span>
+      <span class="pl-onboarding-step__go" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></span>
+    </a>
+    {% else %}
+    <div class="pl-onboarding-step pl-perm-step--still{% if view.done %} pl-onboarding-step--done{% endif %}{% if view.unavailable %} pl-perm-step--unavailable{% endif %}" data-setup-step="{{ view.step.key }}">
+      {% include "hub/partials/_permission_setup_status.html" with done=view.done %}
+      <span class="pl-onboarding-step__body">
+        <span class="pl-onboarding-step__label">{{ view.step.title }}{% if view.step.optional and not view.done %} <span class="pl-onboarding-step__tag">Optional</span>{% endif %}</span>
+        <span class="pl-onboarding-step__note hub-text-muted">{{ view.note }}</span>
+      </span>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+  <p class="pl-onboarding__progress hub-text-muted">{{ setup.done_count }} of {{ setup.counted|length }} done. Questions? Ask {{ setup.granter_name }}.</p>
+</div>
+{% endif %}
+{% endwith %}
+{% endif %}

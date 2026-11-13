@@ -1,0 +1,26 @@
+bump = "minor"
+date = "2026-11-12"
+audience = ["members", "admins"]
+title = "New Tour Guides get set up step by step, and earn a badge"
+changes = [
+  "When you are made a Tour Guide, the Tours page shows a short Get Set Up checklist with one step open at a time.",
+  "Most steps tick themselves as you go: connect your Google Calendar (optional), set your tour hours, and give your first tour.",
+  "Finish every step to earn the Tour Guide badge, shown on your Member Directory card.",
+  "The new Guide tab on the Tours page has the full guide. Admins keep it up to date on the wiki.",
+  "The email you get when you are made a Tour Guide now lists the steps, with one Get Set Up button.",
+]
+feature = "tours.get-set-up"
+guidance = "shots"
+target = "tours.get-set-up"
+
+[[shots]]
+caption = "Get Set Up sits at the top of the Tours page. The first step that is not done yet is open."
+
+[[shots]]
+caption = "Steps tick themselves as you do them. Read how a tour day goes, then press Got It."
+
+[[shots]]
+caption = "Mark your first tour Attended and the card folds up. Your Tour Guide badge is on your Member Directory card."
+
+[[shots]]
+caption = "The Guide tab has the full guide, which admins keep up to date on the wiki."

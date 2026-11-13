@@ -1,0 +1,99 @@
+/* Get Set Up (#1167), lifted from mockups/1163-permission-onboarding.html: a permission's
+   checklist on the page it opens, built on Home's Get Started card (.pl-onboarding and
+   .pl-onboarding-step in hub.css, unchanged). This adds the eyebrow, the meter, the one open
+   step, a step that does not link, the folded strip once setup is done, and the Guide tab.
+   Tokens only, so both themes follow. */
+
+.pl-perm-setup__eyebrow {
+    margin: 0 0 0.25rem;
+    padding-right: 2.25rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-tuscan-yellow);
+}
+
+/* The meter is a native <progress>, so its value needs no inline width. */
+.pl-perm-setup__meter {
+    display: block;
+    width: 100%;
+    height: 6px;
+    margin: 0 0 1.25rem;
+    border: 0;
+    border-radius: 999px;
+    overflow: hidden;
+    appearance: none;
+    background: var(--hub-surface);
+    color: var(--color-tuscan-yellow);
+}
+.pl-perm-setup__meter::-webkit-progress-bar { background: var(--hub-surface); border-radius: 999px; }
+.pl-perm-setup__meter::-webkit-progress-value { background: var(--color-tuscan-yellow); border-radius: 999px; }
+.pl-perm-setup__meter::-moz-progress-bar { background: var(--color-tuscan-yellow); border-radius: 999px; }
+
+/* The open step: the same row, opened into a body with its action and How It Works. */
+.pl-perm-step {
+    border: 1px solid var(--color-tuscan-yellow);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--color-tuscan-yellow) 6%, var(--hub-card-bg));
+}
+.pl-perm-step > .pl-onboarding-step { border: 0; background: transparent; }
+.pl-perm-step > .pl-onboarding-step:hover { background: transparent; }
+.pl-perm-step__body { padding: 0 0.9rem 1rem 3.15rem; }
+.pl-perm-step__why { margin: 0 0 1rem; font-size: 0.9rem; line-height: 1.55; color: var(--hub-text-muted); max-width: 62ch; }
+.pl-perm-step__actions { display: flex; flex-wrap: wrap; gap: 0.625rem; align-items: center; }
+.pl-perm-step__actions form { display: contents; }
+.pl-perm-step .pl-disclosure { margin-top: 1rem; }
+.pl-perm-step__list { margin: 0; padding-left: 1.1rem; font-size: 0.9rem; line-height: 1.6; max-width: 66ch; }
+.pl-perm-step__list li + li { margin-top: 0.4rem; }
+.pl-perm-step__more { margin: 0.75rem 0 0; font-size: 0.875rem; }
+.pl-perm-step__got-it { margin-top: 1.25rem; }
+
+/* A step row with nowhere to go (the reading step once done, or a step this site cannot do). */
+.pl-perm-step--still:hover { border-color: var(--hub-card-border); background: transparent; }
+.pl-perm-step--unavailable { opacity: 0.7; }
+
+@media (max-width: 639px) {
+    .pl-perm-step__body { padding-left: 0.9rem; }
+    .pl-perm-step__actions .pl-btn { flex: 1 1 100%; justify-content: center; min-height: 48px; }
+}
+
+/* The card once every step is done: one strip, the badge, the tally and the rule. */
+.pl-perm-done {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem 1.5rem;
+    margin-bottom: 1.5rem;
+    padding: 1rem 1.25rem;
+    border-left: 3px solid var(--color-tuscan-yellow);
+}
+.pl-perm-done__badge { flex: 0 0 auto; }
+.pl-perm-done__badge .pl-directory-badges { margin: 0; }
+.pl-perm-done__text { flex: 1 1 18rem; min-width: 0; }
+.pl-perm-done__title { margin: 0 0 0.2rem; font-family: Lato, sans-serif; font-weight: 900; font-size: 1.05rem; color: var(--hub-text); }
+.pl-perm-done__line { margin: 0; font-size: 0.875rem; color: var(--hub-text-muted); }
+.pl-perm-done__stats { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; margin: 0.75rem 0 0; padding: 0; list-style: none; }
+.pl-perm-done__stat { display: flex; flex-direction: column; }
+.pl-perm-done__num { font-family: Lato, sans-serif; font-weight: 900; font-size: 1.35rem; line-height: 1.1; color: var(--hub-text); }
+.pl-perm-done__label { font-size: 0.75rem; color: var(--hub-text-muted); }
+.pl-perm-done__rule { margin: 0.75rem 0 0; font-size: 0.875rem; color: var(--hub-text); }
+.pl-perm-done__actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+@media (max-width: 639px) {
+    .pl-perm-done__actions { flex: 1 1 100%; }
+    .pl-perm-done__actions > *, .pl-perm-done__actions form, .pl-perm-done__actions .pl-btn { flex: 1 1 0; }
+    .pl-perm-done__actions .pl-btn { width: 100%; justify-content: center; min-height: 48px; }
+}
+
+/* The Guide tab: the permission's wiki page inside its own page, with a small head. */
+.pl-perm-guide__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 1rem; }
+.pl-perm-guide__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; font-size: 0.8125rem; color: var(--hub-text-muted); }
+.pl-perm-guide .pl-wp-toc { margin-bottom: 1.25rem; }
+.pl-perm-guide .pl-wp-body h2 { margin: 1.75rem 0 0.5rem; font-family: Lato, sans-serif; font-size: 1.2rem; }
+.pl-perm-guide .pl-wp-body h2:first-child { margin-top: 0; }
+.pl-perm-guide .pl-wp-body p, .pl-perm-guide .pl-wp-body ul { margin: 0 0 0.75rem; }
+.pl-perm-guide .pl-wp-body ul { padding-left: 1.2rem; }
+.pl-perm-guide__next { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--hub-card-border); }
+.pl-perm-guide__restore { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1.5rem; margin-bottom: 1.5rem; }
+.pl-perm-guide__restore p { margin: 0; }
+.pl-perm-guide__empty p + p { margin-top: 0.5rem; }

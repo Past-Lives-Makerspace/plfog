@@ -243,13 +243,13 @@ def describe_the_email():
         granter: Member, pell: Member, django_capture_on_commit_callbacks
     ):
         with django_capture_on_commit_callbacks(execute=True):
-            pell.sync_admin_capabilities([Cap.TOUR_GUIDE], granted_by=granter.user)
+            pell.sync_admin_capabilities([Cap.EQUIPMENT], granted_by=granter.user)
         [email] = _granted_emails()
         html, text = _html(email), email.body
-        guide = AdminCapability.GUIDES[Cap.TOUR_GUIDE]
+        guide = AdminCapability.GUIDES[Cap.EQUIPMENT]
         base = settings.MEMBER_BASE_URL.rstrip("/")
         for body in (html, text):
-            assert "You have been granted Tour Guide" in body
+            assert "You have been granted Equipment Administrator" in body
             assert guide.what in body
             assert guide.how in body
             assert "Osric Wrenfield turned this on for you" in body
@@ -257,6 +257,49 @@ def describe_the_email():
             for page in guide.pages:
                 assert f"{base}{reverse(page.url_name)}" in body
         assert html.count("background: #EEB44B") == len(guide.pages)
+
+    def it_lists_the_get_set_up_steps_and_one_button_for_tour_guide(
+        granter: Member, pell: Member, django_capture_on_commit_callbacks
+    ):
+        from tours.setup import TOUR_GUIDE_SETUP
+
+        with django_capture_on_commit_callbacks(execute=True):
+            pell.sync_admin_capabilities([Cap.TOUR_GUIDE], granted_by=granter.user)
+        [email] = _granted_emails()
+        html, text = _html(email), email.body.replace("&#x27;", "'")
+        setup_url = f"{settings.MEMBER_BASE_URL.rstrip('/')}{reverse('tours:upcoming')}"
+        guide = AdminCapability.GUIDES[Cap.TOUR_GUIDE]
+        for body in (html.replace("&#x27;", "'"), text):
+            assert "You have been granted Tour Guide" in body
+            assert guide.what in body
+            assert guide.how not in body
+            for step in TOUR_GUIDE_SETUP.steps[1:]:
+                assert step.email_line in body
+            # Google sign in is not set up here, so the page shows the calendar step unavailable
+            # and the email leaves it out.
+            assert TOUR_GUIDE_SETUP.steps[0].email_line not in body
+            assert "the Tours page" in body
+            assert "You're paid $50 when a visitor you toured becomes a member." in body
+            assert setup_url in body
+        assert "Get Set Up: " + setup_url in text
+        assert html.count("background: #EEB44B") == 1
+        assert ">Get Set Up</a>" in html
+        bell = Notification.objects.get(user=pell.user, trigger=permission_grants.PERMISSION_GRANTED_EVENT)
+        assert bell.body == "Get set up in a few short steps."
+        assert bell.url.endswith(reverse("tours:upcoming"))
+
+    def it_lists_the_calendar_step_once_google_sign_in_is_set_up(
+        granter: Member, pell: Member, django_capture_on_commit_callbacks, settings
+    ):
+        from tours.setup import TOUR_GUIDE_SETUP
+
+        settings.GOOGLE_OAUTH_CLIENT_ID = "client-id"
+        settings.GOOGLE_OAUTH_CLIENT_SECRET = "client-secret"
+        with django_capture_on_commit_callbacks(execute=True):
+            pell.sync_admin_capabilities([Cap.TOUR_GUIDE], granted_by=granter.user)
+        [email] = _granted_emails()
+        assert "1. Connect your Google Calendar (optional)" in email.body
+        assert [step.key for step in TOUR_GUIDE_SETUP.email_steps(pell)] == [s.key for s in TOUR_GUIDE_SETUP.steps]
 
     def it_names_an_admin_when_the_granter_has_no_member_record(pell: Member, django_capture_on_commit_callbacks):
         with django_capture_on_commit_callbacks(execute=True):
