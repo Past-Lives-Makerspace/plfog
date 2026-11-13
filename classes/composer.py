@@ -71,6 +71,7 @@ COMPOSER_STEPS: tuple[ComposerStep, ...] = (
             "registration_cutoff_hours",
             "area",
             "capacity",
+            "minimum_signups",
             "is_private",
             "private_for_name",
         ),

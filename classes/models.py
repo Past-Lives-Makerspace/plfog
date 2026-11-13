@@ -175,6 +175,13 @@ TEACH_PAGE_FEATURE_ICONS: tuple[str, ...] = (
 )
 
 
+#: The reason a class cancelled by its minimum signups carries (#1182): the cancellation email
+#: quotes it to every registrant, and the refunds it starts record it.
+MINIMUM_SIGNUPS_CANCEL_REASON = "Not enough people signed up for this class to run."
+
+#: How long before registration closes the instructors hear their class is under its minimum.
+MINIMUM_SIGNUPS_WARNING_LEAD = timedelta(hours=24)
+
 MAX_GALLERY_IMAGES = 10
 
 
@@ -405,6 +412,49 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             | Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
             | Q(first_session_at__gt=Now() + cutoff)
         )
+
+    def with_minimum_signups(self) -> "ClassOfferingQuerySet":
+        """Live dated classes with a minimum and a cutoff, annotated for the minimum's two decisions (#1182).
+
+        Adds ``first_session_at`` (the earliest session ever, the ``bookable()`` contract),
+        ``minimum_decided_at`` (that start less the cutoff, the twin of
+        :attr:`ClassOffering.registration_closes_at`) and ``confirmed_signups`` (a subquery, so
+        the session join never multiplies it). A class whose confirmed signups already reach its
+        minimum is still listed; :meth:`under_minimum` narrows to the ones short of it.
+        """
+        from django.db.models import Count, DateTimeField, Min
+
+        hours = Cast("registration_cutoff_hours", IntegerField())
+        cutoff = ExpressionWrapper(hours * Value(timedelta(hours=1)), output_field=DurationField())
+        confirmed = (
+            Registration.objects.filter(class_offering=OuterRef("pk"), status=RegistrationStatus.CONFIRMED)
+            .order_by()
+            .values("class_offering")
+            .annotate(total=Count("pk"))
+            .values("total")
+        )
+        return self.filter(
+            status=ClassOffering.Status.PUBLISHED,
+            scheduling_model=ClassOffering.SchedulingModel.FIXED,
+            minimum_signups__isnull=False,
+            registration_cutoff_hours__isnull=False,
+        ).annotate(
+            first_session_at=Min("sessions__starts_at"),
+            minimum_decided_at=ExpressionWrapper(F("first_session_at") - cutoff, output_field=DateTimeField()),
+            confirmed_signups=Coalesce(Subquery(confirmed, output_field=IntegerField()), Value(0)),
+        )
+
+    def under_minimum(self) -> "ClassOfferingQuerySet":
+        """:meth:`with_minimum_signups` narrowed to the classes with fewer confirmed signups than their minimum."""
+        return self.with_minimum_signups().filter(confirmed_signups__lt=F("minimum_signups"))  # type: ignore[misc]  # django-stubs can't see annotate() aliases
+
+    def due_minimum_cancel(self, now: datetime) -> "ClassOfferingQuerySet":
+        """The classes the minimum cancels at ``now``: registration closed, not started, still short (#1182).
+
+        A catch-up sweep, not a tick window: a class whose cutoff passed while the job was down
+        is still caught on the next run, until its first session starts.
+        """
+        return self.under_minimum().filter(minimum_decided_at__lte=now, first_session_at__gt=now)  # type: ignore[misc]  # django-stubs can't see annotate() aliases
 
     def upcoming(self) -> "ClassOfferingQuerySet":
         """Classes that haven't started yet — any status, any visibility.
@@ -1097,6 +1147,16 @@ class ClassOffering(HeroCropMixin, models.Model):
         "Turn on to let registrants add a discount code on top of the sale.",
     )
     capacity = models.PositiveIntegerField(default=6, help_text="Maximum confirmed registrants.")
+    # Nullable on purpose: the column lands while the previous release still serves, and its
+    # INSERTs omit it (STANDARDS.md section 10). Null is no minimum (#1182).
+    minimum_signups = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text=(
+            "The fewest confirmed signups the class needs to run. Still under it when registration "
+            "closes, the class cancels itself and everyone is refunded. Blank is no minimum."
+        ),
+    )
     # Nullable on purpose: the column lands while the previous release still serves, and its
     # INSERTs omit it (STANDARDS.md section 10). Null is the cutoff switched off.
     registration_cutoff_hours = models.PositiveIntegerField(
@@ -2217,6 +2277,38 @@ class ClassOffering(HeroCropMixin, models.Model):
         self._notify_refund_authority_if_instructor_cancelled(actor)
         self.sync_eventbrite_listing()
 
+    def cancel_for_minimum(self, now: datetime) -> bool:
+        """Cancel this class for too few signups and queue a full refund for every paid signup (#1182).
+
+        Runs under a lock on the class row and re-checks :meth:`ClassOfferingQuerySet.due_minimum_cancel`
+        inside it, so two runs of the sweep cancel a class once. The cancel is :meth:`cancel`
+        with no actor: the standard cancellation email to everyone booked, and no manual refund
+        notice to the refunders, because the refunds are already on their way. Each paid
+        signup made on this site gets its own durable refund task, queued on commit, so a
+        redeploy or one Stripe refusal never strands the rest. Eventbrite tickets are refunded
+        by an admin, as today.
+
+        Returns:
+            True when this call cancelled the class, False when it was no longer due.
+        """
+        from classes.tasks import refund_for_minimum_cancel
+        from core.tasks import enqueue_on_commit
+
+        with transaction.atomic():
+            locked = type(self).objects.select_for_update().get(pk=self.pk)
+            if not type(self).objects.due_minimum_cancel(now).filter(pk=locked.pk).exists():
+                return False
+            locked.cancel(actor=None, reason=MINIMUM_SIGNUPS_CANCEL_REASON)
+            paid = locked.registrations.filter(
+                source=RegistrationSource.SITE,
+                status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES,
+                amount_paid_cents__gt=0,
+            ).exclude(stripe_payment_id="")
+            for registration_pk in paid.values_list("pk", flat=True):
+                enqueue_on_commit(refund_for_minimum_cancel, registration_pk)
+        self.refresh_from_db()
+        return True
+
     def _notify_refund_authority_if_instructor_cancelled(self, actor: "User | None") -> None:
         """When the instructor cancelled their own class and money was paid, tell the refunders.
 
@@ -2958,8 +3050,12 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         Returns the notified registration so callers can introspect for
         logging or tests. A flexible class has no cap and so no waitlist to promote
-        from; it answers ``None`` without looking (#545).
+        from; it answers ``None`` without looking (#545). Only a live class promotes: a
+        refund on a cancelled class frees a seat in a class that will not run, so offering
+        it would send a claim link to a dead page (#1182).
         """
+        if self.status != self.Status.PUBLISHED:
+            return None
         spots = self.spots_remaining
         if spots is None or spots <= 0:
             return None
@@ -3201,6 +3297,23 @@ class ClassOffering(HeroCropMixin, models.Model):
         if first is None:
             return None
         return first - timedelta(hours=self.registration_cutoff_hours)
+
+    @property
+    def minimum_signups_locked(self) -> bool:
+        """Whether a live class's minimum was already decided: registration has closed (#1182).
+
+        Past that moment the sweep has acted, or is about to, so a changed minimum could only
+        cancel a class that was set to run. A draft is never locked: it is decided only once live.
+        """
+        if self.status != self.Status.PUBLISHED:
+            return False
+        closes_at = self.registration_closes_at
+        return closes_at is not None and closes_at <= timezone.now()
+
+    @property
+    def shows_minimum_signups(self) -> bool:
+        """Whether the class page tells visitors about the minimum: one is set and a close time decides it."""
+        return bool(self.minimum_signups) and self.registration_closes_at is not None
 
     @property
     def registration_open(self) -> bool:

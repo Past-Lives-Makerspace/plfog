@@ -370,7 +370,8 @@ def describe_coming_up_in_the_next_24_hours():
         CommunityEventFactory(
             title="Open Shop Night", starts_at=timezone.now() + timedelta(days=1, hours=3), remind_1d=True
         )
-        with django_assert_max_num_queries(320):
+        # 344: the minimum signups warning (#1182) is one more hourly source, one query a call.
+        with django_assert_max_num_queries(344):
             assert staff_client.get(UPCOMING_URL).status_code == 200
 
     def it_keeps_the_rest_of_the_page_off_that_walk(

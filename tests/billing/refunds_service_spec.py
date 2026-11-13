@@ -17,7 +17,7 @@ from billing.exceptions import (
 )
 from billing.models import PaymentRefund
 from classes.factories import ClassOfferingFactory, RegistrationFactory, UserFactory
-from classes.models import CmsActivity, Registration
+from classes.models import ClassOffering, CmsActivity, Registration
 from membership.models import OrientationBooking
 from tests.billing.factories import PaymentRefundFactory
 from tests.membership.factories import OrientationBookingFactory
@@ -100,7 +100,7 @@ def describe_issue_refund():
     def describe_success():
         @patch("billing.stripe_utils.create_refund")
         def it_issues_a_full_refund_and_runs_the_bookkeeping(mock_create):
-            offering = ClassOfferingFactory(capacity=1)
+            offering = ClassOfferingFactory(capacity=1, status=ClassOffering.Status.PUBLISHED)
             registration = _paid_registration(class_offering=offering)
             waiting = RegistrationFactory(
                 class_offering=offering, status=Registration.Status.WAITLISTED, email="waiting@example.com"
@@ -294,7 +294,7 @@ def describe_retry_refund():
         # Pinned by the spec: on a Retry that re-succeeds on an already-REFUNDED
         # registration, mark_refunded runs again but promote_next_from_waitlist is
         # guarded by previously_held_a_spot — a REFUNDED row no longer holds one.
-        offering = ClassOfferingFactory(capacity=1)
+        offering = ClassOfferingFactory(capacity=1, status=ClassOffering.Status.PUBLISHED)
         registration = _paid_registration(class_offering=offering)
         first_waiting = RegistrationFactory(
             class_offering=offering, status=Registration.Status.WAITLISTED, email="first@example.com"

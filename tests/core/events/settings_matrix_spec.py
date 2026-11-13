@@ -736,6 +736,8 @@ def describe_padlocked_rows():
         "billing.orientation_bill_reminder": "Billing",
         # A permission someone turned on for the member (#1163): a duty they must know they hold.
         "permission.granted": "Membership",
+        # A class short of its minimum a day before registration closes (#1182).
+        "class.under_minimum": "Teaching",
     }
     # Forced emails routed to staff: padlocked too, but in Admin / Permissions.
     STAFF_FORCED = {

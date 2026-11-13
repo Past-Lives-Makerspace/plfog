@@ -34,6 +34,7 @@ _DISPATCHER_ALWAYS = {
     "send_lease_expiry_reminders",
     "auto_complete_orientations",
     "send_class_reminders",
+    "enforce_class_minimums",
     "publish_due_events",
     "finish_event_announcements",
     "send_event_reminders",

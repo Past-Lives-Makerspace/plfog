@@ -5499,6 +5499,16 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 .pl-date-window .pl-form-group { margin-bottom: 0.5rem; }
 @media (max-width: 560px) { .pl-date-window { grid-template-columns: 1fr; } }
+/* Capacity and Minimum signups side by side (#1182), stacked on a phone like the date window. */
+.pl-seats-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+/* The pair keeps its own bottom gap, so neither box's margin (stripped on the last child) decides it. */
+.pl-seats-pair .pl-form-group { margin-bottom: 0; }
+@media (max-width: 560px) { .pl-seats-pair { grid-template-columns: 1fr; } }
 .pl-date-window__hint { margin: 0 0 1rem; }
 /* The registration cutoff under the dates on step 3: the toggle, then the hours box while it is on. */
 .pl-registration-cutoff { margin-top: 1.25rem; }

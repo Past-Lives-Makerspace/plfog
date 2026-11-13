@@ -10,7 +10,7 @@ from django.utils import timezone
 from django.utils.timezone import localtime
 
 from classes.factories import ClassOfferingFactory, RegistrationFactory, UserFactory
-from classes.models import ClassSession, CmsActivity, Registration
+from classes.models import ClassOffering, ClassSession, CmsActivity, Registration
 
 pytestmark = pytest.mark.django_db
 
@@ -36,7 +36,7 @@ def describe_mark_refunded():
         assert row.actor == actor
 
     def it_frees_the_spot_and_promotes_the_waitlist():
-        offering = ClassOfferingFactory(capacity=1)
+        offering = ClassOfferingFactory(capacity=1, status=ClassOffering.Status.PUBLISHED)
         holder = RegistrationFactory(
             class_offering=offering, status=Registration.Status.CONFIRMED, email="h@example.com"
         )
@@ -89,7 +89,7 @@ def describe_move_to():
         assert row.payload == {"from": "Old Class", "to": "New Class"}
 
     def it_promotes_the_source_waitlist_when_a_spot_frees():
-        src = ClassOfferingFactory(slug="mv-wl-src", capacity=1)
+        src = ClassOfferingFactory(slug="mv-wl-src", capacity=1, status=ClassOffering.Status.PUBLISHED)
         dst = ClassOfferingFactory(slug="mv-wl-dst")
         holder = RegistrationFactory(class_offering=src, status=Registration.Status.CONFIRMED, email="h@example.com")
         waiting = RegistrationFactory(class_offering=src, status=Registration.Status.WAITLISTED, email="w@example.com")

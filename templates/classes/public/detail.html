@@ -492,6 +492,9 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
           {% if registration_closes_at %}
             <div class="cp-detail__waitlist-hint" data-registration-closes-at="{{ registration_closes_at|date:"c" }}">Registration closes {{ registration_cutoff_hours }} hours before class starts ({{ registration_closes_at|date:"D, M j, g:i A" }}).</div>
           {% endif %}
+          {% if offering.shows_minimum_signups %}
+            <div class="cp-detail__waitlist-hint" data-minimum-signups="{{ offering.minimum_signups }}">This class needs {{ offering.minimum_signups }} signup{{ offering.minimum_signups|pluralize }} to run. If it has fewer when registration closes ({{ registration_closes_at|date:"D, M j, g:i A" }}), it is cancelled and everyone is refunded.</div>
+          {% endif %}
         {% endif %}
         <ul class="cp-detail__rail-meta">
           {% if schedule_sessions %}

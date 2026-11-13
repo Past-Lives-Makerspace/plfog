@@ -7,7 +7,7 @@ from datetime import timedelta
 from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory, RegistrationFactory
-from classes.models import Registration
+from classes.models import ClassOffering, Registration
 
 
 def _make_reg(offering, status=Registration.Status.CONFIRMED, email_n=0, when=None):
@@ -40,7 +40,7 @@ def describe_waitlist():
 
     def describe_promote_next_from_waitlist():
         def it_promotes_oldest_unnotified_waitlist_row(db, mailoutbox):
-            offering = ClassOfferingFactory(capacity=1)
+            offering = ClassOfferingFactory(capacity=1, status=ClassOffering.Status.PUBLISHED)
             # One spot filled, one person waiting
             holder = _make_reg(offering, Registration.Status.CONFIRMED, 1)
             waiting = _make_reg(offering, Registration.Status.WAITLISTED, 2)
@@ -60,7 +60,7 @@ def describe_waitlist():
             assert waiting.waitlist_notified_at is None
 
         def it_skips_already_notified_waitlist_rows(db):
-            offering = ClassOfferingFactory(capacity=1)
+            offering = ClassOfferingFactory(capacity=1, status=ClassOffering.Status.PUBLISHED)
             _make_reg(offering, Registration.Status.CONFIRMED, 1)
             first = _make_reg(offering, Registration.Status.WAITLISTED, 2)
             first.waitlist_notified_at = timezone.now()
@@ -86,6 +86,6 @@ def describe_promote_next_from_waitlist_on_a_flexible_class():
         assert mailoutbox == []
 
     def it_still_fires_on_a_fixed_class_with_an_open_seat(db, mailoutbox):
-        offering = ClassOfferingFactory(capacity=1)
+        offering = ClassOfferingFactory(capacity=1, status=ClassOffering.Status.PUBLISHED)
         waiting = _make_reg(offering, Registration.Status.WAITLISTED, 2)
         assert offering.promote_next_from_waitlist() == waiting
