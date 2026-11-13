@@ -1,10 +1,13 @@
 {% extends "classes/admin/base.html" %}
-{% load classes_tags guidance %}
+{% load static classes_tags guidance %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'css/permission-setup.css' %}">{% endblock %}
+{# The CMS Administrator's Get Set Up card (#1167), above the portal card. #}
+{% block portal_top %}{% include "hub/partials/_permission_setups.html" %}{% endblock %}
 {% block portal_whats_new %}{% whats_new_button "classes.review" %}{% endblock %}
 {% block tab_content %}
 <div class="admin-toolbar">
     {% include "components/table_search.html" with q=q placeholder="Search classes…" preserved_fields=search_preserved_fields clear_url=search_clear_url %}
-    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_class_create' %}">+ New Class</a>
+    {% if request.view_as.actual_is_admin %}<a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_class_create' %}">+ New Class</a>{% endif %}
 </div>
 <div class="admin-filters pl-facets">
     {% for url, label, count, is_selected in status_filters %}

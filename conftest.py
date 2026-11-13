@@ -74,7 +74,7 @@ def _restore_latest_migrations(request: pytest.FixtureRequest, django_db_blocker
         leaves = executor.loader.graph.leaf_nodes()
         if executor.migration_plan(leaves):
             executor.migrate(leaves)
-            # Migrating forward ran 0278 again; later specs expect the wiki empty.
+            # Migrating forward ran 0278 and 0279 again; later specs expect the wiki empty.
             _drop_seeded_guide_pages()
 
 
@@ -114,7 +114,7 @@ def _fake_stripe_keys(settings):
 
 
 def _drop_seeded_guide_pages() -> None:
-    """Remove the pages migration ``membership.0278`` seeds, so specs start with the wiki as empty as before #1167.
+    """Remove the pages migrations ``membership.0278`` and ``0279`` seed, so specs start with the wiki as empty as before #1167.
 
     The test database is built from the migrations, so without this every wiki list, count and
     search spec would meet one page nobody made. A spec about that page asks for ``tour_guide_guide``.

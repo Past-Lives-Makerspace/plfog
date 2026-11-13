@@ -6197,10 +6197,11 @@ class LeadershipBadge(models.Model):
     @classmethod
     def for_permission(cls, permission: str) -> LeadershipBadge:
         """The badge finishing ``permission``'s setup earns, made in the house gold on first use (#1167)."""
-        badge, _created = cls.objects.get_or_create(
-            permission=permission,
-            defaults={"label": AdminCapability.Capability(permission).label},
-        )
+        from membership.permission_setup import spec_for
+
+        spec = spec_for(permission)
+        label = spec.badge_name if spec is not None else AdminCapability.Capability(permission).label
+        badge, _created = cls.objects.get_or_create(permission=permission, defaults={"label": label})
         return badge
 
     def __str__(self) -> str:
@@ -19243,6 +19244,14 @@ class Equipment(HeroCropMixin, models.Model):
         choices=Kind.choices,
         default=Kind.TOOL,
         help_text="Whether this is a tool, a room, or a space. All of them live on the Reservations page.",
+    )
+    added_by = models.ForeignKey(
+        "Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="Who added this on Add Equipment (#1167), or blank for an item added before it was recorded.",
     )
     guild = models.ForeignKey(
         Guild,

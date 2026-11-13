@@ -449,7 +449,8 @@ def describe_equipment_index():
             # 40 since #935: the sidebar's Spotlight is a static version card, so neither of its two queries runs.
             # 39 since the hidden-guild sidebar: its guild list reads the demo guild setting inside its one query.
             # 40 with the usage log (#1078): its one insert.
-            with django_assert_num_queries(40):
+            # 41 with Get Set Up (#1167): the one query asking whether the viewer holds Equipment or Space Manager.
+            with django_assert_num_queries(41):
                 assert client.get(url).status_code == 200
 
         def it_answers_an_empty_grid_without_the_member_lookups(django_assert_num_queries):
@@ -526,6 +527,18 @@ def describe_equipment_add():
         client.post(reverse("hub_equipment_add"), {"name": "Admin Saw", "kind": "tool", "is_active": "on"})
         assert Equipment.objects.filter(name="Admin Saw").exists()
         assert not EquipmentStaffMembership.objects.filter(equipment__name="Admin Saw").exists()
+
+    def it_ticks_add_your_first_space_for_an_admin_space_manager_with_no_staff_row(client: Client):
+        """#1167: an admin who adds a room gets no staff row, so the step reads who added it."""
+        from membership.capability_setup import FIRST_SPACE, space_manager_facts
+
+        user = _login(client, "eq_add_admin_sm", fog_role=Member.FogRole.ADMIN)
+        user.member.admin_capabilities.create(capability=AdminCapability.Capability.SPACE_MANAGER)
+        client.post(reverse("hub_equipment_add"), {"name": "Admin Bay", "kind": "room", "is_active": "on"})
+        room = Equipment.objects.get(name="Admin Bay")
+        assert room.added_by == user.member
+        assert not EquipmentStaffMembership.objects.filter(equipment=room).exists()
+        assert space_manager_facts(user.member).done == {FIRST_SPACE}
 
     def describe_space_manager():
         """#502: a Space Manager adds rooms and spaces, never tools, and manages what they add."""

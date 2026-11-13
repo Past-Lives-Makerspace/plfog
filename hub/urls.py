@@ -796,6 +796,7 @@ urlpatterns = [
     path(
         "setup/<str:permission>/show/", permission_setup_views.permission_setup_show, name="hub_permission_setup_show"
     ),
+    path("setup/<str:permission>/guide/", permission_setup_views.permission_guide, name="hub_permission_guide"),
     path("settings/", views.user_settings, name="hub_user_settings"),
     path(
         "settings/profile-photo/delete/",

@@ -1,4 +1,4 @@
-{% load tab_picker %}
+{% load tab_picker classes_tags %}{% reviews_classes as reviews_catalog %}
 {% comment %}The Classes portal's one tab strip, rendered by the instructor shell and the admin
 shell alike (ruling 13). Ruling 14: every tab decides for itself whether it is offered, so an
 admin who also teaches gets all of them, and a plain admin gets no empty "My Classes" and no
@@ -34,8 +34,11 @@ permission decorator is the real gate; this only decides whether the tab is offe
     {% if teaches %}
     <a href="{% url 'classes:teach_profile' %}" class="vote-tab{% if active_tab == 'profile' %} vote-tab--active{% endif %}"{% if active_tab == 'profile' %} aria-current="page"{% endif %}>Instructor Profile</a>
     {% endif %}
-    {% if actually_admin %}
+    {# A CMS Administrator approves classes for every guild, so All Classes opens to them too (#1167); the rest stays with admins. #}
+    {% if reviews_catalog %}
     <a href="{% url 'classes:admin_classes' %}" class="vote-tab{% if active_tab == 'classes' %} vote-tab--active{% endif %}"{% if active_tab == 'classes' %} aria-current="page"{% endif %}>All Classes</a>
+    {% endif %}
+    {% if actually_admin %}
     <a href="{% url 'classes:admin_activity' %}" class="vote-tab{% if active_tab == 'activity' %} vote-tab--active{% endif %}"{% if active_tab == 'activity' %} aria-current="page"{% endif %}>Catalog Activity</a>
     <a href="{% url 'classes:admin_settings_hub' %}" class="vote-tab{% if active_tab in settings_tabs.split %} vote-tab--active{% endif %}"{% if active_tab in settings_tabs.split %} aria-current="page"{% endif %}>Settings</a>
     {% endif %}

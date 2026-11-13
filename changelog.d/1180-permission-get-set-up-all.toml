@@ -1,0 +1,21 @@
+bump = "minor"
+date = "2026-11-12"
+audience = ["members", "admins"]
+title = "Seven more permissions get set up step by step, and earn a badge"
+changes = [
+  "When you are given CMS, Space & Cubby, Calendar, Billing or Equipment Administrator, Space Manager, or the right to add events, the page it opens shows a short Get Set Up checklist.",
+  "Most steps tick themselves as you do the work, such as reviewing your first class or adding your first space. A reading step ends with Got It.",
+  "Finish every step to earn that permission's badge, shown on your Member Directory card.",
+  "Open the Guide from the card for the full guide. Admins keep it up to date on the wiki.",
+]
+feature = "permissions.get-set-up"
+guidance = "shots"
+
+[[shots]]
+caption = "Get Set Up sits at the top of the page your new permission opens. The first step not done yet is open."
+
+[[shots]]
+caption = "Steps tick themselves as you do the work. Read the last step, then press Got It."
+
+[[shots]]
+caption = "Finish and the card folds up. Your badge is on your Member Directory card."

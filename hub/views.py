@@ -45,6 +45,7 @@ from classes.models import Category, ClassOffering
 from core.htmx import wants_fragment
 from core.features import is_on
 from core.models import BiometricCredential, FeedbackRequest, HeroCropMixin, QueuedDiscordMessage, SiteConfiguration
+from hub.permission_setup_views import page_setups
 from hub.view_as import ALL_ROLES, ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, SESSION_ROLE_KEY, fog_admin_required
 from hub.forms import (
     AutomationsForm,
@@ -8215,7 +8216,11 @@ def community_calendar(request: HttpRequest) -> HttpResponse:
         )
     else:
         cal_ctx["my_proposals"] = CommunityEvent.objects.none()
-    return render(request, "hub/community_calendar.html", {**ctx, **cal_ctx})
+    return render(
+        request,
+        "hub/community_calendar.html",
+        {**ctx, **cal_ctx, **page_setups(request, AdminCapability.Capability.EVENT_CREATOR)},
+    )
 
 
 def calendar_events_partial(request: HttpRequest) -> HttpResponse:
@@ -10831,6 +10836,7 @@ def space_request_review_queue(request: HttpRequest) -> HttpResponse:
         {
             **ctx,
             "pending_requests": scope.pending(),
+            **page_setups(request, AdminCapability.Capability.SPACE_APPROVER),
             "open_decision_for": None,
             "decision_note_value": "",
             "decision_note_error": "",

@@ -286,6 +286,21 @@ def classes_review_access_required(view_func: _ViewFunc) -> _ViewFunc:
     )(view_func)
 
 
+def has_classes_review_access(request: "HttpRequest") -> bool:
+    """True when the user may open the class review pages: fog-admin (actual) or ``CLASS_APPROVER`` holder.
+
+    The template-side twin of :func:`classes_review_access_required`, for the Classes portal's All
+    Classes tab (#1167); it grants nothing, and the views stay decorator gated regardless.
+    """
+    from membership.models import AdminCapability
+
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.has_actual(ROLE_ADMIN):
+        return True
+    member = getattr(request.user, "member", None)
+    return member is not None and member.has_admin_capability(AdminCapability.Capability.CLASS_APPROVER)
+
+
 def events_admin_access_required(view_func: _ViewFunc) -> _ViewFunc:
     """Decorator gating Manage Events: fog-admins or Calendar Administrators.
 

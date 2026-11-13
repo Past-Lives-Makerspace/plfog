@@ -94,6 +94,7 @@
 .pl-perm-guide .pl-wp-body p, .pl-perm-guide .pl-wp-body ul { margin: 0 0 0.75rem; }
 .pl-perm-guide .pl-wp-body ul { padding-left: 1.2rem; }
 .pl-perm-guide__next { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--hub-card-border); }
-.pl-perm-guide__restore { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1.5rem; margin-bottom: 1.5rem; }
-.pl-perm-guide__restore p { margin: 0; }
+.pl-perm-guide__restore, .pl-perm-hidden { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1.5rem; margin-bottom: 1.5rem; }
+.pl-perm-guide__restore p, .pl-perm-hidden p { margin: 0; }
+.pl-perm-guide__back { margin: 0 0 1rem; }
 .pl-perm-guide__empty p + p { margin-top: 0.5rem; }

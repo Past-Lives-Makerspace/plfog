@@ -5,6 +5,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/calendar.css' %}">
 <link rel="stylesheet" href="{% static 'css/bookings-tab.css' %}">
+<link rel="stylesheet" href="{% static 'css/permission-setup.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -14,6 +15,7 @@
 {% else %}
 {% include "components/page_header.html" with title="Reservations" description="Book a room, a space, or a tool you are trained on." new_key="guild.machine-sessions" %}
 {% endif %}
+{% include "hub/partials/_permission_setups.html" %}
 
 {% if payouts_nudge_items %}
 {# #749: only to the picked payee of a priced item, while payouts are on and their Stripe signup is unfinished. #}

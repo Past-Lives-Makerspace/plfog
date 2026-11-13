@@ -608,6 +608,17 @@ _GUIDANCE_LIST = (
         ),
     ),
     Guidance(
+        key="permissions.get-set-up",
+        title="Get Set Up for a New Permission",
+        url_name="hub_member_directory",
+        steps=(
+            "Given a permission such as Calendar Administrator or Space Manager? The page it opens shows a Get Set Up card at the top.",
+            "Most steps tick themselves as you do the work, such as reviewing your first proposal. A reading step ends with Got It.",
+            "Finish every step to earn that permission's badge on your Member Directory card.",
+            "Open the Guide from the card for the full guide, kept up to date by admins on the wiki.",
+        ),
+    ),
+    Guidance(
         key="account.notifications",
         title="Notification Settings",
         url_name="hub_user_settings",

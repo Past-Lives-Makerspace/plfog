@@ -91,7 +91,7 @@ def _card(member: Member, grant: str, guide: PermissionGuide, guild: Guild | Non
     }
     spec = spec_for(grant)
     if spec is not None:
-        setup_url = member_absolute_url(reverse(spec.page_url_name))
+        setup_url = member_absolute_url(spec.page_url)
         card.update(
             steps=[step.email_line for step in spec.email_steps(member)],
             page_name=spec.page_name,

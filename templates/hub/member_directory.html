@@ -10,7 +10,8 @@
 {% block content %}
 {# The visibility note lives in the shared page_header's description, so the wrapper carries the help key. #}
 <div data-help-key="directory.visibility">
-{% include "components/page_header.html" with title="Member Directory" description="Find other members, see their skills, and connect — you control what of yours appears here from your Settings." %}
+{# Its What's New button is Get Set Up's (#1167): the badges finishing it earns show on these cards. #}
+{% include "components/page_header.html" with title="Member Directory" description="Find other members, see their skills, and connect — you control what of yours appears here from your Settings." new_key="permissions.get-set-up" %}
 </div>
 <p class="hub-text-muted" style="margin-bottom: 1rem;">{{ members|length }} active member{{ members|length|pluralize }}.</p>
 
