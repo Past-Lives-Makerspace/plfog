@@ -2400,6 +2400,7 @@ class Member(StaffRequestMixin, models.Model):
         self.instructor_oriented_at = None
         self.teaching_applied_at = None
         self.save(update_fields=["instructor_oriented_at", "teaching_applied_at"])
+        PermissionSetup.withdraw(self, [AdminCapability.INSTRUCTOR])  # the Instructor badge goes with it (#1167)
         SiteActivity.log(
             SiteActivity.Kind.TEACHING_REVOKED,
             actor=revoked_by.user if revoked_by is not None else None,
@@ -2659,6 +2660,7 @@ class Member(StaffRequestMixin, models.Model):
         else:
             self.fog_role = picked_role
         self.save()
+        self.withdraw_admin_setup_unless_admin()
         if made_admin:
             from membership.permission_grants import record
 
@@ -2697,6 +2699,17 @@ class Member(StaffRequestMixin, models.Model):
         self.fog_role = new_role
         self.save(update_fields=["fog_role"])
         self.sync_user_permissions()
+        self.withdraw_admin_setup_unless_admin()
+
+    def withdraw_class_reviewer_unless_reviewing(self) -> None:
+        """Once no guild has them as a Class Reviewer, the Class Reviewer badge goes and setup reopens (#1167)."""
+        if not self.guild_staff_roles.filter(can_review_classes=True).exists():
+            PermissionSetup.withdraw(self, [AdminCapability.CLASS_REVIEWER])
+
+    def withdraw_admin_setup_unless_admin(self) -> None:
+        """A role that is no longer Admin takes the Admin badge back and reopens its setup (#1167)."""
+        if self.fog_role != self.FogRole.ADMIN:
+            PermissionSetup.withdraw(self, [AdminCapability.ADMIN_ROLE])
 
     def sync_user_permissions(self) -> None:
         """Set is_staff/is_superuser on the linked User based on fog_role.
@@ -4065,6 +4078,8 @@ class Guild(HeroCropMixin, models.Model):
         rows = self.staff_memberships.filter(member=member)
         newly_on = on and self.guild_lead_id != member.pk and not rows.filter(can_review_classes=True).exists()
         held = rows.update(can_review_classes=on)
+        if not on:
+            member.withdraw_class_reviewer_unless_reviewing()
         if newly_on and held:
             from membership.permission_grants import record
 
@@ -4149,6 +4164,7 @@ class Guild(HeroCropMixin, models.Model):
             raise ValueError(f"That staff row is not on {self.name}.")
         member = staff.member
         staff.delete()
+        member.withdraw_class_reviewer_unless_reviewing()
         from core.events.discord_leadership_roles import reconcile_on_commit
 
         reconcile_on_commit(member.pk)
@@ -4919,6 +4935,29 @@ class AdminCapability(models.Model):
         return f"{self.member.display_name} — {self.get_capability_display()}"
 
 
+class SetupPermission(models.TextChoices):
+    """Every permission a member can be granted and set up (#1167): each capability, plus the three
+    grants that are not capabilities (:attr:`AdminCapability.INSTRUCTOR`, ``ADMIN_ROLE`` and
+    ``CLASS_REVIEWER``). The choices of :class:`PermissionSetup`, ``LeadershipBadge.permission`` and
+    ``WikiPage.guide_for``; a spec holds the capability values to :class:`AdminCapability.Capability`.
+    """
+
+    CLASS_APPROVER = "class_approver", "CMS Administrator"
+    SPACE_APPROVER = "space_approver", "Space & Cubby Administrator"
+    DISCOUNT_APPROVER = "discount_approver", "Discount Code Administrator"
+    EVENTS_APPROVER = "events_approver", "Calendar Administrator"
+    BILLING_APPROVER = "billing_approver", "Billing Administrator"
+    REFUNDS = "refunds", "Refunds"
+    EQUIPMENT = "equipment", "Equipment Administrator"
+    SPACE_MANAGER = "space_manager", "Space Manager"
+    EVENT_CREATOR = "event_creator", "Can create events"
+    WEBMASTER = "webmaster", "Webmaster"
+    TOUR_GUIDE = "tour_guide", "Tour Guide"
+    INSTRUCTOR = "instructor", "Instructor"
+    ADMIN_ROLE = "admin_role", "Admin"
+    CLASS_REVIEWER = "class_reviewer", "Class Reviewer"
+
+
 class PermissionSetup(models.Model):
     """One member's Get Set Up progress on one permission they were granted (#1167).
 
@@ -4936,7 +4975,7 @@ class PermissionSetup(models.Model):
     )
     permission = models.CharField(
         max_length=30,
-        choices=AdminCapability.Capability.choices,
+        choices=SetupPermission.choices,
         help_text="Which permission this progress is for.",
     )
     read_steps = models.JSONField(
@@ -6179,7 +6218,7 @@ class LeadershipBadge(models.Model):
         blank=True,
         default="",
         db_default="",
-        choices=AdminCapability.Capability.choices,
+        choices=SetupPermission.choices,
         help_text="The permission whose Get Set Up earns this badge (#1167), or blank for a badge admins give by hand.",
     )
 
@@ -6200,7 +6239,7 @@ class LeadershipBadge(models.Model):
         from membership.permission_setup import spec_for
 
         spec = spec_for(permission)
-        label = spec.badge_name if spec is not None else AdminCapability.Capability(permission).label
+        label = spec.badge_name if spec is not None else SetupPermission(permission).label
         badge, _created = cls.objects.get_or_create(permission=permission, defaults={"label": label})
         return badge
 
@@ -22869,7 +22908,7 @@ class WikiPage(StaffRequestMixin, models.Model):
         blank=True,
         default="",
         db_default="",
-        choices=AdminCapability.Capability.choices,
+        choices=SetupPermission.choices,
         help_text="The permission whose Guide tab shows this page (#1167). An admin picks it on the edit page; "
         "one page per permission.",
     )

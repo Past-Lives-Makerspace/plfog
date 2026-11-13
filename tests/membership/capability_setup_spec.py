@@ -66,7 +66,7 @@ def describe_the_registry():
     def it_has_a_card_for_each_capability_with_a_page_of_its_own():
         for spec in cs.CAPABILITY_SETUPS:
             assert spec_for(spec.permission) is spec
-        assert spec_for(Cap.REFUNDS) is None
+        assert spec_for("not_a_permission") is None
 
     def it_names_the_event_creator_badge():
         assert cs.EVENT_CREATOR_SETUP.badge_name == "Event Creator"
@@ -190,8 +190,7 @@ def describe_SetupState_for_page():
     def it_lists_held_cards_in_the_order_asked_and_skips_permissions_with_none():
         member = _holder(Cap.SPACE_MANAGER)
         member.admin_capabilities.create(capability=Cap.EQUIPMENT)
-        member.admin_capabilities.create(capability=Cap.REFUNDS)
-        states = SetupState.for_page(member, [Cap.EQUIPMENT, Cap.REFUNDS, Cap.SPACE_MANAGER])
+        states = SetupState.for_page(member, [Cap.EQUIPMENT, "not_a_permission", Cap.REFUNDS, Cap.SPACE_MANAGER])
         assert [state.spec.permission for state in states] == [Cap.EQUIPMENT, Cap.SPACE_MANAGER]
 
 
@@ -208,8 +207,9 @@ def describe_the_seeded_guide_pages():
 
     def it_covers_every_part_two_card_and_each_step_section():
         seeded = {permission: body for permission, _title, body in SEED.PAGES}
-        assert set(seeded) == {spec.permission for spec in cs.CAPABILITY_SETUPS}
-        for spec in cs.CAPABILITY_SETUPS:
+        part_two = cs.CAPABILITY_SETUPS[:7]
+        assert set(seeded) == {spec.permission for spec in part_two}
+        for spec in part_two:
             for step in spec.steps:
                 assert f"<h2>{step.guide_section}</h2>" in seeded[spec.permission].replace("&amp;", "&"), step.key
 

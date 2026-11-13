@@ -1,0 +1,21 @@
+bump = "minor"
+date = "2026-11-12"
+audience = ["members", "instructors", "class-reviewers", "admins"]
+title = "Instructors, Class Reviewers, Admins and three more permissions get set up step by step"
+changes = [
+  "When you are made an Instructor, an Admin or a Class Reviewer, the page it opens shows a short Get Set Up checklist: your Teaching Overview, Admin Tools, or your guild's page.",
+  "Discount Code Administrators, Refunds holders and Webmasters find theirs on Notification Settings, beside the emails the permission brings.",
+  "Most steps tick themselves as you go, such as adding your photo and bio or reviewing your first class. Finish to earn the badge on your Member Directory card.",
+  "Losing the permission takes its badge away.",
+]
+feature = "permissions.get-set-up"
+guidance = "shots"
+
+[[shots]]
+caption = "Get Set Up sits at the top of the page your new permission opens. A Class Reviewer finds it on their guild's page."
+
+[[shots]]
+caption = "Read a step and press Got It. The next one opens."
+
+[[shots]]
+caption = "Review your first class and the card folds up. Your badge is on your Member Directory card."

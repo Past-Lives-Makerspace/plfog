@@ -240,8 +240,10 @@ def describe_class_reviewer():
 
 def describe_the_email():
     def it_says_what_how_and_links_each_page_and_who_to_ask(
-        granter: Member, pell: Member, django_capture_on_commit_callbacks
+        granter: Member, pell: Member, django_capture_on_commit_callbacks, monkeypatch
     ):
+        # Every grant has a Get Set Up card since #1167 part 3; the long form stays for one that has none.
+        monkeypatch.setattr("membership.permission_setup.spec_for", lambda permission: None)
         with django_capture_on_commit_callbacks(execute=True):
             pell.sync_admin_capabilities([Cap.WEBMASTER], granted_by=granter.user)
         [email] = _granted_emails()
@@ -287,6 +289,21 @@ def describe_the_email():
         bell = Notification.objects.get(user=pell.user, trigger=permission_grants.PERMISSION_GRANTED_EVENT)
         assert bell.body == "Get set up in a few short steps."
         assert bell.url.endswith(reverse("tours:upcoming"))
+
+    def it_sends_a_class_reviewer_to_the_guild_the_grant_is_for(
+        granter: Member, pell: Member, django_capture_on_commit_callbacks
+    ):
+        from membership.grant_setup import CLASS_REVIEWER_SETUP
+
+        guild = GuildFactory(name="Larkspur Bindery Guild")
+        GuildStaffMembershipFactory(guild=guild, member=pell)
+        with django_capture_on_commit_callbacks(execute=True):
+            guild.set_class_reviewer(pell, True, granted_by=granter.user)
+        [email] = _granted_emails()
+        setup_url = f"{settings.MEMBER_BASE_URL.rstrip('/')}{reverse('hub_guild_edit', args=[guild.pk])}"
+        assert "Get Set Up: " + setup_url in email.body
+        for step in CLASS_REVIEWER_SETUP.steps:
+            assert step.email_line in email.body
 
     def it_lists_the_calendar_step_once_google_sign_in_is_set_up(
         granter: Member, pell: Member, django_capture_on_commit_callbacks, settings

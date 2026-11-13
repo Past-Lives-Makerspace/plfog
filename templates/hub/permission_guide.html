@@ -11,9 +11,9 @@ A permission's Guide page (#1167, hub.permission_setup_views.permission_guide), 
 whose page has no Guide tab of its own: the way back to that page, the holder's hidden Get Set Up
 card back, and the wiki page an admin linked to the permission.
 
-Context: spec, is_admin, page (or None), facts, toc, can_edit, setup (or None), tab.
+Context: spec, is_admin, page (or None), facts, toc, can_edit, setup (or None), back_url, tab.
 {% endcomment %}
-<p class="pl-perm-guide__back"><a href="{{ spec.page_url }}" class="hub-btn hub-btn--sm hub-btn--ghost" data-guide-back>&larr; Back to {{ spec.page_name }}</a></p>
+<p class="pl-perm-guide__back"><a href="{{ back_url }}" class="hub-btn hub-btn--sm hub-btn--ghost" data-guide-back>&larr; Back to {{ spec.page_name }}</a></p>
 {% include "components/page_header.html" with title=spec.badge_name|add:" Guide" description="How this permission works, kept up to date by admins on the wiki." %}
 
 {% if setup and setup.hidden %}
@@ -21,7 +21,7 @@ Context: spec, is_admin, page (or None), facts, toc, can_edit, setup (or None), 
   <p class="hub-text-muted">Your Get Set Up card is hidden.</p>
   <form method="post" action="{% url 'hub_permission_setup_show' spec.permission %}">
     {% csrf_token %}
-    <input type="hidden" name="next" value="{{ spec.page_url }}">
+    <input type="hidden" name="next" value="{{ back_url }}">
     <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Show the Get Set Up Card</button>
   </form>
 </div>

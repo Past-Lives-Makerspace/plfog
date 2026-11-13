@@ -196,7 +196,7 @@ def describe_the_guide_page():
 
     def it_is_a_404_for_a_permission_with_no_card():
         admin = MemberFactory(fog_role=Member.FogRole.ADMIN)
-        assert signed_in(admin).get(_guide(Cap.REFUNDS)).status_code == 404
+        assert signed_in(admin).get(_guide("not_a_permission")).status_code == 404
 
     def it_sends_a_signed_out_visitor_to_sign_in():
         from django.test import Client
@@ -225,3 +225,50 @@ def describe_the_all_classes_tab():
         instructor.grant_instructor(granted_by=None)
         content = signed_in(instructor).get(reverse("classes:teach_dashboard")).content
         assert ALL_CLASSES not in content
+
+
+def describe_the_part_three_pages():
+    def it_stacks_the_three_no_page_cards_on_notification_settings():
+        member = _holder(Cap.WEBMASTER, Cap.DISCOUNT_APPROVER, Cap.REFUNDS)
+        content = signed_in(member).get(f"{reverse('hub_user_settings')}?tab=notifications").content
+        order = [
+            content.index(f'data-permission-setup="{c}"'.encode())
+            for c in ("discount_approver", "refunds", "webmaster")
+        ]
+        assert order == sorted(order)
+
+    def it_shows_an_admin_the_admin_card_on_admin_tools():
+        admin = MemberFactory(fog_role=Member.FogRole.ADMIN)
+        assert b'data-permission-setup="admin_role"' in signed_in(admin).get(reverse("hub_admin_tools")).content
+
+    def it_shows_an_instructor_their_card_on_the_overview():
+        instructor = MemberFactory(full_legal_name="Bramwell Osk")
+        instructor.grant_instructor(granted_by=None)
+        content = signed_in(instructor).get(reverse("classes:teach_overview")).content
+        assert b'data-permission-setup="instructor"' in content
+
+    def it_shows_a_class_reviewer_the_card_only_on_a_guild_they_review():
+        from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
+
+        member = MemberFactory(full_legal_name="Ilse Corran")
+        reviewed, other = GuildFactory(name="Quillmark Bindery Guild"), GuildFactory(name="Tarnwell Glass Guild")
+        GuildStaffMembershipFactory(guild=reviewed, member=member, can_review_classes=True)
+        GuildStaffMembershipFactory(guild=other, member=member)
+        client = signed_in(member)
+        assert (
+            b'data-permission-setup="class_reviewer"'
+            in client.get(reverse("hub_guild_edit", args=[reviewed.pk])).content
+        )
+        assert b"data-permission-setup" not in client.get(reverse("hub_guild_edit", args=[other.pk])).content
+
+    def it_lands_a_class_reviewers_got_it_back_on_their_guild():
+        from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
+
+        member = MemberFactory(full_legal_name="Ilse Corran")
+        guild = GuildFactory(name="Quillmark Bindery Guild")
+        GuildStaffMembershipFactory(guild=guild, member=member, can_review_classes=True)
+        response = signed_in(member).post(
+            reverse("hub_permission_setup_got_it", args=["class_reviewer"]), {"step": cs.LEARN}
+        )
+        assert response["Location"] == reverse("hub_guild_edit", args=[guild.pk])
+        assert _flashes(response) == []

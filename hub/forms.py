@@ -111,6 +111,7 @@ from membership.models import (
     OrientationRecord,
     OrientationSlot,
     OrientationType,
+    SetupPermission,
     Skill,
     SkillCategory,
     Space,
@@ -8625,7 +8626,7 @@ class WikiPageForm(forms.Form):
         if can_moderate and page.guild_id is None:
             cast(forms.ChoiceField, self.fields["guide_for"]).choices = [
                 ("", "Not a permission's guide"),
-                *[(key, label) for key, label in AdminCapability.Capability.choices if spec_for(key) is not None],
+                *[(key, label) for key, label in SetupPermission.choices if spec_for(key) is not None],
             ]
         else:
             del self.fields["guide_for"]

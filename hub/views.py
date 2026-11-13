@@ -1535,7 +1535,19 @@ def _guild_edit_context(
         "can_manage_cubbies": can_manage_cubbies(request, guild),
         "reservable_items": [{"equipment": item, "can_manage": item.pk in manageable_ids} for item in reservable_items],
         "can_create_equipment": can_create_equipment(request),
+        # A Class Reviewer's Get Set Up card (#1167), on a guild they review for.
+        **page_setups(request, *_class_reviewer_setup_for(request, guild)),
     }
+
+
+def _class_reviewer_setup_for(request: HttpRequest, guild: Guild) -> list[str]:
+    """Class Reviewer, when the viewer is one on ``guild``: its card belongs on the guilds they review."""
+    from membership.models import SetupPermission
+
+    member = _get_member(request)
+    if member is None or not guild.staff_memberships.filter(member=member, can_review_classes=True).exists():
+        return []
+    return [SetupPermission.CLASS_REVIEWER]
 
 
 @login_required
@@ -3942,6 +3954,12 @@ def user_settings(request: HttpRequest) -> HttpResponse:
         "hub/user_settings.html",
         {
             **ctx,
+            **page_setups(
+                request,
+                AdminCapability.Capability.DISCOUNT_APPROVER,
+                AdminCapability.Capability.REFUNDS,
+                AdminCapability.Capability.WEBMASTER,
+            ),
             "member": member,
             "capabilities_url": capabilities_url,
             "profile_form": profile_form,
@@ -5971,6 +5989,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             **flags,
             "tool_sections": admin_tool_sections(flags),
             "tools_page_title": tools_page_title,
+            **page_setups(request, AdminCapability.ADMIN_ROLE),
             "guild_tools": guild_tools,
             "guild_cubby_counts": _guild_cubby_counts(guild_tools.selected)
             if flags["tool_guild_cubbies"] and guild_tools and guild_tools.selected

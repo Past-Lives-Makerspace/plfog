@@ -91,7 +91,9 @@ def _card(member: Member, grant: str, guide: PermissionGuide, guild: Guild | Non
     }
     spec = spec_for(grant)
     if spec is not None:
-        setup_url = member_absolute_url(spec.page_url)
+        # A Class Reviewer's card is on the guild the grant is for.
+        page = reverse("hub_guild_edit", args=[guild.pk]) if guild is not None else spec.page_url_of(member)
+        setup_url = member_absolute_url(page)
         card.update(
             steps=[step.email_line for step in spec.email_steps(member)],
             page_name=spec.page_name,
