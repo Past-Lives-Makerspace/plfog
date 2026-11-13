@@ -3,12 +3,14 @@
 Three entry points:
 
 * :func:`link_and_import` — orchestration the link views call: resolve the member,
-  apply the ordered link guards (spec §5.5), record the link, import their guilds, and
-  send the one confirmation email. Returns a :class:`LinkResult` the view maps to a
+  apply the ordered link guards (spec §5.5), record the link, put them on the server, and
+  queue :func:`import_discord_guilds`. Returns a :class:`LinkResult` the view maps to a
   landing state.
-* :func:`import_member_guilds` — the carrot that runs right after a link: mirror the
-  member's Discord reactions into ``source="discord"`` guild memberships, and push their
-  existing in-app guilds out to Discord as roles.
+* :func:`import_discord_guilds` — the durable task queued right after a link: runs
+  :func:`import_member_guilds` (mirror the member's Discord reactions into
+  ``source="discord"`` guild memberships, and push their existing in-app guilds out to
+  Discord as roles) and sends the one confirmation email. It reads every reaction on every
+  role message, which ran a connect past gunicorn's 30 seconds inline (feedback request 15).
 * :func:`reconcile_reactions` — the 15-minute cron: keep ``source="discord"`` memberships
   in step with the reaction-role messages, adding and (guardedly) removing. Also DMs a
   one-time "you're halfway there" nudge to reactors with no linked member, so a guild
@@ -24,17 +26,19 @@ through the best-effort readers/writers in :mod:`core.events.discord_reactions` 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 
 from django.conf import settings
+from django.tasks import task
 from django.urls import reverse
 
 from core.events import discord_dm, discord_reactions, discord_roles
 from core.events.discord_dm import bot_disabled
 from core.events.discord_oauth import DiscordOAuthError, exchange_code, fetch_identity, resolve_member_from_code
 from core.events.senders import emit_with_email_shell
+from core.tasks import enqueue_on_commit
 from membership.discord_removal import put_on_server
 
 if TYPE_CHECKING:
@@ -86,12 +90,10 @@ class LinkOutcome(Enum):
 
 @dataclass(frozen=True)
 class LinkResult:
-    """What :func:`link_and_import` resolved to. Only ``LINKED`` carries import details."""
+    """What :func:`link_and_import` resolved to. Only ``LINKED`` carries the member."""
 
     outcome: LinkOutcome
     member: Member | None = None
-    guilds: list[Guild] = field(default_factory=list)
-    complete: bool = True
 
 
 @dataclass(frozen=True)
@@ -299,8 +301,9 @@ def link_and_import(code: str, redirect_uri: str, *, member: Member | None = Non
       ``LINKED`` (idempotent re-import).
 
     A linked member is then put on the Discord server with their own ``guilds.join`` token,
-    whatever their status (:func:`membership.discord_removal.put_on_server`), before their guild
-    roles are pushed. That step never fails the link.
+    whatever their status (:func:`membership.discord_removal.put_on_server`). That step never
+    fails the link. The guild import and its email are queued (:func:`import_discord_guilds`),
+    because reading every reaction takes longer than a web request may.
 
     Args:
         code: The OAuth authorization code.
@@ -329,10 +332,24 @@ def link_and_import(code: str, redirect_uri: str, *, member: Member | None = Non
 
     target.link_discord(identity.user_id, handle=identity.handle)
     put_on_server(target, identity.user_id, identity.access_token)
-    result = import_member_guilds(target)
+    enqueue_on_commit(import_discord_guilds, target.pk)
+    return LinkResult(LinkOutcome.LINKED, member=target)
+
+
+@task
+def import_discord_guilds(member_id: int) -> None:
+    """Import a just-linked member's guilds and send the one confirmation email.
+
+    Queued by :func:`link_and_import`. Safe to run twice: the import only adds rows that are
+    missing and pushes roles Discord already treats as set, and the email's ``period`` is
+    the link's own, so the delivery ledger drops a second send.
+    """
+    from membership.models import Member
+
+    member = Member.objects.get(pk=member_id)
+    result = import_member_guilds(member)
     if result.guilds:
-        _send_import_confirmation(target, result)
-    return LinkResult(LinkOutcome.LINKED, member=target, guilds=result.guilds, complete=result.complete)
+        _send_import_confirmation(member, result)
 
 
 def _send_import_confirmation(member: Member, result: ImportResult) -> None:

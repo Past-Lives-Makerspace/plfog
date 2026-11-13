@@ -676,8 +676,9 @@ class SiteConfiguration(models.Model):
         blank=True,
         default="",
         verbose_name="Discord Member role ID",
-        help_text="The Discord role every member has; channels it cannot see are never read. "
-        "Blank: Discord pings are not queued for Spotlight.",
+        help_text="The Discord role every member has. It is given to every active member who "
+        "connects Discord, and channels it cannot see are never read. "
+        "Blank: nobody is given it and Discord pings are not queued for Spotlight.",
     )
     discord_leadership_role_id = models.CharField(
         max_length=32,

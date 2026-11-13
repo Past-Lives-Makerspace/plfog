@@ -143,7 +143,7 @@ def _logged_in(user) -> Client:
 
 def describe_discord_callback_outcomes():
     @respx.mock
-    def it_imports_guilds_and_links_on_a_valid_callback(settings):
+    def it_imports_guilds_and_links_on_a_valid_callback(settings, django_capture_on_commit_callbacks):
         from tests.membership.factories import DiscordGuildEmojiFactory, GuildFactory
 
         _configure_sync(settings)
@@ -155,11 +155,40 @@ def describe_discord_callback_outcomes():
         respx.get(_IDENTITY_URL).mock(return_value=httpx.Response(200, json={"id": "424242"}))
         respx.get(url__regex=r".+/reactions/.+").mock(return_value=httpx.Response(200, json=[{"id": "424242"}]))
         respx.put(_JOIN_URL).mock(return_value=httpx.Response(201, json={}))
-        response = client.get(reverse("hub_discord_callback"), {"code": "c", "state": _signed_state(user.pk)})
+        with django_capture_on_commit_callbacks(execute=True):
+            response = client.get(reverse("hub_discord_callback"), {"code": "c", "state": _signed_state(user.pk)})
         assert response.status_code == 302
         from membership.models import GuildMembership
 
         assert GuildMembership.objects.filter(guild=guild, member=user.member).exists()
+
+    @respx.mock
+    def it_answers_before_reading_any_reaction(settings, django_capture_on_commit_callbacks):
+        # Feedback request 15: the inline import ran the callback past gunicorn's 30 seconds.
+        from django.contrib.messages import get_messages
+
+        from tests.membership.factories import DiscordGuildEmojiFactory, GuildFactory
+
+        _configure_sync(settings)
+        user = _linked_user("dl_queued")
+        DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
+        client = _logged_in(user)
+        respx.post(_TOKEN_URL).mock(return_value=httpx.Response(200, json={"access_token": "abc"}))
+        respx.get(_IDENTITY_URL).mock(return_value=httpx.Response(200, json={"id": "424242"}))
+        reactions = respx.get(url__regex=r".+/reactions/.+").mock(return_value=httpx.Response(200, json=[]))
+        respx.put(_JOIN_URL).mock(return_value=httpx.Response(201, json={}))
+        with django_capture_on_commit_callbacks(execute=False) as callbacks:
+            response = client.get(reverse("hub_discord_callback"), {"code": "c", "state": _signed_state(user.pk)})
+        assert response.status_code == 302
+        assert not reactions.called
+        for callback in callbacks:  # the commit: the queued import runs now
+            callback()
+        assert reactions.called
+        flashes = [str(m) for m in get_messages(response.wsgi_request)]
+        assert flashes == [
+            "Your Discord account is connected. Your guilds are being set up now; "
+            "if you picked any in Discord, we'll email you the list."
+        ]
 
     @respx.mock
     def it_refuses_when_the_discord_is_linked_elsewhere(settings):
