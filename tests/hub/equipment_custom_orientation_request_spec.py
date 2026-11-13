@@ -375,6 +375,28 @@ def describe_the_equipment_road():
         assert Notification.objects.filter(user=manager.user, trigger="orientation_requested").exists()
         assert not Notification.objects.filter(user=bystander.user, trigger="orientation_requested").exists()
 
+    def it_leaves_a_request_whose_time_has_passed_out_of_pending_requests(client: Client):
+        # Feedback request 16: the CNC requests nobody answered stayed listed for a month.
+        equipment = EquipmentFactory(name="Lapsed CNC")
+        orientation_type = _owned_type(equipment)
+        member = _member_user("eq733_lapsed_member").member
+        upcoming = orientations.request_custom_orientation(
+            equipment, member, timezone.now() + timedelta(days=4), orientation_type=orientation_type
+        )
+        lapsed = orientations.request_custom_orientation(
+            equipment,
+            _member_user("eq733_lapsed_other").member,
+            timezone.now() + timedelta(days=6),
+            orientation_type=orientation_type,
+        )
+        past = timezone.now() - timedelta(days=26)
+        OrientationSlot.objects.filter(pk=lapsed.slot_id).update(starts_at=past, ends_at=past + timedelta(hours=1))
+        manager = _login(client, "eq733_lapsed_manager")
+        EquipmentStaffMembershipFactory(equipment=equipment, member=manager.member)
+
+        manage = client.get(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=orientation")
+        assert manage.context["orientation_pending_requests"] == [upcoming]
+
     def it_lists_the_request_for_a_manager_who_can_confirm_it(client: Client):
         equipment = EquipmentFactory(name="Confirm CNC")
         orientation_type = _owned_type(equipment)

@@ -188,6 +188,22 @@ def describe_needs_attention():
         assert f'data-booking-row="{confirmed.pk}"' not in content
         assert "pl-attention-clear" in content
 
+    def it_leaves_out_a_request_whose_time_has_passed(client: Client):
+        # Feedback request 16: a request nobody answered before its slot started waits on no one.
+        guild = _led_guild(_login(client, "mb_na_lapsed"))
+        upcoming = _request(guild, name="Upcoming Requester", waited_hours=1)
+        lapsed = _request(guild, name="Lapsed Requester", days=-25, waited_hours=800)
+        content = _page(client)
+        assert f'data-booking-row="{upcoming.pk}"' in content
+        assert f'data-booking-row="{lapsed.pk}"' not in content
+        assert "(1)</span>" in content
+
+    def it_collapses_to_all_clear_when_only_lapsed_requests_remain(client: Client):
+        _request(_led_guild(_login(client, "mb_na_only_lapsed")), name="Only Lapsed Requester", days=-1)
+        content = _page(client)
+        assert "pl-attention-clear" in content
+        assert "data-needs-attention" not in content
+
     def it_caps_each_group_at_ten_and_counts_them_all(client: Client):
         guild = _led_guild(_login(client, "mb_na_cap"))
         for index in range(12):

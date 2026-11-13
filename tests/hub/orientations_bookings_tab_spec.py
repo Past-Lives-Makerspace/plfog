@@ -557,10 +557,30 @@ def describe_chips_filters_and_sort():
         assert _in_table(content, requested)
         assert not _in_table(content, old_request)
         assert not _in_table(content, declined)
-        assert ">Needs a Reply (2)</a>" in content
+        assert ">Needs a Reply (1)</a>" in content
         reply = _tab(client, show="reply")
-        assert _in_table(reply, requested) and _in_table(reply, old_request)
+        assert _in_table(reply, requested)
         assert not _in_table(reply, declined)
+
+    def it_leaves_a_request_whose_time_has_passed_out_of_needs_a_reply(client: Client):
+        # Feedback request 16: nobody can usefully answer a request for a time that has gone.
+        _lead, guild = _menu_world(client)
+        upcoming = _booking(guild, status=OrientationBooking.Status.REQUESTED)
+        lapsed = _booking(guild, days=-30, status=OrientationBooking.Status.REQUESTED)
+        assert ">Needs a Reply (1)</a>" in _tab(client)
+        reply = _tab(client, show="reply")
+        assert _in_table(reply, upcoming)
+        assert not _in_table(reply, lapsed)
+        # It stays requested and still lists under Past and All.
+        lapsed.refresh_from_db()
+        assert lapsed.status == OrientationBooking.Status.REQUESTED
+        assert _in_table(_tab(client, show="past"), lapsed)
+        assert _in_table(_tab(client, show="all"), lapsed)
+
+    def it_hides_the_reply_chip_when_only_lapsed_requests_wait(client: Client):
+        _lead, guild = _menu_world(client)
+        _booking(guild, days=-1, status=OrientationBooking.Status.REQUESTED)
+        assert 'data-bookings-chip="reply"' not in _tab(client)
 
     def it_leaves_the_viewers_own_request_out_of_needs_a_reply(client: Client):
         lead, guild = _menu_world(client)

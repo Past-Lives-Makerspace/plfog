@@ -1344,9 +1344,8 @@ def _orientation_tab_context(request: HttpRequest, equipment: Equipment) -> dict
         OrientationAvailability.objects.for_equipment(equipment).guild_level().select_related("orientation_type")
     )
     pending_requests = list(
-        OrientationBooking.objects.filter(
-            orientation_type__equipment=equipment, status=OrientationBooking.Status.REQUESTED
-        )
+        OrientationBooking.objects.pending()
+        .filter(orientation_type__equipment=equipment)
         .select_related("member", "slot", "orientation_type")
         .order_by("slot__starts_at")
     )

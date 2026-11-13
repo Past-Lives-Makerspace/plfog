@@ -16899,9 +16899,26 @@ class OrientationBookingQuerySet(models.QuerySet):
     def upcoming(self) -> OrientationBookingQuerySet:
         return self.active().filter(slot__starts_at__gte=timezone.now())
 
-    def pending(self) -> OrientationBookingQuerySet:
-        """Awaiting a lead's decision."""
-        return self.filter(status=OrientationBooking.Status.REQUESTED)
+    def pending(self, now: datetime_type | None = None) -> OrientationBookingQuerySet:
+        """Awaiting a lead's decision: :meth:`pending_condition` as a queryset."""
+        return self.filter(OrientationBookingQuerySet.pending_condition(now))
+
+    @staticmethod
+    def pending_condition(now: datetime_type | None = None) -> Q:
+        """What leaves a booking awaiting a reply: requested, for a time that has not started yet.
+
+        The one rule behind every Needs a Reply list and count and the equipment page's Pending
+        Requests (feedback request 16). A request whose slot started before anyone answered it
+        stays requested and still lists under Past and All, but nobody can usefully confirm a
+        time that has gone, so it waits on no one. A slot starting exactly at ``now`` is still
+        ahead, as the Upcoming chip has it.
+
+        Args:
+            now: The moment to compare against; the current time when omitted.
+        """
+        return Q(
+            status=OrientationBooking.Status.REQUESTED, slot__starts_at__gte=now if now is not None else timezone.now()
+        )
 
     def completed(self) -> OrientationBookingQuerySet:
         return self.filter(is_completed=True)
