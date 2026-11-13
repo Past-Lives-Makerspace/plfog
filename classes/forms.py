@@ -562,6 +562,8 @@ class _RegistrationCutoffMixin:
             self.add_error("registration_cutoff_hours", REGISTRATION_CUTOFF_REQUIRED_MESSAGE)  # type: ignore[attr-defined]
 
 
+#: What the Minimum signups box starts at on a new class.
+NEW_CLASS_MINIMUM_SIGNUPS = 1
 MINIMUM_SIGNUPS_OVER_CAPACITY_MESSAGE = "The minimum cannot be more than the class's {capacity} seats."
 MINIMUM_SIGNUPS_NEEDS_CUTOFF_MESSAGE = (
     "A minimum needs the registration cutoff switched on: the class is decided when registration closes."
@@ -576,8 +578,9 @@ MINIMUM_SIGNUPS_CLOSE_WOULD_CANCEL_MESSAGE = (
 class _MinimumSignupsMixin:
     """The Minimum signups box beside Capacity, on both composers and the live edit form (#1182).
 
-    Blank (or 0) stores no minimum. The box refuses a minimum over the capacity and one on a
-    class with the registration cutoff off, each on the field. On a live class whose
+    A new class starts at 1. Blank (or 0) stores no minimum. The box refuses a minimum over the
+    capacity and one on a class with the registration cutoff off, each on the field, except the
+    starting 1 left untouched on a cutoff off class, which stores none. On a live class whose
     registration has closed the box is disabled, so a crafted POST cannot move it either: a
     disabled field keeps its saved value whatever is posted. A flexible class stores none.
     """
@@ -590,6 +593,9 @@ class _MinimumSignupsMixin:
         field.label = "Minimum signups"
         field.help_text = "Leave blank for no minimum. Still under it when registration closes, the class cancels itself and everyone is refunded."
         field.widget.attrs.update({"min": 0})
+        if instance.pk is None:
+            # A new class starts at one signup, so a class nobody books calls itself off.
+            self.initial["minimum_signups"] = NEW_CLASS_MINIMUM_SIGNUPS  # type: ignore[attr-defined]
         if instance.minimum_signups_locked:
             field.disabled = True
             field.help_text = MINIMUM_SIGNUPS_LOCKED_NOTE
@@ -611,6 +617,10 @@ class _MinimumSignupsMixin:
         minimum: int = data["minimum_signups"]
         if capacity is not None and minimum > capacity:
             self.add_error("minimum_signups", MINIMUM_SIGNUPS_OVER_CAPACITY_MESSAGE.format(capacity=capacity))  # type: ignore[attr-defined]
+        elif not cutoff_on and self.instance.pk is None and "minimum_signups" not in self.changed_data:  # type: ignore[attr-defined]
+            # A new class's untouched starting 1 on a class that takes signups to the start: no minimum.
+            # A saved minimum is never dropped silently; it is refused below like a typed one.
+            data["minimum_signups"] = None
         elif not cutoff_on:
             self.add_error("minimum_signups", MINIMUM_SIGNUPS_NEEDS_CUTOFF_MESSAGE)  # type: ignore[attr-defined]
 
