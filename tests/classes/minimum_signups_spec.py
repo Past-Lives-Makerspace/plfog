@@ -183,6 +183,26 @@ def describe_setting_the_minimum():
         assert form.is_valid(), form.errors
         assert form.save().minimum_signups is None
 
+    def it_starts_a_new_class_at_one(composer_form):
+        assert composer_form().initial["minimum_signups"] == 1
+
+    def it_keeps_a_saved_class_at_its_own_minimum(composer_form):
+        offering = ClassOfferingFactory(minimum_signups=None)
+        assert composer_form(instance=offering).initial["minimum_signups"] is None
+
+    def it_stores_none_when_the_starting_one_is_left_on_a_class_with_the_cutoff_off(composer_form):
+        data = _composer_data(minimum_signups="1")
+        del data["registration_cutoff_enabled"]
+        form = composer_form(data=data)
+        assert form.is_valid(), form.errors
+        assert form.save().minimum_signups is None
+
+    def it_renders_one_in_the_new_class_composer(client: Client):
+        client.force_login(_instructor().user)
+        html = client.get(reverse("classes:teach_class_create")).content.decode()
+        box = html[html.index('name="minimum_signups"') :]
+        assert box[: box.index(">")].count('value="1"') == 1
+
     def it_saves_on_a_live_class():
         offering = _live_class(starts_in=timedelta(days=10), minimum=None)
         form = TeachPublishedClassForm(data=_live_data(offering, minimum_signups="2"), instance=offering)
