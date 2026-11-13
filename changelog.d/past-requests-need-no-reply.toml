@@ -1,5 +1,6 @@
 bump = "patch"
 audience = ["guild-leads", "orientors", "equipment-managers"]
+feature = "orientations.bookings"
 date = "2026-11-12"
 title = "Requests for a time that has passed stop asking for a reply"
 changes = [
