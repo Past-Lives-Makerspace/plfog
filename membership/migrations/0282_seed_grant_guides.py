@@ -90,9 +90,12 @@ PAGES = (
         "<p>Admin Tools is your starting point for every admin page in the Member Portal, including "
         "members, guilds, classes and Site Settings.</p>"
         "<h2>Your Duties</h2>"
-        "<p>Admin duties such as reviewing classes or billing alerts are separate permissions. You hear "
-        "about a duty only once you turn it on for yourself, from the View As menu at the top of any "
-        "page.</p>",
+        "<p>Most admin duties, such as reviewing classes or billing alerts, are separate permissions. You "
+        "hear about those only once you turn them on for yourself, from the View As menu at the top of "
+        "any page.</p>"
+        "<p>A few notices reach every admin whatever you turn on: a new member signing up, a class "
+        "registration, a duplicate class payment, a class paid for after its seat was lost, a paid class "
+        "an instructor cancels, and funding results ready to send.</p>",
     ),
     (
         "class_reviewer",

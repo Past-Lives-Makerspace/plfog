@@ -177,8 +177,11 @@ ADMIN_SETUP = PermissionSetupSpec(
             why="Admin Tools, this page, is your starting point for every admin page.",
             email_line="Learn where admin pages live",
             how=(
-                "Admin duties such as reviewing classes or billing alerts are separate permissions.",
-                "You hear about a duty only once you turn it on for yourself.",
+                "Most admin duties, such as reviewing classes or billing alerts, are separate permissions. "
+                "You hear about those only once you turn them on for yourself.",
+                "A few notices reach every admin whatever you turn on: a new member signing up, a class "
+                "registration, a duplicate class payment, a class paid for after its seat was lost, a paid "
+                "class an instructor cancels, and funding results ready to send.",
             ),
             guide_section="Admin Tools",
             got_it=True,

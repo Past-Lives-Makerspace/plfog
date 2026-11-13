@@ -225,3 +225,44 @@ def describe_the_seeded_guide_pages():
                 assert f"<h2>{step.guide_section}</h2>" in body, (permission, step.key)
         part_three = {*(spec.permission for spec in cs.CAPABILITY_SETUPS[7:]), *(s.permission for s in gs.GRANT_SETUPS)}
         assert {permission for permission, _t, _b in SEED.PAGES} == part_three
+
+
+def describe_other_revoke_paths():
+    def it_takes_all_three_grant_badges_back_when_the_account_is_deleted():
+        from membership.services.account_deletion import delete_own_account
+
+        member = _teacher()
+        member.fog_role = Member.FogRole.ADMIN
+        member.save(update_fields=["fog_role"])
+        GuildStaffMembershipFactory(
+            guild=GuildFactory(name="Quillmark Bindery Guild"), member=member, can_review_classes=True
+        )
+        grants = [SetupPermission.INSTRUCTOR, SetupPermission.ADMIN_ROLE, SetupPermission.CLASS_REVIEWER]
+        for permission in grants:
+            PermissionSetup.for_member(member, permission).finish()
+        delete_own_account(member)
+        for permission in grants:
+            assert not _has_badge(member, permission), permission
+            assert PermissionSetup.for_member(member, permission).completed_at is None
+
+    def it_takes_the_admin_badge_back_when_the_command_demotes():
+        from django.core.management import call_command
+
+        admin = MemberFactory(full_legal_name="Halvard Pine", _pre_signup_email="halvard-1167@example.com")
+        admin.fog_role = Member.FogRole.ADMIN
+        admin.save(update_fields=["fog_role"])
+        PermissionSetup.for_member(admin, SetupPermission.ADMIN_ROLE).finish()
+        call_command("set_fog_role", "halvard-1167@example.com", Member.FogRole.MEMBER)
+        assert not _has_badge(admin, SetupPermission.ADMIN_ROLE)
+
+
+def describe_admin_copy():
+    def it_never_says_an_admin_hears_nothing_they_did_not_turn_on():
+        """FOG_ADMINS and REFUND_AUTHORITY reach every admin with no capability (#1167 review)."""
+        step = gs.ADMIN_SETUP.step(cs.LEARN)
+        seeded = {permission: body for permission, _title, body in SEED.PAGES}[SetupPermission.ADMIN_ROLE]
+        for text in (*step.how, seeded):
+            assert "only once you turn it on" not in text
+        for text in (" ".join(step.how), seeded):
+            assert "A few notices reach every admin whatever you turn on" in text
+            assert "a paid class an instructor cancels" in text

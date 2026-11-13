@@ -167,6 +167,13 @@ def delete_own_account(member: "Member") -> None:
                 "deleted_at",
             ]
         )
+        # The bulk writes above skip the revoke methods, so the badges the three grants that are
+        # not capabilities earned go here (#1167); the capabilities' went with sync_admin_capabilities.
+        from membership.models import AdminCapability, PermissionSetup
+
+        PermissionSetup.withdraw(
+            member, [AdminCapability.INSTRUCTOR, AdminCapability.ADMIN_ROLE, AdminCapability.CLASS_REVIEWER]
+        )
         member.sync_user_permissions()
 
         SiteActivity.log(SiteActivity.Kind.ACCOUNT_DELETED, actor=user, target=member)

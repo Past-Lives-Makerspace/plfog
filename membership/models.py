@@ -2660,7 +2660,7 @@ class Member(StaffRequestMixin, models.Model):
         else:
             self.fog_role = picked_role
         self.save()
-        self._withdraw_admin_setup_unless_admin()
+        self.withdraw_admin_setup_unless_admin()
         if made_admin:
             from membership.permission_grants import record
 
@@ -2699,14 +2699,14 @@ class Member(StaffRequestMixin, models.Model):
         self.fog_role = new_role
         self.save(update_fields=["fog_role"])
         self.sync_user_permissions()
-        self._withdraw_admin_setup_unless_admin()
+        self.withdraw_admin_setup_unless_admin()
 
     def withdraw_class_reviewer_unless_reviewing(self) -> None:
         """Once no guild has them as a Class Reviewer, the Class Reviewer badge goes and setup reopens (#1167)."""
         if not self.guild_staff_roles.filter(can_review_classes=True).exists():
             PermissionSetup.withdraw(self, [AdminCapability.CLASS_REVIEWER])
 
-    def _withdraw_admin_setup_unless_admin(self) -> None:
+    def withdraw_admin_setup_unless_admin(self) -> None:
         """A role that is no longer Admin takes the Admin badge back and reopens its setup (#1167)."""
         if self.fog_role != self.FogRole.ADMIN:
             PermissionSetup.withdraw(self, [AdminCapability.ADMIN_ROLE])
