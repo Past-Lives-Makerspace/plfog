@@ -19,7 +19,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 #: The shards in specs.yml's matrix, each of which writes ``junit-<shard>.xml``.
-SHARDS = ("1", "2", "3", "4", "migrations")
+SHARDS = ("1", "2", "3", "4", "migrations-1", "migrations-2", "migrations-3")
 
 #: Failing specs listed in full; past this the run log has the rest.
 LISTED = 50

@@ -73,7 +73,7 @@ def describe_node_id():
 def describe_body():
     def it_lists_failed_and_errored_specs_with_the_run_link(reports):
         (reports / "junit-2.xml").write_text(_junit(_PASSED, _FAILED))
-        (reports / "junit-migrations.xml").write_text(_junit(_ERRORED))
+        (reports / "junit-migrations-2.xml").write_text(_junit(_ERRORED))
 
         text = report.body(reports, _RUN, "success", "98.40")
 
@@ -86,11 +86,11 @@ def describe_body():
 
     def it_names_a_shard_that_wrote_no_report(reports):
         (reports / "junit-3.xml").unlink()
-        (reports / "junit-migrations.xml").unlink()
+        (reports / "junit-migrations-3.xml").unlink()
 
         text = report.body(reports, _RUN, "failure", "91.00")
 
-        assert "**No report from shard 3, migrations:** it timed out or crashed" in text
+        assert "**No report from shard 3, migrations-3:** it timed out or crashed" in text
         assert "Failing specs" not in text
 
     def it_says_when_coverage_is_under_the_gate(reports):

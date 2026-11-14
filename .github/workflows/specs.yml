@@ -1,10 +1,19 @@
 name: Specs
 
-# The spec shards that ci.yml's `affected` check and nightly.yml both run (#1192). Five runners:
-# four pytest-split groups of everything but the migration specs, and one for the migration
-# specs, which rewind the schema and run apart from the rest (#1006). Each runner spreads its
+# The spec shards that ci.yml's `affected` check and nightly.yml both run (#1192). Seven runners:
+# four pytest-split groups of everything but the migration specs, and three of the migration
+# specs, which rewind the schema and run apart from the rest (#1006). One runner took the
+# migration specs past 60 minutes on its own. Each runner spreads its
 # share over its cores with pytest-xdist; every xdist worker builds its own in-memory SQLite test
 # database, so no two specs running at the same time share one.
+#
+# `--dist load`, not `loadfile`: pytest-django runs every transactional spec after the others,
+# because a transactional spec flushes the database, rows the migrations seeded (the membership
+# plan, the leadership tabs) included. `load` hands each worker specs in that order; `loadfile`
+# hands out whole files, so a worker ran ordinary specs after a flush and 52 failed.
+#
+# `least_duration` with no stored timings deals the specs out in turn; pytest-split's default
+# cuts the list into runs, which put every slow classes migration spec in one group.
 #
 # Each shard writes its coverage to .coverage.<shard> with no gate of its own and uploads it with
 # its JUnit report; the caller combines the coverage and decides what passes.
@@ -24,12 +33,12 @@ jobs:
   shard:
     name: specs (${{ matrix.shard }})
     runs-on: ubuntu-latest
-    # About an hour for the whole suite on four runners; 60 leaves room for a slow runner.
+    # The slowest shard took 40 minutes (about 8 of them installing); 60 leaves room for a slow runner.
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        shard: ["1", "2", "3", "4", "migrations"]
+        shard: ["1", "2", "3", "4", "migrations-1", "migrations-2", "migrations-3"]
     env:
       DJANGO_SECRET_KEY: test-secret-key-for-ci
       DATABASE_URL: sqlite:///db.sqlite3
@@ -59,14 +68,13 @@ jobs:
 
       - name: Run this shard's specs
         run: |
-          if [ "$SHARD" = migrations ]; then
-            only=(-m migration)
-          else
-            only=(-m "not e2e and not migration" --splits 4 --group "$SHARD")
-          fi
+          case "$SHARD" in
+            migrations-*) only=(-m migration --splits 3 --group "${SHARD#migrations-}") ;;
+            *) only=(-m "not e2e and not migration" --splits 4 --group "$SHARD") ;;
+          esac
           mapfile -t paths <<< "$PATHS"
           status=0
-          pytest "${paths[@]}" "${only[@]}" -q -n auto --dist loadfile \
+          pytest "${paths[@]}" "${only[@]}" --splitting-algorithm least_duration -q -n auto --dist load \
             --cov-report= --cov-fail-under=0 \
             -o junit_family=xunit1 --junitxml="junit-$SHARD.xml" || status=$?
           # 5 is "no specs collected": a small selection leaves some shards nothing to run.
