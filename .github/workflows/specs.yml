@@ -1,0 +1,81 @@
+name: Specs
+
+# The spec shards that ci.yml's `affected` check and nightly.yml both run (#1192). Five runners:
+# four pytest-split groups of everything but the migration specs, and one for the migration
+# specs, which rewind the schema and run apart from the rest (#1006). Each runner spreads its
+# share over its cores with pytest-xdist; every xdist worker builds its own in-memory SQLite test
+# database, so no two specs running at the same time share one.
+#
+# Each shard writes its coverage to .coverage.<shard> with no gate of its own and uploads it with
+# its JUnit report; the caller combines the coverage and decides what passes.
+
+on:
+  workflow_call:
+    inputs:
+      paths:
+        description: The pytest paths, one per line, from .github/scripts/affected_specs.py; "." is the full suite.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  shard:
+    name: specs (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    # About an hour for the whole suite on four runners; 60 leaves room for a slow runner.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1", "2", "3", "4", "migrations"]
+    env:
+      DJANGO_SECRET_KEY: test-secret-key-for-ci
+      DATABASE_URL: sqlite:///db.sqlite3
+      COVERAGE_FILE: .coverage.${{ matrix.shard }}
+      PATHS: ${{ inputs.paths }}
+      SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run Django checks
+        run: python manage.py check
+
+      - name: Run this shard's specs
+        run: |
+          if [ "$SHARD" = migrations ]; then
+            only=(-m migration)
+          else
+            only=(-m "not e2e and not migration" --splits 4 --group "$SHARD")
+          fi
+          mapfile -t paths <<< "$PATHS"
+          status=0
+          pytest "${paths[@]}" "${only[@]}" -q -n auto --dist loadfile \
+            --cov-report= --cov-fail-under=0 \
+            -o junit_family=xunit1 --junitxml="junit-$SHARD.xml" || status=$?
+          # 5 is "no specs collected": a small selection leaves some shards nothing to run.
+          [ "$status" -eq 0 ] || [ "$status" -eq 5 ]
+
+      - name: Upload coverage and the JUnit report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: specs-${{ matrix.shard }}
+          path: |
+            .coverage.${{ matrix.shard }}
+            junit-${{ matrix.shard }}.xml
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7

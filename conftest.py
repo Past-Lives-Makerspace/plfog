@@ -35,13 +35,21 @@ def pytest_sessionstart(session):
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Skip ``postgres_only`` specs on a database that is not PostgreSQL, with the reason.
+    """Mark the migration specs, and skip ``postgres_only`` specs on a database that is not PostgreSQL.
+
+    A spec file with "migration" in its path rewinds the schema (the rule
+    ``_restore_latest_migrations`` uses), so it carries the ``migration`` marker and CI runs it
+    in a shard of its own (``.github/workflows/specs.yml``, #1006).
 
     SQLite has no row locks (it never writes FOR UPDATE) and no ``pg_*`` functions, so a spec
-    that asserts a lock or provokes a real race cannot run there. CI's ``test`` job runs on SQLite
-    and skips these; the ``postgres-only`` job runs them on PostgreSQL.
+    that asserts a lock or provokes a real race cannot run there. CI's spec shards run on SQLite
+    and skip these; the ``postgres-only`` job runs them on PostgreSQL.
     """
     from django.db import connection
+
+    for item in items:
+        if "migration" in str(item.path):
+            item.add_marker(pytest.mark.migration)
 
     marked = [item for item in items if "postgres_only" in item.keywords]
     if not marked or connection.vendor == "postgresql":
