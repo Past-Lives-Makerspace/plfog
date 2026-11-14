@@ -22,7 +22,7 @@ on:
   workflow_call:
     inputs:
       paths:
-        description: The pytest paths, one per line, from .github/scripts/affected_specs.py; "." is the full suite.
+        description: The pytest paths and --ignore= options, one per line, from .github/scripts/affected_specs.py; "." is the full suite.
         required: true
         type: string
 

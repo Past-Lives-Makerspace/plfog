@@ -6,6 +6,10 @@ can reasonably break, and the nightly full run (``nightly.yml``) catches the res
 - a spec file the diff adds or changes runs itself;
 - a change inside an app runs every spec of that app: the app folder (its ``spec/`` folders) and
   ``tests/<app>/``. A template under ``templates/<app>/`` counts as that app;
+- except the app's migration specs (a spec with "migration" in its path, the root conftest's rule),
+  which rewind the schema and take most of a run: they run only when the diff adds or edits a file
+  in ``<app>/migrations/``, or changes the migration spec itself. Otherwise each is printed as an
+  ``--ignore=`` line, which pytest takes beside the paths. The nightly runs them all;
 - a ``conftest.py`` under ``tests/`` or a ``spec/`` folder runs the folder it sits in;
 - a file under ``static/`` runs the spec files that name it (``hub.css``), since no Python runs a
   stylesheet or a script and only a spec that reads the file can break;
@@ -18,7 +22,7 @@ can reasonably break, and the nightly full run (``nightly.yml``) catches the res
 - anything else (settings, the root conftest, requirements, shared templates, test factories, the
   CI workflows) runs the full suite, because no folder bounds what it can break.
 
-Prints the pytest paths one per line, ``.`` alone for the full suite, and nothing when no spec
+Prints the pytest paths (and ``--ignore=`` options) one per line, ``.`` alone for the full suite, and nothing when no spec
 applies. Stdlib only, so the job that runs it installs nothing.
 
 Usage: ``python .github/scripts/affected_specs.py <base-sha>`` from the repository root, with the
@@ -67,6 +71,9 @@ class Checkout(Protocol):
     def specs_naming(self, name: str) -> list[str]:
         """The spec files whose source contains ``name``."""
 
+    def migration_specs(self, folder: str) -> list[str]:
+        """The spec files under ``folder`` with "migration" in their path."""
+
 
 def is_spec_file(path: str) -> bool:
     """Whether pytest collects ``path`` as a spec file (``python_files`` in pyproject.toml)."""
@@ -107,11 +114,29 @@ def paths_for(path: str, checkout: Checkout) -> list[str] | None:
     return None
 
 
-def select(changed: Iterable[str], checkout: Checkout) -> list[str]:
-    """The pytest paths for a whole diff: ``[FULL]`` when any file asks for the full suite.
+def _skipped_migration_specs(changed: list[str], selected: set[str], checkout: Checkout) -> set[str]:
+    """The migration specs of the apps the diff touches but whose ``migrations/`` it leaves alone.
 
-    A path inside a selected folder is dropped, so pytest never collects a spec twice.
+    A spec under a folder a changed conftest selected (``classes/spec/migrations/``) still runs.
     """
+    touched = {app for app in APPS if {f"{app}/", f"tests/{app}/"} & selected}
+    migrated = {path.split("/")[0] for path in changed if path.split("/")[1:2] == ["migrations"]}
+    return {
+        spec
+        for app in touched - migrated
+        for folder in _app_paths(app, checkout)
+        for spec in checkout.migration_specs(folder)
+        if spec not in changed and not any(spec.startswith(kept) for kept in selected - {f"{app}/", f"tests/{app}/"})
+    }
+
+
+def select(changed: Iterable[str], checkout: Checkout) -> list[str]:
+    """The pytest arguments for a whole diff: ``[FULL]`` when any file asks for the full suite.
+
+    A path inside a selected folder is dropped, so pytest never collects a spec twice, and the
+    migration specs of an app whose migrations did not change follow as ``--ignore=`` options.
+    """
+    changed = list(changed)
     selected: set[str] = set()
     for path in changed:
         wanted = paths_for(path, checkout)
@@ -119,9 +144,10 @@ def select(changed: Iterable[str], checkout: Checkout) -> list[str]:
             return [FULL]
         selected.update(wanted)
     folders = {path for path in selected if path.endswith("/")}
-    return sorted(
+    paths = sorted(
         path for path in selected if not any(path != folder and path.startswith(folder) for folder in folders)
     )
+    return paths + [f"--ignore={spec}" for spec in sorted(_skipped_migration_specs(changed, selected, checkout))]
 
 
 class DiskCheckout:
@@ -145,6 +171,13 @@ class DiskCheckout:
                 if not {".venv", "node_modules", "e2e"} & set(path.relative_to(self.root).parts)
             }
         return sorted(path for path, source in self._sources.items() if name in source)
+
+    def migration_specs(self, folder: str) -> list[str]:
+        return sorted(
+            path.relative_to(self.root).as_posix()
+            for path in (self.root / folder).rglob("*_spec.py")
+            if "migration" in path.relative_to(self.root).as_posix()
+        )
 
 
 def changed_files(base: str) -> list[str]:

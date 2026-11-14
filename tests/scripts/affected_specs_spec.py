@@ -54,6 +54,9 @@ class _FakeCheckout:
     def specs_naming(self, name: str) -> list[str]:
         return sorted(path for path, source in self.sources.items() if name in source)
 
+    def migration_specs(self, folder: str) -> list[str]:
+        return sorted(f for f in self.files if f.startswith(folder) and "migration" in f and f.endswith("_spec.py"))
+
 
 _CHECKOUT = _FakeCheckout(
     [
@@ -72,6 +75,73 @@ _CHECKOUT = _FakeCheckout(
 
 def _select(*changed: str) -> list[str]:
     return affected.select(list(changed), _CHECKOUT)
+
+
+#: An app with migration specs in both of its folders, and one under a conftest of their own.
+_MIGRATING = _FakeCheckout(
+    [
+        "classes/models.py",
+        "classes/migrations/0200_cap.py",
+        "classes/spec/models_spec.py",
+        "classes/spec/migrations/conftest.py",
+        "classes/spec/migrations/cap_spec.py",
+        "tests/classes/models_spec.py",
+        "tests/classes/seats_migration_spec.py",
+        "hub/views.py",
+    ]
+)
+
+_CLASSES_IGNORES = [
+    "--ignore=classes/spec/migrations/cap_spec.py",
+    "--ignore=tests/classes/seats_migration_spec.py",
+]
+
+
+def _select_migrating(*changed: str) -> list[str]:
+    return affected.select(list(changed), _MIGRATING)
+
+
+def describe_select_migration_specs():
+    def it_skips_the_apps_migration_specs_when_its_migrations_are_untouched():
+        assert _select_migrating("classes/models.py") == ["classes/", "tests/classes/", *_CLASSES_IGNORES]
+
+    def it_skips_them_for_a_template_in_the_app_folder_too():
+        assert (
+            _select_migrating("templates/classes/page.html")
+            == sorted(["classes/", "tests/classes/", *_LINT]) + _CLASSES_IGNORES
+        )
+
+    def it_runs_them_when_the_diff_adds_or_edits_a_migration_of_that_app():
+        assert _select_migrating("classes/migrations/0200_cap.py") == ["classes/", "tests/classes/"]
+        assert _select_migrating("classes/models.py", "classes/migrations/0201_new.py") == [
+            "classes/",
+            "tests/classes/",
+        ]
+
+    def it_runs_a_changed_migration_spec_and_skips_the_others():
+        assert _select_migrating("classes/models.py", "tests/classes/seats_migration_spec.py") == [
+            "classes/",
+            "tests/classes/",
+            "--ignore=classes/spec/migrations/cap_spec.py",
+        ]
+
+    def it_runs_the_specs_under_a_changed_conftest_in_the_migration_spec_folder():
+        assert _select_migrating("classes/spec/migrations/conftest.py") == ["classes/spec/migrations/"]
+        assert _select_migrating("classes/models.py", "classes/spec/migrations/conftest.py") == [
+            "classes/",
+            "tests/classes/",
+            "--ignore=tests/classes/seats_migration_spec.py",
+        ]
+
+    def it_leaves_another_apps_migration_specs_to_that_apps_own_rule():
+        assert _select_migrating("hub/views.py", "classes/migrations/0200_cap.py") == [
+            "classes/",
+            "hub/",
+            "tests/classes/",
+        ]
+
+    def it_ignores_nothing_for_the_full_suite():
+        assert _select_migrating("classes/models.py", "conftest.py") == ["."]
 
 
 def describe_select():
@@ -190,6 +260,15 @@ def describe_DiskCheckout():
         assert affected.DiskCheckout(root).specs_naming("hub.css") == [
             "hub/spec/menu_spec.py",
             "tests/hub/views_spec.py",
+        ]
+
+    def it_lists_the_migration_specs_under_a_folder(root):
+        (root / "tests/hub/seed_migration_spec.py").write_text("")
+        (root / "tests/hub/migrations").mkdir()
+        (root / "tests/hub/migrations/cap_spec.py").write_text("")
+        assert affected.DiskCheckout(root).migration_specs("tests/hub/") == [
+            "tests/hub/migrations/cap_spec.py",
+            "tests/hub/seed_migration_spec.py",
         ]
 
     def it_reads_the_spec_sources_once(root):
