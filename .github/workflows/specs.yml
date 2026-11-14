@@ -33,6 +33,10 @@ jobs:
     env:
       DJANGO_SECRET_KEY: test-secret-key-for-ci
       DATABASE_URL: sqlite:///db.sqlite3
+      # plfog/settings.py (the test cache and task backend) and two seed migrations know they run
+      # under pytest by argv[0] or this variable. An xdist worker's argv is not pytest's and pytest
+      # sets this only once a spec starts, so without it a worker imports the production settings.
+      PYTEST_CURRENT_TEST: xdist-worker
       COVERAGE_FILE: .coverage.${{ matrix.shard }}
       PATHS: ${{ inputs.paths }}
       SHARD: ${{ matrix.shard }}
