@@ -1,6 +1,6 @@
 name: Nightly
 
-# The full suite on main, which pull requests no longer run (#1192): the same seven shards as the
+# The full suite on main, which pull requests no longer run (#1192): the same eight shards as the
 # `affected` check (specs.yml) given every spec, the coverage combined under the 98% gate in
 # pyproject.toml, and the result reported on one issue labelled nightly-red. A red night opens
 # it, or comments on it while it is open; a green night closes it. A scheduled Claude routine

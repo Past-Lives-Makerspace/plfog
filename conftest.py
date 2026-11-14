@@ -1,5 +1,6 @@
 import os
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -10,6 +11,17 @@ from pytest_django.plugin import DjangoDbBlocker
 # Set by CI's postgres-only job, whose whole point is running these specs: there a database
 # other than PostgreSQL is a broken job, not a reason to skip.
 POSTGRES_ONLY_JOB = "PLFOG_POSTGRES_ONLY_JOB"
+
+ROOT = Path(__file__).resolve().parent
+
+
+def is_migration_spec(path: Path) -> bool:
+    """Whether a spec file rewinds the schema: "migration" in its path inside the repository.
+
+    Relative to the repository root, so a checkout under a folder such as ``migrations-work``
+    does not make every spec a migration spec.
+    """
+    return "migration" in path.resolve().relative_to(ROOT).as_posix()
 
 
 def pytest_configure():
@@ -48,7 +60,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     from django.db import connection
 
     for item in items:
-        if "migration" in str(item.path):
+        if is_migration_spec(item.path):
             item.add_marker(pytest.mark.migration)
 
     marked = [item for item in items if "postgres_only" in item.keywords]
@@ -72,7 +84,7 @@ def _restore_latest_migrations(request: pytest.FixtureRequest, django_db_blocker
     three hour limit (#1004).
     """
     yield
-    if "migration" not in str(request.path):
+    if not is_migration_spec(request.path):
         return
     from django.db import connection
     from django.db.migrations.executor import MigrationExecutor

@@ -1,9 +1,9 @@
 name: Specs
 
-# The spec shards that ci.yml's `affected` check and nightly.yml both run (#1192). Seven runners:
-# four pytest-split groups of everything but the migration specs, and three of the migration
+# The spec shards that ci.yml's `affected` check and nightly.yml both run (#1192). Eight runners:
+# four pytest-split groups of everything but the migration specs, and four of the migration
 # specs, which rewind the schema and run apart from the rest (#1006). One runner took the
-# migration specs past 60 minutes on its own. Each runner spreads its
+# migration specs past 60 minutes on its own, and three groups took up to 50. Each runner spreads its
 # share over its cores with pytest-xdist; every xdist worker builds its own in-memory SQLite test
 # database, so no two specs running at the same time share one.
 #
@@ -33,12 +33,13 @@ jobs:
   shard:
     name: specs (${{ matrix.shard }})
     runs-on: ubuntu-latest
-    # The slowest shard took 40 minutes (about 8 of them installing); 60 leaves room for a slow runner.
-    timeout-minutes: 60
+    # The slowest shard should sit under 70% of this: with three migration groups the slowest took
+    # 50 minutes (about 8 of them setup), and four groups bring it to about 40.
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
-        shard: ["1", "2", "3", "4", "migrations-1", "migrations-2", "migrations-3"]
+        shard: ["1", "2", "3", "4", "migrations-1", "migrations-2", "migrations-3", "migrations-4"]
     env:
       DJANGO_SECRET_KEY: test-secret-key-for-ci
       DATABASE_URL: sqlite:///db.sqlite3
@@ -69,7 +70,7 @@ jobs:
       - name: Run this shard's specs
         run: |
           case "$SHARD" in
-            migrations-*) only=(-m migration --splits 3 --group "${SHARD#migrations-}") ;;
+            migrations-*) only=(-m migration --splits 4 --group "${SHARD#migrations-}") ;;
             *) only=(-m "not e2e and not migration" --splits 4 --group "$SHARD") ;;
           esac
           mapfile -t paths <<< "$PATHS"

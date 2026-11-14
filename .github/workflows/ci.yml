@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   # A pull request runs the specs its diff can break (.github/scripts/affected_specs.py), split
-  # across seven runners (specs.yml), and `affected` gates on them and on the changed lines' branch
+  # across eight runners (specs.yml), and `affected` gates on them and on the changed lines' branch
   # coverage. `affected` is the required check, so it runs in the merge queue too. The full suite
   # runs nightly on main instead (nightly.yml), and a red night opens an issue (#1192).
   select:
