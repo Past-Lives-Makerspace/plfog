@@ -273,8 +273,11 @@ multi call commands like `gh pr create` fail almost every time without it.
    each labelled with the criterion it breaks, or `no findings`. Findings go to the engineer by
    `SendMessage`, which has the context; then the same reviewer verifies the delta against the pushed commit,
    because a fix that introduces a new variant of the same bug has happened here. Two rounds, then stop.
-6. **The merge gate is targeted tests, bot approval, lint and e2e.** The `test` job is the hour long full
-   suite with the coverage gate and is not a blocker; do not wait for it. CI runs no mutation testing (#931).
+6. **The merge gate is targeted tests, bot approval, lint and e2e.** The `test` job is the full suite with
+   the coverage gate (four to six hours now). It does not block the merge, but it is watched: keep a
+   background watcher on it, and when it goes red read the log and push the fix to the PR, or fix forward
+   on `main` once merged. Never call a PR ready while any check on its head is red or still running; say
+   "required checks green, full test job still running" until it finishes. CI runs no mutation testing (#931).
 7. **Stop.** **Agents do not merge.** A merge to main deploys to Render and announces to members; that is
    Jo's.
 
