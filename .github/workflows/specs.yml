@@ -1,0 +1,94 @@
+name: Specs
+
+# The spec shards that ci.yml's `affected` check and nightly.yml both run (#1192). Eight runners:
+# four pytest-split groups of everything but the migration specs, and four of the migration
+# specs, which rewind the schema and run apart from the rest (#1006). One runner took the
+# migration specs past 60 minutes on its own, and three groups took up to 50. Each runner spreads its
+# share over its cores with pytest-xdist; every xdist worker builds its own in-memory SQLite test
+# database, so no two specs running at the same time share one.
+#
+# `--dist load`, not `loadfile`: pytest-django runs every transactional spec after the others,
+# because a transactional spec flushes the database, rows the migrations seeded (the membership
+# plan, the leadership tabs) included. `load` hands each worker specs in that order; `loadfile`
+# hands out whole files, so a worker ran ordinary specs after a flush and 52 failed.
+#
+# `least_duration` with no stored timings deals the specs out in turn; pytest-split's default
+# cuts the list into runs, which put every slow classes migration spec in one group.
+#
+# Each shard writes its coverage to .coverage.<shard> with no gate of its own and uploads it with
+# its JUnit report; the caller combines the coverage and decides what passes.
+
+on:
+  workflow_call:
+    inputs:
+      paths:
+        description: The pytest paths and --ignore= options, one per line, from .github/scripts/affected_specs.py; "." is the full suite.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  shard:
+    name: specs (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    # The slowest shard should sit under 70% of this: with three migration groups the slowest took
+    # 50 minutes (about 8 of them setup), and four groups bring it to about 40.
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1", "2", "3", "4", "migrations-1", "migrations-2", "migrations-3", "migrations-4"]
+    env:
+      DJANGO_SECRET_KEY: test-secret-key-for-ci
+      DATABASE_URL: sqlite:///db.sqlite3
+      # plfog/settings.py (the test cache and task backend) and two seed migrations know they run
+      # under pytest by argv[0] or this variable. An xdist worker's argv is not pytest's and pytest
+      # sets this only once a spec starts, so without it a worker imports the production settings.
+      PYTEST_CURRENT_TEST: xdist-worker
+      COVERAGE_FILE: .coverage.${{ matrix.shard }}
+      PATHS: ${{ inputs.paths }}
+      SHARD: ${{ matrix.shard }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run Django checks
+        run: python manage.py check
+
+      - name: Run this shard's specs
+        run: |
+          case "$SHARD" in
+            migrations-*) only=(-m migration --splits 4 --group "${SHARD#migrations-}") ;;
+            *) only=(-m "not e2e and not migration" --splits 4 --group "$SHARD") ;;
+          esac
+          mapfile -t paths <<< "$PATHS"
+          status=0
+          pytest "${paths[@]}" "${only[@]}" --splitting-algorithm least_duration -q -n auto --dist load \
+            --cov-report= --cov-fail-under=0 \
+            -o junit_family=xunit1 --junitxml="junit-$SHARD.xml" || status=$?
+          # 5 is "no specs collected": a small selection leaves some shards nothing to run.
+          [ "$status" -eq 0 ] || [ "$status" -eq 5 ]
+
+      - name: Upload coverage and the JUnit report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: specs-${{ matrix.shard }}
+          path: |
+            .coverage.${{ matrix.shard }}
+            junit-${{ matrix.shard }}.xml
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
