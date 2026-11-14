@@ -28,9 +28,10 @@ def describe_teach_nav():
     def it_links_profile_as_the_last_tab(instructor_fixture, client):
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_overview")).content.decode()
-        profile_at = html.index(reverse("classes:teach_profile"))
-        assert profile_at > html.index(reverse("classes:teach_registrations"))
-        assert html.index("</nav>", profile_at) > profile_at
+        # Read the tab row alone: the page body links the profile too (the Get Set Up card, #1180).
+        start = html.index('aria-label="Class management sections"')
+        tabs = html[start : html.index("</nav>", start)]
+        assert tabs.index(reverse("classes:teach_profile")) > tabs.index(reverse("classes:teach_registrations"))
 
     def it_offers_a_live_catalog_link(instructor_fixture, client, settings):
         settings.BOOK_BASE_URL = "https://book.example.test"

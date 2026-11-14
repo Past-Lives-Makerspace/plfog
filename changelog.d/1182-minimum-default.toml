@@ -1,0 +1,10 @@
+bump = "patch"
+date = "2026-11-13"
+audience = ["instructors"]
+title = "New classes start with a minimum of one signup"
+feature = "classes.teach"
+guidance = "none"
+changes = [
+  "A new class starts with Minimum signups set to 1, so a class nobody signs up for cancels itself when registration closes. Clear the box to run it regardless.",
+  "Classes that take signups right up to the start keep no minimum.",
+]
