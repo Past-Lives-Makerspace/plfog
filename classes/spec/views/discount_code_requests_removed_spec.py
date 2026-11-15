@@ -111,8 +111,9 @@ def describe_the_retired_settings():
         assert not hasattr(SiteConfiguration, "instructor_discount_codes_need_approval")
         assert not hasattr(Member, "can_self_approve_discounts")
 
-    def it_leaves_request_a_code_out_of_every_template_and_the_help_content():
+    def it_leaves_request_a_code_out_of_every_template():
+        # The Help Center is frozen until #851 removes it, so its articles are not checked here.
         root = Path(settings.BASE_DIR)
-        files = [*(root / "templates").rglob("*.html"), root / "membership" / "help_content.py"]
+        files = list((root / "templates").rglob("*.html"))
 
         assert [str(path) for path in files if "request a code" in path.read_text().lower()] == []
