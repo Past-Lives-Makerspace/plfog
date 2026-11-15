@@ -3,11 +3,13 @@
  * Alpine component `plHoursRow(style)`. `style` is the row's booking style (fixed or open),
  * which the How members book radios drive through x-model and the fixed only fields follow.
  * `summary` is the row's recurrence in plain words, written before anything is saved:
- * "Every 3 weeks on Friday, 6:00 PM to 8:00 PM", "Every month on the last Thursday from Nov 26,
- * 6:00 PM to 8:00 PM". It uses the same words as OrientationAvailability.cadence_display and
- * starts_on_note (membership/models.py), which say the rule on every page once saved; change
- * both together. `monthly` is true under a month based cadence, the only place Last of the
- * month means anything.
+ * "Every 3 weeks on Friday · 6:00 p.m. to 8:00 p.m.", "Every month on the last Thursday from
+ * Nov 26 · 6:00 p.m. to 8:00 p.m.". It uses the same words as
+ * OrientationAvailability.cadence_display and starts_on_note (membership/models.py) and the
+ * Manage Bookings rule line's times (|time:"g:i a"), which say the rule once saved; change them
+ * together. With Last of the month on and a start day that is not the last such weekday of its
+ * month, it says the save's own refusal instead of a rule the save would not keep. `monthly` is
+ * true under a month based cadence, the only place Last of the month means anything.
  *
  * Loaded once, deferred, from hub/base.html's <head> before Alpine (FRONTEND.md, Scripts
  * under hx-boost).
@@ -25,6 +27,19 @@
 
   function field(root, name) {
     return root.querySelector('[name$="-' + name + '"]');
+  }
+
+  // "18:00" as Django's |time:"g:i a" writes it: "6:00 p.m.".
+  function timeWords(value) {
+    var parts = (value || "").split(":");
+    if (parts.length !== 2) return "";
+    var hour = Number(parts[0]);
+    return (hour % 12 || 12) + ":" + parts[1] + " " + (hour < 12 ? "a.m." : "p.m.");
+  }
+
+  function isLastOfMonth(day) {
+    var weekLater = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 7);
+    return weekLater.getMonth() !== day.getMonth();
   }
 
   function chosenLabel(select) {
@@ -73,16 +88,18 @@
           var cadence = cadenceSelect ? cadenceSelect.value : "weekly";
           var lastBox = field(root, "last_of_month");
           var anchor = parseDay((field(root, "anchor_date") || {}).value);
+          var weekday = chosenLabel(field(root, "weekday"));
           this.monthly = Boolean(MONTHS[cadence]);
-          var words = cadenceWords(
-            cadence,
-            chosenLabel(cadenceSelect),
-            chosenLabel(field(root, "weekday")),
-            anchor,
-            this.monthly && Boolean(lastBox && lastBox.checked)
-          );
-          var times = chosenLabel(field(root, "start_time")) + " to " + chosenLabel(field(root, "end_time"));
-          this.summary = words + startsOnNote(anchor) + ", " + times;
+          var last = this.monthly && Boolean(lastBox && lastBox.checked);
+          if (last && anchor && !isLastOfMonth(anchor)) {
+            // The model's clean refuses this start day; say what the save will say.
+            this.summary = "The start day must be the last " + weekday + " of its month.";
+            return;
+          }
+          var words = cadenceWords(cadence, chosenLabel(cadenceSelect), weekday, anchor, last);
+          var times =
+            timeWords((field(root, "start_time") || {}).value) + " to " + timeWords((field(root, "end_time") || {}).value);
+          this.summary = words + startsOnNote(anchor) + " · " + times;
         },
       };
     });

@@ -3452,8 +3452,8 @@ class OrientationAvailabilityForm(forms.ModelForm):
         help_text=(
             "The first day these hours run. Nothing is booked before it. Leave it blank on a weekly "
             "rule and the hours run from now. A monthly rule keeps this day's weekday of the month, "
-            "for example the 2nd Tuesday. A 5th Tuesday only comes some months; tick Last of the "
-            "month for the last Tuesday every month."
+            "for example the 2nd Tuesday. A 5th Tuesday only comes some months; turn on Last of "
+            "the month for the last Tuesday every month."
         ),
         widget=forms.DateInput(
             # Same treatment as the one-off slot date: the whole field opens the picker, and

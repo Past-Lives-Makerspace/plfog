@@ -64,22 +64,30 @@ def describe_the_edit_hours_row():
         page.locator("[data-edit-hours]").first.click()
         row = page.locator("#modal-rule-rows .pl-hours-row").first
         summary = row.locator("[data-hours-summary]")
-        expect(summary).to_have_text("Every Thursday, 6:00 PM to 7:00 PM")
+        expect(summary).to_have_text("Every Thursday · 6:00 p.m. to 7:00 p.m.")
         last_switch = row.locator("[data-hours-last]")
         expect(last_switch).to_be_hidden()
 
         anchor = _last_thursday_next_month()
         row.locator('select[name$="-cadence"]').select_option("every_3_weeks")
         row.locator('input[name$="-anchor_date"]').fill(anchor.isoformat())
-        expect(summary).to_have_text(f"Every 3 weeks on Thursday from {_short(anchor)}, 6:00 PM to 7:00 PM")
+        expect(summary).to_have_text(f"Every 3 weeks on Thursday from {_short(anchor)} · 6:00 p.m. to 7:00 p.m.")
         expect(last_switch).to_be_hidden()
 
         ordinal = ("1st", "2nd", "3rd", "4th", "5th")[(anchor.day - 1) // 7]
         row.locator('select[name$="-cadence"]').select_option("monthly")
         expect(last_switch).to_be_visible()
-        expect(summary).to_have_text(f"Every month on the {ordinal} Thursday from {_short(anchor)}, 6:00 PM to 7:00 PM")
+        expect(summary).to_have_text(
+            f"Every month on the {ordinal} Thursday from {_short(anchor)} · 6:00 p.m. to 7:00 p.m."
+        )
         last_switch.locator("label.pl-toggle").click()
-        expect(summary).to_have_text(f"Every month on the last Thursday from {_short(anchor)}, 6:00 PM to 7:00 PM")
+        expect(summary).to_have_text(f"Every month on the last Thursday from {_short(anchor)} · 6:00 p.m. to 7:00 p.m.")
+
+        # A start day a week before the last Thursday: the line says what the save would refuse.
+        row.locator('input[name$="-anchor_date"]').fill((anchor - timedelta(days=7)).isoformat())
+        expect(summary).to_have_text("The start day must be the last Thursday of its month.")
+        row.locator('input[name$="-anchor_date"]').fill(anchor.isoformat())
+        expect(summary).to_have_text(f"Every month on the last Thursday from {_short(anchor)} · 6:00 p.m. to 7:00 p.m.")
 
         # The save redirects to the guild's Orientations page, whose schedule reads the saved rule.
         page.get_by_role("button", name="Save", exact=True).click()
@@ -89,3 +97,29 @@ def describe_the_edit_hours_row():
         )
         rule.refresh_from_db()
         assert (rule.cadence, rule.anchor_date, rule.last_of_month) == ("monthly", anchor, True)
+
+    def it_uses_the_words_the_saved_rule_line_uses(live_server, page, login_via_code):
+        # Pins the preview to OrientationAvailability.cadence_display's words. Thursday
+        # 2025-11-27 (the 4th of November) is past, so no "from" date joins the line.
+        lead = _lead(login_via_code)
+        guild = GuildFactory(name="Tech Guild", guild_lead=lead)
+        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
+        laser = OrientationTypeFactory(guild=guild, name="Laser Basics")
+        OrientationAvailabilityFactory(
+            guild=guild, orientation_type=laser, orienter=lead, weekday=OrientationAvailability.Weekday.THURSDAY
+        )
+        page.goto(f"{live_server.url}{reverse('hub_manage_bookings')}")
+        page.locator("[data-edit-hours]").first.click()
+        row = page.locator("#modal-rule-rows .pl-hours-row").first
+        summary = row.locator("[data-hours-summary]")
+        cases = [
+            ("fortnightly", "", "Every other Thursday"),
+            ("every_4_weeks", "2025-11-27", "Every 4 weeks on Thursday"),
+            ("monthly", "", "Every month"),
+            ("every_6_months", "2025-11-27", "Every 6 months on the 4th Thursday"),
+            ("yearly", "2025-11-27", "Every year on the 4th Thursday of November"),
+        ]
+        for cadence, anchor, words in cases:
+            row.locator('select[name$="-cadence"]').select_option(cadence)
+            row.locator('input[name$="-anchor_date"]').fill(anchor)
+            expect(summary).to_have_text(f"{words} · 6:00 p.m. to 7:00 p.m.")
