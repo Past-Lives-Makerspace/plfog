@@ -13,6 +13,7 @@ from django.test import Client, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from classes.factories import daytime
 from core.models import EventDelivery, SiteConfiguration
 from hub.forms import CommunityEventForm
 from membership.models import AdminCapability, CommunityEvent, Guild, GuildStaffMembership, Member
@@ -662,13 +663,15 @@ def describe_admin_authoring():
         assert event.is_site_wide
         mock_announce.assert_called_once()
 
+    @pytest.mark.usefixtures("fall_back_nights")
     def it_parks_an_event_with_a_future_announce_time_and_says_so(client: Client):
         from django.contrib.messages import get_messages
 
         _user_with_role("ad_sched", fog_role=Member.FogRole.ADMIN)
         client.login(username="ad_sched", password="pass")
-        start = timezone.localtime(timezone.now() + timedelta(days=30))
-        announce_at = timezone.localtime(timezone.now() + timedelta(days=2))
+        # 10:00 local: a time at the current hour can land in the repeated 1 AM hour, which the form refuses (#1036).
+        start = daytime(timezone.now() + timedelta(days=30))
+        announce_at = daytime(timezone.now() + timedelta(days=2))
         stamp = "%Y-%m-%dT%H:%M"
         with patch.object(CommunityEvent, "announce") as mock_announce:
             resp = client.post(
