@@ -32,15 +32,13 @@ pytestmark = pytest.mark.django_db
 CARD = b"data-personal-code "
 CLASS_CODES = b"data-class-codes"
 CREATE = reverse("classes:teach_discount_code_create")
-REQUEST = reverse("classes:teach_discount_code_request")
 TAB = reverse("classes:teach_discount_codes")
 
 
-def _flag(on: bool, *, approval: bool = False) -> None:
+def _flag(on: bool) -> None:
     config = SiteConfiguration.load()
     config.instructor_discount_codes_enabled = on
-    config.instructor_discount_codes_need_approval = approval
-    config.save(update_fields=["instructor_discount_codes_enabled", "instructor_discount_codes_need_approval"])
+    config.save(update_fields=["instructor_discount_codes_enabled"])
 
 
 def _member(username: str, name: str) -> tuple[object, Member]:
@@ -142,11 +140,10 @@ def describe_with_the_setting_off():
     def _off() -> None:
         _flag(False)
 
-    def it_offers_no_way_to_make_or_ask_for_a_code(teacher_client, their_class):
+    def it_offers_no_way_to_make_a_code(teacher_client, their_class):
         for url in (TAB, reverse("classes:teach_dashboard"), _overview(their_class)):
             html = teacher_client.get(url).content.decode()
             assert CREATE not in html, url
-            assert REQUEST not in html, url
         html = teacher_client.get(TAB).content
         assert b"data-instructor-code-tools" not in html
 
@@ -159,7 +156,6 @@ def describe_with_the_setting_off():
         resp = teacher_client.get(reverse("classes:teach_class_discount_codes", kwargs={"pk": their_class.pk}))
         assert resp.status_code == 302
         assert teacher_client.get(CREATE).status_code == 302
-        assert teacher_client.get(REQUEST).status_code == 302
 
 
 def describe_with_the_setting_on():
@@ -171,13 +167,6 @@ def describe_with_the_setting_on():
         assert CREATE in html
         assert reverse("classes:teach_discount_code_edit", kwargs={"pk": mine.pk}) in html
         assert "data-ask-an-admin" not in html
-
-    def it_offers_request_a_code_in_approval_mode(teacher_client):
-        _flag(True, approval=True)
-        html = teacher_client.get(TAB).content.decode()
-        assert REQUEST in html
-        assert CREATE not in html
-        assert "Your Requests" in html
 
     def it_hides_an_admins_unapproved_code_on_the_class_tab_but_keeps_the_instructors_own_draft(
         teacher_client, teacher, their_class

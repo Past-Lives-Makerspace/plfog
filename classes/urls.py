@@ -156,7 +156,6 @@ urlpatterns = [
     ),
     path("teach/discount-codes/", views.teach_discount_codes, name="teach_discount_codes"),
     path("teach/discount-codes/new/", views.teach_discount_code_create, name="teach_discount_code_create"),
-    path("teach/discount-codes/request/", views.teach_discount_code_request, name="teach_discount_code_request"),
     path(
         "teach/discount-codes/<int:pk>/edit/",
         views.teach_discount_code_edit,
@@ -166,11 +165,6 @@ urlpatterns = [
         "teach/discount-codes/<int:pk>/delete/",
         views.teach_discount_code_delete,
         name="teach_discount_code_delete",
-    ),
-    path(
-        "teach/discount-codes/<int:pk>/approve/",
-        views.teach_discount_code_approve,
-        name="teach_discount_code_approve",
     ),
     path("teach/profile/", views.teach_profile, name="teach_profile"),
     # Legacy 301 redirects — old /classes/instructor/... links in emails + bookmarks
@@ -376,11 +370,6 @@ urlpatterns = [
         "admin/discount-codes/<int:pk>/reassign/",
         views.admin_discount_code_reassign,
         name="admin_discount_code_reassign",
-    ),
-    path(
-        "admin/discount-codes/requests/<int:pk>/",
-        views.admin_discount_code_request_review,
-        name="admin_discount_code_request_review",
     ),
     path("admin/questions/", views.admin_registration_questions, name="admin_registration_questions"),
     path("admin/questions/new/", views.admin_registration_question_create, name="admin_registration_question_create"),

@@ -41,11 +41,10 @@ MADE = "discount_code.instructor_made"
 
 @pytest.fixture(autouse=True)
 def _direct_mode(db: None) -> None:
-    """The settings production flips to after deploy: instructor codes on, no approval."""
+    """The setting production flips to after deploy: instructor codes on."""
     config = SiteConfiguration.load()
     config.instructor_discount_codes_enabled = True
-    config.instructor_discount_codes_need_approval = False
-    config.save(update_fields=["instructor_discount_codes_enabled", "instructor_discount_codes_need_approval"])
+    config.save(update_fields=["instructor_discount_codes_enabled"])
     mail.outbox = []
 
 
@@ -416,15 +415,6 @@ def describe_the_instructor_pages():
         tab = client.get(reverse("classes:teach_class_discount_codes", kwargs={"pk": offering.pk})).content.decode()
         assert 'data-guidance-target="classes.new-code"' in tab
 
-    def it_keeps_the_approval_note_under_approval_mode(client: Client) -> None:
-        config = SiteConfiguration.load()
-        config.instructor_discount_codes_need_approval = True
-        config.save(update_fields=["instructor_discount_codes_need_approval"])
-        user, _teacher_member = _teacher()
-        client.force_login(user)
-        page = client.get(reverse(CODES)).content.decode()
-        assert "data-make-any-time" not in page
-
     def it_shows_no_approval_on_a_class_tab_and_edit_only_on_their_own(client: Client) -> None:
         user, teacher = _teacher()
         offering = _class(teacher)
@@ -434,7 +424,7 @@ def describe_the_instructor_pages():
         client.force_login(user)
         tab = client.get(reverse("classes:teach_class_discount_codes", kwargs={"pk": offering.pk})).content.decode()
         assert "<th>Approved</th>" not in tab
-        assert reverse("classes:teach_discount_code_approve", kwargs={"pk": mine.pk}) not in tab
+        assert f"/classes/teach/discount-codes/{mine.pk}/approve/" not in tab
         assert "<td data-code-active>no</td>" in tab
         assert "<td data-code-active>yes</td>" in tab
         assert reverse("classes:teach_discount_code_edit", kwargs={"pk": mine.pk}) in tab

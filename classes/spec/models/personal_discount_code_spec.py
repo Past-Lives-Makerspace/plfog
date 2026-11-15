@@ -241,7 +241,7 @@ def describe_ensure_personal_for():
             CmsActivity.objects.filter(kind=CmsActivity.Kind.DISCOUNT_CODE_CREATED, payload__code=code.code).count()
             == 1
         )
-        assert "discount_code.requested" not in sent
+        assert sent == []
 
 
 def taking_each_pick(monkeypatch, *, times: int) -> None:

@@ -917,16 +917,6 @@ def _space_requests() -> dict[str, QuerySet[Any]]:
     return {"spacereq": SpaceRequest.objects.pending()}
 
 
-def _discount_requests() -> dict[str, QuerySet[Any]]:
-    from classes.models import DiscountCode, DiscountCodeRequest
-
-    return {
-        # An unapproved code an instructor switched off asks nobody any more.
-        "discount": DiscountCode.objects.filter(is_approved=False, is_active=True),
-        "discount_request": DiscountCodeRequest.objects.pending(),
-    }
-
-
 def _submitted_events() -> dict[str, QuerySet[Any]]:
     from membership.models import CommunityEvent
 
@@ -962,7 +952,6 @@ _OPEN_CHECKS: dict[str, OpenCheckFn] = {
     "class_validation_requested": open_class_review_urls,
     "space.lease_requested": _open_by_request(_space_requests),
     "space.cubby_requested": _open_by_request(_space_requests),
-    "discount_code.requested": _open_by_request(_discount_requests),
     "discount_code.instructor_made": always_open,
     "event.submitted": _open_by_request(_submitted_events),
     "wiki.page_reported": _open_by_request(_wiki_reports),

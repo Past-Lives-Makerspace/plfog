@@ -356,7 +356,9 @@ def describe_adding_dates():
         assert _errors(response.content.decode()) == ["Pick at least one date."]
 
     def it_refuses_every_date_that_clashes_and_keeps_nothing(guide: Member):
-        saturday, sunday, monday = _ahead(5), _ahead(6), _ahead(0, weeks=2)
+        # One Saturday and the two days after it, so the dates run in this order on any weekday (#1202).
+        saturday = _ahead(5)
+        sunday, monday = saturday + timedelta(days=1), saturday + timedelta(days=2)
         TourHoursFactory(guide=guide, weekday=5, start_time=time(11), end_time=time(16))
         _dated(guide, sunday, start_time=time(13), end_time=time(15))
         TourDayOffFactory(guide=guide, starts_on=monday, ends_on=monday)
@@ -395,8 +397,9 @@ def describe_adding_dates():
         assert not TourHours.objects.exists()
 
     def it_reopens_the_panel_with_the_picks_and_fields_kept(guide: Member):
-        TourDayOffFactory(guide=guide, starts_on=_ahead(5), ends_on=_ahead(5))
-        days = [_ahead(5), _ahead(6)]
+        saturday = _ahead(5)
+        TourDayOffFactory(guide=guide, starts_on=saturday, ends_on=saturday)
+        days = [saturday, saturday + timedelta(days=1)]
         content = signed_in(guide).post(DATES_SAVE, _post(guide, *days, seats="9")).content.decode()
         assert "plTourDates('tour-dates-config', true)" in content
         assert _calendar(content)["picked"] == [day.isoformat() for day in days]

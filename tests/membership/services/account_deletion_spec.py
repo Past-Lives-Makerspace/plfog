@@ -69,7 +69,6 @@ def _linked_member(**overrides) -> Member:
         instructor_bio="Teaches pottery.",
         commission_note="Open for pottery commissions.",
         open_for_commissions=True,
-        can_self_approve_discounts=True,
     )
     defaults.update(overrides)
     member = MemberFactory(**defaults)
@@ -251,14 +250,6 @@ def describe_delete_own_account():
         assert member.fog_role == Member.FogRole.MEMBER
         assert member.user.is_staff is False
         assert member.user.is_superuser is False
-
-    def it_resets_can_self_approve_discounts():
-        member = _linked_member()
-
-        delete_own_account(member)
-
-        member.refresh_from_db()
-        assert member.can_self_approve_discounts is False
 
     def it_deletes_every_allauth_email_address():
         member = _linked_member()

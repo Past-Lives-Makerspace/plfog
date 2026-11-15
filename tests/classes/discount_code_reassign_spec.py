@@ -205,9 +205,6 @@ def describe_admin_discount_code_reassign():
         def it_forbids_a_plain_member():
             _forbidden(_user("reassign-member"))
 
-        def it_forbids_a_self_approver_on_their_own_code():
-            _forbidden(_user("reassign-selfapprover", can_self_approve_discounts=True))
-
         def it_forbids_an_instructor():
             user = _user("reassign-teacher", instructor_slug="reassign-teacher", instructor_oriented_at=timezone.now())
             ClassOfferingFactory(instructor=user.member)

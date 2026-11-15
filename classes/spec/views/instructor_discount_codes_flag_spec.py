@@ -49,13 +49,12 @@ def describe_instructor_discount_codes_flag_off():
         assert resp.status_code == 200
         assert b"Discount Codes for This Class" not in resp.content
 
-    def it_opens_the_list_view_with_nothing_to_create_or_request(client, member_user):
+    def it_opens_the_list_view_with_nothing_to_create(client, member_user):
         _set_flag(False)
         client.force_login(member_user)
         resp = client.get(reverse("classes:teach_discount_codes"))
         assert resp.status_code == 200
         assert reverse("classes:teach_discount_code_create").encode() not in resp.content
-        assert reverse("classes:teach_discount_code_request").encode() not in resp.content
         assert b"data-ask-an-admin" in resp.content
         assert b"data-instructor-code-tools" not in resp.content
 
@@ -78,20 +77,6 @@ def describe_instructor_discount_codes_flag_off():
         _set_flag(False)
         client.force_login(member_user)
         resp = client.post(reverse("classes:teach_discount_code_delete", kwargs={"pk": 9999}))
-        assert resp.status_code == 302
-        assert resp["Location"] == reverse("classes:teach_dashboard")
-
-    def it_redirects_the_approve_view(client, member_user):
-        _set_flag(False)
-        client.force_login(member_user)
-        resp = client.post(reverse("classes:teach_discount_code_approve", kwargs={"pk": 9999}))
-        assert resp.status_code == 302
-        assert resp["Location"] == reverse("classes:teach_dashboard")
-
-    def it_redirects_the_request_route(client, member_user):
-        _set_flag(False)
-        client.force_login(member_user)
-        resp = client.get(reverse("classes:teach_discount_code_request"))
         assert resp.status_code == 302
         assert resp["Location"] == reverse("classes:teach_dashboard")
 

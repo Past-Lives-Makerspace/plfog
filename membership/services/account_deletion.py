@@ -135,7 +135,6 @@ def delete_own_account(member: "Member") -> None:
         member.open_for_commissions = False
         member.hide_from_directory = True
         member.fog_role = member.FogRole.MEMBER
-        member.can_self_approve_discounts = False
         member.status = member.Status.FORMER
         member.deleted_at = timezone.now()
         member.save(
@@ -162,7 +161,6 @@ def delete_own_account(member: "Member") -> None:
                 "open_for_commissions",
                 "hide_from_directory",
                 "fog_role",
-                "can_self_approve_discounts",
                 "status",
                 "deleted_at",
             ]

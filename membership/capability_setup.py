@@ -30,6 +30,7 @@ ALERTS = "alerts"
 BOOKINGS = "bookings"
 FIRST_SPACE = "first_space"
 FIRST_REFUND = "first_refund"
+OVERSEE = "oversee"
 
 #: Every finished card says where the badge shows; the rest of the line is the permission's own.
 _ON_DIRECTORY = "Your badge now shows on your Member Directory card"
@@ -414,19 +415,6 @@ SPACE_MANAGER_SETUP = PermissionSetupSpec(
 )
 
 
-def discount_request_facts(member: Member) -> SetupFacts:
-    """Discount Code Administrator: the instructors' code requests ``member`` has answered.
-
-    A plain code approved from its own link records no approver, so only requests count.
-    """
-    from classes.models import DiscountCodeRequest
-
-    answered = 0
-    if member.user_id is not None:
-        answered = DiscountCodeRequest.objects.filter(decided_by_id=member.user_id).count()
-    return facts_from_counts({FIRST_DECISION: answered})
-
-
 def refund_facts(member: Member) -> SetupFacts:
     """Refunds: whether ``member`` has sent a refund from a payment page."""
     from billing.models import PaymentRefund
@@ -445,39 +433,46 @@ _NOTIFICATIONS_NAME = "Notification Settings"
 
 DISCOUNT_ADMIN_SETUP = PermissionSetupSpec(
     permission=Capability.DISCOUNT_APPROVER,
-    title="Get Set Up to Approve Discount Codes",
-    lead="One thing to read, then one optional step.",
+    title="Get Set Up to Oversee Discount Codes",
+    lead="Two things to read. Nothing else to set up: instructors' codes work at once.",
     page_url_name=_NOTIFICATIONS_URL_NAME,
     page_query=_NOTIFICATIONS_QUERY,
     page_name=_NOTIFICATIONS_NAME,
     done_title="You're a Discount Code Administrator",
-    done_line=f"{_ON_DIRECTORY}, so instructors know who approves discount codes.",
-    done_line_without_badge="You're set up to approve discount codes.",
+    done_line=f"{_ON_DIRECTORY}, so instructors know who looks after discount codes.",
+    done_line_without_badge="You're set up to oversee discount codes.",
     celebration="Your Discount Code Administrator badge is on your Member Directory card.",
-    facts=discount_request_facts,
+    facts=reading_only_facts,
     steps=(
         SetupStep(
             key=LEARN,
-            title="Learn How Code Requests Reach You",
+            title="Learn How New Codes Reach You",
             note="About a minute to read",
-            why="When an instructor makes or asks for a discount code that needs approval, it comes to you.",
-            email_line="Learn how code requests reach you",
+            why="Instructors make codes for their own classes, and each one works at once. Nobody approves it.",
+            email_line="Learn how new codes reach you",
             how=(
-                f"Each one rings your bell at once with a link to approve or decline it. {_DIGEST}",
-                "There is no list page for these. Each one opens from its own link.",
+                "When an instructor makes a code, or changes what one takes off, where it works or how many "
+                "uses it has, you hear who did it, what it takes off and where it works.",
+                "It rings your bell at once. The email comes as one line in the 8 AM staff digest.",
                 "The emails are listed under Notification Settings below.",
             ),
-            guide_section="How Requests Reach You",
+            guide_section="How New Codes Reach You",
             got_it=True,
         ),
         SetupStep(
-            key=FIRST_DECISION,
-            title="Answer Your First Code Request",
-            note="When an instructor asks for a code",
-            why="When an instructor asks for a code, approve it or decline it with a note from its link.",
-            email_line="Answer your first code request (optional)",
-            guide_section="Deciding a Request",
-            optional=True,
+            key=OVERSEE,
+            title="Learn How You Oversee Codes",
+            note="About a minute to read",
+            why="Every code is on one list, and any of them can be stopped.",
+            email_line="Learn how you oversee codes",
+            how=(
+                "Discount Codes, on the Settings tab of the Classes admin, lists every code. Opening it takes "
+                "the Admin role.",
+                "Made by shows only the codes one person made.",
+                "To stop a code, open its ... menu, press Edit and untick Is active.",
+            ),
+            guide_section="Overseeing Codes",
+            got_it=True,
         ),
     ),
 )
