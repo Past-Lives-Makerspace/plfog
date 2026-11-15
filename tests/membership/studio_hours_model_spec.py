@@ -3,7 +3,7 @@ guild-matches-type constraint, announce/reminder suppression for STUDIO_HOURS, t
 studio_hours()/meetings() queryset filters, and the Guild read helpers that drive the
 guild page (studio_hours_display + next_meeting_occurrence).
 
-All datetime math is asserted in Portland local time."""
+Datetime math is asserted in Portland local time, except where a spec compares instants in UTC."""
 
 from __future__ import annotations
 

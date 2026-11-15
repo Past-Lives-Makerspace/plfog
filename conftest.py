@@ -199,12 +199,13 @@ def midday_now():
 _PACIFIC = ZoneInfo("America/Los_Angeles")
 
 #: The nights a spec seeding "two days out" must read the same on (#1036). Clocks fall back at
-#: 02:00 on Sunday 2026-11-01, so on the second night before it a seed two days out ends (from
-#: 23:00) or starts (from 01:00) inside the 1 AM hour that happens twice. The third is an
-#: ordinary night, where a seed at the current time of day sits two hours from midnight.
+#: 02:00 on Sunday 2026-11-01, so on the second night before it a seed two days out starts in
+#: the 1 AM hour that happens twice: at 01:30 in its first pass, at 02:30 in its second. At 23:30
+#: a seed ends in it, which no spec here reads yet; the ordinary night is the control.
 FALL_BACK_NIGHTS = {
     "fall-back-night-2330": datetime(2026, 10, 29, 23, 30, tzinfo=_PACIFIC),
     "fall-back-night-0130": datetime(2026, 10, 30, 1, 30, tzinfo=_PACIFIC),
+    "fall-back-night-0230": datetime(2026, 10, 30, 2, 30, tzinfo=_PACIFIC),
     "ordinary-night-2330": datetime(2026, 11, 10, 23, 30, tzinfo=_PACIFIC),
 }
 
@@ -212,6 +213,7 @@ FALL_BACK_NIGHTS = {
 FIVE_DAYS_BEFORE_FALL_BACK_NIGHTS = {
     "fall-back-night-2330": datetime(2026, 10, 26, 23, 30, tzinfo=_PACIFIC),
     "fall-back-night-0130": datetime(2026, 10, 27, 1, 30, tzinfo=_PACIFIC),
+    "fall-back-night-0230": datetime(2026, 10, 27, 2, 30, tzinfo=_PACIFIC),
     "ordinary-night-2330": FALL_BACK_NIGHTS["ordinary-night-2330"],
 }
 
