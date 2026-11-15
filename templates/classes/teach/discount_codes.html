@@ -10,13 +10,14 @@ Every instructor reaches this tab whatever instructor_discount_codes_enabled say
 personal code, then every live code that works on their classes, read only. Making or asking for
 a code is the flag's: with it on, the section under data-instructor-code-tools is today's page
 (the codes they made, New Code or Request a Code, and their requests); with it off, one line
-says to ask an admin, in the place that offer would have been.
+says to ask an admin, in the place that offer would have been. A code an instructor makes is
+live at once (#1184), so this page shows no approval state and no Approve button.
 {% endcomment %}
 {% include "classes/_components/personal_code_card.html" with code=personal_code %}
 
 <section class="pl-instructor-codes" data-working-codes data-guidance-target="classes.working-codes">
     <h2 class="pl-instructor-codes__title">Codes That Work on Your Classes</h2>
-    <p class="pl-instructor-codes__note">Anyone signing up for one of your classes can use these. Admins manage them.</p>
+    <p class="pl-instructor-codes__note">Anyone signing up for one of your classes can use these.</p>
     {% include "classes/_components/discount_codes_read_only_table.html" with codes=working_codes show_scope=True empty_text="No other codes work on your classes right now." %}
 </section>
 
@@ -29,10 +30,14 @@ says to ask an admin, in the place that offer would have been.
     {% if approval_mode %}
     <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_discount_code_request' %}">Request a Code</a>
     {% else %}
-    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_discount_code_create' %}">+ New Code</a>
+    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_discount_code_create' %}" data-guidance-target="classes.new-code">+ New Code</a>
     {% endif %}
 </div>
+{% if approval_mode %}
 <p class="pl-instructor-codes__note">New codes require admin approval before they can be used.</p>
+{% else %}
+<p class="pl-instructor-codes__note" data-make-any-time>Make a code for your own classes any time.</p>
+{% endif %}
 {% if own_codes %}
 <table style="width:100%; border-collapse:collapse;">
     <thead style="border-bottom:2px solid var(--hub-border);">
@@ -48,19 +53,18 @@ says to ask an admin, in the place that offer would have been.
     </thead>
     <tbody>
     {% for c in own_codes %}
-        <tr style="border-bottom:1px solid var(--hub-border);{% if not c.is_approved %} background:rgba(248,180,75,0.06);{% endif %}">
+        <tr style="border-bottom:1px solid var(--hub-border);">
             <td style="padding:0.5rem 0.75rem;">{{ c.code }}{% if c.instructor_id %} <span class="hub-pill hub-pill--neutral" data-scope-instructor>{{ c.scope_label }}</span>{% endif %}</td>
             <td style="padding:0.5rem 0.75rem;">{{ c.discount_pct|default:"—" }}</td>
             <td style="padding:0.5rem 0.75rem;">{% if c.discount_fixed_cents %}{{ c.discount_fixed_cents|cents_as_dollars }}{% else %}—{% endif %}</td>
             <td style="padding:0.5rem 0.75rem;">{{ c.valid_from|default:"—" }} → {{ c.valid_until|default:"—" }}</td>
             <td style="padding:0.5rem 0.75rem;">{{ c.use_count }}/{{ c.max_uses|default:"∞" }}</td>
             <td style="padding:0.5rem 0.75rem;">
-                {% if not c.is_active %}
-                    <span style="color:var(--hub-text-muted);">Inactive</span>
-                {% elif not c.is_approved %}
-                    <span style="color:var(--hub-warning, #e6a717);font-weight:600;">Pending approval</span>
-                {% else %}
+                {# A code checkout refuses reads Inactive, whether an admin switched it off or it predates #1184 unapproved. #}
+                {% if c.is_active and c.is_approved %}
                     <span style="color:var(--hub-success, #4caf50);">Active</span>
+                {% else %}
+                    <span style="color:var(--hub-text-muted);">Inactive</span>
                 {% endif %}
             </td>
             <td style="padding:0.5rem 0.75rem; display:flex; gap:0.375rem; justify-content:flex-end;">
@@ -68,12 +72,6 @@ says to ask an admin, in the place that offer would have been.
                 {# Under approval mode the instructor reads their codes; an admin decides what exists. A code an admin aimed at this instructor (#764) is read only too. #}
                 {% url 'classes:teach_discount_code_delete' pk=c.pk as code_delete_url %}
                 {% concat "inst-del-code-" c.pk as code_modal_id %}
-                {% if not c.is_approved and c|approvable_by:approver %}
-                <form method="post" action="{% url 'classes:teach_discount_code_approve' pk=c.pk %}" style="display:inline;">
-                    {% csrf_token %}
-                    <button type="submit" class="hub-btn hub-btn--sm hub-btn--success">Approve</button>
-                </form>
-                {% endif %}
                 <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_discount_code_edit' pk=c.pk %}">Edit</a>
                 <button type="button"
                         class="hub-btn hub-btn--sm hub-btn--danger"

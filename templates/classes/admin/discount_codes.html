@@ -3,9 +3,23 @@
 {% block portal_whats_new %}{% whats_new_button "admin.discount-codes" %}{% endblock %}
 {% block tab_content %}
 <div class="admin-toolbar" data-help-key="admin.discount-codes">
-    {% include "components/table_search.html" with q=q placeholder="Search codes…" %}
+    {% include "components/table_search.html" with q=q placeholder="Search codes…" preserved_fields=search_preserved_fields clear_url=search_clear_url %}
     <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_discount_code_create' %}">+ New Code</a>
 </div>
+{% if makers %}
+{# Made by (#1184): instructors make live codes themselves now, so an admin can list one person's codes and switch any off. #}
+<form method="get" class="admin-filters hub-form-group pl-codes-made-by" data-made-by-filter>
+    {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+    <label for="codes-made-by">Made by</label>
+    <select id="codes-made-by" name="made_by" onchange="this.form.submit()">
+        <option value="">Anyone</option>
+        {% for pk, name in makers %}
+        <option value="{{ pk }}"{% if pk == made_by %} selected{% endif %}>{{ name }}</option>
+        {% endfor %}
+    </select>
+    {% if made_by %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="?{% if q %}q={{ q|urlencode }}{% endif %}">Clear</a>{% endif %}
+</form>
+{% endif %}
 {% if instructor_discount_codes_enabled and pending_requests %}
 {# Only pending asks; a decided request shows on the instructor's own pages. Master flag off hides the queue. #}
 <h3>Requests Waiting</h3>

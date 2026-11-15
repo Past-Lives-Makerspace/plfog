@@ -106,11 +106,9 @@ def describe_instructor_class_edit_form():
 
 def describe_instructor_discount_code_create():
     def it_scopes_code_to_class_when_class_param_provided(instructor_fixture, client):
-        """Creating a discount code with ?class=<pk> scopes it to that offering.
+        """Creating a discount code with ?class=<pk> scopes it to that offering, live at once (#1184).
 
-        Every new code — including an instructor's own-class code — starts
-        unapproved (the auto-approve shortcut was removed); it needs approval
-        before it's usable.
+        The class tab's ?class= preselects Class; the save goes back to that tab.
         """
         offering = ClassOfferingFactory(
             instructor=instructor_fixture,
@@ -123,15 +121,14 @@ def describe_instructor_discount_code_create():
             {
                 "code": "CLASSONLY10",
                 "discount_pct": 10,
-                "is_active": "on",
-                "class": offering.pk,
+                "applies_to": offering.pk,
             },
         )
         assert response.status_code == 302
         code = DiscountCode.objects.get(code="CLASSONLY10")
         assert code.class_offering == offering
-        assert code.is_approved is False
-        assert response.url == reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        assert code.is_approved is True
+        assert response.url == reverse("classes:teach_class_discount_codes", kwargs={"pk": offering.pk})
 
     def it_falls_back_gracefully_when_class_param_is_invalid(instructor_fixture, client):
         """An invalid ?class= value should be silently ignored — scoped_to=None."""

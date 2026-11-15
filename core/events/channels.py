@@ -638,6 +638,10 @@ class DigestAdapter:
 # queued alongside them falls back to the general wording.
 CLASS_REVIEW_EVENTS = frozenset({"class_review_requested", "class_validation_requested"})
 
+# Lines that tell staff what already happened rather than ask them to act (#1184). A morning
+# email holding only these says so in its subject and opening line, never "Action Needed".
+HEADS_UP_EVENTS = frozenset({"discount_code.instructor_made"})
+
 
 def digest_line_key(row: EventDelivery) -> str:
     """Which morning email line a queued row belongs to: one line per request.
@@ -667,7 +671,12 @@ def digest_context(rows: list[EventDelivery]) -> dict[str, object]:
         line = {"title": row.title, "body": row.body, "url": member_absolute_url(row.url)}
         sections.setdefault(get_event(row.event_key).label, []).append(line)
     count = len(newest_by_url)
-    if {row.event_key for row in newest_by_url.values()} <= CLASS_REVIEW_EVENTS:
+    keys = {row.event_key for row in newest_by_url.values()}
+    heads_up_only = bool(keys) and keys <= HEADS_UP_EVENTS
+    if heads_up_only:
+        noun = "Code" if count == 1 else "Codes"
+        subject = f"{count} New Discount {noun} From Instructors"
+    elif keys <= CLASS_REVIEW_EVENTS:
         noun = "Class" if count == 1 else "Classes"
         subject = f"Action Needed: {count} {noun} Awaiting Review"
     else:
@@ -676,6 +685,7 @@ def digest_context(rows: list[EventDelivery]) -> dict[str, object]:
     return {
         "subject": subject,
         "count": count,
+        "heads_up_only": heads_up_only,
         "sections": [{"label": label, "lines": lines} for label, lines in sections.items()],
     }
 

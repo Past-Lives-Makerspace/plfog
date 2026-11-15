@@ -3665,6 +3665,21 @@ a:hover { color: var(--hub-link-hover); }
     }
 }
 
+/* Discount Codes' Made by filter (#1184): a label and a select sized to a name, on one line. */
+.pl-codes-made-by {
+    gap: 0.5rem;
+}
+
+.pl-codes-made-by label {
+    margin: 0;
+    font-weight: 600;
+}
+
+.pl-codes-made-by select {
+    width: auto;
+    max-width: 16rem;
+}
+
 .admin-table-wrap {
     border: 1px solid var(--hub-border);
     border-radius: 8px;

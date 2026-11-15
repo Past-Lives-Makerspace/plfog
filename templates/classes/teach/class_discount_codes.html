@@ -3,18 +3,19 @@
 {% block detail_content %}
 {% comment %}The two screens this replaces differed in exactly two places, and both survive
 rather than one winning: an admin gets the admin discount-code routes and the Unapprove toggle
-(their approval is reversible), an instructor gets the teach routes and the `approvable_by`
-guard (a self-approver may approve only their own). `access.can_administer` picks between them,
+(their approval is reversible), an instructor gets the teach routes. `access.can_administer` picks between them,
 and it is the same fact the two sets of endpoints are gated on. A third branch, `approval_mode`
 (#428), is the instructor under the approval setting: they read the codes on this class and ask
-for new ones; the request list under the table shows where each ask stands.{% endcomment %}
+for new ones; the request list under the table shows where each ask stands. Since #1184 an
+instructor's code is live at once, so the instructor's table has no Approved column and no
+Approve button, and Edit and Delete show only on the codes they made.{% endcomment %}
 <div style="display:flex; justify-content:flex-end; margin-bottom:0.75rem;">
     {% if access.can_administer %}
     <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:admin_discount_code_create' %}?class={{ offering.pk }}">+ New Code</a>
     {% elif approval_mode %}
     <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_discount_code_request' %}?class={{ offering.pk }}">Request a Code</a>
     {% else %}
-    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_discount_code_create' %}?class={{ offering.pk }}">+ New Code</a>
+    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_discount_code_create' %}?class={{ offering.pk }}" data-guidance-target="classes.new-code">+ New Code</a>
     {% endif %}
 </div>
 <div class="admin-table-wrap">
@@ -28,7 +29,7 @@ for new ones; the request list under the table shows where each ask stands.{% en
             <th>Uses</th>
             <th>Scope</th>
             <th>Active</th>
-            <th>Approved</th>
+            {% if access.can_administer %}<th>Approved</th>{% endif %}
             <th></th>
         </tr>
     </thead>
@@ -42,7 +43,7 @@ for new ones; the request list under the table shows where each ask stands.{% en
             {% url 'classes:teach_discount_code_edit' pk=c.pk as code_edit_url %}
         {% endif %}
         {% concat "del-code-" c.pk as code_modal_id %}
-        <tr{% if not c.is_approved %} style="background:rgba(248,180,75,0.06);"{% endif %}>
+        <tr{% if access.can_administer and not c.is_approved %} style="background:rgba(248,180,75,0.06);"{% endif %}>
             <td>{{ c.code }}</td>
             <td>{{ c.discount_pct|default:"—" }}</td>
             <td>{% if c.discount_fixed_cents %}{{ c.discount_fixed_cents|cents_as_dollars }}{% else %}—{% endif %}</td>
@@ -58,6 +59,7 @@ for new ones; the request list under the table shows where each ask stands.{% en
                     <span style="font-size:0.8rem; padding:0.1rem 0.4rem; border-radius:3px; background:rgba(100,100,100,0.1); color:var(--hub-text-muted);">Global</span>
                 {% endif %}
             </td>
+            {% if access.can_administer %}
             <td>{{ c.is_active|yesno }}</td>
             <td>
                 {% if c.is_approved %}
@@ -66,6 +68,10 @@ for new ones; the request list under the table shows where each ask stands.{% en
                     <span style="color:var(--hub-warning, #e6a717);font-weight:600;">pending</span>
                 {% endif %}
             </td>
+            {% else %}
+            {# An instructor's own unapproved code (made before #1184) does not work at checkout, so it reads no. #}
+            <td data-code-active>{% if c.is_active and c.is_approved %}yes{% else %}no{% endif %}</td>
+            {% endif %}
             <td>
                 <div class="admin-actions">
                     {% if access.can_administer %}
@@ -80,13 +86,7 @@ for new ones; the request list under the table shows where each ask stands.{% en
                     {% include "components/confirm_modal.html" with confirm_id=code_modal_id confirm_title="Delete this discount code?" confirm_message="The code will be permanently removed. Registrations that already used it keep the discount." confirm_action_url=code_delete_url confirm_button_text="Delete Code" %}
                     {% elif approval_mode %}
                     {# The instructor reads this tab under approval mode; new codes come through Request a Code. #}
-                    {% else %}
-                    {% if not c.is_approved and c|approvable_by:approver %}
-                    <form method="post" action="{% url 'classes:teach_discount_code_approve' pk=c.pk %}" style="display:inline;">
-                        {% csrf_token %}
-                        <button type="submit" class="hub-btn hub-btn--sm hub-btn--success">Approve</button>
-                    </form>
-                    {% endif %}
+                    {% elif c.created_by_id == user.pk %}
                     <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ code_edit_url }}">Edit</a>
                     <button type="button"
                             class="hub-btn hub-btn--sm hub-btn--danger"
@@ -97,7 +97,7 @@ for new ones; the request list under the table shows where each ask stands.{% en
             </td>
         </tr>
     {% empty %}
-        <tr><td colspan="9" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">No discount codes for this class yet. Global codes that apply to all classes will also appear here.</td></tr>
+        <tr><td colspan="{% if access.can_administer %}9{% else %}8{% endif %}" style="padding:1.5rem 0.75rem; color:var(--hub-text-muted);">No discount codes for this class yet. Global codes that apply to all classes will also appear here.</td></tr>
     {% endfor %}
     </tbody>
 </table>

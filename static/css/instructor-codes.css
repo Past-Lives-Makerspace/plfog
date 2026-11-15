@@ -117,3 +117,41 @@
         width: 100%;
     }
 }
+
+/* The instructor's New Code and Edit form (#1184): each input sized to what it holds (FRONTEND
+   rule 28), the date pickers readable on the dark theme (rule 14), Save clear of the last field. */
+.pl-code-form__title {
+    margin: 0 0 1rem;
+}
+
+.pl-code-form {
+    max-width: 520px;
+}
+
+.pl-code-form .pl-code-form__code {
+    width: 14rem;
+    max-width: 100%;
+    text-transform: uppercase;
+}
+
+.pl-code-form .pl-code-form__number,
+.pl-code-form .pl-code-form__date {
+    width: 10rem;
+    max-width: 100%;
+}
+
+.pl-code-form .pl-code-form__date::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    cursor: pointer;
+}
+
+[data-theme="light"] .pl-code-form .pl-code-form__date::-webkit-calendar-picker-indicator {
+    filter: none;
+}
+
+.pl-code-form__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 1.5rem 0 0;
+}

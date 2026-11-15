@@ -963,6 +963,7 @@ _OPEN_CHECKS: dict[str, OpenCheckFn] = {
     "space.lease_requested": _open_by_request(_space_requests),
     "space.cubby_requested": _open_by_request(_space_requests),
     "discount_code.requested": _open_by_request(_discount_requests),
+    "discount_code.instructor_made": always_open,
     "event.submitted": _open_by_request(_submitted_events),
     "wiki.page_reported": _open_by_request(_wiki_reports),
     "wiki.page_proposed": _open_by_request(_wiki_proposals),

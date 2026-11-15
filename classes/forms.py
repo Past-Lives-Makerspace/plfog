@@ -12,7 +12,7 @@ from urllib.parse import urlencode
 from django import forms
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator, URLValidator, validate_email
-from django.db.models import BLANK_CHOICE_DASH
+from django.db.models import BLANK_CHOICE_DASH, Q
 from django.forms import BaseInlineFormSet, inlineformset_factory
 from django.forms.formsets import DELETION_FIELD_NAME
 from django.utils import timezone
@@ -2424,7 +2424,7 @@ class DiscountCodeForm(forms.ModelForm):
             "max_uses": "Leaving the 'uses' field blank indicates unlimited uses.",
             "members_only": "Only signed in members with an active membership can use it.",
         }
-        widgets = {
+        widgets: dict[str, forms.Widget] = {
             "code": forms.TextInput(
                 attrs={
                     "style": "text-transform:uppercase;",
@@ -2453,9 +2453,21 @@ class DiscountCodeForm(forms.ModelForm):
         """
         super().__init__(*args, **kwargs)
         if not offers_members_only:
-            self.fields.pop("members_only")
+            # A subclass that never lists the field has nothing to drop.
+            self.fields.pop("members_only", None)
         self._scoped_to = scoped_to
         self._created_by = created_by
+
+    def clean_code(self) -> str:
+        """Uppercase the code and refuse one already taken, in any case (#1184).
+
+        The model uppercases on save, so without this a lowercase spelling of a taken code
+        passed the form's own uniqueness check and failed at the database.
+        """
+        code = self.cleaned_data["code"].strip().upper()
+        if DiscountCode.objects.filter(code=code).exclude(pk=self.instance.pk).exists():
+            raise forms.ValidationError("That code is already taken. Pick another.")
+        return code
 
     def clean(self) -> dict:
         data = super().clean() or {}
@@ -2472,6 +2484,133 @@ class DiscountCodeForm(forms.ModelForm):
         if commit:
             code.save()
             self.save_m2m()
+        return code
+
+
+#: The Class picker's value for a code that works on every class the instructor teaches (#1184).
+ALL_MY_CLASSES = "mine"
+
+_CODE_DATE_ATTRS = {
+    "type": "date",
+    "class": "pl-code-form__date",
+    "@click": "(() => { try { $el.showPicker() } catch (e) {} })()",
+}
+
+
+class InstructorDiscountCodeForm(DiscountCodeForm):
+    """An instructor's own discount code, live the moment it is saved (#1184).
+
+    The fields are the ticket's: Code, Class, Percent off or Dollar amount off, Starts, Ends
+    and Uses. Class is required and offers only the classes ``teaching_member`` teaches that
+    are still running, plus All my classes (the #764 instructor scope), so an instructor can
+    never make a site wide code or one on someone else's class: any other value, blank
+    included, is refused as an invalid choice. Members only stays the admin's and is not a
+    field here, so a posted value is ignored. There is no percent cap, and a dollar amount
+    may exceed the price; checkout's own floor still applies (:class:`RegistrationForm`).
+
+    A new code is saved approved and active, and the Discount Code Administrators hear of
+    it in the 8 AM digest (:meth:`DiscountCode.tell_staff_instructor_made`). An edit keeps
+    the code's approval and Active switch as they are, so an admin's Active off stands.
+    """
+
+    applies_to = forms.ChoiceField(label="Class", help_text="Pick one class, or every class you teach.")
+
+    class Meta(DiscountCodeForm.Meta):
+        fields = ["code", "discount_pct", "discount_fixed_cents", "valid_from", "valid_until", "max_uses"]
+        labels = {
+            "code": "Code",
+            "discount_pct": "Percent off",
+            "valid_from": "Starts",
+            "valid_until": "Ends",
+            "max_uses": "Uses",
+        }
+        help_texts = {
+            "code": "Letters and numbers, for example SPRING20.",
+            "discount_pct": "From 1 to 100. Leave blank to take a dollar amount off instead.",
+            "valid_from": "Leave blank to start now.",
+            "valid_until": "Leave blank for no end date.",
+            "max_uses": "Blank is unlimited.",
+        }
+        widgets: dict[str, forms.Widget] = {
+            "code": forms.TextInput(
+                attrs={"class": "pl-code-form__code", "oninput": "this.value = this.value.toUpperCase()"}
+            ),
+            "discount_pct": forms.NumberInput(attrs={"class": "pl-code-form__number", "min": 1, "max": 100}),
+            "valid_from": forms.DateInput(format="%Y-%m-%d", attrs=_CODE_DATE_ATTRS),
+            "valid_until": forms.DateInput(format="%Y-%m-%d", attrs=_CODE_DATE_ATTRS),
+            "max_uses": forms.NumberInput(attrs={"class": "pl-code-form__number", "min": 1}),
+        }
+
+    field_order = [
+        "code",
+        "applies_to",
+        "discount_pct",
+        "discount_fixed_cents",
+        "valid_from",
+        "valid_until",
+        "max_uses",
+    ]
+
+    def __init__(self, *args: Any, teaching_member: Member, initial_class: str | None = None, **kwargs: Any) -> None:
+        super().__init__(*args, created_by=teaching_member.user, **kwargs)
+        self._teaching_member = teaching_member
+        fixed = self.fields["discount_fixed_cents"]
+        fixed.label = "Dollar amount off"
+        fixed.help_text = "For example 15.00 for $15 off. Leave blank to take a percent off instead."
+        fixed.widget.attrs["class"] = "pl-code-form__number"
+        current = self.instance.class_offering_id
+        running = ClassOffering.objects.for_instructor(teaching_member).exclude(
+            Q(status__in=[ClassOffering.Status.CANCELLED, ClassOffering.Status.ARCHIVED]) & ~Q(pk=current)
+        )
+        self._classes = {str(offering.pk): offering for offering in running.order_by("title")}
+        choices = [("", "Pick a class"), (ALL_MY_CLASSES, "All my classes")]
+        choices += [(pk, offering.title) for pk, offering in self._classes.items()]
+        applies_to = cast(forms.ChoiceField, self.fields["applies_to"])
+        applies_to.choices = choices
+        #: The class the page was opened from (``?class=``), when the instructor teaches it.
+        self.initial_offering: ClassOffering | None = self._classes.get(str(initial_class or ""))
+        if self.instance.pk is not None:
+            if self.instance.instructor_id == teaching_member.pk:
+                applies_to.initial = ALL_MY_CLASSES
+            elif current is not None and str(current) in self._classes:
+                applies_to.initial = str(current)
+        elif self.initial_offering is not None:
+            applies_to.initial = str(self.initial_offering.pk)
+
+    def clean_discount_pct(self) -> int | None:
+        """A percent is 1 to 100: zero takes nothing off and more than 100 is not a price."""
+        pct = self.cleaned_data["discount_pct"]
+        if pct is not None and not 1 <= pct <= 100:
+            raise forms.ValidationError("Percent off must be from 1 to 100.")
+        return pct
+
+    def clean(self) -> dict:
+        data = super().clean()
+        if data.get("discount_pct") and data.get("discount_fixed_cents"):
+            raise forms.ValidationError("Pick a percent or a dollar amount off, not both.")
+        return data
+
+    def save(self, commit: bool = True) -> DiscountCode:
+        """Aim the code where Class says, and make a new one live; ``commit=False`` is not supported.
+
+        Raises:
+            ValueError: When called with ``commit=False``; the digest line needs the saved code.
+        """
+        if not commit:
+            raise ValueError("InstructorDiscountCodeForm saves in one step.")
+        code: DiscountCode = super().save(commit=False)
+        target = self.cleaned_data["applies_to"]
+        if target == ALL_MY_CLASSES:
+            code.class_offering, code.instructor = None, self._teaching_member
+        else:
+            code.class_offering, code.instructor = self._classes[target], None
+        creating = code.pk is None
+        if creating:
+            code.is_approved = True
+            code.is_active = True
+        code.save()
+        if creating:
+            code.tell_staff_instructor_made(self._teaching_member)
         return code
 
 
