@@ -51,7 +51,7 @@
       {% for staff in staff_memberships %}
       <div class="pl-equip-staff-row">
         <div class="pl-equip-staff-row__who">
-          {% if staff.member.profile_photo %}
+          {% if staff.member.profile_photo and staff.member|is_public:"profile_photo" %}
           <img src="{{ staff.member.profile_photo.url }}" alt="" class="pl-orient-avatar">
           {% else %}
           <span class="pl-orient-avatar pl-orient-avatar--initials">{{ staff.member.display_name|slice:":1" }}</span>
@@ -262,7 +262,7 @@
       {% for booking in orientation_pending_requests %}
       <div class="pl-equip-res-row">
         <span class="pl-equip-staff-row__who">
-          {% if booking.member.profile_photo %}<img src="{{ booking.member.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ booking.member.display_name|slice:":1" }}</span>{% endif %}
+          {% if booking.member.profile_photo and booking.member|is_public:"profile_photo" %}<img src="{{ booking.member.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ booking.member.display_name|slice:":1" }}</span>{% endif %}
           <span>{{ booking.member.display_name }}</span>
         </span>
         <span>{{ booking.orientation_type.name }} · {{ booking.slot.starts_at|date:"D, M j" }} · {{ booking.slot.starts_at|time:"g:i A" }}{% if booking.amount_paid_cents %} <span class="pl-price-chip">Paid</span>{% endif %}</span>
@@ -341,7 +341,7 @@
     {% if can_edit_others_hours or manager.pk == viewer_member_pk %}
     <div class="pl-orient-overview__group">
       <div class="pl-orient-overview__person">
-        {% if manager.profile_photo %}<img src="{{ manager.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ manager.display_name|slice:":1" }}</span>{% endif %}
+        {% if manager.profile_photo and manager|is_public:"profile_photo" %}<img src="{{ manager.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ manager.display_name|slice:":1" }}</span>{% endif %}
         <strong>{{ manager.display_name }}</strong>
         <button type="button" class="hub-btn hub-btn--sm"
                 @click="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Loading…</p>'; $dispatch('open-modal', 'edit-hours-modal')"
@@ -384,7 +384,7 @@
     {% for manager, manager_rules in former_managers_overview %}
     <div class="pl-orient-overview__group">
       <div class="pl-orient-overview__person">
-        {% if manager.profile_photo %}<img src="{{ manager.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ manager.display_name|slice:":1" }}</span>{% endif %}
+        {% if manager.profile_photo and manager|is_public:"profile_photo" %}<img src="{{ manager.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ manager.display_name|slice:":1" }}</span>{% endif %}
         <strong>{{ manager.display_name }}</strong>
         {# Deliberately ungated within this lead-level card: the Edit Hours modal is the only route #}
         {# to clean up a former manager's leftover rows (they no longer appear in the active list). #}
@@ -452,7 +452,7 @@
           <span class="pl-slot-admin__when">{{ slot.starts_at|date:"D M j" }} · {{ slot.starts_at|time:"g:i A" }} to {{ slot.ends_at|time:"g:i A" }} · {{ slot.orientation_type.name }}{% include "hub/partials/_slot_blocked_by.html" with slot=slot %}</span>
           <span class="pl-slot-admin__with">
             {% if slot.orienter %}
-              {% if slot.orienter.profile_photo %}<img src="{{ slot.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ slot.orienter.display_name|slice:":1" }}</span>{% endif %}
+              {% if slot.orienter.profile_photo and slot.orienter|is_public:"profile_photo" %}<img src="{{ slot.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ slot.orienter.display_name|slice:":1" }}</span>{% endif %}
               {{ slot.orienter.display_name }}
             {% else %}
               <span class="hub-text-muted">Any manager</span>

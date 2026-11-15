@@ -1,0 +1,10 @@
+bump = "patch"
+audience = ["members", "equipment-managers"]
+date = "2026-11-15"
+title = "Equipment pages follow your profile photo setting"
+changes = [
+  "If your profile photo is set to Hidden, equipment orientation times show your initial instead of your photo.",
+  "A piece of equipment's Manage page does the same for every member it lists.",
+]
+feature = "guild.reservations"
+guidance = "none"
