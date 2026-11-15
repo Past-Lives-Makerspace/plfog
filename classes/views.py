@@ -105,6 +105,7 @@ from classes.forms import (
     DiscountCodeReassignForm,
     DiscountCodeRequestDeclineForm,
     DiscountCodeRequestForm,
+    InstructorDiscountCodeForm,
     TeachClassOfferingForm,
     EventbriteListingCheckForm,
     EventbritePublishedSwitchForm,
@@ -3097,9 +3098,6 @@ def teach_discount_codes(request: HttpRequest) -> HttpResponse:
             "own_codes": own_codes,
             "approval_mode": approval_mode,
             "requests": code_requests,
-            # Resolve the acting user's approval capability once (one Member query),
-            # reused per row in the template — avoids an N+1 across the code list.
-            "approver": DiscountCode.approver_for(request.user),
         },
     )
 
@@ -3128,29 +3126,22 @@ def teach_discount_code_request(request: HttpRequest) -> HttpResponse:
 @instructor_discount_codes_required
 @instructor_direct_discount_codes_required
 def teach_discount_code_create(request: HttpRequest) -> HttpResponse:
+    """An instructor makes a code for their own classes, live at once (#1184).
+
+    ``InstructorDiscountCodeForm`` holds the scope to a class they teach or to all their
+    classes; ``?class=`` (from a class's Discounts tab) preselects that class and the save
+    goes back to the tab it came from.
+    """
     teaching_member: Member = request.teaching_member  # type: ignore[attr-defined]
-    assert request.user.is_authenticated  # @teaching_member_required guarantees a real User
-    scoped_to: ClassOffering | None = None
-    raw_class = request.GET.get("class") or request.POST.get("class")
-    if raw_class:
-        try:
-            scoped_to = ClassOffering.objects.for_instructor(teaching_member).get(pk=int(raw_class))
-        except (ClassOffering.DoesNotExist, ValueError, TypeError):
-            scoped_to = None
-    form = DiscountCodeForm(request.POST or None, scoped_to=scoped_to, created_by=request.user)
+    form = InstructorDiscountCodeForm(
+        request.POST or None, teaching_member=teaching_member, initial_class=request.GET.get("class")
+    )
+    came_from = form.initial_offering
     if request.method == "POST" and form.is_valid():
-        # Every new code starts unapproved (the model default) — a teaching
-        # member with the self-approve permission can approve their own; otherwise
-        # an admin reviews it.
-        code = form.save(commit=False)
-        if scoped_to is not None and not code.class_offering_id:
-            code.class_offering = scoped_to
-        if not code.created_by_id:
-            code.created_by = request.user
-        code.save()
-        messages.success(request, "Discount code created — it needs approval before it's active.")
-        if scoped_to is not None:
-            return redirect("classes:teach_class_edit", pk=scoped_to.pk)
+        form.save()
+        messages.success(request, "Code is live.")
+        if came_from is not None:
+            return redirect("classes:teach_class_discount_codes", pk=came_from.pk)
         return redirect("classes:teach_discount_codes")
     return render(
         request,
@@ -3160,7 +3151,7 @@ def teach_discount_code_create(request: HttpRequest) -> HttpResponse:
             "instructor": teaching_member,
             "form": form,
             "mode": "create",
-            "scoped_to": scoped_to,
+            "scoped_to": came_from,
         },
     )
 
@@ -3173,7 +3164,7 @@ def teach_discount_code_edit(request: HttpRequest, pk: int) -> HttpResponse:
     # Instructors may only edit codes they created; site-wide / admin codes are
     # read-only here (scoping to created_by makes a foreign code 404, not just hidden).
     code = get_object_or_404(DiscountCode, pk=pk, created_by=request.user)
-    form = DiscountCodeForm(request.POST or None, instance=code)
+    form = InstructorDiscountCodeForm(request.POST or None, instance=code, teaching_member=teaching_member)
     if request.method == "POST" and form.is_valid():
         form.save()
         messages.success(request, "Discount code updated.")
@@ -3819,9 +3810,6 @@ def teach_class_discount_codes(request: HttpRequest, pk: int) -> HttpResponse:
             "codes": codes,
             "approval_mode": approval_mode,
             "requests": code_requests,
-            # Resolve the acting user's approval capability once (one Member query),
-            # reused per row in the template — avoids an N+1 across the code list.
-            "approver": DiscountCode.approver_for(request.user),
         },
     )
 
@@ -6324,19 +6312,31 @@ def registration_move(request: HttpRequest, pk: int) -> HttpResponse:
 
 @classes_admin_access_required
 def admin_discount_codes(request: HttpRequest) -> HttpResponse:
-    table = prepare_table(
-        request,
-        # The Scope column reads the class title or the instructor's name per row (#764).
-        DiscountCode.objects.select_related("class_offering", "instructor"),
-        search_fields=["code", "description"],
-        default_sort="code",
-    )
+    """Every discount code, searchable, with a Made by filter (#1184) on ``?made_by=<user pk>``.
+
+    A ``made_by`` that is not a number lists every code, as an empty one does.
+    """
+    from membership.names import user_name_or_email
+
+    # The Scope column reads the class title or the instructor's name per row (#764).
+    codes = DiscountCode.objects.select_related("class_offering", "instructor")
+    raw_made_by = request.GET.get("made_by", "")
+    # isdecimal, not isdigit: "²" is a digit that int() refuses.
+    made_by = int(raw_made_by) if raw_made_by.isdecimal() else None
+    if made_by is not None:
+        codes = codes.made_by(made_by)
+    table = prepare_table(request, codes, search_fields=["code", "description"], default_sort="code")
     return render(
         request,
         "classes/admin/discount_codes.html",
         {
             "active_tab": "discount_codes",
             "pending_requests": DiscountCodeRequest.objects.pending().select_related("class_offering", "requested_by"),
+            "makers": [(user.pk, user_name_or_email(user)) for user in DiscountCode.objects.makers()],
+            "made_by": made_by,
+            # The search box keeps the Made by choice, and clearing the search keeps it too.
+            "search_preserved_fields": [("made_by", made_by)] if made_by is not None else [],
+            "search_clear_url": f"made_by={made_by}" if made_by is not None else "",
             **table,
         },
     )

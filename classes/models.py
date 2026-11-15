@@ -5274,6 +5274,20 @@ class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
         )
         return self.filter(scopes)
 
+    def made_by(self, user_pk: int) -> "DiscountCodeQuerySet":
+        """The codes the account ``user_pk`` made: the admin list's Made by filter (#1184)."""
+        return self.filter(created_by_id=user_pk)
+
+    def makers(self) -> "models.QuerySet[User]":
+        """Every account that made at least one code, by name: the Made by filter's choices (#1184)."""
+        from django.contrib.auth.models import User
+
+        return (
+            User.objects.filter(pk__in=self.exclude(created_by=None).values("created_by"))
+            .select_related("member")
+            .order_by("first_name", "last_name", "username")
+        )
+
     def personal_for(self, member: "Member") -> "DiscountCode | None":
         """``member``'s personal code (#1065), or ``None`` when they have none."""
         return self.filter(instructor=member, is_personal=True).first()
@@ -5737,6 +5751,54 @@ class DiscountCode(StaffRequestMixin, models.Model):
         if instructor is not None:
             return f"{self.code} {verb} on every class {instructor.display_name} teaches, now and later."
         return f"{self.code} {verb} on every class."
+
+    @property
+    def amount_label(self) -> str:
+        """What the code takes off, in words: \"20% off\" or \"$15.00 off\" (#1184)."""
+        if self.discount_pct is not None:
+            return f"{self.discount_pct}% off"
+        return f"${(self.discount_fixed_cents or 0) / 100:,.2f} off"
+
+    def tell_staff_instructor_made(self, maker: "Member") -> None:
+        """Queue the 8 AM staff digest line for a code an instructor just made (#1184).
+
+        The code is live already: nobody approves it. The line says who made it, what it
+        takes off and where it works ("Ana made SPRING20, 20% off, Intro to Forging"), and
+        links to the code on the admin list, where an admin can switch Active off.
+        """
+        self._tell_staff(f"{maker.display_name} made {self.code}, {self.amount_label}, {self._where}", "made")
+
+    def tell_staff_instructor_changed(self, maker: "Member", *, uses_changed: bool) -> None:
+        """Queue a digest line for an instructor's edit to the discount, scope or uses limit (#1184).
+
+        The line reads "Ana changed SPRING5: now 100% off, all their classes", with the uses
+        limit added when that is what changed. Every such edit is its own line.
+        """
+        line = f"{maker.display_name} changed {self.code}: now {self.amount_label}, {self._where}"
+        if uses_changed:
+            line += f", {self.max_uses} uses" if self.max_uses is not None else ", unlimited uses"
+        self._tell_staff(line, f"changed:{timezone.now().isoformat()}")
+
+    @property
+    def _where(self) -> str:
+        offering = self.class_offering
+        return offering.title if offering is not None else "all their classes"
+
+    def _tell_staff(self, title: str, what: str) -> None:
+        from core.events.emit import emit
+        from core.events.registry import DISCOUNT_CODE_INSTRUCTOR_MADE
+
+        emit(
+            DISCOUNT_CODE_INSTRUCTOR_MADE,
+            actor=self.created_by,
+            target=self,
+            context={},
+            title=title,
+            body="It works now. To stop it, open the code and switch Active off.",
+            # Absolute: the email channel uses this verbatim, and a bare path is dead in mail.
+            url=f"{settings.MEMBER_BASE_URL}{self.request_bell_path}",
+            period=f"discount:{self.pk}:{what}",
+        )
 
     def reassign(self, *, class_offering: "ClassOffering | None" = None, instructor: "Member | None" = None) -> None:
         """Point this code at one class, at every class one instructor teaches, or back at every class (#764).

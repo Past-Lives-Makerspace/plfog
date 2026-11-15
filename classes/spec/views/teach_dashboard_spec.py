@@ -557,7 +557,7 @@ def describe_instructor_discount_code_instructor_crud():
         client.force_login(instructor_fixture.user)
         response = client.post(
             reverse("classes:teach_discount_code_create"),
-            {"code": "TEACH10", "discount_pct": 10, "is_active": "on"},
+            {"code": "TEACH10", "discount_pct": 10, "applies_to": "mine"},
         )
         assert response.status_code == 302
         from classes.models import DiscountCode
@@ -578,7 +578,7 @@ def describe_instructor_discount_code_instructor_crud():
         client.force_login(instructor_fixture.user)
         response = client.post(
             reverse("classes:teach_discount_code_edit", kwargs={"pk": code.pk}),
-            {"code": code.code, "discount_pct": 30, "is_active": "on"},
+            {"code": code.code, "discount_pct": 30, "applies_to": "mine"},
         )
         assert response.status_code == 302
         code.refresh_from_db()

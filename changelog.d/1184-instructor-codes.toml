@@ -1,0 +1,18 @@
+bump = "minor"
+date = "2026-11-15"
+audience = ["instructors", "admins"]
+title = "Instructors make their own discount codes"
+feature = "classes.personal-code"
+guidance = "shots"
+target = "classes.new-code"
+changes = [
+  "Instructors can make a discount code for one of their classes, or for every class they teach, and it works right away. No approval needed.",
+  "Pick a percent off or a dollar amount off, with optional start and end dates and a limit on uses.",
+  "Staff see each new or changed instructor code in the morning digest, and admins can filter Discount Codes by who made them.",
+]
+
+[[shots]]
+caption = "Open Discount Codes under Manage My Classes and press New Code."
+
+[[shots]]
+caption = "Name the code, pick the class and the discount, and save. It is live at once."

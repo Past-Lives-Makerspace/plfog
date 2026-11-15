@@ -43,6 +43,7 @@ _BRAND_NEW_KEYS = {
     "discount_code.requested",
     "discount_code.request_approved",
     "discount_code.request_declined",
+    "discount_code.instructor_made",
     "billing.charge_failed_admin",
     "class_announcement",
     "waitlist_promoted",
