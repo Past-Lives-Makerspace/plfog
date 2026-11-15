@@ -14,8 +14,9 @@ Parameters (pass via {% include ... with %}):
                 tooltip, FRONTEND rule 19). It sits next to the label, not inside it, so the
                 bubble's text never becomes part of the field's accessible name.
 
-The hint (a toggle's description for a checkbox) carries id="<auto_id>_helptext", the id
-Django's aria-describedby names, whenever the field has an id.
+The hint (a toggle's description for a checkbox) carries id="<auto_id>_helptext" whenever the
+field has an id. Django's aria-describedby names that id only when the field has help text
+and a single-input widget; otherwise nothing points at it yet.
 {% endcomment %}
 {% if field.field.widget.input_type == "checkbox" %}
     {% if field_hint_off %}

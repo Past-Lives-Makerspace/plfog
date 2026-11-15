@@ -8,7 +8,8 @@ Parameters (pass via {% include ... with %}):
                        Edit page's badge pills, #650); toggle_label still names the switch
                        for screen readers
   toggle_description — optional, description below label; it carries id="<auto_id>_helptext",
-                       the id Django's aria-describedby on the checkbox names
+                       which Django's aria-describedby on the checkbox names when the field
+                       has help text
   toggle_help        — optional, help text shown in a hover/focus tooltip beside the label
                        (use instead of toggle_description to keep the row compact)
 {% endcomment %}
