@@ -1,10 +1,9 @@
-"""Discount codes: a new code notifies the Discount Administrators, who can also approve it."""
+"""Discount codes: the Discount Administrators approve any code; a new code asks nobody (#1185)."""
 
 from __future__ import annotations
 
 import pytest
 from django.contrib.auth.models import User
-from django.urls import reverse
 from django.utils import timezone
 
 from classes.models import DiscountCode
@@ -25,28 +24,13 @@ def _member(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> Member:
     return member
 
 
-def describe_discount_code_requested_notification():
-    def it_notifies_a_discount_approver_on_creation():
+def describe_a_new_code():
+    def it_asks_nobody_to_approve_it():
+        # #1185 retired discount_code.requested: no new code rings anyone's bell to be approved.
         approver = _member("dapprover")
         approver.admin_capabilities.create(capability=AdminCapability.Capability.DISCOUNT_APPROVER)
-        code = DiscountCode.objects.create(code="spring20", discount_pct=20)
-        row = Notification.objects.get(user=approver.user, trigger="discount_code.requested")
-        # The sender passes an absolute url for the email; the bell keeps only the path, so a
-        # click stays on the member's host, anchored on the code so a decision clears it (#894).
-        assert row.url == f"{reverse('classes:admin_discount_codes')}#code-{code.pk}"
-
-    def it_does_not_notify_a_plain_member():
-        bystander = _member("bystander")
-        DiscountCode.objects.create(code="none10", discount_pct=10)
-        assert not Notification.objects.filter(user=bystander.user, trigger="discount_code.requested").exists()
-
-    def it_sends_no_approval_ping_for_a_code_born_approved():
-        # DiscountCodeRequest.approve creates the code already approved; a "needs approval" ping
-        # right after the approver approved it would be false.
-        approver = _member("dapprover2")
-        approver.admin_capabilities.create(capability=AdminCapability.Capability.DISCOUNT_APPROVER)
-        DiscountCode.objects.create(code="born20", discount_pct=20, is_approved=True)
-        assert not Notification.objects.filter(user=approver.user, trigger="discount_code.requested").exists()
+        DiscountCode.objects.create(code="spring20", discount_pct=20)
+        assert not Notification.objects.filter(user=approver.user).exists()
 
 
 def describe_approver_for_capability():

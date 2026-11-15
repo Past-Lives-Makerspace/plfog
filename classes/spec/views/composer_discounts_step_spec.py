@@ -2,12 +2,11 @@
 
 The step carries links and read only tables, never a control, so the per step check
 (``composer_step_validation_spec.py``) has nothing to gate and Next always advances. Which
-variant renders follows the viewer and the two site settings, and the pane says which through
+variant renders follows the viewer and the master setting, and the pane says which through
 ``data-composer-discounts``: ``admin`` (the per class section with New Code and Edit), ``off``
-(the master setting is off, so admins manage codes), ``request`` (approval mode: the site wide
-codes, this class's codes read only, the requests and their status, and Request a Code) or
-``direct`` (the approval setting off: instructors still make their own codes). The request form
-stays on its own page, so the step never nests a form inside the composer's. Every hardcoded
+(the master setting is off, so admins manage codes) or ``direct`` (instructors make their own
+codes, #1184; the request flow went in #1185). The code form stays on its own page, so the step
+never nests a form inside the composer's. Every hardcoded
 step count in the template now reads ``classes.composer.STEP_COUNT``; the first spec pins that.
 """
 
@@ -24,11 +23,10 @@ from classes.factories import (
     CategoryFactory,
     ClassOfferingFactory,
     DiscountCodeFactory,
-    DiscountCodeRequestFactory,
     InstructorFactory,
     UserFactory,
 )
-from classes.models import ClassOffering, DiscountCodeRequest
+from classes.models import ClassOffering
 from classes.spec.views.composer_step_validation_spec import TEMPLATE_PATH, _PaneParser
 from classes.views import _composer_discounts_context
 from core.models import SiteConfiguration
@@ -39,18 +37,16 @@ pytestmark = pytest.mark.django_db
 CREATE = "classes:teach_class_create"
 EDIT = "classes:teach_class_edit"
 ADMIN_CREATE = "classes:admin_class_create"
-REQUEST = "classes:teach_discount_code_request"
 DIRECT_CREATE = "classes:teach_discount_code_create"
 ADMIN_CODE_CREATE = "classes:admin_discount_code_create"
 DISCOUNTS = 5
 
 
-def _flags(*, master: bool, approval: bool) -> None:
-    """The conftest fixture leaves the master setting on and the approval one off; each spec says its own."""
+def _flags(*, master: bool) -> None:
+    """The conftest fixture leaves the master setting on; each spec says its own."""
     config = SiteConfiguration.load()
     config.instructor_discount_codes_enabled = master
-    config.instructor_discount_codes_need_approval = approval
-    config.save(update_fields=["instructor_discount_codes_enabled", "instructor_discount_codes_need_approval"])
+    config.save(update_fields=["instructor_discount_codes_enabled"])
 
 
 def _pane(html: str, n: int) -> str:
@@ -126,7 +122,6 @@ def describe_the_admin_variant():
         assert _stamp(pane) == "admin"
         assert reverse(ADMIN_CODE_CREATE) in pane
         assert reverse(ADMIN_CODE_CREATE) not in _pane(html, 3)
-        assert reverse(REQUEST) not in html
 
     def it_tells_an_admin_to_save_first_on_a_new_class(client, admin_user):
         client.force_login(admin_user)
@@ -141,9 +136,8 @@ def describe_the_admin_variant():
 def describe_a_guild_lead_on_a_class_they_do_not_teach():
     def it_lands_on_the_admins_manage_codes_line_with_nothing_to_read(client, instructor):
         # _guild_access sets can_view_discount_codes False on purpose: the lead edits the class but
-        # the codes, the instructor's requests with the admin's notes, and a Request a Code link
-        # that could only dead end (the request form lists the lead's own classes) are not theirs.
-        _flags(master=True, approval=True)
+        # its codes and the New Code link are not theirs.
+        _flags(master=True)
         guild = GuildFactory(name="Discounts Guild", guild_lead=instructor)
         theirs = cast(
             ClassOffering,
@@ -155,12 +149,6 @@ def describe_a_guild_lead_on_a_class_they_do_not_teach():
         )
         DiscountCodeFactory(class_offering=None, code="MEMBER10")
         DiscountCodeFactory(class_offering=theirs, code="EARLYBIRD")
-        DiscountCodeRequestFactory(
-            class_offering=theirs,
-            code="FRIENDS50",
-            status=DiscountCodeRequest.Status.DECLINED,
-            decision_note="Too steep for a first run.",
-        )
         client.force_login(instructor.user)
 
         resp = client.get(reverse(EDIT, kwargs={"pk": theirs.pk}))
@@ -169,27 +157,26 @@ def describe_a_guild_lead_on_a_class_they_do_not_teach():
         html = resp.content.decode()
         pane = _pane(html, DISCOUNTS)
         assert _stamp(pane) == "off"
-        assert reverse(REQUEST) not in html
-        for hidden in ("MEMBER10", "EARLYBIRD", "FRIENDS50", "Too steep for a first run."):
+        assert reverse(DIRECT_CREATE) not in html
+        for hidden in ("MEMBER10", "EARLYBIRD"):
             assert hidden not in html, hidden
         assert "<table" not in pane
 
 
 def describe_the_master_setting_off():
     def it_tells_an_instructor_that_admins_manage_codes(client, instructor):
-        _flags(master=False, approval=True)
+        _flags(master=False)
         client.force_login(instructor.user)
         html = _edit_page(client, _draft(instructor))
         pane = _pane(html, DISCOUNTS)
         assert _stamp(pane) == "off"
-        assert reverse(REQUEST) not in pane
         assert reverse(DIRECT_CREATE) not in pane
         assert "<table" not in pane
 
 
-def describe_approval_mode():
-    def it_shows_global_codes_this_classs_codes_read_only_the_requests_and_the_request_link(client, instructor):
-        _flags(master=True, approval=True)
+def describe_the_codes_an_instructor_reads():
+    def it_shows_global_codes_and_this_classs_codes_with_their_edit_link(client, instructor):
+        _flags(master=True)
         mine = _draft(instructor)
         DiscountCodeFactory(class_offering=None, code="MEMBER10", discount_pct=10)
         DiscountCodeFactory(
@@ -206,48 +193,31 @@ def describe_approval_mode():
         DiscountCodeFactory(class_offering=None, code="NOTYET", is_approved=False)
         DiscountCodeFactory(class_offering=ClassOfferingFactory(), code="OTHERS")
         mine_code = DiscountCodeFactory(class_offering=mine, code="EARLYBIRD", created_by=instructor.user)
-        DiscountCodeRequestFactory(class_offering=mine, code="SPRING15")
-        DiscountCodeRequestFactory(class_offering=ClassOfferingFactory(), code="ELSEWHERE")
         client.force_login(instructor.user)
 
         html = _edit_page(client, mine)
 
         pane = _pane(html, DISCOUNTS)
-        assert _stamp(pane) == "request"
+        assert _stamp(pane) == "direct"
         for shown in ("MEMBER10", "10% off", "FALL5", "$5.00 off", "From Sep 1, 2026 until Nov 30, 2026", "3 / 50"):
             assert shown in pane, shown
-        assert "EARLYBIRD" in pane and "SPRING15" in pane
-        for hidden in ("OLDCODE", "NOTYET", "OTHERS", "ELSEWHERE"):
+        assert "EARLYBIRD" in pane
+        for hidden in ("OLDCODE", "NOTYET", "OTHERS"):
             assert hidden not in html, hidden
-        assert f"{reverse(REQUEST)}?class={mine.pk}" in pane
-        assert reverse(REQUEST) not in _pane(html, 3)
-        assert reverse("classes:teach_discount_code_edit", kwargs={"pk": mine_code.pk}) not in html
-        assert reverse(DIRECT_CREATE) not in html
-        # Two read only tables of codes and the requests list: never a form inside the composer's form.
+        assert reverse("classes:teach_discount_code_edit", kwargs={"pk": mine_code.pk}) in pane
+        # Read only tables and links: never a form inside the composer's form.
         assert "<form" not in pane
 
-    def it_shows_the_empty_rows_when_there_is_nothing_to_list(client, instructor):
-        _flags(master=True, approval=True)
+    def it_shows_the_empty_row_when_there_are_no_site_wide_codes(client, instructor):
+        _flags(master=True)
         client.force_login(instructor.user)
         pane = _pane(_edit_page(client, _draft(instructor)), DISCOUNTS)
-        assert pane.count('class="pl-table-empty"') == 2  # the site wide codes and the requests
-
-    def it_shows_the_save_first_line_on_an_unsaved_class(client, instructor):
-        _flags(master=True, approval=True)
-        DiscountCodeFactory(class_offering=None, code="MEMBER10")
-        client.force_login(instructor.user)
-        html = client.get(reverse(CREATE)).content.decode()
-        pane = _pane(html, DISCOUNTS)
-        assert _stamp(pane) == "request"
-        assert "MEMBER10" in pane
-        # No class to request for yet: no request link, and only the site wide codes table.
-        assert reverse(REQUEST) not in pane
-        assert pane.count("<table") == 1
+        assert pane.count('class="pl-table-empty"') == 1
 
 
 def describe_the_direct_flow():
-    def it_keeps_the_direct_flow_section_when_the_approval_setting_is_off(client, instructor):
-        _flags(master=True, approval=False)
+    def it_shows_the_new_code_link_and_the_edit_link(client, instructor):
+        _flags(master=True)
         mine = _draft(instructor)
         code = DiscountCodeFactory(class_offering=mine, code="EARLYBIRD", created_by=instructor.user)
         client.force_login(instructor.user)
@@ -257,10 +227,9 @@ def describe_the_direct_flow():
         assert f"{reverse(DIRECT_CREATE)}?class={mine.pk}" in pane
         assert reverse("classes:teach_discount_code_edit", kwargs={"pk": code.pk}) in pane
         assert reverse(DIRECT_CREATE) not in _pane(html, 3)
-        assert reverse(REQUEST) not in html
 
     def it_tells_an_instructor_to_save_first_on_a_new_class(client, instructor):
-        _flags(master=True, approval=False)
+        _flags(master=True)
         client.force_login(instructor.user)
         pane = _pane(client.get(reverse(CREATE)).content.decode(), DISCOUNTS)
         assert _stamp(pane) == "direct"
@@ -274,17 +243,16 @@ def describe_no_control_on_the_step():
         mine = _draft(instructor)
         DiscountCodeFactory(class_offering=None, code="MEMBER10")
         DiscountCodeFactory(class_offering=mine, code="EARLYBIRD", created_by=instructor.user)
-        DiscountCodeRequestFactory(class_offering=mine, code="SPRING15")
         pages: list[str] = []
-        for master, approval in ((False, True), (True, True), (True, False)):
-            _flags(master=master, approval=approval)
+        for master in (False, True):
+            _flags(master=master)
             client.force_login(instructor.user)
             pages.append(_edit_page(client, mine))
             pages.append(client.get(reverse(CREATE)).content.decode())
         client.force_login(admin_user)
         pages.append(_edit_page(client, mine))
         pages.append(client.get(reverse(ADMIN_CREATE)).content.decode())
-        assert len(pages) == 8
+        assert len(pages) == 6
         for html in pages:
             assert _controls_on(html, DISCOUNTS) == []
             # And the pane is where the map says: right before the Review pane.
@@ -298,27 +266,22 @@ def describe_composer_discounts_context():
     def it_gives_nothing_to_a_viewer_who_may_not_view_discount_codes(instructor):
         assert _composer_discounts_context(_draft(instructor), False, False) == {}
 
-    def it_lists_the_active_approved_site_wide_codes_and_the_class_requests_for_a_saved_class(instructor):
+    def it_lists_the_active_approved_site_wide_codes(instructor):
         mine = _draft(instructor)
         member10 = DiscountCodeFactory(class_offering=None, code="MEMBER10")
         all5 = DiscountCodeFactory(class_offering=None, code="ALL5")
         DiscountCodeFactory(class_offering=None, code="OLDCODE", is_active=False)
         DiscountCodeFactory(class_offering=None, code="NOTYET", is_approved=False)
         DiscountCodeFactory(class_offering=mine, code="EARLYBIRD")
-        request = DiscountCodeRequestFactory(class_offering=mine, code="SPRING15")
-        DiscountCodeRequestFactory(class_offering=ClassOfferingFactory(), code="ELSEWHERE")
 
         context = _composer_discounts_context(mine, False, True)
 
         assert list(context["composer_global_codes"]) == [all5, member10]
-        assert list(context["composer_discount_requests"]) == [request]
+        assert set(context) == {"composer_global_codes"}
 
-    def it_lists_no_requests_for_an_unsaved_class():
-        DiscountCodeRequestFactory(code="SPRING15")
-        context = _composer_discounts_context(None, False, True)
-        assert list(context["composer_discount_requests"]) == []
-        assert context["composer_discount_requests"].model is DiscountCodeRequest
-        assert list(context["composer_global_codes"]) == []
+    def it_lists_the_site_wide_codes_for_an_unsaved_class_too():
+        member10 = DiscountCodeFactory(class_offering=None, code="MEMBER10")
+        assert list(_composer_discounts_context(None, False, True)["composer_global_codes"]) == [member10]
 
 
 def describe_an_instructors_code_on_the_discounts_step():
@@ -333,7 +296,7 @@ def describe_an_instructors_code_on_the_discounts_step():
         assert '<span class="hub-pill hub-pill--neutral" data-scope-instructor>Teacher D</span>' in pane
 
     def it_lists_in_the_class_section_and_never_in_the_every_class_table_for_the_instructor(client, instructor):
-        _flags(master=True, approval=True)
+        _flags(master=True)
         mine = _draft(instructor)
         DiscountCodeFactory(class_offering=None, instructor=instructor, code="TEACHERD30")
         DiscountCodeFactory(class_offering=None, instructor=InstructorFactory(), code="OTHERS30")

@@ -81,7 +81,6 @@ def describe_feature_flags():
         result = feature_flags(request)
         assert result["class_registration_enabled"] is True
         assert result["guild_welcome_email_enabled"] is True
-        assert result["instructor_discount_codes_need_approval"] is True
         assert result["late_cancel_fees_enabled"] is False
         assert result["spotlight_crawl_speed"] == 25
         assert result["features"]["my_tab"].is_on
@@ -100,7 +99,6 @@ def describe_feature_flags():
         config.class_registration_disabled_note = "Call the studio."
         config.help_page_enabled = False
         config.instructor_discount_codes_enabled = True
-        config.instructor_discount_codes_need_approval = False
         config.guild_welcome_email_enabled = False
         config.late_cancel_fees_enabled = True
         config.spotlight_crawl_speed = 55
@@ -115,7 +113,6 @@ def describe_feature_flags():
             "class_registration_disabled_note": "Call the studio.",
             "help_page_enabled": False,
             "instructor_discount_codes_enabled": True,
-            "instructor_discount_codes_need_approval": False,
             "guild_welcome_email_enabled": False,
             "late_cancel_fees_enabled": True,
             "spotlight_crawl_speed": 55,

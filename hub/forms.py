@@ -1215,13 +1215,9 @@ class MemberAdminEditForm(forms.ModelForm):
             "status",
             "member_type",
             "show_in_directory",
-            "can_self_approve_discounts",
         ]
         widgets = {
             "pronouns": forms.TextInput(attrs={"placeholder": "e.g. she/her, they/them"}),
-        }
-        labels = {
-            "can_self_approve_discounts": "Can approve their own discount codes",
         }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -2029,7 +2025,6 @@ class ManageCmsForm(_SiteConfigurationSliceForm):
         model = SiteConfiguration
         fields = [
             "instructor_discount_codes_enabled",
-            "instructor_discount_codes_need_approval",
             "instructor_code_discount_pct",
         ]
 

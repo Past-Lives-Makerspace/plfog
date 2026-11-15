@@ -826,8 +826,8 @@ class SiteConfiguration(models.Model):
         default=False,
         verbose_name="Allow instructors to manage their own discount codes",
         help_text=(
-            "When off, instructors can no longer create, request, edit, or approve their own discount "
-            "codes from the Teaching portal; those pages redirect. Instructors still see their personal "
+            "When off, instructors can no longer create, edit or delete their own discount codes "
+            "from the Teaching portal; those pages redirect. Instructors still see their personal "
             "code and the codes that work on their classes either way. Admins can always create and "
             "approve discount codes from Classes admin. Default off: only admins create discount codes."
         ),
@@ -840,16 +840,6 @@ class SiteConfiguration(models.Model):
         help_text=(
             "The percent off on each instructor's personal discount code, made when they are given "
             "teaching access. Changing it changes only codes made afterwards."
-        ),
-    )
-    instructor_discount_codes_need_approval = models.BooleanField(
-        default=True,
-        verbose_name="Instructors request discount codes and an admin approves them",
-        help_text=(
-            "When on, instructors ask for a discount code and an admin approves or declines it; the "
-            "code exists only once approved. When off, instructors create, edit and delete their own "
-            "codes directly, and each new code waits for approval as before. This only matters while "
-            "the setting above is on."
         ),
     )
     display_demo_classes = models.BooleanField(
@@ -1260,11 +1250,6 @@ class SiteConfiguration(models.Model):
         if not main:
             return []
         return list(dict.fromkeys([main, *split_discord_ids(self.discord_role_message_extra_ids)]))
-
-    @property
-    def instructor_discount_codes_approval_mode(self) -> bool:
-        """Instructors request and an admin decides: both discount code settings on."""
-        return self.instructor_discount_codes_enabled and self.instructor_discount_codes_need_approval
 
 
 class AnnouncementOrderChangedError(ValueError):

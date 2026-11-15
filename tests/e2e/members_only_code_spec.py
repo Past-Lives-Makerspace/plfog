@@ -31,7 +31,7 @@ REFUSAL = "This code is for members. Sign in to use it."
 
 @pytest.fixture(autouse=True)
 def _settle_before_the_database_is_truncated(page, live_server, transactional_db):
-    """Let the browser go quiet before teardown truncates the tables (discount_code_requests_spec has the why)."""
+    """Let the browser go quiet before teardown truncates the tables (discount_code_reassign_spec has the why)."""
     yield
     try:
         page.wait_for_load_state("networkidle", timeout=15_000)
