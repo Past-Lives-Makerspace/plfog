@@ -3,8 +3,8 @@
 The model no longer knows them, so nothing sets the meeting column to NULL when its event goes. 0124 drops the
 foreign key constraint first, so deleting that event still works on a database where the column was set.
 
-PostgreSQL only: SQLite cannot add a NOT NULL column in place, so 0125 (#942) rebuilds the table there from the model
-state, and the leftover columns are gone on SQLite. PostgreSQL adds the column with ALTER TABLE and keeps them.
+PostgreSQL only: on SQLite 0124 drops the columns with the fields, because every later rebuild of the table there
+(0125, #942, first) builds it from the model state and would drop them anyway (spotlight_columns_migration_spec).
 """
 
 from __future__ import annotations
