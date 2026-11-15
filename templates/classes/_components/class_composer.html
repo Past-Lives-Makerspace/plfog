@@ -28,10 +28,10 @@ Context (from _composer_context in classes/views.py, plus the form context):
                     setting on create): False for a guild lead editing a class they do not
                     teach, who lands on the "admins manage codes" line like an instructor
                     with the setting off
-  composer_global_codes / composer_discount_requests — the Discounts step's rows for an
-                    instructor who may view discount codes: the site wide codes that already
-                    apply, and this class's requests. Absent for admins and for anyone who may
-                    not; the template branches on the capability, never on these keys
+  composer_global_codes — the Discounts step's rows for an instructor who may view
+                    discount codes: the site wide codes that already apply. Absent for
+                    admins and for anyone who may not; the template branches on the
+                    capability, never on this key
   composer_tabs   — [{step: ComposerStep, done: bool}], the tab bar with completion marks
   initial_phase   — the step to open on: the first broken step after a failed POST, else ?step=
   error_steps / error_steps_json / error_summary — the broken steps and their failing field labels
@@ -376,17 +376,16 @@ Do not merge them.
     {# ── Step 5: Discounts ── #}
     {% comment %}
     Links and read only tables, never a control (#428): the per step check counts every input,
-    select and textarea inside a pane, and the request form stays on its own page because a
+    select and textarea inside a pane, and the code form stays on its own page because a
     <form> cannot nest inside the composer's. data-composer-discounts names the variant that
     rendered, so specs anchor on markup: admin (the per class section), off (this viewer may not
     view discount codes on this class: the master setting is off, or they are a guild lead on a
-    class they do not teach), request (approval mode) or direct (instructors still make their own
-    codes).
+    class they do not teach) or direct (instructors make their own codes).
     class_discount_codes_section.html renders nothing for an unsaved class, hence the "save your
     draft once" line beside each include of it.
     {% endcomment %}
     <div class="pl-composer__step" data-composer-step="5" x-show="phase === 5" x-cloak
-         data-composer-discounts="{% if is_admin %}admin{% elif not composer_can_view_discount_codes %}off{% elif instructor_discount_codes_need_approval %}request{% else %}direct{% endif %}">
+         data-composer-discounts="{% if is_admin %}admin{% elif not composer_can_view_discount_codes %}off{% else %}direct{% endif %}">
       <h2 class="pl-composer__heading">Discounts</h2>
       {% if is_admin %}
         <p class="pl-compose-section__note">Codes for this class only. Global codes apply to every class and live on the Discount Codes page.</p>
@@ -400,17 +399,8 @@ Do not merge them.
           <p class="pl-compose-section__note">These already work on your class. Anyone signing up for your class can use them.</p>
           {% include "classes/_components/discount_codes_read_only_table.html" with codes=composer_global_codes empty_text="No site wide codes right now." %}
         </div>
-        {% if instructor_discount_codes_need_approval %}
-          {% if offering and offering.pk %}
-            {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_request' edit_url='classes:teach_discount_code_edit' read_only=True button_label="Request a Code" %}
-            {% include "classes/_components/discount_code_requests_list.html" with requests=composer_discount_requests %}
-          {% else %}
-            <p class="pl-compose-section__note">Save your draft once and you can request a discount code here.</p>
-          {% endif %}
-        {% else %}
-          {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_create' edit_url='classes:teach_discount_code_edit' %}
-          {% if not offering or not offering.pk %}<p class="pl-compose-section__note">Save your draft once and you can add a discount code here.</p>{% endif %}
-        {% endif %}
+        {% include "classes/_components/class_discount_codes_section.html" with offering=offering create_url='classes:teach_discount_code_create' edit_url='classes:teach_discount_code_edit' %}
+        {% if not offering or not offering.pk %}<p class="pl-compose-section__note">Save your draft once and you can add a discount code here.</p>{% endif %}
       {% endif %}
     </div>
 

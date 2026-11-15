@@ -69,13 +69,11 @@ def enabled_channels(user: User, event_key: str) -> list[Channel]:
     return [spec.channel for spec in event.channels if wants(user, event_key, spec.channel)]
 
 
-#: The switchable emails on an instructor's Teaching rows: "Updates to your class" and the
-#: discount code decisions. The new registration email is forced, so it has no switch.
+#: The switchable emails on an instructor's Teaching rows: "Updates to your class". The new
+#: registration email is forced, so it has no switch.
 INSTRUCTOR_EMAIL_KEYS = (
     "instructor_class_approved",
     "instructor_changes_requested",
-    "discount_code.request_approved",
-    "discount_code.request_declined",
 )
 
 

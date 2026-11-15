@@ -124,8 +124,8 @@ def approvable_by(code: DiscountCode, approver: DiscountApprover) -> bool:
 
     Takes a :class:`DiscountApprover` resolved once in the view (``DiscountCode.approver_for``)
     and reused for every row, so rendering a list of codes costs a single Member query
-    instead of one per row. The model owns the rule (admins approve any code, a
-    self-approver only their own).
+    instead of one per row. The model owns the rule: admins and Discount Code
+    Administrators approve any code, nobody else any.
     """
     return approver.can_approve(code)
 

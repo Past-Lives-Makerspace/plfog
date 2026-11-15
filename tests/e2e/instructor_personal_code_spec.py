@@ -31,7 +31,7 @@ TEACHER_EMAIL = "personal-code-teacher@example.com"
 
 @pytest.fixture(autouse=True)
 def _settle_before_the_database_is_truncated(page, live_server, transactional_db):
-    """Let the browser go quiet before teardown truncates the tables (discount_code_requests_spec has the why)."""
+    """Let the browser go quiet before teardown truncates the tables (discount_code_reassign_spec has the why)."""
     yield
     try:
         page.wait_for_load_state("networkidle", timeout=15_000)
@@ -103,8 +103,7 @@ def describe_an_instructor_with_codes_switched_off():
         expect(working.locator("code", has_text="PEWTER20")).to_be_visible()
         expect(page.locator("code", has_text="NOTYET")).to_have_count(0)
         expect(page.locator("[data-ask-an-admin]")).to_be_visible()
-        for name in ("+ New Code", "Request a Code"):
-            expect(page.get_by_role("link", name=name, exact=True)).to_have_count(0)
+        expect(page.get_by_role("link", name="+ New Code", exact=True)).to_have_count(0)
         _shoot(page, 2, "classes.working-codes")
 
         # Step 3: the class's Overview lists the codes that work on it, with the way back to the tab.
@@ -113,7 +112,6 @@ def describe_an_instructor_with_codes_switched_off():
         for code in ("ROBIN10", "WELCOME15", "PEWTER20"):
             expect(section.locator("code", has_text=code)).to_be_visible()
         expect(section.locator("code", has_text="NOTYET")).to_have_count(0)
-        expect(page.get_by_role("link", name="Request a Code", exact=True)).to_have_count(0)
         _shoot(page, 3, "classes.class-codes")
         section.get_by_role("link", name="See Your Discount Codes →").click()
         expect(page).to_have_url(f"{live_server.url}{reverse('classes:teach_discount_codes')}")

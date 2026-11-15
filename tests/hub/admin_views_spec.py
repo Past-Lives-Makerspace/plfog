@@ -662,20 +662,14 @@ def describe_admin_member_edit():
         expected = f'<div class="pl-toggle-desc">{Member.INSTRUCTOR_PERMISSION_DESCRIPTION}</div>'
         assert expected in response.content.decode()
 
-    def it_shows_the_self_approve_discounts_toggle(client):
-        _create_superuser(client)
-        target = _create_member_user(username="dctoggle")
-        response = client.get(reverse("hub_admin_member_edit", args=[target.member.pk]))
-        assert response.status_code == 200
-        assert b"Can approve their own discount codes" in response.content
-
-    def it_grants_the_self_approve_discounts_permission(client):
+    def it_ignores_the_retired_self_approve_discounts_field(client):
+        # #1185: the form no longer has the field, so a stale POST of it still saves the rest.
         _create_superuser(client)
         target = _create_member_user(username="dcgrant")
         response = client.post(
             reverse("hub_admin_member_edit", args=[target.member.pk]),
             data={
-                "full_legal_name": target.member.full_legal_name,
+                "full_legal_name": "Renamed Member",
                 "preferred_name": "",
                 "pronouns": "",
                 "discord_handle": "",
@@ -690,31 +684,7 @@ def describe_admin_member_edit():
         )
         assert response.status_code == 302
         target.member.refresh_from_db()
-        assert target.member.can_self_approve_discounts is True
-
-    def it_clears_the_self_approve_discounts_permission_when_unchecked(client):
-        _create_superuser(client)
-        target = _create_member_user(username="dcrevoke")
-        target.member.can_self_approve_discounts = True
-        target.member.save(update_fields=["can_self_approve_discounts"])
-        response = client.post(
-            reverse("hub_admin_member_edit", args=[target.member.pk]),
-            data={
-                "full_legal_name": target.member.full_legal_name,
-                "preferred_name": "",
-                "pronouns": "",
-                "discord_handle": "",
-                "about_me": "",
-                "status": Member.Status.ACTIVE,
-                "member_type": Member.MemberType.STANDARD,
-                "role": Member.FogRole.MEMBER,
-                "show_in_directory": "on",
-                **_ROLES_MANAGEMENT,
-            },
-        )
-        assert response.status_code == 302
-        target.member.refresh_from_db()
-        assert target.member.can_self_approve_discounts is False
+        assert target.member.full_legal_name == "Renamed Member"
 
     def it_re_renders_on_invalid_post(client):
         _create_superuser(client)
@@ -1002,7 +972,7 @@ def describe_admin_manage_cms():
         assert response.status_code == 200
         assert b"Instructor Discount Codes" in response.content
         assert b'id="id_instructor_discount_codes_enabled"' in response.content
-        assert b'id="id_instructor_discount_codes_need_approval"' in response.content
+        assert b'id="id_instructor_discount_codes_need_approval"' not in response.content
 
     def it_shows_the_nightly_pull_state_without_a_switch(client):
         _create_superuser(client)
@@ -1036,7 +1006,6 @@ def describe_admin_manage_cms():
             reverse("hub_admin_cms"),
             data={
                 "instructor_discount_codes_enabled": "on",
-                "instructor_discount_codes_need_approval": "on",
                 "instructor_code_discount_pct": "20",
             },
             follow=True,
@@ -1045,7 +1014,6 @@ def describe_admin_manage_cms():
         assert any(m.message == "CMS settings saved." for m in response.context["messages"])
         config = SiteConfiguration.load()
         assert config.instructor_discount_codes_enabled is True
-        assert config.instructor_discount_codes_need_approval is True
         assert config.instructor_code_discount_pct == 20
 
     def it_syncs_now_on_post_with_sync_now_action(client):

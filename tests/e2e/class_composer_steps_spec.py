@@ -516,10 +516,10 @@ def describe_formset_rows():
 
 
 def describe_the_discounts_step():
-    def it_shows_the_request_link_on_a_saved_draft_and_next_reaches_review(live_server, page, login_via_code):
+    def it_shows_the_new_code_link_on_a_saved_draft_and_next_reaches_review(live_server, page, login_via_code):
         # Links and read only tables (#428): nothing on the step is a control, so Next never refuses
-        # it. The request form stays on its own page, behind the link the step renders for a saved
-        # class under approval mode (the master setting on; the approval setting is on by default).
+        # it. The code form stays on its own page, behind the link the step renders for a saved
+        # class with the master setting on (#1184, #1185).
         config = SiteConfiguration.load()
         config.instructor_discount_codes_enabled = True
         config.save(update_fields=["instructor_discount_codes_enabled"])
@@ -528,9 +528,9 @@ def describe_the_discounts_step():
         _open_edit(page, live_server, offering)
         _tab(page, 5).click()
         expect(_step(page, 5)).to_be_visible()
-        request_link = _step(page, 5).locator(f'a[href^="{reverse("classes:teach_discount_code_request")}"]')
-        expect(request_link).to_be_visible()
-        expect(request_link).to_have_attribute("href", re.compile(rf"\?class={offering.pk}$"))
+        new_code_link = _step(page, 5).locator(f'a[href^="{reverse("classes:teach_discount_code_create")}"]')
+        expect(new_code_link).to_be_visible()
+        expect(new_code_link).to_have_attribute("href", re.compile(rf"\?class={offering.pk}$"))
 
         page.locator(NEXT).click()
         _settle(page)

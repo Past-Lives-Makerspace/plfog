@@ -7,11 +7,11 @@
 {% block tab_content %}
 {% comment %}
 Every instructor reaches this tab whatever instructor_discount_codes_enabled says (#1065): their
-personal code, then every live code that works on their classes, read only. Making or asking for
-a code is the flag's: with it on, the section under data-instructor-code-tools is today's page
-(the codes they made, New Code or Request a Code, and their requests); with it off, one line
-says to ask an admin, in the place that offer would have been. A code an instructor makes is
-live at once (#1184), so this page shows no approval state and no Approve button.
+personal code, then every live code that works on their classes, read only. Making a code is
+the flag's: with it on, the section under data-instructor-code-tools lists the codes they made
+and New Code; with it off, one line says to ask an admin, in the place that offer would have
+been. A code an instructor makes is live at once (#1184), so this page shows no approval state
+and no Approve button.
 {% endcomment %}
 {% include "classes/_components/personal_code_card.html" with code=personal_code %}
 
@@ -27,17 +27,9 @@ live at once (#1184), so this page shows no approval state and no Approve button
 <section class="pl-instructor-codes" data-instructor-code-tools>
 <div class="pl-instructor-codes__bar">
     <h2 class="pl-instructor-codes__title">Your Codes</h2>
-    {% if approval_mode %}
-    <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_discount_code_request' %}">Request a Code</a>
-    {% else %}
     <a class="hub-btn hub-btn--primary hub-btn--sm" href="{% url 'classes:teach_discount_code_create' %}" data-guidance-target="classes.new-code">+ New Code</a>
-    {% endif %}
 </div>
-{% if approval_mode %}
-<p class="pl-instructor-codes__note">New codes require admin approval before they can be used.</p>
-{% else %}
 <p class="pl-instructor-codes__note" data-make-any-time>Make a code for your own classes any time.</p>
-{% endif %}
 {% if own_codes %}
 <table style="width:100%; border-collapse:collapse;">
     <thead style="border-bottom:2px solid var(--hub-border);">
@@ -68,8 +60,8 @@ live at once (#1184), so this page shows no approval state and no Approve button
                 {% endif %}
             </td>
             <td style="padding:0.5rem 0.75rem; display:flex; gap:0.375rem; justify-content:flex-end;">
-                {% if not approval_mode and c.created_by_id == user.pk %}
-                {# Under approval mode the instructor reads their codes; an admin decides what exists. A code an admin aimed at this instructor (#764) is read only too. #}
+                {% if c.created_by_id == user.pk %}
+                {# A code an admin aimed at this instructor (#764) is read only. #}
                 {% url 'classes:teach_discount_code_delete' pk=c.pk as code_delete_url %}
                 {% concat "inst-del-code-" c.pk as code_modal_id %}
                 <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_discount_code_edit' pk=c.pk %}">Edit</a>
@@ -83,10 +75,9 @@ live at once (#1184), so this page shows no approval state and no Approve button
     {% endfor %}
     </tbody>
 </table>
-{% elif not approval_mode %}
+{% else %}
     <p class="pl-instructor-codes__empty">You haven't created any codes yet. <a href="{% url 'classes:teach_discount_code_create' %}">Create one</a>.</p>
 {% endif %}
-{% if approval_mode %}{% include "classes/_components/discount_code_requests_list.html" with requests=requests show_class=True %}{% endif %}
 </section>
 {% endif %}
 

@@ -40,7 +40,6 @@ DIGEST_EVENTS = {
     # Part 3's staff requests (tests/core/events/staff_requests_digest_spec.py).
     "space.lease_requested",
     "space.cubby_requested",
-    "discount_code.requested",
     # #1184: an instructor made a live code; a heads up, every line goes out.
     "discount_code.instructor_made",
     "event.submitted",

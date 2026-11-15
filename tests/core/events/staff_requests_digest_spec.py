@@ -22,8 +22,6 @@ from django.utils import timezone
 
 from classes.factories import (
     ClassOfferingFactory,
-    DiscountCodeFactory,
-    DiscountCodeRequestFactory,
     InstructorFactory,
     UserFactory,
 )
@@ -56,7 +54,6 @@ pytestmark = pytest.mark.django_db
 PART_3_EVENTS = (
     "space.lease_requested",
     "space.cubby_requested",
-    "discount_code.requested",
     "event.submitted",
     "wiki.page_reported",
     "wiki.page_proposed",
@@ -158,68 +155,6 @@ def _approver_admin() -> User:
     user = UserFactory(username="admin.lee@example.com", email="admin.lee@example.com")
     Member.objects.filter(user=user).update(fog_role=Member.FogRole.ADMIN)
     return user
-
-
-def describe_discount_code_requested():
-    def it_is_open_while_a_code_is_unapproved_and_approving_clears_the_bell():
-        code = DiscountCodeFactory(is_approved=False)
-        _assert_lifecycle(code, "discount_code.requested", f"discount:{code.pk}:requested", code.approve)
-
-    def it_is_open_while_a_request_is_pending_and_declining_clears_the_bell():
-        request = DiscountCodeRequestFactory()
-        _assert_lifecycle(
-            request,
-            "discount_code.requested",
-            f"discount_request:{request.pk}:requested",
-            lambda: request.decline(_approver_admin(), "Not this term."),
-        )
-
-    def it_anchors_an_unapproved_codes_link_on_the_code_and_clears_both_on_delete():
-        with patch("core.events.emit.emit") as fake:
-            code = DiscountCodeFactory(is_approved=False, class_offering=ClassOfferingFactory())
-        assert notification_click_url(_emitted(fake, "discount_code.requested")["url"]) == code.request_bell_path
-        assert code.request_bell_path.endswith(f"#code-{code.pk}")
-        admin = _approver_admin()
-        admin.is_superuser = True
-        admin.save(update_fields=["is_superuser"])
-        client = Client()
-        client.force_login(admin)
-        assert f'id="code-{code.pk}"' in client.get(reverse("classes:admin_discount_codes")).content.decode()
-        _assert_delete_clears(code, "discount_code.requested")
-        _assert_delete_clears(DiscountCodeRequestFactory(), "discount_code.requested")
-
-
-def describe_a_pending_discount_code_switched_off():
-    def it_closes_and_clears_the_bell():
-        code = DiscountCodeFactory(is_approved=False)
-        bell = _bell(code, "discount_code.requested", _approver())
-        row = _queued(code, "discount_code.requested", _approver_admin(), f"discount:{code.pk}:requested")
-        code.is_active = False
-        code.save()
-        assert _read(bell)
-        assert not _is_open("discount_code.requested", row)
-
-    def it_clears_only_on_the_switch_off_so_other_saves_ask_nothing_of_the_bell():
-        code = DiscountCodeFactory(is_approved=False, is_active=False)
-        bell = _bell(code, "discount_code.requested", _approver())
-        loaded = type(code).objects.get(pk=code.pk)
-        with CaptureQueriesContext(connection) as queries:
-            loaded.save()
-        assert not [q for q in queries.captured_queries if "core_notification" in q["sql"]]
-        loaded.is_active = True
-        loaded.save()
-        assert not _read(bell)
-        fresh = type(code).objects.get(pk=code.pk)
-        fresh.is_active = False
-        fresh.save()
-        assert _read(bell)
-
-    def it_leaves_an_approved_code_switched_off_alone():
-        code = DiscountCodeFactory(is_approved=True)
-        bell = _bell(code, "discount_code.requested", _approver())
-        code.is_active = False
-        code.save()
-        assert not _read(bell)
 
 
 def describe_event_submitted():
@@ -403,11 +338,16 @@ def describe_the_8am_email_for_a_part_3_request():
     @pytest.fixture
     def holder() -> User:
         user = UserFactory(username="dana@example.com", email="dana@example.com", first_name="Dana", last_name="Ross")
-        Member.objects.get(user=user).admin_capabilities.create(capability=AdminCapability.Capability.DISCOUNT_APPROVER)
+        Member.objects.get(user=user).admin_capabilities.create(capability=AdminCapability.Capability.SPACE_APPROVER)
         return user
 
+    def _submitted_space_request() -> SpaceRequest:
+        request = SpaceRequestFactory()
+        request._notify_submitted()
+        return request
+
     def it_queues_instead_of_mailing_and_the_morning_email_links_with_a_host(holder: User):
-        request = DiscountCodeRequestFactory()
+        request = _submitted_space_request()
         assert [m for m in mail.outbox if m.to == ["dana@example.com"]] == []
         (email,) = digest_emails("dana@example.com")
         assert email.subject == "Action Needed: 1 Request Awaiting You"
@@ -415,20 +355,19 @@ def describe_the_8am_email_for_a_part_3_request():
         assert member_absolute_url(request.request_bell_path).startswith("http")
 
     def it_leaves_a_request_decided_before_8am_out(holder: User):
-        request = DiscountCodeRequestFactory()
-        request.decline(holder, "Not this term.")
+        request = _submitted_space_request()
+        request.decline(reviewer=holder, notes="Not this term.")
         assert digest_emails("dana@example.com") == []
 
     def it_shows_on_the_email_queue_tab_with_its_pill(holder: User):
-        DiscountCodeRequestFactory()
+        _submitted_space_request()
         (dana,) = [person for person in DigestQueue.load(timezone.now()).people if person.email == "dana@example.com"]
-        assert [(item.label, item.pill_label) for item in dana.items] == [
-            (get_event("discount_code.requested").label, "Still waiting")
-        ]
+        label = get_event("space.lease_requested").label
+        assert [(item.label, item.pill_label) for item in dana.items] == [(label, "Still waiting")]
         staff = Client()
         staff.force_login(UserFactory(username="staff@example.com", email="staff@example.com", is_staff=True))
         html = staff.get(reverse("manage_activity"), {"tab": "queue"}).content.decode()
-        assert "A discount code was requested" in html
+        assert label in html
         assert "Still waiting" in html
 
 

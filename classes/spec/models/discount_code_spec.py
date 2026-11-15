@@ -13,8 +13,8 @@ from classes.factories import ClassOfferingFactory, DiscountCodeFactory, Instruc
 from classes.models import ClassOffering, DiscountApprover, DiscountCode
 
 
-def _active_member_user(username: str, *, is_admin: bool = False, can_self_approve: bool = False):
-    """A User linked to an ACTIVE Member with the given role/permission."""
+def _active_member_user(username: str, *, is_admin: bool = False):
+    """A User linked to an ACTIVE Member with the given role."""
     from membership.models import Member, MembershipPlan
 
     MembershipPlan.objects.get_or_create(name="Standard", defaults={"monthly_price": "50.00"})
@@ -25,7 +25,6 @@ def _active_member_user(username: str, *, is_admin: bool = False, can_self_appro
             "full_legal_name": username.title(),
             "fog_role": Member.FogRole.ADMIN if is_admin else Member.FogRole.MEMBER,
             "status": Member.Status.ACTIVE,
-            "can_self_approve_discounts": can_self_approve,
         },
     )
     return user
@@ -158,7 +157,7 @@ def describe_DiscountCode():
 
         def it_accepts_an_acting_user(db):
             """The approver is passed for a future audit trail; it must not error today."""
-            approver = _active_member_user("dc-approver-model", can_self_approve=True)
+            approver = _active_member_user("dc-approver-model", is_admin=True)
             code = DiscountCodeFactory(is_approved=False, created_by=approver)
             code.approve(approver)
             code.refresh_from_db()
@@ -199,21 +198,11 @@ def describe_DiscountCode():
             code = DiscountCodeFactory()
             assert code.can_be_approved_by(user) is True
 
-        def it_allows_the_owner_when_they_hold_the_permission(db):
-            owner = _active_member_user("dc-perm-owner", can_self_approve=True)
-            code = DiscountCodeFactory(created_by=owner)
-            assert code.can_be_approved_by(owner) is True
-
-        def it_denies_the_owner_without_the_permission(db):
-            owner = _active_member_user("dc-noperm-owner", can_self_approve=False)
+        def it_denies_a_plain_member_even_on_their_own_code(db):
+            # #1185 removed self approval: owning a code approves nothing.
+            owner = _active_member_user("dc-owner-plain")
             code = DiscountCodeFactory(created_by=owner)
             assert code.can_be_approved_by(owner) is False
-
-        def it_denies_a_permitted_member_on_someone_elses_code(db):
-            approver = _active_member_user("dc-permitted", can_self_approve=True)
-            other = UserFactory(username="dc-other@example.com")
-            code = DiscountCodeFactory(created_by=other)
-            assert code.can_be_approved_by(approver) is False
 
         def it_denies_a_user_with_no_member(db):
             from membership.models import Member
@@ -225,26 +214,24 @@ def describe_DiscountCode():
 
     def describe_approver_for():
         def it_resolves_the_capability_in_a_single_member_query(db, django_assert_num_queries):
-            user = _active_member_user("dc-cap", can_self_approve=True)
+            user = _active_member_user("dc-cap")
             with django_assert_num_queries(1):
                 approver = DiscountCode.approver_for(user)
             assert isinstance(approver, DiscountApprover)
-            assert (approver.approves_any, approver.self_approves) == (False, True)
+            assert approver.approves_any is False
 
         def it_checks_each_code_without_another_query(db, django_assert_num_queries):
-            user = _active_member_user("dc-cap2", can_self_approve=True)
-            approver = DiscountCode.approver_for(user)
-            mine = DiscountCodeFactory(created_by=user)
-            other = DiscountCodeFactory(created_by=UserFactory(username="dc-someone@example.com"))
-            # The per-row check reads created_by_id (already loaded) — no DB round-trips.
+            admin = DiscountCode.approver_for(_active_member_user("dc-cap-admin", is_admin=True))
+            plain = DiscountCode.approver_for(_active_member_user("dc-cap2"))
+            code = DiscountCodeFactory(created_by=UserFactory(username="dc-someone@example.com"))
             with django_assert_num_queries(0):
-                assert approver.can_approve(mine) is True
-                assert approver.can_approve(other) is False
+                assert admin.can_approve(code) is True
+                assert plain.can_approve(code) is False
 
         def it_reports_no_capability_for_an_anonymous_user_without_a_query(db, django_assert_num_queries):
             with django_assert_num_queries(0):
                 approver = DiscountCode.approver_for(AnonymousUser())
-            assert (approver.approves_any, approver.self_approves) == (False, False)
+            assert approver == DiscountApprover(user_pk=None, approves_any=False)
 
 
 def describe_DiscountCode_scope():

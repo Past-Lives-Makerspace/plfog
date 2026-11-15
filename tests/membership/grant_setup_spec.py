@@ -17,7 +17,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
 from billing.models import PaymentRefund
-from classes.factories import ClassOfferingFactory, DiscountCodeRequestFactory
+from classes.factories import ClassOfferingFactory
 from classes.models import ClassApproval, ClassOffering
 from membership import capability_setup as cs
 from membership import grant_setup as gs
@@ -31,6 +31,7 @@ pytestmark = pytest.mark.django_db
 
 Cap = AdminCapability.Capability
 SEED = importlib.import_module("membership.migrations.0282_seed_grant_guides")
+REWRITE = importlib.import_module("membership.migrations.0285_rewrite_discount_admin_guide")
 #: A one pixel GIF, enough for an ImageField.
 PIXEL = (
     b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,"
@@ -96,11 +97,14 @@ def describe_the_no_page_cards():
         _finish(member, setup.permission)
         assert _has_badge(member, setup.permission)
 
-    def it_ticks_a_discount_request_the_member_answered():
-        member = _member()
-        assert cs.discount_request_facts(member).done == frozenset()
-        DiscountCodeRequestFactory(decided_by=member.user, status="approved")
-        assert cs.discount_request_facts(member).done == {cs.FIRST_DECISION}
+    def it_teaches_the_discount_code_administrator_to_oversee_codes_by_reading_only():
+        # #1185: nothing waits for approval any more, so the card is two reading steps.
+        setup = cs.DISCOUNT_ADMIN_SETUP
+        assert [(step.key, step.got_it) for step in setup.steps] == [(cs.LEARN, True), (cs.OVERSEE, True)]
+        assert setup.facts is cs.reading_only_facts
+        oversee = " ".join(setup.steps[1].how)
+        for taught in ("Discount Codes", "Made by", "Is active"):
+            assert taught in oversee, taught
 
     def it_ticks_a_refund_the_member_sent():
         member = _member()
@@ -111,7 +115,6 @@ def describe_the_no_page_cards():
 
     def it_ticks_nothing_for_a_member_with_no_account():
         member = MemberFactory()
-        assert cs.discount_request_facts(member).done == frozenset()
         assert cs.refund_facts(member).done == frozenset()
 
 
@@ -221,10 +224,52 @@ def describe_the_seeded_guide_pages():
         for permission, title, body in SEED.PAGES:
             page = WikiPage.guide_page_for(permission)
             assert page is not None and page.title == title and page.status == WikiPage.Status.OFFICIAL
+            # #1185 rewrote the discount page (0285); the card's sections follow the rewrite.
+            current = REWRITE.BODY if permission == Cap.DISCOUNT_APPROVER else body
             for step in spec_for(permission).steps:
-                assert f"<h2>{step.guide_section}</h2>" in body, (permission, step.key)
+                assert f"<h2>{step.guide_section}</h2>" in current, (permission, step.key)
         part_three = {*(spec.permission for spec in cs.CAPABILITY_SETUPS[7:]), *(s.permission for s in gs.GRANT_SETUPS)}
         assert {permission for permission, _t, _b in SEED.PAGES} == part_three
+
+
+def describe_the_rewritten_discount_guide():
+    """Migration 0285 (#1185): the seeded page moves from deciding requests to overseeing codes."""
+
+    def _page() -> WikiPage:
+        SEED.seed(django_apps, None)
+        page = WikiPage.guide_page_for(Cap.DISCOUNT_APPROVER)
+        assert page is not None
+        return page
+
+    def it_starts_from_what_0282_seeded():
+        assert (
+            dict((permission, body) for permission, _t, body in SEED.PAGES)[Cap.DISCOUNT_APPROVER]
+            == REWRITE.SEEDED_BODY
+        )
+
+    def it_rewrites_an_untouched_page_with_a_revision_and_reverses_it():
+        page = _page()
+
+        REWRITE.rewrite(django_apps, None)
+        page.refresh_from_db()
+        assert page.body == REWRITE.BODY
+        assert "Made by" in page.search_text
+        assert page.revisions.filter(note=REWRITE.NOTE).count() == 1
+
+        REWRITE.restore(django_apps, None)
+        page.refresh_from_db()
+        assert page.body == REWRITE.SEEDED_BODY
+        assert not page.revisions.filter(note=REWRITE.NOTE).exists()
+
+    def it_leaves_a_page_an_admin_edited_alone():
+        page = _page()
+        WikiPage.objects.filter(pk=page.pk).update(body="<p>Our own words.</p>")
+
+        REWRITE.rewrite(django_apps, None)
+
+        page.refresh_from_db()
+        assert page.body == "<p>Our own words.</p>"
+        assert not page.revisions.filter(note=REWRITE.NOTE).exists()
 
 
 def describe_other_revoke_paths():

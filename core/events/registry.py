@@ -254,9 +254,6 @@ _PUSH_ON_BY_DEFAULT: frozenset[str] = frozenset(
         "instructor_changes_requested",
         "instructor_application_approved",
         "instructor_application_declined",
-        # ...and the answer to your ask for a discount code, the same kind of decision.
-        "discount_code.request_approved",
-        "discount_code.request_declined",
         # Equipment — your reservation is set (time-sensitive, carries the invite)
         "equipment.reservation_confirmed",
         # ...or a manager declined your request, so you need another time (#748)
@@ -514,9 +511,6 @@ SPACE_REQUEST_APPROVED = "space.request_approved"
 SPACE_REQUEST_DECLINED = "space.request_declined"
 DISCORD_GUILDS_IMPORTED = "discord_guilds_imported"
 ORIENTATION_COMPLETED = "orientation.completed"  # dotted, matches the new-event vocabulary
-DISCOUNT_CODE_REQUESTED = "discount_code.requested"  # a new code awaits approval (Discount Admins)
-DISCOUNT_CODE_REQUEST_APPROVED = "discount_code.request_approved"  # an admin approved an instructor's request
-DISCOUNT_CODE_REQUEST_DECLINED = "discount_code.request_declined"  # an admin declined it, with a note
 DISCOUNT_CODE_INSTRUCTOR_MADE = "discount_code.instructor_made"  # an instructor made a live code (#1184)
 BILLING_CHARGE_FAILED_ADMIN = "billing.charge_failed_admin"  # a member's tab charge failed (Billing Admins)
 WAITLIST_PROMOTED = "waitlist_promoted"  # staff hand-picked a waitlister into the class (plain "you're in")
@@ -1005,19 +999,6 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_DISCORD_ON,),
         activity_kind=None,
     ),
-    # 32. discount_code.requested — a new discount code was created and awaits approval.
-    #     Routes to the Discount Code Administrators (capability holders only). A per-person
-    #     admin ping: in-app + email, no Discord. The
-    #     DiscountCode.save creating-branch already logs the CmsActivity, so emit logs none.
-    EventType(
-        key=DISCOUNT_CODE_REQUESTED,
-        label="Discount code needs approval",
-        description="A member created a discount code that needs approval before it can be used.",
-        category="Teaching",
-        recipient=Recipients.DISCOUNT_APPROVERS,
-        channels=(_IN_APP_ON, _EMAIL_ON),
-        activity_kind=None,
-    ),
     # 32b. discount_code.instructor_made — an instructor made a code for their own classes (#1184).
     #      It is live at once; the Discount Code Administrators hear after the fact, one line per
     #      code in the 8 AM digest. DiscountCode.save logs the CmsActivity, so emit logs none.
@@ -1041,32 +1022,6 @@ _NEW_EVENTS: list[EventType] = [
         description="A member's monthly tab charge failed — the admin heads-up to follow up.",
         category="Billing",
         recipient=Recipients.BILLING_APPROVERS,
-        channels=(_IN_APP_ON, _EMAIL_ON),
-        activity_kind=None,
-    ),
-    # 34. discount_code.request_approved — an admin approved an instructor's ask for a class code
-    #     (DiscountCodeRequest.approve). Routes to that instructor: in-app + email, push on by
-    #     default (a decision the member is waiting on, like the teaching application answers).
-    #     ``activity_kind`` is None: the approved code's own DiscountCode.save writes the
-    #     DISCOUNT_CODE_CREATED CmsActivity row.
-    EventType(
-        key=DISCOUNT_CODE_REQUEST_APPROVED,
-        label="Discount code request approved",
-        description="An admin approved a discount code you asked for. The code is ready to use.",
-        category="Teaching",
-        recipient=Recipients.INSTRUCTOR,
-        channels=(_IN_APP_ON, _EMAIL_ON),
-        activity_kind=None,
-    ),
-    # 35. discount_code.request_declined — the admin said no, with a note saying why
-    #     (DiscountCodeRequest.decline). Same audience and channels. ``activity_kind`` is None:
-    #     a decline is a decision on a request, not catalog activity.
-    EventType(
-        key=DISCOUNT_CODE_REQUEST_DECLINED,
-        label="Discount code request declined",
-        description="An admin declined a discount code you asked for, with a note saying why.",
-        category="Teaching",
-        recipient=Recipients.INSTRUCTOR,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
@@ -1972,7 +1927,6 @@ _DIGEST_EMAIL_EVENTS: frozenset[str] = frozenset(
         # Part 3: the other staff requests.
         "space.lease_requested",
         "space.cubby_requested",
-        "discount_code.requested",
         # #1184: a heads up, not a request; nothing decides it, so every line goes out.
         "discount_code.instructor_made",
         "event.submitted",

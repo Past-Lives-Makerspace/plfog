@@ -1,0 +1,9 @@
+bump = "patch"
+date = "2026-11-15"
+audience = ["instructors", "admins"]
+title = "Discount code requests are retired"
+changes = [
+  "Instructors make their own codes now, so the Request a Code page and its approval queue are gone.",
+  "The Discount Code Administrator setup card now teaches overseeing codes: the list, the Made by filter, and turning a code off.",
+  "The self approve permission and the setting that made instructors ask for a code instead of making one are removed.",
+]

@@ -187,7 +187,6 @@ _OWN: dict[str, set[str]] = {
     },
     "hub_admin_cms": {
         "instructor_discount_codes_enabled",
-        "instructor_discount_codes_need_approval",
         "instructor_code_discount_pct",
     },
     "hub_admin_automations": {"legacy_cms_sync_enabled"},
@@ -223,7 +222,6 @@ _DISTINCT: dict[str, Any] = {
     "member_directory_public": True,
     # Manage CMS
     "instructor_discount_codes_enabled": True,
-    "instructor_discount_codes_need_approval": True,
     "instructor_code_discount_pct": 25,
     # Automations
     "legacy_cms_sync_enabled": True,
