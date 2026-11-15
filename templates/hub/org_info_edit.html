@@ -76,6 +76,8 @@ rich_editor_assets.html.{% endcomment %}
       {{ faq_formset.management_form }}
       <div id="faq-rows" style="display:flex; flex-direction:column; gap:1rem;">
         {% for f in faq_formset %}
+          {# A new row with nothing in it (removed before Save, or left blank) is skipped on save, so it is not drawn again. #}
+          {% if f.instance.pk or f.has_changed %}
           <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
             {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
             {% include "components/form_field.html" with field=f.question %}
@@ -99,6 +101,7 @@ rich_editor_assets.html.{% endcomment %}
             {{ f.id }}
             {{ f.sort_order }}
           </div>
+          {% endif %}
         {% empty %}
           <p class="hub-text-muted">No questions yet. Add your first.</p>
         {% endfor %}
@@ -147,6 +150,8 @@ rich_editor_assets.html.{% endcomment %}
       {{ link_formset.management_form }}
       <div id="link-rows" style="display:flex; flex-direction:column; gap:1rem;">
         {% for f in link_formset %}
+          {# A new row with nothing in it (removed before Save, or left blank) is skipped on save, so it is not drawn again. #}
+          {% if f.instance.pk or f.has_changed %}
           <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
             <div style="display:flex; gap:1rem; flex-wrap:wrap;">
               <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=f.label %}</div>
@@ -165,6 +170,7 @@ rich_editor_assets.html.{% endcomment %}
             {{ f.id }}
             {{ f.sort_order }}
           </div>
+          {% endif %}
         {% empty %}
           <p class="hub-text-muted">No links yet. Add your first.</p>
         {% endfor %}
@@ -215,6 +221,8 @@ rich_editor_assets.html.{% endcomment %}
       {{ category_formset.management_form }}
       <div id="category-rows" style="display:flex; flex-direction:column; gap:1rem;">
         {% for f in category_formset %}
+          {# A new row with nothing in it (removed before Save, or left blank) is skipped on save, so it is not drawn again. #}
+          {% if f.instance.pk or f.has_changed %}
           <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
             {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
             {% include "components/form_field.html" with field=f.name %}
@@ -234,6 +242,7 @@ rich_editor_assets.html.{% endcomment %}
             {{ f.id }}
             {{ f.sort_order }}
           </div>
+          {% endif %}
         {% empty %}
           <p class="hub-text-muted">No categories yet. Add your first.</p>
         {% endfor %}
@@ -284,6 +293,8 @@ rich_editor_assets.html.{% endcomment %}
       {{ article_formset.management_form }}
       <div id="article-rows" style="display:flex; flex-direction:column; gap:1rem;">
         {% for f in article_formset %}
+          {# A new row with nothing in it (removed before Save, or left blank) is skipped on save, so it is not drawn again. #}
+          {% if f.instance.pk or f.has_changed %}
           <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
             {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
             {% if f.instance.pk and f.instance.slug in seeded_slugs %}
@@ -308,6 +319,7 @@ rich_editor_assets.html.{% endcomment %}
             {{ f.id }}
             {{ f.sort_order }}
           </div>
+          {% endif %}
         {% empty %}
           <p class="hub-text-muted">No articles yet. Add your first.</p>
         {% endfor %}
