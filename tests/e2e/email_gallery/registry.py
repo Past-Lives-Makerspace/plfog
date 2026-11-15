@@ -302,9 +302,10 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         section="Classes",
         renderer=Renderer.INLINE_STRING,
         trigger_note=(
-            "Sent when someone registers for a class (a confirmed paid or free signup). The Admins' "
-            "own copy of the instructor's notice: who registered, what they paid and how full the "
-            "class is. Each Admin's Email switch for New class registration decides."
+            "No longer sent on its own (#894): each registration reaches the Admins as a line in the "
+            "8 AM staff digest. Was sent when someone registered for a class (a confirmed paid or free "
+            "signup): who registered, what they paid and how full the class is. Each Admin's Email "
+            "switch for New class registration decides."
         ),
         edit_pointer="Text authored in code (classes/emails.py::send_admin_registration_notification)",
         audience="Every Admin whose Email switch for New class registration is on.",
@@ -411,12 +412,14 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         section="Teaching",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent at 8 AM Pacific to each reviewer with class review requests still waiting on them: "
-            "one line per class, with its review link. A request decided before 8 AM is left out, and "
-            "nobody gets an empty email. At most one a day."
+            "Sent at 8 AM Pacific to each staff member with requests still waiting on them (class "
+            "reviews and the other staff requests) or updates since the last email (new members, class "
+            "registrations, equipment reservations, instructor codes): one line each, grouped under "
+            "the event's name. A request decided before 8 AM is left out, and nobody gets an empty "
+            "email. At most one a day."
         ),
         edit_pointer="Template in code (templates/core/emails/staff_digest.{txt,html})",
-        audience="Each guild lead, Class Reviewer and CMS Administrator with an open request.",
+        audience="Each staff member with an open request or an update, whose Email switch for it is on.",
         text_template="core/emails/staff_digest.txt",
         html_template="core/emails/staff_digest.html",
         context_builder="staff_digest_context",

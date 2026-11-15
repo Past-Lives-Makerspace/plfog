@@ -638,9 +638,17 @@ class DigestAdapter:
 # queued alongside them falls back to the general wording.
 CLASS_REVIEW_EVENTS = frozenset({"class_review_requested", "class_validation_requested"})
 
-# Lines that tell staff what already happened rather than ask them to act (#1184). A morning
-# email holding only these says so in its subject and opening line, never "Action Needed".
-HEADS_UP_EVENTS = frozenset({"discount_code.instructor_made"})
+# Lines that tell staff what already happened rather than ask them to act (#1184, #894 part 4).
+# A morning email holding only these says so in its subject and opening line, never "Action Needed".
+INSTRUCTOR_CODE_EVENTS = frozenset({"discount_code.instructor_made"})
+HEADS_UP_EVENTS = INSTRUCTOR_CODE_EVENTS | {
+    "new_member_joined",
+    "class_registration_admin_notice",
+    "equipment.reservation_made",
+}
+
+
+_ACTION_INTRO = "Here is everything still waiting on you this morning. Anything someone already handled is left out."
 
 
 def digest_line_key(row: EventDelivery) -> str:
@@ -673,19 +681,27 @@ def digest_context(rows: list[EventDelivery]) -> dict[str, object]:
     count = len(newest_by_url)
     keys = {row.event_key for row in newest_by_url.values()}
     heads_up_only = bool(keys) and keys <= HEADS_UP_EVENTS
-    if heads_up_only:
+    if heads_up_only and keys <= INSTRUCTOR_CODE_EVENTS:
         noun = "Code" if count == 1 else "Codes"
         subject = f"{count} Discount {noun} Made or Changed by Instructors"
+        intro = "Here is what instructors made or changed since the last email. Each code already works."
+    elif heads_up_only:
+        noun = "Update" if count == 1 else "Updates"
+        subject = f"{count} {noun} Since the Last Email"
+        intro = "Here is what happened since the last email. Nothing here needs you to act."
     elif keys <= CLASS_REVIEW_EVENTS:
         noun = "Class" if count == 1 else "Classes"
         subject = f"Action Needed: {count} {noun} Awaiting Review"
+        intro = _ACTION_INTRO
     else:
         noun = "Request" if count == 1 else "Requests"
         subject = f"Action Needed: {count} {noun} Awaiting You"
+        intro = _ACTION_INTRO
     return {
         "subject": subject,
         "count": count,
         "heads_up_only": heads_up_only,
+        "intro": intro,
         "sections": [{"label": label, "lines": lines} for label, lines in sections.items()],
     }
 

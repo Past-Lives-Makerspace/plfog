@@ -7,8 +7,11 @@ from django.core import mail
 from classes.emails import emit_instructor_new_registration, send_admin_registration_notification
 from classes.factories import ClassOfferingFactory, InstructorFactory, RegistrationFactory, UserFactory
 from classes.models import ClassOffering
-from core.models import Notification, NotificationPreference
+from core.events.registry import Channel
+from core.events.scheduler import flush_digests
+from core.models import EventDelivery, Notification, NotificationPreference, TransactionalEmailLog
 from membership.models import Member
+from tests.core.events.digest_support import next_8am
 
 
 def describe_emit_instructor_new_registration():
@@ -92,11 +95,26 @@ def _admin(email: str) -> Member:
 
 
 def _admin_copies(address: str) -> list:
+    """The instant admin email, which #894 part 4 retired: it should never be in the outbox."""
     return [m for m in mail.outbox if m.to == [address] and m.subject.startswith("[Classes] New registration:")]
 
 
+def _morning(address: str) -> list:
+    """Send the next 8 AM staff digest, then return every digest addressed to ``address``."""
+    flush_digests(next_8am())
+    return [m for m in mail.outbox if m.to == [address] and m.subject.endswith("Since the Last Email")]
+
+
 def describe_send_admin_registration_notification():
-    def it_emails_every_admin_one_copy(db, settings):
+    def it_sends_no_email_at_once(db, settings):
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+        _admin("admin1@example.com")
+
+        send_admin_registration_notification(RegistrationFactory())
+
+        assert mail.outbox == []
+
+    def it_gives_every_admin_one_morning_line(db, settings):
         settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
         _admin("admin1@example.com")
         _admin("admin2@example.com")
@@ -112,25 +130,48 @@ def describe_send_admin_registration_notification():
 
         send_admin_registration_notification(registration)
 
-        # One email per Admin, each at their own address.
-        assert len(mail.outbox) == 2
-        assert {addr for m in mail.outbox for addr in m.to} == {"admin1@example.com", "admin2@example.com"}
-        msg = mail.outbox[0]
-        assert "Alex Doe" in msg.subject
-        assert "Pottery Basics" in msg.subject
-        assert "$80.00" in msg.body
-        assert offering.instructor.display_name in msg.body
-        assert "Capacity: 1/6" in msg.body
+        for address in ("admin1@example.com", "admin2@example.com"):
+            (digest,) = _morning(address)
+            assert digest.subject == "1 Update Since the Last Email"
+            assert "NEW CLASS REGISTRATION" in digest.body
+            assert "Alex Doe registered for Pottery Basics" in digest.body
+            assert "Confirmed, paid $80.00. 1 of 6 seats taken." in digest.body
+            assert f"/classes/{offering.slug}/" in digest.body
+            assert _admin_copies(address) == []
 
-    def it_is_its_own_event_with_no_bell(db, settings):
-        from core.models import TransactionalEmailLog
+    def it_gives_two_registrations_two_lines(db, settings):
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+        _admin("admin@example.com")
+        offering = ClassOfferingFactory(title="Pottery Basics", status=ClassOffering.Status.PUBLISHED)
+        for first, last in (("Alex", "Doe"), ("Sam", "Park")):
+            registration = RegistrationFactory(
+                class_offering=offering, first_name=first, last_name=last, status="confirmed"
+            )
+            send_admin_registration_notification(registration)
 
+        (digest,) = _morning("admin@example.com")
+
+        assert digest.subject == "2 Updates Since the Last Email"
+        assert "Alex Doe registered for Pottery Basics" in digest.body
+        assert "Sam Park registered for Pottery Basics" in digest.body
+
+    def it_is_its_own_digest_event_with_no_bell(db, settings):
         settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
         admin = _admin("logadmin@example.com")
 
-        send_admin_registration_notification(RegistrationFactory())
+        registration = RegistrationFactory()
+        send_admin_registration_notification(registration)
 
-        assert TransactionalEmailLog.objects.filter(trigger_kind="class_registration_admin_notice").count() == 1
+        assert not TransactionalEmailLog.objects.filter(trigger_kind="class_registration_admin_notice").exists()
+        row = EventDelivery.objects.get(
+            event_key="class_registration_admin_notice",
+            target_ref=f"user:{admin.user.pk}",
+            channel=Channel.DIGEST.value,
+        )
+        assert (row.status, row.period) == (
+            EventDelivery.Status.PENDING,
+            f"reg:{registration.pk}:admin_notice",
+        )
         assert not Notification.objects.filter(user=admin.user).exists()
 
     def it_reaches_a_configured_address_only_when_it_has_an_account(db, settings):
@@ -138,11 +179,12 @@ def describe_send_admin_registration_notification():
         settings.CLASS_ADMIN_NOTIFY_EMAILS = "cfg@example.com, nobody@example.com"
 
         send_admin_registration_notification(RegistrationFactory())
+        flush_digests(next_8am())
 
         assert {addr for m in mail.outbox for addr in m.to} == {"cfg@example.com"}
 
     def describe_the_email_switch():
-        def it_sends_no_copy_to_an_admin_who_switched_it_off(db, settings):
+        def it_leaves_out_an_admin_who_switched_it_off(db, settings):
             settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
             quiet = _admin("quietadmin@example.com")
             NotificationPreference.objects.create(
@@ -152,12 +194,12 @@ def describe_send_admin_registration_notification():
 
             send_admin_registration_notification(RegistrationFactory())
 
-            assert _admin_copies("quietadmin@example.com") == []
-            assert len(_admin_copies("loudadmin@example.com")) == 1
+            assert _morning("quietadmin@example.com") == []
+            assert len(_morning("loudadmin@example.com")) == 1
 
         def it_leaves_the_instructors_own_notice_alone(db, settings):
-            # The instructor's notice is a different event with its own switch: an Admin
-            # switching off their copy never silences the instructor.
+            # The instructor's notice is a different event with its own switch, and stays
+            # instant: an Admin's copy waiting for the morning never delays the instructor.
             settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
             quiet = _admin("quietadmin2@example.com")
             NotificationPreference.objects.create(
@@ -173,7 +215,7 @@ def describe_send_admin_registration_notification():
             assert [m.to for m in mail.outbox] == [["teach2@example.com"]]
 
     def it_counts_capacity_the_way_every_other_surface_does(db, settings):
-        """The admin email goes out one line after the instructor's, about the same signup.
+        """The admin line is written one line after the instructor's email, about the same signup.
 
         Counting every row ever written had the two disagree by four in the same instant.
         """
@@ -186,12 +228,12 @@ def describe_send_admin_registration_notification():
 
         send_admin_registration_notification(newest)
 
-        body = "\n".join(m.body for m in mail.outbox)
-        assert "Capacity: 1/6" in body
-        assert "5/6" not in body
+        body = "\n".join(m.body for m in _morning("admin@example.com"))
+        assert "1 of 6 seats taken." in body
+        assert "5 of 6" not in body
 
     def it_agrees_with_the_instructor_email_about_the_same_signup(db, settings):
-        """Both go out from the same two lines (classes/views.py and webhook_handlers.py).
+        """Both are written from the same two lines (classes/views.py and webhook_handlers.py).
 
         The admin half counted every row ever written, so on a class with four cancelled
         signups the instructor was told 1/6 and the admins 5/6 about one registration.
@@ -210,9 +252,10 @@ def describe_send_admin_registration_notification():
         emit_instructor_new_registration(newest)
         send_admin_registration_notification(newest)
 
-        bodies = [m.body for m in mail.outbox]
-        assert len(bodies) == 2
-        assert all("1/6" in body for body in bodies)
+        (instructor_email,) = [m for m in mail.outbox if m.to == ["teach@example.com"]]
+        assert "1/6" in instructor_email.body
+        (digest,) = _morning("admin@example.com")
+        assert "1 of 6 seats taken." in digest.body
 
     def it_does_not_count_the_waitlist_against_capacity(db, settings):
         settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
@@ -226,15 +269,16 @@ def describe_send_admin_registration_notification():
 
         send_admin_registration_notification(newest)
 
-        body = "\n".join(m.body for m in mail.outbox)
-        assert "Capacity: 3/9" in body
-        assert "8/9" not in body
+        body = "\n".join(m.body for m in _morning("admin@example.com"))
+        assert "3 of 9 seats taken." in body
+        assert "8 of 9" not in body
 
     def it_sends_nothing_when_there_is_no_admin(db, settings):
         settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
         registration = RegistrationFactory()
 
         send_admin_registration_notification(registration)
+        flush_digests(next_8am())
 
         assert len(mail.outbox) == 0
 
@@ -243,5 +287,6 @@ def describe_send_admin_registration_notification():
         registration = RegistrationFactory()
 
         send_admin_registration_notification(registration)
+        flush_digests(next_8am())
 
         assert len(mail.outbox) == 0

@@ -1,0 +1,10 @@
+bump = "minor"
+date = "2026-11-15"
+audience = ["guild-staff", "admins"]
+title = "New member, registration and reservation emails come once a day"
+changes = [
+  "Admins hear about new members and new class registrations in the 8 AM email instead of one email each.",
+  "Equipment managers who turned on reservation emails get new reservations in the same 8 AM email.",
+  "A morning with only these updates is titled Updates Since the Last Email, since none of it needs you to act.",
+  "The notice in the app and the reservations post on Discord still arrive right away.",
+]
