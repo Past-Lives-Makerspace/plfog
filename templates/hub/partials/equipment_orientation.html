@@ -13,7 +13,7 @@ An inactive pinned type renders its state block only — never a slot list. The 
 booking blocks and the slot confirm modals are the shared partials
 _orientation_type_state.html and _orientation_slot_confirm.html (#502).
 {% endcomment %}
-{% load classes_tags %}
+{% load classes_tags hub_tags %}
 <section id="equipment-orientation" class="hub-card pl-equip-orientation" style="padding:1.25rem 1.5rem;" aria-label="Orientation">
   <h2 class="hub-detail-label" style="margin:0 0 0.5rem;">Get Oriented for the {{ equipment.name }}
     <span class="pl-help">
@@ -63,7 +63,7 @@ _orientation_type_state.html and _orientation_slot_confirm.html (#502).
           <span class="pl-orient-slots__time">{{ slot.starts_at|time:"g:i A" }} to {{ slot.ends_at|time:"g:i A" }}</span>
           <span class="pl-orient-slots__with">
             {% if slot.with_display %}
-            {% if slot.orienter.profile_photo %}<img src="{{ slot.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ slot.orienter.display_name|slice:":1" }}</span>{% endif %}
+            {% if slot.orienter.profile_photo and slot.orienter|is_public:"profile_photo" %}<img src="{{ slot.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ slot.orienter.display_name|slice:":1" }}</span>{% endif %}
             <span>{{ slot.with_display }}</span>
             {% endif %}
           </span>
