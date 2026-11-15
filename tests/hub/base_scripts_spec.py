@@ -36,6 +36,7 @@ HEAD_ORDER = (
     "js/spotlight.js",
     "js/compose_add_people.js",
     "js/orientation_row.js",
+    "js/orientation_hours_recurrence.js",
     "js/equipment_ways.js",
     "js/inquiry_member_picker.js",
     "js/hq_people_picker.js",

@@ -1,0 +1,18 @@
+bump = "minor"
+audience = ["guild-leads", "orientors", "equipment-managers"]
+date = "2026-11-14"
+title = "Orientation hours repeat every 3 or 4 weeks, or on the last weekday of the month"
+changes = [
+  "In Edit Hours, Repeats now offers Every 3 weeks and Every 4 weeks, counted from the day under Starting on.",
+  "A monthly rule can run on the last Thursday (or any last weekday) of every month. Pick Every month, pick a last Thursday under Starting on and turn on Last of the month.",
+  "Each row now says in plain words how it repeats, for example Every month on the last Thursday, 6:00 PM to 7:00 PM, before you press Save.",
+]
+feature = "orientations.hours"
+guidance = "shots"
+target = "orientations.edit-hours"
+
+[[shots]]
+caption = "Open Manage Bookings and press Edit Hours under Your Hours."
+
+[[shots]]
+caption = "Pick how often under Repeats and the first day under Starting on. Turn on Last of the month for the last Thursday. The line under the row says what you picked."

@@ -652,7 +652,7 @@ def describe_hours_cadence():
         assert 'type="date"' in content
         assert "pl-slot-date" in content  # the hub's dark-theme date picker treatment
 
-    def it_offers_all_seven_cadences(client: Client):
+    def it_offers_every_cadence(client: Client):
         user, guild = _lead(client, "fn_seven")
         content = client.get(_form_url(guild, user.member.pk)).content.decode()
         for value, label in OrientationAvailability.Cadence.choices:
@@ -821,6 +821,97 @@ def describe_hours_cadence():
         content = client.get(_form_url(guild, user.member.pk)).content.decode()
         assert '<option value="fortnightly" selected>Every other week</option>' in content
         assert 'value="2026-09-22"' in content
+
+    def it_renders_the_plain_words_line_and_the_last_of_the_month_switch(client: Client):
+        # #430: the row's recurrence in plain words (written by plHoursRow before a save), and
+        # the Last of the month switch the row shows under a month based cadence only.
+        user, guild = _lead(client, "fn_430_render")
+        content = client.get(_form_url(guild, user.member.pk)).content.decode()
+        assert "x-data=\"plHoursRow('fixed')\"" in content
+        assert "data-hours-summary" in content
+        assert 'x-show="monthly" data-hours-last' in content
+        assert 'name="modal_rules-__prefix__-last_of_month"' in content
+        assert '<option value="every_3_weeks">Every 3 weeks</option>' in content
+
+    def it_saves_a_last_thursday_rule_and_names_it_in_the_overview(client: Client):
+        user, guild = _lead(client, "fn_430_last")
+        response = client.post(
+            _hours_url(guild),
+            _modal_rule_payload(
+                str(user.member.pk),
+                guild=guild,
+                **{
+                    "modal_rules-0-weekday": "3",
+                    "modal_rules-0-cadence": "monthly",
+                    "modal_rules-0-anchor_date": "2026-10-29",
+                    "modal_rules-0-last_of_month": "on",
+                },
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 204
+        rule = OrientationAvailability.objects.get(orienter=user.member)
+        assert rule.last_of_month is True
+        content = client.get(_tab_url(guild)).content.decode()
+        assert "· Every month on the last Thursday ·" in content
+
+    def it_saves_an_every_3_weeks_rule_and_names_it_in_the_overview(client: Client):
+        user, guild = _lead(client, "fn_430_three")
+        response = client.post(
+            _hours_url(guild),
+            _modal_rule_payload(
+                str(user.member.pk),
+                guild=guild,
+                **{"modal_rules-0-cadence": "every_3_weeks", "modal_rules-0-anchor_date": "2026-09-22"},
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 204
+        rule = OrientationAvailability.objects.get(orienter=user.member)
+        assert rule.cadence == OrientationAvailability.Cadence.EVERY_3_WEEKS
+        content = client.get(_tab_url(guild)).content.decode()
+        assert "· Every 3 weeks on Tuesday ·" in content
+
+    def it_drops_a_last_of_the_month_tick_left_hidden_under_a_week_based_cadence(client: Client):
+        user, guild = _lead(client, "fn_430_hidden")
+        response = client.post(
+            _hours_url(guild),
+            _modal_rule_payload(
+                str(user.member.pk),
+                guild=guild,
+                **{
+                    "modal_rules-0-cadence": "fortnightly",
+                    "modal_rules-0-anchor_date": "2026-09-22",
+                    "modal_rules-0-last_of_month": "on",
+                },
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 204
+        assert OrientationAvailability.objects.get(orienter=user.member).last_of_month is False
+
+    def it_errors_when_a_last_of_the_month_start_day_is_not_the_last_one(client: Client):
+        user, guild = _lead(client, "fn_430_notlast")
+        response = client.post(
+            _hours_url(guild),
+            _modal_rule_payload(
+                str(user.member.pk),
+                guild=guild,
+                **{
+                    "modal_rules-0-weekday": "3",
+                    "modal_rules-0-cadence": "monthly",
+                    "modal_rules-0-anchor_date": "2026-11-19",
+                    "modal_rules-0-last_of_month": "on",
+                },
+            ),
+            HTTP_HX_REQUEST="true",
+        )
+        assert response.status_code == 200
+        assert (
+            "The start day must be the last Thursday of its month when these hours run on the last Thursday."
+            in response.content.decode()
+        )
+        assert not OrientationAvailability.objects.filter(orienter=user.member).exists()
 
     def it_reads_every_other_tuesday_in_the_overview(client: Client):
         user, guild = _lead(client, "fn_overview")

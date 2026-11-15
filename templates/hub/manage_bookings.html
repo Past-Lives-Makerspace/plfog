@@ -16,9 +16,9 @@ Hours (the viewer's own rules by owner, opening the existing Edit Hours modal). 
 bookings_next, which is this page, so the viewer lands back here.
 {% endcomment %}
 {% if show_add_orientation %}
-{% include "components/page_header.html" with title="Manage Bookings" description="What needs your reply, what you run, and your hours." action_include="hub/partials/add_orientation_action.html" %}
+{% include "components/page_header.html" with title="Manage Bookings" description="What needs your reply, what you run, and your hours." new_key="orientations.hours" action_include="hub/partials/add_orientation_action.html" %}
 {% else %}
-{% include "components/page_header.html" with title="Manage Bookings" description="What needs your reply, what you run, and your hours." %}
+{% include "components/page_header.html" with title="Manage Bookings" description="What needs your reply, what you run, and your hours." new_key="orientations.hours" %}
 {% endif %}
 
 <div class="pl-manage" data-manage-bookings x-data @refund-done.window="$dispatch('close-modal', 'refund-modal')">
@@ -142,7 +142,7 @@ bookings_next, which is this page, so the viewer lands back here.
     <div class="pl-orient-overview__group" data-hours-owner="{{ group.key }}">
       <div class="pl-orient-overview__person">
         <strong>{{ group.owner_name }}</strong>
-        <button type="button" class="hub-btn hub-btn--sm" data-edit-hours
+        <button type="button" class="hub-btn hub-btn--sm" data-edit-hours{% if forloop.first %} data-guidance-target="orientations.edit-hours"{% endif %}
                 @click="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Loading…</p>'; $dispatch('open-modal', 'edit-hours-modal')"
                 hx-get="{{ group.edit_url }}"
                 hx-target="#edit-hours-modal-body" hx-swap="innerHTML"

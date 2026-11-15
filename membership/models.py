@@ -15812,7 +15812,7 @@ class OrientationAvailabilityQuerySet(models.QuerySet):
 
 
 class OrientationAvailability(models.Model):
-    """A recurring window (weekly or every other week) in which a guild or a piece of equipment offers orientations.
+    """A recurring window (every week, every few weeks or months) in which a guild or a piece of equipment offers orientations.
 
     The slot-generation job materializes concrete ``OrientationSlot`` rows from
     each active rule across a rolling window. A rule with an ``orienter`` is one
@@ -15823,9 +15823,10 @@ class OrientationAvailability(models.Model):
     ``cadence`` sets how often the window recurs. ``anchor_date`` is the first day
     the rule runs, and nothing is generated before it on any cadence. Weekly needs
     nothing more, and may leave it blank to run from now. Every other cadence also
-    counts its rhythm from ``anchor_date``: every other week in Monday-based weeks,
-    and the month-based cadences on the anchor's weekday ordinal of its month (the
-    2nd Tuesday). See :meth:`occurs_on`.
+    counts its rhythm from ``anchor_date``: every 2, 3 or 4 weeks in Monday-based
+    weeks, and the month-based cadences on the anchor's weekday ordinal of its month
+    (the 2nd Tuesday), or, with ``last_of_month``, on the last such weekday of the
+    month (the last Thursday, #430). See :meth:`occurs_on`.
 
     ``slot_minutes`` decides the window's shape: empty keeps the legacy one slot
     spanning the whole window; set, each occurrence is carved into slots that long,
@@ -15853,6 +15854,8 @@ class OrientationAvailability(models.Model):
     class Cadence(models.TextChoices):
         WEEKLY = "weekly", "Every week"
         FORTNIGHTLY = "fortnightly", "Every other week"
+        EVERY_3_WEEKS = "every_3_weeks", "Every 3 weeks"
+        EVERY_4_WEEKS = "every_4_weeks", "Every 4 weeks"
         MONTHLY = "monthly", "Every month"
         EVERY_2_MONTHS = "every_2_months", "Every 2 months"
         EVERY_3_MONTHS = "every_3_months", "Every 3 months"
@@ -15862,6 +15865,13 @@ class OrientationAvailability(models.Model):
     class BookingStyle(models.TextChoices):
         FIXED = "fixed", "Fixed start times"
         OPEN = "open", "Any time in the window"
+
+    # Whole weeks between occurrences, for the week-based cadences but weekly (#430).
+    WEEKS_BY_CADENCE: ClassVar[dict[str, int]] = {
+        Cadence.FORTNIGHTLY: 2,
+        Cadence.EVERY_3_WEEKS: 3,
+        Cadence.EVERY_4_WEEKS: 4,
+    }
 
     # Whole months between occurrences, for the month-based cadences only.
     MONTHS_BY_CADENCE: ClassVar[dict[str, int]] = {
@@ -15926,6 +15936,14 @@ class OrientationAvailability(models.Model):
         help_text=(
             "The first day this rule runs, and the floor on every cadence. Required for every cadence "
             "but weekly, which may leave it blank and then runs from now."
+        ),
+    )
+    last_of_month = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "Month based cadences only: run on the last of this weekday in the month (the last Thursday) "
+            "rather than the start day's place in it. The start day must then be a last one itself."
         ),
     )
     start_time = models.TimeField(help_text="When the orientation window starts.")
@@ -16001,19 +16019,23 @@ class OrientationAvailability(models.Model):
     def cadence_display(self) -> str:
         """The rule's cadence in plain words.
 
-        "Every Tuesday", "Every other Tuesday", "Every month on the 2nd Tuesday",
-        "Every 3 months on the 2nd Tuesday", "Every year on the 2nd Tuesday of September".
-        A month-based rule with no anchor (which ``clean`` refuses) falls back to its
-        bare cadence label rather than failing a page render.
+        "Every Tuesday", "Every other Tuesday", "Every 3 weeks on Tuesday", "Every month
+        on the 2nd Tuesday", "Every month on the last Thursday", "Every 3 months on the 2nd
+        Tuesday", "Every year on the 2nd Tuesday of September". A month-based rule with no
+        anchor (which ``clean`` refuses) falls back to its bare cadence label rather than
+        failing a page render. ``static/js/orientation_hours_recurrence.js`` says the same
+        words in the Edit Hours modal before a save; change both together.
         """
         weekday = self.get_weekday_display()
         if self.cadence == self.Cadence.WEEKLY:
             return f"Every {weekday}"
         if self.cadence == self.Cadence.FORTNIGHTLY:
             return f"Every other {weekday}"
+        if self.cadence in self.WEEKS_BY_CADENCE:
+            return f"{self.get_cadence_display()} on {weekday}"
         if self.anchor_date is None:
             return str(self.get_cadence_display())
-        ordinal = ("1st", "2nd", "3rd", "4th", "5th")[(self.anchor_date.day - 1) // 7]
+        ordinal = "last" if self.last_of_month else ("1st", "2nd", "3rd", "4th", "5th")[(self.anchor_date.day - 1) // 7]
         if self.cadence == self.Cadence.YEARLY:
             return f"Every year on the {ordinal} {weekday} of {self.anchor_date:%B}"
         return f"{self.get_cadence_display()} on the {ordinal} {weekday}"
@@ -16039,11 +16061,14 @@ class OrientationAvailability(models.Model):
         The weekday must match, and ``anchor_date`` is a floor on every cadence: nothing
         runs before the day the rule starts, weekly included. A weekly rule then always
         occurs, and one with no anchor runs from now. Every other cadence also counts its
-        rhythm from ``anchor_date``: every other week runs in alternate Monday-based weeks
-        from the anchor's week (the anchor's own weekday does not matter); the month-based
-        cadences run on the anchor's weekday ordinal of the month (the 2nd Tuesday)
+        rhythm from ``anchor_date``: every 2, 3 or 4 weeks runs in every Nth Monday-based
+        week from the anchor's week (the anchor's own weekday does not matter); the
+        month-based cadences run on the anchor's weekday ordinal of the month (the 2nd
+        Tuesday), or on the month's last such weekday when ``last_of_month`` is set,
         whenever the whole months since the anchor's month divide by the cadence's month
-        count. A month with no 5th such weekday gets nothing.
+        count. Without ``last_of_month`` a month with no 5th such weekday gets nothing.
+        Every answer is a function of the calendar and the anchor alone, never of the day
+        the generation job runs, so the grid is the same from any ``today``.
 
         Args:
             day: The calendar day to test.
@@ -16063,11 +16088,14 @@ class OrientationAvailability(models.Model):
             return True
         if self.anchor_date is None:
             raise ValueError(f"OrientationAvailability {self.pk} recurs {self.cadence} but has no anchor_date.")
-        if self.cadence == self.Cadence.FORTNIGHTLY:
+        if self.cadence in self.WEEKS_BY_CADENCE:
             monday = day - timedelta(days=day.weekday())
             anchor_monday = self.anchor_date - timedelta(days=self.anchor_date.weekday())
-            return ((monday - anchor_monday).days // 7) % 2 == 0
-        if (day.day - 1) // 7 != (self.anchor_date.day - 1) // 7:
+            return ((monday - anchor_monday).days // 7) % self.WEEKS_BY_CADENCE[self.cadence] == 0
+        if self.last_of_month:
+            if (day + timedelta(days=7)).month == day.month:
+                return False
+        elif (day.day - 1) // 7 != (self.anchor_date.day - 1) // 7:
             return False
         months_apart = (day.year - self.anchor_date.year) * 12 + (day.month - self.anchor_date.month)
         return months_apart % self.MONTHS_BY_CADENCE[self.cadence] == 0
@@ -16097,6 +16125,7 @@ class OrientationAvailability(models.Model):
                 errors["anchor_date"] = (
                     f"The start day must be a {self.get_weekday_display()}, the day these hours run."
                 )
+        errors.update(self._last_of_month_errors())
         if self.slot_minutes is not None:
             for field in ("start_time", "end_time"):
                 value = getattr(self, field)
@@ -16112,6 +16141,31 @@ class OrientationAvailability(models.Model):
             )
         if errors:
             raise ValidationError(errors)
+
+    def _last_of_month_errors(self) -> dict[str, str]:
+        """Last of the month is a month based cadence's position, and the start day is its first occurrence.
+
+        A week based rule has no place in a month to be last in. On a month based rule the
+        start day is the first day the hours run, as it is for the numbered positions, so it
+        must itself be the last such weekday of its month; otherwise the first occurrence
+        would be some other day than the one the lead picked. The weekday mismatch is
+        reported on its own above and is not repeated here.
+        """
+        if not self.last_of_month:
+            return {}
+        if self.cadence not in self.MONTHS_BY_CADENCE:
+            return {"last_of_month": "Last of the month is for a rule that repeats by the month or the year."}
+        anchor = self.anchor_date
+        if anchor is None or anchor.weekday() != self.weekday:
+            return {}
+        if (anchor + timedelta(days=7)).month == anchor.month:
+            return {
+                "anchor_date": (
+                    f"The start day must be the last {self.get_weekday_display()} of its month "
+                    f"when these hours run on the last {self.get_weekday_display()}."
+                )
+            }
+        return {}
 
     def _style_errors(self) -> dict[str, str]:
         """The booking style's own shape rules: what an open row needs, and what a fixed row must have."""

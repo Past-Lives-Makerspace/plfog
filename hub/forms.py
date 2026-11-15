@@ -3431,7 +3431,9 @@ class OrientationAvailabilityForm(forms.ModelForm):
     carves the window, and a saved off-list length round-trips as its own choice. The cadence
     is optional too: a POST without ``cadence`` stays weekly (the legacy shared-rows form
     never renders it), and every cadence but weekly needs its anchor date. A weekly rule may
-    carry one all the same, and then runs from that day rather than from now.
+    carry one all the same, and then runs from that day rather than from now. Last of the
+    month shows only under a month based cadence (#430); the row hides it, not removes it,
+    so :meth:`clean` drops a tick left under a week based one.
     """
 
     start_time = forms.ChoiceField(choices=half_hour_time_choices(required=True), label="Start time")
@@ -3450,7 +3452,8 @@ class OrientationAvailabilityForm(forms.ModelForm):
         help_text=(
             "The first day these hours run. Nothing is booked before it. Leave it blank on a weekly "
             "rule and the hours run from now. A monthly rule keeps this day's weekday of the month, "
-            "for example the 2nd Tuesday. A 5th Tuesday only comes some months."
+            "for example the 2nd Tuesday. A 5th Tuesday only comes some months; tick Last of the "
+            "month for the last Tuesday every month."
         ),
         widget=forms.DateInput(
             # Same treatment as the one-off slot date: the whole field opens the picker, and
@@ -3458,6 +3461,7 @@ class OrientationAvailabilityForm(forms.ModelForm):
             attrs={"type": "date", "class": "pl-slot-date", "onclick": "try { this.showPicker() } catch (e) {}"}
         ),
     )
+    last_of_month = forms.BooleanField(required=False, label="Last of the month")
     slot_minutes = forms.TypedChoiceField(
         coerce=int,
         empty_value=None,
@@ -3494,6 +3498,7 @@ class OrientationAvailabilityForm(forms.ModelForm):
             "weekday",
             "cadence",
             "anchor_date",
+            "last_of_month",
             "start_time",
             "end_time",
             "seats",
@@ -3575,6 +3580,9 @@ class OrientationAvailabilityForm(forms.ModelForm):
         # The start day rules (required off weekly, on the rule's weekday) live in the model's
         # clean(), which ModelForm runs after this and which the admin runs too; adding them
         # here as well rendered the same message twice.
+        if cleaned.get("cadence") not in OrientationAvailability.MONTHS_BY_CADENCE:
+            # Last of the month is hidden under a week based cadence, not absent from the POST.
+            cleaned["last_of_month"] = False
         if cleaned.get("booking_style") == OrientationAvailability.BookingStyle.OPEN:
             # The fixed only fields are hidden on an open row, not absent from the POST: a
             # window has no seats, slot length or break, whatever the hidden inputs carried.

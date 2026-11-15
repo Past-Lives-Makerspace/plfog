@@ -491,11 +491,13 @@ def describe_cadence_display():
         assert rule.cadence_display == "Every other Saturday"
         assert "orientation: Every other Saturday 18:00 (" in str(rule)
 
-    def it_names_each_of_the_seven_cadences_in_plain_words():
+    def it_names_each_of_the_nine_cadences_in_plain_words():
         anchor = date(2026, 9, 8)  # the 2nd Tuesday of September
         assert {cadence: _rule_on(cadence, anchor).cadence_display for cadence in Cadence} == {
             Cadence.WEEKLY: "Every Tuesday",
             Cadence.FORTNIGHTLY: "Every other Tuesday",
+            Cadence.EVERY_3_WEEKS: "Every 3 weeks on Tuesday",
+            Cadence.EVERY_4_WEEKS: "Every 4 weeks on Tuesday",
             Cadence.MONTHLY: "Every month on the 2nd Tuesday",
             Cadence.EVERY_2_MONTHS: "Every 2 months on the 2nd Tuesday",
             Cadence.EVERY_3_MONTHS: "Every 3 months on the 2nd Tuesday",
@@ -515,6 +517,22 @@ def describe_cadence_display():
 
     def it_falls_back_to_the_bare_label_for_a_month_based_rule_with_no_anchor():
         assert _rule_on(Cadence.MONTHLY, None).cadence_display == "Every month"
+
+    def it_says_last_for_a_last_of_the_month_rule():
+        # Thursday 2026-11-26 is the last (and 4th) Thursday of November (#430).
+        anchor = date(2026, 11, 26)
+        thursday = OrientationAvailability.Weekday.THURSDAY
+        assert {
+            cadence: _rule_on(cadence, anchor, weekday=thursday, last_of_month=True).cadence_display
+            for cadence in (Cadence.MONTHLY, Cadence.EVERY_3_MONTHS, Cadence.YEARLY)
+        } == {
+            Cadence.MONTHLY: "Every month on the last Thursday",
+            Cadence.EVERY_3_MONTHS: "Every 3 months on the last Thursday",
+            Cadence.YEARLY: "Every year on the last Thursday of November",
+        }
+        assert "orientation: Every month on the last Thursday 18:00 (" in str(
+            _rule_on(Cadence.MONTHLY, anchor, weekday=thursday, last_of_month=True)
+        )
 
 
 def describe_starts_on_note():
@@ -622,6 +640,169 @@ def describe_occurs_on():
         def it_refuses_a_monthly_rule_with_no_anchor():
             with pytest.raises(ValueError, match="recurs monthly but has no anchor_date"):
                 _rule_on(Cadence.MONTHLY, None).occurs_on(date(2026, 9, 8))
+
+
+def _thursdays_last_of_month(anchor: date, cadence: str = Cadence.MONTHLY, *, last: bool = True):
+    return _rule_on(cadence, anchor, weekday=OrientationAvailability.Weekday.THURSDAY, last_of_month=last)
+
+
+def describe_every_n_weeks():
+    """#430: every 3 and every 4 weeks count whole Monday based weeks from the start day's week."""
+
+    def _start_days(rule, *, today: date = date(2026, 9, 21), window_weeks: int = 14) -> list[date]:
+        spans = orientations._horizon_spans(rule, today=today, window_weeks=window_weeks)
+        return [timezone.localtime(start).date() for start, _end in spans]
+
+    def it_yields_every_third_friday_from_the_start_day():
+        rule = _rule_on(Cadence.EVERY_3_WEEKS, date(2026, 9, 25), weekday=OrientationAvailability.Weekday.FRIDAY)
+        assert _start_days(rule) == [
+            date(2026, 9, 25),
+            date(2026, 10, 16),
+            date(2026, 11, 6),
+            date(2026, 11, 27),
+            date(2026, 12, 18),
+        ]
+
+    def it_yields_every_fourth_tuesday_from_the_start_day():
+        assert _start_days(_rule_on(Cadence.EVERY_4_WEEKS, date(2026, 9, 22))) == [
+            date(2026, 9, 22),
+            date(2026, 10, 20),
+            date(2026, 11, 17),
+            date(2026, 12, 15),
+        ]
+
+    def it_is_false_in_the_weeks_between():
+        rule = _rule_on(Cadence.EVERY_3_WEEKS, date(2026, 9, 22))
+        assert [rule.occurs_on(date(2026, 9, 22) + timedelta(weeks=n)) for n in range(7)] == [
+            True,
+            False,
+            False,
+            True,
+            False,
+            False,
+            True,
+        ]
+
+    def it_refuses_every_3_weeks_with_no_anchor():
+        with pytest.raises(ValueError, match="recurs every_3_weeks but has no anchor_date"):
+            _rule_on(Cadence.EVERY_3_WEEKS, None).occurs_on(date(2026, 9, 22))
+
+
+def describe_the_grid_is_the_same_whichever_day_the_job_runs():
+    """#430 acceptance: generation from two different reference days yields identical dates where they overlap.
+
+    The nightly job's ``today`` moves every night. A rule whose rhythm counted from ``today``
+    would flip its weeks; every rhythm here counts from the rule's start day instead.
+    """
+
+    FIRST_RUN = date(2026, 9, 21)  # a Monday
+    LATER_RUN = date(2026, 10, 8)  # a Thursday 17 days on, deliberately not a whole number of weeks
+
+    def _spans_from(rule, today: date) -> list[tuple[datetime, datetime]]:
+        return orientations._horizon_spans(rule, today=today, window_weeks=26)
+
+    @pytest.mark.parametrize(
+        ("cadence", "anchor", "weekday", "last"),
+        [
+            (Cadence.WEEKLY, None, OrientationAvailability.Weekday.TUESDAY, False),
+            (Cadence.FORTNIGHTLY, date(2026, 9, 22), OrientationAvailability.Weekday.TUESDAY, False),
+            (Cadence.EVERY_3_WEEKS, date(2026, 9, 25), OrientationAvailability.Weekday.FRIDAY, False),
+            (Cadence.EVERY_4_WEEKS, date(2026, 9, 22), OrientationAvailability.Weekday.TUESDAY, False),
+            (Cadence.MONTHLY, date(2026, 9, 24), OrientationAvailability.Weekday.THURSDAY, True),
+            (Cadence.EVERY_2_MONTHS, date(2026, 9, 8), OrientationAvailability.Weekday.TUESDAY, False),
+        ],
+    )
+    def it_matches_on_every_shared_day(cadence: str, anchor: date | None, weekday: int, last: bool):
+        rule = _rule_on(cadence, anchor, weekday=weekday, last_of_month=last)
+        first = _spans_from(rule, FIRST_RUN)
+        later = _spans_from(rule, LATER_RUN)
+        overlap_start = timezone.make_aware(datetime.combine(LATER_RUN, time.min))
+        overlap_end = timezone.make_aware(datetime.combine(FIRST_RUN + timedelta(weeks=26), time.min))
+        shared_first = [span for span in first if overlap_start <= span[0] < overlap_end]
+        shared_later = [span for span in later if span[0] < overlap_end]
+        assert shared_first  # the comparison is not vacuous
+        assert shared_first == shared_later
+
+
+def describe_last_of_the_month():
+    """#430: the last Thursday, in months of four Thursdays and of five."""
+
+    # October 2026 has five Thursdays (1 to 29), November four (5 to 26), December five
+    # (3 to 31) and January 2027 four (7 to 28).
+
+    def _start_days(rule) -> list[date]:
+        spans = orientations._horizon_spans(rule, today=date(2026, 10, 1), window_weeks=18)
+        return [timezone.localtime(start).date() for start, _end in spans]
+
+    def it_runs_on_the_last_thursday_of_every_month():
+        assert _start_days(_thursdays_last_of_month(date(2026, 10, 29))) == [
+            date(2026, 10, 29),  # the 5th Thursday
+            date(2026, 11, 26),  # the 4th Thursday
+            date(2026, 12, 31),  # the 5th Thursday
+            date(2027, 1, 28),  # the 4th Thursday
+        ]
+
+    def it_leaves_a_5th_thursday_rule_skipping_four_thursday_months_as_before():
+        assert _start_days(_thursdays_last_of_month(date(2026, 10, 29), last=False)) == [
+            date(2026, 10, 29),
+            date(2026, 12, 31),
+        ]
+
+    def it_follows_the_last_one_into_a_five_thursday_month_from_a_4th_thursday_start():
+        last = _thursdays_last_of_month(date(2026, 11, 26))
+        fourth = _thursdays_last_of_month(date(2026, 11, 26), last=False)
+        assert _start_days(last) == [date(2026, 11, 26), date(2026, 12, 31), date(2027, 1, 28)]
+        assert _start_days(fourth) == [date(2026, 11, 26), date(2026, 12, 24), date(2027, 1, 28)]
+
+    def it_steps_whole_months_for_every_3_months():
+        rule = _thursdays_last_of_month(date(2026, 10, 29), Cadence.EVERY_3_MONTHS)
+        assert rule.occurs_on(date(2027, 1, 28)) is True
+        assert rule.occurs_on(date(2026, 11, 26)) is False
+        assert rule.occurs_on(date(2026, 12, 31)) is False
+
+    def it_is_false_on_an_earlier_thursday_of_the_month():
+        rule = _thursdays_last_of_month(date(2026, 10, 29))
+        assert rule.occurs_on(date(2026, 11, 19)) is False
+        assert rule.occurs_on(date(2026, 12, 24)) is False
+
+
+def describe_last_of_the_month_guard():
+    """#430: what a last of the month rule refuses at save, in words a lead can act on."""
+
+    def it_accepts_a_start_day_that_is_the_last_thursday():
+        _thursdays_last_of_month(date(2026, 11, 26)).full_clean()  # must not raise
+
+    def it_refuses_a_start_day_that_is_not_the_last_one():
+        rule = _thursdays_last_of_month(date(2026, 11, 19))
+        with pytest.raises(ValidationError) as caught:
+            rule.full_clean()
+        assert caught.value.message_dict == {
+            "anchor_date": [
+                "The start day must be the last Thursday of its month when these hours run on the last Thursday."
+            ]
+        }
+
+    def it_refuses_last_of_the_month_on_a_week_based_cadence():
+        rule = _rule_on(Cadence.EVERY_3_WEEKS, date(2026, 9, 29), last_of_month=True)
+        with pytest.raises(ValidationError) as caught:
+            rule.full_clean()
+        assert caught.value.message_dict == {
+            "last_of_month": ["Last of the month is for a rule that repeats by the month or the year."]
+        }
+
+    def it_reports_only_the_weekday_when_the_start_day_is_on_another_day():
+        rule = _thursdays_last_of_month(date(2026, 11, 24))  # a Tuesday
+        with pytest.raises(ValidationError) as caught:
+            rule.full_clean()
+        assert caught.value.message_dict == {
+            "anchor_date": ["The start day must be a Thursday, the day these hours run."]
+        }
+
+    def it_reports_only_the_missing_start_day():
+        rule = _thursdays_last_of_month(None)
+        with pytest.raises(ValidationError) as caught:
+            rule.full_clean()
+        assert caught.value.message_dict == {"anchor_date": ["Pick the day these hours start."]}
 
 
 def describe_anchor_guard():
