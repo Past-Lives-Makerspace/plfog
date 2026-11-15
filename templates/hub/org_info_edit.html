@@ -92,6 +92,9 @@ rich_editor_assets.html.{% endcomment %}
                       onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this question
               </button>
+            {% else %}
+              {# A new row back on the page with an error: still unsaved, so Remove only drops it. #}
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
             {% endif %}
             {{ f.id }}
             {{ f.sort_order }}
@@ -155,6 +158,9 @@ rich_editor_assets.html.{% endcomment %}
                       onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this link
               </button>
+            {% else %}
+              {# A new row back on the page with an error: still unsaved, so Remove only drops it. #}
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
             {% endif %}
             {{ f.id }}
             {{ f.sort_order }}
@@ -221,6 +227,9 @@ rich_editor_assets.html.{% endcomment %}
                       onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this category
               </button>
+            {% else %}
+              {# A new row back on the page with an error: still unsaved, so Remove only drops it. #}
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
             {% endif %}
             {{ f.id }}
             {{ f.sort_order }}
@@ -292,6 +301,9 @@ rich_editor_assets.html.{% endcomment %}
                       onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this article
               </button>
+            {% else %}
+              {# A new row back on the page with an error: still unsaved, so Remove only drops it. #}
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
             {% endif %}
             {{ f.id }}
             {{ f.sort_order }}

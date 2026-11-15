@@ -2586,7 +2586,27 @@ class OrgInfoPageForm(forms.ModelForm):
         return sanitize_page_submission(self.cleaned_data.get("code_of_conduct") or "")
 
 
-class OrgFAQItemForm(forms.ModelForm):
+class _RemovableRowForm(forms.ModelForm):
+    """One row of a Help editor list: "+ Add" clones it from the empty form, Remove takes it off again."""
+
+    def has_changed(self) -> bool:
+        """A row added with "+ Add" and removed again before Save never changed anything.
+
+        Remove drops the row from the page but TOTAL_FORMS still counts it, so Django builds
+        the form with no posted keys at all. Its hidden ``sort_order`` then reads as changed
+        (initial 0, nothing posted), as does a default the row shows (a category's audience,
+        an article's published switch), which turns the missing row into required errors the
+        admin cannot dismiss. A new row that posted none of the fields it shows is that row.
+        A saved row always gets Django's answer, so one blanked out still errors.
+        """
+        if self.instance._state.adding and not any(
+            self.data.get(field.html_name) or self.files.get(field.html_name) for field in self.visible_fields()
+        ):
+            return False
+        return super().has_changed()
+
+
+class OrgFAQItemForm(_RemovableRowForm):
     """A single FAQ question/answer row on the Space & Org Info editor — mirrors ``GuildFAQItemForm``.
 
     The answer is a dual-mode rich-text field (see ``OrgInfoPageForm``); the guild FAQ
@@ -2638,7 +2658,7 @@ class OrgFAQItemForm(forms.ModelForm):
 OrgFAQItemFormSet = forms.inlineformset_factory(OrgInfoPage, OrgFAQItem, form=OrgFAQItemForm, extra=0, can_delete=True)
 
 
-class OrgLinkForm(forms.ModelForm):
+class OrgLinkForm(_RemovableRowForm):
     """A single external-link row on the Space & Org Info editor — mirrors ``GuildLinkForm``."""
 
     class Meta:
@@ -2654,7 +2674,7 @@ RESERVED_HELP_SLUGS = frozenset({"edit", "search", "categories", "articles", "fa
 """Slugs that collide with the fixed /help/… routes — a category can never claim one."""
 
 
-class HelpCategoryForm(forms.ModelForm):
+class HelpCategoryForm(_RemovableRowForm):
     """A single help-center category row in the editor — mirrors ``OrgFAQItemForm``."""
 
     class Meta:
@@ -2676,7 +2696,7 @@ class HelpCategoryForm(forms.ModelForm):
 HelpCategoryFormSet = forms.modelformset_factory(HelpCategory, form=HelpCategoryForm, extra=0, can_delete=True)
 
 
-class WikiArticleForm(forms.ModelForm):
+class WikiArticleForm(_RemovableRowForm):
     """A single Wiki article row in the editor — mirrors ``OrgFAQItemForm``."""
 
     category = forms.ModelChoiceField(
