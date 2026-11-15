@@ -4851,8 +4851,20 @@ def _compose_form_kwargs(request: HttpRequest, requested: str | None = None) -> 
     }
 
 
-def _compose_audience_forbidden(request: HttpRequest, raw_audience: str) -> HttpResponse | None:
-    """403 if the user can't address ``raw_audience`` (never trust the posted audience), else None."""
+def _compose_audience_refusal(request: HttpRequest, raw_audience: str) -> str | None:
+    """Why this request may not address ``raw_audience``, or None when it may (never trust the posted audience).
+
+    The audience gate, answering "may you address THIS audience?" rather than "may you compose at
+    all?" (:func:`_compose_refusal_message`), so the reason names the audience (#415): a guild lead
+    who lost the role while the composer sat open can still compose, just not to that guild.
+
+    Args:
+        request: The request, carrying ``view_as`` from the middleware.
+        raw_audience: The composer's combined audience value, as posted.
+
+    Returns:
+        None when the audience is addressable, else a member-friendly sentence naming it.
+    """
     from hub.forms import split_audience
     from membership.models import AnnouncementDraft
 
@@ -4863,19 +4875,73 @@ def _compose_audience_forbidden(request: HttpRequest, raw_audience: str) -> Http
         AnnouncementDraft.Audience.INSTRUCTORS.value,
     )
     if audience in admin_only:
-        return None if _viewing_as_admin(request) else HttpResponse("Forbidden", status=403)
-    if audience == AnnouncementDraft.Audience.STUDENTS.value:
+        if _viewing_as_admin(request):
+            return None
+    elif audience == AnnouncementDraft.Audience.STUDENTS.value:
         # Anyone who teaches, admins included and only when they teach (#1042).
-        return None if _teaching_member(_get_member(request)) is not None else HttpResponse("Forbidden", status=403)
-    if audience == AnnouncementDraft.Audience.GUILD.value and guild is not None and _can_edit_guild(request, guild):
+        if _teaching_member(_get_member(request)) is not None:
+            return None
+    elif audience == AnnouncementDraft.Audience.GUILD.value and guild is not None and _can_edit_guild(request, guild):
         return None
-    if (
+    elif (
         audience == AnnouncementDraft.Audience.CLASS.value
         and offering is not None
         and _can_announce_to_class(request, offering)
     ):
         return None
-    return HttpResponse("Forbidden", status=403)
+    return _audience_refusal_message(request, _compose_audience_name(audience, guild, offering))
+
+
+def _compose_audience_name(audience: str, guild: Guild | None, offering: ClassOffering | None) -> str:
+    """The refused audience as the refusal sentence names it: "everyone", "members of Wood", "that audience"."""
+    from membership.models import AnnouncementDraft
+
+    if guild is not None:
+        return f"members of {guild.name}"
+    if offering is not None:
+        return f"the class {offering.title}"
+    names = {
+        AnnouncementDraft.Audience.SITE.value: "everyone",
+        AnnouncementDraft.Audience.LEADS.value: "the guild leads",
+        AnnouncementDraft.Audience.INSTRUCTORS.value: "all instructors",
+        AnnouncementDraft.Audience.STUDENTS.value: "past students",
+    }
+    # A guild or class pk that no longer resolves, or a value the picker never offers.
+    return names.get(audience, "that audience")
+
+
+def _audience_refusal_message(request: HttpRequest, audience_name: str) -> str:
+    """The audience gate's sentence: the previewing admin is pointed at the switcher, as in :func:`_compose_refusal_message`.
+
+    Unlike that helper this one is reached by actual admins who are not previewing (an admin who
+    teaches nothing is refused My Past Students), so it tests ``is_previewing`` as well: telling
+    that admin to switch back to Admin would be untrue.
+    """
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.actual_is_admin and view_as.is_previewing:
+        return (
+            f"Your Viewing as switcher is set to {view_as.current_label}, which cannot email {audience_name}. "
+            "Switch it back to Admin to send this."
+        )
+    return AUDIENCE_REFUSAL.format(audience=audience_name)
+
+
+# What the audience gate tells everyone else; distinct from COMPOSE_REFUSAL on purpose (#415).
+AUDIENCE_REFUSAL = "Your account cannot email {audience}."
+
+
+def _compose_audience_forbidden(request: HttpRequest, raw_audience: str) -> HttpResponse | None:
+    """403 carrying the audience refusal as an error toast if the user can't address ``raw_audience``, else None.
+
+    The toast rides ``HX-Trigger`` because every caller but Send is htmx, and htmx swaps no 4xx but
+    reads that header (:func:`_compose_refused`). Send renders its own refusal (:func:`hub_compose_send`).
+    """
+    reason = _compose_audience_refusal(request, raw_audience)
+    if reason is None:
+        return None
+    response = HttpResponse("Forbidden", status=403)
+    trigger_toast(response, reason, "error")
+    return response
 
 
 # The refusal when a draft the composer was asked to save over or send is no longer the
@@ -6056,9 +6122,9 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
     from membership.models import ANNOUNCEMENT_ALREADY_SENT, AlreadySentError
 
     raw = request.POST.get("audience") or ""
-    forbidden = _compose_audience_forbidden(request, raw)
-    if forbidden is not None:
-        return forbidden
+    refusal = _compose_audience_refusal(request, raw)
+    if refusal is not None:
+        return _compose_send_audience_refused(request, raw, refusal)
     draft_pk = request.POST.get("draft_pk") or ""
     instance = None
     if draft_pk:
@@ -6100,6 +6166,57 @@ def hub_compose_send(request: HttpRequest) -> HttpResponse:
     if draft.kind == AnnouncementDraft.Kind.POLL:
         return _send_poll_draft(request, draft)
     return _send_email_draft(request, draft)
+
+
+def _compose_send_audience_refused(request: HttpRequest, raw: str, refusal: str) -> HttpResponse:
+    """Send refused at the audience gate (#415): the composer again, holding everything that was posted.
+
+    Rights can change while the composer sits open (a lead loses the role, a class is reassigned,
+    an admin flips Viewing as in another tab), so the refusal re-renders the posted form the way an
+    invalid send does, rather than a bare 403 page that threw the announcement away. The status
+    stays 403 and nothing is saved: saving would write a row to an audience the sender may not
+    address. The reason sits on the audience field and arrives as an error toast. A posted
+    ``draft_pk`` is kept only while the draft's stored audience is still the request's to handle.
+
+    Args:
+        request: The refused Send POST.
+        raw: The posted audience value.
+        refusal: :func:`_compose_audience_refusal`'s sentence for it.
+
+    Returns:
+        The composer page with status 403.
+    """
+    from hub.forms import AnnouncementComposeForm
+
+    draft_pk = request.POST.get("draft_pk") or ""
+    instance = _handled_draft(request, draft_pk) if draft_pk else None
+    results_lock = _results_compose_lock(instance)
+    form = AnnouncementComposeForm(
+        request.POST,
+        request.FILES,
+        require_body=not _posts_poll(request),
+        results_announcement=results_lock is not None,
+        draft=instance,
+        **_compose_form_kwargs(request),
+    )
+    # Bind and clean so the posted text re-renders; the audience is never one of the choices here,
+    # so its "Select a valid choice" is replaced by the reason, which says what actually happened.
+    form.is_valid()
+    form.errors["audience"] = form.error_class([refusal])
+    messages.error(request, f"{refusal} Nothing was sent, and your message is still here.")
+    locked, locked_label, heading, lead = results_lock or _compose_lock(raw, bool(request.POST.get("lock")))
+    response = _render_compose(
+        request,
+        form=form,
+        draft=instance,
+        locked=locked,
+        locked_label=locked_label,
+        compose_heading=heading,
+        compose_lead=lead,
+        poll_forms=_compose_poll_forms(request, instance),
+    )
+    response.status_code = 403
+    return response
 
 
 def _send_email_draft(request: HttpRequest, draft: AnnouncementDraft) -> HttpResponse:
