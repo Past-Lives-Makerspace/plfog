@@ -1,0 +1,11 @@
+bump = "patch"
+audience = ["guild-leads", "instructors", "admins"]
+date = "2026-11-14"
+title = "Email Members keeps your message when Send is refused"
+feature = "admin.email-members"
+guidance = "none"
+changes = [
+  "If you can no longer email the audience you picked, Send now keeps you on the composer with your subject and message still there, instead of an error page.",
+  "The message says which audience you cannot email, so you know it is not your whole account.",
+  "Save draft and the recipient count also say why when they refuse.",
+]

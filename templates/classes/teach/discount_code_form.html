@@ -1,12 +1,22 @@
 {% extends "classes/teach/base.html" %}
+{% load static %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/instructor-codes.css' %}">
+{% endblock %}
 {% block tab_content %}
-<h2 style="margin-top:0;">{% if mode == 'create' %}New Discount Code{% else %}Edit "{{ code.code }}"{% endif %}</h2>
-<form method="post">
+{# An instructor's own code (#1184): Class holds it to their classes, and a new one is live as soon as it saves. #}
+<h2 class="pl-code-form__title">{% if mode == 'create' %}New Discount Code{% else %}Edit "{{ code.code }}"{% endif %}</h2>
+<form method="post" class="pl-code-form" data-instructor-code-form>
     {% csrf_token %}
+    {% for error in form.non_field_errors %}<p class="pl-field-error" role="alert">{{ error }}</p>{% endfor %}
     {% for field in form %}{% include "components/form_field.html" with field=field %}{% endfor %}
-    <div style="margin-top:1rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+    <div class="pl-code-form__actions">
         <button class="hub-btn hub-btn--sm hub-btn--primary" type="submit">Save</button>
+        {% if scoped_to %}
+        <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_discount_codes' pk=scoped_to.pk %}">Cancel</a>
+        {% else %}
         <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_discount_codes' %}">Cancel</a>
+        {% endif %}
     </div>
 </form>
 {% endblock %}

@@ -41,6 +41,8 @@ DIGEST_EVENTS = {
     "space.lease_requested",
     "space.cubby_requested",
     "discount_code.requested",
+    # #1184: an instructor made a live code; a heads up, every line goes out.
+    "discount_code.instructor_made",
     "event.submitted",
     "guild_announcement.submitted",
     "wiki.page_reported",

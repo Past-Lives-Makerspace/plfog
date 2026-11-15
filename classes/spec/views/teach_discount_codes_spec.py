@@ -109,31 +109,31 @@ def describe_teach_discount_code_approve():
 
 
 def describe_approve_button_visibility():
-    def it_shows_the_approve_button_on_an_approvable_pending_code(client):
+    """#1184: an instructor's code is live at once, so their page shows no Approve and no pending state."""
+
+    def it_shows_no_approve_button_even_to_a_self_approver(client):
         user = _self_approver()
         mine = DiscountCodeFactory(code="SHOWBTN", created_by=user, is_approved=False)
         client.force_login(user)
         resp = client.get(reverse("classes:teach_discount_codes"))
         approve_url = reverse("classes:teach_discount_code_approve", kwargs={"pk": mine.pk})
-        assert approve_url.encode() in resp.content
-
-    def it_hides_the_button_but_shows_pending_when_not_approvable(client):
-        user = _instructor()  # owns the code but lacks the self-approve permission
-        mine = DiscountCodeFactory(code="HIDEBTN", created_by=user, is_approved=False)
-        client.force_login(user)
-        resp = client.get(reverse("classes:teach_discount_codes"))
-        approve_url = reverse("classes:teach_discount_code_approve", kwargs={"pk": mine.pk})
         assert approve_url.encode() not in resp.content
-        assert b"Pending approval" in resp.content
 
-    def it_shows_neither_on_an_approved_code(client):
+    def it_reads_an_old_unapproved_code_as_inactive_not_pending(client):
+        user = _instructor()
+        DiscountCodeFactory(code="HIDEBTN", created_by=user, is_approved=False)
+        client.force_login(user)
+        html = client.get(reverse("classes:teach_discount_codes")).content.decode()
+        assert "Pending approval" not in html
+        assert '<span style="color:var(--hub-text-muted);">Inactive</span>' in html
+
+    def it_shows_an_approved_active_code_as_active(client):
         user = _self_approver()
-        mine = DiscountCodeFactory(code="ALLGOOD", created_by=user, is_approved=True)
+        DiscountCodeFactory(code="ALLGOOD", created_by=user, is_approved=True)
         client.force_login(user)
-        resp = client.get(reverse("classes:teach_discount_codes"))
-        approve_url = reverse("classes:teach_discount_code_approve", kwargs={"pk": mine.pk})
-        assert approve_url.encode() not in resp.content
-        assert b"Pending approval" not in resp.content
+        html = client.get(reverse("classes:teach_discount_codes")).content.decode()
+        assert '<span style="color:var(--hub-success, #4caf50);">Active</span>' in html
+        assert "Pending approval" not in html
 
 
 def describe_an_instructors_code_on_my_discount_codes():

@@ -504,13 +504,13 @@ def describe_who_sees_what():
             AnnouncementDraftFactory(author=user, audience=_GUILD, guild=other)
             AnnouncementDraftFactory(author=user)
             asked: list[str] = []
-            real = hub.views._compose_audience_forbidden
+            real = hub.views._compose_audience_refusal
 
             def gate(request, raw_audience):
                 asked.append(raw_audience)
                 return real(request, raw_audience)
 
-            monkeypatch.setattr(hub.views, "_compose_audience_forbidden", gate)
+            monkeypatch.setattr(hub.views, "_compose_audience_refusal", gate)
             rows = hub.views._announcement_rows(client.get(reverse("hub_home")).wsgi_request, user.member)
             assert sorted(asked) == sorted(["site", f"guild:{guild.pk}", f"guild:{other.pk}"])
             assert {row.guild for row in rows} == {guild}

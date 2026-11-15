@@ -517,6 +517,7 @@ ORIENTATION_COMPLETED = "orientation.completed"  # dotted, matches the new-event
 DISCOUNT_CODE_REQUESTED = "discount_code.requested"  # a new code awaits approval (Discount Admins)
 DISCOUNT_CODE_REQUEST_APPROVED = "discount_code.request_approved"  # an admin approved an instructor's request
 DISCOUNT_CODE_REQUEST_DECLINED = "discount_code.request_declined"  # an admin declined it, with a note
+DISCOUNT_CODE_INSTRUCTOR_MADE = "discount_code.instructor_made"  # an instructor made a live code (#1184)
 BILLING_CHARGE_FAILED_ADMIN = "billing.charge_failed_admin"  # a member's tab charge failed (Billing Admins)
 WAITLIST_PROMOTED = "waitlist_promoted"  # staff hand-picked a waitlister into the class (plain "you're in")
 WAITLIST_PROMOTED_PAY = "waitlist_promoted_pay"  # promoted with a balance due — "you're in" + pay link
@@ -1012,6 +1013,18 @@ _NEW_EVENTS: list[EventType] = [
         key=DISCOUNT_CODE_REQUESTED,
         label="Discount code needs approval",
         description="A member created a discount code that needs approval before it can be used.",
+        category="Teaching",
+        recipient=Recipients.DISCOUNT_APPROVERS,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # 32b. discount_code.instructor_made — an instructor made a code for their own classes (#1184).
+    #      It is live at once; the Discount Code Administrators hear after the fact, one line per
+    #      code in the 8 AM digest. DiscountCode.save logs the CmsActivity, so emit logs none.
+    EventType(
+        key=DISCOUNT_CODE_INSTRUCTOR_MADE,
+        label="An instructor made or changed a discount code",
+        description="An instructor made a discount code for their own classes, or changed what one takes off, where it works or how many uses it has. It works at once; switch Active off to stop it.",
         category="Teaching",
         recipient=Recipients.DISCOUNT_APPROVERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
@@ -1959,6 +1972,8 @@ _DIGEST_EMAIL_EVENTS: frozenset[str] = frozenset(
         "space.lease_requested",
         "space.cubby_requested",
         "discount_code.requested",
+        # #1184: a heads up, not a request; nothing decides it, so every line goes out.
+        "discount_code.instructor_made",
         "event.submitted",
         "wiki.page_reported",
         "wiki.page_proposed",

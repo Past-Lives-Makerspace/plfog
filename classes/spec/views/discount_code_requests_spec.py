@@ -323,8 +323,10 @@ def describe_the_direct_flow_when_the_new_flag_is_off():
     def it_still_lets_an_instructor_create_a_code(client, member_user):
         client.force_login(member_user)
 
+        # Since #1184 a code needs a scope: here, every class the instructor teaches.
         resp = client.post(
-            reverse("classes:teach_discount_code_create"), {"code": "DIRECT10", "discount_pct": 10, "is_active": "on"}
+            reverse("classes:teach_discount_code_create"),
+            {"code": "DIRECT10", "discount_pct": 10, "applies_to": "mine"},
         )
 
         assert resp.status_code == 302

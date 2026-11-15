@@ -1,0 +1,28 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% comment %}
+Send refused for someone who can no longer use Email Members at all (#415): the refusal and the
+member's own subject and message as plain, escaped text to copy. Deliberately no form, no audience
+and no recipients: the composer it came from would show people this viewer may no longer reach.
+{% endcomment %}
+{% block title %}Email Members{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/announcement-compose.css' %}">
+{% endblock %}
+{% block content %}
+<div class="hub-card" data-compose-refused>
+  <h1 class="hub-page-title">Your Email Was Not Sent</h1>
+  <p class="pl-form-note" data-compose-refused-reason>{{ refusal }} Copy your message below before you leave this page.</p>
+  {% if subject %}
+  <div class="hub-form-group pl-compose-subject">
+    <label for="compose-refused-subject">Subject</label>
+    <input type="text" id="compose-refused-subject" value="{{ subject }}" readonly>
+  </div>
+  {% endif %}
+  <div class="hub-form-group">
+    <label for="compose-refused-message">Message</label>
+    <textarea id="compose-refused-message" rows="10" readonly>{{ message }}</textarea>
+  </div>
+  <a class="hub-btn hub-btn--primary pl-btn--spaced" href="{% url 'hub_home' %}">Back to Home</a>
+</div>
+{% endblock %}
