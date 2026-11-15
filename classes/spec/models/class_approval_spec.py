@@ -36,14 +36,11 @@ def describe_ClassApproval():
             offering = ClassOfferingFactory(ready=True, category=cat)
             assert offering.required_review_roles == [ClassApproval.Role.ADMIN]
 
-        def it_requires_admin_plus_guild_lead_when_both_are_set(db):
+        def it_requires_only_the_guild_lead_when_the_guild_has_one(db):
             lead_member = MemberFactory()
             guild = GuildFactory(guild_lead=lead_member)
             offering = ClassOfferingFactory(ready=True, category=CategoryFactory(guild=guild))
-            assert offering.required_review_roles == [
-                ClassApproval.Role.ADMIN,
-                ClassApproval.Role.GUILD_LEAD,
-            ]
+            assert offering.required_review_roles == [ClassApproval.Role.GUILD_LEAD]
 
     def describe_submit_for_review():
         def it_opens_only_the_guild_lead_gate_when_a_lead_exists(db):
@@ -85,7 +82,7 @@ def describe_ClassApproval():
             assert offering.approved_by == admin_user
             assert offering.published_at is not None
 
-        def it_holds_off_publishing_until_admin_signs_off_after_lead(db, admin_user):
+        def it_publishes_when_the_guild_lead_approves(db, admin_user):
             lead_user, lead = _lead_user_and_member(db)
             guild = GuildFactory(guild_lead=lead)
             offering = ClassOfferingFactory(
@@ -96,9 +93,9 @@ def describe_ClassApproval():
             (gl_row,) = offering.submit_for_review()
             gl_row.decide(ClassApproval.Decision.APPROVED, user=lead_user)
             offering.refresh_from_db()
-            # Guild lead approved → admin gate opens but the class is not yet live.
-            assert offering.status == ClassOffering.Status.PENDING
-            assert offering.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").exists()
+            # One review per class (#1183): the lead's approval publishes, no admin gate opens.
+            assert offering.status == ClassOffering.Status.PUBLISHED
+            assert not offering.approvals.filter(role=ClassApproval.Role.ADMIN).exists()
 
         def it_returns_to_draft_on_changes_requested(db, admin_user):
             offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)

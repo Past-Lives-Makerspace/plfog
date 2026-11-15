@@ -66,10 +66,10 @@ def describe_admin_settings():
             "liability_waiver_text",
             "model_release_waiver_text",
             "reminder_hours_before",
-            "instructor_approval_required",
             "confirmation_email_footer",
         ):
             assert f'name="{name}"' in content
+        assert 'name="instructor_approval_required"' not in content
         for name in TEACH_PAGE_FIELDS:
             assert f'name="{name}"' not in content
         assert 'name="example_class"' not in content

@@ -235,7 +235,7 @@ def describe_the_morning_subject():
             )
             for n in range(11)
         ]
-        rows.append(EventDelivery(event_key="class_validation_requested", title="Review", url="/r/1", period="v:1"))
+        rows.append(EventDelivery(event_key="class_review_requested", title="Review", url="/r/1", period="v:1"))
         assert digest_context(rows)["subject"] == "Action Needed: 1 Class Awaiting Review, plus 11 Updates"
 
     def it_pluralizes_both_sides() -> None:

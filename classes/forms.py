@@ -3234,7 +3234,6 @@ class ClassSettingsForm(forms.ModelForm):
             "liability_waiver_text",
             "model_release_waiver_text",
             "reminder_hours_before",
-            "instructor_approval_required",
             "confirmation_email_footer",
         ]
         widgets = {

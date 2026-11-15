@@ -457,31 +457,14 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="review_submitted_instructor_context",
     ),
     GalleryEmail(
-        key="admin_validation_request",
-        name="Admin sign-off request",
-        section="Teaching",
-        renderer=Renderer.SHELL_TEMPLATE,
-        trigger_note=(
-            "No longer sent on its own (#894): the request reaches the CMS Administrators as a line in "
-            "the 8 AM staff digest. Was sent when a guild lead approved a class and the admin sign-off "
-            "gate opened."
-        ),
-        edit_pointer=_tpl("classes/emails", "admin_validation_request"),
-        audience="The CMS Administrators (CLASS_APPROVER holders).",
-        event_keys=frozenset({"class_validation_requested"}),
-        text_template="classes/emails/admin_validation_request.txt",
-        html_template="classes/emails/admin_validation_request.html",
-        context_builder="admin_validation_request_context",
-    ),
-    GalleryEmail(
         key="review_decision",
         name="Review decision (instructor)",
         section="Teaching",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent when any reviewer decides on a submitted class — approved, live, changes requested, "
-            "or declined (the subject line varies by outcome; the gallery shows the fully-approved "
-            "outcome). Goes to the class's instructor."
+            "Sent when any reviewer decides on a submitted class — approved and live, changes requested, "
+            "or declined (the subject line varies by outcome; the gallery shows the approved outcome). "
+            "Goes to the class's instructor."
         ),
         edit_pointer=_tpl("classes/emails", "review_decision"),
         audience="The class's instructor.",

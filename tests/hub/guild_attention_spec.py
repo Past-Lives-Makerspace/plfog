@@ -48,12 +48,11 @@ def _pending_class(guild, title: str) -> ClassOffering:
         status=ClassOffering.Status.PENDING,
     )
     ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
-    ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
     return offering
 
 
 def _guild_approved_class(guild, title: str) -> ClassOffering:
-    """A class this guild already approved, still waiting on the admin gate."""
+    """Legacy shape from the old two step review: the guild approved, an admin gate still open."""
     offering = ClassOfferingFactory(
         title=title,
         category=CategoryFactory(guild=guild),
@@ -98,7 +97,7 @@ def describe_guild_needs_attention_section():
                 assert html.index(SECTION_MARKER) < html.index(TABS_MARKER)
 
     def describe_what_it_lists():
-        def it_lists_the_review_queue_and_the_admin_wait_for_this_guild(client: Client):
+        def it_lists_the_review_queue_and_no_admin_wait_for_this_guild(client: Client):
             user = _user("ga_lead")
             guild = GuildFactory(name="Metalsmithing", guild_lead=user.member)
             pending = _pending_class(guild, "Ring Sizing and Soldering Basics")
@@ -108,9 +107,10 @@ def describe_guild_needs_attention_section():
             assert "Waiting on Your Review" in html
             assert "Ring Sizing and Soldering Basics" in html
             assert reverse("classes:class_review", kwargs={"token": token}) in html
-            assert "Awaiting Admin Validation" in html
-            assert "Chasing and Repousse Weekend" in html
-            assert reverse("classes:teach_class_edit", kwargs={"pk": approved.pk}) in html
+            # A guild lead's approval publishes the class (#1183): nothing waits on an admin after it.
+            assert "Awaiting Admin Validation" not in html
+            assert "Chasing and Repousse Weekend" not in html
+            assert reverse("classes:teach_class_edit", kwargs={"pk": approved.pk}) not in html
             assert CLEAR_MARKER not in html
 
         def it_leaves_out_a_class_from_another_guild(client: Client):
@@ -240,6 +240,6 @@ def describe_guild_needs_attention_section():
             guild = GuildFactory(name="Read Only Guild", guild_lead=user.member)
             offering = _pending_class(guild, "Read Only Class")
             _get_page(client, "ga_readonly", guild)
-            assert offering.approvals.filter(decision="").count() == 2
+            assert offering.approvals.filter(decision="").count() == 1
             offering.refresh_from_db()
             assert offering.status == ClassOffering.Status.PENDING

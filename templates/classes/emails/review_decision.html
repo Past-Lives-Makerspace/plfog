@@ -1,13 +1,11 @@
 {% extends "membership/emails/_base.html" %}
 {% load classes_tags %}
 {% block content %}
-<p style="margin: 0 0 8px; font-size: 12px; font-weight: 700; color: #0d4876; text-transform: uppercase; letter-spacing: 0.08em;">{% if fully_approved %}Published{% elif approval.decision == 'approved' %}{{ approval.get_role_display }} approved{% elif approval.decision == 'changes_requested' %}Changes requested{% else %}Declined{% endif %}</p>
+<p style="margin: 0 0 8px; font-size: 12px; font-weight: 700; color: #0d4876; text-transform: uppercase; letter-spacing: 0.08em;">{% if fully_approved %}Published{% elif approval.decision == 'changes_requested' %}Changes requested{% else %}Declined{% endif %}</p>
 <p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">{% if public_url %}<a href="{{ public_url }}" style="color: #0d4876; text-decoration: none;">{{ offering.title }}</a>{% else %}{{ offering.title }}{% endif %}</p>
 {% if fully_approved %}
 <p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">Your class is approved and is now live on the website's public Classes page.</p>
 {% include "membership/emails/_button.html" with href=public_url label="View public page" %}
-{% elif approval.decision == 'approved' %}
-<p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">{{ approval.get_role_display }} approved your class.{% if pending_rows %} Waiting on: {% for p in pending_rows %}{{ p.get_role_display }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% else %} That was the last gate.{% endif %}</p>
 {% elif approval.decision == 'changes_requested' %}
 <p style="margin: 0 0 16px; font-size: 14px; color: #33424f; line-height: 1.6;">{{ approval.get_role_display }} reviewed your class and asked for changes before approving. The class is back in Draft so you can edit and resubmit. To ask the reviewer anything first, write to them in the class's Messages; you do not need to resubmit.</p>
 {% else %}

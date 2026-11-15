@@ -636,7 +636,7 @@ class DigestAdapter:
 
 # A morning email holding only class reviews says so in its subject; anything else
 # queued alongside them falls back to the general wording.
-CLASS_REVIEW_EVENTS = frozenset({"class_review_requested", "class_validation_requested"})
+CLASS_REVIEW_EVENTS = frozenset({"class_review_requested"})
 
 # Lines that tell staff what already happened rather than ask them to act (#1184, #894 part 4).
 # A morning email holding only these says so in its subject and opening line, never "Action Needed".

@@ -148,8 +148,8 @@ INSTRUCTOR_SETUP = PermissionSetupSpec(
             action_label="Open My Classes",
             action_url_name="classes:teach_dashboard",
             how=(
-                "A class goes to its guild's lead first when the guild has one, then to an admin.",
-                "It is published once the admin approves it.",
+                "A class goes to its guild's lead when the guild has one, or to an admin when it has no guild lead.",
+                "It is published once that reviewer approves it.",
                 "A class sent back with a note shows on the Overview, under what needs your attention.",
             ),
             guide_section="How Review Goes",
@@ -216,12 +216,12 @@ CLASS_REVIEWER_SETUP = PermissionSetupSpec(
             key=LEARN,
             title="Learn How Guild Review Goes",
             note="About a minute to read",
-            why="Classes in your guild come to its lead and its Class Reviewers first.",
+            why="Classes in your guild come to its lead and its Class Reviewers.",
             email_line="Learn how guild review goes",
             how=(
                 "When a class in the guild needs review you get a bell and an email with a Review link. The "
                 "email comes in the 8 AM staff digest, and is left out if someone has already decided.",
-                "A class you approve then goes to an admin, who publishes it.",
+                "A class you approve goes live right away. No admin reviews it after you.",
             ),
             guide_section="How Guild Review Goes",
             got_it=True,

@@ -25,7 +25,6 @@ EXPECTED_PAIRS = {
     # core
     "staff_digest",
     # classes
-    "admin_validation_request",
     "confirmation",
     "instructor_new_registration",
     "reminder",
@@ -97,7 +96,7 @@ def describe_email_gallery_completeness():
     def it_discovers_the_expected_46_pairs():
         """Pins the discovery rule so it never silently sweeps in (or drops) templates."""
         assert discover_template_pairs() == EXPECTED_PAIRS
-        assert len(EXPECTED_PAIRS) == 52
+        assert len(EXPECTED_PAIRS) == 51
 
     def it_excludes_shells_and_partials():
         discovered = discover_template_pairs()

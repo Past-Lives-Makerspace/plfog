@@ -42,7 +42,13 @@ def describe_ClassSettings():
         def it_has_sensible_defaults(db):
             settings = ClassSettings.load()
             assert settings.reminder_hours_before == 24
-            assert settings.instructor_approval_required is True
+
+        def it_has_no_instructor_approval_switch(db):
+            # Retired by #1183; the column stays one release with a database default, so a
+            # fresh row still saves without naming it.
+            settings = ClassSettings.load()
+            assert not hasattr(settings, "instructor_approval_required")
+            assert "instructor_approval_required" not in {f.name for f in ClassSettings._meta.get_fields()}
 
     def describe_save():
         def it_forces_pk_to_one(db):

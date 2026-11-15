@@ -351,8 +351,6 @@ _TRIGGER_RESOLVERS: dict[str, Recipients] = {
     # teaches the class included (#816, #883); a lead-less category (guild is None in
     # context) routes to the CMS Administrators (composition, not union).
     "class_review_requested": Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS,
-    # The admin validation stage always routes to the CMS Administrators.
-    "class_validation_requested": Recipients.CLASS_APPROVERS,
     # Guild activity
     "guild_announcement": Recipients.ALL_ACTIVE_MEMBERS,
     "orientation_requested": Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS,
@@ -412,7 +410,6 @@ _TRIGGER_ACTIVITY_KINDS: dict[str, str | None] = {
     "instructor_changes_requested": None,
     "instructor_new_registration": None,
     "class_review_requested": None,
-    "class_validation_requested": None,
     "guild_announcement": "guild_announcement",
     "orientation_requested": "orientation_requested",
     "orientation_update": None,
@@ -1923,7 +1920,6 @@ _NEW_EVENTS: list[EventType] = [
 _DIGEST_EMAIL_EVENTS: frozenset[str] = frozenset(
     {
         "class_review_requested",
-        "class_validation_requested",
         # Part 3: the other staff requests.
         "space.lease_requested",
         "space.cubby_requested",

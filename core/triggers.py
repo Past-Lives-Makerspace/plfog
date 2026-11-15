@@ -102,14 +102,6 @@ TRIGGERS: list[Trigger] = [
         "Teaching",
         email_default=True,
     ),
-    Trigger(
-        "class_validation_requested",
-        "Class needs admin sign-off",
-        "A guild lead approved a class; it needs admin sign-off to publish.",
-        "Teaching",
-        Audience.STAFF_ONLY,
-        email_default=True,
-    ),
     # Guild activity
     Trigger("guild_announcement", "Guild announcement", "A guild you follow posted an announcement.", "Guilds"),
     # Email defaults ON (#524): the request email used to go to a fixed address list that

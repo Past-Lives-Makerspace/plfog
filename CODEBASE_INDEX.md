@@ -70,9 +70,9 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 - `EventHub` / `HubCard` / `HubGoal` — the Holiday Bizarre HQ: the one open hub, its door cards (kind, audience, Can open and Team, hidden) and its goal chips; `hq.services.goal_rows` counts the live kinds
 ### classes (book CMS — `book.` subdomain)
 - `Category` (+ `verbose_name`) — class grouping; **UI labeled "Guild"** (see relabel plan); optional FK to `membership.Guild`
-- `ClassOffering` (+ `ClassOfferingQuerySet`) — a class; status DRAFT/PENDING/PUBLISHED/ARCHIVED; `public()` / `bookable()`; sequential approval state machine; instructor welcome-email fields
+- `ClassOffering` (+ `ClassOfferingQuerySet`) — a class; status DRAFT/PENDING/PUBLISHED/ARCHIVED; `public()` / `bookable()`; one review gate per class (#1183); instructor welcome-email fields
 - `ClassSession` — individual dated session (`starts_at` / `ends_at`); a series offering has many
-- `ClassApproval` (+ QuerySet) — sequential guild-lead→admin approval rows with tokenized review links
+- `ClassApproval` (+ QuerySet) — review gate rows (guild lead, or admin with no guild lead) with tokenized review links
 - `ClassMessage` / `ClassMessagePhoto` — a class's messages between its instructors and its reviewers (the shared thread, `core/threads.py`, #975). `ClassOffering.post_message` always tells the other side minus the author (`class.message_to_reviewers` to the first gate's audience plus reviewer side writers who still review, never all admins; `class.message_to_instructors` to every instructor); `write_message` tells nobody: a decision's note (`ClassApproval.decide`, the note stays on the row too) and a live class's change request ride on their own notice. `message_side(user)` decides who reads and writes (instructors; the guild's lead and Class Reviewers, CMS Administrators, admins). The thread hangs off the class, so a resubmit that deletes a bounced row keeps it; `0096` carried every earlier note in
 - `Registration` — a signup; status PENDING/CONFIRMED/WAITLISTED/CANCELLED/REFUNDED; `self_serve_token`
 - `RegistrationQuestion` / `RegistrationAnswer` — custom per-class signup questions
@@ -191,7 +191,7 @@ Root `conftest.py` provides:
 - **Tab.add_entry()** uses `select_for_update()` + `transaction.atomic()` to prevent race conditions on balance checks.
 - **Tab charges to guilds** use Stripe Connect destination charges (`create_destination_payment_intent`); charges without a guild use standard PaymentIntents.
 - **Fog roles** map to Django permissions: admin→is_superuser+is_staff, member→neither. There is no Guild Officer role (ADR 0004): guild authority comes from leading or staffing a guild.
-- **Class approval** is a *sequential* state machine in `ClassOffering` / `ClassApproval`: submit creates only the first gate (guild lead if the category's guild has a lead, else admin); guild-lead approval escalates and creates the admin gate; publish requires all required roles approved.
+- **Class approval** is one gate per class in `ClassOffering` / `ClassApproval` (#1183): submit creates the guild lead gate when the category's guild has a lead, else the admin gate; any approval publishes and closes any other open gate (an admin may approve a guilded class early); a bounce returns the class to draft.
 - **All transactional email** goes through the single choke-point `core.email.send()` (logs to `TransactionalEmailLog`). Senders live in `classes/emails.py`. Event/notification routing is `core/triggers.py` + `core/notifications.py` (in-app always; email/push on per-user opt-in).
 - **Scheduled jobs** run via `core/management/commands/run_scheduled_tasks.py` (Render `cron` every 15 min, `render.yaml`). NB: `classes` reminder/follow-up emails are *not yet* wired into this dispatcher (see the event-driven-notifications spike).
 

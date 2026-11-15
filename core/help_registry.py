@@ -216,8 +216,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "teach.submit-for-review": {
         "title": "Submit a class for review",
         "short_text": (
-            "Submitting sends your draft to its guild lead (if the guild has one), then an admin. "
-            "It publishes only when every reviewer approves."
+            "Submitting sends your draft to its guild lead, or to an admin when the class has no guild lead. "
+            "It publishes once that reviewer approves."
         ),
         "article_slug": "become-an-instructor",
         "anchor": "teach-submit-for-review",
@@ -413,8 +413,8 @@ HELP_KEYS: dict[str, HelpKeyEntry] = {
     "guild.approve-classes": {
         "title": "Approve guild classes",
         "short_text": (
-            "Classes in your guild's categories wait on your review first. Approving sends "
-            "the class on to an admin; it publishes only after both say yes."
+            "Classes in your guild's categories wait on your review. Approving publishes the "
+            "class right away; no admin reviews it after you."
         ),
         "article_slug": "approving-classes",
         "anchor": "guild-approve-classes",

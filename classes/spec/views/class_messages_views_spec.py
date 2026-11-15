@@ -16,6 +16,7 @@ from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 from PIL import Image
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory, UserFactory
@@ -369,12 +370,10 @@ def describe_a_guild_that_does_not_review_the_class():
 
 
 def describe_a_spent_review_link_signed_out():
-    def it_shows_and_takes_nothing_once_the_class_is_published(admin_user):
+    def it_shows_and_takes_nothing_once_the_class_is_published():
         world = _World("spent-pub")
         assert world.gate is not None
         world.gate.decide(ClassApproval.Decision.APPROVED, user=world.lead.user)
-        world.offering.refresh_from_db()
-        world.offering.approve(admin_user)
         world.offering.refresh_from_db()
         assert world.offering.status == ClassOffering.Status.PUBLISHED
         html = Client().get(world.gate.review_path).content.decode()
@@ -384,13 +383,15 @@ def describe_a_spent_review_link_signed_out():
         assert Client().post(url, {"body": "Zzlate"}).status_code == 404
         assert world.offering.messages.count() == 0
 
-    def it_shows_and_takes_nothing_from_a_gate_decided_in_an_earlier_round(admin_user):
+    def it_shows_and_takes_nothing_from_a_gate_decided_in_an_earlier_round():
+        # Legacy shape from the old two step review: the lead's approval from an earlier
+        # round still stands on a class that is back in review.
         world = _World("spent-round")
         assert world.gate is not None
-        world.gate.decide(ClassApproval.Decision.APPROVED, user=world.lead.user)
-        world.offering.refresh_from_db()
-        admin_gate = world.offering.approvals.get(role=ClassApproval.Role.ADMIN)
-        admin_gate.decide(ClassApproval.Decision.CHANGES_REQUESTED, user=admin_user, notes="Zzfix it")
+        ClassApproval.objects.filter(pk=world.gate.pk).update(
+            decision=ClassApproval.Decision.APPROVED, decided_at=timezone.now()
+        )
+        ClassOffering.objects.filter(pk=world.offering.pk).update(status=ClassOffering.Status.DRAFT)
         world.offering.refresh_from_db()
         world.offering.submit_for_review()
         world.gate.refresh_from_db()

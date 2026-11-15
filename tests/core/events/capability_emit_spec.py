@@ -17,9 +17,9 @@ def _grant(member, capability):
     member.admin_capabilities.create(capability=capability)
 
 
-# class_validation_requested declares in_app ON + email ON (email_default) + push OFF,
-# and routes to CLASS_APPROVERS — the canonical capability-scoped event to probe.
-_EVENT = "class_validation_requested"
+# instructor_application_received declares in_app ON + email ON + push OFF, and routes to
+# CLASS_APPROVERS — the canonical capability-scoped event to probe.
+_EVENT = "instructor_application_received"
 
 
 def describe_capability_fan_out():

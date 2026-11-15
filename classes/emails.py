@@ -422,10 +422,10 @@ def _emit_instructor_review_explainer(offering: "ClassOffering", row: "ClassAppr
 
 
 def send_guild_lead_review_request(offering: "ClassOffering", approval: "ClassApproval") -> None:
-    """Stage one: review request to the guild's lead and Class Reviewers + the instructor explainer.
+    """Review request to the guild's lead and Class Reviewers + the instructor explainer.
 
-    Fired from ``ClassOffering._notify_first_stage_reviewer`` when the first-stage gate is
-    the Guild Lead. One ``class_review_requested`` event sends the dedicated review email
+    Fired from ``ClassOffering._notify_reviewer`` when the class's one gate is the Guild
+    Lead, whose approval publishes it (#1183). One ``class_review_requested`` event sends the dedicated review email
     and the in-app row to the category's guild lead and the staff marked Class Reviewer
     (#816; plain staff are not asked, nor the class's own instructors unless one is the
     lead), each person's Email switch deciding the email; a second event sends the
@@ -438,9 +438,10 @@ def send_guild_lead_review_request(offering: "ClassOffering", approval: "ClassAp
 
 
 def send_admin_review_request(offering: "ClassOffering", approval: "ClassApproval") -> None:
-    """Stage one for lead-less categories: notify the CMS Administrators.
+    """Review request for lead-less categories: notify the CMS Administrators.
 
-    Used when a category has no guild lead, so the CMS Administrator gate is stage one.
+    Used when a category has no guild lead, so the CMS Administrator gate is the class's
+    one review.
     The review email + in-app row ride the ``class_review_requested`` resolver — with a
     ``None`` guild it composes to the CMS Administrators (holders only) instead of
     blasting a static admin address list. The instructor still gets the explainer.
@@ -456,53 +457,6 @@ def send_admin_review_request(offering: "ClassOffering", approval: "ClassApprova
     _emit_instructor_review_explainer(offering, approval)
 
 
-def send_admin_validation_request(offering: "ClassOffering", approval: "ClassApproval") -> None:
-    """Stage two: emit the admin sign-off request after a guild-lead approval.
-
-    Fired from ``ClassOffering._escalate_to_admin`` when a Guild Lead approves and the
-    Admin gate opens. One ``class_validation_requested`` event: the structural
-    ``admin_validation_request.{txt,html}`` shell is preserved as the email, and both the
-    email and in-app row ride the CLASS_APPROVERS resolver — the CMS Administrators
-    (holders only) get it. ``class_validation_requested`` logs no SiteActivity, so
-    the emit introduces no activity-row duplication.
-    """
-    from core.events.channels import Message
-    from core.events.senders import emit_with_email_shell
-
-    review_path = reverse("classes:class_review", kwargs={"token": approval.token})
-    review_url = _absolute_url(review_path)
-    guild = offering.category.guild if offering.category_id else None
-    lead = guild.guild_lead if guild else None
-    template_context = {
-        "offering": offering,
-        "approval": approval,
-        "review_url": review_url,
-        "guild_lead_name": lead.display_name if lead is not None else "A guild lead",
-        "instructor_name": offering.instructor_names or "the instructor",
-    }
-    instructor_name = template_context["instructor_name"]
-    lead_name = template_context["guild_lead_name"]
-    subject = f"Admin sign-off needed: {offering.title}"
-    in_app_body = f"{lead_name} and {instructor_name} request admin sign-off to publish this class."
-    emit_with_email_shell(
-        "class_validation_requested",
-        target=offering,
-        context={},
-        subject=subject,
-        text_template="classes/emails/admin_validation_request.txt",
-        html_template="classes/emails/admin_validation_request.html",
-        template_context=template_context,
-        in_app_title="A class needs admin sign-off",
-        in_app_body=in_app_body,
-        # The tokenized review page — /classes/admin/ is gated admin-only, so a
-        # CMS Administrator clicking the bell row would have hit a 403 there.
-        url=review_path,
-        period=f"approval:{approval.pk}:validation",
-        # A digest event (#894): the email waits for the 8 AM staff digest as this line.
-        digest_message=Message(title=subject, body=in_app_body, url=review_url),
-    )
-
-
 def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") -> None:
     """Emit the instructor's review-decision notice when any reviewer decides.
 
@@ -514,8 +468,8 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
     instructor gets exactly one email and one bell row, never two emails.
 
     Subject lines vary by outcome so the instructor's inbox tells the story:
-      * "Approved" while other gates pending (email only — no bell row before).
-      * "Your class is live!" when fully approved (email + ``instructor_class_approved`` bell).
+      * "Your class is live!" on any approval, the guild lead's or an admin's, since one
+        approval publishes (#1183) (email + ``instructor_class_approved`` bell).
       * "Changes requested" with reviewer notes verbatim (email + ``instructor_changes_requested`` bell).
       * "Declined" with reviewer notes (email only — no bell row before).
     """
@@ -529,7 +483,9 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
     if not addresses:
         return
 
-    fully_approved = offering.status == offering.Status.PUBLISHED and row.decision == ClassApproval.Decision.APPROVED
+    # An approval always publishes (#1183): ``decide`` refuses an unready class before the
+    # row is saved, and the lifecycle hook publishes on any APPROVED row.
+    fully_approved = row.decision == ClassApproval.Decision.APPROVED
     # event_key drives the instructor's bell row; (in_app_title, in_app_body) empty means
     # email-only (the resolver still finds the instructor, but emit creates no blank row).
     # ``resolver_instructor`` is the instructor only when a bell row is wanted, else None
@@ -541,13 +497,6 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
         event_key = "instructor_class_approved"
         in_app_title, in_app_body, in_app_url = "Your class was approved", offering.title, f"/classes/{offering.slug}/"
         resolver_instructors: "list[Member]" = instructors
-    elif row.decision == ClassApproval.Decision.APPROVED:
-        subject = f"{row.get_role_display()} approved '{offering.title}'"
-        edit_url = _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
-        public_url = ""
-        event_key = "instructor_class_approved"
-        in_app_title, in_app_body, in_app_url = "", "", edit_url
-        resolver_instructors = []
     elif row.decision == ClassApproval.Decision.CHANGES_REQUESTED:
         subject = f"Changes requested on '{offering.title}'"
         edit_url = _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
@@ -567,14 +516,12 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
         in_app_title, in_app_body, in_app_url = "", "", edit_url
         resolver_instructors = []
 
-    pending_rows = list(offering.approvals.filter(decision=""))
     template_context = {
         "offering": offering,
         "approval": row,
         "edit_url": edit_url,
         "public_url": public_url,
         "fully_approved": fully_approved,
-        "pending_rows": pending_rows,
     }
     emit_with_email_shell(
         event_key,

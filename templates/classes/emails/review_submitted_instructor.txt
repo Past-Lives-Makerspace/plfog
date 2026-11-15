@@ -2,7 +2,7 @@
 
 {{ offering.title }}
 
-Your class submission is being reviewed. View status below.
+{% if approvals.0.role == 'guild_lead' %}Your guild lead is reviewing your class. Once they approve it, it goes live.{% else %}An admin is reviewing your class, since it has no guild lead. Once they approve it, it goes live.{% endif %} View status below.
 
 {% review_pipeline_text offering %}
 View status:

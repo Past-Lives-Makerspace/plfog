@@ -1810,17 +1810,6 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     # Not gated on is_guild_lead: a staff member marked Class Reviewer leads nothing and still
     # reviews (#816). The queryset itself is the gate, so plain staff and everyone else get none.
     guild_lead_pending = _guild_lead_review_queue(teaching_member)
-    # Classes this lead already approved that now wait on the admin gate — kept
-    # visible so a stage-one approval doesn't make the class vanish on them.
-    guild_lead_awaiting_admin = (
-        list(
-            ClassOffering.objects.awaiting_admin_validation(teaching_member)
-            .select_related("category", "instructor")
-            .order_by("created_at")
-        )
-        if is_guild_lead
-        else []
-    )
 
     # A guild lead or Class Reviewer who teaches a PENDING class in their OWN guild is in two of the merged card's
     # queues at once: their review queue (where they can act) and their own "waiting on a
@@ -1828,7 +1817,6 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     # action actually blocking it, and count distinct classes. This is display-only — it does
     # not change who may review what.
     lead_queue_pks = {item["offering"].pk for item in guild_lead_pending}
-    lead_queue_pks |= {offering.pk for offering in guild_lead_awaiting_admin}
     pending_rows = [offering for offering in pending if offering.pk not in lead_queue_pks]
 
     stats = {
@@ -1844,9 +1832,9 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     }
     # The "Needs Your Attention" group's own count, matching the rows it renders.
     stats["attention"] = stats["drafts"] + stats["bounced"] + len(pending_rows)
-    # The merged card's count: this instructor's own pipeline plus both guild-lead queues,
-    # which a lead sees whether or not they teach anything themselves. Distinct classes.
-    stats["needs_attention"] = stats["attention"] + len(guild_lead_pending) + len(guild_lead_awaiting_admin)
+    # The merged card's count: this instructor's own pipeline plus the guild-lead review
+    # queue, which a lead sees whether or not they teach anything themselves. Distinct classes.
+    stats["needs_attention"] = stats["attention"] + len(guild_lead_pending)
 
     from membership.models import AdminCapability
 
@@ -1866,7 +1854,6 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
             "stats": stats,
             "is_guild_lead": is_guild_lead,
             "guild_lead_pending": guild_lead_pending,
-            "guild_lead_awaiting_admin": guild_lead_awaiting_admin,
             # Settings, Payouts nudge (#662): until this teacher finishes Stripe signup.
             "payouts_nudge": payouts.needs_nudge(teaching_member),
             # The Instructor Resources card (#765), last on the page; nothing renders when empty.

@@ -32,6 +32,8 @@ pytestmark = pytest.mark.django_db
 Cap = AdminCapability.Capability
 SEED = importlib.import_module("membership.migrations.0282_seed_grant_guides")
 REWRITE = importlib.import_module("membership.migrations.0285_rewrite_discount_admin_guide")
+CAPABILITY_SEED = importlib.import_module("membership.migrations.0279_seed_capability_guides")
+REVIEW_REWRITE = importlib.import_module("membership.migrations.0286_rewrite_class_review_guides")
 #: A one pixel GIF, enough for an ImageField.
 PIXEL = (
     b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!\xf9\x04\x01\x00\x00\x00\x00,"
@@ -270,6 +272,62 @@ def describe_the_rewritten_discount_guide():
         page.refresh_from_db()
         assert page.body == "<p>Our own words.</p>"
         assert not page.revisions.filter(note=REWRITE.NOTE).exists()
+
+
+def describe_the_rewritten_class_review_guides():
+    """Migration 0286 (#1183): no guide promises an admin review after the guild lead."""
+
+    def _seeded() -> dict[str, str]:
+        return {permission: body for permission, _t, body in (*CAPABILITY_SEED.PAGES, *SEED.PAGES)}
+
+    def _pages() -> list[WikiPage]:
+        CAPABILITY_SEED.seed(django_apps, None)
+        SEED.seed(django_apps, None)
+        pages = [WikiPage.guide_page_for(permission) for permission, _t, _o, _n in REVIEW_REWRITE.PAGES]
+        assert all(page is not None for page in pages)
+        return [page for page in pages if page is not None]
+
+    def it_starts_from_what_0279_and_0282_seeded():
+        for permission, _title, seeded, _body in REVIEW_REWRITE.PAGES:
+            assert _seeded()[permission] == seeded, permission
+
+    def it_keeps_every_section_the_get_set_up_cards_link_to():
+        for permission, _title, _seeded, body in REVIEW_REWRITE.PAGES:
+            for step in spec_for(permission).steps:
+                assert f"<h2>{step.guide_section}</h2>" in body, (permission, step.key)
+
+    def it_says_the_guild_lead_approval_publishes_and_drops_the_second_review():
+        bodies = {permission: body for permission, _t, _s, body in REVIEW_REWRITE.PAGES}
+        assert "No admin reviews it after you." in bodies[SetupPermission.CLASS_REVIEWER]
+        assert "then to an admin" not in bodies[SetupPermission.INSTRUCTOR]
+        assert "Once the guild approves it, it comes to you" not in bodies[Cap.CLASS_APPROVER]
+        assert not any("-" in body.replace("</", "") for body in bodies.values())
+
+    def it_rewrites_untouched_pages_with_a_revision_and_reverses_them():
+        pages = _pages()
+
+        REVIEW_REWRITE.rewrite(django_apps, None)
+        for page, (_permission, _title, _seeded, body) in zip(pages, REVIEW_REWRITE.PAGES, strict=True):
+            page.refresh_from_db()
+            assert page.body == body
+            assert page.revisions.filter(note=REVIEW_REWRITE.NOTE).count() == 1
+        assert "goes live right away" in pages[2].search_text
+
+        REVIEW_REWRITE.restore(django_apps, None)
+        for page, (_permission, _title, seeded, _body) in zip(pages, REVIEW_REWRITE.PAGES, strict=True):
+            page.refresh_from_db()
+            assert page.body == seeded
+            assert not page.revisions.filter(note=REVIEW_REWRITE.NOTE).exists()
+
+    def it_leaves_a_page_an_admin_edited_alone():
+        pages = _pages()
+        WikiPage.objects.filter(pk=pages[1].pk).update(body="<p>Our own words.</p>")
+
+        REVIEW_REWRITE.rewrite(django_apps, None)
+
+        pages[1].refresh_from_db()
+        assert pages[1].body == "<p>Our own words.</p>"
+        assert not pages[1].revisions.filter(note=REVIEW_REWRITE.NOTE).exists()
 
 
 def describe_other_revoke_paths():
