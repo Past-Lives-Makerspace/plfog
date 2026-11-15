@@ -95,6 +95,11 @@ def describe_the_registry():
         no_bell = {key for key in _DIGEST_EMAIL_EVENTS if not get_event(key).has_channel(Channel.IN_APP)}
         assert no_bell == {"class_registration_admin_notice"}
 
+    def it_gives_every_digest_event_its_own_heading() -> None:
+        """digest_context keys sections by label, so a shared label would drop one event's lines."""
+        labels = [get_event(key).label for key in _DIGEST_EMAIL_EVENTS]
+        assert len(labels) == len(set(labels))
+
     def it_refuses_a_flat_digest_email_with_no_digest_line() -> None:
         with pytest.raises(ValueError, match="pass digest_line"):
             emit_flat_email(

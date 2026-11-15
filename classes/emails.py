@@ -250,7 +250,7 @@ def send_admin_registration_notification(registration: "Registration") -> None:
             body=(
                 f"{registration.get_status_display()}, paid ${registration.amount_paid_cents / 100:.2f}. "
                 f"{offering.seats_taken} of {offering.capacity} seats taken. {registration.email}"
-            ),
+            ).rstrip(),
             url=class_url,
             trigger_kind="class_registration_admin_notice",
         ),
