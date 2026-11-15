@@ -276,8 +276,8 @@ multi call commands like `gh pr create` fail almost every time without it.
 6. **The merge gate is bot approval and the `lint`, `affected`, `e2e`, `fragment` and `description` checks.**
    `affected` runs the specs of every app the diff touches and fails when the changed lines are under 98%
    covered; watch it and fix it like any check. Never call a PR ready while any check on its head is red or
-   still running. The full suite runs nightly on `main`, and a red night is fixed from its `nightly-red`
-   issue by a routine, so do not wait for it. CI runs no mutation testing (#931).
+   still running. The full suite runs nightly on `main`; a red night opens its `nightly-red` issue, and
+   whichever session sees that issue open fixes it first. Do not wait for the nightly before a handover. CI runs no mutation testing (#931).
 7. **Stop.** **Agents do not merge.** A merge to main deploys to Render and announces to members; that is
    Jo's.
 

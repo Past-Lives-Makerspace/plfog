@@ -4,8 +4,8 @@
 report (``junit-<shard>.xml``, ``junit_family=xunit1`` so each case carries its file). This reads
 them and prints Markdown naming every failing spec as a pytest node id, any shard that wrote no
 report (it timed out or crashed), the combined coverage against the 98% gate, and the run link.
-The workflow posts it as a new issue or a comment on the open one; the morning routine works from
-it, so a node id here must be one ``pytest`` accepts as it is.
+The workflow posts it as a new issue or a comment on the open one; whoever fixes the night works
+from it, so a node id here must be one ``pytest`` accepts as it is.
 
 Stdlib only. Usage: ``python .github/scripts/nightly_report.py <reports-dir>`` with ``RUN_URL``,
 ``COVERAGE_RESULT`` and ``COVERAGE_TOTAL`` in the environment.

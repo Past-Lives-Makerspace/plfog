@@ -3,8 +3,8 @@ name: Nightly
 # The full suite on main, which pull requests no longer run (#1192): the same eight shards as the
 # `affected` check (specs.yml) given every spec, the coverage combined under the 98% gate in
 # pyproject.toml, and the result reported on one issue labelled nightly-red. A red night opens
-# it, or comments on it while it is open; a green night closes it. A scheduled Claude routine
-# reads that issue each morning and opens a fix PR.
+# it, or comments on it while it is open; a green night closes it. GitHub notifies watchers of
+# the new issue; a person or a session fixes it from there.
 #
 # 10:00 UTC is 2 AM Pacific in winter and 3 AM in summer, after the day's merges. Run it by hand
 # with `gh workflow run nightly.yml`.

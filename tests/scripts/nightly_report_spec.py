@@ -1,6 +1,6 @@
 """BDD specs for ``.github/scripts/nightly_report.py``, the body of the nightly-red issue (#1192).
 
-The morning routine works from this body, so each failing spec must come out as a node id
+Whoever fixes a red night works from this body, so each failing spec must come out as a node id
 ``pytest`` accepts, and a shard that wrote no report must be named rather than read as green.
 The script is loaded from its file path via ``importlib``, like the other script specs.
 """
