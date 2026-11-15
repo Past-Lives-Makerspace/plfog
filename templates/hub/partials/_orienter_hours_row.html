@@ -3,13 +3,15 @@ One hours row of the Edit Hours modal: a bound row, or the hidden empty form the
 hours button clones. Context: rule (an OrientationAvailabilityForm), offer_open (render How
 members book; a guild staffer's own rows), target (the person, or None for shared rows).
 
-The row's Alpine state is its booking style. The fixed only fields (Seats, Slot length,
-Break) and the two hints follow it in place. Labels and the absence of per field hints follow
+The row's Alpine state is plHoursRow (static/js/orientation_hours_recurrence.js): its booking
+style, which the fixed only fields (Seats, Slot length, Break) and the two hints follow in place,
+and the recurrence in plain words, rewritten on every change before a save (#430). Last of the
+month shows under a month based cadence only. Labels and the absence of per field hints follow
 the approved mockup (mockups/532-orientation-open-windows.html, 03); their layout lives in classes so x-show can
 toggle display (FRONTEND.md rule 12). Hidden fields still POST, and the form's clean drops
 them for an open row.
 {% endcomment %}
-<div class="pl-hours-row" x-data="{ style: '{{ rule.booking_style.value|default:'fixed' }}' }">
+<div class="pl-hours-row" x-data="plHoursRow('{{ rule.booking_style.value|default:'fixed' }}')" @change="refresh()" @input="refresh()">
   {{ rule.id }}
   {% if offer_open %}
   <div class="pl-booking-style" role="radiogroup" aria-label="How members book" data-help-key="orientation.how-members-book">
@@ -25,10 +27,12 @@ them for an open row.
     <div class="pl-hours-row__narrow">{% include "components/form_field.html" with field=rule.end_time field_label="Until" field_hint_off=True %}</div>
     <div class="pl-hours-row__narrow" x-show="style === 'fixed'">{% include "components/form_field.html" with field=rule.seats field_hint_off=True %}</div>
   </div>
-  <div class="pl-hours-row__line">
+  <div class="pl-hours-row__line" data-guidance-target="orientations.hours-repeats">
     <div>{% include "components/form_field.html" with field=rule.cadence field_hint_off=True %}</div>
     <div>{% include "components/form_field.html" with field=rule.anchor_date field_hint_off=True %}</div>
+    <div class="pl-hours-row__last" x-show="monthly" data-hours-last>{% include "components/form_field.html" with field=rule.last_of_month field_hint_off=True %}</div>
   </div>
+  <p class="pl-hours-row__summary" x-text="summary" aria-live="polite" data-hours-summary></p>
   <div class="pl-hours-row__line" x-show="style === 'fixed'">
     <div>{% include "components/form_field.html" with field=rule.slot_minutes field_hint_off=True %}</div>
     <div>{% include "components/form_field.html" with field=rule.buffer_minutes field_hint_off=True %}</div>

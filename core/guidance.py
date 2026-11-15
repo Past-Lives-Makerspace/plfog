@@ -274,6 +274,19 @@ _GUIDANCE_LIST = (
         ),
         target="orientations.record",
     ),
+    # Orientation hours (#430): every week, every few weeks, or by the month, edited in the Edit Hours modal.
+    Guidance(
+        key="orientations.hours",
+        title="Orientation Hours",
+        url_name="hub_manage_bookings",
+        steps=(
+            "Open Manage Bookings and press Edit Hours beside a guild or a piece of equipment under Your Hours.",
+            "Pick how often the hours repeat under Repeats: every week, every 2, 3 or 4 weeks, or by the month.",
+            "Pick the first day under Starting on. A monthly rule keeps that day's place in the month, or turn on Last of the month.",
+            "The line under the row says what members will see before you press Save.",
+        ),
+        target="orientations.edit-hours",
+    ),
     _guild_tab(
         "guild.reservations",
         "Equipment Reservations",

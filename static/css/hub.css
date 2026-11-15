@@ -4370,6 +4370,9 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-hours-row__line > * { flex: 1; min-width: 120px; }
 .pl-hours-row__line > .pl-hours-row__narrow { min-width: 90px; }
 .pl-hours-row__hint { font-size: 0.8125rem; color: var(--hub-text-muted); margin: 0 0 0.5rem; }
+/* #430: the row's recurrence in plain words, and the Last of the month switch sitting level with the date. */
+.pl-hours-row__summary { font-size: 0.875rem; font-weight: 600; color: var(--hub-text); margin: -0.5rem 0 1rem; }
+.pl-hours-row__line > .pl-hours-row__last { align-self: flex-end; }
 .pl-orient-style { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--hub-text-muted); }
 .pl-slot-admin__segments { flex-basis: 100%; list-style: none; margin: 0; padding: 0 0 0 1.25rem; font-size: 0.85rem; color: var(--hub-text-muted); }
 .pl-slot-admin__segments li { padding: 0.15rem 0; }
