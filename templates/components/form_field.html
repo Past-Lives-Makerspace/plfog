@@ -13,6 +13,9 @@ Parameters (pass via {% include ... with %}):
   field_tooltip — optional, plain text for a ? help bubble beside the label (the .pl-help
                 tooltip, FRONTEND rule 19). It sits next to the label, not inside it, so the
                 bubble's text never becomes part of the field's accessible name.
+
+The hint (a toggle's description for a checkbox) carries id="<auto_id>_helptext", the id
+Django's aria-describedby names, whenever the field has an id.
 {% endcomment %}
 {% if field.field.widget.input_type == "checkbox" %}
     {% if field_hint_off %}
@@ -32,7 +35,7 @@ Parameters (pass via {% include ... with %}):
         </ul>
         {% endif %}
         {% if field_hint or field.help_text %}
-        <p class="pl-field-hint">{{ field_hint|default:field.help_text }}</p>
+        <p class="pl-field-hint"{% if field.auto_id %} id="{{ field.auto_id }}_helptext"{% endif %}>{{ field_hint|default:field.help_text }}</p>
         {% endif %}
     </div>
 {% else %}
@@ -57,10 +60,9 @@ Parameters (pass via {% include ... with %}):
     </ul>
     {% endif %}
     {% if field_hint_off %}
-    {% elif field_hint %}
-    <p class="pl-field-hint">{{ field_hint }}</p>
-    {% elif field.help_text %}
-    <p class="pl-field-hint">{{ field.help_text }}</p>
+    {# No hint: Django's aria-describedby="<id>_helptext" then names no element, which browsers skip; an sr-only copy would read model help text written for developers. #}
+    {% elif field_hint or field.help_text %}
+    <p class="pl-field-hint"{% if field.auto_id %} id="{{ field.auto_id }}_helptext"{% endif %}>{{ field_hint|default:field.help_text }}</p>
     {% endif %}
 </div>
 {% endif %}

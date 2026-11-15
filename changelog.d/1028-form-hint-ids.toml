@@ -1,0 +1,8 @@
+bump = "patch"
+audience = ["members", "instructors", "guild-staff", "admins"]
+date = "2026-11-15"
+title = "Screen readers read the hint under a form field"
+changes = [
+  "On forms across the portal, a screen reader now reads the hint under a field, or the line under a switch, together with the field itself.",
+]
+guidance = "none"

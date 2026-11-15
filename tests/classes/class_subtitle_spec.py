@@ -156,7 +156,10 @@ def describe_composer_step_one():
         assert title.start() < subtitle.start() < category.start()
         # The step check (static/js/composer_validation.js) reads maxlength off the control.
         assert 'maxlength="150"' in subtitle.group()
-        assert f'<p class="pl-field-hint">{SUBTITLE_HELP_TEXT}</p>' in step_one[subtitle.end() : category.start()]
+        assert (
+            f'<p class="pl-field-hint" id="id_subtitle_helptext">{SUBTITLE_HELP_TEXT}</p>'
+            in step_one[subtitle.end() : category.start()]
+        )
 
     def it_puts_the_subtitle_right_under_the_title_for_an_instructor(client: Client):
         client.force_login(_instructor().user)

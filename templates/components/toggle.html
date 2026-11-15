@@ -7,7 +7,8 @@ Parameters (pass via {% include ... with %}):
   toggle_label_include — optional, a template shown in place of the label text (the member
                        Edit page's badge pills, #650); toggle_label still names the switch
                        for screen readers
-  toggle_description — optional, description below label
+  toggle_description — optional, description below label; it carries id="<auto_id>_helptext",
+                       the id Django's aria-describedby on the checkbox names
   toggle_help        — optional, help text shown in a hover/focus tooltip beside the label
                        (use instead of toggle_description to keep the row compact)
 {% endcomment %}
@@ -20,7 +21,7 @@ Parameters (pass via {% include ... with %}):
                 <span class="pl-help__bubble" role="tooltip">{{ toggle_help }}</span>
             </span>{% endif %}</div>
         {% if toggle_description %}
-        <div class="pl-toggle-desc">{{ toggle_description }}</div>
+        <div class="pl-toggle-desc"{% if field.auto_id %} id="{{ field.auto_id }}_helptext"{% endif %}>{{ toggle_description }}</div>
         {% endif %}
     </div>
     {% endif %}

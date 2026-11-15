@@ -214,7 +214,7 @@ def describe_admin_member_edit_permissions():
         assert 'name="cap_webmaster"' in content
         # Anchored on the toggle's markup: a changelog entry quoting the copy cannot satisfy it.
         description = AdminCapability.DESCRIPTIONS[AdminCapability.Capability.WEBMASTER]
-        assert f'<div class="pl-toggle-desc">{description}</div>' in content
+        assert f'<div class="pl-toggle-desc" id="id_cap_webmaster_helptext">{description}</div>' in content
 
         client.post(url, _cap_post(cap_webmaster=True))
         assert set(target.admin_capabilities.values_list("capability", flat=True)) == {"webmaster"}
@@ -232,7 +232,7 @@ def describe_admin_member_edit_permissions():
         assert 'name="cap_event_creator"' in content
         # Anchored on the toggle's markup: a changelog entry quoting the copy cannot satisfy it.
         description = AdminCapability.DESCRIPTIONS[AdminCapability.Capability.EVENT_CREATOR]
-        assert f'<div class="pl-toggle-desc">{description}</div>' in content
+        assert f'<div class="pl-toggle-desc" id="id_cap_event_creator_helptext">{description}</div>' in content
 
         client.post(url, _cap_post(cap_event_creator=True))
         assert set(target.admin_capabilities.values_list("capability", flat=True)) == {"event_creator"}
@@ -253,7 +253,7 @@ def describe_admin_member_edit_permissions():
         content = client.get(url).content.decode()
         assert 'name="cap_tour_guide"' in content
         description = AdminCapability.DESCRIPTIONS[AdminCapability.Capability.TOUR_GUIDE]
-        assert f'<div class="pl-toggle-desc">{description}</div>' in content
+        assert f'<div class="pl-toggle-desc" id="id_cap_tour_guide_helptext">{description}</div>' in content
 
         client.post(url, _cap_post(cap_tour_guide=True))
         assert set(target.admin_capabilities.values_list("capability", flat=True)) == {"tour_guide"}
