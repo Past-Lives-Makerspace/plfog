@@ -135,7 +135,7 @@ def describe_send_admin_registration_notification():
             assert digest.subject == "1 Update Since the Last Email"
             assert "NEW CLASS REGISTRATION" in digest.body
             assert "Alex Doe registered for Pottery Basics" in digest.body
-            assert "Confirmed, paid $80.00. 1 of 6 seats taken." in digest.body
+            assert "Confirmed, paid $80.00. 1 of 6 seats taken. alex@example.com" in digest.body
             assert f"/classes/{offering.slug}/" in digest.body
             assert _admin_copies(address) == []
 
@@ -154,6 +154,61 @@ def describe_send_admin_registration_notification():
         assert digest.subject == "2 Updates Since the Last Email"
         assert "Alex Doe registered for Pottery Basics" in digest.body
         assert "Sam Park registered for Pottery Basics" in digest.body
+
+    def it_gives_a_re_sent_registration_one_line(db, settings):
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+        admin = _admin("admin@example.com")
+        registration = RegistrationFactory(first_name="Alex", last_name="Doe", status="confirmed")
+
+        send_admin_registration_notification(registration)
+        send_admin_registration_notification(registration)
+
+        assert (
+            EventDelivery.objects.filter(
+                event_key="class_registration_admin_notice",
+                target_ref=f"user:{admin.user.pk}",
+                channel=Channel.DIGEST.value,
+            ).count()
+            == 1
+        )
+        (digest,) = _morning("admin@example.com")
+        assert digest.subject == "1 Update Since the Last Email"
+        assert digest.body.count("Alex Doe registered for") == 1
+
+    def it_gives_registrations_in_two_classes_two_lines(db, settings):
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+        _admin("admin@example.com")
+        for title in ("Pottery Basics", "Intro to Forging"):
+            offering = ClassOfferingFactory(title=title, status=ClassOffering.Status.PUBLISHED)
+            registration = RegistrationFactory(
+                class_offering=offering, first_name="Alex", last_name="Doe", status="confirmed"
+            )
+            send_admin_registration_notification(registration)
+
+        (digest,) = _morning("admin@example.com")
+
+        assert digest.subject == "2 Updates Since the Last Email"
+        assert "Alex Doe registered for Pottery Basics" in digest.body
+        assert "Alex Doe registered for Intro to Forging" in digest.body
+
+    def it_writes_apostrophes_and_ampersands_plainly_in_the_text_part(db, settings):
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+        _admin("admin@example.com")
+        offering = ClassOfferingFactory(
+            title="Kids & Clay", slug="kids-and-clay", status=ClassOffering.Status.PUBLISHED
+        )
+        registration = RegistrationFactory(
+            class_offering=offering, first_name="Sam", last_name="O'Brien", status="confirmed"
+        )
+
+        send_admin_registration_notification(registration)
+
+        (digest,) = _morning("admin@example.com")
+        assert "Sam O'Brien registered for Kids & Clay" in digest.body
+        assert "&#x27;" not in digest.body
+        assert "&amp;" not in digest.body
+        html = digest.alternatives[0][0]
+        assert "Sam O&#x27;Brien registered for Kids &amp; Clay" in html
 
     def it_is_its_own_digest_event_with_no_bell(db, settings):
         settings.CLASS_ADMIN_NOTIFY_EMAILS = ""

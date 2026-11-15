@@ -283,6 +283,38 @@ def staff_digest_context(data: SampleData) -> dict[str, Any]:
     return {"subject": built["subject"], "template_context": built}
 
 
+def staff_digest_updates_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``core.events.channels.digest_context`` on a morning of updates only (#894 part 4)."""
+    from core.events.channels import digest_context
+    from core.models import EventDelivery
+
+    rows = [
+        EventDelivery(
+            event_key="new_member_joined",
+            title="New member joined",
+            body="robin.vale just signed up.",
+            url="/members/",
+            period="signup:1",
+        ),
+        EventDelivery(
+            event_key="class_registration_admin_notice",
+            title=f"Sam O'Brien registered for {data.offering.title}",
+            body="Confirmed, paid $45.00. 3 of 8 seats taken. sam@example.com",
+            url=f"/classes/{data.offering.slug}/",
+            period="reg:1:admin_notice",
+        ),
+        EventDelivery(
+            event_key="equipment.reservation_made",
+            title="New reservation on CNC Router",
+            body="Robin Vale reserved CNC Router for Saturday, September 12, 2:00 PM to 4:00 PM.",
+            url="/equipment/cnc-router/",
+            period="reservation:1:made",
+        ),
+    ]
+    built = digest_context(rows)
+    return {"subject": built["subject"], "template_context": built}
+
+
 def review_submitted_instructor_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``classes.emails._emit_instructor_review_explainer``."""
     from classes.emails import _absolute_url

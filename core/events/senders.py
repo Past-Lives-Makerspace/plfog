@@ -28,7 +28,7 @@ from django.template.loader import render_to_string
 
 from core.events.channels import Message
 from core.events.emit import emit
-from core.events.registry import Channel
+from core.events.registry import Channel, EmailDelivery, get_event
 
 if TYPE_CHECKING:
     from django.db.models import Model
@@ -200,7 +200,13 @@ def emit_flat_email(
 
     Returns:
         The :class:`~core.events.emit.EmitResult`.
+
+    Raises:
+        ValueError: If ``event_key``'s email waits for the digest and no ``digest_line`` is
+            given; the morning email would otherwise get an empty line.
     """
+    if digest_line is None and get_event(event_key).email_delivery is EmailDelivery.DIGEST:
+        raise ValueError(f"{event_key} sends its email in the 8 AM digest; pass digest_line")
     message = Message(title=subject, body=text_body, html_body=html_body, trigger_kind=event_key)
     messages = {Channel.EMAIL: message}
     if digest_line is not None:

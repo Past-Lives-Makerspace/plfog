@@ -249,7 +249,7 @@ def send_admin_registration_notification(registration: "Registration") -> None:
             title=f"{registration.first_name} {registration.last_name} registered for {offering.title}",
             body=(
                 f"{registration.get_status_display()}, paid ${registration.amount_paid_cents / 100:.2f}. "
-                f"{offering.seats_taken} of {offering.capacity} seats taken."
+                f"{offering.seats_taken} of {offering.capacity} seats taken. {registration.email}"
             ),
             url=class_url,
             trigger_kind="class_registration_admin_notice",

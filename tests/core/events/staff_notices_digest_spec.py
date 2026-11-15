@@ -9,6 +9,7 @@ every queued line goes out. The bell, push and the #reservations Discord post st
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta
+from typing import cast
 from unittest.mock import patch
 
 import pytest
@@ -21,7 +22,8 @@ from django.utils import timezone
 from core.events import resolvers
 from core.events.channels import DiscordAdapter, PushAdapter, digest_context
 from core.events.email_catalogue import build_email_catalogue
-from core.events.registry import Channel, EmailDelivery, get_event
+from core.events.registry import _DIGEST_EMAIL_EVENTS, Channel, EmailDelivery, get_event
+from core.events.senders import emit_flat_email
 from core.models import EventDelivery, Notification, NotificationPreference
 from membership import equipment as equipment_service
 from membership.models import Equipment, Member
@@ -54,9 +56,15 @@ def _member(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> Member:
     return member
 
 
+def _user(member: Member) -> User:
+    """The member's login (every member here is made with one)."""
+    assert member.user is not None
+    return member.user
+
+
 def _email_on(member: Member, event_key: str) -> None:
     NotificationPreference.objects.update_or_create(
-        user=member.user, event_key=event_key, channel=Channel.EMAIL.value, defaults={"enabled": True}
+        user=_user(member), event_key=event_key, channel=Channel.EMAIL.value, defaults={"enabled": True}
     )
 
 
@@ -81,6 +89,19 @@ def describe_the_registry():
         assert resolvers.has_open_check(key)
         assert resolvers.is_always_included(key)
 
+    def it_gives_every_digest_event_a_line_to_show() -> None:
+        """A digest line falls back to the bell's line; an event with no bell must be sent with a
+        digest_line, which only emit_flat_email takes, and it refuses to go without one."""
+        no_bell = {key for key in _DIGEST_EMAIL_EVENTS if not get_event(key).has_channel(Channel.IN_APP)}
+        assert no_bell == {"class_registration_admin_notice"}
+
+    def it_refuses_a_flat_digest_email_with_no_digest_line() -> None:
+        with pytest.raises(ValueError, match="pass digest_line"):
+            emit_flat_email(
+                "class_registration_admin_notice", subject="s", text_body="b", html_body="<p>b</p>", period="p:1"
+            )
+        assert not EventDelivery.objects.exists()
+
     def it_shows_the_8_am_digest_pill_on_the_emails_tab() -> None:
         rows = {row.key: row for _category, group in build_email_catalogue() for row in group}
         for key in NOTICES:
@@ -95,8 +116,8 @@ def describe_new_member_joined():
 
         _sign_up("join1")
 
-        assert Notification.objects.filter(user=admin.user, trigger="new_member_joined").count() == 1
-        assert [m for m in mail.outbox if m.to == [admin.user.email]] == []
+        assert Notification.objects.filter(user=_user(admin), trigger="new_member_joined").count() == 1
+        assert [m for m in mail.outbox if m.to == [_user(admin).email]] == []
 
     def it_gives_two_signups_the_same_evening_two_lines_under_one_heading() -> None:
         admin = _member("fogadmin2", fog_role=Member.FogRole.ADMIN)
@@ -110,7 +131,7 @@ def describe_new_member_joined():
             )
         )
         assert periods == {f"signup:{first.pk}", f"signup:{second.pk}"}
-        (digest,) = _morning(admin.user.email)
+        (digest,) = _morning(_user(admin).email)
         assert digest.subject == "2 Updates Since the Last Email"
         assert "Here is what happened since the last email. Nothing here needs you to act." in digest.body
         assert digest.body.count("NEW MEMBER JOINED") == 1
@@ -120,23 +141,23 @@ def describe_new_member_joined():
     def it_still_pushes_at_once() -> None:
         admin = _member("fogadmin3", fog_role=Member.FogRole.ADMIN)
         NotificationPreference.objects.create(
-            user=admin.user, event_key="new_member_joined", channel=Channel.PUSH.value, enabled=True
+            user=_user(admin), event_key="new_member_joined", channel=Channel.PUSH.value, enabled=True
         )
         with patch.object(PushAdapter, "deliver", return_value=True) as push:
             _sign_up("join_push")
-        assert [c.args[0] for c in push.call_args_list] == [admin.user]
+        assert [c.args[0] for c in push.call_args_list] == [_user(admin)]
 
     def it_leaves_out_an_admin_who_switched_the_email_off_before_morning() -> None:
         admin = _member("fogadmin4", fog_role=Member.FogRole.ADMIN)
         _email_on(admin, "new_member_joined")
         _sign_up("join_off")
-        NotificationPreference.objects.filter(user=admin.user, event_key="new_member_joined").update(enabled=False)
+        NotificationPreference.objects.filter(user=_user(admin), event_key="new_member_joined").update(enabled=False)
 
-        assert _morning(admin.user.email) == []
+        assert _morning(_user(admin).email) == []
 
 
 def _open_tool() -> Equipment:
-    equipment = EquipmentFactory()
+    equipment = cast("Equipment", EquipmentFactory())
     day = timezone.localdate() + timedelta(days=2)
     EquipmentHoursFactory(equipment=equipment, weekday=day.weekday(), start_time=time(9, 0), end_time=time(17, 0))
     return equipment
@@ -162,10 +183,10 @@ def describe_equipment_reservation_made():
 
         posted = [c.args[0].trigger_kind for c in discord.call_args_list]
         assert posted.count("equipment.reservation_made") == 2
-        assert Notification.objects.filter(user=manager.user, trigger="equipment.reservation_made").count() == 2
-        assert [m for m in mail.outbox if m.to == [manager.user.email]] == []
+        assert Notification.objects.filter(user=_user(manager), trigger="equipment.reservation_made").count() == 2
+        assert [m for m in mail.outbox if m.to == [_user(manager).email]] == []
 
-        (digest,) = _morning(manager.user.email)
+        (digest,) = _morning(_user(manager).email)
         assert digest.subject == "2 Updates Since the Last Email"
         assert digest.body.count("NEW EQUIPMENT RESERVATION") == 1
         assert digest.body.count(f"New reservation on {equipment.name}") == 2
@@ -177,7 +198,7 @@ def describe_equipment_reservation_made():
 
         equipment_service.reserve(equipment, _member("tool_booker2"), _at(10), 60)
 
-        assert Notification.objects.filter(user=manager.user, trigger="equipment.reservation_made").exists()
+        assert Notification.objects.filter(user=_user(manager), trigger="equipment.reservation_made").exists()
         assert not EventDelivery.objects.filter(
             event_key="equipment.reservation_made", channel=Channel.DIGEST.value
         ).exists()
@@ -190,18 +211,62 @@ def describe_the_morning_subject():
         assert built["subject"] == "1 Update Since the Last Email"
         assert built["heads_up_only"] is True
 
-    def it_keeps_action_needed_when_a_request_shares_the_morning() -> None:
+    def it_counts_only_requests_as_action_needed_and_adds_the_updates() -> None:
         rows = [
             EventDelivery(event_key="new_member_joined", title="New member joined", url="/members/", period="a:1"),
             EventDelivery(event_key="class_change_requested", title="Change", url="/b", period="x:1"),
         ]
         built = digest_context(rows)
-        assert built["subject"] == "Action Needed: 2 Requests Awaiting You"
-        assert [section["label"] for section in built["sections"]] == [
-            get_event("new_member_joined").label,
-            get_event("class_change_requested").label,
+        assert built["subject"] == "Action Needed: 1 Request Awaiting You, plus 1 Update"
+        assert built["intro"] == (
+            "Here is what is waiting on you this morning, then what happened since the last email."
+        )
+        assert built["heads_up_only"] is False
+
+    def it_says_eleven_registrations_are_updates_beside_one_class_review() -> None:
+        rows = [
+            EventDelivery(
+                event_key="class_registration_admin_notice", title=f"R{n}", url="/c/", period=f"reg:{n}:admin_notice"
+            )
+            for n in range(11)
         ]
+        rows.append(EventDelivery(event_key="class_validation_requested", title="Review", url="/r/1", period="v:1"))
+        assert digest_context(rows)["subject"] == "Action Needed: 1 Class Awaiting Review, plus 11 Updates"
+
+    def it_pluralizes_both_sides() -> None:
+        rows = [
+            EventDelivery(event_key="class_change_requested", title="C1", url="/b", period="x:1"),
+            EventDelivery(event_key="class_change_requested", title="C2", url="/b", period="x:2"),
+            EventDelivery(event_key="new_member_joined", title="N", url="/members/", period="signup:1"),
+            EventDelivery(event_key="new_member_joined", title="N", url="/members/", period="signup:2"),
+        ]
+        assert digest_context(rows)["subject"] == "Action Needed: 2 Requests Awaiting You, plus 2 Updates"
+
+    def it_keeps_the_plain_action_needed_wording_with_no_updates() -> None:
+        rows = [EventDelivery(event_key="class_change_requested", title="Change", url="/b", period="x:1")]
+        built = digest_context(rows)
+        assert built["subject"] == "Action Needed: 1 Request Awaiting You"
+        assert cast("str", built["intro"]).startswith("Here is everything still waiting on you this morning.")
 
     def it_keeps_the_instructor_code_wording_for_a_morning_of_codes_only() -> None:
         rows = [EventDelivery(event_key="discount_code.instructor_made", title="Ana made A1", url="/a", period="d:1")]
         assert digest_context(rows)["subject"] == "1 Discount Code Made or Changed by Instructors"
+
+
+def describe_the_morning_order():
+    def it_lists_every_request_section_before_any_update_section_in_arrival_order() -> None:
+        rows = [
+            EventDelivery(event_key="new_member_joined", title="N", url="/members/", period="signup:1"),
+            EventDelivery(event_key="class_change_requested", title="C", url="/b", period="x:1"),
+            EventDelivery(event_key="equipment.reservation_made", title="E", url="/e/", period="reservation:1:made"),
+            EventDelivery(event_key="space.lease_requested", title="S", url="/s#1", period="spacereq:1:submitted"),
+            EventDelivery(event_key="new_member_joined", title="N2", url="/members/", period="signup:2"),
+        ]
+        sections = cast("list[dict[str, str]]", digest_context(rows)["sections"])
+        labels = [section["label"] for section in sections]
+        assert labels == [
+            get_event("class_change_requested").label,
+            get_event("space.lease_requested").label,
+            get_event("new_member_joined").label,
+            get_event("equipment.reservation_made").label,
+        ]

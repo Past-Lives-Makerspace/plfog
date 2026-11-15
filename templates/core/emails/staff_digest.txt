@@ -1,4 +1,4 @@
-{{ subject }}
+{% autoescape off %}{{ subject }}
 
 {{ intro }}
 {% for section in sections %}
@@ -10,4 +10,4 @@ Open: {{ line.url }}
 {% endfor %}{% endfor %}
 Requests and updates reach you once a day, at 8 AM, in this one email.
 The bell in the app still shows each one the moment it arrives.
-{% include "membership/emails/_footer.txt" %}
+{% include "membership/emails/_footer.txt" %}{% endautoescape %}
