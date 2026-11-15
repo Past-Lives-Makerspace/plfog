@@ -176,6 +176,13 @@ def describe_the_htmx_callers():
         assert _toast(response) == {"message": "Your account cannot email members of Brass.", "type": "error"}
         assert not AnnouncementDraft.objects.exists()
 
+    def it_does_not_send_a_previewing_admin_to_the_switcher_for_past_students_on_count(client: Client):
+        _login_admin(client)
+        _preview_as_member(client)
+        response = client.get(reverse("hub_compose_count"), {"audience": "students"})
+        assert response.status_code == 403
+        assert _toast(response)["message"] == COMPOSE_REFUSAL
+
     def it_gives_a_non_composer_the_compose_refusal_and_no_names(client: Client):
         hidden = GuildFactory(name="Hidden Zeta Guild", is_active=False)
         draft_class = ClassOfferingFactory(title="Secret Draft Class", status=ClassOffering.Status.DRAFT)
@@ -207,17 +214,88 @@ def describe_the_htmx_callers():
         assert client.post(reverse("hub_compose_site_add"), {"site_add": "new@x.com"}).status_code == 200
 
 
+def describe_a_pre_scoped_compose():
+    def it_drops_a_guild_the_lead_may_not_address(client: Client):
+        other = GuildFactory(name="Brass")
+        GuildMailingListEmailFactory(guild=other, email="brass-list@example.com")
+        rostered = _rostered(other, "brass-member@example.com")
+        hidden = GuildFactory(name="Hidden Zeta Guild", is_active=False)
+        GuildMailingListEmailFactory(guild=hidden, email="zeta-list@example.com")
+        _login_lead(client, GuildFactory(name="Own"))
+        told: list[str] = []
+        for target in (other, hidden):
+            response = client.get(f"{reverse('hub_compose')}?audience=guild:{target.pk}&lock=1")
+            assert response.status_code == 200
+            html = response.content.decode()
+            # The Add people picker lists every active member by design; the refused guild's roster
+            # row (a checked recipient) and its mailing list are what must never appear.
+            assert "brass-list@example.com" not in html
+            assert f'name="recipients" value="user:{rostered.pk}"' not in html
+            assert "zeta-list@example.com" not in html
+            assert "Hidden Zeta" not in html
+            assert f'value="guild:{target.pk}"' not in html
+            told += [str(m) for m in get_messages(response.wsgi_request)]
+        assert told == [
+            "Your account cannot email members of Brass.",
+            "Your account cannot email that guild.",
+        ]
+
+    def it_drops_a_class_the_lead_may_not_address_from_the_lock(client: Client):
+        draft_class = ClassOfferingFactory(title="Secret Draft Class", status=ClassOffering.Status.DRAFT)
+        _login_lead(client, GuildFactory())
+        response = client.get(f"{reverse('hub_compose')}?audience=class:{draft_class.pk}&lock=1")
+        assert response.status_code == 200
+        assert "Secret Draft Class" not in response.content.decode()
+        assert [str(m) for m in get_messages(response.wsgi_request)] == ["Your account cannot email that class."]
+
+    def it_keeps_a_guild_the_lead_may_address(client: Client):
+        guild = GuildFactory(name="Own")
+        _login_lead(client, guild)
+        response = client.get(f"{reverse('hub_compose')}?audience=guild:{guild.pk}&lock=1")
+        assert "Email the members of Own" in response.content.decode()
+        assert list(get_messages(response.wsgi_request)) == []
+
+
 def describe_a_refused_send():
-    def it_sends_a_non_composer_home_with_the_compose_refusal(client: Client):
+    def it_gives_a_non_composer_their_words_and_nothing_of_the_audience(client: Client):
         hidden = GuildFactory(name="Hidden Zeta Guild", is_active=False)
         GuildMailingListEmailFactory(guild=hidden, email="zeta-list@example.com")
         _rostered(hidden, "zeta-member@example.com")
         _login_plain(client)
-        response = client.post(reverse("hub_compose_send"), _send_data(audience=f"guild:{hidden.pk}"))
-        assert response.status_code == 302
-        assert response.url == reverse("hub_home")
-        assert [str(m) for m in get_messages(response.wsgi_request)] == [COMPOSE_REFUSAL]
+        body = "<p>Kiln &lt;b&gt; opens zxqv.</p><p>Bring gloves.</p><script>alert(1)</script>"
+        response = client.post(reverse("hub_compose_send"), _send_data(audience=f"guild:{hidden.pk}", body=body))
+        assert response.status_code == 403
+        html = response.content.decode()
+        assert "data-compose-refused" in html
+        assert f"{COMPOSE_REFUSAL} Copy your message below" in html
+        assert 'value="Kiln schedule"' in html
+        assert "Kiln &lt;b&gt; opens zxqv.\n\nBring gloves." in html
+        assert "<script>alert(1)" not in html
+        for leaked in ("zeta-list@example.com", "zeta-member@example.com", "Hidden Zeta", 'name="audience"'):
+            assert leaked not in html
         assert not AnnouncementDraft.objects.exists()
+
+    def it_keeps_the_message_of_a_lead_who_lost_their_only_guild(client: Client, mailoutbox):
+        guild = GuildFactory(name="Ceramics")
+        _rostered(guild, "ceramics-member@example.com")
+        _login_lead(client, guild)
+        guild.guild_lead = None
+        guild.save(update_fields=["guild_lead"])
+        response = client.post(reverse("hub_compose_send"), _send_data(audience=f"guild:{guild.pk}"))
+        assert response.status_code == 403
+        html = response.content.decode()
+        assert "Glaze firing moves to Thursday zxqv." in html
+        assert "ceramics-member@example.com" not in html
+        assert not AnnouncementDraft.objects.exists()
+        assert mailoutbox == []
+
+    def it_keeps_a_refused_polls_title_as_the_subject(client: Client):
+        _login_plain(client)
+        data = _send_data(audience="site", subject="", body="")
+        data.update({"kind": "poll", "poll-title": "Which glaze night zxqv"})
+        response = client.post(reverse("hub_compose_send"), data)
+        assert response.status_code == 403
+        assert 'value="Which glaze night zxqv"' in response.content.decode()
 
     def it_stays_in_the_composer_with_the_reason_and_the_message(client: Client, mailoutbox):
         alpha, bravo = GuildFactory(name="Ceramics"), GuildFactory(name="Bravo")

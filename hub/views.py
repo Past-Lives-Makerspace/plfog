@@ -4758,7 +4758,7 @@ def _compose_refusal_message(request: HttpRequest) -> str:
     return COMPOSE_REFUSAL
 
 
-def _compose_refused(request: HttpRequest) -> HttpResponse:
+def _compose_refused(request: HttpRequest, *, switch_helps: bool = True) -> HttpResponse:
     """The composer's HTMX refusal: 403 carrying the reason as an error toast.
 
     The ``_skills_no_member_response`` idiom. htmx swaps no 4xx response, so a bare 403 on any of
@@ -4769,7 +4769,8 @@ def _compose_refused(request: HttpRequest) -> HttpResponse:
     swap, and which the toast script already listens on.
     """
     response = HttpResponse("Forbidden", status=403)
-    trigger_toast(response, _compose_refusal_message(request), "error")
+    # switch_helps=False where Admin would be refused too (My Past Students for an admin who teaches nothing).
+    trigger_toast(response, _compose_refusal_message(request) if switch_helps else COMPOSE_REFUSAL, "error")
     return response
 
 
@@ -5484,9 +5485,6 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
         locked, locked_label, heading, lead = _results_compose_lock(draft) or (False, "", "", "")
     else:
         requested = request.GET.get("audience")
-        if requested:
-            initial["audience"] = requested
-        locked, locked_label, heading, lead = _compose_lock(requested, bool(request.GET.get("lock")))
     if not _can_enter_compose(request, member, requested):
         # The redirect alone is silent: hub/base.html boosts the hub body, so the refused page
         # just becomes Home. The message is what makes it a refusal rather than a teleport, and
@@ -5494,6 +5492,15 @@ def hub_compose(request: HttpRequest, draft_pk: int | None = None) -> HttpRespon
         messages.error(request, _compose_refusal_message(request))
         return redirect("hub_home")
     if draft_pk is None:
+        # A pre-scoped audience the viewer may not address is dropped, never rendered (#415): its
+        # roster, mailing list and lock banner would show another guild's or class's people.
+        refusal = _compose_audience_refusal(request, requested) if requested else None
+        if refusal is not None:
+            messages.error(request, refusal)
+            requested = None
+        if requested:
+            initial["audience"] = requested
+        locked, locked_label, heading, lead = _compose_lock(requested, bool(request.GET.get("lock")))
         # After the gate on purpose: building the pre-selection reads a class roster, and an
         # unauthorized GET has no business making the server assemble one.
         initial.update(_compose_preselection(request, requested))
@@ -5696,7 +5703,7 @@ def hub_compose_count(request: HttpRequest) -> HttpResponse:
 
     raw = request.GET.get("audience") or request.POST.get("audience") or ""
     if not _can_enter_compose(request, _get_member(request), raw):
-        return _compose_refused(request)
+        return _compose_refused(request, switch_helps=raw != AnnouncementDraft.Audience.STUDENTS.value)
     forbidden = _compose_audience_forbidden(request, raw)
     if forbidden is not None:
         return forbidden
@@ -6215,12 +6222,38 @@ _REFUSED_SEND_KEEPS = (
 )
 
 
+def _compose_send_refused_page(request: HttpRequest) -> HttpResponse:
+    """A refused Send from someone who can no longer compose at all: their words, read only, and nothing else (#415).
+
+    A lead of one guild who loses the role while the composer is open can no longer reach any
+    composer, so this page is where the announcement survives: the refusal, then the posted
+    subject (or poll title) and message as plain text to copy. It carries no form, no audience,
+    no recipients and no directory; the message is flattened to text and the template escapes it.
+    """
+    from core.html_sanitize import rich_html_to_lines, sanitize_rich_html
+
+    subject = request.POST.get("subject") or request.POST.get("poll-title") or ""
+    message = rich_html_to_lines(sanitize_rich_html(request.POST.get("body") or ""))
+    return render(
+        request,
+        "hub/announcement_refused.html",
+        {
+            **_get_hub_context(request),
+            "refusal": _compose_refusal_message(request),
+            "subject": subject,
+            "message": message,
+        },
+        status=403,
+    )
+
+
 def _compose_send_audience_refused(request: HttpRequest, refusal: str) -> HttpResponse:
     """Send refused at the audience gate (#415): the message survives, the refused audience does not.
 
     Rights can change while the composer sits open (a lead loses the role, a class is reassigned,
     an admin flips Viewing as in another tab). Someone who can no longer compose at all gets the
-    composer's own refusal (Home and a message, as :func:`hub_compose` does), never a composer.
+    composer's own refusal on a read only page holding their words (:func:`_compose_send_refused_page`),
+    never a composer.
     Anyone else gets the composer again, status 403 and nothing saved, bound to a copy of the post
     holding only :data:`_REFUSED_SEND_KEEPS`, the poll's fields and the uploaded files: the
     audience comes back blank with the reason on it, so nothing of the refused target (its
@@ -6232,7 +6265,7 @@ def _compose_send_audience_refused(request: HttpRequest, refusal: str) -> HttpRe
         refusal: :func:`_compose_audience_refusal`'s sentence for the posted audience.
 
     Returns:
-        A redirect Home, or the composer page with status 403.
+        The read only refusal page or the composer page, both with status 403.
     """
     from django.forms import ChoiceField
     from django.http import QueryDict
@@ -6240,8 +6273,7 @@ def _compose_send_audience_refused(request: HttpRequest, refusal: str) -> HttpRe
     from hub.forms import AnnouncementComposeForm
 
     if not _can_enter_compose(request, _get_member(request), None):
-        messages.error(request, _compose_refusal_message(request))
-        return redirect("hub_home")
+        return _compose_send_refused_page(request)
     kept = QueryDict(mutable=True)
     for key in request.POST:
         if key in _REFUSED_SEND_KEEPS or key.startswith(("poll-", "question-")):

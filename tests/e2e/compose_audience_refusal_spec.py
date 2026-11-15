@@ -68,3 +68,39 @@ def describe_a_send_refused_at_the_audience_gate():
 
         assert not AnnouncementDraft.objects.exists()
         assert not GuildAnnouncement.objects.exists()
+
+
+def describe_a_send_from_a_lead_who_lost_their_only_guild():
+    def it_shows_their_words_to_copy_and_nothing_else(live_server, page, login_via_code):
+        MembershipPlanFactory()
+        guild = GuildFactory(name="Kiln Guild")
+        login_via_code(LEAD_EMAIL)
+        guild.guild_lead = Member.objects.get(user__username=LEAD_EMAIL)
+        guild.save(update_fields=["guild_lead"])
+
+        page.goto(f"{live_server.url}{reverse('hub_compose')}?audience=guild:{guild.pk}")
+        page.get_by_label("Subject").fill("Glaze night zxqv")
+        page.locator(EDITOR).fill(MESSAGE)
+
+        # Their only guild goes away, so they can no longer compose at all.
+        guild.guild_lead = None
+        guild.save(update_fields=["guild_lead"])
+
+        page.get_by_role("button", name="Save draft").first.click()
+        expect(page.locator(".plt-toast", has_text="Your account cannot use Email Members.")).to_be_visible()
+
+        page.get_by_role("tab", name="2. Preview & send").click()
+        page.get_by_role("button", name="Send email", exact=True).click()
+        with page.expect_navigation():
+            page.get_by_role("button", name="Yes, send it").click()
+
+        expect(page).to_have_url(f"{live_server.url}{reverse('hub_compose_send')}")
+        expect(page.get_by_text("Method Not Allowed")).to_have_count(0)
+        expect(page.locator("[data-compose-refused-reason]")).to_contain_text("Your account cannot use Email Members.")
+        expect(page.get_by_label("Subject")).to_have_value("Glaze night zxqv")
+        expect(page.get_by_label("Message")).to_have_value(MESSAGE)
+        expect(page.locator("[data-compose-refused] form")).to_have_count(0)
+        folder = os.environ.get("PL_SCREENSHOT_DIR")
+        if folder:
+            page.screenshot(path=str(Path(folder) / "415-refused-page.png"), full_page=False)
+        assert not AnnouncementDraft.objects.exists()
