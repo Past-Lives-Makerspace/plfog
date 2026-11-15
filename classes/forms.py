@@ -2444,8 +2444,7 @@ class DiscountCodeForm(forms.ModelForm):
 
         Passing ``scoped_to`` makes a class-scoped code: registrations for any
         other class won't honor it. Passing ``created_by`` records who made it
-        (and lets that member manage — and, with the self-approve permission,
-        approve — their own codes). Every new code starts unapproved regardless
+        (and lets that member manage their own codes). Every new code starts unapproved regardless
         of who creates it. The Members only switch (#1072) is the admin's: it is
         offered only with ``offers_members_only``, and left off the form a code
         keeps whatever it already has.

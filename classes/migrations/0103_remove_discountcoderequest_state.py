@@ -6,6 +6,11 @@ rows, so leaving it costs nothing, with one exception: its foreign keys. A table
 knows still referencing classes, members, users and codes makes a flush (TRUNCATE on PostgreSQL)
 refuse those tables, so the database half drops the four constraints and keeps the columns. The
 follow-up to #1185 drops the table with RunSQL once this release is live.
+
+Rolling back restores the constraints, which fails if a request row now points at a deleted
+class, member, user or code; delete those orphan rows first. Production holds none.
+
+The help text on DiscountCode.is_approved also drops the retired self approve permission.
 """
 
 import django.db.models.deletion
@@ -21,6 +26,17 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.AlterField(
+            model_name="discountcode",
+            name="is_approved",
+            field=models.BooleanField(
+                default=False,
+                help_text=(
+                    "Codes are usable only once approved. A code an admin makes starts unapproved until an admin "
+                    "approves it; a code an instructor makes is approved as it is made."
+                ),
+            ),
+        ),
         migrations.SeparateDatabaseAndState(
             state_operations=[migrations.DeleteModel(name="DiscountCodeRequest")],
             database_operations=[

@@ -5440,8 +5440,8 @@ class DiscountCode(models.Model):
     is_approved = models.BooleanField(
         default=False,
         help_text=(
-            "Codes are usable only once approved. Every new code starts unapproved until an admin — or a "
-            "member with the self-approve permission, for their own codes — approves it."
+            "Codes are usable only once approved. A code an admin makes starts unapproved until an admin "
+            "approves it; a code an instructor makes is approved as it is made."
         ),
     )
     class_offering = models.ForeignKey(

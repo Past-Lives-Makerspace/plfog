@@ -224,7 +224,7 @@ def describe_the_seeded_guide_pages():
         for permission, title, body in SEED.PAGES:
             page = WikiPage.guide_page_for(permission)
             assert page is not None and page.title == title and page.status == WikiPage.Status.OFFICIAL
-            # #1185 rewrote the discount page (0284); the card's sections follow the rewrite.
+            # #1185 rewrote the discount page (0285); the card's sections follow the rewrite.
             current = REWRITE.BODY if permission == Cap.DISCOUNT_APPROVER else body
             for step in spec_for(permission).steps:
                 assert f"<h2>{step.guide_section}</h2>" in current, (permission, step.key)
@@ -233,7 +233,7 @@ def describe_the_seeded_guide_pages():
 
 
 def describe_the_rewritten_discount_guide():
-    """Migration 0284 (#1185): the seeded page moves from deciding requests to overseeing codes."""
+    """Migration 0285 (#1185): the seeded page moves from deciding requests to overseeing codes."""
 
     def _page() -> WikiPage:
         SEED.seed(django_apps, None)
