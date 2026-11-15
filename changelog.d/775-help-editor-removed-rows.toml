@@ -1,0 +1,9 @@
+bump = "patch"
+audience = ["admins"]
+date = "2026-11-15"
+title = "The Help page editor saves after you remove a row you just added"
+changes = [
+  "On Help, Edit this page: adding a FAQ question, resource link, category or article and removing it again before Save no longer stops the save with errors on a row that is gone.",
+  "A new row that comes back with an error keeps its Remove button, so you can drop it and save the rest.",
+]
+guidance = "none"

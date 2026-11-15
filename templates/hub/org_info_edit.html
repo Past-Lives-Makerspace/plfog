@@ -76,6 +76,8 @@ rich_editor_assets.html.{% endcomment %}
       {{ faq_formset.management_form }}
       <div id="faq-rows" style="display:flex; flex-direction:column; gap:1rem;">
         {% for f in faq_formset %}
+          {# A new row that posted nothing (it was removed before Save) is skipped on save, so it is not drawn again. #}
+          {% if f.instance.pk or f.has_changed %}
           <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
             {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
             {% include "components/form_field.html" with field=f.question %}
@@ -92,10 +94,14 @@ rich_editor_assets.html.{% endcomment %}
                       onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this question
               </button>
+            {% else %}
+              {# A new row back on the page with an error: still unsaved, so Remove only drops it. #}
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
             {% endif %}
             {{ f.id }}
             {{ f.sort_order }}
           </div>
+          {% endif %}
         {% empty %}
           <p class="hub-text-muted">No questions yet. Add your first.</p>
         {% endfor %}
@@ -144,6 +150,8 @@ rich_editor_assets.html.{% endcomment %}
       {{ link_formset.management_form }}
       <div id="link-rows" style="display:flex; flex-direction:column; gap:1rem;">
         {% for f in link_formset %}
+          {# A new row that posted nothing (it was removed before Save) is skipped on save, so it is not drawn again. #}
+          {% if f.instance.pk or f.has_changed %}
           <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
             <div style="display:flex; gap:1rem; flex-wrap:wrap;">
               <div style="flex:1; min-width:200px;">{% include "components/form_field.html" with field=f.label %}</div>
@@ -155,10 +163,14 @@ rich_editor_assets.html.{% endcomment %}
                       onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this link
               </button>
+            {% else %}
+              {# A new row back on the page with an error: still unsaved, so Remove only drops it. #}
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
             {% endif %}
             {{ f.id }}
             {{ f.sort_order }}
           </div>
+          {% endif %}
         {% empty %}
           <p class="hub-text-muted">No links yet. Add your first.</p>
         {% endfor %}
@@ -209,6 +221,8 @@ rich_editor_assets.html.{% endcomment %}
       {{ category_formset.management_form }}
       <div id="category-rows" style="display:flex; flex-direction:column; gap:1rem;">
         {% for f in category_formset %}
+          {# A new row that posted nothing (it was removed before Save) is skipped on save, so it is not drawn again. #}
+          {% if f.instance.pk or f.has_changed %}
           <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
             {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
             {% include "components/form_field.html" with field=f.name %}
@@ -221,10 +235,14 @@ rich_editor_assets.html.{% endcomment %}
                       onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this category
               </button>
+            {% else %}
+              {# A new row back on the page with an error: still unsaved, so Remove only drops it. #}
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
             {% endif %}
             {{ f.id }}
             {{ f.sort_order }}
           </div>
+          {% endif %}
         {% empty %}
           <p class="hub-text-muted">No categories yet. Add your first.</p>
         {% endfor %}
@@ -275,6 +293,8 @@ rich_editor_assets.html.{% endcomment %}
       {{ article_formset.management_form }}
       <div id="article-rows" style="display:flex; flex-direction:column; gap:1rem;">
         {% for f in article_formset %}
+          {# A new row that posted nothing (it was removed before Save) is skipped on save, so it is not drawn again. #}
+          {% if f.instance.pk or f.has_changed %}
           <div class="hub-card" style="padding:1rem; background:rgba(255,255,255,0.02);">
             {% for error in f.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
             {% if f.instance.pk and f.instance.slug in seeded_slugs %}
@@ -292,10 +312,14 @@ rich_editor_assets.html.{% endcomment %}
                       onclick="document.getElementById('{{ f.DELETE.id_for_label }}').checked = true; this.form.requestSubmit();">
                 Delete this article
               </button>
+            {% else %}
+              {# A new row back on the page with an error: still unsaved, so Remove only drops it. #}
+              <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('.hub-card').remove();">Remove</button>
             {% endif %}
             {{ f.id }}
             {{ f.sort_order }}
           </div>
+          {% endif %}
         {% empty %}
           <p class="hub-text-muted">No articles yet. Add your first.</p>
         {% endfor %}
