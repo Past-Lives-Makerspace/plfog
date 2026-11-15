@@ -638,9 +638,17 @@ class DigestAdapter:
 # queued alongside them falls back to the general wording.
 CLASS_REVIEW_EVENTS = frozenset({"class_review_requested", "class_validation_requested"})
 
-# Lines that tell staff what already happened rather than ask them to act (#1184). A morning
-# email holding only these says so in its subject and opening line, never "Action Needed".
-HEADS_UP_EVENTS = frozenset({"discount_code.instructor_made"})
+# Lines that tell staff what already happened rather than ask them to act (#1184, #894 part 4).
+# A morning email holding only these says so in its subject and opening line, never "Action Needed".
+INSTRUCTOR_CODE_EVENTS = frozenset({"discount_code.instructor_made"})
+HEADS_UP_EVENTS = INSTRUCTOR_CODE_EVENTS | {
+    "new_member_joined",
+    "class_registration_admin_notice",
+    "equipment.reservation_made",
+}
+
+
+_ACTION_INTRO = "Here is everything still waiting on you this morning. Anything someone already handled is left out."
 
 
 def digest_line_key(row: EventDelivery) -> str:
@@ -660,34 +668,56 @@ def digest_context(rows: list[EventDelivery]) -> dict[str, object]:
 
     One line per request (:func:`digest_line_key`): a request queued twice (the original ask
     and a Remind lead) shows once, with the newest row's line ("Reminded by ..."). Lines group under
-    their event's label, in the order the first of each arrived.
+    their event's label, in the order the first of each arrived, every request section before
+    any heads-up section. A morning that mixes them counts the requests in its subject and adds
+    the updates ("Action Needed: 1 Request Awaiting You, plus 11 Updates").
     """
     from core.events.registry import get_event
 
     newest_by_url = {digest_line_key(row): row for row in rows}
-    sections: dict[str, list[dict[str, str]]] = {}
+    request_sections: dict[str, list[dict[str, str]]] = {}
+    update_sections: dict[str, list[dict[str, str]]] = {}
     for row in newest_by_url.values():
         # Senders pass the bell's link, often a path; the email needs a host (#894 part 3).
         line = {"title": row.title, "body": row.body, "url": member_absolute_url(row.url)}
-        sections.setdefault(get_event(row.event_key).label, []).append(line)
+        group = update_sections if row.event_key in HEADS_UP_EVENTS else request_sections
+        group.setdefault(get_event(row.event_key).label, []).append(line)
     count = len(newest_by_url)
-    keys = {row.event_key for row in newest_by_url.values()}
-    heads_up_only = bool(keys) and keys <= HEADS_UP_EVENTS
-    if heads_up_only:
-        noun = "Code" if count == 1 else "Codes"
-        subject = f"{count} Discount {noun} Made or Changed by Instructors"
-    elif keys <= CLASS_REVIEW_EVENTS:
-        noun = "Class" if count == 1 else "Classes"
-        subject = f"Action Needed: {count} {noun} Awaiting Review"
+    request_keys = {row.event_key for row in newest_by_url.values()} - HEADS_UP_EVENTS
+    update_keys = {row.event_key for row in newest_by_url.values()} & HEADS_UP_EVENTS
+    requests = sum(len(lines) for lines in request_sections.values())
+    updates = count - requests
+    heads_up_only = bool(update_keys) and not request_keys
+    if heads_up_only and update_keys <= INSTRUCTOR_CODE_EVENTS:
+        subject = f"{_plural(updates, 'Discount Code', 'Discount Codes')} Made or Changed by Instructors"
+        intro = "Here is what instructors made or changed since the last email. Each code already works."
+    elif heads_up_only:
+        subject = f"{_plural(updates, 'Update', 'Updates')} Since the Last Email"
+        intro = "Here is what happened since the last email. Nothing here needs you to act."
     else:
-        noun = "Request" if count == 1 else "Requests"
-        subject = f"Action Needed: {count} {noun} Awaiting You"
+        if request_keys <= CLASS_REVIEW_EVENTS:
+            subject = f"Action Needed: {_plural(requests, 'Class', 'Classes')} Awaiting Review"
+        else:
+            subject = f"Action Needed: {_plural(requests, 'Request', 'Requests')} Awaiting You"
+        if updates:
+            subject += f", plus {_plural(updates, 'Update', 'Updates')}"
+            intro = "Here is what is waiting on you this morning, then what happened since the last email."
+        else:
+            intro = _ACTION_INTRO
+    # Every request comes before any update, each group in the order its first line arrived.
+    sections = {**request_sections, **update_sections}
     return {
         "subject": subject,
         "count": count,
         "heads_up_only": heads_up_only,
+        "intro": intro,
         "sections": [{"label": label, "lines": lines} for label, lines in sections.items()],
     }
+
+
+def _plural(count: int, one: str, many: str) -> str:
+    """``count`` with the singular or plural noun: "1 Update", "11 Updates"."""
+    return f"{count} {one if count == 1 else many}"
 
 
 class DiscordAdapter:

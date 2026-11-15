@@ -28,7 +28,7 @@ from django.template.loader import render_to_string
 
 from core.events.channels import Message
 from core.events.emit import emit
-from core.events.registry import Channel
+from core.events.registry import Channel, EmailDelivery, get_event
 
 if TYPE_CHECKING:
     from django.db.models import Model
@@ -174,6 +174,7 @@ def emit_flat_email(
     period: str,
     target: Model | None = None,
     context: dict[str, Any] | None = None,
+    digest_line: Message | None = None,
 ) -> EmitResult:
     """Emit an email-only event whose flat body the sender has already written.
 
@@ -193,9 +194,21 @@ def emit_flat_email(
             a registration); a shared or empty period swallows the second alert.
         target: The related object, for the activity row (none of the alerts log one).
         context: The resolver context, when the event's resolver needs one.
+        digest_line: The line the 8 AM staff digest shows (title, one line, link), for an
+            event whose email waits for the digest (#894 part 4). Such an event has no bell
+            copy to fall back on, so its sender writes the line.
 
     Returns:
         The :class:`~core.events.emit.EmitResult`.
+
+    Raises:
+        ValueError: If ``event_key``'s email waits for the digest and no ``digest_line`` is
+            given; the morning email would otherwise get an empty line.
     """
+    if digest_line is None and get_event(event_key).email_delivery is EmailDelivery.DIGEST:
+        raise ValueError(f"{event_key} sends its email in the 8 AM digest; pass digest_line")
     message = Message(title=subject, body=text_body, html_body=html_body, trigger_kind=event_key)
-    return emit(event_key, target=target, context=context, messages={Channel.EMAIL: message}, period=period)
+    messages = {Channel.EMAIL: message}
+    if digest_line is not None:
+        messages[Channel.DIGEST] = digest_line
+    return emit(event_key, target=target, context=context, messages=messages, period=period)

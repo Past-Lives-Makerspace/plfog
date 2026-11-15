@@ -492,7 +492,7 @@ def describe_the_staff_digest():
             EventDelivery(event_key=MADE, title="Ana made A1", url="/a", period="discount:1:made"),
             EventDelivery(event_key="class_change_requested", title="Change", url="/b", period="x:1"),
         ]
-        assert digest_context(rows)["subject"] == "Action Needed: 2 Requests Awaiting You"
+        assert digest_context(rows)["subject"] == "Action Needed: 1 Request Awaiting You, plus 1 Update"
         assert digest_context(rows[:1])["subject"] == "1 Discount Code Made or Changed by Instructors"
 
 

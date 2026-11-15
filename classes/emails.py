@@ -214,15 +214,17 @@ def emit_instructor_new_registration(registration: "Registration") -> None:
 
 
 def send_admin_registration_notification(registration: "Registration") -> None:
-    """Emit the Admins' copy of a new registration: one flat email, no in-app row.
+    """Emit the Admins' copy of a new registration: a line in the 8 AM staff digest, no in-app row.
 
     Its own event, ``class_registration_admin_notice`` (#524), so it has a row under
     Admin / Permissions and each Admin's Email switch decides; it used to ride the
     instructor's ``instructor_new_registration`` key to a fixed address list. The
-    ``fog_admins`` resolver picks the people and each gets the email at their
-    notification address. The body is unchanged. The event declares no bell, so admins
-    get the email only, as before.
+    ``fog_admins`` resolver picks the people. Since #894 part 4 the email waits for the
+    8 AM digest as one line per registration (``digest_line``); the flat body stays as
+    the EMAIL message the event declares. The event declares no bell, so admins get
+    the digest line only, as before.
     """
+    from core.events.channels import Message
     from core.events.senders import emit_flat_email
 
     offering = registration.class_offering
@@ -243,6 +245,15 @@ def send_admin_registration_notification(registration: "Registration") -> None:
         text_body=body,
         html_body=_flat_text_email_html(body),
         period=f"reg:{registration.pk}:admin_notice",
+        digest_line=Message(
+            title=f"{registration.first_name} {registration.last_name} registered for {offering.title}",
+            body=(
+                f"{registration.get_status_display()}, paid ${registration.amount_paid_cents / 100:.2f}. "
+                f"{offering.seats_taken} of {offering.capacity} seats taken. {registration.email}"
+            ).rstrip(),
+            url=class_url,
+            trigger_kind="class_registration_admin_notice",
+        ),
     )
 
 

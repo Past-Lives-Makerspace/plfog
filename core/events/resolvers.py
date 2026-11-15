@@ -883,7 +883,7 @@ def open_class_review_urls(rows: list[EventDelivery]) -> set[str]:
 
 
 def always_open(rows: list[EventDelivery]) -> set[str]:
-    """For a request nothing decides (a class change request): every queued line goes out."""
+    """For a request or notice nothing decides (a class change request, a new member): every line goes out."""
     return {row.url for row in rows}
 
 
@@ -970,6 +970,10 @@ _OPEN_CHECKS: dict[str, OpenCheckFn] = {
     "instructor_application_received": _open_by_request(_teaching_applications),
     "class_change_requested": always_open,
     "cubbies.rental_past_due": _open_by_request(_past_due_cubby_rentals),
+    # #894 part 4: FYI notices (a signup, a registration, a booking); nothing decides them.
+    "new_member_joined": always_open,
+    "class_registration_admin_notice": always_open,
+    "equipment.reservation_made": always_open,
 }
 
 

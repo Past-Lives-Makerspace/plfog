@@ -1,16 +1,13 @@
-{{ subject }}
+{% autoescape off %}{{ subject }}
 
-{% if heads_up_only %}Here is what instructors made or changed since the last email. Each
-code already works.
-{% else %}Here is everything still waiting on you this morning. Anything someone
-already handled is left out.
-{% endif %}{% for section in sections %}
+{{ intro }}
+{% for section in sections %}
 {{ section.label|upper }}
 {% for line in section.lines %}
 {{ line.title }}
 {{ line.body }}
 Open: {{ line.url }}
 {% endfor %}{% endfor %}
-Requests reach you once a day, at 8 AM, in this one email. The bell in
-the app still shows each one the moment it arrives.
-{% include "membership/emails/_footer.txt" %}
+Requests and updates reach you once a day, at 8 AM, in this one email.
+The bell in the app still shows each one the moment it arrives.
+{% include "membership/emails/_footer.txt" %}{% endautoescape %}
