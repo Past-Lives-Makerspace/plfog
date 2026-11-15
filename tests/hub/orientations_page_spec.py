@@ -18,6 +18,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
+from classes.factories import daytime
 from core.models import SiteConfiguration
 from membership.models import EXAMPLE_GUILD_SLUG, Member, OrientationBooking, OrientationType
 from tests.billing.factories import LateCancellationFeeFactory
@@ -573,11 +574,13 @@ def describe_coming_back_to_the_page():
         assert response.status_code == 302
         assert response["Location"] == PAGE
 
+    @pytest.mark.usefixtures("fall_back_nights")
     def it_picks_a_window_start_through_the_same_service_and_lands_back(client: Client):
         user = _login(client, "op_back_block")
         guild = _guild("Back Block Guild")
         orientation_type = OrientationTypeFactory(guild=guild, name="Back Block")
-        block = OrientationAvailabilityBlockFactory(guild=guild)
+        # 10:00 local two days out, so the posted start is never in the repeated 1 AM hour (#1036).
+        block = OrientationAvailabilityBlockFactory(guild=guild, starts_at=daytime(timezone.now() + timedelta(days=2)))
         start = block.valid_starts_for(orientation_type)[0]
         with mock.patch("membership.orientations.request_block_orientation") as request_block:
             response = client.post(
@@ -592,11 +595,13 @@ def describe_coming_back_to_the_page():
         assert request_block.call_args.args[:2] == (block, user.member)
         assert response["Location"] == PAGE
 
+    @pytest.mark.usefixtures("five_days_before_fall_back_nights")
     def it_requests_a_custom_time_through_the_same_service_and_lands_back(client: Client):
         user = _login(client, "op_back_custom")
         guild = _guild("Back Custom Guild", allow_custom_requests=True)
         orientation_type = OrientationTypeFactory(guild=guild, name="Back Custom")
-        starts = timezone.localtime(timezone.now() + timedelta(days=5)).replace(second=0, microsecond=0)
+        # 10:00 local five days out, so the posted start is never in the repeated 1 AM hour (#1036).
+        starts = daytime(timezone.now() + timedelta(days=5))
         with mock.patch("membership.orientations.request_custom_orientation") as request_custom:
             response = client.post(
                 reverse("hub_guild_orientation_request_custom", args=[guild.pk]),

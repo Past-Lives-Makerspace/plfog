@@ -7,13 +7,14 @@ All datetime math is asserted in Portland local time."""
 
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+from datetime import UTC, datetime, time, timedelta
 from unittest.mock import patch
 
 import pytest
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from classes.factories import daytime
 from membership.events import event_happening_now_occurrences, event_reminder_occurrences
 from membership.models import CommunityEvent
 from tests.membership.factories import CommunityEventFactory, GuildFactory
@@ -142,17 +143,19 @@ def describe_next_meeting_occurrence():
         guild = GuildFactory()
         assert guild.next_meeting_occurrence() is None
 
+    @pytest.mark.usefixtures("fall_back_nights")
     def it_counts_studio_hours_rows_with_their_title(db):
         # Anything the guild staff coordinates is its next meeting (#953), studio hours included,
         # but it is no meeting, so nothing offers to start an agenda for it.
         guild = GuildFactory()
-        start = timezone.now() + timedelta(days=2)
+        start = daytime(timezone.now() + timedelta(days=2))
         CommunityEventFactory(
             studio_hours=True, guild=guild, title="Open Studio", starts_at=start, ends_at=start + timedelta(hours=3)
         )
         result = guild.next_meeting_occurrence()
         assert result is not None
-        assert result.when == start
+        # Instants, not wall clocks: an aware local time in a repeated hour never equals a UTC one (#1036).
+        assert result.when.astimezone(UTC) == start.astimezone(UTC)
         assert result.title == "Open Studio"
         assert result.is_meeting is False
 

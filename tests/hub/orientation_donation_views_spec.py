@@ -12,6 +12,7 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
+from classes.factories import daytime
 from hub.forms import OrientationAmountForm, OrientationCustomRequestForm, OrientationTypeForm
 from membership.models import OrientationBooking, OrientationError, OrientationType
 from tests.membership.factories import (
@@ -413,10 +414,14 @@ def describe_booking_a_custom_time():
         mock_create.assert_not_called()
 
 
+@pytest.mark.usefixtures("fall_back_nights")
 def describe_booking_a_block_time():
     def _post(client: Client, amount: str, *, minimum: int = 0, follow: bool = False):
         orientation_type = _donation_type(minimum=minimum)
-        block = OrientationAvailabilityBlockFactory(guild=orientation_type.guild)
+        # 10:00 local two days out, so the posted start is never in the repeated 1 AM hour (#1036).
+        block = OrientationAvailabilityBlockFactory(
+            guild=orientation_type.guild, starts_at=daytime(timezone.now() + timedelta(days=2))
+        )
         start = timezone.localtime(block.starts_at).strftime("%Y-%m-%dT%H:%M")
         return client.post(
             reverse("hub_orientation_block_book", args=[block.pk]),

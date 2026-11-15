@@ -1,7 +1,9 @@
 import os
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -192,6 +194,51 @@ def midday_now():
     noon = timezone.localtime().replace(hour=12, minute=0, second=0, microsecond=0)
     with patch("django.utils.timezone.now", return_value=noon):
         yield noon
+
+
+_PACIFIC = ZoneInfo("America/Los_Angeles")
+
+#: The nights a spec seeding "two days out" must read the same on (#1036). Clocks fall back at
+#: 02:00 on Sunday 2026-11-01, so on the second night before it a seed two days out ends (from
+#: 23:00) or starts (from 01:00) inside the 1 AM hour that happens twice. The third is an
+#: ordinary night, where a seed at the current time of day sits two hours from midnight.
+FALL_BACK_NIGHTS = {
+    "fall-back-night-2330": datetime(2026, 10, 29, 23, 30, tzinfo=_PACIFIC),
+    "fall-back-night-0130": datetime(2026, 10, 30, 1, 30, tzinfo=_PACIFIC),
+    "ordinary-night-2330": datetime(2026, 11, 10, 23, 30, tzinfo=_PACIFIC),
+}
+
+#: The same nights for a spec seeding "five days out": the fifth night before the fall back.
+FIVE_DAYS_BEFORE_FALL_BACK_NIGHTS = {
+    "fall-back-night-2330": datetime(2026, 10, 26, 23, 30, tzinfo=_PACIFIC),
+    "fall-back-night-0130": datetime(2026, 10, 27, 1, 30, tzinfo=_PACIFIC),
+    "ordinary-night-2330": FALL_BACK_NIGHTS["ordinary-night-2330"],
+}
+
+
+def _frozen_now(moment: datetime) -> Iterator[datetime]:
+    """Freeze ``timezone.now`` at ``moment`` in UTC, the way the real clock reports it."""
+    from unittest.mock import patch
+
+    moment = moment.astimezone(UTC)
+    with patch("django.utils.timezone.now", return_value=moment):
+        yield moment
+
+
+@pytest.fixture(params=list(FALL_BACK_NIGHTS.values()), ids=list(FALL_BACK_NIGHTS))
+def fall_back_nights(request: pytest.FixtureRequest) -> Iterator[datetime]:
+    """Run the spec once per ``FALL_BACK_NIGHTS`` moment, with ``timezone.now`` frozen there in UTC.
+
+    For a spec that seeds a block, event or meeting relative to now and then posts or compares
+    it as a local time: it must pin the hour (10:00 local) and keep now only for the day.
+    """
+    yield from _frozen_now(request.param)
+
+
+@pytest.fixture(params=list(FIVE_DAYS_BEFORE_FALL_BACK_NIGHTS.values()), ids=list(FIVE_DAYS_BEFORE_FALL_BACK_NIGHTS))
+def five_days_before_fall_back_nights(request: pytest.FixtureRequest) -> Iterator[datetime]:
+    """``fall_back_nights`` for a spec that seeds five days out."""
+    yield from _frozen_now(request.param)
 
 
 @pytest.fixture
