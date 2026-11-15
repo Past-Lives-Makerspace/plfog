@@ -5766,21 +5766,38 @@ class DiscountCode(StaffRequestMixin, models.Model):
         takes off and where it works ("Ana made SPRING20, 20% off, Intro to Forging"), and
         links to the code on the admin list, where an admin can switch Active off.
         """
+        self._tell_staff(f"{maker.display_name} made {self.code}, {self.amount_label}, {self._where}", "made")
+
+    def tell_staff_instructor_changed(self, maker: "Member", *, uses_changed: bool) -> None:
+        """Queue a digest line for an instructor's edit to the discount, scope or uses limit (#1184).
+
+        The line reads "Ana changed SPRING5: now 100% off, all their classes", with the uses
+        limit added when that is what changed. Every such edit is its own line.
+        """
+        line = f"{maker.display_name} changed {self.code}: now {self.amount_label}, {self._where}"
+        if uses_changed:
+            line += f", {self.max_uses} uses" if self.max_uses is not None else ", unlimited uses"
+        self._tell_staff(line, f"changed:{timezone.now().isoformat()}")
+
+    @property
+    def _where(self) -> str:
+        offering = self.class_offering
+        return offering.title if offering is not None else "all their classes"
+
+    def _tell_staff(self, title: str, what: str) -> None:
         from core.events.emit import emit
         from core.events.registry import DISCOUNT_CODE_INSTRUCTOR_MADE
 
-        offering = self.class_offering
-        where = offering.title if offering is not None else "all their classes"
         emit(
             DISCOUNT_CODE_INSTRUCTOR_MADE,
             actor=self.created_by,
             target=self,
             context={},
-            title=f"{maker.display_name} made {self.code}, {self.amount_label}, {where}",
+            title=title,
             body="It works now. To stop it, open the code and switch Active off.",
             # Absolute: the email channel uses this verbatim, and a bare path is dead in mail.
             url=f"{settings.MEMBER_BASE_URL}{self.request_bell_path}",
-            period=f"discount:{self.pk}:made",
+            period=f"discount:{self.pk}:{what}",
         )
 
     def reassign(self, *, class_offering: "ClassOffering | None" = None, instructor: "Member | None" = None) -> None:

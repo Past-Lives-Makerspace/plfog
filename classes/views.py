@@ -6321,7 +6321,8 @@ def admin_discount_codes(request: HttpRequest) -> HttpResponse:
     # The Scope column reads the class title or the instructor's name per row (#764).
     codes = DiscountCode.objects.select_related("class_offering", "instructor")
     raw_made_by = request.GET.get("made_by", "")
-    made_by = int(raw_made_by) if raw_made_by.isdigit() else None
+    # isdecimal, not isdigit: "²" is a digit that int() refuses.
+    made_by = int(raw_made_by) if raw_made_by.isdecimal() else None
     if made_by is not None:
         codes = codes.made_by(made_by)
     table = prepare_table(request, codes, search_fields=["code", "description"], default_sort="code")

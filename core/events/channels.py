@@ -675,7 +675,7 @@ def digest_context(rows: list[EventDelivery]) -> dict[str, object]:
     heads_up_only = bool(keys) and keys <= HEADS_UP_EVENTS
     if heads_up_only:
         noun = "Code" if count == 1 else "Codes"
-        subject = f"{count} New Discount {noun} From Instructors"
+        subject = f"{count} Discount {noun} Made or Changed by Instructors"
     elif keys <= CLASS_REVIEW_EVENTS:
         noun = "Class" if count == 1 else "Classes"
         subject = f"Action Needed: {count} {noun} Awaiting Review"

@@ -321,7 +321,84 @@ def describe_editing_an_instructors_code():
         code.refresh_from_db()
         assert (code.class_offering_id, code.instructor_id, code.discount_pct) == (None, teacher.pk, 30)
         assert code.is_active is False
-        assert not EventDelivery.objects.filter(event_key=MADE).exists()
+
+    def _edit(client: Client, target: DiscountCode, **data: str) -> None:
+        post = {"code": target.code, "discount_pct": "", "discount_fixed_cents": "", "max_uses": "", **data}
+        resp = client.post(reverse("classes:teach_discount_code_edit", kwargs={"pk": target.pk}), post)
+        assert resp.status_code == 302, resp.context["form"].errors if resp.context else resp
+
+    def _lines() -> list[str]:
+        return [row.title for row in EventDelivery.objects.filter(event_key=MADE, channel="digest").order_by("pk")]
+
+    def it_tells_staff_when_the_discount_or_scope_changes(client: Client) -> None:
+        _discount_admin()
+        user, teacher = _teacher()
+        offering = _class(teacher)
+        code = DiscountCodeFactory(code="SPRING5", discount_pct=5, class_offering=offering, created_by=user)
+        client.force_login(user)
+        _edit(client, code, applies_to=ALL_MY_CLASSES, discount_pct="100")
+        assert _lines() == ["Ana changed SPRING5: now 100% off, all their classes"]
+        flush_digests(next_8am())
+        assert "Ana changed SPRING5: now 100% off, all their classes" in mail.outbox[-1].body
+
+    def it_tells_staff_when_the_uses_limit_changes(client: Client) -> None:
+        _discount_admin()
+        user, teacher = _teacher()
+        offering = _class(teacher)
+        code = DiscountCodeFactory(code="USES5", discount_pct=5, class_offering=offering, created_by=user, max_uses=10)
+        client.force_login(user)
+        _edit(client, code, applies_to=str(offering.pk), discount_pct="5", max_uses="")
+        _edit(client, code, applies_to=str(offering.pk), discount_pct="5", max_uses="50")
+        assert _lines() == [
+            "Ana changed USES5: now 5% off, Intro to Forging, unlimited uses",
+            "Ana changed USES5: now 5% off, Intro to Forging, 50 uses",
+        ]
+
+    def it_sends_nothing_when_only_the_dates_or_spelling_change(client: Client) -> None:
+        _discount_admin()
+        user, teacher = _teacher()
+        offering = _class(teacher)
+        code = DiscountCodeFactory(code="SAME5", discount_pct=5, class_offering=offering, created_by=user)
+        client.force_login(user)
+        _edit(client, code, code="SAME6", applies_to=str(offering.pk), discount_pct="5", valid_until="2027-01-31")
+        assert _lines() == []
+
+
+def _adopted_personal_code(teacher: Member, user: User) -> DiscountCode:
+    """The instructor's personal code, made by them before it was adopted (ensure_personal_for), so they can edit it."""
+    code = DiscountCode.objects.ensure_personal_for(teacher)
+    DiscountCode.objects.filter(pk=code.pk).update(created_by=user, code="ANA10", discount_pct=10)
+    code.refresh_from_db()
+    return code
+
+
+def describe_editing_a_personal_code():
+    def it_moves_onto_one_class_and_stops_being_the_personal_code(client: Client) -> None:
+        user, teacher = _teacher()
+        offering = _class(teacher)
+        adopted = _adopted_personal_code(teacher, user)
+        client.force_login(user)
+        resp = client.post(
+            reverse("classes:teach_discount_code_edit", kwargs={"pk": adopted.pk}),
+            {"code": "ANA10", "applies_to": str(offering.pk), "discount_pct": "10", "discount_fixed_cents": ""},
+        )
+        assert resp.status_code == 302
+        adopted.refresh_from_db()
+        assert (adopted.class_offering_id, adopted.instructor_id, adopted.is_personal) == (offering.pk, None, False)
+        # Their next visit makes them a new personal code, as after a reassign.
+        assert client.get(reverse(CODES)).status_code == 200
+        assert DiscountCode.objects.personal_for(teacher) not in (None, adopted)
+
+    def it_stays_the_personal_code_on_all_their_classes(client: Client) -> None:
+        user, teacher = _teacher()
+        adopted = _adopted_personal_code(teacher, user)
+        client.force_login(user)
+        client.post(
+            reverse("classes:teach_discount_code_edit", kwargs={"pk": adopted.pk}),
+            {"code": "ANA10", "applies_to": ALL_MY_CLASSES, "discount_pct": "12", "discount_fixed_cents": ""},
+        )
+        adopted.refresh_from_db()
+        assert (adopted.is_personal, adopted.discount_pct) == (True, 12)
 
 
 def describe_the_instructor_pages():
@@ -397,7 +474,7 @@ def describe_the_staff_digest():
         flush_digests(next_8am())
         sent = [m for m in mail.outbox if m.to == [admin.email]]
         assert len(sent) == 1
-        assert sent[0].subject == "2 New Discount Codes From Instructors"
+        assert sent[0].subject == "2 Discount Codes Made or Changed by Instructors"
         body = sent[0].body
         assert "Ana made SPRING20, 20% off, Intro to Forging" in body
         assert "Ana made MINE15, $15.00 off, all their classes" in body
@@ -416,7 +493,7 @@ def describe_the_staff_digest():
             EventDelivery(event_key="class_change_requested", title="Change", url="/b", period="x:1"),
         ]
         assert digest_context(rows)["subject"] == "Action Needed: 2 Requests Awaiting You"
-        assert digest_context(rows[:1])["subject"] == "1 New Discount Code From Instructors"
+        assert digest_context(rows[:1])["subject"] == "1 Discount Code Made or Changed by Instructors"
 
 
 def describe_the_admin_made_by_filter():
@@ -448,8 +525,14 @@ def describe_the_admin_made_by_filter():
         ana_user, _ana = _teacher()
         DiscountCodeFactory(code="ANACODE", created_by=ana_user)
         DiscountCodeFactory(code="OTHER1")
-        page = _admin_client().get(reverse("classes:admin_discount_codes"), {"made_by": "x"}).content.decode()
-        assert "ANACODE" in page and "OTHER1" in page
+        client = _admin_client()
+        # "²" is a digit to str.isdigit but not a number int() takes: it once crashed the page.
+        for raw in ("x", "\u00b2", "1\u00b2"):
+            resp = client.get(reverse("classes:admin_discount_codes"), {"made_by": raw})
+            assert resp.status_code == 200
+            page = resp.content.decode()
+            assert "ANACODE" in page and "OTHER1" in page
+        assert client.get(reverse("classes:admin_discount_codes") + "?made_by=%C2%B2").status_code == 200
 
     def it_hides_the_filter_when_nobody_made_a_code() -> None:
         DiscountCodeFactory(code="ORPHAN", created_by=None)

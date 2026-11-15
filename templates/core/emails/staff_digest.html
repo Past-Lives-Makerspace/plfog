@@ -2,7 +2,7 @@
 {% block content %}
 {# The 8 AM staff digest (#894): one line per request still open, grouped under its event's label. #}
 <p style="margin: 0 0 8px; font-size: 18px; font-weight: 700; color: #33424f;">{{ subject }}</p>
-<p style="margin: 0 0 16px; font-size: 14px; color: #55697a; line-height: 1.6;">{% if heads_up_only %}Here is what instructors made since the last email. Each code already works.{% else %}Here is everything still waiting on you this morning. Anything someone already handled is left out.{% endif %}</p>
+<p style="margin: 0 0 16px; font-size: 14px; color: #55697a; line-height: 1.6;">{% if heads_up_only %}Here is what instructors made or changed since the last email. Each code already works.{% else %}Here is everything still waiting on you this morning. Anything someone already handled is left out.{% endif %}</p>
 {% for section in sections %}
 <div style="margin: 20px 0 0; padding: 20px 22px; background-color: #eef4f9; border-radius: 10px;">
     <p style="margin: 0 0 12px; font-size: 12px; font-weight: 700; color: #0d4876; text-transform: uppercase; letter-spacing: 0.08em;">{{ section.label }}</p>

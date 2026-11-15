@@ -8,7 +8,7 @@ target = "classes.new-code"
 changes = [
   "Instructors can make a discount code for one of their classes, or for every class they teach, and it works right away. No approval needed.",
   "Pick a percent off or a dollar amount off, with optional start and end dates and a limit on uses.",
-  "Staff see each new instructor code in the morning digest, and admins can filter Discount Codes by who made them.",
+  "Staff see each new or changed instructor code in the morning digest, and admins can filter Discount Codes by who made them.",
 ]
 
 [[shots]]

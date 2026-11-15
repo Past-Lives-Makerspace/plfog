@@ -2510,7 +2510,10 @@ class InstructorDiscountCodeForm(DiscountCodeForm):
 
     A new code is saved approved and active, and the Discount Code Administrators hear of
     it in the 8 AM digest (:meth:`DiscountCode.tell_staff_instructor_made`). An edit keeps
-    the code's approval and Active switch as they are, so an admin's Active off stands.
+    the code's approval and Active switch as they are, so an admin's Active off stands; an
+    edit that changes the discount, where it works or the uses limit is a digest line too
+    (:meth:`DiscountCode.tell_staff_instructor_changed`). A personal code moved onto one class
+    stops being the personal code, as :meth:`DiscountCode.reassign` rules.
     """
 
     applies_to = forms.ChoiceField(label="Class", help_text="Pick one class, or every class you teach.")
@@ -2569,6 +2572,8 @@ class InstructorDiscountCodeForm(DiscountCodeForm):
         applies_to.choices = choices
         #: The class the page was opened from (``?class=``), when the instructor teaches it.
         self.initial_offering: ClassOffering | None = self._classes.get(str(initial_class or ""))
+        #: What a staff "changed" line watches (#1184): the discount, where it works and the uses limit.
+        self._watched_before = self._watched(self.instance)
         if self.instance.pk is not None:
             if self.instance.instructor_id == teaching_member.pk:
                 applies_to.initial = ALL_MY_CLASSES
@@ -2604,6 +2609,10 @@ class InstructorDiscountCodeForm(DiscountCodeForm):
             code.class_offering, code.instructor = None, self._teaching_member
         else:
             code.class_offering, code.instructor = self._classes[target], None
+        if code.is_personal and code.instructor_id is None:
+            # Moved onto one class it is no longer their personal code, as reassign() rules;
+            # a new personal code is made on their next visit.
+            code.is_personal = False
         creating = code.pk is None
         if creating:
             code.is_approved = True
@@ -2611,7 +2620,16 @@ class InstructorDiscountCodeForm(DiscountCodeForm):
         code.save()
         if creating:
             code.tell_staff_instructor_made(self._teaching_member)
+        elif self._watched(code) != self._watched_before:
+            code.tell_staff_instructor_changed(
+                self._teaching_member, uses_changed=code.max_uses != self._watched_before[4]
+            )
         return code
+
+    @staticmethod
+    def _watched(code: DiscountCode) -> tuple[int | None, int | None, int | None, int | None, int | None]:
+        """The discount, scope and uses of ``code``: an edit changing any of these tells staff."""
+        return (code.discount_pct, code.discount_fixed_cents, code.class_offering_id, code.instructor_id, code.max_uses)
 
 
 def _reassign_class_label(offering: ClassOffering, current_pk: int | None) -> str:

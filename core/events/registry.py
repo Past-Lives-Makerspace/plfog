@@ -1023,8 +1023,8 @@ _NEW_EVENTS: list[EventType] = [
     #      code in the 8 AM digest. DiscountCode.save logs the CmsActivity, so emit logs none.
     EventType(
         key=DISCOUNT_CODE_INSTRUCTOR_MADE,
-        label="An instructor made a discount code",
-        description="An instructor made a discount code for their own classes. It works at once; switch Active off to stop it.",
+        label="An instructor made or changed a discount code",
+        description="An instructor made a discount code for their own classes, or changed what one takes off, where it works or how many uses it has. It works at once; switch Active off to stop it.",
         category="Teaching",
         recipient=Recipients.DISCOUNT_APPROVERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
