@@ -464,7 +464,9 @@ def describe_the_description_count():
             assert counter["data-description-min"] == str(READINESS_MIN_DESCRIPTION_CHARS), mode
             assert counter["aria-live"] == "polite", mode
             assert (counter["class"] or "").split() == ["pl-field-hint", "pl-composer-count-hint"], mode
-            assert f'<p class="pl-field-hint">{DESCRIPTION_HELP_TEXT}</p>' in step_one, mode
+            assert f'<p class="pl-field-hint" id="id_description_helptext">{DESCRIPTION_HELP_TEXT}</p>' in step_one, (
+                mode
+            )
             assert '<script src="/static/js/composer_description_count.js" defer></script>' in html, mode
         assert composer.form("create").fields["description"].help_text == DESCRIPTION_HELP_TEXT
         assert str(READINESS_MIN_DESCRIPTION_CHARS) in DESCRIPTION_HELP_TEXT
