@@ -1,2 +1,9 @@
 bump = "patch"
-audience = "internal"
+audience = ["members", "instructors", "guild-staff", "admins"]
+date = "2026-11-15"
+title = "What's New finds the control on a slow connection"
+changes = [
+  "When a page loads slowly, the Open and Show me buttons on a What's New entry now wait for it and ring the control, instead of sometimes ringing nothing.",
+]
+feature = "home.whats-new"
+guidance = "none"

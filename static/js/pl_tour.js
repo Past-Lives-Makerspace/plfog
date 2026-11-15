@@ -36,9 +36,6 @@
             var WAIT_CAP_MS = 4000; // a control's time to show once the page is ready (waitFor)
             var READY_CAP_MS = 10000; // the backstop when Alpine never starts: carry on without it
             var POLL_MS = 50;
-            // Development only: the dev server and the e2e live server answer on localhost; staging and
-            // production never do. Nothing in the browser knows settings.DEBUG.
-            var DEV = /^(localhost|127\.0\.0\.1)$/.test(window.location.hostname);
 
             var assetsPromise = null; // cached so double-start is safe
             var current = null; // this page's payload (re-read on every init)
@@ -205,6 +202,13 @@
                 return window.performance && window.performance.now ? window.performance.now() : Date.now();
             }
 
+            // settings.ENVIRONMENT, which _tour.html stamps on #pl-tour-assets: "development" on the dev
+            // server (DJANGO_DEBUG unset) and under pytest, never on staging or production.
+            function inDevelopment() {
+                var assets = document.getElementById("pl-tour-assets");
+                return !!assets && assets.getAttribute("data-environment") === "development";
+            }
+
             // Every tab, pane and stepped page the engine reaches into belongs to Alpine. On a fresh
             // load this script and guidance.js run before alpine.min.js (the last deferred script),
             // so a ?show= arrival would ask for a pane before anything listens. Alpine starts in the
@@ -275,8 +279,8 @@
                                 askedAt = now();
                             }
                         } else if (framePassed) {
-                            if (DEV) {
-                                window.console.warn("pl_tour: " + selector + " did not show within " + WAIT_CAP_MS + " ms, so no ring.");
+                            if (inDevelopment()) {
+                                window.console.warn("pl_tour: " + selector + " did not show within " + WAIT_CAP_MS + " ms.");
                             }
                             resolve(false); // never hang — a tour step degrades to centered, a highlight shows nothing
                             return;
