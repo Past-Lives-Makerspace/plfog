@@ -203,7 +203,7 @@
             }
 
             // settings.ENVIRONMENT, which _tour.html stamps on #pl-tour-assets: "development" on the dev
-            // server (DJANGO_DEBUG unset) and under pytest, never on staging or production.
+            // server (DJANGO_DEBUG true or unset) and under pytest, never on staging or production.
             function inDevelopment() {
                 var assets = document.getElementById("pl-tour-assets");
                 return !!assets && assets.getAttribute("data-environment") === "development";
