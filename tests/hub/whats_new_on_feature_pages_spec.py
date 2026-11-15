@@ -21,6 +21,7 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
+from classes.factories import ClassOfferingFactory
 from core.guidance import GUIDANCE, covers, url_for
 from core.whats_new import TABS
 from membership.models import Member
@@ -64,10 +65,13 @@ def everything_new(monkeypatch, one_page):
 
 @pytest.fixture
 def admin_lead(client: Client) -> Member:
-    """An admin who leads a guild and may teach, with every tab on, signed in, with every switchable feature on.
+    """An admin who leads a guild and teaches a class, with every tab on, signed in, with every switchable feature on.
 
     Teaching access (``instructor_oriented_at``) admits the teaching portal's pages: since #1071,
     ``classes.personal-code`` lives on one, and without it the page redirects to Teach at Past Lives.
+    A class of their own makes My Past Students theirs to address, as it is for anyone My Classes
+    shows Email Students to (#1042); the composer drops a pre-scoped audience the viewer may not
+    address (#415), and with it ``classes.email-past-students``' button.
     """
     MembershipPlanFactory()
     for key in ("catalog", "teach", "orientations", "equipment", "voting", "wiki", "guilds"):
@@ -79,6 +83,7 @@ def admin_lead(client: Client) -> Member:
     member.save(update_fields=["fog_role", "instructor_oriented_at"])
     member.sync_user_permissions()
     GuildFactory(guild_lead=member, show_cubbies_tab=True)
+    ClassOfferingFactory(instructor=member)
     client.login(username="lead", password="pass")
     return member
 
