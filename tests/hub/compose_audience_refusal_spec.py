@@ -2,26 +2,39 @@
 
 A member refused at the audience gate is told they cannot email that audience, which is a
 different sentence from "Your account cannot use Email Members." The htmx callers keep their 403
-and carry the reason as an error toast; Send keeps its 403 but renders the composer again with
-everything that was posted, so the announcement is not lost. The browser half of the Send path
-is ``tests/e2e/compose_audience_refusal_spec.py``.
+and carry the reason as an error toast; someone who cannot compose at all gets the composer's own
+refusal there instead. Send keeps its 403 and renders the composer again with the message but
+never the refused audience: no roster, no mailing list, no recipient rows to carry into the next
+Send. A guild or class is named only when the viewer could already see it. The browser half of
+the Send path is ``tests/e2e/compose_audience_refusal_spec.py``.
 """
 
 from __future__ import annotations
 
+import io
 import json
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
+from PIL import Image
 from django.contrib.auth.models import User
 from django.contrib.messages import get_messages
 from django.test import Client, RequestFactory
 from django.urls import reverse
+from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory
+from classes.models import ClassOffering
 from hub.view_as import ROLE_MEMBER, SESSION_ROLE_KEY
-from hub.views import AUDIENCE_REFUSAL, COMPOSE_REFUSAL, _audience_refusal_message
+from hub.views import AUDIENCE_REFUSAL, COMPOSE_REFUSAL, _audience_refusal_message, _compose_audience_refusal
 from membership.models import AnnouncementDraft, GuildAnnouncement
-from tests.membership.factories import AnnouncementDraftFactory, GuildFactory, MembershipPlanFactory
+from tests.membership.factories import (
+    AnnouncementDraftFactory,
+    GuildFactory,
+    GuildMailingListEmailFactory,
+    GuildMembershipFactory,
+    MembershipPlanFactory,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -39,6 +52,20 @@ def _login_lead(client: Client, *guilds, username: str = "lead") -> User:
         guild.guild_lead = user.member
         guild.save(update_fields=["guild_lead"])
     client.login(username=username, password="p")
+    return user
+
+
+def _login_plain(client: Client) -> User:
+    MembershipPlanFactory()
+    user = User.objects.create_user(username="plain", email="plain@x.com", password="p")
+    client.login(username="plain", password="p")
+    return user
+
+
+def _rostered(guild, email: str) -> User:
+    """A signed in member of ``guild`` at ``email``, so the guild's roster has a row to leak."""
+    user = User.objects.create_user(username=email, email=email, last_login=timezone.now())
+    GuildMembershipFactory(guild=guild, member=user.member)
     return user
 
 
@@ -65,19 +92,16 @@ def _toast(response) -> dict[str, str]:
     return json.loads(response["HX-Trigger"])["showToast"]
 
 
-def _refusal(request_client: Client, raw: str) -> str | None:
-    """The gate's answer for the logged in client, through a real request so ``view_as`` is set."""
-    response = request_client.get(reverse("hub_compose_count"), {"audience": raw})
-    if response.status_code == 200:
-        return None
-    return _toast(response)["message"]
+def _refusal(client: Client, raw: str) -> str | None:
+    """The gate's answer for the signed in client, on a real request so ``view_as`` is set."""
+    return _compose_audience_refusal(client.get(reverse("hub_home")).wsgi_request, raw)
 
 
 def describe_the_audience_reason():
     def it_names_each_audience_and_never_says_you_cannot_compose(client: Client):
         own = GuildFactory(name="Own")
         other = GuildFactory(name="Brass")
-        offering = ClassOfferingFactory(title="Lost Wax Basics")
+        offering = ClassOfferingFactory(title="Lost Wax Basics", status=ClassOffering.Status.PUBLISHED)
         _login_lead(client, own)
         assert _refusal(client, f"guild:{own.pk}") is None
         assert _refusal(client, "site") == "Your account cannot email everyone."
@@ -90,6 +114,17 @@ def describe_the_audience_reason():
         assert _refusal(client, "nonsense") == "Your account cannot email that audience."
         assert COMPOSE_REFUSAL not in AUDIENCE_REFUSAL
 
+    def it_never_names_a_hidden_guild_or_an_unlisted_class(client: Client):
+        hidden = GuildFactory(name="Hidden Zeta Guild", is_active=False)
+        draft_class = ClassOfferingFactory(title="Secret Draft Class", status=ClassOffering.Status.DRAFT)
+        private = ClassOfferingFactory(
+            title="Private Session Class", status=ClassOffering.Status.PUBLISHED, is_private=True
+        )
+        _login_lead(client, GuildFactory())
+        assert _refusal(client, f"guild:{hidden.pk}") == "Your account cannot email that guild."
+        assert _refusal(client, f"class:{draft_class.pk}") == "Your account cannot email that class."
+        assert _refusal(client, f"class:{private.pk}") == "Your account cannot email that class."
+
     def it_points_a_previewing_admin_at_the_switcher(client: Client):
         _login_admin(client)
         _preview_as_member(client)
@@ -98,14 +133,18 @@ def describe_the_audience_reason():
         assert message.startswith("Your Viewing as switcher is set to ")
         assert message.endswith("which cannot email everyone. Switch it back to Admin to send this.")
 
+    def it_does_not_send_a_previewing_admin_to_the_switcher_for_past_students(client: Client):
+        # Switching back would not help: whose students they are ignores Viewing as.
+        _login_admin(client)
+        _preview_as_member(client)
+        assert _refusal(client, "students") == "Your account cannot email past students."
+
     def it_does_not_tell_an_admin_who_is_not_previewing_to_switch_back(client: Client):
         # An admin who teaches nothing is refused My Past Students as Admin (#1042).
         _login_admin(client)
         assert _refusal(client, "students") == "Your account cannot email past students."
 
     def it_refuses_nothing_an_admin_or_a_teacher_may_address(client: Client):
-        from django.utils import timezone
-
         MembershipPlanFactory()
         user = User.objects.create_user(username="teach", email="teach@x.com", password="p")
         user.member.instructor_oriented_at = timezone.now()
@@ -137,17 +176,58 @@ def describe_the_htmx_callers():
         assert _toast(response) == {"message": "Your account cannot email members of Brass.", "type": "error"}
         assert not AnnouncementDraft.objects.exists()
 
+    def it_gives_a_non_composer_the_compose_refusal_and_no_names(client: Client):
+        hidden = GuildFactory(name="Hidden Zeta Guild", is_active=False)
+        draft_class = ClassOfferingFactory(title="Secret Draft Class", status=ClassOffering.Status.DRAFT)
+        _login_plain(client)
+        refused = [
+            client.get(reverse("hub_compose_count"), {"audience": f"guild:{hidden.pk}"}),
+            client.get(reverse("hub_compose_count"), {"audience": f"class:{draft_class.pk}"}),
+            client.post(
+                reverse("hub_compose_add_addresses"), {"audience": f"guild:{hidden.pk}", "add_addresses": "a@x.com"}
+            ),
+            client.post(reverse("hub_compose_site_add"), {"site_add": "a@x.com"}),
+            client.post(reverse("hub_compose_save_draft"), _send_data(audience=f"guild:{hidden.pk}")),
+        ]
+        for response in refused:
+            assert response.status_code == 403
+            assert _toast(response) == {"message": COMPOSE_REFUSAL, "type": "error"}
+            assert b"Hidden Zeta" not in response.content
+            assert b"Secret Draft" not in response.content
+
+    def it_lets_a_composer_through_to_an_audience_they_may_address(client: Client):
+        guild = GuildFactory()
+        _login_lead(client, guild)
+        assert client.get(reverse("hub_compose_count"), {"audience": f"guild:{guild.pk}"}).status_code == 200
+        added = client.post(
+            reverse("hub_compose_add_addresses"), {"audience": f"guild:{guild.pk}", "add_addresses": "new@x.com"}
+        )
+        assert added.status_code == 200
+        _login_admin(client)
+        assert client.post(reverse("hub_compose_site_add"), {"site_add": "new@x.com"}).status_code == 200
+
 
 def describe_a_refused_send():
+    def it_sends_a_non_composer_home_with_the_compose_refusal(client: Client):
+        hidden = GuildFactory(name="Hidden Zeta Guild", is_active=False)
+        GuildMailingListEmailFactory(guild=hidden, email="zeta-list@example.com")
+        _rostered(hidden, "zeta-member@example.com")
+        _login_plain(client)
+        response = client.post(reverse("hub_compose_send"), _send_data(audience=f"guild:{hidden.pk}"))
+        assert response.status_code == 302
+        assert response.url == reverse("hub_home")
+        assert [str(m) for m in get_messages(response.wsgi_request)] == [COMPOSE_REFUSAL]
+        assert not AnnouncementDraft.objects.exists()
+
     def it_stays_in_the_composer_with_the_reason_and_the_message(client: Client, mailoutbox):
-        guild = GuildFactory(name="Ceramics")
-        _login_lead(client, guild)
-        guild.guild_lead = None
-        guild.save(update_fields=["guild_lead"])
+        alpha, bravo = GuildFactory(name="Ceramics"), GuildFactory(name="Bravo")
+        _login_lead(client, alpha, bravo)
+        alpha.guild_lead = None
+        alpha.save(update_fields=["guild_lead"])
 
         response = client.post(
             reverse("hub_compose_send"),
-            _send_data(audience=f"guild:{guild.pk}", subject="Kiln schedule zxqv"),
+            _send_data(audience=f"guild:{alpha.pk}", subject="Kiln schedule zxqv", send_email=""),
         )
 
         assert response.status_code == 403
@@ -156,6 +236,7 @@ def describe_a_refused_send():
         assert 'value="Kiln schedule zxqv"' in html
         assert "Your account cannot email members of Ceramics." in html
         assert "Select a valid choice" not in html
+        assert "This field is required" not in html
         assert [str(m) for m in get_messages(response.wsgi_request)] == [
             "Your account cannot email members of Ceramics. Nothing was sent, and your message is still here."
         ]
@@ -163,13 +244,49 @@ def describe_a_refused_send():
         assert not GuildAnnouncement.objects.exists()
         assert mailoutbox == []
 
+    def it_shows_none_of_the_refused_guilds_addresses_or_roster(client: Client):
+        own, other = GuildFactory(name="Own"), GuildFactory(name="Brass")
+        GuildMailingListEmailFactory(guild=other, email="brass-list@example.com")
+        rostered = _rostered(other, "brass-member@example.com")
+        _login_lead(client, own)
+        response = client.post(
+            reverse("hub_compose_send"),
+            {
+                **_send_data(audience=f"guild:{other.pk}", lock="1"),
+                "recipients": [f"user:{rostered.pk}"],
+                "added_recipients": ["brass-list@example.com"],
+            },
+        )
+        assert response.status_code == 403
+        html = response.content.decode()
+        assert "brass-list@example.com" not in html
+        assert "brass-member@example.com" not in html
+        assert f"user:{rostered.pk}" not in html
+        assert "Email the members of Brass" not in html
+
+    def it_carries_none_of_the_refused_targets_recipients_into_the_next_send(client: Client):
+        alpha, bravo = GuildFactory(name="Alpha"), GuildFactory(name="Bravo")
+        alpha_member = _rostered(alpha, "alpha-member@example.com")
+        _rostered(bravo, "bravo-member@example.com")
+        _login_lead(client, alpha, bravo)
+        alpha.guild_lead = None
+        alpha.save(update_fields=["guild_lead"])
+        response = client.post(
+            reverse("hub_compose_send"),
+            {**_send_data(audience=f"guild:{alpha.pk}"), "recipients": [f"user:{alpha_member.pk}"]},
+        )
+        assert response.status_code == 403
+        html = response.content.decode()
+        assert f"user:{alpha_member.pk}" not in html
+        assert "alpha-member@example.com" not in html
+
     def it_keeps_a_draft_whose_stored_audience_is_still_theirs(client: Client):
         guild = GuildFactory()
         _login_lead(client, guild)
         draft = AnnouncementDraftFactory(audience=AnnouncementDraft.Audience.GUILD, guild=guild, body="<p>Old</p>")
         response = client.post(reverse("hub_compose_send"), _send_data(audience="site", draft_pk=str(draft.pk)))
         assert response.status_code == 403
-        assert f'value="{draft.pk}"' in response.content.decode()
+        assert f'name="draft_pk" value="{draft.pk}"' in response.content.decode()
         draft.refresh_from_db()
         assert (draft.audience, draft.body, draft.sent_at) == ("guild", "<p>Old</p>", None)
 
@@ -181,7 +298,9 @@ def describe_a_refused_send():
             reverse("hub_compose_send"), _send_data(audience=f"guild:{other.pk}", draft_pk=str(theirs.pk))
         )
         assert response.status_code == 403
-        assert "Glaze firing moves to Thursday zxqv." in response.content.decode()
+        html = response.content.decode()
+        assert "Glaze firing moves to Thursday zxqv." in html
+        assert f'name="draft_pk" value="{theirs.pk}"' not in html
         theirs.refresh_from_db()
         assert theirs.sent_at is None
 
@@ -202,3 +321,15 @@ def describe_a_refused_send():
         response = client.post(reverse("hub_compose_send"), data)
         assert response.status_code == 403
         assert "Which glaze night zxqv" in response.content.decode()
+
+    def it_still_asks_for_a_chosen_image_again(client: Client):
+        buffer = io.BytesIO()
+        Image.new("RGB", (40, 20), "teal").save(buffer, format="PNG")
+        other = GuildFactory()
+        _login_lead(client, GuildFactory())
+        image = SimpleUploadedFile("kiln.png", buffer.getvalue(), content_type="image/png")
+        response = client.post(
+            reverse("hub_compose_send"), {**_send_data(audience=f"guild:{other.pk}"), "image": image}
+        )
+        assert response.status_code == 403
+        assert "data-compose-image-lost>Choose your image again.</p>" in response.content.decode()

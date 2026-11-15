@@ -130,7 +130,9 @@ def describe_the_all_instructors_audience():
         @pytest.mark.parametrize("route", ["hub_compose_send", "hub_compose_save_draft"])
         def it_refuses_a_crafted_post(client: Client, login, route: str):
             login(client)
-            assert client.post(reverse(route), _post()).status_code == 403
+            response = client.post(reverse(route), _post())
+            # Someone who cannot compose at all is sent Home by Send, never shown a composer (#415).
+            assert response.status_code == 403 or response.url == reverse("hub_home")
             assert AnnouncementDraft.objects.count() == 0
 
         def it_refuses_the_count(client: Client, login):

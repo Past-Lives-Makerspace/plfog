@@ -1,0 +1,9 @@
+bump = "patch"
+audience = ["guild-staff", "instructors", "admins"]
+date = "2026-11-14"
+title = "Refused announcements keep to your own audiences"
+feature = "admin.email-members"
+guidance = "none"
+changes = [
+  "A refused announcement no longer shows recipients from the audience you were refused. Pick an audience you can email and send again.",
+]
