@@ -12,7 +12,7 @@
  * so the tour re-hydrates and resumes at the right step on the destination.
  *
  * Robustness posture (this runs live on a demo stage): nothing should freeze.
- * Every hop is guarded — a waitFor cap (~4s) lets async content paint, a
+ * Every hop is guarded — waitFor waits for Alpine, then caps (~4s) async content, a
  * missing target degrades to a centered popover (never a hang), a wrong-page
  * 302 aborts cleanly, and Esc / the ✕ / an overlay click always end the tour
  * and strip the URL param so a refresh does not silently restart it.
@@ -33,7 +33,12 @@
     if (!window.plTour) {
         window.plTour = (function () {
             var RUN_KEY = "plTourRun";
-            var WAIT_CAP_MS = 4000;
+            var WAIT_CAP_MS = 4000; // a control's time to show once the page is ready (waitFor)
+            var READY_CAP_MS = 10000; // the backstop when Alpine never starts: carry on without it
+            var POLL_MS = 50;
+            // Development only: the dev server and the e2e live server answer on localhost; staging and
+            // production never do. Nothing in the browser knows settings.DEBUG.
+            var DEV = /^(localhost|127\.0\.0\.1)$/.test(window.location.hostname);
 
             var assetsPromise = null; // cached so double-start is safe
             var current = null; // this page's payload (re-read on every init)
@@ -196,6 +201,19 @@
                 return !!(el && el.offsetParent !== null);
             }
 
+            function now() {
+                return window.performance && window.performance.now ? window.performance.now() : Date.now();
+            }
+
+            // Every tab, pane and stepped page the engine reaches into belongs to Alpine. On a fresh
+            // load this script and guidance.js run before alpine.min.js (the last deferred script),
+            // so a ?show= arrival would ask for a pane before anything listens. Alpine starts in the
+            // microtask after its script runs, so once window.Alpine exists, any later task sees
+            // every component and listener on the page bound.
+            function alpineRunning() {
+                return !!window.Alpine;
+            }
+
             // ── stepped pages ───────────────────────────────────────────────
             // A page that shows one step pane at a time (the class composer) stamps
             // each pane with data-composer-step="N" and its root listens for a
@@ -208,21 +226,34 @@
                 return el && el.closest ? el.closest("[data-composer-step]") : null;
             }
 
+            function askForStep(selector) {
+                // True when it asked: the element sits in a step pane that is not showing.
+                var pane = selector ? stepPaneOf(document.querySelector(selector)) : null;
+                if (!pane || isVisible(pane)) return false;
+                var step = parseInt(pane.getAttribute("data-composer-step"), 10);
+                window.dispatchEvent(new CustomEvent("composer-goto-step", { detail: { step: step } }));
+                return true;
+            }
+
             function revealStep(selector) {
                 return new Promise(function (resolve) {
-                    var pane = selector ? stepPaneOf(document.querySelector(selector)) : null;
-                    if (!pane || isVisible(pane)) {
+                    if (!askForStep(selector)) {
                         resolve();
                         return;
                     }
-                    var step = parseInt(pane.getAttribute("data-composer-step"), 10);
-                    window.dispatchEvent(new CustomEvent("composer-goto-step", { detail: { step: step } }));
                     requestAnimationFrame(function () {
                         resolve();
                     });
                 });
             }
 
+            // Resolves true once the step's control is visible, false when it never shows. It polls on
+            // a timer, not on animation frames: a control already on screen must not wait for the
+            // browser to paint, and a loaded machine can go seconds without a frame (#1122). The pane
+            // is asked for, and the cap starts, only once Alpine is running, because before that the
+            // ask reaches no listener. The cap runs out only on a painted frame: Alpine's x-show
+            // reveals a pane on an animation frame, so until one has passed the deadline the page
+            // has not had its chance (its queued reveal runs before ours in that frame).
             function waitFor(step) {
                 return new Promise(function (resolve) {
                     var selector = step.wait_for || step.target;
@@ -230,21 +261,36 @@
                         resolve(true); // centered step — nothing to wait on
                         return;
                     }
-                    var startedAt = Date.now();
-                    revealStep(selector).then(function () {
-                        poll();
-                    });
+                    var calledAt = now();
+                    var askedAt = null;
+                    var framePassed = null; // null until the deadline, then true once a frame has painted
                     function poll() {
                         if (isVisible(document.querySelector(selector))) {
                             resolve(true);
                             return;
                         }
-                        if (Date.now() - startedAt > WAIT_CAP_MS) {
-                            resolve(false); // never hang — the step degrades to centered
+                        if (askedAt === null) {
+                            if (alpineRunning() || now() - calledAt > READY_CAP_MS) {
+                                askForStep(selector);
+                                askedAt = now();
+                            }
+                        } else if (framePassed) {
+                            if (DEV) {
+                                window.console.warn("pl_tour: " + selector + " did not show within " + WAIT_CAP_MS + " ms, so no ring.");
+                            }
+                            resolve(false); // never hang — a tour step degrades to centered, a highlight shows nothing
                             return;
+                        } else if (framePassed === null && now() - askedAt > WAIT_CAP_MS) {
+                            framePassed = false;
+                            requestAnimationFrame(function () {
+                                window.setTimeout(function () {
+                                    framePassed = true;
+                                }, 0);
+                            });
                         }
-                        requestAnimationFrame(poll);
+                        window.setTimeout(poll, POLL_MS);
                     }
+                    poll();
                 });
             }
 
@@ -640,8 +686,8 @@
             function show(opts) {
                 if (active) return; // a tour or another highlight already holds the stage
                 var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-                // waitFor's cap covers a control that paints a moment after arrival; a control
-                // the viewer's role does not render resolves false and nothing shows.
+                // waitFor holds a ?show= arrival until Alpine runs, then gives the control its cap to
+                // show; a control the viewer's role does not render resolves false and nothing shows.
                 waitFor({ target: opts.selector })
                     .then(function (found) {
                         if (!found || active) return null;

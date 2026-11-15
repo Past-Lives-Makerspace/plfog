@@ -4,6 +4,10 @@ Site Activity opens on the Activity Feed, and Recipient sits in the hidden Email
 pane carries ``data-composer-step``, so the tour engine's reveal hook asks the page for that
 pane before it measures the control. Arriving with ``?show=activity.email-search`` and no tab
 must end with the Email Log tab selected and Recipient ringed. Run with ``pytest -m e2e``.
+
+A loaded machine can go seconds after a load without painting a frame (#1122): Alpine still runs,
+but anything waiting on an animation frame stalls, Alpine's own tab switch included. The arrival
+ring must not wait on one, and Show me is only pressed on a page that has painted.
 """
 
 from __future__ import annotations
@@ -21,6 +25,20 @@ from tests.membership.factories import MembershipPlanFactory
 EMAIL = "email-log-show@example.com"
 TITLE = "E2E search the Email Log"
 RECIPIENT = '[data-guidance-target="activity.email-search"]'
+
+# Holds every animation frame until the spec lets them go, the way a loaded machine paints nothing
+# for a while after a load (#1122). Held ids start high so they never match a real frame's id.
+HOLD_FRAMES = """
+(() => {
+  const paint = window.requestAnimationFrame.bind(window);
+  const held = [];
+  window.requestAnimationFrame = (callback) => 1000000 + held.push(callback);
+  window.plReleaseFrames = () => {
+    window.requestAnimationFrame = paint;
+    held.splice(0).forEach((callback) => paint(callback));
+  };
+})();
+"""
 
 
 def _entries() -> list[dict]:
@@ -62,11 +80,25 @@ def describe_email_log_show():
         expect(recipient).to_have_class(re.compile(r"\bdriver-active-element\b"))
         expect(page.get_by_role("tab", name="Email Log")).to_have_attribute("aria-selected", "true")
 
+    def it_rings_recipient_on_arrival_before_the_browser_paints_a_frame(page, live_server, login_via_code, monkeypatch):
+        monkeypatch.setattr("plfog.version.CHANGELOG", _entries())
+        _sign_in_as_admin(login_via_code)
+        page.add_init_script(HOLD_FRAMES)
+        page.goto(f"{live_server.url}{reverse('manage_activity')}?show=activity.email-search")
+
+        recipient = page.locator(RECIPIENT)
+        expect(recipient).to_be_visible()
+        expect(recipient).to_have_class(re.compile(r"\bdriver-active-element\b"))
+        expect(page.get_by_role("tab", name="Email Log")).to_have_attribute("aria-selected", "true")
+        page.evaluate("window.plReleaseFrames()")
+
     def it_switches_from_the_feed_to_the_email_log_to_ring_in_place(page, live_server, login_via_code, monkeypatch):
         monkeypatch.setattr("plfog.version.CHANGELOG", _entries())
         _sign_in_as_admin(login_via_code)
         page.goto(f"{live_server.url}{reverse('manage_activity')}")
         expect(page.get_by_role("tab", name="Activity Feed")).to_have_attribute("aria-selected", "true")
+        # Show me is pressed on a page the member can see, and Alpine switches the pane on a frame.
+        page.evaluate("() => new Promise((painted) => requestAnimationFrame(() => painted()))")
 
         # What Show me calls once the modal closes (guidance.js), with Alpine already running.
         page.evaluate(
