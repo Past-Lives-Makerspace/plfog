@@ -1,0 +1,2 @@
+{# The wiki page's Share (#1223), rendered in the desktop action row and the phone bar so the two can never drift; share_class places the bar's copy. #}
+{% include "components/share_menu.html" with share_url=page.sticker_url share_title=page.title share_text=page.title|add:" on the Past Lives wiki" share_dialog="Share this page" share_menu_label="Share this page" share_link_label="Page link" share_hook="data-wiki-share" share_guidance="wiki.share" share_button_class="pl-btn pl-btn--secondary pl-btn--sm" %}

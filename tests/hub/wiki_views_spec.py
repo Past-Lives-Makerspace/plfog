@@ -7,6 +7,8 @@ query has to produce), the reading page's composition and its gates, and the sid
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 import pytest
 from dateutil.relativedelta import relativedelta
 from django.contrib.auth.models import User
@@ -643,6 +645,72 @@ def describe_wiki_page_reading():
         page.confirm_still_accurate(user.member)
         response = client.get(page.get_absolute_url())
         assert b"Checked today" in response.content
+
+
+def describe_the_share_button():
+    """Share on the reading page (#1223): the shared share menu carrying the page's short link."""
+
+    def _shares(content: str) -> list[str]:
+        """Each Share wrapper's markup, desktop row first, then the phone bar."""
+        return content.split("data-wiki-share")[1:]
+
+    def it_gives_a_reader_with_no_edit_rights_share_in_the_row_and_the_bar(client: Client):
+        _login(client, "share_reader")
+        page = WikiPageFactory(title="Laser Cutter Rules", official=True)
+        response = client.get(page.get_absolute_url())
+        content = response.content.decode()
+        assert reverse("hub_wiki_edit", args=[page.slug]) not in content  # no edit rights
+        shares = _shares(content)
+        assert len(shares) == 2
+        assert 'class="pl-wp-actions__share pl-wp-actions__share--bar"' in content
+        assert 'class="pl-share pl-wp-actionbar__share"' in content
+        assert content.index("pl-wp-actionbar__share") > content.index('class="pl-wp-actionbar"')
+        for share in shares:
+            assert f'data-share-url="{page.sticker_url}"' in share
+            assert 'data-share-title="Laser Cutter Rules"' in share
+            assert 'data-share-text="Laser Cutter Rules on the Past Lives wiki"' in share
+            assert 'data-share-dialog="Share this page"' in share
+        assert "/m/" in page.sticker_url
+
+    def it_points_copy_text_and_email_at_the_short_link(client: Client):
+        _login(client, "share_links")
+        page = WikiPageFactory(title="Woodshop Rules", official=True)
+        content = client.get(page.get_absolute_url()).content.decode()
+        share = _shares(content)[0]
+        url = page.sticker_url
+        body = quote(f"Woodshop Rules on the Past Lives wiki {url}", safe="")
+        assert f'data-share-copy="{url}"' in share
+        assert f'href="sms:?&body={body}"' in share
+        assert f'href="mailto:?subject={quote("Woodshop Rules", safe="")}&body={body}"' in share
+        assert f'value="{url}" aria-label="Page link"' in share
+        assert 'aria-label="Share this page"' in share
+
+    def it_keeps_the_desktop_share_for_a_reader_with_no_phone_bar(client: Client):
+        # An admin previewing as Guest reads with no active member behind the request, so no bar.
+        _login(client, "share_guest_preview", fog_role=Member.FogRole.ADMIN)
+        page = WikiPageFactory(official=True)
+        _preview_as(client, "guest")
+        response = client.get(page.get_absolute_url())
+        content = response.content.decode()
+        assert 'class="pl-wp-actionbar"' not in content
+        assert len(_shares(content)) == 1
+        assert 'class="pl-wp-actions__share"' in content
+        assert "js/class_share" in content
+
+    def it_shows_no_share_on_an_archived_page(client: Client):
+        _login(client, "share_archived")
+        page = WikiPageFactory(archived=True)
+        content = client.get(page.get_absolute_url()).content.decode()
+        assert "data-wiki-share" not in content
+        assert "data-share-url" not in content
+        assert "js/class_share" not in content
+
+    def it_leaves_the_qr_card_to_editors(client: Client):
+        _login(client, "share_qr_reader")
+        page = WikiPageFactory(official=True)
+        content = client.get(page.get_absolute_url()).content.decode()
+        assert "pl-wp-qrshare" not in content
+        assert "data-wiki-share" in content
 
 
 def describe_the_review_round_fixes():

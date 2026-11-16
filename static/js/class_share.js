@@ -1,5 +1,6 @@
 /*
- * The Share button on the public class page, the event page and the guild page (#1137).
+ * The Share button on the public class page, the event page, the guild page (#1137) and the wiki
+ * page (#1223).
  *
  * The button carries the facts as data attributes the server renders (data-share-url, the
  * readable public page; data-share-title; data-share-text; data-share-dialog, the native

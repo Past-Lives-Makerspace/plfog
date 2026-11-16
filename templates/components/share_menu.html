@@ -1,0 +1,48 @@
+{% comment %}
+The Share button and its Copy / Text / Email menu (#1137), shared by the guild page and the wiki
+page (#1223); the class and event pages carry the same markup inline under their own classes.
+static/js/class_share.js reads the button's data attributes and opens the device share sheet (the
+Capacitor plugin in the app, navigator.share where the browser has it), else tells this wrapper to
+open the menu through bubbling custom events, with the readonly link to copy by hand when the
+clipboard fails. Styles are static/css/share-menu.css; the page loads it and the script.
+
+Parameters: share_url (the link shared and copied), share_title, share_text (the line before the
+link in a text or email), share_dialog (the native sheet's title), share_menu_label (the menu's
+accessible name), share_link_label (the copy field's), share_hook (a marker attribute name for the
+page's specs), share_button_class (default "pl-btn pl-btn--secondary"), share_class (an extra class
+on the wrapper, for the page to place it), share_guidance (an optional data-guidance-target key).
+{% endcomment %}
+{% with share_body=share_text|add:" "|add:share_url %}
+<div class="pl-share{% if share_class %} {{ share_class }}{% endif %}" data-share {{ share_hook }}
+     x-data="{ open: false, copied: false, manual: false }"
+     @click.outside="open = false"
+     @keydown.escape.window="open = false"
+     @pl-share-menu="open = !open"
+     @pl-share-copied="copied = true; setTimeout(() => copied = false, 2000)"
+     @pl-share-manual="manual = true; $nextTick(() => $refs.manualUrl.select())">
+  <button type="button" class="{{ share_button_class|default:'pl-btn pl-btn--secondary' }} pl-share__btn"
+          data-share-url="{{ share_url }}"
+          data-share-title="{{ share_title }}"
+          data-share-text="{{ share_text }}"
+          data-share-dialog="{{ share_dialog }}"
+          {% if share_guidance %}data-guidance-target="{{ share_guidance }}"{% endif %}
+          aria-haspopup="menu" :aria-expanded="open">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+      <path d="M8.59 13.51l6.83 3.98"/><path d="M15.41 6.51l-6.82 3.98"/>
+    </svg>
+    <span>Share</span>
+  </button>
+  {# The panel positions the dropdown; the menu inside holds only menuitems (ARIA), and the by-hand copy field sits under it. #}
+  <div class="pl-share__panel" x-show="open" x-cloak>
+    <div class="pl-share__menu" role="menu" aria-label="{{ share_menu_label }}">
+      <button type="button" role="menuitem" class="pl-share__item" data-share-copy="{{ share_url }}"
+              x-text="copied ? 'Copied!' : 'Copy link'">Copy link</button>
+      <a role="menuitem" class="pl-share__item" href="sms:?&body={{ share_body|urlencode:'' }}" @click="open = false">Text</a>
+      <a role="menuitem" class="pl-share__item" href="mailto:?subject={{ share_title|urlencode:'' }}&body={{ share_body|urlencode:'' }}" @click="open = false">Email</a>
+    </div>
+    <input type="text" readonly class="pl-share__manual" value="{{ share_url }}" aria-label="{{ share_link_label }}"
+           x-show="manual" x-ref="manualUrl" @click="$el.select()">
+  </div>
+</div>
+{% endwith %}
