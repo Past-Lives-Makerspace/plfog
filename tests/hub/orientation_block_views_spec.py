@@ -13,6 +13,7 @@ from django.test import Client
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
+from classes.factories import daytime
 from membership import orientations
 from membership.models import Member, OrientationBooking
 from tests.membership.factories import (
@@ -39,7 +40,9 @@ def _user_with_role(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> 
 
 
 def _block_with_type(*, duration_minutes: int = 60, price_cents: int = 0):
-    block = OrientationAvailabilityBlockFactory()
+    # 10:00 local, not the current hour: two nights before clocks fall back, a window seeded at
+    # the current hour starts or ends in the 1 AM hour that happens twice (#1036).
+    block = OrientationAvailabilityBlockFactory(starts_at=daytime(timezone.now() + timedelta(days=2)))
     orientation_type = OrientationTypeFactory(
         guild=block.guild, duration_minutes=duration_minutes, price_cents=price_cents
     )
@@ -51,6 +54,7 @@ def _option_value(start) -> str:
 
 
 def describe_orientation_block_starts():
+    @pytest.mark.usefixtures("fall_back_nights")
     def it_returns_only_the_live_valid_starts(client: Client):
         _user_with_role("bs1")
         block, orientation_type = _block_with_type()
@@ -96,6 +100,7 @@ def describe_orientation_block_starts():
         assert "/accounts/login/" in response["Location"]
 
 
+@pytest.mark.usefixtures("fall_back_nights")
 def describe_orientation_block_book():
     def it_books_a_valid_start_inside_the_block(client: Client):
         user = _user_with_role("bb1")

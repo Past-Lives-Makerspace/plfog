@@ -38,6 +38,8 @@ def _make_note(apps, guild, **kwargs):
 
 @pytest.mark.django_db(transaction=True)
 def describe_migration_0112_migrate_meeting_notes():
+    # #1036 listed this spec as failing on the fall back night; it seeds fixed dates and passes at every moment.
+    @pytest.mark.usefixtures("fall_back_nights")
     def it_maps_notes_to_approved_meetings_with_rendered_markdown():
         try:
             apps = _migrate(_BEFORE)

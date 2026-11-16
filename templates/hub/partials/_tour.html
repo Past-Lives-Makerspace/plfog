@@ -30,7 +30,8 @@ run, which is what lets the presenter wander onto pages that carry no tour paylo
 and still resume. The script is likewise loaded unconditionally (it is a tiny,
 inert-when-idle guarded IIFE) so the pill has a controller everywhere.
 {% endcomment %}
-<div id="pl-tour-assets" hidden data-driver-css="{% static 'css/driver.css' %}" data-driver-js="{% static 'js/driver.min.js' %}"></div>
+{# data-environment is settings.ENVIRONMENT: pl_tour.js warns about a dropped ring only in development. #}
+<div id="pl-tour-assets" hidden data-environment="{{ ENVIRONMENT }}" data-driver-css="{% static 'css/driver.css' %}" data-driver-js="{% static 'js/driver.min.js' %}"></div>
 <div id="pl-tour-resume" class="pl-tour-resume" role="region" aria-label="Paused tour" hidden>
     <span class="pl-tour-resume__label">Tour paused</span>
     <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" data-tour-resume>Resume tour</button>
