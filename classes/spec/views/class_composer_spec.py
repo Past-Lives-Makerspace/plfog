@@ -581,6 +581,8 @@ def describe_teach_composer_get():
         assert "Where Your Class Is" in html and "Not submitted yet" in html
         assert "Ready to Submit?" in html
         assert f'src="{preview}?framed=1"' in html
+        # Refresh Preview points the frame back at the preview, wherever a click took it (#1217).
+        assert f'data-preview-url="{preview}?framed=1"' in html
         assert "Refresh Preview" in html and "Open in a New Tab" in html
         assert "Building your preview" in html
         assert "How Your Page Looks" in html and "How Your Card Looks" in html
