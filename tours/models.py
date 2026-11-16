@@ -584,6 +584,18 @@ class TourBookingQuerySet(models.QuerySet["TourBooking"]):
         """The Tours page's Upcoming tab (#949): booked tours and requests (#1166) that have not started, soonest first."""
         return self.filter(status__in=TourBooking.UPCOMING, starts_at__gt=now).order_by("starts_at", "pk")
 
+    def awaiting_guide(self, guide: Member, now: datetime) -> TourBookingQuerySet:
+        """Home's Tour Requests Waiting on You (#1213): ``guide``'s own requests still answerable, soonest first.
+
+        A request whose confirm by time has passed is left out even before its lapse task runs, so
+        a row never offers an answer :func:`tours.booking.confirm_tour_request` would refuse.
+        """
+        return self.filter(
+            guide=guide,
+            status=TourBooking.Status.PENDING,
+            starts_at__gt=now + timedelta(hours=CONFIRM_BEFORE_HOURS),
+        ).order_by("starts_at", "pk")
+
     def booked_on_day(self, day: date) -> TourBookingQuerySet:
         """The kiosk's list (#950): tours still booked that start on the local ``day``, by time then name.
 

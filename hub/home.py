@@ -22,6 +22,7 @@ from django.utils import timezone
 
 from membership.models import CalendarEvent, CommunityEvent, GuildAnnouncement
 from polls.models import EmailPoll, PollCard
+from tours.models import TourBooking
 
 if TYPE_CHECKING:
     from classes.models import ClassOffering, ClassSession
@@ -140,7 +141,8 @@ def build_home_context(member: Member) -> dict[str, Any]:
     flagged), ``my_cubbies`` (the cubbies they rent, #978), and the ``onboarding`` "Get started" checklist with its ``show_onboarding``
     gate (built ONCE here, not re-derived per property in the template), and ``home_poll``,
     the open poll's card (#925), None while no poll is open. ``needs_attention_polls`` (#1142) are
-    the open polls from Email Members sent to the member that they have not answered, in one query. All business logic lives on
+    the open polls from Email Members sent to the member that they have not answered, in one query, and
+    ``tour_requests`` (#1213) the member's own tour requests still waiting on them as guide, in one more. All business logic lives on
     ``membership`` and ``polls`` managers/props; this only fetches, normalizes, sorts, and caps.
     """
     return {
@@ -154,6 +156,7 @@ def build_home_context(member: Member) -> dict[str, Any]:
         "overdue_reviews": _overdue_reviews(member),
         "home_poll": PollCard.open_for(member, timezone.now()),
         "needs_attention_polls": list(EmailPoll.objects.awaiting_answer(member, timezone.now())),
+        "tour_requests": list(TourBooking.objects.awaiting_guide(member, timezone.now())),
     }
 
 
