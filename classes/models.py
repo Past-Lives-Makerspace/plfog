@@ -250,7 +250,9 @@ class Category(HeroCropMixin, models.Model):
             type(self).objects.filter(pk=self.pk).values_list("guild_id", flat=True).first() if self.pk else None
         )
         super().save(*args, **kwargs)
-        if self.pk and old_guild_id != self.guild_id:
+        update_fields = kwargs.get("update_fields")
+        guild_written = update_fields is None or bool({"guild", "guild_id"} & set(update_fields))
+        if self.pk and old_guild_id != self.guild_id and guild_written:
             self._repoint_pending_classes()
 
     def _repoint_pending_classes(self) -> None:

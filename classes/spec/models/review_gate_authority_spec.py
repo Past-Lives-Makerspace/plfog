@@ -125,6 +125,17 @@ def describe_a_lead_gate_whose_class_moved_guild():
         assert not offering.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision="").exists()
         assert offering.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").count() == 1
 
+    def it_leaves_classes_alone_when_the_guild_change_is_not_written(db):
+        offering, gate = _guilded_pending(_lead("unwritten-lead@example.com"))
+        category = offering.category
+        original_guild_id = category.guild_id
+        category.guild = GuildFactory(name="Elsewhere", guild_lead=_lead("elsewhere-lead@example.com"))
+        category.save(update_fields=["name"])
+
+        gate.refresh_from_db()
+        assert gate.opened_for_guild_id == original_guild_id
+        assert offering.approvals.filter(role=ClassApproval.Role.GUILD_LEAD).count() == 1
+
     def it_leaves_classes_alone_when_a_class_type_saves_without_a_guild_change(db):
         offering, gate = _guilded_pending(_lead("type-same-lead@example.com"))
         category = offering.category
