@@ -4,10 +4,10 @@ A review is overdue when a PENDING class has had an open review gate for
 :data:`OVERDUE_AFTER_DAYS` days or more, counted from that gate's creation. It reads open
 gates, never delivery rows, so a review whose request was never sent is caught the same way.
 
-Class review is sequential (STANDARDS.md §11), but an ``ADMIN`` row can appear early when an
-admin opens the review page while the guild lead still holds the class. So each class yields
-one row: its open guild-lead gate when there is one (that is who it waits on), else its open
-admin gate.
+Class review is one gate (STANDARDS.md §11): the guild lead when the class's guild has one,
+else an admin. An admin who decides a guilded class early does so as an override, and a legacy
+``ADMIN`` row can still sit open beside the lead's gate. So each class yields one row: its open
+guild-lead gate when there is one (that is who it waits on), else its open admin gate.
 """
 
 from __future__ import annotations
@@ -58,10 +58,10 @@ class OverdueReview:
 def waiting_since(gate: ClassApproval) -> datetime:
     """When ``gate``'s reviewers were really handed the class.
 
-    A guild lead gate starts when it is opened. An admin gate can be opened early, when an
-    admin opens the review page while the guild lead still holds the class, so it starts at
-    the later of its creation and the guild lead's approval. Reads ``class_offering.approvals``,
-    so a caller that prefetched them pays no query.
+    A guild lead gate starts when it is opened. An admin gate starts at the later of its
+    creation and any guild lead approval on the class: under the old two step review an admin
+    gate could open early beside the lead's, and rows of that shape may still stand. Reads
+    ``class_offering.approvals``, so a caller that prefetched them pays no query.
     """
     if gate.role != ClassApproval.Role.ADMIN:
         return gate.created_at

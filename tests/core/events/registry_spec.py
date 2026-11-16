@@ -315,8 +315,10 @@ def describe_event_registry():
         def it_routes_class_review_to_guild_leadership_or_class_approvers():
             assert get_event("class_review_requested").recipient is Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS
 
-        def it_routes_class_validation_to_class_approvers():
-            assert get_event("class_validation_requested").recipient is Recipients.CLASS_APPROVERS
+        def it_has_no_admin_sign_off_event_after_a_guild_lead_approves():
+            """A guild lead's approval publishes the class (#1183); nothing asks an admin after it."""
+            with pytest.raises(KeyError):
+                get_event("class_validation_requested")
 
         def it_routes_the_teach_request_to_class_approvers_not_every_admin():
             """Deciding who may host a class is the CMS Administrators' duty, not the admin tier's."""

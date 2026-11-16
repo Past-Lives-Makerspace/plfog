@@ -44,6 +44,10 @@ def _approval(offering, *, notes: str, decided_at=None, decided_by=None, role=Cl
 
 
 @pytest.mark.django_db(transaction=True)
+# Reads of ClassApproval while migrated back go through values_list, which selects only the
+# named column: the live model names columns later migrations add (opened_for_lead, 0105).
+
+
 def describe_migration_0096_approval_notes_to_messages():
     def it_carries_each_note_into_its_class_thread_oldest_first():
         try:
@@ -70,7 +74,7 @@ def describe_migration_0096_approval_notes_to_messages():
             ]
             [lone] = ClassMessage.objects.filter(class_offering_id=other.pk)
             assert (lone.body, lone.created_at) == ("Zzno date", undated.created_at)
-            assert ClassApproval.objects.get(pk=later.pk).notes == "  Zzsecond round  "
+            assert ClassApproval.objects.values_list("notes", flat=True).get(pk=later.pk) == "  Zzsecond round  "
         finally:
             migrate_all_to_head()
 
@@ -85,6 +89,6 @@ def describe_migration_0096_approval_notes_to_messages():
             _migrate(_BEFORE)
 
             assert list(ClassMessage.objects.values_list("body", flat=True)) == ["Zzwritten since"]
-            assert ClassApproval.objects.get(class_offering=offering).notes == "Zzcarried"
+            assert ClassApproval.objects.values_list("notes", flat=True).get(class_offering=offering) == "Zzcarried"
         finally:
             migrate_all_to_head()

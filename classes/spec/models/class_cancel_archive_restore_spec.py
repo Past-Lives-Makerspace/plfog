@@ -271,13 +271,17 @@ def describe_publish():
         assert excinfo.value.messages[0].startswith("Not ready to publish:")
         assert not offering.approvals.filter(role=ClassApproval.Role.ADMIN).exists()
 
-    def it_still_lets_a_guild_lead_approve_an_unready_class(db, admin_user):
-        # The lead's approval only escalates; the readiness gate sits on the publishing decision.
+    def it_refuses_a_guild_lead_approving_an_unready_class(db, admin_user):
+        # The lead's approval publishes now (#1183), so the readiness gate sits on it too.
         offering = ClassOfferingFactory(status=Status.PENDING, description="Short")
         row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
-        row.decide(ClassApproval.Decision.APPROVED, user=admin_user)
+        with pytest.raises(ValidationError) as excinfo:
+            row.decide(ClassApproval.Decision.APPROVED, user=admin_user)
+        assert excinfo.value.messages[0].startswith("Not ready to publish:")
         row.refresh_from_db()
-        assert row.decision == ClassApproval.Decision.APPROVED
+        assert row.decision == ""
+        offering.refresh_from_db()
+        assert offering.status == Status.PENDING
 
     def it_publishes_through_the_approval_pathway_as_before(db, admin_user):
         offering = ClassOfferingFactory(ready=True, status=Status.DRAFT)

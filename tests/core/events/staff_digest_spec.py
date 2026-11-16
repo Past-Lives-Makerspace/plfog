@@ -36,7 +36,6 @@ pytestmark = pytest.mark.django_db
 PACIFIC = ZoneInfo("America/Los_Angeles")
 DIGEST_EVENTS = {
     "class_review_requested",
-    "class_validation_requested",
     # Part 3's staff requests (tests/core/events/staff_requests_digest_spec.py).
     "space.lease_requested",
     "space.cubby_requested",
@@ -370,8 +369,9 @@ def describe_remind_lead():
         assert lines[0]["lines"][0]["body"] == "Reminded by Alex Eason"  # type: ignore[index]
 
 
-def describe_admin_sign_off_request():
-    def it_waits_for_the_digest_too(shop: _Woodshop):
+def describe_a_guild_lead_approval():
+    def it_asks_no_admin_for_sign_off_now_or_in_the_digest(shop: _Woodshop):
+        """The lead's approval publishes the class (#1183); nothing queues for the CMS Administrators."""
         from membership.models import AdminCapability
 
         signer = _person("lee", "Lee", "Admin")
@@ -380,8 +380,7 @@ def describe_admin_sign_off_request():
         gate.decide(ClassApproval.Decision.APPROVED, user=shop.lead.user)
         assert [m for m in mail.outbox if m.to == ["lee@example.com"]] == []
         flush_digests(_next_8am())
-        (digest,) = _digests(signer)
-        assert "Admin sign-off needed: Board One" in digest.body
+        assert _digests(signer) == []
 
 
 def describe_a_gate_deleted_rather_than_decided():

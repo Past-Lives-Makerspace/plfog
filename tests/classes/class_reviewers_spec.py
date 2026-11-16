@@ -62,8 +62,12 @@ class _Ceramics:
             guild=self.guild, member=self.reviewer, role=Role.SECRETARY, can_review_classes=True
         )
         GuildStaffMembershipFactory(guild=self.guild, member=self.plain, role=Role.TREASURER)
+        # Ready, because a guild lead's approval publishes the class (#1183).
         self.offering = ClassOfferingFactory(
-            title="Make Two Mugs", status=ClassOffering.Status.PENDING, category=CategoryFactory(guild=self.guild)
+            ready=True,
+            title="Make Two Mugs",
+            status=ClassOffering.Status.PENDING,
+            category=CategoryFactory(guild=self.guild),
         )
         self.gate = ClassApproval.objects.create(class_offering=self.offering, role=ClassApproval.Role.GUILD_LEAD)
 

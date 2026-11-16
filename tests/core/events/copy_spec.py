@@ -72,7 +72,7 @@ def describe_audience_description():
         assert "guild" in audience_description(event).lower()
 
     def it_describes_the_global_admin_audience():
-        event = get_event("class_validation_requested")
+        event = get_event("instructor_application_received")
         assert "admin" in audience_description(event).lower()
 
     def it_describes_the_class_roster_audience():

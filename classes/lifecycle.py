@@ -43,7 +43,7 @@ class FacetRow:
 
 ALL_FACET: Facet[Any] = Facet("", "All", lambda qs: qs)
 
-# Admin Classes list: every lifecycle state plus the two-stage review rollup.
+# Admin Classes list: every lifecycle state plus the review rollup (guild lead gate or admin gate, #1183).
 ADMIN_FACETS: tuple[Facet[ClassOfferingQuerySet], ...] = (
     ALL_FACET,
     Facet("needs_review", "Needs review", lambda qs: qs.pending_review()),

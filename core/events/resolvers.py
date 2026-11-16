@@ -949,7 +949,6 @@ def _past_due_cubby_rentals() -> dict[str, QuerySet[Any]]:
 
 _OPEN_CHECKS: dict[str, OpenCheckFn] = {
     "class_review_requested": open_class_review_urls,
-    "class_validation_requested": open_class_review_urls,
     "space.lease_requested": _open_by_request(_space_requests),
     "space.cubby_requested": _open_by_request(_space_requests),
     "discount_code.instructor_made": always_open,

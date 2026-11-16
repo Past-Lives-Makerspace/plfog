@@ -7,7 +7,6 @@ from django.core import mail
 
 from classes.emails import (
     send_admin_review_request,
-    send_admin_validation_request,
     send_class_review_decision,
     send_guild_lead_review_reminder,
     send_guild_lead_review_request,
@@ -23,7 +22,7 @@ from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 def _class_admin(email: str) -> Member:
     """A Member holding the CLASS_APPROVER capability, with a linked, email-bearing User.
 
-    Class-review/validation now route to capability holders (not a static admin blast), and
+    Class review now routes to capability holders (not a static admin blast), and
     the resolver only addresses members whose linked User carries an email — so the holder
     needs a real User. Signals are muted so create_user doesn't auto-provision a second
     Member for the one-to-one ``user`` key.
@@ -284,33 +283,6 @@ def describe_send_guild_lead_review_reminder():
         assert mail.outbox == []
 
 
-def describe_send_admin_validation_request():
-    def it_emails_class_administrators_asking_for_admin_sign_off(db, settings):
-        """Stage two: the CMS Administrators get the admin sign-off request after a lead approves."""
-        _class_admin("classadmin@example.com")
-        cat = CategoryFactory(guild=_guild_led_by(MemberFactory(_pre_signup_email="emailguildlead@example.com")))
-        offering = ClassOfferingFactory(category=cat, status=ClassOffering.Status.PENDING)
-        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
-
-        send_admin_validation_request(offering, row)
-
-        # A digest event (#894): nothing at once, then one line in the 8 AM digest.
-        assert mail.outbox == []
-        (email,) = _review_emails("classadmin@example.com")
-        assert f"Admin sign-off needed: {offering.title}" in email.body
-        assert "request admin sign-off" in email.body.lower()
-        assert f"/classes/review/{row.token}/" in email.body
-
-    def it_does_nothing_when_there_are_no_class_administrators(db):
-        # No CLASS_APPROVER holders → the event resolves to nobody → no email.
-        offering = ClassOfferingFactory(status=ClassOffering.Status.PENDING)
-        row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
-
-        send_admin_validation_request(offering, row)
-
-        assert len(mail.outbox) == 0
-
-
 def describe_send_class_review_decision():
     def it_skips_when_instructor_has_no_email(db):
         user = UserFactory(email="")
@@ -356,26 +328,6 @@ def describe_send_class_review_decision():
 
         assert [m.to for m in mail.outbox] == [["partner@example.com"]]
 
-    def it_emails_approved_but_not_yet_published(db):
-        """When admin approves but another gate remains, subject reflects partial approval."""
-        inst_user = UserFactory(username="teach5@example.com")
-        instructor = InstructorFactory(user=inst_user, full_legal_name="Teach5", instructor_slug="teach5")
-        offering = ClassOfferingFactory(
-            instructor=instructor,
-            status=ClassOffering.Status.PENDING,
-        )
-        row = ClassApproval.objects.create(
-            class_offering=offering,
-            role=ClassApproval.Role.ADMIN,
-            decision=ClassApproval.Decision.APPROVED,
-        )
-
-        send_class_review_decision(offering, row)
-
-        assert len(mail.outbox) == 1
-        assert "approved" in mail.outbox[0].subject.lower()
-        assert "live" not in mail.outbox[0].subject.lower()
-
     def it_emails_changes_requested(db):
         inst_user = UserFactory(username="teach6@example.com")
         instructor = InstructorFactory(user=inst_user, full_legal_name="Teach6", instructor_slug="teach6")
@@ -394,22 +346,22 @@ def describe_send_class_review_decision():
         assert len(mail.outbox) == 1
         assert "changes" in mail.outbox[0].subject.lower()
 
-    def it_sends_one_email_and_no_in_app_row_on_partial_approval(db):
-        """A partial approval (another gate pending) is email-only — no bell row, as before."""
+    def it_sends_the_live_email_when_the_guild_lead_approves(db):
+        """One review per class (#1183): the lead's approval is the publishing one."""
         from core.models import Notification
 
-        inst_user = UserFactory(username="teachpa@example.com", email="teachpa@example.com")
-        instructor = InstructorFactory(user=inst_user, full_legal_name="TeachPA", instructor_slug="teachpa")
-        offering = ClassOfferingFactory(instructor=instructor, status=ClassOffering.Status.PENDING)
+        inst_user = UserFactory(username="teachgl@example.com", email="teachgl@example.com")
+        instructor = InstructorFactory(user=inst_user, full_legal_name="TeachGL", instructor_slug="teachgl")
+        offering = ClassOfferingFactory(instructor=instructor, status=ClassOffering.Status.PUBLISHED)
         row = ClassApproval.objects.create(
-            class_offering=offering, role=ClassApproval.Role.ADMIN, decision=ClassApproval.Decision.APPROVED
+            class_offering=offering, role=ClassApproval.Role.GUILD_LEAD, decision=ClassApproval.Decision.APPROVED
         )
 
         send_class_review_decision(offering, row)
 
-        assert len(mail.outbox) == 1
-        assert mail.outbox[0].to == ["teachpa@example.com"]
-        assert Notification.objects.filter(user=inst_user).count() == 0
+        assert [m.subject for m in mail.outbox] == [f"Your class '{offering.title}' is live!"]
+        assert "Waiting on:" not in mail.outbox[0].body
+        assert Notification.objects.filter(user=inst_user, trigger="instructor_class_approved").count() == 1
 
     def it_sends_one_email_and_one_in_app_row_on_changes_requested(db):
         """Changes-requested pings the instructor's bell exactly once + one email."""

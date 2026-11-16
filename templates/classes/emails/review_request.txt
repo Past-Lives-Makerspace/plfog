@@ -5,7 +5,8 @@ by {{ offering.instructor_names }}{% if offering.category %} · {{ offering.cate
 Price {{ offering.price_cents }} cents · Capacity {{ offering.capacity }}
 
 An instructor submitted this class for review, and you've been asked
-to approve the date. Open the review page to see details.
+to approve the date. Approving it publishes the class. Open the review
+page to see details.
 
 {% review_pipeline_text offering %}
 Open the review page:

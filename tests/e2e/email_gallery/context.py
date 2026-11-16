@@ -329,23 +329,6 @@ def review_submitted_instructor_context(data: SampleData) -> dict[str, Any]:
     }
 
 
-def admin_validation_request_context(data: SampleData) -> dict[str, Any]:
-    """Mirrors ``classes.emails.send_admin_validation_request``."""
-    from classes.emails import _absolute_url
-
-    row = data.approval_pending
-    return {
-        "subject": f"Admin sign-off needed: {data.offering.title}",
-        "template_context": {
-            "offering": data.offering,
-            "approval": row,
-            "review_url": _absolute_url(reverse("classes:class_review", kwargs={"token": row.token})),
-            "guild_lead_name": data.lead.display_name,
-            "instructor_name": data.instructor.display_name,
-        },
-    }
-
-
 def review_decision_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``classes.emails.send_class_review_decision`` — the fully-approved outcome."""
     from classes.emails import _absolute_url
@@ -359,7 +342,6 @@ def review_decision_context(data: SampleData) -> dict[str, Any]:
             "edit_url": public_url,
             "public_url": public_url,
             "fully_approved": True,
-            "pending_rows": [],
         },
     }
 

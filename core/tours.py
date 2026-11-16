@@ -511,7 +511,10 @@ TOURS: dict[str, Tour] = {
             TourStep(
                 target='[data-help-key="teach.submit-for-review"]',
                 title="Submit for Review",
-                body="When it is ready, submit for review. It goes to the guild lead and then an admin before it publishes.",
+                body=(
+                    "When it is ready, submit for review. Your guild lead reviews it, or an admin when the class "
+                    "has no guild lead, and it goes live once they approve."
+                ),
             ),
             TourStep(
                 target='[data-help-key="teach.class-overview"]',

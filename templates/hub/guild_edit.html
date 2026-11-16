@@ -50,8 +50,8 @@ heading, so the Info View entry and the help screenshots still resolve on exactl
 day a lead goes looking for the help.
 
 A viewer who neither leads nor staffs this guild renders nothing at all — not the all-clear.
-Both queues are viewer-scoped, so an admin on a guild they do not staff has
-two empty lists, and "all clear" would be a lie about a guild that does have work waiting.{% endcomment %}
+The queue is viewer-scoped, so an admin on a guild they do not staff has
+an empty list, and "all clear" would be a lie about a guild that does have work waiting.{% endcomment %}
 {% if guild_attention_visible %}
 <div class="cms-overview pl-guild-attention" data-help-key="guild.approve-classes">
   {% if guild_attention_count %}
@@ -81,25 +81,6 @@ two empty lists, and "all clear" would be a lie about a guild that does have wor
     </div>
     {% endif %}
 
-    {% if guild_attention_awaiting_admin %}
-    <div class="pl-attention-group">
-      <h3 class="overview-subtitle pl-attention-group__title">Awaiting Admin Validation <span class="overview-title__count">({{ guild_attention_awaiting_admin|length }})</span></h3>
-      <p class="pl-attention-group__hint">{{ guild.name }} approved these. They go live once an admin signs off.</p>
-      {% for item in guild_attention_awaiting_admin %}
-      <div class="pl-attention-row">
-        {% if item.can_open %}
-        <a class="pl-attention-row__main" href="{% url 'classes:teach_class_edit' pk=item.offering.pk %}">{{ item.offering.title }}</a>
-        {% else %}
-        <span class="pl-attention-row__main">{{ item.offering.title }}</span>
-        {% endif %}
-        <span class="pl-attention-row__sub">{% if item.offering.instructor_names %}{{ item.offering.instructor_names }} · {% endif %}approved{% if item.approved_at %} {{ item.approved_at|date:"M j" }}{% endif %}</span>
-        <span class="pl-attention-row__actions">
-          {% if item.can_open %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_edit' pk=item.offering.pk %}">View</a>{% endif %}
-        </span>
-      </div>
-      {% endfor %}
-    </div>
-    {% endif %}
   </section>
   {% else %}
   {% include "classes/_components/needs_attention_clear.html" %}

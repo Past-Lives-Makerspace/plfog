@@ -8,7 +8,7 @@ Builds the accounts and class content one live walkthrough needs:
   owning three classes: a FULL paid class with a waitlist, a paid class with open
   seats, and a submit-ready DRAFT.
 * ``counciltreasurer+admin@`` — holds the CLASS_APPROVER capability, which is what
-  routes both the admin sign-off email and the "someone wants to host a
+  routes the review of a class with no guild lead and the "someone wants to host a
   class" request to it. Neither follows the admin role.
 * ``counciltreasurer+guildlead@`` — a plain member who leads the Cartographers
   Guild (no admin tier), so the guild-lead review stage is honestly a guild lead.
@@ -315,7 +315,7 @@ class Command(BaseCommand):
         return member
 
     def _ensure_admin_capability(self) -> Member | None:
-        """The admin persona must HOLD class_approver or the validation email skips it."""
+        """The admin persona must HOLD class_approver or the class review email skips it."""
         member = Member.objects.filter(user__email__iexact=ADMIN_EMAIL).first()
         if member is None:
             return None

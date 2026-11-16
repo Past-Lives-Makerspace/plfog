@@ -1810,17 +1810,6 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     # Not gated on is_guild_lead: a staff member marked Class Reviewer leads nothing and still
     # reviews (#816). The queryset itself is the gate, so plain staff and everyone else get none.
     guild_lead_pending = _guild_lead_review_queue(teaching_member)
-    # Classes this lead already approved that now wait on the admin gate — kept
-    # visible so a stage-one approval doesn't make the class vanish on them.
-    guild_lead_awaiting_admin = (
-        list(
-            ClassOffering.objects.awaiting_admin_validation(teaching_member)
-            .select_related("category", "instructor")
-            .order_by("created_at")
-        )
-        if is_guild_lead
-        else []
-    )
 
     # A guild lead or Class Reviewer who teaches a PENDING class in their OWN guild is in two of the merged card's
     # queues at once: their review queue (where they can act) and their own "waiting on a
@@ -1828,7 +1817,6 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     # action actually blocking it, and count distinct classes. This is display-only — it does
     # not change who may review what.
     lead_queue_pks = {item["offering"].pk for item in guild_lead_pending}
-    lead_queue_pks |= {offering.pk for offering in guild_lead_awaiting_admin}
     pending_rows = [offering for offering in pending if offering.pk not in lead_queue_pks]
 
     stats = {
@@ -1844,9 +1832,9 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
     }
     # The "Needs Your Attention" group's own count, matching the rows it renders.
     stats["attention"] = stats["drafts"] + stats["bounced"] + len(pending_rows)
-    # The merged card's count: this instructor's own pipeline plus both guild-lead queues,
-    # which a lead sees whether or not they teach anything themselves. Distinct classes.
-    stats["needs_attention"] = stats["attention"] + len(guild_lead_pending) + len(guild_lead_awaiting_admin)
+    # The merged card's count: this instructor's own pipeline plus the guild-lead review
+    # queue, which a lead sees whether or not they teach anything themselves. Distinct classes.
+    stats["needs_attention"] = stats["attention"] + len(guild_lead_pending)
 
     from membership.models import AdminCapability
 
@@ -1866,7 +1854,6 @@ def teach_overview(request: HttpRequest) -> HttpResponse:
             "stats": stats,
             "is_guild_lead": is_guild_lead,
             "guild_lead_pending": guild_lead_pending,
-            "guild_lead_awaiting_admin": guild_lead_awaiting_admin,
             # Settings, Payouts nudge (#662): until this teacher finishes Stripe signup.
             "payouts_nudge": payouts.needs_nudge(teaching_member),
             # The Instructor Resources card (#765), last on the page; nothing renders when empty.
@@ -3948,7 +3935,7 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
     if range_start is not None:
         registrations = registrations.filter(registered_at__gte=range_start)
 
-    # Two-stage queue: what waits on the admin (PENDING with no open guild-lead gate,
+    # The admin's queue: what waits on an admin (PENDING with no open guild-lead gate,
     # including a PENDING class with zero rows) and what is still with a guild lead.
     waiting_on_you = list(
         ClassOffering.objects.awaiting_admin()
@@ -4970,6 +4957,39 @@ def class_review(request: HttpRequest, token: str) -> HttpResponse:
     )
 
 
+def _record_review_decision(
+    request: HttpRequest,
+    offering: ClassOffering,
+    *,
+    role: str,
+    approval: ClassApproval | None,
+    form: ClassReviewDecisionForm,
+) -> tuple[int, str] | None:
+    """Record the review form's decision; the message to redirect with, or None to show the form's error.
+
+    A decision that lost the race to another reviewer records nothing and sends no email
+    (:meth:`ClassOffering.record_review_decision`).
+    """
+    try:
+        decided = offering.record_review_decision(
+            form.cleaned_data["decision"],
+            role=role,
+            approval=approval,
+            user=request.user if request.user.is_authenticated else None,
+            notes=form.cleaned_data["notes"],
+        )
+    except ValidationError as exc:
+        # An unready class, or a lead gate that no longer speaks for this class: a form error.
+        form.add_error(None, exc.messages[0])
+        return None
+    if decided is None:
+        return messages.INFO, "Another reviewer already decided this class."
+    decided.refresh_from_db()
+    offering.refresh_from_db()
+    send_class_review_decision(offering, decided)
+    return messages.SUCCESS, "Your decision has been recorded. Thanks for reviewing."
+
+
 def _class_review_view(
     request: HttpRequest,
     *,
@@ -4981,16 +5001,18 @@ def _class_review_view(
     """Shared logic for /classes/admin/<pk>/review/ and /classes/review/<token>/.
 
     Only a PENDING offering is reviewable: for any other status the page never
-    mints an approval row and never accepts a decision POST — it renders a
-    plain "not awaiting review" state instead of the form. This keeps a stale
-    review link (or a direct URL hit) from publishing a DRAFT, re-publishing an
-    ARCHIVED class, or bouncing a live class back to DRAFT.
+    accepts a decision POST — it renders a plain "not awaiting review" state instead
+    of the form. This keeps a stale review link (or a direct URL hit) from publishing
+    a DRAFT, re-publishing an ARCHIVED class, or bouncing a live class back to DRAFT.
+
+    Opening the admin page mints nothing (#1183). An admin deciding a guilded class is an
+    early override of the guild lead's gate, not a second stage, so the ``ADMIN`` row is
+    created with the decision, in its transaction, and an admin who only looks leaves the
+    class reading as with the guild lead everywhere.
     """
     is_reviewable = offering.status == ClassOffering.Status.PENDING
     if approval is None:
         approval = offering.approvals.filter(role=role, decision="").order_by("-created_at").first()
-        if approval is None and is_reviewable:
-            approval = ClassApproval.objects.create(class_offering=offering, role=role)
     settings_obj = ClassSettings.load()
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
 
@@ -5001,27 +5023,14 @@ def _class_review_view(
     if (
         request.method == "POST"
         and is_reviewable
-        and approval is not None
-        and not approval.decision
+        and (approval is None or not approval.decision)
         and may_decide
         and form.is_valid()
     ):
-        try:
-            approval.decide(
-                form.cleaned_data["decision"],
-                user=request.user if request.user.is_authenticated else None,
-                notes=form.cleaned_data.get("notes", ""),
-            )
-        except ValidationError as exc:
-            # The publishing decision refused an unready class; show the failing
-            # items as a form error on both the admin and the tokenized page.
-            form.add_error(None, exc.messages[0])
-        else:
-            # refresh from DB to pick up the new state
-            approval.refresh_from_db()
-            offering.refresh_from_db()
-            send_class_review_decision(offering, approval)
-            messages.success(request, "Your decision has been recorded. Thanks for reviewing.")
+        outcome = _record_review_decision(request, offering, role=role, approval=approval, form=form)
+        if outcome is not None:
+            message_level, message = outcome
+            messages.add_message(request, message_level, message)
             if token:
                 return redirect("classes:class_review", token=token)
             return redirect("classes:admin_class_review", pk=offering.pk)

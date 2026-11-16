@@ -1174,8 +1174,8 @@ def _guild_attention_context(request: HttpRequest, guild: Guild) -> dict[str, An
     ``guild_attention_visible`` is an explicit "does this viewer lead or staff THIS guild"
     test, not a row count. The review list holds only what this viewer reviews (the lead and
     Class Reviewers, #816, via ``awaiting_guild_lead``), so plain staff see the section with an
-    empty review list. Both queues are viewer-scoped, so an
-    admin looking at a guild they do not staff gets two empty lists — and
+    empty review list. The queue is viewer-scoped, so an
+    admin looking at a guild they do not staff gets an empty list — and
     telling them "all clear" would be a lie about a guild that really does have reviews
     waiting. They are shown nothing at all instead.
     """
@@ -1184,7 +1184,6 @@ def _guild_attention_context(request: HttpRequest, guild: Guild) -> dict[str, An
         return {
             "guild_attention_visible": False,
             "guild_attention_review": [],
-            "guild_attention_awaiting_admin": [],
             "guild_attention_count": 0,
         }
 
@@ -1199,7 +1198,6 @@ def _guild_attention_context(request: HttpRequest, guild: Guild) -> dict[str, An
         )
 
     pending = _rows(ClassOffering.objects.awaiting_guild_lead(viewer))
-    approved = _rows(ClassOffering.objects.awaiting_admin_validation(viewer))
     # ``can_open`` decides whether a row's title, Edit and View are live links: all three
     # point at the class screen, and a viewer who fails its gate would get three dead links.
     # The gate is ``can_edit_class`` — the leg ``classes.access.class_access`` composes for
@@ -1208,7 +1206,7 @@ def _guild_attention_context(request: HttpRequest, guild: Guild) -> dict[str, An
     # the same lead-or-staff test that made the section visible and gives every row the same
     # answer, while calling it per row re-runs ``Guild.is_staffed_by`` once per row. The
     # instructor leg can only widen that answer for a row, never narrow it.
-    sample = next(iter(pending + approved), None)
+    sample = next(iter(pending), None)
     can_open = sample is not None and _can_edit_offering(request, sample)
     review: list[dict[str, Any]] = []
     for offering in pending:
@@ -1217,15 +1215,10 @@ def _guild_attention_context(request: HttpRequest, guild: Guild) -> dict[str, An
             review.append(
                 {"offering": offering, "token": gate.token, "submitted_at": gate.created_at, "can_open": can_open}
             )
-    awaiting = [
-        {"offering": offering, "approved_at": offering.guild_lead_approved_at, "can_open": can_open}
-        for offering in approved
-    ]
     return {
         "guild_attention_visible": True,
         "guild_attention_review": review,
-        "guild_attention_awaiting_admin": awaiting,
-        "guild_attention_count": len(review) + len(awaiting),
+        "guild_attention_count": len(review),
     }
 
 

@@ -30,7 +30,7 @@ having a queue: it is the Info View entry AND a ShotSpec target, and on the grou
 would vanish on exactly the quiet day a lead goes looking for the help. A member who leads no
 guild still must not be offered it.{% endcomment %}
 <div class="cms-overview" style="margin:1.25rem 0;"{% if is_guild_lead %} data-help-key="guild.approve-classes"{% endif %}>
-{% if guild_lead_pending or guild_lead_awaiting_admin or bounced_classes or drafts or pending_classes %}
+{% if guild_lead_pending or bounced_classes or drafts or pending_classes %}
   <section class="hub-card" style="margin:0;">
     <h2 class="overview-title">Needs Attention <span class="overview-title__count">({{ stats.needs_attention }})</span></h2>
 
@@ -46,20 +46,6 @@ guild still must not be offered it.{% endcomment %}
             <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_edit' pk=item.offering.pk %}">Edit</a>
             <a class="hub-btn hub-btn--sm" href="{% url 'classes:class_review' token=item.token %}">Review</a>
           </span>
-        </div>
-      {% endfor %}
-    </div>
-    {% endif %}
-
-    {% if guild_lead_awaiting_admin %}
-    {# Classes this lead already approved: they publish once an admin signs off. #}
-    <div class="pl-attention-group">
-      <h3 class="overview-subtitle pl-attention-group__title">Awaiting Admin Validation <span class="overview-title__count">({{ guild_lead_awaiting_admin|length }})</span></h3>
-      <p style="color:var(--hub-text-muted);margin:0 0 0.5rem;font-size:.9rem;">You approved these classes. They go live once an admin signs off.</p>
-      {% for c in guild_lead_awaiting_admin %}
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);">
-          <span>{{ c.title }}<span style="color:var(--hub-text-muted);"> · {{ c.category.name }}</span></span>
-          <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_edit' pk=c.pk %}">View</a>
         </div>
       {% endfor %}
     </div>
@@ -110,8 +96,8 @@ guild still must not be offered it.{% endcomment %}
     <div style="font-size:2rem;">🛠</div>
     <h2 style="margin:0.5rem 0 0.25rem;">Teach Your First Class</h2>
     <p style="color:var(--hub-text-muted);max-width:34rem;margin:0 auto 1rem;">
-      Set the details, add sessions, make it look great. We'll walk you through it —
-      then an admin reviews it before it goes live.
+      Set the details, add sessions, make it look great. We'll walk you through it.
+      Then your guild lead reviews it, or an admin when the class has no guild lead, and it goes live once they approve.
     </p>
     <a class="hub-btn" href="{% url 'classes:teach_class_create' %}" data-help-key="teach.create-class">+ Create your first class</a>
   </div>

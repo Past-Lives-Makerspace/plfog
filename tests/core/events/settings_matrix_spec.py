@@ -185,7 +185,7 @@ def describe_admin_section():
         def it_does_not_see_a_capability_it_does_not_hold(db):
             user = _member_user("cap2")
             _grant(user, AdminCapability.Capability.SPACE_APPROVER)
-            assert _section_of(user, "class_validation_requested") is None
+            assert _section_of(user, "instructor_application_received") is None
 
     def describe_an_equipment_manager():
         # equipment.reservation_made routes to EQUIPMENT_MANAGERS: a per-equipment staff

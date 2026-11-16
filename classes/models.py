@@ -246,7 +246,25 @@ class Category(HeroCropMixin, models.Model):
 
         delete_orphan_on_replace(self, "hero_image")
         normalize_field_if_uploaded(self, "hero_image", settings.IMAGE_MAX_LONG_EDGE_HERO)
+        old_guild_id = (
+            type(self).objects.filter(pk=self.pk).values_list("guild_id", flat=True).first() if self.pk else None
+        )
         super().save(*args, **kwargs)
+        update_fields = kwargs.get("update_fields")
+        guild_written = update_fields is None or bool({"guild", "guild_id"} & set(update_fields))
+        if self.pk and old_guild_id != self.guild_id and guild_written:
+            self._repoint_pending_classes()
+
+    def _repoint_pending_classes(self) -> None:
+        """Re-ask the right guild for every class in review here once this Class Type's guild changes (#1183).
+
+        A guild lead's approval publishes, so an open gate must never outlive the guild it asks:
+        moving a Class Type to another guild (or off any guild) reruns each pending class's gate
+        choice exactly as re-filing one class does (``ClassOffering._repoint_open_guild_lead_gate``).
+        """
+        for offering in ClassOffering.objects.filter(category=self, status=ClassOffering.Status.PENDING):
+            offering.category = self
+            offering._repoint_open_guild_lead_gate()
 
 
 # Storage folder + ceiling constants for class hero images. Keys under this prefix are
@@ -648,32 +666,6 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             approvals__decision="",
         ).distinct()
 
-    def awaiting_admin_validation(self, member: "Member") -> "ClassOfferingQuerySet":
-        """Pending classes whose guild-lead gate this member's guilds already approved.
-
-        The counterpart to :meth:`awaiting_guild_lead` for the lead's dashboard —
-        after a lead approves stage one, the class stays visible here (read only)
-        until an admin publishes or bounces it, instead of silently vanishing.
-        Each ``.filter()`` call joins ``approvals`` separately on purpose: one
-        approved ``guild_lead`` row AND one undecided ``admin`` row must exist.
-
-        The approved row must also have been opened for the guild the class is filed under
-        now, matching :meth:`ClassOffering._guild_lead_row_speaks_here`. A class that
-        collected its sign-off in another guild would otherwise sit on this dashboard under
-        the heading "your guild approved this", above a pipeline correctly showing that it
-        had not.
-        """
-        return (
-            self.filter(status="pending", category__guild__in=member.staffed_guilds)
-            .filter(
-                approvals__role="guild_lead",
-                approvals__decision="approved",
-                approvals__opened_for_guild=F("category__guild"),
-            )
-            .filter(approvals__role="admin", approvals__decision="")
-            .distinct()
-        )
-
     def for_instructor(self, instructor: "Member") -> "ClassOfferingQuerySet":
         """Classes this member is listed as an instructor of (#686).
 
@@ -877,6 +869,11 @@ DEFAULT_SALE_BANNER_TEXT = "🔥 Limited-time sale — save on this class while 
 # rows reads "Changes requested" everywhere instead of masquerading as a fresh draft.
 _BOUNCE_DECISIONS: tuple[str, ...] = ("changes_requested", "denied")
 
+#: The note on a gate nobody decided: closed as approved when another reviewer's approval
+#: published the class (``ClassOffering.on_review_decision_recorded``). The pipeline reads it
+#: to credit the reviewer who actually decided.
+AUTO_CLOSED_NOTE_PREFIX = "Approved automatically when "
+
 # The shortest description that counts as "a real description" for readiness. Every string that
 # names the number to a member (the checklist hint, the field's help text, the composer's live
 # count) is built from this constant, so none of them can drift from the rule.
@@ -983,7 +980,7 @@ class ClassNotReadyError(ValidationError):
 
 @dataclass(frozen=True)
 class PipelineStep:
-    """One step of the review pipeline strip (Submitted, Guild lead, Admin, Live).
+    """One step of the review pipeline strip (Submitted, the one review step, Live).
 
     ``state`` is one of ``done`` / ``current`` / ``ahead`` / ``changes_requested``, or
     ``draft`` on the first step of a class never submitted (labelled "In draft", neutral);
@@ -1028,7 +1025,7 @@ class ReviewPipeline:
 
     @property
     def text_line(self) -> str:
-        """The one-line bracketed strip for text emails: ``[✓] Submitted  [●] Guild lead  [ ] Admin  [ ] Live``."""
+        """The one-line bracketed strip for text emails: ``[✓] Submitted  [●] With the guild lead  [ ] Live``."""
         return "  ".join(f"[{step.marker}] {step.label}" for step in self.steps)
 
 
@@ -1926,21 +1923,22 @@ class ClassOffering(HeroCropMixin, models.Model):
 
     @property
     def required_review_roles(self) -> list[str]:
-        """Reviewer roles whose approval is needed to publish this offering.
+        """The one reviewer role whose approval publishes this offering (#1183).
 
-        Admin is always required. Guild Lead is added when the class's category
-        is linked to a guild that has a lead set — otherwise we'd be blocking
-        on a role that has no human attached.
+        Guild Lead when the class's category is linked to a guild that has a lead set;
+        Admin otherwise, so a class never waits on a role with no human attached. One
+        review per class: the guild lead's approval publishes a guilded class, and admins
+        review only classes with no guild lead. An admin may still approve any pending
+        class early (:meth:`approve`); that is not a second gate.
         """
-        roles: list[str] = [ClassApproval.Role.ADMIN]
         if (
             self.category_id
             and self.category.guild_id
             and self.category.guild is not None
             and self.category.guild.guild_lead_id
         ):
-            roles.append(ClassApproval.Role.GUILD_LEAD)
-        return roles
+            return [ClassApproval.Role.GUILD_LEAD]
+        return [ClassApproval.Role.ADMIN]
 
     @property
     def schedule_fingerprint(self) -> str:
@@ -1952,14 +1950,14 @@ class ClassOffering(HeroCropMixin, models.Model):
         or retiming a session is.
 
         A class with no sessions still gets a real digest (the hash of the empty set), never
-        the empty string. That distinction is load bearing:
-        :attr:`_guild_already_approved_this_schedule` compares against a stored
-        fingerprint, and the empty string there means "this row predates the field" — it must
-        never be able to match a real schedule.
+        the empty string, which on a stored row means "this row predates the field".
 
-        A flexible class's schedule is its date window, so that goes into the digest first:
-        a window moved after the lead approved reopens the gate exactly as a retimed session
-        does. A fixed class digests only its sessions, as it always has.
+        A flexible class's schedule is its date window, so that goes into the digest first.
+        A fixed class digests only its sessions, as it always has.
+
+        Since #1183 a guild lead's approval publishes the class, so the digest is a record
+        of what the lead signed off on (``ClassApproval.approved_schedule_fingerprint``),
+        no longer a way to skip asking them again.
         """
         digest = hashlib.sha256()
         if self.is_flexible:
@@ -1972,55 +1970,18 @@ class ClassOffering(HeroCropMixin, models.Model):
             digest.update(f"{starts_at}|{ends_at}\n".encode())
         return digest.hexdigest()
 
-    @property
-    def _guild_already_approved_this_schedule(self) -> bool:
-        """Has **this class's current guild** already approved the dates it currently holds?
-
-        Both halves are required, and each guards a different way the class can change
-        between rounds:
-
-        * the dates, via ``approved_schedule_fingerprint``; and
-        * the guild, via ``opened_for_guild``. ``category`` is an instructor-editable
-          field on the composer (labelled "Class Type") and a draft is editable, so "wrong
-          guild, re-file this under Woodshop" is an ordinary reason to bounce a class. A
-          row approved by guild 1 says nothing about guild 2, whose lead has never seen the
-          class.
-
-        The unit is the **guild, not the person**. A guild whose lead has since been
-        replaced has still approved these dates, so the new lead is not re-asked; that is
-        deliberate. The statement the row carries is "this guild signed off on this
-        schedule", and a change of officer does not retract it.
-
-        A row stamped before either field existed carries the empty string and a null
-        guild, and neither can match (:attr:`schedule_fingerprint` is never empty, and
-        ``opened_for_guild_id=None`` is never asked for here because a null ``guild_id``
-        short-circuits first), so such a row re-asks — the safe direction.
-        """
-        guild_id = self.category.guild_id
-        return (
-            guild_id is not None
-            and self.approvals.filter(
-                role=ClassApproval.Role.GUILD_LEAD,
-                decision=ClassApproval.Decision.APPROVED,
-                approved_schedule_fingerprint=self.schedule_fingerprint,
-                opened_for_guild_id=guild_id,
-            ).exists()
-        )
-
     def submit_for_review(self) -> list["ClassApproval"]:
-        """Move from DRAFT to PENDING and open only the first-stage review gate.
+        """Move from DRAFT to PENDING and open the class's one review gate (#1183).
 
-        Approval is sequential: the first stage is the Guild Lead when the
-        class's category links a guild with a lead, otherwise the Admin. The
-        Admin gate is only created later, once the Guild Lead approves (see
-        ``on_review_decision_recorded``). An admin can still step in early —
-        admin approval is final and publishes immediately, closing any open
-        guild-lead gate.
+        The gate is the Guild Lead when the class's category links a guild with a lead,
+        otherwise the Admin (:attr:`required_review_roles`). Whoever holds the gate
+        publishes the class by approving it (see ``on_review_decision_recorded``); there is
+        no second review. An admin can still step in early on a guilded class: their
+        approval publishes it too and closes the open guild-lead gate.
 
-        Notifies the first-stage reviewer (in-app + email) directly from the
-        model so every submit path — quick-submit, create, and edit — fans out
-        the same way. Returns the freshly created approval row(s) so callers
-        can introspect the result.
+        Notifies the reviewer (in-app + email) directly from the model so every submit
+        path — quick-submit, create, and edit — fans out the same way. Returns the freshly
+        created approval row(s) so callers can introspect the result.
         """
         if self.status != self.Status.DRAFT:
             raise ValueError(f"Only draft classes can be submitted; got {self.status}.")
@@ -2034,10 +1995,9 @@ class ClassOffering(HeroCropMixin, models.Model):
         # that any more) and the bounce that sent the class back — ``_is_bounced``, the
         # ``bounced`` annotation, ``lifecycle`` and ``latest_bounce_row`` all read a bounce
         # row as "changes requested", so a spent one would leave a class that is plainly in
-        # review reading as bounced everywhere. APPROVED rows stay: a reviewer who already
-        # signed off should not be asked twice (see ``_create_first_stage_approval``).
+        # review reading as bounced everywhere. APPROVED rows stay as history.
         self.approvals.filter(Q(decision="") | Q(decision__in=_BOUNCE_DECISIONS)).delete()
-        row = self._create_first_stage_approval()
+        row = self._open_review_gate()
         from classes import activity
 
         activity.log(
@@ -2045,7 +2005,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             class_offering=self,
             payload={"required_roles": list(self.required_review_roles), "first_stage": row.role},
         )
-        self._notify_first_stage_reviewer(row)
+        self._notify_reviewer(row)
         return [row]
 
     def _repoint_open_guild_lead_gate(self) -> None:
@@ -2073,10 +2033,11 @@ class ClassOffering(HeroCropMixin, models.Model):
         screen, arrives needing a gate it has never had, and without this would sit with
         its guild step permanently unreached while an admin publishes it unasked.
 
-        Reopening runs the first-stage choice again rather than assuming a guild lead is
-        wanted, so a class re-filed under a guildless category, or under a guild that has
-        already approved these dates, resumes at the Admin gate exactly as a fresh
-        submission would, and does not mint a second admin gate when one is already open.
+        Reopening runs the gate choice again rather than assuming a guild lead is wanted,
+        so a class re-filed under a guildless category resumes at the Admin gate exactly as
+        a fresh submission would, and does not mint a second admin gate when one is already
+        open. A class carried into a guild while its admin gate is open gets a guild lead
+        gate beside it; whichever reviewer approves first publishes it and closes the other.
 
         The notification is sent inline rather than on commit. No caller wraps a category
         changing save in ``atomic``, so there is nothing to roll back behind it today; a
@@ -2087,40 +2048,27 @@ class ClassOffering(HeroCropMixin, models.Model):
             return
         guild_id = self.category.guild_id
         open_gates = list(self.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision=""))
-        wanted = (
-            ClassApproval.Role.GUILD_LEAD in self.required_review_roles
-            and not self._guild_already_approved_this_schedule
-        )
+        wanted = ClassApproval.Role.GUILD_LEAD in self.required_review_roles
         speaks_here = [gate for gate in open_gates if gate.opened_for_guild_id == guild_id]
         if open_gates == speaks_here and bool(speaks_here) == wanted:
             return
         self.approvals.filter(role=ClassApproval.Role.GUILD_LEAD, decision="").delete()
         if not wanted and self.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").exists():
             return
-        self._notify_first_stage_reviewer(self._create_first_stage_approval())
+        self._notify_reviewer(self._open_review_gate())
 
-    def _create_first_stage_approval(self) -> "ClassApproval":
-        """Create the single approval row that opens stage one of review.
+    def _open_review_gate(self) -> "ClassApproval":
+        """Create the single approval row that opens this class's review.
 
-        Guild Lead when the category's guild has a lead; Admin otherwise — except when that
-        guild already approved the dates this class currently holds, on an earlier round of
-        the same review. A guild lead's job is the schedule and the space, so an edit that
-        left both the dates and the guild alone is not theirs to re-approve and review
-        resumes at the Admin gate. Change a session time or move the class to another
-        guild and they are asked again.
-
-        Both facts are read every time rather than short-circuited, so a class with no
-        guild still exercises the "nobody has approved this" answer.
+        Guild Lead when the category's guild has a lead, Admin otherwise
+        (:attr:`required_review_roles`). A guilded class always goes to its guild: the lead's
+        sign off is also the check on shop time, so an earlier approval of the same dates
+        does not hand the class to an admin instead (#1183).
         """
-        guild_lead_required = ClassApproval.Role.GUILD_LEAD in self.required_review_roles
-        already_satisfied = self._guild_already_approved_this_schedule
-        first_role = (
-            ClassApproval.Role.GUILD_LEAD if guild_lead_required and not already_satisfied else ClassApproval.Role.ADMIN
-        )
-        return ClassApproval.objects.create(class_offering=self, role=first_role)
+        return ClassApproval.objects.create(class_offering=self, role=self.required_review_roles[0])
 
-    def _notify_first_stage_reviewer(self, row: "ClassApproval") -> None:
-        """Fan out the stage-one notification + email for a freshly opened gate.
+    def _notify_reviewer(self, row: "ClassApproval") -> None:
+        """Fan out the reviewer's notification + email for a freshly opened gate.
 
         The guild-lead branch routes through :func:`classes.emails.send_guild_lead_review_request`
         and the admin branch through :func:`classes.emails.send_admin_review_request`. Each now
@@ -2147,27 +2095,55 @@ class ClassOffering(HeroCropMixin, models.Model):
         if self.status != self.Status.PENDING:
             raise ValueError(f"Only pending classes can be approved; got {self.status}.")
         if not self.is_ready:
-            # Refuse BEFORE minting the admin row: a stranded open ADMIN row would stop
-            # the guild lead's later approval from escalating (it only opens the admin
-            # gate when none exists yet).
+            # Refuse BEFORE minting the admin row, so an unready class never strands an
+            # open ADMIN row beside the guild lead's gate.
             from django.core.exceptions import ValidationError
 
             raise ValidationError(self.readiness_error("publish"))
-        row = self.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").first() or ClassApproval.objects.create(
-            class_offering=self, role=ClassApproval.Role.ADMIN
-        )
-        # Pin the offering instance so the lifecycle hook (which may publish)
-        # mutates *this* object's status. The filter path would otherwise load
-        # a separate ClassOffering instance, leaving self.status stale.
-        row.class_offering = self
-        row.decide(ClassApproval.Decision.APPROVED, user=admin_user)
+        # One transaction with the decision: if another approval already published the class,
+        # the admin row minted here goes with the no-op instead of standing open on a live class.
+        with transaction.atomic():
+            row = self.approvals.filter(
+                role=ClassApproval.Role.ADMIN, decision=""
+            ).first() or ClassApproval.objects.create(class_offering=self, role=ClassApproval.Role.ADMIN)
+            # Pin the offering instance so the lifecycle hook (which may publish)
+            # mutates *this* object's status. The filter path would otherwise load
+            # a separate ClassOffering instance, leaving self.status stale.
+            row.class_offering = self
+            if not row.decide(ClassApproval.Decision.APPROVED, user=admin_user):
+                raise ValueError("This class was already decided by another reviewer.")
         return row
+
+    def record_review_decision(
+        self,
+        decision: str,
+        *,
+        role: str,
+        approval: "ClassApproval | None",
+        user: "User | None",
+        notes: str,
+    ) -> "ClassApproval | None":
+        """Record a review page decision on ``approval``, or on a ``role`` row minted for it.
+
+        The review page passes no row when an admin decides a class whose open gate is someone
+        else's. That row is minted here, in the decision's transaction (#1183), so a refused or
+        lost decision leaves no open admin row behind. Returns the decided row, or None when
+        another reviewer decided the class first and nothing was recorded. A refusal (an unready
+        class, a lead gate that no longer speaks for this class) raises ``ValidationError``.
+        """
+        with transaction.atomic():
+            if approval is None:
+                approval = ClassApproval.objects.create(class_offering=self, role=role)
+            if not approval.decide(decision, user=user, notes=notes):
+                transaction.set_rollback(True)
+                return None
+        return approval
 
     def publish(self, actor: "User | None") -> None:
         """The single place a class goes live: stamps the row and logs it.
 
-        Called by the admin's final review approval (``on_review_decision_recorded``) and
-        by the admin's direct create path. Refuses an unready class (no photos, no dates,
+        Called by the reviewer's approval (``on_review_decision_recorded``: the guild lead's,
+        or an admin's) and by the admin's direct create path. Refuses an unready class (no photos, no dates,
         no real description, no capacity) so the catalog never shows a class nobody can
         book.
 
@@ -2405,7 +2381,7 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         Every approval row is deleted, including an APPROVED guild-lead row, so the draft
         reads plain Draft rather than masquerading as a bounce. Submitting again opens a
-        fresh first-stage gate as usual. ``actor`` is the instructor's user, threaded into
+        fresh review gate as usual. ``actor`` is the instructor's user, threaded into
         the activity row so the feed shows a name rather than "System".
 
         Raises:
@@ -3140,12 +3116,12 @@ class ClassOffering(HeroCropMixin, models.Model):
     def on_review_decision_recorded(self, row: "ClassApproval") -> None:
         """Lifecycle hook: called by ClassApproval.decide.
 
-        APPROVED by an admin: publish immediately — admin approval is final
-        (owner decision), even when another gate is still open. Any remaining
-        undecided approval rows are closed as approved with a system note so
-        nothing lingers in reviewer queues; the rows stay as history.
-        APPROVED by a guild lead: escalate to the admin gate without
-        publishing — publication always waits for the admin.
+        APPROVED, by the guild lead or by an admin: publish immediately (#1183). One
+        review per class, so either approval is final, even when another gate is still
+        open (an admin stepping in early on a guilded class, or a class re-filed into a
+        guild while its admin gate was open). Any remaining undecided approval rows are
+        closed as approved with a system note so nothing lingers in reviewer queues; the
+        rows stay as history. No admin gate is opened after a guild lead approves.
         CHANGES_REQUESTED / DENIED: bounce back to DRAFT so the instructor
         can edit and resubmit. Per the locked decision in the CMS round 2
         plan (PLAN.md §14, now in git history), a guild-lead denial is
@@ -3161,36 +3137,29 @@ class ClassOffering(HeroCropMixin, models.Model):
                 actor=row.decided_by,
                 payload={"role": row.role},
             )
-            # Stage-1 → Stage-2 escalation: a Guild Lead's approval opens the
-            # Admin gate (if admin review is still required and not yet open)
-            # and notifies staff for admin sign-off. We do not publish on
-            # this branch — publication waits for the admin to sign off.
-            if (
-                row.role == ClassApproval.Role.GUILD_LEAD
-                and ClassApproval.Role.ADMIN in self.required_review_roles
-                and not self.approvals.filter(role=ClassApproval.Role.ADMIN).exists()
-            ):
-                admin_row = ClassApproval.objects.create(class_offering=self, role=ClassApproval.Role.ADMIN)
-                self._escalate_to_admin(admin_row, guild_lead=row.decided_by)
-            if row.role == ClassApproval.Role.ADMIN:
-                # Admin approval is final: close any still-open gates (e.g. an
-                # undecided guild-lead row) as approved with a system note so the
-                # class drops out of every reviewer queue. The rows are kept as
-                # history — decided_by stays NULL because no human decided them.
-                still_open = self.approvals.filter(decision="").exclude(pk=row.pk)
-                closed_tokens = list(still_open.values_list("token", flat=True))
-                still_open.update(
-                    decision=ClassApproval.Decision.APPROVED,
-                    notes="Approved automatically when an admin gave final approval.",
-                    decided_at=timezone.now(),
-                )
-                # A queryset update fires no save, so the closed gates' bell entries (the
-                # lead's "A class needs your review") are cleared here, by hand (#894).
-                ClassApproval.mark_review_bells_read(closed_tokens)
-                # ``ClassApproval.decide`` already refused an unready class before saving
-                # the row, so this publish cannot raise on readiness in practice; the guard
-                # inside ``publish`` is defense in depth for any other caller.
-                self.publish(row.decided_by)
+            # Any approval is final: close any still-open gates (an undecided guild-lead
+            # row an admin stepped past, or an admin row a guild lead's approval made moot)
+            # as approved with a system note so the class drops out of every reviewer queue.
+            # The rows are kept as history — decided_by stays NULL because no human decided them.
+            closed_by = (
+                "an admin gave final approval"
+                if row.role == ClassApproval.Role.ADMIN
+                else "the guild lead approved the class"
+            )
+            still_open = self.approvals.filter(decision="").exclude(pk=row.pk)
+            closed_tokens = list(still_open.values_list("token", flat=True))
+            still_open.update(
+                decision=ClassApproval.Decision.APPROVED,
+                notes=f"{AUTO_CLOSED_NOTE_PREFIX}{closed_by}.",
+                decided_at=timezone.now(),
+            )
+            # A queryset update fires no save, so the closed gates' bell entries (the
+            # reviewer's "A class needs your review") are cleared here, by hand (#894).
+            ClassApproval.mark_review_bells_read(closed_tokens)
+            # ``ClassApproval.decide`` already refused an unready class before saving
+            # the row, so this publish cannot raise on readiness in practice; the guard
+            # inside ``publish`` is defense in depth for any other caller.
+            self.publish(row.decided_by)
         elif row.decision == ClassApproval.Decision.CHANGES_REQUESTED:
             self.status = self.Status.DRAFT
             self.save(update_fields=["status", "updated_at"])
@@ -3213,18 +3182,6 @@ class ClassOffering(HeroCropMixin, models.Model):
                 actor=row.decided_by,
                 payload={"role": row.role, "notes_excerpt": (row.notes or "")[:200]},
             )
-
-    def _escalate_to_admin(self, admin_row: "ClassApproval", *, guild_lead: "User | None") -> None:
-        """Fire the stage-two admin escalation after a Guild Lead approves.
-
-        Emits the admin sign-off request as one ``class_validation_requested``
-        event (admin email + FOG_ADMINS in-app) via
-        :func:`classes.emails.send_admin_validation_request`. The Guild Lead is named
-        in the copy so admins know who already vouched for the class.
-        """
-        from classes import emails
-
-        emails.send_admin_validation_request(self, admin_row)
 
     def add_gallery_images(self, files: list[UploadedFile]) -> None:
         """Create ClassImage rows from uploaded files, appended after existing ones.
@@ -3739,27 +3696,6 @@ class ClassOffering(HeroCropMixin, models.Model):
         )
 
     @property
-    def guild_lead_approved_at(self) -> datetime | None:
-        """When this class's guild-lead gate was approved, or None if it has not been.
-
-        The other half of :attr:`open_guild_lead_approval`: once the lead has decided, the
-        guild page shows when, on the row that is now waiting on an admin. Scoped to the
-        guild the class is filed under now, so a guild reads its own sign-off and not one
-        the class collected elsewhere.
-        """
-        row = next(
-            (
-                a
-                for a in self.approvals.all()
-                if a.role == ClassApproval.Role.GUILD_LEAD
-                and a.decision == ClassApproval.Decision.APPROVED
-                and self._guild_lead_row_speaks_here(a)
-            ),
-            None,
-        )
-        return row.decided_at if row is not None else None
-
-    @property
     def _is_bounced(self) -> bool:
         annotated = getattr(self, "bounced", None)
         if annotated is not None:
@@ -3932,13 +3868,16 @@ class ClassOffering(HeroCropMixin, models.Model):
         return ", ".join(parts)
 
     def review_pipeline(self) -> ReviewPipeline:
-        """The review pipeline strip: Submitted, Guild lead (when required), Admin, Live.
+        """The review pipeline strip: Submitted, one review step, Live (#1183).
 
-        Reads the rows a resubmission left standing: ``submit_for_review`` drops the
-        undecided and bounced ones and keeps the APPROVED ones, so a second round shows
-        the guild lead's earlier sign-off as done rather than resetting the strip. Never
-        errors on any status: cancelled and archived classes render their last known strip
-        under a muted headline, and legacy rows from an old cycle are read as they are.
+        One review per class, so one review step: "With the guild lead" for a class whose
+        guild has a lead, "With an admin" otherwise. The step reads the row that decides the
+        class: its open gate while it waits, else the bounce that sent it back, else the
+        newest decision someone actually made. A gate closed automatically when another
+        reviewer approved is skipped, so an admin who approved a guilded class early is the
+        one credited, and the step says "With an admin". Never errors on any status:
+        cancelled and archived classes render their last known strip under a muted
+        headline, and legacy rows from the old two step review are read as they are.
         """
         status = self.status
         is_pending = status == self.Status.PENDING
@@ -3946,16 +3885,8 @@ class ClassOffering(HeroCropMixin, models.Model):
         muted = status in (self.Status.CANCELLED, self.Status.ARCHIVED)
         was_live = status == self.Status.PUBLISHED or (muted and self.published_at is not None)
         rows = sorted(self.approvals.all(), key=lambda row: row.created_at)
-        latest_by_role: dict[str, ClassApproval] = {
-            row.role: row
-            for row in rows
-            if row.role != ClassApproval.Role.GUILD_LEAD or self._guild_lead_row_speaks_here(row)
-        }
         bounce = self.latest_bounce_row
         bounced = is_draft and bounce is not None
-        guild_row = latest_by_role.get(ClassApproval.Role.GUILD_LEAD)
-        admin_row = latest_by_role.get(ClassApproval.Role.ADMIN)
-        guild_required = ClassApproval.Role.GUILD_LEAD in self.required_review_roles or guild_row is not None
 
         if is_pending or was_live or bounce is not None or rows:
             first_step = PipelineStep("submitted", "Submitted", "done")
@@ -3966,16 +3897,19 @@ class ClassOffering(HeroCropMixin, models.Model):
             first_step = PipelineStep("submitted", "Submitted", "ahead")
         steps = [first_step]
 
-        guild_open = guild_row is not None and not guild_row.decision
-        if guild_required:
-            steps.append(self._pipeline_step("guild_lead", "Guild lead", guild_row, was_live, is_pending or muted))
-        if admin_row is None and is_pending and not guild_open:
-            admin_step = PipelineStep("admin", "Admin", "current", detail="Waiting on an admin")
+        row = bounce if bounced else self._deciding_review_row(rows, prefer_open=not is_draft)
+        role = row.role if row is not None else self.required_review_roles[0]
+        key, label = (
+            ("guild_lead", "With the guild lead")
+            if role == ClassApproval.Role.GUILD_LEAD
+            else ("admin", "With an admin")
+        )
+        if row is None and is_pending:
+            # A pending class with no gate at all (legacy data) still names who it waits on.
+            waiting_on = "the guild lead" if key == "guild_lead" else "an admin"
+            steps.append(PipelineStep(key, label, "current", detail=f"Waiting on {waiting_on}"))
         else:
-            admin_step = self._pipeline_step("admin", "Admin", admin_row, was_live, is_pending or muted)
-            if admin_step.state == "current" and guild_open and not was_live:
-                admin_step = PipelineStep("admin", "Admin", "ahead")
-        steps.append(admin_step)
+            steps.append(self._pipeline_step(key, label, row, was_live, is_pending or muted))
         steps.append(PipelineStep("live", "Live", "done" if was_live else "ahead"))
 
         headline = self._pipeline_headline(steps, bounce if bounced else None, was_live, muted)
@@ -3988,6 +3922,33 @@ class ClassOffering(HeroCropMixin, models.Model):
             is_bounced=bounced,
             muted=muted,
         )
+
+    def _deciding_review_row(self, rows: "list[ClassApproval]", *, prefer_open: bool) -> "ClassApproval | None":
+        """The row the review step reads, from ``rows`` oldest first: open gate, else newest real decision.
+
+        A guild lead row counts only where it speaks for the guild the class is filed under
+        now (:meth:`_guild_lead_row_speaks_here`). A gate closed automatically by another
+        reviewer's approval is never the one credited while a real decision exists. An open
+        gate wins only under ``prefer_open``: on a draft it is a leftover nobody is waiting on.
+        """
+        rows = [
+            row for row in rows if row.role != ClassApproval.Role.GUILD_LEAD or self._guild_lead_row_speaks_here(row)
+        ]
+        open_rows = [row for row in rows if not row.decision]
+        if open_rows and prefer_open:
+            # The guild lead's open gate is who the class waits on; an admin row opened beside
+            # it is an early override, not a second stage (as ``classes.overdue`` reads it).
+            lead_rows = [row for row in open_rows if row.role == ClassApproval.Role.GUILD_LEAD]
+            return (lead_rows or open_rows)[-1]
+        decided = [
+            row
+            for row in rows
+            if row.decision
+            and not (row.decided_by_id is None and (row.notes or "").startswith(AUTO_CLOSED_NOTE_PREFIX))
+        ]
+        if decided:
+            return decided[-1]
+        return rows[-1] if rows else None
 
     def _pipeline_step(
         self,
@@ -4400,16 +4361,17 @@ class ClassApprovalQuerySet(models.QuerySet["ClassApproval"]):
 class ClassApproval(models.Model):
     """One reviewer gate on a ClassOffering submission.
 
-    When an instructor calls ``ClassOffering.submit_for_review()``, one row
-    is created per required reviewer role (``Role.ADMIN`` always; plus
-    ``Role.GUILD_LEAD`` when the class's category is linked to a guild that
-    has a lead). Each row gets a unique ``token`` so the emailed reviewer
-    can act without a hub login.
+    When an instructor calls ``ClassOffering.submit_for_review()``, one row is
+    created for the class's one reviewer role (#1183): ``Role.GUILD_LEAD`` when the
+    class's category is linked to a guild that has a lead, ``Role.ADMIN`` otherwise.
+    An admin who approves a guilded class early adds an ``ADMIN`` row of their own.
+    Each row gets a unique ``token`` so the emailed reviewer can act without a hub
+    login.
 
     Rows start with ``decision = ""`` (still pending). Calling ``decide()``
     on a row records the decision and triggers the lifecycle hook on the
-    offering (publish when the ADMIN row is APPROVED — admin approval is
-    final; back to DRAFT when any reviewer requests changes or denies).
+    offering (publish when any row is APPROVED; back to DRAFT when any reviewer
+    requests changes or denies).
     """
 
     class Role(models.TextChoices):
@@ -4479,6 +4441,19 @@ class ClassApproval(models.Model):
             "guild's lead is asked. Null on admin rows and on rows predating the field."
         ),
     )
+    opened_for_lead = models.ForeignKey(
+        "membership.Member",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text=(
+            "The guild's lead when this gate was opened, stamped when the row is created. The emailed "
+            "link works signed out only while that person is still the guild's lead, so a link held by "
+            "a replaced lead, or one whose account was deleted, decides nothing. Null on admin rows and "
+            "on rows predating the field."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the review was requested.")
     decided_at = models.DateTimeField(null=True, blank=True, help_text="When the reviewer acted.")
 
@@ -4505,7 +4480,7 @@ class ClassApproval(models.Model):
         collect a stranger's approval on its behalf. Stamped here, a re-filed class simply
         stops matching, and the new guild's lead is asked.
 
-        ``_create_first_stage_approval`` is the only site that mints one of these today, and
+        ``_open_review_gate`` is the only site that mints one of these today, and
         ``_repoint_open_guild_lead_gate`` reaches it by a second route. It lives here rather
         than there so that a third route cannot forget it. A caller that passes an explicit
         guild is honoured rather than corrected; this fills a blank, it does not police one.
@@ -4514,6 +4489,9 @@ class ClassApproval(models.Model):
             self.token = secrets.token_urlsafe(32)
         if self._state.adding and self.role == self.Role.GUILD_LEAD and self.opened_for_guild_id is None:
             self.opened_for_guild_id = self.class_offering.category.guild_id
+        if self._state.adding and self.role == self.Role.GUILD_LEAD and self.opened_for_lead_id is None:
+            guild = self.opened_for_guild
+            self.opened_for_lead_id = guild.guild_lead_id if guild is not None else None
         super().save(*args, **kwargs)
 
     @property
@@ -4620,8 +4598,21 @@ class ClassApproval(models.Model):
             return True
         return guild.reviews_classes(member)
 
-    def decide(self, decision: str, user=None, notes: str = "") -> None:
+    def decide(self, decision: str, user: "User | None" = None, notes: str = "") -> bool:
         """Record a reviewer decision and trigger the offering's lifecycle hook.
+
+        Returns True when the decision was recorded, and False when it was a no-op: another
+        decision got there first (a second approval racing the first, or a double click). The
+        class and this gate are locked and read again inside the transaction, so of two
+        approvals only one publishes, sends its email and writes its activity row (#1183).
+
+        A guild lead gate is narrowed further here, because its approval publishes (#1183):
+        it must still speak for the guild the class is filed under now, and the person
+        deciding must still hold the authority it was sent to. Signed in, that is
+        :meth:`may_be_decided_by`; signed out, the token was sent to the guild's lead of the
+        day (``opened_for_lead``), so it decides only while that person still leads the
+        guild. A refused decision raises ``ValidationError``, which the review page shows as a
+        form error.
 
         Guards on the offering being PENDING *before* saving anything, so a
         decision can never publish a never-submitted DRAFT, re-publish an
@@ -4632,10 +4623,10 @@ class ClassApproval(models.Model):
         state before a user can ever reach this error.
 
         A guild lead's APPROVAL also stamps ``approved_schedule_fingerprint`` with the
-        schedule they just signed off on, which is what lets the instructor's next
-        submission tell a copy edit (the lead is not asked again) from a date change (they
-        are). No other role or decision stamps it: only a guild lead's approval is a
-        statement about the dates.
+        schedule they just signed off on, as a record of what they approved. No other role
+        or decision stamps it: only a guild lead's approval is a statement about the dates.
+        Since #1183 that approval publishes the class, so nothing reads the stamp to skip
+        asking the lead again.
 
         The schedule is stamped here and the guild in ``save``, and the asymmetry is worth
         stating plainly rather than dressing up. The guild is *who had the authority to be
@@ -4654,8 +4645,7 @@ class ClassApproval(models.Model):
 
         Recording what the reviewer actually saw means carrying the rendered fingerprint
         through the form and refusing a decision that no longer matches it. That is a real
-        fix and it belongs with #446, not smuggled in here. The stamp is only ever read to
-        decide whether to *re-ask*, and both gaps err toward re-asking.
+        fix and it belongs with #446, not smuggled in here.
         """
         if decision not in {
             self.Decision.APPROVED,
@@ -4665,12 +4655,17 @@ class ClassApproval(models.Model):
             raise ValueError(f"Unknown decision: {decision!r}")
         if self.class_offering.status != ClassOffering.Status.PENDING:
             raise ValueError(f"Only pending classes can accept review decisions; got {self.class_offering.status}.")
-        if decision == self.Decision.APPROVED and self.role == self.Role.ADMIN and not self.class_offering.is_ready:
-            # The admin's approval is the publishing decision. Refuse BEFORE saving the
-            # row so an unready class never strands an APPROVED admin row on a class
-            # that stays PENDING; the reviewer sees the failing items as a form error.
-            from django.core.exceptions import ValidationError
+        from django.core.exceptions import ValidationError
 
+        if self.role == self.Role.GUILD_LEAD:
+            refusal = self._lead_authority_refusal(user)
+            if refusal:
+                raise ValidationError(refusal)
+        if decision == self.Decision.APPROVED and not self.class_offering.is_ready:
+            # Any approval is the publishing decision (#1183), the guild lead's included.
+            # Refuse BEFORE saving the row so an unready class never strands an APPROVED
+            # row on a class that stays PENDING; the reviewer sees the failing items as a
+            # form error.
             raise ValidationError(self.class_offering.readiness_error("publish"))
         self.decision = decision
         self.decided_by = user
@@ -4687,6 +4682,18 @@ class ClassApproval(models.Model):
         # One transaction: a publish that fails (the date split, #823) leaves this gate
         # undecided and the class PENDING, never an APPROVED row on an unpublished class.
         with transaction.atomic():
+            # Lock the class, then read it and this gate again: a decision that lost the race
+            # finds the class no longer pending, or this gate already decided, and does nothing.
+            current_status = (
+                ClassOffering.objects.select_for_update()
+                .filter(pk=self.class_offering_id)
+                .values_list("status", flat=True)
+                .first()
+            )
+            already_decided = ClassApproval.objects.filter(pk=self.pk).exclude(decision="").exists()
+            if current_status != ClassOffering.Status.PENDING or already_decided:
+                self.refresh_from_db()
+                return False
             self.save(update_fields=update_fields)
             # The note stays here as the decision's record, and is also the reviewer's message
             # on the class's thread, which outlives this row (a resubmit deletes a bounced one).
@@ -4695,6 +4702,20 @@ class ClassApproval(models.Model):
             self.class_offering.on_review_decision_recorded(self)
             # Decided, so the bell entries asking for this decision stop asking (#894).
             ClassApproval.mark_review_bells_read([self.token])
+        return True
+
+    def _lead_authority_refusal(self, user: "User | None") -> str:
+        """Why this guild lead gate may not be decided by ``user`` now, or "" when it may (#1183)."""
+        if self.opened_for_guild_id != self.class_offering.category.guild_id:
+            return "This review was for another guild. The class has moved, and its new guild was asked instead."
+        if user is not None and user.is_authenticated:
+            if not self.may_be_decided_by(user):
+                return "Only the guild lead and the staff they mark as Class Reviewers can decide this class."
+            return ""
+        guild = self.opened_for_guild
+        if self.opened_for_lead_id is None or guild is None or guild.guild_lead_id != self.opened_for_lead_id:
+            return "This review link is from a past guild lead. Sign in to review the class."
+        return ""
 
 
 class ClassMessage(ThreadMessage):
@@ -7274,9 +7295,6 @@ class ClassSettings(models.Model):
     )
     reminder_hours_before = models.PositiveIntegerField(
         default=24, help_text="Hours before a class session to send the reminder email."
-    )
-    instructor_approval_required = models.BooleanField(
-        default=True, help_text="When on, new classes go to admin for review before being published."
     )
     waitlist_claim_window_hours = models.PositiveIntegerField(
         default=24,

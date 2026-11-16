@@ -1,4 +1,4 @@
-"""BDD specs for the admin side of the class lifecycle: the two-stage queue, Remind lead, the
+"""BDD specs for the admin side of the class lifecycle: the admin queue, Remind lead, the
 publish confirm, Cancel / Archive / Restore, the readiness guard on approve, the review page
 readiness block, the lifecycle facets, and the permission edges."""
 
@@ -536,26 +536,17 @@ def describe_readiness_guard_on_approve():
         # Refused before the admin row is minted, so nothing is stranded open.
         assert not offering.approvals.exists()
 
-    def it_refused_quick_approve_does_not_block_the_guild_leads_later_escalation(admin_user, client, db):
-        from membership.models import AdminCapability, Member
-
+    def it_refused_quick_approve_leaves_only_the_guild_leads_gate_open(admin_user, client, db):
         lead_user = _lead_user("escalate-lead@example.com")
         guild = _guild_with_lead(lead_user, "Escalate Guild")
         offering = ClassOfferingFactory(
             status=Status.PENDING, description="Short", category=CategoryFactory(guild=guild)
         )
         gate = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
-        holder_user = UserFactory(username="cms-esc@example.com", email="cms-esc@example.com")
-        Member.objects.get(user=holder_user).admin_capabilities.create(
-            capability=AdminCapability.Capability.CLASS_APPROVER
-        )
         client.force_login(admin_user)
         client.post(reverse("classes:admin_class_approve", kwargs={"pk": offering.pk}))
         assert not offering.approvals.filter(role=ClassApproval.Role.ADMIN).exists()
-        mail.outbox = []
-        gate.decide(ClassApproval.Decision.APPROVED, user=lead_user)
-        assert offering.approvals.filter(role=ClassApproval.Role.ADMIN, decision="").count() == 1
-        assert digest_emails("cms-esc@example.com")
+        assert list(offering.approvals.filter(decision="")) == [gate]
 
     def it_admin_review_page_shows_the_readiness_message_as_a_form_error(admin_user, client, db):
         offering = ClassOfferingFactory(status=Status.PENDING, description="Short")

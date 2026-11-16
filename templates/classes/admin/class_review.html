@@ -9,7 +9,7 @@
   <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:1rem;">
     <div>
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:var(--color-tuscan-yellow);">
-        {% if approval %}{{ approval.get_role_display }}{% else %}Class{% endif %} review
+        {% if approval %}{{ approval.get_role_display }}{% elif role == 'admin' %}Admin{% else %}Class{% endif %} review
       </div>
       <h1 style="margin:6px 0 4px;font-size:1.75rem;">{{ offering.title }}</h1>
       <div style="color:var(--hub-text-muted);font-size:0.95rem;">
@@ -117,7 +117,7 @@
           {% for error in form.decision.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
         </ul>
       {% endif %}
-      <p class="pl-review-reassure">Most classes go through a round or two of notes before they go live. Asking for changes is normal, and the instructor can resubmit as many times as they need.</p>
+      <p class="pl-review-reassure">Approving publishes the class right away. Most classes go through a round or two of notes before they go live. Asking for changes is normal, and the instructor can resubmit as many times as they need.</p>
       <fieldset style="border:none;padding:0;margin:0 0 1rem;">
         <legend style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:var(--hub-text-muted);margin-bottom:8px;">Your Response</legend>
         <div style="display:flex;flex-direction:column;gap:8px;">

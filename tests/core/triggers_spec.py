@@ -4,10 +4,10 @@ from core import triggers
 
 
 def describe_catalogue():
-    def it_has_26_triggers():
+    def it_has_25_triggers():
         # 25, plus spec D's wiki.page_reported, wiki.page_proposed and wiki.page_verified,
-        # less class_published and invite_accepted (both retired).
-        assert len(triggers.TRIGGERS) == 26  # incl. the forced refund_failed admin alert
+        # less class_published, invite_accepted and class_validation_requested (#1183), all retired.
+        assert len(triggers.TRIGGERS) == 25  # incl. the forced refund_failed admin alert
 
     def it_looks_up_by_key():
         t = triggers.get("class_reminder")

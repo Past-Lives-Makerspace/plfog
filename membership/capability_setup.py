@@ -137,10 +137,11 @@ CMS_ADMIN_SETUP = PermissionSetupSpec(
             key=LEARN,
             title="Learn How Class Review Goes",
             note="About a minute to read",
-            why="A class is published only once an admin side reviewer approves it. That is you now.",
+            why="A class with no guild lead is published once an admin side reviewer approves it. That is you now.",
             email_line="Learn how class review goes",
             how=(
-                "You review classes whose guild has no lead, and every class its guild has already approved.",
+                "You review classes with no guild lead. A class in a guild with a lead goes live when the guild "
+                "approves it, and you can still approve any class early.",
                 f"Each request rings your bell at once with a Review link. {_DIGEST}",
                 "Open a class to approve it, or send it back to the instructor with a note.",
             ),
