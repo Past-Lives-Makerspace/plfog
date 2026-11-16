@@ -2,8 +2,16 @@ bump = "minor"
 date = "2026-11-16"
 audience = ["members"]
 feature = "wiki.home"
+guidance = "shots"
+target = "wiki.share"
 title = "Share any wiki page"
 changes = [
   "Wiki pages have a Share button. Where your browser has a share sheet it opens that; otherwise it offers Copy link, Text and Email.",
   "The link it shares is the page's short link, so it keeps working if the page is renamed.",
 ]
+
+[[shots]]
+caption = "Open any wiki page and press Share at the top."
+
+[[shots]]
+caption = "Pick Copy link, Text or Email to send the page."
