@@ -241,6 +241,49 @@ def describe_two_approvals_racing():
 
         assert not offering.approvals.filter(role=ClassApproval.Role.ADMIN).exists()
 
+    def it_records_nothing_when_a_stale_review_page_decision_loses(db, admin_user):
+        lead = _lead("race-page-lead@example.com")
+        offering, gate = _guilded_pending(lead)
+        stale = ClassOffering.objects.get(pk=offering.pk)
+        gate.decide(ClassApproval.Decision.APPROVED, user=lead.user)
+
+        decided = stale.record_review_decision(
+            ClassApproval.Decision.APPROVED,
+            role=ClassApproval.Role.ADMIN,
+            approval=None,
+            user=admin_user,
+            notes="",
+        )
+
+        assert decided is None
+        assert not offering.approvals.filter(role=ClassApproval.Role.ADMIN).exists()
+
+    def it_tells_the_reviewer_whose_post_lost_and_sends_no_email(db, client, admin_user, monkeypatch):
+        lead = _lead("race-post-lead@example.com")
+        offering, gate = _guilded_pending(lead)
+        real_record = ClassOffering.record_review_decision
+
+        def lead_gets_there_first(self, *args, **kwargs):
+            # The lead's approval commits after the admin's page loaded the class as pending.
+            gate.decide(ClassApproval.Decision.APPROVED, user=lead.user)
+            mail.outbox.clear()
+            return real_record(self, *args, **kwargs)
+
+        monkeypatch.setattr(ClassOffering, "record_review_decision", lead_gets_there_first)
+        client.force_login(admin_user)
+
+        response = client.post(
+            reverse("classes:admin_class_review", kwargs={"pk": offering.pk}),
+            {"decision": ClassApproval.Decision.APPROVED, "notes": "Looks good"},
+            follow=True,
+        )
+
+        assert "Another reviewer already decided this class." in response.content.decode()
+        offering.refresh_from_db()
+        assert offering.approved_by == lead.user
+        assert not offering.approvals.filter(role=ClassApproval.Role.ADMIN).exists()
+        assert mail.outbox == []
+
 
 def describe_a_lead_who_teaches_the_class():
     def it_publishes_on_their_own_approval(db):

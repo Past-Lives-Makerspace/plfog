@@ -2114,6 +2114,31 @@ class ClassOffering(HeroCropMixin, models.Model):
                 raise ValueError("This class was already decided by another reviewer.")
         return row
 
+    def record_review_decision(
+        self,
+        decision: str,
+        *,
+        role: str,
+        approval: "ClassApproval | None",
+        user: "User | None",
+        notes: str,
+    ) -> "ClassApproval | None":
+        """Record a review page decision on ``approval``, or on a ``role`` row minted for it.
+
+        The review page passes no row when an admin decides a class whose open gate is someone
+        else's. That row is minted here, in the decision's transaction (#1183), so a refused or
+        lost decision leaves no open admin row behind. Returns the decided row, or None when
+        another reviewer decided the class first and nothing was recorded. A refusal (an unready
+        class, a lead gate that no longer speaks for this class) raises ``ValidationError``.
+        """
+        with transaction.atomic():
+            if approval is None:
+                approval = ClassApproval.objects.create(class_offering=self, role=role)
+            if not approval.decide(decision, user=user, notes=notes):
+                transaction.set_rollback(True)
+                return None
+        return approval
+
     def publish(self, actor: "User | None") -> None:
         """The single place a class goes live: stamps the row and logs it.
 

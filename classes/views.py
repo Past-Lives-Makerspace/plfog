@@ -4957,10 +4957,6 @@ def class_review(request: HttpRequest, token: str) -> HttpResponse:
     )
 
 
-class _ReviewAlreadyDecided(Exception):
-    """Rolls back a review POST that lost the race to another decision (#1183)."""
-
-
 def _record_review_decision(
     request: HttpRequest,
     offering: ClassOffering,
@@ -4971,30 +4967,26 @@ def _record_review_decision(
 ) -> tuple[int, str] | None:
     """Record the review form's decision; the message to redirect with, or None to show the form's error.
 
-    The ``ADMIN`` row an admin's decision needs is minted here, in the decision's transaction
-    (#1183), so a refused or lost decision leaves no open admin row behind. A decision that
-    lost the race to another reviewer records nothing and sends no email.
+    A decision that lost the race to another reviewer records nothing and sends no email
+    (:meth:`ClassOffering.record_review_decision`).
     """
     try:
-        with transaction.atomic():
-            if approval is None:
-                approval = ClassApproval.objects.create(class_offering=offering, role=role)
-            recorded = approval.decide(
-                form.cleaned_data["decision"],
-                user=request.user if request.user.is_authenticated else None,
-                notes=form.cleaned_data.get("notes", ""),
-            )
-            if not recorded:
-                raise _ReviewAlreadyDecided
+        decided = offering.record_review_decision(
+            form.cleaned_data["decision"],
+            role=role,
+            approval=approval,
+            user=request.user if request.user.is_authenticated else None,
+            notes=form.cleaned_data["notes"],
+        )
     except ValidationError as exc:
         # An unready class, or a lead gate that no longer speaks for this class: a form error.
         form.add_error(None, exc.messages[0])
         return None
-    except _ReviewAlreadyDecided:
+    if decided is None:
         return messages.INFO, "Another reviewer already decided this class."
-    approval.refresh_from_db()
+    decided.refresh_from_db()
     offering.refresh_from_db()
-    send_class_review_decision(offering, approval)
+    send_class_review_decision(offering, decided)
     return messages.SUCCESS, "Your decision has been recorded. Thanks for reviewing."
 
 
