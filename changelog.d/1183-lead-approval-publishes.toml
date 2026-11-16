@@ -2,6 +2,7 @@ bump = "minor"
 date = "2026-11-15"
 audience = ["instructors", "guild-leads", "admins"]
 title = "A guild lead's approval puts a class live"
+feature = "classes.review"
 changes = [
   "When a guild lead approves a class, it goes live right away. There is no second sign off from an admin.",
   "Classes in a category with no guild, or a guild with no lead, go to an admin, and the admin's approval puts them live.",

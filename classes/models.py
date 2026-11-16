@@ -4573,7 +4573,7 @@ class ClassApproval(models.Model):
             return True
         return guild.reviews_classes(member)
 
-    def decide(self, decision: str, user=None, notes: str = "") -> bool:
+    def decide(self, decision: str, user: "User | None" = None, notes: str = "") -> bool:
         """Record a reviewer decision and trigger the offering's lifecycle hook.
 
         Returns True when the decision was recorded, and False when it was a no-op: another
@@ -4679,7 +4679,7 @@ class ClassApproval(models.Model):
             ClassApproval.mark_review_bells_read([self.token])
         return True
 
-    def _lead_authority_refusal(self, user) -> str:
+    def _lead_authority_refusal(self, user: "User | None") -> str:
         """Why this guild lead gate may not be decided by ``user`` now, or "" when it may (#1183)."""
         if self.opened_for_guild_id != self.class_offering.category.guild_id:
             return "This review was for another guild. The class has moved, and its new guild was asked instead."
