@@ -18,7 +18,7 @@ from classes.factories import (
     ClassSessionFactory,
     InstructorFactory,
 )
-from classes.models import Category, ClassOffering
+from classes.models import Category, ClassInstructor, ClassOffering
 from membership.models import Member
 from tests.membership.factories import MemberContactFactory
 
@@ -401,6 +401,63 @@ def describe_public_list():
         response = client.get(reverse("classes:public_list") + "?instructor=deenie")
         assert b"Intro to Wheel Throwing" in response.content
         assert b"Newcomer Class" not in response.content
+
+    def describe_instructor_filter_checkboxes():
+        # #1218: the boxes rendered ``value="{{ inst.slug }}"`` on a Member, which has no slug,
+        # so every box submitted ``instructor=`` and no filter ran. Specs build the request from
+        # the rendered form, not a hand written query string.
+        def _boxes(content: bytes) -> dict[str, bool]:
+            html = content.decode()
+            found = re.findall(r'<input type="checkbox" name="instructor" value="([^"]*)"\s*(checked)?', html)
+            return {value: bool(checked) for value, checked in found}
+
+        def _offering(title: str, slug: str, instructor: Member, category: Category) -> ClassOffering:
+            offering = ClassOfferingFactory(
+                title=title, slug=slug, category=category, instructor=instructor, status=ClassOffering.Status.PUBLISHED
+            )
+            ClassSessionFactory(
+                class_offering=offering,
+                starts_at=timezone.now() + timedelta(days=4),
+                ends_at=timezone.now() + timedelta(days=4, hours=2),
+            )
+            return offering
+
+        @pytest.fixture
+        def three_teachers(published_class):
+            cat = published_class.category
+            kit = InstructorFactory(full_legal_name="Kit", instructor_slug="kit")
+            lou = InstructorFactory(full_legal_name="Lou", instructor_slug="lou")
+            _offering("Kit Solo", "kit-solo", kit, cat)
+            shared = _offering("Lou And Deenie", "lou-and-deenie", lou, cat)
+            ClassInstructor.objects.create(class_offering=shared, member=published_class.instructor)
+            return published_class
+
+        def it_renders_each_box_with_the_instructor_slug(three_teachers, client):
+            response = client.get(reverse("classes:public_list"))
+            assert _boxes(response.content) == {"deenie": False, "kit": False, "lou": False}
+
+        def it_ticks_the_box_named_in_the_url(three_teachers, client):
+            response = client.get(reverse("classes:public_list") + "?instructor=kit")
+            assert _boxes(response.content) == {"deenie": False, "kit": True, "lou": False}
+
+        def it_lists_only_the_ticked_instructors_classes_including_co_taught(three_teachers, client):
+            boxes = _boxes(client.get(reverse("classes:public_list")).content)
+            picked = [v for v in boxes if v == "deenie"]
+            response = client.get(reverse("classes:public_list"), {"instructor": picked})
+            assert b"Intro to Wheel Throwing" in response.content
+            assert b"Lou And Deenie" in response.content
+            assert b"Kit Solo" not in response.content
+            assert _boxes(response.content)["deenie"] is True
+
+        def it_lists_classes_of_either_ticked_instructor_once(three_teachers, client):
+            boxes = _boxes(client.get(reverse("classes:public_list")).content)
+            picked = [v for v in boxes if v in {"deenie", "lou"}]
+            assert picked == ["deenie", "lou"]
+            response = client.get(reverse("classes:public_list"), {"instructor": picked})
+            titles = [group.representative.title for group in response.context["page_obj"]]
+            assert sorted(titles) == ["Intro to Wheel Throwing", "Lou And Deenie"]
+            assert b"Intro to Wheel Throwing" in response.content
+            assert b"Kit Solo" not in response.content
 
     def it_filters_by_min_and_max_price(published_class, client):
         cheap = ClassOfferingFactory(

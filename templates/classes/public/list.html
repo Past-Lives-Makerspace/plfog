@@ -88,8 +88,8 @@
       <div class="cp-filter__checks">
         {% for inst in instructors_for_filter %}
           <label class="cp-filter__check">
-            <input type="checkbox" name="instructor" value="{{ inst.slug }}"
-                   {% if inst.slug in selected_instructor_slugs %}checked{% endif %}>
+            <input type="checkbox" name="instructor" value="{{ inst.instructor_slug }}"
+                   {% if inst.instructor_slug in selected_instructor_slugs %}checked{% endif %}>
             <span>{{ inst.display_name }}</span>
           </label>
         {% empty %}

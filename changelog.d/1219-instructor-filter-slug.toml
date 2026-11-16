@@ -1,0 +1,11 @@
+bump = "patch"
+date = "2026-11-16"
+audience = ["members", "instructors"]
+feature = "classes.catalog"
+guidance = "none"
+requests = [18]
+title = "The Instructor filter on Classes works"
+changes = [
+  "Ticking a name under Instructor in the Classes filter now lists only the classes that person teaches, including ones they co-teach.",
+  "The names you ticked stay ticked when the page reloads.",
+]
