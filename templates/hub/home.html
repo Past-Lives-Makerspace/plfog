@@ -118,7 +118,7 @@
     {% endif %}
     {% if tour_requests %}
     {# Tour requests (#1213): the Tours page's Confirm and Decline, answered here and back to Home with the toast. #}
-    <div class="pl-home-group" data-needs-attention-tours>
+    <div class="pl-home-group" data-needs-attention-tours data-guidance-target="home.tour-requests">
         <h3 class="pl-home-subheading">Tour Requests Waiting on You</h3>
         <ul class="pl-teaching">
             {% for booking in tour_requests %}
