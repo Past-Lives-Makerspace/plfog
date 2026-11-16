@@ -48,11 +48,11 @@ Not planned and Not a bug are Felix's calls. Never pick them on your own reading
 
 ## 3. Write one sentence
 
-`Hi <first name>! <verdict>: <where to go and what to press>.` One sentence after the greeting, in
-Felix's voice:
+A greeting with their first name, then the verdict and where to go, in Felix's voice as
+[`.claude/felix-persona.md`](../../felix-persona.md) describes it (read it first). What each verdict says:
 
-- **Live:** the path by its real labels, the way the page says them. "This is live now: go to Teaching,
-  then My Classes, and press Email Students to email everyone who took your classes."
+- **Live:** the path by its real labels, the way the page says them. "yo Priya its live!! go to Teaching
+  then My Classes and hit Email Students"
 - **Building or Planned:** what is coming in the member's words, never a date.
 - **Not a bug or Already there:** how it works today and where. **Not planned or Closed:** the reason,
   kindly.
