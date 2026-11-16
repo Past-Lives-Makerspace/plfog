@@ -20,7 +20,7 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 
 | Directory | What it is |
 |-----------|-----------|
-| `api/` | DRF permission classes (`IsFogAdmin`, `IsFogAdminOrReadOnly`) used by `membership/api_views.py`. Not an installed app. |
+| `api/` | DRF permission classes (`IsFogAdmin`, `IsFogAdminOrReadOnly`) used by `membership/api_views.py` and `core/api_views.py`. Not an installed app. |
 | `mobile/` | The Capacitor shell that wraps the live site for the App Store and Google Play. Nothing in it renders UI; see `mobile/README.md`. |
 | `assets/` | One showcase hero image that `demo_data` seeds. Not served as static. |
 | `scripts/` | Developer and CI helpers: the pre-push hook source, screenshot capture, the email gallery build, demo seeding. |
