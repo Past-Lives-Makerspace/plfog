@@ -4,7 +4,7 @@ audience = ["members", "guild-staff"]
 feature = "wiki.home"
 guidance = "shots"
 target = "wiki.flyer"
-title = "Print a flyer for any wiki page"
+title = "Print a flyer for a wiki page"
 changes = [
   "If you can edit a wiki page, its Share This Page card now has a Flyer button: one printable page with the title, the Quick Answers and a big QR code to the full page.",
   "Print it or save it as a PDF and post it by the machine.",

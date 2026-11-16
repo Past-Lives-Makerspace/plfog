@@ -27,8 +27,8 @@ TARGET_ATTR = re.compile(r'data-guidance-target="([^"{}]*)"')
 # data-guidance-target="{{ share_guidance }}" and components/qr_share_card.html renders it from
 # flyer_guidance, so the key lives on the include that hands it over (share_guidance="guild.share"
 # in hub/guild_detail.html, flyer_guidance="wiki.flyer" in hub/partials/_wiki_qr_share.html).
-# Literal values only, held to the same
-# KEY_PATTERN below, so a typo there fails exactly as one in the attribute would.
+# Literal values only, held to the same KEY_PATTERN below, so a typo there fails exactly as one in
+# the attribute would.
 SHARE_GUIDANCE_ARG = re.compile(r'\b(?:share|flyer)_guidance="([^"{}]*)"')
 
 
