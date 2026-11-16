@@ -170,7 +170,7 @@ Do not merge them.
          this.$nextTick(() => { const el = document.getElementById(id); if (el) { el.scrollIntoView({ block: 'center' }); } });
        },
        reloadPreview() {
-         this.$refs.previewFrame.contentWindow.location.reload();
+         this.$refs.previewFrame.src = this.$refs.previewFrame.dataset.previewUrl;
        }
      }"
      @card-focus.window="cardPosition = $event.detail.position"
@@ -435,7 +435,7 @@ Do not merge them.
           </div>
           <div class="pl-wizard-preview__pane">
             <p class="pl-wizard-preview__loading" x-show="!previewLoaded">Building your preview&hellip;</p>
-            <iframe class="pl-wizard-preview__iframe" x-ref="previewFrame" src="{% url 'classes:class_preview' pk=offering.pk %}?framed=1" title="Preview of your class page" loading="lazy" @load="previewLoaded = true"></iframe>
+            <iframe class="pl-wizard-preview__iframe" x-ref="previewFrame" src="{% url 'classes:class_preview' pk=offering.pk %}?framed=1" data-preview-url="{% url 'classes:class_preview' pk=offering.pk %}?framed=1" title="Preview of your class page" loading="lazy" @load="previewLoaded = true"></iframe>
           </div>
         </div>
       </div>

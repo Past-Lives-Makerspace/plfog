@@ -1,0 +1,11 @@
+bump = "patch"
+date = "2026-11-16"
+audience = ["instructors", "class-reviewers"]
+feature = "classes.teach"
+guidance = "none"
+requests = [17]
+title = "The class preview stays put when you click inside it"
+changes = [
+  "In the class composer's How Your Page Looks preview, clicking a link inside it now opens that page in your whole window instead of squeezing the portal into the little frame.",
+  "Refresh Preview always brings your class back, so it never shows a refused to connect error.",
+]

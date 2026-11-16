@@ -4,6 +4,7 @@
 <html lang="en" data-pl-user="{% if user.is_authenticated %}{{ user.pk }}{% endif %}">
 <head>
     <meta charset="UTF-8">
+    {% if is_framed %}<base target="_top">{% endif %}{# The framed class preview (#1217): a click opens its page in the whole window, never inside the frame. #}
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="{{ brand_primary_color }}">
     <title>{% block title %}Member View{% endblock %} - {{ brand_short_name }}</title>
@@ -128,7 +129,7 @@
     <script defer src="{% static 'js/native-new-tab-links.js' %}"></script>
     {% block extra_head %}{% endblock %}
 </head>
-<body class="{% block body_class %}{% endblock %}" data-pl-authenticated="1" hx-boost="true" hx-ext="head-support" x-data="{ sidebarOpen: window.innerWidth > 768 ? ((localStorage.getItem('hubSidebarOpen') !== null) ? (localStorage.getItem('hubSidebarOpen') === '1') : true) : false }" x-init="$watch('sidebarOpen', v => { if (window.innerWidth > 768) localStorage.setItem('hubSidebarOpen', v ? '1' : '0') })">
+<body class="{% block body_class %}{% endblock %}" data-pl-authenticated="1" hx-boost="{% if is_framed %}false{% else %}true{% endif %}" hx-ext="head-support" x-data="{ sidebarOpen: window.innerWidth > 768 ? ((localStorage.getItem('hubSidebarOpen') !== null) ? (localStorage.getItem('hubSidebarOpen') === '1') : true) : false }" x-init="$watch('sidebarOpen', v => { if (window.innerWidth > 768) localStorage.setItem('hubSidebarOpen', v ? '1' : '0') })">
 {% if not is_framed %}
 {# First focusable element on every hub page: keyboard and screen-reader users jump past the sidebar and topbar to <main id="main-content">. The framed preview (?framed=1) renders no chrome, so there is nothing to skip and it renders no link. #}
 <a href="#main-content" class="skip-link">Skip to main content</a>

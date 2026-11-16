@@ -239,6 +239,26 @@ def describe_the_framed_preview():
         client.force_login(admin_user)
         html = client.get(f"{reverse('hub_home')}?framed=1").content.decode()
         assert "hub-sidebar" in html
+        assert '<base target="_top">' not in html
+        assert 'hx-boost="true"' in html
+
+    def it_opens_every_link_in_the_whole_window_when_framed(client, db, admin_user):
+        """#1217: a boosted click swapped the whole portal into the frame, and its URL then refused to reload there."""
+        offering = ClassOfferingFactory(ready=True, slug="framed-links", status=ClassOffering.Status.PENDING)
+        client.force_login(admin_user)
+        url = reverse("classes:class_preview", kwargs={"pk": offering.pk})
+
+        framed = client.get(f"{url}?framed=1").content.decode()
+        assert '<base target="_top">' in framed
+        assert 'hx-boost="false"' in framed
+        assert 'hx-boost="true"' not in framed
+
+    def it_keeps_boosted_links_in_the_unframed_preview(client, db, admin_user):
+        offering = ClassOfferingFactory(ready=True, slug="framed-links-off", status=ClassOffering.Status.PENDING)
+        client.force_login(admin_user)
+        plain = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk})).content.decode()
+        assert '<base target="_top">' not in plain
+        assert 'hx-boost="true"' in plain
 
 
 def describe_the_review_header():
