@@ -643,8 +643,8 @@ def biometric_disable(request: HttpRequest) -> JsonResponse:
 
 
 _ACTIVITY_TABS = frozenset({"feed", "emails", "queue", "newmembers"})
-# A guidance ring (?show=) on a control inside a hidden tab opens that tab on arrival, because
-# the tour engine's reveal event fires before Alpine is listening on a fresh page load.
+# A guidance ring (?show=) on a control inside a hidden tab opens that tab on arrival, so the page
+# lands on it rather than switching once Alpine starts and the tour engine asks for the pane.
 _ACTIVITY_TAB_FOR_TARGET = {"activity.email-search": "emails", "activity.new-members": "newmembers"}
 
 
