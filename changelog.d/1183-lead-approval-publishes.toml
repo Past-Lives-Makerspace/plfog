@@ -5,5 +5,5 @@ title = "A guild lead's approval puts a class live"
 changes = [
   "When a guild lead approves a class, it goes live right away. There is no second sign off from an admin.",
   "Classes in a category with no guild, or a guild with no lead, go to an admin, and the admin's approval puts them live.",
-  "Where Your Class Is shows one review step: with your guild lead, or with an admin.",
+  "The review card shows one review step: with the guild lead, or with an admin.",
 ]

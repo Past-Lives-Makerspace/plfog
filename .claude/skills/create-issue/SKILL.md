@@ -44,7 +44,7 @@ Current behavior is filled by reading, never by reasoning from the prose.
 - For tooling, the look is at the environment: what the Makefile and the sibling command already do,
   which binaries exist on the host and in the image (`which`), what `.env.example` documents. A remote
   host that cannot be inspected gets its facts marked as inference in the ticket.
-- Read the parts of `STANDARDS.md` §5 Permissions and §11 Domain Traps that touch the area (sequential
+- Read the parts of `STANDARDS.md` §5 Permissions and §11 Domain Traps that touch the area (one gate
   class review, two push channels, demo content gates, the access decorators). A trap the ticket names in
   Constraints is one the builder does not fall into.
 - A ticket that changes what happens to rows already sitting in a state (a queue, a status machine, a

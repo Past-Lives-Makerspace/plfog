@@ -3935,7 +3935,7 @@ def admin_overview(request: HttpRequest) -> HttpResponse:
     if range_start is not None:
         registrations = registrations.filter(registered_at__gte=range_start)
 
-    # Two-stage queue: what waits on the admin (PENDING with no open guild-lead gate,
+    # The admin's queue: what waits on an admin (PENDING with no open guild-lead gate,
     # including a PENDING class with zero rows) and what is still with a guild lead.
     waiting_on_you = list(
         ClassOffering.objects.awaiting_admin()
@@ -4957,6 +4957,47 @@ def class_review(request: HttpRequest, token: str) -> HttpResponse:
     )
 
 
+class _ReviewAlreadyDecided(Exception):
+    """Rolls back a review POST that lost the race to another decision (#1183)."""
+
+
+def _record_review_decision(
+    request: HttpRequest,
+    offering: ClassOffering,
+    *,
+    role: str,
+    approval: ClassApproval | None,
+    form: ClassReviewDecisionForm,
+) -> tuple[int, str] | None:
+    """Record the review form's decision; the message to redirect with, or None to show the form's error.
+
+    The ``ADMIN`` row an admin's decision needs is minted here, in the decision's transaction
+    (#1183), so a refused or lost decision leaves no open admin row behind. A decision that
+    lost the race to another reviewer records nothing and sends no email.
+    """
+    try:
+        with transaction.atomic():
+            if approval is None:
+                approval = ClassApproval.objects.create(class_offering=offering, role=role)
+            recorded = approval.decide(
+                form.cleaned_data["decision"],
+                user=request.user if request.user.is_authenticated else None,
+                notes=form.cleaned_data.get("notes", ""),
+            )
+            if not recorded:
+                raise _ReviewAlreadyDecided
+    except ValidationError as exc:
+        # An unready class, or a lead gate that no longer speaks for this class: a form error.
+        form.add_error(None, exc.messages[0])
+        return None
+    except _ReviewAlreadyDecided:
+        return messages.INFO, "Another reviewer already decided this class."
+    approval.refresh_from_db()
+    offering.refresh_from_db()
+    send_class_review_decision(offering, approval)
+    return messages.SUCCESS, "Your decision has been recorded. Thanks for reviewing."
+
+
 def _class_review_view(
     request: HttpRequest,
     *,
@@ -4968,16 +5009,18 @@ def _class_review_view(
     """Shared logic for /classes/admin/<pk>/review/ and /classes/review/<token>/.
 
     Only a PENDING offering is reviewable: for any other status the page never
-    mints an approval row and never accepts a decision POST — it renders a
-    plain "not awaiting review" state instead of the form. This keeps a stale
-    review link (or a direct URL hit) from publishing a DRAFT, re-publishing an
-    ARCHIVED class, or bouncing a live class back to DRAFT.
+    accepts a decision POST — it renders a plain "not awaiting review" state instead
+    of the form. This keeps a stale review link (or a direct URL hit) from publishing
+    a DRAFT, re-publishing an ARCHIVED class, or bouncing a live class back to DRAFT.
+
+    Opening the admin page mints nothing (#1183). An admin deciding a guilded class is an
+    early override of the guild lead's gate, not a second stage, so the ``ADMIN`` row is
+    created with the decision, in its transaction, and an admin who only looks leaves the
+    class reading as with the guild lead everywhere.
     """
     is_reviewable = offering.status == ClassOffering.Status.PENDING
     if approval is None:
         approval = offering.approvals.filter(role=role, decision="").order_by("-created_at").first()
-        if approval is None and is_reviewable:
-            approval = ClassApproval.objects.create(class_offering=offering, role=role)
     settings_obj = ClassSettings.load()
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
 
@@ -4988,27 +5031,14 @@ def _class_review_view(
     if (
         request.method == "POST"
         and is_reviewable
-        and approval is not None
-        and not approval.decision
+        and (approval is None or not approval.decision)
         and may_decide
         and form.is_valid()
     ):
-        try:
-            approval.decide(
-                form.cleaned_data["decision"],
-                user=request.user if request.user.is_authenticated else None,
-                notes=form.cleaned_data.get("notes", ""),
-            )
-        except ValidationError as exc:
-            # The publishing decision refused an unready class; show the failing
-            # items as a form error on both the admin and the tokenized page.
-            form.add_error(None, exc.messages[0])
-        else:
-            # refresh from DB to pick up the new state
-            approval.refresh_from_db()
-            offering.refresh_from_db()
-            send_class_review_decision(offering, approval)
-            messages.success(request, "Your decision has been recorded. Thanks for reviewing.")
+        outcome = _record_review_decision(request, offering, role=role, approval=approval, form=form)
+        if outcome is not None:
+            message_level, message = outcome
+            messages.add_message(request, message_level, message)
             if token:
                 return redirect("classes:class_review", token=token)
             return redirect("classes:admin_class_review", pk=offering.pk)

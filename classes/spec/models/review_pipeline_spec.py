@@ -58,7 +58,7 @@ def describe_review_pipeline():
         offering = ClassOfferingFactory(status=Status.DRAFT, category=_guilded_category())
         pipeline = offering.review_pipeline()
         assert [s.key for s in pipeline.steps] == ["submitted", "guild_lead", "live"]
-        assert pipeline.steps[1].label == "With your guild lead"
+        assert pipeline.steps[1].label == "With the guild lead"
 
     def it_renders_the_admin_step_for_a_guild_with_no_lead(db):
         offering = ClassOfferingFactory(
@@ -72,7 +72,7 @@ def describe_review_pipeline():
         pipeline = offering.review_pipeline()
         assert _states(offering) == [("submitted", "draft"), ("guild_lead", "ahead"), ("live", "ahead")]
         assert pipeline.steps[0].label == "In draft"
-        assert pipeline.text_line == "[●] In draft  [ ] With your guild lead  [ ] Live"
+        assert pipeline.text_line == "[●] In draft  [ ] With the guild lead  [ ] Live"
         assert pipeline.headline == "Not submitted yet"
         assert pipeline.fill_percent == 0
 
@@ -153,7 +153,7 @@ def describe_review_pipeline():
         lead_row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
         ClassApproval.objects.filter(pk=lead_row.pk).update(created_at=timezone.now() - timedelta(days=2))
         lead_row.refresh_from_db()
-        lead_row.decide(ClassApproval.Decision.APPROVED, user=named_admin)
+        lead_row.decide(ClassApproval.Decision.APPROVED, user=offering.category.guild.guild_lead.user)
         offering.refresh_from_db()
         assert _states(offering) == [("submitted", "done"), ("guild_lead", "done"), ("live", "done")]
 
@@ -276,7 +276,7 @@ def describe_review_pipeline():
     def it_formats_the_text_line_from_the_same_steps(db):
         offering = ClassOfferingFactory(status=Status.PENDING, category=_guilded_category())
         ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
-        assert offering.review_pipeline().text_line == "[✓] Submitted  [●] With your guild lead  [ ] Live"
+        assert offering.review_pipeline().text_line == "[✓] Submitted  [●] With the guild lead  [ ] Live"
 
     def it_has_no_fill_for_a_single_step_strip(db):
         from classes.models import PipelineStep, ReviewPipeline
@@ -304,7 +304,7 @@ def describe_pipeline_components():
         assert " title=" not in html  # Rule 19: no native title bubbles; the inline detail carries it
         assert 'data-step="guild_lead"' in html and "pl-pipeline__step--current" in html
         assert 'data-step="admin"' not in html
-        assert "With your guild lead" in html
+        assert "With the guild lead" in html
         assert "width: 50%" in html
         assert html.count("pl-pipeline__step ") == 3
 
@@ -314,7 +314,7 @@ def describe_pipeline_components():
         assert "<table" in html and "<svg" not in html and "<link" not in html
         assert "Waiting on the guild lead (Glass)" in html
         assert html.count("<td") == 3
-        assert "[✓] Submitted  [●] With your guild lead  [ ] Live" in text
+        assert "[✓] Submitted  [●] With the guild lead  [ ] Live" in text
         assert "Waiting on the guild lead (Glass)" in text
 
     def it_renders_the_bounce_note_in_the_email_table(db, named_admin):
@@ -375,7 +375,7 @@ def describe_review_emails_carry_the_pipeline():
         assert len(mail.outbox) == 1
         for message in mail.outbox:
             text, html = _bodies(message)
-            assert "[✓] Submitted  [●] With your guild lead  [ ] Live" in text
+            assert "[✓] Submitted  [●] With the guild lead  [ ] Live" in text
             assert "Waiting on the guild lead (Metal)" in text
             assert "Waiting on the guild lead (Metal)" in html
             assert "[missing:" not in text and "[missing:" not in html
@@ -411,13 +411,13 @@ def describe_review_emails_carry_the_pipeline():
             ready=True, status=Status.PENDING, instructor=_instructor(), category=_guilded_category("Wood")
         )
         row = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.GUILD_LEAD)
-        row.decide(ClassApproval.Decision.APPROVED, user=named_admin)
+        row.decide(ClassApproval.Decision.APPROVED, user=offering.category.guild.guild_lead.user)
         offering.refresh_from_db()
         mail.outbox = []
         send_class_review_decision(offering, row)
         assert mail.outbox[0].subject == f"Your class '{offering.title}' is live!"
         text, html = _bodies(mail.outbox[0])
-        assert "[✓] Submitted  [✓] With your guild lead  [✓] Live" in text
+        assert "[✓] Submitted  [✓] With the guild lead  [✓] Live" in text
         assert "Live since" in html
 
     def it_shows_every_check_and_live_in_the_live_email(db, named_admin):

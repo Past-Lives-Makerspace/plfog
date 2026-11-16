@@ -262,9 +262,10 @@ def _guild_access() -> ClassAccess:
 def _with_reviewer_grant(access: ClassAccess) -> ClassAccess:
     """``access`` unioned with the reviewer row. Ruling 25.
 
-    Jo: "A Guild Lead can approve their own class since they don't have the full ability to
-    get the class published; only admins/CMS admins can do that. A CMS Admin can approve
-    their own class too."
+    A Guild Lead or Class Reviewer may approve their own class, and since #1183 that approval
+    publishes it: Felix kept self publishing on 2026-11-15 when the admin sign off went away.
+    (The original ruling, from Jo, rested on an admin publishing afterwards.) A CMS Admin can
+    approve their own class too.
 
     :func:`_reviewer_access` carries exactly two capabilities — ``can_view_overview`` and
     ``can_approve`` — so the union of any set with it is those two ORed in. Both are needed:

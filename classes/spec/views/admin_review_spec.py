@@ -17,12 +17,19 @@ def describe_admin_class_review():
         response = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk}))
         assert response.status_code == 200
 
-    def it_creates_an_approval_row_for_a_pending_offering_if_none_exists(admin_user, client, db):
+    def it_mints_no_approval_row_on_a_get_and_one_with_the_decision(admin_user, client, db):
+        # Opening the page is not a decision (#1183): the admin row comes with the POST.
         offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.PENDING)
         client.force_login(admin_user)
-        response = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk}))
+        url = reverse("classes:admin_class_review", kwargs={"pk": offering.pk})
+        response = client.get(url)
         assert response.status_code == 200
-        assert offering.approvals.exists()
+        assert not offering.approvals.exists()
+        assert "Admin review" in response.content.decode()
+        client.post(url, {"decision": "approved", "notes": ""})
+        offering.refresh_from_db()
+        assert offering.status == ClassOffering.Status.PUBLISHED
+        assert offering.approvals.filter(role="admin", decided_by=admin_user).count() == 1
 
     def it_redirects_to_admin_class_review_after_post(admin_user, client, db):
         offering = ClassOfferingFactory(ready=True, status=ClassOffering.Status.DRAFT)

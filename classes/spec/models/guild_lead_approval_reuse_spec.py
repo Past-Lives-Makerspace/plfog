@@ -14,8 +14,10 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
+import pytest
 from django.contrib.auth import get_user_model
 from django.core import mail
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory, InstructorFactory
@@ -461,9 +463,9 @@ def describe_opening_a_guild_lead_gate():
             """Defence in depth, for a stale gate the reopen never saw.
 
             ``_repoint_open_guild_lead_gate`` runs on ``save``, so a bulk ``update`` that
-            moves a class between categories bypasses it. A gate left stranded that way can
-            still be decided, and the class still moves on, but it must not leave a stamp
-            behind claiming the guild it is filed under now approved this schedule.
+            moves a class between categories bypasses it. Since a lead's approval publishes
+            (#1183), a gate left stranded that way decides nothing: the old guild cannot
+            publish a class now filed under another guild, and no stamp is left behind.
             """
             offering, lead_user = _guilded_draft(settings)
             other_guild, _other_lead_user = _second_guild_with_lead()
@@ -473,11 +475,14 @@ def describe_opening_a_guild_lead_gate():
 
             gate.refresh_from_db()
             gate.class_offering = offering
-            gate.decide(ClassApproval.Decision.APPROVED, user=lead_user)
+            with pytest.raises(ValidationError, match="another guild"):
+                gate.decide(ClassApproval.Decision.APPROVED, user=lead_user)
             gate.refresh_from_db()
 
-            assert gate.decision == ClassApproval.Decision.APPROVED
+            assert gate.decision == ""
             assert gate.approved_schedule_fingerprint == ""
+            offering.refresh_from_db()
+            assert offering.status == ClassOffering.Status.PENDING
 
 
 def describe_decide():

@@ -1,4 +1,4 @@
-"""BDD specs for the admin side of the class lifecycle: the two-stage queue, Remind lead, the
+"""BDD specs for the admin side of the class lifecycle: the admin queue, Remind lead, the
 publish confirm, Cancel / Archive / Restore, the readiness guard on approve, the review page
 readiness block, the lifecycle facets, and the permission edges."""
 
