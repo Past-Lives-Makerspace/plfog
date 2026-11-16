@@ -21,18 +21,23 @@ from core.help_registry import KEY_PATTERN
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 TEMPLATES_DIR = REPO_ROOT / "templates"
-# Literal keys only, as help_keys_spec has it: a brace-bearing value would be a parameter, and no
-# template passes one today.
+# Literal keys only, as help_keys_spec has it: a brace-bearing value is a parameter, not a key.
 TARGET_ATTR = re.compile(r'data-guidance-target="([^"{}]*)"')
+# The one parameter a template passes today: components/share_menu.html renders
+# data-guidance-target="{{ share_guidance }}", so the key lives on the include that hands it over
+# (share_guidance="guild.share" in hub/guild_detail.html). Literal values only, held to the same
+# KEY_PATTERN below, so a typo there fails exactly as one in the attribute would.
+SHARE_GUIDANCE_ARG = re.compile(r'\bshare_guidance="([^"{}]*)"')
 
 
 def _template_targets() -> list[tuple[str, str]]:
-    """Every (template-relative-path, key) pair a template carries."""
+    """Every (template-relative-path, key) pair a template carries or hands to share_menu.html."""
     return [
         (str(path.relative_to(TEMPLATES_DIR)), key)
         for path in sorted(TEMPLATES_DIR.rglob("*.html"))
         for text in [path.read_text(encoding="utf-8")]
-        for key in TARGET_ATTR.findall(text)
+        for pattern in (TARGET_ATTR, SHARE_GUIDANCE_ARG)
+        for key in pattern.findall(text)
     ]
 
 
@@ -60,6 +65,7 @@ def describe_guidance_targets():
         # and the specs below would pass vacuously. The fragment this shipped with names one.
         assert ("hub/partials/_whats_new_button.html", "home.whats-new-button") in _template_targets()
         assert ("changelog.d/1051-open-it-destination.toml", "home.whats-new-button") in _declared_targets()
+        assert ("hub/guild_detail.html", "guild.share") in _template_targets()
 
     def it_holds_every_declared_target_to_a_template():
         carried = {key for _, key in _template_targets()}

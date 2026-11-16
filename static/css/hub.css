@@ -10233,6 +10233,14 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wp-actions .pl-btn, .pl-wp-actions .hub-btn { min-height: 48px; }
     .pl-wp-actions__more--bar,
     .pl-wp-actions__share--bar { display: none; }
+    /* A reader with no bar (a lapsed member, a Guest preview) keeps the header Share, and here
+       the row is left aligned with Share possibly first: anchored right, its menu would open off
+       the left edge. The row becomes the offset parent and the menu starts at its left edge,
+       never wider than it. */
+    .pl-wp-actions { position: relative; }
+    .pl-wp-actions .pl-share { position: static; }
+    .pl-wp-actions .pl-share__panel { left: 0; right: auto; max-width: 100%; }
+    .pl-wp-actions .pl-share__manual { min-width: 0; }
 }
 
 /* The editor. */
