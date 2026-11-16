@@ -98,10 +98,11 @@
 {% include "hub/partials/_onboarding_checklist.html" %}
 {% endif %}
 
-{# --- Needs Attention (#1142): open polls from Email Members sent to this member and not yet answered; omitted when there are none --- #}
-{% if needs_attention_polls %}
+{# --- Needs Attention (#1142, #1213): unanswered Email Members polls and the guide's own tour requests, each its own group; omitted when both are empty --- #}
+{% if needs_attention_polls or tour_requests %}
 <section class="hub-card pl-home-block" data-block="needs-attention" data-guidance-target="home.email-polls">
     <h2 class="pl-home-heading">Needs Attention</h2>
+    {% if needs_attention_polls %}
     <ul class="pl-teaching">
         {% for poll in needs_attention_polls %}
         <li class="pl-teaching__row" data-needs-attention-poll="{{ poll.pk }}">
@@ -114,6 +115,35 @@
         {% endfor %}
     </ul>
     <a href="{% url 'polls:mine' %}" class="pl-home-block__more" data-needs-attention-polls-link>See All Your Polls →</a>
+    {% endif %}
+    {% if tour_requests %}
+    {# Tour requests (#1213): the Tours page's Confirm and Decline, answered here and back to Home with the toast. #}
+    <div class="pl-home-group" data-needs-attention-tours data-guidance-target="home.tour-requests">
+        <h3 class="pl-home-subheading">Tour Requests Waiting on You</h3>
+        <ul class="pl-teaching">
+            {% for booking in tour_requests %}
+            {% with pks=booking.pk|stringformat:"s" %}
+            <li class="pl-teaching__row" data-tour-request="{{ booking.pk }}">
+                <span class="pl-teaching__body">
+                    <span class="pl-teaching__title">{{ booking.visitor_name }} · {{ booking.party_label }}</span>
+                    <span class="pl-teaching__note hub-text-muted">{{ booking.starts_at|date:"D, M j" }} · {{ booking.starts_at|time:"g:i A" }}</span>
+                    <span class="pl-teaching__note hub-text-muted" data-tour-request-confirm-by>Confirm by {{ booking.confirm_by|date:"D, M j" }}, {{ booking.confirm_by|time:"g:i A" }}</span>
+                </span>
+                <span class="pl-btn-row">
+                    <form method="post" action="{% url 'tours:booking_confirm' booking.pk %}" hx-post="{% url 'tours:booking_confirm' booking.pk %}">
+                        {% csrf_token %}
+                        <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm" data-tour-confirm="{{ booking.pk }}">Confirm</button>
+                    </form>
+                    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'tour-decline-{{ pks }}')" data-tour-decline="{{ booking.pk }}">Decline</button>
+                </span>
+                {% url 'tours:booking_decline' booking.pk as decline_url %}
+                {% include "components/confirm_modal.html" with confirm_id="tour-decline-"|add:pks confirm_title="Decline This Request?" confirm_message="The visitor is emailed and their seats are free again." confirm_hx_post=decline_url confirm_note_name="message" confirm_note_label="Message to the visitor (optional)" confirm_note_hint="Added to the email we send them." confirm_button_text="Decline" confirm_cancel_text="Keep It" %}
+            </li>
+            {% endwith %}
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
 </section>
 {% endif %}
 

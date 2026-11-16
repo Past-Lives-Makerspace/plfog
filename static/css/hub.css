@@ -4469,6 +4469,16 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 }
 .pl-home-block { margin-bottom: 1.5rem; }
 
+/* A second group inside one home card (Needs Attention's tour requests, #1213): clear of the group above, with its own label. */
+.pl-home-group { margin-top: 1.5rem; }
+.pl-home-heading + .pl-home-group { margin-top: 0; }
+.pl-home-subheading {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--hub-text-muted);
+    margin: 0 0 0.5rem;
+}
+
 /* Empty-state line inside a home block. */
 .pl-home-empty {
     color: var(--hub-text-muted);

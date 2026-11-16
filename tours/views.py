@@ -685,12 +685,14 @@ def _request_for_its_guide(request: HttpRequest, pk: int) -> TourBooking:
 
 
 def _back_url(request: HttpRequest, fallback: str = "tours:upcoming") -> str:
-    """The Tours page the action came from (htmx's ``HX-Current-URL``), else ``fallback``'s tab."""
+    """The Tours page or Home (#1213) the action came from (htmx's ``HX-Current-URL``), else ``fallback``'s tab."""
     current = request.headers.get("HX-Current-URL", "")
     parts = urlsplit(current)
     same_site = url_has_allowed_host_and_scheme(
         current, allowed_hosts={request.get_host()}, require_https=request.is_secure()
     )
+    if same_site and parts.path == reverse("hub_home"):
+        return parts.path
     if same_site and parts.path.startswith(reverse("tours:upcoming")):
         return f"{parts.path}?{parts.query}" if parts.query else parts.path
     return reverse(fallback)

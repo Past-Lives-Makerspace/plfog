@@ -1,0 +1,18 @@
+bump = "minor"
+date = "2026-11-16"
+audience = ["admins"]
+feature = "tours.hours"
+guidance = "shots"
+title = "Tour requests wait for you on Home"
+changes = [
+  "Tour Guides who confirm each booking first now see their waiting requests on Home, under Needs Attention.",
+  "Each request shows the visitor, their party, the tour time and when to answer by.",
+  "Press Confirm to book it, or Decline to free the seats, with an optional message to the visitor. You stay on Home.",
+  "Only the tour's own guide sees a request there.",
+]
+
+[[shots]]
+caption = "Your requests show on Home under Needs Attention, soonest first, with when to answer by."
+
+[[shots]]
+caption = "Press Confirm to book it. Press Decline to add an optional message and free the seats."
