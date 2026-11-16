@@ -49,7 +49,7 @@ Not planned and Not a bug are Felix's calls. Never pick them on your own reading
 ## 3. Write one sentence
 
 A greeting with their first name, then the verdict and where to go, in Felix's voice as
-[`.claude/skills/felix-persona.md`](../felix-persona.md) describes it (read it first). What each verdict says:
+`~/Code/plfog/felix-persona.md` (a local file, not in the repo) describes it (read it first). What each verdict says:
 
 - **Live:** the path by its real labels, the way the page says them. "yo Priya its live!! go to Teaching
   then My Classes and hit Email Students"

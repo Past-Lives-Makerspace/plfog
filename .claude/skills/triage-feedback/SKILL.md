@@ -65,7 +65,7 @@ first and marked, each with its consequence in its description: what gets filed,
 production, which status the member sees.
 
 Put the drafted reply in each option's `preview`, exactly as it would be sent, with its character count
-under it. The reply follows [`.claude/skills/felix-persona.md`](../felix-persona.md): read it before writing
+under it. The reply follows `~/Code/plfog/felix-persona.md` (a local file, not in the repo): read it before writing
 any. Hard rules: 160 characters at most, the sender's first name, buttons and tabs named exactly as the
 page labels them, and every clause true. If the route is Build now or File only, the reply does not
 promise a date.
