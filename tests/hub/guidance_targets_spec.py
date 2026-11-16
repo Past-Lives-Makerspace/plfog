@@ -23,11 +23,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 TEMPLATES_DIR = REPO_ROOT / "templates"
 # Literal keys only, as help_keys_spec has it: a brace-bearing value is a parameter, not a key.
 TARGET_ATTR = re.compile(r'data-guidance-target="([^"{}]*)"')
-# The one parameter a template passes today: components/share_menu.html renders
-# data-guidance-target="{{ share_guidance }}", so the key lives on the include that hands it over
-# (share_guidance="guild.share" in hub/guild_detail.html). Literal values only, held to the same
+# The two parameters templates pass today: components/share_menu.html renders
+# data-guidance-target="{{ share_guidance }}" and components/qr_share_card.html renders it from
+# flyer_guidance, so the key lives on the include that hands it over (share_guidance="guild.share"
+# in hub/guild_detail.html, flyer_guidance="wiki.flyer" in hub/partials/_wiki_qr_share.html).
+# Literal values only, held to the same
 # KEY_PATTERN below, so a typo there fails exactly as one in the attribute would.
-SHARE_GUIDANCE_ARG = re.compile(r'\bshare_guidance="([^"{}]*)"')
+SHARE_GUIDANCE_ARG = re.compile(r'\b(?:share|flyer)_guidance="([^"{}]*)"')
 
 
 def _template_targets() -> list[tuple[str, str]]:

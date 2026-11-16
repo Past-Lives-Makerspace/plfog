@@ -23429,6 +23429,16 @@ class WikiPage(StaffRequestMixin, models.Model):
     # --- The sticker (/m/<code>/) ---------------------------------------------------
 
     @property
+    def is_printable(self) -> bool:
+        """True when this page may reach paper: live and not archived.
+
+        The one-row form of ``published().not_archived()``, the rule ``hub_wiki_stickers``
+        filters by, so the page's own Flyer (#1224) never prints a page spec D's safety gate
+        is holding, or one that has been archived.
+        """
+        return self.is_published and self.archived_at is None
+
+    @property
     def sticker_url(self) -> str:
         """The absolute ``/m/<code>/`` link a printed sticker carries.
 
