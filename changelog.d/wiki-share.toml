@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-11-16"
+audience = ["members"]
+feature = "wiki.home"
+title = "Share any wiki page"
+changes = [
+  "Every wiki page has a Share button. On a phone it opens your share sheet; elsewhere it offers Copy link, Text and Email.",
+  "The link it shares is the page's short link, so it keeps working if the page is renamed.",
+]

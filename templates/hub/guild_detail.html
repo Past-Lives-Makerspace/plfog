@@ -11,7 +11,8 @@
 <link rel="stylesheet" href="{% static 'css/new-guild.css' %}">
 <link rel="stylesheet" href="{% static 'css/guild-announcements.css' %}">
 {% if shows_share or can_invite_to_guild %}<link rel="stylesheet" href="{% static 'css/guild-invite.css' %}">{% endif %}
-{% if shows_share %}<script defer src="{% static 'js/class_share.js' %}"></script>{% endif %}
+{% if shows_share %}<link rel="stylesheet" href="{% static 'css/share-menu.css' %}">
+<script defer src="{% static 'js/class_share.js' %}"></script>{% endif %}
 {% if kiln_home %}<link rel="stylesheet" href="{% static 'css/kiln-tickets.css' %}">{% endif %}
 {% if show_polls_tab %}<link rel="stylesheet" href="{% static 'css/polls.css' %}">{% endif %}
 {% if cubby_tab %}<link rel="stylesheet" href="{% static 'css/cubbies.css' %}">{% endif %}
@@ -131,8 +132,8 @@
         {% if next_meeting %}<span class="hub-badge">{% if next_meeting.is_meeting %}Next meeting{% else %}Next up{% endif %} {{ next_meeting.when|date:"M j" }}</span>{% endif %}
     </div>
     <div class="pl-guild-statbar__actions">
-        {# Share (#1137) for everyone who can see a guild members can see, on both surfaces; Invite for its lead, staff and admins, members surface only. #}
-        {% if shows_share %}{% include "hub/partials/_guild_share.html" %}{% endif %}
+        {# Share (#1137) for everyone who can see a guild members can see, on both surfaces, sharing its public page; Invite for its lead, staff and admins, members surface only. #}
+        {% if shows_share %}{% include "components/share_menu.html" with share_url=guild.public_url share_title=guild.name share_text=guild.name|add:" at Past Lives Makerspace" share_dialog="Share this guild" share_menu_label="Share this guild" share_link_label="Guild link" share_hook="data-guild-share" share_guidance="guild.share" %}{% endif %}
         {% if can_invite_to_guild %}
         <button type="button" class="pl-btn pl-btn--secondary pl-guild-invite-btn" data-guild-invite-open data-guidance-target="guild.invite"
                 @click="$dispatch('open-modal', 'guild-invite')" @guild-invites-sent.window="$dispatch('close-modal', 'guild-invite')"

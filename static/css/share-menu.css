@@ -1,0 +1,77 @@
+/* The Share button and its Copy / Text / Email menu (components/share_menu.html, #1137, #1223),
+   loaded by the pages that include it: the guild page and the wiki page. The class page's
+   .cp-share (cms-public.css) and the event page's .pl-event-page__share are the same design under
+   their own names. Each page places it (guild-invite.css, the wiki's rules in hub.css). Token
+   fallbacks throughout, since the guilds host draws the guild page on its own light theme too. */
+.pl-share {
+  position: relative;
+  display: inline-block;
+}
+.pl-share__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+}
+/* The dropdown opens under the button, anchored to its right edge: the actions sit at a row's right. */
+.pl-share__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 180px;
+  padding: 6px;
+  background: var(--hub-elevated, #ffffff);
+  border: 1px solid var(--hub-border-strong, rgba(9, 46, 76, 0.2));
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  z-index: 60;
+}
+.pl-share__menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pl-share__item {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--hub-text, #1d1e1e);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+a.pl-share__item,
+a.pl-share__item:visited {
+  color: var(--hub-text, #1d1e1e);
+}
+.pl-share__item:hover,
+.pl-share__item:focus-visible {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--hub-text, #1d1e1e);
+  text-decoration: none;
+}
+[data-theme="light"] .pl-share__item:hover,
+[data-theme="light"] .pl-share__item:focus-visible {
+  background: rgba(9, 46, 76, 0.07);
+}
+/* Shown only when the clipboard write failed: a readonly copy of the link to select by hand. */
+.pl-share__manual {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 260px;
+  margin: 6px 0 2px;
+  padding: 7px 10px;
+  border: 1px solid var(--hub-input-border, rgba(9, 46, 76, 0.2));
+  border-radius: 6px;
+  background: var(--hub-input-bg, #ffffff);
+  color: var(--hub-text, #1d1e1e);
+  font-family: inherit;
+  font-size: 13px;
+}

@@ -1,6 +1,11 @@
 {% extends "hub/base.html" %}
+{% load static %}
 {% block body_class %}pl-wp-screen{% endblock %}
 {% block title %}{{ page.title }}{% endblock %}
+{% block extra_head %}{{ block.super }}
+{% if not is_archived %}<link rel="stylesheet" href="{% static 'css/share-menu.css' %}">
+<script defer src="{% static 'js/class_share.js' %}"></script>{% endif %}
+{% endblock %}
 
 {% block content %}
 {% comment %}
@@ -8,8 +13,8 @@ Reading a wiki page, in the brief's fixed top-to-bottom order and the same order
 as on a desktop: title and status, Quick Answers, the locked Official block, the body, the
 files, related pages, then the byline.
 
-Three gates the build must hold. Everything except "Still accurate", spec D's Report, and
-the More menu (Print, History, and staff actions behind their own gate) sits inside ONE can_edit branch — an Official page shows a member no edit affordance
+Three gates the build must hold. Everything except "Still accurate", Share (#1223), spec D's
+Report, and the More menu (Print, History, and staff actions behind their own gate) sits inside ONE can_edit branch — an Official page shows a member no edit affordance
 at all, not a disabled one. On an archived page the whole action row and the phone bar are
 gone, including "Still accurate", because there is nothing to keep accurate. And the phone
 bar carries the same actions under the same gate as the desktop row, so the two widths
@@ -60,6 +65,8 @@ cannot drift apart.
         <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="$dispatch('open-confirm', 'wiki-confirm')">Still accurate</button>
         {% endif %}
         {% endif %}
+        {% comment %}Share (#1223) shares the page's short /m/<code>/ link, the one its QR encodes, which survives a rename. Desktop only when the phone bar renders, like More below: the bar carries its own, and two Share buttons on one screen read as a bug.{% endcomment %}
+        <div class="pl-wp-actions__share{% if show_actionbar %} pl-wp-actions__share--bar{% endif %}">{% include "hub/partials/_wiki_share.html" %}</div>
         {% include "hub/partials/_wiki_report_control.html" with control_id="wiki-report-control" %}
         {% comment %}Desktop only when the phone action bar renders: its menu carries the same items, and two More menus on one screen read as a bug. A reader with no bar keeps this one, or Print would be gone on a phone.{% endcomment %}
         <div class="pl-wp-actions__more{% if show_actionbar %} pl-wp-actions__more--bar{% endif %}">{% include "components/row_actions.html" with menu_include="hub/partials/_wiki_page_more_menu.html" menu_label="More actions for this page" menu_trigger_text="More" menu_trigger_class="pl-btn pl-btn--sm pl-btn--ghost" %}</div>
@@ -131,6 +138,7 @@ time so the two copy inputs do not share one id.
     <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" @click="$dispatch('open-modal', 'wiki-photo')">Add Photo</button>
     <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="$dispatch('open-modal', 'wiki-tip')">Add Tip</button>
     {% endif %}
+    {% include "hub/partials/_wiki_share.html" with share_class="pl-wp-actionbar__share" %}
     {% include "hub/partials/_wiki_report_control.html" with control_id="wiki-report-control-bar" compact=1 %}
     {% include "components/row_actions.html" with menu_include="hub/partials/_wiki_page_menu.html" menu_label="More actions for this page" %}
 </div>

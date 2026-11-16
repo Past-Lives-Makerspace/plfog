@@ -10208,6 +10208,15 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
        these two it sizes to its content and shoves the bar past its 5.5rem reserve. */
     .pl-wp-actionbar .pl-wp-mod__report { flex: 1; min-width: 0; flex-wrap: nowrap; }
     .pl-wp-actionbar .pl-wp-mod__report .pl-btn { width: 100%; }
+    /* Share (#1223) is a wrapper div too. The bar, fixed, is the panel's offset parent: the
+       menu spans it and opens upward, since below the bar is the edge of the screen. */
+    .pl-wp-actionbar .pl-share { position: static; flex: 1; min-width: 0; }
+    /* Text only, like the bar's other cells: at 360px an editor's bar holds five, and the icon
+       would clip the label. */
+    .pl-wp-actionbar .pl-share__btn { width: 100%; }
+    .pl-wp-actionbar .pl-share__btn svg { display: none; }
+    .pl-wp-actionbar .pl-share__panel { top: auto; bottom: calc(100% + 6px); left: 0.75rem; right: 0.75rem; min-width: 0; }
+    .pl-wp-actionbar .pl-share__manual { min-width: 0; }
     /* Without this the fixed bar covers the last lines of the byline, and a fixed element
        gives no warning that it is doing so. */
     .pl-wp-has-actionbar { padding-bottom: 5.5rem; }
@@ -10222,7 +10231,8 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     .pl-wp-header { flex-direction: column; }
     .pl-wp-actions { width: 100%; }
     .pl-wp-actions .pl-btn, .pl-wp-actions .hub-btn { min-height: 48px; }
-    .pl-wp-actions__more--bar { display: none; }
+    .pl-wp-actions__more--bar,
+    .pl-wp-actions__share--bar { display: none; }
 }
 
 /* The editor. */
