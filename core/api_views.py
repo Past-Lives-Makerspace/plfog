@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
+
+from django.forms import Form
 
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -11,18 +13,22 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from api.permissions import IsFogAdmin
+from core.forms import FeedbackApiCommentForm, FeedbackApiUpdateForm
 from core.models import FeedbackRequest, FeedbackRequestError, FeedbackRequestQuerySet
-from core.serializers import (
-    FeedbackCommentCreateSerializer,
-    FeedbackRequestSerializer,
-    FeedbackRequestUpdateSerializer,
-)
+from core.serializers import FeedbackRequestSerializer
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
 #: The ``?status=`` value for the inbox's Open view (:meth:`FeedbackRequestQuerySet.open`).
 OPEN_FILTER = "open"
+
+
+def _cleaned(form: Form) -> dict[str, Any]:
+    """The form's cleaned data, or a 400 carrying its errors by field."""
+    if not form.is_valid():
+        raise ValidationError({field: list(errors) for field, errors in form.errors.items()})
+    return form.cleaned_data
 
 
 class FeedbackRequestViewSet(viewsets.ReadOnlyModelViewSet):
@@ -60,14 +66,12 @@ class FeedbackRequestViewSet(viewsets.ReadOnlyModelViewSet):
     def partial_update(self, request: Request, pk: str | None = None) -> Response:
         """Save any of ``status``, ``comment`` and ``github_issue_url``, as the inbox's Save does."""
         feedback_request = self.get_object()
-        body = FeedbackRequestUpdateSerializer(data=request.data)
-        body.is_valid(raise_exception=True)
-        data = body.validated_data
+        data = _cleaned(FeedbackApiUpdateForm(request.data, feedback_request=feedback_request))
         try:
             feedback_request.apply_admin_update(
-                status=data.get("status", feedback_request.status),
-                comment=data.get("comment", ""),
-                github_issue_url=data.get("github_issue_url", feedback_request.github_issue_url),
+                status=data["status"],
+                comment=data["comment"],
+                github_issue_url=data["github_issue_url"],
                 actor=cast("User", request.user),
             )
         except FeedbackRequestError as refusal:
@@ -78,7 +82,6 @@ class FeedbackRequestViewSet(viewsets.ReadOnlyModelViewSet):
     def comment(self, request: Request, pk: str | None = None) -> Response:
         """Post a text comment on the request's thread as the caller; the sender is always told."""
         feedback_request = self.get_object()
-        body = FeedbackCommentCreateSerializer(data=request.data)
-        body.is_valid(raise_exception=True)
-        feedback_request.add_comment(author=cast("User", request.user), body=body.validated_data["body"], photos=[])
+        data = _cleaned(FeedbackApiCommentForm(request.data))
+        feedback_request.add_comment(author=cast("User", request.user), body=data["body"], photos=[])
         return Response(self._fresh(feedback_request), status=status.HTTP_201_CREATED)

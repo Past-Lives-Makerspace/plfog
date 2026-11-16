@@ -70,21 +70,3 @@ class FeedbackRequestSerializer(serializers.ModelSerializer):
 
     def get_photo_urls(self, feedback_request: FeedbackRequest) -> list[str]:
         return _photo_urls(self, [photo.image for photo in feedback_request.photos.all()])
-
-
-class FeedbackRequestUpdateSerializer(serializers.Serializer):
-    """A PATCH body: any of status, comment and GitHub link. What is left out keeps its saved value.
-
-    The rules on what may be saved live in :meth:`FeedbackRequest.update_refusal`; this only
-    checks the shape of each value.
-    """
-
-    status = serializers.ChoiceField(choices=FeedbackRequest.Status.choices, required=False)
-    comment = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
-    github_issue_url = serializers.URLField(required=False, allow_blank=True)
-
-
-class FeedbackCommentCreateSerializer(serializers.Serializer):
-    """A comment body posted to a request's thread. Text only: photos go through the inbox page."""
-
-    body = serializers.CharField()

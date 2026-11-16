@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any, cast
+
 from django.conf import settings
 from django.contrib.sites.models import Site
 from django import forms
 from django.db import models
 
+from core.models import FeedbackRequest
 from membership.models import Member
 
 
@@ -111,3 +115,31 @@ class CopyReviewCommentForm(forms.Form):
         if not value:
             raise forms.ValidationError("This field is required.")
         return value
+
+
+class FeedbackApiUpdateForm(forms.Form):
+    """A ``PATCH /api/v1/feedback/<pk>/`` body, with what was left out filled from the saved request (#1220).
+
+    Checks only the shape of each value. Which status a request may take, and when a comment
+    is required, is :meth:`core.models.FeedbackRequest.update_refusal`'s, so the API refuses
+    in the inbox page's words.
+    """
+
+    status = forms.ChoiceField(choices=[])
+    comment = forms.CharField(required=False, strip=False)
+    github_issue_url = forms.URLField(required=False, assume_scheme="https")
+
+    def __init__(self, data: Mapping[str, Any], *, feedback_request: FeedbackRequest) -> None:
+        saved = {
+            "status": feedback_request.status,
+            "comment": "",
+            "github_issue_url": feedback_request.github_issue_url,
+        }
+        super().__init__({key: data.get(key, default) for key, default in saved.items()})
+        cast(forms.ChoiceField, self.fields["status"]).choices = FeedbackRequest.Status.choices
+
+
+class FeedbackApiCommentForm(forms.Form):
+    """A ``POST /api/v1/feedback/<pk>/comment/`` body: the comment's text. Photos go through the inbox page."""
+
+    body = forms.CharField()
