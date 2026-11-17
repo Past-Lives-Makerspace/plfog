@@ -14,7 +14,7 @@ from django.utils import timezone
 
 from core.factories import AnnouncementFactory
 from core.models import Announcement, SiteConfiguration
-from hub.home import HomeBanner
+from hub.home import HomeBanner, ticker_start
 from membership.models import Member
 from tests.membership.factories import MembershipPlanFactory
 
@@ -57,7 +57,8 @@ def describe_HomeBanner():
 
         assert HomeBanner.load(now) is None
 
-    def it_holds_the_live_ones_in_order_and_their_signature():
+    def it_holds_the_live_ones_in_order_and_their_signature(monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr("hub.home.ticker_start", lambda count: 0)
         now = timezone.now()
         second = AnnouncementFactory(position=1)
         first = AnnouncementFactory(position=0)
@@ -77,6 +78,19 @@ def describe_HomeBanner():
             banner = HomeBanner.load(timezone.now())
 
         assert banner is not None and len(banner.items) == 3
+
+    def it_opens_on_the_chosen_message_and_wraps_round_in_order(monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr("hub.home.ticker_start", lambda count: 1)
+        first, second, third = (AnnouncementFactory(position=n) for n in range(3))
+
+        banner = HomeBanner.load(timezone.now())
+
+        assert banner is not None
+        assert banner.items == [second, third, first]
+        assert banner.signature == Announcement.signature([first, second, third])
+
+    def it_can_open_on_any_message():
+        assert {ticker_start(3) for _ in range(200)} == {0, 1, 2}
 
 
 def describe_inline_html():
@@ -136,7 +150,8 @@ def describe_the_ticker_on_home():
             < ticker.index("data-announcement-close")
         )
 
-    def it_runs_the_live_ones_in_order_with_a_dot_after_each(member_client: Client):
+    def it_runs_the_live_ones_in_order_with_a_dot_after_each(member_client: Client, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr("hub.home.ticker_start", lambda count: 0)
         now = timezone.now()
         second = AnnouncementFactory(body="<p>Zorblax second</p>", position=1)
         first = AnnouncementFactory(body="<p>Zorblax first <strong>bold</strong></p>", position=0)

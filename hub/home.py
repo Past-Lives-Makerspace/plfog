@@ -11,6 +11,7 @@ synthetic entries) and ``hub/calendar_service.py`` (orchestration) split query v
 
 from __future__ import annotations
 
+import secrets
 from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
@@ -40,7 +41,10 @@ TEACHING_WEEK_DAYS = 7
 
 @dataclass(frozen=True)
 class HomeBanner:
-    """The Spotlight messages crawling across the top of Home (#889, a ticker since #935): the live ones in order, and their signature.
+    """The Spotlight messages crawling across the top of Home (#889, a ticker since #935): the live ones, and their signature.
+
+    Each load starts the crawl at a random message and runs on in the admins' order from there, wrapping round,
+    so a refresh does not open on the same message every time (2026-11-17).
 
     The signature (:meth:`core.models.Announcement.signature`) is what a member's Close keeps in
     the browser; the ticker stays closed until it changes.
@@ -55,7 +59,15 @@ class HomeBanner:
         from core.models import Announcement
 
         rows = list(Announcement.objects.live(now))
-        return cls(rows, Announcement.signature(rows)) if rows else None
+        if not rows:
+            return None
+        start = ticker_start(len(rows))
+        return cls(rows[start:] + rows[:start], Announcement.signature(rows))
+
+
+def ticker_start(count: int) -> int:
+    """Which of ``count`` live messages the ticker opens on: any one, at random."""
+    return secrets.randbelow(count)
 
 
 @dataclass(frozen=True)
