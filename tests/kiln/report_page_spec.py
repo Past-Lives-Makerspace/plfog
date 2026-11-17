@@ -169,13 +169,13 @@ def describe_kiln_report_page():
         assert not glazes.shows_share
         assert [(r.share, r.tip_more) for r in glazes.rows] == [(None, "#1 of 2 glazes"), (None, "#2 of 2 glazes")]
 
-    def it_ranks_a_catch_all_row_by_its_size_unlike_the_email():
+    def it_ranks_a_catch_all_row_by_its_size_as_the_email_does():
         firing = _firing("glaze", on=date(2026, 2, 5))
         _fired(firing, quantity=5, glaze_commercial=True)
         small = _fired(firing, quantity=1, glaze_studio=True)
         small.studio_glazes.set([GlazeOptionFactory(name="Celadon")])
         report = _month(2026, 2)
-        assert [row.name for row in report.glazes] == ["Celadon", "Commercial"]
+        assert [row.name for row in report.glazes] == ["Commercial", "Celadon"]
         assert [row.name for row in kiln_report_page(report).glazes.rows] == ["Commercial", "Celadon"]
 
     def it_draws_empty_bars_when_no_ticket_had_a_size():

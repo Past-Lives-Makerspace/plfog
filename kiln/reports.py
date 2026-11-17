@@ -177,8 +177,6 @@ def _fill(value: Decimal, top: Decimal) -> str:
 def _rank_rows(
     rows: tuple[KilnUseRow, ...], total: Decimal, *, shares: bool, pieces: bool, noun: str
 ) -> tuple[RankRow, ...]:
-    # Largest first, the catch-all rows (Other, Commercial) by their size too; the email keeps them last.
-    rows = tuple(sorted(rows, key=lambda row: -row.cubic_inches))
     top = rows[0].cubic_inches if rows else Decimal(0)
     ranked = []
     for index, row in enumerate(rows, start=1):

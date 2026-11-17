@@ -1034,10 +1034,9 @@ def _ticket_glazes(ticket: KilnTicket) -> list[str]:
     return names
 
 
-def _use_rows(use: dict[str, Decimal], *, last: tuple[str, ...]) -> tuple[KilnUseRow, ...]:
-    """Named rows largest first, then the catch-all rows in ``last`` (in that order) when they have use."""
-    named = sorted((name for name in use if name not in last), key=lambda name: (-use[name], name))
-    return tuple(KilnUseRow(name=name, cubic_inches=use[name]) for name in [*named, *(n for n in last if n in use)])
+def _use_rows(use: dict[str, Decimal]) -> tuple[KilnUseRow, ...]:
+    """Every row largest first, the catch-all rows (Other, Commercial) by their size too; ties by name."""
+    return tuple(KilnUseRow(name=name, cubic_inches=use[name]) for name in sorted(use, key=lambda n: (-use[n], n)))
 
 
 def kiln_use_report(month_start: datetime, month_end: datetime) -> KilnUseReport | None:
@@ -1097,8 +1096,8 @@ def kiln_use_report(month_start: datetime, month_end: datetime) -> KilnUseReport
         makers=tuple(
             KilnUseRow(name=maker_names[pk], cubic_inches=maker_use[pk], pieces=maker_pieces[pk]) for pk in makers
         ),
-        clays=_use_rows(clay_use, last=(OTHER_CLAY, NO_CLAY)),
-        glazes=_use_rows(glaze_use, last=(COMMERCIAL_GLAZE, SELF_MADE_GLAZE)),
+        clays=_use_rows(clay_use),
+        glazes=_use_rows(glaze_use),
     )
 
 
