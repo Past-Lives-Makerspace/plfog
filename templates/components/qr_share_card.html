@@ -17,8 +17,10 @@ Parameters:
               one sentence takes their place (a class still in review: its downloads and
               flyer unlock on publication). Callers pass the sentence, not a flag, so the
               wording stays with the model that owns the rule.
-  flyer_url — optional. The page's printable flyer (a community event's hub_event_flyer); a Flyer link
+  flyer_url — optional. The page's printable flyer (a community event's hub_event_flyer, a wiki page's hub_wiki_flyer); a Flyer link
               beside the downloads, opening in its own tab for the browser's Print. Left out when blank.
+  flyer_guidance — optional. A guidance key the Flyer link carries as data-guidance-target, so a
+              What's New entry can ring it (the wiki passes wiki.flyer).
 
 The copy input is readonly and has NO `name`, and every control is a type="button" button
 or an <a> link, so the card is safe to drop INSIDE another <form> (e.g. the event edit form)
@@ -46,7 +48,7 @@ or an <a> link, so the card is safe to drop INSIDE another <form> (e.g. the even
   <div class="pl-qr-share__actions">
     <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ svg_url }}" hx-boost="false" data-pl-download>Download QR (SVG)</a>
     <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ png_url }}" hx-boost="false" data-pl-download>Download QR (PNG)</a>
-    {% if flyer_url %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ flyer_url }}" target="_blank" data-pl-new-window rel="noopener" data-qr-share-flyer>Flyer</a>{% endif %}
+    {% if flyer_url %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ flyer_url }}" target="_blank" data-pl-new-window rel="noopener" data-qr-share-flyer{% if flyer_guidance %} data-guidance-target="{{ flyer_guidance }}"{% endif %}>Flyer</a>{% endif %}
   </div>
   {% endif %}
 </div>

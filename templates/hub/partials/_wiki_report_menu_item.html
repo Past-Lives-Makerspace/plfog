@@ -1,0 +1,12 @@
+{% comment %}
+The More menu's Report a Problem item in a wrapper the report POST swaps out of band, so it
+goes away the moment a member files a report, like the Report controls do. One per menu
+(item_id), both swapped by _wiki_report_result.html. role="none" keeps the menu's item list
+to the button itself.
+{% endcomment %}
+<div id="{{ item_id }}" role="none"{% if oob %} hx-swap-oob="true"{% endif %}>
+    {% if can_report and not my_open_report %}
+    <button type="button" class="pl-row-menu__item" role="menuitem"
+            @click="closeAndRefocus(); $dispatch('open-modal', 'wiki-report')">Report a Problem</button>
+    {% endif %}
+</div>

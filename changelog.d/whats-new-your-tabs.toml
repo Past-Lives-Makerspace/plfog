@@ -1,0 +1,10 @@
+bump = "patch"
+date = "2026-11-17"
+audience = ["members"]
+feature = "home.whats-new"
+guidance = "none"
+title = "What's New shows only the tabs for your roles"
+changes = [
+  "What's New now shows a tab only when it is for you: everyone sees For Members, and the instructor, guild staff and admin tabs show to people in those roles. Admins see every tab.",
+  "A What's New button on a page shows only when it has something on one of your tabs.",
+]

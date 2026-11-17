@@ -584,7 +584,8 @@ def describe_wiki_page_reading():
             _login(client, "read_archived_actions")
             page = WikiPageFactory(archived=True)
             response = client.get(page.get_absolute_url())
-            assert b"Still accurate" not in response.content
+            # Anchored on the control's markup: the changelog renders on every page and names it.
+            assert b"$dispatch('open-confirm', 'wiki-confirm')" not in response.content
             assert b"pl-wp-actionbar" not in response.content
 
     def describe_a_page_the_safety_gate_is_holding():
@@ -789,7 +790,8 @@ def describe_the_review_round_fixes():
             page = WikiPageFactory()
             _preview_as(client, "guest")
             response = client.get(page.get_absolute_url())
-            assert b"Still accurate" not in response.content
+            # Anchored on the control's markup: the changelog renders on every page and names it.
+            assert b"$dispatch('open-confirm', 'wiki-confirm')" not in response.content
             assert client.get(reverse("hub_wiki_drafts")).status_code == 403
             assert client.get(reverse("hub_wiki_create", args=["howto"])).status_code == 403
 

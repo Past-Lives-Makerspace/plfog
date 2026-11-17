@@ -1022,3 +1022,93 @@ def describe_late_cancel_fee_on_cancel():
             )
         # The one-off slot the request would have carved is gone with it.
         assert not guild.orientation_slots.filter(source=OrientationSlot.Source.MANUAL).exists()
+
+
+def describe_activity_rows_name_who_acted():
+    """Each orientation row's actor is the person who did it, never "System" for a person's action."""
+
+    def _row(kind: str) -> SiteActivity:
+        return SiteActivity.objects.get(kind=kind)
+
+    def it_names_the_member_who_requested():
+        guild, _lead = _enabled_guild_with_lead("act_req_lead")
+        member = _member_with_user("act_req_member")
+
+        orientations.request_orientation(OrientationSlotFactory(guild=guild), member)
+
+        assert _row(SiteActivity.Kind.ORIENTATION_REQUESTED).actor == member.user
+
+    def it_names_the_staffer_who_seated_a_member_by_hand():
+        guild, lead = _enabled_guild_with_lead("act_seat_lead")
+        member = _member_with_user("act_seat_member")
+
+        orientations.request_orientation(OrientationSlotFactory(guild=guild), member, by_staff=True, actor=lead.user)
+
+        assert _row(SiteActivity.Kind.ORIENTATION_REQUESTED).actor == lead.user
+
+    def it_names_the_decliner_and_keeps_their_note():
+        _guild, lead = _enabled_guild_with_lead("act_dec_lead")
+        booking = OrientationBookingFactory(member=_member_with_user("act_dec_member"))
+
+        orientations.decline_orientation(booking, note="Try the March date", actor=lead.user)
+
+        row = _row(SiteActivity.Kind.ORIENTATION_DECLINED)
+        assert (row.actor, row.payload) == (lead.user, {"note": "Try the March date"})
+
+    def it_writes_no_note_for_a_decline_without_one():
+        _guild, lead = _enabled_guild_with_lead("act_dec_bare_lead")
+        booking = OrientationBookingFactory(member=_member_with_user("act_dec_bare_member"))
+
+        orientations.decline_orientation(booking, actor=lead.user)
+
+        assert _row(SiteActivity.Kind.ORIENTATION_DECLINED).payload == {}
+
+    def it_marks_the_systems_own_decline_automatic_with_its_reason():
+        booking = OrientationBookingFactory(member=_member_with_user("act_dec_auto"))
+
+        assert orientations._decline_unconfirmed(booking, reason=orientations.DECLINE_HOLD_EXPIRED)
+
+        row = _row(SiteActivity.Kind.ORIENTATION_DECLINED)
+        assert row.actor is None
+        assert row.payload == {
+            "automatic": True,
+            "note": "Nobody confirmed the request before the hold on the card ran out.",
+        }
+
+    def it_names_the_member_who_cancelled_their_own():
+        member = _member_with_user("act_self_cancel")
+        booking = OrientationBookingFactory(member=member)
+
+        orientations.cancel_orientation(booking, actor_label=member.display_name, actor=member.user, self_cancel=True)
+
+        row = _row(SiteActivity.Kind.ORIENTATION_CANCELLED)
+        assert (row.actor, row.payload) == (member.user, {})
+
+    def it_marks_a_cancel_nobody_made_automatic():
+        booking = OrientationBookingFactory(member=_member_with_user("act_auto_cancel"))
+
+        orientations.cancel_orientation(booking, actor_label="the guild", automatic=True)
+
+        row = _row(SiteActivity.Kind.ORIENTATION_CANCELLED)
+        assert (row.actor, row.payload) == (None, {"automatic": True})
+
+    def it_names_who_cancelled_a_slot_and_carries_the_reason_onto_each_booking():
+        guild, lead = _enabled_guild_with_lead("act_slot_lead")
+        slot = OrientationSlotFactory(guild=guild, seats=2)
+        OrientationBookingFactory(slot=slot, member=MemberFactory())
+        OrientationBookingFactory(slot=slot, member=MemberFactory())
+
+        orientations.cancel_slot(slot, reason="Kiln is down", actor=lead.user)
+
+        rows = SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_CANCELLED)
+        assert [(row.actor, row.payload) for row in rows] == [(lead.user, {"note": "Kiln is down"})] * 2
+
+    def it_writes_no_request_row_for_the_cancel_or_proposal_answer_bells():
+        guild, _lead = _enabled_guild_with_lead("act_bells_lead")
+        booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild), member=MemberFactory())
+
+        orientations.cancel_orientation(booking, actor_label="the guild")
+        orientations._tell_leaders_of_answer(booking, "proposal-key", accepted=True)
+
+        assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_REQUESTED).exists()
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_CANCELLED).count() == 1

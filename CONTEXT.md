@@ -109,7 +109,7 @@ The line of members waiting for any cubby in a guild whose cubbies are all taken
 _Avoid_: queue, reservation, hold.
 
 **What's New**:
-The modal at `/whats-new/` (#1007) that lists what shipped, by role: three tabs, For Members, For Guild Staff and For Admins, every entry newest first with Open it when it has a feature the viewer may reach. Opened from a button in Home's header, or filtered to one feature by that feature's own button. Its entries are the changelog fragments and `changelog/history.json`, nothing else; the older changelog modal and the Spotlight version card stay as they are.
+The modal at `/whats-new/` (#1007) that lists what shipped, by role: up to four tabs, For Members, For Instructors, For Guild Staff and For Admins, each shown only to a viewer it is for (an admin sees all four; a plain member sees For Members alone, with no tab row), every entry newest first with Open it when it has a feature the viewer may reach. Opened from a button in Home's header, or filtered to one feature by that feature's own button. Its entries are the changelog fragments and `changelog/history.json`, nothing else; the older changelog modal and the Spotlight version card stay as they are.
 _Avoid_: release notes, announcements, changelog (for the modal itself), a Release model.
 
 **New! badge**:

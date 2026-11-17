@@ -212,6 +212,21 @@ def describe_waiting_for_the_next_digest():
         assert "Old agenda proposal" not in html
         assert "chris@example.com · 1 item" in html
 
+    def it_lists_a_line_queued_before_its_event_went_instant(staff_client: Client, shop: _Woodshop):
+        # The Admins' registration notice went instant on 2026-11-17 with lines still queued;
+        # the tab lists them (the 8 AM send still sends them) instead of failing.
+        shop.submit("Board One")
+        row = EventDelivery.objects.filter(channel="digest", target_ref=f"user:{shop.lead.user_id}").first()
+        row.pk = None
+        row.event_key = "class_registration_admin_notice"
+        row.period = "reg:999:admin_notice"
+        row.title = "Alex Doe registered for Board One"
+        row.save()
+        html = _queue_html(staff_client)
+        assert "Review request: Board One" in html
+        assert "Alex Doe registered for Board One" in html
+        assert "chris@example.com · 2 items" in html
+
     def it_marks_a_request_decided_since_as_handled(shop: _Woodshop):
         gate = shop.submit("Board One")
         gate.decide(ClassApproval.Decision.APPROVED, user=shop.lead.user)

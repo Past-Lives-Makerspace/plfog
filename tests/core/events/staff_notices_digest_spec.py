@@ -1,9 +1,11 @@
-"""BDD specs for #894 part 4: three FYI staff notices wait for the 8 AM staff digest.
+"""BDD specs for #894 part 4: two FYI staff notices wait for the 8 AM staff digest.
 
-A new member signing up, a class registration (the Admins' copy) and an equipment booking
-tell staff what already happened; nothing decides them. Their email now waits for the 8 AM
-digest, one line per signup, registration or booking under the event's own heading, and
-every queued line goes out. The bell, push and the #reservations Discord post stay instant.
+A new member signing up and an equipment booking tell staff what already happened; nothing
+decides them. Their email waits for the 8 AM digest, one line per signup or booking under
+the event's own heading, and every queued line goes out. The bell, push and the
+#reservations Discord post stay instant. The Admins' class registration notice was the
+third until Felix made it instant again (2026-11-17); classes/spec/emails_notification_spec.py
+covers it.
 """
 
 from __future__ import annotations
@@ -23,7 +25,6 @@ from core.events import resolvers
 from core.events.channels import DiscordAdapter, PushAdapter, digest_context
 from core.events.email_catalogue import build_email_catalogue
 from core.events.registry import _DIGEST_EMAIL_EVENTS, Channel, EmailDelivery, get_event
-from core.events.senders import emit_flat_email
 from core.models import EventDelivery, Notification, NotificationPreference
 from membership import equipment as equipment_service
 from membership.models import Equipment, Member
@@ -37,7 +38,7 @@ from tests.membership.factories import (
 
 pytestmark = pytest.mark.django_db
 
-NOTICES = ("new_member_joined", "class_registration_admin_notice", "equipment.reservation_made")
+NOTICES = ("new_member_joined", "equipment.reservation_made")
 
 
 @pytest.fixture(autouse=True)
@@ -90,27 +91,29 @@ def describe_the_registry():
         assert resolvers.is_always_included(key)
 
     def it_gives_every_digest_event_a_line_to_show() -> None:
-        """A digest line falls back to the bell's line; an event with no bell must be sent with a
-        digest_line, which only emit_flat_email takes, and it refuses to go without one."""
+        """A digest line falls back to the bell's line, so every digest event declares a bell.
+
+        An email-only event (emit_flat_email) has no line to show and must stay instant.
+        """
         no_bell = {key for key in _DIGEST_EMAIL_EVENTS if not get_event(key).has_channel(Channel.IN_APP)}
-        assert no_bell == {"class_registration_admin_notice"}
+        assert no_bell == set()
 
     def it_gives_every_digest_event_its_own_heading() -> None:
         """digest_context keys sections by label, so a shared label would drop one event's lines."""
         labels = [get_event(key).label for key in _DIGEST_EMAIL_EVENTS]
         assert len(labels) == len(set(labels))
 
-    def it_refuses_a_flat_digest_email_with_no_digest_line() -> None:
-        with pytest.raises(ValueError, match="pass digest_line"):
-            emit_flat_email(
-                "class_registration_admin_notice", subject="s", text_body="b", html_body="<p>b</p>", period="p:1"
-            )
-        assert not EventDelivery.objects.exists()
-
     def it_shows_the_8_am_digest_pill_on_the_emails_tab() -> None:
         rows = {row.key: row for _category, group in build_email_catalogue() for row in group}
         for key in NOTICES:
             assert rows[key].delivery_label == "8 AM digest"
+
+    def it_shows_the_class_registration_notice_as_instant_again() -> None:
+        """Felix's call, 2026-11-17: the Admins hear about each class signup at once."""
+        rows = {row.key: row for _category, group in build_email_catalogue() for row in group}
+        assert get_event("class_registration_admin_notice").email_delivery is EmailDelivery.INSTANT
+        assert not resolvers.has_open_check("class_registration_admin_notice")
+        assert rows["class_registration_admin_notice"].delivery_label == "Instant"
 
 
 def describe_new_member_joined():
@@ -228,11 +231,9 @@ def describe_the_morning_subject():
         )
         assert built["heads_up_only"] is False
 
-    def it_says_eleven_registrations_are_updates_beside_one_class_review() -> None:
+    def it_says_eleven_signups_are_updates_beside_one_class_review() -> None:
         rows = [
-            EventDelivery(
-                event_key="class_registration_admin_notice", title=f"R{n}", url="/c/", period=f"reg:{n}:admin_notice"
-            )
+            EventDelivery(event_key="new_member_joined", title=f"N{n}", url="/members/", period=f"signup:{n}")
             for n in range(11)
         ]
         rows.append(EventDelivery(event_key="class_review_requested", title="Review", url="/r/1", period="v:1"))
@@ -275,3 +276,61 @@ def describe_the_morning_order():
             get_event("new_member_joined").label,
             get_event("equipment.reservation_made").label,
         ]
+
+
+def _queued(member: Member, event_key: str, *, title: str, url: str, period: str) -> EventDelivery:
+    """A PENDING 8 AM line for ``member``, as the digest adapter stores one."""
+    return EventDelivery.objects.create(
+        event_key=event_key,
+        target_ref=f"user:{_user(member).pk}",
+        channel=Channel.DIGEST.value,
+        period=period,
+        status=EventDelivery.Status.PENDING,
+        title=title,
+        body="",
+        url=url,
+    )
+
+
+def describe_a_line_queued_before_its_event_went_instant():
+    """Felix made the Admins' registration notice instant on 2026-11-17; prod still held
+    PENDING digest lines for it. They go out once more as updates, and nothing breaks."""
+
+    LEFTOVER = "class_registration_admin_notice"
+
+    def it_sends_the_leftover_as_an_update_beside_a_real_request() -> None:
+        admin = _member("leftover_admin", fog_role=Member.FogRole.ADMIN)
+        _email_on(admin, "class_change_requested")
+        _queued(admin, LEFTOVER, title="Alex Doe registered for Pottery", url="/classes/pottery/", period="reg:7:a")
+        _queued(admin, "class_change_requested", title="Change to Pottery", url="/b", period="x:1")
+
+        (digest,) = _morning(_user(admin).email)
+
+        assert digest.subject == "Action Needed: 1 Request Awaiting You, plus 1 Update"
+        assert "Change to Pottery" in digest.body
+        assert "Alex Doe registered for Pottery" in digest.body
+        assert digest.body.index("Change to Pottery") < digest.body.index("Alex Doe registered for Pottery")
+        assert set(EventDelivery.objects.filter(channel=Channel.DIGEST.value).values_list("status", flat=True)) == {
+            EventDelivery.Status.SENT
+        }
+
+    def it_calls_a_morning_of_only_leftovers_updates() -> None:
+        admin = _member("leftover_admin2", fog_role=Member.FogRole.ADMIN)
+        _queued(admin, LEFTOVER, title="Alex Doe registered for Pottery", url="/classes/pottery/", period="reg:7:a")
+        _queued(admin, LEFTOVER, title="Sam Park registered for Pottery", url="/classes/pottery/", period="reg:8:a")
+
+        (digest,) = _morning(_user(admin).email)
+
+        assert digest.subject == "2 Updates Since the Last Email"
+        assert "Sam Park registered for Pottery" in digest.body
+
+    def it_includes_every_leftover_line_and_never_judges_it_decided() -> None:
+        rows = [EventDelivery(event_key=LEFTOVER, url="/c/", period="reg:1:a")]
+        assert resolvers.is_leftover(LEFTOVER)
+        assert resolvers.open_request_urls(LEFTOVER, rows) == {"/c/"}
+        assert resolvers.is_always_included(LEFTOVER)
+
+    def it_still_fails_loudly_for_a_digest_event_with_no_check() -> None:
+        checks = {key: check for key, check in resolvers._OPEN_CHECKS.items() if key != "class_change_requested"}
+        with patch.dict(resolvers._OPEN_CHECKS, checks, clear=True), pytest.raises(KeyError):
+            resolvers.open_request_urls("class_change_requested", [])

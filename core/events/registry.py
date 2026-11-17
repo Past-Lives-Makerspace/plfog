@@ -1400,8 +1400,9 @@ _NEW_EVENTS: list[EventType] = [
     # _with_push adds no Push, exactly as before. No activity row: none of them logged one.
     #
     # class_registration_admin_notice: the Admins' copy of every new class registration,
-    # which used to ride the instructor's own key. Email on by default and switchable; since
-    # #894 part 4 it is a line in the 8 AM staff digest, written by the sender (digest_line).
+    # which used to ride the instructor's own key. Email on by default and switchable, and
+    # sent at once: #894 part 4 moved it to the 8 AM staff digest, and Felix moved it back to
+    # instant on 2026-11-17 ("when someone signs up for a class, make that instant").
     EventType(
         key=CLASS_REGISTRATION_ADMIN_NOTICE,
         label="New class registration",
@@ -1949,9 +1950,9 @@ _DIGEST_EMAIL_EVENTS: frozenset[str] = frozenset(
         # #979: a Past Due cubby rental, dropped from the digest once it is paid.
         "cubbies.rental_past_due",
         # #894 part 4: FYI notices nothing decides, so every line goes out. Each emit's
-        # period names its own signup, registration or reservation, one line apiece.
+        # period names its own signup or reservation, one line apiece. The admins' class
+        # registration notice was here too until Felix made it instant again (2026-11-17).
         "new_member_joined",
-        "class_registration_admin_notice",
         "equipment.reservation_made",
     }
 )

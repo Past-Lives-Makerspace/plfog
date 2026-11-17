@@ -1,0 +1,276 @@
+/* wiki-flyer.css: one wiki page's printable flyer sheet (templates/hub/wiki_flyer.html, #1224).
+   The page around the sheet (toolbar, both themes, the Letter @page rule) is event-flyer-page.css, shared with the
+   event flyer. The sheet is a whole Letter page (8.5 by 11) and every size inside it is in container units of its
+   wrapper (.pl-wkfl), so it reads the same at any width; 1cqi is a hundredth of the sheet's width, about 8px at full
+   size. It is paper, so it is forced light in both themes: white, navy #092E4C, gold #EEB44B.
+
+   It never runs to a second page: the sheet has a fixed Letter shape with its overflow hidden, the title steps down by
+   its length, each answer stops at two lines, the view sends at most eight, and the list drops whole rows that the
+   room under a long title cannot hold. */
+
+.pl-wkfl {
+  container-type: inline-size;
+  width: 100%;
+  color: #1d1e1e;
+  font-family: "Lato", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.pl-wkfl__sheet {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  aspect-ratio: 8.5 / 11;
+  overflow: hidden;
+  background: #ffffff;
+  text-align: left;
+}
+
+/* No specificity, so each line's own margin below still wins. */
+:where(.pl-wkfl__sheet p, .pl-wkfl__sheet h1, .pl-wkfl__sheet h2, .pl-wkfl__sheet dl, .pl-wkfl__sheet dd) {
+  margin: 0;
+}
+
+.pl-wkfl__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2.2cqi;
+  padding: 5.5cqi 6cqi 3cqi;
+  overflow: hidden;
+}
+
+.pl-wkfl__body > * {
+  flex-shrink: 0;
+}
+
+.pl-wkfl__eyebrow {
+  padding-top: 2cqi;
+  border-top: 0.8cqi solid #eeb44b;
+  font-size: 2cqi;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8a5d0c;
+}
+
+.pl-wkfl__title {
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 7.2cqi;
+  font-weight: 900;
+  line-height: 1.06;
+  color: #092e4c;
+  overflow-wrap: anywhere;
+}
+
+/* Longer titles step down rather than clamp, so the 200 character cap prints whole. */
+.pl-wkfl__title--mid {
+  font-size: 5.8cqi;
+}
+
+.pl-wkfl__title--long {
+  font-size: 4.6cqi;
+}
+
+.pl-wkfl__title--xlong {
+  font-size: 3.6cqi;
+}
+
+/* The guild or Space wide, then the machine, under a gold rule like the event flyer's date; each stops at two lines. */
+.pl-wkfl__meta {
+  padding-left: 2.4cqi;
+  border-left: 0.8cqi solid #eeb44b;
+}
+
+.pl-wkfl__scope {
+  font-size: 3.6cqi;
+  font-weight: 900;
+  line-height: 1.2;
+  color: #092e4c;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.pl-wkfl__machine {
+  margin-top: 0.6cqi;
+  font-size: 2.8cqi;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #33404d;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.pl-wkfl__facts {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pl-wkfl__facts-title {
+  flex: 0 0 auto;
+  margin-bottom: 1.2cqi;
+  font-size: 2cqi;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8a5d0c;
+}
+
+/* The two column list: the label beside its answer, one row per Quick Answer. The list takes only the room left
+   under the title and wraps a row it cannot hold whole into a second column, which the overflow clips off the sheet,
+   so a long title costs whole rows and never half of one. */
+.pl-wkfl__grid {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  overflow: hidden;
+  border-top: 0.25cqi solid #eeb44b;
+}
+
+.pl-wkfl__fact {
+  box-sizing: border-box;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 30% minmax(0, 1fr);
+  gap: 2.4cqi;
+  align-items: baseline;
+  padding: 1.1cqi 0;
+  border-bottom: 0.15cqi solid #e3d6b8;
+}
+
+.pl-wkfl__label {
+  font-size: 1.9cqi;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  color: #5b4a24;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.pl-wkfl__value {
+  font-size: 2.6cqi;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #092e4c;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.pl-wkfl__more {
+  flex: 0 0 auto;
+  margin-top: 1.4cqi;
+  font-size: 2.2cqi;
+  font-weight: 700;
+  color: #33404d;
+}
+
+/* Holds its line while nothing is left off, so naming a dropped row never moves the list. */
+.pl-wkfl__more--none {
+  visibility: hidden;
+}
+
+/* The band across the foot: the venue and the last checked date on the navy, the large QR on a white tile. */
+.pl-wkfl__band {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 4cqi;
+  padding: 2.6cqi 6cqi 4cqi;
+  background: #092e4c;
+  color: #ffffff;
+}
+
+.pl-wkfl__venue-name {
+  margin-bottom: 1cqi;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 4cqi;
+  font-weight: 800;
+  line-height: 1.1;
+  color: #eeb44b;
+}
+
+.pl-wkfl__venue-line {
+  font-size: 2.6cqi;
+  line-height: 1.4;
+  color: #ffffff;
+}
+
+.pl-wkfl__checked {
+  margin-top: 2.4cqi;
+  font-size: 1.9cqi;
+  line-height: 1.3;
+  color: #c9d3de;
+}
+
+.pl-wkfl__qr-panel {
+  flex: 0 0 auto;
+  width: 27cqi;
+  padding: 1.4cqi;
+  border-radius: 1.6cqi;
+  background: #ffffff;
+  text-align: center;
+}
+
+.pl-wkfl__qr {
+  width: 22cqi;
+  height: 22cqi;
+  margin: 0 auto;
+}
+
+.pl-wkfl__qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.pl-wkfl__qr-caption {
+  margin-top: 0.8cqi;
+  font-size: 2.2cqi;
+  font-weight: 900;
+  line-height: 1.25;
+  color: #092e4c;
+}
+
+.pl-wkfl__qr-url {
+  margin-top: 0.3cqi;
+  font-size: 1.6cqi;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #33404d;
+  overflow-wrap: anywhere;
+}
+
+@media print {
+  /* 8 by 10.35 inches, the sheet's shape inside the 8 by 10.5 the margin leaves, so it is always one page. */
+  .pl-evfl-page .pl-wkfl__sheet {
+    aspect-ratio: auto;
+    height: 10.35in;
+  }
+}

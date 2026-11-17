@@ -1,0 +1,127 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ page.title }} Flyer · Past Lives</title>
+{# The member's theme, read before the first paint as hub/base.html reads it (the shared cookie, then this origin's choice, else dark); only the page around the sheet follows it, the sheet is paper. #}
+<script>
+  (function () {
+    var theme = null;
+    var m = document.cookie.match(/(?:^|;\s*)pl_theme=(light|dark)/);
+    if (m) { theme = m[1]; }
+    if (!theme) { try { theme = localStorage.getItem("theme"); } catch (e) {} }
+    if (theme === "light") { document.documentElement.setAttribute("data-theme", "light"); }
+  })();
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800;900&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+{# The page around the sheet is the event flyer's own (toolbar, both themes, the Letter @page rule); the sheet has its stylesheet. #}
+<link rel="stylesheet" href="{% static 'css/event-flyer-page.css' %}">
+<link rel="stylesheet" href="{% static 'css/wiki-flyer.css' %}">
+{% include "includes/google_analytics.html" %}
+</head>
+<body class="pl-evfl-page">
+
+{% comment %}
+One wiki page's printable flyer (#1224, hub_wiki_flyer), opened from the Share This Page card.
+A standalone document in the event flyer's idiom: no member chrome, a toolbar that never prints,
+and a Letter sheet drawn in container units (static/css/wiki-flyer.css), forced light because
+it is paper.
+
+Top to bottom: the title (stepped down by its length so the 200 character cap prints whole),
+the guild or Space wide, the machine for a page about one, the answered Quick Answers in two
+columns, then the band with the Past Lives name, the last checked date and the large QR to
+page.sticker_url with its typed link.
+
+Long Quick Answers never spill to a second page. The view sends at most eight answered rows
+(_FLYER_FACT_LIMIT in hub/wiki_views.py); each answer stops at two lines; and the list fills
+only the room the title leaves, wrapping any whole row it cannot hold into a clipped column
+off the sheet, so a row is shown whole or not at all. The line under the list counts both
+kinds of row left off (the script at the foot) and sends the reader to the full page. The sheet itself has a fixed Letter height with its overflow
+hidden. tests/e2e/wiki_flyer_spec.py measures the longest case.
+{% endcomment %}
+{# header/main landmarks: keeps the standalone page navigable by assistive tech (axe: landmark-one-main/region). #}
+<header class="pl-evfl-page__toolbar no-print">
+  <div class="pl-evfl-page__actions">
+    <button type="button" class="pl-evfl-page__print" onclick="window.print()" data-wkfl-print>Print / Save as PDF</button>
+    <a class="pl-evfl-page__link" href="{{ page.get_absolute_url }}" data-wkfl-page-link>Open the wiki page</a>
+  </div>
+  <p class="pl-evfl-page__hint">Use your browser's Print dialog and choose “Save as PDF,” or print it and post it up. It fits one Letter page.</p>
+</header>
+
+<main class="pl-evfl-page__main">
+  <div class="pl-wkfl" data-wiki-flyer="{{ page.slug }}">
+    <article class="pl-wkfl__sheet">
+      <div class="pl-wkfl__body">
+        <p class="pl-wkfl__eyebrow">Past Lives Makerspace Wiki</p>
+        {% with length=page.title|length %}
+        <h1 class="pl-wkfl__title{% if length > 110 %} pl-wkfl__title--xlong{% elif length > 60 %} pl-wkfl__title--long{% elif length > 24 %} pl-wkfl__title--mid{% endif %}" data-wkfl-title>{{ page.title }}</h1>
+        {% endwith %}
+        <div class="pl-wkfl__meta">
+          <p class="pl-wkfl__scope" data-wkfl-scope>{% if page.guild %}{{ page.guild.name }}{% else %}Space wide{% endif %}</p>
+          {% if page.equipment %}<p class="pl-wkfl__machine" data-wkfl-equipment>{{ page.equipment.name }}</p>{% endif %}
+        </div>
+        {% if facts %}
+        <section class="pl-wkfl__facts" data-wkfl-facts>
+          <h2 class="pl-wkfl__facts-title">Quick Answers</h2>
+          <dl class="pl-wkfl__grid">
+            {% for fact in facts %}
+            <div class="pl-wkfl__fact" data-wkfl-fact>
+              <dt class="pl-wkfl__label">{{ fact.label }}</dt>
+              <dd class="pl-wkfl__value">{{ fact.value }}</dd>
+            </div>
+            {% endfor %}
+          </dl>
+          {# Always drawn, so naming rows the script below finds dropped never moves the list; kept out of sight while nothing is left off. #}
+          <p class="pl-wkfl__more{% if not facts_more %} pl-wkfl__more--none{% endif %}" data-wkfl-more="{{ facts_more }}">{{ facts_more }} more Quick Answer{{ facts_more|pluralize }} on the full page</p>
+        </section>
+        {% endif %}
+      </div>
+      <footer class="pl-wkfl__band">
+        <div class="pl-wkfl__venue">
+          <p class="pl-wkfl__venue-name">Past Lives Makerspace</p>
+          <p class="pl-wkfl__venue-line">2808 SE 9th Ave</p>
+          <p class="pl-wkfl__venue-line">Portland, OR 97202</p>
+          <p class="pl-wkfl__checked" data-wkfl-checked>{% if page.last_checked_at %}Last checked {{ page.last_checked_at|date:"j M Y" }}{% else %}Not checked yet{% endif %}</p>
+        </div>
+        <div class="pl-wkfl__qr-panel" data-wkfl-qr>
+          <div class="pl-wkfl__qr">{{ qr_svg|safe }}</div>
+          <p class="pl-wkfl__qr-caption">Scan for the full page</p>
+          <p class="pl-wkfl__qr-url" data-wkfl-url>{{ page.sticker_url_typed }}</p>
+        </div>
+      </footer>
+    </article>
+  </div>
+</main>
+
+{% if facts %}
+{% comment %}
+The count under Quick Answers is the rows the view left off (data-wkfl-more) plus the rows the
+sheet had no room for, which wrap into the clipped column right of the list. Counted again once
+the fonts land and when the page turns to print, so the sheet never claims more than it shows.
+{% endcomment %}
+<script>
+  (function () {
+    var grid = document.querySelector(".pl-wkfl__grid");
+    var more = document.querySelector("[data-wkfl-more]");
+    var capped = parseInt(more.getAttribute("data-wkfl-more"), 10);
+    function tally() {
+      var edge = grid.getBoundingClientRect().right - 1;
+      var rows = grid.querySelectorAll("[data-wkfl-fact]");
+      var total = capped;
+      for (var i = 0; i < rows.length; i += 1) {
+        if (rows[i].getBoundingClientRect().left >= edge) { total += 1; }
+      }
+      more.textContent = total + " more Quick Answer" + (total === 1 ? "" : "s") + " on the full page";
+      more.classList.toggle("pl-wkfl__more--none", total === 0);
+    }
+    tally();
+    window.addEventListener("beforeprint", tally);
+    window.matchMedia("print").addEventListener("change", tally);
+    if (document.fonts) { document.fonts.ready.then(tally); }
+  })();
+</script>
+{% endif %}
+
+</body>
+</html>

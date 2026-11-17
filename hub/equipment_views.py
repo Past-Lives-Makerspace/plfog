@@ -2191,7 +2191,7 @@ def hub_equipment_orientation_slot_cancel(request: HttpRequest, slug: str, pk: i
     if forbidden is not None:
         return forbidden
     slot = get_object_or_404(OrientationSlot, pk=pk, orientation_type__equipment=equipment)
-    orientations.cancel_slot(slot, reason=request.POST.get("reason", ""))
+    orientations.cancel_slot(slot, reason=request.POST.get("reason", ""), actor=cast(User, request.user))
     messages.success(request, "Orientation time cancelled. Everyone booked on it has been notified.")
     return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=orientation")
 
