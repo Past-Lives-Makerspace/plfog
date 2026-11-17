@@ -225,6 +225,39 @@ def describe_the_tabs():
         assert [TAB_LABELS[tab] for tab in TABS] == ["For Members", "For Instructors", "For Guild Staff", "For Admins"]
         assert tuple(TAB_NOUNS) == TABS
 
+    def describe_the_viewers_tabs():
+        def it_gives_a_plain_member_for_members_alone():
+            assert whats_new_for(_request(_member().user)).tabs == ("members",)
+
+        def it_adds_for_instructors_for_an_instructor():
+            assert whats_new_for(_request(_member(instructor_slug="ada").user)).tabs == ("members", "instructors")
+
+        def it_adds_for_guild_staff_for_a_finer_staff_role_that_rolls_up_to_it():
+            member = _member()
+            GuildStaffMembershipFactory(member=member, role=GuildStaffMembership.Role.TREASURER)
+            assert whats_new_for(_request(member.user)).tabs == ("members", "guild-staff")
+
+        def it_adds_for_admins_for_a_capability_holder():
+            member = _member()
+            AdminCapability.objects.create(member=member, capability=AdminCapability.Capability.REFUNDS)
+            assert whats_new_for(_request(member.user)).tabs == ("members", "admins")
+
+        def it_gives_an_admin_all_four_though_no_admin_audience_rolls_up_to_instructors():
+            news = whats_new_for(_request(_member(fog_role=Member.FogRole.ADMIN).user))
+            assert news.tabs == TABS
+            assert "instructors" not in news.audiences  # the tabs widen; the unseen state does not
+
+        def it_gives_an_admin_previewing_as_a_member_the_members_tabs():
+            member = _member(fog_role=Member.FogRole.ADMIN)
+            assert whats_new_for(_request(member.user, picked=ROLE_MEMBER)).tabs == ("members",)
+            GuildFactory(guild_lead=member)
+            assert whats_new_for(_request(member.user, picked=ROLE_MEMBER)).tabs == ("members", "guild-staff")
+
+        def it_gives_a_request_with_no_view_as_for_members_alone():
+            request = RequestFactory().get("/whats-new/")
+            request.user = _member().user
+            assert whats_new_for(request).tabs == ("members",)
+
 
 def describe_entries_for():
     def it_lists_every_entry_newest_first_whatever_its_date(changelog):
@@ -604,6 +637,14 @@ def describe_unseen_and_mark_seen():
         read = _member("read", fog_role=Member.FogRole.ADMIN, whats_new_seen=["events"])
         assert whats_new_for(_request(read.user)).default_tab("admin.events") == "admins"
         assert whats_new_for(_request(read.user)).default_tab("guild") == "members"
+
+    def it_never_opens_on_a_tab_the_viewer_does_not_see(changelog):
+        # A feature whose entries are all on a hidden tab lands on For Members, empty, never on the hidden tab.
+        changelog([_entry("past-students", feature="admin.email-members", audiences=("instructors",))])
+        plain = whats_new_for(_request(_member("plain").user))
+        assert plain.default_tab("admin.email-members") == "members"
+        admin = whats_new_for(_request(_member("admin", fog_role=Member.FogRole.ADMIN).user))
+        assert admin.default_tab("admin.email-members") == "instructors"
 
     def it_reads_a_null_seen_list_as_nothing_seen(changelog):
         # The column is NOT NULL with a database default, but a row from somewhere else is read, not trusted.

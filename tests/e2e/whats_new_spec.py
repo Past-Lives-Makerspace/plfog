@@ -1,7 +1,8 @@
 """What's New in a real browser (#1007, part 2).
 
-A member presses What's New in Home's header: the body loads into the modal, the four tabs are
-there with an entry, a tab switch loads that tab, and after a reload the button's dot is gone,
+An admin presses What's New in Home's header: the body loads into the modal, the four tabs are
+there with an entry (an admin sees them all; a plain member gets For Members alone, with no row),
+a tab switch loads that tab, and after a reload the button's dot is gone,
 because opening the modal marked what it listed as seen. The changelog is patched for the live
 server (same process), so the spec does not depend on the repo's fragments or the calendar.
 Run with ``pytest -m e2e`` on PostgreSQL.
@@ -52,12 +53,15 @@ def _entries() -> list[dict]:
 
 
 def _sign_in(login_via_code, email: str) -> None:
+    """Sign in an admin: the one viewer who sees all four tabs."""
     MembershipPlanFactory()
     login_via_code(email)
     member = Member.objects.get(user=get_user_model().objects.get(username=email))
     member.welcome_dismissed_at = timezone.now()
     member.guided_tours_enabled = False
-    member.save(update_fields=["welcome_dismissed_at", "guided_tours_enabled"])
+    member.fog_role = Member.FogRole.ADMIN
+    member.save(update_fields=["welcome_dismissed_at", "guided_tours_enabled", "fog_role"])
+    member.sync_user_permissions()
 
 
 def it_opens_from_home_switches_a_tab_and_clears_the_dot_on_the_next_load(

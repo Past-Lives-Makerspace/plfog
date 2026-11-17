@@ -18,7 +18,7 @@ from django.utils import timezone
 
 from core.guidance import title_for
 from core.whats_new import NEW_DAYS
-from hub.view_as import ROLE_GUEST, ViewAs, compute_actual_roles
+from hub.view_as import ROLE_GUEST, ROLE_MEMBER, ViewAs, compute_actual_roles
 from membership.models import Member
 from tests.membership.factories import MembershipPlanFactory
 
@@ -178,6 +178,16 @@ def describe_whats_new_button():
         assert 'hx-get="/whats-new/"' in html and "pl-whats-new-btn--icon" not in html
         assert "What's New<" in html and "data-whats-new-key" not in html and "data-whats-new-dot" in html
         assert '<span class="sr-only" data-whats-new-sr>, something is new for you</span>' in html
+
+    def it_renders_only_for_a_viewer_who_sees_a_tab_the_keys_entries_are_on(changelog):
+        # A feature whose entries are all For Instructors: a plain member would open an empty For Members.
+        changelog([_entry("past-students", feature="admin.email-members", audiences=("instructors",))])
+        tag = '{% whats_new_button "admin.email-members" %}'
+        assert _render(tag, _request(_member("plain").user)) == ""
+        assert "data-whats-new-button" in _render(tag, _request(_member("teacher", instructor_slug="ada").user))
+        admin = _member("admin", fog_role=Member.FogRole.ADMIN)
+        assert "data-whats-new-button" in _render(tag, _request(admin.user))
+        assert _render(tag, _request(admin.user, picked=ROLE_MEMBER)) == ""  # previewing as a member
 
     def it_renders_nothing_for_a_viewer_the_modal_is_not_for(changelog):
         changelog([_entry("fresh")])

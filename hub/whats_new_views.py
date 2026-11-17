@@ -22,7 +22,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from core.guidance import registered, title_for
 from core.htmx import wants_fragment
-from core.whats_new import TAB_LABELS, TAB_NOUNS, TABS, Page, WhatsNew, whats_new_for
+from core.whats_new import TAB_LABELS, TAB_NOUNS, Page, WhatsNew, whats_new_for
 from hub.spotlight import sees_spotlight
 
 #: A feature key (``guild.cubbies``) or an area alone (``guild``), the grammar of ``core.help_registry.KEY_PATTERN``.
@@ -70,7 +70,10 @@ def _page(news: WhatsNew, tab: str, feature: str, after: str) -> Page:
 
 
 def _body_context(news: WhatsNew, tab: str, feature: str, page: Page) -> dict[str, Any]:
-    """What the body template draws: the tab row, one page of the shown tab, its Show older link and the empty line."""
+    """What the body template draws: the viewer's tab row, one page of the shown tab, its Show older link and the empty line.
+
+    The row holds only the tabs the viewer sees (:attr:`WhatsNew.tabs`); with one, the template draws no row.
+    """
     return {
         "whats_new_tab": tab,
         "whats_new_feature": feature,
@@ -83,7 +86,7 @@ def _body_context(news: WhatsNew, tab: str, feature: str, page: Page) -> dict[st
                 # Counts on the tabs only when opened on one feature, as the mockup has it.
                 "count": len(news.entries_for(tab=key, feature=feature)) if feature else 0,
             }
-            for key in TABS
+            for key in news.tabs
         ],
         "whats_new_page": page,
         "whats_new_older_url": _href(tab, feature, page.older_after) if page.older_after else "",
@@ -95,7 +98,7 @@ def _body_context(news: WhatsNew, tab: str, feature: str, page: Page) -> dict[st
 @login_required
 @require_GET
 def hub_whats_new(request: HttpRequest) -> HttpResponse:
-    """The What's New modal body, on ``?tab=`` (default: the viewer's first tab with something unseen) and ``?feature=``.
+    """The What's New modal body, on ``?tab=`` (one of the viewer's tabs; default: their first with something unseen) and ``?feature=``.
 
     Rendering it marks every entry on the page as seen (D7), and a first page (not Show older)
     marks the open over everything the modal could show, so the button goes quiet until a
@@ -109,7 +112,7 @@ def hub_whats_new(request: HttpRequest) -> HttpResponse:
         return redirect("hub_home")
     feature = _feature_key(request.GET.get("feature", ""))
     tab = request.GET.get("tab", "")
-    if tab not in TABS:
+    if tab not in news.tabs:  # unknown, or a tab this viewer does not see
         tab = news.default_tab(feature or None)
     fragment = wants_fragment(request)
     after = request.GET.get("after", "") if fragment else ""

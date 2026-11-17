@@ -3,10 +3,11 @@
 The entries are ``plfog.version.CHANGELOG`` as it stands (D1: fragments and ``history.json``,
 no model), every release, newest first, a page of :data:`PAGE_SIZE` at a time. Each one names
 its ``audiences`` (D2; a frozen entry from before the keys is for ``members``), and a tab lists
-every entry whose audience rolls up to it (:data:`plfog.changelog.AUDIENCES`), to every member,
-as the changelog modal shows everything to everyone (D8). Who the viewer is comes from
-``request.view_as`` (D5), in one query however many roles there are to ask about, and decides
-only two things: whether Open it shows on an entry and whether the entry counts as unseen.
+every entry whose audience rolls up to it (:data:`plfog.changelog.AUDIENCES`). Who the viewer is
+comes from ``request.view_as`` (D5), in one query however many roles there are to ask about, and
+decides three things: which tabs they see (:attr:`WhatsNew.tabs`: For Members, and each tab one
+of their audiences rolls up to; an admin sees all four), whether Open it shows on an entry and
+whether the entry counts as unseen.
 
 Unseen is bounded by the window: an entry dated inside the last :data:`NEW_DAYS` days, in the
 viewer's audiences, that they have not looked at. Seen state is ``Member.whats_new_seen``, a
@@ -46,8 +47,8 @@ NEW_DAYS = 30
 PAGE_SIZE = 20
 
 #: The four tabs (For Instructors since #1052), in the order they are drawn, what each is called,
-#: and who it is for in a sentence. Every tab shows to every member; the viewer's audiences decide
-#: only Open it and the unseen state.
+#: and who it is for in a sentence. A viewer sees only their own (:attr:`WhatsNew.tabs`): For
+#: Members always, the others when one of their audiences rolls up to it, all four for an admin.
 TABS = ("members", "instructors", "guild-staff", "admins")
 TAB_LABELS = {
     "members": "For Members",
@@ -548,14 +549,40 @@ class WhatsNew:
 
         return any(covers(feature, raw.get("feature", "")) for raw in version.CHANGELOG)
 
+    @cached_property
+    def tabs(self) -> tuple[str, ...]:
+        """The tabs this viewer sees, in drawn order: For Members, and each tab one of their audiences rolls up to.
+
+        An admin (the effective role, so not while previewing as a lesser one) sees all four,
+        For Instructors included, though no admin audience rolls up to it: the tabs widen, the
+        audiences do not, so an admin's unseen dot and badges keep meaning "for you". For anyone
+        else an entry they can open is on one of these tabs, so nothing unseen hides on a tab
+        they cannot see.
+        """
+        view_as = getattr(self.request, "view_as", None)
+        if view_as is not None and view_as.is_admin:
+            return TABS
+        held = {AUDIENCES[key] for key in self.audiences}
+        return tuple(tab for tab in TABS if tab == TABS[0] or tab in held)
+
+    def shows_feature(self, feature: str) -> bool:
+        """Whether an entry of any age under ``feature`` lists on one of the viewer's tabs: its button renders.
+
+        :meth:`has_entries` is the free first gate; this one reads :attr:`tabs`, so it pays no
+        query past the roles query the button already makes. A plain member gets no button for a
+        feature whose entries are all For Instructors, since the modal would open on nothing.
+        """
+        return any(entry.under(feature) and any(entry.on_tab(tab) for tab in self.tabs) for entry in self.entries)
+
     def default_tab(self, feature: str | None = None) -> str:
-        """The tab the modal opens on: the first with something unseen for the viewer, else For Members.
+        """The tab the modal opens on: the first of the viewer's tabs with something unseen, else For Members.
 
         Opened on a feature (its button), only that feature's entries count, and with nothing
-        unseen the first tab with any entry of the feature's, so the button never lands on an
-        empty tab beside a tab that has what it promised (#1030).
+        unseen the first of the viewer's tabs with any entry of the feature's, so the button never
+        lands on an empty tab beside a tab that has what it promised (#1030). Never a tab the
+        viewer cannot see.
         """
-        for tab in TABS:
+        for tab in self.tabs:
             if any(
                 self.is_unseen(entry)
                 for entry in self.window
@@ -563,7 +590,7 @@ class WhatsNew:
             ):
                 return tab
         if feature is not None:
-            for tab in TABS:
+            for tab in self.tabs:
                 if any(entry.on_tab(tab) for entry in self.entries if entry.under(feature)):
                     return tab
         return TABS[0]

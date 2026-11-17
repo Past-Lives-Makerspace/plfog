@@ -80,7 +80,7 @@ def whats_new_button(context: dict[str, Any], key: str | None = None, labelled: 
     """The What's New button, for a viewer the modal is for.
 
     With ``key``, the icon button that opens What's New filtered to the key and everything under
-    it: it renders only while an entry of any age names the key, and pulses while one is there
+    it: it renders only while an entry of any age names the key on a tab the viewer sees, and pulses while one is there
     that no open of What's New has covered (``Member.whats_new_opened``, not the badges' seen
     list: one open quiets it until the next release). Without a key, Home's button over every
     entry, ``labelled`` with its wordmark. The page includes the ``whats-new`` modal the button
@@ -93,6 +93,9 @@ def whats_new_button(context: dict[str, Any], key: str | None = None, labelled: 
     if key is not None and (not _known(key) or not news.has_entries(key)):
         return ""
     if not news.audiences:
+        return ""
+    # Past the roles query, at no further cost: a key whose entries all sit on tabs the viewer cannot see gets no button.
+    if key is not None and not news.shows_feature(key):
         return ""
     return render_to_string(
         "hub/partials/_whats_new_button.html",
