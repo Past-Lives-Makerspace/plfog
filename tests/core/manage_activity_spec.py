@@ -792,16 +792,19 @@ def describe_orientation_and_space_rows():
         assert "Orientation cancelled: Robin Vale" in content
         assert 'data-testid="activity-note"' not in content
 
-    def it_offers_more_only_on_a_long_note(client):
+    def it_leaves_more_to_the_browser_for_every_note_whatever_its_length(client):
+        # The clamp is CSS the server cannot measure: More renders hidden on every note and the page
+        # shows it when the note overflows (tests/e2e/activity_feed_note_spec.py drives that).
         staff = _staff(client)
         booking = _booking(_robin())
         SiteActivity.log(SiteActivity.Kind.ORIENTATION_DECLINED, actor=staff, target=booking, payload={"note": "short"})
-        assert "full ? &#x27;Less&#x27; : &#x27;More&#x27;" not in _feed(client)
-
         SiteActivity.log(
             SiteActivity.Kind.ORIENTATION_DECLINED, actor=staff, target=booking, payload={"note": "x" * 141}
         )
-        assert _feed(client).count("pl-activity-note__more") == 1
+
+        content = _feed(client)
+        assert content.count('x-show="overflows || full"') == 2
+        assert content.count("data-activity-note-more") == 2
 
     def it_hides_the_stray_request_rows_the_cancel_bell_used_to_write(client):
         _staff(client)
@@ -822,7 +825,8 @@ def describe_orientation_and_space_rows():
         assert "Space requested: Robin Vale for S-12 (Hot Glass Room)" in content
         assert "Robin Vale · " in content
         assert "“For my kiln”" in content
-        assert request.pk
+        assert content.count("Space requested: Robin Vale") == 1
+        assert SiteActivity.objects.get(kind=SiteActivity.Kind.SPACE_REQUEST).actor == request.requester.user
 
     def it_names_the_requester_and_the_reason_on_a_declined_shelf_request(client):
         from membership.models import SpaceRequest
@@ -836,6 +840,44 @@ def describe_orientation_and_space_rows():
         assert "Shelf requested: Robin Vale for C-3" in content
         assert "Shelf request declined: Robin Vale for C-3" in content
         assert "“Shelves are full”" in content
+
+    def it_falls_back_to_the_kind_label_when_the_target_was_deleted(client):
+        staff = _staff(client)
+        booking = _booking(_robin())
+        row = SiteActivity.log(SiteActivity.Kind.ORIENTATION_CANCELLED, actor=staff, target=booking)
+        booking.delete()
+
+        content = _feed(client)
+        assert ">Orientation cancelled</div>" in content
+        assert "Robin Vale for" not in content
+        assert SiteActivity.objects.get(pk=row.pk).line.headline == "Orientation cancelled"
+
+    def it_reads_a_page_of_mixed_targets_in_the_same_number_of_queries_however_many_rows(client):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from tests.membership.factories import MemberFactory, SpaceFactory
+
+        staff = _staff(client)
+
+        def add_rows() -> None:
+            booking = _booking(MemberFactory())
+            booking.write_message(author=None, body="first")
+            SiteActivity.log(SiteActivity.Kind.ORIENTATION_REQUESTED, target=booking)
+            SiteActivity.log(SiteActivity.Kind.ORIENTATION_DECLINED, actor=staff, target=booking, payload={"note": "n"})
+            _space_request(MemberFactory(), SpaceFactory(), message="m")
+
+        def feed_queries() -> int:
+            with CaptureQueriesContext(connection) as queries:
+                assert client.get(reverse("manage_activity"), {"tab": "feed"}).status_code == 200
+            return len(queries)
+
+        add_rows()
+        feed_queries()  # the staffer's first page load opens their tab once; measure after it
+        one_of_each = feed_queries()
+        add_rows()
+        add_rows()
+        assert feed_queries() == one_of_each
 
     def it_shows_the_note_any_row_carries_in_its_payload(client):
         staff = _staff(client)

@@ -51,12 +51,14 @@
       <div class="pl-activity-row__text">
         <div class="hub-member-name">{{ line.headline }}</div>
         {% if line.note %}
-          {# A long note shows two lines; More opens the rest in place. #}
-          <div class="pl-activity-note" x-data="{ full: false }" data-testid="activity-note">
-            <p class="hub-text-muted pl-activity-note__text" :class="{ 'pl-activity-note__text--full': full }">“{{ line.note }}”</p>
-            {% if line.note|length > 140 %}
-              <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost pl-activity-note__more" @click="full = !full" x-text="full ? 'Less' : 'More'">More</button>
-            {% endif %}
+          {# Two lines at most; More shows only when the clamp is hiding text at this width (measured, so line breaks and phones count). #}
+          <div class="pl-activity-note" x-data="{ full: false, overflows: false }" data-testid="activity-note">
+            <p class="hub-text-muted pl-activity-note__text" id="activity-note-{{ a.pk }}" :class="{ 'pl-activity-note__text--full': full }"
+               x-init="new ResizeObserver(() => { if (!full && $el.clientHeight) overflows = $el.scrollHeight > $el.clientHeight + 1 }).observe($el)"
+               data-activity-note-text>“{{ line.note }}”</p>
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost pl-activity-note__more" x-cloak x-show="overflows || full" @click="full = !full"
+                    :aria-expanded="full ? 'true' : 'false'" aria-controls="activity-note-{{ a.pk }}"
+                    x-text="full ? 'Less' : 'More'" data-activity-note-more>More</button>
           </div>
         {% endif %}
         <div class="hub-text-muted" style="font-size:0.8125rem;">
