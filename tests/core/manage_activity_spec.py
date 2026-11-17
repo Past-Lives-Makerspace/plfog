@@ -803,7 +803,7 @@ def describe_orientation_and_space_rows():
         )
 
         content = _feed(client)
-        assert content.count('x-show="overflows || full"') == 2
+        assert content.count("'pl-activity-note__more--shown': overflows || full") == 2
         assert content.count("data-activity-note-more") == 2
 
     def it_hides_the_stray_request_rows_the_cancel_bell_used_to_write(client):

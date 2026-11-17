@@ -1,8 +1,10 @@
 """An Activity Feed note clamped to two lines offers More exactly when the clamp hides text, in a real browser.
 
-The server cannot know where a note wraps, so More is measured in the page (a ResizeObserver on the
-note). On a 390px phone a note of about 100 characters runs past two lines and must get More; a
-short note that fits must not. Run with ``pytest -m e2e``.
+The server cannot know where a note wraps, so More is measured in the page: once when Alpine starts,
+when the web fonts land, and by a ResizeObserver on the unclamped paragraph inside the two line clip.
+The observer alone hid More here most runs, because its callbacks wait for a painted frame and this
+browser can paint none for seconds after a load (#1122). On a 390px phone a note of about 100
+characters runs past two lines and must get More; a short note that fits must not. Run with ``pytest -m e2e``.
 """
 
 from __future__ import annotations
@@ -54,12 +56,19 @@ def describe_activity_feed_note_on_a_phone():
         expect(more).to_have_text("More")
         expect(short_note.locator("[data-activity-note-more]")).to_be_hidden()
 
-        text = long_note.locator("[data-activity-note-text]")
-        clamped_height = text.evaluate("el => el.clientHeight")
-        more.click()
+        clip = long_note.locator("[data-activity-note-clip]")
+        clamped_height = clip.evaluate("el => el.clientHeight")
+        # Clicked by event, not more.click(): a plain click first waits two painted frames to call the
+        # button stable, and this browser can paint none for 20 seconds under load (#1122); a forced
+        # click aims at a point, which a phone's bottom bar can cover. Visibility is asserted above.
+        more.dispatch_event("click")
 
         expect(more).to_have_text("Less")
         expect(more).to_have_attribute("aria-expanded", "true")
-        expect(text).to_have_class("hub-text-muted pl-activity-note__text pl-activity-note__text--full")
-        assert text.evaluate("el => el.clientHeight") > clamped_height
-        assert text.evaluate("el => el.scrollHeight <= el.clientHeight + 1")
+        expect(clip).to_have_class("pl-activity-note__clip pl-activity-note__clip--full")
+        assert clip.evaluate("el => el.clientHeight") > clamped_height
+        assert clip.evaluate("el => el.firstElementChild.offsetHeight <= el.clientHeight + 1")
+
+        more.dispatch_event("click")
+        expect(more).to_have_text("More")
+        expect(more).to_be_visible()
