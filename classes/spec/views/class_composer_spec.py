@@ -1798,8 +1798,7 @@ def describe_a_composer_post_to_a_class_cancelled_since_the_page_was_rendered():
 
 _PUBLISHED_NOTICE = (
     "This class was published after you opened this page, so nothing here was saved. "
-    "A live class is edited through a shorter form that changes everything but the dates. "
-    "To change a date, ask an admin. "
+    "A live class is edited through a shorter form. "
     "Copy anything you want to keep, then press Cancel and open Edit again for the shorter form."
 )
 

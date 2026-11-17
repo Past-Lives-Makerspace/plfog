@@ -57,7 +57,7 @@ Generates hidden inputs matching Django's inline formset naming convention.
                       x-text="new Date(s.starts_at).toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'})"></span>
                 <span class="session-cal__list-time"
                       x-text="new Date(s.starts_at).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'}) + ' – ' + new Date(s.ends_at).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'})"></span>
-                <button type="button" @click="deleteSession(s._key)"
+                <button type="button" @click="deleteSession(s._key)" x-show="!s.locked"
                         class="session-cal__list-remove" title="Remove">&times;</button>
             </div>
         </template>

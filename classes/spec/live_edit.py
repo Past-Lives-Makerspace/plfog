@@ -6,7 +6,7 @@ from classes.models import ClassOffering
 
 
 def live_facts(offering: ClassOffering, **overrides: str) -> dict[str, str]:
-    """The title, class type, price, capacity, location and age minimum ``offering`` holds, as POST values.
+    """The title, class type, price, capacity, location, age minimum and window ``offering`` holds, as POST values.
 
     The live class edit page renders these filled in, so a save that changes none of them posts
     them back unchanged. Capacity is left out for a flexible class, whose form has no such field.
@@ -24,5 +24,9 @@ def live_facts(offering: ClassOffering, **overrides: str) -> dict[str, str]:
     }
     if not offering.is_flexible:
         facts["capacity"] = str(offering.capacity)
+    else:
+        # A flexible class's window posts from its own instructors' page (#1186); nobody else reads it.
+        facts["flexible_starts_on"] = offering.flexible_starts_on.isoformat() if offering.flexible_starts_on else ""
+        facts["flexible_ends_on"] = offering.flexible_ends_on.isoformat() if offering.flexible_ends_on else ""
     facts.update(overrides)
     return facts

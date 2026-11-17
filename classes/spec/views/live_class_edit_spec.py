@@ -1,4 +1,4 @@
-"""BDD specs for #1067: an instructor edits everything on a live class except its dates."""
+"""BDD specs for #1067: an instructor edits everything on a live class (its dates since #1186)."""
 
 from __future__ import annotations
 
@@ -142,8 +142,8 @@ def describe_a_price_edit_while_a_sale_runs():
         assert offering.price_cents == 9000
 
 
-def describe_the_dates_stay_locked():
-    def it_ignores_a_crafted_post_of_sessions_scheduling_and_cutoff(instructor, client):
+def describe_what_stays_as_published():
+    def it_ignores_a_crafted_post_of_the_scheduling_model_type_and_cutoff(instructor, client):
         offering = _live(instructor, registration_cutoff_hours=48)
         session = offering.sessions.get()
         client.force_login(instructor.user)
@@ -158,11 +158,6 @@ def describe_the_dates_stay_locked():
                 "registration_cutoff_hours": "1",
                 "flexible_starts_on": "2030-01-01",
                 "flexible_ends_on": "2030-02-01",
-                "sessions-TOTAL_FORMS": "1",
-                "sessions-INITIAL_FORMS": "1",
-                "sessions-0-id": str(session.pk),
-                "sessions-0-starts_at": "2030-01-01T10:00",
-                "sessions-0-ends_at": "2030-01-01T12:00",
             },
         )
 
@@ -175,7 +170,7 @@ def describe_the_dates_stay_locked():
         assert list(ClassSession.objects.filter(class_offering=offering)) == [session]
         assert ClassSession.objects.get(pk=session.pk).starts_at == session.starts_at
 
-    def it_carries_no_date_field(instructor):
+    def it_carries_no_date_field_unless_asked_for_the_instructors_window(instructor):
         fields = TeachPublishedClassForm(instance=_live(instructor)).fields
         for name in (
             "scheduling_model",
@@ -187,7 +182,7 @@ def describe_the_dates_stay_locked():
         ):
             assert name not in fields
 
-    def it_keeps_a_flexible_windows_days(instructor, client):
+    def it_moves_a_flexible_windows_days_for_its_own_instructor(instructor, client):
         offering = _live(
             instructor,
             scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
@@ -201,7 +196,7 @@ def describe_the_dates_stay_locked():
         )
         assert resp.status_code == 302
         offering.refresh_from_db()
-        assert (offering.flexible_starts_on, offering.flexible_ends_on) == (date(2031, 3, 1), date(2031, 4, 1))
+        assert (offering.flexible_starts_on, offering.flexible_ends_on) == (date(2031, 5, 1), date(2031, 6, 1))
 
 
 def describe_capacity_on_a_flexible_class():
@@ -242,17 +237,17 @@ def describe_guild_staff_on_a_live_class():
         assert offering.instructor_list == [owner]
 
 
-def describe_the_copy_that_sends_instructors_to_an_admin():
-    def it_says_only_dates_need_an_admin_on_the_page(instructor, client):
+def describe_the_copy_that_no_longer_sends_instructors_to_an_admin():
+    def it_says_the_dates_are_the_instructors_and_registrants_hear_of_a_change(instructor, client):
         offering = _live(instructor)
         client.force_login(instructor.user)
         html = client.get(_edit_url(offering)).content.decode()
-        assert "You can change everything here any time except the dates. To change a date, ask an admin." in html
-        assert "Dates change through an admin because people booked on them." in html
-        assert "To change the title, dates, price, or capacity" not in html
+        assert "If you change the dates, everyone signed up gets an email with the old and new dates." in html
+        assert "To change a date, ask an admin." not in html
 
-    def it_sends_the_eventbrite_refusal_to_the_edit_page_unless_the_fix_is_a_date(instructor):
+    def it_sends_the_eventbrite_refusal_to_the_edit_page_for_every_fix_dates_included(instructor):
         offering = _live(instructor)
         _subject, body = eventbrite_rules_failed_email(offering, ["Title: a phone number"])
         assert f"/teach/classes/{offering.pk}/edit/" in body
-        assert "If the fix is a date, open the class and use Request a Change" in body
+        assert "the class's edit page, dates included:" in body
+        assert "Request a Change" not in body

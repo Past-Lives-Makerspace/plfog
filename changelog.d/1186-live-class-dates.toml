@@ -1,0 +1,20 @@
+bump = "minor"
+date = "2026-11-17"
+audience = ["instructors", "members"]
+feature = "classes.teach"
+guidance = "shots"
+target = "classes.live-edit-dates"
+title = "Change the dates of your live class yourself"
+changes = [
+  "On a live class you teach, Edit now has a Dates card. Add a date, or remove one and add the new one to move it, then Save.",
+  "Everyone signed up gets one email with the old and new dates, and the guild lead is told (the CMS Administrators for a class with no lead). The class stays live with no new review.",
+  "Capacity can no longer go below the seats people already hold.",
+  "Take Out of Catalog on the class page sends a class back to draft while nobody is signed up. Once people are signed up, use Cancel class, which tells them.",
+  "Request a change is gone.",
+]
+
+[[shots]]
+caption = "Open Edit on your live class. The Dates card lists every date; add a new one or remove one, then press Save."
+
+[[shots]]
+caption = "With nobody signed up, Take Out of Catalog on the class page sends it back to draft."

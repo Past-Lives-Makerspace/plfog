@@ -1,4 +1,4 @@
-"""BDD specs for the instructor's workspace actions: withdraw, cancel, request a change, the
+"""BDD specs for the instructor's workspace actions: withdraw, cancel, take out of catalog, the
 published light-edit page, Run it again on both workspaces, and the Profile tab."""
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from membership.models import Member
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 
 Status = ClassOffering.Status
-# The Request a change button itself: the words alone also reach a page through What's New (#1067).
+# The retired Request a change button (#1186): no page opens its modal any more.
 REQUEST_CHANGE_BUTTON = "$dispatch('open-modal', 'request-change')"
 
 
@@ -96,12 +96,13 @@ def describe_workspace_action_row():
         html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
         # Edit sits in the class header now (decision D5); the action row keeps the rest.
         assert reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}) in html
-        assert "Request a change" in html
+        assert REQUEST_CHANGE_BUTTON not in html
         assert "Cancel this class?" in html
         assert "Run this class again?" in html
         assert reverse("classes:teach_class_duplicate_run", kwargs={"pk": offering.pk}) in html
         assert reverse("classes:teach_class_cancel", kwargs={"pk": offering.pk}) in html
-        assert reverse("classes:teach_class_request_change", kwargs={"pk": offering.pk}) in html
+        # Nobody is signed up, so the instructor may take it out of the catalog (#1186).
+        assert reverse("classes:teach_class_unpublish", kwargs={"pk": offering.pk}) in html
         assert "Take back this submission?" not in html
         assert reverse("classes:admin_class_delete", kwargs={"pk": offering.pk}) not in html
 
@@ -217,53 +218,12 @@ def describe_instructor_cancel():
         )
 
 
-def describe_request_change():
-    def it_posts_full_page_and_redirects_with_a_message(instructor_fixture, client):
-        offering = _live(instructor_fixture)
-        client.force_login(instructor_fixture.user)
-        resp = client.post(
-            reverse("classes:teach_class_request_change", kwargs={"pk": offering.pk}), {"note": "Move it to Friday."}
-        )
-        assert resp.status_code == 302
-        assert resp.url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
-        assert "Sent to the admins." in _messages(resp)
-        assert CmsActivity.objects.filter(
-            kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED, class_offering=offering
-        ).exists()
-
-    def it_tells_the_instructor_when_the_admins_already_have_the_note(instructor_fixture, client):
-        offering = _live(instructor_fixture)
-        client.force_login(instructor_fixture.user)
-        url = reverse("classes:teach_class_request_change", kwargs={"pk": offering.pk})
-        first = client.post(url, {"note": "Move it to Friday."})
-        # The page after the first post shows its flash, so the second response carries only its own.
-        client.get(first.url)
-        resp = client.post(url, {"note": "Move it to Friday."})
-        assert resp.status_code == 302
-        assert resp.url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
-        assert _messages(resp) == ["The admins already have this note."]
-        assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED).count() == 1
-
-    def it_re_renders_the_modal_open_with_the_error_on_a_blank_note(instructor_fixture, client):
-        offering = _live(instructor_fixture)
-        client.force_login(instructor_fixture.user)
-        resp = client.post(reverse("classes:teach_class_request_change", kwargs={"pk": offering.pk}), {"note": ""})
-        assert resp.status_code == 200
-        html = resp.content.decode()
-        assert "Say what needs to change." in html
-        assert "x-init=\"$nextTick(() => $dispatch('open-modal', 'request-change'))\"" in html
-        assert not CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED).exists()
-
-    def it_refuses_a_class_that_is_not_live(instructor_fixture, client):
-        draft = ClassOfferingFactory(instructor=instructor_fixture, status=Status.DRAFT)
-        client.force_login(instructor_fixture.user)
-        resp = client.post(reverse("classes:teach_class_request_change", kwargs={"pk": draft.pk}), {"note": "x"})
-        assert resp.status_code == 302
-        assert any("Only published classes can request a change" in m for m in _messages(resp))
-
-
 def describe_the_flexible_window_on_the_manage_pages():
-    """The published edit page's Dates row and the overview's Sessions table read the window (#545)."""
+    """The published edit page's Dates card and the overview's Sessions table read the window (#545).
+
+    Since #1186 the class's own instructors get the window's two day fields on the edit page; the
+    guild's staff read it.
+    """
 
     def _flexible_live(instructor, **traits) -> ClassOffering:
         # _live adds a dated session: the row shape of production class 643, which still carries
@@ -276,28 +236,52 @@ def describe_the_flexible_window_on_the_manage_pages():
     def _window_row(html: str) -> str:
         return html.split('<td colspan="2" data-flexible-window>')[1].split("</td>")[0]
 
-    def it_shows_the_window_in_locked_details(instructor_fixture, client):
+    def _staffer_on(guild_name: str, staffer, teacher, **traits) -> ClassOffering:
+        guild = GuildFactory(name=guild_name)
+        GuildStaffMembershipFactory(guild=guild, member=staffer)
+        return _flexible_live(teacher, category=CategoryFactory(guild=guild), **traits)
+
+    def it_shows_the_window_to_guild_staff(instructor_fixture, other_instructor, client):
+        offering = _staffer_on(
+            "Window Guild",
+            instructor_fixture,
+            other_instructor,
+            flexible_starts_on=date(2026, 11, 2),
+            flexible_ends_on=date(2026, 12, 1),
+        )
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert _window_cell(html) == "Nov 2 to Dec 1, 2026"
+        assert 'name="flexible_starts_on"' not in html
+        assert "Arranged with each student" not in html
+
+    def it_says_any_time_to_guild_staff_without_a_window(instructor_fixture, other_instructor, client):
+        offering = _staffer_on("Any Guild", instructor_fixture, other_instructor)
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert _window_cell(html) == "Any time, arranged with each student"
+
+    def it_gives_the_instructor_the_window_fields_filled_in(instructor_fixture, client):
         offering = _flexible_live(
             instructor_fixture, flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1)
         )
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        assert "Locked Details" in html
-        assert _window_cell(html) == "Nov 2 to Dec 1, 2026"
-        assert "Arranged with each student" not in html
-
-    def it_says_any_time_in_locked_details_without_a_window(instructor_fixture, client):
-        offering = _flexible_live(instructor_fixture)
-        client.force_login(instructor_fixture.user)
-        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        assert _window_cell(html) == "Any time, arranged with each student"
-
-    def it_keeps_the_session_list_for_a_fixed_class(instructor_fixture, client):
-        offering = _live(instructor_fixture)
-        client.force_login(instructor_fixture.user)
-        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        assert 'name="flexible_starts_on" value="2026-11-02"' in html
+        assert 'name="flexible_ends_on" value="2026-12-01"' in html
+        assert "sessions-TOTAL_FORMS" not in html
         assert "data-flexible-window" not in html
-        assert "<li>" in html.split("<dt")[-1]
+
+    def it_lists_a_fixed_class_s_sessions_to_guild_staff(instructor_fixture, other_instructor, client):
+        guild = GuildFactory(name="List Guild")
+        GuildStaffMembershipFactory(guild=guild, member=instructor_fixture)
+        offering = _live(other_instructor, category=CategoryFactory(guild=guild))
+        client.force_login(instructor_fixture.user)
+        html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
+        dates = html.split("data-live-dates>")[1].split("</section>")[0]
+        assert "data-flexible-window" not in dates
+        assert "<li>" in dates
+        assert "sessions-TOTAL_FORMS" not in html
 
     def it_shows_each_window_shape_in_the_overview_sessions_table(instructor_fixture, client):
         shapes = [
@@ -327,32 +311,38 @@ def describe_the_flexible_window_on_the_manage_pages():
 
 
 def describe_published_light_edit():
-    def it_renders_the_dates_locked_and_everything_else_as_a_field(instructor_fixture, client):
-        # #1067: only the dates stay locked on a live class.
+    def it_renders_the_dates_and_everything_else_as_a_field(instructor_fixture, client):
+        # #1067 opened every fact on a live class; #1186 the dates, for its own instructor.
         offering = _live(instructor_fixture, title="Live Lathe", price_cents=8000, capacity=4)
         client.force_login(instructor_fixture.user)
         resp = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
         assert resp.status_code == 200
         html = resp.content.decode()
         assert "This class is live." in html
-        assert "Locked Details" in html
+        assert "data-live-dates" in html
         assert 'value="Live Lathe"' in html and 'value="80"' in html and 'value="4"' in html
         assert 'name="materials_to_bring"' in html
         for name in ("title", "category", "price_cents", "capacity", "area", "age_minimum"):
             assert f'name="{name}"' in html
         for name in ("scheduling_model", "scheduling_type", "registration_cutoff_hours", "flexible_starts_on"):
             assert f'name="{name}"' not in html
-        assert "sessions-TOTAL_FORMS" not in html
+        assert "sessions-TOTAL_FORMS" in html
         assert "Save &amp; Submit for Review" not in html
         assert reverse("classes:teach_class_duplicate_run", kwargs={"pk": offering.pk}) not in html
-        assert "Request a Change" in html
+        assert REQUEST_CHANGE_BUTTON not in html
         assert 'name="faq-TOTAL_FORMS"' in html
         assert ">Save<" in html
 
-    def it_saves_the_form_and_ignores_a_crafted_post_of_the_dates(instructor_fixture, client):
-        offering = _live(instructor_fixture, title="Keep Title", price_cents=8000, capacity=4)
+    def it_saves_the_form_and_ignores_guild_staffs_crafted_post_of_the_dates(
+        instructor_fixture, other_instructor, client
+    ):
+        guild = GuildFactory(name="Crafted Guild")
+        GuildStaffMembershipFactory(guild=guild, member=other_instructor)
+        offering = _live(
+            instructor_fixture, title="Keep Title", price_cents=8000, capacity=4, category=CategoryFactory(guild=guild)
+        )
         session_count = offering.sessions.count()
-        client.force_login(instructor_fixture.user)
+        client.force_login(other_instructor.user)
         resp = client.post(
             reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
             _light_payload(
@@ -366,7 +356,6 @@ def describe_published_light_edit():
             ),
         )
         assert resp.status_code == 302
-        assert resp.url == reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
         assert "Class updated." in _messages(resp)
         offering.refresh_from_db()
         assert offering.materials_to_bring == "An apron"
@@ -376,7 +365,7 @@ def describe_published_light_edit():
 
     def it_offers_the_banner_photo_on_a_live_class(instructor_fixture, client):
         # Quinlan, 2026-10-05: the page said photos were editable but drew only the gallery, so
-        # replacing the banner took a Request a change to an admin.
+        # replacing the banner took a note to an admin.
         offering = _live(instructor_fixture)
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
@@ -632,21 +621,19 @@ def describe_profile_tab():
 
 
 def describe_light_edit_scope():
-    def it_hides_request_a_change_from_guild_staff_but_shows_it_to_the_instructor(
-        instructor_fixture, other_instructor, client
-    ):
+    def it_gives_the_dates_to_the_instructor_and_not_to_guild_staff(instructor_fixture, other_instructor, client):
         guild = GuildFactory(name="Scope Guild")
         GuildStaffMembershipFactory(guild=guild, member=instructor_fixture)
         offering = _live(other_instructor, category=CategoryFactory(guild=guild))
         client.force_login(instructor_fixture.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        assert "This class is live." in html
+        assert "Only its instructor can change the dates." in html
+        assert "sessions-TOTAL_FORMS" not in html
         assert REQUEST_CHANGE_BUTTON not in html
-        assert reverse("classes:teach_class_request_change", kwargs={"pk": offering.pk}) not in html
         client.force_login(other_instructor.user)
         html = client.get(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})).content.decode()
-        assert REQUEST_CHANGE_BUTTON in html
-        assert reverse("classes:teach_class_request_change", kwargs={"pk": offering.pk}) in html
+        assert "sessions-TOTAL_FORMS" in html
+        assert REQUEST_CHANGE_BUTTON not in html
 
 
 def describe_completed_class_refusals():
@@ -661,14 +648,6 @@ def describe_completed_class_refusals():
         assert offering.status == Status.PUBLISHED
         assert [m for m in mail.outbox if m.to == ["past@example.com"]] == []
 
-    def it_refuses_a_change_request_on_a_class_that_already_happened(instructor_fixture, client):
-        offering = _completed_class(instructor_fixture)
-        client.force_login(instructor_fixture.user)
-        resp = client.post(reverse("classes:teach_class_request_change", kwargs={"pk": offering.pk}), {"note": "x"})
-        assert resp.status_code == 302
-        assert "This class has already happened." in _messages(resp)
-        assert not CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED).exists()
-
 
 def _completed_class(instructor) -> ClassOffering:
     offering = ClassOfferingFactory(instructor=instructor, status=Status.PUBLISHED, published_at=timezone.now())
@@ -678,7 +657,7 @@ def _completed_class(instructor) -> ClassOffering:
 
 
 def describe_the_completed_guard_lives_on_the_model():
-    """The precondition sits on ``cancel``/``request_change`` so every caller inherits it.
+    """The precondition sits on ``cancel`` so every caller inherits it.
 
     It used to be a check in the two teach views, which left the admin cancel button free to
     email everyone who took a class that finished last month.
@@ -701,11 +680,6 @@ def describe_the_completed_guard_lives_on_the_model():
         offering = _completed_class(instructor_fixture)
         with pytest.raises(ValueError, match="already happened"):
             offering.cancel(admin_user, "Oops")
-
-    def it_raises_from_request_change_itself(instructor_fixture):
-        offering = _completed_class(instructor_fixture)
-        with pytest.raises(ValueError, match="already happened"):
-            offering.request_change(instructor_fixture, "Please move it")
 
     def it_still_allows_cancelling_a_run_with_one_session_left(instructor_fixture, admin_user, client):
         # Multi-session parity: some occurrences are past, so the class is not COMPLETED.

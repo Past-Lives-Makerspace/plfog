@@ -1,0 +1,22 @@
+NEW DATES
+
+Hi {{ registration.first_name }},
+
+{% if offering.instructor_names %}{{ offering.instructor_names }} changed{% else %}The instructor changed{% endif %} the dates of {{ offering.title }}. Your {% if is_waitlisted %}waitlist spot{% else %}place{% endif %} stays as it is, and you do not need to sign up again.
+
+Was:
+{% for line in before %}{{ line }}
+{% endfor %}
+Now:
+{% for line in after %}{{ line }}
+{% endfor %}
+Location: Past Lives Makerspace, 2808 SE 9th Ave, Portland, OR 97202
+
+See the class:
+{{ class_url }}
+
+Can't make the new dates? Manage or cancel your registration:
+{{ self_serve_url }}
+
+Questions? Reach us at info@pastlives.space.
+{% include "membership/emails/_footer.txt" %}

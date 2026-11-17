@@ -65,7 +65,8 @@ _BRAND_NEW_KEYS = {
     "billing.payouts_invite",
     "billing.payout_reversal_failed_admin",
     "class_cancelled_admin_notice",
-    "class_change_requested",
+    "class_rescheduled",
+    "class_rescheduled_lead_notice",
     "instructor_application_received",
     "instructor_application_approved",
     "instructor_application_declined",
@@ -296,6 +297,11 @@ def describe_event_registry():
                 SimpleNamespace(event_key="event.submitted"),
             ]
             assert [row.event_key for row in registered_rows(rows)] == ["class_review_requested", "event.submitted"]
+
+        def it_registers_no_request_a_change_event():
+            # #1186: instructors change their own dates; nobody asks an admin.
+            with pytest.raises(KeyError):
+                get_event("class_change_requested")
 
         def it_registers_none_of_the_retired_meeting_workspace_events():
             # #1113: proposals, their decisions and minutes approvals are gone.

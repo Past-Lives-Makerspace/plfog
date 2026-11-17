@@ -5,41 +5,10 @@
 {% include "_components/rich_editor_assets.html" %}
 <div x-data>
 <h2 style="margin-top:0;">Edit Class — {{ offering.title }}</h2>
-{# A live class: everything but the dates edits here with no re-review (#1067). The dates change through an admin. #}
-<section class="hub-card pl-live-edit-banner" style="margin:1rem 0;" data-guidance-target="classes.live-edit-dates">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;">
-        <p style="margin:0;">This class is live. You can change everything here any time except the dates. To change a date, ask an admin.</p>
-        {% if is_own_class %}<button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'request-change')">Request a change</button>{% endif %}
-    </div>
+{# A live class: every field edits here with no re-review (#1067); its own instructors change the dates too (#1186). #}
+<section class="hub-card pl-live-edit-banner" style="margin:1rem 0;">
+    <p style="margin:0;">This class is live. Changes save without a new review.{% if is_own_class %} If you change the dates, everyone signed up gets an email with the old and new dates.{% else %} Only its instructor can change the dates.{% endif %}</p>
 </section>
-
-<section class="hub-card pl-locked-summary" style="margin:0 0 1rem;">
-    <h3 style="margin:0 0 0.5rem;">Locked Details</h3>
-    <dl style="display:grid;grid-template-columns:140px 1fr;gap:8px 18px;font-size:14px;margin:0;">
-        <dt style="color:var(--hub-text-muted);">Dates</dt>
-        <dd style="margin:0;">
-            {# A flexible class reads its window, whatever session rows it still carries. #}
-            {% if offering.is_flexible %}
-                <span data-flexible-window>{% if offering.has_flexible_window %}{{ offering.flexible_window_label }}{% else %}Any time, arranged with each student{% endif %}</span>
-            {% elif sessions %}
-                <ul style="margin:0;padding-left:18px;">
-                    {% for session in sessions %}
-                        <li>{{ session.starts_at|date:"D, M j, Y" }} · {{ session.starts_at|time:"g:i A" }} to {{ session.ends_at|time:"g:i A" }}</li>
-                    {% endfor %}
-                </ul>
-            {% else %}
-                <span style="color:var(--hub-text-muted);">No dates yet</span>
-            {% endif %}
-        </dd>
-    </dl>
-    {# The dates are locked here; a second group is a second run, made from the class page. The hint renders only for a viewer who holds Run it again there. #}
-    {% if run_again_url %}<p class="pl-field-hint" data-run-again-hint style="margin:0.75rem 0 0;">To offer this class to another group, use <a href="{{ run_again_url }}">Run it again</a> on the class page.</p>{% endif %}
-</section>
-
-{# Share & Print: a live class is where the flyer and QR unlock, and this is the only teach page a live class lands on. #}
-<div class="pl-live-edit-share">
-    {% include "classes/_components/class_qr_share.html" %}
-</div>
 
 <form method="post" data-pl-busy-submit>
     {% csrf_token %}
@@ -50,6 +19,48 @@
         {% endfor %}
     </ul>
     {% endif %}
+<section class="hub-card pl-live-dates" style="margin:0 0 1rem;" data-guidance-target="classes.live-edit-dates" data-live-dates>
+    <h3 style="margin:0 0 0.5rem;">Dates</h3>
+    {% if formset %}
+        {% comment %}The class's own instructors move a dated class's sessions with the composer's scheduler. Moving one is removing it and adding the new date; a date that already happened has no Remove, and the formset refuses it anyway.{% endcomment %}
+        {% if formset.total_error_count %}
+        <ul class="pl-field-errors" data-dates-errors>
+            {% for error in formset.non_form_errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}
+            {% for session_form in formset %}{% for error in session_form.non_field_errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}{% for field in session_form %}{% for error in field.errors %}<li class="pl-field-error">{{ error }}</li>{% endfor %}{% endfor %}{% endfor %}
+        </ul>
+        {% endif %}
+        <p class="pl-compose-section__note">To move a date, remove it and add the new one. Dates that already happened stay as they are.</p>
+        {% include "classes/_components/session_calendar.html" %}
+    {% elif form.flexible_starts_on %}
+        <div class="pl-date-window">
+            {% include "components/form_field.html" with field=form.flexible_starts_on %}
+            {% include "components/form_field.html" with field=form.flexible_ends_on %}
+        </div>
+        <p class="pl-field-hint pl-date-window__hint">Leave both blank for a class that runs any time.</p>
+    {% else %}
+        {# The guild's staff read the dates; only the class's own instructors change them. #}
+        {% if offering.is_flexible %}
+            <span data-flexible-window>{% if offering.has_flexible_window %}{{ offering.flexible_window_label }}{% else %}Any time, arranged with each student{% endif %}</span>
+        {% elif sessions %}
+            <ul style="margin:0;padding-left:18px;">
+                {% for session in sessions %}
+                    <li>{{ session.starts_at|date:"D, M j, Y" }} · {{ session.starts_at|time:"g:i A" }} to {{ session.ends_at|time:"g:i A" }}</li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <span style="color:var(--hub-text-muted);">No dates yet</span>
+        {% endif %}
+    {% endif %}
+    {% if is_own_class and registrant_count %}<p class="pl-form-note" data-new-dates-note>{{ registrant_count }} {% if registrant_count == 1 %}person is{% else %}people are{% endif %} signed up. A date change emails each of them once, with the old and new dates.</p>{% endif %}
+    {# A second group is a second run, made from the class page. The hint renders only for a viewer who holds Run it again there. #}
+    {% if run_again_url %}<p class="pl-field-hint" data-run-again-hint style="margin:0.75rem 0 0;">To offer this class to another group, use <a href="{{ run_again_url }}">Run it again</a> on the class page.</p>{% endif %}
+</section>
+
+{# Share & Print: a live class is where the flyer and QR unlock, and this is the only teach page a live class lands on. #}
+<div class="pl-live-edit-share">
+    {% include "classes/_components/class_qr_share.html" %}
+</div>
+
     {# The class's own instructors add a partner here (#686): the Basics step's control, since a new name changes nothing a registrant booked on. The guild's staff get no control. #}
     {% include "classes/_components/instructors_field.html" with form=form can_edit=form.instructors_editable %}
     {# The class's facts open like on the composer, through the same field component (#1067); a flexible class has no capacity field, so its seats line reads as the composer's does. #}
@@ -74,7 +85,7 @@
             {# Rendered by the banner photo field below, beside the cropper that writes it. #}
         {% elif field.name == 'instructors' or field.name == 'add_instructor' %}
             {# Rendered by the Instructors control above the loop. #}
-        {% elif field.name == 'title' or field.name == 'category' or field.name == 'price_cents' or field.name == 'capacity' or field.name == 'minimum_signups' or field.name == 'area' %}
+        {% elif field.name == 'title' or field.name == 'category' or field.name == 'price_cents' or field.name == 'capacity' or field.name == 'minimum_signups' or field.name == 'area' or field.name == 'flexible_starts_on' or field.name == 'flexible_ends_on' %}
             {# Rendered by name above the loop. #}
         {% elif field.is_hidden %}
             {{ field }}
@@ -106,7 +117,6 @@
         <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ cancel_url }}">Cancel</a>
     </div>
 </form>
-{% if is_own_class %}{% include "components/modal.html" with modal_id="request-change" modal_title="Request a Change" modal_size="sm" modal_body_include="classes/teach/partials/request_change_form.html" %}{% endif %}
 </div>
 {# Boots the banner cropper on every arrival; see the note above the same tag in class_composer.html. #}
 <script src="{% static 'js/hero_cropper.js' %}" defer></script>

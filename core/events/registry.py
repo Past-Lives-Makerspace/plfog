@@ -106,6 +106,8 @@ class Recipients(str, Enum):
     GUILD_LEAD = "guild_lead"
     # The lead plus every Active Co-Lead: who hears an orientation was confirmed (#1134).
     GUILD_LEAD_AND_CO_LEADS = "guild_lead_and_co_leads"
+    # The class's guild lead, or the CMS Administrators for a class with no lead (#1186).
+    GUILD_LEAD_OR_CLASS_APPROVERS = "guild_lead_or_class_approvers"
     GUILD_MEMBERS = "guild_members"
     GUILD_ORIENTERS = "guild_orienters"
     # Composed (never a union): equipment in context -> the equipment's managers;
@@ -490,7 +492,9 @@ EVENT_COMMUNITY_PUBLISHED = "event.community_published"
 EVENT_LEAD_MEETING_PUBLISHED = "event.lead_meeting_published"
 # Instructor-raised staff notices on a live class (class-lifecycle spec PR 2).
 CLASS_CANCELLED_ADMIN_NOTICE = "class_cancelled_admin_notice"
-CLASS_CHANGE_REQUESTED = "class_change_requested"
+# An instructor moved the dates of their own live class (#1186).
+CLASS_RESCHEDULED = "class_rescheduled"
+CLASS_RESCHEDULED_LEAD_NOTICE = "class_rescheduled_lead_notice"
 # Teaching applications: a member asks to teach, an admin answers (ask 2).
 INSTRUCTOR_APPLICATION_RECEIVED = "instructor_application_received"
 INSTRUCTOR_APPLICATION_APPROVED = "instructor_application_approved"
@@ -1312,16 +1316,27 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
-    # class_change_requested — an instructor asked for a structural change (title, dates,
-    # price, capacity) to their live class, which only an admin may make. Routes to the
-    # CMS Administrators with the note and a CTA to the admin edit page. Per-recipient
-    # only, no broadcast; each request is its own dedupe period.
+    # class_rescheduled: the instructor moved, added or removed a date on a live class (#1186).
+    # Every seat holder hears once per change, guests included through ``email_to``; the
+    # REGISTRANT resolver gives a member the bell row. Email is forced: it is about a booking.
     EventType(
-        key=CLASS_CHANGE_REQUESTED,
-        label="Instructor asked for a class change",
-        description="An instructor asked an admin to change a live class's title, dates, price, or capacity.",
+        key=CLASS_RESCHEDULED,
+        label="Your class has new dates",
+        description="The instructor moved the dates of a class you signed up for.",
         category="Classes",
-        recipient=Recipients.CLASS_APPROVERS,
+        recipient=Recipients.REGISTRANT,
+        channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # class_rescheduled_lead_notice: the same change, told to the class's guild lead, or the CMS
+    # Administrators for a class with no lead (#1186). A notice; nothing to approve. The sender
+    # leaves out whoever made the change.
+    EventType(
+        key=CLASS_RESCHEDULED_LEAD_NOTICE,
+        label="An instructor moved a live class",
+        description="An instructor changed the dates of a live class in your guild.",
+        category="Classes",
+        recipient=Recipients.GUILD_LEAD_OR_CLASS_APPROVERS,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
@@ -1598,9 +1613,7 @@ _NEW_EVENTS: list[EventType] = [
     # class.message_to_reviewers — an instructor posted a message on their class's thread
     # (#975). Goes to the audience class_review_requested reaches for the class's first gate
     # (the guild's lead and Class Reviewers, else the CMS Administrators), never widened with
-    # every admin; the sender passes that set minus the author. A change request on a live
-    # class is written into the thread and rides on class_change_requested instead. The
-    # period is the message. No activity row: the thread is the record.
+    # every admin; the sender passes that set minus the author. The period is the message. No activity row: the thread is the record.
     EventType(
         key=CLASS_MESSAGE_TO_REVIEWERS,
         label="Messages on classes you review",
@@ -1946,7 +1959,6 @@ _DIGEST_EMAIL_EVENTS: frozenset[str] = frozenset(
         "wiki.page_reported",
         "wiki.page_proposed",
         "instructor_application_received",
-        "class_change_requested",
         # #979: a Past Due cubby rental, dropped from the digest once it is paid.
         "cubbies.rental_past_due",
         # #894 part 4: FYI notices nothing decides, so every line goes out. Each emit's

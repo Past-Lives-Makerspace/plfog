@@ -115,6 +115,7 @@ STAFF_RECIPIENTS: frozenset[Recipients] = frozenset(
         Recipients.GUILD_ORIENTERS_OR_EQUIPMENT_MANAGERS,
         Recipients.CLASS_APPROVERS,
         Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS,
+        Recipients.GUILD_LEAD_OR_CLASS_APPROVERS,
         Recipients.SPACE_APPROVERS,
         Recipients.DISCOUNT_APPROVERS,
         Recipients.EVENTS_APPROVERS,
@@ -171,6 +172,7 @@ _GROUPS_BY_RECIPIENT: dict[Recipients, tuple[PermissionGroup, ...]] = {
     Recipients.WIKI_SCOPE_LEADERSHIP: (PermissionGroup.ADMIN, PermissionGroup.GUILD_LEADERSHIP),
     Recipients.CLASS_APPROVERS: (PermissionGroup.CLASS_APPROVER,),
     Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: (PermissionGroup.CLASS_APPROVER, PermissionGroup.GUILD_LEADERSHIP),
+    Recipients.GUILD_LEAD_OR_CLASS_APPROVERS: (PermissionGroup.CLASS_APPROVER, PermissionGroup.GUILD_LEADERSHIP),
     Recipients.BILLING_APPROVERS: (PermissionGroup.BILLING_APPROVER,),
     Recipients.WEBMASTERS: (PermissionGroup.WEBMASTER,),
     Recipients.EVENTS_APPROVERS: (PermissionGroup.EVENTS_APPROVER,),
@@ -559,6 +561,8 @@ def _eligible_for(recipient: Recipients, profile: _StaffProfile) -> bool:
         Recipients.CLASS_APPROVERS: cap.CLASS_APPROVER in caps,
         # A guild's lead and Class Reviewers (#816), not plain staff, or a CMS Administrator.
         Recipients.GUILD_LEADERSHIP_OR_CLASS_APPROVERS: profile.reviews_classes or cap.CLASS_APPROVER in caps,
+        # A guild's lead, or a CMS Administrator for a class with no lead (#1186).
+        Recipients.GUILD_LEAD_OR_CLASS_APPROVERS: profile.leads_guild or cap.CLASS_APPROVER in caps,
         Recipients.SPACE_APPROVERS: cap.SPACE_APPROVER in caps,
         Recipients.DISCOUNT_APPROVERS: cap.DISCOUNT_APPROVER in caps,
         Recipients.EVENTS_APPROVERS: cap.EVENTS_APPROVER in caps,

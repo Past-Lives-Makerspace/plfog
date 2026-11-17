@@ -46,6 +46,10 @@ def _outbox() -> None:
     mail.outbox = []
 
 
+# A request that asks a staff member to act; the digest counts it as one awaiting them.
+ASK = "instructor_application_received"
+
+
 def _member(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> Member:
     """An active member with a login and an email."""
     MembershipPlanFactory()
@@ -222,7 +226,7 @@ def describe_the_morning_subject():
     def it_counts_only_requests_as_action_needed_and_adds_the_updates() -> None:
         rows = [
             EventDelivery(event_key="new_member_joined", title="New member joined", url="/members/", period="a:1"),
-            EventDelivery(event_key="class_change_requested", title="Change", url="/b", period="x:1"),
+            EventDelivery(event_key=ASK, title="Ask", url="/b", period="x:1"),
         ]
         built = digest_context(rows)
         assert built["subject"] == "Action Needed: 1 Request Awaiting You, plus 1 Update"
@@ -241,15 +245,15 @@ def describe_the_morning_subject():
 
     def it_pluralizes_both_sides() -> None:
         rows = [
-            EventDelivery(event_key="class_change_requested", title="C1", url="/b", period="x:1"),
-            EventDelivery(event_key="class_change_requested", title="C2", url="/b", period="x:2"),
+            EventDelivery(event_key=ASK, title="C1", url="/b1", period="x:1"),
+            EventDelivery(event_key=ASK, title="C2", url="/b2", period="x:2"),
             EventDelivery(event_key="new_member_joined", title="N", url="/members/", period="signup:1"),
             EventDelivery(event_key="new_member_joined", title="N", url="/members/", period="signup:2"),
         ]
         assert digest_context(rows)["subject"] == "Action Needed: 2 Requests Awaiting You, plus 2 Updates"
 
     def it_keeps_the_plain_action_needed_wording_with_no_updates() -> None:
-        rows = [EventDelivery(event_key="class_change_requested", title="Change", url="/b", period="x:1")]
+        rows = [EventDelivery(event_key=ASK, title="Ask", url="/b", period="x:1")]
         built = digest_context(rows)
         assert built["subject"] == "Action Needed: 1 Request Awaiting You"
         assert cast("str", built["intro"]).startswith("Here is everything still waiting on you this morning.")
@@ -263,7 +267,7 @@ def describe_the_morning_order():
     def it_lists_every_request_section_before_any_update_section_in_arrival_order() -> None:
         rows = [
             EventDelivery(event_key="new_member_joined", title="N", url="/members/", period="signup:1"),
-            EventDelivery(event_key="class_change_requested", title="C", url="/b", period="x:1"),
+            EventDelivery(event_key=ASK, title="C", url="/b", period="x:1"),
             EventDelivery(event_key="equipment.reservation_made", title="E", url="/e/", period="reservation:1:made"),
             EventDelivery(event_key="space.lease_requested", title="S", url="/s#1", period="spacereq:1:submitted"),
             EventDelivery(event_key="new_member_joined", title="N2", url="/members/", period="signup:2"),
@@ -271,7 +275,7 @@ def describe_the_morning_order():
         sections = cast("list[dict[str, str]]", digest_context(rows)["sections"])
         labels = [section["label"] for section in sections]
         assert labels == [
-            get_event("class_change_requested").label,
+            get_event(ASK).label,
             get_event("space.lease_requested").label,
             get_event("new_member_joined").label,
             get_event("equipment.reservation_made").label,
@@ -300,9 +304,11 @@ def describe_a_line_queued_before_its_event_went_instant():
 
     def it_sends_the_leftover_as_an_update_beside_a_real_request() -> None:
         admin = _member("leftover_admin", fog_role=Member.FogRole.ADMIN)
-        _email_on(admin, "class_change_requested")
+        _email_on(admin, ASK)
+        applicant = _member("leftover_applicant")
+        Member.objects.filter(pk=applicant.pk).update(teaching_applied_at=timezone.now())
         _queued(admin, LEFTOVER, title="Alex Doe registered for Pottery", url="/classes/pottery/", period="reg:7:a")
-        _queued(admin, "class_change_requested", title="Change to Pottery", url="/b", period="x:1")
+        _queued(admin, ASK, title="Change to Pottery", url="/b", period=f"member:{applicant.pk}:applied")
 
         (digest,) = _morning(_user(admin).email)
 
@@ -331,6 +337,6 @@ def describe_a_line_queued_before_its_event_went_instant():
         assert resolvers.is_always_included(LEFTOVER)
 
     def it_still_fails_loudly_for_a_digest_event_with_no_check() -> None:
-        checks = {key: check for key, check in resolvers._OPEN_CHECKS.items() if key != "class_change_requested"}
+        checks = {key: check for key, check in resolvers._OPEN_CHECKS.items() if key != ASK}
         with patch.dict(resolvers._OPEN_CHECKS, checks, clear=True), pytest.raises(KeyError):
-            resolvers.open_request_urls("class_change_requested", [])
+            resolvers.open_request_urls(ASK, [])

@@ -194,7 +194,7 @@ def describe_submit_to_eventbrite_checks_as_you_type():
 
         [email] = [message for message in mail.outbox if "was not listed on Eventbrite" in message.subject]
         html = email.alternatives[0][0]
-        assert "Request a Change" in html
+        assert "dates included" in html
         if CAPTURE_725:
             page.set_content(html)
             page.screenshot(path=str(SHOTS / "725-eventbrite-rules-04.png"), full_page=True)
