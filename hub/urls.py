@@ -822,6 +822,11 @@ urlpatterns = [
     path("settings/discord/connect/", discord_views.discord_connect, name="hub_discord_connect"),
     path("settings/discord/callback/", discord_views.discord_callback, name="hub_discord_callback"),
     path("settings/discord/disconnect/", discord_views.discord_disconnect, name="hub_discord_disconnect"),
+    path(
+        "settings/discord/reconnect/dismiss/",
+        discord_views.discord_reconnect_dismiss,
+        name="hub_discord_reconnect_dismiss",
+    ),
     # Anon-allowed low-friction link (posted in Discord): click once → linked + guilds set up.
     path("discord/link/", discord_views.discord_link_start, name="hub_discord_link_start"),
     path("discord/link/callback/", discord_views.discord_link_callback, name="hub_discord_link_callback"),

@@ -684,6 +684,23 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="permission_granted_context",
     ),
     GalleryEmail(
+        key="discord_reconnect",
+        name="Reconnect Discord",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent once per member by manage.py nudge_discord_reconnect --send to an Active member whose "
+            "Discord is linked but who is not on the server (#1239). Reconnect Discord starts the connect "
+            "flow, which adds them with their roles."
+        ),
+        edit_pointer=_tpl("membership/emails", "discord_reconnect"),
+        audience="The member linked to Discord but missing from the server.",
+        event_keys=frozenset({"membership.discord_reconnect"}),
+        text_template="membership/emails/discord_reconnect.txt",
+        html_template="membership/emails/discord_reconnect.html",
+        context_builder="discord_reconnect_context",
+    ),
+    GalleryEmail(
         key="guild_invite",
         name="Invited to join a guild",
         section="Guilds & Orientations",

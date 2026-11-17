@@ -1194,6 +1194,16 @@ def guild_invite_context(data: SampleData) -> dict[str, Any]:
     }
 
 
+def discord_reconnect_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``membership.discord_reconnect.notify_nudged``: the sample member is linked but off the server."""
+    from membership import discord_reconnect
+
+    return {
+        "subject": discord_reconnect.SUBJECT,
+        "template_context": discord_reconnect.email_context(data.member),
+    }
+
+
 def cubby_waitlist_opened_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``membership.cubby_waitlist.notify_opened``: B3 on the Glaze Wall opened, and the sample member was first in line."""
     from membership import cubby_waitlist

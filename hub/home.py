@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 from django.urls import reverse
 from django.utils import timezone
 
-from membership.models import CalendarEvent, CommunityEvent, GuildAnnouncement
+from membership.models import CalendarEvent, CommunityEvent, DiscordReconnectNudge, GuildAnnouncement
 from polls.models import EmailPoll, PollCard
 from tours.models import TourBooking
 
@@ -154,7 +154,9 @@ def build_home_context(member: Member) -> dict[str, Any]:
     gate (built ONCE here, not re-derived per property in the template), and ``home_poll``,
     the open poll's card (#925), None while no poll is open. ``needs_attention_polls`` (#1142) are
     the open polls from Email Members sent to the member that they have not answered, in one query, and
-    ``tour_requests`` (#1213) the member's own tour requests still waiting on them as guide, in one more. All business logic lives on
+    ``tour_requests`` (#1213) the member's own tour requests still waiting on them as guide, in one more;
+    ``discord_reconnect`` (#1239) is whether they have an open Reconnect Discord nudge, in one more.
+    All business logic lives on
     ``membership`` and ``polls`` managers/props; this only fetches, normalizes, sorts, and caps.
     """
     return {
@@ -169,6 +171,7 @@ def build_home_context(member: Member) -> dict[str, Any]:
         "home_poll": PollCard.open_for(member, timezone.now()),
         "needs_attention_polls": list(EmailPoll.objects.awaiting_answer(member, timezone.now())),
         "tour_requests": list(TourBooking.objects.awaiting_guide(member, timezone.now())),
+        "discord_reconnect": DiscordReconnectNudge.objects.open_for(member).exists(),
     }
 
 

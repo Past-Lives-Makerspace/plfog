@@ -98,8 +98,8 @@
 {% include "hub/partials/_onboarding_checklist.html" %}
 {% endif %}
 
-{# --- Needs Attention (#1142, #1213): unanswered Email Members polls and the guide's own tour requests, each its own group; omitted when both are empty --- #}
-{% if needs_attention_polls or tour_requests %}
+{# --- Needs Attention (#1142, #1213, #1239): unanswered Email Members polls, the guide's own tour requests and a Reconnect Discord nudge, each its own group; omitted when all are empty --- #}
+{% if needs_attention_polls or tour_requests or discord_reconnect %}
 <section class="hub-card pl-home-block" data-block="needs-attention" data-guidance-target="home.email-polls">
     <h2 class="pl-home-heading">Needs Attention</h2>
     {% if needs_attention_polls %}
@@ -141,6 +141,29 @@
             </li>
             {% endwith %}
             {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+    {% if discord_reconnect %}
+    {# Reconnect Discord (#1239): linked before #1138 but not on the server. Dismiss removes this group, or the whole card when it is the only one. #}
+    <div class="pl-home-group" data-needs-attention-discord data-guidance-target="home.discord-reconnect">
+        <h3 class="pl-home-subheading">Reconnect Discord</h3>
+        <ul class="pl-teaching">
+            <li class="pl-teaching__row">
+                <span class="pl-teaching__body">
+                    <span class="pl-teaching__title">You're not on the Past Lives Discord yet</span>
+                    <span class="pl-teaching__note hub-text-muted">Your Discord is linked, but you never joined the server. Reconnect once and we'll add you with your roles.</span>
+                </span>
+                <span class="pl-btn-row">
+                    <a href="{% url 'hub_discord_connect' %}" class="pl-btn pl-btn--primary pl-btn--sm" hx-boost="false" data-discord-reconnect-home>Reconnect Discord</a>
+                    <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" data-discord-reconnect-dismiss
+                            hx-post="{% url 'hub_discord_reconnect_dismiss' %}"
+                            hx-target="{% if needs_attention_polls or tour_requests %}closest .pl-home-group{% else %}closest section{% endif %}"
+                            hx-swap="outerHTML"
+                            hx-disabled-elt="this"
+                            hx-on::response-error="window.dispatchEvent(new CustomEvent('show-toast', {detail: {message: 'Could not dismiss. Please try again.', type: 'error'}}))">Dismiss</button>
+                </span>
+            </li>
         </ul>
     </div>
     {% endif %}

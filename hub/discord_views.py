@@ -32,6 +32,8 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from core.events import discord_oauth
+from hub.toast import trigger_toast
+from membership.models import DiscordReconnectNudge
 from hub.views import _get_member
 
 # Salt for the logged-in flow's signed ``state``, so no other signed value in the app passes for one.
@@ -134,6 +136,22 @@ def discord_disconnect(request: HttpRequest) -> HttpResponse:
     member.unlink_discord()
     messages.success(request, "Your Discord account has been disconnected.")
     return redirect(_notifications_url())
+
+
+@login_required
+@require_POST
+def discord_reconnect_dismiss(request: HttpRequest) -> HttpResponse:
+    """Dismiss Home's Reconnect Discord item for good (#1239; HTMX, empty 200 + toast).
+
+    The empty **200** body lets the item's ``hx-swap="outerHTML"`` remove it, as the Get started
+    checklist's dismiss does; a 204 would run no swap. The toast names where to connect later.
+    """
+    member = _get_member(request)
+    if member is not None:
+        DiscordReconnectNudge.objects.dismiss_for(member)
+    response = HttpResponse("")
+    trigger_toast(response, "Got it. You can reconnect Discord any time in Settings, under Notifications.", "info")
+    return response
 
 
 def discord_link_start(request: HttpRequest) -> HttpResponse:
