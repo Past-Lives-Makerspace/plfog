@@ -1,0 +1,9 @@
+bump = "patch"
+date = "2026-11-17"
+audience = ["members"]
+feature = "home.spotlight"
+guidance = "none"
+title = "Spotlight messages start somewhere new"
+changes = [
+  "The Spotlight messages across the top of Home now start on a different message when you load the page, so the same one is not always first.",
+]
