@@ -30,6 +30,7 @@
         </ul>
         {% endif %}
         <p class="pl-compose-section__note">To move a date, remove it and add the new one. Dates that already happened stay as they are.</p>
+        <link rel="stylesheet" href="{% static 'css/session-calendar.css' %}">
         {% include "classes/_components/session_calendar.html" %}
     {% elif form.flexible_starts_on %}
         <div class="pl-date-window">

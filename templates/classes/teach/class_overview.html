@@ -178,7 +178,7 @@ an admin reading a queue wants the glance.{% endcomment %}
             <span class="pl-sale-note" data-take-down-pointer>People are signed up, so use Cancel class to take it down. Cancel class tells them.</span>
         {% else %}
             {% url 'classes:teach_class_unpublish' pk=offering.pk as take_down_url %}
-            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="$dispatch('open-confirm', 'take-down-class')">Take Out of Catalog</button>
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" data-guidance-target="classes.take-out-of-catalog" @click="$dispatch('open-confirm', 'take-down-class')">Take Out of Catalog</button>
             {% include "components/confirm_modal.html" with confirm_id="take-down-class" confirm_title="Take this class out of the catalog?" confirm_message="It goes back to a draft and leaves the catalog straight away. Nobody is signed up, so nobody is emailed. To put it back, submit it for review again." confirm_action_url=take_down_url confirm_button_text="Take Out of Catalog" confirm_button_style="primary" %}
         {% endif %}
     {% endif %}
