@@ -1,0 +1,14 @@
+bump = "minor"
+date = "2026-11-17"
+audience = ["members"]
+feature = "home.discord-reconnect"
+guidance = "shots"
+target = "home.discord-reconnect"
+title = "A nudge to join the Discord server"
+changes = [
+  "If your Discord is linked but you never landed on the Past Lives server, Home now shows Reconnect Discord under Needs Attention, and we email you too.",
+  "Tap Reconnect Discord, approve on Discord, and we add you to the server with your roles. Rather not? Tap Dismiss.",
+]
+
+[[shots]]
+caption = "Under Needs Attention on Home, tap Reconnect Discord."

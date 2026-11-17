@@ -1,0 +1,6 @@
+{% extends "membership/emails/notification_shell.html" %}{% comment %}membership.discord_reconnect (#1239): the member linked Discord before #1138 and never landed on the server. Reconnect Discord starts the connect flow, which adds them with their roles. Sent once per nudge by nudge_discord_reconnect --send. Context from membership.discord_reconnect.email_context.{% endcomment %}{% block content %}
+<h1 style="margin: 0 0 14px; font-size: 24px; line-height: 1.25; color: #092E4C;">{{ headline }}</h1>
+<p style="margin: 0 0 20px;">Hi {{ first_name }}, your Discord is linked to the Member Portal, but you're not on the <a href="{{ reconnect_url }}" style="color: #092E4C; font-weight: 700;">Past Lives Discord server</a> yet. Reconnect once and we'll add you with your roles.</p>
+<p style="margin: 0 0 24px; text-align: center;"><a href="{{ reconnect_url }}" style="display: inline-block; padding: 13px 26px; border-radius: 8px; background: #EEB44B; color: #092E4C; font-weight: 700; text-decoration: none;">Reconnect Discord</a></p>
+<p style="margin: 0; font-size: 14px; color: #5B6B77;">Discord asks you to approve once, then sends you back to the portal. Rather skip it? Dismiss the Reconnect Discord item on your Home page.</p>
+{% endblock %}

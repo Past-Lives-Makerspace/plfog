@@ -580,6 +580,7 @@ TOUR_CALENDAR_UNREAD = "tour.calendar_unread"  # your Google Calendar could not 
 GUILD_NEEDS_ATTENTION = "guild.needs_attention"  # a guild breaks a Needs attention rule (#953)
 GUILD_STAFF_WELCOME = "guild_staff.welcome"  # you were made a guild lead or staff: your tools and the rules (#1076)
 GUILD_INVITED = "guild.invited"  # a guild's lead, staff or an admin invited you to join it (#1137)
+MEMBERSHIP_DISCORD_RECONNECT = "membership.discord_reconnect"  # linked but off the server: reconnect (#1239)
 PERMISSION_GRANTED = "permission.granted"  # an admin turned on a permission for you: what it does and where (#1163)
 POLLS_EMAIL_POLL_LIVE = "polls.email_poll_live"  # a poll from Email Members went live, with your link (#1142)
 POLLS_EMAIL_POLL_REMINDER = "polls.email_poll_reminder"  # a poll you have not answered closes soon (#1142)
@@ -1890,6 +1891,19 @@ _NEW_EVENTS: list[EventType] = [
         category="Membership",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_FORCED),
+        activity_kind=None,
+    ),
+    # A Reconnect Discord nudge (#1239): the member linked Discord before #1138 and never landed on
+    # the server. Sent once per nudge by manage.py nudge_discord_reconnect --send (membership.
+    # discord_reconnect) with the membership/emails/discord_reconnect.{txt,html} body; the bell and
+    # the email's button start the connect flow. Both switchable, like an invite.
+    EventType(
+        key=MEMBERSHIP_DISCORD_RECONNECT,
+        label="Reconnect Discord",
+        description="You linked Discord but are not on the Past Lives server yet. Reconnect to join it.",
+        category="Membership",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
     # A guild invite (#1137): the guild's lead, staff or an admin asked you to join. Bell and email

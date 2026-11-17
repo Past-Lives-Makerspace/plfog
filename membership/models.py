@@ -10071,6 +10071,69 @@ class DiscordRemoval(models.Model):
         return True
 
 
+class DiscordReconnectNudgeQuerySet(models.QuerySet["DiscordReconnectNudge"]):
+    """Query helpers for :class:`DiscordReconnectNudge`."""
+
+    def open(self) -> DiscordReconnectNudgeQuerySet:
+        """Nudges the member has neither acted on nor dismissed."""
+        return self.filter(status=DiscordReconnectNudge.Status.OPEN)
+
+    def open_for(self, member: Member) -> DiscordReconnectNudgeQuerySet:
+        """The member's open nudge, if they have one (at most one row)."""
+        return self.open().filter(member=member)
+
+    def dismiss_for(self, member: Member) -> int:
+        """Close the member's open nudge as dismissed (Home's Dismiss). How many closed, 0 or 1."""
+        return self.open_for(member).update(status=DiscordReconnectNudge.Status.DISMISSED, closed_at=timezone.now())
+
+    def close_for(self, member: Member) -> int:
+        """Close the member's open nudge as done: they reconnected and are on the server. How many closed, 0 or 1."""
+        return self.open_for(member).update(status=DiscordReconnectNudge.Status.DONE, closed_at=timezone.now())
+
+
+class DiscordReconnectNudge(models.Model):
+    """One member asked to reconnect Discord because they are linked but not on the server (#1239).
+
+    Before #1138 Connect Discord saved the link without adding anyone to the server, and joining
+    needs the member's own ``guilds.join`` token, which only a new connect obtains. The
+    ``nudge_discord_reconnect`` command opens one row per such member (``membership.discord_reconnect``)
+    and tells them once by bell and email. The row is the member's whole history: one per member,
+    ever, so no later run nudges them again, whether it is still open, dismissed or done. Home's
+    Needs Attention shows a Reconnect Discord item while it is open; Dismiss closes it as dismissed,
+    and a connect that puts them on the server (``put_on_server``) closes it as done.
+    """
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        DISMISSED = "dismissed", "Dismissed"
+        DONE = "done", "Done"
+
+    member = models.OneToOneField(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="discord_reconnect_nudge",
+        help_text="The member asked to reconnect. One nudge per member, ever.",
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.OPEN,
+        help_text="Open while it shows on Home; Dismissed when the member closed it; Done once they reconnected and joined the server.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the nudge was sent.")
+    closed_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the member dismissed it or reconnected. Empty while open."
+    )
+
+    objects = DiscordReconnectNudgeQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+
+    def __str__(self) -> str:
+        return f"Discord reconnect nudge for {self.member} ({self.get_status_display()})"
+
+
 class SkillCategory(models.Model):
     """A grouping of related skills shown in the skills picker and directory filter."""
 
