@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from django.conf import settings
 
-from core.events.registry import Recipients
+from core.events.registry import EmailDelivery, Recipients, get_event
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -964,12 +964,32 @@ _OPEN_CHECKS: dict[str, OpenCheckFn] = {
 }
 
 
+def is_leftover(event_key: str) -> bool:
+    """Whether ``event_key``'s queued digest rows outlived its digest: the event now emails at once.
+
+    Rows queued before an event moved from the 8 AM digest to instant (the admins' class
+    registration notice, 2026-11-17) still sit PENDING until the next morning. They go out
+    then as plain updates, so nobody misses what happened before the deploy.
+    """
+    return get_event(event_key).email_delivery is not EmailDelivery.DIGEST
+
+
+def _open_check(event_key: str) -> OpenCheckFn:
+    """``event_key``'s still-open check; a leftover row (:func:`is_leftover`) is always included.
+
+    Raises ``KeyError`` for a digest event with no registered check (a registry wiring error).
+    """
+    if event_key not in _OPEN_CHECKS and is_leftover(event_key):
+        return always_open
+    return _OPEN_CHECKS[event_key]
+
+
 def open_request_urls(event_key: str, rows: list[EventDelivery]) -> set[str]:
     """Which of ``rows`` (queued digest lines for ``event_key``) ask about a still-open request, by link.
 
-    Raises ``KeyError`` for an event with no registered check (a registry wiring error).
+    Raises ``KeyError`` for a digest event with no registered check (a registry wiring error).
     """
-    return _OPEN_CHECKS[event_key](rows)
+    return _open_check(event_key)(rows)
 
 
 def is_always_included(event_key: str) -> bool:
@@ -977,9 +997,9 @@ def is_always_included(event_key: str) -> bool:
 
     Such a request never repeats (no Remind lead), and its link need not be unique to it: a
     class change request links to the class's edit page, which every request on that class
-    shares. The morning email gives each of these rows its own line.
+    shares. The morning email gives each of these rows its own line. So does a leftover row.
     """
-    return _OPEN_CHECKS[event_key] is always_open
+    return _open_check(event_key) is always_open
 
 
 def has_open_check(event_key: str) -> bool:

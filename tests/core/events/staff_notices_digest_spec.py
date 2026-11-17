@@ -276,3 +276,61 @@ def describe_the_morning_order():
             get_event("new_member_joined").label,
             get_event("equipment.reservation_made").label,
         ]
+
+
+def _queued(member: Member, event_key: str, *, title: str, url: str, period: str) -> EventDelivery:
+    """A PENDING 8 AM line for ``member``, as the digest adapter stores one."""
+    return EventDelivery.objects.create(
+        event_key=event_key,
+        target_ref=f"user:{_user(member).pk}",
+        channel=Channel.DIGEST.value,
+        period=period,
+        status=EventDelivery.Status.PENDING,
+        title=title,
+        body="",
+        url=url,
+    )
+
+
+def describe_a_line_queued_before_its_event_went_instant():
+    """Felix made the Admins' registration notice instant on 2026-11-17; prod still held
+    PENDING digest lines for it. They go out once more as updates, and nothing breaks."""
+
+    LEFTOVER = "class_registration_admin_notice"
+
+    def it_sends_the_leftover_as_an_update_beside_a_real_request() -> None:
+        admin = _member("leftover_admin", fog_role=Member.FogRole.ADMIN)
+        _email_on(admin, "class_change_requested")
+        _queued(admin, LEFTOVER, title="Alex Doe registered for Pottery", url="/classes/pottery/", period="reg:7:a")
+        _queued(admin, "class_change_requested", title="Change to Pottery", url="/b", period="x:1")
+
+        (digest,) = _morning(_user(admin).email)
+
+        assert digest.subject == "Action Needed: 1 Request Awaiting You, plus 1 Update"
+        assert "Change to Pottery" in digest.body
+        assert "Alex Doe registered for Pottery" in digest.body
+        assert digest.body.index("Change to Pottery") < digest.body.index("Alex Doe registered for Pottery")
+        assert set(EventDelivery.objects.filter(channel=Channel.DIGEST.value).values_list("status", flat=True)) == {
+            EventDelivery.Status.SENT
+        }
+
+    def it_calls_a_morning_of_only_leftovers_updates() -> None:
+        admin = _member("leftover_admin2", fog_role=Member.FogRole.ADMIN)
+        _queued(admin, LEFTOVER, title="Alex Doe registered for Pottery", url="/classes/pottery/", period="reg:7:a")
+        _queued(admin, LEFTOVER, title="Sam Park registered for Pottery", url="/classes/pottery/", period="reg:8:a")
+
+        (digest,) = _morning(_user(admin).email)
+
+        assert digest.subject == "2 Updates Since the Last Email"
+        assert "Sam Park registered for Pottery" in digest.body
+
+    def it_includes_every_leftover_line_and_never_judges_it_decided() -> None:
+        rows = [EventDelivery(event_key=LEFTOVER, url="/c/", period="reg:1:a")]
+        assert resolvers.is_leftover(LEFTOVER)
+        assert resolvers.open_request_urls(LEFTOVER, rows) == {"/c/"}
+        assert resolvers.is_always_included(LEFTOVER)
+
+    def it_still_fails_loudly_for_a_digest_event_with_no_check() -> None:
+        checks = {key: check for key, check in resolvers._OPEN_CHECKS.items() if key != "class_change_requested"}
+        with patch.dict(resolvers._OPEN_CHECKS, checks, clear=True), pytest.raises(KeyError):
+            resolvers.open_request_urls("class_change_requested", [])
