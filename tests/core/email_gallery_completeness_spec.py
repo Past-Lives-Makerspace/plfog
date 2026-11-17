@@ -62,6 +62,8 @@ EXPECTED_PAIRS = {
     "wiki_guild_digest",
     "wiki_page_archived",
     "wiki_proposal_declined",
+    # kiln (#1228)
+    "kiln_use_report",
     # billing
     "charge_failed_admin",
     "receipt",

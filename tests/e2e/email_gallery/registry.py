@@ -840,6 +840,23 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         html_template="membership/emails/wiki_guild_digest.html",
         context_builder="wiki_guild_digest_context",
     ),
+    GalleryEmail(
+        key="kiln_use_report",
+        name="Kiln Use Overview (monthly)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent on the 1st of the month to the Ceramics Guild's lead and staff: last month's bisque and "
+            "glaze runs, pieces fired, and kiln space in cubic inches per maker, clay and glaze. A month "
+            "with no firings gets no email at all."
+        ),
+        edit_pointer=_tpl("kiln/emails", "kiln_use_report"),
+        audience="The kiln crew: the Ceramics Guild's lead and staff.",
+        event_keys=frozenset({"kiln.use_report_monthly"}),
+        text_template="kiln/emails/kiln_use_report.txt",
+        html_template="kiln/emails/kiln_use_report.html",
+        context_builder="kiln_use_report_context",
+    ),
     # --- Facility tours (#948) -----------------------------------------------
     GalleryEmail(
         key="tour_visitor_confirmed",
@@ -1313,6 +1330,7 @@ _TEMPLATE_DIRS: tuple[str, ...] = (
     "templates/billing/email",
     "templates/account/email",
     "templates/tours/emails",
+    "templates/kiln/emails",
 )
 
 _ALLAUTH_MESSAGE_SUFFIX = "_message"
