@@ -108,7 +108,7 @@ class Command(BaseCommand):
         results: dict[str, int],
     ) -> None:
         # The portal owns a member's preferred name once they exist: Airtable rarely carries one, and
-        # writing its blank back cleared every name a member set in Settings (Xylo, 2026-11-17).
+        # writing its blank back cleared every name a member set in Settings (2026-11-17).
         update_kwargs = {k: v for k, v in django_kwargs.items() if k != "preferred_name"}
         existing = model.objects.filter(airtable_record_id=record_id).first()  # type: ignore[attr-defined]  # dynamic model arg
         if existing:

@@ -73,34 +73,32 @@ def describe_upsert_member():
         assert existing.airtable_record_id == "recMATCH"
 
     def it_keeps_a_preferred_name_set_in_the_portal_when_airtable_has_none():
-        existing = MemberFactory(
-            airtable_record_id="recXYLO", full_legal_name="Nicholas Bradberry", preferred_name="Xylo"
-        )
+        existing = MemberFactory(airtable_record_id="recWREN", full_legal_name="Quinn Ashdown", preferred_name="Wren")
         results = {"created": 0, "updated": 0, "skipped": 0}
 
         Command()._upsert_member(
             model=Member,
-            record_id="recXYLO",
-            django_kwargs={"full_legal_name": "Nicholas Bradberry", "preferred_name": "", "notes": "pulled"},
+            record_id="recWREN",
+            django_kwargs={"full_legal_name": "Quinn Ashdown", "preferred_name": "", "notes": "pulled"},
             default_plan=MembershipPlanFactory(),
             dry_run=False,
             results=results,
         )
 
         existing.refresh_from_db()
-        assert (existing.preferred_name, existing.notes) == ("Xylo", "pulled")
+        assert (existing.preferred_name, existing.notes) == ("Wren", "pulled")
 
     def it_keeps_the_preferred_name_when_it_matches_by_email():
-        existing = MemberFactory(_pre_signup_email="xylo@example.com", preferred_name="Xylo")
+        existing = MemberFactory(_pre_signup_email="wren@example.com", preferred_name="Wren")
         results = {"created": 0, "updated": 0, "skipped": 0}
 
         Command()._upsert_member(
             model=Member,
             record_id="recBYEMAIL",
             django_kwargs={
-                "full_legal_name": "Nicholas Bradberry",
+                "full_legal_name": "Quinn Ashdown",
                 "preferred_name": "",
-                "_pre_signup_email": "xylo@example.com",
+                "_pre_signup_email": "wren@example.com",
             },
             default_plan=MembershipPlanFactory(),
             dry_run=False,
@@ -108,7 +106,7 @@ def describe_upsert_member():
         )
 
         existing.refresh_from_db()
-        assert (existing.preferred_name, existing.full_legal_name) == ("Xylo", "Nicholas Bradberry")
+        assert (existing.preferred_name, existing.full_legal_name) == ("Wren", "Quinn Ashdown")
 
     def it_takes_the_preferred_name_from_airtable_for_a_new_member():
         results = {"created": 0, "updated": 0, "skipped": 0}
