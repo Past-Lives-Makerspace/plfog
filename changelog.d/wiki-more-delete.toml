@@ -1,0 +1,20 @@
+bump = "minor"
+date = "2026-11-17"
+audience = ["members", "guild-staff", "admins"]
+feature = "wiki.home"
+guidance = "shots"
+target = "wiki.more"
+title = "Wiki pages can be deleted, and More has every page action"
+changes = [
+  "A wiki page's More menu now has Add a Photo, Add a Tip, Still accurate and Report a Problem, on phones too.",
+  "Guild leaders and admins can delete a wiki page for good from More, after a confirm. Archive is still there.",
+]
+
+[[shots]]
+caption = "Open a wiki page and press More to add a photo or a tip, mark it Still accurate or Report a Problem."
+
+[[shots]]
+caption = "Guild leaders and admins find Delete at the bottom of More."
+
+[[shots]]
+caption = "Press Delete Page to delete the page for good. Archive is still there if you would rather keep it."

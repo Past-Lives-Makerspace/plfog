@@ -2168,6 +2168,7 @@ class SiteActivity(models.Model):
         WIKI_PAGE_VERIFIED = "wiki_page_verified", "Wiki page verified"
         WIKI_PAGE_REPORTED = "wiki_page_reported", "Wiki page reported"
         WIKI_PAGE_ARCHIVED = "wiki_page_archived", "Wiki page archived"
+        WIKI_PAGE_DELETED = "wiki_page_deleted", "Wiki page deleted"
         WIKI_PAGE_REVERTED = "wiki_page_reverted", "Wiki page reverted"
 
     actor = models.ForeignKey(
@@ -2407,6 +2408,7 @@ SITE_ACTIVITY_CATEGORIES: dict[str, tuple[str, tuple[SiteActivity.Kind, ...]]] =
             _Kind.WIKI_PAGE_VERIFIED,
             _Kind.WIKI_PAGE_REPORTED,
             _Kind.WIKI_PAGE_ARCHIVED,
+            _Kind.WIKI_PAGE_DELETED,
             _Kind.WIKI_PAGE_REVERTED,
         ),
     ),

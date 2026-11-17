@@ -1,0 +1,7 @@
+{% comment %}
+The Delete confirmation (Felix, 2026-11-17), opened from the Delete item in both More menus
+and from the tombstone's Delete button. A plain confirm, no typed word: Felix asked us to
+stop being afraid of Delete.
+{% endcomment %}
+{% url 'hub_wiki_delete' page.slug as delete_url %}
+{% include "components/confirm_modal.html" with confirm_id="wiki-delete" confirm_title="Delete this page?" confirm_message="The page is gone for good, with its history, photos, files and reports. Its link and any printed QR sticker stop working. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete Page" %}
