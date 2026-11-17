@@ -154,7 +154,8 @@ def describe_the_button():
         body = page.locator("#whats-new-body")
         expect(body.locator('[data-whats-new-entry="e2e-cubbies"]')).to_be_visible()
         expect(page.locator("#whats-new-title")).to_have_text("What's New · Guilds")
-        expect(body.locator('[data-whats-new-tab="members"]')).to_contain_text("(1)")
+        # A plain member sees For Members alone, so the modal draws no tab row.
+        expect(body.locator("[data-whats-new-tab]")).to_have_count(0)
         expect(body.locator('[data-whats-new-entry="e2e-recon"]')).to_have_count(0)
 
         # The body marked the entry seen, so the button settled on the click and stays still after the modal closes.

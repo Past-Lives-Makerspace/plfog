@@ -21,8 +21,13 @@ from core.whats_new import PAGE_SIZE
 from hub.context_processors import hub_sidebar
 from hub.view_as import SESSION_ROLE_KEY, ROLE_GUEST, ROLE_MEMBER, ViewAs, compute_actual_roles
 from hub.whats_new_views import hub_whats_new, hub_whats_new_seen
-from membership.models import Member
-from tests.membership.factories import GuildFactory, GuildMembershipFactory, MembershipPlanFactory
+from membership.models import AdminCapability, Member
+from tests.membership.factories import (
+    GuildFactory,
+    GuildMembershipFactory,
+    GuildStaffMembershipFactory,
+    MembershipPlanFactory,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -139,7 +144,7 @@ def describe_hub_whats_new():
 
     def it_answers_an_htmx_request_with_the_body_alone(client: Client, changelog):
         changelog([_entry("fresh")])
-        _login(client)
+        _login(client, fog_role=Member.FogRole.ADMIN)
         body = _body(client)
         assert "<html" not in body
         assert body.count("data-whats-new-tab=") == 4
@@ -169,7 +174,7 @@ def describe_hub_whats_new():
 
     def it_copies_the_tab_links_htmx_attributes_onto_the_phone_picker(client: Client, changelog):
         changelog([_entry("fresh")])
-        _login(client)
+        _login(client, fog_role=Member.FogRole.ADMIN)
         body = _body(client)
         picker = body[body.index('<nav class="pl-tab-picker__menu"') :]
         assert picker.count('hx-target="#whats-new-body"') == 4
@@ -180,18 +185,49 @@ def describe_hub_whats_new():
         def _tab_keys(body: str) -> list[str]:
             return re.findall(r'data-whats-new-tab="([a-z-]+)"', body)
 
-        @pytest.mark.parametrize("fields", [{}, {"fog_role": Member.FogRole.ADMIN}])
-        def it_draws_the_four_tabs_in_order_to_a_member_with_no_roles_and_to_an_admin(
-            client: Client, changelog, fields
-        ):
-            # Every tab shows to everyone (#1007's rule, kept for #1052); roles decide only Open it and unseen.
+        def it_draws_the_four_tabs_in_order_to_an_admin(client: Client, changelog):
+            # An admin sees every tab, For Instructors included, though no admin audience rolls up to it.
             changelog([_entry("fresh")])
-            _login(client, **fields)
+            _login(client, fog_role=Member.FogRole.ADMIN)
             body = _body(client)
             assert _tab_keys(body) == ["members", "instructors", "guild-staff", "admins"]
             row = body[: body.index('<div class="pl-wn-pane"')]
             assert row.index(">For Members<") < row.index(">For Instructors<") < row.index(">For Guild Staff<")
             assert row.index(">For Guild Staff<") < row.index(">For Admins<")
+
+        def it_draws_no_tab_row_for_a_plain_member_who_sees_for_members_alone(client: Client, changelog):
+            # A row of one tab says nothing; the modal is For Members alone (Felix, hide what they cannot use).
+            changelog([_entry("fresh"), _entry("staff", audiences=("guild-staff",))])
+            _login(client)
+            body = _body(client)
+            assert _tab_keys(body) == []
+            assert "pl-wn-tabs" not in body and "pl-tab-picker" not in body
+            assert 'data-whats-new-pane="members"' in body and 'data-whats-new-entry="fresh"' in body
+
+        def it_adds_for_instructors_for_an_instructor(client: Client, changelog):
+            changelog([_entry("fresh")])
+            _login(client, instructor_slug="ada")
+            assert _tab_keys(_body(client)) == ["members", "instructors"]
+
+        def it_adds_for_guild_staff_for_a_member_on_a_guilds_staff(client: Client, changelog):
+            changelog([_entry("fresh")])
+            member = _login(client)
+            GuildStaffMembershipFactory(member=member)
+            assert _tab_keys(_body(client)) == ["members", "guild-staff"]
+
+        def it_adds_for_admins_for_a_member_holding_an_admin_capability(client: Client, changelog):
+            changelog([_entry("fresh")])
+            member = _login(client)
+            AdminCapability.objects.create(member=member, capability=AdminCapability.Capability.BILLING_APPROVER)
+            assert _tab_keys(_body(client)) == ["members", "admins"]
+
+        def it_shows_an_admin_previewing_as_a_member_what_a_member_sees(client: Client, changelog):
+            changelog([_entry("fresh")])
+            _login(client, fog_role=Member.FogRole.ADMIN)
+            _preview(client, ROLE_MEMBER)
+            body = _body(client, "?tab=admins")
+            assert _tab_keys(body) == []
+            assert 'data-whats-new-pane="members"' in body
 
         def it_opens_on_instructors_for_an_instructor_with_an_unseen_instructor_entry(client: Client, changelog):
             changelog([_entry("teaching", audiences=("instructors",)), _entry("members", audiences=("members",))])
@@ -214,14 +250,22 @@ def describe_hub_whats_new():
 
         def it_honours_the_query_and_falls_back_on_an_unknown_one(client: Client, changelog):
             changelog([_entry("fresh")])
-            _login(client)
+            _login(client, fog_role=Member.FogRole.ADMIN)
             assert 'data-whats-new-pane="admins"' in _body(client, "?tab=admins")
             assert 'data-whats-new-pane="members"' in _body(client, "?tab=everyone")
+
+        def it_falls_back_to_the_default_tab_on_a_tab_the_viewer_does_not_see(client: Client, changelog):
+            changelog([_entry("teaching", audiences=("instructors",)), _entry("for-admins", audiences=("admins",))])
+            _login(client, instructor_slug="ada")
+            body = _body(client, "?tab=admins")
+            assert 'data-whats-new-pane="instructors"' in body  # the default: their first tab with something unseen
+            assert 'data-whats-new-entry="for-admins"' not in body and 'data-whats-new-tab="admins"' not in body
 
     def describe_seen():
         def it_marks_every_entry_the_shown_page_listed_and_no_other(client: Client, changelog):
             changelog([_entry("a"), _entry("b", days_ago=1), _entry("staff", audiences=("guild-staff",))])
             member = _login(client)
+            GuildFactory(guild_lead=member)
             _body(client)
             assert Member.objects.get(pk=member.pk).whats_new_seen == ["a", "b"]
             _body(client, "?tab=guild-staff")
@@ -323,7 +367,7 @@ def describe_hub_whats_new():
                     _entry("tools", feature="admin.tools", audiences=("admins",)),
                 ]
             )
-            _login(client)
+            _login(client, fog_role=Member.FogRole.ADMIN)
             body = _body(client, "?feature=guild")
             assert 'data-whats-new-entry="cubbies"' in body and 'data-whats-new-entry="voting"' in body
             assert 'data-whats-new-entry="tools"' not in body
@@ -336,14 +380,20 @@ def describe_hub_whats_new():
         def it_lands_on_a_tab_that_has_an_entry_for_a_feature_whose_entries_are_for_instructors(
             client: Client, changelog
         ):
-            # Email Members' button for a member who is not an instructor: nothing unseen, so the first tab with
+            # Email Members' button for an admin who is not an instructor: nothing unseen, so the first tab with
             # anything of the feature's, which is For Instructors since #1052, not an empty For Members.
             changelog([_entry("past-students", feature="admin.email-members", audiences=("instructors",))])
-            _login(client)
+            _login(client, fog_role=Member.FogRole.ADMIN)
             html = _body(client, "?feature=admin.email-members")
             assert 'data-whats-new-pane="instructors"' in html and 'data-whats-new-entry="past-students"' in html
             assert "For Instructors (1)" in html and ">For Members<" in html
-            assert "data-whats-new-open" not in html  # listed for everyone, opened only by an instructor
+            assert "data-whats-new-open" not in html  # an admin sees the tab; only an instructor opens it
+            # A plain member never sees For Instructors, so the button lands on their one tab, empty.
+            other = Client()
+            _login(other, "plain")
+            html = _body(other, "?feature=admin.email-members")
+            assert 'data-whats-new-pane="members"' in html and "data-whats-new-empty" in html
+            assert 'data-whats-new-entry="past-students"' not in html
 
         def it_refuses_a_key_that_is_neither_registered_nor_an_area_of_one(client: Client):
             _login(client)
@@ -554,7 +604,7 @@ def describe_the_body():
 
     def it_draws_a_chip_for_a_finer_audience_on_its_tab(client: Client, changelog):
         changelog([_entry("leads", audiences=("members", "guild-leads"))])
-        _login(client)
+        _login(client, fog_role=Member.FogRole.ADMIN)
         assert '<span class="pl-wn-chip" data-whats-new-chip>Guild Leads</span>' in _body(client, "?tab=guild-staff")
         assert "data-whats-new-chip" not in _body(client, "?tab=members")
 
@@ -567,7 +617,7 @@ def describe_the_body():
                 _entry("send-once", audiences=("guild-staff", "instructors", "admins")),
             ]
         )
-        _login(client)
+        _login(client, fog_role=Member.FogRole.ADMIN)  # the one viewer who sees every tab
         members = _body(client, "?tab=members")
         assert 'data-whats-new-entry="both"' in members and 'data-whats-new-entry="past-students"' not in members
         instructors = _body(client, "?tab=instructors")
@@ -579,7 +629,7 @@ def describe_the_body():
 
     def it_hides_open_it_for_a_role_the_viewer_lacks_and_shows_it_for_one_they_hold(client: Client, changelog):
         changelog([_entry("staff", feature="guild.staff", guidance="link", audiences=("guild-leads",))])
-        _login(client, "plain")
+        _login(client, "admin", fog_role=Member.FogRole.ADMIN)  # sees For Guild Staff, leads no guild
         body = _body(client, "?tab=guild-staff")
         assert 'data-whats-new-entry="staff"' in body and "data-whats-new-open" not in body
         lead_client = Client()
@@ -591,7 +641,7 @@ def describe_the_body():
 
     def it_says_so_on_a_tab_with_nothing(client: Client, changelog):
         changelog([_entry("fresh")])
-        _login(client)
+        _login(client, fog_role=Member.FogRole.ADMIN)
         body = _body(client, "?tab=admins")
         assert "Nothing here for admins yet." in body
         assert "data-whats-new-entry" not in body and "data-whats-new-older" not in body
