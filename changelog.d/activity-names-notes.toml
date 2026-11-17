@@ -1,0 +1,8 @@
+bump = "patch"
+date = "2026-11-17"
+audience = ["admins"]
+title = "Site Activity says who and shows the note"
+changes = [
+  "Orientation rows in Site Activity name the member and the orientation, and show who acted instead of System.",
+  "A row that came with a note, like an orientation request or a declined space request, shows the note under it.",
+]

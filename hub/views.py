@@ -2281,7 +2281,7 @@ def guild_orientation_slot_cancel(request: HttpRequest, pk: int, slot_pk: int) -
         return forbidden
 
     slot = get_object_or_404(guild.orientation_slots, pk=slot_pk)
-    orientations.cancel_slot(slot, reason=request.POST.get("reason", ""))
+    orientations.cancel_slot(slot, reason=request.POST.get("reason", ""), actor=cast(User, request.user))
     messages.success(request, "Orientation slot cancelled.")
     return redirect(_guild_orientations_url(guild))
 
@@ -2314,7 +2314,7 @@ def guild_orientation_times_bulk_cancel(request: HttpRequest, pk: int) -> HttpRe
     form = OrientationTimesBulkCancelForm(request.POST)
     form.is_valid()  # clean() never refuses: it only sorts keys and drops what is not one
     cancelled, emailed = orientations.cancel_times(
-        guild, form.cleaned_data["slot_pks"], form.cleaned_data["window_pks"]
+        guild, form.cleaned_data["slot_pks"], form.cleaned_data["window_pks"], actor=cast(User, request.user)
     )
     if cancelled:
         messages.success(request, _bulk_cancel_message(cancelled, emailed))
@@ -3364,7 +3364,9 @@ def orientation_add_member(request: HttpRequest) -> HttpResponse:
         try:
             # by_staff: a staffer seating a member by hand is not the member booking their
             # own way around an unpaid late fee (#456), so that one guard stands aside.
-            orientations.request_orientation(form.cleaned_data["slot"], form.cleaned_data["member"], by_staff=True)
+            orientations.request_orientation(
+                form.cleaned_data["slot"], form.cleaned_data["member"], by_staff=True, actor=cast(User, request.user)
+            )
             messages.success(request, f"Added {form.cleaned_data['member'].display_name}. We emailed them.")
         except OrientationError as exc:
             messages.error(request, str(exc))

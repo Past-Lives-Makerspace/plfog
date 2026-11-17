@@ -45,6 +45,43 @@
     font-size: 0.875rem;
 }
 
+/* Activity Feed rows: the text column may shrink so a long headline or note wraps instead of
+   pushing the email badge off the card. A note a person attached sits under the headline in
+   muted type, two lines at most until More opens the rest in place. */
+.pl-activity-row__main,
+.pl-activity-row__text {
+    min-width: 0;
+}
+
+.pl-activity-row__text {
+    overflow-wrap: anywhere;
+}
+
+.pl-activity-note {
+    margin-top: 0.25rem;
+}
+
+.pl-activity-note__text {
+    font-size: 0.875rem;
+    white-space: pre-line;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+}
+
+.pl-activity-note__text--full {
+    display: block;
+    -webkit-line-clamp: unset;
+    line-clamp: unset;
+    overflow: visible;
+}
+
+.pl-activity-note__more {
+    margin-top: 0.25rem;
+}
+
 @media (max-width: 639px) {
     .pl-activity-filters__field,
     .pl-activity-filters__field--wide {
