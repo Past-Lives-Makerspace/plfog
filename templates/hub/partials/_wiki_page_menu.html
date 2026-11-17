@@ -8,7 +8,7 @@ with gloves on.
 <a href="{% url 'hub_wiki_edit' page.slug %}" class="pl-row-menu__item" role="menuitem"
    @click="closeAndRefocus()">Edit</a>
 {% endif %}
-{% include "hub/partials/_wiki_page_member_menu.html" %}
+{% include "hub/partials/_wiki_page_member_menu.html" with report_item_id="wiki-report-item-bar" %}
 <button type="button" class="pl-row-menu__item" role="menuitem"
         @click="closeAndRefocus()" onclick="window.print()">Print / Save PDF</button>
 {% comment %}

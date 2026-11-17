@@ -23888,8 +23888,12 @@ class WikiPage(StaffRequestMixin, models.Model):
             self.delete()
 
             def _remove_files() -> None:
+                # One storage error must not leave the rest behind: each file is tried on its own.
                 for name in file_names:
-                    delete_if_unreferenced(WikiAttachment, "file", name)
+                    try:
+                        delete_if_unreferenced(WikiAttachment, "file", name)
+                    except Exception:
+                        logger.exception("Could not remove wiki attachment file %s after deleting its page", name)
 
             transaction.on_commit(_remove_files, robust=True)
 

@@ -86,7 +86,7 @@ def describe_the_reading_page_header():
         user.member.save()
         page = WikiPageFactory(title="Ripping Boards")
         header = _header(client, page)
-        assert 'class="pl-wp-actions__more">' in header
+        assert 'class="pl-wp-actions__more" data-guidance-target="wiki.more">' in header
         assert "Print / Save PDF" in _more_menu(header)
 
 
@@ -147,3 +147,29 @@ def describe_the_member_actions_in_the_more_menu():
         menu = _more_menu(_header(client, page))
         for label in ("Add a Photo", "Add a Tip", ">Still accurate<", "Report a Problem"):
             assert label not in menu
+
+
+def describe_filing_a_report_updates_the_more_menus():
+    def it_swaps_both_report_items_away_out_of_band(client: Client):
+        from django.urls import reverse
+
+        _login(client, "more_oob")
+        page = WikiPageFactory(title="Ripping Boards")
+        response = client.post(
+            reverse("hub_wiki_report", args=[page.slug]),
+            {"reason": "The fence step is backwards."},
+            HTTP_HX_REQUEST="true",
+        )
+        html = response.content.decode()
+        for item_id in ("wiki-report-item", "wiki-report-item-bar"):
+            fragment = html.split(f'<div id="{item_id}"', 1)[1].split("</div>", 1)[0]
+            assert 'hx-swap-oob="true"' in fragment
+            assert "Report a Problem" not in fragment
+
+    def it_renders_each_menus_item_under_its_own_id(client: Client):
+        _login(client, "more_ids")
+        page = WikiPageFactory(title="Ripping Boards")
+        html = client.get(page.get_absolute_url()).content.decode()
+        for item_id in ("wiki-report-item", "wiki-report-item-bar"):
+            fragment = html.split(f'<div id="{item_id}" role="none">', 1)[1].split("</div>", 1)[0]
+            assert ">Report a Problem</button>" in fragment

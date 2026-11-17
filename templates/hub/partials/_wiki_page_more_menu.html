@@ -8,7 +8,7 @@ The member and staff items are the same partials the phone menu includes, so the
 widths cannot drift. Rendered inside components/row_actions.html, which supplies
 closeAndRefocus().
 {% endcomment %}
-{% include "hub/partials/_wiki_page_member_menu.html" %}
+{% include "hub/partials/_wiki_page_member_menu.html" with report_item_id="wiki-report-item" %}
 <button type="button" class="pl-row-menu__item" role="menuitem"
         @click="closeAndRefocus()" onclick="window.print()">Print / Save PDF</button>
 {% include "hub/partials/_wiki_moderation_menu.html" %}

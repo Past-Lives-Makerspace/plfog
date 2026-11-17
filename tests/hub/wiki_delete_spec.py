@@ -134,6 +134,29 @@ def describe_what_goes_with_the_page():
             page.delete_page(by=MemberFactory())
         assert default_storage.exists(name)
 
+    def it_keeps_removing_files_after_one_storage_error(db, django_capture_on_commit_callbacks, monkeypatch, caplog):
+        import membership.models as membership_models
+
+        page = WikiPageFactory()
+        first = WikiAttachmentFactory(page=page, as_file=True).file.name
+        second = WikiAttachmentFactory(page=page, as_file=True).file.name
+        real = membership_models.delete_if_unreferenced
+        tried: list[str] = []
+
+        def flaky(model, field_name, name, **kwargs):
+            tried.append(name)
+            if name == first:
+                raise OSError("storage is down")
+            return real(model, field_name, name, **kwargs)
+
+        monkeypatch.setattr(membership_models, "delete_if_unreferenced", flaky)
+        with django_capture_on_commit_callbacks(execute=True):
+            page.delete_page(by=MemberFactory())
+        assert sorted(tried) == sorted([first, second])
+        assert default_storage.exists(first)
+        assert not default_storage.exists(second)
+        assert f"Could not remove wiki attachment file {first}" in caplog.text
+
 
 def describe_the_wanted_rows_it_answered():
     def it_puts_an_answered_ask_back_on_the_list_unclaimed(db):
