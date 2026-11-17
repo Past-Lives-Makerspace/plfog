@@ -2,6 +2,8 @@
 
 A ``Section`` column tells the rows apart (Totals, Member, Clay, Glaze), so a spreadsheet can
 filter one out. Cubic inches are whole numbers with no separators, so they sum as numbers.
+``Share`` is a member's or a clay's percent of all kiln use, as on the page; glazes have none,
+since a piece counts under each of its glazes.
 Maker, clay and glaze names are typed by people, so every one goes through
 ``_neutralise_formula`` (CSV injection).
 """
@@ -16,11 +18,12 @@ from typing import TYPE_CHECKING
 from django.http import HttpResponse
 
 from classes.exports import _neutralise_formula
+from kiln.reports import percent
 
 if TYPE_CHECKING:
     from kiln.services import KilnUseReport, KilnUseRow
 
-KILN_USE_CSV_HEADERS = ["Section", "Name", "Count", "Pieces", "Cubic inches"]
+KILN_USE_CSV_HEADERS = ["Section", "Name", "Count", "Pieces", "Cubic inches", "Share"]
 
 
 def _cubic_inches(value: Decimal) -> str:
@@ -30,19 +33,29 @@ def _cubic_inches(value: Decimal) -> str:
 
 def kiln_use_rows(report: KilnUseReport) -> Iterator[list[str]]:
     """The report as CSV rows under :data:`KILN_USE_CSV_HEADERS`, totals first (zeros for an empty period)."""
-    yield ["Totals", "Bisque runs", str(report.bisque_runs), "", ""]
-    yield ["Totals", "Glaze runs", str(report.glaze_runs), "", ""]
-    yield ["Totals", "Pieces fired", str(report.pieces_fired), "", ""]
-    yield ["Totals", "Tickets with a size missing", str(report.unmeasured_tickets), "", ""]
+    total = report.cubic_inches
+    yield ["Totals", "Bisque runs", str(report.bisque_runs), "", "", ""]
+    yield ["Totals", "Glaze runs", str(report.glaze_runs), "", "", ""]
+    yield ["Totals", "Pieces fired", str(report.pieces_fired), "", "", ""]
+    yield ["Totals", "Kiln use", "", "", _cubic_inches(total), ""]
+    yield ["Totals", "Tickets with a size missing", str(report.unmeasured_tickets), "", "", ""]
     for row in report.makers:
-        yield ["Member", _neutralise_formula(row.name), "", str(row.pieces), _cubic_inches(row.cubic_inches)]
-    yield from _use_rows("Clay", report.clays)
-    yield from _use_rows("Glaze", report.glazes)
+        yield [
+            "Member",
+            _neutralise_formula(row.name),
+            "",
+            str(row.pieces),
+            _cubic_inches(row.cubic_inches),
+            _share(row, total),
+        ]
+    for row in report.clays:
+        yield ["Clay", _neutralise_formula(row.name), "", "", _cubic_inches(row.cubic_inches), _share(row, total)]
+    for row in report.glazes:
+        yield ["Glaze", _neutralise_formula(row.name), "", "", _cubic_inches(row.cubic_inches), ""]
 
 
-def _use_rows(section: str, rows: tuple[KilnUseRow, ...]) -> Iterator[list[str]]:
-    for row in rows:
-        yield [section, _neutralise_formula(row.name), "", "", _cubic_inches(row.cubic_inches)]
+def _share(row: KilnUseRow, total: Decimal) -> str:
+    return f"{percent(row.cubic_inches, total)}%"
 
 
 def kiln_use_csv(report: KilnUseReport) -> HttpResponse:

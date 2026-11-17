@@ -208,11 +208,12 @@ def describe_an_empty_period():
     def it_still_downloads_a_CSV_with_the_totals_at_zero(crew_client):
         rows = _csv_rows(crew_client.get(CSV))
         assert rows == [
-            ["Section", "Name", "Count", "Pieces", "Cubic inches"],
-            ["Totals", "Bisque runs", "0", "", ""],
-            ["Totals", "Glaze runs", "0", "", ""],
-            ["Totals", "Pieces fired", "0", "", ""],
-            ["Totals", "Tickets with a size missing", "0", "", ""],
+            ["Section", "Name", "Count", "Pieces", "Cubic inches", "Share"],
+            ["Totals", "Bisque runs", "0", "", "", ""],
+            ["Totals", "Glaze runs", "0", "", "", ""],
+            ["Totals", "Pieces fired", "0", "", "", ""],
+            ["Totals", "Kiln use", "", "", "0", ""],
+            ["Totals", "Tickets with a size missing", "0", "", "", ""],
         ]
 
     def it_returns_the_same_report_as_the_email_service_when_there_were_firings():
@@ -239,8 +240,11 @@ def describe_the_page():
         html = crew_client.get(REPORTS).content.decode()
         assert 'data-total="bisque">1<' in html
         assert 'data-total="pieces">2<' in html
-        assert 'class="pl-members-table pl-kiln-report__table" data-kiln-report-table="makers"' in html
+        assert 'data-total="kiln_use">48<' in html
+        assert '<table class="pl-report-rank" data-kiln-report-table="makers">' in html
         assert 'data-kiln-report-table="clays"' in html
+        assert "data-kiln-report-split" in html
+        assert 'data-tip-value="48 in³" data-tip-name="Ana Potter" data-tip-more="2 pieces · 100% of kiln use"' in html
         assert "Ana Potter" in html
         assert "Buff" in html
 
@@ -277,19 +281,20 @@ def describe_the_csv():
             glaze_commercial=True,
         )
         rows = _csv_rows(crew_client.get(CSV))
-        assert ["Totals", "Glaze runs", "1", "", ""] in rows
-        assert ["Totals", "Pieces fired", "50", "", ""] in rows
-        assert ["Member", "Ana Potter", "", "50", "1200"] in rows
-        assert ["Clay", "Buff", "", "", "1200"] in rows
-        assert ["Glaze", "Commercial", "", "", "1200"] in rows
+        assert ["Totals", "Glaze runs", "1", "", "", ""] in rows
+        assert ["Totals", "Pieces fired", "50", "", "", ""] in rows
+        assert ["Totals", "Kiln use", "", "", "1200", ""] in rows
+        assert ["Member", "Ana Potter", "", "50", "1200", "100%"] in rows
+        assert ["Clay", "Buff", "", "", "1200", "100%"] in rows
+        assert ["Glaze", "Commercial", "", "", "1200", ""] in rows
 
     @pytest.mark.parametrize("lead", ["=", "+", "-", "@"])
     def it_neutralises_a_name_a_spreadsheet_would_run(crew_client, lead):
         clay = ClayOptionFactory(name=f"{lead}Clay")
         _fired(_firing(unloaded_at=_at(date(2026, 2, 3))), maker=MemberFactory(full_legal_name=f"{lead}cmd"), clay=clay)
         rows = _csv_rows(crew_client.get(CSV))
-        assert ["Member", f"'{lead}cmd", "", "1", "24"] in rows
-        assert ["Clay", f"'{lead}Clay", "", "", "24"] in rows
+        assert ["Member", f"'{lead}cmd", "", "1", "24", "100%"] in rows
+        assert ["Clay", f"'{lead}Clay", "", "", "24", "100%"] in rows
 
 
 def describe_the_print_page():
@@ -299,10 +304,15 @@ def describe_the_print_page():
         html = response.content.decode()
         assert response.templates[0].name == "kiln/report_print.html"
         assert "hub/base.html" not in [t.name for t in response.templates]
-        assert "Past Lives Ceramics Guild, Kiln Use Overview" in html
+        assert "Past Lives Makerspace · Ceramics Guild" in html
+        assert "Kiln Use Report" in html
         assert "February 2026" in html
+        assert "compared with January 2026" in html
         assert "data-kiln-report-totals" in html
-        assert "kiln-report-print.css" in html
+        assert "css/reports" in html
+        assert "window.print()" in html
+        assert "data-tip-value" not in html
+        assert "Printed March 2, 2026" in html
 
     def it_prints_a_range(crew_client):
         html = crew_client.get(PRINT, {"start": "2026-02-01", "end": "2026-02-14"}).content.decode()

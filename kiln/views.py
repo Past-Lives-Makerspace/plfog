@@ -10,10 +10,12 @@ from django.contrib.auth.decorators import login_required
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from core.htmx import wants_fragment
 from kiln.exports import kiln_use_csv
+from kiln.reports import kiln_report_page
 from kiln.access import KilnNav, can_run_kiln, crew_required, kiln_home_url, kiln_open_required, maker_required
 from kiln.forms import (
     ACTION_COVER,
@@ -556,10 +558,13 @@ def _back_to_reports(request: HttpRequest) -> HttpResponse:
 def reports(request: HttpRequest) -> HttpResponse:
     """Reports: the Kiln Use Overview for last month, any other month, or a From and To range."""
     form = _report_form(request)
-    report = kiln_use_period(*form.window) if form.is_valid() else None
+    page = kiln_report_page(kiln_use_period(*form.window)) if form.is_valid() else None
     context = {
         "form": form,
-        "report": report,
+        "page": page,
+        "report": page.report if page else None,
+        "previous_month": form.step(-1),
+        "next_month": form.step(1),
         "query": request.GET.urlencode(),
         "kiln_tab": "reports",
         **_crew_tabs(),
@@ -586,7 +591,10 @@ def reports_print(request: HttpRequest) -> HttpResponse:
     form = _report_form(request)
     if not form.is_valid():
         return _back_to_reports(request)
-    return render(request, "kiln/report_print.html", {"report": kiln_use_period(*form.window)})
+    page = kiln_report_page(kiln_use_period(*form.window))
+    return render(
+        request, "kiln/report_print.html", {"page": page, "report": page.report, "printed_on": timezone.localdate()}
+    )
 
 
 # ---- the crew's lists ------------------------------------------------------------------

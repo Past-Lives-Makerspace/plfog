@@ -3,27 +3,55 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kiln Use Overview, {{ report.period_label }} · Past Lives</title>
-<link rel="stylesheet" href="{% static 'css/kiln-report-print.css' %}">
+<title>Kiln Use Report, {{ report.period_label }} · Past Lives</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'css/reports.css' %}">
 </head>
-<body class="pl-kiln-print-body">
-
-{# The Reports tab's print layout (#1234): one light Letter page for the browser to print or save as a PDF, like the flyers. No site navigation. #}
-<header class="pl-kiln-print-toolbar no-print">
-  <button type="button" class="pl-kiln-print-btn" onclick="window.print()">Print / Save as PDF</button>
-  <p class="pl-kiln-print-toolbar__hint">Use your browser's Print dialog and choose “Save as PDF” to keep a file.</p>
-</header>
-
-<main class="pl-kiln-print" data-kiln-report-print-page>
-  <h1 class="pl-kiln-print__title">Past Lives Ceramics Guild, Kiln Use Overview</h1>
-  <p class="pl-kiln-print__period" data-kiln-report-period><strong>{{ report.period_label }}</strong>{% if report.is_whole_month %} · {{ report.dates_label }}{% endif %}</p>
+<body class="pl-report-print-body">
+{% comment %}
+The Reports tab's Print / Save as PDF (#1234, report standard): one forced light Letter sheet, no site navigation, no
+buttons or tooltips. The same tiles, split and lists as the tab. It opens the print dialog on load.
+{% endcomment %}
+{% include "kiln/partials/_report_icons.html" %}
+<main class="pl-report-sheet pl-report" data-kiln-report-print-page>
+  <header class="pl-report-sheet__top">
+    <div><div class="pl-report-sheet__org">Past Lives Makerspace · Ceramics Guild</div><h1 class="pl-report-sheet__title">Kiln Use Report</h1></div>
+    <div class="pl-report-sheet__period" data-kiln-report-period><strong>{{ report.period_label }}</strong>{% if report.is_whole_month %}{{ report.dates_label }} · {% endif %}compared with {{ page.compared_with }}</div>
+  </header>
   {% if report.has_firings %}
-  {% include "kiln/partials/_kiln_use_report.html" %}
+  {% include "kiln/partials/_report_tiles.html" %}
+  <section class="pl-report-sheet__section">
+    <h2 class="pl-report-sheet__h pl-report-sheet__h--plain">Bisque and Glaze Runs</h2>
+    {% include "kiln/partials/_report_split.html" with print=True %}
+  </section>
+  <div class="pl-report-sheet__cols">
+    <section class="pl-report-sheet__section pl-report--accent">
+      <h2 class="pl-report-sheet__h">{{ page.makers.title }}</h2>
+      <p class="pl-report-sheet__sub">{{ page.makers.sub }}</p>
+      {% if page.makers.rows %}{% include "kiln/partials/_report_rank.html" with rank=page.makers print=True %}{% endif %}
+    </section>
+    <div>
+      <section class="pl-report-sheet__section pl-report--1">
+        <h2 class="pl-report-sheet__h">{{ page.clays.title }}</h2>
+        <p class="pl-report-sheet__sub">{{ page.clays.sub }}</p>
+        {% if page.clays.rows %}{% include "kiln/partials/_report_rank.html" with rank=page.clays print=True %}{% endif %}
+      </section>
+      <section class="pl-report-sheet__section pl-report--2">
+        <h2 class="pl-report-sheet__h">{{ page.glazes.title }}</h2>
+        <p class="pl-report-sheet__sub">{{ page.glazes.sub }}</p>
+        {% if page.glazes.rows %}{% include "kiln/partials/_report_rank.html" with rank=page.glazes print=True %}{% endif %}
+      </section>
+    </div>
+  </div>
   {% else %}
-  <p class="pl-kiln-report__note" data-kiln-report-empty>No firings were unloaded in {{ report.period_label }}.</p>
+  <div class="pl-report-empty" data-kiln-report-empty>
+    <span class="pl-report-empty__icon"><svg class="pl-report-ico" aria-hidden="true"><use href="#rep-i-kiln"/></svg></span>
+    <h2 class="pl-report-empty__title">No Firings in {{ report.period_label }}</h2>
+    <p>No firings were unloaded in {{ report.period_label }}.</p>
+  </div>
   {% endif %}
-  <footer class="pl-kiln-print__footer">Past Lives Makerspace · Portland, OR</footer>
+  <footer class="pl-report-sheet__foot"><span>Kiln use is height × width × length × pieces, in cubic inches.</span><span>Printed {{ printed_on|date:"F j, Y" }}</span></footer>
 </main>
-
+<script>window.addEventListener("load", function () { window.print(); });</script>
 </body>
 </html>

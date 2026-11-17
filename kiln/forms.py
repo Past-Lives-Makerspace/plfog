@@ -571,6 +571,7 @@ class ReportPeriodForm(forms.Form):
         self.today = today if today is not None else timezone.localdate()
         month_field = cast("forms.ChoiceField", self.fields["month"])
         month_field.choices = [(_month_value(m), f"{m:%B %Y}") for m in months]
+        self.month_values = {_month_value(m) for m in months}
 
     @property
     def last_month(self) -> date:
@@ -589,6 +590,13 @@ class ReportPeriodForm(forms.Form):
         if self.is_bound and self.is_valid() and self.cleaned_data["month"]:
             return str(self.cleaned_data["month"])
         return _month_value(self.last_month)
+
+    def step(self, months: int) -> str:
+        """The picker's month ``months`` away (-1 for ‹, 1 for ›), or "" when it is not on the list."""
+        month = date.fromisoformat(f"{self.month_value}-01")
+        index = month.year * 12 + month.month - 1 + months
+        value = _month_value(date(index // 12, index % 12 + 1, 1))
+        return value if value in self.month_values else ""
 
     def clean(self) -> dict[str, Any]:
         cleaned = super().clean() or {}

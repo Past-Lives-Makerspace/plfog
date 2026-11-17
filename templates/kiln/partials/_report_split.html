@@ -1,0 +1,11 @@
+{% comment %}
+The bisque and glaze split bar (#1234, report standard): a segment per kind sized by its runs (the one inline value,
+--pl-grow), then the legend. A kind with no runs has no segment but stays in the legend. Expects page; print leaves
+out the tooltip data and the tab stops.
+{% endcomment %}
+<div class="pl-report-split__bar" role="img" aria-label="{% for part in page.split %}{{ part.name }} {{ part.runs }} run{{ part.runs|pluralize }}{% if not forloop.last %}, {% endif %}{% endfor %}" data-kiln-report-split>
+    {% for part in page.split %}{% if part.runs %}<span class="pl-report-split__seg pl-report--{{ part.slot }}" style="--pl-grow: {{ part.runs }}"{% if not print %} tabindex="0" data-tip-value="{{ part.runs }} run{{ part.runs|pluralize }}" data-tip-name="{{ part.name }}" data-tip-more="{{ part.share }}% of {{ page.total_runs }} firing{{ page.total_runs|pluralize }}"{% endif %}></span>{% endif %}{% endfor %}
+</div>
+<ul class="pl-report-split__legend">
+    {% for part in page.split %}<li class="pl-report-split__key pl-report--{{ part.slot }}"><strong>{{ part.name }}</strong> {{ part.runs }} run{{ part.runs|pluralize }} <span>{{ part.share }}%</span></li>{% endfor %}
+</ul>

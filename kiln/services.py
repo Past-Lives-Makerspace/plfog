@@ -996,6 +996,11 @@ class KilnUseReport:
         return f"{first.isoformat()}-to-{self.last_day.isoformat()}"
 
     @property
+    def cubic_inches(self) -> Decimal:
+        """All the period's kiln use: every maker's cubic inches (each ticket counts once, under its maker)."""
+        return sum((row.cubic_inches for row in self.makers), Decimal(0))
+
+    @property
     def has_firings(self) -> bool:
         """Whether any firing was unloaded in it (a report from :func:`kiln_use_period` may be all zeros)."""
         return bool(self.bisque_runs or self.glaze_runs)
