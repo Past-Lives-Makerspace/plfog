@@ -93,6 +93,7 @@ _BRAND_NEW_KEYS = {
     "kiln.maker_replied",
     "kiln.ready_for_pickup",
     "kiln.ticket_deleted",
+    "kiln.use_report_monthly",
     "tour.booked",
     "tour.visitor_changed",
     "tour.visitor_update",

@@ -1,0 +1,35 @@
+{% extends "membership/emails/notification_shell.html" %}{% comment %}kiln.use_report_monthly (#1228), the kiln crew's monthly Kiln Use Overview, in the branded notification shell. Context from kiln.services.kiln_use_email_context.{% endcomment %}{% block content %}
+<p style="margin: 0 0 6px; font-size: 13px; color: #5B6B77; text-transform: uppercase; letter-spacing: 0.06em;"><a href="{{ guild_url }}" style="color: #5B6B77; text-decoration: none;">Past Lives Ceramics Guild</a></p>
+<h1 style="margin: 0 0 6px; font-size: 24px; line-height: 1.25; color: #092E4C;">Kiln Use Overview</h1>
+<p style="margin: 0 0 24px; font-size: 15px; color: #33424F;"><strong>{{ report.month_label }}</strong><br><span style="color: #5B6B77;">{{ report.dates_label }}</span></p>
+
+<p style="margin: 0 0 8px; font-size: 12px; font-weight: 700; color: #092E4C; text-transform: uppercase; letter-spacing: 0.08em;">Total Kiln Use</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 24px; border: 1px solid #e3e7ec; border-radius: 10px; font-size: 14px; line-height: 1.6;">
+  <tr><td style="padding: 10px 16px; border-bottom: 1px solid #e3e7ec;">Bisque runs</td><td style="padding: 10px 16px; border-bottom: 1px solid #e3e7ec; text-align: right; font-weight: 700; color: #092E4C;">{{ report.bisque_runs }}</td></tr>
+  <tr><td style="padding: 10px 16px; border-bottom: 1px solid #e3e7ec;">Glaze runs</td><td style="padding: 10px 16px; border-bottom: 1px solid #e3e7ec; text-align: right; font-weight: 700; color: #092E4C;">{{ report.glaze_runs }}</td></tr>
+  <tr><td style="padding: 10px 16px;">Pieces fired</td><td style="padding: 10px 16px; text-align: right; font-weight: 700; color: #092E4C;">{{ report.pieces_fired }}</td></tr>
+</table>
+
+<p style="margin: 0 0 4px; font-size: 12px; font-weight: 700; color: #092E4C; text-transform: uppercase; letter-spacing: 0.08em;">Per Member</p>
+<p style="margin: 0 0 8px; font-size: 13px; color: #5B6B77;">Kiln use is height x width x length x pieces, in cubic inches.{% if report.unmeasured_tickets %} {{ report.unmeasured_tickets }} ticket{{ report.unmeasured_tickets|pluralize }} had a size missing: {% if report.unmeasured_tickets == 1 %}its{% else %}their{% endif %} pieces are counted, {% if report.unmeasured_tickets == 1 %}its{% else %}their{% endif %} kiln use is not.{% endif %}</p>
+{% if report.makers %}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 24px; border: 1px solid #e3e7ec; border-radius: 10px; font-size: 14px; line-height: 1.6;">
+  <tr><td style="padding: 8px 16px; border-bottom: 1px solid #e3e7ec; font-size: 12px; color: #5B6B77;">Maker</td><td style="padding: 8px 16px; border-bottom: 1px solid #e3e7ec; font-size: 12px; color: #5B6B77; text-align: right;">Pieces</td><td style="padding: 8px 16px; border-bottom: 1px solid #e3e7ec; font-size: 12px; color: #5B6B77; text-align: right;">Cubic inches</td></tr>
+  {% for row in report.makers %}<tr><td style="padding: 8px 16px;{% if not forloop.last %} border-bottom: 1px solid #e3e7ec;{% endif %}">{{ row.name }}</td><td style="padding: 8px 16px; text-align: right;{% if not forloop.last %} border-bottom: 1px solid #e3e7ec;{% endif %}">{{ row.pieces }}</td><td style="padding: 8px 16px; text-align: right; font-weight: 700; color: #092E4C;{% if not forloop.last %} border-bottom: 1px solid #e3e7ec;{% endif %}">{{ row.cubic_inches_label }}</td></tr>
+  {% endfor %}
+</table>{% else %}<p style="margin: 0 0 24px; font-size: 14px;">No pieces came out of these firings.</p>{% endif %}
+
+{% if report.clays %}<p style="margin: 0 0 8px; font-size: 12px; font-weight: 700; color: #092E4C; text-transform: uppercase; letter-spacing: 0.08em;">Clay Use</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 24px; border: 1px solid #e3e7ec; border-radius: 10px; font-size: 14px; line-height: 1.6;">
+  {% for row in report.clays %}<tr><td style="padding: 8px 16px;{% if not forloop.last %} border-bottom: 1px solid #e3e7ec;{% endif %}">{{ row.name }}</td><td style="padding: 8px 16px; text-align: right; font-weight: 700; color: #092E4C;{% if not forloop.last %} border-bottom: 1px solid #e3e7ec;{% endif %}">{{ row.cubic_inches_label }} cu in</td></tr>
+  {% endfor %}
+</table>{% endif %}
+
+{% if report.glazes %}<p style="margin: 0 0 4px; font-size: 12px; font-weight: 700; color: #092E4C; text-transform: uppercase; letter-spacing: 0.08em;">Glaze Use</p>
+<p style="margin: 0 0 8px; font-size: 13px; color: #5B6B77;">A piece with several glazes counts its whole kiln use under each one.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 24px; border: 1px solid #e3e7ec; border-radius: 10px; font-size: 14px; line-height: 1.6;">
+  {% for row in report.glazes %}<tr><td style="padding: 8px 16px;{% if not forloop.last %} border-bottom: 1px solid #e3e7ec;{% endif %}">{{ row.name }}</td><td style="padding: 8px 16px; text-align: right; font-weight: 700; color: #092E4C;{% if not forloop.last %} border-bottom: 1px solid #e3e7ec;{% endif %}">{{ row.cubic_inches_label }} cu in</td></tr>
+  {% endfor %}
+</table>{% endif %}
+
+<p style="margin: 8px 0 0; text-align: center;"><a href="{{ log_url }}" style="display: inline-block; padding: 13px 26px; border-radius: 8px; background: #EEB44B; color: #092E4C; font-weight: 700; text-decoration: none;">Open the Kiln Log</a></p>
+{% endblock %}

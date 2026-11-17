@@ -330,6 +330,13 @@ class KilnTicket(models.Model):
         return f"{text} each" if self.piece_count > 1 else text
 
     @property
+    def kiln_use(self) -> Decimal | None:
+        """Cubic inches of kiln space: height x width x length x pieces; None while a size is blank."""
+        if self.height_in is None or self.width_in is None or self.length_in is None:
+            return None
+        return self.height_in * self.width_in * self.length_in * self.piece_count
+
+    @property
     def clay_label(self) -> str:
         """The clay as the maker answered it."""
         if self.clay_other:

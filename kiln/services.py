@@ -8,10 +8,13 @@ Tickets tab, or a guest's ``/kiln/``) and the crew's Unload, Kiln Log and firing
 
 from __future__ import annotations
 
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from datetime import datetime, timedelta
+from decimal import ROUND_HALF_UP, Decimal
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import transaction
@@ -907,3 +910,199 @@ def guild_kiln_home(
     if not runs_kiln and not kiln_is_open():
         return None
     return kiln_home(member, show_older=show_older, runs_kiln=runs_kiln, older_url=kiln_home_url(older=True))
+
+
+# ---- the monthly kiln use report (#1228) ---------------------------------------------
+
+# The rows that close the clay and glaze lists, after the list clays and studio glazes.
+OTHER_CLAY = "Other"
+NO_CLAY = "Not given"
+COMMERCIAL_GLAZE = "Commercial"
+SELF_MADE_GLAZE = "Self made or other"
+
+
+def cubic_inches_label(value: Decimal) -> str:
+    """Whole cubic inches with thousands separators: "1,536"."""
+    return f"{value.quantize(Decimal('1'), rounding=ROUND_HALF_UP):,}"
+
+
+@dataclass(frozen=True)
+class KilnUseRow:
+    """One line of the report: a maker, a clay or a glaze, with the kiln use summed under it."""
+
+    name: str
+    cubic_inches: Decimal
+    pieces: int = 0
+
+    @property
+    def cubic_inches_label(self) -> str:
+        return cubic_inches_label(self.cubic_inches)
+
+
+@dataclass(frozen=True)
+class KilnUseReport:
+    """A month of firings for the Ceramics Guild's Kiln Use Overview email.
+
+    A firing counts in the month it was unloaded and a ticket in the month it was fired;
+    unloading stamps both with the same moment, so a firing and its pieces land together.
+    """
+
+    month_start: datetime
+    month_end: datetime
+    bisque_runs: int
+    glaze_runs: int
+    pieces_fired: int
+    unmeasured_tickets: int
+    makers: tuple[KilnUseRow, ...]
+    clays: tuple[KilnUseRow, ...]
+    glazes: tuple[KilnUseRow, ...]
+
+    @property
+    def month_label(self) -> str:
+        """ "October 2026"."""
+        return f"{timezone.localdate(self.month_start):%B %Y}"
+
+    @property
+    def dates_label(self) -> str:
+        """The days it covers in Portland time: "October 1 to October 31, 2026"."""
+        first = timezone.localdate(self.month_start)
+        last = timezone.localdate(self.month_end) - timedelta(days=1)
+        return f"{first:%B} {first.day} to {last:%B} {last.day}, {last.year}"
+
+
+def _ticket_clay(ticket: KilnTicket) -> str:
+    """The clay row a ticket's kiln use goes under: the list clay's name, or Other for any Other clay."""
+    if ticket.clay_other:
+        return OTHER_CLAY
+    if ticket.clay is not None:
+        return ticket.clay.name
+    return NO_CLAY
+
+
+def _ticket_glazes(ticket: KilnTicket) -> list[str]:
+    """Every glaze row a ticket counts under: each studio glaze on it, then Commercial, then Self made."""
+    if ticket.firing_type != KilnTicket.FiringType.GLAZE:
+        return []
+    names: list[str] = []
+    if ticket.glaze_studio:
+        names.extend(glaze.name for glaze in ticket.studio_glazes.all())
+    if ticket.glaze_commercial:
+        names.append(COMMERCIAL_GLAZE)
+    if ticket.glaze_self_made:
+        names.append(SELF_MADE_GLAZE)
+    return names
+
+
+def _use_rows(use: dict[str, Decimal], *, last: tuple[str, ...]) -> tuple[KilnUseRow, ...]:
+    """Named rows largest first, then the catch-all rows in ``last`` (in that order) when they have use."""
+    named = sorted((name for name in use if name not in last), key=lambda name: (-use[name], name))
+    return tuple(KilnUseRow(name=name, cubic_inches=use[name]) for name in [*named, *(n for n in last if n in use)])
+
+
+def kiln_use_report(month_start: datetime, month_end: datetime) -> KilnUseReport | None:
+    """Sum one month of kiln use, or None when no firing was unloaded in it (nothing is sent).
+
+    Runs are the firings unloaded in ``[month_start, month_end)``; pieces are the tickets fired
+    in it. A piece sent back to the queue was never fired and a deleted ticket is gone, so
+    neither counts. A ticket's kiln use is :attr:`KilnTicket.kiln_use`; one with a blank size
+    adds its pieces and no volume and is counted in ``unmeasured_tickets``. A piece with several
+    glazes counts its whole kiln use under each one.
+
+    Args:
+        month_start: Inclusive start, project timezone (``previous_month_window``).
+        month_end: Exclusive end.
+
+    Returns:
+        The report, or None for a month with no firing unloaded.
+    """
+    runs = Counter(
+        KilnFiring.objects.filter(unloaded_at__gte=month_start, unloaded_at__lt=month_end).values_list(
+            "firing_type", flat=True
+        )
+    )
+    if not runs:
+        return None
+    tickets = (
+        KilnTicket.objects.filter(status=KilnTicket.Status.FIRED, fired_at__gte=month_start, fired_at__lt=month_end)
+        .select_related("maker__user", "clay")
+        .prefetch_related("studio_glazes", primary_emails("maker__user"))
+        .order_by("pk")
+    )
+    maker_names: dict[int, str] = {}
+    maker_pieces: Counter[int] = Counter()
+    maker_use: defaultdict[int, Decimal] = defaultdict(Decimal)
+    clay_use: defaultdict[str, Decimal] = defaultdict(Decimal)
+    glaze_use: defaultdict[str, Decimal] = defaultdict(Decimal)
+    unmeasured = 0
+    for ticket in tickets:
+        use = ticket.kiln_use
+        if use is None:
+            unmeasured += 1
+            use = Decimal(0)
+        maker_names[ticket.maker_id] = member_name(ticket.maker)
+        maker_pieces[ticket.maker_id] += ticket.piece_count
+        maker_use[ticket.maker_id] += use
+        clay_use[_ticket_clay(ticket)] += use
+        for glaze in _ticket_glazes(ticket):
+            glaze_use[glaze] += use
+    makers = sorted(maker_names, key=lambda pk: (-maker_use[pk], -maker_pieces[pk], maker_names[pk]))
+    return KilnUseReport(
+        month_start=month_start,
+        month_end=month_end,
+        bisque_runs=runs[KilnTicket.FiringType.BISQUE],
+        glaze_runs=runs[KilnTicket.FiringType.GLAZE],
+        pieces_fired=sum(maker_pieces.values()),
+        unmeasured_tickets=unmeasured,
+        makers=tuple(
+            KilnUseRow(name=maker_names[pk], cubic_inches=maker_use[pk], pieces=maker_pieces[pk]) for pk in makers
+        ),
+        clays=_use_rows(clay_use, last=(OTHER_CLAY, NO_CLAY)),
+        glazes=_use_rows(glaze_use, last=(COMMERCIAL_GLAZE, SELF_MADE_GLAZE)),
+    )
+
+
+def _count(number: int, singular: str, plural: str) -> str:
+    return f"{number} {singular if number == 1 else plural}"
+
+
+def kiln_use_subject(report: KilnUseReport) -> str:
+    """ "Kiln Use Overview: October 2026"."""
+    return f"Kiln Use Overview: {report.month_label}"
+
+
+def kiln_use_in_app_body(report: KilnUseReport) -> str:
+    """The bell row: "October 2026: 3 bisque runs, 1 glaze run, 41 pieces fired."."""
+    runs = f"{_count(report.bisque_runs, 'bisque run', 'bisque runs')}, {_count(report.glaze_runs, 'glaze run', 'glaze runs')}"
+    return f"{report.month_label}: {runs}, {_count(report.pieces_fired, 'piece', 'pieces')} fired."
+
+
+def kiln_use_email_context(report: KilnUseReport) -> dict[str, Any]:
+    """What ``kiln/emails/kiln_use_report.{txt,html}`` render, with absolute links."""
+    return {
+        "report": report,
+        "guild_url": f"{settings.MEMBER_BASE_URL}{kiln_home_url()}",
+        "log_url": f"{settings.MEMBER_BASE_URL}{reverse('kiln:log')}",
+    }
+
+
+def send_kiln_use_report(report: KilnUseReport) -> None:
+    """Email and bell the kiln crew (the kiln guild's lead and staff) one month's report.
+
+    The period is the month, so a re-run, a manual Run now and a retry deliver nothing twice.
+    """
+    from core.events.registry import KILN_USE_REPORT_MONTHLY
+    from core.events.senders import emit_with_email_shell
+
+    context = kiln_use_email_context(report)
+    emit_with_email_shell(
+        KILN_USE_REPORT_MONTHLY,
+        context={},
+        subject=kiln_use_subject(report),
+        text_template="kiln/emails/kiln_use_report.txt",
+        html_template="kiln/emails/kiln_use_report.html",
+        template_context=context,
+        in_app_title="Kiln Use Overview",
+        in_app_body=kiln_use_in_app_body(report),
+        url=context["log_url"],
+        period=f"kiln-use:{timezone.localdate(report.month_start):%Y-%m}",
+    )
