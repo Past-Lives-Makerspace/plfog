@@ -41,6 +41,7 @@ STANDALONE_URL_NAMES: frozenset[str] = frozenset(
         "hub_event_flyer",
         "hub_guild_flyer",
         "hub_orientation_type_flyer",
+        "hub_wiki_flyer",
         "hub_wiki_stickers",
         "hub_orientation_action",
         "signage_player",
@@ -61,6 +62,7 @@ KNOWN_STANDALONE_TEMPLATES: frozenset[str] = frozenset(
         "hub/event_flyer.html",  # hub_event_flyer
         "hub/guild_flyer.html",  # hub_guild_flyer
         "hub/orientation_type_flyer.html",  # hub_orientation_type_flyer
+        "hub/wiki_flyer.html",  # hub_wiki_flyer
         "hub/wiki_sticker_sheet.html",  # hub_wiki_stickers
         "hub/orientation_action.html",  # hub_orientation_action, an emailed link, not linked with _blank
     }

@@ -672,6 +672,7 @@ urlpatterns = [
     path("wiki/p/<slug:slug>/tip/", wiki_views.hub_wiki_quick_tip, name="hub_wiki_quick_tip"),
     path("wiki/p/<slug:slug>/image/", wiki_views.hub_wiki_image_upload, name="hub_wiki_image_upload"),
     path("wiki/p/<slug:slug>/qr/", wiki_views.hub_wiki_qr_download, name="hub_wiki_qr_download"),
+    path("wiki/p/<slug:slug>/flyer/", wiki_views.hub_wiki_flyer, name="hub_wiki_flyer"),
     # --- Moderation (spec D). Everything hangs off the fixed ``p/`` segment except the
     # queue and the two report actions, whose top-level segments are already in
     # RESERVED_WIKI_SLUGS, so no page slug can ever shadow one.
