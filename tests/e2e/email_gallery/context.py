@@ -297,13 +297,6 @@ def staff_digest_updates_context(data: SampleData) -> dict[str, Any]:
             period="signup:1",
         ),
         EventDelivery(
-            event_key="class_registration_admin_notice",
-            title=f"Sam O'Brien registered for {data.offering.title}",
-            body="Confirmed, paid $45.00. 3 of 8 seats taken. sam@example.com",
-            url=f"/classes/{data.offering.slug}/",
-            period="reg:1:admin_notice",
-        ),
-        EventDelivery(
             event_key="equipment.reservation_made",
             title="New reservation on CNC Router",
             body="Robin Vale reserved CNC Router for Saturday, September 12, 2:00 PM to 4:00 PM.",

@@ -641,11 +641,7 @@ CLASS_REVIEW_EVENTS = frozenset({"class_review_requested"})
 # Lines that tell staff what already happened rather than ask them to act (#1184, #894 part 4).
 # A morning email holding only these says so in its subject and opening line, never "Action Needed".
 INSTRUCTOR_CODE_EVENTS = frozenset({"discount_code.instructor_made"})
-HEADS_UP_EVENTS = INSTRUCTOR_CODE_EVENTS | {
-    "new_member_joined",
-    "class_registration_admin_notice",
-    "equipment.reservation_made",
-}
+HEADS_UP_EVENTS = INSTRUCTOR_CODE_EVENTS | {"new_member_joined", "equipment.reservation_made"}
 
 
 _ACTION_INTRO = "Here is everything still waiting on you this morning. Anything someone already handled is left out."

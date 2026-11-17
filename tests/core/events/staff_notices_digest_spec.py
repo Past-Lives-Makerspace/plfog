@@ -1,9 +1,11 @@
-"""BDD specs for #894 part 4: three FYI staff notices wait for the 8 AM staff digest.
+"""BDD specs for #894 part 4: two FYI staff notices wait for the 8 AM staff digest.
 
-A new member signing up, a class registration (the Admins' copy) and an equipment booking
-tell staff what already happened; nothing decides them. Their email now waits for the 8 AM
-digest, one line per signup, registration or booking under the event's own heading, and
-every queued line goes out. The bell, push and the #reservations Discord post stay instant.
+A new member signing up and an equipment booking tell staff what already happened; nothing
+decides them. Their email waits for the 8 AM digest, one line per signup or booking under
+the event's own heading, and every queued line goes out. The bell, push and the
+#reservations Discord post stay instant. The Admins' class registration notice was the
+third until Felix made it instant again (2026-11-17); classes/spec/emails_notification_spec.py
+covers it.
 """
 
 from __future__ import annotations
@@ -23,7 +25,6 @@ from core.events import resolvers
 from core.events.channels import DiscordAdapter, PushAdapter, digest_context
 from core.events.email_catalogue import build_email_catalogue
 from core.events.registry import _DIGEST_EMAIL_EVENTS, Channel, EmailDelivery, get_event
-from core.events.senders import emit_flat_email
 from core.models import EventDelivery, Notification, NotificationPreference
 from membership import equipment as equipment_service
 from membership.models import Equipment, Member
@@ -37,7 +38,7 @@ from tests.membership.factories import (
 
 pytestmark = pytest.mark.django_db
 
-NOTICES = ("new_member_joined", "class_registration_admin_notice", "equipment.reservation_made")
+NOTICES = ("new_member_joined", "equipment.reservation_made")
 
 
 @pytest.fixture(autouse=True)
@@ -90,27 +91,29 @@ def describe_the_registry():
         assert resolvers.is_always_included(key)
 
     def it_gives_every_digest_event_a_line_to_show() -> None:
-        """A digest line falls back to the bell's line; an event with no bell must be sent with a
-        digest_line, which only emit_flat_email takes, and it refuses to go without one."""
+        """A digest line falls back to the bell's line, so every digest event declares a bell.
+
+        An email-only event (emit_flat_email) has no line to show and must stay instant.
+        """
         no_bell = {key for key in _DIGEST_EMAIL_EVENTS if not get_event(key).has_channel(Channel.IN_APP)}
-        assert no_bell == {"class_registration_admin_notice"}
+        assert no_bell == set()
 
     def it_gives_every_digest_event_its_own_heading() -> None:
         """digest_context keys sections by label, so a shared label would drop one event's lines."""
         labels = [get_event(key).label for key in _DIGEST_EMAIL_EVENTS]
         assert len(labels) == len(set(labels))
 
-    def it_refuses_a_flat_digest_email_with_no_digest_line() -> None:
-        with pytest.raises(ValueError, match="pass digest_line"):
-            emit_flat_email(
-                "class_registration_admin_notice", subject="s", text_body="b", html_body="<p>b</p>", period="p:1"
-            )
-        assert not EventDelivery.objects.exists()
-
     def it_shows_the_8_am_digest_pill_on_the_emails_tab() -> None:
         rows = {row.key: row for _category, group in build_email_catalogue() for row in group}
         for key in NOTICES:
             assert rows[key].delivery_label == "8 AM digest"
+
+    def it_shows_the_class_registration_notice_as_instant_again() -> None:
+        """Felix's call, 2026-11-17: the Admins hear about each class signup at once."""
+        rows = {row.key: row for _category, group in build_email_catalogue() for row in group}
+        assert get_event("class_registration_admin_notice").email_delivery is EmailDelivery.INSTANT
+        assert not resolvers.has_open_check("class_registration_admin_notice")
+        assert rows["class_registration_admin_notice"].delivery_label == "Instant"
 
 
 def describe_new_member_joined():
@@ -228,11 +231,9 @@ def describe_the_morning_subject():
         )
         assert built["heads_up_only"] is False
 
-    def it_says_eleven_registrations_are_updates_beside_one_class_review() -> None:
+    def it_says_eleven_signups_are_updates_beside_one_class_review() -> None:
         rows = [
-            EventDelivery(
-                event_key="class_registration_admin_notice", title=f"R{n}", url="/c/", period=f"reg:{n}:admin_notice"
-            )
+            EventDelivery(event_key="new_member_joined", title=f"N{n}", url="/members/", period=f"signup:{n}")
             for n in range(11)
         ]
         rows.append(EventDelivery(event_key="class_review_requested", title="Review", url="/r/1", period="v:1"))
