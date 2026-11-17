@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-11-17"
+audience = ["members"]
+title = "Your preferred name stays put"
+changes = [
+  "A preferred name you set in Settings no longer disappears overnight. The nightly membership import used to wipe it.",
+]
