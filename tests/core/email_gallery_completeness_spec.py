@@ -56,6 +56,7 @@ EXPECTED_PAIRS = {
     "cubby_waitlist_opened",
     "guild_staff_welcome",
     "guild_invite",
+    "discord_reconnect",
     "permission_granted",
     "orientation_time_proposed",
     "guild_welcome",

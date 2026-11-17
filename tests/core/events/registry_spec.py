@@ -114,6 +114,7 @@ _BRAND_NEW_KEYS = {
     "cubbies.waitlist_opened",
     "guild_staff.welcome",
     "guild.invited",
+    "membership.discord_reconnect",
     "permission.granted",
     "polls.email_poll_live",
     "polls.email_poll_reminder",

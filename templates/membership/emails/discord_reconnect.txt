@@ -1,0 +1,9 @@
+{% autoescape off %}Hi {{ first_name }},
+
+Your Discord is linked to the Member Portal, but you're not on the Past Lives Discord server yet. Reconnect once and we'll add you with your roles.
+
+Reconnect Discord: {{ reconnect_url }}
+
+Discord asks you to approve once, then sends you back to the portal. Rather skip it? Dismiss the Reconnect Discord item on your Home page.
+
+{% include "membership/emails/_footer.txt" %}{% endautoescape %}

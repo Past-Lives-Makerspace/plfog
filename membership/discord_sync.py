@@ -302,7 +302,8 @@ def link_and_import(code: str, redirect_uri: str, *, member: Member | None = Non
 
     A linked member is then put on the Discord server with their own ``guilds.join`` token,
     whatever their status (:func:`membership.discord_removal.put_on_server`). That step never
-    fails the link. The guild import and its email are queued (:func:`import_discord_guilds`),
+    fails the link; when it puts them on the server, their open Reconnect Discord nudge (#1239)
+    closes as done. The guild import and its email are queued (:func:`import_discord_guilds`),
     because reading every reaction takes longer than a web request may.
 
     Args:
@@ -310,7 +311,7 @@ def link_and_import(code: str, redirect_uri: str, *, member: Member | None = Non
         redirect_uri: The callback URL used throughout the flow.
         member: The logged-in member (skips the email match); ``None`` for the anon path.
     """
-    from membership.models import Member
+    from membership.models import DiscordReconnectNudge, Member
 
     try:
         if member is not None:
@@ -331,7 +332,8 @@ def link_and_import(code: str, redirect_uri: str, *, member: Member | None = Non
         return LinkResult(LinkOutcome.ACCOUNT_HAS_OTHER_DISCORD)
 
     target.link_discord(identity.user_id, handle=identity.handle)
-    put_on_server(target, identity.user_id, identity.access_token)
+    if put_on_server(target, identity.user_id, identity.access_token):
+        DiscordReconnectNudge.objects.close_for(target)
     enqueue_on_commit(import_discord_guilds, target.pk)
     return LinkResult(LinkOutcome.LINKED, member=target)
 
