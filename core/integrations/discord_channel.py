@@ -28,7 +28,7 @@ from core.events.discord_dm import API_BASE, _auth_headers, bot_disabled, bot_to
 # (#845 hit gunicorn's 30 s limit); a scheduled job may pass a longer ``timeout``.
 DEFAULT_TIMEOUT_SECONDS = 5.0
 # The 15-minute ping intake (core.discord_pings) reads the whole server, never inside a web request. Discord
-# sometimes takes longer than 5 s to list channels, and each such tick failed and mailed Webmasters (2026-11-17).
+# sometimes takes longer than 5 s to list channels or roles, and each such tick failed and mailed Webmasters (2026-11-17).
 SCHEDULED_READ_TIMEOUT_SECONDS = 20.0
 _RATE_LIMIT_MAX_WAIT_SECONDS = 15.0
 # How far back a duplicate check looks; a retry runs within the hour, long before 50 posts.
