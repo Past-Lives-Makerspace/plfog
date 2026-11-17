@@ -53,16 +53,21 @@ def describe_membership_plan():
 @pytest.mark.django_db
 def describe_member():
     def it_has_str_representation():
-        member = MemberFactory(preferred_name="JD")
-        assert str(member) == "JD"
+        member = MemberFactory(full_legal_name="Jane Doe", preferred_name="JD")
+        assert str(member) == "JD (Jane Doe)"
 
     def describe_display_name():
-        def it_returns_preferred_name_when_set():
-            member = MemberFactory(
-                full_legal_name="Jane Doe",
-                preferred_name="JD",
-            )
-            assert member.display_name == "JD"
+        def it_lists_the_preferred_name_with_the_legal_name_beside_it():
+            member = MemberFactory(full_legal_name="Quinn Ashdown", preferred_name="Wren")
+            assert member.display_name == "Wren (Quinn Ashdown)"
+
+        def it_is_one_name_when_the_preferred_name_matches_the_legal_name():
+            member = MemberFactory(full_legal_name="Jane Doe", preferred_name=" jane doe")
+            assert member.display_name == "jane doe"
+
+        def it_is_the_preferred_name_alone_without_a_legal_name():
+            member = MemberFactory(full_legal_name="", preferred_name="Wren")
+            assert member.display_name == "Wren"
 
         def it_returns_full_legal_name_when_no_preferred_name():
             member = MemberFactory(
@@ -70,6 +75,13 @@ def describe_member():
                 preferred_name="",
             )
             assert member.display_name == "Jane Doe"
+
+    def describe_greeting_name():
+        def it_is_the_preferred_name_when_set():
+            assert MemberFactory(full_legal_name="Quinn Ashdown", preferred_name="Wren").greeting_name == "Wren"
+
+        def it_is_the_legal_name_without_a_preferred_name():
+            assert MemberFactory(full_legal_name="Jane Doe", preferred_name="").greeting_name == "Jane Doe"
 
     def describe_short_name():
         def it_keeps_the_first_name_and_the_last_names_initial():
@@ -574,7 +586,7 @@ def describe_lease():
             space=space,
             start_date=date(2024, 3, 1),
         )
-        assert str(lease) == "TU @ L-100 - Main (2024-03-01)"
+        assert str(lease) == "TU (Test User) @ L-100 - Main (2024-03-01)"
 
     def it_stores_committed_until():
         lease = LeaseFactory(committed_until=date(2025, 12, 31))

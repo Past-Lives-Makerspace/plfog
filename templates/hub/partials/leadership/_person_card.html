@@ -17,7 +17,7 @@ with no badges gets no list.
             {% if member.profile_photo and member|is_public:"profile_photo" %}
             <img class="pl-leader-card__photo" src="{{ member.profile_photo.url }}" alt="" loading="lazy">
             {% else %}
-            <span class="pl-leader-card__initials" aria-hidden="true">{{ member.display_name|initials }}</span>
+            <span class="pl-leader-card__initials" aria-hidden="true">{{ member.greeting_name|initials }}</span>
             {% endif %}
         </span>
     </div>

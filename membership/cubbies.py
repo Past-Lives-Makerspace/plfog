@@ -646,7 +646,7 @@ class RentalRow:
         return cls(
             rental=rental,
             name=name,
-            initials=initials(name),
+            initials=initials(rental.member.greeting_name),
             email=rental.member.primary_email,
             amount=amount,
             amount_note=amount_note,
@@ -690,7 +690,13 @@ class WaitlistRow:
         for place, entry in enumerate(cubby_waitlist.line(guild), start=1):
             name = entry.member.display_name
             rows.append(
-                cls(entry=entry, place=place, name=name, initials=initials(name), joined=_short_day(entry.joined_at))
+                cls(
+                    entry=entry,
+                    place=place,
+                    name=name,
+                    initials=initials(entry.member.greeting_name),
+                    joined=_short_day(entry.joined_at),
+                )
             )
         return rows
 

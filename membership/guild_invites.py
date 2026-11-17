@@ -159,7 +159,7 @@ def invited_subject(invite: GuildInvite) -> str:
 def email_context(invite: GuildInvite) -> dict[str, Any]:
     """What ``membership/emails/guild_invite.{txt,html}`` reads."""
     return {
-        "first_name": invite.member.display_name.split(" ")[0],
+        "first_name": invite.member.greeting_name.split(" ")[0],
         "headline": invited_subject(invite),
         "inviter_name": invite.invited_by.display_name if invite.invited_by is not None else "",
         "guild": invite.guild,

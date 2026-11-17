@@ -6,7 +6,7 @@ import pytest
 from django.contrib.auth.models import AnonymousUser, User
 
 from membership.models import Member
-from membership.names import user_display_name, user_label, user_name_or_email
+from membership.names import greeting_form, member_label, user_display_name, user_label, user_name_or_email
 from tests.membership.factories import MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
@@ -21,14 +21,45 @@ def _account(
     return User.objects.select_related("member").get(pk=user.pk)
 
 
+def describe_member_label():
+    def it_lists_the_preferred_name_with_the_legal_name_beside_it():
+        assert member_label("Wren", "Quinn Ashdown") == "Wren (Quinn Ashdown)"
+
+    def it_is_the_legal_name_alone_without_a_preferred_name():
+        assert member_label("", "Quinn Ashdown") == "Quinn Ashdown"
+
+    def it_is_one_name_when_the_two_are_the_same_name():
+        assert member_label("  quinn ASHDOWN ", "Quinn Ashdown") == "quinn ASHDOWN"
+
+    def it_is_the_preferred_name_alone_without_a_legal_name():
+        assert member_label("Wren", "  ") == "Wren"
+
+    def it_is_blank_with_no_name_at_all():
+        assert member_label("", "") == ""
+
+
+def describe_greeting_form():
+    def it_keeps_the_preferred_name_of_a_label():
+        assert greeting_form("Wren (Quinn Ashdown)") == "Wren"
+
+    def it_leaves_a_plain_name_as_it_is():
+        assert greeting_form("Quinn Ashdown") == "Quinn Ashdown"
+
+    def it_leaves_a_name_with_brackets_inside_it_as_it_is():
+        assert greeting_form("Sam (Sammy) Reyes") == "Sam (Sammy) Reyes"
+
+    def it_leaves_a_name_that_opens_with_a_bracket_as_it_is():
+        assert greeting_form("(Wren)") == "(Wren)"
+
+
 def describe_user_display_name():
     def it_uses_the_member_display_name_when_the_account_has_no_name():
         user = _account("dana@example.com", email="dana@example.com", legal="Dana Weaver")
         assert user_display_name(user) == "Dana Weaver"
 
-    def it_prefers_the_members_preferred_name():
+    def it_lists_the_members_preferred_name_with_the_legal_name():
         user = _account("dee@example.com", email="dee@example.com", legal="Deirdre Weaver", preferred="Dee")
-        assert user_display_name(user) == "Dee"
+        assert user_display_name(user) == "Dee (Deirdre Weaver)"
 
     def it_prefers_the_member_name_over_the_account_name():
         user = _account("acct@example.com", email="acct@example.com", first="Old", last="Name", legal="New Name")

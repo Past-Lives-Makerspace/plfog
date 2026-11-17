@@ -86,7 +86,7 @@ def guide_first_name(guide: Member | None) -> str:
     """The first word of the guide's name, or "" with no guide."""
     if guide is None:
         return ""
-    name = guide.display_name.strip()
+    name = guide.greeting_name.strip()
     return name.split()[0] if name else ""
 
 

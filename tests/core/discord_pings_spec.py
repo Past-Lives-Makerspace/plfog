@@ -165,7 +165,7 @@ def describe_queue_discord_pings():
 
         @respx.mock
         def it_credits_the_linked_member_by_name():
-            MemberFactory(discord_user_id="555", preferred_name="Jay Holtman")
+            MemberFactory(discord_user_id="555", preferred_name="Jay Holtman", full_legal_name="Jay Holtman")
             _read_from(GENERAL, "50")
             _mock_server([_channel(GENERAL, "51")], {GENERAL: [[_message("51", "@everyone Clean up")]]})
 

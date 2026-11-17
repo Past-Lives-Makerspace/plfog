@@ -959,7 +959,7 @@ def _email_context(rental: CubbyRental) -> dict[str, Any]:
         "rental": rental,
         "cubby": cubby,
         "guild": guild,
-        "first_name": rental.member.display_name.split(" ")[0],
+        "first_name": rental.member.greeting_name.split(" ")[0],
         "tab_url": _absolute_url(tab_url(guild)),
         "guild_url": _absolute_url(reverse("hub_guild_detail", args=[guild.slug])),
         "next_charge": date_display(rental.current_period_end),

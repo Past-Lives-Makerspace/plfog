@@ -119,7 +119,7 @@ def _private_table(hub: Any, creator: Any) -> VendorTable:
 
 @pytest.fixture
 def kate(make_member):
-    return make_member(preferred_name="Kate Lindqvist")
+    return make_member(preferred_name="Kate Lindqvist", full_legal_name="Kate Lindqvist")
 
 
 @pytest.fixture
@@ -176,7 +176,7 @@ def describe_the_door():
     def it_reads_the_first_named_member_by_pk_and_falls_back_on_a_blank_name(card, kate, make_member):
         blank = make_member(preferred_name="   ", full_legal_name="   ")
         card.team.add(blank)
-        later = make_member(preferred_name="Zed Ames")
+        later = make_member(preferred_name="Zed Ames", full_legal_name="Zed Ames")
         card.team.add(later)
         assert kate.pk < blank.pk < later.pk
 

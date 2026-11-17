@@ -1685,7 +1685,7 @@ def hub_equipment_credit_take_back(request: HttpRequest, slug: str, member_pk: i
 
 def _first_name(member: Member) -> str:
     """The first word of a member's name, the way a toast names them ("Approved. Jane has been emailed.")."""
-    return member.display_name.split(" ", 1)[0]
+    return member.greeting_name.split(" ", 1)[0]
 
 
 def _decide_target(request: HttpRequest, slug: str, pk: int) -> tuple[EquipmentReservation, Member, str] | HttpResponse:

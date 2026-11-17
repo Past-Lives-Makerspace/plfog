@@ -67,7 +67,7 @@ from core.validators import (
     validate_wiki_upload,
 )
 from membership.managers import MemberEmailManager
-from membership.names import user_display_name, user_name_or_email
+from membership.names import member_label, user_display_name, user_name_or_email
 
 if TYPE_CHECKING:
     from membership.orientations import AudienceCache
@@ -1230,6 +1230,15 @@ class Member(StaffRequestMixin, models.Model):
 
     @property
     def display_name(self) -> str:
+        """How every list names this member: "Wren (Quinn Ashdown)", or the one name there is.
+
+        Text that speaks to the member ("Hi Wren") uses :attr:`greeting_name` instead.
+        """
+        return member_label(self.preferred_name, self.full_legal_name)
+
+    @property
+    def greeting_name(self) -> str:
+        """The name a greeting uses: the preferred name, else the legal name ("Hi Wren")."""
         return self.preferred_name if self.preferred_name else self.full_legal_name
 
     @property
@@ -1256,9 +1265,9 @@ class Member(StaffRequestMixin, models.Model):
 
         A one word name stays as it is.
         """
-        parts = self.display_name.split()
+        parts = self.greeting_name.split()
         if len(parts) < 2:
-            return self.display_name
+            return self.greeting_name
         return f"{parts[0]} {parts[-1][0]}."
 
     @cached_property
@@ -4293,7 +4302,7 @@ class Guild(HeroCropMixin, models.Model):
         tokens: dict[int, list[str]] = {}
         counts: dict[str, int] = {}
         for member in members:
-            parts = (member.display_name or "").strip().split()
+            parts = (member.greeting_name or "").strip().split()
             if not parts:
                 continue
             tokens[member.pk] = parts
@@ -16938,7 +16947,7 @@ class OrientationSlot(models.Model):
         """The orientor's first name ("Bob"), or "" for a guild slot or a nameless member."""
         if self.orienter is None:
             return ""
-        name = (self.orienter.display_name or "").strip()
+        name = (self.orienter.greeting_name or "").strip()
         if not name:
             return ""
         return name.split()[0]
@@ -23783,7 +23792,7 @@ class WikiPage(StaffRequestMixin, models.Model):
             return
         context = {
             "page": self,
-            "author_name": author.display_name,
+            "author_name": author.greeting_name,
             "archiver": by,
             "archiver_name": by.display_name,
             "archiver_email": (by.primary_email or "").strip(),
@@ -24122,7 +24131,7 @@ class WikiPage(StaffRequestMixin, models.Model):
         if address:
             context = {
                 "page": self,
-                "author_name": author.display_name if author is not None else "",
+                "author_name": author.greeting_name if author is not None else "",
                 "reviewer_name": by.display_name,
                 "reviewer_email": (by.primary_email or "").strip(),
                 "note": note.strip(),

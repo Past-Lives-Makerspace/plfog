@@ -676,7 +676,7 @@ def describe_member_name():
     def it_uses_the_name_and_falls_back_to_the_email(make_member):
         from kiln.models import KilnFiring, KilnReply, member_name
 
-        named = make_member(preferred_name="Dana Reyes")
+        named = make_member(preferred_name="Dana Reyes", full_legal_name="Dana Reyes")
         unnamed = make_member(preferred_name="", full_legal_name="")
         ticket = KilnTicketFactory(maker=unnamed)
         firing = KilnFiring(firing_type="glaze", number=1, loaded_by=named)

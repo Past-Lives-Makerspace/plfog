@@ -32,11 +32,30 @@ from dataclasses import dataclass
 from django.utils.html import escape
 from django.utils.safestring import SafeString, mark_safe
 
+from membership.names import greeting_form
+
 # Matches exactly ``{{ name }}`` where name is a bare identifier (letters, digits,
 # underscores). The optional inner whitespace is tolerated. Anything else — dotted
 # paths, filters, ``{% %}`` tags — does NOT match and is left in place untouched, so
 # no executable construct is ever interpreted.
 _PLACEHOLDER_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
+
+# A placeholder that follows a greeting word ("Hi {{ member_name }}", "Thanks, {{ name }}") is
+# speaking to the person, so it renders the short name: a member listed as "Wren (Quinn
+# Ashdown)" is greeted "Hi Wren" (:func:`membership.names.greeting_form`). Matched as a
+# lookbehind-free prefix group so the greeting text itself is kept as written.
+_GREETING_PLACEHOLDER_RE = re.compile(
+    r"(?P<greeting>\b(?:Hi|Hello|Hey|Dear|Welcome|Thanks|Thank you),?\s+)?"
+    r"\{\{\s*(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}"
+)
+
+
+def _value(match: re.Match[str], context: Mapping[str, object]) -> object:
+    """The context value for ``match``, shortened to its greeting form after a greeting word."""
+    value = context[match.group("name")]
+    if match.group("greeting") and isinstance(value, str) and not isinstance(value, SafeString):
+        return greeting_form(value)
+    return value
 
 
 def placeholders_in(template: str) -> list[str]:
@@ -56,12 +75,13 @@ def render_text(template: str, context: Mapping[str, object]) -> str:
     """
 
     def _sub(match: re.Match[str]) -> str:
-        name = match.group(1)
+        name = match.group("name")
+        greeting = match.group("greeting") or ""
         if name in context:
-            return str(context[name])
-        return f"[missing: {name}]"
+            return greeting + str(_value(match, context))
+        return f"{greeting}[missing: {name}]"
 
-    return _PLACEHOLDER_RE.sub(_sub, template)
+    return _GREETING_PLACEHOLDER_RE.sub(_sub, template)
 
 
 def render_html(template: str, context: Mapping[str, object]) -> SafeString:
@@ -83,15 +103,16 @@ def render_html(template: str, context: Mapping[str, object]) -> SafeString:
     """
 
     def _sub(match: re.Match[str]) -> str:
-        name = match.group(1)
+        name = match.group("name")
+        greeting = match.group("greeting") or ""
         if name in context:
-            value = context[name]
+            value = _value(match, context)
             if isinstance(value, SafeString):
-                return str(value)  # trusted app-built markup — pass through unescaped
-            return escape(str(value))
-        return escape(f"[missing: {name}]")
+                return greeting + str(value)  # trusted app-built markup — pass through unescaped
+            return greeting + escape(str(value))
+        return greeting + escape(f"[missing: {name}]")
 
-    return mark_safe(_PLACEHOLDER_RE.sub(_sub, template))  # noqa: S308 - values escaped above; literal is admin-authored
+    return mark_safe(_GREETING_PLACEHOLDER_RE.sub(_sub, template))  # noqa: S308 - values escaped above; literal is admin-authored
 
 
 @dataclass(frozen=True)

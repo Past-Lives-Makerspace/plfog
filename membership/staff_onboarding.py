@@ -71,7 +71,7 @@ def tool_links(guild: Guild) -> list[tuple[str, str, str]]:
 def email_context(member: Member, guild: Guild) -> dict[str, Any]:
     """What ``membership/emails/guild_staff_welcome.{txt,html}`` reads."""
     return {
-        "first_name": member.display_name.split(" ")[0],
+        "first_name": member.greeting_name.split(" ")[0],
         "guild": guild,
         "guild_url": _absolute_url(reverse("hub_guild_detail", args=[guild.slug])),
         "tools": [(name, purpose, _absolute_url(path)) for name, purpose, path in tool_links(guild)],

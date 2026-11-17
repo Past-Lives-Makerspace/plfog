@@ -255,7 +255,9 @@ def describe_end_to_end():
             return_value=httpx.Response(200, json={})
         )
         with django_capture_on_commit_callbacks(execute=True):
-            listing = LeadershipListingFactory(tab=_people(), member=MemberFactory(preferred_name="Jo"))
+            listing = LeadershipListingFactory(
+                tab=_people(), member=MemberFactory(preferred_name="Jo", full_legal_name="Jo")
+            )
             LeadershipRoleFactory(listing=listing, title="Treasurer")
             LeadershipRoleFactory(listing=listing, title="Lead Engineer")
         assert edit.call_count == 1

@@ -47,14 +47,9 @@ def describe_fog_role_claim():
 
 
 def describe_the_name_claim():
-    def it_prefers_the_name_the_member_chose(db):
+    def it_names_the_member_the_way_the_app_lists_them(db):
         user = _member_user(full_legal_name="Jonathan Smith", preferred_name="Jo")
-        assert _claims(user)["name"] == "Jo"
-
-    def it_never_sends_a_legal_name_that_was_overridden(db):
-        """A legal name is not something to hand another system as a side effect of signing in."""
-        user = _member_user(full_legal_name="Jonathan Smith", preferred_name="Jo")
-        assert "Jonathan" not in _claims(user)["name"]
+        assert _claims(user)["name"] == "Jo (Jonathan Smith)"
 
 
 def describe_guild_leadership_claim():

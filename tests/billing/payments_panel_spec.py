@@ -217,7 +217,7 @@ def describe_build_payments_ledger():
             member = MemberFactory(preferred_name="Moss")
             _paid_registration(member=member)
             (row,) = build_payments_ledger(window=_WINDOW).rows
-            assert row.payer_name == "Moss"
+            assert row.payer_name == member.display_name == f"Moss ({member.full_legal_name})"
 
         def it_falls_back_to_the_guest_name():
             _paid_registration(member=None, first_name="Guest", last_name="Payer")

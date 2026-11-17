@@ -103,10 +103,12 @@ def describe_render_directory_payloads():
         LeadershipRoleFactory(listing=listing, title="Lead Engineer", email="")
         embed = _titled(dld.render_directory_payloads(), "✨ Leadership")
         assert embed["color"] == dld.PEOPLE_COLOR
-        assert embed["description"] == "**Alex**\nTreasurer · Lead Engineer\n✉️ treasurer\\@example.com"
+        assert embed["description"] == "**Alex \\(Alex Smith\\)**\nTreasurer · Lead Engineer\n✉️ treasurer\\@example.com"
 
     def it_shows_a_public_typed_handle_as_plain_text_and_says_to_search_it():
-        sam = MemberFactory(preferred_name="Sam", discord_user_id="", discord_handle=" @@sam_ typed ")
+        sam = MemberFactory(
+            preferred_name="Sam", full_legal_name="Sam", discord_user_id="", discord_handle=" @@sam_ typed "
+        )
         LeadershipRoleFactory(listing=LeadershipListingFactory(tab=_people_tab(), member=sam), title="Secretary")
         payloads = dld.render_directory_payloads()
         assert _titled(payloads, "✨ Leadership")["description"] == "**Sam** @sam\\_typed\nSecretary"
@@ -114,7 +116,9 @@ def describe_render_directory_payloads():
         assert "Search a handle on Discord to message them.\n" in header
 
     def it_shows_a_tab_intro_under_its_title():
-        LeadershipListingFactory(tab=_people_tab(intro="Who runs [this]"), member=MemberFactory(preferred_name="Pat"))
+        LeadershipListingFactory(
+            tab=_people_tab(intro="Who runs [this]"), member=MemberFactory(preferred_name="Pat", full_legal_name="Pat")
+        )
         description = _titled(dld.render_directory_payloads(), "✨ Leadership")["description"]
         assert description == "*Who runs \\[this\\]*\n\n**Pat**"
 
@@ -122,14 +126,21 @@ def describe_render_directory_payloads():
     def it_hides_even_a_verified_username_when_the_handle_is_private(on_server):
         members = _server_members(("123456", "alex_real"))
         alex = MemberFactory(
-            preferred_name="Alex", discord_user_id="123456", directory_visibility={"discord_handle": False}
+            preferred_name="Alex",
+            full_legal_name="Alex",
+            discord_user_id="123456",
+            directory_visibility={"discord_handle": False},
         )
         LeadershipListingFactory(tab=_people_tab(), member=alex)
         assert _titled(dld.render_directory_payloads(), "✨ Leadership")["description"] == "**Alex**"
         assert members.call_count == 0
 
     def it_escapes_a_name_that_tries_to_build_a_link_or_a_mention():
-        evil = MemberFactory(preferred_name="**[Click me](https://evil.example) <@&123>**", discord_handle="@<@&999>")
+        evil = MemberFactory(
+            preferred_name="**[Click me](https://evil.example) <@&123>**",
+            full_legal_name="**[Click me](https://evil.example) <@&123>**",
+            discord_handle="@<@&999>",
+        )
         LeadershipListingFactory(tab=_people_tab(), member=evil)
         payloads = dld.render_directory_payloads()
         description = _titled(payloads, "✨ Leadership")["description"]
@@ -140,7 +151,10 @@ def describe_render_directory_payloads():
 
     def it_shows_only_the_name_when_the_handle_is_private():
         sam = MemberFactory(
-            preferred_name="Sam", discord_handle="sam_typed", directory_visibility={"discord_handle": False}
+            preferred_name="Sam",
+            full_legal_name="Sam",
+            discord_handle="sam_typed",
+            directory_visibility={"discord_handle": False},
         )
         LeadershipRoleFactory(listing=LeadershipListingFactory(tab=_people_tab(), member=sam), title="Secretary")
         payloads = dld.render_directory_payloads()
@@ -149,21 +163,26 @@ def describe_render_directory_payloads():
         assert dld.SEARCH_LINE not in payloads[0]["embeds"][0]["description"]
 
     def it_shows_a_public_handle_for_a_guild_lead_too():
-        GuildFactory(name="Glass Guild", guild_lead=MemberFactory(preferred_name="Robin", discord_handle="robin.g"))
+        GuildFactory(
+            name="Glass Guild",
+            guild_lead=MemberFactory(preferred_name="Robin", full_legal_name="Robin", discord_handle="robin.g"),
+        )
         payloads = dld.render_directory_payloads()
         assert "**Robin** @robin.g" in _titled(payloads, "🛠️ Guild Leads")["description"]
         assert dld.SEARCH_LINE in payloads[0]["embeds"][0]["description"]
 
     def it_leaves_out_unlisted_people_and_empty_people_tabs():
-        LeadershipListingFactory(tab=_people_tab(), member=MemberFactory(preferred_name="Hidden"), is_listed=False)
+        LeadershipListingFactory(
+            tab=_people_tab(), member=MemberFactory(preferred_name="Hidden", full_legal_name="Hidden"), is_listed=False
+        )
         LeadershipTabFactory(title="Council")
         titles = [embed.get("title") for embed in _embeds(dld.render_directory_payloads())]
         assert "✨ Leadership" not in titles
         assert "✨ Council" not in titles
 
     def it_lists_active_guilds_by_name_with_lead_co_leads_and_the_no_lead_line():
-        lead = MemberFactory(preferred_name="Robin")
-        co = MemberFactory(preferred_name="Kai")
+        lead = MemberFactory(preferred_name="Robin", full_legal_name="Robin")
+        co = MemberFactory(preferred_name="Kai", full_legal_name="Kai")
         GuildFactory(name="Woodworking Guild", guild_lead=lead)
         GuildStaffMembershipFactory(guild=GuildFactory(name="Woodworking Guild"), member=co)
         GuildStaffMembershipFactory(
@@ -206,12 +225,14 @@ def describe_render_directory_payloads():
         people.sort_order = 5
         people.save()
         GuildFactory(name="Tech Guild")
-        LeadershipListingFactory(tab=people, member=MemberFactory(preferred_name="Pat"))
+        LeadershipListingFactory(tab=people, member=MemberFactory(preferred_name="Pat", full_legal_name="Pat"))
         titles = [embed.get("title") for embed in _embeds(dld.render_directory_payloads()) if embed.get("title")]
         assert titles[1:] == ["🛠️ Guild Leaders", "✨ Leadership"]
 
     def it_escapes_markdown_in_names():
-        LeadershipListingFactory(tab=_people_tab(), member=MemberFactory(preferred_name="*star*_"))
+        LeadershipListingFactory(
+            tab=_people_tab(), member=MemberFactory(preferred_name="*star*_", full_legal_name="*star*_")
+        )
         assert "**\\*star\\*\\_**" in _titled(dld.render_directory_payloads(), "✨ Leadership")["description"]
 
     def it_footers_the_last_embed_with_the_stored_content_date():
@@ -241,7 +262,9 @@ def describe_usernames():
     @respx.mock
     def it_links_a_verified_account_s_server_username_to_its_profile_never_a_mention(on_server):
         members = _server_members(("123456", "alex_real"), ("888", "someone_else"))
-        alex = MemberFactory(preferred_name="Alex", discord_user_id="123456", discord_handle="@Alex - Wood Lead")
+        alex = MemberFactory(
+            preferred_name="Alex", full_legal_name="Alex", discord_user_id="123456", discord_handle="@Alex - Wood Lead"
+        )
         LeadershipListingFactory(tab=_people_tab(), member=alex)
         payloads = dld.render_directory_payloads()
         assert (
@@ -255,9 +278,17 @@ def describe_usernames():
     @respx.mock
     def it_reads_the_member_list_once_for_the_whole_post(on_server):
         members = _server_members(("1", "robin.g"), ("2", "kai_k"), ("3", "pat"))
-        GuildFactory(name="Glass Guild", guild_lead=MemberFactory(preferred_name="Robin", discord_user_id="1"))
-        GuildFactory(name="Tech Guild", guild_lead=MemberFactory(preferred_name="Kai", discord_user_id="2"))
-        LeadershipListingFactory(tab=_people_tab(), member=MemberFactory(preferred_name="Pat", discord_user_id="3"))
+        GuildFactory(
+            name="Glass Guild",
+            guild_lead=MemberFactory(preferred_name="Robin", full_legal_name="Robin", discord_user_id="1"),
+        )
+        GuildFactory(
+            name="Tech Guild",
+            guild_lead=MemberFactory(preferred_name="Kai", full_legal_name="Kai", discord_user_id="2"),
+        )
+        LeadershipListingFactory(
+            tab=_people_tab(), member=MemberFactory(preferred_name="Pat", full_legal_name="Pat", discord_user_id="3")
+        )
         payloads = dld.render_directory_payloads()
         guilds = _titled(payloads, "🛠️ Guild Leads")["description"]
         assert "**Robin** [@robin.g](https://discord.com/users/1)" in guilds
@@ -268,20 +299,26 @@ def describe_usernames():
     @respx.mock
     def it_falls_back_to_the_typed_handle_for_an_account_not_in_the_server(on_server):
         _server_members(("888", "someone_else"))
-        gone = MemberFactory(preferred_name="Gone", discord_user_id="123456", discord_handle="gone_typed")
+        gone = MemberFactory(
+            preferred_name="Gone", full_legal_name="Gone", discord_user_id="123456", discord_handle="gone_typed"
+        )
         LeadershipListingFactory(tab=_people_tab(), member=gone)
         assert _titled(dld.render_directory_payloads(), "✨ Leadership")["description"] == "**Gone** @gone\\_typed"
 
     @respx.mock
     def it_reads_nothing_when_no_verified_account_shows(on_server):
         members = _server_members()
-        LeadershipListingFactory(tab=_people_tab(), member=MemberFactory(preferred_name="Sam", discord_handle="sam"))
+        LeadershipListingFactory(
+            tab=_people_tab(), member=MemberFactory(preferred_name="Sam", full_legal_name="Sam", discord_handle="sam")
+        )
         assert _titled(dld.render_directory_payloads(), "✨ Leadership")["description"] == "**Sam** @sam"
         assert members.call_count == 0
 
     @respx.mock
     def it_reads_nothing_without_a_server_id_or_a_bot_token(discord_on, settings):
-        alex = MemberFactory(preferred_name="Alex", discord_user_id="123456", discord_handle="alex_typed")
+        alex = MemberFactory(
+            preferred_name="Alex", full_legal_name="Alex", discord_user_id="123456", discord_handle="alex_typed"
+        )
         LeadershipListingFactory(tab=_people_tab(), member=alex)
         assert _titled(dld.render_directory_payloads(), "✨ Leadership")["description"] == "**Alex** @alex\\_typed"
         _configure(discord_server_id=SERVER)
@@ -293,7 +330,9 @@ def describe_usernames():
     def it_fails_the_sync_loudly_and_sends_nothing_when_the_member_list_cannot_be_read(on_server):
         respx.get(SERVER_MEMBERS).mock(return_value=httpx.Response(500, text="down"))
         post = respx.post(MESSAGES).mock(return_value=httpx.Response(200, json={"id": "501"}))
-        LeadershipListingFactory(tab=_people_tab(), member=MemberFactory(preferred_name="Alex", discord_user_id="1"))
+        LeadershipListingFactory(
+            tab=_people_tab(), member=MemberFactory(preferred_name="Alex", full_legal_name="Alex", discord_user_id="1")
+        )
         with pytest.raises(DiscordChannelError, match="500"):
             dld.sync_leadership_directory.call()
         assert post.call_count == 0
@@ -303,18 +342,24 @@ def describe_usernames():
 def describe_limits():
     def it_splits_sixty_guilds_with_long_lines_within_every_discord_limit():
         for number in range(60):
-            lead = MemberFactory(preferred_name=f"Lead {number} " + "x" * 90, discord_user_id=str(10**17 + number))
+            lead = MemberFactory(
+                preferred_name=f"Lead {number} ",
+                full_legal_name=f"Lead {number} " + "x" * 90,
+                discord_user_id=str(10**17 + number),
+            )
             GuildFactory(
                 name=f"Guild {number:02d} " + "y" * 80,
                 guild_lead=lead,
                 discord_lead_role_id=str(10**18 + number),
                 contact_email=f"guild{number}@example.com",
             )
-            co = MemberFactory(preferred_name=f"Co {number} " + "z" * 90)
+            co = MemberFactory(preferred_name=f"Co {number} ", full_legal_name=f"Co {number} " + "z" * 90)
             GuildStaffMembershipFactory(guild=GuildFactory(name=f"Guild {number:02d} " + "y" * 80), member=co)
         tab = _people_tab(intro="The people who keep the makerspace running, and how to reach each of them.")
         for number in range(30):
-            listing = LeadershipListingFactory(tab=tab, member=MemberFactory(preferred_name=f"P{number}"))
+            listing = LeadershipListingFactory(
+                tab=tab, member=MemberFactory(preferred_name=f"P{number}", full_legal_name=f"P{number}")
+            )
             for line in range(3):
                 LeadershipRoleFactory(listing=listing, title=f"Role {line} " + "r" * 110, email=f"r{line}@example.com")
         payloads = dld.render_directory_payloads()
@@ -424,7 +469,7 @@ def describe_sync_leadership_directory():
             discord_leadership_directory_hash=dld.content_hash(dld.directory_embeds()),
             discord_leadership_directory_updated_on=date(2026, 9, 30),
         )
-        GuildFactory(name="Glass Guild", guild_lead=MemberFactory(preferred_name="Robin"))
+        GuildFactory(name="Glass Guild", guild_lead=MemberFactory(preferred_name="Robin", full_legal_name="Robin"))
         edit = respx.patch(f"{MESSAGES}/501").mock(return_value=httpx.Response(200, json={}))
         dld.sync_leadership_directory.call()
         today = timezone.localdate()

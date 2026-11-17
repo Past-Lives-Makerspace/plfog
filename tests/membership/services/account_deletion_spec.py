@@ -158,9 +158,9 @@ def describe_delete_own_account():
             delete_own_account(member)
 
             member.refresh_from_db()
-            assert member.name_at_deletion == "Janey"
+            assert member.name_at_deletion == "Janey (Jane Doe)"
             assert member.full_legal_name == "Deleted Member"
-            assert member.finance_name == "Janey (account deleted)"
+            assert member.finance_name == "Janey (Jane Doe) (account deleted)"
 
         def it_keeps_the_legal_name_when_there_is_no_preferred_name():
             member = _linked_member(preferred_name="")

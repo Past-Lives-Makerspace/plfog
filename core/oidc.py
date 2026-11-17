@@ -101,9 +101,8 @@ class FogOAuth2Validator(OAuth2Validator):
         member = _member_of(user)
 
         return {
-            # `display_name`, which prefers `preferred_name` over `full_legal_name`. The name a
-            # member chose is the one that should appear on their comments in the KB — and a legal
-            # name is not something to hand to another system as a side effect of signing in.
+            # `display_name`, the name every list in the app shows: "Wren (Quinn Ashdown)" for a
+            # member with a preferred name, so their KB comments name them the same way.
             "name": (member.display_name if member else user.get_full_name() or user.get_username()),
             "email": member.primary_email if member else user.email,
             # The tier itself, decided here. The KB applies it as given.

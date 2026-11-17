@@ -126,7 +126,7 @@ class Command(BaseCommand):
         linked = set(Member.objects.exclude(discord_user_id="").values_list("discord_user_id", flat=True))
         handles: dict[str, str] = {}
         for member in Member.objects.filter(discord_user_id=""):
-            for name in (member.discord_handle, member.display_name):
+            for name in (member.discord_handle, member.greeting_name):
                 if _handle(name):
                     handles.setdefault(_handle(name), member.display_name)
         for user_id in sorted(members):

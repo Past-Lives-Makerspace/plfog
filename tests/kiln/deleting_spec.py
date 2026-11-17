@@ -648,7 +648,7 @@ def describe_the_delete_dialog_and_wording():
         assert 'maxlength="500"' in body
 
     def it_never_calls_a_site_admin_crew(make_member, maker, kiln_guild):
-        admin = make_member(fog_role=Member.FogRole.ADMIN, preferred_name="Ari Admin")
+        admin = make_member(fog_role=Member.FogRole.ADMIN, preferred_name="Ari Admin", full_legal_name="Ari Admin")
         ticket = _waiting(maker)
 
         delete_ticket(ticket_pk=ticket.pk, by=admin, note="Duplicate ticket.")

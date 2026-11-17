@@ -500,7 +500,7 @@ def describe_SiteActivity():
             Member.objects.filter(user=user).delete()
             MemberFactory(user=user, full_legal_name="Sam Reyes", preferred_name="Sammy")
             row = SiteActivity.objects.get(pk=SiteActivity.log(SiteActivity.Kind.LOGIN, actor=user).pk)
-            assert row.who == "Sammy"
+            assert row.who == "Sammy (Sam Reyes)"
 
         def it_falls_back_to_the_account_name_without_a_member():
             user = User.objects.create_user(username="who-plain", email="plain@example.com", first_name="Ada")

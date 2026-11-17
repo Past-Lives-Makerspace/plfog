@@ -19,7 +19,7 @@
           {% if instructor.profile_photo %}
             <img class="ip-photo" src="{{ instructor.profile_photo.url }}" alt="">
           {% else %}
-            <div class="ip-photo-ph">{{ instructor.display_name|initials }}</div>
+            <div class="ip-photo-ph">{{ instructor.greeting_name|initials }}</div>
           {% endif %}
           <div>
             <div class="ip-name">{{ instructor.display_name }}</div>

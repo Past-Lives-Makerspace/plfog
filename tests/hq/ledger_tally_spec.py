@@ -158,7 +158,7 @@ def _staff_post(**fields: Any) -> dict[str, Any]:
 
 @pytest.fixture
 def lee(make_member):
-    return make_member(preferred_name="Lee Ashworth")
+    return make_member(preferred_name="Lee Ashworth", full_legal_name="Lee Ashworth")
 
 
 @pytest.fixture
@@ -1122,7 +1122,7 @@ def describe_guild_demos():
             row.guild.delete()
 
     def it_adds_every_active_guild_missing_once_each_with_its_lead(hub, lee_client, make_member):
-        lead = make_member(preferred_name="Gwen Glass")
+        lead = make_member(preferred_name="Gwen Glass", full_legal_name="Gwen Glass")
         glass = GuildFactory(name="Glass Guild", guild_lead=lead)
         listed = GuildDemoFactory(hub=hub, guild=GuildFactory(name="Wood Guild"), lead="Kept")
         GuildFactory(name="Old Guild", is_active=False)
@@ -1296,7 +1296,11 @@ def describe_guild_demos():
 def describe_volunteer_hours():
     def it_reads_the_totals_and_the_top_ten_from_the_market_check_in(hub, doors, lee_client, make_member):
         for position in range(12):
-            _hours(hub, make_member(preferred_name=f"Helper {position:02d}"), str(position + 1))
+            _hours(
+                hub,
+                make_member(preferred_name=f"Helper {position:02d}", full_legal_name=f"Helper {position:02d}"),
+                str(position + 1),
+            )
 
         body = lee_client.get(_page(hub)).content.decode()
         section = body.split('id="hq-lg-vol"', 1)[1].split("</section>", 1)[0]

@@ -111,7 +111,7 @@ def email_context(member: Member, grant: str, granter: Member | None, guild: Gui
     from membership.models import AdminCapability
 
     return {
-        "first_name": member.display_name.split(" ")[0],
+        "first_name": member.greeting_name.split(" ")[0],
         "headline": granted_subject(grant, guild),
         "granter_name": granter.display_name if granter is not None else "An admin",
         "help_contact": granter.display_name if granter is not None else "an admin",

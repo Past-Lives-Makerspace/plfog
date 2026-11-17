@@ -154,7 +154,7 @@ def describe_the_queue():
             assert item.photo_url == offering.card_photo_url
             assert item.photo_url
             assert item.photo_position == "10% 20%"
-            assert item.instructors == "Alex"
+            assert item.instructors == "Alex (Alex Eason)"
             assert item.flyer_url == ""
 
         def it_falls_back_to_the_category_photo_centred_as_the_catalog_does():

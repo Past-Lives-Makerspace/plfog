@@ -135,6 +135,7 @@ from hq.vendor_import import (
     parse_rows,
 )
 from membership.models import CommunityEvent, Guild, GuildMembership, Member
+from membership.names import member_label
 
 logger = logging.getLogger(__name__)
 
@@ -335,8 +336,9 @@ class VolunteerInfo:
 
     @classmethod
     def for_member(cls, member: Member) -> VolunteerInfo:
-        """What a signed in member starts with: their display name, primary email and phone."""
-        return cls(name=member.display_name, email=member.primary_email, phone=member.phone)
+        """What a signed in member starts with: their name (the short one a typed name field holds), primary email
+        and phone."""
+        return cls(name=member.greeting_name, email=member.primary_email, phone=member.phone)
 
     @classmethod
     def from_session(cls, request: HttpRequest) -> VolunteerInfo | None:
@@ -1653,7 +1655,7 @@ def thank_you_board(hub: EventHub, *, limit: int = BOARD_LIMIT) -> ThankYouBoard
             BoardRow(
                 rank=position,
                 member_id=row["member"],
-                name=row["member__preferred_name"] or row["member__full_legal_name"],
+                name=member_label(row["member__preferred_name"], row["member__full_legal_name"]),
                 hours=row["total"],
                 top=top,
             )
@@ -1720,8 +1722,8 @@ def confirmed_table(hub: EventHub, member: Member) -> VendorTable | None:
 
 def report_initial(member: Member, table: VendorTable | None) -> dict[str, Any]:
     """What a member's first report starts with: the confirmed table's name and guild when there is one, else
-    their display name and their guild when they belong to exactly one active guild."""
-    name = table.name if table is not None else member.display_name
+    their name (the short one a typed name field holds) and their guild when they belong to exactly one active guild."""
+    name = table.name if table is not None else member.greeting_name
     guild_id = table.guild_id if table is not None else None
     if guild_id is None:
         guilds = list(
@@ -3006,11 +3008,19 @@ def log_staff_time(
 ) -> StaffTime:
     """Log a stretch of staff time on ``hub`` from the form's fields, stamped with the organiser who logged it.
 
-    When Who names one of ``team`` (the ledger card's Team) by display name, whatever the capitalisation,
-    the row is linked to that member too.
+    When Who names one of ``team`` (the ledger card's Team) by the name the Team list shows, their
+    preferred name or their legal name, whatever the capitalisation, the row is linked to that member too.
     """
-    who = fields["who"].strip().lower()
-    linked = next((person for person in team if person.display_name.strip().lower() == who), None)
+    who = fields["who"].strip().casefold()
+    linked = next(
+        (
+            person
+            for person in team
+            if who
+            in {name.strip().casefold() for name in (person.display_name, person.greeting_name, person.full_legal_name)}
+        ),
+        None,
+    )
     return StaffTime.objects.create(hub=hub, member=linked, created_by=member, **fields)
 
 

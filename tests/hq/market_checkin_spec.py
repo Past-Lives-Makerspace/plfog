@@ -105,7 +105,7 @@ def _preview(client: Client, role: str) -> None:
 
 @pytest.fixture
 def lee(make_member) -> Member:
-    return make_member(preferred_name="Lee Organiser")
+    return make_member(preferred_name="Lee Organiser", full_legal_name="Lee Organiser")
 
 
 @pytest.fixture
@@ -132,7 +132,9 @@ def lee_client(lee) -> Client:
 
 @pytest.fixture
 def artist(make_member) -> Member:
-    return make_member(preferred_name="Rae Artist", _pre_signup_email="rae@studio.example")
+    return make_member(
+        preferred_name="Rae Artist", full_legal_name="Rae Artist", _pre_signup_email="rae@studio.example"
+    )
 
 
 @pytest.fixture
@@ -464,7 +466,7 @@ def describe_the_market_report():
         assert not MarketReport.objects.exists()
 
     def it_never_shows_one_members_report_to_another(hub, artist, artist_client, make_member):
-        other = make_member(preferred_name="Spec Other Maker")
+        other = make_member(preferred_name="Spec Other Maker", full_legal_name="Spec Other Maker")
         MarketReport.objects.create(
             hub=hub,
             member=other,
@@ -811,7 +813,7 @@ def describe_the_hero_countdown():
 def describe_the_thank_you_board():
     def it_ranks_by_total_hours_with_ties_to_who_logged_first(hub, make_member):
         names = ["Ann", "Bo", "Cy"]
-        ann, bo, cy = (make_member(preferred_name=name) for name in names)
+        ann, bo, cy = (make_member(preferred_name=name, full_legal_name=name) for name in names)
         _hours(hub, bo, "3")
         _hours(hub, ann, "2")
         _hours(hub, cy, "1")
@@ -829,7 +831,13 @@ def describe_the_thank_you_board():
 
     def it_shows_the_top_fifteen_in_one_query(hub, make_member):
         for position in range(16):
-            _hours(hub, make_member(preferred_name=f"Spec Helper {position:02d}"), str(position + 1))
+            _hours(
+                hub,
+                make_member(
+                    preferred_name=f"Spec Helper {position:02d}", full_legal_name=f"Spec Helper {position:02d}"
+                ),
+                str(position + 1),
+            )
 
         with CaptureQueriesContext(connection) as queries:
             board = services.thank_you_board(hub)
@@ -861,7 +869,7 @@ def describe_the_thank_you_board():
         for _ in range(4):
             _hours(hub, lee, "24")
         _hours(hub, artist, "0.25")
-        _hours(hub, make_member(preferred_name="Mid Helper"), "10")
+        _hours(hub, make_member(preferred_name="Mid Helper", full_legal_name="Mid Helper"), "10")
 
         leader, mid, small = services.thank_you_board(hub).rows
 

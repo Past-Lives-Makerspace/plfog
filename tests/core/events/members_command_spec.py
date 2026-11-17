@@ -195,7 +195,7 @@ def describe_members_cards():
         MemberFactory(full_legal_name="Beta Member")
         MemberFactory(full_legal_name="Alpha Member", preferred_name="Zed")
         titles = [card["title"] for card in _cards(_invoke(invoker))]
-        assert titles == ["Zed", "Beta Member"]  # titles are display names, order is legal-name
+        assert titles == ["Zed (Alpha Member)", "Beta Member"]  # titles are display names, order is legal-name
 
     def it_builds_five_cards_plus_a_footer_on_a_full_page(invoker):
         for n in range(7):

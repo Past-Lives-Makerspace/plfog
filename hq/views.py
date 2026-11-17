@@ -731,7 +731,7 @@ def _marketing_context(request: HttpRequest, hub: EventHub, card: HubCard, form:
         "can_organize": card.can_organize(viewer_member(request), is_admin=renders_as_admin(request)),
         "tiles": services.marketing_tiles(services.marketing_totals(hub)),
         "actions": list(hub.marketing_actions.all()),
-        "team": sorted({member.display_name for member in card.team.all()}),
+        "team": sorted({member.greeting_name for member in card.team.all()}),
         "team_list_id": MARKETING_TEAM_LIST_ID,
     }
 
@@ -880,7 +880,7 @@ def _sponsors_context(
             for value, label in services.SPONSOR_FILTERS
             if can_organize or value != services.SPONSOR_FILTER_DONORS
         ],
-        "team": sorted({named.display_name for named in card.team.all()}),
+        "team": sorted({named.greeting_name for named in card.team.all()}),
         "team_list_id": SPONSOR_TEAM_LIST_ID,
         "tiers": SPONSOR_TIERS,
         "wine_benefit": WINE_WALL_BENEFIT,
@@ -2626,7 +2626,7 @@ def _door_urls(hub: EventHub, member: Member | None, is_admin: bool) -> dict[str
 
 def _team_names(card: HubCard) -> list[str]:
     """The ledger card Team's display names, for the team datalist (Owner, Who, Contacted by)."""
-    return sorted({named.display_name for named in card.team.all() if named.display_name.strip()})
+    return sorted({named.greeting_name for named in card.team.all() if named.greeting_name.strip()})
 
 
 @dataclass(frozen=True)

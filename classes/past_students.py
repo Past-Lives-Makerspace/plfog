@@ -108,8 +108,8 @@ def past_students(instructor: Member) -> PastStudents:
 def instructor_name(instructor: Member) -> str:
     """What a past students email and its stop page call the instructor: their name, never an address.
 
-    The name their instructor profile and every class shows (:attr:`Member.display_name`, the
-    preferred name, else the legal name), else "your instructor".
+    The name their instructor profile and every class shows (:attr:`Member.display_name`,
+    "Wren (Quinn Ashdown)" when a preferred name is set), else "your instructor".
     """
     return instructor.display_name.strip() or "your instructor"
 
