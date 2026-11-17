@@ -222,15 +222,36 @@ def describe_digest_adapter():
         pending = DigestAdapter.pending_for(user)
         assert [r.event_key for r in pending] == ["registration_confirmed", "class_cancelled"]
 
-    def it_flush_due_fails_loudly_for_an_event_with_no_still_open_check():
-        # Only digest events queue lines, and each registers a still-open check (#894).
+    def it_flush_due_fails_loudly_for_a_digest_event_with_no_still_open_check():
+        # Every digest event registers a still-open check (#894); a missing one is a wiring error.
         from datetime import datetime
+        from unittest.mock import patch
+
+        from core.events import resolvers
 
         user = _user()
-        DigestAdapter().deliver(user, _message(trigger_kind="registration_confirmed"))
+        DigestAdapter().deliver(user, _message(trigger_kind="class_change_requested"))
         EventDelivery.objects.update(created_at=datetime(2026, 1, 1, tzinfo=channels.PACIFIC))
-        with pytest.raises(KeyError):
+        checks = {key: check for key, check in resolvers._OPEN_CHECKS.items() if key != "class_change_requested"}
+        with patch.dict(resolvers._OPEN_CHECKS, checks, clear=True), pytest.raises(KeyError):
             DigestAdapter.flush_due(datetime(2026, 1, 2, 9, tzinfo=channels.PACIFIC))
+
+    def it_flush_due_sends_a_line_queued_for_an_event_that_now_emails_at_once():
+        # A line queued before its event left the digest (the Admins' registration notice,
+        # 2026-11-17) goes out in the next morning email instead of failing everyone's.
+        from datetime import datetime
+
+        from core.models import NotificationPreference
+
+        user = _user()
+        NotificationPreference.objects.create(
+            user=user, event_key="class_registration_admin_notice", channel="email", enabled=True
+        )
+        DigestAdapter().deliver(user, _message(trigger_kind="class_registration_admin_notice", period="reg:1:a"))
+        EventDelivery.objects.update(created_at=datetime(2026, 1, 1, tzinfo=channels.PACIFIC))
+        sent = DigestAdapter.flush_due(datetime(2026, 1, 2, 9, tzinfo=channels.PACIFIC))
+        assert list(sent) == [f"user:{user.pk}"]
+        assert EventDelivery.objects.get(event_key="class_registration_admin_notice").status == "sent"
 
     def it_flush_due_returns_empty_when_nothing_pending():
         assert DigestAdapter.flush_due() == {}

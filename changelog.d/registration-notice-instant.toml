@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-11-17"
+audience = ["admins"]
+title = "New class registration emails arrive right away"
+changes = [
+  "Admins get the New class registration email the moment someone signs up again, instead of in the 8 AM morning email.",
+]
