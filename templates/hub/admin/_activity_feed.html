@@ -45,13 +45,26 @@
 <div class="hub-card">
   {% for a in feed_page %}
   <div class="hub-member-row" style="justify-content:space-between;">
-    <div style="display:flex;align-items:center;gap:0.75rem;">
-      {% with who=a.who %}
+    <div class="pl-activity-row__main" style="display:flex;align-items:center;gap:0.75rem;">
+      {% with who=a.who line=a.line %}
       <div class="hub-member-avatar">{% if who %}{{ who|make_list|first|upper }}{% else %}•{% endif %}</div>
-      <div>
-        <div class="hub-member-name">{{ a.get_kind_display }}</div>
+      <div class="pl-activity-row__text">
+        <div class="hub-member-name">{{ line.headline }}</div>
+        {% if line.note %}
+          {# Two lines show; More when the text outgrows the clip. Measured with no frame needed, and shown by a class, not x-show, which waits for a frame. #}
+          <div class="pl-activity-note" data-testid="activity-note"
+               x-data="{ full: false, overflows: false, measure() { const text = this.$refs.text; if (!this.full) this.overflows = text.offsetHeight > text.parentElement.clientHeight + 1 } }"
+               x-init="measure(); $nextTick(() => measure()); document.fonts.ready.then(() => measure()); new ResizeObserver(() => measure()).observe($refs.text)">
+            <div class="pl-activity-note__clip" id="activity-note-{{ a.pk }}" :class="{ 'pl-activity-note__clip--full': full }" data-activity-note-clip>
+              <p class="hub-text-muted pl-activity-note__text" x-ref="text" data-activity-note-text>“{{ line.note }}”</p>
+            </div>
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost pl-activity-note__more" :class="{ 'pl-activity-note__more--shown': overflows || full }" @click="full = !full"
+                    :aria-expanded="full ? 'true' : 'false'" aria-controls="activity-note-{{ a.pk }}"
+                    x-text="full ? 'Less' : 'More'" data-activity-note-more>More</button>
+          </div>
+        {% endif %}
         <div class="hub-text-muted" style="font-size:0.8125rem;">
-          {% if who %}{{ who }}{% else %}System{% endif %} · {{ a.created_at|date:"M j, Y g:i A" }}
+          {{ a.by }} · {{ a.created_at|date:"M j, Y g:i A" }}
         </div>
       </div>
       {% endwith %}

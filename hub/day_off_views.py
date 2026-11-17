@@ -19,10 +19,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -179,7 +180,7 @@ def _day_off_save(request: HttpRequest, owner: _Owner) -> HttpResponse:
         return _modal(request, owner, target, form)
     day_off = form.save()
     # Outside any transaction: cancel_slot talks to Stripe for held checkouts.
-    cancelled, _emailed = orientations.cancel_day_off(target, day_off.date)
+    cancelled, _emailed = orientations.cancel_day_off(target, day_off.date, actor=cast(User, request.user))
     messages.success(request, _saved_message(cancelled))
     if request.headers.get("HX-Request") == "true":
         response = HttpResponse(status=204)

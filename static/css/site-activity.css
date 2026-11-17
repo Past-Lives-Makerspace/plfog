@@ -45,6 +45,50 @@
     font-size: 0.875rem;
 }
 
+/* Activity Feed rows: the text column may shrink so a long headline or note wraps instead of
+   pushing the email badge off the card. A note a person attached sits under the headline in
+   muted type, two lines at most until More opens the rest in place. */
+.pl-activity-row__main,
+.pl-activity-row__text {
+    min-width: 0;
+}
+
+.pl-activity-row__text {
+    overflow-wrap: anywhere;
+}
+
+.pl-activity-note {
+    margin-top: 0.25rem;
+}
+
+/* The clip shows two lines of the note (2 x 0.875rem x 1.5); the paragraph inside is never clamped,
+   so its height follows the text and the template's ResizeObserver re-measures on any reflow. */
+.pl-activity-note__clip {
+    max-height: 2.625rem;
+    overflow: hidden;
+}
+
+.pl-activity-note__clip--full {
+    max-height: none;
+}
+
+.pl-activity-note__text {
+    font-size: 0.875rem;
+    line-height: 1.5;
+    white-space: pre-line;
+}
+
+/* Hidden until the page measures the note as clipped. A class rather than x-show: Alpine shows an
+   x-show element on an animation frame, and a busy browser can paint none for seconds (#1122). */
+.pl-activity-note .pl-activity-note__more {
+    display: none;
+    margin-top: 0.25rem;
+}
+
+.pl-activity-note .pl-activity-note__more--shown {
+    display: inline-block; /* .hub-btn's own display */
+}
+
 @media (max-width: 639px) {
     .pl-activity-filters__field,
     .pl-activity-filters__field--wide {

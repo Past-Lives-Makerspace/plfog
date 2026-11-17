@@ -682,3 +682,250 @@ def describe_new_members_tab():
             "email_filters"
         ]
         assert email_filters.recipient_value == ""
+
+
+def describe_orientation_and_space_rows():
+    """Each orientation or space row says whose it is, who acted, and any note (Felix: "The system can't be requested an orientation?")."""
+
+    def _staff(client) -> User:
+        staff = User.objects.create_user(
+            username="feed_staff", email="feed_staff@example.com", password="pw12345!", is_staff=True
+        )
+        staff.member.preferred_name = "Alex Smith"
+        staff.member.save(update_fields=["preferred_name"])
+        client.login(username="feed_staff", password="pw12345!")
+        return staff
+
+    def _robin():
+        from tests.membership.factories import MembershipPlanFactory
+
+        MembershipPlanFactory()
+        member = User.objects.create_user(username="robin", email="robin@example.com").member
+        member.preferred_name = "Robin Vale"
+        member.save(update_fields=["preferred_name"])
+        return member
+
+    def _booking(member, **slot_kwargs):
+        from tests.membership.factories import (
+            GuildFactory,
+            OrientationBookingFactory,
+            OrientationSlotFactory,
+            OrientationTypeFactory,
+        )
+
+        guild = GuildFactory(name="Laser Guild")
+        orientation = OrientationTypeFactory(guild=guild, name="Laser Basics")
+        return OrientationBookingFactory(
+            slot=OrientationSlotFactory(guild=guild, orientation_type=orientation, **slot_kwargs), member=member
+        )
+
+    def _feed(client) -> str:
+        return client.get(reverse("manage_activity"), {"tab": "feed"}).content.decode()
+
+    def it_names_the_member_and_orientation_on_a_request_the_member_made_with_their_note(client):
+        from membership import orientations
+        from tests.membership.factories import GuildFactory, OrientationSlotFactory, OrientationTypeFactory
+
+        _staff(client)
+        guild = GuildFactory(name="Laser Guild")
+        slot = OrientationSlotFactory(
+            guild=guild, orientation_type=OrientationTypeFactory(guild=guild, name="Laser Basics")
+        )
+        orientations.request_orientation(slot, _robin(), note="I have used a <b>laser</b> before")
+
+        content = _feed(client)
+        assert "Orientation requested: Robin Vale for Laser Basics (Laser Guild)" in content
+        assert "Robin Vale · " in content
+        assert "“I have used a &lt;b&gt;laser&lt;/b&gt; before”" in content
+        assert "System · " not in content
+
+    def it_names_the_staffer_on_a_decline_and_shows_their_note(client):
+        from membership import orientations
+
+        staff = _staff(client)
+        orientations.decline_orientation(_booking(_robin()), note="Try the March date", actor=staff)
+
+        content = _feed(client)
+        assert "Orientation declined: Robin Vale for Laser Basics (Laser Guild)" in content
+        assert "Alex Smith · " in content
+        assert "“Try the March date”" in content
+
+    def it_says_system_on_an_automatic_completion_and_still_names_the_member(client):
+        from membership import orientations
+
+        _staff(client)
+        booking = _booking(
+            _robin(), starts_at=timezone.now() - timedelta(hours=3), ends_at=timezone.now() - timedelta(hours=2)
+        )
+        booking.confirm()
+        assert orientations.auto_complete() == 1
+
+        content = _feed(client)
+        assert "Orientation completed automatically: Robin Vale for Laser Basics (Laser Guild)" in content
+        assert "System · " in content
+
+    def it_says_system_and_why_on_a_decline_the_card_hold_sweep_made(client):
+        from membership import orientations
+
+        _staff(client)
+        assert orientations._decline_unconfirmed(_booking(_robin()), reason=orientations.DECLINE_HOLD_EXPIRED)
+
+        content = _feed(client)
+        assert "Orientation declined automatically: Robin Vale for Laser Basics (Laser Guild)" in content
+        assert "“Nobody confirmed the request before the hold on the card ran out.”" in content
+        assert "System · " in content
+
+    def it_names_the_member_on_an_old_row_with_no_actor_and_says_who_acted_was_not_recorded(client):
+        _staff(client)
+        SiteActivity.log(SiteActivity.Kind.ORIENTATION_CANCELLED, target=_booking(_robin()))
+
+        content = _feed(client)
+        assert "Orientation cancelled: Robin Vale for Laser Basics (Laser Guild)" in content
+        assert "Not recorded · " in content
+        assert "System · " not in content
+
+    def it_draws_no_note_line_when_there_is_no_note(client):
+        staff = _staff(client)
+        SiteActivity.log(SiteActivity.Kind.ORIENTATION_CANCELLED, actor=staff, target=_booking(_robin()))
+
+        content = _feed(client)
+        assert "Orientation cancelled: Robin Vale" in content
+        assert 'data-testid="activity-note"' not in content
+
+    def it_leaves_more_to_the_browser_for_every_note_whatever_its_length(client):
+        # The clamp is CSS the server cannot measure: More renders hidden on every note and the page
+        # shows it when the note overflows (tests/e2e/activity_feed_note_spec.py drives that).
+        staff = _staff(client)
+        booking = _booking(_robin())
+        SiteActivity.log(SiteActivity.Kind.ORIENTATION_DECLINED, actor=staff, target=booking, payload={"note": "short"})
+        SiteActivity.log(
+            SiteActivity.Kind.ORIENTATION_DECLINED, actor=staff, target=booking, payload={"note": "x" * 141}
+        )
+
+        content = _feed(client)
+        assert content.count("'pl-activity-note__more--shown': overflows || full") == 2
+        assert content.count("data-activity-note-more") == 2
+
+    def it_hides_the_stray_request_rows_the_cancel_bell_used_to_write(client):
+        _staff(client)
+        SiteActivity.log(SiteActivity.Kind.ORIENTATION_REQUESTED)
+
+        page = client.get(reverse("manage_activity"), {"tab": "feed"}).context["feed_page"]
+        assert SiteActivity.Kind.ORIENTATION_REQUESTED not in [row.kind for row in page]
+        weeks = SiteActivity.weekly_counts(timezone.now() - timedelta(days=7))
+        assert "Orientation requested" not in [row.label for row in weeks.rows]
+
+    def it_names_the_requester_and_their_message_on_a_space_request(client):
+        from tests.membership.factories import SpaceFactory
+
+        _staff(client)
+        request = _space_request(_robin(), SpaceFactory(space_id="S-12", name="Hot Glass Room"), message="For my kiln")
+
+        content = _feed(client)
+        assert "Space requested: Robin Vale for S-12 (Hot Glass Room)" in content
+        assert "Robin Vale · " in content
+        assert "“For my kiln”" in content
+        assert content.count("Space requested: Robin Vale") == 1
+        assert SiteActivity.objects.get(kind=SiteActivity.Kind.SPACE_REQUEST).actor == request.requester.user
+
+    def it_names_the_requester_and_the_reason_on_a_declined_shelf_request(client):
+        from membership.models import SpaceRequest
+        from tests.membership.factories import SpaceFactory
+
+        staff = _staff(client)
+        request = _space_request(_robin(), SpaceFactory(space_id="C-3"), kind=SpaceRequest.RequestKind.CUBBY)
+        request.decline(reviewer=staff, notes="Shelves are full")
+
+        content = _feed(client)
+        assert "Shelf requested: Robin Vale for C-3" in content
+        assert "Shelf request declined: Robin Vale for C-3" in content
+        assert "“Shelves are full”" in content
+
+    def it_falls_back_to_the_kind_label_when_the_target_was_deleted(client):
+        staff = _staff(client)
+        booking = _booking(_robin())
+        row = SiteActivity.log(SiteActivity.Kind.ORIENTATION_CANCELLED, actor=staff, target=booking)
+        booking.delete()
+
+        content = _feed(client)
+        assert ">Orientation cancelled</div>" in content
+        assert "Robin Vale for" not in content
+        assert SiteActivity.objects.get(pk=row.pk).line.headline == "Orientation cancelled"
+
+    def it_reads_a_page_of_mixed_targets_in_the_same_number_of_queries_however_many_rows(client):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from tests.membership.factories import MemberFactory, SpaceFactory
+
+        staff = _staff(client)
+
+        def add_rows() -> None:
+            booking = _booking(MemberFactory())
+            booking.write_message(author=None, body="first")
+            SiteActivity.log(SiteActivity.Kind.ORIENTATION_REQUESTED, target=booking)
+            SiteActivity.log(SiteActivity.Kind.ORIENTATION_DECLINED, actor=staff, target=booking, payload={"note": "n"})
+            _space_request(MemberFactory(), SpaceFactory(), message="m")
+
+        def feed_queries() -> int:
+            with CaptureQueriesContext(connection) as queries:
+                assert client.get(reverse("manage_activity"), {"tab": "feed"}).status_code == 200
+            return len(queries)
+
+        add_rows()
+        feed_queries()  # the staffer's first page load opens their tab once; measure after it
+        one_of_each = feed_queries()
+        add_rows()
+        add_rows()
+        assert feed_queries() == one_of_each
+
+    def it_shows_the_note_any_row_carries_in_its_payload(client):
+        staff = _staff(client)
+        SiteActivity.log(SiteActivity.Kind.TAB_ENTRY_ADDED, actor=staff, payload={"note": "Glaze bucket"})
+
+        content = _feed(client)
+        assert "Tab entry added" in content
+        assert "“Glaze bucket”" in content
+
+
+def _space_request(member, space, **kwargs):
+    from membership.models import SpaceRequest
+
+    request = SpaceRequest(space=space, **kwargs)
+    request.submit(requester=member)
+    return request
+
+
+def describe_orientation_request_note():
+    """A request row's note is the member's own first message, written no later than the row."""
+
+    def _requested(booking) -> SiteActivity:
+        return SiteActivity.log(SiteActivity.Kind.ORIENTATION_REQUESTED, actor=booking.member.user, target=booking)
+
+    def _member():
+        from tests.membership.factories import MembershipPlanFactory
+
+        MembershipPlanFactory()
+        return User.objects.create_user(username="noter", email="noter@example.com").member
+
+    def it_reads_no_note_on_a_thread_with_no_messages():
+        from tests.membership.factories import OrientationBookingFactory
+
+        assert _requested(OrientationBookingFactory(member=_member())).line.note == ""
+
+    def it_ignores_a_first_message_from_staff():
+        from tests.membership.factories import OrientationBookingFactory
+
+        booking = OrientationBookingFactory(member=_member())
+        booking.write_message(author=None, body="Bring boots")
+        assert _requested(booking).line.note == ""
+
+    def it_ignores_a_member_message_written_after_the_request():
+        from tests.membership.factories import OrientationBookingFactory
+
+        booking = OrientationBookingFactory(member=_member())
+        row = _requested(booking)
+        message = booking.write_message(author=booking.member.user, body="Running late")
+        SiteActivity.objects.filter(pk=row.pk).update(created_at=message.created_at - timedelta(seconds=1))
+        row.refresh_from_db()
+        assert SiteActivity.objects.get(pk=row.pk).line.note == ""

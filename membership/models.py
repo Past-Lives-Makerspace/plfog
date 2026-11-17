@@ -55,7 +55,15 @@ from PIL import Image, UnidentifiedImageError
 
 from core.files import delete_if_unreferenced, delete_orphan_on_replace
 from core.images import cut_hero_crop, image_upload_refusal, normalize_field_if_uploaded, normalize_image
-from core.models import HERO_CROP_FIELDS, AutomationAction, EventDelivery, HeroCropMixin, StaffRequestMixin
+from core.models import (
+    HERO_CROP_FIELDS,
+    ActivityLine,
+    AutomationAction,
+    EventDelivery,
+    HeroCropMixin,
+    SiteActivity,
+    StaffRequestMixin,
+)
 from core.threads import ThreadMessage, ThreadPhoto
 from core.urls_util import member_absolute_url
 from core.phone import phone_tel_number
@@ -17998,6 +18006,35 @@ class OrientationBooking(models.Model):
             return None
         return OrientationBookingMessage.write(author=author, body=body, booking=self)
 
+    def describe_activity(self, activity: SiteActivity) -> ActivityLine:
+        """The Activity Feed's line for a row about this booking: whose orientation it is, which one, and its note.
+
+        A row a job wrote (``payload["automatic"]``, and every auto complete) says so and still
+        names the member. A row with no actor and no such mark was a person's decline or cancel
+        logged before the log kept who acted, so the feed says "Not recorded", never "System".
+        A request row carries the member's note: the thread's first message, when they wrote it
+        with the request. Any other note rides in the row's payload (:attr:`SiteActivity.line`).
+        """
+        verb = activity.get_kind_display()
+        orientation = self.orientation_type
+        subject = f"{self.member.display_name} for {orientation.name} ({orientation.owner_name})"
+        note = self._request_note(activity) if activity.kind == SiteActivity.Kind.ORIENTATION_REQUESTED else ""
+        if activity.actor_id is not None:
+            return ActivityLine(headline=f"{verb}: {subject}", note=note)
+        if activity.is_automatic or activity.kind == SiteActivity.Kind.ORIENTATION_COMPLETED:
+            return ActivityLine(headline=f"{verb} automatically: {subject}", note=note)
+        return ActivityLine(headline=f"{verb}: {subject}", note=note, actor_unrecorded=True)
+
+    def _request_note(self, activity: SiteActivity) -> str:
+        """The note the member sent with their request: the thread's first message, if theirs and no later than the row.
+
+        Reads ``messages.all()`` so the feed's prefetch serves it.
+        """
+        first = min(self.messages.all(), key=lambda message: (message.created_at, message.pk), default=None)
+        if first is None or first.author_id != self.member.user_id or first.created_at > activity.created_at:
+            return ""
+        return first.body
+
 
 class OrientationBookingMessage(ThreadMessage):
     """One message on an :class:`OrientationBooking`'s thread, between the member and its orientors.
@@ -19084,6 +19121,22 @@ class SpaceRequest(StaffRequestMixin, models.Model):
         self.state = self.ModerationState.WITHDRAWN
         self.save(update_fields=["state", "updated_at"])
         self.clear_request_bells()
+
+    def describe_activity(self, activity: SiteActivity) -> ActivityLine:
+        """The Activity Feed's line for a row about this request: who asked for which space, and the note.
+
+        A row written once the request was reviewed is the decision, carrying the reviewer's
+        reason; an earlier one is the ask, carrying the member's message. Every row names the
+        requester, whoever the actor was.
+        """
+        asked_for = "Shelf" if self.kind == self.RequestKind.CUBBY else "Space"
+        space = self.space
+        where = f"{space.space_id} ({space.name})" if space.name else space.space_id
+        subject = f"{self.requester.display_name} for {where}"
+        if self.reviewed_at is not None and activity.created_at >= self.reviewed_at:
+            decision = self.get_state_display().lower()
+            return ActivityLine(headline=f"{asked_for} request {decision}: {subject}", note=self.review_notes)
+        return ActivityLine(headline=f"{asked_for} requested: {subject}", note=self.message)
 
     def _require_pending(self, action: str) -> None:
         if self.state != self.ModerationState.PENDING:

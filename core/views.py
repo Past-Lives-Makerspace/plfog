@@ -10,6 +10,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
+from django.contrib.contenttypes.prefetch import GenericPrefetch
 from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
@@ -658,6 +659,7 @@ def site_activity(request: HttpRequest) -> HttpResponse:
     from core.new_members import count_line as new_members_count_line
     from core.new_members import empty_message as new_members_empty_message
     from core.services.email_queue import DigestQueue, sent_digests
+    from membership.models import OrientationBooking, SpaceRequest
 
     # The tab lands inside an Alpine expression, where the browser decodes Django's escaping
     # before Alpine evaluates it, so only a known tab name may reach the template.
@@ -668,10 +670,24 @@ def site_activity(request: HttpRequest) -> HttpResponse:
 
     feed_filters = ActivityFeedFilterForm(request.GET)
     # The feed names each row's person (SiteActivity.who): the actor's member, or a
-    # registration target's registrant, so both are fetched with the page.
+    # registration target's registrant, so both are fetched with the page. An orientation
+    # booking or space request words its own row (SiteActivity.line), so each comes with what
+    # that reads: its member and orientation, its thread for a request's note, its space.
     activities = feed_filters.filter(
-        SiteActivity.objects.select_related("actor__member", "target_ct", "email_log")
-    ).prefetch_related("target")
+        SiteActivity.objects.exclude(SiteActivity.stray_rows()).select_related(
+            "actor__member", "target_ct", "email_log"
+        )
+    ).prefetch_related(
+        GenericPrefetch(
+            "target",
+            [
+                OrientationBooking.objects.select_related(
+                    "member", "orientation_type__guild", "orientation_type__equipment"
+                ).prefetch_related("messages"),
+                SpaceRequest.objects.select_related("requester", "space"),
+            ],
+        )
+    )
     feed_page = Paginator(activities, 50).get_page(request.GET.get("page"))
 
     email_filters = EmailLogFilterForm(request.GET)
