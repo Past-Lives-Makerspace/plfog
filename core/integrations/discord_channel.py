@@ -27,6 +27,9 @@ from core.events.discord_dm import API_BASE, _auth_headers, bot_disabled, bot_to
 # How long one request waits for Discord. Callers that can run inside a web request keep this
 # (#845 hit gunicorn's 30 s limit); a scheduled job may pass a longer ``timeout``.
 DEFAULT_TIMEOUT_SECONDS = 5.0
+# The 15-minute ping intake (core.discord_pings) reads the whole server, never inside a web request. Discord
+# sometimes takes longer than 5 s to list channels or roles, and each such tick failed and mailed Webmasters (2026-11-17).
+SCHEDULED_READ_TIMEOUT_SECONDS = 20.0
 _RATE_LIMIT_MAX_WAIT_SECONDS = 15.0
 # How far back a duplicate check looks; a retry runs within the hour, long before 50 posts.
 _RECENT_MESSAGES_LIMIT = 50
@@ -73,18 +76,21 @@ def discord_message_url(server_id: str, channel_id: str, message_id: str) -> str
 
 def server_channels(server_id: str) -> list[dict[str, Any]]:
     """Every channel on the server (``GET /guilds/{id}/channels``), with its overwrites and newest message id."""
-    return _request("GET", f"{API_BASE}/guilds/{server_id}/channels").json()
+    return _request("GET", f"{API_BASE}/guilds/{server_id}/channels", timeout=SCHEDULED_READ_TIMEOUT_SECONDS).json()
 
 
 def server_roles(server_id: str) -> list[dict[str, Any]]:
     """Every role on the server (``GET /guilds/{id}/roles``), so a role mention can read as its name."""
-    return _request("GET", f"{API_BASE}/guilds/{server_id}/roles").json()
+    return _request("GET", f"{API_BASE}/guilds/{server_id}/roles", timeout=SCHEDULED_READ_TIMEOUT_SECONDS).json()
 
 
 def channel_messages_after(channel_id: str, after: str) -> list[dict[str, Any]]:
     """Up to :data:`MESSAGES_PAGE_LIMIT` messages newer than ``after``, oldest first."""
     messages = _request(
-        "GET", f"{API_BASE}/channels/{channel_id}/messages", params={"after": after, "limit": MESSAGES_PAGE_LIMIT}
+        "GET",
+        f"{API_BASE}/channels/{channel_id}/messages",
+        params={"after": after, "limit": MESSAGES_PAGE_LIMIT},
+        timeout=SCHEDULED_READ_TIMEOUT_SECONDS,
     ).json()
     return sorted(messages, key=lambda message: int(message["id"]))
 
