@@ -18,7 +18,7 @@
 {% if member %}
 {# --- The utility row (#1007): What's New, Show Me Around and, from 1200px, the Door Code chip; then the greeting, full width --- #}
 {% include "hub/partials/_home_utility_row.html" %}
-{% with greeting="Welcome back, "|add:member.display_name %}
+{% with greeting="Welcome back, "|add:member.greeting_name %}
 <div class="pl-home-greeting" data-home-greeting>
 {% include "components/page_header.html" with title=greeting description="Your home base — what's coming up, the latest from your guilds, and quick ways in." %}
 </div>

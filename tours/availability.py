@@ -232,7 +232,7 @@ def open_tours(
                 if include_full or not tour.is_full:
                     tours.append(tour)
         day += timedelta(days=1)
-    tours.sort(key=lambda tour: (tour.starts_at, tour.guide.display_name.casefold()))
+    tours.sort(key=lambda tour: (tour.starts_at, tour.guide.greeting_name.casefold()))
     return tours
 
 

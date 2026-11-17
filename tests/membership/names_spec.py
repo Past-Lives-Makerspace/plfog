@@ -6,7 +6,14 @@ import pytest
 from django.contrib.auth.models import AnonymousUser, User
 
 from membership.models import Member
-from membership.names import greeting_form, member_label, user_display_name, user_label, user_name_or_email
+from membership.names import (
+    greeting_form,
+    legal_initial_form,
+    member_label,
+    user_display_name,
+    user_label,
+    user_name_or_email,
+)
 from tests.membership.factories import MembershipPlanFactory
 
 pytestmark = pytest.mark.django_db
@@ -37,6 +44,39 @@ def describe_member_label():
     def it_is_blank_with_no_name_at_all():
         assert member_label("", "") == ""
 
+    def it_is_the_legal_name_alone_when_it_starts_with_the_preferred_name():
+        assert member_label(" sam ", "Sam Reyes") == "Sam Reyes"
+
+    def it_lists_both_when_the_preferred_name_is_only_the_start_of_a_word():
+        assert member_label("Sam", "Samantha Reyes") == "Sam (Samantha Reyes)"
+
+    def describe_the_initial_form():
+        def it_gives_the_legal_first_name_and_last_initial():
+            assert member_label("Wren", "Quinn Lee Ashdown", form="initial") == "Wren (Quinn A.)"
+
+        def it_is_the_legal_initial_form_alone_when_it_starts_with_the_preferred_name():
+            assert member_label("Sam", "Sam Reyes", form="initial") == "Sam R."
+
+        def it_keeps_a_one_word_legal_name_whole():
+            assert member_label("Wren", "Quinn", form="initial") == "Wren (Quinn)"
+
+        def it_is_the_legal_name_whole_without_a_preferred_name():
+            assert member_label("", "Quinn Ashdown", form="initial") == "Quinn Ashdown"
+
+        def it_is_the_preferred_name_alone_when_the_two_match():
+            assert member_label("Quinn Ashdown", "quinn ashdown", form="initial") == "Quinn Ashdown"
+
+
+def describe_legal_initial_form():
+    def it_keeps_the_first_name_and_the_last_names_initial():
+        assert legal_initial_form("  Quinn  Lee Ashdown ") == "Quinn A."
+
+    def it_keeps_one_word_whole():
+        assert legal_initial_form("Quinn") == "Quinn"
+
+    def it_is_blank_for_no_name():
+        assert legal_initial_form("") == ""
+
 
 def describe_greeting_form():
     def it_keeps_the_preferred_name_of_a_label():
@@ -57,9 +97,9 @@ def describe_user_display_name():
         user = _account("dana@example.com", email="dana@example.com", legal="Dana Weaver")
         assert user_display_name(user) == "Dana Weaver"
 
-    def it_lists_the_members_preferred_name_with_the_legal_name():
+    def it_prefers_the_members_preferred_name():
         user = _account("dee@example.com", email="dee@example.com", legal="Deirdre Weaver", preferred="Dee")
-        assert user_display_name(user) == "Dee (Deirdre Weaver)"
+        assert user_display_name(user) == "Dee"
 
     def it_prefers_the_member_name_over_the_account_name():
         user = _account("acct@example.com", email="acct@example.com", first="Old", last="Name", legal="New Name")

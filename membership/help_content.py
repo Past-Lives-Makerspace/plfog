@@ -829,7 +829,7 @@ The fine print:
 
 - Anything you switch off stays private to staff.
 - Admins, guild officers, guild leads, and instructors are always listed — their role needs a public profile — but they still choose which fields appear on their card.
-- Some things are never shown to other members, no matter what: your full legal name, billing details, emergency contacts, your account status or notes, and which guilds you follow (that's a notification choice, not a public label).
+- Some things are never shown to other members, no matter what: billing details, emergency contacts, your account status or notes, and which guilds you follow (that's a notification choice, not a public label). Your legal name stays private to staff unless you choose, in Settings, to show it or its initial beside your preferred name.
 - The directory normally requires signing in. Admins can turn on a site setting that opens it to visitors without an account — if that's on, treat whatever your card shows as public.
 """,
         "screenshots": [

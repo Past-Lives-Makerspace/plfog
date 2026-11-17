@@ -33,7 +33,7 @@ answers and the history on the right (stacked on a phone).
                         {% if flag.cleared_at %}<span class="pl-kiln-flag pl-kiln-flag--cleared"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-check"/></svg><span>{{ flag.get_kind_display }}</span></span>
                         {% elif flag.is_loud %}<span class="pl-kiln-flag pl-kiln-flag--loud"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-alert"/></svg>{{ flag.get_kind_display }}</span>
                         {% else %}<span class="pl-kiln-flag"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-flag"/></svg>{{ flag.get_kind_display }}</span>{% endif %}
-                        <p>{% if flag.kind == "manual" %}{{ flag.note }} Added by {{ flag.added_by.display_name|default:"the crew" }}, {{ flag.created_at|date:"D, M j" }}.{% elif flag.answer %}"{{ flag.answer }}".{% endif %}{% if flag.cleared_at %} Cleared by {{ flag.cleared_by.display_name|default:"the crew" }}, {{ flag.cleared_at|date:"D, M j" }}.{% endif %}</p>
+                        <p>{% if flag.kind == "manual" %}{{ flag.note }} Added by {{ flag.added_by.staff_label|default:"the crew" }}, {{ flag.created_at|date:"D, M j" }}.{% elif flag.answer %}"{{ flag.answer }}".{% endif %}{% if flag.cleared_at %} Cleared by {{ flag.cleared_by.staff_label|default:"the crew" }}, {{ flag.cleared_at|date:"D, M j" }}.{% endif %}</p>
                     </div>
                     {% if not flag.cleared_at %}
                     <form method="post" action="{% url 'kiln:flag_clear' ticket.pk flag.pk %}">

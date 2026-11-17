@@ -285,22 +285,22 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
         {% for instructor in instructors %}
         <div class="cp-detail__instructor">
           {% if instructor.profile_photo %}
-            <img class="cp-detail__instructor-photo" src="{{ instructor.profile_photo.url }}" alt="{{ instructor.display_name }}">
+            <img class="cp-detail__instructor-photo" src="{{ instructor.profile_photo.url }}" alt="{{ instructor.public_name }}">
           {% else %}
-            <div class="cp-detail__instructor-photo cp-detail__instructor-photo--ph">{{ instructor.display_name|slice:":1" }}</div>
+            <div class="cp-detail__instructor-photo cp-detail__instructor-photo--ph">{{ instructor.public_name|slice:":1" }}</div>
           {% endif %}
           <div class="cp-detail__instructor-body">
             {% if instructor.instructor_slug %}
-              <a class="cp-detail__instructor-name" href="{% url 'classes:public_instructor' slug=instructor.instructor_slug %}">{{ instructor.display_name }}</a>
+              <a class="cp-detail__instructor-name" href="{% url 'classes:public_instructor' slug=instructor.instructor_slug %}">{{ instructor.public_name }}</a>
             {% else %}
-              <span class="cp-detail__instructor-name">{{ instructor.display_name }}</span>
+              <span class="cp-detail__instructor-name">{{ instructor.public_name }}</span>
             {% endif %}
             {# The teaching bio, never the member-directory one: that has a directory-only privacy toggle this public page cannot honour (#526). #}
             {% if instructor.instructor_bio %}
               <div class="cp-detail__prose">{{ instructor.instructor_bio|linebreaks }}</div>
             {% endif %}
             {% if instructor.instructor_slug %}
-              <a class="cp-detail__instructor-link" href="{% url 'classes:public_instructor' slug=instructor.instructor_slug %}">See All Classes by {{ instructor.display_name }} &rarr;</a>
+              <a class="cp-detail__instructor-link" href="{% url 'classes:public_instructor' slug=instructor.instructor_slug %}">See All Classes by {{ instructor.public_name }} &rarr;</a>
             {% endif %}
           </div>
         </div>

@@ -9,7 +9,7 @@ a segmented pair, both always visible, the chosen one gold; Save is last. Contex
   {% csrf_token %}
   <input type="hidden" name="guide" value="{{ target.pk }}">
   <h2 class="hub-detail-label pl-tours-panel__title">Confirming Bookings</h2>
-  <p class="hub-text-muted pl-tours-panel__intro">What happens when a visitor books {% if is_self %}one of your tours{% else %}one of {{ target.display_name }}'s tours{% endif %} on the website. Bookings at the front desk kiosk are always confirmed at once.</p>
+  <p class="hub-text-muted pl-tours-panel__intro">What happens when a visitor books {% if is_self %}one of your tours{% else %}one of {{ target.staff_label }}'s tours{% endif %} on the website. Bookings at the front desk kiosk are always confirmed at once.</p>
   <div class="pl-tours-confirm" role="radiogroup" aria-label="Confirming bookings" data-guidance-target="tours.confirm-mode">
     {% for choice in confirm_form.confirm_mode %}
     <label class="pl-tours-confirm__option"><input type="radio" name="{{ choice.data.name }}" value="{{ choice.data.value }}"{% if choice.data.selected %} checked{% endif %} data-tour-confirm-choice="{{ choice.data.value }}"><span>{{ choice.choice_label }}</span></label>

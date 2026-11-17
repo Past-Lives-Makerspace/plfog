@@ -154,7 +154,7 @@ def backfill_candidates() -> list[tuple[Member, Guild]]:
         for person in people:
             first.setdefault(person.pk, (person, guild))
     skip = set(welcomed.values_list("member_id", flat=True))
-    return sorted((pair for pk, pair in first.items() if pk not in skip), key=lambda pair: pair[0].display_name)
+    return sorted((pair for pk, pair in first.items() if pk not in skip), key=lambda pair: pair[0].greeting_name)
 
 
 def confirm_rules(member: Member) -> None:

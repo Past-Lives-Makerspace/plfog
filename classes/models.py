@@ -1029,6 +1029,13 @@ class ReviewPipeline:
         return "  ".join(f"[{step.marker}] {step.label}" for step in self.steps)
 
 
+def _and_list(names: list[str]) -> str:
+    """ "A", "A and B", "A, B and C": one line of names in the order given; "" for none."""
+    if len(names) <= 1:
+        return "".join(names)
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
 class ClassOffering(HeroCropMixin, models.Model):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
@@ -1857,10 +1864,18 @@ class ClassOffering(HeroCropMixin, models.Model):
         The plain text twin of ``classes/public/_instructor_names.html``, for emails, Discord, the
         flyer and every hub line that names who teaches; empty when nobody is listed.
         """
-        names = [member.display_name for member in self.instructor_list]
-        if len(names) <= 1:
-            return "".join(names)
-        return f"{', '.join(names[:-1])} and {names[-1]}"
+        return _and_list([member.display_name for member in self.instructor_list])
+
+    @property
+    def public_instructor_names(self) -> str:
+        """:attr:`instructor_names` for signed out pages and registrant emails: each instructor's
+        :attr:`Member.public_name`, never a legal name behind a preferred one."""
+        return _and_list([member.public_name for member in self.instructor_list])
+
+    @property
+    def staff_instructor_names(self) -> str:
+        """:attr:`instructor_names` for staff screens and emails: each instructor's :attr:`Member.staff_label`."""
+        return _and_list([member.staff_label for member in self.instructor_list])
 
     def set_instructors(self, members: Sequence["Member"]) -> None:
         """Make ``members``, in that order, the class's instructors, and move the payee with them.
@@ -2340,7 +2355,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         paid = self.paid_registration_count
         if not paid:
             return
-        self._notify_refund_authority(actor=actor, cancelled_by=actor_member.display_name, paid_count=paid)
+        self._notify_refund_authority(actor=actor, cancelled_by=actor_member.staff_label, paid_count=paid)
 
     def _notify_refund_authority(self, *, actor: "User | None", cancelled_by: str, paid_count: int) -> None:
         """The ``class_cancelled_admin_notice`` to fog admins and REFUNDS holders: N paid signups need refunds.
@@ -2456,7 +2471,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             actor=actor,
             target=self,
             context={
-                "instructor_name": instructor.display_name,
+                "instructor_name": instructor.staff_label,
                 "class_title": self.title,
                 "note": note,
                 "edit_url": _absolute_url(edit_path),
@@ -3368,7 +3383,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         with this and stores blank when the instructor leaves it as is (``classes.forms``), which
         is what keeps the line live.
         """
-        name = self.instructor_names or "your instructor"
+        name = self.public_instructor_names or "your instructor"
         window = "inside this window " if self.has_flexible_window else ""
         return f"After you register, you'll book your session directly with {name} and pick a day {window}that works for both of you."
 
@@ -4066,7 +4081,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             candidate = f"{result} — {date_label}"
             if len(candidate) <= 60:
                 result = candidate
-        name = self.instructor_names.strip()
+        name = self.public_instructor_names.strip()
         if name:
             first_name = name.split(" ")[0]
             # Skip the instructor segment when the title already names them, so
@@ -4840,7 +4855,7 @@ class ClassMessage(ThreadMessage):
         offering = self.class_offering
         if self.is_from_staff:
             names = [
-                member.display_name
+                member.staff_label
                 for member in offering.instructor_list
                 if member.user_id not in {None, self.author_id}
             ]
@@ -5196,29 +5211,29 @@ def personal_code_stem(name: str) -> str:
     return _code_letters(words[0] if words else "")[:PERSONAL_CODE_STEM_MAX] or PERSONAL_CODE_FALLBACK_STEM
 
 
-def personal_code_surname(display_name: str, full_legal_name: str) -> str:
+def personal_code_surname(greeting_name: str, full_legal_name: str) -> str:
     """The last name a colliding personal code borrows letters from (#1065), capital letters only.
 
-    The last word of ``display_name`` when it has more than one word, since the first name comes
+    The last word of ``greeting_name`` when it has more than one word, since the first name comes
     from there too; otherwise the last word of ``full_legal_name`` (a one word preferred name
     pairs with the legal surname). Empty when neither has a second word.
     """
-    for name in (display_name, full_legal_name):
+    for name in (greeting_name, full_legal_name):
         words = name.split()
         if len(words) > 1:
             return _code_letters(words[-1])[:PERSONAL_CODE_SURNAME_MAX]
     return ""
 
 
-def personal_code_candidates(display_name: str, full_legal_name: str, pct: int) -> Iterator[str]:
+def personal_code_candidates(greeting_name: str, full_legal_name: str, pct: int) -> Iterator[str]:
     """Every personal code to try, in order (#1065); digits only ever end it, as the percent.
 
     FIRST plus the percent (JACQUELINE10); then one more letter of the last name at a time
     (JACQUELINEF10, JACQUELINEFI10, ...); once the last name runs out, or when there is none,
     A, B, ... Z, AA, AB, ... before the percent (JACQUELINEFINGERA10).
     """
-    stem = personal_code_stem(display_name)
-    surname = personal_code_surname(display_name, full_legal_name)
+    stem = personal_code_stem(greeting_name)
+    surname = personal_code_surname(greeting_name, full_legal_name)
     yield f"{stem}{pct}"
     for end in range(1, len(surname) + 1):
         yield f"{stem}{surname[:end]}{pct}"
@@ -5339,7 +5354,7 @@ class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
         from core.models import SiteConfiguration
 
         pct = SiteConfiguration.load().instructor_code_discount_pct
-        stem = personal_code_stem(member.display_name)
+        stem = personal_code_stem(member.greeting_name)
         attempts = 0
         while True:
             # Read afresh on every pass: a writer that won the last race has committed by now.
@@ -5352,7 +5367,7 @@ class DiscountCodeQuerySet(models.QuerySet["DiscountCode"]):
                 taken = set(self.filter(code__startswith=stem).values_list("code", flat=True))
                 code = next(
                     candidate
-                    for candidate in personal_code_candidates(member.display_name, member.full_legal_name, pct)
+                    for candidate in personal_code_candidates(member.greeting_name, member.full_legal_name, pct)
                     if candidate not in taken
                 )
             try:
@@ -5723,7 +5738,7 @@ class DiscountCode(models.Model):
             return f"{self.code} {verb} only on {offering.title}."
         instructor = self.instructor
         if instructor is not None:
-            return f"{self.code} {verb} on every class {instructor.display_name} teaches, now and later."
+            return f"{self.code} {verb} on every class {instructor.staff_label} teaches, now and later."
         return f"{self.code} {verb} on every class."
 
     @property
@@ -5740,7 +5755,7 @@ class DiscountCode(models.Model):
         takes off and where it works ("Ana made SPRING20, 20% off, Intro to Forging"), and
         links to the code on the admin list, where an admin can switch Active off.
         """
-        self._tell_staff(f"{maker.display_name} made {self.code}, {self.amount_label}, {self._where}", "made")
+        self._tell_staff(f"{maker.staff_label} made {self.code}, {self.amount_label}, {self._where}", "made")
 
     def tell_staff_instructor_changed(self, maker: "Member", *, uses_changed: bool) -> None:
         """Queue a digest line for an instructor's edit to the discount, scope or uses limit (#1184).
@@ -5748,7 +5763,7 @@ class DiscountCode(models.Model):
         The line reads "Ana changed SPRING5: now 100% off, all their classes", with the uses
         limit added when that is what changed. Every such edit is its own line.
         """
-        line = f"{maker.display_name} changed {self.code}: now {self.amount_label}, {self._where}"
+        line = f"{maker.staff_label} changed {self.code}: now {self.amount_label}, {self._where}"
         if uses_changed:
             line += f", {self.max_uses} uses" if self.max_uses is not None else ", unlimited uses"
         self._tell_staff(line, f"changed:{timezone.now().isoformat()}")
@@ -6786,7 +6801,7 @@ class Registration(models.Model):
             "item_title": self.class_offering.title,
             "recipient_email": self.email,
             "recipient_name": self.first_name or "there",
-            "payer_name": self.member.display_name if self.member is not None else (guest_name or self.email),
+            "payer_name": self.member.staff_label if self.member is not None else (guest_name or self.email),
             "member": self.member,
             "manage_url": _absolute_url(reverse("classes:my_registration", kwargs={"token": self.self_serve_token})),
             "in_app_url": reverse("classes:my_registration", kwargs={"token": self.self_serve_token}),

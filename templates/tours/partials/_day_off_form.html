@@ -5,7 +5,7 @@ page, and again by tours.views.tour_day_off_save with its errors when a save is 
 
 Context: target (the guide), is_self (the guide is the viewer), day_off_form (a TourDayOffForm).
 {% endcomment %}
-<p class="pl-form-note pl-tours-modal-lead">Visitors cannot book {% if is_self %}your{% else %}{{ target.display_name }}'s{% endif %} tours on these days. Tours already booked stay booked.</p>
+<p class="pl-form-note pl-tours-modal-lead">Visitors cannot book {% if is_self %}your{% else %}{{ target.staff_label }}'s{% endif %} tours on these days. Tours already booked stay booked.</p>
 <form class="hub-form" method="post" action="{% url 'tours:day_off_save' %}" hx-post="{% url 'tours:day_off_save' %}" hx-target="#tour-day-off-modal-body" hx-swap="innerHTML" data-tour-day-off-form>
   {% csrf_token %}
   <input type="hidden" name="guide" value="{{ target.pk }}">

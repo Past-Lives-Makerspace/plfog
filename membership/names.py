@@ -1,7 +1,8 @@
 """How a member and a login account are named.
 
-A member who set a preferred name is listed by it with their legal name beside it, "Wren
-(Quinn Ashdown)", and greeted by the preferred name alone, "Hi Wren" (:func:`member_label`,
+Staff see a member who set a preferred name with their legal name beside it, "Wren (Quinn
+Ashdown)"; other members see what the member chose (the preferred name alone, "Wren (Quinn A.)", or
+the full form); everyone greets them by the preferred name, "Hi Wren" (:func:`member_label`,
 :func:`greeting_form`).
 
 How a login account is named next to its email (#617).
@@ -20,17 +21,37 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
 
-def member_label(preferred_name: str, full_legal_name: str) -> str:
-    """How a list names a member: ``"Wren (Quinn Ashdown)"``, or the one name there is.
+def legal_initial_form(full_legal_name: str) -> str:
+    """A legal name as first name and last initial: ``"Quinn Ashdown"`` -> ``"Quinn A."``.
 
-    One name alone when the preferred name is blank, when the legal name is blank, or when the
-    two are the same name (ignoring case and surrounding spaces).
+    A one word legal name stays as it is.
+    """
+    words = (full_legal_name or "").split()
+    if len(words) < 2:
+        return " ".join(words)
+    return f"{words[0]} {words[-1][0]}."
+
+
+def member_label(preferred_name: str, full_legal_name: str, form: str = "full") -> str:
+    """A member's preferred name with their legal name beside it: ``"Wren (Quinn Ashdown)"``.
+
+    ``form`` is ``"full"`` for the whole legal name or ``"initial"`` for its first name and last
+    initial, ``"Wren (Quinn A.)"``. One name alone when the preferred name is blank (the legal name,
+    whole), when the legal name is blank, or when the two are the same name. When the legal name starts
+    with the preferred name as whole words, the label is the legal name alone in that form ("Sam" and
+    "Sam Reyes" give "Sam Reyes", or "Sam R."; "Sam" and "Samantha Reyes" give "Sam (Samantha Reyes)").
+    Case and surrounding spaces are ignored.
     """
     preferred = (preferred_name or "").strip()
     legal = (full_legal_name or "").strip()
-    if not preferred or not legal or preferred.casefold() == legal.casefold():
+    if not preferred or not legal:
         return preferred or legal
-    return f"{preferred} ({legal})"
+    if preferred.casefold() == legal.casefold():
+        return preferred
+    shown = legal_initial_form(legal) if form == "initial" else legal
+    if legal.casefold().startswith(preferred.casefold() + " "):
+        return shown
+    return f"{preferred} ({shown})"
 
 
 def greeting_form(label: str) -> str:

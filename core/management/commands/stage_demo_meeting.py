@@ -249,7 +249,7 @@ class Command(BaseCommand):
         if stale.exists():
             self.stdout.write(f"  clearing {stale.count()} stale registration(s) for the member persona")
             stale.delete()
-        self.stdout.write(f"  member persona reset: {member.display_name} (pk={member.pk})")
+        self.stdout.write(f"  member persona reset: {member.staff_label} (pk={member.pk})")
         return member
 
     def _ensure_instructor_persona(self, guild: Guild) -> Member:
@@ -290,7 +290,7 @@ class Command(BaseCommand):
         member.ensure_instructor_slug()
         GuildMembership.objects.get_or_create(member=member, guild=guild)
         verb = "created" if created else "refreshed"
-        self.stdout.write(f"  instructor persona {verb}: {member.display_name} (pk={member.pk}, user={member.user_id})")
+        self.stdout.write(f"  instructor persona {verb}: {member.staff_label} (pk={member.pk}, user={member.user_id})")
         return member
 
     def _demote_guild_lead_persona(self) -> Member | None:

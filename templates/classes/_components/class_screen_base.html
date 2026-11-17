@@ -26,7 +26,8 @@ The tab strip, and the section list or back row that takes its place on a phone,
             {% if offering.sale_is_active %}<span class="pl-lifecycle-badge pl-sale-pill">Sale: {{ offering.sale_savings_display }}</span>{% endif %}
         </div>
         <div class="pl-class-meta">
-            {% if offering.instructor_names %}<span class="pl-class-meta__item">{{ offering.instructor_names }}</span>{% endif %}
+            {# An instructor sees their co-instructors as members do; admins, reviewers and guild staff see staff labels. #}
+            {% if offering.instructor_names %}<span class="pl-class-meta__item">{% if access.role == 'instructor' %}{{ offering.instructor_names }}{% else %}{{ offering.staff_instructor_names }}{% endif %}</span>{% endif %}
             <span class="pl-class-meta__item">{{ offering.category.name }}</span>
             <span class="pl-class-meta__item">{{ offering.price_cents|cents_as_price }}</span>
             <span class="pl-class-meta__item">{{ seat_taken_count }}{% if not offering.is_flexible %} / {{ offering.capacity }}{% endif %} registered</span>
@@ -55,7 +56,7 @@ sentence, and the sentence says the class is in the guild rather than naming the
 which is true for a lead and a staffer alike.{% endcomment %}
 <div class="pl-class-context">
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="pl-class-context__icon"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-    <span>{% if guild_grants_access %}This class is in the <strong>{{ offering.category.guild.name }}</strong> guild, so you can edit it and write its welcome email.{% else %}You can edit this class and write its welcome email.{% endif %} Sign-ups, the waitlist and cancelling belong to {% if offering.instructor %}<strong>{{ offering.instructor.display_name }}</strong>, who teaches it{% else %}whoever teaches it{% endif %}.</span>
+    <span>{% if guild_grants_access %}This class is in the <strong>{{ offering.category.guild.name }}</strong> guild, so you can edit it and write its welcome email.{% else %}You can edit this class and write its welcome email.{% endif %} Sign-ups, the waitlist and cancelling belong to {% if offering.instructor %}<strong>{{ offering.instructor.staff_label }}</strong>, who teaches it{% else %}whoever teaches it{% endif %}.</span>
 </div>
 {% endif %}
 {% block detail_content %}{% endblock %}

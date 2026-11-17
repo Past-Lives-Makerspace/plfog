@@ -211,13 +211,13 @@ def describe_build_payments_ledger():
             assert ledger.rows == ()
 
     def describe_payer_identity():
-        def it_uses_the_member_display_name_when_linked():
+        def it_uses_the_members_staff_label_when_linked():
             from tests.membership.factories import MemberFactory
 
             member = MemberFactory(preferred_name="Moss")
             _paid_registration(member=member)
             (row,) = build_payments_ledger(window=_WINDOW).rows
-            assert row.payer_name == member.display_name == f"Moss ({member.full_legal_name})"
+            assert row.payer_name == member.staff_label == f"Moss ({member.full_legal_name})"
 
         def it_falls_back_to_the_guest_name():
             _paid_registration(member=None, first_name="Guest", last_name="Payer")

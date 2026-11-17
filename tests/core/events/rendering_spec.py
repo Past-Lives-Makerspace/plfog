@@ -34,6 +34,18 @@ def describe_render_text():
 
         def it_leaves_a_non_text_value_as_it_is():
             assert render_text("Hi {{ count }}", {"count": 3}) == "Hi 3"
+            assert render_text("Hi {{ member_name }}", {"member_name": 3}) == "Hi 3"
+
+        def it_matches_the_greeting_in_any_case():
+            assert render_text("hi {{ member_name }}", {"member_name": "Wren (Quinn Ashdown)"}) == "hi Wren"
+
+        def it_leaves_a_guild_name_after_a_greeting_whole():
+            out = render_text("Welcome {{ guild_name }}!", {"guild_name": "Ceramics (Wheel)"})
+            assert out == "Welcome Ceramics (Wheel)!"
+
+        def it_greets_by_the_short_name_through_an_opening_tag():
+            out = render_text("Hi <strong>{{ member_name }}</strong>,", {"member_name": "Wren (Quinn Ashdown)"})
+            assert out == "Hi <strong>Wren</strong>,"
 
     def it_tolerates_surrounding_whitespace_in_the_braces():
         assert render_text("{{name}} and {{   name   }}", {"name": "Jo"}) == "Jo and Jo"

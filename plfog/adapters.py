@@ -469,7 +469,7 @@ class AutoCreateUserLoginCodeForm(RequestLoginCodeForm):
                     logger.info(
                         "Auto-created User for existing Member (alias email): %s -> %s",
                         email,
-                        alias.member.display_name,
+                        alias.member.greeting_name,
                     )
                 except MemberEmail.DoesNotExist:
                     pass

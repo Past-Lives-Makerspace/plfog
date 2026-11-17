@@ -51,7 +51,7 @@
         <tr data-inquiry-row="{{ member.pk }}">
           <td class="pl-inquiries__date">{{ member.teaching_applied_at|date:"M j, Y" }}</td>
           <td class="pl-inquiries__who">
-            <a href="{% url 'hub_admin_member_edit' member.pk %}">{{ member.display_name }}</a>
+            <a href="{% url 'hub_admin_member_edit' member.pk %}">{{ member.staff_label }}</a>
             <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-inquiries__toggle" @click="open = !open" :aria-expanded="open.toString()" aria-expanded="false" data-inquiry-toggle>
               <span x-text="open ? 'Hide Application' : 'View Application'">View Application</span>
             </button>

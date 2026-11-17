@@ -8,4 +8,4 @@ Params:
   members — the class's instructor_list
   link    — whether a member with an instructor page gets a link
 {% endcomment %}
-{% for member in members %}{% if not forloop.first %}{% if forloop.last %} and {% else %}, {% endif %}{% endif %}{% if link and member.instructor_slug %}<a href="{% url 'classes:public_instructor' slug=member.instructor_slug %}">{{ member.display_name }}</a>{% else %}{{ member.display_name }}{% endif %}{% endfor %}
+{% for member in members %}{% if not forloop.first %}{% if forloop.last %} and {% else %}, {% endif %}{% endif %}{% if link and member.instructor_slug %}<a href="{% url 'classes:public_instructor' slug=member.instructor_slug %}">{{ member.public_name }}</a>{% else %}{{ member.public_name }}{% endif %}{% endfor %}

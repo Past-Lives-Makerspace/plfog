@@ -93,7 +93,7 @@
           <h3 class="hub-detail-label pl-leadership__subheading">Badges</h3>
           {% if badge_toggles %}
           <p class="hub-text-muted pl-leadership__hint">Each switch gives or takes the badge at once. It shows on their cards in the Leadership Directory and the Member Directory.</p>
-          <div class="pl-leadership__badges" data-member-badges data-member-name="{{ member.display_name }}">
+          <div class="pl-leadership__badges" data-member-badges data-member-name="{{ member.staff_label }}">
             {% for toggle in badge_toggles %}
               {% include "components/toggle.html" with field=toggle.field toggle_label=toggle.badge.label toggle_label_include="hub/admin/_member_badge_pill.html" %}
             {% endfor %}
@@ -206,7 +206,7 @@
       <div class="pl-member-orient-row{% if row.record %} pl-member-orient-row--record{% endif %}">
         <div class="pl-member-orient-row__main">
           <span class="pl-member-orient-row__name">{{ row.orientation_type.name }}</span>
-          <span class="hub-text-muted pl-member-orient-row__meta">{{ row.orientation_type.owner_name }} · {{ row.completed_on|date:"M j, Y" }}{% if row.oriented_by %} · oriented by {{ row.oriented_by.display_name }}{% endif %}</span>
+          <span class="hub-text-muted pl-member-orient-row__meta">{{ row.orientation_type.owner_name }} · {{ row.completed_on|date:"M j, Y" }}{% if row.oriented_by %} · oriented by {{ row.oriented_by.staff_label }}{% endif %}</span>
           {% if row.record and row.record.note %}<span class="hub-text-muted pl-member-orient-row__note">{{ row.record.note }}</span>{% endif %}
           {% if row.record %}<span class="hub-pill hub-pill--neutral">Recorded</span>{% else %}<span class="hub-pill hub-pill--ok">Booked</span>{% endif %}
         </div>

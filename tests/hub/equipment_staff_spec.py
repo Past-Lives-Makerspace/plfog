@@ -80,12 +80,12 @@ def describe_the_equipment_page():
         assert content.count('<span class="hub-badge">Manager</span>') == 3
         assert '<div class="hub-member-avatar">D</div>' in content
 
-    def it_shows_the_preferred_name_and_the_legal_name_like_the_guild_card(client: Client):
+    def it_shows_the_preferred_name_like_the_guild_card(client: Client):
         _login(client, "es_pref")
         equipment = EquipmentFactory(name="Quillwood Lathe", description="Turns wood.")
         _staff(equipment, "Damon Quillwood Eckhoff", preferred_name="Damon E")
         content = _detail(client, equipment)
-        assert _staff_names(content) == ["Damon E (Damon Quillwood Eckhoff)"]
+        assert _staff_names(content) == ["Damon E"]
 
     def it_sits_before_the_about_card(client: Client):
         _login(client, "es_order")

@@ -87,6 +87,19 @@
                   email: '{{ user.email|escapejs }}',
                   discord_handle: '{{ profile_form.discord_handle.value|default_if_none:""|escapejs }}',
                   about_me: '{{ profile_form.about_me.value|default_if_none:""|escapejs }}',
+                  name_shown: '{{ profile_form.name_shown_to_members.value|default_if_none:"preferred"|escapejs }}',
+                },
+                legalName: '{{ member.full_legal_name|escapejs }}',
+                {# Mirrors Member.display_name and membership.names.member_label, so the card shows what the save produces. #}
+                cardName() {
+                  const preferred = this.fields.preferred_name.trim();
+                  const legal = this.legalName.trim();
+                  if (!preferred || !legal) return preferred || legal;
+                  if (this.fields.name_shown === 'preferred' || preferred.toLowerCase() === legal.toLowerCase()) return preferred;
+                  const words = legal.split(/\s+/);
+                  const shown = this.fields.name_shown === 'initial' && words.length > 1 ? words[0] + ' ' + words[words.length - 1][0] + '.' : legal;
+                  if (legal.toLowerCase().startsWith(preferred.toLowerCase() + ' ')) return shown;
+                  return preferred + ' (' + shown + ')';
                 },
                 photoUrl: '{% if member.profile_photo %}{{ member.profile_photo.url }}{% endif %}',
                 forceListed: {% if member.must_be_listed_in_directory %}true{% else %}false{% endif %},
@@ -204,6 +217,11 @@
                         {% for error in profile_form.preferred_name.errors %}<span class="hub-field-error">{{ error }}</span>{% endfor %}
                     </div>
 
+                    {# Name other members see: the preferred name alone by default; staff always see both names #}
+                    <div class="pl-profile-row" data-name-shown @change="fields.name_shown = $event.target.value">
+                        {% include "components/radio_group.html" with field=profile_form.name_shown_to_members choice_hints=profile_form.name_shown_examples field_hint="Staff always see both names. With no preferred name, other members see your legal name, whichever you pick." %}
+                    </div>
+
                     {# Privacy-toggleable fields #}
                     {% include "hub/partials/_profile_field_with_visibility.html" with field=profile_form.pronouns key="pronouns" label="Pronouns" %}
                     {% include "hub/partials/_profile_field_with_visibility.html" with field=profile_form.phone key="phone" label="Phone" %}
@@ -228,7 +246,7 @@
                             Never shown to other members
                         </h3>
                         <ul class="pl-profile-never__list">
-                            <li>Full legal name</li>
+                            <li>Full legal name, unless you choose to show it above</li>
                             <li>Billing name &amp; payment info</li>
                             <li>Emergency contact details</li>
                             <li>Account status, role, internal notes</li>
@@ -258,7 +276,7 @@
                                             <div class="pl-profile-preview__avatar">{{ member.initials }}</div>
                                         </template>
                                     </div>
-                                    <div class="pl-profile-preview__name" x-text="fields.preferred_name || '{{ member.full_legal_name|escapejs }}'"></div>
+                                    <div class="pl-profile-preview__name" x-text="cardName()"></div>
                                     <div class="pl-profile-preview__meta">
                                         <span class="pl-profile-preview__pill">{{ member.get_member_type_display }}</span>
                                         <template x-if="isVisible('pronouns') && fields.pronouns">

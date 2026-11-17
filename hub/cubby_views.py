@@ -146,7 +146,7 @@ def hub_guild_cubbies_pricing(request: HttpRequest, pk: int) -> HttpResponse:
             # The split bar under Who Gets Paid (#979): the admins' cubby pair, and each payee's name for its sentence.
             "split_guild": settings_obj.cubby_guild_percent,
             "split_pl": settings_obj.cubby_pl_percent,
-            "payee_names": {str(m.pk): m.display_name for m in guild.cubby_payee_choices()},
+            "payee_names": {str(m.pk): m.staff_label for m in guild.cubby_payee_choices()},
         },
     )
 

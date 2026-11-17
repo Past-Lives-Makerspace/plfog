@@ -980,6 +980,15 @@ def services_launch_stale() -> str:
 
 
 def describe_staff_time():
+    @pytest.mark.parametrize("who", ["Wren (Quinn Ashdown)", "wren", " QUINN ashdown "])
+    def it_links_who_to_a_team_member_by_the_list_label_the_short_name_or_the_legal_name(hub, make_member, who):
+        wren = make_member(preferred_name="Wren", full_legal_name="Quinn Ashdown")
+        fields = {"who": who, "date": date(2026, 11, 20), "hours": Decimal("1"), "area": "planning", "note": ""}
+
+        entry = services.log_staff_time(hub, fields, team=[wren], member=wren)
+
+        assert entry.member == wren
+
     @pytest.mark.parametrize(
         ("hours", "error"),
         [

@@ -154,7 +154,7 @@
   <h2 class="hub-detail-label">Staff</h2>
   {% for staff in equipment.staff_roster %}
   <div class="hub-member-row">
-    <div class="hub-member-avatar">{{ staff.member.display_name|make_list|first|upper }}</div>
+    <div class="hub-member-avatar">{{ staff.member.greeting_name|make_list|first|upper }}</div>
     <div class="hub-member-info">
       <span class="hub-member-name">{{ staff.member.display_name }}</span>
       <span class="hub-badge">{{ staff.get_role_display }}</span>

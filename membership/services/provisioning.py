@@ -138,7 +138,7 @@ def provision_user_for_member(member: Member, *, verified: bool = True) -> User 
 
     email = (member._pre_signup_email or "").strip().lower()
     if not email:
-        logger.info("Skipping provision for member %s (pk=%s): no email on file.", member.display_name, member.pk)
+        logger.info("Skipping provision for member %s (pk=%s): no email on file.", member.staff_label, member.pk)
         return None
 
     from membership.models import Member, MemberEmail
@@ -156,7 +156,7 @@ def provision_user_for_member(member: Member, *, verified: bool = True) -> User 
         if Member.objects.filter(user=user).exclude(pk=member.pk).exists():
             logger.warning(
                 "Skipping provision for member %s (pk=%s): email %s already belongs to another member.",
-                member.display_name,
+                member.staff_label,
                 member.pk,
                 email,
             )
@@ -170,5 +170,5 @@ def provision_user_for_member(member: Member, *, verified: bool = True) -> User 
                 _ensure_unverified_primary(user, email)
             MemberEmail.objects.migrate_to_user(user)
 
-        logger.info("Provisioned user %s for member %s (pk=%s).", user.username, member.display_name, member.pk)
+        logger.info("Provisioned user %s for member %s (pk=%s).", user.username, member.staff_label, member.pk)
         return user

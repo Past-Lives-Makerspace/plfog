@@ -1371,7 +1371,7 @@ def _guild_orientations_context(
     orienter_overview = [_overview_group(m, rules_by_orienter.get(m.pk, [])) for m in leadership]
     former_staff_overview = sorted(
         (_overview_group(m, rules_by_orienter[pk]) for pk, m in orphan_orienters.items()),
-        key=lambda group: group[0].display_name.lower(),
+        key=lambda group: group[0].staff_label.lower(),
     )
     guild_rules_qs = guild.orientation_rules.guild_level()
     has_guild_rules = guild_rules_qs.exists()
@@ -2139,8 +2139,8 @@ def guild_staff_remove(request: HttpRequest, pk: int, staff_pk: int) -> HttpResp
 def _staff_added_message(member: Member, guild: Guild, staff: GuildStaffMembership | None) -> str:
     """The flash for :meth:`Guild.add_staff`, on the Staff tab and the member edit page alike (#968)."""
     if staff is None:
-        return f"{member.display_name} now reviews {guild.name} classes."
-    message = f"{member.display_name} is now {staff.display_title} of {guild.name}."
+        return f"{member.staff_label} now reviews {guild.name} classes."
+    message = f"{member.staff_label} is now {staff.display_title} of {guild.name}."
     if staff.can_review_classes and staff.custom_title != staff.CLASS_REVIEWER_TITLE:
         message += " Class Reviewer is on."
     return message
@@ -2152,7 +2152,7 @@ def _remove_staff(guild: Guild, staff: GuildStaffMembership) -> str:
     Their personal orienter hours retire only when this was their last leadership row here;
     booked times they still hold are named so someone cancels or runs them.
     """
-    member_name = staff.member.display_name
+    member_name = staff.member.staff_label
     title_label = staff.display_title
     booked_remaining = guild.remove_staff(staff)
     message = f"{member_name} is no longer {title_label} of {guild.name}."
@@ -2188,9 +2188,9 @@ def guild_staff_class_reviewer(request: HttpRequest, pk: int, member_pk: int) ->
         raise Http404("That member is not on this guild's staff.")
     response = HttpResponse(status=204)
     if on:
-        trigger_toast(response, f"{member.display_name} now reviews {guild.name} classes.", "success")
+        trigger_toast(response, f"{member.staff_label} now reviews {guild.name} classes.", "success")
     else:
-        trigger_toast(response, f"{member.display_name} no longer reviews {guild.name} classes.", "info")
+        trigger_toast(response, f"{member.staff_label} no longer reviews {guild.name} classes.", "info")
     return response
 
 
@@ -2221,7 +2221,7 @@ def guild_lead_set(request: HttpRequest, pk: int) -> HttpResponse:
         member = form.cleaned_data["member"]
         previous = guild.guild_lead
         warnings = guild.assign_lead(member)
-        messages.success(request, f"{member.display_name} is now the lead of {guild.name}.")
+        messages.success(request, f"{member.staff_label} is now the lead of {guild.name}.")
         for warning in warnings:
             messages.warning(request, warning)
         _flash_hidden_times(request, guild, previous, member)
@@ -2647,7 +2647,7 @@ def _respond_page(request: HttpRequest, booking: Any, *, message_form: Any = Non
             "message_form": message_form or ThreadMessageForm(),
             # Who a message tells, beside Send; nothing for a member with no account, who hears nothing.
             "member_hears_line": (
-                f"{booking.member.display_name} gets it in the app and by email, per their settings."
+                f"{booking.member.staff_label} gets it in the app and by email, per their settings."
                 if booking.member.user_id is not None
                 else ""
             ),
@@ -2712,7 +2712,7 @@ def orientation_move(request: HttpRequest, booking_pk: int) -> HttpResponse:
     if not form.is_valid():
         messages.error(request, f"Couldn't move the orientation. {form.error_summary()}")
         return redirect(landing)
-    name = booking.member.display_name
+    name = booking.member.staff_label
     try:
         if form.asks_member_first:
             orientations.propose_orientation_time(
@@ -2889,7 +2889,7 @@ def orientation_cancel_mine(request: HttpRequest, booking_pk: int) -> HttpRespon
         return HttpResponse("Forbidden", status=403)
     try:
         fee = orientations.cancel_orientation(
-            booking, actor_label=member.display_name, actor=cast(User, request.user), self_cancel=True
+            booking, actor_label=member.staff_label, actor=cast(User, request.user), self_cancel=True
         )
     except OrientationError as exc:
         messages.error(request, str(exc))
@@ -3241,7 +3241,7 @@ def hub_late_fee_waive(request: HttpRequest, pk: int) -> HttpResponse:
         return redirect(next_url)
     messages.success(
         request,
-        f"Waived {fee.member.display_name}'s {fee.amount_display} late cancellation fee. They can book again.",
+        f"Waived {fee.member.staff_label}'s {fee.amount_display} late cancellation fee. They can book again.",
     )
     return redirect(next_url)
 
@@ -3365,7 +3365,7 @@ def orientation_add_member(request: HttpRequest) -> HttpResponse:
             # by_staff: a staffer seating a member by hand is not the member booking their
             # own way around an unpaid late fee (#456), so that one guard stands aside.
             orientations.request_orientation(form.cleaned_data["slot"], form.cleaned_data["member"], by_staff=True)
-            messages.success(request, f"Added {form.cleaned_data['member'].display_name}. We emailed them.")
+            messages.success(request, f"Added {form.cleaned_data['member'].staff_label}. We emailed them.")
         except OrientationError as exc:
             messages.error(request, str(exc))
     else:
@@ -3405,10 +3405,10 @@ def orientation_toggle_completed(request: HttpRequest, booking_pk: int) -> HttpR
             # A confirmed booking still holding an uncharged card (#1128, a deploy rollover race).
             messages.error(request, str(exc))
         else:
-            messages.success(request, f"Marked {booking.member.display_name} as oriented.")
+            messages.success(request, f"Marked {booking.member.staff_label} as oriented.")
     elif not completed and booking.is_completed:
         booking.uncomplete()
-        messages.success(request, f"{booking.member.display_name} is no longer marked oriented.")
+        messages.success(request, f"{booking.member.staff_label} is no longer marked oriented.")
     return redirect(_safe_next(request, _orientation_bookings_tab()))
 
 
@@ -4449,7 +4449,7 @@ def guild_welcome_preview(request: HttpRequest, pk: int) -> HttpResponse:
         return forbidden
     settings_obj, _ = GuildOrientationSettings.objects.get_or_create(guild=guild)
     member = _get_member(request)
-    sample_name = member.display_name if member is not None else "Sample Member"
+    sample_name = member.greeting_name if member is not None else "Sample Member"
     email_ctx = _guild_welcome_context(guild, sample_name, settings_obj.welcome_email_body_resolved)
     preview_html = render_to_string("membership/emails/guild_welcome.html", email_ctx)
     return render(
@@ -9139,7 +9139,7 @@ def _member_person_row(member: Member) -> PersonRow:
         f"{reverse('classes:admin_classes')}?instructor={member.pk}" if getattr(member, "class_count", 0) else ""
     )
     return PersonRow(
-        name=member.full_legal_name or member.display_name or "—",
+        name=member.full_legal_name or member.staff_label or "—",
         email=member.primary_email or "—",
         status_display=member.get_status_display(),
         role_display=member.role_label,
@@ -9410,7 +9410,7 @@ def _render_member_edit(request: HttpRequest, member: Member, form: MemberAdminE
             "notif_page_channels": notif_page_channels,
             "notif_channels": notif_channels,
             "notif_channel_labels": notif_channel_labels,
-            "person_name": member.full_legal_name or member.display_name or "Member",
+            "person_name": member.full_legal_name or member.staff_label or "Member",
             "primary_email": member.primary_email,
             "has_signed_in": has_signed_in,
             "has_user": member.user_id is not None,
@@ -9487,7 +9487,7 @@ def admin_member_teaching_set(request: HttpRequest, pk: int) -> HttpResponse:
     assert request.user.is_authenticated  # fog_admin_required guarantees a real User
     # None = a superuser acting without a linked Member (emergency access).
     admin_member = Member.objects.filter(user=request.user).first()
-    display = member.display_name or member.full_legal_name or f"member #{member.pk}"
+    display = member.staff_label or member.full_legal_name or f"member #{member.pk}"
     if action == "grant":
         member.grant_instructor(granted_by=admin_member)
         messages.success(request, f"Made {display} an instructor (public page + teaching access).")
@@ -9546,7 +9546,7 @@ def admin_member_guild_staff_edit(request: HttpRequest, pk: int, staff_pk: int) 
         return redirect(_member_permissions_url(member))
     staff.retitle(form.cleaned_data["role"] or "", form.cleaned_data["custom_title"])
     messages.success(
-        request, f"{member.display_name} is now {staff.display_title} of {staff.guild.name} (was {old_title})."
+        request, f"{member.staff_label} is now {staff.display_title} of {staff.guild.name} (was {old_title})."
     )
     return redirect(_member_permissions_url(member))
 
@@ -9577,9 +9577,9 @@ def admin_member_guild_lead_set(request: HttpRequest, pk: int) -> HttpResponse:
     guild = form.cleaned_data["guild"]
     previous = guild.guild_lead
     warnings = guild.assign_lead(member)
-    message = f"{member.display_name} is now the lead of {guild.name}."
+    message = f"{member.staff_label} is now the lead of {guild.name}."
     if previous is not None:
-        message += f" {previous.display_name} is no longer its lead."
+        message += f" {previous.staff_label} is no longer its lead."
     messages.success(request, message)
     for warning in warnings:
         messages.warning(request, warning)
@@ -9594,7 +9594,7 @@ def admin_member_guild_lead_clear(request: HttpRequest, pk: int, guild_pk: int) 
     member = get_object_or_404(Member, pk=pk)
     guild = get_object_or_404(Guild, pk=guild_pk, guild_lead=member)
     guild.clear_lead()
-    messages.success(request, f"{member.display_name} is no longer the lead of {guild.name}.")
+    messages.success(request, f"{member.staff_label} is no longer the lead of {guild.name}.")
     _flash_hidden_times(request, guild, member, None)
     return redirect(_member_permissions_url(member))
 
@@ -9618,7 +9618,7 @@ def admin_member_orientation_record(request: HttpRequest, pk: int) -> HttpRespon
             messages.error(request, error)
         return redirect(orientations_url)
     record = form.save(recorded_by=cast(User, request.user))
-    messages.success(request, f"Recorded the {record.orientation_type.name} orientation for {member.display_name}.")
+    messages.success(request, f"Recorded the {record.orientation_type.name} orientation for {member.staff_label}.")
     return redirect(orientations_url)
 
 
@@ -9634,7 +9634,7 @@ def admin_member_orientation_record_remove(request: HttpRequest, pk: int, record
     record = get_object_or_404(OrientationRecord.objects.with_related(), pk=record_pk, member=member)
     name = record.orientation_type.name
     record.remove(removed_by=cast(User, request.user))
-    messages.success(request, f"Removed the {name} orientation record for {member.display_name}.")
+    messages.success(request, f"Removed the {name} orientation record for {member.staff_label}.")
     return redirect(f"{reverse('hub_admin_member_edit', args=[member.pk])}?tab=orientations")
 
 
@@ -9975,7 +9975,7 @@ def admin_member_create(request: HttpRequest) -> HttpResponse:
         return render(request, "hub/admin/_add_member_form.html", {"add_form": form})
 
     member = form.create_member()
-    messages.success(request, f"Added {member.display_name} to the roster.")
+    messages.success(request, f"Added {member.staff_label} to the roster.")
     response = HttpResponse(status=204)
     response["HX-Redirect"] = reverse("hub_admin_members")
     return response

@@ -97,8 +97,8 @@ UNNAMED_STAFF = "Past Lives staff"
 def person_name(user: User) -> str:
     """Who acted, as guides read it: the member's name, else the account's, else its email, never empty."""
     member: Member | None = getattr(user, "member", None)
-    if member is not None and member.display_name.strip():
-        return member.display_name.strip()
+    if member is not None and member.staff_label.strip():
+        return member.staff_label.strip()
     return user.get_full_name().strip() or user.email.strip() or UNNAMED_STAFF
 
 
@@ -111,7 +111,7 @@ def note_label(actor: User | None) -> str:
     if actor is None:
         return ""
     member: Member | None = getattr(actor, "member", None)
-    name = member.display_name if member is not None else actor.get_full_name()
+    name = member.greeting_name if member is not None else actor.get_full_name()
     first = (name.split() or [""])[0]
     return f"A note from {first or 'Past Lives'}"
 

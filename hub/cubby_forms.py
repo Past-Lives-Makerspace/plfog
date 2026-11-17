@@ -257,7 +257,7 @@ class _PayeeChoiceField(forms.ModelChoiceField):
         self.titles = titles
 
     def label_from_instance(self, obj: Any) -> str:
-        return f"{obj.display_name} ({self.titles[obj.pk]})"
+        return f"{obj.staff_label} ({self.titles[obj.pk]})"
 
 
 class CubbyPricingForm(forms.ModelForm):

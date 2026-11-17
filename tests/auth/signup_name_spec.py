@@ -89,8 +89,7 @@ def describe_signup_post_with_name():
         member = Member.objects.get(user__email="jess@example.com")
         assert member.full_legal_name == "Jessica Rivera"
         assert member.preferred_name == "Jess"
-        assert member.display_name == "Jess (Jessica Rivera)"
-        assert member.greeting_name == "Jess"
+        assert member.display_name == "Jess"
 
     def it_preserves_the_exact_typed_name_on_the_member(client, open_signup):
         # get_full_name() joins the split halves with a single space; the Member

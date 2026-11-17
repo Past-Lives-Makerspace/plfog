@@ -76,7 +76,7 @@ def invite_candidates(guild: Guild) -> list[Member]:
         .exclude(pk__in=open_invitees)
         .select_related("user")
     )
-    return sorted(members, key=lambda member: (member.display_name.casefold(), member.pk))
+    return sorted(members, key=lambda member: (member.greeting_name.casefold(), member.pk))
 
 
 def candidate_rows(guild: Guild) -> list[tuple[int, str]]:

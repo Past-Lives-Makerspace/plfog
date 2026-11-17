@@ -103,7 +103,7 @@ def describe_render_directory_payloads():
         LeadershipRoleFactory(listing=listing, title="Lead Engineer", email="")
         embed = _titled(dld.render_directory_payloads(), "✨ Leadership")
         assert embed["color"] == dld.PEOPLE_COLOR
-        assert embed["description"] == "**Alex \\(Alex Smith\\)**\nTreasurer · Lead Engineer\n✉️ treasurer\\@example.com"
+        assert embed["description"] == "**Alex**\nTreasurer · Lead Engineer\n✉️ treasurer\\@example.com"
 
     def it_shows_a_public_typed_handle_as_plain_text_and_says_to_search_it():
         sam = MemberFactory(

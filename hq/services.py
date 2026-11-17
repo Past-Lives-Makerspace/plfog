@@ -1641,10 +1641,26 @@ class ThankYouBoard:
         return meter_number(self.rows[0].hours) if self.rows else "1"
 
 
-def thank_you_board(hub: EventHub, *, limit: int = BOARD_LIMIT) -> ThankYouBoard:
-    """The ``limit`` members with the most hours on ``hub``, most first (ties by who logged first), in one query."""
+def _board_name(row: Mapping[str, Any], *, public: bool) -> str:
+    """A volunteer as members see them on the board (``Member.display_name``): the preferred name, else the legal
+    name, with the legal name beside it in the form the member chose in ``name_shown_to_members``. A signed out
+    visitor (``public``) sees the preferred name alone (``Member.public_name``)."""
+    preferred, legal = row["member__preferred_name"], row["member__full_legal_name"]
+    shown = row["member__name_shown_to_members"]
+    if public or shown == Member.NameShown.PREFERRED:
+        return preferred or legal
+    return member_label(preferred, legal, form=shown)
+
+
+def thank_you_board(hub: EventHub, *, limit: int = BOARD_LIMIT, public: bool = False) -> ThankYouBoard:
+    """The ``limit`` members with the most hours on ``hub``, most first (ties by who logged first), in one query.
+
+    ``public`` names them for a signed out visitor: never a legal name behind a preferred one.
+    """
     rows = (
-        hub.volunteer_hours.values("member", "member__preferred_name", "member__full_legal_name")
+        hub.volunteer_hours.values(
+            "member", "member__preferred_name", "member__full_legal_name", "member__name_shown_to_members"
+        )
         .annotate(total=Sum("hours"), first=Min("pk"))
         .order_by("-total", "first")[:limit]
     )
@@ -1655,7 +1671,7 @@ def thank_you_board(hub: EventHub, *, limit: int = BOARD_LIMIT) -> ThankYouBoard
             BoardRow(
                 rank=position,
                 member_id=row["member"],
-                name=member_label(row["member__preferred_name"], row["member__full_legal_name"]),
+                name=_board_name(row, public=public),
                 hours=row["total"],
                 top=top,
             )
@@ -3008,7 +3024,7 @@ def log_staff_time(
 ) -> StaffTime:
     """Log a stretch of staff time on ``hub`` from the form's fields, stamped with the organiser who logged it.
 
-    When Who names one of ``team`` (the ledger card's Team) by the name the Team list shows, their
+    When Who names one of ``team`` (the ledger card's Team) by their staff label ("Wren (Quinn Ashdown)"), their
     preferred name or their legal name, whatever the capitalisation, the row is linked to that member too.
     """
     who = fields["who"].strip().casefold()
@@ -3017,7 +3033,7 @@ def log_staff_time(
             person
             for person in team
             if who
-            in {name.strip().casefold() for name in (person.display_name, person.greeting_name, person.full_legal_name)}
+            in {name.strip().casefold() for name in (person.staff_label, person.greeting_name, person.full_legal_name)}
         ),
         None,
     )
@@ -3076,7 +3092,7 @@ def guilds_to_add(hub: EventHub) -> list[Guild]:
 
 
 def _lead_name(guild: Guild) -> str:
-    return guild.guild_lead.display_name if guild.guild_lead is not None else ""
+    return guild.guild_lead.greeting_name if guild.guild_lead is not None else ""
 
 
 class GuildAlreadyListed(Exception):

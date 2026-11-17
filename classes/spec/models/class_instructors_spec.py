@@ -166,5 +166,5 @@ def describe_instructor_names():
         )
         assert (
             ClassOfferingFactory(instructor=a, instructors=[b, a, c]).instructor_names
-            == "Jenelle Giordano, Alex Eason and Pat (Pat Plain)"
+            == "Jenelle Giordano, Alex Eason and Pat"
         )

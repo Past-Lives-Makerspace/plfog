@@ -232,7 +232,7 @@ def send_admin_registration_notification(registration: "Registration") -> None:
     subject = f"[Classes] New registration: {registration.first_name} {registration.last_name} — {offering.title}"
     body = (
         f"{registration.first_name} {registration.last_name} ({registration.email}) "
-        f'registered for "{offering.title}" (instructor: {offering.instructor_names or "N/A"}).\n\n'
+        f'registered for "{offering.title}" (instructor: {offering.staff_instructor_names or "N/A"}).\n\n'
         f"Status: {registration.get_status_display()}\n"
         f"Paid: ${registration.amount_paid_cents / 100:.2f}\n"
         f"Capacity: {offering.seats_taken}/{offering.capacity}\n\n"
@@ -364,12 +364,12 @@ def send_guild_lead_review_reminder(row: "ClassApproval", *, reminded_by: "User"
     if not class_has_reachable_reviewer(offering):
         return None
     guild = offering.category.guild
-    instructor_name = offering.instructor_names or "An instructor"
+    instructor_name = offering.staff_instructor_names or "An instructor"
     from core.models import EventDelivery
 
     today = timezone.localdate().isoformat()
     member = getattr(reminded_by, "member", None)
-    reminder_name = member.display_name if member is not None else instructor_name
+    reminder_name = member.staff_label if member is not None else instructor_name
     return _emit_review_request(
         offering,
         row,
@@ -432,7 +432,7 @@ def send_guild_lead_review_request(offering: "ClassOffering", approval: "ClassAp
     instructor explainer (email only).
     """
     guild = offering.category.guild if offering.category_id else None
-    instructor_name = offering.instructor_names or "An instructor"
+    instructor_name = offering.staff_instructor_names or "An instructor"
     _emit_review_request(offering, approval, role_label="Guild Lead", guild=guild, instructor_name=instructor_name)
     _emit_instructor_review_explainer(offering, approval)
 
@@ -446,7 +446,7 @@ def send_admin_review_request(offering: "ClassOffering", approval: "ClassApprova
     ``None`` guild it composes to the CMS Administrators (holders only) instead of
     blasting a static admin address list. The instructor still gets the explainer.
     """
-    instructor_name = offering.instructor_names or "An instructor"
+    instructor_name = offering.staff_instructor_names or "An instructor"
     _emit_review_request(
         offering,
         approval,

@@ -312,7 +312,7 @@ def guild_digest_payload(guild: Guild, *, month_start: datetime, month_end: date
             {
                 "title": page.title,
                 "url": _absolute_url(page.get_absolute_url()),
-                "author": page.created_by.display_name if page.created_by is not None else "",
+                "author": page.created_by.staff_label if page.created_by is not None else "",
                 "kind": page.get_kind_display(),
             }
             for page in new_pages

@@ -1042,13 +1042,13 @@ def _vendor_edit_form(table: VendorTable, guilds: list[Guild], data: Any = None)
 
 
 def _vendor_team(card: HubCard) -> tuple[str, str]:
-    """Who manages the door, from the first person on its Team by pk: their display name for the header ("" for nobody
+    """Who manages the door, from the first person on its Team by pk: their staff label for the header ("" for nobody
     or a blank name) and their first name for the Requested tile, else the vendor team."""
     first = card.team.order_by("pk").first()
     if first is None:
         return "", services.VENDOR_TEAM_FALLBACK
-    name = first.display_name.strip()
-    return name, (name.split() or [services.VENDOR_TEAM_FALLBACK])[0]
+    name = first.staff_label.strip()
+    return name, (first.greeting_name.split() or [services.VENDOR_TEAM_FALLBACK])[0]
 
 
 def _vendors_context(
@@ -1551,7 +1551,7 @@ def _checkin_context(
         "thanks": services.checkin_thanks(hub),
         "footer": CHECKIN_FOOTER,
         "band": services.checkin_band(hub),
-        "board": services.thank_you_board(hub),
+        "board": services.thank_you_board(hub, public=not request.user.is_authenticated),
         "me_pk": member.pk if member is not None else None,
         "signed_in": request.user.is_authenticated,
         "login_url": login,

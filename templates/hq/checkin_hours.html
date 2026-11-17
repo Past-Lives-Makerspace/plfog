@@ -43,13 +43,13 @@ role; the Delete reads the actual one.
       <tbody>
         {% for entry in entries %}
         <tr data-hq-ci-hours-row="{{ entry.pk }}">
-          <td data-label="Volunteer">{{ entry.member.display_name }}</td>
+          <td data-label="Volunteer">{{ entry.member.staff_label }}</td>
           <td data-label="Date">{{ entry.date|date:"M j" }}</td>
           <td data-label="Hours">{{ entry.hours_display }} h</td>
           <td data-label="Task">{{ entry.get_task_display }}</td>
           <td data-label="Note">{{ entry.note }}</td>
           <td data-label="">
-            <button type="button" class="pl-hq-ci__delete" aria-label="Delete {{ entry.member.display_name }}'s {{ entry.hours_display }} h on {{ entry.date|date:'M j' }}" @click="$dispatch('open-confirm', 'delete-hours-{{ entry.pk }}')" data-hq-ci-delete>Delete</button>
+            <button type="button" class="pl-hq-ci__delete" aria-label="Delete {{ entry.member.staff_label }}'s {{ entry.hours_display }} h on {{ entry.date|date:'M j' }}" @click="$dispatch('open-confirm', 'delete-hours-{{ entry.pk }}')" data-hq-ci-delete>Delete</button>
             {% url 'hq:checkin_hours_delete' hub.slug entry.pk as delete_url %}
             {% with pk_text=entry.pk|stringformat:"s" %}
             {% include "components/confirm_modal.html" with confirm_id="delete-hours-"|add:pk_text confirm_title="Delete these hours?" confirm_message="The entry comes off this volunteer's hours and the thank-you board. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete" confirm_field_name="back" confirm_field_value="hours" %}

@@ -811,6 +811,15 @@ def describe_the_hero_countdown():
 
 
 def describe_the_thank_you_board():
+    def it_names_a_volunteer_as_they_chose_and_never_by_legal_name_to_the_public(hub, make_member):
+        wren = make_member(preferred_name="Wren", full_legal_name="Quinn Ashdown")
+        sam = make_member(preferred_name="Sam", full_legal_name="Tess Marlow", name_shown_to_members="initial")
+        _hours(hub, wren, "2")
+        _hours(hub, sam, "1")
+
+        assert [row.name for row in services.thank_you_board(hub).rows] == ["Wren", "Sam (Tess M.)"]
+        assert [row.name for row in services.thank_you_board(hub, public=True).rows] == ["Wren", "Sam"]
+
     def it_ranks_by_total_hours_with_ties_to_who_logged_first(hub, make_member):
         names = ["Ann", "Bo", "Cy"]
         ann, bo, cy = (make_member(preferred_name=name, full_legal_name=name) for name in names)

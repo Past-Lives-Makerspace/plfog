@@ -924,6 +924,24 @@ class Member(StaffRequestMixin, models.Model):
             "Missing key means public (default-on)."
         ),
     )
+
+    class NameShown(models.TextChoices):
+        """What other members see of a member who set a preferred name (staff always see both names)."""
+
+        PREFERRED = "preferred", "My preferred name only"
+        INITIAL = "initial", "My preferred name and my legal first name and last initial"
+        FULL = "full", "My preferred name and my full legal name"
+
+    name_shown_to_members = models.CharField(
+        max_length=16,
+        choices=NameShown.choices,
+        default=NameShown.PREFERRED,
+        db_default=NameShown.PREFERRED,
+        help_text=(
+            "What other members see beside a preferred name: nothing (the default), the legal first name and "
+            "last initial, or the full legal name. Staff always see both names; no effect without a preferred name."
+        ),
+    )
     show_on_space_map = models.BooleanField(
         default=False,
         help_text=(
@@ -1229,17 +1247,33 @@ class Member(StaffRequestMixin, models.Model):
         return self.display_name
 
     @property
-    def display_name(self) -> str:
-        """How every list names this member: "Wren (Quinn Ashdown)", or the one name there is.
-
-        Text that speaks to the member ("Hi Wren") uses :attr:`greeting_name` instead.
-        """
+    def staff_label(self) -> str:
+        """How staff screens name this member: "Wren (Quinn Ashdown)", or the one name there is."""
         return member_label(self.preferred_name, self.full_legal_name)
+
+    @property
+    def display_name(self) -> str:
+        """How other members see this member, as they chose in :attr:`name_shown_to_members`.
+
+        The preferred name alone by default ("Wren"), else with the legal first name and last initial
+        ("Wren (Quinn A.)") or the full legal name ("Wren (Quinn Ashdown)"); the legal name with no
+        preferred name. Staff screens use :attr:`staff_label`, signed out pages :attr:`public_name`, and
+        text that speaks to the member ("Hi Wren") :attr:`greeting_name`.
+        """
+        if self.name_shown_to_members == self.NameShown.PREFERRED:
+            return self.greeting_name
+        return member_label(self.preferred_name, self.full_legal_name, form=self.name_shown_to_members)
 
     @property
     def greeting_name(self) -> str:
         """The name a greeting uses: the preferred name, else the legal name ("Hi Wren")."""
         return self.preferred_name if self.preferred_name else self.full_legal_name
+
+    @property
+    def public_name(self) -> str:
+        """The name signed out pages show (the class catalog, an instructor page): never the legal name
+        behind a preferred one, whatever :attr:`name_shown_to_members` says."""
+        return self.greeting_name
 
     @property
     def finance_name(self) -> str:
@@ -1250,7 +1284,7 @@ class Member(StaffRequestMixin, models.Model):
         """
         if self.deleted_at is not None and self.name_at_deletion:
             return f"{self.name_at_deletion} (account deleted)"
-        return self.display_name
+        return self.staff_label
 
     @property
     def role_label(self) -> str:
@@ -2247,7 +2281,7 @@ class Member(StaffRequestMixin, models.Model):
                 actor=added_by,
                 target=self,
                 payload={
-                    "member": self.display_name,
+                    "member": self.staff_label,
                     "reached_out_on": timezone.localdate(self.teaching_applied_at).isoformat(),
                 },
             )
@@ -2259,7 +2293,7 @@ class Member(StaffRequestMixin, models.Model):
             actor=self.user,
             target=self,
             context={
-                "member_name": self.display_name,
+                "member_name": self.staff_label,
                 "application_note": note,
                 "contact_method": self.teaching_contact_method_label,
                 "contact_detail": contact_detail,
@@ -2414,7 +2448,7 @@ class Member(StaffRequestMixin, models.Model):
 
         The ONE slug-minting loop: the admin Instructor toggle (:meth:`grant_instructor`),
         the older role dropdown (:meth:`apply_admin_role`), and a class's first publish
-        (``ClassOffering.publish``) all route here. Derives ``slugify(display name)`` and
+        (``ClassOffering.publish``) all route here. Derives ``slugify(greeting name)`` and
         suffixes ``-2``, ``-3``, … until unique. Idempotent: an existing slug is kept and
         nothing is written. Never touches ``instructor_oriented_at`` (the teaching unlock
         is a separate grant).
@@ -2426,7 +2460,7 @@ class Member(StaffRequestMixin, models.Model):
 
         if self.instructor_slug:
             return False
-        base = slugify(self.display_name or self.full_legal_name) or f"instructor-{self.pk}"
+        base = slugify(self.greeting_name) or f"instructor-{self.pk}"
         slug = base
         n = 1
         while Member.objects.filter(instructor_slug=slug).exclude(pk=self.pk).exists():
@@ -4000,11 +4034,11 @@ class Guild(HeroCropMixin, models.Model):
         warnings: list[str] = []
         if member.user_id is None:
             warnings.append(
-                f"{member.display_name} has no linked user account. They cannot log in to use "
+                f"{member.staff_label} has no linked user account. They cannot log in to use "
                 "guild lead tools until they sign up with a matching email."
             )
         if member.status != Member.Status.ACTIVE:
-            warnings.append(f"{member.display_name}'s status is {member.get_status_display()}, not Active.")
+            warnings.append(f"{member.staff_label}'s status is {member.get_status_display()}, not Active.")
         return warnings
 
     def leadership_members(self) -> list[Member]:
@@ -4120,7 +4154,7 @@ class Guild(HeroCropMixin, models.Model):
                 (:meth:`GuildStaffMembership.title_problem`).
         """
         if self.guild_lead_id == member.pk:
-            raise ValueError(f"{member.display_name} leads {self.name} and already has every staff power.")
+            raise ValueError(f"{member.staff_label} leads {self.name} and already has every staff power.")
         problem = GuildStaffMembership.title_problem(self, member, role, custom_title, class_reviewer=class_reviewer)
         if problem:
             raise ValueError(problem)
@@ -4220,7 +4254,7 @@ class Guild(HeroCropMixin, models.Model):
         )
         if not has_times:
             return ""
-        return f"{previous.display_name}'s orientation times are hidden. Add them as staff today to keep them."
+        return f"{previous.staff_label}'s orientation times are hidden. Add them as staff today to keep them."
 
     def drop_cubby_payee_unless_leader(self, member: Member) -> None:
         """Clear Who gets paid for cubbies when it is ``member`` and they no longer lead or staff this guild (#977).
@@ -4616,9 +4650,9 @@ class GuildStaffMembership(models.Model):
         if exclude_pk is not None:
             held = held.exclude(pk=exclude_pk)
         if role and held.filter(role=role).exists():
-            return f"{member.display_name} is already {cls.Role(role).label} of this guild."
+            return f"{member.staff_label} is already {cls.Role(role).label} of this guild."
         if custom_title and held.filter(custom_title__iexact=custom_title).exists():
-            return f"{member.display_name} already holds the title “{custom_title}”."
+            return f"{member.staff_label} already holds the title “{custom_title}”."
         return ""
 
     def retitle(self, role: str, custom_title: str) -> None:
@@ -9896,7 +9930,7 @@ class DiscordRemoval(models.Model):
     def subject(self) -> str:
         """Who this is, as the history page names them."""
         if self.member is not None:
-            return self.member.display_name
+            return self.member.staff_label
         return self.discord_username or self.discord_user_id
 
     @property
@@ -12151,8 +12185,8 @@ class CommunityEvent(StaffRequestMixin, HeroCropMixin, models.Model):
         if full:
             return full
         member = getattr(user, "member", None)
-        if member is not None and member.display_name:
-            return member.display_name
+        if member is not None and member.staff_label:
+            return member.staff_label
         return user.get_username()
 
     def _emit_submitted(self) -> None:
@@ -12738,6 +12772,12 @@ class EventRSVP(models.Model):
     def display_name(self) -> str:
         """The member's display name, or the guest's name as they typed it."""
         return self.member.display_name if self.member is not None else self.name
+
+    @property
+    def staff_label(self) -> str:
+        """How the people running the door name this RSVP: a member by :attr:`Member.staff_label`, a guest
+        by the name they typed."""
+        return self.member.staff_label if self.member is not None else self.name
 
     @property
     def is_checked_in(self) -> bool:
@@ -13939,7 +13979,7 @@ class FundingSnapshot(models.Model):
         raw_votes = [
             {
                 "member_id": pref.member_id,
-                "member_name": pref.member.display_name,
+                "member_name": pref.member.staff_label,
                 "member_type": pref.member.member_type,
                 "fog_role": pref.member.fog_role,
                 "is_paying": pref.member.is_paying,
@@ -17886,7 +17926,7 @@ class OrientationBooking(models.Model):
             "item_title": f"{orientation_type.owner_name} orientation: {orientation_type.name}",
             "recipient_email": self.member.primary_email,
             "recipient_name": self.member.display_name,
-            "payer_name": self.member.display_name,
+            "payer_name": self.member.staff_label,
             "member": self.member,
             "manage_url": orientation_type.owner_page_url(),
             "in_app_url": orientation_type.owner_page_path(),
@@ -18107,7 +18147,7 @@ class OrientationBookingMessage(ThreadMessage):
             context={
                 # The event's resolver still runs, then recipient_user_ids replaces its people.
                 **request_resolver_context(booking),
-                "member_name": booking.member.display_name,
+                "member_name": booking.member.staff_label,
                 "owner_name": booking.orientation_type.owner_name,
                 "orientation_name": booking.orientation_type.name,
                 "message_body": self.body,
@@ -18123,7 +18163,7 @@ class OrientationBookingMessage(ThreadMessage):
         if not self.notified:
             return ""
         if self.is_from_staff:
-            return f" {self.booking.member.display_name} was notified."
+            return f" {self.booking.member.staff_label} was notified."
         return f" The Orientors for {self.booking.orientation_type.owner_name} were notified."
 
 
@@ -18229,7 +18269,7 @@ class OrientationRecord(models.Model):
         member = getattr(user, "member", None)
         if member is None:
             return user.email
-        return cast(Member, member).display_name
+        return cast(Member, member).staff_label
 
     def activity_payload(self) -> dict[str, str]:
         """The activity feed's per-kind detail: the type and its owner, by name."""
@@ -19134,7 +19174,7 @@ class SpaceRequest(StaffRequestMixin, models.Model):
                 "guild": guild if is_cubby else None,
                 "space_code": self.space.space_id,
                 "space_label": str(self.space),
-                "member_name": self.requester.display_name,
+                "member_name": self.requester.staff_label,
                 "requester_message": self.message,
                 "price_display": self._price_display(),
                 "audience_label": self.review_audience_label,
@@ -21436,7 +21476,7 @@ class EquipmentReservation(models.Model):
             "item_title": f"{self.equipment.name} reservation",
             "recipient_email": self.member.primary_email,
             "recipient_name": self.member.display_name,
-            "payer_name": self.member.display_name,
+            "payer_name": self.member.staff_label,
             "member": self.member,
             "manage_url": _absolute_url(path),
             "in_app_url": path,
@@ -22171,7 +22211,7 @@ class EquipmentReservationMessage(ThreadMessage):
         if not self.notified:
             return ""
         if self.is_from_staff:
-            return f" {self.reservation.member.display_name} was notified."
+            return f" {self.reservation.member.staff_label} was notified."
         return f" The managers of the {self.reservation.equipment.name} were notified."
 
 
@@ -22279,7 +22319,7 @@ class EquipmentCreditQuerySet(models.QuerySet["EquipmentCredit"]):
             )
             for row in rows
         ]
-        return sorted(holders, key=lambda holder: holder.member.display_name.casefold())
+        return sorted(holders, key=lambda holder: holder.member.greeting_name.casefold())
 
     def credited_on(self, reservation: EquipmentReservation) -> int:
         """Minutes of a reservation's unused time already credited back (#787), 0 when none.
@@ -23753,7 +23793,7 @@ class WikiPage(StaffRequestMixin, models.Model):
                 "reason": self.archive_reason,
                 # Every seeded Equipment stub has created_by=None, and the FK is SET_NULL,
                 # so "there is no author" is an ordinary state and not an error.
-                "author": author.display_name if author is not None else "",
+                "author": author.staff_label if author is not None else "",
                 "redirect_slug": redirect.slug if redirect is not None else "",
             },
         )
@@ -23949,7 +23989,7 @@ class WikiPage(StaffRequestMixin, models.Model):
             payload={
                 "slug": self.slug,
                 "reverted_to_revision": revision.pk,
-                "reverted_to_author": target_author.display_name if target_author is not None else "",
+                "reverted_to_author": target_author.staff_label if target_author is not None else "",
                 "new_revision": new_revision.pk,
             },
         )
@@ -24033,7 +24073,7 @@ class WikiPage(StaffRequestMixin, models.Model):
                 "member_name": "there",
                 "page_title": self.title,
                 "page_url": hub_url("hub_wiki_page", self.slug),
-                "author_name": by.display_name,
+                "author_name": by.staff_label,
                 "scope_label": self.guild.name if self.guild is not None else "Space-wide",
                 "review_url": hub_url("hub_wiki_review"),
             },
@@ -24671,7 +24711,7 @@ class WikiReport(StaffRequestMixin, models.Model):
     @property
     def reporter_name(self) -> str:
         """The reporter's name, or "a member" once their account is gone."""
-        return self.reporter.display_name if self.reporter is not None else "a member"
+        return self.reporter.staff_label if self.reporter is not None else "a member"
 
     @classmethod
     def file(cls, *, page: WikiPage, reporter: Member, reason: str) -> WikiReport:
@@ -24713,7 +24753,7 @@ class WikiReport(StaffRequestMixin, models.Model):
                 "slug": page.slug,
                 "report_id": report.pk,
                 "reason": report.reason,
-                "reporter": reporter.display_name,
+                "reporter": reporter.staff_label,
             },
         )
         emit(
@@ -24726,7 +24766,7 @@ class WikiReport(StaffRequestMixin, models.Model):
                 "page_title": page.title,
                 "page_url": hub_url("hub_wiki_page", page.slug),
                 "reason": report.reason,
-                "reporter_name": reporter.display_name,
+                "reporter_name": reporter.staff_label,
                 "scope_label": page.guild.name if page.guild is not None else "Space-wide",
                 "review_url": hub_url("hub_wiki_review"),
             },
