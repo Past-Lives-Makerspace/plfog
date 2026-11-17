@@ -691,6 +691,7 @@ urlpatterns = [
     ),
     path("wiki/p/<slug:slug>/archive/", wiki_views.hub_wiki_archive, name="hub_wiki_archive"),
     path("wiki/p/<slug:slug>/restore/", wiki_views.hub_wiki_restore, name="hub_wiki_restore"),
+    path("wiki/p/<slug:slug>/delete/", wiki_views.hub_wiki_delete, name="hub_wiki_delete"),
     path("wiki/p/<slug:slug>/redirect/", wiki_views.hub_wiki_set_redirect, name="hub_wiki_set_redirect"),
     path("wiki/p/<slug:slug>/history/", wiki_views.hub_wiki_history, name="hub_wiki_history"),
     path("wiki/p/<slug:slug>/revert/<int:pk>/", wiki_views.hub_wiki_revert, name="hub_wiki_revert"),

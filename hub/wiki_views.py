@@ -2235,6 +2235,26 @@ def hub_wiki_restore(request: HttpRequest, slug: str) -> HttpResponse:
 
 @login_required
 @require_POST
+def hub_wiki_delete(request: HttpRequest, slug: str) -> HttpResponse:
+    """``/wiki/p/<slug>/delete/`` — delete the page for good (Felix, 2026-11-17).
+
+    Gated like Archive: ``can_moderate_wiki_page``, which admits admins everywhere. The
+    confirm modal is a plain one, with no typed word.
+    """
+    page = _page_or_none(slug)
+    if page is None:
+        return _not_found(request)
+    member = _editing_member(request)
+    if member is None or not can_moderate_wiki_page(request, page):
+        return _forbidden()
+    title = page.title
+    page.delete_page(by=member)
+    messages.success(request, f"Deleted {title}.")
+    return redirect("hub_wiki_home")
+
+
+@login_required
+@require_POST
 def hub_wiki_set_redirect(request: HttpRequest, slug: str) -> HttpResponse:
     """``/wiki/p/<slug>/redirect/`` — point a tombstone's readers at a live replacement."""
     page = _page_or_none(slug)

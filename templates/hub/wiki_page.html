@@ -146,6 +146,7 @@ time so the two copy inputs do not share one id.
 
 {% if can_report %}{% include "hub/partials/_wiki_report_modal.html" %}{% endif %}
 {% if can_moderate %}{% include "hub/partials/_wiki_official_note_modal.html" %}{% endif %}
+{% if can_moderate %}{% include "hub/partials/_wiki_delete_confirm.html" %}{% endif %}
 
 {% if can_confirm %}
 {% url 'hub_wiki_confirm' page.slug as confirm_url %}

@@ -88,3 +88,62 @@ def describe_the_reading_page_header():
         header = _header(client, page)
         assert 'class="pl-wp-actions__more">' in header
         assert "Print / Save PDF" in _more_menu(header)
+
+
+def describe_the_member_actions_in_the_more_menu():
+    """Felix (2026-11-17): Add a Photo, Add a Tip, Still accurate and Report a Problem in More too."""
+
+    def it_lists_all_four_for_a_member_who_may_edit(client: Client):
+        _login(client, "more_four")
+        page = WikiPageFactory(title="Ripping Boards")
+        header = _header(client, page)
+        menu = _more_menu(header)
+        assert "$dispatch('open-modal', 'wiki-photo')\">Add a Photo</button>" in menu
+        assert "$dispatch('open-modal', 'wiki-tip')\">Add a Tip</button>" in menu
+        assert "$dispatch('open-confirm', 'wiki-confirm')\">Still accurate</button>" in menu
+        assert "$dispatch('open-modal', 'wiki-report')\">Report a Problem</button>" in menu
+        # The header buttons stay: Felix asked to add, not to move.
+        assert "+ Add A Photo</button>" in header
+
+    def it_puts_the_same_items_in_the_phone_menu(client: Client):
+        _login(client, "more_phone")
+        page = WikiPageFactory(title="Ripping Boards")
+        html = client.get(page.get_absolute_url()).content.decode()
+        bar = html.split('<div class="pl-wp-actionbar">', 1)[1]
+        assert ">Add a Photo</button>" in bar
+        assert ">Report a Problem</button>" in bar
+
+    def it_leaves_out_photo_and_tip_where_the_member_may_not_edit(client: Client):
+        _login(client, "more_official")
+        page = WikiPageFactory(title="Laser Rules", official=True)
+        menu = _more_menu(_header(client, page))
+        assert "Add a Photo" not in menu
+        assert "Add a Tip" not in menu
+        assert ">Still accurate</button>" in menu
+
+    def it_says_checked_today_instead_of_still_accurate(client: Client):
+        from django.utils import timezone
+
+        _login(client, "more_checked")
+        page = WikiPageFactory(title="Ripping Boards", last_checked_at=timezone.now())
+        menu = _more_menu(_header(client, page))
+        assert ">Still accurate</button>" not in menu
+        assert "Checked today" in menu
+
+    def it_drops_report_once_the_member_has_an_open_report(client: Client):
+        from tests.membership.factories import WikiReportFactory
+
+        user = _login(client, "more_reported")
+        page = WikiPageFactory(title="Ripping Boards")
+        WikiReportFactory(page=page, reporter=user.member)
+        menu = _more_menu(_header(client, page))
+        assert "Report a Problem</button>" not in menu
+
+    def it_shows_none_of_the_four_to_an_inactive_reader(client: Client):
+        user = _login(client, "more_inactive")
+        user.member.status = Member.Status.INVITED
+        user.member.save()
+        page = WikiPageFactory(title="Ripping Boards")
+        menu = _more_menu(_header(client, page))
+        for label in ("Add a Photo", "Add a Tip", ">Still accurate<", "Report a Problem"):
+            assert label not in menu

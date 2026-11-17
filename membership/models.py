@@ -23696,10 +23696,9 @@ class WikiPage(StaffRequestMixin, models.Model):
     def archive(self, *, by: Member, reason: str, redirect: WikiPage | None = None) -> None:
         """Take the page out of every list, keep its URL working, and tell the author why.
 
-        Members cannot delete and hard delete is not in the UI, so this is the strongest
-        action in the wiki — hence a required reason that the author reads, addressed by
-        name, and a tombstone that names the archiver rather than making the removal look
-        like weather.
+        The removal that keeps the URL and the history (:meth:`delete_page` is the one that
+        does not) — hence a required reason that the author reads, addressed by name, and a
+        tombstone that names the archiver rather than making the removal look like weather.
 
         Deliberately resolves nothing: open reports on an archived page stay open until a
         human marks them reviewed, because archiving answers *some* reports and not others.
@@ -23835,6 +23834,64 @@ class WikiPage(StaffRequestMixin, models.Model):
             target=self,
             payload={"slug": self.slug, "restored_from_archive": True},
         )
+
+    def delete_page(self, *, by: Member) -> None:
+        """Delete the page for good, with everything that belongs only to it (Felix, 2026-11-17).
+
+        Archive keeps the URL and the history; this is the other answer, for a page that
+        should never have existed. Facts, revisions, attachments, drafts, reports and the
+        edit lock go by ``CASCADE``; another page's ``archive_redirect`` to this one goes to
+        NULL, and the bells go through the ``pre_delete`` receiver in ``membership.signals``.
+
+        The wanted rows this page answered are reopened first, not left to ``SET_NULL``:
+        that would drop each one back into ``uq_wikiwanted_guild_title``'s partial index, so
+        a duplicate ask filed since would make the delete itself an IntegrityError. Such a
+        duplicate absorbs the answered row's ``request_count`` instead.
+
+        Uploaded attachment files leave storage once the delete commits, unless another
+        attachment row still names the same key. Images pasted into the body (``wiki/body/``)
+        are content addressed and may sit in other pages and old revisions, so they stay.
+
+        Args:
+            by: The moderator deleting it. Named in the activity log, the only trace left.
+        """
+        from core.models import SiteActivity
+
+        with transaction.atomic():
+            for want in WikiWantedPage.objects.filter(fulfilled_page=self).select_related("guild"):
+                clash = (
+                    WikiWantedPage.objects.for_guild(want.guild)
+                    .open()
+                    .filter(title_normalized=want.title_normalized)
+                    .first()
+                )
+                if clash is not None:
+                    WikiWantedPage.objects.filter(pk=clash.pk).update(
+                        request_count=F("request_count") + want.request_count
+                    )
+                    want.delete()
+                    continue
+                want.fulfilled_page = None
+                want.claimed_by = None
+                want.claimed_at = None
+                want.save(update_fields=["fulfilled_page", "claimed_by", "claimed_at", "title_normalized"])
+            file_names = list(self.attachments.exclude(file="").values_list("file", flat=True))
+            SiteActivity.log(
+                SiteActivity.Kind.WIKI_PAGE_DELETED,
+                actor=by.user,
+                payload={
+                    "slug": self.slug,
+                    "title": self.title,
+                    "guild": self.guild.name if self.guild is not None else "",
+                },
+            )
+            self.delete()
+
+            def _remove_files() -> None:
+                for name in file_names:
+                    delete_if_unreferenced(WikiAttachment, "file", name)
+
+            transaction.on_commit(_remove_files, robust=True)
 
     def set_archive_redirect(self, *, target: WikiPage | None) -> None:
         """Point an archived page's readers at a live replacement, or clear the signpost.

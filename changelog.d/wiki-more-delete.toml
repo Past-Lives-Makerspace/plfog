@@ -1,0 +1,10 @@
+bump = "minor"
+date = "2026-11-17"
+audience = ["members", "guild-staff", "admins"]
+feature = "wiki.home"
+guidance = "none"
+title = "Wiki pages can be deleted, and More has every page action"
+changes = [
+  "A wiki page's More menu now has Add a Photo, Add a Tip, Still accurate and Report a Problem, on phones too.",
+  "Guild leads and admins can delete a wiki page for good from More, after a confirm. Archive is still there.",
+]
