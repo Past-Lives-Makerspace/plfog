@@ -203,7 +203,7 @@ def describe_kiln_use_report():
             assert report.unmeasured_tickets == 1
 
     def describe_clay_use():
-        def it_sums_each_list_clay_and_puts_every_other_clay_under_Other_last():
+        def it_sums_each_list_clay_and_every_other_clay_under_Other_ranked_by_size():
             buff, porcelain = ClayOptionFactory(name="Buff"), ClayOptionFactory(name="Porcelain")
             firing = _firing()
             _fired(firing, size=("2", "2", "2"), clay=buff)
@@ -213,9 +213,9 @@ def describe_kiln_use_report():
             _fired(firing, size=("1", "1", "1"), clay_other=True, clay_other_name="Red Art")
             _fired(firing, size=None, clay=porcelain)
             assert _uses(_january().clays) == [
+                (OTHER_CLAY, Decimal("1001")),
                 ("Porcelain", Decimal("27")),
                 ("Buff", Decimal("24")),
-                (OTHER_CLAY, Decimal("1001")),
             ]
 
         def it_puts_a_ticket_with_no_clay_under_not_given():
