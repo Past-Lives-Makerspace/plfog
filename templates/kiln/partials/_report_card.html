@@ -1,0 +1,6 @@
+{# One ranked list card on the Reports tab (#1234): title with its slot swatch, one line under it, then the list. Expects rank and page. #}
+<section class="hub-card pl-report-card pl-report-card--{{ rank.slot }}" data-kiln-report-card="{{ rank.key }}">
+    <h2 class="pl-report-card__title">{{ rank.title }}</h2>
+    <p class="pl-report-card__sub">{{ rank.sub }}</p>
+    {% if rank.rows %}{% include "kiln/partials/_report_rank.html" %}{% elif rank.key == "makers" %}<p class="pl-report-card__sub">No pieces came out of these firings.</p>{% else %}<p class="pl-report-card__sub">None fired in this period.</p>{% endif %}
+</section>

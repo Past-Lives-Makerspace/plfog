@@ -486,6 +486,18 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.DAILY,
     ),
     ScheduledJob(
+        key="send_kiln_use_report",
+        name="Kiln use report",
+        description=(
+            "Emails the Ceramics Guild's lead and staff last month's Kiln Use Overview: bisque and glaze "
+            "runs, pieces fired, and kiln space by maker, clay and glaze. Only on the 1st, and not for a "
+            "month with no firings."
+        ),
+        command="send_kiln_use_report",
+        schedule_label="Daily (report on the 1st)",
+        cadence=Cadence.DAILY,
+    ),
+    ScheduledJob(
         key="send_overdue_review_alerts",
         name="Overdue class reviews",
         description=(

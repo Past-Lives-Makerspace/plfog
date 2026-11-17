@@ -297,13 +297,6 @@ def staff_digest_updates_context(data: SampleData) -> dict[str, Any]:
             period="signup:1",
         ),
         EventDelivery(
-            event_key="class_registration_admin_notice",
-            title=f"Sam O'Brien registered for {data.offering.title}",
-            body="Confirmed, paid $45.00. 3 of 8 seats taken. sam@example.com",
-            url=f"/classes/{data.offering.slug}/",
-            period="reg:1:admin_notice",
-        ),
-        EventDelivery(
             event_key="equipment.reservation_made",
             title="New reservation on CNC Router",
             body="Robin Vale reserved CNC Router for Saturday, September 12, 2:00 PM to 4:00 PM.",
@@ -839,6 +832,68 @@ def wiki_guild_digest_context(data: SampleData) -> dict[str, Any]:
     return {"subject": digest_subject(data.guild, payload), "template_context": payload}
 
 
+def kiln_use_report_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``send_kiln_use_report``, over a month of seeded firings (#1228).
+
+    Seeded here rather than drawn from :class:`SampleData`, because no other card needs a
+    firing: two bisque runs and a glaze run unloaded last month, with tickets from three
+    makers, a list clay and an Other clay, studio, commercial and self made glazes, and one
+    ticket with a size missing.
+    """
+    from decimal import Decimal
+
+    from kiln.models import ClayOption, GlazeOption, KilnFiring, KilnTicket
+    from kiln.services import kiln_use_email_context, kiln_use_report, kiln_use_subject
+    from membership.wiki_guild import previous_month_window
+    from tests.membership.factories import MemberFactory
+
+    month_start, month_end = previous_month_window()
+    unloaded = month_start + timedelta(days=9)
+    stoneware = ClayOption.objects.create(name="Speckled Buff Stoneware", sort_order=1)
+    porcelain = ClayOption.objects.create(name="Standard 365 Porcelain", sort_order=2)
+    celadon = GlazeOption.objects.create(name="Ritual Celadon", sort_order=1)
+    tenmoku = GlazeOption.objects.create(name="Ritual Tenmoku", sort_order=2)
+    other_maker = MemberFactory(preferred_name="", full_legal_name="Sam Okafor")
+    third_maker = MemberFactory(preferred_name="", full_legal_name="Jordan Pike")
+    firings = {
+        number: KilnFiring.objects.create(
+            firing_type=firing_type,
+            number=number,
+            loaded_by=data.lead,
+            loaded_at=unloaded - timedelta(days=1),
+            unloaded_by=data.lead,
+            unloaded_at=unloaded,
+        )
+        for number, firing_type in ((101, "bisque"), (102, "bisque"), (103, "glaze"))
+    }
+
+    def fired(firing: int, maker: Any, size: tuple[str, str, str] | None, quantity: int | None, **answers: Any) -> Any:
+        dims = (
+            dict(zip(("height_in", "width_in", "length_in"), (Decimal(d) for d in size), strict=True)) if size else {}
+        )
+        return KilnTicket.objects.create(
+            maker=maker,
+            status=KilnTicket.Status.FIRED,
+            firing_type=firings[firing].firing_type,
+            firing=firings[firing],
+            fired_at=unloaded,
+            quantity=quantity,
+            **dims,
+            **answers,
+        )
+
+    fired(101, data.member, ("4", "6", "6"), 4, clay=stoneware)
+    fired(101, other_maker, ("10", "8", "8"), None, clay=porcelain)
+    fired(102, third_maker, ("3", "4", "4"), 6, clay_other=True, clay_other_name="Laguna B-Mix")
+    fired(102, data.member, None, 2, clay=stoneware)
+    glazed = fired(103, data.member, ("4", "6", "6"), 2, clay=stoneware, glaze_studio=True, glaze_commercial=True)
+    glazed.studio_glazes.set([celadon, tenmoku])
+    fired(103, other_maker, ("10", "8", "8"), None, clay=porcelain, glaze_self_made=True)
+    report = kiln_use_report(month_start, month_end)
+    assert report is not None
+    return {"subject": kiln_use_subject(report), "template_context": kiln_use_email_context(report)}
+
+
 # --- Billing --------------------------------------------------------------------
 
 
@@ -1198,6 +1253,16 @@ def guild_invite_context(data: SampleData) -> dict[str, Any]:
     return {
         "subject": guild_invites.invited_subject(invite),
         "template_context": guild_invites.email_context(invite),
+    }
+
+
+def discord_reconnect_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``membership.discord_reconnect.notify_nudged``: the sample member is linked but off the server."""
+    from membership import discord_reconnect
+
+    return {
+        "subject": discord_reconnect.SUBJECT,
+        "template_context": discord_reconnect.email_context(data.member),
     }
 
 

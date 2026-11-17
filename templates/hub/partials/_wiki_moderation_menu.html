@@ -16,4 +16,6 @@ Rendered inside components/row_actions.html, which supplies closeAndRefocus().
 <button type="button" class="pl-row-menu__item" role="menuitem"
         @click="closeAndRefocus(); $dispatch('open-confirm', 'wiki-archive')">Archive</button>
 {% endif %}
+<button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem" data-guidance-target="wiki.delete"
+        @click="closeAndRefocus(); $dispatch('open-confirm', 'wiki-delete')">Delete</button>
 {% endif %}

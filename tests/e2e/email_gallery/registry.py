@@ -302,10 +302,9 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         section="Classes",
         renderer=Renderer.INLINE_STRING,
         trigger_note=(
-            "Not sent on its own: this flat email never goes out. Since #894 each registration reaches "
-            "the Admins as one line in the 8 AM staff digest instead (who registered, what they paid, how "
-            "full the class is, their email). Shown here as it was before. Each Admin's Email switch for "
-            "New class registration decides whether they get the line."
+            "Sent at once when someone registers for a class (a confirmed paid or free signup). The "
+            "Admins' own copy of the instructor's notice: who registered, what they paid and how full the "
+            "class is. Each Admin's Email switch for New class registration decides."
         ),
         edit_pointer="Text authored in code (classes/emails.py::send_admin_registration_notification)",
         audience="Every Admin whose Email switch for New class registration is on.",
@@ -413,8 +412,8 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
             "Sent at 8 AM Pacific to each staff member with requests still waiting on them (class "
-            "reviews and the other staff requests) or updates since the last email (new members, class "
-            "registrations, equipment reservations, instructor codes): one line each, grouped under "
+            "reviews and the other staff requests) or updates since the last email (new members, "
+            "equipment reservations, instructor codes): one line each, grouped under "
             "the event's name. A request decided before 8 AM is left out, and nobody gets an empty "
             "email. At most one a day."
         ),
@@ -430,8 +429,8 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         section="Teaching",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "The same 8 AM email on a morning with only updates and no requests (#894): new members, "
-            "class registrations, equipment reservations. One line each, grouped under the event's name. "
+            "The same 8 AM email on a morning with only updates and no requests (#894): new members "
+            "and equipment reservations. One line each, grouped under the event's name. "
             "A morning with requests too lists the requests first and adds the updates below them."
         ),
         edit_pointer="Template in code (templates/core/emails/staff_digest.{txt,html})",
@@ -685,6 +684,23 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="permission_granted_context",
     ),
     GalleryEmail(
+        key="discord_reconnect",
+        name="Reconnect Discord",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent once per member by manage.py nudge_discord_reconnect --send to an Active member whose "
+            "Discord is linked but who is not on the server (#1239). Reconnect Discord starts the connect "
+            "flow, which adds them with their roles."
+        ),
+        edit_pointer=_tpl("membership/emails", "discord_reconnect"),
+        audience="The member linked to Discord but missing from the server.",
+        event_keys=frozenset({"membership.discord_reconnect"}),
+        text_template="membership/emails/discord_reconnect.txt",
+        html_template="membership/emails/discord_reconnect.html",
+        context_builder="discord_reconnect_context",
+    ),
+    GalleryEmail(
         key="guild_invite",
         name="Invited to join a guild",
         section="Guilds & Orientations",
@@ -823,6 +839,23 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         text_template="membership/emails/wiki_guild_digest.txt",
         html_template="membership/emails/wiki_guild_digest.html",
         context_builder="wiki_guild_digest_context",
+    ),
+    GalleryEmail(
+        key="kiln_use_report",
+        name="Kiln Use Overview (monthly)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent on the 1st of the month to the Ceramics Guild's lead and staff: last month's bisque and "
+            "glaze runs, pieces fired, and kiln space in cubic inches per maker, clay and glaze. A month "
+            "with no firings gets no email at all."
+        ),
+        edit_pointer=_tpl("kiln/emails", "kiln_use_report"),
+        audience="The kiln crew: the Ceramics Guild's lead and staff.",
+        event_keys=frozenset({"kiln.use_report_monthly"}),
+        text_template="kiln/emails/kiln_use_report.txt",
+        html_template="kiln/emails/kiln_use_report.html",
+        context_builder="kiln_use_report_context",
     ),
     # --- Facility tours (#948) -----------------------------------------------
     GalleryEmail(
@@ -1297,6 +1330,7 @@ _TEMPLATE_DIRS: tuple[str, ...] = (
     "templates/billing/email",
     "templates/account/email",
     "templates/tours/emails",
+    "templates/kiln/emails",
 )
 
 _ALLAUTH_MESSAGE_SUFFIX = "_message"

@@ -19,7 +19,7 @@ from factory.django import mute_signals
 
 from membership import discord_sync
 from membership.discord_sync import LinkOutcome
-from membership.models import DiscordLinkNudge, GuildInvite, GuildMembership, Member
+from membership.models import DiscordLinkNudge, DiscordReconnectNudge, GuildInvite, GuildMembership, Member
 from tests.membership.factories import DiscordGuildEmojiFactory, GuildFactory, MemberFactory
 
 pytestmark = pytest.mark.django_db
@@ -517,6 +517,31 @@ def describe_link_and_import():
             callback()
         assert reactions.called
         assert len(mail.outbox) == 1
+
+    @respx.mock
+    def it_closes_an_open_reconnect_nudge_once_they_are_on_the_server(sync_config):
+        # #1239: a member linked before #1138 reconnects from the Home item.
+        member = _verified_member("jo@example.com", discord_user_id="42")
+        DiscordReconnectNudge.objects.create(member=member)
+        _mock_oauth("jo@example.com")
+        _mock_reactions({})
+        _mock_roles()
+        result = discord_sync.link_and_import("code", _REDIRECT, member=member)
+        assert result.outcome is LinkOutcome.LINKED
+        nudge = DiscordReconnectNudge.objects.get(member=member)
+        assert nudge.status == DiscordReconnectNudge.Status.DONE
+        assert nudge.closed_at is not None
+
+    @respx.mock
+    def it_keeps_the_reconnect_nudge_open_when_discord_refuses_the_join(sync_config):
+        member = _verified_member("jo@example.com", discord_user_id="42")
+        DiscordReconnectNudge.objects.create(member=member)
+        _mock_oauth("jo@example.com").mock(return_value=httpx.Response(403, json={}))
+        _mock_reactions({})
+        _mock_roles()
+        result = discord_sync.link_and_import("code", _REDIRECT, member=member)
+        assert result.outcome is LinkOutcome.LINKED
+        assert DiscordReconnectNudge.objects.open_for(member).exists()
 
     @respx.mock
     def it_puts_a_member_the_bot_removed_back_on_the_server(sync_config):

@@ -1,0 +1,29 @@
+{% comment %}
+The member's quick actions as menu items: Add a Photo, Add a Tip, Still accurate and Report a
+Problem, each under the gate of the header button it repeats and opening the same modal or
+confirm. Felix asked for them in More as well as in the header row (2026-11-17), so both the
+desktop More menu and the phone menu include this one partial and cannot drift.
+
+Report shows only while the viewer has no open report, and a filed report swaps it away out
+of band (_wiki_report_menu_item.html): Withdraw stays on the Report control, which is the one
+place that knows the report's age. The including menu passes report_item_id. Rendered inside
+components/row_actions.html, which supplies closeAndRefocus().
+{% endcomment %}
+{% if can_edit %}
+<button type="button" class="pl-row-menu__item" role="menuitem"
+        @click="closeAndRefocus(); $dispatch('open-modal', 'wiki-photo')">Add a Photo</button>
+<button type="button" class="pl-row-menu__item" role="menuitem"
+        @click="closeAndRefocus(); $dispatch('open-modal', 'wiki-tip')">Add a Tip</button>
+{% endif %}
+{% if can_confirm %}
+{% if checked_today %}
+{% comment %}Not a menu item: components/row_actions.html focuses every [role="menuitem"]
+in turn, and a non-focusable one leaves activeElement where it was, so Down arrow keeps
+landing on the same index and never reaches Print.{% endcomment %}
+<p class="pl-row-menu__note hub-text-muted">Checked today</p>
+{% else %}
+<button type="button" class="pl-row-menu__item" role="menuitem"
+        @click="closeAndRefocus(); $dispatch('open-confirm', 'wiki-confirm')">Still accurate</button>
+{% endif %}
+{% endif %}
+{% include "hub/partials/_wiki_report_menu_item.html" with item_id=report_item_id %}

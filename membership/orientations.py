@@ -73,6 +73,11 @@ CHECKOUT_HOLD_NOTE = (
 #: confirm, or nobody confirmed it before the hold had to be released.
 DECLINE_CARD_FAILED = "card_failed"
 DECLINE_HOLD_EXPIRED = "hold_expired"
+# The activity row's note for the system's own declines, in the words the decline email uses.
+_DECLINE_REASON_NOTES = {
+    DECLINE_CARD_FAILED: "The card could not be charged when the request was confirmed.",
+    DECLINE_HOLD_EXPIRED: "Nobody confirmed the request before the hold on the card ran out.",
+}
 
 
 def _absolute_url(path: str) -> str:
@@ -342,9 +347,11 @@ def _ics(booking: OrientationBooking, *, method: str, status: str) -> tuple[str,
     return ("orientation.ics", build_ics(booking, method=method, status=status), "text/calendar")
 
 
-def _fan_out_request(booking: OrientationBooking) -> None:
+def _fan_out_request(booking: OrientationBooking, *, actor: User | None = None) -> None:
     """The full request fan-out: member "request received" email (+ TENTATIVE ``.ics``),
     the ``ORIENTATION_REQUESTED`` activity row, and the lead/orientor request email + in-app.
+
+    The row's actor is ``actor`` (a staffer seating the member by hand), else the member.
 
     Callable on an existing booking so the paid flow can fire it from the webhook —
     for a paid booking, emails only ever go out for money in hand. The ``emit``
@@ -358,7 +365,7 @@ def _fan_out_request(booking: OrientationBooking) -> None:
         template="orientation_request",
         ics=_ics(booking, method="REQUEST", status="TENTATIVE"),
     )
-    SiteActivity.log(SiteActivity.Kind.ORIENTATION_REQUESTED, actor=booking.member.user, target=booking)
+    SiteActivity.log(SiteActivity.Kind.ORIENTATION_REQUESTED, actor=actor or booking.member.user, target=booking)
     _emit_lead_request(booking)
 
 
@@ -378,7 +385,7 @@ def _lock_used_equipment(orientation_type: OrientationType) -> None:
 
 
 def request_orientation(
-    slot: OrientationSlot, member: Member, *, note: str = "", by_staff: bool = False
+    slot: OrientationSlot, member: Member, *, note: str = "", by_staff: bool = False, actor: User | None = None
 ) -> OrientationBooking:
     """Book a slot (REQUESTED) and fan out the request emails, activity, and orientor notification.
 
@@ -388,6 +395,7 @@ def request_orientation(
 
     ``by_staff=True`` is the dashboard's add-a-member path seating someone by hand; it
     licenses only the unpaid late fee guard (see :meth:`OrientationSlot.ensure_bookable_for`).
+    ``actor`` is that staffer, whom the activity row names; by default the member asked.
 
     Raises:
         OrientationError: Propagated from ``slot.book`` when the slot can't be booked.
@@ -395,7 +403,7 @@ def request_orientation(
     with transaction.atomic():
         _lock_used_equipment(slot.orientation_type)
         booking = slot.book(member, note=note, by_staff=by_staff)
-    _fan_out_request(booking)
+    _fan_out_request(booking, actor=actor)
     return booking
 
 
@@ -895,7 +903,7 @@ def finalize_paid_booking(
         # Fan-out outside the lock. The request fan-out is skipped on purpose —
         # the member gets one honest email: cancelled, with the refund promise
         # (or, for a card hold, the hold released).
-        cancel_orientation(locked, actor_label="the guild")
+        cancel_orientation(locked, actor_label="the guild", automatic=True)
         return "cancelled_slot"
     _fan_out_request(locked)
     return "finalized"
@@ -1602,7 +1610,11 @@ def _after_decline(
     ``reason`` is the system's own decline (:func:`_decline_unconfirmed`), which the email explains.
     """
     _give_money_back(booking, actor=actor)
-    SiteActivity.log(SiteActivity.Kind.ORIENTATION_DECLINED, actor=None, target=booking)
+    # Who declined, and why: the decliner's note, or for the system's own decline its reason.
+    payload: dict[str, Any] = {"automatic": True, "note": _DECLINE_REASON_NOTES[reason]} if reason else {}
+    if decline_message is not None:
+        payload["note"] = decline_message.body
+    SiteActivity.log(SiteActivity.Kind.ORIENTATION_DECLINED, actor=actor, target=booking, payload=payload)
     _emit_member_email(
         booking,
         action="decline",
@@ -1618,7 +1630,13 @@ def _after_decline(
 
 
 def cancel_orientation(
-    booking: OrientationBooking, *, actor_label: str, actor: User | None = None, self_cancel: bool = False
+    booking: OrientationBooking,
+    *,
+    actor_label: str,
+    actor: User | None = None,
+    self_cancel: bool = False,
+    note: str = "",
+    automatic: bool = False,
 ) -> LateCancellationFee | None:
     """Cancel a booking: update state, give the money back, email the member, notify, log.
 
@@ -1632,6 +1650,9 @@ def cancel_orientation(
     lead, a slot cancel, a decline and a manager never charge. The fee is written in the
     same transaction as the cancel. A paid booking still refunds in full through
     :func:`_refund_if_paid`; the fee is separate and never netted against it.
+
+    The activity row names ``actor``, carries ``note`` (a slot cancel's reason), and is marked
+    ``automatic`` when no person cancelled (a payment that landed on an already cancelled slot).
 
     Returns:
         The :class:`~billing.models.LateCancellationFee` a late self cancel created (or the
@@ -1647,7 +1668,10 @@ def cancel_orientation(
         if can_charge:
             fee = charge_if_late(booking)
     _give_money_back(booking, actor=actor)
-    SiteActivity.log(SiteActivity.Kind.ORIENTATION_CANCELLED, actor=None, target=booking)
+    payload: dict[str, Any] = {"note": note} if note else {}
+    if automatic:
+        payload["automatic"] = True
+    SiteActivity.log(SiteActivity.Kind.ORIENTATION_CANCELLED, actor=actor, target=booking, payload=payload)
     _emit_member_email(
         booking,
         action="cancel",
@@ -1672,6 +1696,8 @@ def cancel_orientation(
         url=reverse("hub_orientation_respond", args=[booking.pk]),
         period=f"booking:{booking.pk}:cancel",
         suppress_email=True,
+        # Only the audience is the request's: the cancel's own row is ORIENTATION_CANCELLED above.
+        log_activity=False,
     )
     # Member self-cancel, lead cancel, and token cancel all land here: a freed seat on a
     # slot whose hours are gone or paused must not reopen. A slot cancel (cancel_slot)
@@ -1897,6 +1923,7 @@ def _tell_leaders_of_answer(booking: OrientationBooking, key: str, *, accepted: 
         url=reverse("hub_orientation_respond", args=[booking.pk]),
         period=f"booking:{booking.pk}:proposal:{key}:answer",
         suppress_email=True,
+        log_activity=False,  # an answer to a proposed time is not a new request
     )
 
 
@@ -1981,7 +2008,7 @@ def answer_proposal(booking: OrientationBooking, *, accept: bool, proposal: str)
     return "accepted" if accept else "kept"
 
 
-def cancel_slot(slot: OrientationSlot, *, reason: str = "") -> None:
+def cancel_slot(slot: OrientationSlot, *, reason: str = "", actor: User | None = None) -> None:
     """Cancel a slot and run the full cancel fan-out for each of its active bookings.
 
     ``PENDING_PAYMENT`` checkout holds on the slot are released too, through the
@@ -1990,6 +2017,9 @@ def cancel_slot(slot: OrientationSlot, *, reason: str = "") -> None:
     row deleted — no fan-out ever fired for it, so nothing should remember it.
     A hold Stripe reports as already paid routes into the finalize path, which
     sees the cancelled slot and auto-cancels + refunds with one honest email.
+
+    ``actor`` is the person cancelling, whom each booking's activity row names with ``reason``
+    as its note.
     """
     from membership.models import OrientationBooking
 
@@ -1999,10 +2029,12 @@ def cancel_slot(slot: OrientationSlot, *, reason: str = "") -> None:
     for hold in holds:
         release_hold_if_unpaid(hold)
     for booking in active:
-        cancel_orientation(booking, actor_label="the guild")
+        cancel_orientation(booking, actor_label="the guild", actor=actor, note=reason)
 
 
-def cancel_times(guild: Guild, slot_pks: Sequence[int], window_pks: Sequence[int]) -> tuple[int, int]:
+def cancel_times(
+    guild: Guild, slot_pks: Sequence[int], window_pks: Sequence[int], *, actor: User | None = None
+) -> tuple[int, int]:
     """Cancel several of ``guild``'s Upcoming Times at once (#574).
 
     Only times the card lists are eligible: upcoming, uncancelled, this guild's, and
@@ -2033,7 +2065,7 @@ def cancel_times(guild: Guild, slot_pks: Sequence[int], window_pks: Sequence[int
     emailed = 0
     for slot in slots:
         emailed += slot.active_booking_count
-        cancel_slot(slot)
+        cancel_slot(slot, actor=actor)
     for window in windows:
         window.cancel()
     return len(slots) + len(windows), emailed
@@ -2119,7 +2151,7 @@ def times_on_day_off(member: Member, day: date) -> DayOffTimes:
     return DayOffTimes(slots=slots, windows=windows, segments=segments)
 
 
-def cancel_day_off(member: Member, day: date) -> tuple[int, int]:
+def cancel_day_off(member: Member, day: date, *, actor: User | None = None) -> tuple[int, int]:
     """Cancel every upcoming time of ``member`` on local ``day`` (#767), in any guild or on any equipment.
 
     Each fixed slot goes through :func:`cancel_slot` (booked members emailed, checkout holds
@@ -2140,7 +2172,7 @@ def cancel_day_off(member: Member, day: date) -> tuple[int, int]:
 
     times = times_on_day_off(member, day)
     for slot in times.slots:
-        cancel_slot(slot, reason=_DAY_OFF_REASON)
+        cancel_slot(slot, reason=_DAY_OFF_REASON, actor=actor)
         if slot.source == OrientationSlot.Source.GENERATED and not slot.active_booking_count:
             slot.mark_retired(reason=_DAY_OFF_REASON)
     # A window whose only segment is an unpaid checkout hold emailed nobody, so it is retired
@@ -2153,7 +2185,7 @@ def cancel_day_off(member: Member, day: date) -> tuple[int, int]:
         else:
             window.mark_retired()
     for segment in times.segments:
-        cancel_slot(segment, reason=_DAY_OFF_REASON)
+        cancel_slot(segment, reason=_DAY_OFF_REASON, actor=actor)
     return times.count, times.emailed
 
 

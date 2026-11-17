@@ -55,12 +55,15 @@ EXPECTED_PAIRS = {
     "cubby_waitlist_opened",
     "guild_staff_welcome",
     "guild_invite",
+    "discord_reconnect",
     "permission_granted",
     "orientation_time_proposed",
     "guild_welcome",
     "wiki_guild_digest",
     "wiki_page_archived",
     "wiki_proposal_declined",
+    # kiln (#1228)
+    "kiln_use_report",
     # billing
     "charge_failed_admin",
     "receipt",
@@ -96,7 +99,7 @@ def describe_email_gallery_completeness():
     def it_discovers_the_expected_46_pairs():
         """Pins the discovery rule so it never silently sweeps in (or drops) templates."""
         assert discover_template_pairs() == EXPECTED_PAIRS
-        assert len(EXPECTED_PAIRS) == 51
+        assert len(EXPECTED_PAIRS) == 53
 
     def it_excludes_shells_and_partials():
         discovered = discover_template_pairs()

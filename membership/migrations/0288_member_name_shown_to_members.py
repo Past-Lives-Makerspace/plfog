@@ -26,7 +26,7 @@ FIELD = models.CharField(
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0286_rewrite_class_review_guides"),
+        ("membership", "0287_discordreconnectnudge"),
     ]
 
     operations = [

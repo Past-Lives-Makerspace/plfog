@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
 from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 from core.validators import validate_image_content, validate_image_pixels, validate_image_size
 from kiln.models import ClayOption, GlazeOption, KilnReply, KilnTicket, ListOption
@@ -539,3 +541,83 @@ class UnloadForm(ToastForm):
             for t in self.tickets
             if t.pk not in ticked
         }
+
+
+# ---- the crew's Reports tab (#1234) ----------------------------------------------------
+
+
+def _month_value(month: date) -> str:
+    return f"{month:%Y-%m}"
+
+
+def _local_midnight(day: date) -> datetime:
+    return timezone.make_aware(datetime.combine(day, time.min), timezone.get_current_timezone())
+
+
+class ReportPeriodForm(forms.Form):
+    """The Reports tab's period, read from the query string: a month from the picker, or a
+    From and To pair (To includes that whole day). With neither it is last month in Portland
+    time. :attr:`window` is the ``[start, end)`` that :func:`kiln.services.kiln_use_period` sums.
+    """
+
+    month = forms.ChoiceField(required=False, label="Month", help_text="A whole calendar month, newest first.")
+    start = forms.DateField(required=False, label="From", help_text="The first day of a custom range.")
+    end = forms.DateField(
+        required=False, label="To", help_text="The last day of a custom range; that whole day counts."
+    )
+
+    def __init__(self, data: Any, *, months: list[date], today: date | None = None) -> None:
+        super().__init__(data)
+        self.today = today if today is not None else timezone.localdate()
+        month_field = cast("forms.ChoiceField", self.fields["month"])
+        month_field.choices = [(_month_value(m), f"{m:%B %Y}") for m in months]
+        self.month_values = {_month_value(m) for m in months}
+
+    @property
+    def last_month(self) -> date:
+        """The first of last month: where the tab opens."""
+        first = self.today.replace(day=1)
+        return date(first.year - (first.month == 1), (first.month - 2) % 12 + 1, 1)
+
+    @property
+    def is_range(self) -> bool:
+        """Whether the crew asked for From and To rather than a month."""
+        return bool(self.data.get("start") or self.data.get("end"))
+
+    @property
+    def month_value(self) -> str:
+        """The month the picker shows as chosen."""
+        if self.is_bound and self.is_valid() and self.cleaned_data["month"]:
+            return str(self.cleaned_data["month"])
+        return _month_value(self.last_month)
+
+    def step(self, months: int) -> str:
+        """The picker's month ``months`` away (-1 for ‹, 1 for ›), or "" when it is not on the list."""
+        month = date.fromisoformat(f"{self.month_value}-01")
+        index = month.year * 12 + month.month - 1 + months
+        value = _month_value(date(index // 12, index % 12 + 1, 1))
+        return value if value in self.month_values else ""
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        if not self.is_range:
+            return cleaned
+        start, end = cleaned.get("start"), cleaned.get("end")
+        if "start" in self.errors or "end" in self.errors:
+            return cleaned
+        if start is None or end is None:
+            raise ValidationError("Pick both a From and a To date.")
+        if start > end:
+            raise ValidationError("From must be on or before To.")
+        return cleaned
+
+    @property
+    def window(self) -> tuple[datetime, datetime]:
+        """``[start, end)`` in Portland time, once the form is valid."""
+        if self.is_range:
+            first, last = self.cleaned_data["start"], self.cleaned_data["end"]
+            return _local_midnight(first), _local_midnight(last + timedelta(days=1))
+        month = self.cleaned_data["month"]
+        first = date.fromisoformat(f"{month}-01") if month else self.last_month
+        next_first = date(first.year + first.month // 12, first.month % 12 + 1, 1)
+        return _local_midnight(first), _local_midnight(next_first)

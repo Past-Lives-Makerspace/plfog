@@ -1492,6 +1492,43 @@ def hub_wiki_qr_download(request: HttpRequest, slug: str) -> HttpResponse:
     return resp
 
 
+# The most Quick Answers one Letter flyer lists; the rest wait on the full page and the sheet says
+# how many. A page with a long title and long answers may hold fewer, which the sheet drops
+# whole (static/css/wiki-flyer.css; tests/e2e/wiki_flyer_spec.py measures the longest case).
+_FLYER_FACT_LIMIT = 8
+
+
+@login_required
+def hub_wiki_flyer(request: HttpRequest, slug: str) -> HttpResponse:
+    """``/wiki/p/<slug>/flyer/`` — the page's printable one page flyer (#1224).
+
+    The title, its guild or Space wide, the machine, the filled Quick Answers and a large QR
+    to ``sticker_url``, in the event flyer's idiom: a standalone document with its own
+    stylesheet and ``@page`` rule. Gated like the QR download beside it in the Share This
+    Page card (``can_edit_wiki_page``). A page that is not ``is_printable`` (held by the
+    safety gate, still a proposal, or archived) has no flyer, so its URL is the wiki's 404
+    for everyone, the way ``hub_wiki_stickers`` keeps such pages off its sheet.
+    """
+    page = _page_or_none(slug)
+    if page is None or not page.is_printable:
+        return _not_found(request)
+    if not can_edit_wiki_page(request, page):
+        return _forbidden()
+    # A seeded machine page carries its starter prompts with no answer; a blank cell on a wall
+    # reads as broken, so only answered rows reach paper.
+    facts = [fact for fact in page.facts.all() if fact.value.strip()]
+    return render(
+        request,
+        "hub/wiki_flyer.html",
+        {
+            "page": page,
+            "facts": facts[:_FLYER_FACT_LIMIT],
+            "facts_more": max(len(facts) - _FLYER_FACT_LIMIT, 0),
+            "qr_svg": page.qr_svg(),
+        },
+    )
+
+
 @login_required
 def hub_wiki_stickers(request: HttpRequest) -> HttpResponse:
     """``/wiki/stickers/`` — a printable sheet of QR stickers, one shop at a time.
@@ -2231,6 +2268,26 @@ def hub_wiki_restore(request: HttpRequest, slug: str) -> HttpResponse:
     else:
         messages.success(request, "Page restored.")
     return redirect(page.get_absolute_url())
+
+
+@login_required
+@require_POST
+def hub_wiki_delete(request: HttpRequest, slug: str) -> HttpResponse:
+    """``/wiki/p/<slug>/delete/`` — delete the page for good (Felix, 2026-11-17).
+
+    Gated like Archive: ``can_moderate_wiki_page``, which admits admins everywhere. The
+    confirm modal is a plain one, with no typed word.
+    """
+    page = _page_or_none(slug)
+    if page is None:
+        return _not_found(request)
+    member = _editing_member(request)
+    if member is None or not can_moderate_wiki_page(request, page):
+        return _forbidden()
+    title = page.title
+    page.delete_page(by=member)
+    messages.success(request, f"Deleted {title}.")
+    return redirect("hub_wiki_home")
 
 
 @login_required

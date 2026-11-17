@@ -1,0 +1,23 @@
+{% comment %}
+A ranked list (#1234, report standard): a real table, largest first, each name with a thin bar sized against the top
+row (the one inline value, --pl-w), the value in text beside it, and Share when the rows partition the total. Expects
+rank (kiln.reports.RankList), page and, on the print sheet, print. On screen each row is a tab stop with tooltip data.
+{% endcomment %}
+<table class="pl-report-rank" data-kiln-report-table="{{ rank.key }}">
+    <thead><tr><th scope="col">{{ rank.head }}</th><th scope="col" class="pl-report-rank__num">Cubic inches</th>{% if rank.shows_share %}<th scope="col" class="pl-report-rank__num pl-report-rank__share">Share</th>{% endif %}</tr></thead>
+    <tbody>
+        {% for row in rank.rows %}
+        <tr{% if not print %} tabindex="0" data-tip-value="{{ row.value_label }} in³" data-tip-name="{{ row.name }}" data-tip-more="{{ row.tip_more }}"{% endif %}>
+            <td class="pl-report-rank__name"><div class="pl-report-rank__who"><span class="pl-report-rank__rank">{{ row.rank }}</span><span>{{ row.name }}{% if row.pieces is not None %}<span class="pl-report-rank__meta">{{ row.pieces }} piece{{ row.pieces|pluralize }}</span>{% endif %}<span class="pl-report-rank__track"><span class="pl-report-rank__fill" style="--pl-w: {{ row.fill }}%"></span></span></span></div></td>
+            <td class="pl-report-rank__num">{{ row.value_label }}</td>
+            {% if rank.shows_share %}<td class="pl-report-rank__num pl-report-rank__share">{{ row.share }}%</td>{% endif %}
+        </tr>
+        {% endfor %}
+    </tbody>
+    {% if rank.key == "makers" %}
+    <tfoot><tr><td>All {{ rank.rows|length }} maker{{ rank.rows|length|pluralize }}</td><td class="pl-report-rank__num">{{ page.kiln_use_label }}</td><td class="pl-report-rank__num pl-report-rank__share">100%</td></tr></tfoot>
+    {% endif %}
+</table>
+{% if rank.key == "makers" and page.report.unmeasured_tickets %}
+<p class="pl-report-callout" data-kiln-report-unmeasured><svg class="pl-report-ico" aria-hidden="true"><use href="#rep-i-info"/></svg><span><strong>{{ page.report.unmeasured_tickets }} ticket{{ page.report.unmeasured_tickets|pluralize }} had a size missing.</strong> {% if page.report.unmeasured_tickets == 1 %}Its pieces are counted, its kiln use is not.{% else %}Their pieces are counted, their kiln use is not.{% endif %}</span></p>
+{% endif %}

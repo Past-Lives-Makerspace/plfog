@@ -61,7 +61,7 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 - `core/threads.py` — the shared conversation thread: abstract `ThreadMessage` / `ThreadPhoto` bases each domain builds its own tables on (`FeedbackComment`, `OrientationBookingMessage`), with one rule for who hears a message
 - `Notification` / `NotificationPreference` — per-user in-app notifications + per-trigger channel prefs (see `core/triggers.py` catalogue, `core/notifications.py` dispatch)
 - `TransactionalEmailLog` — logs every email sent via `core.email.send()` (sync; console in dev, Resend in prod)
-- `SiteActivity` — cross-app activity/audit feed; `SITE_ACTIVITY_CATEGORIES` groups its kinds for the feed's Category filter (`core/activity_feed_filters.py`)
+- `SiteActivity` — cross-app activity/audit feed; `SITE_ACTIVITY_CATEGORIES` groups its kinds for the feed's Category filter (`core/activity_feed_filters.py`). A row's target may word it (`describe_activity` returning an `ActivityLine`: `OrientationBooking` and `SpaceRequest` name the member and what for, and the note); `payload["note"]` shows on any row, `payload["automatic"]` marks a job's doing ("System"), and a person's row logged with no actor reads "Not recorded". `SiteActivity.stray_rows()` (the request rows the cancel bell once wrote with no booking) stay out of the feed and the Usage counts
 - `core/new_members.py` — Site Activity's New Members tab (#1115): each member the Airtable pull added lately with their welcome email (read by `awaiting_welcome_email`'s own conditions) and first sign in, and a lookup that searches the portal (`MemberQuerySet.matching_name_or_email`) and Airtable live
 
 ### polls

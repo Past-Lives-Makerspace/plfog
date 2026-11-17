@@ -18,6 +18,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator, StepVal
 from django.db import models, transaction
 from django.db.models.functions import Coalesce
 from django.utils import timezone
+from django.utils.functional import cached_property
 
 from core.features import DEFAULT_SOON_MESSAGE, FEATURES, FeatureState, FeatureView
 from core.files import delete_orphan_on_replace
@@ -2072,6 +2073,26 @@ class TransactionalEmailLog(models.Model):
         return f"{self.get_status_display()} → {self.to_email} ({self.trigger_kind})"
 
 
+@dataclass(frozen=True)
+class ActivityLine:
+    """How the Activity Feed words one :class:`SiteActivity` row.
+
+    A row's target may say it (``describe_activity(activity)``, as an orientation booking and a
+    space request do), naming whose it is and carrying the note a person attached; any other row
+    reads its kind's label.
+
+    Attributes:
+        headline: The row's first line, e.g. "Orientation requested: Robin Vale for Laser Orientation (Laser Cutter)".
+        note: A note the member or staff attached, or "".
+        actor_unrecorded: A person acted but the row was written before the log kept who, so the
+            feed says "Not recorded" rather than "System".
+    """
+
+    headline: str
+    note: str = ""
+    actor_unrecorded: bool = False
+
+
 class SiteActivity(models.Model):
     """Append-only event log for every meaningful site-wide happening.
 
@@ -2147,6 +2168,7 @@ class SiteActivity(models.Model):
         WIKI_PAGE_VERIFIED = "wiki_page_verified", "Wiki page verified"
         WIKI_PAGE_REPORTED = "wiki_page_reported", "Wiki page reported"
         WIKI_PAGE_ARCHIVED = "wiki_page_archived", "Wiki page archived"
+        WIKI_PAGE_DELETED = "wiki_page_deleted", "Wiki page deleted"
         WIKI_PAGE_REVERTED = "wiki_page_reverted", "Wiki page reverted"
 
     actor = models.ForeignKey(
@@ -2206,6 +2228,33 @@ class SiteActivity(models.Model):
         roster_name = getattr(self.target, "roster_name", "")
         return str(roster_name)
 
+    @cached_property
+    def line(self) -> ActivityLine:
+        """The feed's wording for this row: its target's own (``describe_activity``), else the kind's label.
+
+        A note in ``payload["note"]`` is shown whatever the target, so a sender that records one
+        (an orientation bill, a decline) needs nothing more.
+        """
+        describe = getattr(self.target, "describe_activity", None)
+        line = describe(self) if describe is not None else ActivityLine(headline=self.get_kind_display())
+        if not line.note and self.payload.get("note"):
+            return ActivityLine(
+                headline=line.headline, note=str(self.payload["note"]), actor_unrecorded=line.actor_unrecorded
+            )
+        return line
+
+    @property
+    def is_automatic(self) -> bool:
+        """True when the sender marked this row as a job's doing, with no person acting (``payload["automatic"]``)."""
+        return bool(self.payload.get("automatic"))
+
+    @property
+    def by(self) -> str:
+        """The name the feed shows beside the date: who acted, "Not recorded", or "System" when nobody did."""
+        if who := self.who:
+            return who
+        return "Not recorded" if self.line.actor_unrecorded else "System"
+
     @classmethod
     def log(
         cls,
@@ -2229,6 +2278,16 @@ class SiteActivity(models.Model):
         return activity
 
     @classmethod
+    def stray_rows(cls) -> models.Q:
+        """Rows that record nothing, which the feed and the Usage counts leave out.
+
+        Until the fix, a booking's cancel bell and its proposal answer bell were emitted on the
+        ``orientation_requested`` event, whose activity kind wrote one "Orientation requested" row
+        each with no actor and no booking. A real request row always targets its booking.
+        """
+        return models.Q(kind=cls.Kind.ORIENTATION_REQUESTED, target_ct__isnull=True)
+
+    @classmethod
     def weekly_counts(cls, since: datetime) -> ActivityWeeks:
         """Rows logged since ``since``, counted per kind and per local week (Monday first), for the Usage page.
 
@@ -2239,6 +2298,7 @@ class SiteActivity(models.Model):
 
         grouped = (
             cls.objects.filter(created_at__gte=since)
+            .exclude(cls.stray_rows())
             .annotate(week=TruncWeek("created_at"))
             .values("week", "kind")
             .annotate(n=Count("id"))
@@ -2348,6 +2408,7 @@ SITE_ACTIVITY_CATEGORIES: dict[str, tuple[str, tuple[SiteActivity.Kind, ...]]] =
             _Kind.WIKI_PAGE_VERIFIED,
             _Kind.WIKI_PAGE_REPORTED,
             _Kind.WIKI_PAGE_ARCHIVED,
+            _Kind.WIKI_PAGE_DELETED,
             _Kind.WIKI_PAGE_REVERTED,
         ),
     ),

@@ -183,6 +183,17 @@ _GUIDANCE_LIST = (
         ),
     ),
     Guidance(
+        key="home.discord-reconnect",
+        title="Reconnect Discord",
+        url_name="hub_home",
+        target="home.discord-reconnect",
+        steps=(
+            "If your Discord is linked but you're not on the Past Lives server, Home shows Reconnect Discord under Needs Attention, and we email you too.",
+            "Tap Reconnect Discord and approve on Discord. We add you to the server with your roles.",
+            "Rather not? Tap Dismiss and it goes away.",
+        ),
+    ),
+    Guidance(
         key="home.tour",
         title="Take the Tour",
         url_name="hub_home",

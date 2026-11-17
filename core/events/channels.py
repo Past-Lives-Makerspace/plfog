@@ -641,11 +641,18 @@ CLASS_REVIEW_EVENTS = frozenset({"class_review_requested"})
 # Lines that tell staff what already happened rather than ask them to act (#1184, #894 part 4).
 # A morning email holding only these says so in its subject and opening line, never "Action Needed".
 INSTRUCTOR_CODE_EVENTS = frozenset({"discount_code.instructor_made"})
-HEADS_UP_EVENTS = INSTRUCTOR_CODE_EVENTS | {
-    "new_member_joined",
-    "class_registration_admin_notice",
-    "equipment.reservation_made",
-}
+HEADS_UP_EVENTS = INSTRUCTOR_CODE_EVENTS | {"new_member_joined", "equipment.reservation_made"}
+
+
+def is_heads_up(event_key: str) -> bool:
+    """Whether a queued line tells staff what happened rather than asks them to act.
+
+    A line queued before its event moved to an instant email (core.events.resolvers.is_leftover)
+    is an update too: it goes out once, never counted as a request awaiting anyone.
+    """
+    from core.events.resolvers import is_leftover
+
+    return event_key in HEADS_UP_EVENTS or is_leftover(event_key)
 
 
 _ACTION_INTRO = "Here is everything still waiting on you this morning. Anything someone already handled is left out."
@@ -680,11 +687,11 @@ def digest_context(rows: list[EventDelivery]) -> dict[str, object]:
     for row in newest_by_url.values():
         # Senders pass the bell's link, often a path; the email needs a host (#894 part 3).
         line = {"title": row.title, "body": row.body, "url": member_absolute_url(row.url)}
-        group = update_sections if row.event_key in HEADS_UP_EVENTS else request_sections
+        group = update_sections if is_heads_up(row.event_key) else request_sections
         group.setdefault(get_event(row.event_key).label, []).append(line)
     count = len(newest_by_url)
-    request_keys = {row.event_key for row in newest_by_url.values()} - HEADS_UP_EVENTS
-    update_keys = {row.event_key for row in newest_by_url.values()} & HEADS_UP_EVENTS
+    update_keys = {row.event_key for row in newest_by_url.values() if is_heads_up(row.event_key)}
+    request_keys = {row.event_key for row in newest_by_url.values()} - update_keys
     requests = sum(len(lines) for lines in request_sections.values())
     updates = count - requests
     heads_up_only = bool(update_keys) and not request_keys

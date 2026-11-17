@@ -1,0 +1,17 @@
+bump = "minor"
+date = "2026-11-16"
+audience = ["members", "guild-staff"]
+feature = "wiki.home"
+guidance = "shots"
+target = "wiki.flyer"
+title = "Print a flyer for a wiki page"
+changes = [
+  "If you can edit a wiki page, the QR code card at the bottom of the page now has a Flyer button: one printable page with the title, the Quick Answers and a big QR code to the full page.",
+  "Print it or save it as a PDF and post it by the machine.",
+]
+
+[[shots]]
+caption = "On a wiki page you can edit, press Flyer under the QR code."
+
+[[shots]]
+caption = "Press Print / Save as PDF and post it where people need it."

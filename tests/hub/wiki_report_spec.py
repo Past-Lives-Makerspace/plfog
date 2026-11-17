@@ -400,4 +400,5 @@ def describe_the_report_control_on_a_page_nobody_may_report():
         guild = GuildFactory()
         page = WikiPageFactory(guild=guild, archived=True)
         response = client.get(page.get_absolute_url())
-        assert b"Report a Problem" not in response.content
+        # Anchored on the control's markup: the changelog renders on every page and names it.
+        assert b"$dispatch('open-modal', 'wiki-report')" not in response.content

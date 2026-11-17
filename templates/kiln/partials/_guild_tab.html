@@ -8,6 +8,7 @@
         <a href="{% url 'kiln:load' %}" class="hub-btn hub-btn--secondary hub-btn--sm" data-kiln-tab="load">Load the Kiln<span class="pl-kiln-count" aria-label="{{ home.waiting_count }} waiting">{{ home.waiting_count }}</span></a>
         <a href="{% url 'kiln:unload_list' %}" class="hub-btn hub-btn--secondary hub-btn--sm" data-kiln-tab="unload">Unload<span class="pl-kiln-count" aria-label="{{ home.unload_count }} in the kiln">{{ home.unload_count }}</span></a>
         <a href="{% url 'kiln:log' %}" class="hub-btn hub-btn--secondary hub-btn--sm" data-kiln-tab="log">Kiln Log</a>
+        <a href="{% url 'kiln:reports' %}" class="hub-btn hub-btn--secondary hub-btn--sm" data-kiln-tab="reports">Reports</a>
         <a href="{% url 'kiln:lists' %}" class="hub-btn hub-btn--secondary hub-btn--sm">Clay and glaze lists</a>
     </nav>
     {% endif %}

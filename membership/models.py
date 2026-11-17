@@ -55,7 +55,15 @@ from PIL import Image, UnidentifiedImageError
 
 from core.files import delete_if_unreferenced, delete_orphan_on_replace
 from core.images import cut_hero_crop, image_upload_refusal, normalize_field_if_uploaded, normalize_image
-from core.models import HERO_CROP_FIELDS, AutomationAction, EventDelivery, HeroCropMixin, StaffRequestMixin
+from core.models import (
+    HERO_CROP_FIELDS,
+    ActivityLine,
+    AutomationAction,
+    EventDelivery,
+    HeroCropMixin,
+    SiteActivity,
+    StaffRequestMixin,
+)
 from core.threads import ThreadMessage, ThreadPhoto
 from core.urls_util import member_absolute_url
 from core.phone import phone_tel_number
@@ -10106,6 +10114,69 @@ class DiscordRemoval(models.Model):
         return True
 
 
+class DiscordReconnectNudgeQuerySet(models.QuerySet["DiscordReconnectNudge"]):
+    """Query helpers for :class:`DiscordReconnectNudge`."""
+
+    def open(self) -> DiscordReconnectNudgeQuerySet:
+        """Nudges the member has neither acted on nor dismissed."""
+        return self.filter(status=DiscordReconnectNudge.Status.OPEN)
+
+    def open_for(self, member: Member) -> DiscordReconnectNudgeQuerySet:
+        """The member's open nudge, if they have one (at most one row)."""
+        return self.open().filter(member=member)
+
+    def dismiss_for(self, member: Member) -> int:
+        """Close the member's open nudge as dismissed (Home's Dismiss). How many closed, 0 or 1."""
+        return self.open_for(member).update(status=DiscordReconnectNudge.Status.DISMISSED, closed_at=timezone.now())
+
+    def close_for(self, member: Member) -> int:
+        """Close the member's open nudge as done: they reconnected and are on the server. How many closed, 0 or 1."""
+        return self.open_for(member).update(status=DiscordReconnectNudge.Status.DONE, closed_at=timezone.now())
+
+
+class DiscordReconnectNudge(models.Model):
+    """One member asked to reconnect Discord because they are linked but not on the server (#1239).
+
+    Before #1138 Connect Discord saved the link without adding anyone to the server, and joining
+    needs the member's own ``guilds.join`` token, which only a new connect obtains. The
+    ``nudge_discord_reconnect`` command opens one row per such member (``membership.discord_reconnect``)
+    and tells them once by bell and email. The row is the member's whole history: one per member,
+    ever, so no later run nudges them again, whether it is still open, dismissed or done. Home's
+    Needs Attention shows a Reconnect Discord item while it is open; Dismiss closes it as dismissed,
+    and a connect that puts them on the server (``put_on_server``) closes it as done.
+    """
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        DISMISSED = "dismissed", "Dismissed"
+        DONE = "done", "Done"
+
+    member = models.OneToOneField(
+        Member,
+        on_delete=models.CASCADE,
+        related_name="discord_reconnect_nudge",
+        help_text="The member asked to reconnect. One nudge per member, ever.",
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=Status.choices,
+        default=Status.OPEN,
+        help_text="Open while it shows on Home; Dismissed when the member closed it; Done once they reconnected and joined the server.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When the nudge was sent.")
+    closed_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the member dismissed it or reconnected. Empty while open."
+    )
+
+    objects = DiscordReconnectNudgeQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+
+    def __str__(self) -> str:
+        return f"Discord reconnect nudge for {self.member} ({self.get_status_display()})"
+
+
 class SkillCategory(models.Model):
     """A grouping of related skills shown in the skills picker and directory filter."""
 
@@ -18047,6 +18118,35 @@ class OrientationBooking(models.Model):
             return None
         return OrientationBookingMessage.write(author=author, body=body, booking=self)
 
+    def describe_activity(self, activity: SiteActivity) -> ActivityLine:
+        """The Activity Feed's line for a row about this booking: whose orientation it is, which one, and its note.
+
+        A row a job wrote (``payload["automatic"]``, and every auto complete) says so and still
+        names the member. A row with no actor and no such mark was a person's decline or cancel
+        logged before the log kept who acted, so the feed says "Not recorded", never "System".
+        A request row carries the member's note: the thread's first message, when they wrote it
+        with the request. Any other note rides in the row's payload (:attr:`SiteActivity.line`).
+        """
+        verb = activity.get_kind_display()
+        orientation = self.orientation_type
+        subject = f"{self.member.staff_label} for {orientation.name} ({orientation.owner_name})"
+        note = self._request_note(activity) if activity.kind == SiteActivity.Kind.ORIENTATION_REQUESTED else ""
+        if activity.actor_id is not None:
+            return ActivityLine(headline=f"{verb}: {subject}", note=note)
+        if activity.is_automatic or activity.kind == SiteActivity.Kind.ORIENTATION_COMPLETED:
+            return ActivityLine(headline=f"{verb} automatically: {subject}", note=note)
+        return ActivityLine(headline=f"{verb}: {subject}", note=note, actor_unrecorded=True)
+
+    def _request_note(self, activity: SiteActivity) -> str:
+        """The note the member sent with their request: the thread's first message, if theirs and no later than the row.
+
+        Reads ``messages.all()`` so the feed's prefetch serves it.
+        """
+        first = min(self.messages.all(), key=lambda message: (message.created_at, message.pk), default=None)
+        if first is None or first.author_id != self.member.user_id or first.created_at > activity.created_at:
+            return ""
+        return first.body
+
 
 class OrientationBookingMessage(ThreadMessage):
     """One message on an :class:`OrientationBooking`'s thread, between the member and its orientors.
@@ -19133,6 +19233,22 @@ class SpaceRequest(StaffRequestMixin, models.Model):
         self.state = self.ModerationState.WITHDRAWN
         self.save(update_fields=["state", "updated_at"])
         self.clear_request_bells()
+
+    def describe_activity(self, activity: SiteActivity) -> ActivityLine:
+        """The Activity Feed's line for a row about this request: who asked for which space, and the note.
+
+        A row written once the request was reviewed is the decision, carrying the reviewer's
+        reason; an earlier one is the ask, carrying the member's message. Every row names the
+        requester, whoever the actor was.
+        """
+        asked_for = "Shelf" if self.kind == self.RequestKind.CUBBY else "Space"
+        space = self.space
+        where = f"{space.space_id} ({space.name})" if space.name else space.space_id
+        subject = f"{self.requester.staff_label} for {where}"
+        if self.reviewed_at is not None and activity.created_at >= self.reviewed_at:
+            decision = self.get_state_display().lower()
+            return ActivityLine(headline=f"{asked_for} request {decision}: {subject}", note=self.review_notes)
+        return ActivityLine(headline=f"{asked_for} requested: {subject}", note=self.message)
 
     def _require_pending(self, action: str) -> None:
         if self.state != self.ModerationState.PENDING:
@@ -23478,6 +23594,16 @@ class WikiPage(StaffRequestMixin, models.Model):
     # --- The sticker (/m/<code>/) ---------------------------------------------------
 
     @property
+    def is_printable(self) -> bool:
+        """True when this page may reach paper: live and not archived.
+
+        The one-row form of ``published().not_archived()``, the rule ``hub_wiki_stickers``
+        filters by, so the page's own Flyer (#1224) never prints a page spec D's safety gate
+        is holding, or one that has been archived.
+        """
+        return self.is_published and self.archived_at is None
+
+    @property
     def sticker_url(self) -> str:
         """The absolute ``/m/<code>/`` link a printed sticker carries.
 
@@ -23745,10 +23871,9 @@ class WikiPage(StaffRequestMixin, models.Model):
     def archive(self, *, by: Member, reason: str, redirect: WikiPage | None = None) -> None:
         """Take the page out of every list, keep its URL working, and tell the author why.
 
-        Members cannot delete and hard delete is not in the UI, so this is the strongest
-        action in the wiki — hence a required reason that the author reads, addressed by
-        name, and a tombstone that names the archiver rather than making the removal look
-        like weather.
+        The removal that keeps the URL and the history (:meth:`delete_page` is the one that
+        does not) — hence a required reason that the author reads, addressed by name, and a
+        tombstone that names the archiver rather than making the removal look like weather.
 
         Deliberately resolves nothing: open reports on an archived page stay open until a
         human marks them reviewed, because archiving answers *some* reports and not others.
@@ -23884,6 +24009,68 @@ class WikiPage(StaffRequestMixin, models.Model):
             target=self,
             payload={"slug": self.slug, "restored_from_archive": True},
         )
+
+    def delete_page(self, *, by: Member) -> None:
+        """Delete the page for good, with everything that belongs only to it (Felix, 2026-11-17).
+
+        Archive keeps the URL and the history; this is the other answer, for a page that
+        should never have existed. Facts, revisions, attachments, drafts, reports and the
+        edit lock go by ``CASCADE``; another page's ``archive_redirect`` to this one goes to
+        NULL, and the bells go through the ``pre_delete`` receiver in ``membership.signals``.
+
+        The wanted rows this page answered are reopened first, not left to ``SET_NULL``:
+        that would drop each one back into ``uq_wikiwanted_guild_title``'s partial index, so
+        a duplicate ask filed since would make the delete itself an IntegrityError. Such a
+        duplicate absorbs the answered row's ``request_count`` instead.
+
+        Uploaded attachment files leave storage once the delete commits, unless another
+        attachment row still names the same key. Images pasted into the body (``wiki/body/``)
+        are content addressed and may sit in other pages and old revisions, so they stay.
+
+        Args:
+            by: The moderator deleting it. Named in the activity log, the only trace left.
+        """
+        from core.models import SiteActivity
+
+        with transaction.atomic():
+            for want in WikiWantedPage.objects.filter(fulfilled_page=self).select_related("guild"):
+                clash = (
+                    WikiWantedPage.objects.for_guild(want.guild)
+                    .open()
+                    .filter(title_normalized=want.title_normalized)
+                    .first()
+                )
+                if clash is not None:
+                    WikiWantedPage.objects.filter(pk=clash.pk).update(
+                        request_count=F("request_count") + want.request_count
+                    )
+                    want.delete()
+                    continue
+                want.fulfilled_page = None
+                want.claimed_by = None
+                want.claimed_at = None
+                want.save(update_fields=["fulfilled_page", "claimed_by", "claimed_at", "title_normalized"])
+            file_names = list(self.attachments.exclude(file="").values_list("file", flat=True))
+            SiteActivity.log(
+                SiteActivity.Kind.WIKI_PAGE_DELETED,
+                actor=by.user,
+                payload={
+                    "slug": self.slug,
+                    "title": self.title,
+                    "guild": self.guild.name if self.guild is not None else "",
+                },
+            )
+            self.delete()
+
+            def _remove_files() -> None:
+                # One storage error must not leave the rest behind: each file is tried on its own.
+                for name in file_names:
+                    try:
+                        delete_if_unreferenced(WikiAttachment, "file", name)
+                    except Exception:
+                        logger.exception("Could not remove wiki attachment file %s after deleting its page", name)
+
+            transaction.on_commit(_remove_files, robust=True)
 
     def set_archive_redirect(self, *, target: WikiPage | None) -> None:
         """Point an archived page's readers at a live replacement, or clear the signpost.

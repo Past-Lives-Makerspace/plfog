@@ -11,6 +11,7 @@ synthetic entries) and ``hub/calendar_service.py`` (orchestration) split query v
 
 from __future__ import annotations
 
+import secrets
 from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime as datetime_type
@@ -20,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 from django.urls import reverse
 from django.utils import timezone
 
-from membership.models import CalendarEvent, CommunityEvent, GuildAnnouncement
+from membership.models import CalendarEvent, CommunityEvent, DiscordReconnectNudge, GuildAnnouncement
 from polls.models import EmailPoll, PollCard
 from tours.models import TourBooking
 
@@ -40,7 +41,10 @@ TEACHING_WEEK_DAYS = 7
 
 @dataclass(frozen=True)
 class HomeBanner:
-    """The Spotlight messages crawling across the top of Home (#889, a ticker since #935): the live ones in order, and their signature.
+    """The Spotlight messages crawling across the top of Home (#889, a ticker since #935): the live ones, and their signature.
+
+    Each load starts the crawl at a random message and runs on in the admins' order from there, wrapping round,
+    so a refresh does not open on the same message every time (2026-11-17).
 
     The signature (:meth:`core.models.Announcement.signature`) is what a member's Close keeps in
     the browser; the ticker stays closed until it changes.
@@ -55,7 +59,15 @@ class HomeBanner:
         from core.models import Announcement
 
         rows = list(Announcement.objects.live(now))
-        return cls(rows, Announcement.signature(rows)) if rows else None
+        if not rows:
+            return None
+        start = ticker_start(len(rows))
+        return cls(rows[start:] + rows[:start], Announcement.signature(rows))
+
+
+def ticker_start(count: int) -> int:
+    """Which of ``count`` live messages the ticker opens on: any one, at random."""
+    return secrets.randbelow(count)
 
 
 @dataclass(frozen=True)
@@ -142,7 +154,9 @@ def build_home_context(member: Member) -> dict[str, Any]:
     gate (built ONCE here, not re-derived per property in the template), and ``home_poll``,
     the open poll's card (#925), None while no poll is open. ``needs_attention_polls`` (#1142) are
     the open polls from Email Members sent to the member that they have not answered, in one query, and
-    ``tour_requests`` (#1213) the member's own tour requests still waiting on them as guide, in one more. All business logic lives on
+    ``tour_requests`` (#1213) the member's own tour requests still waiting on them as guide, in one more;
+    ``discord_reconnect`` (#1239) is whether they have an open Reconnect Discord nudge, in one more.
+    All business logic lives on
     ``membership`` and ``polls`` managers/props; this only fetches, normalizes, sorts, and caps.
     """
     return {
@@ -157,6 +171,7 @@ def build_home_context(member: Member) -> dict[str, Any]:
         "home_poll": PollCard.open_for(member, timezone.now()),
         "needs_attention_polls": list(EmailPoll.objects.awaiting_answer(member, timezone.now())),
         "tour_requests": list(TourBooking.objects.awaiting_guide(member, timezone.now())),
+        "discord_reconnect": DiscordReconnectNudge.objects.open_for(member).exists(),
     }
 
 

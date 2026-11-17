@@ -18,7 +18,13 @@ from django.core.management import call_command
 from core.discord_pings import _read_channel, _Server, queue_discord_pings
 from core.events.discord_dm import API_BASE
 from core.html_sanitize import ANNOUNCEMENT_MAX_CHARS, rich_html_to_text
-from core.integrations.discord_channel import MESSAGES_PAGE_LIMIT, channel_messages_after
+from core.integrations.discord_channel import (
+    MESSAGES_PAGE_LIMIT,
+    SCHEDULED_READ_TIMEOUT_SECONDS,
+    channel_messages_after,
+    server_channels,
+    server_roles,
+)
 from core.models import Announcement, DiscordChannelCursor, QueuedDiscordMessage, SiteConfiguration
 from tests.membership.factories import GuildFactory, MemberFactory
 
@@ -479,6 +485,25 @@ def describe_channel_messages_after():
         assert [message["id"] for message in channel_messages_after("5", "20")] == ["21", "100", "300"]
         assert route.calls.last.request.url.params["after"] == "20"
         assert route.calls.last.request.url.params["limit"] == str(MESSAGES_PAGE_LIMIT)
+
+
+def describe_the_reads_timeout():
+    @respx.mock
+    def it_gives_each_of_the_jobs_reads_the_longer_scheduled_wait():
+        # A 5 s wait listing the server's channels failed the tick three times in a day (2026-11-17).
+        routes = [
+            respx.get(f"{API_BASE}/guilds/{SERVER}/channels").mock(return_value=httpx.Response(200, json=[])),
+            respx.get(f"{API_BASE}/guilds/{SERVER}/roles").mock(return_value=httpx.Response(200, json=[])),
+            respx.get(f"{API_BASE}/channels/5/messages").mock(return_value=httpx.Response(200, json=[])),
+        ]
+
+        server_channels(SERVER)
+        server_roles(SERVER)
+        channel_messages_after("5", "20")
+
+        assert [route.calls.last.request.extensions["timeout"]["read"] for route in routes] == [
+            SCHEDULED_READ_TIMEOUT_SECONDS
+        ] * 3
 
 
 def describe_timestamps():

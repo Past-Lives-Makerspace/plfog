@@ -560,6 +560,7 @@ KILN_CREW_REPLIED = "kiln.crew_replied"  # the kiln crew wrote on your kiln tick
 KILN_MAKER_REPLIED = "kiln.maker_replied"  # a maker wrote on a kiln ticket (the kiln crew, #691)
 KILN_READY_FOR_PICKUP = "kiln.ready_for_pickup"  # your pieces came out of a firing (#691 part 3)
 KILN_TICKET_DELETED = "kiln.ticket_deleted"  # the crew or a site admin deleted your kiln ticket (#1025)
+KILN_USE_REPORT_MONTHLY = "kiln.use_report_monthly"  # the kiln crew's monthly Kiln Use Overview (#1228)
 TOUR_BOOKED = "tour.booked"  # a visitor booked one of your facility tours (#948)
 TOUR_VISITOR_CHANGED = "tour.visitor_changed"  # a visitor moved or cancelled your tour from their email (#948)
 TOUR_VISITOR_UPDATE = "tour.visitor_update"  # the visitor's own tour emails, by address only (#948)
@@ -579,6 +580,7 @@ TOUR_CALENDAR_UNREAD = "tour.calendar_unread"  # your Google Calendar could not 
 GUILD_NEEDS_ATTENTION = "guild.needs_attention"  # a guild breaks a Needs attention rule (#953)
 GUILD_STAFF_WELCOME = "guild_staff.welcome"  # you were made a guild lead or staff: your tools and the rules (#1076)
 GUILD_INVITED = "guild.invited"  # a guild's lead, staff or an admin invited you to join it (#1137)
+MEMBERSHIP_DISCORD_RECONNECT = "membership.discord_reconnect"  # linked but off the server: reconnect (#1239)
 PERMISSION_GRANTED = "permission.granted"  # an admin turned on a permission for you: what it does and where (#1163)
 POLLS_EMAIL_POLL_LIVE = "polls.email_poll_live"  # a poll from Email Members went live, with your link (#1142)
 POLLS_EMAIL_POLL_REMINDER = "polls.email_poll_reminder"  # a poll you have not answered closes soon (#1142)
@@ -1399,8 +1401,9 @@ _NEW_EVENTS: list[EventType] = [
     # _with_push adds no Push, exactly as before. No activity row: none of them logged one.
     #
     # class_registration_admin_notice: the Admins' copy of every new class registration,
-    # which used to ride the instructor's own key. Email on by default and switchable; since
-    # #894 part 4 it is a line in the 8 AM staff digest, written by the sender (digest_line).
+    # which used to ride the instructor's own key. Email on by default and switchable, and
+    # sent at once: #894 part 4 moved it to the 8 AM staff digest, and Felix moved it back to
+    # instant on 2026-11-17 ("when someone signs up for a class, make that instant").
     EventType(
         key=CLASS_REGISTRATION_ADMIN_NOTICE,
         label="New class registration",
@@ -1662,6 +1665,21 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
+    # kiln.use_report_monthly — the Kiln Use Overview (#1228): on the 1st, last month's bisque
+    # and glaze runs, pieces fired and kiln space per maker, clay and glaze, to the kiln crew
+    # (the Ceramics Guild's lead and staff; site admins who are not on the guild are not told).
+    # A month with no firing unloaded sends nothing. The email is the structural shell in
+    # templates/kiln/emails/kiln_use_report.*, sent by kiln.services.send_kiln_use_report; the
+    # period is the month. Push stays off by default: a monthly report should not buzz a phone.
+    EventType(
+        key=KILN_USE_REPORT_MONTHLY,
+        label="Monthly Kiln Use Overview",
+        description="On the 1st, last month's kiln runs and how much kiln space each maker, clay and glaze used.",
+        category="Kiln tickets",
+        recipient=Recipients.KILN_CREW,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
     # tour.booked: a visitor booked a facility tour on tours.pastlives.space (#948). Goes to
     # the tour's guide (email, bell and push), or the admins when the tour has no guide (#949:
     # only an admin can see or act on it). The email is the structural shell in templates/tours/emails/guide_booked.*.
@@ -1875,6 +1893,19 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_FORCED),
         activity_kind=None,
     ),
+    # A Reconnect Discord nudge (#1239): the member linked Discord before #1138 and never landed on
+    # the server. Sent once per nudge by manage.py nudge_discord_reconnect --send (membership.
+    # discord_reconnect) with the membership/emails/discord_reconnect.{txt,html} body; the bell and
+    # the email's button start the connect flow. Both switchable, like an invite.
+    EventType(
+        key=MEMBERSHIP_DISCORD_RECONNECT,
+        label="Reconnect Discord",
+        description="You linked Discord but are not on the Past Lives server yet. Reconnect to join it.",
+        category="Membership",
+        recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
     # A guild invite (#1137): the guild's lead, staff or an admin asked you to join. Bell and email
     # on, both switchable (an invitation, not something you must hear), once per invite from
     # membership.guild_invites with the membership/emails/guild_invite.{txt,html} body. Nobody joins
@@ -1933,9 +1964,9 @@ _DIGEST_EMAIL_EVENTS: frozenset[str] = frozenset(
         # #979: a Past Due cubby rental, dropped from the digest once it is paid.
         "cubbies.rental_past_due",
         # #894 part 4: FYI notices nothing decides, so every line goes out. Each emit's
-        # period names its own signup, registration or reservation, one line apiece.
+        # period names its own signup or reservation, one line apiece. The admins' class
+        # registration notice was here too until Felix made it instant again (2026-11-17).
         "new_member_joined",
-        "class_registration_admin_notice",
         "equipment.reservation_made",
     }
 )

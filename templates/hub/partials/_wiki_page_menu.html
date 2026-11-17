@@ -8,17 +8,7 @@ with gloves on.
 <a href="{% url 'hub_wiki_edit' page.slug %}" class="pl-row-menu__item" role="menuitem"
    @click="closeAndRefocus()">Edit</a>
 {% endif %}
-{% if can_confirm %}
-{% if checked_today %}
-{% comment %}Not a menu item: components/row_actions.html focuses every [role="menuitem"]
-in turn, and a non-focusable one leaves activeElement where it was, so Down arrow keeps
-landing on the same index and never reaches Print.{% endcomment %}
-<p class="pl-row-menu__note hub-text-muted">Checked today</p>
-{% else %}
-<button type="button" class="pl-row-menu__item" role="menuitem"
-        @click="closeAndRefocus(); $dispatch('open-confirm', 'wiki-confirm')">Still accurate</button>
-{% endif %}
-{% endif %}
+{% include "hub/partials/_wiki_page_member_menu.html" with report_item_id="wiki-report-item-bar" %}
 <button type="button" class="pl-row-menu__item" role="menuitem"
         @click="closeAndRefocus()" onclick="window.print()">Print / Save PDF</button>
 {% comment %}
