@@ -1,0 +1,12 @@
+{# The report's hero tiles (#1234, report standard): icon, label, value, the change vs the previous period, and a note. Expects page (kiln.reports.KilnReportPage). #}
+<div class="pl-report-tiles" data-kiln-report-totals>
+    {% for tile in page.tiles %}
+    <div class="hub-card pl-report-tile pl-report-tile--{{ tile.slot }}" data-tile="{{ tile.key }}">
+        <span class="pl-report-tile__icon"><svg class="pl-report-ico" aria-hidden="true"><use href="#rep-i-{{ tile.icon }}"/></svg></span>
+        <span class="pl-report-tile__label">{{ tile.label }}</span>
+        <span class="pl-report-tile__value" data-total="{{ tile.key }}">{{ tile.value_label }}{% if tile.unit %}<span class="pl-report-tile__unit">{{ tile.unit }}</span>{% endif %}</span>
+        <span class="pl-report-tile__delta pl-report-delta pl-report-delta--{{ tile.delta.direction }}" data-delta="{{ tile.key }}">{% if tile.delta.direction == "none" %}Nothing in {{ tile.delta.versus }} to compare{% elif tile.delta.direction == "same" %}Same as {{ tile.delta.versus }}{% else %}<strong>{{ tile.delta.change }}</strong> vs {{ tile.delta.versus }}{% endif %}</span>
+        {% if tile.note %}<span class="pl-report-tile__note"><svg class="pl-report-ico" aria-hidden="true"><use href="#rep-i-info"/></svg>{{ tile.note }}</span>{% endif %}
+    </div>
+    {% endfor %}
+</div>

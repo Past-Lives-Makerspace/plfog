@@ -10,9 +10,12 @@ from django.contrib.auth.decorators import login_required
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from core.htmx import wants_fragment
+from kiln.exports import kiln_use_csv
+from kiln.reports import kiln_report_page
 from kiln.access import KilnNav, can_run_kiln, crew_required, kiln_home_url, kiln_open_required, maker_required
 from kiln.forms import (
     ACTION_COVER,
@@ -24,6 +27,7 @@ from kiln.forms import (
     LoadKilnForm,
     ManualFlagForm,
     ReplyForm,
+    ReportPeriodForm,
     UnloadForm,
 )
 from kiln.models import (
@@ -47,10 +51,12 @@ from kiln.services import (
     in_kiln_firings,
     kiln_home,
     kiln_log,
+    kiln_use_period,
     load_kiln,
     load_queue,
     post_reply,
     primary_emails,
+    report_months,
     save_ticket,
     tickets_for,
     unload_kiln,
@@ -532,6 +538,63 @@ def firing(request: HttpRequest, pk: int) -> HttpResponse:
         raise Http404("No such firing.") from None
     context = {"firing": the_firing, "rows": rows, "kiln_tab": "log", **_crew_tabs()}
     return render(request, "kiln/firing.html", context)
+
+
+# ---- the crew's Reports tab (#1234) ----------------------------------------------------
+
+
+def _report_form(request: HttpRequest) -> ReportPeriodForm:
+    return ReportPeriodForm(request.GET, months=report_months())
+
+
+def _back_to_reports(request: HttpRequest) -> HttpResponse:
+    """A CSV or print link with a bad period goes to the Reports tab, which says what is wrong."""
+    return redirect(f"{reverse('kiln:reports')}?{request.GET.urlencode()}")
+
+
+@login_required
+@kiln_open_required
+@crew_required
+def reports(request: HttpRequest) -> HttpResponse:
+    """Reports: the Kiln Use Overview for last month, any other month, or a From and To range."""
+    form = _report_form(request)
+    page = kiln_report_page(kiln_use_period(*form.window)) if form.is_valid() else None
+    context = {
+        "form": form,
+        "page": page,
+        "report": page.report if page else None,
+        "previous_month": form.step(-1),
+        "next_month": form.step(1),
+        "query": request.GET.urlencode(),
+        "kiln_tab": "reports",
+        **_crew_tabs(),
+    }
+    return render(request, "kiln/reports.html", context)
+
+
+@login_required
+@kiln_open_required
+@crew_required
+def reports_csv(request: HttpRequest) -> HttpResponse:
+    """The chosen period as one CSV, every section in it."""
+    form = _report_form(request)
+    if not form.is_valid():
+        return _back_to_reports(request)
+    return kiln_use_csv(kiln_use_period(*form.window))
+
+
+@login_required
+@kiln_open_required
+@crew_required
+def reports_print(request: HttpRequest) -> HttpResponse:
+    """The chosen period as a Letter page with no site navigation, for the browser to print or save as PDF."""
+    form = _report_form(request)
+    if not form.is_valid():
+        return _back_to_reports(request)
+    page = kiln_report_page(kiln_use_period(*form.window))
+    return render(
+        request, "kiln/report_print.html", {"page": page, "report": page.report, "printed_on": timezone.localdate()}
+    )
 
 
 # ---- the crew's lists ------------------------------------------------------------------

@@ -12,13 +12,13 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Prefetch, Q
+from django.db.models import Count, Min, Prefetch, Q
 from django.urls import reverse
 from django.utils import dateformat, timezone
 from django.utils.html import format_html, format_html_join
@@ -964,10 +964,51 @@ class KilnUseReport:
 
     @property
     def dates_label(self) -> str:
-        """The days it covers in Portland time: "October 1 to October 31, 2026"."""
+        """The days it covers in Portland time: "October 1 to October 31, 2026", with the
+        first year too when the days span two ("December 15, 2025 to January 10, 2026")."""
         first = timezone.localdate(self.month_start)
-        last = timezone.localdate(self.month_end) - timedelta(days=1)
-        return f"{first:%B} {first.day} to {last:%B} {last.day}, {last.year}"
+        last = self.last_day
+        first_year = f", {first.year}" if first.year != last.year else ""
+        return f"{first:%B} {first.day}{first_year} to {last:%B} {last.day}, {last.year}"
+
+    @property
+    def last_day(self) -> date:
+        """The last day it covers in Portland time (``month_end`` is exclusive)."""
+        return timezone.localdate(self.month_end) - timedelta(days=1)
+
+    @property
+    def is_whole_month(self) -> bool:
+        """Whether it covers exactly one calendar month, as the monthly email always does."""
+        first = timezone.localdate(self.month_start)
+        return first.day == 1 and timezone.localdate(self.month_end) == _next_month(first)
+
+    @property
+    def period_label(self) -> str:
+        """The Reports tab's heading (#1234): "October 2026" for a whole month, else :attr:`dates_label`."""
+        return self.month_label if self.is_whole_month else self.dates_label
+
+    @property
+    def file_stamp(self) -> str:
+        """The period in a filename: "2026-10", or "2026-09-01-to-2026-11-15" for any other range."""
+        first = timezone.localdate(self.month_start)
+        if self.is_whole_month:
+            return f"{first:%Y-%m}"
+        return f"{first.isoformat()}-to-{self.last_day.isoformat()}"
+
+    @property
+    def cubic_inches(self) -> Decimal:
+        """All the period's kiln use: every maker's cubic inches (each ticket counts once, under its maker)."""
+        return sum((row.cubic_inches for row in self.makers), Decimal(0))
+
+    @property
+    def has_firings(self) -> bool:
+        """Whether any firing was unloaded in it (a report from :func:`kiln_use_period` may be all zeros)."""
+        return bool(self.bisque_runs or self.glaze_runs)
+
+
+def _next_month(day: date) -> date:
+    """The first of the month after ``day``'s."""
+    return date(day.year + day.month // 12, day.month % 12 + 1, 1)
 
 
 def _ticket_clay(ticket: KilnTicket) -> str:
@@ -1059,6 +1100,43 @@ def kiln_use_report(month_start: datetime, month_end: datetime) -> KilnUseReport
         clays=_use_rows(clay_use, last=(OTHER_CLAY, NO_CLAY)),
         glazes=_use_rows(glaze_use, last=(COMMERCIAL_GLAZE, SELF_MADE_GLAZE)),
     )
+
+
+def kiln_use_period(start: datetime, end: datetime) -> KilnUseReport:
+    """Any window's report for the Reports tab (#1234): :func:`kiln_use_report`, or all zeros
+    when no firing was unloaded in it, so the page, the CSV and the print page say so instead
+    of failing. The figures are always :func:`kiln_use_report`'s, so the page and the email agree.
+    """
+    report = kiln_use_report(start, end)
+    if report is not None:
+        return report
+    return KilnUseReport(
+        month_start=start,
+        month_end=end,
+        bisque_runs=0,
+        glaze_runs=0,
+        pieces_fired=0,
+        unmeasured_tickets=0,
+        makers=(),
+        clays=(),
+        glazes=(),
+    )
+
+
+def report_months(today: date | None = None, *, at_least: int = 12) -> list[date]:
+    """The months the Reports tab's picker offers, newest first: this month back to the month
+    of the first unloaded firing, and never fewer than ``at_least`` months.
+
+    Each is the first of its month in Portland time.
+    """
+    this_month = (today if today is not None else timezone.localdate()).replace(day=1)
+    first_unload = KilnFiring.objects.filter(unloaded_at__isnull=False).aggregate(first=Min("unloaded_at"))["first"]
+    months = [this_month]
+    oldest = timezone.localdate(first_unload).replace(day=1) if first_unload is not None else this_month
+    while len(months) < at_least or months[-1] > oldest:
+        last = months[-1]
+        months.append(date(last.year - (last.month == 1), (last.month - 2) % 12 + 1, 1))
+    return months
 
 
 def _count(number: int, singular: str, plural: str) -> str:
