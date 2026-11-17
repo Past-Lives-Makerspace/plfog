@@ -76,6 +76,7 @@ _DISPATCHER_DAILY = {
     "send_orientation_bill_reminders",
     "welcome_new_members",
     "send_wiki_guild_digest",
+    "send_kiln_use_report",
     "check_needs_attention",
     "prune_task_results",
 }

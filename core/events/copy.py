@@ -2408,6 +2408,25 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
+    # kiln.use_report_monthly — the kiln crew's Kiln Use Overview (#1228). The email ships as a
+    # structural body (kiln/emails/kiln_use_report.*), so this copy is the catalogue's
+    # documentation and the fallback for the bell row; summary is the bell's line.
+    "kiln.use_report_monthly": EventCopy(
+        placeholders=("month", "summary", "log_url"),
+        sample_context={
+            "month": "October 2026",
+            "summary": "October 2026: 6 bisque runs, 4 glaze runs, 87 pieces fired.",
+            "log_url": "https://pastlives.example/kiln/log/",
+        },
+        channels={
+            Channel.IN_APP: ChannelCopy(subject="Kiln Use Overview", body_text="{{ summary }}"),
+            Channel.EMAIL: ChannelCopy(
+                subject="Kiln Use Overview: {{ month }}",
+                body_text="{{ summary }}\n\nKiln Log: {{ log_url }}\n\nPast Lives Makerspace",
+                body_html='<p>{{ summary }}</p><p><a href="{{ log_url }}">Open the Kiln Log</a></p>',
+            ),
+        },
+    ),
     # kiln.ready_for_pickup — one notice per maker per unloaded firing (#691 part 3). Built by
     # kiln.services.PickupNotice: headline says ready, back in the queue, or some of each;
     # summary is the bell's line; pieces_text / pieces_block list every piece with the crew's

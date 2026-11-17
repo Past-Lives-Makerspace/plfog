@@ -1,0 +1,26 @@
+{% autoescape off %}Past Lives Ceramics Guild
+Kiln Use Overview
+{{ report.month_label }}
+{{ report.dates_label }}
+
+Total Kiln Use
+  Bisque runs: {{ report.bisque_runs }}
+  Glaze runs: {{ report.glaze_runs }}
+  Pieces fired: {{ report.pieces_fired }}
+
+Per Member
+Kiln use is height x width x length x pieces, in cubic inches.{% if report.unmeasured_tickets %} {{ report.unmeasured_tickets }} ticket{{ report.unmeasured_tickets|pluralize }} had a size missing: {% if report.unmeasured_tickets == 1 %}its{% else %}their{% endif %} pieces are counted, {% if report.unmeasured_tickets == 1 %}its{% else %}their{% endif %} kiln use is not.{% endif %}
+{% for row in report.makers %}  {{ row.name }}: {{ row.pieces }} piece{{ row.pieces|pluralize }}, {{ row.cubic_inches_label }} cu in
+{% empty %}  No pieces came out of these firings.
+{% endfor %}{% if report.clays %}
+Clay Use
+{% for row in report.clays %}  {{ row.name }}: {{ row.cubic_inches_label }} cu in
+{% endfor %}{% endif %}{% if report.glazes %}
+Glaze Use
+A piece with several glazes counts its whole kiln use under each one.
+{% for row in report.glazes %}  {{ row.name }}: {{ row.cubic_inches_label }} cu in
+{% endfor %}{% endif %}
+Open the Kiln Log: {{ log_url }}
+The Ceramics Guild: {{ guild_url }}
+
+{% include "membership/emails/_footer.txt" %}{% endautoescape %}

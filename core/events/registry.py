@@ -560,6 +560,7 @@ KILN_CREW_REPLIED = "kiln.crew_replied"  # the kiln crew wrote on your kiln tick
 KILN_MAKER_REPLIED = "kiln.maker_replied"  # a maker wrote on a kiln ticket (the kiln crew, #691)
 KILN_READY_FOR_PICKUP = "kiln.ready_for_pickup"  # your pieces came out of a firing (#691 part 3)
 KILN_TICKET_DELETED = "kiln.ticket_deleted"  # the crew or a site admin deleted your kiln ticket (#1025)
+KILN_USE_REPORT_MONTHLY = "kiln.use_report_monthly"  # the kiln crew's monthly Kiln Use Overview (#1228)
 TOUR_BOOKED = "tour.booked"  # a visitor booked one of your facility tours (#948)
 TOUR_VISITOR_CHANGED = "tour.visitor_changed"  # a visitor moved or cancelled your tour from their email (#948)
 TOUR_VISITOR_UPDATE = "tour.visitor_update"  # the visitor's own tour emails, by address only (#948)
@@ -1659,6 +1660,21 @@ _NEW_EVENTS: list[EventType] = [
         description="The kiln crew or a site admin deleted one of your kiln tickets and told you why.",
         category="Kiln tickets",
         recipient=Recipients.SINGLE_USER,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # kiln.use_report_monthly — the Kiln Use Overview (#1228): on the 1st, last month's bisque
+    # and glaze runs, pieces fired and kiln space per maker, clay and glaze, to the kiln crew
+    # (the Ceramics Guild's lead and staff; site admins who are not on the guild are not told).
+    # A month with no firing unloaded sends nothing. The email is the structural shell in
+    # templates/kiln/emails/kiln_use_report.*, sent by kiln.services.send_kiln_use_report; the
+    # period is the month. Push stays off by default: a monthly report should not buzz a phone.
+    EventType(
+        key=KILN_USE_REPORT_MONTHLY,
+        label="Monthly Kiln Use Overview",
+        description="On the 1st, last month's kiln runs and how much kiln space each maker, clay and glaze used.",
+        category="Kiln tickets",
+        recipient=Recipients.KILN_CREW,
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
