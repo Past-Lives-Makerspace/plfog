@@ -49,6 +49,7 @@ ATTACHMENT_SOURCES: dict[tuple[str, str], frozenset[str]] = {
     ("classes/exports.py", "stream_instructor_inquiries_csv"): frozenset({"classes:admin_instructor_inquiries_export"}),
     ("membership/orientation_exports.py", "stream_orientations_csv"): frozenset({"hub_orientations_export"}),
     ("membership/cubby_exports.py", "stream_rentals_csv"): frozenset({"hub_guild_cubbies_rentals_csv"}),
+    ("kiln/exports.py", "kiln_use_csv"): frozenset({"kiln:reports_csv"}),
     ("hq/exports.py", "stream_roster_csv"): frozenset({"hq:volunteer_roster_csv"}),
     ("hq/exports.py", "stream_donors_csv"): frozenset({"hq:wine_donors_csv"}),
     ("hq/exports.py", "stream_sponsors_csv"): frozenset({"hq:sponsors_csv"}),

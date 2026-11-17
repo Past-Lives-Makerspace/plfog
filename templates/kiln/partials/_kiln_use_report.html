@@ -1,0 +1,53 @@
+{% comment %}
+One Kiln Use Overview (#1234), the same sections as the monthly email (#1228): Total Kiln Use, Per Member,
+Clay Use and Glaze Use. Shared by the Reports tab and its print page, so the two can never differ.
+Expects report (kiln.services.KilnUseReport) with has_firings true; the caller says when a period is empty.
+{% endcomment %}
+<section class="pl-kiln-report" data-kiln-report>
+    <h3 class="pl-kiln-report__h">Total Kiln Use</h3>
+    <dl class="pl-kiln-report__totals" data-kiln-report-totals>
+        <div class="pl-kiln-report__total"><dt>Bisque runs</dt><dd data-total="bisque">{{ report.bisque_runs }}</dd></div>
+        <div class="pl-kiln-report__total"><dt>Glaze runs</dt><dd data-total="glaze">{{ report.glaze_runs }}</dd></div>
+        <div class="pl-kiln-report__total"><dt>Pieces fired</dt><dd data-total="pieces">{{ report.pieces_fired }}</dd></div>
+    </dl>
+
+    <h3 class="pl-kiln-report__h">Per Member</h3>
+    <p class="pl-kiln-report__note">Kiln use is height x width x length x pieces, in cubic inches.{% if report.unmeasured_tickets %} <span data-kiln-report-unmeasured>{{ report.unmeasured_tickets }} ticket{{ report.unmeasured_tickets|pluralize }} had a size missing: {% if report.unmeasured_tickets == 1 %}its{% else %}their{% endif %} pieces are counted, {% if report.unmeasured_tickets == 1 %}its{% else %}their{% endif %} kiln use is not.</span>{% endif %}</p>
+    {% if report.makers %}
+    <table class="pl-members-table pl-kiln-report__table" data-kiln-report-table="makers">
+        <thead><tr><th scope="col">Maker</th><th scope="col" class="pl-kiln-num">Pieces</th><th scope="col" class="pl-kiln-num">Cubic Inches</th></tr></thead>
+        <tbody>
+            {% for row in report.makers %}
+            <tr><td data-label="Maker">{{ row.name }}</td><td data-label="Pieces" class="pl-kiln-num">{{ row.pieces }}</td><td data-label="Cubic inches" class="pl-kiln-num">{{ row.cubic_inches_label }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="pl-kiln-report__note">No pieces came out of these firings.</p>
+    {% endif %}
+
+    {% if report.clays %}
+    <h3 class="pl-kiln-report__h">Clay Use</h3>
+    <table class="pl-members-table pl-kiln-report__table" data-kiln-report-table="clays">
+        <thead><tr><th scope="col">Clay</th><th scope="col" class="pl-kiln-num">Cubic Inches</th></tr></thead>
+        <tbody>
+            {% for row in report.clays %}
+            <tr><td data-label="Clay">{{ row.name }}</td><td data-label="Cubic inches" class="pl-kiln-num">{{ row.cubic_inches_label }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+
+    {% if report.glazes %}
+    <h3 class="pl-kiln-report__h">Glaze Use</h3>
+    <p class="pl-kiln-report__note">A piece with several glazes counts its whole kiln use under each one.</p>
+    <table class="pl-members-table pl-kiln-report__table" data-kiln-report-table="glazes">
+        <thead><tr><th scope="col">Glaze</th><th scope="col" class="pl-kiln-num">Cubic Inches</th></tr></thead>
+        <tbody>
+            {% for row in report.glazes %}
+            <tr><td data-label="Glaze">{{ row.name }}</td><td data-label="Cubic inches" class="pl-kiln-num">{{ row.cubic_inches_label }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</section>

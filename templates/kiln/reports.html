@@ -1,0 +1,71 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Kiln Reports{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/kiln-tickets.css' %}">
+{% endblock %}
+
+{% block content %}
+{% include "kiln/partials/_icons.html" %}
+{% include "kiln/partials/_crumb.html" %}
+<div class="pl-kiln-head">
+    <h1 class="hub-page-title">Kiln Tickets</h1>
+    {% include "kiln/partials/_crew_tabs.html" %}
+</div>
+
+{% comment %}
+Reports (#1234): the Kiln Use Overview for any period. Two GET forms pick it: a month (opening on last
+month in Portland time) or a From and To pair whose To counts that whole day. The CSV and print links carry
+the same query string, so all three show one period.
+{% endcomment %}
+<div class="hub-card pl-kiln-period" data-kiln-period>
+    <form method="get" class="pl-kiln-period__row" data-kiln-period-form="month">
+        <div class="hub-form-group pl-kiln-period__field pl-kiln-period__field--month">
+            <label for="kiln-report-month">Month</label>
+            <select id="kiln-report-month" name="month" @change="$el.form.requestSubmit()">
+                {% for value, label in form.fields.month.choices %}
+                <option value="{{ value }}"{% if value == form.month_value %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="hub-btn hub-btn--sm hub-btn--secondary pl-kiln-period__submit">Show Month</button>
+    </form>
+    <form method="get" class="pl-kiln-period__row" data-kiln-period-form="range">
+        <div class="hub-form-group pl-kiln-period__field pl-kiln-period__field--date">
+            <label for="kiln-report-start">From</label>
+            <input type="date" id="kiln-report-start" name="start" value="{{ form.data.start|default:'' }}" class="pl-kiln-period__date"
+                   @click="(() => { try { $el.showPicker() } catch (e) {} })()">
+        </div>
+        <div class="hub-form-group pl-kiln-period__field pl-kiln-period__field--date">
+            <label for="kiln-report-end">To</label>
+            <input type="date" id="kiln-report-end" name="end" value="{{ form.data.end|default:'' }}" class="pl-kiln-period__date"
+                   @click="(() => { try { $el.showPicker() } catch (e) {} })()">
+        </div>
+        <button type="submit" class="hub-btn hub-btn--sm hub-btn--secondary pl-kiln-period__submit">Show Dates</button>
+    </form>
+    {% if form.errors %}
+    <p class="pl-kiln-period__error" role="alert" data-kiln-period-error>{% for field, errors in form.errors.items %}{{ errors|join:" " }}{% if not forloop.last %} {% endif %}{% endfor %}</p>
+    {% endif %}
+</div>
+
+{% if report %}
+<div class="hub-card pl-kiln-report-card">
+    <div class="pl-kiln-report__head">
+        <div>
+            <h2 class="pl-kiln-report__title" data-kiln-report-period>{{ report.period_label }}</h2>
+            {% if report.is_whole_month %}<p class="pl-kiln-report__dates">{{ report.dates_label }}</p>{% endif %}
+        </div>
+        <div class="pl-kiln-report__actions">
+            <a href="{% url 'kiln:reports_csv' %}{% if query %}?{{ query }}{% endif %}" class="hub-btn hub-btn--secondary hub-btn--sm" hx-boost="false" data-pl-download data-kiln-report-csv>Download CSV</a>
+            <a href="{% url 'kiln:reports_print' %}{% if query %}?{{ query }}{% endif %}" class="hub-btn hub-btn--secondary hub-btn--sm" target="_blank" rel="noopener" data-pl-new-window data-kiln-report-print>Print / Save as PDF</a>
+        </div>
+    </div>
+    {% if report.has_firings %}
+    {% include "kiln/partials/_kiln_use_report.html" %}
+    {% else %}
+    <p class="hub-text-muted pl-kiln-report__empty" data-kiln-report-empty>No firings were unloaded in {{ report.period_label }}.</p>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

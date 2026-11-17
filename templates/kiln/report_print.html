@@ -1,0 +1,29 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kiln Use Overview, {{ report.period_label }} · Past Lives</title>
+<link rel="stylesheet" href="{% static 'css/kiln-report-print.css' %}">
+</head>
+<body class="pl-kiln-print-body">
+
+{# The Reports tab's print layout (#1234): one light Letter page for the browser to print or save as a PDF, like the flyers. No site navigation. #}
+<header class="pl-kiln-print-toolbar no-print">
+  <button type="button" class="pl-kiln-print-btn" onclick="window.print()">Print / Save as PDF</button>
+  <p class="pl-kiln-print-toolbar__hint">Use your browser's Print dialog and choose “Save as PDF” to keep a file.</p>
+</header>
+
+<main class="pl-kiln-print" data-kiln-report-print-page>
+  <h1 class="pl-kiln-print__title">Past Lives Ceramics Guild, Kiln Use Overview</h1>
+  <p class="pl-kiln-print__period" data-kiln-report-period><strong>{{ report.period_label }}</strong>{% if report.is_whole_month %} · {{ report.dates_label }}{% endif %}</p>
+  {% if report.has_firings %}
+  {% include "kiln/partials/_kiln_use_report.html" %}
+  {% else %}
+  <p class="pl-kiln-report__note" data-kiln-report-empty>No firings were unloaded in {{ report.period_label }}.</p>
+  {% endif %}
+  <footer class="pl-kiln-print__footer">Past Lives Makerspace · Portland, OR</footer>
+</main>
+
+</body>
+</html>
