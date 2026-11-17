@@ -22,7 +22,7 @@ Thin wrapper around pyairtable: `get_api()` and `get_table(table_id)`, configure
 
 ## Management Commands
 
-- `airtable_pull` — pulls all records from Airtable and upserts into Django (Members, Spaces, Leases). A member it turns Former is queued for removal from Discord by `Member.save` (#898; `membership/AGENTS.md`).
+- `airtable_pull` — pulls all records from Airtable and upserts into Django (Members, Spaces, Leases). A member it turns Former is queued for removal from Discord by `Member.save` (#898; `membership/AGENTS.md`). It sets `preferred_name` only when it creates a member: after that the portal owns it (members set it in Settings), so a blank in Airtable never clears it.
 - `airtable_backfill` — one-time backfill for existing records
 - `backfill_old_votes` — one-time migration to sync old vote data
 
