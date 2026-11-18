@@ -212,6 +212,14 @@ def describe_instagram_copy():
         assert offering.instructor_names == ""
         assert instagram_copy(offering).byline == ""
 
+    def it_names_the_instructor_by_their_public_name_never_the_legal_name_behind_it(db):
+        teacher = InstructorFactory(
+            preferred_name="Wren", full_legal_name="Quinn Ashdown", name_shown_to_members="full"
+        )
+        offering = ClassOfferingFactory(instructor=teacher)
+        offering.set_instructors([teacher])
+        assert instagram_copy(offering).byline == "with Wren"
+
 
 def describe_fit_text():
     def it_shrinks_before_it_wraps_past_the_line_limit():

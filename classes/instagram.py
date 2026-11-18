@@ -183,7 +183,7 @@ def when_lines(offering: ClassOffering) -> tuple[str, ...]:
 def instagram_copy(offering: ClassOffering) -> InstagramCopy:
     """The text both images carry, read from the class as it is now."""
     title = strip_date_suffix(offering.title)
-    names = offering.instructor_names
+    names = offering.public_instructor_names
     return InstagramCopy(
         category=offering.category.name.upper(),
         title=title,
