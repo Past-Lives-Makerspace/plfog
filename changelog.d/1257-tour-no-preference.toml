@@ -2,7 +2,8 @@ bump = "minor"
 date = "2026-11-18"
 audience = ["members", "admins"]
 feature = "tours.hours"
-guidance = "link"
+guidance = "shots"
+target = "tours.confirm-mode"
 title = "Tour visitors can pick No preference when two guides share a time"
 changes = [
   "When two Tour Guides give a tour at the same time, the tour booking page and the front desk kiosk show a No preference choice beside each guide.",
@@ -11,3 +12,9 @@ changes = [
   "Each guide's request email and Upcoming row say who else has it.",
   "The visitor gets one email either way, naming their guide once one confirms.",
 ]
+
+[[shots]]
+caption = "Where two guides give a tour at the same time, visitors see a button for each guide and one for No preference."
+
+[[shots]]
+caption = "A No preference request shows on Upcoming with who else has it. Press Confirm first to get the tour."

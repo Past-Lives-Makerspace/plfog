@@ -4,7 +4,7 @@ Alex and Gina both confirm first and both give a tour at 4:00 PM. On the tours h
 a button for each guide and one for No preference, picks No preference and lands on Request Sent,
 which names no guide. Alex's Upcoming tab shows the request with who else has it; Alex confirms it,
 and Gina's copy is withdrawn. At a phone's width nothing scrolls sideways. ``CAPTURE_1255_DIR=<dir>``
-saves the times and Upcoming at desktop width, dark and light. Run with ``pytest -m e2e`` on PostgreSQL.
+saves the times and Upcoming at desktop width, dark and light, and the two guidance shots at the standard frame. Run with ``pytest -m e2e`` on PostgreSQL.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from membership.models import AdminCapability, Member
+from tests.e2e.guidance import shoot
 from tests.membership.factories import MembershipPlanFactory
 from tests.tours.factories import TourHoursFactory
 from tours.models import TourBooking, TourGuideSettings
@@ -85,6 +86,9 @@ def describe_no_preference():
         assert times.count() == 3
         no_preference = page.locator("[data-tour-no-preference]").first
         assert "no preference" in no_preference.inner_text()
+        if CAPTURE_DIR:
+            shoot(page, Path(CAPTURE_DIR) / "step-1.png")
+            page.set_viewport_size(DESKTOP)
         _capture(page, "times")
         _no_sideways_scroll(page)
 
@@ -105,6 +109,11 @@ def describe_no_preference():
         row = page.locator(f'[data-tour-booking="{rows[0].pk}"]')
         row.locator("[data-tour-shared-with]").wait_for()
         assert "also sent to Gina" in row.inner_text()
+        if CAPTURE_DIR:
+            page.set_viewport_size({"width": 1280, "height": 800})
+            row.evaluate("(el) => el.scrollIntoView({block: 'center'})")
+            shoot(page, Path(CAPTURE_DIR) / "step-2.png")
+            page.set_viewport_size(DESKTOP)
         _capture(page, "upcoming")
         _no_sideways_scroll(page)
 

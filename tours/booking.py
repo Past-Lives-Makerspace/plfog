@@ -268,16 +268,22 @@ def book_any_guide(
         raise TourFullError(max(tour.seats_left for tour in offered))
     at_once = with_room if kiosk else [tour for tour in with_room if not TourGuideSettings.confirms_first(tour.guide)]
     if at_once or len(with_room) == 1:
-        pick = (at_once or with_room)[0]
-        return book_tour(
-            guide=pick.guide,
-            starts_at=pick.starts_at,
-            visitor=visitor,
-            user=user,
-            create_account=create_account,
-            source=source,
-            now=moment,
-        )
+        picks = at_once or with_room
+        for pick in picks:
+            try:
+                return book_tour(
+                    guide=pick.guide,
+                    starts_at=pick.starts_at,
+                    visitor=visitor,
+                    user=user,
+                    create_account=create_account,
+                    source=source,
+                    now=moment,
+                )
+            except (TourFullError, TourUnavailableError):
+                # Filled or gone under the lock since the count above: try the next guide listed.
+                if pick is picks[-1]:
+                    raise
     return _request_every_guide(with_room, visitor, user=user, create_account=create_account, now=moment)
 
 
@@ -448,7 +454,10 @@ def cancel_tour_by_visitor(booking: TourBooking, *, now: datetime | None = None)
     moment = now or timezone.now()
     with transaction.atomic():
         group = _lock_group(booking)
-        locked = _locked_for_change(booking, moment)
+        # A guide's answer may have moved the visitor's link to another row of a No preference
+        # request (#1255) while this waited for the group's lock: act on the row holding it now.
+        current = TourBooking.objects.filter(self_serve_token=booking.self_serve_token).first() or booking
+        locked = _locked_for_change(current, moment)
         # A request (#1166) never sent a calendar invite, so its cancel email carries no retraction.
         was_request = locked.is_request
         if was_request:
