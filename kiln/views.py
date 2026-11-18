@@ -183,12 +183,13 @@ def ticket_new(request: HttpRequest) -> HttpResponse:
     if request.method != "POST":
         return _handle_form(request, None, copied_from, uuid.uuid4().hex)
     new_token = request.POST.get("new_token", "")[:64]
-    started = (
-        KilnTicket.objects.started_draft(_member(request), request.session.get(f"kiln-new-{new_token}"))
-        if new_token
-        else None
-    )
-    return _handle_form(request, started, copied_from, new_token)
+    key = f"kiln-new-{new_token}"
+    started = KilnTicket.objects.started_draft(_member(request), request.session.get(key)) if new_token else None
+    response = _handle_form(request, started, copied_from, new_token)
+    if started is not None and response.status_code == 302:
+        # Saved: the token is spent, so a copy of this page restored by Back starts its own ticket.
+        request.session.pop(key, None)
+    return response
 
 
 @login_required
