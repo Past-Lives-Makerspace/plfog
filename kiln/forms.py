@@ -329,6 +329,28 @@ def photo_field() -> forms.FileField:
     )
 
 
+class TicketPhotoForm(ToastForm):
+    """One photo the ticket form uploads the moment it is picked (#1246); checked like every kiln photo."""
+
+    photo = forms.FileField(
+        label="Photo",
+        error_messages={
+            "required": "Take or choose a photo.",
+            "empty": "That photo file is empty. Take or choose it again.",
+        },
+    )
+    new_token = forms.CharField(
+        required=False,
+        max_length=64,
+        help_text="The new ticket form's own token, so its uploads all land on the one draft the first starts.",
+    )
+
+    def clean_photo(self) -> UploadedFile:
+        upload: UploadedFile = self.cleaned_data["photo"]
+        check_photo(upload)
+        return upload
+
+
 class ReplyForm(ToastForm):
     """A message on a ticket's thread, and for the crew on someone else's ticket an optional photo (#1026).
 

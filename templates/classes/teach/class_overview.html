@@ -64,7 +64,7 @@ an admin reading a queue wants the glance.{% endcomment %}
         </tr>
         <tr>
             <td style="font-weight:600; color:var(--hub-text-muted);">Capacity</td>
-            <td>{{ seat_taken_count }}{% if not offering.is_flexible %}/{{ offering.capacity }}{% endif %} registered{% if offering.is_flexible %} · no seat cap{% endif %}</td>
+            <td>{{ seat_taken_count }}{% if not offering.is_flexible %}/{{ offering.capacity }}{% endif %} registered{% if offering.is_flexible %} · no seat cap{% endif %}{% if offering.minimum_signups_at_stake %}<div class="pl-min-signups-note" data-minimum-signups="{{ offering.minimum_signups }}">Needs {{ offering.minimum_signups }} to run. If fewer than {{ offering.minimum_signups }} are confirmed once registration closes ({{ offering.registration_closes_at|date:"D, M j, g:i A" }}), the class is cancelled and everyone is refunded.</div>{% endif %}</td>
         </tr>
     </tbody>
 </table>

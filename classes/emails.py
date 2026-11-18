@@ -191,6 +191,7 @@ def emit_instructor_new_registration(registration: "Registration") -> None:
         "amount_paid": f"{registration.amount_paid_cents / 100:.2f}",
         "spots_filled": offering.seats_taken,
         "capacity": offering.capacity,
+        "minimum_signups": offering.minimum_signups if offering.minimum_signups_at_stake else None,
     }
     # No trigger_kind → emit labels the audit row with the event key
     # (instructor_new_registration), one vocabulary so the log joins to the event + prefs.
@@ -229,12 +230,14 @@ def send_admin_registration_notification(registration: "Registration") -> None:
     offering = registration.class_offering
     class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
     subject = f"[Classes] New registration: {registration.first_name} {registration.last_name} — {offering.title}"
+    minimum_line = f"Needs {offering.minimum_signups} confirmed to run.\n" if offering.minimum_signups_at_stake else ""
     body = (
         f"{registration.first_name} {registration.last_name} ({registration.email}) "
         f'registered for "{offering.title}" (instructor: {offering.staff_instructor_names or "N/A"}).\n\n'
         f"Status: {registration.get_status_display()}\n"
         f"Paid: ${registration.amount_paid_cents / 100:.2f}\n"
-        f"Capacity: {offering.seats_taken}/{offering.capacity}\n\n"
+        f"Capacity: {offering.seats_taken}/{offering.capacity}\n"
+        f"{minimum_line}\n"
         f"View the class: {class_url}"
     )
     emit_flat_email(

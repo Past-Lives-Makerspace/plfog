@@ -10720,6 +10720,8 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
 .pl-class-meta { display:flex; flex-wrap:wrap; gap:0.25rem 0.9rem; margin:0.5rem 0 0; color:var(--hub-text-muted); font-size:0.85rem; }
 .pl-class-meta__item { white-space: nowrap; }
 .pl-class-meta__item:not(:last-child)::after { content:" ·"; opacity:0.55; }
+/* The minimum a class needs to run, under its seat count wherever capacity is listed. */
+.pl-min-signups-note { color: var(--hub-text-muted); font-size: 0.8rem; line-height: 1.4; margin-top: 0.15rem; white-space: normal; }
 
 .pl-class-context { display:flex; gap:0.6rem; align-items:flex-start; background:var(--hub-surface); border-left:3px solid var(--hub-blue); border-radius:6px; padding:0.7rem 0.9rem; margin:0 0 1.25rem; color:var(--hub-text-muted); font-size:0.875rem; line-height:1.5; }
 .pl-class-context__icon { flex:0 0 auto; color:var(--hub-blue); margin-top:1px; }

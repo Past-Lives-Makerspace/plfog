@@ -31,6 +31,7 @@ the Delete confirms sit here, after the list, so redrawing a message after an ed
         {% include "kiln/partials/_photo_pick.html" with photo_name="photo" photo_hint="Add a photo if it helps show what you mean." %}
         <div class="pl-kiln-reply__row"><span class="pl-kiln-reply__note">{{ ticket.maker_name }} gets it in the app and by email, per their settings.</span><button type="submit" class="hub-btn hub-btn--primary">Send</button></div>
     </form>
+    <script src="{% static 'js/kiln_photo_shrink.js' %}"></script>
     <script src="{% static 'js/kiln_photo_pick.js' %}"></script>
     {% else %}
     <form method="post" action="{% url 'kiln:reply' ticket.pk %}" class="pl-kiln-reply">

@@ -32,6 +32,7 @@ from kiln.models import (
     KilnFlag,
     KilnReply,
     KilnTicket,
+    KilnTicketPhoto,
     member_name,
 )
 
@@ -91,11 +92,7 @@ def save_ticket(form: KilnTicketForm, maker: Member) -> KilnTicket:
         if ticket.pk is None:
             ticket.maker = maker
         else:
-            status = list(KilnTicket.objects.select_for_update().filter(pk=ticket.pk).values_list("status", flat=True))
-            if not status:
-                raise TicketDeleted(ticket.pk)
-            if status[0] not in (KilnTicket.Status.DRAFT, KilnTicket.Status.SUBMITTED):
-                raise TicketNotEditable(ticket.pk)
+            _lock_editable(ticket.pk)
         ticket.maker_type = maker_type_for(ticket.maker)
         ticket.save()
         form.save_glazes(ticket)
@@ -108,6 +105,47 @@ def save_ticket(form: KilnTicketForm, maker: Member) -> KilnTicket:
         if form.is_strict:
             ticket.submit()
     return ticket
+
+
+def _lock_editable(ticket_pk: int) -> None:
+    """Lock a ticket's row and check the maker may still change it (a draft, or in the queue).
+
+    Raises:
+        TicketDeleted: The ticket is gone.
+        TicketNotEditable: The crew loaded the piece since the maker opened it.
+    """
+    status = list(KilnTicket.objects.select_for_update().filter(pk=ticket_pk).values_list("status", flat=True))
+    if not status:
+        raise TicketDeleted(ticket_pk)
+    if status[0] not in (KilnTicket.Status.DRAFT, KilnTicket.Status.SUBMITTED):
+        raise TicketNotEditable(ticket_pk)
+
+
+def add_ticket_photo(maker: Member, ticket: KilnTicket | None, upload: UploadedFile) -> KilnTicketPhoto:
+    """Store one photo on the maker's ticket the moment it is picked (#1246).
+
+    The ticket form uploads each photo on its own, so a dropped connection costs one photo
+    and the photos already stored stay. With no ticket yet, the first photo starts a blank
+    draft for ``maker``; the form then saves its answers onto that draft.
+
+    Args:
+        maker: The signed-in member, the ticket's maker.
+        ticket: The maker's own ticket, or None on a new ticket.
+        upload: A photo that passed ``kiln.forms.PHOTO_CHECKS``.
+
+    Returns:
+        The stored photo; its ``ticket`` is the draft when one was started.
+
+    Raises:
+        TicketDeleted: The ticket was deleted since the form opened.
+        TicketNotEditable: The crew loaded the piece since the form opened.
+    """
+    with transaction.atomic():
+        if ticket is None:
+            ticket = KilnTicket.objects.create(maker=maker, maker_type=maker_type_for(maker))
+        else:
+            _lock_editable(ticket.pk)
+        return ticket.add_photo(upload)
 
 
 # ---- loading ---------------------------------------------------------------------------

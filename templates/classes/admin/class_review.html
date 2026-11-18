@@ -31,7 +31,7 @@
   <h2 style="font-size:1.1rem;margin:1.5rem 0 0.5rem;">Class Details</h2>
   <dl class="pl-review-details">
     <dt>Price</dt><dd>{{ offering.price_cents|cents_as_price }}</dd>
-    <dt>Capacity</dt><dd>{% if offering.is_flexible %}No seat cap{% else %}{{ offering.capacity }}{% endif %}</dd>
+    <dt>Capacity</dt><dd>{% if offering.is_flexible %}No seat cap{% else %}{{ offering.capacity }}{% if offering.minimum_signups_at_stake %}. <span data-minimum-signups="{{ offering.minimum_signups }}">Needs {{ offering.minimum_signups }} to run, or it is cancelled once registration closes</span>{% endif %}{% endif %}</dd>
     {% if not offering.is_flexible %}<dt>Eventbrite</dt><dd data-review-eventbrite>{% if offering.eventbrite_enabled %}Also sold on Eventbrite. Fee: {{ offering.get_eventbrite_fee_payer_display }}{% else %}Not sold on Eventbrite{% endif %}{% if role == 'admin' and offering.eventbrite_sync_state != 'idle' %}. <span data-review-eventbrite-sync>{{ offering.eventbrite_sync_label }}</span>{% if offering.eventbrite_event_url %} <a href="{{ offering.eventbrite_event_url }}" target="_blank" rel="noopener">View on Eventbrite</a>{% endif %}{% endif %}</dd>{% endif %}
     <dt>Sessions</dt>
     <dd>

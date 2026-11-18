@@ -236,6 +236,8 @@ def _class_fields(offering: ClassOffering, sessions: list[ClassSession]) -> list
     rows.append(("Price", cents_as_price(offering.price_cents)))
     if not offering.is_flexible:
         rows.append(("Spots", str(offering.capacity)))
+        if offering.minimum_signups_at_stake:
+            rows.append(("Needed to run", str(offering.minimum_signups)))
     return [{"name": name, "value": _clip(value, _FIELD_VALUE_MAX)} for name, value in rows if value and value.strip()]
 
 

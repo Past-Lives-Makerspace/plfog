@@ -25,6 +25,7 @@ from django.db.models import (
     Prefetch,
     Q,
     QuerySet,
+    Subquery,
     Sum,
     Value,
     prefetch_related_objects,
@@ -132,6 +133,7 @@ from classes.models import (
     ClassImage,
     ClassNotReadyError,
     ClassOffering,
+    ClassSession,
     ClassSettings,
     CmsActivity,
     DiscountCode,
@@ -1924,6 +1926,8 @@ def teach_dashboard(request: HttpRequest) -> HttpResponse:
     # the faceted rows only, so the chip counts over ``base`` stay plain counts.
     qs = facet.apply(base).annotate(  # type: ignore[arg-type]  # annotated queryset keeps its aliases
         first_session=Min("sessions__starts_at"),
+        # The bookable() contract's name for the same fact, so minimum_signups_at_stake costs no query per row.
+        first_session_at=Min("sessions__starts_at"),
         last_session=Max("sessions__starts_at"),
     )
     table = prepare_table(
@@ -4219,6 +4223,8 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
                 distinct=True,
             ),
             first_session=Min("sessions__starts_at"),
+            # The bookable() contract's name for the same fact, so minimum_signups_at_stake costs no query per row.
+            first_session_at=Min("sessions__starts_at"),
             last_session=Max("sessions__starts_at"),
             # The name the Instructor cell starts with (Member.staff_label leads with the preferred
             # name, else the legal name), so sorting that column matches what the reader sees. NULL
@@ -4617,7 +4623,12 @@ def _class_screen_offering(pk: int) -> ClassOffering:
             registration_count=Count(
                 "registrations",
                 filter=Q(registrations__status__in=CAPACITY_CONSUMING_REGISTRATION_STATUSES),
-            )
+            ),
+            # A subquery, not Min() over a join, so the count above stays uninflated. It answers
+            # minimum_signups_at_stake for the header and the Capacity row with no query of its own.
+            first_session_at=Subquery(
+                ClassSession.objects.filter(class_offering=OuterRef("pk")).order_by("starts_at").values("starts_at")[:1]
+            ),
         ),
         pk=pk,
     )

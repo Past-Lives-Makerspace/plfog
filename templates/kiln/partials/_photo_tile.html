@@ -1,0 +1,10 @@
+{# One stored photo on the ticket form: the page's loop and the upload view (#1246) render it. Expects photo and number. #}
+<div class="pl-kiln-photo{% if photo.is_cover %} pl-kiln-photo--cover{% endif %}" data-kiln-photo="{{ photo.pk }}">
+    <img src="{{ photo.tile.url }}" alt="Photo {{ number }}{% if photo.is_cover %}, the cover{% endif %}">
+    {% if photo.is_cover %}
+    <span class="pl-kiln-photo__cover"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-star"/></svg>Cover</span>
+    {% else %}
+    <button type="submit" name="action" value="cover:{{ photo.pk }}" class="pl-kiln-photo__make">Make cover</button>
+    {% endif %}
+    <button type="submit" name="action" value="remove:{{ photo.pk }}" class="pl-kiln-photo__remove" aria-label="Remove photo {{ number }}"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-x"/></svg></button>
+</div>

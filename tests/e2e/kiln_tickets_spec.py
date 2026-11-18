@@ -7,7 +7,7 @@ Deleting (#1025): a maker deletes their own ticket, and the crew delete another 
 
 In a real browser on a phone sized viewport: the Ceramics Guild page's Kiln Tickets tab, the New ticket
 form's branches (Alpine shows and hides them), a photo picked through the camera input
-(``static/js/kiln_ticket_form.js`` previews it and enables Submit), the kind flag notice, then
+(``static/js/kiln_ticket_form.js`` uploads it at once and enables Submit), the kind flag notice, then
 the tab again with the ticket In the queue (``/kiln/`` sends a member there). "Make another like this" carries every answer but
 the photo and the Cone 6 confirmations into a bisque ticket. On Load the Kiln the crew filter the
 tiles, cannot tick the other firing's tile, tick one glaze ticket and confirm; the maker then sees
@@ -112,7 +112,8 @@ def _clear_of_the_feedback_bubble(page, button) -> None:
 
 def _add_photo(page) -> None:
     page.locator("[data-kiln-photo-add] input[type=file]").set_input_files(_jpeg())
-    expect(page.locator("[data-kiln-new-photo]")).to_have_count(1)
+    # The photo uploads the moment it is picked (#1246); the stored tile replaces the pending one.
+    expect(page.locator("[data-kiln-photo][data-kiln-uploaded]")).to_have_count(1)
 
 
 def describe_filing_kiln_tickets():

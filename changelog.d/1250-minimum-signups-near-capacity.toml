@@ -1,0 +1,12 @@
+bump = "patch"
+date = "2026-11-17"
+audience = ["instructors", "admins", "members"]
+feature = "classes.teach"
+guidance = "link"
+title = "A class's minimum signups shows wherever its capacity does"
+changes = [
+  "When a class has a minimum, its header, its Overview, both class lists and the review page now say how many signups it needs to run, until the class starts.",
+  "The Overview spells out that if fewer are confirmed once registration closes, the class is cancelled and everyone is refunded.",
+  "The new registration emails, the review request email and the class post on Discord say the minimum too, and the class page lists it under the max class size.",
+  "The Minimum signups box on the class form explains itself in plainer words.",
+]

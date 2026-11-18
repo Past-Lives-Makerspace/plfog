@@ -166,6 +166,14 @@ class KilnTicketQuerySet(models.QuerySet["KilnTicket"]):
         """Every ticket for the crew; a maker's own tickets for anyone else."""
         return self if crew else self.filter(maker=member)
 
+    def started_draft(self, member: Member, pk: int | None) -> KilnTicket | None:
+        """The ticket a new ticket form's first photo started (#1246), when it is still ``member``'s own
+        and editable; None otherwise, so the upload starts a fresh draft."""
+        if pk is None:
+            return None
+        editable = (KilnTicket.Status.DRAFT, KilnTicket.Status.SUBMITTED)
+        return self.filter(pk=pk, maker=member, status__in=editable).first()
+
     def newest_fired_first(self) -> KilnTicketQuerySet:
         """Fired tickets by when they came out, newest first; every other ticket after, newest first."""
         return self.order_by(models.F("fired_at").desc(nulls_last=True), "-created_at", "-pk")

@@ -31,6 +31,7 @@ The tab strip, and the section list or back row that takes its place on a phone,
             <span class="pl-class-meta__item">{{ offering.category.name }}</span>
             <span class="pl-class-meta__item">{{ offering.price_cents|cents_as_price }}</span>
             <span class="pl-class-meta__item">{{ seat_taken_count }}{% if not offering.is_flexible %} / {{ offering.capacity }}{% endif %} registered</span>
+            {% if offering.minimum_signups_at_stake %}<span class="pl-class-meta__item" data-minimum-signups="{{ offering.minimum_signups }}" title="If fewer than {{ offering.minimum_signups }} are confirmed once registration closes, the class is cancelled and everyone is refunded.">Needs {{ offering.minimum_signups }} to run</span>{% endif %}
             {% with first_session=offering.sessions.all|first %}{% if first_session %}<span class="pl-class-meta__item">Starts {{ first_session.starts_at|date:"M j" }}</span>{% endif %}{% endwith %}
         </div>
     </div>
