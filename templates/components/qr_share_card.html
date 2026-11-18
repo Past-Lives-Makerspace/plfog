@@ -21,6 +21,10 @@ Parameters:
               beside the downloads, opening in its own tab for the browser's Print. Left out when blank.
   flyer_guidance — optional. A guidance key the Flyer link carries as data-guidance-target, so a
               What's New entry can ring it (the wiki passes wiki.flyer).
+  instagram_story_url / instagram_post_url — optional. The page's Instagram story and post PNG
+              downloads (a class's classes:class_instagram), beside the QR downloads and gone with
+              them under locked_note. Left out when blank. Only classes pass them, so the story link
+              carries the classes.instagram guidance key as a literal.
 
 The copy input is readonly and has NO `name`, and every control is a type="button" button
 or an <a> link, so the card is safe to drop INSIDE another <form> (e.g. the event edit form)
@@ -48,6 +52,8 @@ or an <a> link, so the card is safe to drop INSIDE another <form> (e.g. the even
   <div class="pl-qr-share__actions">
     <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ svg_url }}" hx-boost="false" data-pl-download>Download QR (SVG)</a>
     <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ png_url }}" hx-boost="false" data-pl-download>Download QR (PNG)</a>
+    {% if instagram_story_url %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ instagram_story_url }}" hx-boost="false" data-pl-download data-guidance-target="classes.instagram">Instagram story</a>{% endif %}
+    {% if instagram_post_url %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ instagram_post_url }}" hx-boost="false" data-pl-download>Instagram post</a>{% endif %}
     {% if flyer_url %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ flyer_url }}" target="_blank" data-pl-new-window rel="noopener" data-qr-share-flyer{% if flyer_guidance %} data-guidance-target="{{ flyer_guidance }}"{% endif %}>Flyer</a>{% endif %}
   </div>
   {% endif %}

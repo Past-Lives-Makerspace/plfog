@@ -15,11 +15,13 @@ from tests.membership.factories import GuildFactory
 
 Status = ClassOffering.Status
 
-# The three marketing artifacts that lock and unlock together.
+# The marketing artifacts that lock and unlock together.
 ARTIFACTS = [
     pytest.param(lambda pk: reverse("classes:class_flyer", args=[pk]), id="flyer"),
     pytest.param(lambda pk: reverse("classes:class_qr", args=[pk, "svg"]), id="qr-svg"),
     pytest.param(lambda pk: reverse("classes:class_qr", args=[pk, "png"]), id="qr-png"),
+    pytest.param(lambda pk: reverse("classes:class_instagram", args=[pk, "story"]), id="instagram-story"),
+    pytest.param(lambda pk: reverse("classes:class_instagram", args=[pk, "post"]), id="instagram-post"),
 ]
 # Every editor can_edit_class admits who is not an admin: each is a distinct leg of that
 # helper (instructor, guild lead FK, guild staff row), so each is exercised.
@@ -275,7 +277,7 @@ def describe_share_card():
     """The Share & Print card on the class pages: what is there before and after publication."""
 
     FLYER_BUTTON = "Open printable flyer"
-    DOWNLOADS = ("Download QR (SVG)", "Download QR (PNG)")
+    DOWNLOADS = ("Download QR (SVG)", "Download QR (PNG)", ">Instagram story</a>", ">Instagram post</a>")
     TOUR_KEY = 'data-help-key="teach.class-qr"'
     # Substrings after the apostrophe, so the assertions do not care how it is escaped.
     LIVE_HINT = "public page. Print it on signage, add it to a flyer, or hand it out."
@@ -300,6 +302,8 @@ def describe_share_card():
             assert label not in body
         assert reverse("classes:class_qr", args=[offering.pk, "svg"]) not in body
         assert reverse("classes:class_qr", args=[offering.pk, "png"]) not in body
+        assert reverse("classes:class_instagram", args=[offering.pk, "story"]) not in body
+        assert reverse("classes:class_instagram", args=[offering.pk, "post"]) not in body
         assert PENDING_REASON in body
         assert PENDING_HINT in body
         assert LIVE_HINT not in body
@@ -311,6 +315,8 @@ def describe_share_card():
             assert label in body
         assert reverse("classes:class_qr", args=[offering.pk, "svg"]) in body
         assert reverse("classes:class_qr", args=[offering.pk, "png"]) in body
+        assert reverse("classes:class_instagram", args=[offering.pk, "story"]) in body
+        assert reverse("classes:class_instagram", args=[offering.pk, "post"]) in body
         assert PENDING_REASON not in body
 
     @pytest.mark.parametrize("status", [Status.DRAFT, Status.PENDING])

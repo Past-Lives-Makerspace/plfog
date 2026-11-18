@@ -4484,6 +4484,28 @@ def class_qr_download(request: HttpRequest, pk: int, fmt: str) -> HttpResponse:
     return resp
 
 
+def class_instagram_download(request: HttpRequest, pk: int, fmt: str) -> HttpResponse:
+    """Download a class as an Instagram story (1080x1920) or post (1080x1350) PNG (#1254).
+
+    The same two gates as the flyer and the QR, in the same order: ``can_edit_class``, then
+    ``can_print_class_marketing``. Drawn on request from the class as it is now; nothing stored.
+    """
+    from classes.instagram import InstagramFormat, filename, render_png
+    from membership.permissions import can_edit_class, can_print_class_marketing
+
+    if fmt not in InstagramFormat.values:
+        raise Http404
+    offering = get_object_or_404(ClassOffering.objects.select_related("category"), pk=pk)
+    if not can_edit_class(request, offering):
+        return HttpResponseForbidden("You don't have access to this class.")
+    if not can_print_class_marketing(request, offering):
+        return HttpResponseForbidden(offering.marketing_locked_reason)
+    frame = InstagramFormat(fmt)
+    resp = HttpResponse(render_png(offering, frame), content_type="image/png")
+    resp["Content-Disposition"] = f'attachment; filename="{filename(offering, frame)}"'
+    return resp
+
+
 def class_flyer(request: HttpRequest, pk: int) -> HttpResponse:
     """Print-optimized one-page flyer for a class (instructor/admin → Print → Save as PDF).
 
