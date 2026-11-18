@@ -267,24 +267,27 @@ def book_any_guide(
     if not with_room:
         raise TourFullError(max(tour.seats_left for tour in offered))
     at_once = with_room if kiosk else [tour for tour in with_room if not TourGuideSettings.confirms_first(tour.guide)]
-    if at_once or len(with_room) == 1:
-        picks = at_once or with_room
-        for pick in picks:
-            try:
-                return book_tour(
-                    guide=pick.guide,
-                    starts_at=pick.starts_at,
-                    visitor=visitor,
-                    user=user,
-                    create_account=create_account,
-                    source=source,
-                    now=moment,
-                )
-            except (TourFullError, TourUnavailableError):
-                # Filled or gone under the lock since the count above: try the next guide listed.
-                if pick is picks[-1]:
-                    raise
-    return _request_every_guide(with_room, visitor, user=user, create_account=create_account, now=moment)
+    confirm_first = [tour for tour in with_room if tour not in at_once]
+    picks = at_once if at_once else (with_room if len(with_room) == 1 else [])
+    for pick in picks:
+        try:
+            return book_tour(
+                guide=pick.guide,
+                starts_at=pick.starts_at,
+                visitor=visitor,
+                user=user,
+                create_account=create_account,
+                source=source,
+                now=moment,
+            )
+        except (TourFullError, TourUnavailableError):
+            # Filled or gone under the lock since the count above: try the next guide listed, and
+            # after the last one, the guides who confirm first.
+            if pick is picks[-1] and not (at_once and confirm_first):
+                raise
+    return _request_every_guide(
+        confirm_first if at_once else with_room, visitor, user=user, create_account=create_account, now=moment
+    )
 
 
 def _request_every_guide(

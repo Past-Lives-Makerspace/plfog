@@ -152,6 +152,16 @@ def describe_booking_with_no_preference():
             with patch.object(booking_service, "open_tour_at", return_value=None), pytest.raises(TourUnavailableError):
                 book_any_guide(starts_at=FOUR, visitor=_visitor(1), now=NOW)
 
+    def it_asks_the_guides_who_confirm_first_when_the_automatic_one_fills_meanwhile(alex: Member, gina: Member):
+        TourGuideSettings.objects.filter(guide=gina).delete()
+
+        def gina_filled(*, guide: Member, **kwargs: Any) -> TourBooking:
+            raise TourFullError(0)
+
+        with patch.object(booking_service, "book_tour", gina_filled):
+            booking = book_any_guide(starts_at=FOUR, visitor=_visitor(), now=NOW)
+        assert (booking.guide, booking.status, booking.request_group) == (alex, TourBooking.Status.PENDING, None)
+
     def it_books_at_once_at_the_kiosk_with_the_first_guide_listed(alex: Member, gina: Member):
         booking = book_any_guide(starts_at=FOUR, visitor=_visitor(), source=TourBooking.Source.KIOSK, now=NOW)
         assert (booking.guide, booking.status) == (alex, TourBooking.Status.BOOKED)
@@ -297,6 +307,15 @@ def describe_the_visitor_cancelling_after_the_link_moved():
         cancelled = cancel_tour_by_visitor(stale, now=NOW)
         assert cancelled.pk == shared[1].pk
         assert set(TourBooking.objects.values_list("status", flat=True)) == {TourBooking.Status.CANCELLED}
+
+
+def describe_the_visitor_cancelling_after_a_guide_confirmed():
+    def it_cancels_the_booked_tour_their_link_now_names(shared: list[TourBooking], gina: Member):
+        stale = TourBooking.objects.get(pk=shared[0].pk)
+        confirm_tour_request(shared[1], actor=gina.user, now=NOW)
+        cancelled = cancel_tour_by_visitor(stale, now=NOW)
+        assert (cancelled.pk, cancelled.status) == (shared[1].pk, TourBooking.Status.CANCELLED)
+        assert open_tour_at(gina, FOUR, now=NOW, guide_notice=False).seats_left == 4
 
 
 def describe_the_pages():
