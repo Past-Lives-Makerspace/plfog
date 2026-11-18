@@ -266,18 +266,18 @@ def describe_when_my_tab_disabled():
         _disable_my_tab()
         _login_billing_approver(client, "navapprover")
         content = client.get("/billing/admin/dashboard/").content.decode()
-        assert 'class="pl-tab-nav"' not in content
+        assert 'aria-label="Payments Dashboard"' not in content
 
     def it_keeps_the_tab_nav_for_an_admin_with_flag_off(client: Client):
         _disable_my_tab()
         _create_superuser(client)
         content = client.get("/billing/admin/dashboard/").content.decode()
-        assert 'class="pl-tab-nav"' in content
+        assert 'aria-label="Payments Dashboard"' in content
 
     def it_keeps_the_tab_nav_for_an_approver_with_flag_on(client: Client):
         _login_billing_approver(client, "navapproveron")  # flag defaults True → 3 tabs
         content = client.get("/billing/admin/dashboard/").content.decode()
-        assert 'class="pl-tab-nav"' in content
+        assert 'aria-label="Payments Dashboard"' in content
 
     def it_shows_view_in_admin_for_a_fog_admin(client: Client):
         _disable_my_tab()

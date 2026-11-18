@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load static classes_tags guidance %}
+{% load static classes_tags guidance tab_picker %}
 {% block extra_head %}<link rel="stylesheet" href="{% static 'css/permission-setup.css' %}">{% endblock %}
 
 {% block title %}Payments — Past Lives{% endblock %}
@@ -37,10 +37,6 @@
   .pl-btn--sm { padding: 0.35rem 0.875rem; font-size: 0.8125rem; }
 
   /* Tab navigation */
-  .pl-tab-nav { display: flex; border-bottom: 1px solid rgba(255,255,255,0.08); gap: 0; }
-  .pl-tab-nav a { padding: 0.625rem 1.25rem; font-size: 0.9375rem; color: #96ACBB; text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color 0.15s ease; }
-  .pl-tab-nav a:hover { color: #F4EFDD; }
-  .pl-tab-nav a.active { color: #EEB44B; border-bottom-color: #EEB44B; }
 
   /* Filter chips */
   .pl-filters { display: flex; gap: 0.5rem; flex-wrap: wrap; }
@@ -129,18 +125,20 @@
 
   {# --- Tab navigation (suppressed when only one tab would render) --- #}
   {% if features.my_tab.is_on or viewer_is_fog_admin %}
-  <div class="pl-tab-nav">
+  {% tab_picker "Payments" %}
+  <nav class="pl-tabs" aria-label="Payments Dashboard">
     {% if features.my_tab.is_on %}
-    <a href="?tab=overview" class="{% if active_tab == 'overview' %}active{% endif %}">Overview</a>
-    <a href="?tab=open-tabs" class="{% if active_tab == 'open-tabs' %}active{% endif %}">Open Tabs</a>
+    <a href="?tab=overview" class="vote-tab{% if active_tab == 'overview' %} vote-tab--active{% endif %}"{% if active_tab == 'overview' %} aria-current="page"{% endif %}>Overview</a>
+    <a href="?tab=open-tabs" class="vote-tab{% if active_tab == 'open-tabs' %} vote-tab--active{% endif %}"{% if active_tab == 'open-tabs' %} aria-current="page"{% endif %}>Open Tabs</a>
     {% endif %}
-    <a href="?tab=payments" class="{% if active_tab == 'payments' %}active{% endif %}">Payments</a>
+    <a href="?tab=payments" class="vote-tab{% if active_tab == 'payments' %} vote-tab--active{% endif %}"{% if active_tab == 'payments' %} aria-current="page"{% endif %}>Payments</a>
     {% if viewer_is_fog_admin %}
-    <a href="?tab=reconciliation" class="{% if active_tab == 'reconciliation' %}active{% endif %}">Reconciliation</a>
-    <a href="?tab=settings" class="{% if active_tab == 'settings' %}active{% endif %}">Settings</a>
-    <a href="?tab=stripe" class="{% if active_tab == 'stripe' %}active{% endif %}">Stripe</a>
+    <a href="?tab=reconciliation" class="vote-tab{% if active_tab == 'reconciliation' %} vote-tab--active{% endif %}"{% if active_tab == 'reconciliation' %} aria-current="page"{% endif %}>Reconciliation</a>
+    <a href="?tab=settings" class="vote-tab{% if active_tab == 'settings' %} vote-tab--active{% endif %}"{% if active_tab == 'settings' %} aria-current="page"{% endif %}>Settings</a>
+    <a href="?tab=stripe" class="vote-tab{% if active_tab == 'stripe' %} vote-tab--active{% endif %}"{% if active_tab == 'stripe' %} aria-current="page"{% endif %}>Stripe</a>
     {% endif %}
-  </div>
+  </nav>
+  {% endtab_picker %}
   {% endif %}
 
   {# ================================================================ #}
