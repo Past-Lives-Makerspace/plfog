@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-11-18"
+audience = ["admins"]
+title = "The Payments Dashboard fits a phone screen"
+changes = [
+  "On a phone the Payments Dashboard no longer scrolls sideways. Its tabs open from one picker at the top, like every other page.",
+]
