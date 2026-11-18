@@ -996,3 +996,17 @@ def describe_the_minimum_beside_capacity():
         client.force_login(admin_user)
         html = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk})).content.decode()
         assert "data-minimum-signups" not in html
+
+    def it_shows_nothing_on_a_class_published_after_its_close(client: Client):
+        offering = _closed_class(minimum=3)
+        offering.published_at = timezone.now()
+        offering.save(update_fields=["published_at"])
+        html = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        assert "data-minimum-signups-meta" not in html
+
+    def it_still_shows_past_the_close_on_a_class_live_before_it(client: Client):
+        offering = _closed_class(minimum=3)
+        offering.published_at = timezone.now() - timedelta(days=5)
+        offering.save(update_fields=["published_at"])
+        html = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        assert "data-minimum-signups-meta" in html
