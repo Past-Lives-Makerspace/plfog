@@ -4849,6 +4849,12 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     margin: 0;
 }
 
+/* Inside the Android app the Instagram Share sends the class link; this line says so (#1254). */
+.pl-qr-share__note {
+    font-size: 0.8125rem;
+    margin: 0.75rem 0 0;
+}
+
 /* Printable-flyer button sits just below the Share & Print card in the edit-page aside. */
 .pl-qr-share__flyer {
     margin-top: 0.75rem;

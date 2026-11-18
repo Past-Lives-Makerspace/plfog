@@ -277,7 +277,7 @@ def describe_share_card():
     """The Share & Print card on the class pages: what is there before and after publication."""
 
     FLYER_BUTTON = "Open printable flyer"
-    DOWNLOADS = ("Download QR (SVG)", "Download QR (PNG)", ">Instagram story</a>", ">Instagram post</a>")
+    DOWNLOADS = ("Download QR (SVG)", "Download QR (PNG)", ">Instagram Story</button>", ">Instagram Post</button>")
     TOUR_KEY = 'data-help-key="teach.class-qr"'
     # Substrings after the apostrophe, so the assertions do not care how it is escaped.
     LIVE_HINT = "public page. Print it on signage, add it to a flyer, or hand it out."

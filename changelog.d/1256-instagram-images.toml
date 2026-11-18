@@ -1,19 +1,23 @@
 bump = "minor"
 date = "2026-11-18"
 audience = ["instructors", "guild-leads", "admins"]
-title = "Download an Instagram story and post for your class"
+title = "Share your class to Instagram as a story or a post"
 feature = "classes.teach"
 guidance = "shots"
 target = "classes.instagram"
 changes = [
-  "Once your class is live, the Share & Print card on its page has two new buttons: Instagram story and Instagram post.",
-  "Each one downloads a picture of your class with its photo, name, dates, price and page address, sized for Instagram.",
-  "A class with no photo gets a navy panel with the first letter of its name.",
-  "The buttons are hidden inside the Past Lives app. Open the class page in your phone's browser to download them.",
+  "Once your class is live, the Share & Print card on its page has a Share button.",
+  "Press it and pick Instagram Story or Instagram Post. Your phone's share menu opens with a picture of your class, and Instagram is one of the choices.",
+  "The picture has your class's photo, name, dates, price and page address. A class with no photo gets a navy panel with the first letter of its name.",
+  "On a computer, the picture downloads instead.",
+  "In the Android app, Share sends the class link. Open the class page in your phone's browser to share the picture.",
 ]
 
 [[shots]]
-caption = "Open your live class and find the Share & Print card. Press Instagram story or Instagram post."
+caption = "Open your live class and find the Share & Print card. Press Share."
+
+[[shots]]
+caption = "Pick Instagram Story or Instagram Post. Your phone's share menu opens; on a computer the picture downloads."
 
 [[shots]]
 caption = "You get a picture of your class, ready to post as a story or in your feed."
