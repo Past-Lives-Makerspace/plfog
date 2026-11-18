@@ -223,7 +223,7 @@ def book(request: HttpRequest) -> HttpResponse:
         request,
         "tours/kiosk/book.html",
         {
-            "picker": build_picker(tours, raw_day),
+            "picker": build_picker(tours, raw_day, no_preference=True),
             "chosen": chosen,
             "form": attempt.form,
             "error": attempt.error,

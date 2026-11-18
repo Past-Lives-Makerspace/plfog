@@ -716,9 +716,22 @@ class TourBooking(models.Model):
             "the guide marks that."
         ),
     )
+    request_group = models.UUIDField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "Set on the rows of one No preference request (#1255): one pending row per guide offering that "
+            "time, the first guide to confirm gets it. Cleared on the row a guide confirms."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When it was booked.")
 
     objects = TourBookingQuerySet.as_manager()
+
+    #: The first names of the other guides a shared request (#1255) also went to, for the Upcoming row;
+    #: filled by :meth:`attach_shared_with`, never stored.
+    shared_with: tuple[str, ...] = ()
 
     class Meta:
         ordering: ClassVar[list[str]] = ["starts_at"]
@@ -805,6 +818,51 @@ class TourBooking(models.Model):
         if self.status != self.Status.BOOKED or self.starts_at <= now:
             return "past"
         return ""
+
+    @property
+    def is_shared_request(self) -> bool:
+        """Whether this row belongs to a No preference request (#1255); the row a guide confirms leaves it."""
+        return self.request_group is not None
+
+    def was_taken_by_another_guide(self) -> bool:
+        """Whether another guide confirmed this shared request first (#1255): their Confirm cancelled this row."""
+        return (
+            self.is_shared_request
+            and self.status == self.Status.CANCELLED
+            and self.cancelled_by_id is not None
+            and (self.guide is None or self.cancelled_by_id != self.guide.user_id)
+        )
+
+    def take_visitor_link_from(self, other: TourBooking) -> None:
+        """Move ``other``'s self serve token (the link in the visitor's emails) onto this row (#1255).
+
+        ``other`` gets a fresh token nobody holds. Both rows are saved; call it under the group's lock.
+        """
+        token = other.self_serve_token
+        other.self_serve_token = _new_self_serve_token()
+        other.save(update_fields=["self_serve_token"])
+        self.self_serve_token = token
+        self.save(update_fields=["self_serve_token"])
+
+    @classmethod
+    def attach_shared_with(cls, bookings: list[TourBooking]) -> None:
+        """Fill each shared request's :attr:`shared_with` with the other pending guides' first names, in one query."""
+        from tours.notify import guide_first_name
+
+        groups = {booking.request_group for booking in bookings if booking.is_shared_request}
+        if not groups:
+            return
+        rows = cls.objects.filter(request_group__in=groups, status=cls.Status.PENDING).select_related("guide")
+        by_group: dict[Any, list[TourBooking]] = {}
+        for row in rows.order_by("pk"):
+            by_group.setdefault(row.request_group, []).append(row)
+        for booking in bookings:
+            if booking.is_shared_request:
+                booking.shared_with = tuple(
+                    guide_first_name(row.guide)
+                    for row in by_group.get(booking.request_group, [])
+                    if row.pk != booking.pk
+                )
 
     def self_serve_refusal(self, *, now: datetime, cancel_cutoff_hours: int) -> str:
         """Why the visitor may not move or cancel this tour from the email links, or "" when they may.

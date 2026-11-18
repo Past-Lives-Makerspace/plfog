@@ -200,11 +200,13 @@ def visitor_context(booking: TourBooking, **extra: Any) -> dict[str, Any]:
         "greeting_name": booking.visitor_first_name,
         "when": when_label(booking.starts_at),
         "address": TOUR_ADDRESS,
-        "guide_name": guide_first_name(booking.guide),
+        # A No preference request (#1255) names no guide until one confirms it.
+        "guide_name": "" if booking.is_shared_request else guide_first_name(booking.guide),
+        "shared": booking.is_shared_request,
         "support_email": support_email(),
         "cancel_cutoff_hours": FacilityTourSettings.load().cancel_cutoff_hours,
         "confirm_by": short_when(booking.confirm_by),
-        "notice_hours": guide_notice_hours(booking),
+        "notice_hours": None if booking.is_shared_request else guide_notice_hours(booking),
         **visitor_links(booking),
         **extra,
     }
@@ -259,17 +261,30 @@ def guide_context(booking: TourBooking, **extra: Any) -> dict[str, Any]:
     }
 
 
-def tell_guide_booked(booking: TourBooking, guide: Member | None, *, actor_name: str = "") -> None:
+def shared_with_label(names: tuple[str, ...]) -> str:
+    """``Alex``, ``Alex and Sam``, or ``Alex, Sam and Jo``: the other guides a shared request went to (#1255)."""
+    if len(names) < 2:
+        return "".join(names)
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def tell_guide_booked(
+    booking: TourBooking, guide: Member | None, *, actor_name: str = "", shared_with: tuple[str, ...] = ()
+) -> None:
     """Tell ``guide`` (or the admins when there is none) a tour of theirs was booked, or requested (#1166).
 
     With ``actor_name`` (#949) a staff member moved someone else's tour to this guide. A request's
     email offers Confirm and Decline, each opening the request on the Upcoming tab: a link in an
-    email never acts on its own, since mail scanners open links.
+    email never acts on its own, since mail scanners open links. ``shared_with`` names the other
+    guides a No preference request (#1255) also went to: whoever confirms first gets it.
     """
     when = short_when(booking.starts_at)
+    others = shared_with_label(shared_with)
     if booking.is_request:
         title, subject = "New tour request", f"Tour request to confirm: {when}"
         body = f"{booking.visitor_name}, {_people(booking)}, {when}. Confirm by {short_when(booking.confirm_by)}."
+        if others:
+            body += f" Also sent to {others}: whoever confirms first gets it."
     elif actor_name:
         title, subject = "Tour moved to you", f"Tour moved to you: {when}"
         body = f"{actor_name} moved {booking.visitor_name}'s tour, {_people(booking)}, to you: {when}."
@@ -283,7 +298,9 @@ def tell_guide_booked(booking: TourBooking, guide: Member | None, *, actor_name:
         subject=subject,
         text_template="tours/emails/guide_booked.txt",
         html_template="tours/emails/guide_booked.html",
-        template_context=guide_context(booking, actor_name=actor_name, request_url=request_url(booking)),
+        template_context=guide_context(
+            booking, actor_name=actor_name, request_url=request_url(booking), shared_with=others
+        ),
         in_app_title=title,
         in_app_body=body,
         url=f"{reverse('tours:upcoming')}#{request_anchor(booking)}",
@@ -299,8 +316,11 @@ def tell_guide_changed(
     previous_starts_at: datetime | None = None,
     actor_name: str = "",
     staff_message: str = "",
+    taken_by: Member | None = None,
 ) -> None:
     """Tell ``guide`` the tour was moved (from ``previous_starts_at``) or cancelled.
+
+    For a No preference request (#1255) another guide confirmed first, ``taken_by`` is that guide.
 
     By the visitor, or with ``actor_name`` by a staff member (#949), whose ``staff_message`` to the
     visitor the guide sees too.
@@ -309,7 +329,10 @@ def tell_guide_changed(
     stays_with_guide = guide is not None and booking.guide_id == guide.pk
     who = actor_name or booking.visitor_name
     whose = f"{booking.visitor_name}'s" if actor_name else "their"
-    if change == signals.LAPSED:
+    if change == signals.TAKEN:
+        title, subject = "Tour request taken", f"Tour request taken: {when}"
+        body = f"{guide_first_name(taken_by)} confirmed {booking.visitor_name}'s request for {when}, so it is off your list."
+    elif change == signals.LAPSED:
         title, subject = "Tour request lapsed", f"Tour request lapsed: {when}"
         body = f"{booking.visitor_name}'s request for {when} was not confirmed in time, so it was cancelled."
     elif change == signals.CANCELLED:
@@ -337,6 +360,7 @@ def tell_guide_changed(
             actor_name=actor_name,
             staff_message=staff_message,
             new_guide_name=guide_first_name(booking.guide),
+            taken_by_name=guide_first_name(taken_by) if taken_by is not None else "",
         ),
         in_app_title=title,
         in_app_body=body,
@@ -354,6 +378,9 @@ def announce(
     actor: User | None = None,
     staff_message: str = "",
     was_request: bool = False,
+    tell_visitor: bool = True,
+    shared_with: tuple[str, ...] = (),
+    taken_by: Member | None = None,
 ) -> None:
     """Every email and notice for a booking just booked, moved or cancelled (after commit).
 
@@ -363,26 +390,31 @@ def announce(
 
     A request (#1166) tells the guide as a booking does, with Confirm and Decline. Its confirm and
     decline are the guide's (or an admin's) own answer and tell only the visitor.
+
+    A No preference request (#1255) has one row per guide: the visitor hears once (``tell_visitor``
+    on the row carrying their link), each guide on their own row; ``shared_with`` names the other
+    guides on a new request, and ``taken_by`` the guide who confirmed it first.
     """
-    send_visitor_email(
-        booking,
-        change,
-        was_request=was_request,
-        previous_when=when_label(previous_starts_at) if previous_starts_at else "",
-        staff_message=staff_message,
-        by_staff=actor is not None,
-        note_label=note_label(actor),
-    )
+    if tell_visitor:
+        send_visitor_email(
+            booking,
+            change,
+            was_request=was_request,
+            previous_when=when_label(previous_starts_at) if previous_starts_at else "",
+            staff_message=staff_message,
+            by_staff=actor is not None,
+            note_label=note_label(actor),
+        )
     if change in (signals.CONFIRMED, signals.DECLINED):
         return
-    if change == signals.LAPSED:
-        tell_guide_changed(booking, booking.guide, change)
+    if change in (signals.LAPSED, signals.TAKEN):
+        tell_guide_changed(booking, booking.guide, change, taken_by=taken_by)
         return
     if actor is not None:
         _tell_guides_staff_changed(booking, change, actor, previous_guide, previous_starts_at, staff_message)
         return
     if change in (signals.BOOKED, signals.REQUESTED):
-        tell_guide_booked(booking, booking.guide)
+        tell_guide_booked(booking, booking.guide, shared_with=shared_with)
         return
     if change == signals.CANCELLED:
         tell_guide_changed(booking, booking.guide, change)

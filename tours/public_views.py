@@ -34,6 +34,7 @@ from tours.booking import (
     TourBookingError,
     TourLockedError,
     Visitor,
+    book_any_guide,
     book_tour,
     cancel_tour_by_visitor,
     reschedule_tour,
@@ -41,7 +42,7 @@ from tours.booking import (
 from tours.forms import TourBookingForm
 from tours.models import MAX_HORIZON_DAYS, MAX_SEATS, TOUR_ADDRESS, FacilityTourSettings, TourBooking
 from tours.notify import guide_first_name, guide_notice_hours, short_when, support_email, when_label
-from tours.picker import build_picker, find_tour, guide_and_start
+from tours.picker import build_picker, find_tour, guide_and_start, parse_any_guide_key
 
 logger = logging.getLogger(__name__)
 
@@ -136,19 +137,28 @@ def _try_booking(request: HttpRequest, form: TourBookingForm, *, kiosk: bool) ->
     might be signed in on the lobby screen.
     """
     data = form.cleaned_data
+    any_guide_at = parse_any_guide_key(data["tour"])
     target = guide_and_start(data["tour"])
     signed_in = request.user if request.user.is_authenticated and not kiosk else None
+    visitor = Visitor(data["name"], data["email"], data["phone"], data["party_size"])
+    source = TourBooking.Source.KIOSK if kiosk else TourBooking.Source.WEBSITE
+    create_account = bool(data.get("create_account"))
     try:
-        if target is None:
+        if any_guide_at is not None:
+            booking = book_any_guide(
+                starts_at=any_guide_at, visitor=visitor, user=signed_in, create_account=create_account, source=source
+            )
+        elif target is None:
             raise TourBookingError(GONE_MESSAGE)
-        booking = book_tour(
-            guide=target[0],
-            starts_at=target[1],
-            visitor=Visitor(data["name"], data["email"], data["phone"], data["party_size"]),
-            user=signed_in,
-            create_account=bool(data.get("create_account")),
-            source=TourBooking.Source.KIOSK if kiosk else TourBooking.Source.WEBSITE,
-        )
+        else:
+            booking = book_tour(
+                guide=target[0],
+                starts_at=target[1],
+                visitor=visitor,
+                user=signed_in,
+                create_account=create_account,
+                source=source,
+            )
     except TourAlreadyBookedError:
         return Attempt(already=True)
     except TourBookingError as exc:
@@ -223,7 +233,7 @@ def book(request: HttpRequest) -> HttpResponse:
         request,
         "tours/public/book.html",
         {
-            "picker": build_picker(tours, raw_day),
+            "picker": build_picker(tours, raw_day, no_preference=True),
             "chosen": chosen,
             "form": attempt.form,
             "error": attempt.error,
@@ -253,9 +263,18 @@ def _refused(request: HttpRequest, booking: TourBooking, reason: str) -> HttpRes
 
 
 def _booking_context(booking: TourBooking) -> dict[str, Any]:
-    context = {"booking": booking, "when": when_label(booking.starts_at), "guide_name": guide_first_name(booking.guide)}
+    # A No preference request (#1255) names no guide until one confirms it.
+    shared = booking.is_shared_request
+    context = {
+        "booking": booking,
+        "when": when_label(booking.starts_at),
+        "guide_name": "" if shared else guide_first_name(booking.guide),
+        "shared": shared,
+    }
     if booking.is_request:
-        context.update(confirm_by=short_when(booking.confirm_by), notice_hours=guide_notice_hours(booking))
+        context.update(
+            confirm_by=short_when(booking.confirm_by), notice_hours=None if shared else guide_notice_hours(booking)
+        )
     return context
 
 

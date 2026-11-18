@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 from django.db import transaction
 from django.utils import timezone
@@ -31,7 +32,7 @@ from core.services.guest_account import ensure_guest_account, find_user_for_emai
 from membership.models import AdminCapability, Member
 from membership.permission_setup import SetupState
 from tours import signals
-from tours.availability import open_tour_at
+from tours.availability import OpenTour, open_tour_at, open_tours
 from tours.models import FacilityTourSettings, TourBooking, TourGuideSettings
 
 if TYPE_CHECKING:
@@ -98,6 +99,7 @@ STAFF_LOCKED_MESSAGES: dict[str, str] = {
     "answered": "This request was already answered.",
     "lapsed": "The confirm by time has passed, so this request was cancelled and the visitor told.",
     "request": "Confirm or decline this request first.",
+    "taken": "Another guide already took this request.",
 }
 
 
@@ -170,7 +172,7 @@ def book_tour(
         TourFullError: the tour has fewer seats left than ``visitor.party_size``.
         TourAlreadyBookedError: this exact booking was just made (a double press of Book).
     """
-    account = user if user is not None and user.is_authenticated else find_user_for_email(visitor.email)
+    account = _account_for(user, visitor)
     with transaction.atomic():
         kiosk = source == TourBooking.Source.KIOSK
         tour = open_tour_at(guide, starts_at, lock=True, now=now, guide_notice=not kiosk)
@@ -198,13 +200,133 @@ def book_tour(
             from tours.tasks import lapse_tour_request
 
             enqueue_at_on_commit(lapse_tour_request, booking.confirm_by, booking.pk)
-    if account is None and create_account and not Member.objects.unlinked_with_email(visitor.email.strip()).exists():
-        first, last = visitor.first_and_last
-        made = ensure_guest_account(visitor.email, first_name=first, last_name=last)
-        if made is not None:
-            TourBooking.objects.filter(pk=booking.pk).update(user=made)
-            booking.user = made
+    _link_new_account(visitor, [booking], account=account, create_account=create_account)
     return booking
+
+
+def _account_for(user: User | None, visitor: Visitor) -> User | None:
+    """The signed in visitor, else the account the email already belongs to."""
+    return user if user is not None and user.is_authenticated else find_user_for_email(visitor.email)
+
+
+def _link_new_account(
+    visitor: Visitor, bookings: list[TourBooking], *, account: User | None, create_account: bool
+) -> None:
+    """Make a GUEST account for a visitor with none when they asked for one, and link ``bookings`` to it.
+
+    Never for an email that is a member's with no account: some are kept userless on purpose.
+    """
+    if account is not None or not create_account:
+        return
+    if Member.objects.unlinked_with_email(visitor.email.strip()).exists():
+        return
+    first, last = visitor.first_and_last
+    made = ensure_guest_account(visitor.email, first_name=first, last_name=last)
+    if made is None:
+        return
+    TourBooking.objects.filter(pk__in=[booking.pk for booking in bookings]).update(user=made)
+    for booking in bookings:
+        booking.user = made
+
+
+def book_any_guide(
+    *,
+    starts_at: datetime,
+    visitor: Visitor,
+    user: User | None = None,
+    create_account: bool = False,
+    source: str = TourBooking.Source.WEBSITE,
+    now: datetime | None = None,
+) -> TourBooking:
+    """The visitor picked No preference for a time several guides offer (#1255).
+
+    At the kiosk, or when any guide at that time confirms automatically and has room for the
+    party, the tour is booked at once with the first such guide listed, through :func:`book_tour`.
+    One guide with room is an ordinary booking or request with them. Otherwise every guide with
+    room gets the request (:func:`_request_every_guide`) and the first to confirm gives the tour.
+
+    Returns:
+        The booking, or the request row whose link the visitor is sent.
+
+    Raises:
+        TourUnavailableError: no guide offers a bookable tour at that start now.
+        TourFullError: no guide has room for the party.
+        TourAlreadyBookedError: this exact booking was just made (a double press of Book).
+    """
+    kiosk = source == TourBooking.Source.KIOSK
+    moment = now or timezone.now()
+    day = timezone.localdate(starts_at)
+    offered = [
+        tour
+        for tour in open_tours(day, day, include_full=True, now=moment, guide_notice=not kiosk)
+        if tour.starts_at == starts_at
+    ]
+    if not offered:
+        raise TourUnavailableError(GONE_MESSAGE)
+    with_room = [tour for tour in offered if tour.seats_left >= visitor.party_size]
+    if not with_room:
+        raise TourFullError(max(tour.seats_left for tour in offered))
+    at_once = with_room if kiosk else [tour for tour in with_room if not TourGuideSettings.confirms_first(tour.guide)]
+    if at_once or len(with_room) == 1:
+        pick = (at_once or with_room)[0]
+        return book_tour(
+            guide=pick.guide,
+            starts_at=pick.starts_at,
+            visitor=visitor,
+            user=user,
+            create_account=create_account,
+            source=source,
+            now=moment,
+        )
+    return _request_every_guide(with_room, visitor, user=user, create_account=create_account, now=moment)
+
+
+def _request_every_guide(
+    tours: list[OpenTour], visitor: Visitor, *, user: User | None, create_account: bool, now: datetime
+) -> TourBooking:
+    """One pending row per guide still with room, sharing a ``request_group`` (#1255).
+
+    Each guide's hours are locked (in pk order, so two such requests never deadlock) and their seats
+    counted again under the lock, so each row holds the party's seats on its own guide's tour like
+    any request. The visitor's link is the first row's. When only one guide still has room it is an
+    ordinary request.
+    """
+    account = _account_for(user, visitor)
+    group = uuid4()
+    with transaction.atomic():
+        rows: list[TourBooking] = []
+        for offered in sorted(tours, key=lambda tour: tour.guide.pk):
+            tour = open_tour_at(offered.guide, offered.starts_at, lock=True, now=now)
+            if tour is None or tour.seats_left < visitor.party_size:
+                continue
+            rows.append(
+                TourBooking.objects.create(
+                    guide=tour.guide,
+                    starts_at=tour.starts_at,
+                    ends_at=tour.ends_at,
+                    party_size=visitor.party_size,
+                    visitor_name=visitor.name.strip(),
+                    visitor_email=visitor.email.strip(),
+                    visitor_phone=visitor.phone.strip(),
+                    user=account,
+                    status=TourBooking.Status.PENDING,
+                    request_group=group,
+                )
+            )
+        if not rows:
+            raise TourFullError(0)
+        if len(rows) == 1:
+            rows[0].request_group = None
+            rows[0].save(update_fields=["request_group"])
+        from tours.notify import guide_first_name
+        from tours.tasks import lapse_tour_request
+
+        for row in rows:
+            others = tuple(guide_first_name(other.guide) for other in rows if other.pk != row.pk)
+            _after_commit(row, signals.REQUESTED, tell_visitor=row is rows[0], shared_with=others)
+            enqueue_at_on_commit(lapse_tour_request, row.confirm_by, row.pk)
+    _link_new_account(visitor, rows, account=account, create_account=create_account)
+    return rows[0]
 
 
 def _is_repeat(guide: Member, starts_at: datetime, visitor: Visitor, now: datetime) -> bool:
@@ -325,9 +447,18 @@ def cancel_tour_by_visitor(booking: TourBooking, *, now: datetime | None = None)
     """
     moment = now or timezone.now()
     with transaction.atomic():
+        group = _lock_group(booking)
         locked = _locked_for_change(booking, moment)
         # A request (#1166) never sent a calendar invite, so its cancel email carries no retraction.
         was_request = locked.is_request
+        if was_request:
+            # A No preference request (#1255) is withdrawn from every guide still deciding.
+            for other in _other_pending(group, locked):
+                other.status = TourBooking.Status.CANCELLED
+                other.cancelled_at = moment
+                other.cancelled_by = None
+                other.save(update_fields=["status", "cancelled_at", "cancelled_by"])
+                _after_commit(other, signals.CANCELLED, was_request=True, tell_visitor=False)
         locked.status = TourBooking.Status.CANCELLED
         locked.cancelled_at = moment
         locked.cancelled_by = None
@@ -350,9 +481,27 @@ def _locked_for_staff(booking: TourBooking, now: datetime) -> TourBooking:
     return locked
 
 
+def _lock_group(booking: TourBooking) -> list[TourBooking]:
+    """Every row of the booking's No preference request (#1255), locked in pk order; [] for any other booking.
+
+    Taken before the booking's own row, so a Confirm, a Decline, a lapse and the visitor's Cancel on
+    one request always lock in the same order and never deadlock.
+    """
+    if booking.request_group is None:
+        return []
+    return list(TourBooking.objects.select_for_update().filter(request_group=booking.request_group).order_by("pk"))
+
+
+def _other_pending(group: list[TourBooking], booking: TourBooking) -> list[TourBooking]:
+    """The rows of a locked group still waiting for their guide, other than ``booking``."""
+    return [row for row in group if row.is_request and row.pk != booking.pk]
+
+
 def _locked_request(booking: TourBooking, now: datetime) -> TourBooking:
     """The request's row, locked, after checking it still waits for an answer and has not started (#1166)."""
     locked = TourBooking.objects.select_for_update().get(pk=booking.pk)
+    if locked.was_taken_by_another_guide():
+        raise TourLockedError("taken")
     if locked.status == TourBooking.Status.CANCELLED:
         raise TourLockedError("cancelled")
     if locked.starts_at <= now:
@@ -376,15 +525,21 @@ def lapse_request(booking_id: int, *, now: datetime | None = None) -> TourBookin
     """
     moment = now or timezone.now()
     with transaction.atomic():
+        found = TourBooking.objects.filter(pk=booking_id).first()
+        group = _lock_group(found) if found is not None else []
         locked = TourBooking.objects.select_for_update().filter(pk=booking_id).first()
         if locked is None or not locked.is_request or moment < locked.confirm_by:
             return None
-        locked.status = TourBooking.Status.CANCELLED
-        locked.cancelled_at = moment
-        locked.cancelled_by = None
-        locked.save(update_fields=["status", "cancelled_at", "cancelled_by"])
-        _after_commit(locked, signals.LAPSED)
-    return locked
+        # A No preference request (#1255) lapses for every guide at once; the visitor hears once,
+        # on the row that carries their link (the first still pending).
+        rows = [row for row in group if row.is_request] or [locked]
+        for row in rows:
+            row.status = TourBooking.Status.CANCELLED
+            row.cancelled_at = moment
+            row.cancelled_by = None
+            row.save(update_fields=["status", "cancelled_at", "cancelled_by"])
+            _after_commit(row, signals.LAPSED, tell_visitor=row is rows[0])
+    return rows[0]
 
 
 def confirm_tour_request(booking: TourBooking, *, actor: User, now: datetime | None = None) -> TourBooking:
@@ -398,11 +553,34 @@ def confirm_tour_request(booking: TourBooking, *, actor: User, now: datetime | N
     """
     moment = now or timezone.now()
     with transaction.atomic():
+        group = _lock_group(booking)
         locked = _locked_request(booking, moment)
+        others = _other_pending(group, locked)
+        if others:
+            _take_shared_request(locked, others, actor=actor, now=moment)
         locked.status = TourBooking.Status.BOOKED
-        locked.save(update_fields=["status"])
+        locked.request_group = None
+        locked.save(update_fields=["status", "request_group"])
         _after_commit(locked, signals.CONFIRMED, actor=actor)
     return locked
+
+
+def _take_shared_request(locked: TourBooking, others: list[TourBooking], *, actor: User, now: datetime) -> None:
+    """``locked``'s guide confirmed a No preference request first (#1255).
+
+    The row takes the visitor's link when another row holds it (the first still pending), and every
+    other guide's row is cancelled with the confirming guide as ``cancelled_by``, freeing its seats;
+    each of those guides is told another guide took it. Inside the caller's lock on the group.
+    """
+    holder = min([locked, *others], key=lambda row: row.pk)
+    if holder.pk != locked.pk:
+        locked.take_visitor_link_from(holder)
+    for other in others:
+        other.status = TourBooking.Status.CANCELLED
+        other.cancelled_at = now
+        other.cancelled_by = actor
+        other.save(update_fields=["status", "cancelled_at", "cancelled_by"])
+        _after_commit(other, signals.TAKEN, tell_visitor=False, taken_by=locked.guide)
 
 
 def decline_tour_request(
@@ -417,12 +595,18 @@ def decline_tour_request(
     """
     moment = now or timezone.now()
     with transaction.atomic():
+        group = _lock_group(booking)
         locked = _locked_request(booking, moment)
+        others = _other_pending(group, locked)
+        # Another guide may still take a No preference request (#1255): the visitor hears nothing
+        # yet, and the link they hold moves to the next row still pending.
+        if others and locked.pk < others[0].pk:
+            others[0].take_visitor_link_from(locked)
         locked.status = TourBooking.Status.CANCELLED
         locked.cancelled_at = moment
         locked.cancelled_by = actor
         locked.save(update_fields=["status", "cancelled_at", "cancelled_by"])
-        _after_commit(locked, signals.DECLINED, actor=actor, staff_message=message.strip())
+        _after_commit(locked, signals.DECLINED, actor=actor, staff_message=message.strip(), tell_visitor=not others)
     return locked
 
 

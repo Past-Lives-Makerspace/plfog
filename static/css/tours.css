@@ -616,6 +616,12 @@
     font-size: 0.8125rem;
     font-weight: 700;
 }
+
+/* A No preference request (#1255): the other guides it also went to. */
+.pl-tours-booking__shared {
+    margin: 0.25rem 0 0;
+    font-size: 0.8125rem;
+}
 .pl-tours-confirm__notice {
     margin-top: 1.5rem;
 }

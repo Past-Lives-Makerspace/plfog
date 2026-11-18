@@ -6,7 +6,7 @@ kiosk.
 {% endcomment %}
 <div class="reg-summary pl-tourpub__chosen" data-tour-chosen="{{ chosen.key }}">
   <div class="pl-tourpub__chosen-when">{{ chosen.starts_at|date:"l, F j" }} at {{ chosen.starts_at|time:"g:i A" }}</div>
-  <div class="pl-tourpub__chosen-meta">{{ chosen.seats_left }} seat{{ chosen.seats_left|pluralize }} left · <a href="{{ page_url }}?date={{ chosen.starts_at|date:'Y-m-d' }}" data-tour-change>Pick a different time</a></div>
+  <div class="pl-tourpub__chosen-meta">{% if chosen.no_preference %}No preference, any guide at this time · {% endif %}{{ chosen.seats_left }} seat{{ chosen.seats_left|pluralize }} left · <a href="{{ page_url }}?date={{ chosen.starts_at|date:'Y-m-d' }}" data-tour-change>Pick a different time</a></div>
 </div>
 {% if form.non_field_errors %}<div class="reg-error-block pl-tourpub__notice">{% for err in form.non_field_errors %}{{ err }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</div>{% endif %}
 <form method="post" action="{{ page_url }}" class="reg-form pl-tourpub__form" hx-boost="false"{% if kiosk %} autocomplete="off"{% endif %} data-tour-form data-pl-busy-submit data-pl-busy-label="Booking...">
