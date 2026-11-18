@@ -591,7 +591,7 @@ class _MinimumSignupsMixin:
         field = fields["minimum_signups"]
         field.label = "Minimum signups"
         field.help_text = (
-            "The fewest signups this class needs to run. If fewer have signed up when registration closes, "
+            "The fewest signups this class needs to run. If fewer are signed up once registration closes, "
             "the class is cancelled and everyone is refunded. Leave blank for no minimum."
         )
         field.widget.attrs.update({"min": 0})

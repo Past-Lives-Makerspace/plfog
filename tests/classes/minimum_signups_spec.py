@@ -935,3 +935,56 @@ def describe_the_minimum_beside_capacity():
         sent = [m for m in mail.outbox if offering.title in m.subject]
         assert sent
         assert "Needs 3 to run" in sent[-1].body
+
+    def it_shows_nothing_once_the_class_has_started_or_was_cancelled(client: Client):
+        instructor = _instructor()
+        started = _live_class(starts_in=timedelta(hours=-1), minimum=3, instructor=instructor)
+        cancelled = _live_class(starts_in=timedelta(days=10), minimum=3, instructor=instructor)
+        cancelled.status = ClassOffering.Status.CANCELLED
+        cancelled.save(update_fields=["status"])
+        client.force_login(instructor.user)
+        for offering in (started, cancelled):
+            html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
+            assert "data-minimum-signups" not in html
+        assert "data-minimum-signups" not in client.get(reverse("classes:teach_dashboard")).content.decode()
+
+    def it_shows_nothing_on_a_row_whose_cutoff_is_off(admin_user: Any, client: Client):
+        _live_class(starts_in=timedelta(days=10), minimum=3, cutoff=None, instructor=_instructor())
+        client.force_login(admin_user)
+        assert "data-minimum-signups" not in client.get(reverse("classes:admin_classes")).content.decode()
+
+    def it_shows_on_the_review_page(admin_user: Any, client: Client):
+        offering = _live_class(starts_in=timedelta(days=10), minimum=3, instructor=_instructor())
+        offering.status = ClassOffering.Status.PENDING
+        offering.save(update_fields=["status"])
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk})).content.decode()
+        assert 'data-minimum-signups="3"' in html
+
+    def it_tells_the_admins_in_their_new_registration_email(settings: Any):
+        from classes.emails import send_admin_registration_notification
+
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+        admin = UserFactory(username="min-admin@example.com", email="min-admin@example.com").member  # type: ignore[attr-defined]
+        admin.fog_role = Member.FogRole.ADMIN
+        admin.save(update_fields=["fog_role"])
+        offering = _live_class(starts_in=timedelta(days=10), minimum=3, confirmed=0, instructor=_instructor())
+        send_admin_registration_notification(_paid(offering))
+        body = "\n".join(m.body for m in mail.outbox if m.subject.startswith("[Classes] New registration:"))
+        assert "Needs 3 confirmed to run." in body
+
+    def it_answers_the_class_lists_with_no_query_per_row(client: Client):
+        instructor = _instructor()
+        _live_class(starts_in=timedelta(days=10), minimum=3, instructor=instructor)
+        client.force_login(instructor.user)
+        client.get(reverse("classes:teach_dashboard"))
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as one:
+            client.get(reverse("classes:teach_dashboard"))
+        for _ in range(3):
+            _live_class(starts_in=timedelta(days=10), minimum=3, instructor=instructor)
+        with CaptureQueriesContext(connection) as four:
+            client.get(reverse("classes:teach_dashboard"))
+        assert len(four) == len(one)
