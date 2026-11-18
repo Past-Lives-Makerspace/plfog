@@ -395,7 +395,9 @@ def describe_coming_up_in_the_next_24_hours():
         shop.submit("Board One")
         _class_reminder(title="Cutting Board Basics", hours_from_now=2)
         # 41: the New Members tab (#1115) builds its table on every Site Activity load, one query.
-        with django_assert_max_num_queries(41):
+        # 43: the feed's GenericPrefetch (#1237) looks up the orientation booking and space request
+        # content types, one query each on a cold cache; Django caches them for the process after.
+        with django_assert_max_num_queries(43):
             _queue_html(staff_client)
 
 
