@@ -92,6 +92,8 @@
           <th class="text-right">Owed now</th>
           <th class="text-right">Not yet due</th>
           {% if reconciliation.retrying_total_cents %}<th class="text-right">Stripe retrying</th>{% endif %}
+          <th class="text-right">Paid by hand</th>
+          <th><span class="sr-only">Actions</span></th>
           {% endif %}
         </tr>
       </thead>
@@ -118,6 +120,19 @@
           {% if kind.is_producer %}
           <td class="text-right">{{ alloc.stripe_cents|cents_as_dollars }}</td>
           {% include "billing/partials/_reconciliation_owed_cells.html" %}
+          <td class="text-right" data-recon-paid-by-hand>{{ alloc.paid_by_hand_cents|cents_as_dollars }}</td>
+          <td class="text-right">
+            {% if alloc.owed_now_cents %}
+            {% with pk_str=alloc.recipient_id|stringformat:"s" %}{% with mark_id="mark-row-paid-"|add:kind.value|add:"-"|add:pk_str %}
+            <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" data-recon-mark-all
+                    @click="$dispatch('open-confirm', '{{ mark_id }}')">Mark all paid</button>
+            {% url 'billing_reconciliation_mark_row_paid' kind.value alloc.recipient_id as mark_url %}
+            {# JS mode: a teleported hx-post form is not wired by htmx after the table refresh swaps it in. #}
+            {% with mark_js="htmx.ajax('POST', '"|add:mark_url|add:"', {swap: 'none', values: "|add:reconciliation_window_vals|add:"})" %}
+            {% include "components/confirm_modal.html" with confirm_id=mark_id confirm_title="Mark all paid by hand?" confirm_body_include="billing/partials/_reconciliation_mark_all_confirm.html" confirm_js=mark_js confirm_button_text="Mark all paid" confirm_button_style="primary" %}
+            {% endwith %}{% endwith %}{% endwith %}
+            {% endif %}
+          </td>
           {% endif %}
         </tr>
         {% endfor %}

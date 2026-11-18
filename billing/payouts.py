@@ -525,12 +525,7 @@ def _record(
     from billing.notifications import send_payouts_invite
 
     through = goes_through_stripe(earning, account, since)
-    if through:
-        reason = Payout.OwedReason.NOT_APPLICABLE
-    elif not earning.paid_through_stripe:
-        reason = Payout.OwedReason.NOT_THROUGH_STRIPE
-    else:
-        reason = Payout.OwedReason.NOT_CONNECTED
+    reason = Payout.OwedReason.NOT_APPLICABLE if through else _owed_reason(earning)
     source_field = _SOURCE_FIELDS[earning.kind]
     payout, created = Payout.objects.get_or_create(
         **{source_field: earning.source},
@@ -546,6 +541,13 @@ def _record(
     if created and reason == Payout.OwedReason.NOT_CONNECTED and (account is None or not account.is_connected):
         send_payouts_invite(payout)
     return created
+
+
+def _owed_reason(earning: Earning) -> Payout.OwedReason:
+    """Why a share Stripe does not send is owed by hand: the payment never went through Stripe, or the payee was not on."""
+    if not earning.paid_through_stripe:
+        return Payout.OwedReason.NOT_THROUGH_STRIPE
+    return Payout.OwedReason.NOT_CONNECTED
 
 
 def _send_one(pk: int, now: datetime, snapshots: list[tuple[Any, Any]], run: PayoutRun) -> None:
@@ -727,6 +729,7 @@ def fell_due_between(start: datetime, end: datetime) -> Q:
         Q(payout__counted_owed_in__isnull=False)
         | Q(payout__owed_since__isnull=False)
         | Q(payout__status__in=Payout.SETTLED_STATUSES)
+        | Q(payout__paid_by_hand_at__isnull=False)
     )
     moving = Q(due_base__gte=start - PAYOUT_DELAY, due_base__lt=end - PAYOUT_DELAY) & ~settled
     return moving | (settled & Q(payout__due_at__gte=start, payout__due_at__lt=end))
@@ -911,6 +914,7 @@ class LineState(models.TextChoices):
     UNCONFIRMED = "unconfirmed", "Not sent, Stripe unreachable"
     RETRYING = "retrying", "Transfer failed, Stripe retrying, do not pay by hand"
     OWED = "by_hand", "Owed now"
+    PAID_BY_HAND = "paid_by_hand", "Paid by hand"
     NOT_DUE = "not_due", "Not yet due"
     STRIPE_NOT_DUE = "stripe_not_due", "Not yet due, Stripe sends it"
     DUE_LATER = "due_later", "Owed after these dates"
@@ -935,6 +939,8 @@ class LinePayout:
       own Stripe retrying figure, never in Owed now; a month-end snapshot gives it up and owes it
       by hand first (``ReconciliationSnapshot.take``).
     - OWED: paid by hand, and ``due_at`` has passed.
+    - PAID_BY_HAND: an OWED share the treasurer marked paid by hand (#1249, ``paid_by_hand_at``).
+      It counts in Paid by hand, in the window whose Owed now it left (``paid_in``).
     - NOT_DUE: paid by hand, and ``due_at`` is still ahead, or None for a class with no sessions.
     - DUE_LATER: an OWED share seen in a Reconciliation window ``owed_at`` is not in. It counts
       in the Owed now of the window ``owed_at`` falls in, so here it counts in no column and is
@@ -950,6 +956,7 @@ class LinePayout:
     sent_at: datetime | None = None
     due_at: datetime | None = None
     owed_at: datetime | None = None
+    paid_by_hand_at: datetime | None = None
 
     @property
     def through_stripe(self) -> bool:
@@ -971,6 +978,11 @@ class LinePayout:
         """True when the share counts in Stripe retrying: not to be paid by hand."""
         return self.state == LineState.RETRYING
 
+    @property
+    def paid_by_hand(self) -> bool:
+        """True when the treasurer marked the share paid by hand (#1249)."""
+        return self.state == LineState.PAID_BY_HAND
+
     def for_window(self, start: datetime, end: datetime) -> LinePayout:
         """This state as a Reconciliation window ``[start, end)`` shows it: Owed now only if ``owed_at`` is inside."""
         if self.state == LineState.OWED and not self.owed_in(start, end):
@@ -980,6 +992,11 @@ class LinePayout:
     def owed_in(self, start: datetime, end: datetime) -> bool:
         """True when this share counts in the Owed now of the window ``[start, end)``."""
         return self.state == LineState.OWED and self.owed_at is not None and start <= self.owed_at < end
+
+    def paid_in(self, start: datetime, end: datetime) -> bool:
+        """True when this share was marked paid by hand and counts in the Paid by hand of ``[start, end)`` (#1249):
+        the window whose Owed now counted it before it was paid."""
+        return self.state == LineState.PAID_BY_HAND and self.owed_at is not None and start <= self.owed_at < end
 
     @property
     def badge(self) -> PayoutBadge:
@@ -998,6 +1015,8 @@ class LinePayout:
             return f"{words}, refund taken back" if self.state == LineState.TAKEN_BACK else words
         if self.state == LineState.OWED and self.due_at is not None:
             return f"Owed now, fell due {day(self.due_at)}"
+        if self.state == LineState.PAID_BY_HAND and self.paid_by_hand_at is not None:
+            return f"Paid by hand {day(self.paid_by_hand_at)}"
         if self.state == LineState.DUE_LATER and self.owed_at is not None:
             return f"Owed from {day(self.owed_at)}, after these dates"
         if self.state == LineState.NOT_DUE:
@@ -1025,6 +1044,7 @@ _LINE_TONES = {
     LineState.UNCONFIRMED: "fail",
     LineState.RETRYING: "fail",
     LineState.OWED: "ok",
+    LineState.PAID_BY_HAND: "muted",
     LineState.NOT_DUE: "warn",
     LineState.STRIPE_NOT_DUE: "warn",
     LineState.DUE_LATER: "warn",
@@ -1072,8 +1092,13 @@ def line_payouts(
     states: dict[tuple[str, int], LinePayout] = {}
     for earning in earnings:
         state = _line_state(earning, accounts.get(earning.payee.pk), since, now)
+        payout = earning.payout
         states[(earning.kind, earning.source.pk)] = LinePayout(
-            state, _sent_at(earning), earning.due_at, _owed_at(earning)
+            state,
+            _sent_at(earning),
+            earning.due_at,
+            _owed_at(earning),
+            None if payout is None else payout.paid_by_hand_at,
         )
     return states
 
@@ -1107,12 +1132,94 @@ def _line_state(earning: Earning, account: PayoutAccount | None, since: datetime
         return LineState.SENDING if due else LineState.STRIPE_NOT_DUE
     if payout is None and goes_through_stripe(earning, account, since):
         return LineState.SENDING if due else LineState.STRIPE_NOT_DUE
+    if payout is not None and payout.is_paid_by_hand:
+        return LineState.PAID_BY_HAND
     return LineState.OWED if due else LineState.NOT_DUE
 
 
 def _sent_at(earning: Earning) -> datetime | None:
     payout = earning.payout
     return None if payout is None else payout.sent_at
+
+
+# ---------------------------------------------------------------------------
+# Paid by hand (#1249): the treasurer records a share paid outside the portal
+# ---------------------------------------------------------------------------
+
+
+class ShareNotOwedError(ValueError):
+    """A share asked to be marked paid by hand is not in Owed now (not yet due, Stripe's, or already paid)."""
+
+
+def mark_paid_by_hand(keys: Iterable[tuple[str, int]], *, by: Any, now: datetime | None = None) -> int:
+    """Mark the producer shares of ``keys`` (``(source_kind, source_pk)`` lines) paid by hand, all or none (#1249).
+
+    Each share is read again at ``now`` and must be in Owed now (``LineState.OWED``): a share
+    Not yet due, going through Stripe, Stripe retrying or already paid is refused, and then
+    nothing is marked. A share owed with no ``Payout`` row yet (payouts were off when it fell
+    due) gets its OWED_MANUALLY row now, with no payouts invite: marking tells nobody. The
+    existing rows are locked first, so a concurrent change cannot slip in between. Returns how
+    many shares were marked. A fixed number of queries for any number of shares.
+
+    Raises:
+        ShareNotOwedError: a share in ``keys`` is not in Owed now; nothing changed.
+        KeyError: a ``source_kind`` is not a producer line kind.
+    """
+    now = timezone.now() if now is None else now
+    wanted = set(keys)
+    pks: dict[str, list[int]] = {kind: [] for kind in _SOURCE_FIELDS}
+    for kind, pk in wanted:
+        pks[kind].append(pk)
+    with transaction.atomic():
+        earnings = _earnings(
+            _registrations().filter(pk__in=pks["class"]),
+            _bookings().filter(pk__in=pks["orientation"]),
+            _reservations().filter(pk__in=pks["reservation"]),
+            _cubby_payments().filter(pk__in=pks["cubby"]),
+        )
+        accounts = _accounts(earnings)
+        since = _payouts_since()
+        owed = [
+            earning
+            for earning in earnings
+            if _line_state(earning, accounts.get(earning.payee.pk), since, now) == LineState.OWED
+        ]
+        if {(earning.kind, earning.source.pk) for earning in owed} != wanted:
+            raise ShareNotOwedError("Only a share in Owed now can be marked paid by hand.")
+        recorded = {earning.payout.pk: earning for earning in owed if earning.payout is not None}
+        locked = list(Payout.objects.select_for_update(of=("self",)).filter(pk__in=recorded))
+        for payout in locked:
+            payout.mark_paid_by_hand(by=by, at=now, due_at=recorded[payout.pk].due_at)
+        Payout.objects.bulk_update(locked, ["paid_by_hand_at", "paid_by_hand_by", "due_at"])
+        new_rows = []
+        for earning in owed:
+            if earning.payout is not None:
+                continue
+            payout = Payout(
+                **{_SOURCE_FIELDS[earning.kind]: earning.source},
+                payee=earning.payee,
+                amount_cents=earning.share_cents,
+                due_at=earning.due_at,
+                status=Payout.Status.OWED_MANUALLY,
+                owed_reason=_owed_reason(earning),
+            )
+            payout.mark_paid_by_hand(by=by, at=now, due_at=earning.due_at)
+            new_rows.append(payout)
+        Payout.objects.bulk_create(new_rows)
+    return len(owed)
+
+
+def undo_paid_by_hand(source_kind: str, source_pk: int) -> None:
+    """Put one line's share marked paid by hand back in Owed now (#1249), under its row lock.
+
+    Raises:
+        Payout.DoesNotExist: the line has no recorded share.
+        ValueError: its share is not marked paid by hand.
+        KeyError: ``source_kind`` is not a producer line kind.
+    """
+    with transaction.atomic():
+        payout = Payout.objects.select_for_update(of=("self",)).get(**{_SOURCE_FIELDS[source_kind]: source_pk})
+        payout.undo_paid_by_hand()
 
 
 # ---------------------------------------------------------------------------

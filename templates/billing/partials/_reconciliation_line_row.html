@@ -15,6 +15,20 @@
             <td class="text-right">{{ line.refunded_cents|cents_as_dollars }}</td>
             <td class="text-right">{{ line.net_cents|cents_as_dollars }}</td>
             <td class="text-right">
+              {% if line.payout.owed %}
+              {% with pk_str=line.source_pk|stringformat:"s" %}{% with mark_id="mark-paid-"|add:line.source_kind|add:"-"|add:pk_str %}
+              <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" data-recon-mark-paid
+                      @click="$dispatch('open-confirm', '{{ mark_id }}')">Mark paid</button>
+              {% url 'billing_reconciliation_mark_paid' line.source_kind line.source_pk as mark_url %}
+              {# JS mode: a teleported hx-post form is not wired by htmx after the table refresh swaps it in. #}
+              {% with mark_js="htmx.ajax('POST', '"|add:mark_url|add:"', {swap: 'none'})" %}
+              {% include "components/confirm_modal.html" with confirm_id=mark_id confirm_title="Mark this share paid by hand?" confirm_message="It leaves Owed now and counts in Paid by hand. Nobody is told, and nothing is sent." confirm_js=mark_js confirm_button_text="Mark paid" confirm_button_style="primary" %}
+              {% endwith %}{% endwith %}{% endwith %}
+              {% elif line.payout.paid_by_hand %}
+              <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" data-recon-undo-paid
+                      hx-post="{% url 'billing_reconciliation_undo_paid' line.source_kind line.source_pk %}"
+                      hx-swap="none">Undo paid</button>
+              {% endif %}
               {% if line.omitted %}
               <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
                       hx-post="{% url 'billing_reconciliation_clear' line.source_kind line.source_pk %}"

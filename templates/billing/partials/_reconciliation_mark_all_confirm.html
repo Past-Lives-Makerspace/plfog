@@ -1,0 +1,2 @@
+{% load classes_tags %}{# #1249: the Mark all paid confirm body; needs alloc and reconciliation. #}
+<p style="margin:0 0 1.5rem;" data-recon-mark-all-summary>Mark <strong>{{ alloc.label }}</strong>'s <strong>{{ alloc.owed_now_cents|cents_as_dollars }}</strong> in Owed now for {{ reconciliation.window.start|date:"M j" }} to {{ reconciliation.window.end|date:"M j, Y" }} paid by hand? It leaves Owed now and counts in Paid by hand. Nobody is told, and nothing is sent.</p>

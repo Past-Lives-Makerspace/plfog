@@ -2297,10 +2297,17 @@ class PayoutQuerySet(models.QuerySet["Payout"]):
         return self.filter(Q(livemode__isnull=True) | Q(livemode=not BillingSettings.load().test_mode))
 
     def needs_attention(self) -> PayoutQuerySet:
-        """What the Reconciliation tab flags: transfers Stripe rejected, still retrying or given up."""
+        """What the Reconciliation tab flags: transfers Stripe rejected, still retrying or given up.
+
+        A given up share the treasurer marked paid by hand (#1249) is settled, so it is not flagged.
+        """
         return self.filter(
             Q(status=Payout.Status.FAILED)
-            | Q(status=Payout.Status.OWED_MANUALLY, owed_reason=Payout.OwedReason.TRANSFER_FAILED)
+            | Q(
+                status=Payout.Status.OWED_MANUALLY,
+                owed_reason=Payout.OwedReason.TRANSFER_FAILED,
+                paid_by_hand_at__isnull=True,
+            )
             | Q(status=Payout.Status.PENDING, failure_reason=PAYOUT_LOOKUP_UNREACHABLE)
         )
 
@@ -2441,6 +2448,22 @@ class Payout(models.Model):
             "gave it up, which counts it in its own dates."
         ),
     )
+    paid_by_hand_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the treasurer marked this owed share paid by hand outside the portal (#1249). Empty while it "
+            "is still owed. Only an OWED_MANUALLY row is marked, so the send job never sends it."
+        ),
+    )
+    paid_by_hand_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="payouts_marked_paid_by_hand",
+        help_text="The admin who marked this share paid by hand (#1249).",
+    )
     created_at = models.DateTimeField(
         auto_now_add=True, help_text="When this row was made: the share fell due, or a snapshot froze it."
     )
@@ -2450,10 +2473,48 @@ class Payout(models.Model):
     @property
     def is_settled(self) -> bool:
         """True once the recorded ``due_at`` is final (#985): sent through Stripe, counted in a
-        snapshot's Owed now, or owed by hand after a give up. Until then a moved class re-dates it."""
+        snapshot's Owed now, owed by hand after a give up, or paid by hand (#1249). Until then a
+        moved class re-dates it."""
         return (
-            self.status in self.SETTLED_STATUSES or self.counted_owed_in_id is not None or self.owed_since is not None
+            self.status in self.SETTLED_STATUSES
+            or self.counted_owed_in_id is not None
+            or self.owed_since is not None
+            or self.paid_by_hand_at is not None
         )
+
+    @property
+    def is_paid_by_hand(self) -> bool:
+        """True once the treasurer marked this owed share paid by hand (#1249)."""
+        return self.paid_by_hand_at is not None
+
+    def mark_paid_by_hand(self, *, by: Any, at: datetime, due_at: datetime) -> None:
+        """Set this owed share paid by hand by ``by`` at ``at`` (#1249); the caller saves.
+
+        ``billing.payouts.mark_paid_by_hand`` checks the share is in Owed now and saves a batch
+        in one query. ``due_at`` is the share's current ``Earning.due_at``: it is recorded so a
+        class moved later cannot re-date a share already paid. Only an unpaid OWED_MANUALLY row
+        is marked.
+
+        Raises:
+            ValueError: the row is not owed by hand, or is already marked paid.
+        """
+        if self.status != self.Status.OWED_MANUALLY or self.is_paid_by_hand:
+            raise ValueError(f"Payout {self.pk} is not an unpaid share owed by hand.")
+        self.paid_by_hand_at = at
+        self.paid_by_hand_by = by
+        self.due_at = due_at
+
+    def undo_paid_by_hand(self) -> None:
+        """Put a share marked paid by hand back in Owed now (#1249).
+
+        Raises:
+            ValueError: the share is not marked paid by hand.
+        """
+        if not self.is_paid_by_hand:
+            raise ValueError(f"Payout {self.pk} is not marked paid by hand.")
+        self.paid_by_hand_at = None
+        self.paid_by_hand_by = None
+        self.save(update_fields=["paid_by_hand_at", "paid_by_hand_by"])
 
     class Meta:
         ordering = ["-due_at"]
