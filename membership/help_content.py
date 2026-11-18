@@ -987,7 +987,7 @@ You can write any time, even while changes are requested, without resubmitting. 
 - **Pending**: submitted, waiting on review. You can still edit it.
 - **Published**: live in the catalog and open for sign-ups.
 
-Once a class is published, the words stay yours: the description, prep notes, materials, safety notes, the guardian note, the flexible scheduling note, the video and the photos (banner and gallery) are all still editable from the manage page, and so is putting the class on sale. The title, class type, price, capacity and location are yours to change too, and so are the dates: the **Dates** card on the edit page adds or removes a date, and everyone signed up gets one email with the old and new dates. Capacity cannot go below the seats people already hold. While nobody is signed up, **Take Out of Catalog** on the class page sends it back to draft; once people are signed up, **Cancel class** tells them. Archived classes are read only.""",
+Once a class is published, the words stay yours: the description, prep notes, materials, safety notes, the guardian note, the flexible scheduling note, the video and the photos (banner and gallery) are all still editable from the manage page, and so is putting the class on sale. The title, class type, dates, price, capacity and scheduling model are locked once people can book on them; use **Request a change** on the manage page and an admin makes that edit. Your request also shows in the class's Messages. Archived classes are read only.""",
         "screenshots": [
             {
                 "file": "01-teaching-portal.png",
