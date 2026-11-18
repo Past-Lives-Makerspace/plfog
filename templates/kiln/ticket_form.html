@@ -40,6 +40,7 @@ holds Save while an upload is running (the script also stops any submit then, En
       x-data="{ firing: '{{ form.firing_type.value|default_if_none:''|escapejs }}', clay: '{{ form.clay_choice.value|default_if_none:''|escapejs }}', studio: {% if form.glaze_studio.value %}true{% else %}false{% endif %}, commercial: {% if form.glaze_commercial.value %}true{% else %}false{% endif %}, selfmade: {% if form.glaze_self_made.value %}true{% else %}false{% endif %}, walls: '{{ form.walls_under_inch.value|default_if_none:''|escapejs }}', bottom: '{{ form.bottom_free_of_glaze.value|default_if_none:''|escapejs }}', stilts: '{{ form.stilts_added.value|default_if_none:''|escapejs }}', photos: {{ photos|length }}, newPhotos: 0, uploading: 0 }"
       @kiln-photos-changed="newPhotos = $event.detail.count; uploading = $event.detail.uploading">
     {% csrf_token %}
+    {% if new_token %}<input type="hidden" name="new_token" value="{{ new_token }}" data-kiln-new-token>{% endif %}
     <button type="submit" name="action" value="{% if ticket and ticket.status != 'draft' %}submit{% else %}draft{% endif %}" class="pl-kiln-default-submit" tabindex="-1" aria-hidden="true">Save</button>
 
     <div class="hub-card">

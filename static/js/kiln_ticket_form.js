@@ -41,15 +41,12 @@
     }));
   }
 
-  // One token per new ticket form, sent with every upload that may start the draft, so a
-  // reply lost on the way back cannot make a Retry or the next photo start a second draft.
+  // A new ticket form's token (its hidden new_token, which Save posts too), sent with every
+  // upload that may start the draft, so a reply lost on the way back cannot make a Retry, the
+  // next photo or Save start a second ticket.
   function newTicketToken(form) {
-    if (!form.dataset.kilnNewToken) {
-      form.dataset.kilnNewToken = window.crypto && crypto.randomUUID
-        ? crypto.randomUUID()
-        : String(Date.now()) + Math.random().toString(16).slice(2);
-    }
-    return form.dataset.kilnNewToken;
+    var input = form.querySelector('[data-kiln-new-token]');
+    return input ? input.value : '';
   }
 
   function button(className, text, label) {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from django.conf import settings
@@ -110,11 +111,14 @@ def my_tickets(request: HttpRequest) -> HttpResponse:
     return render(request, "kiln/my_tickets.html", context)
 
 
-def _form_context(form: KilnTicketForm, ticket: KilnTicket | None, copied_from: KilnTicket | None) -> dict[str, Any]:
+def _form_context(
+    form: KilnTicketForm, ticket: KilnTicket | None, copied_from: KilnTicket | None, new_token: str
+) -> dict[str, Any]:
     photos = list(ticket.photos.all()) if ticket is not None else []
     return {
         "form": form,
         "ticket": ticket,
+        "new_token": new_token,
         "photos": photos,
         "copied_from": copied_from,
         "flag_notes": KilnFlag.MAKER_NOTES,
@@ -134,7 +138,9 @@ def _after_save(request: HttpRequest, form: KilnTicketForm, ticket: KilnTicket, 
     return redirect(KilnNav(_member(request)).home_url)
 
 
-def _handle_form(request: HttpRequest, ticket: KilnTicket | None, copied_from: KilnTicket | None) -> HttpResponse:
+def _handle_form(
+    request: HttpRequest, ticket: KilnTicket | None, copied_from: KilnTicket | None, new_token: str = ""
+) -> HttpResponse:
     member = _member(request)
     photo_pks = [p.pk for p in ticket.photos.all()] if ticket is not None else []
     instance = ticket if ticket is not None else KilnTicket(maker=member)
@@ -158,7 +164,7 @@ def _handle_form(request: HttpRequest, ticket: KilnTicket | None, copied_from: K
     else:
         initial = copied_from.copy_initial() if copied_from is not None else None
         form = KilnTicketForm(instance=instance, initial=initial, maker_photo_pks=photo_pks)
-    return render(request, "kiln/ticket_form.html", _form_context(form, ticket, copied_from))
+    return render(request, "kiln/ticket_form.html", _form_context(form, ticket, copied_from, new_token))
 
 
 @login_required
@@ -172,7 +178,18 @@ def ticket_new(request: HttpRequest) -> HttpResponse:
         if not source.isdigit():
             raise Http404("No such ticket.")
         copied_from = get_object_or_404(tickets_for(_member(request)), pk=int(source))
-    return _handle_form(request, None, copied_from)
+    # The form's token (#1246): its first photo may have started a draft already (even when the
+    # reply never reached the page), so a save with that token writes onto that draft.
+    if request.method != "POST":
+        return _handle_form(request, None, copied_from, uuid.uuid4().hex)
+    new_token = request.POST.get("new_token", "")[:64]
+    key = f"kiln-new-{new_token}"
+    started = KilnTicket.objects.started_draft(_member(request), request.session.get(key)) if new_token else None
+    response = _handle_form(request, started, copied_from, new_token)
+    if started is not None and response.status_code == 302:
+        # Saved: the token is spent, so a copy of this page restored by Back starts its own ticket.
+        request.session.pop(key, None)
+    return response
 
 
 @login_required
