@@ -9,18 +9,17 @@ import json
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 import pytest
 from django.contrib.auth.models import User
 from django.core import mail
-from django.db import IntegrityError
 from django.test import Client
 from django.urls import reverse
 
 from billing.models import BillingSettings, Payout, PayoutAccount, ReconciliationSnapshot
 from billing.payments_panel import PanelWindow
-from billing.payouts import LineState, ShareNotOwedError, mark_paid_by_hand, run_payouts, undo_paid_by_hand
+from billing.payouts import Earning, LineState, ShareNotOwedError, mark_paid_by_hand, run_payouts, undo_paid_by_hand
 from billing.reconciliation import (
     RecipientKind,
     ReconciliationResult,
@@ -543,8 +542,11 @@ def describe_a_lost_race() -> None:
 
     def it_refuses_a_share_another_request_recorded_at_the_same_moment() -> None:
         reg = _registration(_instructor())
+        # The other request's row is real; this request read the share before it existed.
+        _payout(reg, Payout.Status.OWED_MANUALLY)
         with (
-            patch.object(Payout.objects, "bulk_create", side_effect=IntegrityError("unique")),
+            patch.object(Earning, "payout", new_callable=PropertyMock, return_value=None),
             pytest.raises(ShareNotOwedError),
         ):
             mark_paid_by_hand([("class", reg.pk)], by=None)
+        assert Payout.objects.get(registration=reg).paid_by_hand_at is None

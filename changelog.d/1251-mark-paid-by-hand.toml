@@ -2,7 +2,7 @@ bump = "minor"
 date = "2026-11-17"
 audience = ["admins"]
 feature = "admin.reconciliation"
-guidance = "link"
+guidance = "shots"
 target = "reconciliation.mark-paid"
 title = "Mark instructor payouts paid by hand"
 changes = [
@@ -11,3 +11,9 @@ changes = [
   "A marked share leaves Owed now and shows in a new Paid by hand column, on the page, the PDF, the CSV and month end snapshots.",
   "Undo paid puts it back in Owed now. Nobody is told and nothing is sent.",
 ]
+
+[[shots]]
+caption = "On Reconciliation, press Mark all paid on a person's row once you have paid them everything in Owed now."
+
+[[shots]]
+caption = "Or open Transaction Detail and press Mark paid on one share. Undo paid puts it back in Owed now."
