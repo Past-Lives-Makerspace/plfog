@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import threading
 import time as clock
 from datetime import UTC, date, time, timedelta
@@ -36,7 +37,7 @@ from tours.booking import (
 )
 from tours.models import FacilityTourSettings, TourBooking, TourGuideSettings
 from tours.notify import shared_with_label
-from tours.picker import NoPreference, build_picker, find_tour, parse_any_guide_key
+from tours.picker import NoPreference, build_picker, find_tour, guide_choices, parse_any_guide_key, party_room
 
 pytestmark = pytest.mark.django_db
 
@@ -99,16 +100,48 @@ def shared(alex: Member, gina: Member, django_capture_on_commit_callbacks: Any) 
     return list(TourBooking.objects.order_by("pk"))
 
 
+def _soon_pair(alex: Member, gina: Member, *, gina_seats: int = 4) -> tuple[str, str, str]:
+    """Both guides at 4:00 PM on a day the live pages admit: the No preference key, Alex's and Gina's."""
+    day = _soon_day()
+    TourHoursFactory(guide=alex, weekday=day.weekday(), seats=4)
+    TourHoursFactory(guide=gina, weekday=day.weekday(), seats=gina_seats, end_time=time(17, 0))
+    stamp = f"{local(day, 16).astimezone(UTC):%Y%m%dT%H%MZ}"
+    return f"any-{stamp}", f"{alex.pk}-{stamp}", f"{gina.pk}-{stamp}"
+
+
+def _options(page: str) -> list[tuple[str, bool, str]]:
+    """The Guide dropdown's options as (value, selected, label)."""
+    found = re.findall(r'<option value="([^"]+)"( selected)?[^>]*data-tour-guide-option="[^"]+">([^<]+)</option>', page)
+    return [(value, bool(selected), label) for value, selected, label in found]
+
+
 def describe_the_picker():
-    def it_adds_no_preference_after_a_time_two_guides_share_and_only_where_asked(alex: Member):
+    def it_shows_one_time_where_guides_share_it_and_names_them_only_on_reschedule(alex: Member):
         gina = make_guide(full_legal_name="Gina Guide")
         TourHoursFactory(guide=gina, seats=2, end_time=time(17, 0))
         tours = open_tours(TUESDAY, TUESDAY, now=NOW, guide_notice=False)
         picker = build_picker(tours, "", no_preference=True)
         labels = [(timezone.localtime(c.tour.starts_at).hour, c.guide_name, c.no_preference) for c in picker.times]
-        assert labels == [(16, "Alex", False), (16, "Gina", False), (16, "", True), (17, "", False)]
-        assert picker.times[2].tour.key == ANY_FOUR and picker.times[2].tour.seats_left == 4
-        assert not any(choice.no_preference for choice in build_picker(tours, "").times)
+        assert labels == [(16, "", True), (17, "", False)]
+        assert picker.times[0].tour.key == ANY_FOUR and picker.times[0].tour.seats_left == 4
+        rescheduling = [(c.guide_name, c.no_preference) for c in build_picker(tours, "").times]
+        assert rescheduling == [("Alex", False), ("Gina", False), ("", False)]
+
+    def it_offers_no_preference_then_each_guide_only_where_guides_share_the_time(alex: Member):
+        gina = make_guide(full_legal_name="Gina Guide", preferred_name="Gee")
+        TourHoursFactory(guide=gina, seats=2, end_time=time(17, 0))
+        tours = open_tours(TUESDAY, TUESDAY, now=NOW, guide_notice=False)
+        guides = guide_choices(tours, find_tour(tours, ANY_FOUR))
+        four = FOUR.astimezone(UTC)
+        assert [(g.key, g.name, g.seats_left, g.no_preference) for g in guides] == [
+            (ANY_FOUR, "No preference", 4, True),
+            (f"{alex.pk}-{four:%Y%m%dT%H%MZ}", "Alex", 4, False),
+            (f"{gina.pk}-{four:%Y%m%dT%H%MZ}", "Gee", 2, False),
+        ]
+        gina_four = next(tour for tour in tours if tour.guide == gina)
+        assert guide_choices(tours, gina_four) == guides and party_room(guides, gina_four) == 4
+        five = next(tour for tour in tours if timezone.localtime(tour.starts_at).hour == 17)
+        assert guide_choices(tours, five) == [] and party_room([], five) == 4
 
     def it_finds_the_choice_by_its_key_only_where_guides_share_the_time(alex: Member, gina: Member):
         tours = open_tours(TUESDAY, TUESDAY, now=NOW, guide_notice=False)
@@ -118,16 +151,74 @@ def describe_the_picker():
         assert find_tour(alone, ANY_FOUR) is None
         assert parse_any_guide_key("any-nonsense") is None and parse_any_guide_key("12-20300108T0000Z") is None
 
-    def it_shows_on_the_booking_page_and_opens_the_form(alex: Member, gina: Member):
-        day = _soon_day()
-        for member in (alex, gina):
-            TourHoursFactory(guide=member, weekday=day.weekday(), seats=4)
-        page = Client(HTTP_HOST=HOST).get(f"/?date={day:%Y-%m-%d}").content.decode()
-        key = f"any-{local(day, 16).astimezone(UTC):%Y%m%dT%H%MZ}"
-        assert f'data-tour-time="{key}" data-tour-no-preference' in page
-        assert "4 seats left, no preference" in page
-        form = Client(HTTP_HOST=HOST).get(f"/?tour={key}").content.decode()
-        assert f'value="{key}"' in form and "No preference, any guide at this time" in form
+    def it_shows_one_button_per_time_on_the_booking_page(alex: Member, gina: Member):
+        anyone, _, _ = _soon_pair(alex, gina, gina_seats=2)
+        page = Client(HTTP_HOST=HOST).get(f"/?date={_soon_day():%Y-%m-%d}").content.decode()
+        assert page.count("data-tour-time=") == 2
+        assert f'data-tour-time="{anyone}" data-tour-no-preference' in page
+        assert re.search(r"4:00 PM</span>\s*<span class=\"pl-tourpub__time-seats\">4 seats left</span>", page)
+        assert "seats left with" not in page
+
+    def it_opens_the_form_with_the_guide_dropdown_no_preference_first_and_picked(alex: Member, gina: Member):
+        anyone, at_alex, at_gina = _soon_pair(alex, gina, gina_seats=2)
+        form = Client(HTTP_HOST=HOST).get(f"/?tour={anyone}").content.decode()
+        assert 'name="tour" id="tour-guide"' in form and 'type="hidden" name="tour"' not in form
+        assert _options(form) == [
+            (anyone, True, "No preference"),
+            (at_alex, False, "Alex (4 seats left)"),
+            (at_gina, False, "Gina (2 seats left)"),
+        ]
+        assert '<option value="4">4</option>' in form and '<option value="5">' not in form
+
+    def it_keeps_a_picked_guide_and_still_offers_the_roomiest_party(alex: Member, gina: Member):
+        _, _, at_gina = _soon_pair(alex, gina, gina_seats=2)
+        form = Client(HTTP_HOST=HOST).get(f"/?tour={at_gina}").content.decode()
+        assert [selected for _, selected, _ in _options(form)] == [False, False, True]
+        assert '<option value="4">4</option>' in form
+
+    def it_shows_no_dropdown_for_a_time_one_guide_gives(alex: Member, gina: Member):
+        _soon_pair(alex, gina, gina_seats=2)
+        five = f"{alex.pk}-{local(_soon_day(), 17).astimezone(UTC):%Y%m%dT%H%MZ}"
+        form = Client(HTTP_HOST=HOST).get(f"/?tour={five}").content.decode()
+        assert "data-tour-form" in form and "data-tour-guide" not in form
+        assert f'type="hidden" name="tour" value="{five}"' in form
+
+    def it_keeps_the_dropdown_and_the_pick_on_a_form_sent_back(alex: Member, gina: Member):
+        _, _, at_gina = _soon_pair(alex, gina, gina_seats=2)
+        data = {"tour": at_gina, "name": "Sam Rivera", "email": "not an email", "phone": "", "party_size": "1"}
+        page = Client(HTTP_HOST=HOST).post("/", data).content.decode()
+        assert [selected for _, selected, _ in _options(page)] == [False, False, True]
+        assert '<option value="4">4</option>' in page and not TourBooking.objects.exists()
+
+
+def describe_booking_from_the_guide_dropdown():
+    def _post(key: str, party: int = 2) -> Any:
+        data = {"tour": key, "name": "Sam Rivera", "email": "sam@example.com", "phone": "", "party_size": str(party)}
+        return Client(HTTP_HOST=HOST).post("/", data)
+
+    def it_books_the_guide_picked_as_their_own_button_did(alex: Member):
+        gina = _guide("Gina Guide", first=False)
+        _, _, at_gina = _soon_pair(alex, gina)
+        assert _post(at_gina).status_code == 302
+        booking = TourBooking.objects.get()
+        assert (booking.guide, booking.status, booking.request_group) == (gina, TourBooking.Status.BOOKED, None)
+
+    def it_sends_a_confirm_first_guide_picked_a_request_of_their_own(alex: Member, gina: Member):
+        _, at_alex, _ = _soon_pair(alex, gina)
+        assert _post(at_alex).status_code == 302
+        booking = TourBooking.objects.get()
+        assert (booking.guide, booking.status, booking.request_group) == (alex, TourBooking.Status.PENDING, None)
+
+    def it_books_no_preference_with_a_guide_who_confirms_automatically(alex: Member):
+        gina = _guide("Gina Guide", first=False)
+        anyone, _, _ = _soon_pair(alex, gina)
+        assert _post(anyone).status_code == 302
+        assert TourBooking.objects.get().guide == gina
+
+    def it_refuses_a_guide_without_room_for_the_party(alex: Member, gina: Member):
+        _, _, at_gina = _soon_pair(alex, gina, gina_seats=2)
+        page = _post(at_gina, party=3).content.decode()
+        assert "Only 2 seats are left at that time." in page and not TourBooking.objects.exists()
 
 
 def describe_booking_with_no_preference():

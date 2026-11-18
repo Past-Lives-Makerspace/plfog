@@ -15,12 +15,12 @@ from django.utils import timezone
 from core.models import EventDelivery, Notification, UserProfile
 from membership.models import Member
 from tests.membership.factories import MemberFactory
-from tests.tours.conftest import signed_in
+from tests.tours.conftest import make_guide, signed_in
 from tests.tours.factories import TourBookingFactory, TourHoursFactory, local
 from tours import kiosk
 from tours.booking import TourLockedError, check_in_tour
 from tours.forms import TourBookingForm
-from tours.models import FacilityTourSettings, TourBooking
+from tours.models import FacilityTourSettings, TourBooking, TourGuideSettings
 
 pytestmark = pytest.mark.django_db
 
@@ -402,6 +402,23 @@ def describe_kiosk_booking():
         content = kiosk_client.get(BOOK, {"date": f"{day:%Y-%m-%d}"}).content.decode()
         assert 'data-kiosk-screen="book"' in content
         assert f'href="{BOOK}?tour={_key_for(guide, local(day, 16))}"' in content
+
+    def it_offers_the_guide_dropdown_where_guides_share_a_time_and_books_at_once(
+        kiosk_client: Client, guide: Member, day: date
+    ):
+        other = make_guide(full_legal_name="Olive Other")
+        TourGuideSettings.objects.create(guide=other, confirm_mode=TourGuideSettings.ConfirmMode.FIRST)
+        for member in (guide, other):
+            TourHoursFactory(guide=member, weekday=day.weekday(), seats=4)
+        anyone = f"any-{local(day, 16).astimezone(UTC):%Y%m%dT%H%MZ}"
+        times = kiosk_client.get(BOOK, {"date": f"{day:%Y-%m-%d}"}).content.decode()
+        assert f'href="{BOOK}?tour={anyone}"' in times and times.count("data-tour-time=") == 2
+        form = kiosk_client.get(BOOK, {"tour": anyone}).content.decode()
+        assert "data-tour-guide" in form and "Olive (4 seats left)" in form
+        data = {"tour": _key_for(other, local(day, 16)), "name": "Kim Kiosk", "email": "kim@example.com"}
+        assert kiosk_client.post(BOOK, {**data, "phone": "", "party_size": "2"})["Location"] == BOOKED
+        booking = TourBooking.objects.get()
+        assert (booking.guide, booking.status) == (other, TourBooking.Status.BOOKED)
 
     def it_follows_the_websites_minimum_notice(kiosk_client: Client, guide: Member, day: date):
         TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)

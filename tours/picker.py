@@ -4,8 +4,9 @@ Built from a list of :class:`~tours.availability.OpenTour`: the days that have a
 them picked, and that day's times. Each page renders it in its own markup (the tours site's
 links, the Tours page modal's HTMX buttons); only the shape is shared.
 
-A time two or more guides share can also offer No preference (#1255), on the booking pages only:
-its key is ``any-<UTC start>`` and :func:`tours.booking.book_any_guide` books it.
+On the booking pages (#1255) a time two or more guides share is one button, keyed No preference
+(``any-<UTC start>``, booked by :func:`tours.booking.book_any_guide`); the form then offers the
+Guide dropdown (:func:`guide_choices`): No preference first, then each guide.
 """
 
 from __future__ import annotations
@@ -77,7 +78,8 @@ class DayChoice:
 class TimeChoice:
     """One tour among the picked day's times. ``guide_name`` is set when two guides share the time.
 
-    ``tour`` is a :class:`NoPreference` for that time's No preference choice (#1255).
+    On the booking pages (#1255) a time two or more guides share is one choice, ``tour`` a
+    :class:`NoPreference` and ``no_preference`` set, with no guide named.
     """
 
     tour: OpenTour
@@ -94,11 +96,27 @@ class Picker:
     times: list[TimeChoice]
 
 
+#: The Guide dropdown's first option (#1255).
+NO_PREFERENCE_LABEL = "No preference"
+
+
+@dataclass(frozen=True)
+class GuideChoice:
+    """One option of the booking form's Guide dropdown (#1255): No preference, or one guide's tour."""
+
+    key: str
+    name: str
+    seats_left: int
+    no_preference: bool = False
+
+
 def build_picker(tours: list[OpenTour], raw_day: str, *, no_preference: bool = False) -> Picker:
     """The days that have a tour, ``raw_day`` (``YYYY-MM-DD``) picked when it is one of them, else the first.
 
     With ``no_preference`` (the visitor's booking page and the kiosk, #1255), a time two or more
-    guides share gets a No preference choice after theirs.
+    guides share is one choice, No preference, carrying the most seats any one of them has left;
+    the form's Guide dropdown then names them. Without it (the Reschedule pages) each guide's tour
+    is its own choice, named.
     """
     by_day: dict[date, list[OpenTour]] = {}
     for tour in tours:
@@ -109,16 +127,38 @@ def build_picker(tours: list[OpenTour], raw_day: str, *, no_preference: bool = F
         wanted = None
     picked = wanted if wanted in by_day else next(iter(by_day), None)
     day_tours = by_day.get(picked, []) if picked is not None else []
-    starts = [tour.starts_at for tour in day_tours]
-    last_index = {tour.starts_at: index for index, tour in enumerate(day_tours)}
+    by_start: dict[datetime, list[OpenTour]] = {}
+    for tour in day_tours:
+        by_start.setdefault(tour.starts_at, []).append(tour)
     times: list[TimeChoice] = []
-    for index, tour in enumerate(day_tours):
-        shared = starts.count(tour.starts_at) > 1
-        times.append(TimeChoice(tour=tour, guide_name=guide_first_name(tour.guide) if shared else ""))
-        if no_preference and shared and last_index[tour.starts_at] == index:
-            same = [other for other in day_tours if other.starts_at == tour.starts_at]
+    for same in by_start.values():
+        if len(same) == 1:
+            times.append(TimeChoice(tour=same[0], guide_name=""))
+        elif no_preference:
             times.append(TimeChoice(tour=NoPreference.among(same), guide_name="", no_preference=True))
+        else:
+            times.extend(TimeChoice(tour=tour, guide_name=guide_first_name(tour.guide)) for tour in same)
     return Picker(days=[DayChoice(day=day, selected=day == picked) for day in by_day], day=picked, times=times)
+
+
+def guide_choices(tours: list[OpenTour], chosen: OpenTour) -> list[GuideChoice]:
+    """The Guide dropdown for ``chosen``'s time (#1255): No preference, then each guide by their public
+    first name, in availability's order. Empty when one guide alone offers that time, so no dropdown shows.
+    """
+    same = [tour for tour in tours if tour.starts_at == chosen.starts_at]
+    if len(same) < 2:
+        return []
+    anyone = NoPreference.among(same)
+    return [
+        GuideChoice(key=anyone.key, name=NO_PREFERENCE_LABEL, seats_left=anyone.seats_left, no_preference=True),
+        *(GuideChoice(key=tour.key, name=guide_first_name(tour.guide), seats_left=tour.seats_left) for tour in same),
+    ]
+
+
+def party_room(guides: list[GuideChoice], chosen: OpenTour) -> int:
+    """The largest party the form offers: the roomiest guide's seats where the Guide dropdown shows
+    (No preference can take it), else the chosen tour's."""
+    return max((guide.seats_left for guide in guides), default=chosen.seats_left)
 
 
 def find_tour(tours: list[OpenTour], key: str) -> OpenTour | None:

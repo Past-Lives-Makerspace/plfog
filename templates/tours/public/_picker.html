@@ -1,7 +1,7 @@
 {% comment %}
 The date strip and the picked day's tour times (#948), shared by the booking page and the
 reschedule page. Context: picker (tours.public_views.Picker), page_url (the page the links
-reload with ?date= or ?tour=), support_email. A No preference choice (#1255) shows where guides share a time.
+reload with ?date= or ?tour=), support_email. On the booking pages a time guides share is one No preference button (#1255).
 {% endcomment %}
 {% if picker.days %}
 <section class="pl-tourpub__section" aria-labelledby="tour-days-heading">
@@ -25,7 +25,7 @@ reload with ?date= or ?tour=), support_email. A No preference choice (#1255) sho
     <li>
       <a href="{{ page_url }}?tour={{ choice.tour.key }}" class="pl-tourpub__time" data-tour-time="{{ choice.tour.key }}"{% if choice.no_preference %} data-tour-no-preference{% endif %}>
         <span class="pl-tourpub__time-at">{{ choice.tour.starts_at|time:"g:i A" }}</span>
-        <span class="pl-tourpub__time-seats">{{ choice.tour.seats_left }} seat{{ choice.tour.seats_left|pluralize }} left{% if choice.no_preference %}, no preference{% elif choice.guide_name %} with {{ choice.guide_name }}{% endif %}</span>
+        <span class="pl-tourpub__time-seats">{{ choice.tour.seats_left }} seat{{ choice.tour.seats_left|pluralize }} left{% if choice.guide_name %} with {{ choice.guide_name }}{% endif %}</span>
       </a>
     </li>
     {% endfor %}

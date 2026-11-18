@@ -467,6 +467,8 @@ class TourBookingForm(forms.Form):
         top = max(1, min(max_party, MAX_SEATS))
         party = cast(forms.TypedChoiceField, self.fields["party_size"])
         party.choices = [(str(size), str(size)) for size in range(1, top + 1)]
+        # The Guide dropdown (#1255, _book_form.html) greys out a guide without room for this party.
+        party.widget.attrs["x-model.number"] = "party"
         # At the front desk kiosk (#950) the browser must never offer the last visitor's details.
         self.fields["name"].widget.attrs.update({"autocomplete": "off" if kiosk else "name"})
         self.fields["email"].widget.attrs.update({"autocomplete": "off" if kiosk else "email"})

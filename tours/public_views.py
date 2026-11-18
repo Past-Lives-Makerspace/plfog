@@ -12,7 +12,7 @@ refuse a cancelled or past tour and anything inside the cancel cutoff, on GET an
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from functools import wraps
 from typing import Any
@@ -42,7 +42,15 @@ from tours.booking import (
 from tours.forms import TourBookingForm
 from tours.models import MAX_HORIZON_DAYS, MAX_SEATS, TOUR_ADDRESS, FacilityTourSettings, TourBooking
 from tours.notify import guide_first_name, guide_notice_hours, short_when, support_email, when_label
-from tours.picker import build_picker, find_tour, guide_and_start, parse_any_guide_key
+from tours.picker import (
+    GuideChoice,
+    build_picker,
+    find_tour,
+    guide_and_start,
+    guide_choices,
+    parse_any_guide_key,
+    party_room,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,11 +109,28 @@ def _prefill(request: HttpRequest) -> dict[str, str]:
     return {"name": name, "email": user.email}
 
 
-def limit_party(form: TourBookingForm, tour: OpenTour) -> None:
-    """Offer 1 to the tour's seats left again on a re-shown form (a POST offered up to a full tour)."""
+def limit_party(form: TourBookingForm, room: int) -> None:
+    """Offer 1 to ``room`` again on a re-shown form (a POST offered up to a full tour)."""
     form.fields["party_size"].choices = [  # type: ignore[attr-defined]
-        (str(size), str(size)) for size in range(1, max(tour.seats_left, 1) + 1)
+        (str(size), str(size)) for size in range(1, max(room, 1) + 1)
     ]
+
+
+def booking_form(
+    request: HttpRequest, tours: list[OpenTour], chosen: OpenTour, *, offer_account: bool, kiosk: bool = False
+) -> Attempt:
+    """The empty form for a picked time, with the Guide dropdown (#1255) where two or more guides share it.
+
+    The party size runs to the roomiest guide's seats there, since No preference can seat it.
+    """
+    guides = guide_choices(tours, chosen)
+    form = TourBookingForm(
+        initial={"tour": chosen.key, "party_size": "1", **({} if kiosk else _prefill(request))},
+        max_party=party_room(guides, chosen),
+        offer_account=offer_account,
+        kiosk=kiosk,
+    )
+    return Attempt(form=form, chosen=chosen, guides=guides)
 
 
 def render_page(request: HttpRequest, template: str, context: dict[str, Any], *, status: int = 200) -> HttpResponse:
@@ -128,6 +153,7 @@ class Attempt:
     error: str = ""
     form: TourBookingForm | None = None
     chosen: OpenTour | None = None
+    guides: list[GuideChoice] = field(default_factory=list)
 
 
 def _try_booking(request: HttpRequest, form: TourBookingForm, *, kiosk: bool) -> Attempt:
@@ -189,8 +215,9 @@ def post_booking(request: HttpRequest, tours: list[OpenTour], offer_account: boo
     chosen = find_tour(tours, request.POST.get("tour", ""))
     if chosen is None:
         return Attempt(error=GONE_MESSAGE)
-    limit_party(posted, chosen)
-    return Attempt(form=posted, chosen=chosen)
+    guides = guide_choices(tours, chosen)
+    limit_party(posted, party_room(guides, chosen))
+    return Attempt(form=posted, chosen=chosen, guides=guides)
 
 
 @tours_surface_only
@@ -220,13 +247,7 @@ def book(request: HttpRequest) -> HttpResponse:
             tours = all_open_tours()
     else:
         chosen = find_tour(tours, request.GET.get("tour", ""))
-        attempt = Attempt(chosen=chosen)
-        if chosen is not None:
-            attempt.form = TourBookingForm(
-                initial={"tour": chosen.key, "party_size": "1", **_prefill(request)},
-                max_party=chosen.seats_left,
-                offer_account=offer_account,
-            )
+        attempt = Attempt() if chosen is None else booking_form(request, tours, chosen, offer_account=offer_account)
     chosen = attempt.chosen if attempt.form is not None else None
     raw_day = f"{timezone.localdate(chosen.starts_at):%Y-%m-%d}" if chosen else request.GET.get("date", "")
     return render_page(
@@ -235,6 +256,7 @@ def book(request: HttpRequest) -> HttpResponse:
         {
             "picker": build_picker(tours, raw_day, no_preference=True),
             "chosen": chosen,
+            "guides": attempt.guides,
             "form": attempt.form,
             "error": attempt.error,
             "page_url": request.path,
