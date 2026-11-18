@@ -4,7 +4,7 @@ audience = ["instructors"]
 title = "Change your live class without asking an admin"
 changes = [
   "On a live class, Edit now lets you change the title, class type, price, capacity, location and minimum age yourself.",
-  "Only the dates still go through an admin: press Request a change to ask.",
+  "Since November 17 the dates are yours too: the Dates card on Edit moves them, and everyone signed up is emailed.",
 ]
 feature = "classes.teach"
 guidance = "shots"
@@ -13,4 +13,4 @@ guidance = "shots"
 caption = "Open Edit on a live class. The title, class type, price, capacity and location are fields you can change and save."
 
 [[shots]]
-caption = "The dates stay locked. Press Request a change to ask an admin to move one."
+caption = "The Dates card lists every date. Add a new one or remove one, then press Save."
