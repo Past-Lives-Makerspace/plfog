@@ -68,7 +68,7 @@ from core.models import (
 from core.widgets import PageContentEditorWidget, RichBodyEditorWidget, RichTextEditorWidget
 from membership.forms import member_picker_key, member_picker_labels, member_picker_lookup, setup_location_field
 from membership.markdown import sanitize_page_submission, sanitize_wiki_submission
-from membership.names import user_display_name, user_label, user_name_or_email
+from membership.names import member_label, user_display_name, user_label, user_name_or_email
 from membership.permission_setup import spec_for
 from membership.models import (
     ANNOUNCEMENT_IMAGE_EXTENSIONS,
@@ -536,7 +536,32 @@ class InstructorProfileForm(MemberPhotoFormBase):
         }
 
 
-class ProfileSettingsForm(MemberPhotoFormBase):
+def name_shown_examples(member: Member) -> dict[str, str]:
+    """Each Name other members see choice as this member's own names would read: ``{"initial": 'Shows as
+    "Wren (Quinn A.)"', ...}``, so the choice is made from the result, not a description of it."""
+    preferred, legal = member.preferred_name, member.full_legal_name
+    return {
+        Member.NameShown.PREFERRED: f'Shows as "{(preferred or legal).strip()}"',
+        Member.NameShown.INITIAL: f'Shows as "{member_label(preferred, legal, form="initial")}"',
+        Member.NameShown.FULL: f'Shows as "{member_label(preferred, legal, form="full")}"',
+    }
+
+
+class NameShownFieldMixin:
+    """Name other members see on a member form: a post without it (an older page, a partial save) keeps
+    the member's choice instead of failing as a missing answer."""
+
+    instance: Member
+    cleaned_data: dict[str, Any]
+
+    def _make_name_shown_optional(self, fields: dict[str, forms.Field]) -> None:
+        fields["name_shown_to_members"].required = False
+
+    def clean_name_shown_to_members(self) -> str:
+        return self.cleaned_data.get("name_shown_to_members") or self.instance.name_shown_to_members
+
+
+class ProfileSettingsForm(NameShownFieldMixin, MemberPhotoFormBase):
     """Form for editing member profile fields plus per-field directory visibility."""
 
     VISIBILITY_PREFIX = "show_"
@@ -570,6 +595,9 @@ class ProfileSettingsForm(MemberPhotoFormBase):
             field.disabled = True
             field.initial = True
             field.help_text = "Your role (admin, guild lead, or instructor) requires a public profile."
+
+        self._make_name_shown_optional(self.fields)
+        self.name_shown_examples = name_shown_examples(self.instance)
 
         current = self.instance.directory_visibility if self.instance and self.instance.pk else {}
         for field_name in Member.DIRECTORY_TOGGLEABLE_FIELDS:
@@ -609,6 +637,7 @@ class ProfileSettingsForm(MemberPhotoFormBase):
             "about_me",
             "profile_photo",
             "show_in_directory",
+            "name_shown_to_members",
             "show_on_space_map",
             "open_for_commissions",
             "commission_note",
@@ -616,6 +645,7 @@ class ProfileSettingsForm(MemberPhotoFormBase):
             "instructor_bio",
         ]
         widgets = {
+            "name_shown_to_members": forms.RadioSelect,
             "preferred_name": forms.TextInput(attrs={"placeholder": "What should we call you?"}),
             "pronouns": forms.TextInput(attrs={"placeholder": "e.g. she/her, they/them"}),
             "phone": forms.TextInput(attrs={"placeholder": "(optional)"}),
@@ -634,6 +664,7 @@ class ProfileSettingsForm(MemberPhotoFormBase):
         labels = {
             "show_in_directory": "Show me in the member directory",
             "show_on_space_map": "Show me on the Spaces map",
+            "name_shown_to_members": "What other members see",
             "discord_handle": "Discord",
             "about_me": "About me",
             "profile_photo": "Profile photo",
@@ -1000,7 +1031,9 @@ class BetaFeedbackForm(forms.Form):
         photos: list[UploadedFile] = self.cleaned_data["photos"]
         # The count line makes a stripped-attachment situation visible to the reader.
         photos_line = f"Photos attached: {len(photos)}\n" if photos else ""
-        sender_name = user_display_name(user)
+        # Webmasters read it: staff see the legal name beside the preferred one.
+        member = getattr(user, "member", None)
+        sender_name = (member.staff_label if member is not None else "") or user_display_name(user)
         sender = f"{sender_name} ({user.email})" if sender_name else user.email
         body = (
             f"From: {sender}\nCategory: {category_label}\n{photos_line}"
@@ -1180,7 +1213,7 @@ class FeedbackResolveForm(forms.Form):
         return cls(auto_id="id_close_%s")
 
 
-class MemberAdminEditForm(forms.ModelForm):
+class MemberAdminEditForm(NameShownFieldMixin, forms.ModelForm):
     """Admin-side Member edit form with a unified role dropdown.
 
     The `role` token doesn't map 1:1 to a model field — Member.apply_admin_role
@@ -1215,13 +1248,19 @@ class MemberAdminEditForm(forms.ModelForm):
             "status",
             "member_type",
             "show_in_directory",
+            "name_shown_to_members",
         ]
         widgets = {
             "pronouns": forms.TextInput(attrs={"placeholder": "e.g. she/her, they/them"}),
         }
+        labels = {"name_shown_to_members": "Name other members see"}
+        help_texts = {
+            "name_shown_to_members": "Staff always see both names. With no preferred name, members see the legal name.",
+        }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        self._make_name_shown_optional(self.fields)
         if self.instance and self.instance.pk:
             self.fields["role"].initial = self._derive_initial_role(self.instance)
 
@@ -3839,7 +3878,7 @@ class OrientationSlotForm(forms.ModelForm):
         )
         if windows.exists():
             return (
-                f"These hours overlap {orienter.display_name}'s open window that day. "
+                f"These hours overlap {orienter.staff_label}'s open window that day. "
                 "One person can be booked one way at a time."
             )
         fixed = OrientationSlot.objects.filter(
@@ -3847,7 +3886,7 @@ class OrientationSlotForm(forms.ModelForm):
         )
         if is_open and fixed.exists():
             return (
-                f"These hours overlap {orienter.display_name}'s fixed times that day. "
+                f"These hours overlap {orienter.staff_label}'s fixed times that day. "
                 "One person can be booked one way at a time."
             )
         return None
@@ -5123,7 +5162,7 @@ class OrientationRecordForm(forms.Form):
             and orientation_type is not None
             and orientation_type.pk in member.completed_orientation_type_ids([orientation_type])
         ):
-            self.add_error("orientation", f"{member.display_name} already completed this orientation.")
+            self.add_error("orientation", f"{member.staff_label} already completed this orientation.")
         elif cleaned.get("send_bill"):
             self._clean_bill(cleaned, member, orientation_type)
         return cleaned
@@ -5433,7 +5472,7 @@ class _GuildWithLeadChoiceField(forms.ModelChoiceField):
     def label_from_instance(self, obj: Any) -> str:
         if obj.guild_lead is None:
             return f"{obj.name} (no lead)"
-        return f"{obj.name} (lead now: {obj.guild_lead.display_name})"
+        return f"{obj.name} (lead now: {obj.guild_lead.staff_label})"
 
 
 class MemberGuildLeadForm(forms.Form):

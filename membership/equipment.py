@@ -420,6 +420,8 @@ def _notify_needs_approval(reservation: EquipmentReservation) -> None:
             "purpose_line": _purpose_line(reservation.purpose),
             "manage_url": manage_url,
             **placeholders,
+            # Only managers hear this one, so it names the member as staff see them.
+            "member_name": reservation.member.staff_label,
         },
         url=manage_url,
         period=f"reservation:{reservation.pk}:needs_approval",
@@ -526,6 +528,8 @@ def notify_message_to_managers(message: EquipmentReservationMessage, recipient_i
             "message_body": message.body,
             "reservation_url": _absolute_url(reservation.staff_messages_url),
             **_placeholder_context(reservation),
+            # Only managers hear this one, so it names the member as staff see them.
+            "member_name": reservation.member.staff_label,
         },
         url=reservation.staff_messages_url,
         period=message.notice_period,
@@ -1026,7 +1030,7 @@ def take_back_credit(equipment: Equipment, member: Member, actor: Member) -> int
         _ensure_can_credit(locked, actor)
         balance = EquipmentCredit.objects.balance_for(member, locked)
         if balance <= 0:
-            raise EquipmentError(f"{member.display_name} has no credit here.")
+            raise EquipmentError(f"{member.staff_label} has no credit here.")
         EquipmentCredit.objects.create(
             equipment=locked,
             member=member,

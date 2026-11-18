@@ -54,12 +54,12 @@
           {% if staff.member.profile_photo and staff.member|is_public:"profile_photo" %}
           <img src="{{ staff.member.profile_photo.url }}" alt="" class="pl-orient-avatar">
           {% else %}
-          <span class="pl-orient-avatar pl-orient-avatar--initials">{{ staff.member.display_name|slice:":1" }}</span>
+          <span class="pl-orient-avatar pl-orient-avatar--initials">{{ staff.member.greeting_name|slice:":1" }}</span>
           {% endif %}
           <div>
-            <div>{{ staff.member.display_name }}</div>
+            <div>{{ staff.member.staff_label }}</div>
             {% if staff.granted_by %}
-            <div class="hub-text-muted" style="font-size:0.8125rem;">Added by {{ staff.granted_by.display_name }}</div>
+            <div class="hub-text-muted" style="font-size:0.8125rem;">Added by {{ staff.granted_by.staff_label }}</div>
             {% endif %}
           </div>
         </div>
@@ -262,8 +262,8 @@
       {% for booking in orientation_pending_requests %}
       <div class="pl-equip-res-row">
         <span class="pl-equip-staff-row__who">
-          {% if booking.member.profile_photo and booking.member|is_public:"profile_photo" %}<img src="{{ booking.member.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ booking.member.display_name|slice:":1" }}</span>{% endif %}
-          <span>{{ booking.member.display_name }}</span>
+          {% if booking.member.profile_photo and booking.member|is_public:"profile_photo" %}<img src="{{ booking.member.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ booking.member.greeting_name|slice:":1" }}</span>{% endif %}
+          <span>{{ booking.member.staff_label }}</span>
         </span>
         <span>{{ booking.orientation_type.name }} · {{ booking.slot.starts_at|date:"D, M j" }} · {{ booking.slot.starts_at|time:"g:i A" }}{% if booking.amount_paid_cents %} <span class="pl-price-chip">Paid</span>{% endif %}</span>
         <a href="{% url 'hub_orientation_respond' booking.pk %}" class="pl-btn pl-btn--primary pl-btn--sm">Review</a>
@@ -341,8 +341,8 @@
     {% if can_edit_others_hours or manager.pk == viewer_member_pk %}
     <div class="pl-orient-overview__group">
       <div class="pl-orient-overview__person">
-        {% if manager.profile_photo and manager|is_public:"profile_photo" %}<img src="{{ manager.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ manager.display_name|slice:":1" }}</span>{% endif %}
-        <strong>{{ manager.display_name }}</strong>
+        {% if manager.profile_photo and manager|is_public:"profile_photo" %}<img src="{{ manager.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ manager.greeting_name|slice:":1" }}</span>{% endif %}
+        <strong>{{ manager.staff_label }}</strong>
         <button type="button" class="hub-btn hub-btn--sm"
                 @click="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Loading…</p>'; $dispatch('open-modal', 'edit-hours-modal')"
                 hx-get="{% url 'hub_equipment_orientation_hours_form' equipment.slug %}?orienter={{ manager.pk }}"
@@ -384,8 +384,8 @@
     {% for manager, manager_rules in former_managers_overview %}
     <div class="pl-orient-overview__group">
       <div class="pl-orient-overview__person">
-        {% if manager.profile_photo and manager|is_public:"profile_photo" %}<img src="{{ manager.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ manager.display_name|slice:":1" }}</span>{% endif %}
-        <strong>{{ manager.display_name }}</strong>
+        {% if manager.profile_photo and manager|is_public:"profile_photo" %}<img src="{{ manager.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ manager.greeting_name|slice:":1" }}</span>{% endif %}
+        <strong>{{ manager.staff_label }}</strong>
         {# Deliberately ungated within this lead-level card: the Edit Hours modal is the only route #}
         {# to clean up a former manager's leftover rows (they no longer appear in the active list). #}
         <button type="button" class="hub-btn hub-btn--sm"
@@ -452,8 +452,8 @@
           <span class="pl-slot-admin__when">{{ slot.starts_at|date:"D M j" }} · {{ slot.starts_at|time:"g:i A" }} to {{ slot.ends_at|time:"g:i A" }} · {{ slot.orientation_type.name }}{% include "hub/partials/_slot_blocked_by.html" with slot=slot %}</span>
           <span class="pl-slot-admin__with">
             {% if slot.orienter %}
-              {% if slot.orienter.profile_photo and slot.orienter|is_public:"profile_photo" %}<img src="{{ slot.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ slot.orienter.display_name|slice:":1" }}</span>{% endif %}
-              {{ slot.orienter.display_name }}
+              {% if slot.orienter.profile_photo and slot.orienter|is_public:"profile_photo" %}<img src="{{ slot.orienter.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ slot.orienter.greeting_name|slice:":1" }}</span>{% endif %}
+              {{ slot.orienter.staff_label }}
             {% else %}
               <span class="hub-text-muted">Any manager</span>
             {% endif %}
@@ -464,7 +464,7 @@
         </div>
         {% for attendee in slot.attendee_bookings %}
         <a href="{% url 'hub_orientation_respond' attendee.pk %}" class="pl-equip-attendee-row">
-          <span>{{ attendee.member.display_name }}</span>
+          <span>{{ attendee.member.staff_label }}</span>
           {% if attendee.status == "confirmed" %}
           <span class="pl-equip-badge pl-equip-badge--ok">Confirmed</span>
           {% else %}
@@ -535,7 +535,7 @@
       <div class="pl-equip-res-row" data-approval-row="{{ reservation.pk }}">
         <span class="pl-equip-approve-row__main">
           <span>{% if reservation.is_season %}<span data-season-row>Season, {{ reservation.season_label }}</span>{% else %}{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}{% endif %}</span>
-          <span class="pl-equip-approve-row__who">{{ reservation.member.display_name }}{% if reservation.purpose %} · {{ reservation.purpose }}{% endif %}{% if reservation.has_unread_messages %} <span class="pl-equip-badge pl-equip-badge--warn" data-thread-unread="{{ reservation.thread_key }}">New message</span>{% endif %}</span>
+          <span class="pl-equip-approve-row__who">{{ reservation.member.staff_label }}{% if reservation.purpose %} · {{ reservation.purpose }}{% endif %}{% if reservation.has_unread_messages %} <span class="pl-equip-badge pl-equip-badge--warn" data-thread-unread="{{ reservation.thread_key }}">New message</span>{% endif %}</span>
         </span>
         <span class="pl-equip-approve-row__actions">
           {% include "hub/partials/reservation_messages_launch.html" with r=reservation launch_next=reservations_tab_url launch_class="pl-btn pl-btn--secondary pl-btn--sm" %}
@@ -564,7 +564,7 @@
       {% for block in manage_blocks %}
       <div class="pl-equip-res-row" data-block-row="{{ block.pk }}">
         <span>{{ block.starts_at|date:"D, M j" }} · {{ block.starts_at|time:"g:i A" }} to {{ block.ends_at|time:"g:i A" }}</span>
-        <span>Held · {{ block.purpose }} <span class="hub-text-muted">· by {{ block.member.display_name }}</span></span>
+        <span>Held · {{ block.purpose }} <span class="hub-text-muted">· by {{ block.member.staff_label }}</span></span>
         <button type="button" class="pl-btn pl-btn--danger pl-btn--sm"
                 @click="$dispatch('open-confirm', 'block-remove-{{ block.pk }}')">Remove</button>
       </div>
@@ -621,7 +621,7 @@
       {% for holder in credit_holders %}
       <div class="pl-equip-res-row pl-equip-credit-row" data-credit-holder="{{ holder.member.pk }}">
         <span class="pl-equip-credit-row__main">
-          <span class="pl-equip-credit-row__who"><strong>{{ holder.member.display_name }}</strong> <span class="pl-equip-badge pl-equip-badge--ok" data-credit-hours>{{ holder.hours_label }}</span></span>
+          <span class="pl-equip-credit-row__who"><strong>{{ holder.member.staff_label }}</strong> <span class="pl-equip-badge pl-equip-badge--ok" data-credit-hours>{{ holder.hours_label }}</span></span>
           <span class="pl-equip-credit-row__note hub-text-muted">{% if holder.note %}{{ holder.note }} · {% endif %}{{ holder.granted_at|date:"M j, Y" }}</span>
         </span>
         <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'credit-take-back-{{ holder.member.pk }}')" data-credit-take-back>Take back</button>
@@ -643,7 +643,7 @@
       {% for reservation in manage_sessions %}
       <div class="pl-equip-res-row" data-session-row="{{ reservation.pk }}">
         <span>{{ reservation.starts_at|date:"D, M j" }} · booked {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}</span>
-        <span>{{ reservation.member.display_name }} {% include "hub/partials/_equipment_session_times.html" with session_class="pl-price-chip" %}{% if reservation.credited_unused_label %} <span class="pl-price-chip" data-credited-chip>{{ reservation.credited_unused_label }}</span>{% endif %}</span>
+        <span>{{ reservation.member.staff_label }} {% include "hub/partials/_equipment_session_times.html" with session_class="pl-price-chip" %}{% if reservation.credited_unused_label %} <span class="pl-price-chip" data-credited-chip>{{ reservation.credited_unused_label }}</span>{% endif %}</span>
       </div>
       {% endfor %}
     </div>
@@ -662,12 +662,12 @@
       {# An unpaid hold (#749): it holds the time and is released on its own, so it has no Cancel. #}
       <div class="pl-equip-res-row" data-awaiting-payment-row="{{ reservation.pk }}">
         <span>{% if reservation.is_season %}<span data-season-row>Season, {{ reservation.season_label }}</span>{% else %}{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}{% endif %}</span>
-        <span class="pl-equip-hold-row__who">{{ reservation.member.display_name }} <span class="pl-equip-badge pl-equip-badge--warn">Awaiting payment</span> <span class="hub-text-muted">Released if unpaid by {{ reservation.hold_released_by|time:"g:i A" }}</span></span>
+        <span class="pl-equip-hold-row__who">{{ reservation.member.staff_label }} <span class="pl-equip-badge pl-equip-badge--warn">Awaiting payment</span> <span class="hub-text-muted">Released if unpaid by {{ reservation.hold_released_by|time:"g:i A" }}</span></span>
       </div>
       {% else %}
       <div class="pl-equip-res-row">
         <span>{% if reservation.is_season %}<span data-season-row>Season, {{ reservation.season_label }}</span>{% else %}{{ reservation.starts_at|date:"D, M j" }} · {{ reservation.starts_at|time:"g:i A" }} to {{ reservation.ends_at|time:"g:i A" }}{% endif %}</span>
-        <span>{{ reservation.member.display_name }}{% if reservation.purpose %} <span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}{% if reservation.amount_paid_cents %} <span class="pl-price-chip" data-paid-chip>Paid {{ reservation.paid_display }}</span>{% endif %}{% if reservation.session_started_at %} {% include "hub/partials/_equipment_session_times.html" with session_class="pl-price-chip" %}{% endif %}{% if reservation.has_unread_messages %} <span class="pl-equip-badge pl-equip-badge--warn" data-thread-unread="{{ reservation.thread_key }}">New message</span>{% endif %}</span>
+        <span>{{ reservation.member.staff_label }}{% if reservation.purpose %} <span class="hub-text-muted">· {{ reservation.purpose }}</span>{% endif %}{% if reservation.amount_paid_cents %} <span class="pl-price-chip" data-paid-chip>Paid {{ reservation.paid_display }}</span>{% endif %}{% if reservation.session_started_at %} {% include "hub/partials/_equipment_session_times.html" with session_class="pl-price-chip" %}{% endif %}{% if reservation.has_unread_messages %} <span class="pl-equip-badge pl-equip-badge--warn" data-thread-unread="{{ reservation.thread_key }}">New message</span>{% endif %}</span>
         <span class="pl-equip-approve-row__actions">
           {% include "hub/partials/reservation_messages_launch.html" with r=reservation launch_next=reservations_tab_url launch_class="pl-btn pl-btn--secondary pl-btn--sm" %}
           {% if reservation.credited_minutes_total %}
@@ -697,7 +697,7 @@
     <div class="pl-late-fee-list">
       {% for fee, waive_form in manage_late_fees %}
       <div class="pl-late-fee-row" data-late-fee-row="{{ fee.pk }}" data-late-fee-status="{{ fee.status }}">
-        <span class="pl-late-fee-row__who">{{ fee.member.display_name }}</span>
+        <span class="pl-late-fee-row__who">{{ fee.member.staff_label }}</span>
         <span class="pl-late-fee-row__item hub-text-muted">{{ fee.item_label }}</span>
         <span class="pl-late-fee-row__amount">{{ fee.amount_display }}</span>
         <span class="pl-late-fee-row__state">{% include "hub/partials/late_fee_state.html" %}</span>
@@ -720,7 +720,7 @@
 {% for reservation in manage_reservations %}
 {% if not reservation.is_awaiting_payment and not reservation.credited_minutes_total %}
 {% url 'hub_equipment_reservation_cancel' equipment.slug reservation.pk as mgr_cancel_url %}
-{% with rpks=reservation.pk|stringformat:"s" who=reservation.member.display_name %}
+{% with rpks=reservation.pk|stringformat:"s" who=reservation.member.staff_label %}
 {# A paid row (#749) adds "Their $50.00 is refunded in full."; a paid season after it started (#1095) is not refunded. #}
 {% if reservation.keeps_payment_on_cancel %}
 {% include "components/confirm_modal.html" with confirm_id="mgr-cancel-"|add:rpks confirm_title="Cancel This Reservation?" confirm_message="The member has this season booked. Cancelling frees it and tells them why. The season has started, so their "|add:reservation.paid_display|add:" isn't refunded. An admin can refund it from Payments." confirm_action_url=mgr_cancel_url confirm_button_text="Cancel Reservation" confirm_note_name="reason" confirm_note_label="Reason" confirm_note_placeholder="Why is this being cancelled?" confirm_note_hint="The member will see this, in their email and the reservation's messages." %}
@@ -744,7 +744,7 @@
 {# Take back confirms (#787), one per member with credit, outside the panes; it zeroes their balance here and emails nobody. #}
 {% for holder in credit_holders %}
 {% url 'hub_equipment_credit_take_back' equipment.slug holder.member.pk as take_back_url %}
-{% with hpks=holder.member.pk|stringformat:"s" take_back_message="This takes back all "|add:holder.hours_label|add:" of "|add:holder.member.display_name|add:"'s credit on the "|add:equipment.name|add:". To leave them some, give it again after." %}
+{% with hpks=holder.member.pk|stringformat:"s" take_back_message="This takes back all "|add:holder.hours_label|add:" of "|add:holder.member.staff_label|add:"'s credit on the "|add:equipment.name|add:". To leave them some, give it again after." %}
 {% include "components/confirm_modal.html" with confirm_id="credit-take-back-"|add:hpks confirm_title="Take Back This Credit?" confirm_message=take_back_message confirm_action_url=take_back_url confirm_button_text="Take back" %}
 {% endwith %}
 {% endfor %}
@@ -769,7 +769,7 @@
 {# Confirm modals for manager removal — outside the x-show panes so they always mount. #}
 {% for staff in staff_memberships %}
   {% url 'hub_equipment_staff_remove' equipment.slug staff.pk as staff_remove_url %}
-  {% with pks=staff.pk|stringformat:"s" name=staff.member.display_name %}
+  {% with pks=staff.pk|stringformat:"s" name=staff.member.staff_label %}
     {% include "components/confirm_modal.html" with confirm_id="del-equip-staff-"|add:pks confirm_action_url=staff_remove_url confirm_title="Remove this manager?" confirm_message="Remove "|add:name|add:" as a manager of the "|add:equipment.name|add:"? You can add them back anytime. Their upcoming orientation hours are removed too. Slots someone already booked stay until you cancel them." confirm_button_text="Remove" %}
   {% endwith %}
 {% endfor %}

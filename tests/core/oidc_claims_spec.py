@@ -53,7 +53,7 @@ def describe_the_name_claim():
 
     def it_never_sends_a_legal_name_that_was_overridden(db):
         """A legal name is not something to hand another system as a side effect of signing in."""
-        user = _member_user(full_legal_name="Jonathan Smith", preferred_name="Jo")
+        user = _member_user(full_legal_name="Jonathan Smith", preferred_name="Jo", name_shown_to_members="full")
         assert "Jonathan" not in _claims(user)["name"]
 
 

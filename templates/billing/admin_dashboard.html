@@ -186,7 +186,7 @@
       <tbody>
         {% for tab in outstanding_tabs %}
         <tr onclick="openTabModal({{ tab.pk }})">
-          <td>{{ tab.member.display_name }}</td>
+          <td>{{ tab.member.staff_label }}</td>
           <td class="text-right">${{ tab.current_balance }}</td>
           <td>{% if tab.has_payment_method %}{{ tab.payment_method_brand }} ···· {{ tab.payment_method_last4 }}{% else %}<span class="pl-badge pl-badge--warn">None</span>{% endif %}</td>
           <td>{% if tab.is_locked %}<span class="pl-badge pl-badge--fail">Locked</span>{% else %}<span class="pl-badge pl-badge--ok">Active</span>{% endif %}</td>
@@ -214,7 +214,7 @@
       <tbody>
         {% for charge in failed_charges %}
         <tr>
-          <td onclick="openTabModal({{ charge.tab.pk }})" style="cursor:pointer">{{ charge.tab.member.display_name }}</td>
+          <td onclick="openTabModal({{ charge.tab.pk }})" style="cursor:pointer">{{ charge.tab.member.staff_label }}</td>
           <td class="text-right">${{ charge.amount }}</td>
           <td style="color:#96ACBB">{{ charge.failure_reason|truncatewords:8 }}</td>
           <td>{{ charge.retry_count }}</td>
@@ -261,7 +261,7 @@
       <tbody>
         {% for tab in open_tabs %}
         <tr onclick="openTabModal({{ tab.pk }})">
-          <td>{{ tab.member.display_name }}</td>
+          <td>{{ tab.member.staff_label }}</td>
           <td class="text-right">${{ tab.current_balance }}</td>
           <td class="text-right" style="color:#96ACBB">${{ tab.effective_tab_limit }}</td>
           <td>{% if tab.has_payment_method %}{{ tab.payment_method_brand }} ···· {{ tab.payment_method_last4 }}{% else %}<span class="pl-badge pl-badge--warn">None</span>{% endif %}</td>

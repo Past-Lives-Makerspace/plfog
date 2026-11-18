@@ -64,7 +64,7 @@ context, the select-and-copy fallback off https, as components/qr_share_card.htm
   {% if not rsvp.is_read_only %}
   {% with pk_str=rsvp.pk|stringformat:"s" %}
   {% url 'hub_admin_event_guest_remove' event.pk rsvp.pk as remove_url %}
-  {% include "components/confirm_modal.html" with confirm_id="remove-guest-"|add:pk_str confirm_title="Remove this RSVP?" confirm_message=rsvp.display_name|add:" comes off the list. They are not told." confirm_action_url=remove_url confirm_button_text="Remove" %}
+  {% include "components/confirm_modal.html" with confirm_id="remove-guest-"|add:pk_str confirm_title="Remove this RSVP?" confirm_message=rsvp.staff_label|add:" comes off the list. They are not told." confirm_action_url=remove_url confirm_button_text="Remove" %}
   {% endwith %}
   {% endif %}
   {% endfor %}

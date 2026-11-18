@@ -8,7 +8,7 @@ a second teleported copy behind. An Eventbrite row is read-only: no Remove, sinc
 is where it is cancelled; checking it in at the door still works.
 {% endcomment %}
 <tr data-guest-row="{{ rsvp.pk }}" data-guest-source="{{ rsvp.source }}"{% if rsvp.is_checked_in %} class="pl-guest-row--checked-in"{% endif %}>
-  <td data-label="Name">{{ rsvp.display_name }}</td>
+  <td data-label="Name">{{ rsvp.staff_label }}</td>
   <td data-label="People" data-guest-party="{{ rsvp.party_size }}">{{ rsvp.party_size }}</td>
   <td data-label="From"><span class="hub-pill hub-pill--neutral" data-guest-source-label>{% if rsvp.member %}Member{% else %}{{ rsvp.get_source_display }}{% endif %}</span></td>
   <td data-label="Email">{% if rsvp.contact_email %}<a href="mailto:{{ rsvp.contact_email }}">{{ rsvp.contact_email }}</a>{% else %}<span class="hub-text-muted">—</span>{% endif %}</td>

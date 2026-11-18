@@ -225,7 +225,7 @@ def admin_leadership_person_add(request: HttpRequest, pk: int) -> HttpResponse:
         messages.error(request, "Couldn't add that person. Check the highlighted fields.")
         return _render_editor(request, add_form=form)
     listing = form.save()
-    messages.success(request, f"Added {listing.member.display_name} to {tab.title}.")
+    messages.success(request, f"Added {listing.member.staff_label} to {tab.title}.")
     return redirect(_editor_url(tab))
 
 

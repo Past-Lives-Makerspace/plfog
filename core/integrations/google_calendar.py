@@ -143,17 +143,18 @@ def _maybe_b64_decode(raw: str) -> str | None:
 
 
 def _display_name(user: User | None) -> str:
-    """A friendly attribution name — full name, then the member's display name, then the
-    username, then a graceful generic when nothing is set."""
+    """A friendly attribution name for the public calendar: the member's public name (never a legal
+    name behind a preferred one), then the account's full name, then the username, then a graceful
+    generic when nothing is set."""
     if user is None:
         return "a Past Lives member"
+    member = getattr(user, "member", None)
+    public = (getattr(member, "public_name", "") or "").strip() if member is not None else ""
+    if public:
+        return public
     full = (user.get_full_name() or "").strip()
     if full:
         return full
-    member = getattr(user, "member", None)
-    display = getattr(member, "display_name", "") if member is not None else ""
-    if display:
-        return display
     return user.get_username()
 
 

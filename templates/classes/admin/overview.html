@@ -32,7 +32,7 @@
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
           <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
             <a href="{% url 'classes:teach_class_detail' pk=c.pk %}">{{ c.title }}</a>
-            <span style="color:var(--hub-text-muted);font-size:0.85rem;">{{ c.instructor_names }} · {{ c.category.name }} · waiting {{ c.waiting_since|timesince }}</span>
+            <span style="color:var(--hub-text-muted);font-size:0.85rem;">{{ c.staff_instructor_names }} · {{ c.category.name }} · waiting {{ c.waiting_since|timesince }}</span>
             {% if c.overdue %}<span class="pl-overdue-marker">{{ c.overdue.marker }}</span>{% endif %}
           </span>
           <span class="pl-row-actions">
@@ -54,7 +54,7 @@
           <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
             <a href="{% url 'classes:teach_class_detail' pk=item.offering.pk %}">{{ item.offering.title }}</a>
             <span style="color:var(--hub-text-muted);font-size:0.85rem;">
-              {% if item.lead %}<a href="{% url 'hub_member_directory' %}?q={{ item.lead.display_name|urlencode }}">{{ item.lead.display_name }}</a>{% else %}No lead{% endif %}
+              {% if item.lead %}<a href="{% url 'hub_member_directory' %}?q={{ item.lead.greeting_name|urlencode }}">{{ item.lead.staff_label }}</a>{% else %}No lead{% endif %}
               · waiting {{ item.days_waiting }} day{{ item.days_waiting|pluralize }}
             </span>
             {% if item.overdue %}<span class="pl-overdue-marker">{{ item.overdue.marker }}</span>{% endif %}
@@ -83,11 +83,11 @@
       {% for item in teaching_applications %}
         {% concat "approve-teaching-" item.member.pk as approve_modal_id %}
         {% concat "decline-teaching-" item.member.pk as decline_modal_id %}
-        {% concat "Let " item.member.display_name " teach?" as approve_title %}
+        {% concat "Let " item.member.staff_label " teach?" as approve_title %}
         {# applicant-<pk> is the admins' bell link for this application (Member.request_bell_path, #894). #}
         <div id="applicant-{{ item.member.pk }}" style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--hub-border);flex-wrap:wrap;">
           <span style="display:flex;flex-direction:column;gap:2px;min-width:0;">
-            <span><a href="{% url 'hub_admin_member_edit' pk=item.member.pk %}?tab=permissions">{{ item.member.display_name }}</a> wants to be an instructor.</span>
+            <span><a href="{% url 'hub_admin_member_edit' pk=item.member.pk %}?tab=permissions">{{ item.member.staff_label }}</a> wants to be an instructor.</span>
             <span style="color:var(--hub-text-muted);font-size:0.85rem;">{% if item.days_waiting == 0 %}asked today{% else %}asked {{ item.days_waiting }} day{{ item.days_waiting|pluralize }} ago{% endif %}</span>
             {# An application filed before the contact question existed has no method: no line, rather than an empty one. #}
             {% if item.member.teaching_contact_method %}

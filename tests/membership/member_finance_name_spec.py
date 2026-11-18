@@ -13,7 +13,7 @@ pytestmark = pytest.mark.django_db
 def describe_finance_name():
     def it_is_the_display_name_for_a_member_who_never_deleted():
         member = MemberFactory(full_legal_name="Rowan Kiln", preferred_name="Ro")
-        assert member.finance_name == "Ro"
+        assert member.finance_name == "Ro (Rowan Kiln)"
 
     def it_marks_a_deleted_member_with_their_kept_name():
         member = MemberFactory(

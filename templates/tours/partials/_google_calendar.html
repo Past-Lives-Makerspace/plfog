@@ -15,10 +15,10 @@ is_self, target.
   <p class="hub-text-muted pl-tours-gcal__last" data-tour-gcal-dormant>Connecting a Google Calendar is not set up yet. Once an admin adds Google's sign in keys, you can connect yours here.</p>
   {% elif not is_self %}
     {% if not gcal %}
-  <p class="hub-text-muted pl-tours-gcal__last">{{ target.display_name }} has not connected a Google Calendar. Only they can connect their own, from their My Hours tab.</p>
+  <p class="hub-text-muted pl-tours-gcal__last">{{ target.staff_label }} has not connected a Google Calendar. Only they can connect their own, from their My Hours tab.</p>
     {% elif gcal.is_broken %}
   <p class="pl-tours-gcal__status pl-tours-gcal__status--broken">Needs reconnecting since {{ gcal.broken_at|date:"M j, g:i A" }}.</p>
-  <p class="hub-text-muted pl-tours-gcal__last">Google stopped accepting {{ gcal.google_email|default:"their calendar" }}, so {{ target.display_name }}'s hours are offered as if no calendar were connected until they reconnect it.</p>
+  <p class="hub-text-muted pl-tours-gcal__last">Google stopped accepting {{ gcal.google_email|default:"their calendar" }}, so {{ target.staff_label }}'s hours are offered as if no calendar were connected until they reconnect it.</p>
     {% else %}
   <p class="pl-tours-gcal__status">Connected as <strong>{{ gcal.google_email }}</strong>. Tours are written to {{ gcal.calendar_label }}.</p>
   <p class="hub-text-muted pl-tours-gcal__last">{% if gcal.busy_checked_at %}Busy times last read {{ gcal.busy_checked_at|date:"M j, g:i A" }}.{% else %}Busy times not read yet.{% endif %}</p>

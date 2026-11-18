@@ -731,7 +731,7 @@ def _marketing_context(request: HttpRequest, hub: EventHub, card: HubCard, form:
         "can_organize": card.can_organize(viewer_member(request), is_admin=renders_as_admin(request)),
         "tiles": services.marketing_tiles(services.marketing_totals(hub)),
         "actions": list(hub.marketing_actions.all()),
-        "team": sorted({member.display_name for member in card.team.all()}),
+        "team": sorted({member.greeting_name for member in card.team.all()}),
         "team_list_id": MARKETING_TEAM_LIST_ID,
     }
 
@@ -880,7 +880,7 @@ def _sponsors_context(
             for value, label in services.SPONSOR_FILTERS
             if can_organize or value != services.SPONSOR_FILTER_DONORS
         ],
-        "team": sorted({named.display_name for named in card.team.all()}),
+        "team": sorted({named.greeting_name for named in card.team.all()}),
         "team_list_id": SPONSOR_TEAM_LIST_ID,
         "tiers": SPONSOR_TIERS,
         "wine_benefit": WINE_WALL_BENEFIT,
@@ -1042,13 +1042,13 @@ def _vendor_edit_form(table: VendorTable, guilds: list[Guild], data: Any = None)
 
 
 def _vendor_team(card: HubCard) -> tuple[str, str]:
-    """Who manages the door, from the first person on its Team by pk: their display name for the header ("" for nobody
+    """Who manages the door, from the first person on its Team by pk: their staff label for the header ("" for nobody
     or a blank name) and their first name for the Requested tile, else the vendor team."""
     first = card.team.order_by("pk").first()
     if first is None:
         return "", services.VENDOR_TEAM_FALLBACK
-    name = first.display_name.strip()
-    return name, (name.split() or [services.VENDOR_TEAM_FALLBACK])[0]
+    name = first.staff_label.strip()
+    return name, (first.greeting_name.split() or [services.VENDOR_TEAM_FALLBACK])[0]
 
 
 def _vendors_context(
@@ -1551,7 +1551,7 @@ def _checkin_context(
         "thanks": services.checkin_thanks(hub),
         "footer": CHECKIN_FOOTER,
         "band": services.checkin_band(hub),
-        "board": services.thank_you_board(hub),
+        "board": services.thank_you_board(hub, public=not request.user.is_authenticated),
         "me_pk": member.pk if member is not None else None,
         "signed_in": request.user.is_authenticated,
         "login_url": login,
@@ -2626,7 +2626,7 @@ def _door_urls(hub: EventHub, member: Member | None, is_admin: bool) -> dict[str
 
 def _team_names(card: HubCard) -> list[str]:
     """The ledger card Team's display names, for the team datalist (Owner, Who, Contacted by)."""
-    return sorted({named.display_name for named in card.team.all() if named.display_name.strip()})
+    return sorted({named.greeting_name for named in card.team.all() if named.greeting_name.strip()})
 
 
 @dataclass(frozen=True)

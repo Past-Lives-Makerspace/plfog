@@ -7,7 +7,7 @@ confirm; otherwise the editable form.
 {% endcomment %}
 {% if failed_refund %}
 <div class="pl-refund-context">
-    <p class="pl-refund-context__payer">{{ fee.member.display_name }}</p>
+    <p class="pl-refund-context__payer">{{ fee.member.staff_label }}</p>
     <p class="pl-refund-context__meta">Late fee: {{ fee.item_label }}</p>
 </div>
 <p>Retry the failed refund of <strong>{{ failed_refund.amount_cents|cents_as_dollars }}</strong>{% if failed_refund.attempt > 1 %} <span class="pl-refund-history__meta">(attempt {{ failed_refund.attempt }})</span>{% endif %}.</p>
@@ -24,7 +24,7 @@ confirm; otherwise the editable form.
 </form>
 {% else %}
 <div class="pl-refund-context">
-    <p class="pl-refund-context__payer">{{ fee.member.display_name }}</p>
+    <p class="pl-refund-context__payer">{{ fee.member.staff_label }}</p>
     <p class="pl-refund-context__meta">
         Late fee: {{ fee.item_label }} ·
         Paid {{ fee.amount_cents|cents_as_dollars }}{% if fee.paid_at %} · {{ fee.paid_at|date:"M j" }}{% endif %}

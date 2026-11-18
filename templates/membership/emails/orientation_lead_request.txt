@@ -1,6 +1,6 @@
 New orientation request for {{ owner_name }}
 
-{{ booking.member.display_name }} requested {% if slot.orienter %}one of {{ slot.orienter_first_name }}'s orientation slots{% else %}an orientation{% endif %}:
+{{ booking.member.staff_label }} requested {% if slot.orienter %}one of {{ slot.orienter_first_name }}'s orientation slots{% else %}an orientation{% endif %}:
 
 {% if orientation_type %}  Orientation: {{ orientation_type.name }}
 {% endif %}  When: {{ slot.starts_at|date:"l, F j" }} at {{ slot.starts_at|time:"g:i A" }}

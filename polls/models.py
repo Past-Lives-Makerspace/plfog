@@ -1246,7 +1246,7 @@ class EmailPoll(models.Model):
         from core.urls_util import member_absolute_url
 
         return {
-            "first_name": member.display_name.split(" ")[0],
+            "first_name": member.greeting_name.split(" ")[0],
             "title": self.draft.title,
             "intro": self.intro,
             "question_count": question_count,

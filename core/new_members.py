@@ -381,13 +381,13 @@ def look_up(text: str, *, now: datetime) -> list[LookupLine]:
         )
     lines += [
         LookupLine(
-            f"{member.display_name} is in the portal.",
+            f"{member.staff_label} is in the portal.",
             tone="ok",
             label="In the portal",
             url=reverse("hub_admin_member_edit", args=[member.pk]),
             link_text="Open Their Page",
         )
-        for member in sorted(portal.values(), key=lambda m: m.display_name.casefold())
+        for member in sorted(portal.values(), key=lambda m: m.staff_label.casefold())
     ]
     next_import = next_run_at(now, AIRTABLE_PULL_UTC_HOUR)
     imports_on = ScheduledJobState.objects.is_enabled(AIRTABLE_PULL_JOB)

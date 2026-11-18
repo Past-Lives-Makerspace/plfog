@@ -20,9 +20,9 @@ Context: booking, tab ("upcoming" or "past"), is_admin, viewer_pk (the viewer's 
   <p class="pl-tours-booking__contact">
     <a href="mailto:{{ booking.visitor_email }}" data-tour-booking-email>{{ booking.visitor_email }}</a>{% if booking.visitor_phone %}<span class="pl-tours-booking__sep" aria-hidden="true">·</span><a href="tel:{{ booking.visitor_phone_href }}" data-tour-booking-phone>{{ booking.visitor_phone }}</a>{% endif %}
   </p>
-  <p class="hub-text-muted pl-tours-booking__meta">{% if booking.guide %}Guide: {{ booking.guide.display_name }}{% else %}No guide assigned{% endif %} · Booked on the {{ booking.get_source_display|lower }}{% if booking.checked_in_at %} · <span data-tour-booking-checked-in>Checked in at {{ booking.checked_in_at|time:"g:i A" }}</span>{% endif %}</p>
+  <p class="hub-text-muted pl-tours-booking__meta">{% if booking.guide %}Guide: {{ booking.guide.staff_label }}{% else %}No guide assigned{% endif %} · Booked on the {{ booking.get_source_display|lower }}{% if booking.checked_in_at %} · <span data-tour-booking-checked-in>Checked in at {{ booking.checked_in_at|time:"g:i A" }}</span>{% endif %}</p>
   {% if tab == "upcoming" and booking.is_request %}
-  <p class="pl-tours-booking__confirm-by" data-tour-confirm-by>Confirm by {{ booking.confirm_by|date:"D, M j" }}, {{ booking.confirm_by|time:"g:i A" }}{% if booking.guide_id != viewer_pk %} · Only {{ booking.guide.display_name|default:"its guide" }} can confirm or decline it{% endif %}</p>
+  <p class="pl-tours-booking__confirm-by" data-tour-confirm-by>Confirm by {{ booking.confirm_by|date:"D, M j" }}, {{ booking.confirm_by|time:"g:i A" }}{% if booking.guide_id != viewer_pk %} · Only {{ booking.guide.staff_label|default:"its guide" }} can confirm or decline it{% endif %}</p>
   {% endif %}
   {% if tab == "upcoming" and booking.is_request and booking.guide_id == viewer_pk %}
   <div class="pl-tours-booking__actions">

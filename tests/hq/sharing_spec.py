@@ -458,8 +458,8 @@ def describe_the_sharing_form():
 
         names = {option.name for option in CardSharingForm(instance=card).people_options()}
 
-        assert active.display_name in names
-        assert gone.display_name in names
+        assert active.staff_label in names
+        assert gone.staff_label in names
         assert "Never Nell" not in names
 
     def it_shows_the_chosen_as_chips_in_order_of_the_lists(open_hub, make_member):

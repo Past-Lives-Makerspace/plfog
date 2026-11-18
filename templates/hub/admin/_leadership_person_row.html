@@ -13,10 +13,10 @@ same member's toggles on other tabs in step.
   <div class="pl-slide-summary">
     <span class="pl-slide-grip" draggable="true" aria-label="Drag to reorder">⠿</span>
     <span class="pl-roster-row__avatar" aria-hidden="true">
-      {% if member.profile_photo and member|is_public:"profile_photo" %}<img src="{{ member.profile_photo.url }}" alt="">{% else %}{{ member.display_name|initials }}{% endif %}
+      {% if member.profile_photo and member|is_public:"profile_photo" %}<img src="{{ member.profile_photo.url }}" alt="">{% else %}{{ member.greeting_name|initials }}{% endif %}
     </span>
     <span class="pl-slide-summary__main">
-      <span class="pl-slide-summary__title">{{ member.display_name }}</span>
+      <span class="pl-slide-summary__title">{{ member.staff_label }}</span>
     </span>
     <span class="pl-slide-summary__actions">
       <span class="pl-slide-move" role="group" aria-label="Reorder">
@@ -35,7 +35,7 @@ same member's toggles on other tabs in step.
     <button type="button" class="hub-btn hub-btn--sm pl-leadership__add" data-add-role>+ Add a role</button>
   </div>
   {% if person.badges %}
-  <div class="pl-roster-row__badges" role="group" aria-label="Badges for {{ member.display_name }}">
+  <div class="pl-roster-row__badges" role="group" aria-label="Badges for {{ member.staff_label }}">
     {% for toggle in person.badges %}
     <label class="pl-badge-toggle">
       <span class="pl-toggle pl-toggle--sm">

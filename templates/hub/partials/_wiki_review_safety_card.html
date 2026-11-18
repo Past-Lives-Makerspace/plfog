@@ -11,7 +11,7 @@ entire job is to explain what a member should do next.
         <span class="pl-wp-mod__chip">{% if proposal.guild %}{{ proposal.guild.name }}{% else %}Space-wide{% endif %}</span>
     </div>
     <p class="hub-text-muted pl-wp-mod__banner-by">
-        Proposed by {% if proposal.created_by %}{{ proposal.created_by.display_name }}{% else %}a former member{% endif %} &middot; {{ proposal.created_at|timesince }} ago
+        Proposed by {% if proposal.created_by %}{{ proposal.created_by.staff_label }}{% else %}a former member{% endif %} &middot; {{ proposal.created_at|timesince }} ago
     </p>
     {% if proposal.lead_text %}<p class="pl-wp-mod__banner-line">{{ proposal.lead_text }}</p>{% endif %}
     <div class="pl-wp-mod__banner-actions">

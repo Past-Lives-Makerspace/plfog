@@ -135,6 +135,7 @@ from hq.vendor_import import (
     parse_rows,
 )
 from membership.models import CommunityEvent, Guild, GuildMembership, Member
+from membership.names import member_label
 
 logger = logging.getLogger(__name__)
 
@@ -335,8 +336,9 @@ class VolunteerInfo:
 
     @classmethod
     def for_member(cls, member: Member) -> VolunteerInfo:
-        """What a signed in member starts with: their display name, primary email and phone."""
-        return cls(name=member.display_name, email=member.primary_email, phone=member.phone)
+        """What a signed in member starts with: their name (the short one a typed name field holds), primary email
+        and phone."""
+        return cls(name=member.greeting_name, email=member.primary_email, phone=member.phone)
 
     @classmethod
     def from_session(cls, request: HttpRequest) -> VolunteerInfo | None:
@@ -1639,10 +1641,26 @@ class ThankYouBoard:
         return meter_number(self.rows[0].hours) if self.rows else "1"
 
 
-def thank_you_board(hub: EventHub, *, limit: int = BOARD_LIMIT) -> ThankYouBoard:
-    """The ``limit`` members with the most hours on ``hub``, most first (ties by who logged first), in one query."""
+def _board_name(row: Mapping[str, Any], *, public: bool) -> str:
+    """A volunteer as members see them on the board (``Member.display_name``): the preferred name, else the legal
+    name, with the legal name beside it in the form the member chose in ``name_shown_to_members``. A signed out
+    visitor (``public``) sees the preferred name alone (``Member.public_name``)."""
+    preferred, legal = row["member__preferred_name"], row["member__full_legal_name"]
+    shown = row["member__name_shown_to_members"]
+    if public or shown == Member.NameShown.PREFERRED:
+        return preferred or legal
+    return member_label(preferred, legal, form=shown)
+
+
+def thank_you_board(hub: EventHub, *, limit: int = BOARD_LIMIT, public: bool = False) -> ThankYouBoard:
+    """The ``limit`` members with the most hours on ``hub``, most first (ties by who logged first), in one query.
+
+    ``public`` names them for a signed out visitor: never a legal name behind a preferred one.
+    """
     rows = (
-        hub.volunteer_hours.values("member", "member__preferred_name", "member__full_legal_name")
+        hub.volunteer_hours.values(
+            "member", "member__preferred_name", "member__full_legal_name", "member__name_shown_to_members"
+        )
         .annotate(total=Sum("hours"), first=Min("pk"))
         .order_by("-total", "first")[:limit]
     )
@@ -1653,7 +1671,7 @@ def thank_you_board(hub: EventHub, *, limit: int = BOARD_LIMIT) -> ThankYouBoard
             BoardRow(
                 rank=position,
                 member_id=row["member"],
-                name=row["member__preferred_name"] or row["member__full_legal_name"],
+                name=_board_name(row, public=public),
                 hours=row["total"],
                 top=top,
             )
@@ -1720,8 +1738,8 @@ def confirmed_table(hub: EventHub, member: Member) -> VendorTable | None:
 
 def report_initial(member: Member, table: VendorTable | None) -> dict[str, Any]:
     """What a member's first report starts with: the confirmed table's name and guild when there is one, else
-    their display name and their guild when they belong to exactly one active guild."""
-    name = table.name if table is not None else member.display_name
+    their name (the short one a typed name field holds) and their guild when they belong to exactly one active guild."""
+    name = table.name if table is not None else member.greeting_name
     guild_id = table.guild_id if table is not None else None
     if guild_id is None:
         guilds = list(
@@ -3006,11 +3024,19 @@ def log_staff_time(
 ) -> StaffTime:
     """Log a stretch of staff time on ``hub`` from the form's fields, stamped with the organiser who logged it.
 
-    When Who names one of ``team`` (the ledger card's Team) by display name, whatever the capitalisation,
-    the row is linked to that member too.
+    When Who names one of ``team`` (the ledger card's Team) by their staff label ("Wren (Quinn Ashdown)"), their
+    preferred name or their legal name, whatever the capitalisation, the row is linked to that member too.
     """
-    who = fields["who"].strip().lower()
-    linked = next((person for person in team if person.display_name.strip().lower() == who), None)
+    who = fields["who"].strip().casefold()
+    linked = next(
+        (
+            person
+            for person in team
+            if who
+            in {name.strip().casefold() for name in (person.staff_label, person.greeting_name, person.full_legal_name)}
+        ),
+        None,
+    )
     return StaffTime.objects.create(hub=hub, member=linked, created_by=member, **fields)
 
 
@@ -3066,7 +3092,7 @@ def guilds_to_add(hub: EventHub) -> list[Guild]:
 
 
 def _lead_name(guild: Guild) -> str:
-    return guild.guild_lead.display_name if guild.guild_lead is not None else ""
+    return guild.guild_lead.greeting_name if guild.guild_lead is not None else ""
 
 
 class GuildAlreadyListed(Exception):

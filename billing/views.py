@@ -924,7 +924,7 @@ def admin_add_tab_entry(request: HttpRequest) -> HttpResponse:
             except (TabLockedError, TabLimitExceededError) as exc:
                 django_messages.error(request, str(exc))
                 return _render(form, splits_formset)
-            django_messages.success(request, f"Added ${form.cleaned_data['amount']} to {member.display_name}'s tab.")
+            django_messages.success(request, f"Added ${form.cleaned_data['amount']} to {member.staff_label}'s tab.")
             return redirect("billing_admin_dashboard")
     else:
         form = TabItemForm(context=CONTEXT_ADMIN_DASHBOARD, user=request.user)
@@ -962,7 +962,7 @@ def billing_admin_tab_detail_api(request: HttpRequest, tab_pk: int) -> JsonRespo
 
     return JsonResponse(
         {
-            "member_name": tab.member.display_name,
+            "member_name": tab.member.staff_label,
             "balance": f"{tab.current_balance:.2f}",
             "limit": f"{tab.effective_tab_limit:.2f}",
             "payment_method": payment_method,

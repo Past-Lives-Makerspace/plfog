@@ -115,7 +115,7 @@ def reconnect_path() -> str:
 def email_context(member: Member) -> dict[str, Any]:
     """What ``membership/emails/discord_reconnect.{txt,html}`` reads."""
     return {
-        "first_name": member.display_name.split(" ")[0],
+        "first_name": member.greeting_name.split(" ")[0],
         "headline": SUBJECT,
         "reconnect_url": f"{settings.MEMBER_BASE_URL.rstrip('/')}{reconnect_path()}",
     }

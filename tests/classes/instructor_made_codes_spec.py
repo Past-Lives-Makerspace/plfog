@@ -336,9 +336,9 @@ def describe_editing_an_instructors_code():
         code = DiscountCodeFactory(code="SPRING5", discount_pct=5, class_offering=offering, created_by=user)
         client.force_login(user)
         _edit(client, code, applies_to=ALL_MY_CLASSES, discount_pct="100")
-        assert _lines() == ["Ana changed SPRING5: now 100% off, all their classes"]
+        assert _lines() == ["Ana Ruiz changed SPRING5: now 100% off, all their classes"]
         flush_digests(next_8am())
-        assert "Ana changed SPRING5: now 100% off, all their classes" in mail.outbox[-1].body
+        assert "Ana Ruiz changed SPRING5: now 100% off, all their classes" in mail.outbox[-1].body
 
     def it_tells_staff_when_the_uses_limit_changes(client: Client) -> None:
         _discount_admin()
@@ -349,8 +349,8 @@ def describe_editing_an_instructors_code():
         _edit(client, code, applies_to=str(offering.pk), discount_pct="5", max_uses="")
         _edit(client, code, applies_to=str(offering.pk), discount_pct="5", max_uses="50")
         assert _lines() == [
-            "Ana changed USES5: now 5% off, Intro to Forging, unlimited uses",
-            "Ana changed USES5: now 5% off, Intro to Forging, 50 uses",
+            "Ana Ruiz changed USES5: now 5% off, Intro to Forging, unlimited uses",
+            "Ana Ruiz changed USES5: now 5% off, Intro to Forging, 50 uses",
         ]
 
     def it_sends_nothing_when_only_the_dates_or_spelling_change(client: Client) -> None:
@@ -466,9 +466,9 @@ def describe_the_staff_digest():
         assert len(sent) == 1
         assert sent[0].subject == "2 Discount Codes Made or Changed by Instructors"
         body = sent[0].body
-        assert "Ana made SPRING20, 20% off, Intro to Forging" in body
-        assert "Ana made MINE15, $15.00 off, all their classes" in body
-        assert body.count("Ana made ") == 2
+        assert "Ana Ruiz made SPRING20, 20% off, Intro to Forging" in body
+        assert "Ana Ruiz made MINE15, $15.00 off, all their classes" in body
+        assert body.count("Ana Ruiz made ") == 2
 
     def it_sends_nothing_when_no_instructor_made_a_code() -> None:
         admin = _discount_admin()
@@ -479,7 +479,7 @@ def describe_the_staff_digest():
 
     def it_keeps_action_needed_when_a_request_shares_the_morning() -> None:
         rows = [
-            EventDelivery(event_key=MADE, title="Ana made A1", url="/a", period="discount:1:made"),
+            EventDelivery(event_key=MADE, title="Ana Ruiz made A1", url="/a", period="discount:1:made"),
             EventDelivery(event_key="instructor_application_received", title="Ask", url="/b", period="x:1"),
         ]
         assert digest_context(rows)["subject"] == "Action Needed: 1 Request Awaiting You, plus 1 Update"

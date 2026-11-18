@@ -69,6 +69,7 @@ def describe_profile_settings_form():
             "about_me",
             "profile_photo",
             "show_in_directory",
+            "name_shown_to_members",
             "show_on_space_map",
             "open_for_commissions",
             "commission_note",

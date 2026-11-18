@@ -12,7 +12,8 @@ from membership.logos import logo_prefix_for
 if TYPE_CHECKING:
     from django.db.models import QuerySet
 
-    from membership.models import Guild
+    from classes.models import ClassOffering
+    from membership.models import Guild, Member
 
 register = template.Library()
 
@@ -92,6 +93,19 @@ def is_public(member: Any, field_name: str) -> bool:
 def tel_href(phone: str) -> str:
     """``phone`` as the number part of a ``tel:`` link; see :func:`core.phone.tel_number`."""
     return tel_number(phone)
+
+
+@register.filter
+def name_for(member: Member, user: Any) -> str:
+    """``member``'s name as ``user`` may see it: what members see (``display_name``) for a signed in viewer,
+    else the public name, so a page signed out visitors also reach never shows a legal name."""
+    return member.display_name if getattr(user, "is_authenticated", False) else member.public_name
+
+
+@register.filter
+def instructors_for(offering: ClassOffering, user: Any) -> str:
+    """``offering``'s instructor line as ``user`` may see it, by the same rule as :func:`name_for`."""
+    return offering.instructor_names if getattr(user, "is_authenticated", False) else offering.public_instructor_names
 
 
 @register.filter

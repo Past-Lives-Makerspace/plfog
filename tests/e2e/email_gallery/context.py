@@ -735,7 +735,7 @@ def discord_guilds_imported_context(data: SampleData) -> dict[str, Any]:
     return {
         "subject": "Your Past Lives guilds are set up",
         "template_context": {
-            "greeting_name": data.member.display_name,
+            "greeting_name": data.member.greeting_name,
             "guilds": [
                 {"name": data.guild.name, "url": _absolute_url(reverse("hub_guild_detail", args=[data.guild.slug]))}
             ],
@@ -786,7 +786,7 @@ def wiki_page_archived_context(data: SampleData) -> dict[str, Any]:
         "subject": f'Your wiki page "{page.title}" was archived',
         "template_context": {
             "page": page,
-            "author_name": data.member.display_name,
+            "author_name": data.member.greeting_name,
             "archiver": data.lead,
             "archiver_name": data.lead.display_name,
             "archiver_email": data.lead.primary_email,
@@ -807,7 +807,7 @@ def wiki_proposal_declined_context(data: SampleData) -> dict[str, Any]:
         "subject": f'Your safety page "{page.title}" needs one change',
         "template_context": {
             "page": page,
-            "author_name": data.member.display_name,
+            "author_name": data.member.greeting_name,
             "reviewer_name": data.lead.display_name,
             "reviewer_email": data.lead.primary_email,
             "note": "Add the dust mask requirement and say who to ask when the blade needs changing.",
@@ -1032,7 +1032,7 @@ def find_account_context(data: SampleData) -> dict[str, Any]:
     return {
         "subject": "Your Past Lives Account",
         "text_body": (
-            f"Hi {member.preferred_name or member.full_legal_name},\n\n"
+            f"Hi {member.greeting_name},\n\n"
             f"Your account email is: {member.primary_email}\n\n"
             f"You can log in here:\n{login_url}\n\n"
             f"If you didn't request this, you can safely ignore this email."

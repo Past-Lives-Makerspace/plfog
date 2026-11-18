@@ -654,6 +654,19 @@ _GUIDANCE_LIST = (
         ),
     ),
     Guidance(
+        key="account.profile",
+        title="Your Profile",
+        url_name="hub_user_settings",
+        query={"tab": "profile"},
+        help_key="settings.profile",
+        target="account.name-shown",
+        steps=(
+            "Open Settings from your profile menu and press Profile.",
+            "Under your preferred name, pick what other members see: your preferred name only, or with your legal first name and last initial, or with your full legal name.",
+            "Staff always see both names, and public pages show only your preferred name.",
+        ),
+    ),
+    Guidance(
         key="account.discord",
         title="Discord",
         url_name="hub_user_settings",

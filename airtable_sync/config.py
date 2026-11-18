@@ -289,7 +289,7 @@ def lease_from_airtable(fields: dict[str, Any]) -> dict[str, Any]:
 def vote_preference_to_airtable(vote: Any) -> dict[str, Any]:
     """Convert a VotePreference instance to Airtable Guild Votes fields."""
     return {
-        "Member Name": vote.member.display_name,
+        "Member Name": vote.member.greeting_name,
         "Member Airtable ID": vote.member.airtable_record_id or "",
         "Guild 1st": vote.guild_1st.name,
         "Guild 2nd": vote.guild_2nd.name if vote.guild_2nd else "",

@@ -616,7 +616,7 @@ def _archive_confirm_message(page: WikiPage) -> str:
             f"{shared}Nobody is listed as the author of this page, so no one will be emailed "
             "— the reason still shows on the page."
         )
-    return f"{shared}{author.display_name} wrote this page and will be emailed your reason, by name."
+    return f"{shared}{author.staff_label} wrote this page and will be emailed your reason, by name."
 
 
 # --- Writing (PR A3) ------------------------------------------------------------------
@@ -2146,7 +2146,7 @@ def hub_wiki_archive(request: HttpRequest, slug: str) -> HttpResponse:
     author = page.created_by
     messages.success(
         request,
-        f"Page archived. {author.display_name} has been emailed." if author is not None else "Page archived.",
+        f"Page archived. {author.staff_label} has been emailed." if author is not None else "Page archived.",
     )
     return redirect(page.get_absolute_url())
 

@@ -1894,12 +1894,6 @@ a:hover { color: var(--hub-link-hover); }
     line-height: 1.3;
 }
 
-.directory-card__preferred {
-    font-size: 0.85rem;
-    color: var(--hub-text-muted);
-    font-style: italic;
-}
-
 .directory-card__meta {
     display: flex;
     flex-wrap: wrap;

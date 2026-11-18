@@ -162,7 +162,7 @@ def describe_admin_member_computed_fields():
         )
         member_admin = admin.site._registry[Member]
         result = member_admin.display_name(member)
-        assert result == "Johnny"
+        assert result == "Johnny (John Smith)"
 
     def it_displays_last_login_never_when_no_user():
         member = MemberFactory(user=None)

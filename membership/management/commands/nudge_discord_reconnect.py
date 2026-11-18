@@ -48,4 +48,4 @@ class Command(BaseCommand):
 
     @staticmethod
     def _label(member: Member) -> str:
-        return f"Member {member.pk} {member.display_name} ({member.discord_user_id})"
+        return f"Member {member.pk} {member.staff_label} ({member.discord_user_id})"

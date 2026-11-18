@@ -75,10 +75,10 @@ the Never Signed In switch (submits on change), then the house .pl-members-table
       </thead>
       <tbody>
         {% for row in new_members %}
-        {% concat "Actions for " row.member.display_name as nm_menu_label %}
+        {% concat "Actions for " row.member.staff_label as nm_menu_label %}
         <tr data-testid="new-member-row" data-member="{{ row.member.pk }}">
           <td class="pl-new-members-table__member">
-            <span class="pl-new-members-table__name">{{ row.member.display_name }}</span>
+            <span class="pl-new-members-table__name">{{ row.member.staff_label }}</span>
             {% if row.email %}<span class="pl-new-members-table__email">{{ row.email }}</span>{% endif %}
           </td>
           <td data-label="Added" data-fact="added">{{ row.member.created_at|date:"M j, Y" }}</td>
