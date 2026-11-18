@@ -124,7 +124,7 @@
           <td class="text-right">
             {% if alloc.owed_now_cents %}
             {% with pk_str=alloc.recipient_id|stringformat:"s" %}{% with mark_id="mark-row-paid-"|add:kind.value|add:"-"|add:pk_str %}
-            <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" data-recon-mark-all
+            <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" data-recon-mark-all{% if forloop.first %} data-guidance-target="reconciliation.mark-paid"{% endif %}
                     @click="$dispatch('open-confirm', '{{ mark_id }}')">Mark all paid</button>
             {% url 'billing_reconciliation_mark_row_paid' kind.value alloc.recipient_id as mark_url %}
             {# JS mode: a teleported hx-post form is not wired by htmx after the table refresh swaps it in. #}

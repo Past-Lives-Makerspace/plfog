@@ -15,6 +15,7 @@
             <td class="text-right">{{ line.refunded_cents|cents_as_dollars }}</td>
             <td class="text-right">{{ line.net_cents|cents_as_dollars }}</td>
             <td class="text-right">
+              <div class="pl-row-actions">
               {% if line.payout.owed %}
               {% with pk_str=line.source_pk|stringformat:"s" %}{% with mark_id="mark-paid-"|add:line.source_kind|add:"-"|add:pk_str %}
               <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" data-recon-mark-paid
@@ -39,5 +40,6 @@
                       hx-get="{% url 'billing_reconciliation_adjust_form' line.source_kind line.source_pk %}"
                       hx-target="#txn-adjust-body" hx-swap="innerHTML">Adjust</button>
               {% endif %}
+              </div>
             </td>
           </tr>
