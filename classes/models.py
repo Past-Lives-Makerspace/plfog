@@ -3328,13 +3328,18 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         The sweep cancels a class under its minimum from the close until its first session starts,
         so that is the window: :attr:`shows_minimum_signups`, the class neither cancelled nor
-        archived, and its first session still ahead. A row carrying the ``first_session_at``
+        archived, and its first session still ahead. A class not yet live past its close is out:
+        published then, the sweep never cancels it. A row carrying the ``first_session_at``
         annotation answers with no query.
         """
         if self.status in (self.Status.CANCELLED, self.Status.ARCHIVED) or not self.shows_minimum_signups:
             return False
+        now = timezone.now()
+        closes_at = self.registration_closes_at
+        if self.status != self.Status.PUBLISHED and closes_at is not None and closes_at <= now:
+            return False
         first = self._first_session_starts_at
-        return first is not None and first > timezone.now()
+        return first is not None and first > now
 
     @property
     def registration_open(self) -> bool:

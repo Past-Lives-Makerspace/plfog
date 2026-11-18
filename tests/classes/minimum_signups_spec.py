@@ -988,3 +988,11 @@ def describe_the_minimum_beside_capacity():
         with CaptureQueriesContext(connection) as four:
             client.get(reverse("classes:teach_dashboard"))
         assert len(four) == len(one)
+
+    def it_shows_nothing_on_a_draft_past_its_close(admin_user: Any, client: Client):
+        offering = _closed_class(minimum=3, instructor=_instructor())
+        offering.status = ClassOffering.Status.PENDING
+        offering.save(update_fields=["status"])
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk})).content.decode()
+        assert "data-minimum-signups" not in html
