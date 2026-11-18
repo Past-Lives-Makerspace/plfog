@@ -3323,6 +3323,28 @@ class ClassOffering(HeroCropMixin, models.Model):
         return bool(self.minimum_signups) and self.registration_closes_at is not None
 
     @property
+    def minimum_signups_at_stake(self) -> bool:
+        """Whether the minimum can still cancel this class, so a seat count shows it beside capacity.
+
+        The sweep cancels a class under its minimum from the close until its first session starts,
+        so that is the window: :attr:`shows_minimum_signups`, the class neither cancelled nor
+        archived, and its first session still ahead. Past the close, a class that was not live
+        before it is out: the sweep never cancels it. A row carrying the ``first_session_at``
+        annotation answers with no query.
+        """
+        if self.status in (self.Status.CANCELLED, self.Status.ARCHIVED) or not self.shows_minimum_signups:
+            return False
+        now = timezone.now()
+        closes_at = self.registration_closes_at
+        if closes_at is not None and closes_at <= now:
+            # Past the close only a class live before it is still decided, as due_minimum_cancel reads it.
+            live_before_close = self.published_at is None or self.published_at < closes_at
+            if self.status != self.Status.PUBLISHED or not live_before_close:
+                return False
+        first = self._first_session_starts_at
+        return first is not None and first > now
+
+    @property
     def registration_open(self) -> bool:
         """Whether a visitor can register right now: :attr:`is_bookable` and before the cutoff.
 

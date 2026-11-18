@@ -393,6 +393,11 @@ def describe_class_announcement_embeds():
         assert _field(embed, "Price") == "$45"
         assert _field(embed, "Spots") == "8"
 
+    def it_names_the_minimum_a_class_needs_to_run_after_its_spots():
+        (embed, *_) = _announced(days=3, capacity=8, minimum_signups=3, registration_cutoff_hours=48)
+        assert _field_names(embed)[-2:] == ["Spots", "Needed to run"]
+        assert _field(embed, "Needed to run") == "3"
+
     def it_counts_the_sessions_only_when_there_is_more_than_one():
         offering = _published_class("Forge Series", days=3)
         start = timezone.now() + timedelta(days=10)

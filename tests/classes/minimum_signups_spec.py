@@ -887,3 +887,126 @@ def describe_a_refund_already_in_flight():
         newest = registration.refunds.filter(status=PaymentRefund.Status.FAILED).order_by("-created_at", "-pk").first()
         assert newest is not None and newest.reason == "The kiln is down for repair."
         alert.assert_called_once_with(newest)
+
+
+def describe_the_minimum_beside_capacity():
+    """Wherever capacity is listed, the minimum the class needs to run sits beside it."""
+
+    def it_shows_in_the_class_header_and_the_overview_capacity_row(client: Client):
+        instructor = _instructor()
+        offering = _live_class(starts_in=timedelta(days=10), minimum=3, instructor=instructor)
+        client.force_login(instructor.user)
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        assert html.count('data-minimum-signups="3"') == 2
+        assert 'class="pl-min-signups-note"' in html
+
+    def it_shows_nothing_on_the_class_screen_without_a_minimum(client: Client):
+        instructor = _instructor()
+        offering = _live_class(starts_in=timedelta(days=10), minimum=None, instructor=instructor)
+        client.force_login(instructor.user)
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        assert "data-minimum-signups" not in html
+
+    def it_shows_in_the_instructor_class_list(client: Client):
+        instructor = _instructor()
+        _live_class(starts_in=timedelta(days=10), minimum=3, instructor=instructor)
+        client.force_login(instructor.user)
+        html = client.get(reverse("classes:teach_dashboard")).content.decode()
+        assert 'data-minimum-signups="3"' in html
+
+    def it_shows_in_the_admin_class_list(admin_user: Any, client: Client):
+        _live_class(starts_in=timedelta(days=10), minimum=3, instructor=_instructor())
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_classes")).content.decode()
+        assert 'data-minimum-signups="3"' in html
+
+    def it_shows_beside_the_max_class_size_on_the_public_page(client: Client):
+        offering = _live_class(starts_in=timedelta(days=10), minimum=3)
+        html = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        meta = html[html.index("data-minimum-signups-meta") :]
+        assert "<strong>3</strong>" in meta[: meta.index("</li>")]
+
+    def it_tells_the_instructor_in_the_new_registration_email(django_capture_on_commit_callbacks: Any):
+        from classes.emails import emit_instructor_new_registration
+
+        offering = _live_class(starts_in=timedelta(days=10), minimum=3, confirmed=0, instructor=_instructor())
+        with django_capture_on_commit_callbacks(execute=True):
+            emit_instructor_new_registration(_paid(offering))
+        sent = [m for m in mail.outbox if offering.title in m.subject]
+        assert sent
+        assert "Needs 3 to run" in sent[-1].body
+
+    def it_shows_nothing_once_the_class_has_started_or_was_cancelled(client: Client):
+        instructor = _instructor()
+        started = _live_class(starts_in=timedelta(hours=-1), minimum=3, instructor=instructor)
+        cancelled = _live_class(starts_in=timedelta(days=10), minimum=3, instructor=instructor)
+        cancelled.status = ClassOffering.Status.CANCELLED
+        cancelled.save(update_fields=["status"])
+        client.force_login(instructor.user)
+        for offering in (started, cancelled):
+            html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
+            assert "data-minimum-signups" not in html
+        assert "data-minimum-signups" not in client.get(reverse("classes:teach_dashboard")).content.decode()
+
+    def it_shows_nothing_on_a_row_whose_cutoff_is_off(admin_user: Any, client: Client):
+        _live_class(starts_in=timedelta(days=10), minimum=3, cutoff=None, instructor=_instructor())
+        client.force_login(admin_user)
+        assert "data-minimum-signups" not in client.get(reverse("classes:admin_classes")).content.decode()
+
+    def it_shows_on_the_review_page(admin_user: Any, client: Client):
+        offering = _live_class(starts_in=timedelta(days=10), minimum=3, instructor=_instructor())
+        offering.status = ClassOffering.Status.PENDING
+        offering.save(update_fields=["status"])
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk})).content.decode()
+        assert 'data-minimum-signups="3"' in html
+
+    def it_tells_the_admins_in_their_new_registration_email(settings: Any):
+        from classes.emails import send_admin_registration_notification
+
+        settings.CLASS_ADMIN_NOTIFY_EMAILS = ""
+        admin = UserFactory(username="min-admin@example.com", email="min-admin@example.com").member  # type: ignore[attr-defined]
+        admin.fog_role = Member.FogRole.ADMIN
+        admin.save(update_fields=["fog_role"])
+        offering = _live_class(starts_in=timedelta(days=10), minimum=3, confirmed=0, instructor=_instructor())
+        send_admin_registration_notification(_paid(offering))
+        body = "\n".join(m.body for m in mail.outbox if m.subject.startswith("[Classes] New registration:"))
+        assert "Needs 3 confirmed to run." in body
+
+    def it_answers_the_class_lists_with_no_query_per_row(client: Client):
+        instructor = _instructor()
+        _live_class(starts_in=timedelta(days=10), minimum=3, instructor=instructor)
+        client.force_login(instructor.user)
+        client.get(reverse("classes:teach_dashboard"))
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as one:
+            client.get(reverse("classes:teach_dashboard"))
+        for _ in range(3):
+            _live_class(starts_in=timedelta(days=10), minimum=3, instructor=instructor)
+        with CaptureQueriesContext(connection) as four:
+            client.get(reverse("classes:teach_dashboard"))
+        assert len(four) == len(one)
+
+    def it_shows_nothing_on_a_draft_past_its_close(admin_user: Any, client: Client):
+        offering = _closed_class(minimum=3, instructor=_instructor())
+        offering.status = ClassOffering.Status.PENDING
+        offering.save(update_fields=["status"])
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_class_review", kwargs={"pk": offering.pk})).content.decode()
+        assert "data-minimum-signups" not in html
+
+    def it_shows_nothing_on_a_class_published_after_its_close(client: Client):
+        offering = _closed_class(minimum=3)
+        offering.published_at = timezone.now()
+        offering.save(update_fields=["published_at"])
+        html = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        assert "data-minimum-signups-meta" not in html
+
+    def it_still_shows_past_the_close_on_a_class_live_before_it(client: Client):
+        offering = _closed_class(minimum=3)
+        offering.published_at = timezone.now() - timedelta(days=5)
+        offering.save(update_fields=["published_at"])
+        html = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        assert "data-minimum-signups-meta" in html

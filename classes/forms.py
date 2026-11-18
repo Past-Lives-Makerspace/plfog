@@ -590,7 +590,10 @@ class _MinimumSignupsMixin:
         instance: ClassOffering = self.instance  # type: ignore[attr-defined]
         field = fields["minimum_signups"]
         field.label = "Minimum signups"
-        field.help_text = "Leave blank for no minimum. Still under it when registration closes, the class cancels itself and everyone is refunded."
+        field.help_text = (
+            "The fewest signups this class needs to run. If fewer are signed up once registration closes, "
+            "the class is cancelled and everyone is refunded. Leave blank for no minimum."
+        )
         field.widget.attrs.update({"min": 0})
         if instance.pk is None:
             # A new class starts at one signup, so a class nobody books calls itself off.

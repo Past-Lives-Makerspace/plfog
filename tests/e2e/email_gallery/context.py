@@ -240,6 +240,7 @@ def instructor_new_registration_context(data: SampleData) -> dict[str, Any]:
             "manage_url": _absolute_url(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})),
             "amount_paid": f"{registration.amount_paid_cents / 100:.2f}",
             "spots_filled": offering.seats_taken,
+            "minimum_signups": offering.minimum_signups if offering.minimum_signups_at_stake else None,
             "capacity": offering.capacity,
         },
     }
@@ -511,6 +512,7 @@ def class_registration_admin_notice_context(data: SampleData) -> dict[str, Any]:
     offering = data.offering
     class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
     instructor = offering.instructor.display_name if offering.instructor else "N/A"
+    minimum_line = f"Needs {offering.minimum_signups} confirmed to run.\n" if offering.minimum_signups_at_stake else ""
     return {
         "subject": f"[Classes] New registration: {registration.first_name} {registration.last_name} — {offering.title}",
         "text_body": (
@@ -518,7 +520,8 @@ def class_registration_admin_notice_context(data: SampleData) -> dict[str, Any]:
             f'registered for "{offering.title}" (instructor: {instructor}).\n\n'
             f"Status: {registration.get_status_display()}\n"
             f"Paid: ${registration.amount_paid_cents / 100:.2f}\n"
-            f"Capacity: {offering.seats_taken}/{offering.capacity}\n\n"
+            f"Capacity: {offering.seats_taken}/{offering.capacity}\n"
+            f"{minimum_line}\n"
             f"View the class: {class_url}"
         ),
     }
