@@ -314,6 +314,19 @@ def guild_lead(context: dict[str, Any]) -> list[Recipient]:
     return _members_to_recipients([lead], "guild_lead")
 
 
+def guild_lead_or_class_approvers(context: dict[str, Any]) -> list[Recipient]:
+    """COMPOSITION — the guild's lead, or the CMS Administrators when there is no guild or no lead (#1186).
+
+    Who hears that an instructor moved a live class's dates. Composition, never a union: a
+    guild-led class tells its lead alone, and only a class with no lead reaches the CMS
+    Administrators (:func:`class_approvers`). A missing ``guild`` key fails loudly.
+    """
+    guild: Guild | None = _require(context, "guild")
+    if guild is not None and guild.guild_lead is not None:
+        return guild_lead(context)
+    return class_approvers(context)
+
+
 def guild_lead_and_co_leads(context: dict[str, Any]) -> list[Recipient]:
     """GUILD-SCOPED — the lead plus every staff member holding the Co-Lead role, Active only (#1134).
 
@@ -821,6 +834,7 @@ _RESOLVERS: dict[Recipients, ResolverFn] = {
     Recipients.WEBMASTERS: webmasters,
     Recipients.REFUND_AUTHORITY: refund_authority,
     Recipients.GUILD_LEAD: guild_lead,
+    Recipients.GUILD_LEAD_OR_CLASS_APPROVERS: guild_lead_or_class_approvers,
     Recipients.GUILD_LEAD_AND_CO_LEADS: guild_lead_and_co_leads,
     Recipients.GUILD_MEMBERS: guild_members,
     Recipients.GUILD_ORIENTERS: guild_orienters,
@@ -883,7 +897,7 @@ def open_class_review_urls(rows: list[EventDelivery]) -> set[str]:
 
 
 def always_open(rows: list[EventDelivery]) -> set[str]:
-    """For a request or notice nothing decides (a class change request, a new member): every line goes out."""
+    """For a request or notice nothing decides (an instructor made code, a new member): every line goes out."""
     return {row.url for row in rows}
 
 
@@ -956,7 +970,6 @@ _OPEN_CHECKS: dict[str, OpenCheckFn] = {
     "wiki.page_reported": _open_by_request(_wiki_reports),
     "wiki.page_proposed": _open_by_request(_wiki_proposals),
     "instructor_application_received": _open_by_request(_teaching_applications),
-    "class_change_requested": always_open,
     "cubbies.rental_past_due": _open_by_request(_past_due_cubby_rentals),
     # #894 part 4: FYI notices (a signup, a booking); nothing decides them.
     "new_member_joined": always_open,
@@ -995,9 +1008,9 @@ def open_request_urls(event_key: str, rows: list[EventDelivery]) -> set[str]:
 def is_always_included(event_key: str) -> bool:
     """Whether nothing decides ``event_key``'s requests, so each queued row is its own request.
 
-    Such a request never repeats (no Remind lead), and its link need not be unique to it: a
-    class change request links to the class's edit page, which every request on that class
-    shares. The morning email gives each of these rows its own line. So does a leftover row.
+    Such a request never repeats (no Remind lead), and its link need not be unique to it, since
+    no decision is looked up by it. The morning email gives each of these rows its own line. So
+    does a leftover row.
     """
     return _open_check(event_key) is always_open
 

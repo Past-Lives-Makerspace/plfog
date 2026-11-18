@@ -230,9 +230,11 @@ def describe_digest_adapter():
         from core.events import resolvers
 
         user = _user()
-        DigestAdapter().deliver(user, _message(trigger_kind="class_change_requested"))
+        DigestAdapter().deliver(user, _message(trigger_kind="instructor_application_received"))
         EventDelivery.objects.update(created_at=datetime(2026, 1, 1, tzinfo=channels.PACIFIC))
-        checks = {key: check for key, check in resolvers._OPEN_CHECKS.items() if key != "class_change_requested"}
+        checks = {
+            key: check for key, check in resolvers._OPEN_CHECKS.items() if key != "instructor_application_received"
+        }
         with patch.dict(resolvers._OPEN_CHECKS, checks, clear=True), pytest.raises(KeyError):
             DigestAdapter.flush_due(datetime(2026, 1, 2, 9, tzinfo=channels.PACIFIC))
 

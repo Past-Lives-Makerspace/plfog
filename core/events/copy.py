@@ -117,6 +117,9 @@ _AUDIENCE_DESCRIPTIONS: dict[Recipients, str] = {
     Recipients.WEBMASTERS: "The Webmasters (holders only).",
     Recipients.REFUND_AUTHORITY: "Everyone who can issue a refund: all FOG admins plus the Refunds holders.",
     Recipients.GUILD_LEAD: "The guild's lead only.",
+    Recipients.GUILD_LEAD_OR_CLASS_APPROVERS: (
+        "The class's guild lead; for a class with no lead, the CMS Administrators (holders only)."
+    ),
     Recipients.GUILD_LEAD_AND_CO_LEADS: "The guild's lead and every Co-Lead (Active members only).",
     Recipients.GUILD_MEMBERS: "Every active member of the guild.",
     Recipients.GUILD_ORIENTERS: "The guild's lead and everyone holding the orientor role.",
@@ -451,38 +454,41 @@ _CURATED: dict[str, EventCopy] = {
             ),
         },
     ),
-    "class_change_requested": EventCopy(
-        placeholders=("instructor_name", "class_title", "note", "edit_url"),
+    # class_rescheduled_lead_notice (#1186): the dates of a live class moved. A notice, nothing
+    # to decide; the old and new dates are each one line, sessions joined by semicolons.
+    "class_rescheduled_lead_notice": EventCopy(
+        placeholders=("instructor_name", "class_title", "old_dates", "new_dates", "class_url"),
         sample_context={
             "instructor_name": "Robin Vale",
             "class_title": "Intro to Lost-Wax Casting",
-            "note": "Please move the price to $85 and add one more seat.",
-            "edit_url": "https://pastlives.example/classes/admin/42/edit/",
+            "old_dates": "Sat, Nov 22, 2026 at 10:00 AM to 12:00 PM",
+            "new_dates": "Sun, Nov 23, 2026 at 1:00 PM to 3:00 PM",
+            "class_url": "https://pastlives.example/classes/teach/classes/42/",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
-                subject="{{ instructor_name }} asked for a change to {{ class_title }}",
-                body_text="{{ note }}",
+                subject="{{ class_title }} has new dates",
+                body_text="{{ instructor_name }} moved it to {{ new_dates }}.",
             ),
             Channel.EMAIL: ChannelCopy(
-                subject="Change requested: {{ class_title }}",
+                subject="{{ class_title }} has new dates",
                 body_text=(
-                    "{{ instructor_name }} asked for a change to {{ class_title }}:\n\n"
-                    "{{ note }}\n\n"
-                    "Instructors cannot change a live class's title, dates, price, or capacity themselves. "
-                    "Make the change on the admin edit page: {{ edit_url }}\n\n"
+                    "{{ instructor_name }} changed the dates of {{ class_title }}. "
+                    "Everyone signed up has been emailed the new dates.\n\n"
+                    "Was: {{ old_dates }}\n"
+                    "Now: {{ new_dates }}\n\n"
+                    "The class stays live. Nothing for you to do. See the class: {{ class_url }}\n\n"
                     "Past Lives Makerspace"
                 ),
                 body_html=(
-                    "<p><strong>{{ instructor_name }}</strong> asked for a change to "
-                    "<strong>{{ class_title }}</strong>:</p>"
-                    "<p><em>{{ note }}</em></p>"
-                    "<p>Instructors cannot change a live class's title, dates, price, or capacity themselves. "
-                    "Make the change on the admin edit page.</p>"
-                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ edit_url }}" '
+                    "<p><strong>{{ instructor_name }}</strong> changed the dates of "
+                    "<strong>{{ class_title }}</strong>. Everyone signed up has been emailed the new dates.</p>"
+                    "<p>Was: {{ old_dates }}<br>Now: <strong>{{ new_dates }}</strong></p>"
+                    "<p>The class stays live. Nothing for you to do.</p>"
+                    '<p style="text-align:center;margin:24px 0 8px;"><a href="{{ class_url }}" '
                     'style="display:inline-block;padding:12px 28px;background-color:#EEB44B;color:#092E4C;'
                     'font-size:14px;font-weight:700;text-decoration:none;border-radius:6px;">'
-                    "Edit the class</a></p>"
+                    "See the class</a></p>"
                     "<p>Past Lives Makerspace</p>"
                 ),
             ),

@@ -95,12 +95,12 @@ from classes.table import prepare_table, table_search
 from classes.forms import (
     CategoryForm,
     ClassCancelForm,
-    ClassChangeRequestForm,
     ClassOfferingForm,
     ClassReviewDecisionForm,
     ClassSaleForm,
     ClassSessionFormSet,
     ClassSettingsForm,
+    LiveClassSessionFormSet,
     DiscountCodeForm,
     DiscountCodeReassignForm,
     InstructorDiscountCodeForm,
@@ -1963,8 +1963,19 @@ def teach_dashboard(request: HttpRequest) -> HttpResponse:
     )
 
 
-def _sessions_json(request: HttpRequest, formset: Any, offering: ClassOffering | None) -> str:
-    """The session rows the inline scheduler starts from: the POST when re-rendering, else the saved rows."""
+def _sessions_json(
+    request: HttpRequest, formset: Any, offering: ClassOffering | None, *, lock_started: bool = False
+) -> str:
+    """The session rows the inline scheduler starts from: the POST when re-rendering, else the saved rows.
+
+    ``lock_started`` marks each saved session that has already started ``locked``, so the live
+    class's scheduler offers no Remove on it (#1186); the formset refuses the change regardless.
+    """
+    started: set[str] = set()
+    if lock_started and offering is not None and offering.pk:
+        started = {
+            str(pk) for pk in offering.sessions.filter(starts_at__lt=timezone.now()).values_list("pk", flat=True)
+        }
     sessions_data: list[dict] = []
     if formset.is_bound:
         for i in range(int(request.POST.get("sessions-TOTAL_FORMS", "0"))):
@@ -1975,7 +1986,9 @@ def _sessions_json(request: HttpRequest, formset: Any, offering: ClassOffering |
             # Either end kept: a half filled row is exactly what the failed save is reporting on,
             # and dropping it here would erase the value the error is about.
             if starts or ends:
-                sessions_data.append({"id": pk, "starts_at": starts, "ends_at": ends, "DELETE": bool(delete)})
+                sessions_data.append(
+                    {"id": pk, "starts_at": starts, "ends_at": ends, "DELETE": bool(delete), "locked": pk in started}
+                )
     elif offering is not None and offering.pk:
         # Wall clock in the site's timezone: the scheduler reads these as local times and
         # posts them back as local times, so the UTC value here drifts seven hours a save.
@@ -1985,6 +1998,7 @@ def _sessions_json(request: HttpRequest, formset: Any, offering: ClassOffering |
                     "id": s.pk,
                     "starts_at": timezone.localtime(s.starts_at).strftime("%Y-%m-%dT%H:%M"),
                     "ends_at": timezone.localtime(s.ends_at).strftime("%Y-%m-%dT%H:%M"),
+                    "locked": str(s.pk) in started,
                 }
             )
     return json.dumps(sessions_data)
@@ -2659,7 +2673,7 @@ _CLOSED_WHILE_EDITING = (
 
 # The published race is the same loss with a different ending: the class is still the
 # instructor's to edit, just through the shorter live-class form, so the notice points there
-# rather than at an admin. The dates, which that form does not carry, are the admin's (#1067).
+# rather than at an admin.
 #
 # The last sentence names Cancel deliberately, and must not be softened back to "reload this
 # page". This page is the body of a POST, so a reload re-sends that POST, which still carries
@@ -2668,8 +2682,7 @@ _CLOSED_WHILE_EDITING = (
 # because it is a link to the class page, where Edit is a GET.
 _PUBLISHED_WHILE_EDITING = (
     "This class was published after you opened this page, so nothing here was saved. "
-    "A live class is edited through a shorter form that changes everything but the dates. "
-    "To change a date, ask an admin. "
+    "A live class is edited through a shorter form. "
     "Copy anything you want to keep, then press Cancel and open Edit again for the shorter form."
 )
 
@@ -2734,18 +2747,34 @@ def _render_closed_class_post(request: HttpRequest, offering: ClassOffering, tea
 
 
 def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, teaching_member: Member) -> HttpResponse:
-    """The published class edit page: every field but the dates, plus FAQ and gallery (#1067).
+    """The published class edit page: every field, plus FAQ and gallery, with no re-review (#1067).
 
     Reached only through ``teach_class_edit``, so the capability set has already admitted the
     instructor or the guild's staff. Saves with one Save button and no submit: nothing to review.
+    The class's own instructors also change its dates here (#1186): the session scheduler on a
+    dated class, the window on a flexible one. A save that moved, added or removed a date tells
+    every registrant and the guild lead (:meth:`ClassOffering.announce_new_dates`). The guild's
+    staff get the page without the dates, and a session field they post is never read.
     """
     from membership.permissions import can_print_class_marketing
 
-    # The class's own instructors may add a partner from here (#686); the guild's staff save
-    # the list untouched, as on the composer. The same answer gates Request a change below.
+    # The class's own instructors may add a partner (#686) and change the dates (#1186); the
+    # guild's staff save the list untouched and never bind the sessions.
     is_own_class = offering.teaches(teaching_member)
-    form = TeachPublishedClassForm(request.POST or None, instance=offering, can_edit_instructors=is_own_class)
-    faq_formset = build_class_faq_formset(request.POST or None, offering)
+    # Read before the form binds: validating writes the posted window onto ``offering``.
+    dates_before = offering.date_lines if request.method == "POST" else []
+    data = request.POST or None
+    form = TeachPublishedClassForm(
+        data, instance=offering, can_edit_instructors=is_own_class, can_edit_dates=is_own_class
+    )
+    # A POST that carries no scheduler (one from before #1186, or a crafted one) leaves the dates alone.
+    binds_sessions = request.method != "POST" or "sessions-TOTAL_FORMS" in request.POST
+    formset = (
+        LiveClassSessionFormSet(data, instance=offering, prefix="sessions")
+        if is_own_class and not offering.is_flexible and binds_sessions
+        else None
+    )
+    faq_formset = build_class_faq_formset(data, offering)
     # Both exits, resolved once: the template has no ClassAccess of its own, and a save that
     # landed must not return the saver to a 404 that reads as the save having failed.
     leave_url = _leave_class_url(request, offering)
@@ -2761,13 +2790,19 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
     if (
         request.method == "POST"
         and form.is_valid()
+        and (formset is None or formset.is_valid())
         and faq_formset.is_valid()
         and form.accepts_eventbrite_listing(cast("User", request.user), faq_formset)
     ):
         saved = form.save()
+        if formset is not None:
+            formset.save()
         faq_formset.save()
         saved.mark_eventbrite_edit_saved()
-        messages.success(request, "Class updated.")
+        if saved.announce_new_dates(dates_before, actor=cast("User", request.user)):
+            messages.success(request, "Class updated. Everyone signed up is getting the new dates by email.")
+        else:
+            messages.success(request, "Class updated.")
         # An instructor who took themselves off the list no longer opens this class, so the
         # class screen would answer a save that landed with a 404; the dashboard is theirs.
         if is_own_class and not saved.teaches(teaching_member):
@@ -2780,6 +2815,7 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
             "active_tab": "my_classes",
             "instructor": teaching_member,
             "form": form,
+            "formset": formset,
             "faq_formset": faq_formset,
             "offering": offering,
             # Named as the composer names it, because it is the same control answering the
@@ -2790,10 +2826,12 @@ def _teach_published_class_edit(request: HttpRequest, offering: ClassOffering, t
             # page a live class lands on, so the Share & Print card renders here.
             "can_print_marketing": can_print_class_marketing(request, offering),
             "sessions": list(offering.sessions.order_by("starts_at")),
-            "change_form": ClassChangeRequestForm(),
-            # Request a change posts through the instructor-only scope, so only the
-            # instructor sees it; guild staff making light edits get the page without it.
+            # The dated class's scheduler, for its own instructors only; a session that has
+            # already started is locked there.
+            "sessions_json": _sessions_json(request, formset, offering, lock_started=True) if formset else "[]",
+            "initial_forms": formset.initial_form_count() if formset is not None else 0,
             "is_own_class": is_own_class,
+            "registrant_count": offering.active_registration_count,
             **_teach_gallery_context(offering),
         },
     )
@@ -3208,12 +3246,11 @@ def _render_class_overview(
     offering: ClassOffering,
     *,
     cancel_form: ClassCancelForm | None = None,
-    change_form: ClassChangeRequestForm | None = None,
     sale_form: ClassSaleForm | None = None,
 ) -> HttpResponse:
     """The per-class Overview: pipeline, facts, sessions, and the action row by capability.
 
-    The Cancel class, Request a change, and sale modals are server-rendered inline; a bound,
+    The Cancel class and sale modals are server-rendered inline; a bound,
     invalid form re-renders the page with that modal open and the error inside it. Those
     re-renders are the paths most likely to be missed, which is why they all land here rather
     than assembling context of their own.
@@ -3227,7 +3264,6 @@ def _render_class_overview(
             "lifecycle": offering.lifecycle,
             "pipeline": offering.review_pipeline(),
             "cancel_form": cancel_form or ClassCancelForm(),
-            "change_form": change_form or ClassChangeRequestForm(),
             "sale_form": sale_form or ClassSaleForm(instance=offering),
             # Only the Archive button reads it, and only an admin is offered one.
             "archive_blocker": offering.archive_blocker if access.can_administer else "",
@@ -3375,25 +3411,22 @@ def teach_class_cancel(request: HttpRequest, pk: int) -> HttpResponse:
 
 @class_screen_required
 @require_POST
-def teach_class_request_change(request: HttpRequest, pk: int) -> HttpResponse:
-    """Ask the admins to change a live class's dates; everything else the instructor edits (#1067)."""
+def teach_class_unpublish(request: HttpRequest, pk: int) -> HttpResponse:
+    """The instructor takes their live class out of the catalog, while nobody is signed up (#1186).
+
+    Back to draft, needing review again to go live (:meth:`ClassOffering.unpublish`). A class
+    with sign ups is refused with a pointer to Cancel class, which tells the people booked.
+    """
     access: ClassAccess = request.class_access  # type: ignore[attr-defined]
     if not access.can_submit:
-        raise Http404("Only the class's own instructor asks the admins for a change.")
+        raise Http404("Only the class's own instructor takes it out of the catalog.")
     offering = _class_screen_offering(pk)
-    form = ClassChangeRequestForm(request.POST)
-    if not form.is_valid():
-        return _render_class_overview(request, offering, change_form=form)
-    teaching_member: Member = request.user.member
     try:
-        sent = offering.request_change(teaching_member, form.cleaned_data["note"])
+        offering.take_out_of_catalog(actor=cast("User", request.user))
     except ValueError as exc:
         messages.error(request, str(exc))
         return redirect("classes:teach_class_detail", pk=offering.pk)
-    if sent:
-        messages.success(request, "Sent to the admins.")
-    else:
-        messages.info(request, "The admins already have this note.")
+    messages.success(request, f"{offering.title} is out of the catalog and back to draft. Submit it again to go live.")
     return redirect("classes:teach_class_detail", pk=offering.pk)
 
 

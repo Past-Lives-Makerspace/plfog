@@ -2063,6 +2063,47 @@ ClassSessionFormSet = inlineformset_factory(
     can_delete=True,
 )
 
+LIVE_PAST_SESSION_MESSAGE = "A date that has already happened cannot be moved or removed."
+LIVE_NO_SESSIONS_MESSAGE = "A live class needs at least one date. To take it down, use Cancel class."
+
+
+class BaseLiveClassSessionFormSet(BaseInlineFormSet):
+    """The sessions of a live class, as its own instructor edits them on the published edit page (#1186).
+
+    The composer's scheduler posts the same ``sessions-*`` fields, so the rules a live class
+    adds live here: a session that has already started keeps its date (moved or removed, it is
+    refused), and a class that has dates keeps at least one, because a live class with none
+    drops out of the catalog without a word to the people booked.
+    """
+
+    def clean(self) -> None:
+        super().clean()
+        if any(self.errors):
+            return
+        now = timezone.now()
+        remaining = 0
+        for form in self.forms:
+            deleting = bool(form.cleaned_data.get(DELETION_FIELD_NAME))
+            # ``form.instance`` already carries the posted value; the stored one is the initial.
+            stored_start = form.initial.get("starts_at") if form.instance.pk else None
+            if stored_start is not None and stored_start < now and (deleting or form.has_changed()):
+                raise ValidationError(LIVE_PAST_SESSION_MESSAGE)
+            if not deleting and form.cleaned_data.get("starts_at") is not None:
+                remaining += 1
+        # A class that went live with no dates may stay so; one that had dates keeps at least one.
+        if remaining == 0 and self.initial_form_count():
+            raise ValidationError(LIVE_NO_SESSIONS_MESSAGE)
+
+
+LiveClassSessionFormSet = inlineformset_factory(
+    ClassOffering,
+    ClassSession,
+    form=ClassSessionForm,
+    formset=BaseLiveClassSessionFormSet,
+    extra=0,
+    can_delete=True,
+)
+
 
 class ClassImageForm(forms.ModelForm):
     class Meta:
@@ -2216,7 +2257,7 @@ class TeachPublishedClassForm(
     _MinimumSignupsMixin,
     forms.ModelForm,
 ):
-    """What an instructor may edit on a LIVE class without re-review: everything but its dates.
+    """What may be edited on a LIVE class without re-review.
 
     The title, class type, price, capacity, minimum signups (#1182), location and age minimum (#1067), the subtitle
     (#563), description, prep notes, materials, safety, guardian note, the flexible-scheduling
@@ -2226,11 +2267,13 @@ class TeachPublishedClassForm(
     new price cannot break a sale already running; the sale itself is set, changed or ended
     from the manage page's sale modal (:class:`ClassSaleForm`).
 
-    The dates stay admin-only after publish: sessions, scheduling model and type, the
-    registration cutoff and the flexible window. The instructor asks for those through
-    :class:`ClassChangeRequestForm`. A crafted POST carrying them is simply ignored: a
-    ModelForm saves only its declared fields, and the view binds no session formset. Capacity
-    is dropped on a flexible class, which has no seat cap, as the composer hides it there.
+    The class's own instructors also change its dates here (#1186): the sessions, through
+    :data:`LiveClassSessionFormSet` which the view binds for them alone, and a flexible class's
+    window, the two day fields this form keeps only for them (``can_edit_dates``). The guild's
+    staff get neither, and a crafted POST carrying them is simply ignored: a ModelForm saves
+    only its declared fields. The scheduling model and type and the registration cutoff stay
+    as published. Capacity is dropped on a flexible class, which has no seat cap, as the
+    composer hides it there, and cannot go below the seats already held.
     Eventbrite is the class's own tab (#725); a save of a class on Eventbrite still runs the
     listing check.
 
@@ -2263,15 +2306,21 @@ class TeachPublishedClassForm(
             "flexible_booking_text",
             "flexible_note",
             "video_url",
+            "flexible_starts_on",
+            "flexible_ends_on",
         ]
         widgets = {
             "video_url": _video_url_widget(),
             "description": RichBodyEditorWidget(attrs={"rows": 4}),
             "flexible_booking_text": _booking_text_widget(),
+            "flexible_starts_on": _window_day_widget(),
+            "flexible_ends_on": _window_day_widget(),
         }
         help_texts = {"subtitle": SUBTITLE_HELP_TEXT}
 
-    def __init__(self, *args: Any, can_edit_instructors: bool = True, **kwargs: Any) -> None:
+    def __init__(
+        self, *args: Any, can_edit_instructors: bool = True, can_edit_dates: bool = False, **kwargs: Any
+    ) -> None:
         super().__init__(*args, **kwargs)
         self.fields["category"].label = "Class Type"
         setup_location_field(self, hint=CLASS_LOCATION_HINT)
@@ -2284,6 +2333,13 @@ class TeachPublishedClassForm(
         else:
             del self.fields["flexible_booking_text"]
             self.setup_minimum_signups_field()
+        # The window is a flexible class's dates: its own instructors move it (#1186), nobody else.
+        if self.instance.is_flexible and can_edit_dates:
+            self.fields["flexible_starts_on"].label = "First day"
+            self.fields["flexible_ends_on"].label = "Last day"
+        else:
+            del self.fields["flexible_starts_on"]
+            del self.fields["flexible_ends_on"]
         self.add_hero_crop_field()
         self.setup_instructors_fields(author=None, can_edit=can_edit_instructors)
 
@@ -2291,10 +2347,18 @@ class TeachPublishedClassForm(
         return clean_flexible_booking_text(self)
 
     def clean_capacity(self) -> int:
-        """A live class keeps at least one seat; the composer's readiness floor never runs on this save."""
+        """A live class keeps at least one seat, and never fewer than the seats already held (#646, #1186).
+
+        Held is :attr:`ClassOffering.active_registration_count`: confirmed, pending payment and
+        waitlisted, so nobody already booked is pushed out by a smaller class.
+        """
         capacity: int = self.cleaned_data["capacity"]
         if capacity < 1:
             raise forms.ValidationError("A class needs at least 1 seat.")
+        held = self.instance.active_registration_count
+        if capacity < held:
+            people = "1 person already holds a seat" if held == 1 else f"{held} people already hold a seat"
+            raise forms.ValidationError(f"{people}, so capacity cannot go below {held}.")
         return capacity
 
     def clean_video_url(self) -> str:
@@ -2309,6 +2373,9 @@ class TeachPublishedClassForm(
             cutoff_on=self.instance.registration_cutoff_hours is not None,
             flexible=self.instance.is_flexible,
         )
+        starts_on, ends_on = data.get("flexible_starts_on"), data.get("flexible_ends_on")
+        if starts_on is not None and ends_on is not None and ends_on < starts_on:
+            self.add_error("flexible_ends_on", FLEXIBLE_WINDOW_ORDER_MESSAGE)
         return data
 
     def save(self, commit: bool = True) -> ClassOffering:
@@ -2319,26 +2386,6 @@ class TeachPublishedClassForm(
             self.save_m2m()
             self.save_instructors(offering)
         return offering
-
-
-class ClassChangeRequestForm(forms.Form):
-    """The Request a change modal on a live class: one note for the admins, now only for a date (#1067)."""
-
-    note = forms.CharField(
-        max_length=1000,
-        required=False,
-        widget=forms.Textarea(
-            attrs={"rows": 3, "placeholder": "Move the second session to Saturday, March 14 at 10 AM."}
-        ),
-        label="What needs to change?",
-        help_text="An admin makes the change and can reach you with questions.",
-    )
-
-    def clean_note(self) -> str:
-        note = " ".join((self.cleaned_data.get("note") or "").split())
-        if not note:
-            raise ValidationError("Say what needs to change.")
-        return note
 
 
 class ClassCancelForm(forms.Form):

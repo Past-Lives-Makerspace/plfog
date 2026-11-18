@@ -21,11 +21,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from classes.factories import (
-    ClassOfferingFactory,
-    InstructorFactory,
     UserFactory,
 )
-from classes.models import ClassOffering
 from core.events import resolvers
 from core.events.registry import EmailDelivery, get_event
 from core.models import EventDelivery, Notification
@@ -58,7 +55,6 @@ PART_3_EVENTS = (
     "wiki.page_reported",
     "wiki.page_proposed",
     "instructor_application_received",
-    "class_change_requested",
 )
 
 
@@ -311,27 +307,22 @@ def describe_instructor_application_received():
 
 
 def describe_class_change_requested():
-    def it_is_always_included_and_each_request_is_its_own_line():
-        instructor = InstructorFactory(user=UserFactory(username="alex@example.com", email="alex@example.com"))
-        offering = ClassOfferingFactory(instructor=instructor, status=ClassOffering.Status.PUBLISHED)
-        with patch("core.events.emit.emit") as fake:
-            offering.request_change(instructor, "Move it to Friday.")
-        url = _emitted(fake, "class_change_requested")["url"]
-        # The edit page shows no change request to anchor on, so the link is the page itself.
-        assert url == reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
-        row = EventDelivery(event_key="class_change_requested", url=url, period="offering:1:change_request:2")
-        assert resolvers.open_request_urls("class_change_requested", [row]) == {url}
+    def it_is_retired_and_a_queued_line_never_reaches_the_morning_email():
+        # #1186 removed Request a change; production still held queued lines for it.
+        from core.events.resolvers import has_open_check
 
-    def it_gives_two_requests_on_one_class_two_lines_in_the_8am_email():
+        assert not has_open_check("class_change_requested")
         holder = UserFactory(username="cms@example.com", email="cms@example.com")
-        Member.objects.get(user=holder).admin_capabilities.create(capability=AdminCapability.Capability.CLASS_APPROVER)
-        instructor = InstructorFactory(user=UserFactory(username="alex@example.com", email="alex@example.com"))
-        offering = ClassOfferingFactory(instructor=instructor, status=ClassOffering.Status.PUBLISHED)
-        offering.request_change(instructor, "Move it to Friday.")
-        offering.request_change(instructor, "Also add a seat.")
-        (email,) = digest_emails("cms@example.com")
-        assert email.subject == "Action Needed: 2 Requests Awaiting You"
-        assert "Move it to Friday." in email.body and "Also add a seat." in email.body
+        EventDelivery.objects.create(
+            event_key="class_change_requested",
+            target_ref=f"user:{holder.pk}",
+            channel="digest",
+            period="offering:1:change_request:2",
+            status=EventDelivery.Status.PENDING,
+            title="Alex asked for a change to Pottery",
+            url="/classes/admin/1/edit/",
+        )
+        assert digest_emails("cms@example.com") == []
 
 
 def describe_the_8am_email_for_a_part_3_request():

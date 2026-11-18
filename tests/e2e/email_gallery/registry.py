@@ -265,6 +265,23 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="moved_context",
     ),
     GalleryEmail(
+        key="new_dates",
+        name="Your class has new dates",
+        section="Classes",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when the instructor moves, adds or removes a date on a live class they teach (#1186). "
+            "Every seat holder gets it once per change, with the old and new dates. Goes to the "
+            "registrant's email address."
+        ),
+        edit_pointer=_tpl("classes/emails", "new_dates"),
+        audience="Every seat holder on the class (member or guest).",
+        event_keys=frozenset({"class_rescheduled"}),
+        text_template="classes/emails/new_dates.txt",
+        html_template="classes/emails/new_dates.html",
+        context_builder="new_dates_context",
+    ),
+    GalleryEmail(
         key="eventbrite_finish",
         name="Finish registering (Eventbrite booking)",
         section="Classes",

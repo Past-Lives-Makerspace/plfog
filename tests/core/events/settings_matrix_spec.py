@@ -495,6 +495,7 @@ def describe_row_groups():
             "group.waitlist_promotion",
             "registration_removed",
             "registration_moved",
+            "class_rescheduled",
             "group.instructor_application_decision",
         ]
 
@@ -730,6 +731,8 @@ def describe_padlocked_rows():
         "cubbies.waitlist_opened": "Guilds",
         # A new lead or staffer learns the rules for running their guild (#1076).
         "guild_staff.welcome": "Guilds",
+        # The dates of a class you signed up for moved (#1186): it is about your booking.
+        "class_rescheduled": "Classes",
         # A bill for an orientation the member already took (#1111): money they owe.
         "billing.orientation_bill": "Billing",
         # Its reminders at 7, 14 and 30 days (#1120): the same money, still owed.

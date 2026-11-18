@@ -297,17 +297,13 @@ def describe_urls_stamped_into_rows_and_emails():
 
     ``Notification.url`` and ``EventDelivery.url`` are persisted CharFields rendered once at
     creation, and the emails beside them cannot be recalled. A notice minted while this change
-    is live and tapped after a revert must still land somewhere an admin can use, so these two
+    is live and tapped after a revert must still land somewhere an admin can use, so these
     keep reversing the LEGACY names: one 302 hop now, a native resolve after a revert.
     """
 
     def it_keeps_the_legacy_name_on_the_cancelled_class_admin_notice(db):
         source = (REPO / "classes/models.py").read_text()
         assert 'reverse("classes:admin_class_registrations", kwargs={"pk": self.pk})' in source
-
-    def it_keeps_the_legacy_name_on_the_change_request_notice(db):
-        source = (REPO / "classes/models.py").read_text()
-        assert 'reverse("classes:admin_class_edit", kwargs={"pk": self.pk})' in source
 
     def it_puts_an_admin_on_the_roster_when_an_instructor_cancels_a_paid_class(admin_user, db):
         # Not vacuous: the stamped path has to actually reach the roster, hop and all.

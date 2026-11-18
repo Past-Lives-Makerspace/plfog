@@ -302,26 +302,6 @@ def describe_decision_notes():
         assert [m.body for m in world.offering.thread()] == ["Zzfirst round", "Zzwhy?"]
 
 
-def describe_change_requests():
-    def it_writes_the_request_as_the_instructors_message_with_only_the_change_notice():
-        world = _LeadlessClass("chg", status=ClassOffering.Status.PUBLISHED)
-        assert world.offering.request_change(world.erin, "Zzmove it\nto Friday") is True
-        [message] = world.offering.thread()
-        assert (message.author_id, message.body, message.is_from_staff) == (
-            world.erin.user.pk,
-            "Zzmove it\nto Friday",
-            False,
-        )
-        assert Notification.objects.filter(trigger=CLASS_MESSAGE_TO_REVIEWERS).count() == 0
-        assert Notification.objects.filter(trigger="class_change_requested").count() == 1
-
-    def it_writes_nothing_for_a_repeat_the_admins_already_have():
-        world = _LeadlessClass("chg-rep", status=ClassOffering.Status.PUBLISHED)
-        world.offering.request_change(world.erin, "Zzmove it")
-        assert world.offering.request_change(world.erin, "Zzmove it") is False
-        assert world.offering.messages.count() == 1
-
-
 def describe_reading():
     def it_reads_a_thread_of_any_length_in_a_fixed_number_of_queries():
         world = _GuildClass("read")
