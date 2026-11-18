@@ -1904,9 +1904,8 @@ def describe_a_queued_class_going_live():
         assert email.to == [offering.instructor.primary_email]
         assert email.subject == f'"{offering.title}" {_SUBJECT}'
         assert "- Description: payment outside the ticket: “paid at the session”, “cash”, “venmo”" in email.body
-        overview = reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})
-        assert "use Request a Change: http" in email.body
-        assert email.body.split("use Request a Change: ", 1)[1].split("\n", 1)[0].endswith(overview)
+        edit = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        assert email.body.split("edit page, dates included: ", 1)[1].split("\n", 1)[0].endswith(edit)
         assert "Once the change is saved, the class lists on Eventbrite on its own." in email.body
 
     def it_does_not_email_again_when_a_retry_finds_the_same_failure(eventbrite: FakeEventbrite):

@@ -795,6 +795,81 @@ def send_registration_moved(registration: "Registration", *, source: "ClassOffer
     )
 
 
+def send_new_dates(registration: "Registration", *, before: list[str], after: list[str], token: str) -> None:
+    """Tell one registrant their live class has new dates: old and new, the class page, their registration (#1186).
+
+    Sent by :func:`classes.tasks.send_new_dates_notices` after the class's instructor saved a
+    date change. To ``registration.email``, so a guest with no account hears too. ``token``
+    names this change: the same change never emails a registrant twice, a later one does.
+
+    Args:
+        registration: A seat holding registration on the class.
+        before: The class's dates before the save (:attr:`ClassOffering.date_lines`).
+        after: Its dates now.
+        token: The change's own id, minted by :meth:`ClassOffering.announce_new_dates`.
+    """
+    from core.events.senders import emit_with_email_shell
+
+    offering = registration.class_offering
+    self_serve_path = reverse("classes:my_registration", kwargs={"token": registration.self_serve_token})
+    template_context = {
+        "registration": registration,
+        "offering": offering,
+        "before": before,
+        "after": after,
+        "class_url": _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})),
+        "self_serve_url": _absolute_url(self_serve_path),
+        "is_waitlisted": registration.status == registration.Status.WAITLISTED,
+    }
+    emit_with_email_shell(
+        "class_rescheduled",
+        actor=None,
+        target=registration,
+        context={"member": registration.member},
+        subject=f"{offering.title} has new dates",
+        text_template="classes/emails/new_dates.txt",
+        html_template="classes/emails/new_dates.html",
+        template_context=template_context,
+        in_app_title="Your class has new dates",
+        in_app_body=offering.title,
+        url=self_serve_path,
+        email_to=registration.email,
+        period=f"reg:{registration.pk}:new_dates:{token}",
+    )
+
+
+def send_new_dates_lead_notice(
+    offering: "ClassOffering", *, before: list[str], after: list[str], actor_id: int | None, token: str
+) -> None:
+    """Tell the guild lead (the CMS Administrators for a class with no lead) that a live class moved (#1186).
+
+    A notice, nothing to decide: the class stays live. Whoever made the change is left out, so a
+    lead moving their own class is not told what they just did.
+    """
+    from core.events import resolvers
+    from core.events.emit import emit
+    from core.events.registry import CLASS_RESCHEDULED_LEAD_NOTICE, get_event
+
+    guild = offering.new_dates_guild
+    context = {
+        "guild": guild,
+        "instructor_name": offering.instructor_names or "The instructor",
+        "class_title": offering.title,
+        "old_dates": "; ".join(before),
+        "new_dates": "; ".join(after),
+        "class_url": _absolute_url(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})),
+    }
+    audience = resolvers.resolve(get_event(CLASS_RESCHEDULED_LEAD_NOTICE).recipient, context)
+    emit(
+        CLASS_RESCHEDULED_LEAD_NOTICE,
+        target=offering,
+        context=context,
+        url=reverse("classes:teach_class_detail", kwargs={"pk": offering.pk}),
+        recipient_user_ids={user.pk for user, _reason in audience if user.pk != actor_id},
+        period=f"offering:{offering.pk}:new_dates:{token}",
+    )
+
+
 def send_duplicate_payment_alert(
     registration: "Registration", *, amount_cents: int, payment_intent: str, session_id: str
 ) -> None:
@@ -978,15 +1053,13 @@ def eventbrite_rules_failed_email(offering: "ClassOffering", problems: "Sequence
         offering: The live class that was not listed.
         problems: The listing check's problems, each read as its line (``ListingFinding``).
     """
-    overview_url = _absolute_url(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk}))
     edit_url = _absolute_url(reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}))
     lines = "\n".join(f"- {problem}" for problem in problems)
     body = (
         f'"{offering.title}" is live on Past Lives, but it was not listed on Eventbrite. Eventbrite '
         f"takes down listings that break its selling rules, so nothing was sent.\n\n"
         f"Fix these:\n{lines}\n\n"
-        f"You can fix them yourself on the class's edit page: {edit_url}\n\n"
-        f"If the fix is a date, open the class and use Request a Change: {overview_url}\n\n"
+        f"You can fix them yourself on the class's edit page, dates included: {edit_url}\n\n"
         f"Once the change is saved, the class lists on Eventbrite on its own."
     )
     return f'"{offering.title}" was not listed on Eventbrite', body
@@ -997,8 +1070,8 @@ def send_eventbrite_rules_failed(offering: "ClassOffering") -> None:
 
     Sent by :meth:`ClassOffering.sync_eventbrite_listing` when a class with Submit to Eventbrite
     ticked fails the listing check as it goes out, so nothing reached Eventbrite. A live class is
-    fixed on its edit page, or through Request a Change on its Overview when the fix is a date
-    (#1067); once the change is saved, the class lists on its own. Flat text, like the other operational class notices; a class with no instructor
+    fixed on its edit page, its dates included (#1186); once the change is saved, the class lists
+    on its own. Flat text, like the other operational class notices; a class with no instructor
     email sends nothing.
     """
     addresses = [member.primary_email for member in offering.instructor_list if member.primary_email]

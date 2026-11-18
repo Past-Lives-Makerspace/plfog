@@ -14,11 +14,11 @@ and the gate can never disagree — which is the whole point of the ticket. Noth
 previewing as a member sees what that member sees, and the endpoints agree because
 `class_access` reads the effective role too.
 
-The Cancel class, Request a change, and sale modals are server-rendered inline. A POST that
+The Cancel class and sale modals are server-rendered inline. A POST that
 fails validation re-renders this page with the bound form, and the x-init below reopens that
 modal so the error shows inside it. The dispatch waits a tick: the child modal's
 @open-modal.window listener is not bound yet when the parent's x-init runs.{% endcomment %}
-<div x-data{% if cancel_form.is_bound %} x-init="$nextTick(() => $dispatch('open-modal', 'cancel-class'))"{% elif change_form.is_bound %} x-init="$nextTick(() => $dispatch('open-modal', 'request-change'))"{% elif sale_form.is_bound %} x-init="$nextTick(() => $dispatch('open-modal', 'class-sale'))"{% endif %}>
+<div x-data{% if cancel_form.is_bound %} x-init="$nextTick(() => $dispatch('open-modal', 'cancel-class'))"{% elif sale_form.is_bound %} x-init="$nextTick(() => $dispatch('open-modal', 'class-sale'))"{% endif %}>
 {% if pipeline and not pipeline.is_live and not pipeline.muted %}
 {% comment %}The two screens this replaces drew the same strip with different chrome, and the
 difference is kept rather than resolved by coin toss: for the person whose class is in review
@@ -135,9 +135,6 @@ an admin reading a queue wants the glance.{% endcomment %}
         <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'withdraw-submission')">Withdraw submission</button>
         {% include "components/confirm_modal.html" with confirm_id="withdraw-submission" confirm_title="Take back this submission?" confirm_message="It goes back to draft and reviewers stop seeing it. You can submit again any time." confirm_action_url=withdraw_url confirm_button_text="Withdraw" %}
     {% endif %}
-    {% if access.can_submit and lifecycle == 'upcoming' %}
-        <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('open-modal', 'request-change')">Request a change</button>
-    {% endif %}
     {% if offering.status == 'pending' and access.can_administer or offering.status == 'pending' and access.can_submit and offering.open_guild_lead_approval %}
         {# HTMX POST answering 204 + a toast, the same idiom the admin overview queue uses; the instructor gets it while a guild lead gate is open (#816). #}
         <form hx-post="{% url 'classes:admin_class_remind_lead' pk=offering.pk %}" hx-swap="none" style="display:inline;">
@@ -174,6 +171,16 @@ an admin reading a queue wants the glance.{% endcomment %}
         {% endif %}
         <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" @click="$dispatch('open-confirm', 'unpublish-class')">Take back to draft</button>
         {% include "components/confirm_modal.html" with confirm_id="unpublish-class" confirm_title="Take this class back to draft?" confirm_message=unpublish_message confirm_action_url=unpublish_url confirm_button_text="Take Back to Draft" confirm_button_style="primary" %}
+    {% endif %}
+    {% if access.can_submit and not access.can_administer and lifecycle == 'upcoming' %}
+        {% comment %}The instructor's own unpublish (#1186): quiet, so only while nobody is signed up. With sign ups the button gives way to a line naming Cancel class, which tells them; the endpoint refuses the same case.{% endcomment %}
+        {% if offering.active_registration_count %}
+            <span class="pl-sale-note" data-take-down-pointer>People are signed up, so use Cancel class to take it down. Cancel class tells them.</span>
+        {% else %}
+            {% url 'classes:teach_class_unpublish' pk=offering.pk as take_down_url %}
+            <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" data-guidance-target="classes.take-out-of-catalog" @click="$dispatch('open-confirm', 'take-down-class')">Take Out of Catalog</button>
+            {% include "components/confirm_modal.html" with confirm_id="take-down-class" confirm_title="Take this class out of the catalog?" confirm_message="It goes back to a draft and leaves the catalog straight away. Nobody is signed up, so nobody is emailed. To put it back, submit it for review again." confirm_action_url=take_down_url confirm_button_text="Take Out of Catalog" confirm_button_style="primary" %}
+        {% endif %}
     {% endif %}
     {% if access.can_administer and offering.status == 'archived' %}
         {% url 'classes:admin_class_restore' pk=offering.pk as restore_url %}
@@ -223,10 +230,6 @@ an admin reading a queue wants the glance.{% endcomment %}
 {% if access.can_cancel and lifecycle == 'upcoming' %}
 {# Cancel class: reason required, emailed to everyone registered. Server-rendered inline (see the x-init above). #}
 {% include "components/modal.html" with modal_id="cancel-class" modal_title="Cancel this class?" modal_size="sm" modal_body_include="classes/teach/partials/cancel_class_form.html" %}
-{% endif %}
-{% if access.can_submit and lifecycle == 'upcoming' %}
-{# Request a change: the one note that reaches the admins who can change the dates (#1067). #}
-{% include "components/modal.html" with modal_id="request-change" modal_title="Request a Change" modal_size="sm" modal_body_include="classes/teach/partials/request_change_form.html" %}
 {% endif %}
 {% if access.can_sale and lifecycle != 'cancelled' and lifecycle != 'archived' and lifecycle != 'completed' and offering.price_cents %}
 {# Put this class on sale: the six sale fields, out of the composer and into one modal (design spec §C.13). #}

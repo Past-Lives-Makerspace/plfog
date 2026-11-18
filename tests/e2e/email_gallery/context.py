@@ -464,6 +464,22 @@ def moved_context(data: SampleData) -> dict[str, Any]:
     }
 
 
+def new_dates_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``classes.emails.send_new_dates``: one session moved to a new day and time."""
+    registration = data.registration
+    return {
+        "subject": f"{data.offering.title} has new dates",
+        "template_context": {
+            "registration": registration,
+            "offering": data.offering,
+            "before": ["Sat, Nov 22, 2026 at 10:00 AM to 12:00 PM"],
+            "after": ["Sun, Nov 30, 2026 at 2:00 PM to 4:00 PM"],
+            **_class_urls(data, registration),
+            "is_waitlisted": False,
+        },
+    }
+
+
 def duplicate_payment_alert_context(data: SampleData) -> dict[str, Any]:
     """Reproduces ``classes.emails.send_duplicate_payment_alert`` exactly."""
     from classes.emails import _absolute_url

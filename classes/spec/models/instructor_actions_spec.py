@@ -1,5 +1,5 @@
-"""BDD specs for the instructor's own actions on a class: withdraw, request a change, and the
-refund notice an instructor's cancel raises."""
+"""BDD specs for the instructor's own actions on a class: withdraw, and the refund notice an
+instructor's cancel raises."""
 
 from __future__ import annotations
 
@@ -13,9 +13,7 @@ from django.utils import timezone
 from classes.factories import ClassOfferingFactory, ClassSessionFactory, RegistrationFactory, UserFactory
 from classes.models import ClassApproval, ClassOffering, CmsActivity, Registration
 from core.models import Notification
-from membership.models import AdminCapability, Member
-from tests.core.events.digest_support import digest_emails
-from tests.membership.factories import MemberFactory
+from membership.models import Member
 
 Status = ClassOffering.Status
 
@@ -87,102 +85,6 @@ def describe_withdraw_submission():
         stale = ClassApproval.objects.create(class_offering=offering, role=ClassApproval.Role.ADMIN)
         resp = client.get(reverse("classes:class_review", kwargs={"token": stale.token}))
         assert b"not awaiting review" in resp.content
-
-
-def describe_request_change():
-    def it_logs_and_notifies_the_cms_administrators_with_the_note(instructor, db):
-        holder_user = UserFactory(username="cms-change@example.com", email="cms-change@example.com")
-        Member.objects.get(user=holder_user).admin_capabilities.create(
-            capability=AdminCapability.Capability.CLASS_APPROVER
-        )
-        offering = _live(instructor, title="Live Lathe")
-        offering.request_change(instructor, "  Move it   to Friday.  ")
-        row = CmsActivity.objects.get(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED, class_offering=offering)
-        assert row.actor == instructor.user
-        assert row.payload == {"note": "Move it to Friday."}
-        bell = Notification.objects.get(trigger="class_change_requested", user=holder_user)
-        assert bell.title == "Own Teacher asked for a change to Live Lathe"
-        assert bell.body == "Move it to Friday."
-        # Criterion 39: the LEGACY name, deliberately. This URL is persisted on the
-        # Notification row and mailed out, so it has to keep resolving after a revert — one
-        # 302 hop while the merge is live is the cheaper half of that trade.
-        assert bell.url == reverse("classes:admin_class_edit", kwargs={"pk": offering.pk})
-        assert [m for m in mail.outbox if m.to == ["cms-change@example.com"]] == []
-        (sent,) = digest_emails("cms-change@example.com")
-        assert "Move it to Friday." in sent.body
-        # A second request is its own period, so it delivers again.
-        offering.request_change(instructor, "Also add a seat.")
-        assert Notification.objects.filter(trigger="class_change_requested", user=holder_user).count() == 2
-
-    def it_sends_an_identical_note_once_within_the_hour(instructor, db):
-        holder_user = UserFactory(username="cms-repeat@example.com", email="cms-repeat@example.com")
-        Member.objects.get(user=holder_user).admin_capabilities.create(
-            capability=AdminCapability.Capability.CLASS_APPROVER
-        )
-        offering = _live(instructor)
-        # Picture Framing, 2026-10-12: one note tapped 33 times in 49 seconds reached every
-        # CMS Administrator 33 times. A repeat inside the window is the same request.
-        note = "Please add Jenelle Giordano as an instructor. Thanks!"
-        rows = CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED)
-        assert offering.request_change(instructor, note) is True
-        assert offering.request_change(instructor, note) is False
-        assert offering.request_change(instructor, note) is False
-        assert rows.count() == 1
-        assert Notification.objects.filter(trigger="class_change_requested", user=holder_user).count() == 1
-        assert len(digest_emails("cms-repeat@example.com")) == 1
-        # Only the latest request counts: a different note in between makes the same note new again.
-        assert offering.request_change(instructor, "Also add a seat.") is True
-        assert offering.request_change(instructor, note) is True
-        assert rows.count() == 3
-        # The same note from a co-instructor is that person's own first request.
-        partner_user = UserFactory(username="partner@example.com", email="partner@example.com")
-        partner = Member.objects.get(user=partner_user)
-        assert offering.request_change(partner, note) is True
-        assert rows.count() == 4
-
-    def it_treats_a_long_note_edited_past_two_hundred_characters_as_new(instructor, db):
-        offering = _live(instructor)
-        head = "Please move the class to the following Saturday and raise the cap by two, " * 3
-        assert len(head) > 200
-        assert offering.request_change(instructor, head + "and keep the price.") is True
-        assert offering.request_change(instructor, head + "and drop the price to $60.") is True
-        rows = CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED).order_by("pk")
-        assert [row.payload["note"] for row in rows] == [
-            " ".join((head + "and keep the price.").split()),
-            " ".join((head + "and drop the price to $60.").split()),
-        ]
-
-    def it_never_matches_a_member_with_no_login_against_anyone(db):
-        # Unreachable from the page (it needs a login), kept honest at the model: with no user
-        # there is nothing to repeat, so the request goes out each time.
-        nobody = MemberFactory(full_legal_name="No Login")
-        offering = _live(nobody)
-        assert offering.request_change(nobody, "Move it.") is True
-        assert offering.request_change(nobody, "Move it.") is True
-        assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED).count() == 2
-
-    def it_sends_the_same_note_again_once_the_hour_has_passed(instructor, db):
-        holder_user = UserFactory(username="cms-later@example.com", email="cms-later@example.com")
-        Member.objects.get(user=holder_user).admin_capabilities.create(
-            capability=AdminCapability.Capability.CLASS_APPROVER
-        )
-        offering = _live(instructor)
-        offering.request_change(instructor, "Move it to Friday.")
-        CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED).update(
-            created_at=timezone.now() - ClassOffering.CHANGE_REQUEST_REPEAT_WINDOW - timedelta(minutes=1)
-        )
-        offering.request_change(instructor, "Move it to Friday.")
-        assert CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED).count() == 2
-        assert Notification.objects.filter(trigger="class_change_requested", user=holder_user).count() == 2
-
-    def it_refuses_a_blank_note_and_a_class_that_is_not_live(instructor, db):
-        live = _live(instructor)
-        with pytest.raises(ValueError):
-            live.request_change(instructor, "   ")
-        draft = ClassOfferingFactory(instructor=instructor, status=Status.DRAFT)
-        with pytest.raises(ValueError):
-            draft.request_change(instructor, "Change it")
-        assert not CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED).exists()
 
 
 def describe_instructor_cancel_refund_notice():

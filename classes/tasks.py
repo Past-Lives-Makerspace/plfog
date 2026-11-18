@@ -190,6 +190,27 @@ def refund_cancelled_class_payment(registration_id: int) -> None:
         alert_refund_failed(failed)
 
 
+@task
+def send_new_dates_notices(
+    offering_id: int, before: list[str], after: list[str], actor_id: int | None, token: str
+) -> None:
+    """Email each seat holder the class's new dates and tell its guild lead, once per change (#1186).
+
+    Queued by :meth:`ClassOffering.announce_new_dates` when an instructor's save moved, added or
+    removed a date. Safe to run twice: every send's period carries ``token``, so a registrant or
+    lead already told about this change is skipped. A class cancelled or taken down before the
+    task ran sends nothing; its own notice, if any, has already gone out.
+    """
+    from classes.emails import send_new_dates, send_new_dates_lead_notice
+
+    offering = ClassOffering.objects.get(pk=offering_id)
+    if offering.status != ClassOffering.Status.PUBLISHED:
+        return
+    for registration in offering.registrations.seat_holding().exclude(email="").select_related("member__user"):
+        send_new_dates(registration, before=before, after=after, token=token)
+    send_new_dates_lead_notice(offering, before=before, after=after, actor_id=actor_id, token=token)
+
+
 def enforce_class_minimums(window_minutes: int = 15) -> tuple[int, int]:
     """The job: send this tick's under-minimum warnings, then cancel the classes that closed short.
 

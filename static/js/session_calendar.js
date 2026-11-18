@@ -59,6 +59,8 @@
                     starts_at: s.starts_at,
                     ends_at: s.ends_at,
                     DELETE: !!s.DELETE,
+                    // A live class's session that already started: no Remove (#1186).
+                    locked: !!s.locked,
                 });
             });
         },

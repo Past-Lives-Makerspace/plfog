@@ -2396,97 +2396,79 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.save(update_fields=["status", "updated_at"])
         activity.log(CmsActivity.Kind.CLASS_WITHDRAWN, class_offering=self, actor=actor)
 
-    # How long an identical note from the same instructor counts as the same request. Picture
-    # Framing's note reached every CMS Administrator 33 times on 2026-10-12: the page showed
-    # nothing while the fan out ran, Send stayed tappable, and every tap landed as its own period.
-    CHANGE_REQUEST_REPEAT_WINDOW = timedelta(hours=1)
+    # --- Dates on a live class (#1186) -------------------------------------------------------
 
-    def request_change(self, instructor: "Member", note: str) -> bool:
-        """Ask an admin to change a live class's dates.
+    #: What a flexible class with no window reads as in a date list.
+    ANY_TIME_LINE: ClassVar[str] = "Any time, arranged with each student"
 
-        Everything else on a live class the instructor edits themselves (#1067); registrants
-        booked on the dates, so those change through a human: this logs
-        ``CLASS_CHANGE_REQUESTED`` and emits ``class_change_requested`` to the CMS
-        Administrators with the note and a link to the admin edit page. Each request is
-        its own dedupe period, except a repeat: the same note from the same instructor
-        inside :attr:`CHANGE_REQUEST_REPEAT_WINDOW` logs nothing and notifies nobody, since
-        the admins already hold it.
+    @property
+    def date_lines(self) -> list[str]:
+        """The class's dates as its registrants read them, one line per session, in order (#1186).
 
-        The request is also written into the class's thread as the instructor's message
-        (:meth:`write_message`), telling nobody more: the notice above is its one notice. A
-        repeat writes nothing, as it notifies nobody.
+        A dated class lists each session in the site's timezone ("Sat, Nov 22, 2026 at 10:00 AM to
+        12:00 PM"); a flexible class reads its window, or :attr:`ANY_TIME_LINE` with none. The
+        published edit page takes these before a save and :meth:`announce_new_dates` compares them
+        after, so "moved, added or removed" is any difference a registrant could read.
+        """
+        if self.is_flexible:
+            return [self.flexible_window_label or self.ANY_TIME_LINE]
+        return [
+            f"{date_format(localtime(s.starts_at), 'D, M j, Y')} at {date_format(localtime(s.starts_at), 'g:i A')}"
+            f" to {date_format(localtime(s.ends_at), 'g:i A')}"
+            for s in self.sessions.order_by("starts_at")
+        ]
+
+    def announce_new_dates(self, before: list[str], actor: "User | None") -> bool:
+        """Tell the registrants and the guild lead that this live class has new dates (#1186).
+
+        Compares ``before`` (:attr:`date_lines` read before the save) with the dates now saved.
+        Nothing differs: nothing is sent. Otherwise one durable task is queued once the save
+        commits (:func:`classes.tasks.send_new_dates_notices`): one email to each seat holder and
+        one notice to the guild lead, the CMS Administrators for a class with no lead. The class
+        stays live and needs no new review. The token makes this change its own dedupe period, so
+        the task run twice sends nothing more, while a later change back is told again.
 
         Returns:
-            True when the request went out, False when it repeated one the admins have.
-
-        Raises:
-            ValueError: If the class is not PUBLISHED, has already finished, or ``note``
-                is blank.
+            True when the dates changed and the notices were queued.
         """
-        if self.status != self.Status.PUBLISHED:
-            raise ValueError(f"Only published classes can request a change; got {self.status}.")
-        if self.lifecycle == self.Lifecycle.COMPLETED:
-            raise ValueError("This class has already happened.")
-        typed = note
-        note = " ".join(note.split())
-        if not note:
-            raise ValueError("Say what needs to change.")
-        from django.urls import reverse
-
-        from classes import activity
-        from classes.emails import _absolute_url
-        from core.events.emit import emit
-
-        actor = instructor.user
-        if self._change_request_repeats(actor, note):
+        after = self.date_lines
+        if after == before:
             return False
-        # The whole note: the repeat check compares against it, and a clipped copy would read
-        # an edit past the clip as the same note.
-        row = activity.log(
-            CmsActivity.Kind.CLASS_CHANGE_REQUESTED,
-            class_offering=self,
-            actor=actor,
-            payload={"note": note},
-        )
-        # The legacy name, for the same reason as ``registrations_path`` above: this one is
-        # stamped into a persisted notification URL and an unrecallable email.
-        edit_path = reverse("classes:admin_class_edit", kwargs={"pk": self.pk})
-        emit(
-            "class_change_requested",
-            actor=actor,
-            target=self,
-            context={
-                "instructor_name": instructor.display_name,
-                "class_title": self.title,
-                "note": note,
-                "edit_url": _absolute_url(edit_path),
-            },
-            url=edit_path,
-            period=f"offering:{self.pk}:change_request:{row.pk}",
-        )
-        # The request is also the instructor's message on the class's thread, as typed (line
-        # breaks kept). The notice above is its only notice, so it is written, not posted.
-        self.write_message(author=actor, body=typed)
+        from uuid import uuid4
+
+        from classes.tasks import send_new_dates_notices
+        from core.tasks import enqueue_on_commit
+
+        actor_id = actor.pk if actor is not None else None
+        enqueue_on_commit(send_new_dates_notices, self.pk, before, after, actor_id, uuid4().hex[:12])
         return True
 
-    def _change_request_repeats(self, actor: "User | None", note: str) -> bool:
-        """True when ``actor``'s latest request on this class is this note, sent inside the window.
+    @property
+    def new_dates_guild(self) -> Guild | None:
+        """The guild whose lead hears that the dates moved, or ``None`` for the CMS Administrators (#1186)."""
+        guild = self.category.guild if self.category_id else None
+        if guild is None or guild.guild_lead_id is None:
+            return None
+        return guild
 
-        Only the latest request counts: a different note in between makes the same note new
-        again, as a conversation would. A member with no login has no requests to repeat.
+    #: Why an instructor cannot take a class with sign ups out of the catalog (#1186).
+    TAKE_DOWN_HAS_SIGNUPS: ClassVar[str] = (
+        "People are signed up for this class. Use Cancel class instead, which tells them."
+    )
+
+    def take_out_of_catalog(self, actor: "User | None") -> None:
+        """The instructor's unpublish (#1186): back to draft, but only while nobody holds a seat.
+
+        A class with sign ups comes down through :meth:`cancel`, which tells the people booked;
+        :meth:`unpublish` is quiet, so it is the instructor's only while nobody would go untold.
+
+        Raises:
+            ValueError: If anyone holds a seat (:attr:`active_registration_count`), or the class
+                is not PUBLISHED (from :meth:`unpublish`).
         """
-        if actor is None:
-            return False
-        latest = (
-            CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_CHANGE_REQUESTED, class_offering=self, actor=actor)
-            .order_by("-created_at")
-            .first()
-        )
-        if latest is None:
-            return False
-        return (
-            latest.created_at >= timezone.now() - self.CHANGE_REQUEST_REPEAT_WINDOW and latest.payload["note"] == note
-        )
+        if self.active_registration_count:
+            raise ValueError(self.TAKE_DOWN_HAS_SIGNUPS)
+        self.unpublish(actor=actor)
 
     # --- The class's messages (the shared thread, core.threads) -------------------------------
 
@@ -2598,7 +2580,7 @@ class ClassOffering(HeroCropMixin, models.Model):
     def write_message(
         self, *, author: User | None, body: str, created_at: datetime | None = None
     ) -> ClassMessage | None:
-        """Save a message that rides on another notice (a decision's note, a change request); tells nobody.
+        """Save a message that rides on another notice (a decision's note); tells nobody.
 
         Blank text writes nothing and returns ``None``. ``created_at`` dates it at the action it
         belongs to (a decision is dated when it was decided).
@@ -7196,6 +7178,7 @@ class CmsActivity(models.Model):
         CLASS_WITHDRAWN = "class_withdrawn", "Submission withdrawn"
         CLASS_RESTORED = "class_restored", "Restored to draft"
         CLASS_UNPUBLISHED = "class_unpublished", "Taken back to draft"
+        # Request a change is gone (#1186); the value stays so the rows it wrote still read.
         CLASS_CHANGE_REQUESTED = "class_change_requested", "Change requested by instructor"
         REGISTRATION_CREATED = "registration_created", "Registered"
         REGISTRATION_CONFIRMED = "registration_confirmed", "Payment confirmed"

@@ -357,10 +357,12 @@ def describe_retiring_the_instructor_only_lookup():
         guild_class.refresh_from_db()
         assert guild_class.status == Status.PUBLISHED
 
-    def it_refuses_a_guild_lead_the_request_change_action(guild_lead, guild_class, client):
+    def it_refuses_a_guild_lead_the_take_out_of_catalog_action(guild_lead, guild_class, client):
         client.force_login(guild_lead.user)
-        url = reverse("classes:teach_class_request_change", kwargs={"pk": guild_class.pk})
-        assert client.post(url, {"note": "please change it"}).status_code == 404
+        url = reverse("classes:teach_class_unpublish", kwargs={"pk": guild_class.pk})
+        assert client.post(url).status_code == 404
+        guild_class.refresh_from_db()
+        assert guild_class.status == Status.PUBLISHED
 
 
 def describe_the_irreversible_actions():
@@ -467,14 +469,6 @@ def describe_a_modal_that_comes_back_with_an_error_in_it():
         assert "$dispatch('open-modal', 'class-sale')" in response.content.decode()
         guild_class.refresh_from_db()
         assert guild_class.sale_is_active is False
-
-    def it_reopens_the_request_change_modal_on_a_blank_note(instructor, guild_class, client):
-        client.force_login(instructor.user)
-        response = client.post(
-            reverse("classes:teach_class_request_change", kwargs={"pk": guild_class.pk}), {"note": ""}
-        )
-        assert response.status_code == 200
-        assert "$dispatch('open-modal', 'request-change')" in response.content.decode()
 
 
 def describe_the_overviews_queryset():
