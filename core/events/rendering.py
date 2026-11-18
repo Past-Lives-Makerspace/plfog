@@ -64,7 +64,7 @@ MEMBER_NAME_PLACEHOLDERS: frozenset[str] = frozenset(
     }
 )
 _GREETING_PLACEHOLDER_RE = re.compile(
-    r"(?P<greeting>\b(?i:hi|hello|hey|dear|welcome|thanks|thank you),?(?:\s+|\s*<[a-zA-Z][^<>{}]*>\s*)+)?"
+    r"(?P<greeting>\b(?i:hi|hello|hey|dear|welcome|thanks|thank you),?\s*(?:<[a-zA-Z][^<>{}]*>\s*)*(?<=[\s>]))?"
     r"\{\{\s*(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}"
 )
 

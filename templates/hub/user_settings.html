@@ -218,7 +218,7 @@
                     </div>
 
                     {# Name other members see: the preferred name alone by default; staff always see both names #}
-                    <div class="pl-profile-row" data-name-shown @change="fields.name_shown = $event.target.value">
+                    <div class="pl-profile-row" data-name-shown data-guidance-target="account.name-shown" @change="fields.name_shown = $event.target.value">
                         {% include "components/radio_group.html" with field=profile_form.name_shown_to_members choice_hints=profile_form.name_shown_examples field_hint="Staff always see both names. With no preferred name, other members see your legal name, whichever you pick." %}
                     </div>
 
@@ -246,7 +246,7 @@
                             Never shown to other members
                         </h3>
                         <ul class="pl-profile-never__list">
-                            <li>Full legal name, unless you choose to show it above</li>
+                            <li>If you set a preferred name, your full legal name, unless you choose to show it above</li>
                             <li>Billing name &amp; payment info</li>
                             <li>Emergency contact details</li>
                             <li>Account status, role, internal notes</li>

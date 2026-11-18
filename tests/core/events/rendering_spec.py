@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from django.utils.safestring import mark_safe
 
 from core.events.rendering import (
@@ -42,6 +44,19 @@ def describe_render_text():
         def it_leaves_a_guild_name_after_a_greeting_whole():
             out = render_text("Welcome {{ guild_name }}!", {"guild_name": "Ceramics (Wheel)"})
             assert out == "Welcome Ceramics (Wheel)!"
+
+        def it_greets_through_blank_lines_after_a_comma():
+            assert (
+                render_text("Thanks,\n\n{{ member_name }}", {"member_name": "Wren (Quinn Ashdown)"})
+                == "Thanks,\n\nWren"
+            )
+
+        def it_stays_fast_on_a_greeting_followed_by_a_long_run_of_spaces():
+            template = "Hi" + " " * 5000 + "and no placeholder"
+            started = time.perf_counter()
+            assert render_text(template, {}) == template
+            assert render_html(template, {}) == template
+            assert time.perf_counter() - started < 1
 
         def it_greets_by_the_short_name_through_an_opening_tag():
             out = render_text("Hi <strong>{{ member_name }}</strong>,", {"member_name": "Wren (Quinn Ashdown)"})
