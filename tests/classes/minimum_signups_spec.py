@@ -887,3 +887,51 @@ def describe_a_refund_already_in_flight():
         newest = registration.refunds.filter(status=PaymentRefund.Status.FAILED).order_by("-created_at", "-pk").first()
         assert newest is not None and newest.reason == "The kiln is down for repair."
         alert.assert_called_once_with(newest)
+
+
+def describe_the_minimum_beside_capacity():
+    """Wherever capacity is listed, the minimum the class needs to run sits beside it."""
+
+    def it_shows_in_the_class_header_and_the_overview_capacity_row(client: Client):
+        instructor = _instructor()
+        offering = _live_class(starts_in=timedelta(days=10), minimum=3, instructor=instructor)
+        client.force_login(instructor.user)
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        assert html.count('data-minimum-signups="3"') == 2
+        assert 'class="pl-min-signups-note"' in html
+
+    def it_shows_nothing_on_the_class_screen_without_a_minimum(client: Client):
+        instructor = _instructor()
+        offering = _live_class(starts_in=timedelta(days=10), minimum=None, instructor=instructor)
+        client.force_login(instructor.user)
+        html = client.get(reverse("classes:teach_class_detail", kwargs={"pk": offering.pk})).content.decode()
+        assert "data-minimum-signups" not in html
+
+    def it_shows_in_the_instructor_class_list(client: Client):
+        instructor = _instructor()
+        _live_class(starts_in=timedelta(days=10), minimum=3, instructor=instructor)
+        client.force_login(instructor.user)
+        html = client.get(reverse("classes:teach_dashboard")).content.decode()
+        assert 'data-minimum-signups="3"' in html
+
+    def it_shows_in_the_admin_class_list(admin_user: Any, client: Client):
+        _live_class(starts_in=timedelta(days=10), minimum=3, instructor=_instructor())
+        client.force_login(admin_user)
+        html = client.get(reverse("classes:admin_classes")).content.decode()
+        assert 'data-minimum-signups="3"' in html
+
+    def it_shows_beside_the_max_class_size_on_the_public_page(client: Client):
+        offering = _live_class(starts_in=timedelta(days=10), minimum=3)
+        html = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        meta = html[html.index("data-minimum-signups-meta") :]
+        assert "<strong>3</strong>" in meta[: meta.index("</li>")]
+
+    def it_tells_the_instructor_in_the_new_registration_email(django_capture_on_commit_callbacks: Any):
+        from classes.emails import emit_instructor_new_registration
+
+        offering = _live_class(starts_in=timedelta(days=10), minimum=3, confirmed=0, instructor=_instructor())
+        with django_capture_on_commit_callbacks(execute=True):
+            emit_instructor_new_registration(_paid(offering))
+        sent = [m for m in mail.outbox if offering.title in m.subject]
+        assert sent
+        assert "Needs 3 to run" in sent[-1].body

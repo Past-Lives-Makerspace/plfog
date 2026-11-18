@@ -191,6 +191,7 @@ def emit_instructor_new_registration(registration: "Registration") -> None:
         "amount_paid": f"{registration.amount_paid_cents / 100:.2f}",
         "spots_filled": offering.seats_taken,
         "capacity": offering.capacity,
+        "minimum_signups": None if offering.is_flexible else offering.minimum_signups,
     }
     # No trigger_kind → emit labels the audit row with the event key
     # (instructor_new_registration), one vocabulary so the log joins to the event + prefs.

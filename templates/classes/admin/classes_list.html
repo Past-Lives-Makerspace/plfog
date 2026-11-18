@@ -76,7 +76,7 @@
               {% if c.group_size and c.group_size > 1 %}<a class="pl-class-list__dates-link" href="{{ c.group_url }}">{{ c.group_size }} dates</a>{% endif %}
             </td>
             <td>{% include "classes/_components/lifecycle_badge.html" with offering=c show_note=True %}</td>
-            <td>{{ c.registration_count }}{% if not c.is_flexible %}/{{ c.capacity }}{% endif %}</td>
+            <td>{{ c.registration_count }}{% if not c.is_flexible %}/{{ c.capacity }}{% if c.minimum_signups %}<div class="pl-min-signups-note" data-minimum-signups="{{ c.minimum_signups }}">Needs {{ c.minimum_signups }} to run</div>{% endif %}{% endif %}</td>
         </tr>
     {% empty %}
         <tr>

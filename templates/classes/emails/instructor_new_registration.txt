@@ -3,7 +3,8 @@
 Status: {{ registration.get_status_display }}
 Paid: ${{ amount_paid }}
 Spots filled: {{ spots_filled }}/{{ capacity }}
-{% if manage_url %}
+{% if minimum_signups %}Needs {{ minimum_signups }} to run. If fewer have signed up when registration closes, the class is cancelled and everyone is refunded.
+{% endif %}{% if manage_url %}
 Manage my class: {{ manage_url }}{% endif %}
 View the class page: {{ class_url }}
 {% include "membership/emails/_footer.txt" %}

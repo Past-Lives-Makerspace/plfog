@@ -501,6 +501,7 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
             <li><strong>{{ schedule_sessions|length }}</strong> session{{ schedule_sessions|length|pluralize }}</li>
           {% endif %}
           {% if not is_flexible %}<li><strong>{{ offering.capacity }}</strong> max class size</li>{% endif %}
+          {% if offering.shows_minimum_signups %}<li data-minimum-signups-meta><strong>{{ offering.minimum_signups }}</strong> needed to run</li>{% endif %}
           {% if offering.category %}
             <li><strong>{{ offering.category.name }}</strong></li>
           {% endif %}
