@@ -71,6 +71,45 @@ def describe_the_first_photo_on_a_new_ticket():
         assert not KilnTicket.objects.filter(maker=maker).exists()
 
 
+def describe_a_new_ticket_forms_token():
+    def it_adds_a_second_upload_with_the_same_token_to_the_draft_the_first_started(maker_client, maker):
+        first = maker_client.post(NEW, {"photo": photo_upload(), "new_token": "form-1"})
+        # The reply to the first was lost, so the page sends again to the new ticket address.
+        again = maker_client.post(NEW, {"photo": photo_upload(), "new_token": "form-1"})
+
+        assert first.status_code == again.status_code == 200
+        ticket = KilnTicket.objects.get(maker=maker)
+        assert ticket.photos.count() == 2
+        assert again.json()["edit_url"] == reverse("kiln:edit", args=[ticket.pk])
+
+    def it_starts_a_separate_draft_for_another_token(maker_client, maker):
+        maker_client.post(NEW, {"photo": photo_upload(), "new_token": "form-1"})
+        maker_client.post(NEW, {"photo": photo_upload(), "new_token": "form-2"})
+
+        assert KilnTicket.objects.filter(maker=maker).count() == 2
+
+    def it_ignores_a_token_that_points_at_another_makers_ticket(maker_client, maker, make_member):
+        theirs = KilnTicketFactory(maker=make_member())
+        session = maker_client.session
+        session["kiln-new-form-1"] = theirs.pk
+        session.save()
+
+        assert maker_client.post(NEW, {"photo": photo_upload(), "new_token": "form-1"}).status_code == 200
+
+        assert not theirs.photos.exists()
+        mine = KilnTicket.objects.get(maker=maker)
+        assert mine.photos.count() == 1
+        assert maker_client.session["kiln-new-form-1"] == mine.pk
+
+    def it_starts_fresh_when_the_tokens_draft_was_loaded(maker_client, maker):
+        maker_client.post(NEW, {"photo": photo_upload(), "new_token": "form-1"})
+        KilnTicket.objects.filter(maker=maker).update(status=KilnTicket.Status.LOADED)
+
+        maker_client.post(NEW, {"photo": photo_upload(), "new_token": "form-1"})
+
+        assert KilnTicket.objects.filter(maker=maker).count() == 2
+
+
 def describe_a_photo_on_the_makers_own_ticket():
     def it_adds_the_photo_after_the_cover(maker_client, maker):
         ticket = KilnTicketFactory(maker=maker)

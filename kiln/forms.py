@@ -339,6 +339,11 @@ class TicketPhotoForm(ToastForm):
             "empty": "That photo file is empty. Take or choose it again.",
         },
     )
+    new_token = forms.CharField(
+        required=False,
+        max_length=64,
+        help_text="The new ticket form's own token, so its uploads all land on the one draft the first starts.",
+    )
 
     def clean_photo(self) -> UploadedFile:
         upload: UploadedFile = self.cleaned_data["photo"]

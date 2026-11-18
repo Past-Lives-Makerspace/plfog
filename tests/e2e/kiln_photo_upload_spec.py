@@ -214,10 +214,22 @@ def describe_a_photo_that_fails_to_upload():
         expect(page.get_by_role("button", name="Save as draft")).to_be_disabled()
         _tiles_are_clear(page.locator(".pl-kiln-photo"))
         _capture_both_themes(page, "kiln-1246-uploading-phone")
+
+        # No save goes out while it uploads: not Enter in a field, not the stored tile's Remove.
+        wait = page.locator("[data-kiln-upload-wait]")
+        expect(wait).to_be_hidden()
+        page.get_by_label("How many pieces are on this ticket?").press("Enter")
+        expect(wait).to_have_text("Wait for your photos to finish uploading.")
+        stored.first.get_by_role("button", name="Remove photo 1").click()
+        expect(wait).to_be_visible()
+        assert page.url.endswith(reverse("kiln:edit", args=[ticket.pk]))
+        assert ticket.photos.count() == 1 and KilnTicket.objects.filter(maker=member).count() == 1
+
         assert len(held) == 1
         held[0].continue_()
         page.unroute(upload)
         expect(stored).to_have_count(2, timeout=UPLOADED)
+        expect(wait).to_be_hidden()
         expect(page.locator(".pl-kiln-photo--failed")).to_have_count(0)
         assert ticket.photos.count() == 2
 

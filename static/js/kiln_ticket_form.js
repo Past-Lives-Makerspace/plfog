@@ -12,7 +12,8 @@
    On a new ticket the first stored photo started a draft: the form now saves to that draft's
    edit page, the address bar says so (history.replaceState, so a reload keeps it), and the
    next photos go to its upload address. The form hears the stored and pending counts through
-   "kiln-photos-changed", which enables Submit and holds Save while an upload is running.
+   "kiln-photos-changed", which enables Submit and holds Save while an upload is running; a
+   submit listener stops every other way of saving then and says to wait.
 
    Without this script the inputs keep their files and the photos post with the form.
 
@@ -25,13 +26,30 @@
   var queue = [];
   var busy = false;
 
+  function pending(form) {
+    return form.querySelectorAll('[data-kiln-upload-state="uploading"]').length;
+  }
+
   function announce(form) {
+    var uploading = pending(form);
+    if (!uploading) form.querySelectorAll('[data-kiln-upload-wait]').forEach(function (line) { line.hidden = true; });
     form.dispatchEvent(new CustomEvent('kiln-photos-changed', {
       detail: {
         count: form.querySelectorAll('[data-kiln-photo][data-kiln-uploaded]').length,
-        uploading: form.querySelectorAll('[data-kiln-upload-state="uploading"]').length,
+        uploading: uploading,
       },
     }));
+  }
+
+  // One token per new ticket form, sent with every upload that may start the draft, so a
+  // reply lost on the way back cannot make a Retry or the next photo start a second draft.
+  function newTicketToken(form) {
+    if (!form.dataset.kilnNewToken) {
+      form.dataset.kilnNewToken = window.crypto && crypto.randomUUID
+        ? crypto.randomUUID()
+        : String(Date.now()) + Math.random().toString(16).slice(2);
+    }
+    return form.dataset.kilnNewToken;
   }
 
   function button(className, text, label) {
@@ -99,6 +117,7 @@
       var data = new FormData();
       data.append('csrfmiddlewaretoken', form.querySelector('[name=csrfmiddlewaretoken]').value);
       data.append('photo', job.upload, job.upload.name);
+      data.append('new_token', newTicketToken(form));
       var xhr = new XMLHttpRequest();
       xhr.open('POST', form.dataset.kilnPhotoUrl);
       xhr.setRequestHeader('Accept', 'application/json');
@@ -164,6 +183,15 @@
     });
     addTile.classList.remove('pl-kiln-photo-add--big');
   });
+
+  // While a photo is uploading no save may go out: Save, Submit, a tile's Make cover or Remove,
+  // or Enter in a field (the hidden default button). The page would leave and drop the upload.
+  document.addEventListener('submit', function (event) {
+    var form = event.target;
+    if (!form.matches || !form.matches('[data-kiln-form]') || !pending(form)) return;
+    event.preventDefault();
+    form.querySelectorAll('[data-kiln-upload-wait]').forEach(function (line) { line.hidden = false; });
+  }, true);
 
   document.addEventListener('click', function (event) {
     var target = event.target.closest && event.target.closest('[data-kiln-photo-retry], [data-kiln-photo-drop]');

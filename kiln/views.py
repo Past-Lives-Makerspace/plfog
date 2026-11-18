@@ -194,7 +194,8 @@ def ticket_photo_add(request: HttpRequest, pk: int | None = None) -> HttpRespons
     """Store one photo the ticket form uploads as soon as it is picked (#1246), answered as JSON.
 
     The maker's own ticket only (``pk``), or, from a new ticket, a blank draft the first photo
-    starts. The answer carries the stored tile and the ticket's edit and upload addresses, so
+    starts. A new ticket form sends its ``new_token`` with each upload and the session maps it to
+    that draft, so a Retry after a lost reply adds to the draft instead of starting a second. The answer carries the stored tile and the ticket's edit and upload addresses, so
     the page keeps saving to that draft; a refused photo answers 400, a ticket loaded or
     deleted since the form opened 409, each with the words to show.
     """
@@ -203,10 +204,15 @@ def ticket_photo_add(request: HttpRequest, pk: int | None = None) -> HttpRespons
     form = TicketPhotoForm(request.POST, request.FILES)
     if not form.is_valid():
         return JsonResponse({"error": form.first_error}, status=400)
+    new_key = f"kiln-new-{form.cleaned_data['new_token']}" if pk is None and form.cleaned_data["new_token"] else ""
+    if new_key:
+        ticket = KilnTicket.objects.started_draft(member, request.session.get(new_key))
     try:
         photo = add_ticket_photo(member, ticket, form.cleaned_data["photo"])
     except (TicketNotEditable, TicketDeleted):
         return JsonResponse({"error": "This ticket can no longer change, so the photo was not kept."}, status=409)
+    if new_key:
+        request.session[new_key] = photo.ticket_id
     number = photo.ticket.photos.count()
     return JsonResponse(
         {

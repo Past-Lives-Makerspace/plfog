@@ -33,7 +33,7 @@ remove:<pk> for a photo, which save the whole page first so nothing typed is los
 a plain post with a redirect is the sturdy path on a phone. Each photo is shrunk on the phone
 and uploaded the moment it is picked (#1246, static/js/kiln_ticket_form.js, data-kiln-photo-url);
 without the script the photos post with the form. Alpine only shows and hides the branches and
-holds Save while an upload is running; the server decides everything.
+holds Save while an upload is running (the script also stops any submit then, Enter included); the server decides everything.
 {% endcomment %}
 <form method="post" enctype="multipart/form-data" action="{{ request.get_full_path }}" class="pl-kiln-form" hx-boost="false" novalidate data-kiln-form
       data-kiln-photo-url="{% if ticket %}{% url 'kiln:photo_add' ticket.pk %}{% else %}{% url 'kiln:photo_new' %}{% endif %}" data-kiln-long-edge="{{ photo_long_edge }}"
@@ -188,7 +188,7 @@ holds Save while an upload is running; the server decides everything.
         {% endif %}
     </div>
     <p class="hub-text-muted" id="kiln-needs-photo" x-show="photos + newPhotos < 1"{% if photos %} x-cloak{% endif %}>Add at least one photo to submit.</p>
-    <p class="hub-text-muted" x-show="uploading > 0" x-cloak data-kiln-uploading-note>Saving waits until the photos finish uploading.</p>
+    <p class="pl-form-note" role="status" hidden data-kiln-upload-wait>Wait for your photos to finish uploading.</p>
 </form>
 {% endblock %}
 
