@@ -110,6 +110,51 @@ def describe_a_new_ticket_forms_token():
         assert KilnTicket.objects.filter(maker=maker).count() == 2
 
 
+def describe_saving_a_new_ticket_form_with_its_token():
+    FORM = reverse("kiln:new")
+
+    def it_puts_a_fresh_token_in_the_new_ticket_form(maker_client):
+        content = maker_client.get(FORM).content.decode()
+
+        assert 'name="new_token"' in content and "data-kiln-new-token" in content
+
+    def it_saves_onto_the_draft_the_first_photo_started_even_when_the_reply_was_lost(maker_client, maker):
+        maker_client.post(NEW, {"photo": photo_upload(), "new_token": "form-1"})
+
+        # The page never heard back, so Save still posts to the new ticket address.
+        response = maker_client.post(FORM, {"action": "draft", "quantity": "3", "new_token": "form-1"})
+
+        assert response.status_code == 302
+        ticket = KilnTicket.objects.get(maker=maker)
+        assert ticket.quantity == 3 and ticket.photos.count() == 1
+
+    def it_starts_a_fresh_ticket_when_the_token_points_at_another_makers_ticket(maker_client, maker, make_member):
+        theirs = KilnTicketFactory(maker=make_member(), quantity=1)
+        session = maker_client.session
+        session["kiln-new-form-1"] = theirs.pk
+        session.save()
+
+        maker_client.post(FORM, {"action": "draft", "quantity": "3", "new_token": "form-1"})
+
+        theirs.refresh_from_db()
+        assert theirs.quantity == 1
+        assert KilnTicket.objects.get(maker=maker).quantity == 3
+
+    def it_starts_a_fresh_ticket_when_the_tokens_draft_was_loaded(maker_client, maker):
+        maker_client.post(NEW, {"photo": photo_upload(), "new_token": "form-1"})
+        KilnTicket.objects.filter(maker=maker).update(status=KilnTicket.Status.LOADED)
+
+        maker_client.post(FORM, {"action": "draft", "quantity": "3", "new_token": "form-1"})
+
+        assert KilnTicket.objects.filter(maker=maker).count() == 2
+        assert KilnTicket.objects.get(maker=maker, status=KilnTicket.Status.DRAFT).quantity == 3
+
+    def it_starts_a_fresh_ticket_for_a_token_no_photo_used(maker_client, maker):
+        maker_client.post(FORM, {"action": "draft", "quantity": "3", "new_token": "form-9"})
+
+        assert KilnTicket.objects.get(maker=maker).quantity == 3
+
+
 def describe_a_photo_on_the_makers_own_ticket():
     def it_adds_the_photo_after_the_cover(maker_client, maker):
         ticket = KilnTicketFactory(maker=maker)
