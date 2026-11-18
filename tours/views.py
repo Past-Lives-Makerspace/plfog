@@ -555,6 +555,8 @@ def _render_bookings(request: HttpRequest, tab: str) -> HttpResponse:
     if guide is not None:
         listed = listed.filter(guide=guide)
     page = Paginator(listed, BOOKINGS_PER_PAGE).get_page(request.GET.get("page"))
+    listed_bookings = list(page.object_list)
+    TourBooking.attach_shared_with(listed_bookings)
     filtered = is_admin and guide is not None
     return render(
         request,
@@ -564,7 +566,7 @@ def _render_bookings(request: HttpRequest, tab: str) -> HttpResponse:
             "is_admin": is_admin,
             "viewer_pk": _viewer(request).pk,
             "page": page,
-            "bookings": list(page.object_list),
+            "bookings": listed_bookings,
             "filter_guides": _filter_guides() if is_admin else [],
             "filter_guide": guide if filtered else None,
             "base_params": urlencode({"guide": guide.pk}) if filtered and guide is not None else "",

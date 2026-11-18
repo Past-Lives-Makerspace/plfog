@@ -102,12 +102,12 @@ def describe_booking_page():
         assert response.status_code == 200
         assert "4 seats left</span>" in response.content.decode()
 
-    def it_names_the_guide_when_two_share_a_time(guide: Member, hours: Any):
+    def it_shows_one_time_when_two_guides_share_it(guide: Member, hours: Any):
         other = make_guide(full_legal_name="Olive Other")
         TourHoursFactory(guide=other, weekday=_day().weekday())
         content = _client().get(f"/?date={_day():%Y-%m-%d}").content.decode()
-        assert "4 seats left with Olive</span>" in content
-        assert "4 seats left with Gina</span>" in content
+        assert content.count("data-tour-no-preference") == 2  # 4:00 and 5:00, one button each
+        assert "seats left with" not in content
 
     def it_picks_the_first_day_for_an_unknown_date(guide: Member, hours: Any):
         content = _client().get("/?date=not-a-date").content.decode()

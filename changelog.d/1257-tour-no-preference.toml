@@ -1,0 +1,21 @@
+bump = "minor"
+date = "2026-11-18"
+audience = ["members", "admins"]
+feature = "tours.hours"
+guidance = "shots"
+target = "tours.confirm-mode"
+title = "Tour visitors pick a time, then a guide or No preference"
+changes = [
+  "When two Tour Guides give a tour at the same time, the tour booking page and the front desk kiosk show that time once.",
+  "After picking it, the visitor chooses a guide from the Guide menu, or leaves it on No preference. A guide without room for the group is greyed out.",
+  "With No preference, the tour is booked at once with a guide who confirms automatically, when one has room.",
+  "When every guide at that time confirms first, the request goes to each of them. The first to press Confirm gets the tour, and the others see it leave their Upcoming list.",
+  "Each guide's request email and Upcoming row say who else has it.",
+  "The visitor gets one email either way, naming their guide once one confirms.",
+]
+
+[[shots]]
+caption = "Where two guides give a tour at the same time, visitors pick the time, then a guide or No preference."
+
+[[shots]]
+caption = "A No preference request shows on Upcoming with who else has it. Press Confirm first to get the tour."

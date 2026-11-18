@@ -36,11 +36,10 @@ from django.views.decorators.cache import never_cache
 from core.abuse_limits import client_rate_key, record_keyed_attempt
 from tours import kiosk
 from tours.booking import ALREADY_BOOKED_MESSAGE, TourLockedError, check_in_tour
-from tours.forms import TourBookingForm
 from tours.models import FacilityTourSettings, TourBooking
 from tours.notify import guide_first_name, when_label
 from tours.picker import build_picker, find_tour
-from tours.public_views import Attempt, all_open_tours, post_booking, render_page, tours_surface_only
+from tours.public_views import Attempt, all_open_tours, booking_form, post_booking, render_page, tours_surface_only
 
 logger = logging.getLogger(__name__)
 
@@ -209,22 +208,16 @@ def book(request: HttpRequest) -> HttpResponse:
             tours = all_open_tours(kiosk=True)
     else:
         chosen = find_tour(tours, request.GET.get("tour", ""))
-        attempt = Attempt(chosen=chosen)
-        if chosen is not None:
-            attempt.form = TourBookingForm(
-                initial={"tour": chosen.key, "party_size": "1"},
-                max_party=chosen.seats_left,
-                offer_account=True,
-                kiosk=True,
-            )
+        attempt = Attempt() if chosen is None else booking_form(request, tours, chosen, offer_account=True, kiosk=True)
     chosen = attempt.chosen if attempt.form is not None else None
     raw_day = f"{timezone.localdate(chosen.starts_at):%Y-%m-%d}" if chosen else request.GET.get("date", "")
     return _render(
         request,
         "tours/kiosk/book.html",
         {
-            "picker": build_picker(tours, raw_day),
+            "picker": build_picker(tours, raw_day, no_preference=True),
             "chosen": chosen,
+            "guides": attempt.guides,
             "form": attempt.form,
             "error": attempt.error,
             "page_url": reverse("tours_kiosk:book"),

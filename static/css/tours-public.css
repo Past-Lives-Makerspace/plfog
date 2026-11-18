@@ -211,3 +211,8 @@ body.tours-portal {
 .cp-page .pl-tourpub__form {
     margin-top: 0;
 }
+
+/* The Guide dropdown (#1255): a first name or "No preference", never the card's width (FRONTEND rule 28). */
+.cp-page .pl-tourpub__guide select {
+    max-width: 20rem;
+}
