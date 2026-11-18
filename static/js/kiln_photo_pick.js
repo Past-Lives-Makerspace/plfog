@@ -3,7 +3,8 @@
    Each box ([data-kiln-photo-pick]) has two file inputs of the same name, the camera and the
    chooser. A pick over the box's data-max-bytes (the server's 10 MB cap) is cleared with a
    message under the control, so it is never sent. Otherwise the pick clears the other input,
-   so one photo posts, and shows the photo with a Remove that clears both. On Unload, ticking a
+   so one photo posts, shrinks it on the phone (window.plKilnShrinkPhoto, to the box's
+   data-long-edge) back into the input, and shows the photo with a Remove that clears both. On Unload, ticking a
    row again (data-kiln-photo-pick-reset) clears its photo, so a fired piece uploads nothing.
    The server still checks every file.
 
@@ -61,7 +62,21 @@
     box.querySelectorAll('[data-kiln-photo-pick-input]').forEach(function (other) {
       if (other !== input) other.value = '';
     });
-    show(box, file);
+    if (!file) { show(box, null); return; }
+    // Shrunk on the phone (#1246) and put back in the input, so the form posts the small copy.
+    var pick = (box.plKilnPick || 0) + 1;
+    box.plKilnPick = pick;
+    window.plKilnShrinkPhoto(file, box.dataset.longEdge).then(function (small) {
+      if (box.plKilnPick !== pick || !input.files || input.files[0] !== file) return;
+      if (small !== file && window.DataTransfer) {
+        try {
+          var transfer = new DataTransfer();
+          transfer.items.add(small);
+          input.files = transfer.files;
+        } catch (e) { small = file; }
+      }
+      show(box, input.files[0] || small);
+    });
   });
 
   document.addEventListener('click', function (event) {

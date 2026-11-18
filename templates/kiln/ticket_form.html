@@ -30,12 +30,15 @@
 {% comment %}
 One form, several submit buttons (#691). "action" says which: draft, submit, or cover:<pk> /
 remove:<pk> for a photo, which save the whole page first so nothing typed is lost. Not boosted:
-it uploads files, and a plain post with a redirect is the sturdy path for that on a phone.
-Alpine only shows and hides the branches; the server decides everything.
+a plain post with a redirect is the sturdy path on a phone. Each photo is shrunk on the phone
+and uploaded the moment it is picked (#1246, static/js/kiln_ticket_form.js, data-kiln-photo-url);
+without the script the photos post with the form. Alpine only shows and hides the branches and
+holds Save while an upload is running; the server decides everything.
 {% endcomment %}
 <form method="post" enctype="multipart/form-data" action="{{ request.get_full_path }}" class="pl-kiln-form" hx-boost="false" novalidate data-kiln-form
-      x-data="{ firing: '{{ form.firing_type.value|default_if_none:''|escapejs }}', clay: '{{ form.clay_choice.value|default_if_none:''|escapejs }}', studio: {% if form.glaze_studio.value %}true{% else %}false{% endif %}, commercial: {% if form.glaze_commercial.value %}true{% else %}false{% endif %}, selfmade: {% if form.glaze_self_made.value %}true{% else %}false{% endif %}, walls: '{{ form.walls_under_inch.value|default_if_none:''|escapejs }}', bottom: '{{ form.bottom_free_of_glaze.value|default_if_none:''|escapejs }}', stilts: '{{ form.stilts_added.value|default_if_none:''|escapejs }}', photos: {{ photos|length }}, newPhotos: 0 }"
-      @kiln-photos-changed="newPhotos = $event.detail.count">
+      data-kiln-photo-url="{% if ticket %}{% url 'kiln:photo_add' ticket.pk %}{% else %}{% url 'kiln:photo_new' %}{% endif %}" data-kiln-long-edge="{{ photo_long_edge }}"
+      x-data="{ firing: '{{ form.firing_type.value|default_if_none:''|escapejs }}', clay: '{{ form.clay_choice.value|default_if_none:''|escapejs }}', studio: {% if form.glaze_studio.value %}true{% else %}false{% endif %}, commercial: {% if form.glaze_commercial.value %}true{% else %}false{% endif %}, selfmade: {% if form.glaze_self_made.value %}true{% else %}false{% endif %}, walls: '{{ form.walls_under_inch.value|default_if_none:''|escapejs }}', bottom: '{{ form.bottom_free_of_glaze.value|default_if_none:''|escapejs }}', stilts: '{{ form.stilts_added.value|default_if_none:''|escapejs }}', photos: {{ photos|length }}, newPhotos: 0, uploading: 0 }"
+      @kiln-photos-changed="newPhotos = $event.detail.count; uploading = $event.detail.uploading">
     {% csrf_token %}
     <button type="submit" name="action" value="{% if ticket and ticket.status != 'draft' %}submit{% else %}draft{% endif %}" class="pl-kiln-default-submit" tabindex="-1" aria-hidden="true">Save</button>
 
@@ -54,15 +57,7 @@ Alpine only shows and hides the branches; the server decides everything.
         <span class="pl-kiln-q__hint">Take the cover photo from the side with the whole piece in view. The crew uses it to find your piece on the shelf.</span>
         <div class="pl-kiln-photos" data-kiln-photos>
             {% for photo in photos %}
-            <div class="pl-kiln-photo{% if photo.is_cover %} pl-kiln-photo--cover{% endif %}" data-kiln-photo="{{ photo.pk }}">
-                <img src="{{ photo.tile.url }}" alt="Photo {{ forloop.counter }}{% if photo.is_cover %}, the cover{% endif %}">
-                {% if photo.is_cover %}
-                <span class="pl-kiln-photo__cover"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-star"/></svg>Cover</span>
-                {% else %}
-                <button type="submit" name="action" value="cover:{{ photo.pk }}" class="pl-kiln-photo__make">Make cover</button>
-                {% endif %}
-                <button type="submit" name="action" value="remove:{{ photo.pk }}" class="pl-kiln-photo__remove" aria-label="Remove photo {{ forloop.counter }}"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-x"/></svg></button>
-            </div>
+            {% include "kiln/partials/_photo_tile.html" with photo=photo number=forloop.counter %}
             {% endfor %}
             <label class="pl-kiln-photo-add{% if not photos %} pl-kiln-photo-add--big{% endif %}" data-kiln-photo-add>
                 <input type="file" name="photos" accept="image/*" capture="environment" multiple data-kiln-photo-input>
@@ -73,8 +68,7 @@ Alpine only shows and hides the branches; the server decides everything.
             <input type="file" name="photos" accept="image/*" multiple data-kiln-photo-input>
             <svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-image"/></svg>Choose from your phone
         </label>
-        <div hidden data-kiln-photo-holder></div>
-        <p class="pl-kiln-q__hint">{% if photos %}The first photo is the cover until you choose another.{% else %}The first photo you add is the cover. You can change it after saving.{% endif %} Photos up to 10 MB.</p>
+        <p class="pl-kiln-q__hint">{% if photos %}The first photo is the cover until you choose another.{% else %}The first photo you add is the cover. You can change it once it has uploaded.{% endif %} Photos up to 10 MB.</p>
     </div>
 
     <div class="hub-card">
@@ -187,16 +181,18 @@ Alpine only shows and hides the branches; the server decides everything.
 
     <div class="pl-kiln-actionbar">
         {% if not ticket or ticket.status == "draft" %}
-        <button type="submit" name="action" value="draft" class="hub-btn hub-btn--ghost">Save as draft</button>
-        <button type="submit" name="action" value="submit" class="hub-btn hub-btn--primary pl-kiln-actionbar__grow" :disabled="photos + newPhotos < 1" aria-describedby="kiln-needs-photo">Submit ticket</button>
+        <button type="submit" name="action" value="draft" class="hub-btn hub-btn--ghost" :disabled="uploading > 0">Save as draft</button>
+        <button type="submit" name="action" value="submit" class="hub-btn hub-btn--primary pl-kiln-actionbar__grow" :disabled="photos + newPhotos < 1 || uploading > 0" aria-describedby="kiln-needs-photo">Submit ticket</button>
         {% else %}
-        <button type="submit" name="action" value="submit" class="hub-btn hub-btn--primary pl-kiln-actionbar__grow" :disabled="photos + newPhotos < 1" aria-describedby="kiln-needs-photo">Save changes</button>
+        <button type="submit" name="action" value="submit" class="hub-btn hub-btn--primary pl-kiln-actionbar__grow" :disabled="photos + newPhotos < 1 || uploading > 0" aria-describedby="kiln-needs-photo">Save changes</button>
         {% endif %}
     </div>
     <p class="hub-text-muted" id="kiln-needs-photo" x-show="photos + newPhotos < 1"{% if photos %} x-cloak{% endif %}>Add at least one photo to submit.</p>
+    <p class="hub-text-muted" x-show="uploading > 0" x-cloak data-kiln-uploading-note>Saving waits until the photos finish uploading.</p>
 </form>
 {% endblock %}
 
 {% block extra_js %}
+<script src="{% static 'js/kiln_photo_shrink.js' %}"></script>
 <script src="{% static 'js/kiln_ticket_form.js' %}"></script>
 {% endblock %}

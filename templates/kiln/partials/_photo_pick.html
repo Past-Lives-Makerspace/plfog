@@ -1,12 +1,13 @@
 {% comment %}
 One optional photo on a crew message or unload note (#1026): take one with the camera or choose
 one, like the ticket form's photo control. static/js/kiln_photo_pick.js shows the pick with a
-Remove, clears the other input so one photo posts, and refuses a file over photo_max_bytes
-before it is sent. Expects photo_name (the field's name), photo_hint and photo_max_bytes;
+Remove, clears the other input so one photo posts, refuses a file over photo_max_bytes before it
+is sent, and shrinks the pick to photo_long_edge on the phone (#1246, static/js/kiln_photo_shrink.js).
+Expects photo_name (the field's name), photo_hint, photo_max_bytes and photo_long_edge;
 photo_errors (a bound field's errors) and photo_dropped (a photo the page could not keep after
 an error) are optional.
 {% endcomment %}
-<div class="pl-kiln-photopick" data-kiln-photo-pick data-max-bytes="{{ photo_max_bytes }}">
+<div class="pl-kiln-photopick" data-kiln-photo-pick data-max-bytes="{{ photo_max_bytes }}" data-long-edge="{{ photo_long_edge }}">
     <div class="pl-kiln-photopick__buttons" data-kiln-photo-pick-buttons>
         <label class="hub-btn hub-btn--sm hub-btn--ghost pl-kiln-photopick__btn">
             <input type="file" name="{{ photo_name }}" accept="image/*" capture="environment" data-kiln-photo-pick-input>
