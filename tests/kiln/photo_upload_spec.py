@@ -128,6 +128,25 @@ def describe_saving_a_new_ticket_form_with_its_token():
         ticket = KilnTicket.objects.get(maker=maker)
         assert ticket.quantity == 3 and ticket.photos.count() == 1
 
+    def it_spends_the_token_once_the_save_lands_so_a_restored_page_starts_its_own_ticket(maker_client, maker):
+        maker_client.post(NEW, {"photo": photo_upload(), "new_token": "form-1"})
+        maker_client.post(FORM, {"action": "draft", "quantity": "3", "new_token": "form-1"})
+
+        # Back restores the old page with the same token; the next piece filed from it is its own ticket.
+        maker_client.post(FORM, {"action": "draft", "quantity": "5", "new_token": "form-1"})
+
+        assert sorted(KilnTicket.objects.filter(maker=maker).values_list("quantity", flat=True)) == [3, 5]
+
+    def it_keeps_the_token_while_a_save_is_refused_so_the_next_save_still_lands_on_the_draft(maker_client, maker):
+        maker_client.post(NEW, {"photo": photo_upload(), "new_token": "form-1"})
+        refused = maker_client.post(FORM, {"action": "draft", "quantity": "-1", "new_token": "form-1"})
+        assert refused.status_code == 200
+
+        maker_client.post(FORM, {"action": "draft", "quantity": "3", "new_token": "form-1"})
+
+        ticket = KilnTicket.objects.get(maker=maker)
+        assert ticket.quantity == 3 and ticket.photos.count() == 1
+
     def it_starts_a_fresh_ticket_when_the_token_points_at_another_makers_ticket(maker_client, maker, make_member):
         theirs = KilnTicketFactory(maker=make_member(), quantity=1)
         session = maker_client.session
