@@ -206,9 +206,11 @@ def describe_instagram_copy():
         assert copy.initial == "P"
         assert "://" not in copy.address and copy.address.endswith("/classes/pottery-night")
 
-    def it_leaves_the_byline_out_when_nobody_is_listed(db, monkeypatch):
-        monkeypatch.setattr(ClassOffering, "instructor_names", property(lambda self: ""))
-        assert instagram_copy(ClassOfferingFactory()).byline == ""
+    def it_leaves_the_byline_out_when_nobody_is_listed(db):
+        offering = ClassOfferingFactory()
+        offering.instructor_rows.all().delete()
+        assert offering.instructor_names == ""
+        assert instagram_copy(offering).byline == ""
 
 
 def describe_fit_text():
