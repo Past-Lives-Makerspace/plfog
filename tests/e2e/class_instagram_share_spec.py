@@ -1,6 +1,6 @@
 """End-to-end: the Share button on a live class's Share & Print card (#1254).
 
-The button opens a two-item menu, Instagram Story and Instagram Post. ``static/js/share_image.js``
+The button opens a two-item menu, Story and Post. ``static/js/share_image.js``
 fetches the chosen PNG and hands it to ``navigator.share`` as a file where ``navigator.canShare``
 takes files, downloads it where it does not (Chromium on Linux has neither, like most desktop
 browsers), and inside the Android app, which has no ``navigator.share``, shares the class link
@@ -34,8 +34,8 @@ MENU = "[data-share-image-menu] [role=menu]"
 ITEMS = "[data-share-image-menu] [role=menuitem]"
 NOTE = "[data-share-image-note]"
 CHOICES = [
-    pytest.param("Instagram Story", "story", (1080, 1920), id="story"),
-    pytest.param("Instagram Post", "post", (1080, 1350), id="post"),
+    pytest.param("Story", "story", (1080, 1920), id="story"),
+    pytest.param("Post", "post", (1080, 1350), id="post"),
 ]
 FILE_SHEET = """
 navigator.canShare = function (data) { return Boolean(data && data.files && data.files.length); };
@@ -98,7 +98,7 @@ def describe_the_instagram_share_button():
         page.locator(SHARE).click()
 
         expect(page.locator(MENU)).to_be_visible()
-        expect(page.locator(ITEMS)).to_have_text(["Instagram Story", "Instagram Post"])
+        expect(page.locator(ITEMS)).to_have_text(["Story", "Post"])
         expect(page.locator(SHARE)).to_have_attribute("aria-expanded", "true")
         page.keyboard.press("Escape")
         expect(page.locator(MENU)).to_be_hidden()
@@ -114,7 +114,7 @@ def describe_the_instagram_share_button():
         _open_live_class(page, live_server, login_via_code)
 
         page.locator(SHARE).click()
-        page.get_by_role("menuitem", name=label).click()
+        page.get_by_role("menuitem", name=label, exact=True).click()
 
         page.wait_for_function("window.__plSharedPicture")
         assert page.evaluate("window.__plSharedPicture") == {
@@ -137,7 +137,7 @@ def describe_the_instagram_share_button():
 
         page.locator(SHARE).click()
         with page.expect_download() as info:
-            page.get_by_role("menuitem", name=label).click()
+            page.get_by_role("menuitem", name=label, exact=True).click()
 
         download = info.value
         assert download.suggested_filename == f"forge-a-leaf-dish-instagram-{fmt}.png"
@@ -151,7 +151,7 @@ def describe_the_instagram_share_button():
         page.on("download", lambda download: downloads.append(download))
 
         page.locator(SHARE).click()
-        page.get_by_role("menuitem", name="Instagram Post").click()
+        page.get_by_role("menuitem", name="Post", exact=True).click()
 
         page.wait_for_function("window.__plShareCalls === 1")
         page.wait_for_timeout(500)  # a fallback download would have started by now
@@ -164,7 +164,7 @@ def describe_the_instagram_share_button():
         expect(page.locator(NOTE)).to_be_hidden()
 
         page.locator(SHARE).click()
-        page.get_by_role("menuitem", name="Instagram Story").click()
+        page.get_by_role("menuitem", name="Story", exact=True).click()
 
         page.wait_for_function("window.__plCapShared")
         assert page.evaluate("window.__plCapShared") == {

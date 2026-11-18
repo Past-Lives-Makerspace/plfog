@@ -21,9 +21,9 @@ Parameters:
               beside the downloads, opening in its own tab for the browser's Print. Left out when blank.
   flyer_guidance — optional. A guidance key the Flyer link carries as data-guidance-target, so a
               What's New entry can ring it (the wiki passes wiki.flyer).
-  instagram_story_url / instagram_post_url — optional. The page's Instagram story and post PNGs
+  instagram_story_url / instagram_post_url — optional. The page's story (1080x1920) and post (1080x1350) PNGs
               (a class's classes:class_instagram). When given, a Share button sits beside the QR
-              downloads, gone with them under locked_note, and opens a two-item menu; a choice
+              downloads, gone with them under locked_note, and opens a Story / Post menu; a choice
               hands that picture to the phone's share sheet, or downloads it where a browser cannot
               share files (static/js/share_image.js). Only classes pass them, so the button carries
               the classes.instagram guidance key as a literal. share_title names the picture in the
@@ -76,9 +76,9 @@ or an <a> link, so the card is safe to drop INSIDE another <form> (e.g. the even
       <div class="pl-share__panel" x-show="open" x-cloak>
         <div class="pl-share__menu" role="menu" aria-label="Share a picture of this class">
           <button type="button" role="menuitem" class="pl-share__item" data-share-image="{{ instagram_story_url }}"
-                  data-share-image-title="{{ share_title }}" data-share-image-link="{{ share_url }}" @click="open = false">Instagram Story</button>
+                  data-share-image-title="{{ share_title }}" data-share-image-link="{{ share_url }}" @click="open = false">Story</button>
           <button type="button" role="menuitem" class="pl-share__item" data-share-image="{{ instagram_post_url }}"
-                  data-share-image-title="{{ share_title }}" data-share-image-link="{{ share_url }}" @click="open = false">Instagram Post</button>
+                  data-share-image-title="{{ share_title }}" data-share-image-link="{{ share_url }}" @click="open = false">Post</button>
         </div>
       </div>
     </div>

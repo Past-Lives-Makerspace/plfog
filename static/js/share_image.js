@@ -1,5 +1,5 @@
 /*
- * The Share button on a class's Share & Print card (#1254): Instagram Story or Instagram Post.
+ * The Share button on a class's Share & Print card (#1254): a Story or a Post picture for any app in the share sheet.
  *
  * The card (components/qr_share_card.html) renders a Share button whose small menu Alpine owns,
  * and two menu items carrying the facts as data attributes: data-share-image (the PNG,
