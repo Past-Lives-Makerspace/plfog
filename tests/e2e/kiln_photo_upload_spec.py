@@ -172,6 +172,34 @@ def describe_a_photo_that_fails_to_upload():
         assert ticket.photos.count() == 2
 
 
+def describe_a_photo_the_server_refuses():
+    def it_shows_the_servers_words_with_remove_and_no_retry(live_server, page, login_via_code, serve_media):
+        guild = _open_the_kiln()
+        login_via_code("k1246-refused@example.com")
+        member = get_user_model().objects.get(username="k1246-refused@example.com").member
+        GuildMembershipFactory(guild=guild, member=member)
+
+        page.set_viewport_size({"width": 390, "height": 844})
+        page.goto(f"{live_server.url}{reverse('kiln:new')}")
+        _warm_the_canvas(page)
+        words = "That file is not a photo we can open."
+        page.route(
+            f"**{reverse('kiln:photo_new')}",
+            lambda route: route.fulfill(status=400, json={"error": words}),
+        )
+        page.locator(".pl-kiln-photo-pick input[type=file]").set_input_files(_camera_jpeg(4))
+
+        refused = page.locator(".pl-kiln-photo--refused")
+        expect(refused).to_have_count(1, timeout=UPLOADED)
+        expect(refused.locator("[data-kiln-photo-status]")).to_have_text(words)
+        expect(refused.get_by_role("button", name="Retry")).to_be_hidden()
+        expect(page.get_by_role("button", name="Save as draft")).to_be_enabled()
+        assert not KilnTicket.objects.filter(maker=member).exists()
+
+        refused.get_by_role("button", name="Remove IMG_0004.jpg").click()
+        expect(page.locator("[data-kiln-new-photo]")).to_have_count(0)
+
+
 def describe_a_crew_message_photo():
     def it_posts_the_shrunk_copy(live_server, page, login_via_code, serve_media, posted_bytes):
         guild = _open_the_kiln()

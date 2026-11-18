@@ -244,6 +244,7 @@ a.pl-kiln-row__title { color: var(--hub-link); text-decoration: none; }
 .pl-kiln-photo--new[data-kiln-upload-state="uploading"] img { opacity: 0.6; }
 .pl-kiln-photo--failed { border-color: var(--hub-danger-text); }
 .pl-kiln-photo--failed .pl-kiln-photo__status { bottom: auto; top: 0.35rem; background: var(--hub-danger-text); color: #fff; }
+.pl-kiln-photo--refused .pl-kiln-photo__status { top: auto; bottom: 0.35rem; right: 0.35rem; border-radius: 8px; line-height: 1.3; }
 .pl-kiln-photo__retry { position: absolute; left: 0.35rem; bottom: 0.35rem; min-height: 32px; padding: 0.2rem 0.7rem; border: 0; border-radius: 999px; background: var(--color-tuscan-yellow); color: var(--color-navy); font-size: 0.78rem; font-weight: 700; }
 .pl-kiln-photo [hidden] { display: none; }
 .pl-kiln-photo-add { position: relative; }

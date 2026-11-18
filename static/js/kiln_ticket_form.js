@@ -4,8 +4,10 @@
    gets a tile saying "Uploading", is shrunk on the phone (window.plKilnShrinkPhoto, to the
    form's data-kiln-long-edge) and joins one queue that sends a photo at a time to the form's
    data-kiln-photo-url, the progress on its tile. A stored photo's tile is swapped for the one
-   the server rendered (Make cover, Remove); a failed one turns red with "Didn't upload", a
-   Retry and an X that drops it. A failure costs that photo only.
+   the server rendered (Make cover, Remove); one lost to the connection or a server error
+   turns red with "Didn't upload", a Retry and an X that drops it. A photo the server refuses
+   (400: not a photo, too large; 409: the ticket can no longer change) turns red with the
+   server's own words and only the X. A failure costs that photo only.
 
    On a new ticket the first stored photo started a draft: the form now saves to that draft's
    edit page, the address bar says so (history.replaceState, so a reload keeps it), and the
@@ -67,10 +69,11 @@
   function setState(job, state, text) {
     var tile = job.tile;
     tile.setAttribute('data-kiln-upload-state', state);
-    tile.classList.toggle('pl-kiln-photo--failed', state === 'failed');
+    tile.classList.toggle('pl-kiln-photo--failed', state === 'failed' || state === 'refused');
+    tile.classList.toggle('pl-kiln-photo--refused', state === 'refused');
     tile.querySelector('[data-kiln-photo-status]').textContent = text;
     tile.querySelector('[data-kiln-photo-retry]').hidden = state !== 'failed';
-    tile.querySelector('[data-kiln-photo-drop]').hidden = state !== 'failed';
+    tile.querySelector('[data-kiln-photo-drop]').hidden = state === 'uploading';
     announce(job.form);
   }
 
@@ -106,6 +109,9 @@
         var answer = null;
         try { answer = JSON.parse(xhr.responseText); } catch (e) { answer = null; }
         if (xhr.status === 200 && answer && answer.tile) stored(job, answer);
+        // The server refused the photo itself (400) or the ticket can no longer change (409):
+        // sending it again cannot help, so its words show with only Remove.
+        else if ((xhr.status === 400 || xhr.status === 409) && answer && answer.error) setState(job, 'refused', answer.error);
         else setState(job, 'failed', "Didn't upload");
         resolve();
       };
