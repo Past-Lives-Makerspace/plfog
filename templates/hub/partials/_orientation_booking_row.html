@@ -9,14 +9,14 @@ is_staff_view (the staff columns) and viewer_has_refund_authority (the Paid colu
 <tr data-booking-row="{{ b.pk }}">
   <td class="pl-bookings-table__when">{{ b.slot.starts_at|date:"D M j, g:i A" }}</td>
   {% if is_staff_view %}
-  <td data-label="Member">{% if row.is_own %}You{% elif row.can_manage %}<a href="{% url 'hub_orientation_respond' b.pk %}">{{ b.member.display_name }}</a>{% else %}{{ b.member.display_name }}{% endif %}</td>
+  <td data-label="Member">{% if row.is_own %}You{% elif row.can_manage %}<a href="{% url 'hub_orientation_respond' b.pk %}">{{ b.member.staff_label }}</a>{% else %}{{ b.member.staff_label }}{% endif %}</td>
   {% endif %}
   <td{% if is_staff_view %} data-label="Orientation"{% endif %} class="pl-bookings-table__orientation">
     <span class="pl-bookings-table__name">{{ b.orientation_type.name }}</span>
     <span class="pl-bookings-table__owner">{{ b.orientation_type.owner_name }}</span>
   </td>
   {% if is_staff_view %}
-  <td data-label="Run By">{% if b.slot.orienter %}{{ b.slot.orienter.display_name }}{% else %}Any orientor{% endif %}</td>
+  <td data-label="Run By">{% if b.slot.orienter %}{{ b.slot.orienter.staff_label }}{% else %}Any orientor{% endif %}</td>
   {% endif %}
   <td{% if is_staff_view %} data-label="Status"{% endif %} class="pl-bookings-table__status">
     <span class="hub-pill {% if b.status == 'confirmed' %}hub-pill--ok{% elif b.status == 'requested' or b.status == 'pending_payment' %}hub-pill--warn{% else %}hub-pill--neutral{% endif %}" data-booking-status="{{ b.status }}">{{ b.get_status_display }}</span>
@@ -64,7 +64,7 @@ is_staff_view (the staff columns) and viewer_has_refund_authority (the Paid colu
     {% endwith %}
     {% endwith %}
     {% else %}
-    {% with menu_label="Actions for "|add:b.member.display_name %}
+    {% with menu_label="Actions for "|add:b.member.staff_label %}
     {% include "components/row_actions.html" with menu_include="hub/partials/orientation_booking_row_menu.html" menu_label=menu_label %}
     {% endwith %}
     {% endif %}

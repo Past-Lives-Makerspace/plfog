@@ -8,7 +8,7 @@ Context: credit_form (hub.forms.EquipmentCreditUnusedForm), credit_reservation, 
   {% csrf_token %}
   <input type="hidden" name="reservation" value="{{ credit_reservation.pk }}">
   <input type="hidden" name="next" value="{{ credit_next }}">
-  <p class="pl-form-note">{{ credit_reservation.member.display_name }} booked {{ credit_reservation.starts_at|date:"D, M j" }}, {{ credit_reservation.starts_at|time:"g:i A" }} to {{ credit_reservation.ends_at|time:"g:i A" }}. The hours you credit apply the next time they book the {{ credit_reservation.equipment.name }}. Nothing is refunded.</p>
+  <p class="pl-form-note">{{ credit_reservation.member.staff_label }} booked {{ credit_reservation.starts_at|date:"D, M j" }}, {{ credit_reservation.starts_at|time:"g:i A" }} to {{ credit_reservation.ends_at|time:"g:i A" }}. The hours you credit apply the next time they book the {{ credit_reservation.equipment.name }}. Nothing is refunded.</p>
   <div class="hub-form-group">
     {% include "components/form_field.html" with field=credit_form.minutes %}
     {% include "components/form_field.html" with field=credit_form.note %}

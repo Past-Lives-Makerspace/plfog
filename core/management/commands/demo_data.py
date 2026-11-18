@@ -971,32 +971,32 @@ class Command(BaseCommand):
             self._make_booking(primary_slots[0], member, status.REQUESTED)
             self._make_booking(primary_slots[0], bookers[0], status.REQUESTED)
             summary.append(
-                f"{primary.name}: {member.display_name} REQUESTED {when(primary_slots[0])} "
+                f"{primary.name}: {member.staff_label} REQUESTED {when(primary_slots[0])} "
                 "(+ 1 more pending) — approve to test"
             )
         if len(primary_slots) >= 2:
             self._make_booking(primary_slots[1], bookers[1], status.CONFIRMED)
-            summary.append(f"{primary.name}: {bookers[1].display_name} CONFIRMED {when(primary_slots[1])}")
+            summary.append(f"{primary.name}: {bookers[1].staff_label} CONFIRMED {when(primary_slots[1])}")
         past_slot = self._ensure_past_slot(primary)
         self._make_booking(past_slot, bookers[2], status.CONFIRMED, completed=True)
-        summary.append(f"{primary.name}: {bookers[2].display_name} COMPLETED a past orientation (oriented)")
+        summary.append(f"{primary.name}: {bookers[2].staff_label} COMPLETED a past orientation (oriented)")
 
         if len(guilds) >= 2:
             second = guilds[1]
             second_slots = demo_slots(second)
             if second_slots:
                 self._make_booking(second_slots[0], member, status.CONFIRMED)
-                summary.append(f"{second.name}: {member.display_name} CONFIRMED {when(second_slots[0])}")
+                summary.append(f"{second.name}: {member.staff_label} CONFIRMED {when(second_slots[0])}")
             if len(second_slots) >= 2:
                 self._make_booking(second_slots[1], bookers[3], status.REQUESTED)
-                summary.append(f"{second.name}: {bookers[3].display_name} REQUESTED (pending)")
+                summary.append(f"{second.name}: {bookers[3].staff_label} REQUESTED (pending)")
 
         if len(guilds) >= 3:
             third = guilds[2]
             third_slots = demo_slots(third)
             if third_slots:
                 self._make_booking(third_slots[0], bookers[0], status.REQUESTED)
-                summary.append(f"{third.name}: {bookers[0].display_name} REQUESTED (pending)")
+                summary.append(f"{third.name}: {bookers[0].staff_label} REQUESTED (pending)")
 
     # --- Remove -------------------------------------------------------------
 

@@ -312,7 +312,7 @@ def hub_admin_event_guest_add(request: HttpRequest, pk: int) -> HttpResponse:
         return _render_guest_list(request, event, staff_form=form)
     rsvp = form.save(event)
     event.refresh_discord_announcement()
-    messages.success(request, f"Added {rsvp.display_name}.")
+    messages.success(request, f"Added {rsvp.staff_label}.")
     if wants_fragment(request):
         response = HttpResponse(status=204)
         response["HX-Redirect"] = guests_url
@@ -327,7 +327,8 @@ def hub_admin_event_guest_checkin(request: HttpRequest, pk: int, rsvp_pk: int) -
     event = get_object_or_404(_managed_events(), pk=pk)
     rsvp = get_object_or_404(event.guest_list(), pk=rsvp_pk)
     checked_in = rsvp.toggle_check_in()
-    message = f"{rsvp.display_name} checked in." if checked_in else f"{rsvp.display_name} is no longer checked in."
+    name = rsvp.staff_label
+    message = f"{name} checked in." if checked_in else f"{name} is no longer checked in."
     if wants_fragment(request):
         response = render(request, "hub/admin/_event_guest_row.html", {"event": event, "rsvp": rsvp})
         trigger_toast(response, message)
@@ -350,7 +351,7 @@ def hub_admin_event_guest_remove(request: HttpRequest, pk: int, rsvp_pk: int) ->
     if rsvp.is_read_only:
         messages.info(request, "An Eventbrite RSVP comes and goes with its order. Cancel the order on Eventbrite.")
         return redirect(guests_url)
-    name = rsvp.display_name
+    name = rsvp.staff_label
     rsvp.delete()
     event.refresh_discord_announcement()
     messages.success(request, f"Removed {name}.")

@@ -5,7 +5,7 @@ the box to write (components/thread_composer.html). The member who booked is the
 writes as the managers. Context: reservation (loaded with_thread), thread_messages, viewer_is_staff, message_form,
 thread_next (where Send lands, "" for the poster's own page).
 {% endcomment %}
-{% with r=reservation name=reservation.member.display_name %}
+{% with r=reservation name=reservation.member.staff_label %}
 <div class="pl-thread-summary" data-reservation-thread="{{ r.pk }}">
   <p class="pl-thread-summary__title"><strong>{{ r.equipment.name }}</strong>{% if viewer_is_staff %} · {{ name }}{% endif %}</p>
   <p class="pl-thread-summary__meta">

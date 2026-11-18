@@ -189,7 +189,7 @@ def _join_guild(interaction: Interaction, member: Member | None) -> dict:
         if hook:
             post_embed(
                 hook,
-                Message(title=f"Welcome {member.display_name} to {guild.name}!", body=_welcome_body(guild)),
+                Message(title=f"Welcome {member.greeting_name} to {guild.name}!", body=_welcome_body(guild)),
             )
         # Welcome fan-out (activity + lead "New follower" notice), wrapped so an email hiccup
         # can never swallow the member's confirmation. /join-guild is a deliberate join, so the

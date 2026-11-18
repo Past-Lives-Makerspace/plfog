@@ -243,7 +243,7 @@ def _create(server: _Server, channel: dict[str, Any], message: dict[str, Any], g
             "discord_channel_id": channel["id"],
             "discord_url": url,
             "original_text": text,
-            "line": QueuedDiscordMessage.draft_line(text, guild_names, member.display_name if member else name, url),
+            "line": QueuedDiscordMessage.draft_line(text, guild_names, member.greeting_name if member else name, url),
             "sender_discord_id": author["id"],
             "sender_name": name[:100],
             "sender": member,

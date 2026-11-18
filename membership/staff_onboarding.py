@@ -71,7 +71,7 @@ def tool_links(guild: Guild) -> list[tuple[str, str, str]]:
 def email_context(member: Member, guild: Guild) -> dict[str, Any]:
     """What ``membership/emails/guild_staff_welcome.{txt,html}`` reads."""
     return {
-        "first_name": member.display_name.split(" ")[0],
+        "first_name": member.greeting_name.split(" ")[0],
         "guild": guild,
         "guild_url": _absolute_url(reverse("hub_guild_detail", args=[guild.slug])),
         "tools": [(name, purpose, _absolute_url(path)) for name, purpose, path in tool_links(guild)],
@@ -154,7 +154,7 @@ def backfill_candidates() -> list[tuple[Member, Guild]]:
         for person in people:
             first.setdefault(person.pk, (person, guild))
     skip = set(welcomed.values_list("member_id", flat=True))
-    return sorted((pair for pk, pair in first.items() if pk not in skip), key=lambda pair: pair[0].display_name)
+    return sorted((pair for pk, pair in first.items() if pk not in skip), key=lambda pair: pair[0].greeting_name)
 
 
 def confirm_rules(member: Member) -> None:

@@ -70,7 +70,7 @@ an empty list, and "all clear" would be a lie about a guild that does have work 
         {# Editing needs the class screen's own gate; without it the title, Edit and View are all dead links. #}
         <span class="pl-attention-row__main">{{ item.offering.title }}</span>
         {% endif %}
-        <span class="pl-attention-row__sub">{% if item.offering.instructor_names %}{{ item.offering.instructor_names }} · {% endif %}submitted {{ item.submitted_at|date:"M j" }}</span>
+        <span class="pl-attention-row__sub">{% if item.offering.staff_instructor_names %}{{ item.offering.staff_instructor_names }} · {% endif %}submitted {{ item.submitted_at|date:"M j" }}</span>
         <span class="pl-attention-row__actions">
           {% if item.can_open %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{% url 'classes:teach_class_edit' pk=item.offering.pk %}">Edit</a>{% endif %}
           {# The tokenized review page is signed and needs no teaching access, so it stays for everyone. #}
@@ -741,7 +741,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Guild Lead</h2>
     <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">
-      {% if guild.guild_lead %}Current lead: <strong>{{ guild.guild_lead.display_name }}</strong>.{% else %}This guild has no lead yet.{% endif %}
+      {% if guild.guild_lead %}Current lead: <strong>{{ guild.guild_lead.staff_label }}</strong>.{% else %}This guild has no lead yet.{% endif %}
       Only admins see this control. Picking someone replaces the current lead; staff roles below are unaffected.
     </p>
     <form method="post" action="{% url 'hub_guild_lead_set' guild.pk %}"
@@ -766,7 +766,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
     <div style="display:flex; flex-direction:column; gap:0.5rem; margin-bottom:1.5rem;">
       {% for member, memberships in staff_by_member %}
       <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; padding:0.5rem 0.75rem; background:rgba(255,255,255,0.02); border-radius:6px;">
-        <span>{{ member.display_name }}</span>
+        <span>{{ member.staff_label }}</span>
         {# Class Reviewer (#816): saves on change over HTMX, outside every autosave form; read only unless lead or admin. #}
         <div class="pl-staff-reviewer" data-class-reviewer-row="{{ member.pk }}" data-autosave-ignore>
           <span class="pl-staff-reviewer__label">Class Reviewer</span>
@@ -776,7 +776,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
           </span>
           <label class="pl-toggle pl-toggle--sm{% if not can_set_class_reviewers %} pl-toggle--disabled{% endif %}">
             <input type="checkbox" name="on"
-                   aria-label="Class Reviewer: {{ member.display_name }}"
+                   aria-label="Class Reviewer: {{ member.staff_label }}"
                    {% if member.pk in class_reviewer_ids %}checked{% endif %}
                    {% if can_set_class_reviewers %}
                    hx-post="{% url 'hub_guild_staff_class_reviewer' guild.pk member.pk %}"
@@ -794,7 +794,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
           <span class="pl-staff-chip">
             <span class="hub-badge">{{ sm.display_title }}</span>
             <button type="button" class="hub-btn hub-btn--sm hub-btn--danger"
-                    aria-label="Remove {{ sm.display_title }} from {{ member.display_name }}"
+                    aria-label="Remove {{ sm.display_title }} from {{ member.staff_label }}"
                     @click="$dispatch('open-confirm', 'del-staff-{{ sm.pk }}')">Remove</button>
           </span>
           {% endfor %}

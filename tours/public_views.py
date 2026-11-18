@@ -97,7 +97,7 @@ def _prefill(request: HttpRequest) -> dict[str, str]:
     if not user.is_authenticated:
         return {}
     member: Member | None = getattr(user, "member", None)
-    name = user.get_full_name().strip() or (member.display_name if member is not None else "")
+    name = user.get_full_name().strip() or (member.greeting_name if member is not None else "")
     return {"name": name, "email": user.email}
 
 

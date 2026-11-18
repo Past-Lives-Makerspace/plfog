@@ -52,7 +52,7 @@ def stream_event_guests_csv(event: CommunityEvent) -> StreamingHttpResponse:
         for rsvp in rows.iterator(chunk_size=500):
             checked_in = timezone.localtime(rsvp.checked_in_at).strftime("%Y-%m-%d %H:%M") if rsvp.checked_in_at else ""
             row = [
-                rsvp.display_name,
+                rsvp.staff_label,
                 rsvp.party_size,
                 rsvp.get_source_display(),
                 rsvp.contact_email,

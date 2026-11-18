@@ -371,7 +371,7 @@ def describe_lease_from_airtable():
 def describe_vote_preference_to_airtable():
     def it_converts_vote():
         vote = MagicMock()
-        vote.member.display_name = "John"
+        vote.member.greeting_name = "John"
         vote.member.airtable_record_id = "recMEM123"
         vote.guild_1st.name = "Glass Guild"
         vote.guild_2nd.name = "Tech Guild"

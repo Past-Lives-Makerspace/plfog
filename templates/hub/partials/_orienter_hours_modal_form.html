@@ -16,8 +16,8 @@ rows: each row shows How members book, fixed start times or any time in the wind
 Each row is hub/partials/_orienter_hours_row.html, bound rows and the cloned empty form alike.
 {% endcomment %}
 {% if target %}
-<h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Editing {{ target.display_name }}'s Hours</h2>
-<p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Recurring hours when {{ target.display_name }} can give orientations: every week, every few weeks, or by the month.{% if not offer_open %} We turn them into bookable slots automatically.{% endif %} Members book them by name.</p>
+<h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Editing {{ target.staff_label }}'s Hours</h2>
+<p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Recurring hours when {{ target.staff_label }} can give orientations: every week, every few weeks, or by the month.{% if not offer_open %} We turn them into bookable slots automatically.{% endif %} Members book them by name.</p>
 {% else %}
 <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Editing Shared Hours</h2>
 <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Shared weekly windows any manager can run. Keep, edit, or retire them; new recurring hours belong to a person.</p>
@@ -34,7 +34,7 @@ Each row is hub/partials/_orienter_hours_row.html, bound rows and the cloned emp
     {% for rule in formset %}
     {% include "hub/partials/_orienter_hours_row.html" with rule=rule offer_open=offer_open target=target %}
     {% empty %}
-    <p class="hub-text-muted">{% if target %}No hours yet. Add a window and members can start booking {{ target.display_name }}.{% else %}No shared hours.{% endif %}</p>
+    <p class="hub-text-muted">{% if target %}No hours yet. Add a window and members can start booking {{ target.staff_label }}.{% else %}No shared hours.{% endif %}</p>
     {% endfor %}
   </div>
 

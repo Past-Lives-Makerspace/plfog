@@ -113,7 +113,7 @@ class Command(BaseCommand):
 
         # Build Django lookup maps
         django_guilds = {g.name.lower(): g for g in Guild.objects.all()}
-        django_members = {m.display_name.strip().lower(): m for m in Member.objects.all()}
+        django_members = {m.greeting_name.strip().lower(): m for m in Member.objects.all()}
         existing_voter_ids = set(VotePreference.objects.values_list("member_id", flat=True))
         self.stdout.write(f"  Django has {len(django_guilds)} guilds, {len(django_members)} members")
 

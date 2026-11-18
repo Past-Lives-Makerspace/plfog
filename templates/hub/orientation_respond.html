@@ -16,9 +16,9 @@
   {% endif %}
 
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;">
-    <p style="margin:0 0 0.25rem; font-size:1.05rem;"><strong>{{ booking.member.display_name }}</strong> · {{ booking.orientation_type.owner_name }} · {{ booking.orientation_type.name }}</p>
+    <p style="margin:0 0 0.25rem; font-size:1.05rem;"><strong>{{ booking.member.staff_label }}</strong> · {{ booking.orientation_type.owner_name }} · {{ booking.orientation_type.name }}</p>
     <p style="margin:0 0 0.25rem;">{{ booking.slot.starts_at|date:"l, F j" }} at {{ booking.slot.starts_at|time:"g:i A" }}{% if booking.slot.location %} · {{ booking.slot.location }}{% endif %}</p>
-    <p class="hub-text-muted" style="margin:0 0 0.25rem;">Runs with: {% if booking.slot.orienter %}{{ booking.slot.orienter.display_name }}{% else %}Any orientor{% endif %}</p>
+    <p class="hub-text-muted" style="margin:0 0 0.25rem;">Runs with: {% if booking.slot.orienter %}{{ booking.slot.orienter.staff_label }}{% else %}Any orientor{% endif %}</p>
     <p class="hub-text-muted" style="margin:0 0 0.25rem;">Status: {{ booking.get_status_display }}</p>
     {% if booking.hold_state == "held" or booking.hold_state == "released" %}
     {# A card hold (#1128): money in hand only once confirming charges it. #}
@@ -107,7 +107,7 @@
   {# Move to Another Time (#853): the open proposal, if any, and the button that opens the move modal. #}
   <div class="hub-card pl-orient-move-panel" data-orientation-move-panel>
     {% if booking.has_open_proposal %}
-    <p class="pl-orient-move-panel__proposal" data-booking-proposal>You asked {{ booking.member.display_name }} to move to {{ booking.proposed_starts_at|date:"l, F j" }} at {{ booking.proposed_starts_at|time:"g:i A" }}. Their time stays the same until they answer.</p>
+    <p class="pl-orient-move-panel__proposal" data-booking-proposal>You asked {{ booking.member.staff_label }} to move to {{ booking.proposed_starts_at|date:"l, F j" }} at {{ booking.proposed_starts_at|time:"g:i A" }}. Their time stays the same until they answer.</p>
     {% endif %}
     <button type="button" class="hub-btn hub-btn--sm" data-orientation-move-open @click="$dispatch('open-modal', 'respond-move')">Move to Another Time</button>
   </div>
@@ -120,7 +120,7 @@
   {% if booking.takes_messages %}
   <div class="hub-card pl-orient-respond-messages" id="messages" data-thread-open="{{ booking.pk }}">
     <h2 class="hub-detail-label">Messages</h2>
-    {% with pk_str=booking.pk|stringformat:"s" first_name=booking.member.display_name %}
+    {% with pk_str=booking.pk|stringformat:"s" first_name=booking.member.greeting_name %}
     {% include "components/thread.html" with thread_messages=thread_messages viewer_is_staff=True thread_key="booking-"|add:pk_str thread_empty="No messages yet." %}
     {% url 'hub_orientation_message' booking.pk as message_url %}
     {% include "components/thread_composer.html" with thread_form=message_form thread_action=message_url thread_next="" thread_body_label="Message to "|add:first_name thread_note=member_hears_line thread_button="Send to "|add:first_name %}

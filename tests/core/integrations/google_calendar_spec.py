@@ -317,6 +317,21 @@ def describe__build_event_body():
         body = gc._build_event_body(_event(created_by=user), actor=None)
         assert body["description"].endswith("Added by Preferred Name via FOG")
 
+    def it_never_puts_a_legal_name_behind_a_preferred_one_on_the_public_calendar():
+        from django.contrib.auth.models import User
+
+        from tests.membership.factories import MembershipPlanFactory
+
+        MembershipPlanFactory()  # so the signal links a Member to the new user
+        user = User.objects.create_user(username="wren", first_name="Quinn", last_name="Ashdown", password="x")
+        user.member.full_legal_name = "Quinn Ashdown"
+        user.member.preferred_name = "Wren"
+        user.member.name_shown_to_members = "full"
+        user.member.save(update_fields=["full_legal_name", "preferred_name", "name_shown_to_members"])
+        body = gc._build_event_body(_event(created_by=user), actor=None)
+        assert body["description"].endswith("Added by Wren via FOG")
+        assert "Ashdown" not in body["description"]
+
     def it_uses_the_username_when_the_user_has_no_linked_member():
         # A user with no Member row (getattr returns None) → the login name is the attribution.
         user = MagicMock()

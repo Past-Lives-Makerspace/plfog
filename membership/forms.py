@@ -57,14 +57,14 @@ def member_picker_key(text: str) -> str:
 def member_picker_labels(members: Iterable[Member]) -> dict[str, Member]:
     """The labels a member picker offers for ``members``, each to its member.
 
-    A member is labelled by their display name with its spaces collapsed and trimmed (#805:
+    A member is labelled by their staff label ("Wren (Quinn Ashdown)") with its spaces collapsed and trimmed (#805:
     36 stored names end in a space); two whose names then match get their member number
     after it (``"Sam Lee (#42)"``), so every label names exactly one person. The keys keep
     the members' order; look a posted value up with :func:`member_picker_key` against
     :func:`member_picker_lookup`. The Record Orientation and Give Credit pickers and the
     Add Inquiry picker (#794) share it.
     """
-    named = [(tidy_name(m.display_name), m) for m in members]
+    named = [(tidy_name(m.staff_label), m) for m in members]
     name_counts = Counter(name.casefold() for name, _ in named)
     labels: dict[str, Member] = {}
     for name, candidate in named:

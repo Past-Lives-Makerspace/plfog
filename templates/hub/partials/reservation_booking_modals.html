@@ -6,7 +6,7 @@ until one is typed; the view is still the gate). The member's own cancel is unbo
 cancel answers with a redirect to Stripe. Context: reservation_rows, bookings_next.
 {% endcomment %}
 {% for row in reservation_rows %}
-{% with r=row.reservation pk=row.reservation.pk|stringformat:"s" name=row.reservation.member.display_name %}
+{% with r=row.reservation pk=row.reservation.pk|stringformat:"s" name=row.reservation.member.staff_label %}
 {% url 'hub_equipment_reservation_cancel' r.equipment.slug r.pk as cancel_url %}
 {% if row.can_cancel %}
 {% if row.is_own %}

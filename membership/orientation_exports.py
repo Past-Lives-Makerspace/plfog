@@ -59,14 +59,14 @@ def stream_orientations_csv(bookings: QuerySet[OrientationBooking]) -> Streaming
         for booking in bookings.iterator(chunk_size=500):
             yield writer.writerow(
                 [
-                    booking.member.display_name,
+                    booking.member.staff_label,
                     booking.orientation_type.owner_name,
                     booking.orientation_type.name,
-                    booking.slot.orienter.display_name if booking.slot.orienter is not None else "",
+                    booking.slot.orienter.staff_label if booking.slot.orienter is not None else "",
                     booking.slot.starts_at.strftime("%Y-%m-%d %H:%M"),
                     booking.get_status_display(),
                     "yes" if booking.is_completed else "no",
-                    booking.oriented_by.display_name if booking.oriented_by is not None else "",
+                    booking.oriented_by.staff_label if booking.oriented_by is not None else "",
                     booking.requested_at.strftime("%Y-%m-%d %H:%M"),
                     f"{booking.amount_paid_cents / 100:.2f}" if booking.amount_paid_cents else "",
                     booking.refund_state if booking.amount_paid_cents else "",

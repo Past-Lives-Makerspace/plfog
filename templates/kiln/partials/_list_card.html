@@ -30,7 +30,7 @@ form posts and lands back on the Lists page. Expects card (kiln.views._list_card
         <div class="pl-disclosure__body">
             <ul class="pl-kiln-archived">
                 {% for option in card.archived %}
-                <li data-option="{{ option.pk }}"><span>{{ option.name }}<small>Archived {{ option.archived_at|date:"M j" }}{% if option.archived_by %} by {{ option.archived_by.display_name }}{% endif %} · on {{ option.ticket_count }} ticket{{ option.ticket_count|pluralize }}</small></span>
+                <li data-option="{{ option.pk }}"><span>{{ option.name }}<small>Archived {{ option.archived_at|date:"M j" }}{% if option.archived_by %} by {{ option.archived_by.staff_label }}{% endif %} · on {{ option.ticket_count }} ticket{{ option.ticket_count|pluralize }}</small></span>
                     <form method="post" action="{% url 'kiln:list_restore' card.kind option.pk %}" hx-post="{% url 'kiln:list_restore' card.kind option.pk %}" hx-target="#kiln-list-{{ card.kind }}" hx-swap="outerHTML">
                         {% csrf_token %}
                         <button type="submit" class="hub-btn hub-btn--sm hub-btn--ghost"><svg class="pl-kiln-ico" aria-hidden="true"><use href="#kiln-i-undo"/></svg>Restore</button>

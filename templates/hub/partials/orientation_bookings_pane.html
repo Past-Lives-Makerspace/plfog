@@ -152,17 +152,17 @@ and closes the modal.
         {% for r in recorded_orientations %}
           <tr class="pl-orient-records__row" data-record-row="{{ r.pk }}">
             <td class="pl-bookings-table__when">{{ r.completed_on|date:"M j, Y" }}</td>
-            <td data-label="Member">{% if viewer_is_admin %}<a href="{% url 'hub_admin_member_edit' r.member.pk %}?tab=orientations">{{ r.member.display_name }}</a>{% else %}{{ r.member.display_name }}{% endif %}</td>
+            <td data-label="Member">{% if viewer_is_admin %}<a href="{% url 'hub_admin_member_edit' r.member.pk %}?tab=orientations">{{ r.member.staff_label }}</a>{% else %}{{ r.member.staff_label }}{% endif %}</td>
             <td data-label="Orientation" class="pl-bookings-table__orientation">
               <span class="pl-bookings-table__name">{{ r.orientation_type.name }}</span>
               <span class="pl-bookings-table__owner">{{ r.orientation_type.owner_name }}</span>
               {% if r.note %}<span class="hub-text-muted pl-orient-records__note">{{ r.note }}</span>{% endif %}
             </td>
-            <td data-label="Oriented By">{% if r.oriented_by %}{{ r.oriented_by.display_name }}{% else %}Not recorded{% endif %}</td>
+            <td data-label="Oriented By">{% if r.oriented_by %}{{ r.oriented_by.staff_label }}{% else %}Not recorded{% endif %}</td>
             <td data-label="Recorded By">{{ r.recorded_by_name }}</td>
             <td class="pl-bookings-table__actions">
               {% if r.pk in removable_record_ids %}
-              {% with menu_label="Actions for "|add:r.member.display_name|add:" "|add:r.orientation_type.name %}
+              {% with menu_label="Actions for "|add:r.member.staff_label|add:" "|add:r.orientation_type.name %}
               {% include "components/row_actions.html" with menu_include="hub/partials/orientation_record_row_menu.html" menu_label=menu_label %}
               {% endwith %}
               {% endif %}
@@ -176,7 +176,7 @@ and closes the modal.
       {% for r in recorded_orientations %}
       {% if r.pk in removable_record_ids %}
       {% url 'hub_orientation_record_remove' r.pk as remove_url %}
-      {% with remove_message=r.member.display_name|add:" will need the "|add:r.orientation_type.name|add:" orientation again before they can book what it unlocks." record_pk=r.pk|stringformat:"s" %}
+      {% with remove_message=r.member.staff_label|add:" will need the "|add:r.orientation_type.name|add:" orientation again before they can book what it unlocks." record_pk=r.pk|stringformat:"s" %}
       {% include "components/confirm_modal.html" with confirm_id="record-remove-"|add:record_pk confirm_title="Remove This Record?" confirm_message=remove_message confirm_action_url=remove_url confirm_next=bookings_next confirm_button_text="Remove Record" %}
       {% endwith %}
       {% endif %}

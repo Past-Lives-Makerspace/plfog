@@ -47,9 +47,9 @@ def next_digest_at(now: datetime) -> datetime:
 
 
 def _person(user: User) -> tuple[str, str]:
-    """A recipient's display name and email, for a row on the tab."""
+    """A recipient's staff label and email, for a row on the tab."""
     member = getattr(user, "member", None)
-    name = member.display_name if member is not None else user.get_full_name() or user.email
+    name = member.staff_label if member is not None else user.get_full_name() or user.email
     return name, user.email
 
 

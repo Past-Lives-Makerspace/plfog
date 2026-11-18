@@ -92,12 +92,12 @@ class Command(BaseCommand):
                 continue
             current = roster.get(user_id)
             if current is None:
-                self.stdout.write(f"{member.display_name} ({user_id}): not on the Discord server, skipped.")
+                self.stdout.write(f"{member.staff_label} ({user_id}): not on the Discord server, skipped.")
                 continue
             to_add, to_remove = plan_changes(member_facts, current, settings)
             if to_add or to_remove:
                 tally.differing += 1
-                self.stdout.write(f"{member.display_name} ({user_id}): {self._describe(to_add, to_remove, settings)}")
+                self.stdout.write(f"{member.staff_label} ({user_id}): {self._describe(to_add, to_remove, settings)}")
                 if apply:
                     tally.count(reconcile_member(member, current=current, settings=settings))
         self._strangers(members, settings, tally, strip=options["strip_unlinked"])
@@ -126,9 +126,9 @@ class Command(BaseCommand):
         linked = set(Member.objects.exclude(discord_user_id="").values_list("discord_user_id", flat=True))
         handles: dict[str, str] = {}
         for member in Member.objects.filter(discord_user_id=""):
-            for name in (member.discord_handle, member.display_name):
+            for name in (member.discord_handle, member.greeting_name):
                 if _handle(name):
-                    handles.setdefault(_handle(name), member.display_name)
+                    handles.setdefault(_handle(name), member.staff_label)
         for user_id in sorted(members):
             server_member = members[user_id]
             held = sorted(server_member.roles & settings.managed)
@@ -151,14 +151,14 @@ class Command(BaseCommand):
         """Everyone who earns a managed role or holds one on the server, by name."""
         held_managed = {user_id for user_id, roles in roster.items() if roles & settings.managed}
         members = Member.objects.filter(pk__in=list(facts)) | Member.objects.filter(discord_user_id__in=held_managed)
-        return sorted(members.distinct(), key=lambda member: member.display_name.casefold())
+        return sorted(members.distinct(), key=lambda member: member.staff_label.casefold())
 
     def _summarize(self, unlinked: list[Member], tally: _Tally, *, apply: bool) -> None:
         if unlinked:
             self.stdout.write("")
             self.stdout.write("Should hold a role but have not linked Discord:")
             for member in unlinked:
-                self.stdout.write(f"  {member.display_name}")
+                self.stdout.write(f"  {member.staff_label}")
         self.stdout.write("")
         if apply:
             self.stdout.write(self.style.SUCCESS(f"Added {tally.added} roles and removed {tally.removed}."))

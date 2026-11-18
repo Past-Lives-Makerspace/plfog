@@ -72,7 +72,7 @@ admins and the card's Team, by the effective role.
       <tbody>
         {% for report in reports %}
         <tr data-hq-ci-report-row="{{ report.pk }}">
-          <td data-label="Name or shop"><strong>{{ report.name }}</strong><span class="pl-hq-ci__by">{{ report.member.display_name }}</span></td>
+          <td data-label="Name or shop"><strong>{{ report.name }}</strong><span class="pl-hq-ci__by">{{ report.member.staff_label }}</span></td>
           <td data-label="Guild">{{ report.guild_display }}</td>
           <td data-label="Items">{% if report.items_sold is None %}&ndash;{% else %}{{ report.items_sold }}{% endif %}</td>
           <td data-label="Sales">{{ report.sales_display }}</td>

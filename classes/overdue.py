@@ -38,7 +38,7 @@ class OverdueReview:
         if self.gate.role == ClassApproval.Role.GUILD_LEAD:
             guild = self.offering.category.guild if self.offering.category_id else None
             if guild is not None and guild.guild_lead is not None:
-                return guild.guild_lead.display_name
+                return guild.guild_lead.staff_label
             return "the guild lead"
         return "admins"
 

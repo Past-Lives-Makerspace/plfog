@@ -24,7 +24,7 @@
                 <div class="pl-map-review__body">
                     <div class="pl-map-review__title">{{ r.space }}</div>
                     <div class="hub-text-muted pl-map-review__meta">
-                        {{ r.requester.display_name }} &middot; {{ r.get_kind_display }} &middot;
+                        {{ r.requester.staff_label }} &middot; {{ r.get_kind_display }} &middot;
                         {{ r.space.sublet_guild.name|default:"Site" }} &middot; {{ r.created_at|date:"M j, Y" }}
                     </div>
                     {% if r.message %}<p class="pl-map-review__message">{{ r.message }}</p>{% endif %}

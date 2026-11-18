@@ -53,16 +53,46 @@ def describe_membership_plan():
 @pytest.mark.django_db
 def describe_member():
     def it_has_str_representation():
-        member = MemberFactory(preferred_name="JD")
+        member = MemberFactory(full_legal_name="Jane Doe", preferred_name="JD")
         assert str(member) == "JD"
 
+    def describe_staff_label():
+        def it_lists_the_preferred_name_with_the_legal_name_beside_it():
+            member = MemberFactory(full_legal_name="Quinn Ashdown", preferred_name="Wren")
+            assert member.staff_label == "Wren (Quinn Ashdown)"
+
+        def it_is_one_name_when_the_preferred_name_matches_the_legal_name():
+            member = MemberFactory(full_legal_name="Jane Doe", preferred_name=" jane doe")
+            assert member.staff_label == "jane doe"
+
+        def it_is_the_preferred_name_alone_without_a_legal_name():
+            member = MemberFactory(full_legal_name="", preferred_name="Wren")
+            assert member.staff_label == "Wren"
+
+    def describe_public_name():
+        def it_never_shows_the_legal_name_behind_a_preferred_one():
+            member = MemberFactory(full_legal_name="Quinn Ashdown", preferred_name="Wren", name_shown_to_members="full")
+            assert member.public_name == "Wren"
+
     def describe_display_name():
-        def it_returns_preferred_name_when_set():
+        def it_is_the_preferred_name_alone_by_default():
+            member = MemberFactory(full_legal_name="Quinn Ashdown", preferred_name="Wren")
+            assert member.name_shown_to_members == Member.NameShown.PREFERRED
+            assert member.display_name == "Wren"
+
+        def it_adds_the_legal_first_name_and_last_initial_when_chosen():
             member = MemberFactory(
-                full_legal_name="Jane Doe",
-                preferred_name="JD",
+                full_legal_name="Quinn Ashdown", preferred_name="Wren", name_shown_to_members="initial"
             )
-            assert member.display_name == "JD"
+            assert member.display_name == "Wren (Quinn A.)"
+
+        def it_adds_the_full_legal_name_when_chosen():
+            member = MemberFactory(full_legal_name="Quinn Ashdown", preferred_name="Wren", name_shown_to_members="full")
+            assert member.display_name == "Wren (Quinn Ashdown)"
+
+        def it_is_the_legal_name_whatever_the_choice_without_a_preferred_name():
+            member = MemberFactory(full_legal_name="Quinn Ashdown", preferred_name="", name_shown_to_members="initial")
+            assert member.display_name == "Quinn Ashdown"
 
         def it_returns_full_legal_name_when_no_preferred_name():
             member = MemberFactory(
@@ -70,6 +100,13 @@ def describe_member():
                 preferred_name="",
             )
             assert member.display_name == "Jane Doe"
+
+    def describe_greeting_name():
+        def it_is_the_preferred_name_when_set():
+            assert MemberFactory(full_legal_name="Quinn Ashdown", preferred_name="Wren").greeting_name == "Wren"
+
+        def it_is_the_legal_name_without_a_preferred_name():
+            assert MemberFactory(full_legal_name="Jane Doe", preferred_name="").greeting_name == "Jane Doe"
 
     def describe_short_name():
         def it_keeps_the_first_name_and_the_last_names_initial():

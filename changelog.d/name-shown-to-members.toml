@@ -1,0 +1,17 @@
+bump = "minor"
+audience = ["members", "admins"]
+feature = "account.profile"
+guidance = "shots"
+target = "account.name-shown"
+date = "2026-11-17"
+title = "Choose how your name shows to other members"
+changes = [
+  "If you set a preferred name, you pick what other members see: your preferred name only, or with your legal first name and last initial, or with your full legal name. It starts as your preferred name only.",
+  "Staff screens show both your preferred name and your legal name, and public pages show only your preferred name.",
+]
+
+[[shots]]
+caption = "Open Settings, then Profile, and pick what other members see under your preferred name."
+
+[[shots]]
+caption = "Other members see the name you picked on the Member Directory and around the portal."

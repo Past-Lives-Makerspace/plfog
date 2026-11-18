@@ -310,7 +310,7 @@ class TourHours(models.Model):
 
     def __str__(self) -> str:
         day = f"{self.date:%a %Y-%m-%d}" if self.date is not None else self.get_weekday_display()
-        return f"{self.guide.display_name}: {day} {self.start_time:%H:%M} to {self.end_time:%H:%M}"
+        return f"{self.guide.staff_label}: {day} {self.start_time:%H:%M} to {self.end_time:%H:%M}"
 
     def clean(self) -> None:
         """Half hour marks and room for at least one tour (the Django admin runs this too)."""

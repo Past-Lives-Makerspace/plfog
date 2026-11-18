@@ -149,7 +149,7 @@ def _picker_guides(viewer: Member) -> list[Member]:
     and anyone with tour hours, the viewer left out (they are "My hours"). An admin always counts
     as a guide, so one with no hours yet can be picked and given some."""
     people = Member.objects.filter(guide_filter() | _HAS_HOURS).exclude(pk=viewer.pk).distinct()
-    return sorted(people, key=lambda member: member.display_name.casefold())
+    return sorted(people, key=lambda member: member.staff_label.casefold())
 
 
 def _picker_options(viewer: Member) -> list[dict[str, Any]]:
@@ -161,7 +161,7 @@ def _picker_options(viewer: Member) -> list[dict[str, Any]]:
     return [
         {
             "pk": guide.pk,
-            "name": guide.display_name,
+            "name": guide.staff_label,
             "calendar": CALENDAR_STATE_LABELS.get(states.get(guide.pk, ""), NO_CALENDAR_LABEL)
             if google.is_configured()
             else "",
@@ -542,7 +542,7 @@ def _list_guide(request: HttpRequest) -> Member | None:
 def _filter_guides() -> list[Member]:
     """The admin's guide filter: everyone who gives tours, and anyone who has bookings, by name."""
     people = Member.objects.filter(guide_filter() | Q(tour_bookings__isnull=False)).distinct()
-    return sorted(people, key=lambda member: member.display_name.casefold())
+    return sorted(people, key=lambda member: member.staff_label.casefold())
 
 
 def _render_bookings(request: HttpRequest, tab: str) -> HttpResponse:
@@ -630,7 +630,7 @@ def _move_guides(destination: Member) -> list[Member]:
     people = Member.objects.filter(guide_filter(), tour_hours__isnull=False).distinct()
     found = {member.pk: member for member in people}
     found.setdefault(destination.pk, destination)
-    return sorted(found.values(), key=lambda member: member.display_name.casefold())
+    return sorted(found.values(), key=lambda member: member.staff_label.casefold())
 
 
 def _render_reschedule(

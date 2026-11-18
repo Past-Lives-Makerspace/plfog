@@ -4226,8 +4226,9 @@ def admin_classes(request: HttpRequest) -> HttpResponse:
             # The bookable() contract's name for the same fact, so minimum_signups_at_stake costs no query per row.
             first_session_at=Min("sessions__starts_at"),
             last_session=Max("sessions__starts_at"),
-            # The name the Instructor cell shows (Member.display_name: preferred, else legal), so
-            # sorting that column matches what the reader sees. NULL for instructorless classes.
+            # The name the Instructor cell starts with (Member.staff_label leads with the preferred
+            # name, else the legal name), so sorting that column matches what the reader sees. NULL
+            # for instructorless classes.
             instructor_name=Coalesce(
                 NullIf("instructor__preferred_name", Value("")),
                 "instructor__full_legal_name",
@@ -4721,7 +4722,7 @@ def admin_teaching_approve(request: HttpRequest, pk: int) -> HttpResponse:
     # an email that did not go out (a grant to someone who never asked sends nothing).
     will_notify = member.teaching_applied_at is not None and not member.can_create_classes
     member.grant_instructor(granted_by=admin_member)
-    message = f"Teaching is on for {member.display_name}."
+    message = f"Teaching is on for {member.staff_label}."
     if will_notify:
         message += " We let them know."
     messages.success(request, message)
@@ -4786,7 +4787,7 @@ def admin_instructor_inquiry_add(request: HttpRequest) -> HttpResponse:
         from membership.forms import tidy_name
 
         # A stored name can carry stray spaces (#805); the message names them tidily.
-        messages.success(request, f"Added an inquiry for {tidy_name(member.display_name)}.")
+        messages.success(request, f"Added an inquiry for {tidy_name(member.staff_label)}.")
         return redirect("classes:admin_instructor_inquiries")
     return _instructor_inquiries_page(request, form)
 
@@ -4823,7 +4824,7 @@ def admin_teaching_decline(request: HttpRequest, pk: int) -> HttpResponse:
     except ValueError:
         messages.error(request, "That did not go through. Give a reason, and check they are still waiting.")
         return redirect("classes:admin_overview")
-    messages.success(request, f"Declined {member.display_name}. We sent them your note.")
+    messages.success(request, f"Declined {member.staff_label}. We sent them your note.")
     return redirect("classes:admin_overview")
 
 
@@ -5156,7 +5157,7 @@ def _class_thread_context(
     else:
         several = len(offering.instructor_list) > 1
         body_label = "Write to the instructors" if several else "Write to the instructor"
-        note = f"{offering.instructor_names} {'get' if several else 'gets'} it in the app and by email, per their settings."
+        note = f"{offering.staff_instructor_names} {'get' if several else 'gets'} it in the app and by email, per their settings."
         empty = "No messages yet."
     return {
         "class_thread": {

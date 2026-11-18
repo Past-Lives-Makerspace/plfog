@@ -29,7 +29,7 @@ Reads from the page context to re-open + repopulate on a server-side notes error
         </div>
         <div class="pl-modal__body">
             <p class="hub-text-muted pl-map-review__intro">
-                {{ space_request.requester.display_name }} will get your note — say what happened, and whether
+                {{ space_request.requester.staff_label }} will get your note — say what happened, and whether
                 something else might work.
             </p>
             <form method="post" action="{% url 'hub_space_request_review_decision' space_request.pk %}">

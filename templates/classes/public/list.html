@@ -90,7 +90,7 @@
           <label class="cp-filter__check">
             <input type="checkbox" name="instructor" value="{{ inst.instructor_slug }}"
                    {% if inst.instructor_slug in selected_instructor_slugs %}checked{% endif %}>
-            <span>{{ inst.display_name }}</span>
+            <span>{{ inst.public_name }}</span>
           </label>
         {% empty %}
           <span class="cp-filter__empty">No instructors to filter by yet.</span>

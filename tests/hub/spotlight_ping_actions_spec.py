@@ -51,7 +51,7 @@ def _guild_ping() -> QueuedDiscordMessage:
         discord_url=LINK,
         original_text="Glaze day is Saturday\nBring your own brushes",
         line="<p>Ceramics: Glaze day is Saturday Bring your own brushes (Jay)</p>",
-        sender=MemberFactory(preferred_name="Jay Quorble"),
+        sender=MemberFactory(preferred_name="Jay Quorble", full_legal_name="Jay Quorble"),
     )
     ping.guilds.set([GuildFactory(name="Zorb Ceramics Guild"), GuildFactory(name="Zorb Jewelry Guild")])
     return ping

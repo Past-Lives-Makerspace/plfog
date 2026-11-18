@@ -7,7 +7,7 @@ otherwise the editable form, with the share choice once the manager's share was 
 {% endcomment %}
 {% if failed_refund %}
 <div class="pl-refund-context">
-    <p class="pl-refund-context__payer">{{ reservation.member.display_name }}</p>
+    <p class="pl-refund-context__payer">{{ reservation.member.staff_label }}</p>
     <p class="pl-refund-context__meta">Reservation, {{ reservation.equipment.name }}</p>
 </div>
 <p>Retry the failed refund of <strong>{{ failed_refund.amount_cents|cents_as_dollars }}</strong>{% if failed_refund.attempt > 1 %} <span class="pl-refund-history__meta">(attempt {{ failed_refund.attempt }})</span>{% endif %}.</p>
@@ -24,7 +24,7 @@ otherwise the editable form, with the share choice once the manager's share was 
 </form>
 {% else %}
 <div class="pl-refund-context">
-    <p class="pl-refund-context__payer">{{ reservation.member.display_name }}</p>
+    <p class="pl-refund-context__payer">{{ reservation.member.staff_label }}</p>
     <p class="pl-refund-context__meta">
         Reservation, {{ reservation.equipment.name }} ·
         Paid {{ reservation.amount_paid_cents|cents_as_dollars }} · {{ reservation.starts_at|date:"M j" }}

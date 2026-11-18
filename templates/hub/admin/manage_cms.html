@@ -91,7 +91,7 @@
         <tbody>
           {% for row in instructor_sync_rows %}
           <tr>
-            <td>{{ row.instructor.display_name }}</td>
+            <td>{{ row.instructor.staff_label }}</td>
             <td>{{ row.matched }}</td>
           </tr>
           {% empty %}

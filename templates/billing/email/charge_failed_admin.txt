@@ -1,6 +1,6 @@
 BILLING ALERT: Failed Charge
 
-Member: {{ member.display_name }} ({{ member.primary_email }})
+Member: {{ member.staff_label }} ({{ member.primary_email }})
 Amount: ${{ charge.amount }}
 Failure Reason: {{ charge.failure_reason|default:"Unknown" }}
 Retry Count: {{ charge.retry_count }}

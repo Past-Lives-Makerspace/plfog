@@ -125,7 +125,7 @@ on Upcoming (tours/bookings.html, #949); admins also get the Settings tab (tours
 
 <div class="hub-card pl-tours-panel pl-tours-days-off" data-tour-days-off>
   <h2 class="hub-detail-label pl-tours-panel__title">Days Off</h2>
-  <p class="hub-text-muted pl-tours-panel__intro">{% if is_self %}Your{% else %}{{ target.display_name }}'s{% endif %} hours offer no tours on a day off. Tours already booked those days stay booked.</p>
+  <p class="hub-text-muted pl-tours-panel__intro">{% if is_self %}Your{% else %}{{ target.staff_label }}'s{% endif %} hours offer no tours on a day off. Tours already booked those days stay booked.</p>
   {% if days_off %}
   <ul class="pl-tours-days-off__list">
     {% for day_off in days_off %}

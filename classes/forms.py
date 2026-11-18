@@ -1969,7 +1969,7 @@ class InstructorInquiryAddForm(TeachingApplicationForm):
         member = self._members_by_label.get(member_picker_key(self.cleaned_data["member"]))
         if member is None:
             raise forms.ValidationError("Pick a member from the list.")
-        name = tidy_name(member.display_name)
+        name = tidy_name(member.staff_label)
         if member.can_create_classes:
             raise forms.ValidationError(f"{name} can already teach.")
         if member.teaching_application_state == member.TeachingApplicationState.PENDING:
@@ -2723,7 +2723,7 @@ class _NamedOptionSelect(forms.Select):
         if isinstance(instance, ClassOffering):
             option["attrs"]["data-name"] = instance.title
         elif isinstance(instance, Member):
-            option["attrs"]["data-name"] = instance.display_name
+            option["attrs"]["data-name"] = instance.staff_label
         return option
 
 
@@ -2772,7 +2772,7 @@ class DiscountCodeReassignForm(forms.Form):
         teachers = cast(forms.ModelChoiceField, self.fields["instructor"])
         teachers.queryset = ClassOffering.objects.teaching_members(keep_pk=code.instructor_id)
         teachers.label_from_instance = lambda member: (
-            f"{member.display_name} (current)" if member.pk == code.instructor_id else member.display_name
+            f"{member.staff_label} (current)" if member.pk == code.instructor_id else member.staff_label
         )
 
     def clean(self) -> dict[str, Any]:

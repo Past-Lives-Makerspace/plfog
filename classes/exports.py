@@ -117,7 +117,7 @@ def _registration_cells(reg: Registration, payout: LinePayout | None) -> list[st
         reg.order_number,
         reg.class_offering.title,
         _class_date(reg.class_offering, reg.class_first_session, reg.class_last_session),  # type: ignore[attr-defined]
-        _neutralise_formula(reg.class_offering.instructor_names),
+        _neutralise_formula(reg.class_offering.staff_instructor_names),
         "" if payout is None else payout.export_label,
         reg.first_name,
         reg.last_name,
@@ -175,7 +175,7 @@ def stream_instructor_inquiries_csv(inquiries: QuerySet[Member]) -> StreamingHtt
         for member in inquiries.iterator(chunk_size=500):
             row = [
                 timezone.localtime(member.teaching_applied_at).date().isoformat(),
-                member.display_name,
+                member.staff_label,
                 member.teaching_application_note,
                 member.teaching_website,
                 member.teaching_socials,

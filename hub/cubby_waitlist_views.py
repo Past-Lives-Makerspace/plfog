@@ -68,7 +68,7 @@ def hub_cubby_waitlist_remove(request: HttpRequest, entry_pk: int) -> HttpRespon
     entry = get_object_or_404(CubbyWaitlistEntry.objects.select_related("guild", "member"), pk=entry_pk)
     if not can_manage_cubbies(request, entry.guild):
         raise Http404("No such waitlist entry among the guilds you run.")
-    name = entry.member.display_name
+    name = entry.member.staff_label
     if cubby_waitlist.remove(entry):
         messages.success(request, f"{name} is off the waitlist.")
     else:

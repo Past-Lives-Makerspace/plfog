@@ -811,7 +811,7 @@ class Tab(models.Model):
         if not self.stripe_customer_id:
             self.stripe_customer_id = _stripe_utils.create_customer(
                 email=self.member.primary_email,
-                name=self.member.display_name,
+                name=self.member.greeting_name,
                 member_pk=self.member.pk,
             )
             self.save(update_fields=["stripe_customer_id"])
@@ -1956,13 +1956,13 @@ class LateCancellationFee(models.Model):
 
     @property
     def waived_by_name(self) -> str:
-        """Who waived the fee, in member words: their member name, else the account's name or email."""
+        """Who waived the fee, as staff name them: their staff label, else the account's name or email."""
         user = self.waived_by
         if user is None:
             return ""
         member = getattr(user, "member", None)
         if member is not None:
-            return cast(str, member.display_name)
+            return cast(str, member.staff_label)
         return user.get_full_name() or user.email
 
     @property
@@ -2051,7 +2051,7 @@ class LateCancellationFee(models.Model):
             "item_title": f"Late cancellation fee: {self.item_label}",
             "recipient_email": member.primary_email,
             "recipient_name": member.display_name,
-            "payer_name": member.display_name,
+            "payer_name": member.staff_label,
             "member": member,
             "manage_url": pay_url(self),
             "in_app_url": reverse("hub_late_fee_detail", args=[self.pk]),

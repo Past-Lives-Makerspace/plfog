@@ -245,7 +245,7 @@ def describe_relationships():
 
     def it_describes_itself_by_member_space_and_state():
         request = SpaceRequestFactory(
-            requester=MemberFactory(preferred_name="Robin"), space=SpaceFactory(space_id="A9")
+            requester=MemberFactory(preferred_name="Robin", full_legal_name="Robin"), space=SpaceFactory(space_id="A9")
         )
         assert str(request) == "Robin → A9 (Pending review)"
 

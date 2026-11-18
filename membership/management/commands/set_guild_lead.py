@@ -31,7 +31,7 @@ class Command(BaseCommand):
 
         if options["clear"]:
             previous = guild.clear_lead()
-            who = previous.display_name if previous is not None else "(none)"
+            who = previous.staff_label if previous is not None else "(none)"
             self.stdout.write(self.style.SUCCESS(f"Cleared lead of '{guild.name}' (was {who})."))
             self._note_hidden_times(guild, previous, None)
             return
@@ -41,7 +41,7 @@ class Command(BaseCommand):
         warnings = guild.assign_lead(member)
         self.stdout.write(
             self.style.SUCCESS(
-                f"Set lead of '{guild.name}' to {member.display_name} <{member.primary_email or 'no email'}>."
+                f"Set lead of '{guild.name}' to {member.staff_label} <{member.primary_email or 'no email'}>."
             )
         )
         for warning in warnings:
