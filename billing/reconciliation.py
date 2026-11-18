@@ -177,7 +177,16 @@ class RecipientAllocation:
     next_due_at: datetime | None = None
     # Producer rows: transfers Stripe rejected and is still retrying. Never paid by hand (#985).
     retrying_cents: int = 0
+    # Live producer rows: shares these dates counted in Owed now that the treasurer marked paid by hand (#1249).
+    paid_by_hand_cents: int = 0
+    # Live producer rows: the lines counted in owed_now_cents, which Mark all paid posts back (#1249).
+    owed_keys: list[AdjustmentKey] = field(default_factory=list)
     payout_badge: PayoutBadge | None = None  # live producer rows: the payee's automatic payouts state (#905)
+
+    @property
+    def owed_keys_param(self) -> str:
+        """``owed_keys`` as Mark all paid posts them: "class:12,orientation:3" (``parse_line_keys``)."""
+        return ",".join(f"{kind}:{pk}" for kind, pk in self.owed_keys)
 
     @property
     def combined_cents(self) -> int:
@@ -202,7 +211,8 @@ class ReconciliationResult:
     voting_snapshotted_on: date | None = None
     is_snapshot: bool = False
     cubby_percents: dict[str, Decimal] = field(default_factory=dict)
-    # Producer lines paid before the window whose share fell due inside it and is still owed (#985).
+    # Producer lines paid before the window whose share fell due inside it and is still owed (#985),
+    # or was owed until the treasurer marked it paid by hand (#1249).
     due_earlier_lines: list[TransactionLine] = field(default_factory=list)
 
     @property
@@ -224,6 +234,11 @@ class ReconciliationResult:
     def retrying_total_cents(self) -> int:
         """Producer shares whose transfer failed and Stripe is retrying; the tables show their column only then."""
         return sum(alloc.retrying_cents for kind in GROUP_ORDER for alloc in self.groups[kind])
+
+    @property
+    def paid_by_hand_total_cents(self) -> int:
+        """Producer shares marked paid by hand (#1249); a snapshot page shows the column only then."""
+        return sum(alloc.paid_by_hand_cents for kind in GROUP_ORDER for alloc in self.groups[kind])
 
     @property
     def kept_share_count(self) -> int:
@@ -266,6 +281,7 @@ class ReconciliationResult:
                             "owed_now_cents": alloc.owed_now_cents,
                             "not_due_cents": alloc.not_due_cents,
                             "retrying_cents": alloc.retrying_cents,
+                            "paid_by_hand_cents": alloc.paid_by_hand_cents,
                             "next_due_at": None if alloc.next_due_at is None else alloc.next_due_at.isoformat(),
                         }
                         for alloc in self.groups[kind]
@@ -896,7 +912,7 @@ def build_reconciliation(
     )
     attached, accounts = _attach_payouts(lines + earlier, now)
     lines = [_in_window(line, window) for line in attached[: len(lines)]]
-    due_earlier = [line for line in attached[len(lines) :] if _owed_for(line, window)]
+    due_earlier = [line for line in attached[len(lines) :] if _owed_for(line, window) or _paid_for(line, window)]
     aggregate = _aggregate_lines(lines, due_earlier, window)
 
     voting_by_guild: dict[int, int] = {}
@@ -1018,9 +1034,53 @@ def _owed_for(line: TransactionLine, window: PanelWindow) -> bool:
     return line.payout is not None and line.payout.owed_in(window.start_dt, window.end_dt)
 
 
+def _paid_for(line: TransactionLine, window: PanelWindow) -> bool:
+    """True when ``line``'s producer share counts in ``window``'s Paid by hand (``LinePayout.paid_in``, #1249)."""
+    return line.payout is not None and line.payout.paid_in(window.start_dt, window.end_dt)
+
+
 def owed_lines(result: ReconciliationResult) -> list[TransactionLine]:
     """Every line whose producer share ``result`` counts in Owed now: paid in its window, or paid earlier."""
-    return [line for line in result.lines if _owed_for(line, result.window)] + result.due_earlier_lines
+    return [line for line in [*result.lines, *result.due_earlier_lines] if _owed_for(line, result.window)]
+
+
+def parse_line_keys(raw: str) -> set[AdjustmentKey]:
+    """The lines Mark all paid posts ("class:12,orientation:3", ``RecipientAllocation.owed_keys_param``).
+
+    Raises:
+        ValueError: a key is not ``kind:pk``.
+    """
+    keys: set[AdjustmentKey] = set()
+    for item in filter(None, raw.split(",")):
+        kind, _sep, pk = item.partition(":")
+        keys.add((kind, int(pk)))
+    return keys
+
+
+def mark_row_paid_by_hand(
+    window: PanelWindow, recipient: RecipientKey, confirmed: set[AdjustmentKey], *, by: Any
+) -> int:
+    """Mark paid by hand every share the producer row ``recipient`` counts in ``window``'s Owed now (#1249).
+
+    The lines are read again now and must be exactly ``confirmed``, the ones the confirm named
+    with its total: a share that fell due, or was marked, since the page loaded refuses the whole
+    row. Returns how many shares were marked.
+
+    Raises:
+        billing.payouts.ShareNotOwedError: the row counts nothing in Owed now, or not what was confirmed.
+    """
+    from billing.payouts import ShareNotOwedError, mark_paid_by_hand
+
+    keys = {
+        (line.source_kind, line.source_pk)
+        for line in owed_lines(build_reconciliation(window=window))
+        if any(key == recipient for key, _cents in _producer_shares(line))
+    }
+    if not keys:
+        raise ShareNotOwedError("Nothing on this row is in Owed now, so nothing was marked.")
+    if keys != confirmed:
+        raise ShareNotOwedError("Owed now changed since the page loaded, so nothing was marked. Check the new total.")
+    return mark_paid_by_hand(keys, by=by)
 
 
 def _split_by_weight(total: int, weights: list[int]) -> list[int]:
@@ -1159,6 +1219,8 @@ class _ProducerSplit:
     not_due: dict[RecipientKey, int] = field(default_factory=dict)
     next_due: dict[RecipientKey, datetime] = field(default_factory=dict)
     retrying: dict[RecipientKey, int] = field(default_factory=dict)
+    paid_by_hand: dict[RecipientKey, int] = field(default_factory=dict)
+    owed_keys: dict[RecipientKey, list[AdjustmentKey]] = field(default_factory=dict)
 
     def add_paid(self, line: TransactionLine, window: PanelWindow) -> None:
         """Count a line paid in ``window`` by its payout state; Owed now only if it also fell due in ``window``."""
@@ -1174,13 +1236,20 @@ class _ProducerSplit:
                     self.next_due[key] = payout.due_at
             elif payout.retrying:
                 self.retrying[key] = self.retrying.get(key, 0) + cents
+            elif _paid_for(line, window):
+                self.paid_by_hand[key] = self.paid_by_hand.get(key, 0) + cents
             elif _owed_for(line, window):
                 self.owed_now[key] = self.owed_now.get(key, 0) + cents
+                self.owed_keys.setdefault(key, []).append((line.source_kind, line.source_pk))
 
     def add_due_earlier(self, line: TransactionLine) -> None:
-        """Count a line paid before the window that fell due in it, to Owed now."""
+        """Count a line paid before the window that fell due in it, to Owed now, or Paid by hand once marked (#1249)."""
+        paid = cast("LinePayout", line.payout).paid_by_hand
+        column = self.paid_by_hand if paid else self.owed_now
         for key, cents in _producer_shares(line):
-            self.owed_now[key] = self.owed_now.get(key, 0) + cents
+            column[key] = column.get(key, 0) + cents
+            if not paid:
+                self.owed_keys.setdefault(key, []).append((line.source_kind, line.source_pk))
 
 
 @dataclass(frozen=True)
@@ -1246,14 +1315,16 @@ def _build_groups(
     groups: dict[RecipientKind, list[RecipientAllocation]] = {kind: [] for kind in GROUP_ORDER}
     seen_guild_ids: set[int] = set()
     split = aggregate.split
-    for key in aggregate.totals.keys() | split.owed_now.keys():
+    for key in aggregate.totals.keys() | split.owed_now.keys() | split.paid_by_hand.keys():
         total = aggregate.totals.get(key, 0)
         owed_now = split.owed_now.get(key, 0)
+        paid_by_hand = split.paid_by_hand.get(key, 0)
         # Drop only exact-zero recipients. A negative total (an over refund past the
         # payment) must still show so the per recipient rows keep summing to the grand
         # total; hiding it would silently break conservation of money. A producer paid
-        # nothing in the window still shows when a share paid earlier fell due in it (#985).
-        if total == 0 and owed_now == 0:
+        # nothing in the window still shows when a share paid earlier fell due in it (#985),
+        # owed or since paid by hand (#1249).
+        if total == 0 and owed_now == 0 and paid_by_hand == 0:
             continue
         kind = RecipientKind(key[0])
         recipient_id = key[1]
@@ -1268,6 +1339,8 @@ def _build_groups(
             not_due_cents=split.not_due.get(key, 0),
             next_due_at=split.next_due.get(key),
             retrying_cents=split.retrying.get(key, 0),
+            paid_by_hand_cents=paid_by_hand,
+            owed_keys=split.owed_keys.get(key, []),
         )
         if kind is RecipientKind.GUILD and recipient_id is not None:
             alloc.voting_cents = voting_by_guild.get(recipient_id, 0)
@@ -1333,6 +1406,8 @@ def result_from_snapshot(snapshot: ReconciliationSnapshot) -> ReconciliationResu
                 alloc.owed_now_cents = int(row["owed_now_cents"])
                 alloc.not_due_cents = int(row["not_due_cents"])
                 alloc.retrying_cents = int(row["retrying_cents"])
+                # Taken before #1249, when nothing could be marked paid by hand: none was.
+                alloc.paid_by_hand_cents = int(row.get("paid_by_hand_cents", 0))
                 next_due = row["next_due_at"]
                 alloc.next_due_at = None if next_due is None else datetime.fromisoformat(next_due)
             elif kind.is_producer:
@@ -1386,6 +1461,7 @@ CSV_HEADERS = [
     "Not yet due",
     "Next due",
     "Stripe retrying",
+    "Paid by hand",
 ]
 
 
@@ -1408,6 +1484,7 @@ def _csv_lines(result: ReconciliationResult, writer: Any) -> Iterator[str]:
                     f"{alloc.not_due_cents / 100:.2f}" if producer else "",
                     _iso_day(alloc.next_due_at),
                     f"{alloc.retrying_cents / 100:.2f}" if producer else "",
+                    f"{alloc.paid_by_hand_cents / 100:.2f}" if producer else "",
                 ]
             )
 

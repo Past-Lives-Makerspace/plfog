@@ -537,8 +537,15 @@ def describe_reconciliation_split():
         with _Stripe():
             payouts.run_payouts(NOW)
         body = b"".join(stream_reconciliation_csv(build_reconciliation(window=_window())).streaming_content).decode()
-        assert CSV_HEADERS[-5:] == ["Sent through Stripe", "Owed now", "Not yet due", "Next due", "Stripe retrying"]
-        assert f"{instructor.display_name},1,70.00,,70.00,70.00,0.00,0.00,,0.00\r\n" in body
+        assert CSV_HEADERS[-6:] == [
+            "Sent through Stripe",
+            "Owed now",
+            "Not yet due",
+            "Next due",
+            "Stripe retrying",
+            "Paid by hand",
+        ]
+        assert f"{instructor.display_name},1,70.00,,70.00,70.00,0.00,0.00,,0.00,0.00\r\n" in body
 
 
 def describe_payee_earnings():

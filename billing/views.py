@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -524,6 +525,8 @@ def _reconciliation_context(request: HttpRequest) -> dict[str, object]:
         "reconciliation_start": window.start.isoformat(),
         "reconciliation_end": window.end.isoformat(),
         "reconciliation_query": query,
+        # The dates a Mark all paid posts with (#1249), as hx-vals JSON.
+        "reconciliation_window_vals": json.dumps({"start": window.start.isoformat(), "end": window.end.isoformat()}),
         "reconciliation_date_error": (
             "End date must be on or after the start date." if window.end < window.start else ""
         ),
@@ -1145,6 +1148,77 @@ def reconciliation_clear(request: HttpRequest, source_kind: str, source_pk: int)
     trigger_toast(response, "Adjustment removed.", "success")
     trigger_client_event(response, "reconciliation-changed")
     return response
+
+
+_PAID_BY_HAND_LINE_KINDS = {"class", "orientation", "reservation", "cubby"}
+
+
+def _reconciliation_refresh(message: str, toast_type: str) -> HttpResponse:
+    """204 with a toast and the ``reconciliation-changed`` refresh, the Reconciliation tab's write response."""
+    from hub.toast import trigger_client_event, trigger_toast
+
+    response = HttpResponse(status=204)
+    trigger_toast(response, message, toast_type)
+    trigger_client_event(response, "reconciliation-changed")
+    return response
+
+
+@fog_admin_required
+@require_POST
+def reconciliation_mark_paid(request: HttpRequest, source_kind: str, source_pk: int) -> HttpResponse:
+    """Mark one Transaction Detail line's Owed now share paid by hand (#1249) -> 204 + toast + refresh."""
+    from billing.payouts import ShareNotOwedError, mark_paid_by_hand
+
+    if source_kind not in _PAID_BY_HAND_LINE_KINDS:
+        raise Http404
+    try:
+        mark_paid_by_hand([(source_kind, source_pk)], by=request.user)
+    except ShareNotOwedError:
+        return _reconciliation_refresh("This share is no longer in Owed now, so nothing was marked.", "error")
+    return _reconciliation_refresh("Marked paid by hand.", "success")
+
+
+@fog_admin_required
+@require_POST
+def reconciliation_mark_row_paid(request: HttpRequest, recipient_kind: str, member_pk: int) -> HttpResponse:
+    """Mark every share a producer row counts in Owed now for the posted dates paid by hand (#1249)."""
+    from billing.payments_panel import parse_window
+    from billing.payouts import ShareNotOwedError
+    from billing.reconciliation import RecipientKind, mark_row_paid_by_hand, parse_line_keys
+
+    try:
+        kind = RecipientKind(recipient_kind)
+    except ValueError:
+        raise Http404 from None
+    if not kind.is_producer:
+        raise Http404
+    window = parse_window(request.POST.get("start", ""), request.POST.get("end", ""))
+    try:
+        confirmed = parse_line_keys(request.POST.get("lines", ""))
+    except ValueError:
+        return HttpResponse("Malformed lines.", status=400)
+    try:
+        count = mark_row_paid_by_hand(window, (kind.value, member_pk), confirmed, by=request.user)
+    except ShareNotOwedError as exc:
+        return _reconciliation_refresh(str(exc), "error")
+    return _reconciliation_refresh(f"Marked {count} share{'' if count == 1 else 's'} paid by hand.", "success")
+
+
+@fog_admin_required
+@require_POST
+def reconciliation_undo_paid(request: HttpRequest, source_kind: str, source_pk: int) -> HttpResponse:
+    """Put one line's share marked paid by hand back in Owed now (#1249) -> 204 + toast + refresh."""
+    from billing.payouts import undo_paid_by_hand
+
+    if source_kind not in _PAID_BY_HAND_LINE_KINDS:
+        raise Http404
+    try:
+        undo_paid_by_hand(source_kind, source_pk)
+    except Payout.DoesNotExist:
+        raise Http404 from None
+    except ValueError:
+        return _reconciliation_refresh("This share is not marked paid by hand.", "error")
+    return _reconciliation_refresh("Back in Owed now.", "success")
 
 
 @fog_admin_required

@@ -85,6 +85,21 @@ urlpatterns = [
         name="billing_reconciliation_clear",
     ),
     path(
+        "admin/reconciliation/paid-by-hand/<str:source_kind>/<int:source_pk>/",
+        views.reconciliation_mark_paid,
+        name="billing_reconciliation_mark_paid",
+    ),
+    path(
+        "admin/reconciliation/paid-by-hand/<str:source_kind>/<int:source_pk>/undo/",
+        views.reconciliation_undo_paid,
+        name="billing_reconciliation_undo_paid",
+    ),
+    path(
+        "admin/reconciliation/paid-by-hand/row/<str:recipient_kind>/<int:member_pk>/",
+        views.reconciliation_mark_row_paid,
+        name="billing_reconciliation_mark_row_paid",
+    ),
+    path(
         "admin/reconciliation/snapshots/take/",
         views.reconciliation_snapshot_take,
         name="billing_reconciliation_snapshot_take",

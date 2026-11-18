@@ -1,0 +1,19 @@
+bump = "minor"
+date = "2026-11-17"
+audience = ["admins"]
+feature = "admin.reconciliation"
+guidance = "shots"
+target = "reconciliation.mark-paid"
+title = "Mark instructor payouts paid by hand"
+changes = [
+  "On Reconciliation, press Mark paid on an Owed now share in Transaction Detail once you have paid it outside Stripe.",
+  "Mark all paid on a person's row marks every share they are owed for those dates, after a confirm that names them and the total.",
+  "A marked share leaves Owed now and shows in a new Paid by hand column, on the page, the PDF, the CSV and month end snapshots.",
+  "Undo paid puts it back in Owed now. Nobody is told and nothing is sent.",
+]
+
+[[shots]]
+caption = "On Reconciliation, press Mark all paid on a person's row once you have paid them everything in Owed now."
+
+[[shots]]
+caption = "Or open Transaction Detail and press Mark paid on one share. Undo paid puts it back in Owed now."
