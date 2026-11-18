@@ -5,8 +5,8 @@
    form's data-kiln-long-edge) and joins one queue that sends a photo at a time to the form's
    data-kiln-photo-url, the progress on its tile. A stored photo's tile is swapped for the one
    the server rendered (Make cover, Remove); one lost to the connection or a server error
-   turns red with "Didn't upload", a Retry and an X that drops it. A photo the server refuses
-   (400: not a photo, too large; 409: the ticket can no longer change) turns red with the
+   becomes a red row with "Didn't upload", a Retry and an X that drops it. A photo the server
+   refuses (400: not a photo, too large; 409: the ticket can no longer change) gets the
    server's own words and only the X. A failure costs that photo only.
 
    On a new ticket the first stored photo started a draft: the form now saves to that draft's

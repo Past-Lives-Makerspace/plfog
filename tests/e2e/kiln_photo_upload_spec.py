@@ -14,8 +14,10 @@ flushes the tables. Run with ``pytest -m e2e`` on PostgreSQL.
 from __future__ import annotations
 
 import io
+import os
 import re
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -41,6 +43,37 @@ BUDGET = 8_000_000
 UPLOAD_PATH = re.compile(r"^/kiln/(new|\d+)/photos/$")
 # Shrinking a 12 megapixel photo and the first request to a cold live server take a few seconds.
 UPLOADED = 30_000
+
+
+SHOTS = Path(os.environ.get("CAPTURE_1246_DIR") or Path(__file__).resolve().parents[2] / "mockups" / "screenshots")
+# Every visible label and button on a tile sits inside it with room to spare and touches no other.
+TILE_PARTS_APART = """tile => {
+    const box = tile.getBoundingClientRect();
+    const parts = [...tile.querySelectorAll('.pl-kiln-photo__status, .pl-kiln-photo__cover, button')]
+        .filter(el => el.offsetParent !== null).map(el => el.getBoundingClientRect());
+    const inside = parts.every(r => r.left >= box.left + 4 && r.right <= box.right - 4
+        && r.top >= box.top + 4 && r.bottom <= box.bottom - 4);
+    const apart = parts.every((a, i) => parts.slice(i + 1).every(b =>
+        a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top));
+    return inside && apart;
+}"""
+
+
+def _capture_both_themes(page, name: str) -> None:
+    """With ``CAPTURE_1246_SCREENSHOTS=1``, a phone viewport shot of the photos card, dark and ``-light``."""
+    if not os.environ.get("CAPTURE_1246_SCREENSHOTS"):
+        return
+    SHOTS.mkdir(parents=True, exist_ok=True)
+    page.locator("#kiln-photos").scroll_into_view_if_needed()
+    page.screenshot(path=str(SHOTS / f"{name}.png"))
+    page.evaluate("document.documentElement.setAttribute('data-theme', 'light')")
+    page.screenshot(path=str(SHOTS / f"{name}-light.png"))
+    page.evaluate("document.documentElement.removeAttribute('data-theme')")
+
+
+def _tiles_are_clear(tiles) -> None:
+    for i in range(tiles.count()):
+        assert tiles.nth(i).evaluate(TILE_PARTS_APART), f"Tile {i} has a label touching its edge or another"
 
 
 @pytest.fixture
@@ -129,6 +162,8 @@ def describe_eleven_camera_photos_on_a_new_ticket():
         assert page.url.endswith(edit)
         expect(stored.first.get_by_text("Cover")).to_be_visible()
         expect(stored.nth(1).get_by_role("button", name="Make cover")).to_be_visible()
+        _tiles_are_clear(stored)
+        _capture_both_themes(page, "kiln-1246-stored-phone")
         page.get_by_role("button", name="Save as draft").click()
         page.wait_for_url("**/guilds/**")
         assert KilnTicket.objects.filter(maker=member).count() == 1
@@ -163,10 +198,25 @@ def describe_a_photo_that_fails_to_upload():
         expect(stored).to_have_count(1)
         assert ticket.photos.count() == 1
         expect(page.get_by_role("button", name="Save as draft")).to_be_enabled()
+        expect(failed.get_by_role("button", name="Retry")).to_be_visible()
+        _tiles_are_clear(page.locator(".pl-kiln-photo"))
+        _capture_both_themes(page, "kiln-1246-failed-phone")
 
-        # Retry once the signal is back stores it.
-        page.unroute(f"**{reverse('kiln:photo_add', args=[ticket.pk])}")
+        # Retry once the signal is back stores it; held at the server's door, the tile says Uploading.
+        upload = f"**{reverse('kiln:photo_add', args=[ticket.pk])}"
+        page.unroute(upload)
+        held = []
+        page.route(upload, lambda route: held.append(route))
         failed.get_by_role("button", name="Retry").click()
+        uploading = page.locator("[data-kiln-upload-state=uploading]")
+        expect(uploading).to_have_count(1)
+        expect(uploading.locator("[data-kiln-photo-status]")).to_contain_text("Uploading")
+        expect(page.get_by_role("button", name="Save as draft")).to_be_disabled()
+        _tiles_are_clear(page.locator(".pl-kiln-photo"))
+        _capture_both_themes(page, "kiln-1246-uploading-phone")
+        assert len(held) == 1
+        held[0].continue_()
+        page.unroute(upload)
         expect(stored).to_have_count(2, timeout=UPLOADED)
         expect(page.locator(".pl-kiln-photo--failed")).to_have_count(0)
         assert ticket.photos.count() == 2
@@ -195,6 +245,8 @@ def describe_a_photo_the_server_refuses():
         expect(refused.get_by_role("button", name="Retry")).to_be_hidden()
         expect(page.get_by_role("button", name="Save as draft")).to_be_enabled()
         assert not KilnTicket.objects.filter(maker=member).exists()
+        _tiles_are_clear(refused)
+        _capture_both_themes(page, "kiln-1246-refused-phone")
 
         refused.get_by_role("button", name="Remove IMG_0004.jpg").click()
         expect(page.locator("[data-kiln-new-photo]")).to_have_count(0)
