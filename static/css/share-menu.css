@@ -1,5 +1,6 @@
 /* The Share button and its Copy / Text / Email menu (components/share_menu.html, #1137, #1223),
-   loaded by the pages that include it: the guild page and the wiki page. The class page's
+   loaded by the pages that include it: the guild page and the wiki page, and by the Share & Print
+   card for its Story / Post menu (#1254). The class page's
    .cp-share (cms-public.css) and the event page's .pl-event-page__share are the same design under
    their own names. Each page places it (guild-invite.css, the wiki's rules in hub.css). Token
    fallbacks throughout, since the guilds host draws the guild page on its own light theme too. */
@@ -75,3 +76,4 @@ a.pl-share__item:visited {
   font-family: inherit;
   font-size: 13px;
 }
+

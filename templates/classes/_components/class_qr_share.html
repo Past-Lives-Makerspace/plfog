@@ -5,19 +5,21 @@ looking at a draft). The link + QR both use the slug-proof permalink (offering.q
 they always match and a printed code survives a slug change.
 
 The hint is computed HERE and passed to the shared card as one string, since the shared card
-takes one pre-computed hint. Before publication the flyer button and the QR downloads are
+takes one pre-computed hint. Before publication the flyer button, the QR downloads and the Instagram Share button are
 absent, not disabled: the card shows offering.marketing_locked_reason in their place (the
-shared card's locked_note), and the two views refuse their URLs with the same sentence, so a
+shared card's locked_note), and the views refuse their URLs with the same sentence, so a
 guessed link learns the same thing. The tour key sits on the wrapper, not the button, so the
 "Print a Flyer or QR" tour stop still has a target while the button is absent.
 {% endcomment %}
 {% url 'classes:class_qr' offering.pk 'svg' as class_qr_svg_url %}
 {% url 'classes:class_qr' offering.pk 'png' as class_qr_png_url %}
+{% url 'classes:class_instagram' offering.pk 'story' as class_ig_story_url %}
+{% url 'classes:class_instagram' offering.pk 'post' as class_ig_post_url %}
 <div class="pl-qr-share-block" data-help-key="teach.class-qr">
 {% if offering.marketing_unlocked %}
-  {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the class's public page. Print it on signage, add it to a flyer, or hand it out." qr_svg=offering.qr_svg share_url=offering.qr_url svg_url=class_qr_svg_url png_url=class_qr_png_url %}
+  {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the class's public page. Print it on signage, add it to a flyer, or hand it out." qr_svg=offering.qr_svg share_url=offering.qr_url svg_url=class_qr_svg_url png_url=class_qr_png_url instagram_story_url=class_ig_story_url instagram_post_url=class_ig_post_url share_title=offering.title %}
 {% elif can_print_marketing %}
-  {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the class's public page once it is published. The share link stays the same." qr_svg=offering.qr_svg share_url=offering.qr_url svg_url=class_qr_svg_url png_url=class_qr_png_url %}
+  {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the class's public page once it is published. The share link stays the same." qr_svg=offering.qr_svg share_url=offering.qr_url svg_url=class_qr_svg_url png_url=class_qr_png_url instagram_story_url=class_ig_story_url instagram_post_url=class_ig_post_url share_title=offering.title %}
 {% else %}
   {% include "components/qr_share_card.html" with title="Share & Print" hint="This QR opens the class's public page once it is published. The share link stays the same." qr_svg=offering.qr_svg share_url=offering.qr_url locked_note=offering.marketing_locked_reason %}
 {% endif %}

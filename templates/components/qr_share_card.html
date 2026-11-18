@@ -21,12 +21,20 @@ Parameters:
               beside the downloads, opening in its own tab for the browser's Print. Left out when blank.
   flyer_guidance — optional. A guidance key the Flyer link carries as data-guidance-target, so a
               What's New entry can ring it (the wiki passes wiki.flyer).
+  instagram_story_url / instagram_post_url — optional. The page's story (1080x1920) and post (1080x1350) PNGs
+              (a class's classes:class_instagram). When given, a Share button sits beside the QR
+              downloads, gone with them under locked_note, and opens a Story / Post menu; a choice
+              hands that picture to the phone's share sheet, or downloads it where a browser cannot
+              share files (static/js/share_image.js). Only classes pass them, so the button carries
+              the classes.instagram guidance key as a literal. share_title names the picture in the
+              sheet.
 
 The copy input is readonly and has NO `name`, and every control is a type="button" button
 or an <a> link, so the card is safe to drop INSIDE another <form> (e.g. the event edit form)
 — it never submits or rides along on Save.
 {% endcomment %}
-<div class="hub-card pl-qr-share" x-data="qrShare()">
+{% load static %}
+<div class="hub-card pl-qr-share" x-data="qrShare()" @pl-share-image-note="appNote = true">
   <h2 class="hub-detail-label pl-qr-share__title">{{ title }}</h2>
   <p class="hub-text-muted pl-qr-share__hint">{{ hint }}</p>
   <div class="pl-qr-share__qr">
@@ -48,8 +56,40 @@ or an <a> link, so the card is safe to drop INSIDE another <form> (e.g. the even
   <div class="pl-qr-share__actions">
     <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ svg_url }}" hx-boost="false" data-pl-download>Download QR (SVG)</a>
     <a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ png_url }}" hx-boost="false" data-pl-download>Download QR (PNG)</a>
+    {% if instagram_story_url %}
+    {% comment %}
+    The pictures are buttons, not download links: static/js/share_image.js fetches the PNG and
+    opens the share sheet with it, or downloads it itself where the browser cannot share files.
+    Inside the Android app, which has neither, it shares the class link and pl-share-image-note
+    shows the note below. Styles: static/css/share-menu.css.
+    {% endcomment %}
+    <div class="pl-share pl-qr-share__share" data-share-image-menu
+         x-data="{ open: false }" @click.outside="open = false" @keydown.escape.window="open = false">
+      <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost pl-share__btn" data-share-image-open
+              data-guidance-target="classes.instagram" aria-haspopup="menu" :aria-expanded="open" @click="open = !open">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+          <path d="M8.59 13.51l6.83 3.98"/><path d="M15.41 6.51l-6.82 3.98"/>
+        </svg>
+        <span>Share</span>
+      </button>
+      <div class="pl-share__panel" x-show="open" x-cloak>
+        <div class="pl-share__menu" role="menu" aria-label="Share a picture of this class">
+          <button type="button" role="menuitem" class="pl-share__item" data-share-image="{{ instagram_story_url }}"
+                  data-share-image-title="{{ share_title }}" data-share-image-link="{{ share_url }}" @click="open = false">Story</button>
+          <button type="button" role="menuitem" class="pl-share__item" data-share-image="{{ instagram_post_url }}"
+                  data-share-image-title="{{ share_title }}" data-share-image-link="{{ share_url }}" @click="open = false">Post</button>
+        </div>
+      </div>
+    </div>
+    {% endif %}
     {% if flyer_url %}<a class="hub-btn hub-btn--sm hub-btn--ghost" href="{{ flyer_url }}" target="_blank" data-pl-new-window rel="noopener" data-qr-share-flyer{% if flyer_guidance %} data-guidance-target="{{ flyer_guidance }}"{% endif %}>Flyer</a>{% endif %}
   </div>
+  {% if instagram_story_url %}
+  <p class="hub-text-muted pl-qr-share__note" data-share-image-note x-show="appNote" x-cloak>In the app, Share sends the class link. Open this page in your phone's browser to share the picture.</p>
+  <link rel="stylesheet" href="{% static 'css/share-menu.css' %}">
+  <script src="{% static 'js/share_image.js' %}" defer></script>
+  {% endif %}
   {% endif %}
 </div>
 <script>
@@ -58,6 +98,7 @@ or an <a> link, so the card is safe to drop INSIDE another <form> (e.g. the even
   function qrShare() {
     return {
       copied: false,
+      appNote: false, // set by static/js/share_image.js inside the Android app (see the note above)
       copy() {
         const el = this.$refs.url;
         el.focus();
