@@ -7,7 +7,7 @@ checkout forms are unboosted: a late cancel and a resumed checkout answer with a
 Stripe. Context: booking_rows, bookings_next.
 {% endcomment %}
 {% for row in booking_rows %}
-{% with b=row.booking pk=row.booking.pk|stringformat:"s" name=row.booking.member.display_name %}
+{% with b=row.booking pk=row.booking.pk|stringformat:"s" name=row.booking.member.staff_label %}
 {% if row.can_reply %}
 {% url 'hub_orientation_respond' b.pk as respond_url %}
 {% if b.hold_state == "held" %}

@@ -37,7 +37,7 @@ class Command(BaseCommand):
         candidates = backfill_candidates()
         sent = 0
         for member, guild in candidates:
-            self.stdout.write(f"  {member.display_name} <{member.primary_email or 'no email'}> ({guild.name})")
+            self.stdout.write(f"  {member.staff_label} <{member.primary_email or 'no email'}> ({guild.name})")
             if dry_run:
                 continue
             # One transaction per person: the email goes on commit, so one failure stops only theirs.

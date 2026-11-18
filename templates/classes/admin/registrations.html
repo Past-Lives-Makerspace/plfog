@@ -35,7 +35,7 @@
             <select id="reg-instructor" name="instructor">
                 <option value="">All instructors</option>
                 {% for teacher in instructors %}
-                <option value="{{ teacher.pk }}"{% if teacher.pk|stringformat:'s' == instructor_filter %} selected{% endif %}>{{ teacher.display_name }}</option>
+                <option value="{{ teacher.pk }}"{% if teacher.pk|stringformat:'s' == instructor_filter %} selected{% endif %}>{{ teacher.staff_label }}</option>
                 {% endfor %}
             </select>
         </div>

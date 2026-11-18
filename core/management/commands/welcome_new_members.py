@@ -39,12 +39,12 @@ class Command(BaseCommand):
                     undelivered += 1
                     self.stderr.write(
                         self.style.WARNING(
-                            f"  ! welcome {member.pk} ({member.display_name}): not delivered, will retry next run"
+                            f"  ! welcome {member.pk} ({member.staff_label}): not delivered, will retry next run"
                         )
                     )
             except Exception as exc:  # noqa: BLE001 — one bad member must not abort the batch
                 skipped += 1
-                self.stderr.write(self.style.ERROR(f"  ✗ welcome {member.pk} ({member.display_name}): {exc}"))
+                self.stderr.write(self.style.ERROR(f"  ✗ welcome {member.pk} ({member.staff_label}): {exc}"))
         summary = f"Welcomed {sent} new member(s); {undelivered} not delivered; skipped {skipped}."
         style = self.style.SUCCESS if not (undelivered or skipped) else self.style.WARNING
         self.stdout.write(style(summary))

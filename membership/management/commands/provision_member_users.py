@@ -50,15 +50,15 @@ class Command(BaseCommand):
             email = (member._pre_signup_email or "").strip().lower()
             if not email:
                 skipped_blank += 1
-                self.stdout.write(f"  {prefix}SKIP (no email): {member.display_name} (pk={member.pk})")
+                self.stdout.write(f"  {prefix}SKIP (no email): {member.staff_label} (pk={member.pk})")
                 continue
             if member.pk in duplicate_member_ids:
                 skipped_duplicate += 1
-                self.stdout.write(f"  {prefix}SKIP (duplicate email {email}): {member.display_name} (pk={member.pk})")
+                self.stdout.write(f"  {prefix}SKIP (duplicate email {email}): {member.staff_label} (pk={member.pk})")
                 continue
             if dry_run:
                 provisioned += 1
-                self.stdout.write(f"  {prefix}PROVISION: {member.display_name} (pk={member.pk}) -> {email}")
+                self.stdout.write(f"  {prefix}PROVISION: {member.staff_label} (pk={member.pk}) -> {email}")
                 continue
             if self._provision(member, email):
                 provisioned += 1
@@ -92,12 +92,12 @@ class Command(BaseCommand):
         try:
             user = provision_user_for_member(member)
         except (IntegrityError, DataError) as exc:
-            logger.warning("Failed to provision member %s (pk=%s): %s", member.display_name, member.pk, exc)
-            self.stdout.write(self.style.WARNING(f"  SKIP (error): {member.display_name} (pk={member.pk}): {exc}"))
+            logger.warning("Failed to provision member %s (pk=%s): %s", member.staff_label, member.pk, exc)
+            self.stdout.write(self.style.WARNING(f"  SKIP (error): {member.staff_label} (pk={member.pk}): {exc}"))
             return False
         if user is None:
             self.stdout.write(
-                self.style.WARNING(f"  SKIP (could not provision): {member.display_name} (pk={member.pk})")
+                self.style.WARNING(f"  SKIP (could not provision): {member.staff_label} (pk={member.pk})")
             )
             return False
         return True

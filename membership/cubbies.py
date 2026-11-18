@@ -581,7 +581,7 @@ class RentalsSummary:
         if not self.past_due:
             return "Every card went through"
         first = self.past_due[0]
-        words = f"{first.member.display_name}, {first.cubby.label}"
+        words = f"{first.member.staff_label}, {first.cubby.label}"
         more = len(self.past_due) - 1
         return f"{words} and {more} more" if more else words
 
@@ -619,7 +619,7 @@ class RentalRow:
     @classmethod
     def build(cls, rental: CubbyRental) -> RentalRow:
         """``rental`` needs its member (with the primary email prefetched) and cubby loaded."""
-        name = rental.member.display_name
+        name = rental.member.staff_label
         if rental.is_comped:
             amount, amount_note = "$0", ""
         else:
@@ -646,7 +646,7 @@ class RentalRow:
         return cls(
             rental=rental,
             name=name,
-            initials=initials(name),
+            initials=initials(rental.member.greeting_name),
             email=rental.member.primary_email,
             amount=amount,
             amount_note=amount_note,
@@ -688,9 +688,15 @@ class WaitlistRow:
         """The guild's line, first told first, in one query."""
         rows = []
         for place, entry in enumerate(cubby_waitlist.line(guild), start=1):
-            name = entry.member.display_name
+            name = entry.member.staff_label
             rows.append(
-                cls(entry=entry, place=place, name=name, initials=initials(name), joined=_short_day(entry.joined_at))
+                cls(
+                    entry=entry,
+                    place=place,
+                    name=name,
+                    initials=initials(entry.member.greeting_name),
+                    joined=_short_day(entry.joined_at),
+                )
             )
         return rows
 

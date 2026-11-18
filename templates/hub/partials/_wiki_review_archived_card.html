@@ -9,7 +9,7 @@ one-click Restore from a list is how you restore the wrong page.
         <span class="pl-wp-mod__chip">{% if archived.guild %}{{ archived.guild.name }}{% else %}Space-wide{% endif %}</span>
     </div>
     <p class="hub-text-muted pl-wp-mod__banner-by">
-        Removed by {% if archived.archived_by %}{{ archived.archived_by.display_name }}{% else %}a former member{% endif %} &middot; {{ archived.archived_at|date:"j F Y" }}
+        Removed by {% if archived.archived_by %}{{ archived.archived_by.staff_label }}{% else %}a former member{% endif %} &middot; {{ archived.archived_at|date:"j F Y" }}
     </p>
     {% comment %}
     archive_reason is a CharField(300) under a 2-line clamp, so without the expander a

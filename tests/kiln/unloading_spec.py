@@ -123,7 +123,7 @@ def describe_unload_kiln():
         assert back in KilnTicket.objects.waiting()
 
     def it_refuses_a_second_unload_and_sends_nothing_twice(crew, maker, make_member, kiln_guild):
-        other = make_member(preferred_name="Sam Whitlock")
+        other = make_member(preferred_name="Sam Whitlock", full_legal_name="Sam Whitlock")
         ticket = _waiting(maker)
         firing = _loaded(crew, ticket)
         unload_kiln(firing_pk=firing.pk, exceptions={}, by=other)

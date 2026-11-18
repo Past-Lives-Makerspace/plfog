@@ -1342,7 +1342,7 @@ def _orientation_tab_context(request: HttpRequest, equipment: Equipment) -> dict
     orienter_overview = [(member, rules_by_orienter.get(member.pk, [])) for member in managers]
     former_managers_overview = sorted(
         ((member, rules_by_orienter[pk]) for pk, member in orphan_orienters.items()),
-        key=lambda pair: pair[0].display_name.lower(),
+        key=lambda pair: pair[0].staff_label.lower(),
     )
     shared_rules = list(
         OrientationAvailability.objects.for_equipment(equipment).guild_level().select_related("orientation_type")
@@ -1624,7 +1624,7 @@ def hub_equipment_credit_add(request: HttpRequest, slug: str) -> HttpResponse:
         else:
             messages.success(
                 request,
-                f"Gave {credit.member.display_name} {duration_label(credit.minutes)} of credit. They have been emailed.",
+                f"Gave {credit.member.staff_label} {duration_label(credit.minutes)} of credit. They have been emailed.",
             )
             return redirect(_manage_reservations_tab(equipment))
     return _render_manage(request, equipment, credit_form=form, active_tab="reservations")
@@ -1679,13 +1679,13 @@ def hub_equipment_credit_take_back(request: HttpRequest, slug: str, member_pk: i
     except EquipmentError as exc:
         messages.error(request, str(exc))
     else:
-        messages.success(request, f"Took back {target.display_name}'s {duration_label(minutes)} of credit.")
+        messages.success(request, f"Took back {target.staff_label}'s {duration_label(minutes)} of credit.")
     return redirect(_manage_reservations_tab(equipment))
 
 
 def _first_name(member: Member) -> str:
     """The first word of a member's name, the way a toast names them ("Approved. Jane has been emailed.")."""
-    return member.display_name.split(" ", 1)[0]
+    return member.greeting_name.split(" ", 1)[0]
 
 
 def _decide_target(request: HttpRequest, slug: str, pk: int) -> tuple[EquipmentReservation, Member, str] | HttpResponse:
@@ -1986,7 +1986,7 @@ def hub_equipment_staff_remove(request: HttpRequest, slug: str, pk: int) -> Http
         return forbidden
     staff = get_object_or_404(EquipmentStaffMembership, pk=pk, equipment=equipment)
     removed_member = staff.member
-    member_name = removed_member.display_name
+    member_name = removed_member.staff_label
     staff.delete()
     message = f"{member_name} no longer manages the {equipment.name}."
     # Retire their personal hours ONLY when they no longer RUN orientations here at all —

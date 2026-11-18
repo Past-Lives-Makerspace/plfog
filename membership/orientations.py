@@ -187,7 +187,7 @@ def apply_token_action(
     if action == "cancel":
         if booking.status in (statuses.REQUESTED, statuses.CONFIRMED):
             # The member's own emailed link: a late cancel of a confirmed booking carries the fee.
-            cancel_orientation(booking, actor_label=booking.member.display_name, actor=actor, self_cancel=True)
+            cancel_orientation(booking, actor_label=booking.member.staff_label, actor=actor, self_cancel=True)
             return "cancelled"
         return "already"
     if booking.status != statuses.REQUESTED:
@@ -282,7 +282,7 @@ def _context(booking: OrientationBooking, **extra: Any) -> dict[str, Any]:
         "slot": booking.slot,
         "guild": booking.guild,
         "orientation_type": booking.orientation_type,
-        "greeting_name": member.display_name,
+        "greeting_name": member.greeting_name,
         "owner_name": booking.orientation_type.owner_name,
         "owner_url": booking.orientation_type.owner_page_url(),
         "owner_page_label": "equipment page" if booking.orientation_type.is_equipment_owned else "guild page",
@@ -1294,7 +1294,7 @@ def _alert_hold_not_released(booking: OrientationBooking, *, stripe_answered: bo
         "Check the payment in Stripe; if it was charged, the app refunds it on its next try."
     ).format(status=booking.get_status_display().lower())
     body = (
-        f"The card hold on {booking.member.display_name}'s {booking.orientation_type.owner_name} orientation "
+        f"The card hold on {booking.member.staff_label}'s {booking.orientation_type.owner_name} orientation "
         f"request (${booking.authorized_cents / 100:.2f}) {what}\n\n"
         "The app tries again every 15 minutes, and Stripe releases a hold on its own once its capture "
         "deadline passes. To release it now, cancel the payment in the Stripe dashboard.\n\n"
@@ -1486,7 +1486,7 @@ def _send_request(
         html_template="membership/emails/orientation_lead_request.html",
         template_context=ctx,
         in_app_title="New orientation request",
-        in_app_body=f"{booking.member.display_name} requested an orientation for {booking.orientation_type.owner_name}.",
+        in_app_body=f"{booking.member.staff_label} requested an orientation for {booking.orientation_type.owner_name}.",
         url=reverse("hub_orientation_respond", args=[booking.pk]),
         period=f"booking:{booking.pk}:request",
         recipient_user_ids=recipient_user_ids,
@@ -1564,8 +1564,8 @@ def _tell_lead_of_confirmation(booking: OrientationBooking, *, confirmer: Member
     named = runner or confirmer
     context = {
         "guild": guild,
-        "orientor_name": named.display_name if named is not None else "Someone",
-        "member_name": booking.member.display_name,
+        "orientor_name": named.staff_label if named is not None else "Someone",
+        "member_name": booking.member.staff_label,
         "orientation_name": booking.orientation_type.name,
         "owner_name": booking.orientation_type.owner_name,
         "starts_at": _when(booking.slot.starts_at),
@@ -1576,7 +1576,7 @@ def _tell_lead_of_confirmation(booking: OrientationBooking, *, confirmer: Member
             ORIENTATION_CONFIRMED_TO_LEAD,
             actor=confirmer.user if confirmer is not None else None,
             target=booking,
-            context={**context, "greeting_name": user.member.display_name},
+            context={**context, "greeting_name": user.member.greeting_name},
             url=reverse("hub_orientation_respond", args=[booking.pk]),
             period=f"booking:{booking.pk}:confirmed_lead",
             recipient_user_ids={user.pk},
@@ -1907,7 +1907,7 @@ def _tell_leaders_of_answer(booking: OrientationBooking, key: str, *, accepted: 
     The same audience as the request (the ``orientation_requested`` resolver) and, like the
     cancel ping, no email: that row's Email switch is about new requests.
     """
-    name = booking.member.display_name
+    name = booking.member.staff_label
     owner_name = booking.orientation_type.owner_name
     if accepted:
         title = "New orientation time accepted"
@@ -2870,7 +2870,7 @@ def member_joined_guild(guild: Guild, member: Member) -> None:
         target=guild,
         context={"guild": guild},
         title="New follower",
-        body=f"{member.display_name} now follows {guild.name}.",
+        body=f"{member.staff_label} now follows {guild.name}.",
         url=reverse("hub_guild_detail", args=[guild.slug]),
         period=f"guild:{guild.pk}:join:{member.pk}",
     )
@@ -2942,7 +2942,7 @@ def send_guild_welcome(guild: Guild, member: Member) -> None:
         subject=settings_obj.welcome_email_subject_resolved,
         text_template="membership/emails/guild_welcome.txt",
         html_template="membership/emails/guild_welcome.html",
-        template_context=_guild_welcome_context(guild, member.display_name, settings_obj.welcome_email_body_resolved),
+        template_context=_guild_welcome_context(guild, member.greeting_name, settings_obj.welcome_email_body_resolved),
         email_to=member.primary_email,
         email_trigger_kind="guild_welcome",
         period=f"guild:{guild.pk}:welcome:{member.pk}",
@@ -2967,7 +2967,7 @@ def send_guild_welcome_test(guild: Guild, member: Member) -> None:
         subject=settings_obj.welcome_email_subject_resolved,
         text_template="membership/emails/guild_welcome.txt",
         html_template="membership/emails/guild_welcome.html",
-        template_context=_guild_welcome_context(guild, member.display_name, settings_obj.welcome_email_body_resolved),
+        template_context=_guild_welcome_context(guild, member.greeting_name, settings_obj.welcome_email_body_resolved),
         email_to=member.primary_email,
         email_trigger_kind="guild_welcome",
         period=f"guild:{guild.pk}:welcome:test:{member.pk}:{stamp}",

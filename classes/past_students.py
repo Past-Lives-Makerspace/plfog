@@ -108,10 +108,10 @@ def past_students(instructor: Member) -> PastStudents:
 def instructor_name(instructor: Member) -> str:
     """What a past students email and its stop page call the instructor: their name, never an address.
 
-    The name their instructor profile and every class shows (:attr:`Member.display_name`, the
-    preferred name, else the legal name), else "your instructor".
+    The name signed out pages show (:attr:`Member.public_name`, the preferred name when one
+    is set), since past students are the public; else "your instructor".
     """
-    return instructor.display_name.strip() or "your instructor"
+    return instructor.public_name.strip() or "your instructor"
 
 
 def stop_line(instructor: Member, stop_link: StopLink) -> tuple[str, str]:

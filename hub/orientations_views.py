@@ -415,11 +415,11 @@ def _record_with_bill(request: HttpRequest, form: OrientationRecordForm, back: s
         messages.error(request, str(exc))
         return redirect(back)
     except IntegrityError:
-        messages.error(request, f"{member.display_name} already has a booking for this orientation.")
+        messages.error(request, f"{member.staff_label} already has a booking for this orientation.")
         return redirect(back)
     messages.success(
         request,
-        f"Recorded the {booking.orientation_type.name} orientation for {member.display_name} "
+        f"Recorded the {booking.orientation_type.name} orientation for {member.staff_label} "
         f"and sent a {booking.bill_amount_display} bill.",
     )
     return redirect(f"{_orientation_bookings_tab()}&show=past&oriented=yes")
@@ -454,10 +454,10 @@ def hub_orientation_record(request: HttpRequest) -> HttpResponse:
         with transaction.atomic():
             record = form.save(recorded_by=cast(User, request.user))
     except IntegrityError:
-        messages.error(request, f"{form.recorded_member.display_name} already completed this orientation.")
+        messages.error(request, f"{form.recorded_member.staff_label} already completed this orientation.")
         return redirect(back)
     messages.success(
-        request, f"Recorded the {record.orientation_type.name} orientation for {record.member.display_name}."
+        request, f"Recorded the {record.orientation_type.name} orientation for {record.member.staff_label}."
     )
     return redirect(back)
 
@@ -474,7 +474,7 @@ def hub_orientation_record_remove(request: HttpRequest, pk: int) -> HttpResponse
     forbidden = _require_can_run_orientation_type(request, record.orientation_type)
     if forbidden is not None:
         return forbidden
-    name, member_name = record.orientation_type.name, record.member.display_name
+    name, member_name = record.orientation_type.name, record.member.staff_label
     record.remove(removed_by=cast(User, request.user))
     messages.success(request, f"Removed the {name} orientation record for {member_name}.")
     return redirect(_safe_next(request, _orientation_bookings_tab()))
@@ -609,7 +609,7 @@ def hub_orientation_bill_resend(request: HttpRequest, booking_pk: int) -> HttpRe
     except OrientationError as exc:
         messages.error(request, str(exc))
         return redirect(_bills_landing(request))
-    messages.success(request, f"Sent the {booking.bill_amount_display} bill to {booking.member.display_name} again.")
+    messages.success(request, f"Sent the {booking.bill_amount_display} bill to {booking.member.staff_label} again.")
     return redirect(_bills_landing(request))
 
 
@@ -628,5 +628,5 @@ def hub_orientation_bill_cancel(request: HttpRequest, booking_pk: int) -> HttpRe
     except OrientationError as exc:
         messages.error(request, str(exc))
         return redirect(_bills_landing(request))
-    messages.success(request, f"Cancelled the {booking.bill_amount_display} bill for {booking.member.display_name}.")
+    messages.success(request, f"Cancelled the {booking.bill_amount_display} bill for {booking.member.staff_label}.")
     return redirect(_bills_landing(request))

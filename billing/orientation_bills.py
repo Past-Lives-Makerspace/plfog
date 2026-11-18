@@ -107,9 +107,9 @@ def bill_refusal(member: Member, orientation_type: OrientationType) -> str:
     from membership.models import OrientationBooking
 
     if member.user_id is None:
-        return f"{member.display_name} has no account yet, so they can't pay online."
+        return f"{member.staff_label} has no account yet, so they can't pay online."
     if OrientationBooking.objects.seat_holding().filter(member=member, orientation_type=orientation_type).exists():
-        return f"{member.display_name} already has a booking for this orientation."
+        return f"{member.staff_label} already has a booking for this orientation."
     return ""
 
 
@@ -276,8 +276,8 @@ def _tell_orientor_unpaid(booking: OrientationBooking, *, reached: bool) -> None
         target=booking,
         context={
             "booking": booking,
-            "orientor_name": orientor.display_name if orientor is not None else "",
-            "member_name": booking.member.display_name,
+            "orientor_name": orientor.greeting_name if orientor is not None else "",
+            "member_name": booking.member.staff_label,
             "orientation_name": booking.orientation_type.name,
             "owner_name": booking.orientation_type.owner_name,
             "bill_amount": booking.bill_amount_display,

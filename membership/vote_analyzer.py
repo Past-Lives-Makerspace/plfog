@@ -56,7 +56,7 @@ def serialize_live_votes() -> list[dict[str, Any]]:
     return [
         {
             "member_id": pref.member_id,
-            "member_name": pref.member.display_name,
+            "member_name": pref.member.staff_label,
             "member_type": pref.member.member_type,
             "fog_role": pref.member.fog_role,
             "is_paying": pref.member.is_paying,

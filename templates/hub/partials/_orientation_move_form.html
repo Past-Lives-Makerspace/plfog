@@ -11,7 +11,7 @@ modal's id, for Cancel). Nothing is refunded or charged on either road.
 <form method="post" action="{% url 'hub_orientation_move' move_booking.pk %}" class="pl-orient-move" data-orientation-move="{{ move_booking.pk }}">
   {% csrf_token %}
   {% if move_next %}<input type="hidden" name="next" value="{{ move_next }}">{% endif %}
-  <p class="pl-orient-move__lead">{{ move_booking.member.display_name }} is booked for {{ move_booking.slot.starts_at|date:"l, F j" }} at {{ move_booking.slot.starts_at|time:"g:i A" }}. Pick the new time.</p>
+  <p class="pl-orient-move__lead">{{ move_booking.member.staff_label }} is booked for {{ move_booking.slot.starts_at|date:"l, F j" }} at {{ move_booking.slot.starts_at|time:"g:i A" }}. Pick the new time.</p>
   {% include "components/form_field.html" with field=move_form.date %}
   {% include "components/form_field.html" with field=move_form.start_time %}
   {% include "components/radio_group.html" with field=move_form.mode %}

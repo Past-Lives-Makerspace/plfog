@@ -217,7 +217,7 @@ def stream_vendor_tables_csv(tables: QuerySet[VendorTable], *, filename_stem: st
                 table.request_source,
                 table.discord_handle,
                 table.needs,
-                table.created_by.display_name if table.created_by is not None else "",
+                table.created_by.staff_label if table.created_by is not None else "",
                 timezone.localtime(table.created_at).strftime("%Y-%m-%d %H:%M"),
             ]
             yield writer.writerow([_neutralise_formula(cell) for cell in row])
@@ -241,7 +241,7 @@ def stream_market_reports_csv(reports: QuerySet[MarketReport], *, filename_stem:
         for report in reports.iterator(chunk_size=500):
             row = [
                 report.name,
-                report.member.display_name,
+                report.member.staff_label,
                 report.guild_display,
                 "" if report.items_sold is None else str(report.items_sold),
                 f"{report.sales_cents / 100:.2f}",
@@ -268,7 +268,7 @@ def stream_volunteer_hours_csv(entries: QuerySet[VolunteerHours], *, filename_st
         yield writer.writerow(VOLUNTEER_HOURS_CSV_HEADERS)
         for entry in entries.iterator(chunk_size=500):
             row = [
-                entry.member.display_name,
+                entry.member.staff_label,
                 entry.date.isoformat(),
                 str(entry.hours),
                 entry.get_task_display(),
@@ -426,7 +426,7 @@ def stream_staff_time_csv(
                 str(entry.hours),
                 entry.get_area_display(),
                 entry.note,
-                entry.created_by.display_name if entry.created_by is not None else "",
+                entry.created_by.staff_label if entry.created_by is not None else "",
             ]
             yield writer.writerow([_neutralise_formula(cell) for cell in row])
         yield writer.writerow([])

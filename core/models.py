@@ -2222,8 +2222,8 @@ class SiteActivity(models.Model):
         """
         if self.actor is not None:
             member = getattr(self.actor, "member", None)
-            if member is not None and member.display_name:
-                return str(member.display_name)
+            if member is not None and member.staff_label:
+                return str(member.staff_label)
             return str(self.actor.get_full_name() or self.actor.email)
         roster_name = getattr(self.target, "roster_name", "")
         return str(roster_name)

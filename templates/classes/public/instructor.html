@@ -1,7 +1,7 @@
 {% extends "classes/base_public.html" %}
 {% load classes_tags %}
 
-{% block title %}{{ instructor.display_name }} — Past Lives Makerspace{% endblock %}
+{% block title %}{{ instructor.public_name }} — Past Lives Makerspace{% endblock %}
 
 {% block portal_content %}
 <div class="view">
@@ -10,7 +10,7 @@
       <div class="detail-head">
         <div>
           <div class="dc-cat">Instructor</div>
-          <div class="dc-title">{{ instructor.display_name }}</div>
+          <div class="dc-title">{{ instructor.public_name }}</div>
         </div>
         <a class="back-link" href="{% url 'classes:public_list' %}">&larr; All classes</a>
       </div>
@@ -19,10 +19,10 @@
           {% if instructor.profile_photo %}
             <img class="ip-photo" src="{{ instructor.profile_photo.url }}" alt="">
           {% else %}
-            <div class="ip-photo-ph">{{ instructor.display_name|initials }}</div>
+            <div class="ip-photo-ph">{{ instructor.greeting_name|initials }}</div>
           {% endif %}
           <div>
-            <div class="ip-name">{{ instructor.display_name }}</div>
+            <div class="ip-name">{{ instructor.public_name }}</div>
             {% with instructor_contacts=instructor.instructor_page_contacts %}
             {% if instructor_contacts %}
             <div class="ip-links">

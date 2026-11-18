@@ -229,7 +229,7 @@ class MemberAdmin(ModelAdmin):
 
     @admin.display(description="Name", ordering="full_legal_name")
     def display_name(self, obj: Member) -> str:
-        return obj.display_name
+        return obj.staff_label
 
     @admin.display(description="Last Login to FOG", ordering="user__last_login")
     def last_login_display(self, obj: Member) -> str:

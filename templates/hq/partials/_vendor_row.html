@@ -19,7 +19,7 @@ request came in and the day it was asked for.
 <tr class="pl-hq-vt__row" id="hq-vt-line-{{ table.pk }}" data-hq-vt-row="{{ table.pk }}"{% if row_oob %} hx-swap-oob="true"{% endif %}>
   <td class="pl-hq-vt__cell pl-hq-vt__cell--name">
     {% include "components/form_field.html" with field=form.name field_hint_off=True %}
-    {% if table.created_by and table.created_by.display_name.strip %}<p class="pl-hq-vt__muted pl-hq-vt__added" data-hq-vt-added-by>Added by {{ table.created_by.display_name }}</p>{% endif %}
+    {% if table.created_by and table.created_by.staff_label.strip %}<p class="pl-hq-vt__muted pl-hq-vt__added" data-hq-vt-added-by>Added by {{ table.created_by.staff_label }}</p>{% endif %}
     {% include "components/form_field.html" with field=form.needs field_hint_off=True %}
   </td>
   <td class="pl-hq-vt__cell">{% include "components/form_field.html" with field=form.guild field_hint_off=True %}</td>

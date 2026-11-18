@@ -73,7 +73,7 @@
                 {% if guild.is_new_guild %}<span class="pl-newguild-badge" data-newguild-badge data-guidance-target="guild.newguild-badge">New Guild</span>{% endif %}
             </div>
         </div>
-        {% if guild.guild_lead %}<div class="pl-guild-hero__lead" style="margin-top:0;">Led by {{ guild.guild_lead.display_name }}</div>{% endif %}
+        {% if guild.guild_lead %}<div class="pl-guild-hero__lead" style="margin-top:0;">Led by {{ guild.guild_lead|name_for:request.user }}</div>{% endif %}
         {% if guild.is_new_guild %}<p class="pl-newguild-note" data-newguild-note>This guild is new and still getting fleshed out! Join in and help shape it.</p>{% endif %}
         {% if can_edit_this_guild %}
         {# Editor-only hero controls. The Join/Member CTA moved out to the stat-chips row below. #}
@@ -183,7 +183,7 @@
                 <div style="flex:1;">
                     <span class="hub-badge">Featured</span>
                     <div style="font-weight:600; font-size:1.05rem; margin-top:0.35rem;">{{ guild.featured_class.title }}</div>
-                    {% if guild.featured_class.instructor_names %}<div class="hub-text-muted" style="font-size:0.85rem;">with {{ guild.featured_class.instructor_names }}</div>{% endif %}
+                    {% if guild.featured_class.instructor_names %}<div class="hub-text-muted" style="font-size:0.85rem;">with {{ guild.featured_class|instructors_for:request.user }}</div>{% endif %}
                     {% if guild.featured_class.first_upcoming_session_at %}<div class="hub-text-muted" style="font-size:0.85rem;">{{ guild.featured_class.first_upcoming_session_at|date:"M j, Y" }}</div>{% endif %}
                 </div>
                 <span class="pl-btn pl-btn--sm pl-btn--primary">Sign Up →</span>
@@ -230,7 +230,7 @@
                 <a href="{% if is_guilds_surface %}{{ BOOK_BASE_URL }}{% endif %}{% url 'classes:register' c.slug %}"{% if is_guilds_surface %} hx-boost="false"{% endif %} class="hub-card" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; text-decoration:none;">
                     <div>
                         <strong>{{ c.title }}</strong>
-                        {% if c.instructor_names %}<div class="hub-text-muted" style="font-size:0.8125rem;">with {{ c.instructor_names }}</div>{% endif %}
+                        {% if c.instructor_names %}<div class="hub-text-muted" style="font-size:0.8125rem;">with {{ c|instructors_for:request.user }}</div>{% endif %}
                     </div>
                     <div class="hub-text-muted" style="font-size:0.8125rem; white-space:nowrap;">{% if c.first_session_at %}{{ c.first_session_at|date:"M j" }}{% else %}Flexible{% endif %}</div>
                 </a>
@@ -264,18 +264,18 @@
             {% if guild.guild_lead %}
             {# Anon guests see the lead's name only — the clickable contact modal (email/phone/Discord/bio) is gated behind auth. #}
             <div class="hub-member-row"{% if user.is_authenticated %} style="cursor:pointer;" @click="$dispatch('open-modal', 'guild-lead-profile')"{% endif %}>
-                <div class="hub-member-avatar">{{ guild.guild_lead.display_name|make_list|first|upper }}</div>
+                <div class="hub-member-avatar">{{ guild.guild_lead.greeting_name|make_list|first|upper }}</div>
                 <div class="hub-member-info">
-                    <span class="hub-member-name">{{ guild.guild_lead.display_name }}</span>
+                    <span class="hub-member-name">{{ guild.guild_lead|name_for:request.user }}</span>
                     <span class="hub-badge">Lead</span>
                 </div>
             </div>
             {% endif %}
             {% for member, memberships in staff_members %}
               <div class="hub-member-row">
-                  <div class="hub-member-avatar">{{ member.display_name|make_list|first|upper }}</div>
+                  <div class="hub-member-avatar">{{ member.greeting_name|make_list|first|upper }}</div>
                   <div class="hub-member-info">
-                      <span class="hub-member-name">{{ member.display_name }}</span>
+                      <span class="hub-member-name">{{ member|name_for:request.user }}</span>
                       <div class="pl-badge-group">
                           {% for sm in memberships %}<span class="hub-badge">{{ sm.display_title }}</span>{% endfor %}
                       </div>
@@ -640,16 +640,16 @@
      aria-modal="true">
     <div class="pl-modal pl-modal--sm" @click.outside="open = false">
         <div class="pl-modal__header">
-            <h2 class="pl-modal__title">{{ lead.display_name }}</h2>
+            <h2 class="pl-modal__title">{{ lead|name_for:request.user }}</h2>
             <button type="button" @click="open = false" class="pl-modal__close" aria-label="Close">&times;</button>
         </div>
         <div class="pl-modal__body">
             <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.25rem;">
                 <div class="hub-member-avatar" style="width:48px;height:48px;font-size:1.25rem;">
-                    {{ lead.display_name|make_list|first|upper }}
+                    {{ lead.greeting_name|make_list|first|upper }}
                 </div>
                 <div>
-                    <div style="font-weight:600;color:var(--hub-text, #F4EFDD);">{{ lead.display_name }}</div>
+                    <div style="font-weight:600;color:var(--hub-text, #F4EFDD);">{{ lead|name_for:request.user }}</div>
                     {% if lead.pronouns and lead|is_public:"pronouns" %}
                     <div style="font-size:0.8125rem;color:var(--hub-text-muted, #96ACBB);">{{ lead.pronouns }}</div>
                     {% endif %}

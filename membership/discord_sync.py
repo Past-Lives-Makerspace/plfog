@@ -376,7 +376,7 @@ def _send_import_confirmation(member: Member, result: ImportResult) -> None:
         text_template="membership/emails/discord_guilds_imported.txt",
         html_template="membership/emails/discord_guilds_imported.html",
         template_context={
-            "greeting_name": member.display_name,
+            "greeting_name": member.greeting_name,
             "guilds": guild_links,
             "manage_url": manage_url,
             "complete": result.complete,

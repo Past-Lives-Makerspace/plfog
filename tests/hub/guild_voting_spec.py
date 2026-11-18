@@ -402,7 +402,7 @@ def describe_vote_preference_model():
         g1 = GuildFactory(name="Wood")
         g2 = GuildFactory(name="Metal")
         g3 = GuildFactory(name="Clay")
-        member = MemberFactory(preferred_name="Alice")
+        member = MemberFactory(preferred_name="Alice", full_legal_name="Alice")
         pref = VotePreferenceFactory(member=member, guild_1st=g1, guild_2nd=g2, guild_3rd=g3)
         assert str(pref) == "Alice: Wood / Metal / Clay"
 
@@ -419,7 +419,7 @@ def describe_vote_preference_model():
 
     def it_str_omits_blank_choices():
         g1 = GuildFactory(name="Wood")
-        member = MemberFactory(preferred_name="Bob")
+        member = MemberFactory(preferred_name="Bob", full_legal_name="Bob")
 
         pref = VotePreferenceFactory(member=member, guild_1st=g1, guild_2nd=None, guild_3rd=None)
 

@@ -49,7 +49,7 @@
       </a>
       <div class="cls-body">
         <a href="{% url 'hub_guild_detail' guild.slug %}" class="cls-title">{{ guild.name }}</a>
-        {% if guild.guild_lead %}<div class="cls-inst">Led by {{ guild.guild_lead.display_name }}</div>{% endif %}
+        {% if guild.guild_lead %}<div class="cls-inst">Led by {{ guild.guild_lead.public_name }}</div>{% endif %}
         {% if guild.about %}<p class="pl-guild-dir__blurb">{{ guild.about|striptags|truncatewords:18 }}</p>{% endif %}
         <div class="pl-guild-dir__meta">
           <span class="pl-guild-dir__chip">{{ guild.member_total }} member{{ guild.member_total|pluralize }}</span>

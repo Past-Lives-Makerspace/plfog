@@ -9,8 +9,8 @@ None), days_off (the person's upcoming rows), save_url, delete_url_name and owne
 owner's delete route and its URL argument). The form's tail is _orienter_day_off_impact.html,
 which the date input swaps on every change so the count line and the Save label follow the date.
 {% endcomment %}
-<h2 class="hub-detail-label">{{ target.display_name }}'s Days Off</h2>
-<p class="pl-hours-row__hint">A day off cancels every orientation time of {{ target.display_name }}'s that day, in every guild and on every piece of equipment, and none is generated for it however far ahead. Anyone booked is emailed.</p>
+<h2 class="hub-detail-label">{{ target.staff_label }}'s Days Off</h2>
+<p class="pl-hours-row__hint">A day off cancels every orientation time of {{ target.staff_label }}'s that day, in every guild and on every piece of equipment, and none is generated for it however far ahead. Anyone booked is emailed.</p>
 <form id="days-off-modal-form" class="hub-form" hx-post="{{ save_url }}" hx-target="#days-off-modal-body" hx-swap="innerHTML">
   {% csrf_token %}
   <input type="hidden" name="orienter" value="{{ target.pk }}">

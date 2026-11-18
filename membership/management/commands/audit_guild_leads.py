@@ -93,10 +93,10 @@ class Command(BaseCommand):
     def _lead_line(guild: Guild) -> str:
         lead = guild.guild_lead
         assert lead is not None  # only guilds with a lead reach this formatter
-        return f"  - {guild.name}: {lead.display_name} <{lead.primary_email or 'no email'}>"
+        return f"  - {guild.name}: {lead.staff_label} <{lead.primary_email or 'no email'}>"
 
     @staticmethod
     def _status_line(guild: Guild) -> str:
         lead = guild.guild_lead
         assert lead is not None
-        return f"  - {guild.name}: {lead.display_name} (status={lead.get_status_display()})"
+        return f"  - {guild.name}: {lead.staff_label} (status={lead.get_status_display()})"

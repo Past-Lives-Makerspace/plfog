@@ -112,7 +112,7 @@ class Command(BaseCommand):
         update_kwargs = {k: v for k, v in django_kwargs.items() if k != "preferred_name"}
         existing = model.objects.filter(airtable_record_id=record_id).first()  # type: ignore[attr-defined]  # dynamic model arg
         if existing:
-            self._update_instance(existing, update_kwargs, dry_run, label=f"Member {existing.display_name}")
+            self._update_instance(existing, update_kwargs, dry_run, label=f"Member {existing.staff_label}")
             results["updated"] += 1
             return
 
@@ -121,7 +121,7 @@ class Command(BaseCommand):
         if existing_by_email:
             if not dry_run:
                 self._update_instance(
-                    existing_by_email, update_kwargs, dry_run=False, label=f"Member {existing_by_email.display_name}"
+                    existing_by_email, update_kwargs, dry_run=False, label=f"Member {existing_by_email.staff_label}"
                 )
                 existing_by_email.airtable_record_id = record_id
                 existing_by_email._skip_airtable_sync = True  # type: ignore[attr-defined]

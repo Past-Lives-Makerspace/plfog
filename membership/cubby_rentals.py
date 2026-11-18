@@ -886,7 +886,7 @@ def assign_rental(cubby: Cubby, member: Member, *, source: str, amount_cents: in
         if live is not None:
             if live.status == Status.PENDING_PAYMENT:
                 raise CubbyTakenError(BEING_PAID_FOR.format(label=locked.label))
-            raise CubbyTakenError(f"{locked.label} is already rented by {live.member.display_name}.")
+            raise CubbyTakenError(f"{locked.label} is already rented by {live.member.staff_label}.")
         rental = CubbyRental.objects.create(
             cubby=locked,
             member=member,
@@ -959,7 +959,7 @@ def _email_context(rental: CubbyRental) -> dict[str, Any]:
         "rental": rental,
         "cubby": cubby,
         "guild": guild,
-        "first_name": rental.member.display_name.split(" ")[0],
+        "first_name": rental.member.greeting_name.split(" ")[0],
         "tab_url": _absolute_url(tab_url(guild)),
         "guild_url": _absolute_url(reverse("hub_guild_detail", args=[guild.slug])),
         "next_charge": date_display(rental.current_period_end),
@@ -1107,7 +1107,7 @@ def _staff_context(rental: CubbyRental, show: str = "all") -> dict[str, Any]:
         "guild_name": guild.name,
         "cubby_label": cubby.label,
         "unit_name": cubby.unit.name,
-        "member_name": rental.member.display_name,
+        "member_name": rental.member.staff_label,
         "amount": "Comped" if rental.is_comped else f"{rental.amount_display} a month",
         "reason_line": f" The reason given: {rental.end_reason.rstrip('.')}." if rental.end_reason else "",
         "rentals_url": _absolute_url(rental_staff_url(rental, show)),

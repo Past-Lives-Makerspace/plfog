@@ -394,7 +394,7 @@ def describe_unloading_the_kiln():
         maya.save(update_fields=["preferred_name"])
         GuildMembershipFactory(guild=guild, member=maya)
         page.context.clear_cookies()
-        ben = MemberFactory(preferred_name="Ben Carter")
+        ben = MemberFactory(preferred_name="Ben Carter", full_legal_name="Ben Carter")
         provision_user_for_member(ben)
 
         login_via_code(CREW_EMAIL)

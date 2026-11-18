@@ -11,7 +11,7 @@ times; the member's own in progress booking on an item with Sessions on carries 
 <tr data-reservation-row="{{ r.pk }}">
   <td class="pl-bookings-table__when">{% if r.is_season %}<span data-season-row>Season, {{ r.season_label }}</span>{% else %}{{ r.starts_at|date:"D M j, g:i A" }} to {{ r.ends_at|date:"g:i A" }}{% endif %}</td>
   {% if is_staff_view %}
-  <td data-label="Member">{% if row.is_own %}You{% else %}{{ r.member.display_name }}{% endif %}</td>
+  <td data-label="Member">{% if row.is_own %}You{% else %}{{ r.member.staff_label }}{% endif %}</td>
   {% endif %}
   <td{% if is_staff_view %} data-label="Equipment"{% endif %} class="pl-bookings-table__orientation">
     <span class="pl-bookings-table__name">{{ r.equipment.name }}</span>
@@ -63,7 +63,7 @@ times; the member's own in progress booking on an item with Sessions on carries 
     {% endwith %}
     {% endwith %}
     {% else %}
-    {% with menu_label="Actions for "|add:r.member.display_name %}
+    {% with menu_label="Actions for "|add:r.member.staff_label %}
     {% include "components/row_actions.html" with menu_include="hub/partials/reservation_booking_row_menu.html" menu_label=menu_label %}
     {% endwith %}
     {% endif %}

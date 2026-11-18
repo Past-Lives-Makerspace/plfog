@@ -9,7 +9,7 @@ Context: booking, when, destination (whose tours), is_admin, move_guides, picker
 chosen_when, form (a StaffRescheduleForm while a time is chosen), error, move_url.
 {% endcomment %}
 <div class="pl-tours-move" data-tour-move="{{ booking.pk }}">
-  <p class="pl-form-note pl-tours-modal-lead">{{ booking.visitor_name }}, {{ booking.party_label }}. Now {{ when }}{% if booking.guide %} with {{ booking.guide.display_name }}{% endif %}.</p>
+  <p class="pl-form-note pl-tours-modal-lead">{{ booking.visitor_name }}, {{ booking.party_label }}. Now {{ when }}{% if booking.guide %} with {{ booking.guide.staff_label }}{% endif %}.</p>
 
   {% if is_admin %}
   <div class="pl-form-group pl-tours-move__guide">
@@ -17,7 +17,7 @@ chosen_when, form (a StaffRescheduleForm while a time is chosen), error, move_ur
     <select id="tour-move-guide-{{ booking.pk }}" name="guide" class="pl-tours-input--text"
             hx-get="{{ move_url }}" hx-target="#tour-reschedule-body" hx-swap="innerHTML" hx-trigger="change" data-tour-move-guide>
       {% for guide in move_guides %}
-      <option value="{{ guide.pk }}"{% if guide.pk == destination.pk %} selected{% endif %}>{{ guide.display_name }}</option>
+      <option value="{{ guide.pk }}"{% if guide.pk == destination.pk %} selected{% endif %}>{{ guide.staff_label }}</option>
       {% endfor %}
     </select>
     <p class="pl-field-hint">Pick another guide to hand this tour to them.</p>
@@ -28,7 +28,7 @@ chosen_when, form (a StaffRescheduleForm while a time is chosen), error, move_ur
 
   {% if chosen %}
   <div class="pl-tours-move__chosen" data-tour-move-chosen="{{ chosen.key }}">
-    <p class="pl-tours-move__chosen-when">Move to {{ chosen_when }}{% if chosen.guide.pk != booking.guide_id %} with {{ chosen.guide.display_name }}{% endif %}</p>
+    <p class="pl-tours-move__chosen-when">Move to {{ chosen_when }}{% if chosen.guide.pk != booking.guide_id %} with {{ chosen.guide.staff_label }}{% endif %}</p>
     <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
             hx-get="{{ move_url }}?guide={{ destination.pk }}&amp;date={{ chosen.starts_at|date:'Y-m-d' }}" hx-target="#tour-reschedule-body" hx-swap="innerHTML" data-tour-move-change>Pick a Different Time</button>
   </div>
@@ -73,6 +73,6 @@ chosen_when, form (a StaffRescheduleForm while a time is chosen), error, move_ur
     </ul>
   </section>
   {% else %}
-  <p class="hub-text-muted pl-tours-move__empty" data-tour-move-empty>{% if destination.pk == booking.guide_id or not is_admin %}No other open times have room for this party.{% else %}{{ destination.display_name }} has no open times with room for this party.{% endif %} Add tour hours on My Hours{% if is_admin %}, or pick another guide{% endif %}.</p>
+  <p class="hub-text-muted pl-tours-move__empty" data-tour-move-empty>{% if destination.pk == booking.guide_id or not is_admin %}No other open times have room for this party.{% else %}{{ destination.staff_label }} has no open times with room for this party.{% endif %} Add tour hours on My Hours{% if is_admin %}, or pick another guide{% endif %}.</p>
   {% endif %}
 </div>

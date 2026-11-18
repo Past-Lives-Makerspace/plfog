@@ -290,7 +290,7 @@ class CardSharingForm(forms.ModelForm):
             queryset = self.fields["can_open"].queryset  # type: ignore[attr-defined]  # a ModelMultipleChoiceField
             members = queryset.select_related("user").prefetch_related(_primary_emails())
             self._options = [
-                PersonOption(pk=member.pk, name=member.display_name, email=member.primary_email) for member in members
+                PersonOption(pk=member.pk, name=member.staff_label, email=member.primary_email) for member in members
             ]
         return self._options
 

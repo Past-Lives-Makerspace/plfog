@@ -137,7 +137,7 @@ def payee_status(equipment: Any, viewer: Member | None) -> PayeeStatus | None:
         state = "self_not_set_up"
     else:
         state = "not_set_up"
-    return PayeeStatus(payee_pk=payee.pk, state=state, first_name=payee.display_name.split()[0])
+    return PayeeStatus(payee_pk=payee.pk, state=state, first_name=payee.greeting_name.split()[0])
 
 
 def reservation_nudge_items(member: Member) -> list[str]:

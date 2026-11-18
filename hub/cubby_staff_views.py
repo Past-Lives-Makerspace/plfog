@@ -123,7 +123,7 @@ def hub_guild_cubby_assign(request: HttpRequest, pk: int) -> HttpResponse:
     except cubby_rentals.CubbyRentalError as refusal:
         form.add_error(None, str(refusal))
         return _render_rentals(request, guild, assign_form=form)
-    messages.success(request, f"{rental.cubby.label} assigned to {member.display_name}.")
+    messages.success(request, f"{rental.cubby.label} assigned to {member.staff_label}.")
     return redirect("hub_guild_cubbies_rentals", pk=guild.pk)
 
 
@@ -154,5 +154,5 @@ def hub_cubby_rental_end(request: HttpRequest, rental_pk: int) -> HttpResponse:
         logger.exception("Stripe refused to cancel the subscription of cubby rental %s.", rental.pk)
         messages.error(request, "Stripe refused, so nothing changed. Try again in a minute.")
         return redirect(back)
-    messages.success(request, f"{rental.cubby.label} is open again. We told {rental.member.display_name}.")
+    messages.success(request, f"{rental.cubby.label} is open again. We told {rental.member.staff_label}.")
     return redirect(back)

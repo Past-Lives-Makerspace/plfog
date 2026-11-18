@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from django.utils.safestring import mark_safe
 
 from core.events.rendering import (
@@ -18,6 +20,47 @@ def describe_render_text():
     def it_substitutes_documented_placeholders():
         out = render_text("Hi {{ name }}, welcome to {{ place }}.", {"name": "Jo", "place": "PLM"})
         assert out == "Hi Jo, welcome to PLM."
+
+    def describe_after_a_greeting_word():
+        def it_greets_a_member_by_the_preferred_name_alone():
+            context = {"member_name": "Wren (Quinn Ashdown)"}
+            assert render_text("Hi {{ member_name }}, thanks.", context) == "Hi Wren, thanks."
+            assert render_text("Thanks, {{member_name}}!", context) == "Thanks, Wren!"
+
+        def it_keeps_the_full_label_where_the_name_is_listed():
+            context = {"member_name": "Wren (Quinn Ashdown)"}
+            assert render_text("{{ member_name }} joined.", context) == "Wren (Quinn Ashdown) joined."
+
+        def it_keeps_a_missing_marker_after_the_greeting():
+            assert render_text("Hi {{ nope }},", {}) == "Hi [missing: nope],"
+
+        def it_leaves_a_non_text_value_as_it_is():
+            assert render_text("Hi {{ count }}", {"count": 3}) == "Hi 3"
+            assert render_text("Hi {{ member_name }}", {"member_name": 3}) == "Hi 3"
+
+        def it_matches_the_greeting_in_any_case():
+            assert render_text("hi {{ member_name }}", {"member_name": "Wren (Quinn Ashdown)"}) == "hi Wren"
+
+        def it_leaves_a_guild_name_after_a_greeting_whole():
+            out = render_text("Welcome {{ guild_name }}!", {"guild_name": "Ceramics (Wheel)"})
+            assert out == "Welcome Ceramics (Wheel)!"
+
+        def it_greets_through_blank_lines_after_a_comma():
+            assert (
+                render_text("Thanks,\n\n{{ member_name }}", {"member_name": "Wren (Quinn Ashdown)"})
+                == "Thanks,\n\nWren"
+            )
+
+        def it_stays_fast_on_a_greeting_followed_by_a_long_run_of_spaces():
+            template = "Hi" + " " * 5000 + "and no placeholder"
+            started = time.perf_counter()
+            assert render_text(template, {}) == template
+            assert render_html(template, {}) == template
+            assert time.perf_counter() - started < 1
+
+        def it_greets_by_the_short_name_through_an_opening_tag():
+            out = render_text("Hi <strong>{{ member_name }}</strong>,", {"member_name": "Wren (Quinn Ashdown)"})
+            assert out == "Hi <strong>Wren</strong>,"
 
     def it_tolerates_surrounding_whitespace_in_the_braces():
         assert render_text("{{name}} and {{   name   }}", {"name": "Jo"}) == "Jo and Jo"
@@ -43,6 +86,18 @@ def describe_render_html():
         assert "<script>" not in out
         assert "&lt;script&gt;" in out
         assert out.startswith("<p>") and out.endswith("</p>")  # literal markup preserved
+
+    def describe_after_a_greeting_word():
+        def it_greets_a_member_by_the_preferred_name_alone_and_escapes_it():
+            out = str(render_html("<p>Hi {{ member_name }},</p>", {"member_name": "X&o (Quinn Ashdown)"}))
+            assert out == "<p>Hi X&amp;o,</p>"
+
+        def it_passes_trusted_markup_through_whole():
+            chart = mark_safe("<b>Ann (Lee)</b>")
+            assert str(render_html("Welcome {{ chart }}", {"chart": chart})) == "Welcome <b>Ann (Lee)</b>"
+
+        def it_keeps_an_escaped_missing_marker_after_the_greeting():
+            assert str(render_html("Dear {{ nope }}", {})) == "Dear [missing: nope]"
 
     def it_escapes_ampersands_and_quotes_in_values():
         out = str(render_html("{{ v }}", {"v": 'a & "b"'}))

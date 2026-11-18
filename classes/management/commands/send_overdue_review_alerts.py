@@ -40,7 +40,7 @@ def post_overdue_review(row: OverdueReview) -> bool:
         target=offering,
         context={
             "class_title": offering.title,
-            "instructor_names": offering.instructor_names or "an instructor",
+            "instructor_names": offering.staff_instructor_names or "an instructor",
             "guild_name": guild.name if guild is not None else "no guild",
             "waiting_on": row.waiting_on,
             "days_waiting": str(row.days_waiting),

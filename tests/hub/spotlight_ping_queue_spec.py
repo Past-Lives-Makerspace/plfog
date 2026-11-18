@@ -48,7 +48,7 @@ def describe_the_queue_section():
             discord_message_id="777",
             original_text="Wash your space\nbefore you leave",
             line='<p>Zorblax Ceramics: Wash <a href="https://discord.com/channels/1/111/777">[...]</a> (Jay)</p>',
-            sender=MemberFactory(preferred_name="Jay Quorble"),
+            sender=MemberFactory(preferred_name="Jay Quorble", full_legal_name="Jay Quorble"),
         )
         ping.guilds.set([guild])
         QueuedDiscordMessageFactory(original_text="Glorp everyone")
