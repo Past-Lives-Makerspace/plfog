@@ -416,6 +416,7 @@ def describe_snapshots():
                 "owed_now_cents",
                 "not_due_cents",
                 "retrying_cents",
+                "paid_by_hand_cents",
                 "next_due_at",
             }
             for row in rows

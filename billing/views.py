@@ -1184,7 +1184,7 @@ def reconciliation_mark_row_paid(request: HttpRequest, recipient_kind: str, memb
     """Mark every share a producer row counts in Owed now for the posted dates paid by hand (#1249)."""
     from billing.payments_panel import parse_window
     from billing.payouts import ShareNotOwedError
-    from billing.reconciliation import RecipientKind, mark_row_paid_by_hand
+    from billing.reconciliation import RecipientKind, mark_row_paid_by_hand, parse_line_keys
 
     try:
         kind = RecipientKind(recipient_kind)
@@ -1194,9 +1194,13 @@ def reconciliation_mark_row_paid(request: HttpRequest, recipient_kind: str, memb
         raise Http404
     window = parse_window(request.POST.get("start", ""), request.POST.get("end", ""))
     try:
-        count = mark_row_paid_by_hand(window, (kind.value, member_pk), by=request.user)
-    except ShareNotOwedError:
-        return _reconciliation_refresh("Nothing on this row is in Owed now, so nothing was marked.", "error")
+        confirmed = parse_line_keys(request.POST.get("lines", ""))
+    except ValueError:
+        return HttpResponse("Malformed lines.", status=400)
+    try:
+        count = mark_row_paid_by_hand(window, (kind.value, member_pk), confirmed, by=request.user)
+    except ShareNotOwedError as exc:
+        return _reconciliation_refresh(str(exc), "error")
     return _reconciliation_refresh(f"Marked {count} share{'' if count == 1 else 's'} paid by hand.", "success")
 
 

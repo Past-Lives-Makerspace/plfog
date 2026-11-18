@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 import stripe
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import F, Min, Q, QuerySet
 from django.db.models.functions import Greatest
 from django.utils import timezone
@@ -1189,6 +1189,10 @@ def mark_paid_by_hand(keys: Iterable[tuple[str, int]], *, by: Any, now: datetime
         recorded = {earning.payout.pk: earning for earning in owed if earning.payout is not None}
         locked = list(Payout.objects.select_for_update(of=("self",)).filter(pk__in=recorded))
         for payout in locked:
+            # Read again under the lock: a second click or a second admin may have marked it
+            # first, and a row Stripe found nothing left to send on is not owed by hand.
+            if payout.status != Payout.Status.OWED_MANUALLY or payout.is_paid_by_hand:
+                raise ShareNotOwedError("Only a share in Owed now can be marked paid by hand.")
             payout.mark_paid_by_hand(by=by, at=now, due_at=recorded[payout.pk].due_at)
         Payout.objects.bulk_update(locked, ["paid_by_hand_at", "paid_by_hand_by", "due_at"])
         new_rows = []
@@ -1205,7 +1209,11 @@ def mark_paid_by_hand(keys: Iterable[tuple[str, int]], *, by: Any, now: datetime
             )
             payout.mark_paid_by_hand(by=by, at=now, due_at=earning.due_at)
             new_rows.append(payout)
-        Payout.objects.bulk_create(new_rows)
+        try:
+            Payout.objects.bulk_create(new_rows)
+        except IntegrityError:
+            # Another request recorded one of these shares since it was read: nothing is marked.
+            raise ShareNotOwedError("Only a share in Owed now can be marked paid by hand.") from None
     return len(owed)
 
 

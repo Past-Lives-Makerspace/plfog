@@ -179,7 +179,14 @@ class RecipientAllocation:
     retrying_cents: int = 0
     # Live producer rows: shares these dates counted in Owed now that the treasurer marked paid by hand (#1249).
     paid_by_hand_cents: int = 0
+    # Live producer rows: the lines counted in owed_now_cents, which Mark all paid posts back (#1249).
+    owed_keys: list[AdjustmentKey] = field(default_factory=list)
     payout_badge: PayoutBadge | None = None  # live producer rows: the payee's automatic payouts state (#905)
+
+    @property
+    def owed_keys_param(self) -> str:
+        """``owed_keys`` as Mark all paid posts them: "class:12,orientation:3" (``parse_line_keys``)."""
+        return ",".join(f"{kind}:{pk}" for kind, pk in self.owed_keys)
 
     @property
     def combined_cents(self) -> int:
@@ -229,6 +236,11 @@ class ReconciliationResult:
         return sum(alloc.retrying_cents for kind in GROUP_ORDER for alloc in self.groups[kind])
 
     @property
+    def paid_by_hand_total_cents(self) -> int:
+        """Producer shares marked paid by hand (#1249); a snapshot page shows the column only then."""
+        return sum(alloc.paid_by_hand_cents for kind in GROUP_ORDER for alloc in self.groups[kind])
+
+    @property
     def kept_share_count(self) -> int:
         """Refunded payments whose producer kept a share already sent through Stripe (#662)."""
         return sum(1 for line in self.lines if line.payee_kept_share)
@@ -269,6 +281,7 @@ class ReconciliationResult:
                             "owed_now_cents": alloc.owed_now_cents,
                             "not_due_cents": alloc.not_due_cents,
                             "retrying_cents": alloc.retrying_cents,
+                            "paid_by_hand_cents": alloc.paid_by_hand_cents,
                             "next_due_at": None if alloc.next_due_at is None else alloc.next_due_at.isoformat(),
                         }
                         for alloc in self.groups[kind]
@@ -1031,24 +1044,42 @@ def owed_lines(result: ReconciliationResult) -> list[TransactionLine]:
     return [line for line in [*result.lines, *result.due_earlier_lines] if _owed_for(line, result.window)]
 
 
-def mark_row_paid_by_hand(window: PanelWindow, recipient: RecipientKey, *, by: Any) -> int:
-    """Mark paid by hand every share the producer row ``recipient`` counts in ``window``'s Owed now (#1249).
-
-    The lines are the ones the Reconciliation tab shows for these dates, read now. Returns how
-    many shares were marked.
+def parse_line_keys(raw: str) -> set[AdjustmentKey]:
+    """The lines Mark all paid posts ("class:12,orientation:3", ``RecipientAllocation.owed_keys_param``).
 
     Raises:
-        billing.payouts.ShareNotOwedError: the row counts nothing in Owed now.
+        ValueError: a key is not ``kind:pk``.
+    """
+    keys: set[AdjustmentKey] = set()
+    for item in filter(None, raw.split(",")):
+        kind, _sep, pk = item.partition(":")
+        keys.add((kind, int(pk)))
+    return keys
+
+
+def mark_row_paid_by_hand(
+    window: PanelWindow, recipient: RecipientKey, confirmed: set[AdjustmentKey], *, by: Any
+) -> int:
+    """Mark paid by hand every share the producer row ``recipient`` counts in ``window``'s Owed now (#1249).
+
+    The lines are read again now and must be exactly ``confirmed``, the ones the confirm named
+    with its total: a share that fell due, or was marked, since the page loaded refuses the whole
+    row. Returns how many shares were marked.
+
+    Raises:
+        billing.payouts.ShareNotOwedError: the row counts nothing in Owed now, or not what was confirmed.
     """
     from billing.payouts import ShareNotOwedError, mark_paid_by_hand
 
-    keys = [
+    keys = {
         (line.source_kind, line.source_pk)
         for line in owed_lines(build_reconciliation(window=window))
         if any(key == recipient for key, _cents in _producer_shares(line))
-    ]
+    }
     if not keys:
-        raise ShareNotOwedError("Nothing on this row is in Owed now.")
+        raise ShareNotOwedError("Nothing on this row is in Owed now, so nothing was marked.")
+    if keys != confirmed:
+        raise ShareNotOwedError("Owed now changed since the page loaded, so nothing was marked. Check the new total.")
     return mark_paid_by_hand(keys, by=by)
 
 
@@ -1189,6 +1220,7 @@ class _ProducerSplit:
     next_due: dict[RecipientKey, datetime] = field(default_factory=dict)
     retrying: dict[RecipientKey, int] = field(default_factory=dict)
     paid_by_hand: dict[RecipientKey, int] = field(default_factory=dict)
+    owed_keys: dict[RecipientKey, list[AdjustmentKey]] = field(default_factory=dict)
 
     def add_paid(self, line: TransactionLine, window: PanelWindow) -> None:
         """Count a line paid in ``window`` by its payout state; Owed now only if it also fell due in ``window``."""
@@ -1208,12 +1240,16 @@ class _ProducerSplit:
                 self.paid_by_hand[key] = self.paid_by_hand.get(key, 0) + cents
             elif _owed_for(line, window):
                 self.owed_now[key] = self.owed_now.get(key, 0) + cents
+                self.owed_keys.setdefault(key, []).append((line.source_kind, line.source_pk))
 
     def add_due_earlier(self, line: TransactionLine) -> None:
         """Count a line paid before the window that fell due in it, to Owed now, or Paid by hand once marked (#1249)."""
-        column = self.paid_by_hand if cast("LinePayout", line.payout).paid_by_hand else self.owed_now
+        paid = cast("LinePayout", line.payout).paid_by_hand
+        column = self.paid_by_hand if paid else self.owed_now
         for key, cents in _producer_shares(line):
             column[key] = column.get(key, 0) + cents
+            if not paid:
+                self.owed_keys.setdefault(key, []).append((line.source_kind, line.source_pk))
 
 
 @dataclass(frozen=True)
@@ -1304,6 +1340,7 @@ def _build_groups(
             next_due_at=split.next_due.get(key),
             retrying_cents=split.retrying.get(key, 0),
             paid_by_hand_cents=paid_by_hand,
+            owed_keys=split.owed_keys.get(key, []),
         )
         if kind is RecipientKind.GUILD and recipient_id is not None:
             alloc.voting_cents = voting_by_guild.get(recipient_id, 0)
@@ -1369,6 +1406,8 @@ def result_from_snapshot(snapshot: ReconciliationSnapshot) -> ReconciliationResu
                 alloc.owed_now_cents = int(row["owed_now_cents"])
                 alloc.not_due_cents = int(row["not_due_cents"])
                 alloc.retrying_cents = int(row["retrying_cents"])
+                # Taken before #1249, when nothing could be marked paid by hand: none was.
+                alloc.paid_by_hand_cents = int(row.get("paid_by_hand_cents", 0))
                 next_due = row["next_due_at"]
                 alloc.next_due_at = None if next_due is None else datetime.fromisoformat(next_due)
             elif kind.is_producer:

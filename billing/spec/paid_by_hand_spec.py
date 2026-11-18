@@ -14,6 +14,7 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth.models import User
 from django.core import mail
+from django.db import IntegrityError
 from django.test import Client
 from django.urls import reverse
 
@@ -25,6 +26,7 @@ from billing.reconciliation import (
     ReconciliationResult,
     build_reconciliation,
     mark_row_paid_by_hand,
+    result_from_snapshot,
     stream_reconciliation_csv,
 )
 from classes.factories import ClassOfferingFactory, ClassSessionFactory, RegistrationFactory
@@ -100,6 +102,11 @@ def _line(result: ReconciliationResult, reg: Registration) -> Any:
         for line in [*result.lines, *result.due_earlier_lines]
         if (line.source_kind, line.source_pk) == ("class", reg.pk)
     )
+
+
+def _confirmed(window: PanelWindow, member: Member, query: dict[str, str]) -> dict[str, str]:
+    """``query`` plus the lines Mark all paid's confirm carries for ``member``'s row, as the page renders them."""
+    return {**query, "lines": _row(build_reconciliation(window=window), member).owed_keys_param}
 
 
 def _triggers(response: Any) -> dict[str, Any]:
@@ -184,7 +191,8 @@ def describe_marking_a_producer_row() -> None:
         }
 
     def it_marks_the_owed_shares_paid_in_or_before_the_dates_and_nothing_else(shares: dict[str, Any]) -> None:
-        count = mark_row_paid_by_hand(OCTOBER, ("instructor", shares["instructor"].pk), by=None)
+        confirmed = {("class", shares["owed"].pk), ("class", shares["earlier"].pk)}
+        count = mark_row_paid_by_hand(OCTOBER, ("instructor", shares["instructor"].pk), confirmed, by=None)
         assert count == 2
         assert Payout.objects.filter(paid_by_hand_at=NOW).count() == 2
         assert not Payout.objects.filter(registration=shares["upcoming"]).exists()
@@ -199,7 +207,7 @@ def describe_marking_a_producer_row() -> None:
 
     def it_marks_them_from_the_view_for_the_posted_dates(shares: dict[str, Any], client: Client, admin: User) -> None:
         url = reverse("billing_reconciliation_mark_row_paid", args=["instructor", shares["instructor"].pk])
-        response = client.post(url, OCTOBER_POST)
+        response = client.post(url, _confirmed(OCTOBER, shares["instructor"], OCTOBER_POST))
         assert response.status_code == 204
         assert _triggers(response)["showToast"] == {"message": "Marked 2 shares paid by hand.", "type": "success"}
         assert _row(build_reconciliation(window=OCTOBER), shares["instructor"]).owed_now_cents == 0
@@ -208,7 +216,8 @@ def describe_marking_a_producer_row() -> None:
         instructor = _instructor()
         _registration(instructor)
         url = reverse("billing_reconciliation_mark_row_paid", args=["instructor", instructor.pk])
-        assert _triggers(client.post(url, OCTOBER_POST))["showToast"]["message"] == "Marked 1 share paid by hand."
+        response = client.post(url, _confirmed(OCTOBER, instructor, OCTOBER_POST))
+        assert _triggers(response)["showToast"]["message"] == "Marked 1 share paid by hand."
 
     def it_refuses_a_row_with_nothing_owed(client: Client, admin: User) -> None:
         instructor = _instructor()
@@ -216,6 +225,29 @@ def describe_marking_a_producer_row() -> None:
         url = reverse("billing_reconciliation_mark_row_paid", args=["instructor", instructor.pk])
         response = client.post(url, OCTOBER_POST)
         assert _triggers(response)["showToast"]["type"] == "error"
+        assert not Payout.objects.exists()
+
+    def it_puts_the_confirmed_lines_in_the_confirm(shares: dict[str, Any], client: Client, admin: User) -> None:
+        content = _table(client)
+        assert f"class:{shares['owed'].pk}" in content
+        assert f"class:{shares['earlier'].pk}" in content
+        assert f"class:{shares['upcoming'].pk}" not in content
+
+    def it_refuses_when_owed_now_changed_since_the_confirm(shares: dict[str, Any], client: Client, admin: User) -> None:
+        url = reverse("billing_reconciliation_mark_row_paid", args=["instructor", shares["instructor"].pk])
+        # The page was loaded before the September payment's share fell due: it named one line only.
+        response = client.post(url, {**OCTOBER_POST, "lines": f"class:{shares['owed'].pk}"})
+        assert response.status_code == 204
+        assert _triggers(response)["showToast"] == {
+            "message": "Owed now changed since the page loaded, so nothing was marked. Check the new total.",
+            "type": "error",
+        }
+        assert "reconciliation-changed" in _triggers(response)
+        assert not Payout.objects.filter(paid_by_hand_at__isnull=False).exists()
+
+    def it_rejects_malformed_lines(shares: dict[str, Any], client: Client, admin: User) -> None:
+        url = reverse("billing_reconciliation_mark_row_paid", args=["instructor", shares["instructor"].pk])
+        assert client.post(url, {**OCTOBER_POST, "lines": "class:x"}).status_code == 400
         assert not Payout.objects.exists()
 
     def it_hides_mark_all_on_a_row_with_nothing_owed(client: Client, admin: User) -> None:
@@ -439,13 +471,14 @@ def describe_a_share_a_past_snapshot_counted() -> None:
         frozen = snapshot.results
         assert Payout.objects.get(registration=reg).counted_owed_in == snapshot
         url = reverse("billing_reconciliation_mark_row_paid", args=["instructor", instructor.pk])
-        assert client.post(url, {"start": "2026-09-01", "end": "2026-09-30"}).status_code == 204
+        september = {"start": "2026-09-01", "end": "2026-09-30"}
+        assert client.post(url, _confirmed(SEPTEMBER, instructor, september)).status_code == 204
         row = _row(build_reconciliation(window=SEPTEMBER), instructor)
         assert (row.owed_now_cents, row.paid_by_hand_cents) == (0, 7000)
         snapshot.refresh_from_db()
         assert snapshot.results == frozen
 
-    def it_is_not_counted_owed_by_a_later_snapshot_once_paid() -> None:
+    def it_is_frozen_in_paid_by_hand_by_a_later_snapshot_once_paid(client: Client, admin: User) -> None:
         instructor = _instructor()
         reg = _registration(
             instructor, paid_at=datetime(2026, 10, 2, 18, tzinfo=UTC), class_at=datetime(2026, 10, 5, 18, tzinfo=UTC)
@@ -456,4 +489,62 @@ def describe_a_share_a_past_snapshot_counted() -> None:
         )
         assert Payout.objects.get(registration=reg).counted_owed_in is None
         rows = next(group for group in snapshot.results["groups"] if group["kind"] == "instructor")["rows"]
-        assert rows[0]["owed_now_cents"] == 0
+        assert (rows[0]["total_cents"], rows[0]["owed_now_cents"], rows[0]["paid_by_hand_cents"]) == (7000, 0, 7000)
+        frozen = _row(result_from_snapshot(snapshot), instructor)
+        assert (frozen.owed_now_cents, frozen.paid_by_hand_cents) == (0, 7000)
+        content = client.get(reverse("billing_reconciliation_snapshot_detail", args=[snapshot.pk])).content.decode()
+        assert '<th class="text-right">Paid by hand</th>' in content
+        assert "data-recon-snapshot-paid-by-hand>$70.00</td>" in content
+
+    def it_reads_a_snapshot_taken_before_paid_by_hand_as_none_paid(client: Client, admin: User) -> None:
+        instructor = _instructor()
+        _registration(
+            instructor, paid_at=datetime(2026, 9, 2, 18, tzinfo=UTC), class_at=datetime(2026, 9, 5, 18, tzinfo=UTC)
+        )
+        snapshot = ReconciliationSnapshot.take(period_start=SEPTEMBER.start, period_end=SEPTEMBER.end, title="Sep")
+        results = dict(snapshot.results)
+        for group in results["groups"]:
+            for row in group["rows"]:
+                row.pop("paid_by_hand_cents")
+        ReconciliationSnapshot.objects.filter(pk=snapshot.pk).update(results=results)
+        snapshot.refresh_from_db()
+        frozen = _row(result_from_snapshot(snapshot), instructor)
+        assert (frozen.owed_now_cents, frozen.paid_by_hand_cents) == (7000, 0)
+        content = client.get(reverse("billing_reconciliation_snapshot_detail", args=[snapshot.pk])).content.decode()
+        assert "data-recon-snapshot-paid-by-hand" not in content
+
+
+def describe_a_lost_race() -> None:
+    """A second click, a second admin or a share with nothing left to send answers with a toast, never a 500."""
+
+    def it_refuses_a_share_marked_paid_between_the_read_and_the_lock() -> None:
+        reg = _registration(_instructor())
+        mark_paid_by_hand([("class", reg.pk)], by=None)
+        # The second request read the share as owed before the first one's write landed.
+        with patch("billing.payouts._line_state", return_value=LineState.OWED), pytest.raises(ShareNotOwedError):
+            mark_paid_by_hand([("class", reg.pk)], by=None)
+
+    def it_answers_a_double_click_with_a_toast(client: Client, admin: User) -> None:
+        reg = _registration(_instructor())
+        mark_paid_by_hand([("class", reg.pk)], by=None)
+        url = reverse("billing_reconciliation_mark_paid", args=["class", reg.pk])
+        with patch("billing.payouts._line_state", return_value=LineState.OWED):
+            response = client.post(url)
+        assert response.status_code == 204
+        assert _triggers(response)["showToast"]["type"] == "error"
+
+    def it_answers_a_row_stripe_found_nothing_left_to_send_on_with_a_toast(client: Client, admin: User) -> None:
+        reg = _registration(_instructor())
+        _payout(reg, Payout.Status.NOTHING_DUE)
+        response = client.post(reverse("billing_reconciliation_mark_paid", args=["class", reg.pk]))
+        assert response.status_code == 204
+        assert _triggers(response)["showToast"]["type"] == "error"
+        assert Payout.objects.get(registration=reg).paid_by_hand_at is None
+
+    def it_refuses_a_share_another_request_recorded_at_the_same_moment() -> None:
+        reg = _registration(_instructor())
+        with (
+            patch.object(Payout.objects, "bulk_create", side_effect=IntegrityError("unique")),
+            pytest.raises(ShareNotOwedError),
+        ):
+            mark_paid_by_hand([("class", reg.pk)], by=None)

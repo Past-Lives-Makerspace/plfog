@@ -128,7 +128,7 @@
                     @click="$dispatch('open-confirm', '{{ mark_id }}')">Mark all paid</button>
             {% url 'billing_reconciliation_mark_row_paid' kind.value alloc.recipient_id as mark_url %}
             {# JS mode: a teleported hx-post form is not wired by htmx after the table refresh swaps it in. #}
-            {% with mark_js="htmx.ajax('POST', '"|add:mark_url|add:"', {swap: 'none', values: "|add:reconciliation_window_vals|add:"})" %}
+            {% with mark_js="htmx.ajax('POST', '"|add:mark_url|add:"', {swap: 'none', values: Object.assign("|add:reconciliation_window_vals|add:", {lines: '"|add:alloc.owed_keys_param|add:"'})})" %}
             {% include "components/confirm_modal.html" with confirm_id=mark_id confirm_title="Mark all paid by hand?" confirm_body_include="billing/partials/_reconciliation_mark_all_confirm.html" confirm_js=mark_js confirm_button_text="Mark all paid" confirm_button_style="primary" %}
             {% endwith %}{% endwith %}{% endwith %}
             {% endif %}
