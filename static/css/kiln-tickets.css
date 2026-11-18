@@ -239,7 +239,17 @@
 .pl-kiln-row__photo--empty .pl-kiln-ico { width: 1.75rem; height: 1.75rem; }
 a.pl-kiln-row__title { color: var(--hub-link); text-decoration: none; }
 .pl-kiln-gallery__strip > button { padding: 0; background: none; cursor: pointer; }
-.pl-kiln-photo--new::after { content: "New"; position: absolute; left: 0.35rem; top: 0.35rem; padding: 0.1rem 0.45rem; border-radius: 999px; background: rgba(10, 11, 16, 0.75); color: #F4EFDD; font-size: 0.72rem; font-weight: 600; }
+/* A photo on its way up (#1246): "Uploading N%" over it. One that did not arrive becomes a full width
+   row with a red edge: the thumbnail, the words ("Didn't upload", or the server's reason, which can
+   run to two lines on a phone), Retry when sending again can help, and the X. */
+.pl-kiln-photo__status { position: absolute; left: 0.35rem; bottom: 0.35rem; padding: 0.15rem 0.45rem; border-radius: 999px; background: rgba(10, 11, 16, 0.75); color: #F4EFDD; font-size: 0.72rem; font-weight: 600; }
+.pl-kiln-photo--new[data-kiln-upload-state="uploading"] img { opacity: 0.6; }
+.pl-kiln-photo--failed { grid-column: 1 / -1; aspect-ratio: auto; display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem; border-color: var(--hub-danger-text); background: var(--hub-surface); }
+.pl-kiln-photo--failed img { flex: none; width: 64px; height: 64px; border-radius: 6px; }
+.pl-kiln-photo--failed .pl-kiln-photo__status { position: static; flex: 1; padding: 0; border-radius: 0; background: none; color: var(--hub-danger-text); font-size: 0.85rem; line-height: 1.35; }
+.pl-kiln-photo__retry { flex: none; min-height: 32px; padding: 0.2rem 0.75rem; border: 0; border-radius: 999px; background: var(--color-tuscan-yellow); color: var(--color-navy); font-size: 0.8rem; font-weight: 700; }
+.pl-kiln-photo--failed .pl-kiln-photo__remove { position: static; flex: none; }
+.pl-kiln-photo [hidden] { display: none; }
 .pl-kiln-photo-add { position: relative; }
 .pl-kiln-photo-pick { margin-top: 0.75rem; display: inline-flex; align-items: center; gap: 0.4rem; min-height: 44px; cursor: pointer; }
 .pl-kiln-photo-pick input { position: absolute; width: 1px; height: 1px; opacity: 0; }
