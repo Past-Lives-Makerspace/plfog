@@ -497,10 +497,10 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
         "spots_remaining": offering.spots_remaining,
         "related_offerings": related_offerings,
         "sibling_offerings": sibling_offerings,
-        # Several open dates (#1260): the page books through Upcoming Dates, and the soonest of
-        # them speaks for the class in the hero and the rail.
-        "several_dates": len(sibling_offerings) > 1,
-        "next_run": sibling_offerings[0] if len(sibling_offerings) > 1 else offering,
+        # The single run layout: a preview always speaks for the run it previews. The class page
+        # switches to the several dates layout in ``_render_class_page``.
+        "several_dates": False,
+        "next_run": offering,
         # The flexible block (#545): the template holds the copy, these hold the facts. The
         # instructor's name is read off the row in the template, so a spec can anchor on it.
         "is_flexible": offering.is_flexible,
@@ -579,6 +579,18 @@ def _render_class_page(request: HttpRequest, offering: ClassOffering, *, times_t
             "times_taught": times_taught,
         }
     )
+    # Several open dates (#1260): the page books through Upcoming Dates, the soonest of them
+    # speaks for the class in the hero and the rail, and search gets one Event per date.
+    open_runs: list[ClassOffering] = context["sibling_offerings"]
+    if len(open_runs) > 1:
+        context["several_dates"] = True
+        context["next_run"] = open_runs[0]
+    # Each open date's Event names its own register page, unless sign up is switched off site wide.
+    if open_runs and context["site_config"].class_registration_enabled:
+        events = [run.booking_event_json_ld() for run in open_runs]
+    else:
+        events = [run.event_json_ld() for run in open_runs or [offering]]
+    context["class_events"] = [event for event in events if event is not None]
     return render(request, "classes/public/detail.html", context)
 
 

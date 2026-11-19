@@ -19,7 +19,8 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
 <meta property="og:description" content="{{ offering.seo_description }}">
 <meta property="og:url" content="{% canonical_url %}">
 {% if offering.card_photo_url %}<meta property="og:image" content="{{ offering.card_photo_url|absolute_url:request }}">{% endif %}
-{% if offering.is_indexable %}{% with event=offering.event_json_ld %}{% if event %}<script type="application/ld+json">{{ event|json_ld }}</script>{% endif %}{% endwith %}{% endif %}
+{# One Event per open date, each naming its own start, price and register page (#1260); a preview has none. #}
+{% if offering.is_indexable %}{% for event in class_events %}<script type="application/ld+json">{{ event|json_ld }}</script>{% endfor %}{% endif %}
 {% endblock %}
 
 {% block portal_content %}
@@ -515,12 +516,15 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
           {% endif %}
         {% endif %}
         <ul class="cp-detail__rail-meta">
-          {% if schedule_sessions %}
-            <li><strong>{{ schedule_sessions|length }}</strong> session{{ schedule_sessions|length|pluralize }}</li>
+          {# Every fact here is the same run's as the price above: the soonest date when there are several (#1260). #}
+          {% if several_dates %}
+            {% with count=next_run.sessions.all|length %}{% if count %}<li data-rail-sessions><strong>{{ count }}</strong> session{{ count|pluralize }}</li>{% endif %}{% endwith %}
+          {% elif schedule_sessions %}
+            <li data-rail-sessions><strong>{{ schedule_sessions|length }}</strong> session{{ schedule_sessions|length|pluralize }}</li>
           {% endif %}
-          {% if not is_flexible %}<li><strong>{{ offering.capacity }}</strong> max class size</li>{% endif %}
+          {% if not next_run.is_flexible %}<li data-rail-capacity><strong>{{ next_run.capacity }}</strong> max class size</li>{% endif %}
           {% if times_taught %}<li data-times-taught data-guidance-target="class.times-taught">Taught <strong>{{ times_taught }}</strong> time{{ times_taught|pluralize }} before</li>{% endif %}
-          {% if offering.minimum_signups_at_stake %}<li data-minimum-signups-meta><strong>{{ offering.minimum_signups }}</strong> needed to run</li>{% endif %}
+          {% if next_run.minimum_signups_at_stake %}<li data-minimum-signups-meta><strong>{{ next_run.minimum_signups }}</strong> needed to run</li>{% endif %}
           {% if offering.category %}
             <li><strong>{{ offering.category.name }}</strong></li>
           {% endif %}

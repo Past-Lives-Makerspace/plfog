@@ -136,7 +136,8 @@ def describe_an_upcoming_class():
             "price": "75.00",
             "priceCurrency": "USD",
             "availability": "https://schema.org/InStock",
-            "url": f"{BASE}/classes/forge-basics/",
+            # An open date's Event points at its own register page (#1260).
+            "url": f"{BASE}/classes/forge-basics/register/",
         }
         assert event["image"][0].startswith(BASE)
         assert 'property="og:title" content="Forge Basics' in html

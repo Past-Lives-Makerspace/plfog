@@ -4430,6 +4430,20 @@ class ClassOffering(HeroCropMixin, models.Model):
             data["image"] = [image if urlsplit(image).netloc else book_absolute_url(image)]
         return data
 
+    def booking_event_json_ld(self) -> dict[str, Any] | None:
+        """:meth:`event_json_ld` pointing at this run's own register page, for a class page listing several (#1260)."""
+        from django.urls import reverse
+
+        from core.urls_util import book_absolute_url
+
+        data = self.event_json_ld()
+        if data is None:
+            return None
+        register_url = book_absolute_url(reverse("classes:register", kwargs={"slug": self.slug}))
+        data["url"] = register_url
+        data["offers"]["url"] = register_url
+        return data
+
     def finalize_recurring_slug(self) -> None:
         """Overwrite the provisional slug with the canonical date-stamped one.
 

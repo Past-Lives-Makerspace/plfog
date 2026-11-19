@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import json
+import re
+
 import pytest
 from django.urls import reverse
 from django.utils import timezone
@@ -235,3 +238,63 @@ def describe_a_class_with_one_date():
         newer = _run("framing-2", days=-30, category=older.category)
 
         assert client.get(_class_path(older)).context["offering"] == newer
+
+
+def _events(body: str) -> list[dict]:
+    return [json.loads(raw) for raw in re.findall(r'<script type="application/ld\+json">(.*?)</script>', body, re.S)]
+
+
+def describe_search_data_for_several_dates():
+    def it_gives_each_open_date_its_own_event_and_register_page(client):
+        soon = _run("framing-1", days=10, price_cents=7000)
+        later = _run("framing-2", days=40, category=soon.category, price_cents=9000, capacity=0)
+
+        events = _events(client.get(_class_path(soon)).content.decode())
+
+        assert [event["startDate"] for event in events] == [
+            run.sessions.get().starts_at.isoformat() for run in (soon, later)
+        ]
+        assert [event["offers"]["price"] for event in events] == ["70.00", "90.00"]
+        assert events[1]["offers"]["availability"] == "https://schema.org/SoldOut"
+        for event, run in zip(events, (soon, later), strict=True):
+            register = reverse("classes:register", kwargs={"slug": run.slug})
+            assert event["url"].endswith(register)
+            assert event["offers"]["url"].endswith(register)
+
+
+def describe_the_rail_for_several_dates():
+    def it_takes_every_fact_from_the_soonest_date(client):
+        soon = _run("framing-1", days=10, capacity=4, minimum_signups=3, registration_cutoff_hours=48)
+        _run("framing-2", days=40, category=soon.category, capacity=9)
+
+        body = client.get(_class_path(soon)).content.decode()
+
+        assert "<strong>4</strong> max class size" in body
+        assert "<strong>9</strong> max class size" not in body
+        assert "<strong>1</strong> session" in body
+        assert "<strong>3</strong> needed to run" in body
+
+
+def describe_the_preview_of_one_run():
+    def it_speaks_for_the_previewed_run_whatever_its_siblings(admin_user, client):
+        soon = _run("framing-1", days=10, price_cents=7000)
+        _run("framing-2", days=40, category=soon.category, price_cents=9000)
+        draft = ClassOfferingFactory(
+            title="Picture Framing", slug="framing-draft", category=soon.category, price_cents=5500, capacity=7
+        )
+        start = timezone.now() + timedelta(days=20)
+        ClassSessionFactory(class_offering=draft, starts_at=start, ends_at=start + timedelta(hours=2))
+        draft.refresh_from_db()
+        assert draft.class_record_id == soon.class_record_id
+        client.force_login(admin_user)
+
+        response = client.get(reverse("classes:class_preview", kwargs={"pk": draft.pk}))
+        body = response.content.decode()
+
+        assert response.context["several_dates"] is False
+        assert response.context["next_run"] == draft
+        assert "data-pick-a-date" not in body
+        assert ">Schedule<" in body
+        assert "Next session" in body and "data-next-date" not in body
+        assert '<div class="cp-detail__price">$55</div>' in body
+        assert "<strong>7</strong> max class size" in body
