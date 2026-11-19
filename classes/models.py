@@ -4236,7 +4236,10 @@ class ClassOffering(HeroCropMixin, models.Model):
             # Skip the instructor segment when the title already names them, so
             # "Blacksmithing 101 with Glen" + instructor "Glen Morris" doesn't
             # read "... with Glen — <date> with Glen Morris".
-            mentions_instructor = name.lower() in result.lower() or f"with {first_name}".lower() in result.lower()
+            # The first name as a whole word anywhere counts too (#1259): "Make a Cup w/ Anjali" names her already.
+            mentions_instructor = name.lower() in result.lower() or bool(
+                re.search(rf"\b{re.escape(first_name)}\b", result, re.IGNORECASE)
+            )
             candidate = f"{result} with {name}"
             if name and not mentions_instructor and len(candidate) <= 60:
                 result = candidate
@@ -4262,6 +4265,60 @@ class ClassOffering(HeroCropMixin, models.Model):
             base = strip_date_suffix(self.title).strip()
             raw = f"{base} at Past Lives Makerspace in Portland, OR. {self.category.name} class — register online."
         return self._truncate(raw, 160)
+
+    @property
+    def is_indexable(self) -> bool:
+        """Whether search engines should index this class page (#1259): listed and not yet ended.
+
+        The page's twin of :meth:`ClassOfferingQuerySet.indexable`; a page that is not gets ``noindex``.
+        """
+        return not self.is_private and self.lifecycle == self.Lifecycle.UPCOMING
+
+    def event_json_ld(self) -> dict[str, Any] | None:
+        """This class as a schema.org Event for the page's JSON-LD (#1259), or ``None`` without a start.
+
+        A dated class starts at its next session (its first, once all have begun) and ends with
+        its last; a flexible class spans its window, and has no Event without a first day.
+        """
+        from urllib.parse import urlsplit
+
+        from classes.templatetags.classes_tags import strip_date_suffix
+        from core.seo import MAKERSPACE_PLACE
+        from core.urls_util import book_absolute_url
+
+        if self.is_flexible:
+            start: date_type | datetime | None = self.flexible_starts_on
+            end: date_type | datetime | None = self.flexible_ends_on
+        else:
+            start = self.first_upcoming_session_at or self.earliest_session_at
+            end = self._last_session_ends_at
+        if start is None:
+            return None
+        spots = self.spots_remaining
+        data: dict[str, Any] = {
+            "@context": "https://schema.org",
+            "@type": "Event",
+            "name": strip_date_suffix(self.title).strip(),
+            "description": self.seo_description,
+            "startDate": start.isoformat(),
+            "eventStatus": "https://schema.org/EventScheduled",
+            "eventAttendanceMode": "https://schema.org/OfflineEventAttendanceMode",
+            "location": MAKERSPACE_PLACE,
+            "url": self.public_url,
+            "offers": {
+                "@type": "Offer",
+                "price": f"{self.price_cents / 100:.2f}",
+                "priceCurrency": "USD",
+                "availability": "https://schema.org/SoldOut" if spots == 0 else "https://schema.org/InStock",
+                "url": self.public_url,
+            },
+        }
+        if end is not None:
+            data["endDate"] = end.isoformat()
+        image = self.hero_image_url
+        if image:
+            data["image"] = [image if urlsplit(image).netloc else book_absolute_url(image)]
+        return data
 
     def finalize_recurring_slug(self) -> None:
         """Overwrite the provisional slug with the canonical date-stamped one.

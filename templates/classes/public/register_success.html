@@ -1,6 +1,7 @@
 {% extends "classes/base_public.html" %}
 
 {% block title %}You're confirmed — {{ offering.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}{# A transactional page, never a search result (#1259). #}
 
 {% block portal_content %}
 <div class="view">
