@@ -1,5 +1,6 @@
 bump = "minor"
 audience = ["instructors", "admins"]
+feature = "classes.teach"
 date = "2026-11-19"
 title = "A class keeps one name across all its dates"
 changes = [
