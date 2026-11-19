@@ -309,21 +309,37 @@ class ClassRecord(models.Model):
         return ClassOffering.objects.public().filter(class_record=self)
 
     def page_run(self) -> "ClassOffering | None":
-        """The run whose description, photos, FAQs and sign up rail the class page shows.
+        """The run the class page is built from.
 
-        Its newest run still open for registration, so the rail never reads closed beside an open
-        date; with none open, its newest public run.
+        With several dates open for sign up, the newest of them: its description, photos and FAQs
+        speak for the class, the soonest date speaks for booking, and each date books from its own
+        row. Otherwise the soonest date open for sign up, else the soonest still to come, else the
+        newest public run.
         """
-        runs = (
-            self.public_runs()
-            .select_related("category", "area", "class_record")
-            .prefetch_related("sessions", "instructor_rows")
+        related, prefetched = ("category", "area", "class_record"), ("sessions", "instructor_rows")
+        open_runs = list(
+            ClassOffering.objects.registration_open()
+            .filter(class_record=self)
+            .select_related(*related)
+            .prefetch_related(*prefetched)
         )
-        open_ids = ClassOffering.objects.registration_open().filter(class_record=self).values("pk")
-        return runs.filter(pk__in=open_ids).order_by("-pk").first() or runs.order_by("-pk").first()
+        if len(open_runs) > 1:
+            return max(open_runs, key=lambda run: run.pk)
+        if open_runs:
+            return open_runs[0]
+        upcoming = (
+            ClassOffering.objects.bookable()
+            .filter(class_record=self)
+            .select_related(*related)
+            .prefetch_related(*prefetched)
+            .first()
+        )
+        if upcoming is not None:
+            return upcoming
+        return self.public_runs().select_related(*related).prefetch_related(*prefetched).order_by("-pk").first()
 
-    def times_run(self) -> int:
-        """How many public runs of this class have had a session start."""
+    def times_taught(self) -> int:
+        """How many public runs of this class have already started: the times it was taught before."""
         return self.public_runs().filter(sessions__starts_at__lt=timezone.now()).distinct().count()
 
     @classmethod

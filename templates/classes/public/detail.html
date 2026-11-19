@@ -105,6 +105,8 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
         {# A flexible class reads Flexible first, whatever session rows it still carries. #}
         {% if is_flexible %}
           <span class="cp-detail__next-pill cp-detail__next-pill--flex">Flexible scheduling</span>
+        {% elif several_dates %}
+          {% if next_run.first_upcoming_session_at %}<span class="cp-detail__next-pill" data-next-date>Next date {{ next_run.first_upcoming_session_at|date:"D, M j" }}</span>{% endif %}
         {% elif offering.first_upcoming_session_at %}
           <span class="cp-detail__next-pill">Next session {{ offering.first_upcoming_session_at|date:"D, M j" }}</span>
         {% endif %}
@@ -262,8 +264,8 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
             {% if offering.flexible_note %}<div class="cp-detail__flex-instructor-note">{{ offering.flexible_note|linebreaks }}</div>{% endif %}
           </div>
         </section>
-      {# Schedule — every date for a series (past ones marked), the single date for a one-off. #}
-      {% elif schedule_sessions %}
+      {# Schedule — every date for a series (past ones marked), the single date for a one-off. Several dates list under Upcoming Dates instead (#1260). #}
+      {% elif schedule_sessions and not several_dates %}
         <section class="cp-detail__section">
           {% with total_min=schedule_sessions|total_session_minutes %}
             <h2 class="cp-detail__h2">{% if offering.is_series %}Series Schedule{% else %}Schedule{% endif %}<span class="cp-detail__h2-sub">{% if offering.is_series %} · {{ schedule_sessions|length }} session{{ schedule_sessions|length|pluralize }}{% endif %}{% if total_min %} · {{ total_min|duration_words }} total{% endif %}</span></h2>
@@ -319,7 +321,7 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
 
       {# Every date of this class still open for sign up, each with its own Register and seats (#1260). #}
       {% if sibling_offerings|length > 1 %}
-        <section class="cp-detail__section" data-guidance-target="class.upcoming-dates">
+        <section class="cp-detail__section" id="upcoming-dates" data-guidance-target="class.upcoming-dates">
           <h2 class="cp-detail__h2">Upcoming Dates</h2>
           <ul class="cp-detail__other-dates">
             {% for sibling in sibling_offerings %}
@@ -450,12 +452,13 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
       {% endif %}
       <div class="cp-detail__rail-card">
         <div class="cp-detail__price-row">
-          {% if offering.sale_is_active %}
-            <div class="cp-detail__price--was">{{ offering.price_cents|cents_as_price }}</div>
-            <div class="cp-detail__price">{{ offering.sale_price_cents|cents_as_price }}</div>
-            <div class="cp-detail__sale-note">{{ offering.sale_savings_display }}</div>
+          {# The soonest open date's price when there are several (#1260); otherwise this run's. #}
+          {% if next_run.sale_is_active %}
+            <div class="cp-detail__price--was">{{ next_run.price_cents|cents_as_price }}</div>
+            <div class="cp-detail__price">{{ next_run.sale_price_cents|cents_as_price }}</div>
+            <div class="cp-detail__sale-note">{{ next_run.sale_savings_display }}</div>
           {% else %}
-            <div class="cp-detail__price">{{ offering.price_cents|cents_as_price }}</div>
+            <div class="cp-detail__price">{{ next_run.price_cents|cents_as_price }}</div>
           {% endif %}
         </div>
         {% if not is_bookable %}
@@ -473,6 +476,12 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
           <div class="cp-detail__spots cp-detail__spots--full">Registration unavailable</div>
           <span class="cp-detail__cta cp-detail__cta--disabled" aria-disabled="true" role="button">Registration unavailable</span>
           <div class="cp-detail__waitlist-hint">{{ class_registration_disabled_note }}</div>
+        {% elif several_dates %}
+          {# Each date has its own seats and Register under Upcoming Dates, so the rail picks none (#1260). #}
+          <a class="cp-detail__cta" data-help-key="class.register" data-pick-a-date href="#upcoming-dates">Pick a date</a>
+          {% if next_run.registration_closes_at %}
+            <div class="cp-detail__waitlist-hint" data-registration-closes-at="{{ next_run.registration_closes_at|date:"c" }}">Registration closes {{ next_run.registration_cutoff_hours }} hours before each date starts (next: {{ next_run.registration_closes_at|date:"D, M j, g:i A" }}).</div>
+          {% endif %}
         {% elif is_flexible %}
           {# No seat cap (#545): no count, no sold out, no waitlist; Register now while the class is bookable. #}
           <a class="cp-detail__cta" data-help-key="class.register" href="{% url 'classes:register' slug=offering.slug %}">
@@ -510,7 +519,7 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
             <li><strong>{{ schedule_sessions|length }}</strong> session{{ schedule_sessions|length|pluralize }}</li>
           {% endif %}
           {% if not is_flexible %}<li><strong>{{ offering.capacity }}</strong> max class size</li>{% endif %}
-          {% if times_run %}<li data-times-run data-guidance-target="class.times-run">Run <strong>{{ times_run }}</strong> time{{ times_run|pluralize }}</li>{% endif %}
+          {% if times_taught %}<li data-times-taught data-guidance-target="class.times-taught">Taught <strong>{{ times_taught }}</strong> time{{ times_taught|pluralize }} before</li>{% endif %}
           {% if offering.minimum_signups_at_stake %}<li data-minimum-signups-meta><strong>{{ offering.minimum_signups }}</strong> needed to run</li>{% endif %}
           {% if offering.category %}
             <li><strong>{{ offering.category.name }}</strong></li>

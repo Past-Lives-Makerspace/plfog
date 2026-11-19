@@ -62,14 +62,20 @@ def describe_the_class_page():
 
         assert "Upcoming Dates" not in client.get(_class_path(run)).content.decode()
 
-    def it_says_how_many_times_the_class_has_run(client):
+    def it_says_how_many_times_the_class_was_taught_before(client):
         past = _run("framing-1", days=-30)
         _run("framing-2", days=-60, category=past.category)
         _run("framing-3", days=10, category=past.category)
+        _run("framing-4", days=40, category=past.category)
 
         body = client.get(_class_path(past)).content.decode()
 
-        assert "Run <strong>2</strong> times" in body
+        assert "Taught <strong>2</strong> times before" in body
+
+    def it_says_nothing_of_past_runs_for_a_class_never_taught(client):
+        run = _run("framing-1", days=10)
+
+        assert "data-times-taught" not in client.get(_class_path(run)).content.decode()
 
     def it_is_not_found_while_no_run_is_public(client):
         run = ClassOfferingFactory(title="Draft Class", slug="draft-class-2026")
@@ -150,3 +156,82 @@ def describe_links_to_a_run():
 
         assert response.status_code == 301
         assert response["Location"] == _class_path(run)
+
+
+def describe_a_class_with_several_dates():
+    def _three_dates():
+        soon = _run("framing-1", days=10, price_cents=7000)
+        _run("framing-2", days=30, category=soon.category, capacity=0)
+        _run("framing-3", days=60, category=soon.category, price_cents=9000)
+        return soon
+
+    def it_names_the_soonest_date_in_the_hero(client):
+        soon = _three_dates()
+
+        body = client.get(_class_path(soon)).content.decode()
+
+        first = soon.sessions.get().starts_at
+        assert f"Next date {timezone.localtime(first).strftime('%a, %b')} {timezone.localtime(first).day}" in body
+        assert "Next session" not in body
+
+    def it_drops_the_single_date_schedule_for_the_upcoming_dates(client):
+        soon = _three_dates()
+
+        body = client.get(_class_path(soon)).content.decode()
+
+        assert ">Schedule<" not in body
+        assert 'id="upcoming-dates"' in body
+
+    def it_sends_the_rail_button_to_the_dates_without_a_spots_line(client):
+        soon = _three_dates()
+
+        body = client.get(_class_path(soon)).content.decode()
+
+        assert 'data-pick-a-date href="#upcoming-dates">Pick a date</a>' in body
+        assert "spots available" not in body
+        assert "Register now" not in body
+
+    def it_prices_the_rail_by_the_soonest_date(client):
+        soon = _three_dates()
+
+        response = client.get(_class_path(soon))
+
+        assert response.context["next_run"] == soon
+        assert '<div class="cp-detail__price">$70</div>' in response.content.decode()
+
+    def it_gives_the_soonest_dates_registration_close_in_the_rail(client):
+        soon = _three_dates()
+        ClassOffering.objects.filter(class_record=soon.class_record).update(registration_cutoff_hours=48)
+
+        response = client.get(_class_path(soon))
+
+        closes = timezone.localtime(soon.sessions.get().starts_at - timedelta(hours=48))
+        assert f'data-registration-closes-at="{closes.isoformat()}"' in response.content.decode()
+
+
+def describe_a_class_with_one_date():
+    def it_keeps_the_schedule_the_next_session_and_register_now(client):
+        run = _run("framing-1", days=10)
+        _run("framing-0", days=-30, category=run.category)
+
+        response = client.get(_class_path(run))
+        body = response.content.decode()
+
+        assert response.context["offering"] == run
+        assert "Next session" in body
+        assert ">Schedule<" in body
+        assert "Register now" in body
+        assert "spots available" in body
+        assert "Pick a date" not in body
+
+    def it_books_the_soonest_upcoming_date_when_none_is_open(client):
+        soon = _run("framing-1", days=1, registration_cutoff_hours=48)
+        _run("framing-2", days=2, category=soon.category, registration_cutoff_hours=72)
+
+        assert client.get(_class_path(soon)).context["offering"] == soon
+
+    def it_shows_the_newest_run_once_nothing_is_to_come(client):
+        older = _run("framing-1", days=-60)
+        newer = _run("framing-2", days=-30, category=older.category)
+
+        assert client.get(_class_path(older)).context["offering"] == newer

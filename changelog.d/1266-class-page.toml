@@ -6,12 +6,13 @@ date = "2026-11-19"
 title = "Each class has one page with all its dates"
 changes = [
   "A class now has one page that lists every upcoming date, each with its own Register button, or Join the waitlist when that date is full.",
+  "With several dates, the page shows the next one at the top, and Pick a date takes you to the list.",
   "Old links to a single date of a class, QR codes and links from the old website included, now open the class's page.",
-  "The class page says how many times the class has run.",
+  "The class page says how many times the class was taught before.",
 ]
 
 [[shots]]
 caption = "A class with several dates lists them under Upcoming Dates. Press Register beside the one that works for you."
 
 [[shots]]
-caption = "Beside the price, the page says how many times the class has run."
+caption = "Pick a date takes you to the list, and the page says how many times the class was taught before."

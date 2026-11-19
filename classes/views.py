@@ -497,6 +497,10 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
         "spots_remaining": offering.spots_remaining,
         "related_offerings": related_offerings,
         "sibling_offerings": sibling_offerings,
+        # Several open dates (#1260): the page books through Upcoming Dates, and the soonest of
+        # them speaks for the class in the hero and the rail.
+        "several_dates": len(sibling_offerings) > 1,
+        "next_run": sibling_offerings[0] if len(sibling_offerings) > 1 else offering,
         # The flexible block (#545): the template holds the copy, these hold the facts. The
         # instructor's name is read off the row in the template, so a spec can anchor on it.
         "is_flexible": offering.is_flexible,
@@ -524,8 +528,8 @@ def _class_page_edit_url(request: HttpRequest, offering: ClassOffering) -> str:
 def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     """A class's one permanent page (#1260), or an old run address sent on to it.
 
-    ``slug`` is a class's address first. The page shows its newest public run's description,
-    photos and FAQs, every open run with its own Register, and how many times it has run. A slug
+    ``slug`` is a class's address first; ``ClassRecord.page_run`` picks the run it is built from.
+    It lists every open date with its own Register and how many times the class was taught. A slug
     that is no class's is an old run address: a public run's 301s to its class's page with the
     query string kept, and anything else is a 404, as before.
     """
@@ -534,7 +538,7 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
         offering = record.page_run()
         if offering is None:
             raise Http404("No public run of this class.")
-        return _render_class_page(request, offering, times_run=record.times_run())
+        return _render_class_page(request, offering, times_taught=record.times_taught())
     offering = get_object_or_404(
         ClassOffering.objects.public()
         .select_related("category", "area", "class_record")
@@ -544,10 +548,10 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     if offering.class_record_id:
         query = request.META.get("QUERY_STRING", "")
         return HttpResponsePermanentRedirect(offering.public_path + (f"?{query}" if query else ""))
-    return _render_class_page(request, offering, times_run=0)
+    return _render_class_page(request, offering, times_taught=0)
 
 
-def _render_class_page(request: HttpRequest, offering: ClassOffering, *, times_run: int) -> HttpResponse:
+def _render_class_page(request: HttpRequest, offering: ClassOffering, *, times_taught: int) -> HttpResponse:
     """The public class page for ``offering``, the run whose content it shows."""
     from hub.view_as import ROLE_ADMIN
     from membership.permissions import can_edit_class
@@ -572,7 +576,7 @@ def _render_class_page(request: HttpRequest, offering: ClassOffering, *, times_r
             "is_admin": is_admin,
             "is_instructor": is_instructor,
             "view_as": view_as,
-            "times_run": times_run,
+            "times_taught": times_taught,
         }
     )
     return render(request, "classes/public/detail.html", context)
