@@ -1829,7 +1829,8 @@ class ClassOffering(HeroCropMixin, models.Model):
         """This run's public page: its class's (#1260), or its own until a save files it under one."""
         from django.urls import reverse
 
-        slug = self.class_record.slug if self.class_record_id else self.slug
+        record = self.class_record
+        slug = record.slug if record is not None else self.slug
         return reverse("classes:public_class_detail", kwargs={"slug": slug})
 
     @property
