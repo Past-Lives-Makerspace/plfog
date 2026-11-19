@@ -267,6 +267,9 @@ class Category(HeroCropMixin, models.Model):
             offering._repoint_open_guild_lead_gate()
 
 
+# What the class editors say on the title field when a rename would take another class's name (#1260).
+TITLE_TAKEN_MESSAGE = "Another class in this Class Type is already called {title}. Pick a different name."
+
 # Room left under the 255 character slug column for a Class Type and a number after a class's title.
 _CLASS_SLUG_BASE_LENGTH = 180
 
@@ -455,9 +458,15 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         """
         from core.integrations.eventbrite import EventbriteSync
 
-        return self.filter(eventbrite_sync_state=ClassOffering.EventbriteSyncState.LISTED).update(
-            eventbrite_sync_state=ClassOffering.EventbriteSyncState.PENDING,
-            eventbrite_sync_error=EventbriteSync.EDIT_SAVED,
+        # As the instance method: nothing is queued for a class nobody agreed the rules for (#725),
+        # which ``sync_listing`` would leave pending for ever.
+        return (
+            self.filter(eventbrite_sync_state=ClassOffering.EventbriteSyncState.LISTED)
+            .exclude(eventbrite_rules_agreed_at__isnull=True)
+            .update(
+                eventbrite_sync_state=ClassOffering.EventbriteSyncState.PENDING,
+                eventbrite_sync_error=EventbriteSync.EDIT_SAVED,
+            )
         )
 
     def refile_into_guild_categories(self, assignments: dict[int, int]) -> int:
@@ -1925,6 +1934,8 @@ class ClassOffering(HeroCropMixin, models.Model):
         if update_fields is not None and {"title", "category", "category_id"} & set(update_fields):
             kwargs["update_fields"] = [*update_fields, "grouping_key"]
         self._join_class_record(kwargs)
+        if old is not None and (update_fields is None or {"title", "category", "category_id"} & set(update_fields)):
+            self._refuse_another_classes_title(old.grouping_key)
         # The Adjust tool saves only the four crop columns; the copy it cleared must land too.
         if update_fields is not None and copy_changed:
             kwargs["update_fields"] = [*kwargs["update_fields"], "hero_cropped"]
@@ -1969,6 +1980,34 @@ class ClassOffering(HeroCropMixin, models.Model):
         if "title" in changed:
             others.mark_eventbrite_edit_saved()
         others.update(**changed, grouping_key=self.grouping_key)
+        if "category_id" in changed:
+            # ``update`` skips ``save``, so each moved run in review is re-asked here (#1183).
+            for run in others.filter(status=self.Status.PENDING).select_related("category"):
+                run._repoint_open_guild_lead_gate()
+
+    def clean(self) -> None:
+        """A run may not take a title another class in its Class Type already holds (#1260)."""
+        super().clean()
+        stored_key = type(self)._default_manager.filter(pk=self.pk).values_list("grouping_key", flat=True).first()
+        self._refuse_another_classes_title(stored_key)
+
+    def _refuse_another_classes_title(self, stored_key: str | None) -> None:
+        """Raise when this run's new title, as ``grouping_key`` normalizes it, is another class's in its Class Type.
+
+        Renaming class X to class Y's name would hand X's runs Y's key, and every surface that
+        still groups by key would show and book Y's dates on X's page. So it is refused, here for
+        every save path (admin, import) and through :meth:`clean` on the title field of a form.
+        Only a change of key is checked, so a run whose key is unchanged always saves, and a run
+        with no class yet is not checked: it joins the class holding its key.
+        """
+        from classes.grouping import grouping_key_for
+
+        key = grouping_key_for(self.title, self.category_id)
+        if self.class_record_id is None or not key or key == stored_key:
+            return
+        other = ClassRecord.objects.filter(runs__grouping_key=key).exclude(pk=self.class_record_id).first()
+        if other is not None:
+            raise ValidationError({"title": TITLE_TAKEN_MESSAGE.format(title=other.title)})
 
     def _join_class_record(self, save_kwargs: dict[str, Any]) -> None:
         """File a run with no class under one before it saves, and save the column even on a narrow save."""

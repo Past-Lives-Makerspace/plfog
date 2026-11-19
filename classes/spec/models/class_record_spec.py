@@ -6,6 +6,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory
@@ -227,6 +228,7 @@ def describe_a_renamed_class():
         listed = ClassOfferingFactory(
             title="Make a Cup",
             slug="make-a-cup",
+            eventbrite_enabled=True,
             eventbrite_sync_state=ClassOffering.EventbriteSyncState.LISTED,
         )
         idle = ClassOfferingFactory(title="Make a Cup", slug="make-a-cup-idle", category=listed.category)
@@ -252,3 +254,102 @@ def describe_a_renamed_class():
         first.refresh_from_db()
         assert first.title == "Make a Cup"
         assert ClassRecord.objects.get().title == "Make a Cup"
+
+
+TAKEN = "Another class in this Class Type is already called Wheel Throwing 101. Pick a different name."
+
+
+def describe_a_rename_onto_another_classes_title():
+    def it_is_refused_on_save():
+        ClassOfferingFactory(title="Wheel Throwing 101", slug="wheel-throwing")
+        run = ClassOfferingFactory(
+            title="Hand Building", slug="hand-building", category=ClassRecord.objects.get().category
+        )
+
+        run.title = "wheel throwing 101"
+        with pytest.raises(ValidationError) as refused:
+            run.save()
+
+        assert refused.value.message_dict == {"title": [TAKEN]}
+        run.refresh_from_db()
+        assert run.title == "Hand Building"
+
+    def it_is_refused_by_clean():
+        taken = ClassOfferingFactory(title="Wheel Throwing 101", slug="wheel-throwing")
+        run = ClassOfferingFactory(title="Hand Building", slug="hand-building", category=taken.category)
+
+        run.title = "Wheel Throwing 101"
+        with pytest.raises(ValidationError) as refused:
+            run.clean()
+
+        assert refused.value.message_dict == {"title": [TAKEN]}
+
+    def it_is_refused_when_a_move_lands_on_it():
+        taken = ClassOfferingFactory(title="Wheel Throwing 101", slug="wheel-throwing")
+        run = ClassOfferingFactory(title="Wheel Throwing 101", slug="wheel-elsewhere")
+
+        run.category = taken.category
+        with pytest.raises(ValidationError):
+            run.save(update_fields=["category"])
+
+    def it_allows_a_name_held_only_in_another_class_type():
+        ClassOfferingFactory(title="Wheel Throwing 101", slug="wheel-throwing")
+        run = ClassOfferingFactory(title="Hand Building", slug="hand-building")
+
+        run.title = "Wheel Throwing 101"
+        run.full_clean()
+        run.save()
+
+        assert ClassRecord.objects.count() == 2
+
+    def it_allows_a_rename_that_keeps_the_same_name():
+        run = ClassOfferingFactory(title="Wheel throwing 101", slug="wheel-throwing")
+
+        run.title = "Wheel Throwing 101!"
+        run.full_clean()
+        run.save()
+
+        assert ClassRecord.objects.get().title == "Wheel Throwing 101!"
+
+
+def describe_a_renamed_class_listed_before_the_eventbrite_rules():
+    def it_is_not_queued():
+        old = ClassOfferingFactory(
+            title="Make a Cup",
+            slug="make-a-cup",
+            eventbrite_sync_state=ClassOffering.EventbriteSyncState.LISTED,
+        )
+        ClassOffering.objects.filter(pk=old.pk).update(eventbrite_rules_agreed_at=None)
+        edited = ClassOfferingFactory(title="Make a Cup", slug="make-a-cup-run", category=old.category)
+
+        edited.title = "Make a Mug"
+        edited.save()
+
+        old.refresh_from_db()
+        assert old.eventbrite_sync_state == ClassOffering.EventbriteSyncState.LISTED
+
+
+def describe_a_class_moved_while_a_run_is_in_review():
+    def it_re_asks_the_new_guild_for_the_run_in_review():
+        from classes.factories import UserFactory
+        from classes.models import ClassApproval
+        from membership.models import Member
+        from tests.membership.factories import GuildFactory
+
+        def lead(email: str) -> Member:
+            return Member.objects.get(user=UserFactory(username=email, email=email))
+
+        old_guild = GuildFactory(name="Woodshop", guild_lead=lead("old-lead@example.com"))
+        new_guild = GuildFactory(name="Leather", guild_lead=lead("new-lead@example.com"))
+        old_type, new_type = CategoryFactory(guild=old_guild), CategoryFactory(guild=new_guild)
+        live = ClassOfferingFactory(title="Forge Night", slug="forge-1", category=old_type)
+        pending = ClassOfferingFactory(
+            title="Forge Night", slug="forge-2", category=old_type, ready=True, status=ClassOffering.Status.DRAFT
+        )
+        (old_gate,) = pending.submit_for_review()
+
+        live.category = new_type
+        live.save()
+
+        assert not ClassApproval.objects.filter(pk=old_gate.pk).exists()
+        assert pending.approvals.get(role=ClassApproval.Role.GUILD_LEAD, decision="").opened_for_guild == new_guild
