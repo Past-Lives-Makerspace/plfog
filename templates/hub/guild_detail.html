@@ -4,6 +4,9 @@
 {% load membership_md %}
 {% load hub_tags %}
 {% block title %}{{ guild.name }}{% endblock %}
+{# On the guilds host the page's one address is its guest page there; the guilds base carries the one description (#1259). #}
+{% block canonical %}{% if is_guilds_surface %}<link rel="canonical" href="{{ GUILDS_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}">{% else %}{{ block.super }}{% endif %}{% endblock %}
+{% block meta_description %}{{ guild.about|striptags|truncatewords:30|default:'A guild at Past Lives Makerspace in Portland, OR.' }}{% endblock %}
 
 {% block extra_head %}{{ block.super }}
 <link rel="stylesheet" href="{% static 'css/calendar.css' %}">
@@ -17,14 +20,12 @@
 {% if show_polls_tab %}<link rel="stylesheet" href="{% static 'css/polls.css' %}">{% endif %}
 {% if cubby_tab %}<link rel="stylesheet" href="{% static 'css/cubbies.css' %}">{% endif %}
 {% if is_guilds_surface %}{# ── OG / SEO — only where the guild link is shared publicly ── #}
-<link rel="canonical" href="{{ GUILDS_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}">
 <meta property="og:type" content="website">
 <meta property="og:title" content="{{ guild.name }} — Past Lives Guilds">
 <meta property="og:description" content="{{ guild.about|striptags|truncatewords:30|default:'A guild at Past Lives Makerspace in Portland, OR.' }}">
 <meta property="og:url" content="{{ GUILDS_BASE_URL }}{% url 'hub_guild_detail' guild.slug %}">
 <meta property="og:image" content="{% if guild.banner_image %}{{ guild.banner_image.url }}{% else %}{{ GUILDS_BASE_URL }}{% static 'img/og-guild-default.png' %}{% endif %}">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="description" content="{{ guild.about|striptags|truncatewords:30|default:'A guild at Past Lives Makerspace in Portland, OR.' }}">
 {% endif %}{% endblock %}
 
 {% block content %}

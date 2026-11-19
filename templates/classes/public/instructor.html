@@ -2,6 +2,7 @@
 {% load classes_tags %}
 
 {% block title %}{{ instructor.public_name }} — Past Lives Makerspace{% endblock %}
+{% block meta_description %}{% if instructor.instructor_bio %}{{ instructor.instructor_bio|striptags|truncatechars:160 }}{% else %}Classes taught by {{ instructor.public_name }} at Past Lives Makerspace in Portland, OR.{% endif %}{% endblock %}
 
 {% block portal_content %}
 <div class="view">

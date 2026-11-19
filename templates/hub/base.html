@@ -1,4 +1,4 @@
-{% load static hub_tags guidance %}
+{% load static hub_tags guidance seo %}
 {% static 'img/favicon.png' as fallback_logo %}
 <!DOCTYPE html>
 <html lang="en" data-pl-user="{% if user.is_authenticated %}{{ user.pk }}{% endif %}">
@@ -7,7 +7,12 @@
     {% if is_framed %}<base target="_top">{% endif %}{# The framed class preview (#1217): a click opens its page in the whole window, never inside the frame. #}
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="{{ brand_primary_color }}">
-    <title>{% block title %}Member View{% endblock %} - {{ brand_short_name }}</title>
+    {# The brand once and at most 60 characters (#1259, core.seo.page_title); a page fills only its own title. #}
+    <title>{% filter page_title:brand_short_name %}{% block title %}Member View{% endblock %}{% endfilter %}</title>
+    {# One address per page, on its own host (#1259); a page that belongs at another address overrides the block. #}
+    {% block canonical %}<link rel="canonical" href="{% canonical_url %}">{% endblock %}
+    {# A page search engines should leave out puts <meta name="robots" content="noindex"> here. #}
+    {% block robots %}{% endblock %}
     <link rel="icon" type="image/png" href="{% firstof brand_logo_url fallback_logo %}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'css/hub.css' %}">

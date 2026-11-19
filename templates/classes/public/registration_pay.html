@@ -2,6 +2,7 @@
 {% load classes_tags %}
 
 {% block title %}Complete your payment — {{ offering.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}{# A transactional page, never a search result (#1259). #}
 
 {% block portal_content %}
 <div class="view">

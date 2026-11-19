@@ -255,13 +255,23 @@ def _apply_browse_filters(qs: Any, request: HttpRequest) -> Any:
 
 
 def public_list(request: HttpRequest) -> HttpResponse:
-    """Public portal — hero + sticky category filter + grouped class cards.
+    """Public portal — hero + sticky category filter + grouped class cards."""
+    return _catalog(request, class_type=None)
+
+
+def _catalog(request: HttpRequest, *, class_type: Category | None) -> HttpResponse:
+    """The catalog, or one Class Type's page of it when ``class_type`` is given.
 
     Supports HTMX partial swaps: when the request carries an ``HX-Request``
     header, returns just the results grid so the filter form can update the
     page in place without a full reload. The querystring is the source of
-    truth for filter state; ``hx-push-url`` keeps the URL shareable.
+    truth for filter state; ``hx-push-url`` keeps the URL shareable. Any filter
+    beyond the page number (and a Class Type page's own category) marks the
+    page ``is_filtered``, which search engines are told to leave out (#1259).
     """
+    filters = set(request.GET) - {"page"}
+    if class_type is not None:
+        filters.discard("category")
     settings_obj = ClassSettings.load()
 
     from membership.models import Guild
@@ -376,6 +386,8 @@ def public_list(request: HttpRequest) -> HttpResponse:
         # stay stable while the live "Classes" count tracks the current filter.
         "total_instructors": len(instructors_for_filter),
         "total_categories": len(categories),
+        "class_type": class_type,
+        "is_filtered": bool(filters),
     }
 
     if is_htmx:
@@ -389,7 +401,7 @@ def public_category(request: HttpRequest, slug: str) -> HttpResponse:
     mutable_get = request.GET.copy()
     mutable_get["category"] = category.slug
     request.GET = mutable_get  # type: ignore[assignment]  # .copy() returns a mutable QueryDict; stub types the attr immutable
-    return public_list(request)
+    return _catalog(request, class_type=category)
 
 
 def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict[str, Any]:

@@ -1,8 +1,10 @@
 {% extends "classes/base_public.html" %}
-{% load classes_tags rich_text static %}
+{% load classes_tags rich_text seo static %}
 
 {% block title %}{{ offering.seo_title }}{% endblock %}
 {% block meta_description %}{{ offering.seo_description }}{% endblock %}
+{# A class that has ended stays reachable but out of search (#1259); a class to come carries Event data and Open Graph tags. #}
+{% block robots %}{% if not offering.is_indexable %}<meta name="robots" content="noindex">{% endif %}{% endblock %}
 
 {% comment %}
 The Share button's platform decision (Capacitor plugin, navigator.share, or the menu) and
@@ -12,6 +14,12 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
 {% endcomment %}
 {% block classes_extra_head %}
 <script defer src="{% static 'js/class_share.js' %}"></script>
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{ offering.seo_title }}">
+<meta property="og:description" content="{{ offering.seo_description }}">
+<meta property="og:url" content="{% canonical_url %}">
+{% if offering.card_photo_url %}<meta property="og:image" content="{{ offering.card_photo_url|absolute_url:request }}">{% endif %}
+{% if offering.is_indexable %}{% with event=offering.event_json_ld %}{% if event %}<script type="application/ld+json">{{ event|json_ld }}</script>{% endif %}{% endwith %}{% endif %}
 {% endblock %}
 
 {% block portal_content %}
