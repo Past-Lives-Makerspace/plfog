@@ -671,7 +671,8 @@
 
     {% if version_card and not request.GET.public and not is_guest_surface and not is_framed %}
     {% include "components/modal.html" with modal_id="spotlight-expanded" modal_title="Spotlight" modal_size="lg" modal_body_include="hub/partials/_spotlight_expanded.html" %}
-    {% else %}
+    {% elif user.is_authenticated %}
+    {# Signed out pages carry no changelog (#1259): nothing on them opens it, and it was 90% of a class page. #}
     {% include "includes/changelog_modal.html" %}
     {% endif %}
     {% if show_welcome_modal %}{% include "includes/welcome_modal.html" %}{% endif %}

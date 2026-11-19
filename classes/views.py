@@ -543,11 +543,13 @@ def legacy_class_page(request: HttpRequest, alias: str) -> HttpResponse:
 
     The old site's address now serves this app, so Discord posts, flyers and search results
     that point at a Drupal class page land here. A class that is no longer listed, or never
-    came across, goes to the catalog instead of a dead page.
+    came across, answers 410 Gone (#1259): a redirect to the catalog reads to a search engine
+    as a soft 404, and Gone tells it to drop the old page. A visitor still gets the themed
+    not found page, with its way to the catalog.
     """
     offering = ClassOffering.objects.public().for_legacy_alias(alias)
     if offering is None:
-        return redirect("classes:public_list", permanent=True)
+        return render(request, "404.html", status=410)
     return redirect("classes:public_class_detail", slug=offering.slug, permanent=True)
 
 

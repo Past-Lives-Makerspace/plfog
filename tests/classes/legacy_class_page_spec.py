@@ -1,7 +1,8 @@
 """BDD specs for old class links from the Drupal site that lived at classes.pastlives.space.
 
 That address now serves this app, so ``/class/<alias>`` (Discord posts, flyers, search results)
-forwards to the class imported from that page, or to the catalog when there is none to show.
+forwards to the class imported from that page, or answers 410 Gone when there is none to show
+(#1259): a redirect to the catalog read to a search engine as a soft 404.
 """
 
 from __future__ import annotations
@@ -51,16 +52,15 @@ def describe_old_class_page_link():
     def it_does_not_claim_a_class_written_here_with_the_same_name(client: Client):
         _listed(slug="sewing-pattern")
         response = _get(client, "/class/sewing-pattern")
-        assert response.status_code == 301
-        assert response["Location"] == "/classes/"
+        assert response.status_code == 410
 
     @override_settings(**ON_CLASS_SITE)
-    def it_sends_a_class_that_is_no_longer_listed_to_the_catalog(client: Client):
+    def it_answers_gone_for_a_class_that_is_no_longer_listed(client: Client):
         ClassOfferingFactory(legacy_cms_id="node-abc", slug="sewing-pattern", status=ClassOffering.Status.ARCHIVED)
-        assert _get(client, "/class/sewing-pattern")["Location"] == "/classes/"
+        assert _get(client, "/class/sewing-pattern").status_code == 410
 
     @override_settings(**ON_CLASS_SITE)
-    def it_sends_an_unknown_class_to_the_catalog(client: Client):
+    def it_answers_gone_for_an_unknown_class_with_a_way_to_the_catalog(client: Client):
         response = _get(client, "/class/never-existed")
-        assert response.status_code == 301
-        assert response["Location"] == "/classes/"
+        assert response.status_code == 410
+        assert 'href="/classes/"' in response.content.decode()
