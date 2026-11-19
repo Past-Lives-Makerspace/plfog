@@ -24,9 +24,13 @@ _Avoid_: about me, instructor about.
 The home "Get started" checklist a new Member works through (`Member.onboarding` / `OnboardingChecklist`) — finish your profile, join a guild, etc. It is a checklist of **links**, not a questionnaire. (An older book-CMS 3-step question wizard that collected signup answers was retired; "onboarding" no longer refers to that.)
 _Avoid_: onboarding wizard, onboarding questions, onboarding form.
 
+**Class**:
+One class across every date it runs (`classes.ClassRecord`, #1260): one permanent address under `/classes/`, its title and its Class Type. Run it again and splitting dates add a run to the same class; Duplicate starts a new one. Editing a run's title or Class Type edits the class and every run of it.
+_Avoid_: "class record" in member-facing copy (it is the class); "course".
+
 **Class offering**:
-One scheduled instance of a class (`classes.ClassOffering`) — a specific run with its own date(s), capacity, and slug. A class taught repeatedly produces many offerings ("runs") over time; each is a distinct offering with a distinct URL.
-_Avoid_: using bare "class" for both the abstract class and a single dated run — a run is an offering. Never "workshop" in user-facing copy: everything a member hosts or books is a class ("Host a Class", not "Host a Workshop").
+One scheduled instance of a class (`classes.ClassOffering`), called a "run": its own date(s), capacity, price, registrations and payouts, belonging to one **Class**. Its slug stays unique; the class's address replaces it as the public page (ADR 0005).
+_Avoid_: using bare "class" for a single dated run; a run is an offering. Never "workshop" in user-facing copy: everything a member hosts or books is a class ("Host a Class", not "Host a Workshop").
 
 **Contact**:
 A labeled contact method on a Member — `{label, value}` (e.g. "Booking email" → an address) with per-surface placement toggles (show in the member directory and/or on the instructor page). One list per Member; absorbs the old fixed website/social/other-contact fields. `phone` and `discord` remain first-class fields, not Contacts.

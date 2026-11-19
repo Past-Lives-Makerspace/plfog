@@ -1,5 +1,7 @@
 # Recurring-class slugs are date-stamped, for new offerings only
 
+Superseded by [0005](0005-one-permanent-page-per-class.md): a class has one permanent address; a run's slug is no longer a public page.
+
 **Context.** The same class recurs often (same title, different dates), so title-only slugs collide, and the existing bare `-2/-3` collision suffix is meaningless to a human reading the URL.
 
 **Decision.** A new class offering's slug is `slugify(title)-YYYY-MM-DD`, where the date is the offering's first session date; a same-day collision falls back to a `-2` tiebreak. Full date — not month+year — because a class can recur several times within one month. Auto-generated on **both** the teach and admin create forms (the admin form previously let the slug be hand-typed, which is where collisions slipped in). Applied to **new offerings only** — existing offerings keep their current slugs, so no already-indexed URL changes or 404s.

@@ -16,6 +16,7 @@ from urllib.parse import urljoin
 
 from django.conf import settings
 from django.core.files.base import ContentFile
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.html import strip_tags
@@ -265,7 +266,13 @@ def sync_legacy_cms() -> int:
         data = _fetch_json(next_url)
 
         for item in data.get("data") or []:
-            node_id = _upsert_offering(item)
+            try:
+                node_id = _upsert_offering(item)
+            except ValidationError as refused:
+                # A title another class in its Class Type holds is refused (#1260): skip the row,
+                # keep it out of the archive sweep below, and carry on with the night's import.
+                node_id = item.get("id") or None
+                logger.warning("Legacy CMS sync skipped node %s: %s", node_id, "; ".join(refused.messages))
             if node_id:
                 seen_ids.append(node_id)
 

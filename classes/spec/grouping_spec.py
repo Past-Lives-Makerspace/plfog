@@ -7,7 +7,7 @@ from classes.factories import (
     ClassOfferingFactory,
     RegistrationFactory,
 )
-from classes.grouping import admin_group_rows, grouping_key_for, regroup_offerings
+from classes.grouping import admin_group_rows, catalog_key, grouped_catalog, grouping_key_for, regroup_offerings
 from classes.models import ClassOffering, Registration
 
 
@@ -48,6 +48,43 @@ def describe_class_offering_save():
             offering.save(update_fields=["capacity"])
             offering.refresh_from_db()
             assert offering.grouping_key == original_key
+
+
+def describe_catalog_key():
+    def it_is_the_runs_class(db):
+        run = ClassOfferingFactory(title="Pottery")
+        assert catalog_key(run) == f"class:{run.class_record_id}"
+
+    def it_falls_back_to_the_grouping_key_for_a_run_with_no_class(db):
+        run = ClassOfferingFactory(title="Pottery")
+        run.class_record_id = None
+        assert catalog_key(run) == run.grouping_key
+
+    def it_stands_alone_with_neither(db):
+        run = ClassOfferingFactory(title="Pottery")
+        run.class_record_id = None
+        run.grouping_key = ""
+        assert catalog_key(run) == f"solo:{run.pk}"
+
+
+def describe_grouped_catalog():
+    def it_puts_every_run_of_a_class_on_one_card_whatever_their_keys(db):
+        first = ClassOfferingFactory(title="Pottery", slug="pottery-1")
+        second = ClassOfferingFactory(title="Pottery", slug="pottery-2", category=first.category)
+        ClassOffering.objects.filter(pk=second.pk).update(grouping_key="drifted")
+
+        groups = grouped_catalog(ClassOffering.objects.order_by("pk"))
+
+        assert [[run.pk for run in group.members] for group in groups] == [[first.pk, second.pk]]
+
+    def it_keeps_two_classes_apart_even_on_one_key(db):
+        first = ClassOfferingFactory(title="Pottery", slug="pottery-1")
+        other = ClassOfferingFactory(title="Glazing", slug="glazing", category=first.category)
+        ClassOffering.objects.filter(pk=other.pk).update(grouping_key=first.grouping_key)
+
+        groups = grouped_catalog(ClassOffering.objects.order_by("pk"))
+
+        assert len(groups) == 2
 
 
 def describe_regroup_offerings():

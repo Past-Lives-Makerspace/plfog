@@ -48,12 +48,23 @@ class CatalogGroup:
         return len(self.members) > 1
 
 
+def catalog_key(offering: Any) -> str:
+    """The card a run shows on: its class (#1260).
+
+    A run with no class yet (saved by the release before #1260 during a deploy, until its next
+    save files it) falls back to its grouping key, and a run with neither stands alone.
+    """
+    if offering.class_record_id:
+        return f"class:{offering.class_record_id}"
+    return offering.grouping_key or f"solo:{offering.pk}"
+
+
 def grouped_catalog(offerings: Any) -> list[CatalogGroup]:
-    """Collapse offerings sharing a grouping key into one card, preserving order."""
+    """Collapse the runs of one class into one card, preserving order."""
     groups: dict[str, CatalogGroup] = {}
     order: list[str] = []
     for offering in offerings:
-        key = offering.grouping_key or f"solo:{offering.pk}"
+        key = catalog_key(offering)
         group = groups.get(key)
         if group is None:
             groups[key] = CatalogGroup(offering)

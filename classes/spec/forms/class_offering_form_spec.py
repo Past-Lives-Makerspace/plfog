@@ -374,3 +374,16 @@ def describe_TeachClassOfferingForm_slug_collision():
         offering = form.save()
         assert offering.slug != "studio-demo"
         assert offering.slug.startswith("studio-demo")
+
+
+def describe_a_title_another_class_holds():
+    def it_shows_on_the_title_field(form_class):
+        taken = ClassOfferingFactory(title="Wheel Throwing 101", slug="wheel-throwing")
+        run = ClassOfferingFactory(title="Hand Building", slug="hand-building", category=taken.category)
+
+        form = _form(form_class, instance=run, title="Wheel Throwing 101", category=str(taken.category_id))
+
+        assert not form.is_valid()
+        assert form.errors["title"] == [
+            "Another class in this Class Type is already called Wheel Throwing 101. Pick a different name."
+        ]

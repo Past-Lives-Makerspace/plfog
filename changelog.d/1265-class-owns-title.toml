@@ -1,0 +1,9 @@
+bump = "minor"
+audience = ["instructors", "admins"]
+feature = "classes.teach"
+date = "2026-11-19"
+title = "A class keeps one name across all its dates"
+changes = [
+  "Renaming a class, or moving it to another Class Type, now changes every date of that class at once, past and upcoming, so the catalog keeps it on one card.",
+  "Dates already listed on Eventbrite send the new name there within 15 minutes.",
+]

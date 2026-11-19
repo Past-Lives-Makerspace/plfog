@@ -83,3 +83,24 @@ def describe_run_picker():
 
         assert response.context["run_options"] == []
         assert 'id="reg-run-select"' not in response.content.decode()
+
+
+def describe_which_runs_the_picker_offers():
+    def it_offers_every_run_of_the_class_whatever_their_keys(group):
+        from classes.views import _bookable_run_options
+
+        sep = _run(group, "bs-sep", 7)
+        oct_run = _run(group, "bs-oct", 40)
+        ClassOffering.objects.filter(pk=oct_run.pk).update(grouping_key="drifted")
+
+        assert {run.pk for run in _bookable_run_options(sep)} == {sep.pk, oct_run.pk}
+
+    def it_offers_runs_by_grouping_key_for_a_run_with_no_class(group):
+        from classes.views import _bookable_run_options
+
+        sep = _run(group, "bs-sep", 7)
+        oct_run = _run(group, "bs-oct", 40)
+        ClassOffering.objects.filter(pk__in=[sep.pk, oct_run.pk]).update(class_record=None)
+        sep.refresh_from_db()
+
+        assert {run.pk for run in _bookable_run_options(sep)} == {sep.pk, oct_run.pk}
