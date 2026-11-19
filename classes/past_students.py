@@ -176,7 +176,6 @@ class ClassCard:
     @classmethod
     def for_offering(cls, offering: ClassOffering) -> ClassCard:
         """Read the card off ``offering`` now: its photo, short description, next date, price and page."""
-        from django.urls import reverse
         from django.utils import timezone
         from django.utils.formats import date_format
 
@@ -199,7 +198,7 @@ class ClassCard:
             when=when,
             price=cents_as_price(offering.sale_price_cents),
             image_url=member_absolute_url(image_url),
-            url=book_absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})),
+            url=book_absolute_url(offering.public_path),
         )
 
     def html(self) -> str:

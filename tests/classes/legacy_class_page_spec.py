@@ -32,21 +32,22 @@ def _get(client: Client, path: str):
 def describe_old_class_page_link():
     @override_settings(**ON_CLASS_SITE)
     def it_forwards_to_the_class_imported_from_that_page(client: Client):
-        _listed(legacy_cms_id="node-abc", slug="sewing-pattern")
+        _listed(legacy_cms_id="node-abc", slug="sewing-pattern", title="Sewing Pattern")
         response = _get(client, "/class/sewing-pattern")
         assert response.status_code == 301
         assert response["Location"] == "/classes/sewing-pattern/"
 
     @override_settings(**ON_CLASS_SITE)
     def it_accepts_a_trailing_slash(client: Client):
-        _listed(legacy_cms_id="node-abc", slug="sewing-pattern")
+        _listed(legacy_cms_id="node-abc", slug="sewing-pattern", title="Sewing Pattern")
         assert _get(client, "/class/sewing-pattern/")["Location"] == "/classes/sewing-pattern/"
 
     @override_settings(**ON_CLASS_SITE)
     def it_finds_a_class_whose_name_was_taken_here_first(client: Client):
         _listed(slug="sewing-pattern")
-        _listed(legacy_cms_id="node-abc", slug="sewing-pattern-legacy")
-        assert _get(client, "/class/sewing-pattern")["Location"] == "/classes/sewing-pattern-legacy/"
+        imported = _listed(legacy_cms_id="node-abc", slug="sewing-pattern-legacy")
+        # The imported run's class page (#1260), whatever address that class has.
+        assert _get(client, "/class/sewing-pattern")["Location"] == imported.public_path
 
     @override_settings(**ON_CLASS_SITE)
     def it_does_not_claim_a_class_written_here_with_the_same_name(client: Client):

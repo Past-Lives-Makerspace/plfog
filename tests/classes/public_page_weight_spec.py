@@ -26,7 +26,7 @@ def _hosts(settings) -> None:
 
 @pytest.fixture
 def offering() -> ClassOffering:
-    offering = ClassOfferingFactory(slug="forge-basics", status=ClassOffering.Status.PUBLISHED)
+    offering = ClassOfferingFactory(title="Forge Basics", slug="forge-basics", status=ClassOffering.Status.PUBLISHED)
     start = timezone.now() + timedelta(days=5)
     ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
     return offering

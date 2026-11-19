@@ -230,7 +230,7 @@ def _class_slides(config: SiteConfiguration, default: int) -> list[SignageSlideV
     sessions = (
         ClassSession.objects.upcoming_public()
         .filter(starts_at__lt=horizon)
-        .select_related("class_offering")
+        .select_related("class_offering__class_record")
         .order_by("starts_at")
     )
     seen: set[int] = set()

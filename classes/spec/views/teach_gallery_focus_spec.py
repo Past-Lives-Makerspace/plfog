@@ -210,7 +210,7 @@ def describe_the_class_page_gallery():
         offering = _published(instructor_fixture, gallery=0, slug="focus-page")
         ClassImageFactory(class_offering=offering, sort_order=0, focus_x=7, focus_y=91)
         ClassImageFactory(class_offering=offering, sort_order=1)
-        html = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        html = client.get(offering.public_path).content.decode()
         mains = re.findall(r'<img class="cls-gallery__img"[^>]*style="object-position: ([^"]+)"', html)
         thumbs = re.findall(
             r'<button type="button"\s+class="cls-gallery__thumb".*?<img[^>]*style="object-position: ([^"]+)"',
@@ -224,7 +224,7 @@ def describe_the_class_page_gallery():
         offering = _published(instructor_fixture, gallery=0, slug="cover-page")
         later = ClassImageFactory(class_offering=offering, sort_order=5, alt_text="Second shot")
         cover = ClassImageFactory(class_offering=offering, sort_order=0, alt_text="Cover shot")
-        html = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        html = client.get(offering.public_path).content.decode()
         first_slide = re.search(r'data-slide-index="0"\s+data-slide-src="[^"]*"\s+data-slide-alt="([^"]*)"', html)
         assert first_slide is not None
         assert first_slide.group(1) == cover.alt_text

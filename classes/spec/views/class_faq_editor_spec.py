@@ -427,7 +427,7 @@ def describe_public_faq_rendering():
         return offering
 
     def it_shows_the_locked_then_the_default_questions_when_the_class_has_none(published, client):
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published.slug}))
+        response = client.get(published.public_path)
         body = response.content.decode()
         positions = [body.index(escape(faq["question"])) for faq in [*LOCKED_CLASS_FAQS, *DEFAULT_CLASS_FAQS]]
         assert positions == sorted(positions)
@@ -435,7 +435,7 @@ def describe_public_faq_rendering():
     def it_shows_the_classes_own_questions_instead_of_the_defaults_after_the_locked_ones(published, client):
         ClassFaqFactory(class_offering=published, question="Can I bring my dog?", answer="Sadly no.")
         ClassFaqFactory(class_offering=published, question=LOCKED_CLASS_FAQS[1]["question"], answer="Stale copy.")
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published.slug}))
+        response = client.get(published.public_path)
         body = response.content.decode()
         assert body.index(escape(LOCKED_CLASS_FAQS[1]["question"])) < body.index("Can I bring my dog?")
         assert body.count(escape(LOCKED_CLASS_FAQS[1]["question"])) == 1
@@ -448,7 +448,7 @@ def describe_public_faq_rendering():
             question="Who do I email?",
             answer="Reach us at info@pastlives.space anytime.",
         )
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published.slug}))
+        response = client.get(published.public_path)
         assert b'href="mailto:info@pastlives.space"' in response.content
 
 
@@ -465,11 +465,11 @@ def describe_rail_gallery():
 
     def it_renders_the_gallery_above_the_booking_card_when_shots_exist(published, client):
         ClassImageFactory(class_offering=published, image=_image_file("g1.png"))
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published.slug}))
+        response = client.get(published.public_path)
         body = response.content.decode()
         assert "cp-detail__rail-gallery" in body
         assert body.index("cp-detail__rail-gallery") < body.index("cp-detail__rail-card")
 
     def it_omits_the_gallery_section_without_gallery_shots(published, client):
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published.slug}))
+        response = client.get(published.public_path)
         assert b"cp-detail__rail-gallery" not in response.content

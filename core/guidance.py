@@ -409,8 +409,8 @@ _GUIDANCE_LIST = (
         help_key="class.register",
         steps=(
             "Open Classes in the sidebar to browse every class you can book.",
-            "A class with several dates lists each date as its own run. Pick the date that works for you.",
-            "Register from the class page.",
+            "A class with several dates lists them all on its page under Upcoming Dates.",
+            "Press Register beside the date that works for you.",
         ),
     ),
     Guidance(

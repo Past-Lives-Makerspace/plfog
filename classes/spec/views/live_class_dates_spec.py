@@ -289,7 +289,7 @@ def describe_sending_the_notices():
         (sent,) = _to("links@example.com")
         html = sent.alternatives[0][0]
         for body in (sent.body, html):
-            assert reverse("classes:public_class_detail", kwargs={"slug": offering.slug}) in body
+            assert offering.public_path in body
             assert reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}) in body
         assert "Can't make the new dates?" in sent.body
         for dash in ("—", "–", " - "):

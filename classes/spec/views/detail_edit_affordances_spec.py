@@ -41,7 +41,7 @@ def _published_with_session(**kwargs):
 
 
 def _detail(client, offering):
-    return client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+    return client.get(offering.public_path)
 
 
 def describe_detail_edit_affordances():

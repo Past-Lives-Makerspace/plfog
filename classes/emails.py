@@ -71,7 +71,7 @@ def send_registration_confirmation(registration: "Registration") -> None:
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
     self_serve_path = reverse("classes:my_registration", kwargs={"token": registration.self_serve_token})
     self_serve_url = _absolute_url(self_serve_path)
-    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+    class_url = offering.public_url
     template_context = {
         "registration": registration,
         "offering": offering,
@@ -111,7 +111,7 @@ def send_registration_confirmation(registration: "Registration") -> None:
 def _welcome_email_bodies(offering: "ClassOffering", *, greeting_name: str, self_serve_url: str) -> tuple[str, str]:
     """Render the (text, html) bodies for an instructor's welcome email."""
     upcoming_sessions = list(offering.sessions.filter(starts_at__gte=timezone.now()).order_by("starts_at"))
-    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+    class_url = offering.public_url
     context = {
         "offering": offering,
         "greeting_name": greeting_name,
@@ -186,7 +186,7 @@ def emit_instructor_new_registration(registration: "Registration") -> None:
     template_context = {
         "registration": registration,
         "offering": offering,
-        "class_url": _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})),
+        "class_url": offering.public_url,
         "manage_url": manage_url,
         "amount_paid": f"{registration.amount_paid_cents / 100:.2f}",
         "spots_filled": offering.seats_taken,
@@ -228,7 +228,7 @@ def send_admin_registration_notification(registration: "Registration") -> None:
     from core.events.senders import emit_flat_email
 
     offering = registration.class_offering
-    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+    class_url = offering.public_url
     subject = f"[Classes] New registration: {registration.first_name} {registration.last_name} — {offering.title}"
     minimum_line = f"Needs {offering.minimum_signups} confirmed to run.\n" if offering.minimum_signups_at_stake else ""
     body = (
@@ -485,10 +485,10 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
     # so the resolver finds nobody and no in-app row is created.
     if fully_approved:
         subject = f"Your class '{offering.title}' is live!"
-        public_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        public_url = offering.public_url
         edit_url = public_url
         event_key = "instructor_class_approved"
-        in_app_title, in_app_body, in_app_url = "Your class was approved", offering.title, f"/classes/{offering.slug}/"
+        in_app_title, in_app_body, in_app_url = "Your class was approved", offering.title, offering.public_path
         resolver_instructors: "list[Member]" = instructors
     elif row.decision == ClassApproval.Decision.CHANGES_REQUESTED:
         subject = f"Changes requested on '{offering.title}'"
@@ -498,7 +498,7 @@ def send_class_review_decision(offering: "ClassOffering", row: "ClassApproval") 
         in_app_title, in_app_body, in_app_url = (
             "Changes requested on your class",
             offering.title,
-            f"/classes/{offering.slug}/",
+            offering.public_path,
         )
         resolver_instructors = instructors
     else:  # DENIED
@@ -543,7 +543,7 @@ def send_waitlist_joined_confirmation(registration: "Registration") -> None:
 
     offering = registration.class_offering
     self_serve_url = _absolute_url(reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}))
-    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+    class_url = offering.public_url
     template_context = {
         "registration": registration,
         "offering": offering,
@@ -585,7 +585,7 @@ def send_waitlist_spot_opened(registration: "Registration") -> None:
     register_url = _absolute_url(
         reverse("classes:register", kwargs={"slug": offering.slug}) + f"?waitlist_token={registration.self_serve_token}"
     )
-    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+    class_url = offering.public_url
     settings_obj = ClassSettings.load()
     template_context = {
         "registration": registration,
@@ -619,7 +619,7 @@ def _promoted_template_context(registration: "Registration") -> dict[str, object
         "registration": registration,
         "offering": offering,
         "upcoming_sessions": upcoming_sessions,
-        "class_url": _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})),
+        "class_url": offering.public_url,
         "self_serve_url": _absolute_url(
             reverse("classes:my_registration", kwargs={"token": registration.self_serve_token})
         ),
@@ -727,7 +727,7 @@ def send_removal_notice(registration: "Registration", *, was_waitlisted: bool) -
         "was_waitlisted": was_waitlisted,
         "show_refund_note": not was_waitlisted and registration.amount_paid_cents > 0,
         "amount_paid_dollars": f"{registration.amount_paid_cents / 100:.2f}",
-        "class_url": _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})),
+        "class_url": offering.public_url,
         "browse_url": _absolute_url(reverse("classes:public_list")),
     }
     emit_with_email_shell(
@@ -773,7 +773,7 @@ def send_registration_moved(registration: "Registration", *, source: "ClassOffer
         "offering": offering,
         "source": source,
         "upcoming_sessions": upcoming_sessions,
-        "class_url": _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})),
+        "class_url": offering.public_url,
         "self_serve_url": _absolute_url(
             reverse("classes:my_registration", kwargs={"token": registration.self_serve_token})
         ),
@@ -820,7 +820,7 @@ def send_new_dates(registration: "Registration", *, before: list[str], after: li
         "offering": offering,
         "before": before,
         "after": after,
-        "class_url": _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})),
+        "class_url": offering.public_url,
         "self_serve_url": _absolute_url(self_serve_path),
         "is_waitlisted": registration.status == registration.Status.WAITLISTED,
     }
@@ -925,7 +925,7 @@ def send_registration_resume_link(registration: "Registration") -> None:
     """
     self_serve_url = _absolute_url(reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}))
     offering = registration.class_offering
-    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+    class_url = offering.public_url
     name = registration.first_name.strip()
     greeting = f"Hi {name}," if name else "Hi,"
     body = (
@@ -1162,7 +1162,7 @@ def build_class_reminder_occurrence(
     offering = session.class_offering
     self_serve_path = reverse("classes:my_registration", kwargs={"token": registration.self_serve_token})
     self_serve_url = _absolute_url(self_serve_path)
-    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+    class_url = offering.public_url
     template_context = {
         "registration": registration,
         "session": session,

@@ -744,7 +744,7 @@ def describe_a_stranger_who_knows_the_address():
 
         assert response.status_code == 302
         assert victim.self_serve_token not in response["Location"]
-        assert response["Location"] == reverse("classes:public_class_detail", kwargs={"slug": paid_offering.slug})
+        assert response["Location"] == paid_offering.public_path
         assert mock_retrieve.call_count == 0
         assert mock_expire.call_count == 0
         assert mock_create.call_count == 0

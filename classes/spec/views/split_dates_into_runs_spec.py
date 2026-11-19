@@ -73,9 +73,13 @@ def describe_a_published_split_class():
         return offering
 
     def it_lists_the_later_dates_under_other_dates(offering, client):
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        response = client.get(offering.public_path)
         assert response.status_code == 200
-        assert [sibling.pk for sibling in response.context["sibling_offerings"]] == [run.pk for run in _runs(offering)]
+        # This date and every later one, each bookable on its own (#1260).
+        assert [sibling.pk for sibling in response.context["sibling_offerings"]] == [
+            offering.pk,
+            *[run.pk for run in _runs(offering)],
+        ]
 
     def it_offers_every_date_in_each_runs_picker(offering, client):
         everyone = {offering.slug, *(run.slug for run in _runs(offering))}

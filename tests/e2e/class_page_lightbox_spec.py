@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
-from django.urls import reverse
 from playwright.sync_api import Page, expect
 
 from classes.factories import ClassImageFactory, ClassOfferingFactory
@@ -31,7 +30,7 @@ def _seed() -> ClassOffering:
 
 
 def _open(page: Page, live_server, offering: ClassOffering) -> None:
-    page.goto(f"{live_server.url}{reverse('classes:public_class_detail', kwargs={'slug': offering.slug})}")
+    page.goto(f"{live_server.url}{offering.public_path}")
     page.wait_for_load_state("networkidle")
 
 

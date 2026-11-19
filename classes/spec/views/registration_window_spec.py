@@ -56,7 +56,7 @@ def describe_register():
         series = _series("late-series", "Late Series", -1, 6, 13)
         response = client.get(reverse("classes:register", kwargs={"slug": series.slug}))
         assert response.status_code == 302
-        assert response.url == reverse("classes:public_class_detail", kwargs={"slug": series.slug})
+        assert response.url == series.public_path
 
     def it_does_not_create_a_registration_for_a_started_class(client):
         series = _series("late-series-2", "Late Series Two", -1, 6, 13)
@@ -73,13 +73,13 @@ def describe_detail_of_a_started_series():
         return _series("started-detail", "Started Detail Series", -3, 4, 11)
 
     def it_shows_registration_closed_instead_of_a_cta(started, client):
-        body = client.get(reverse("classes:public_class_detail", kwargs={"slug": started.slug})).content.decode()
+        body = client.get(started.public_path).content.decode()
         assert "Registration closed" in body
         assert "has already started" in body
         assert "Register now" not in body
 
     def it_still_shows_the_full_series_schedule_with_past_dates_marked(started, client):
-        body = client.get(reverse("classes:public_class_detail", kwargs={"slug": started.slug})).content.decode()
+        body = client.get(started.public_path).content.decode()
         # All three dates are listed (not collapsed to the one upcoming session)...
         assert "3 sessions" in body
         # ...and the date that already happened is marked as such.

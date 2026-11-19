@@ -304,6 +304,28 @@ class ClassRecord(models.Model):
     def __str__(self) -> str:
         return self.title
 
+    def public_runs(self) -> "ClassOfferingQuerySet":
+        """This class's runs anyone may see: published, not private, not a hidden demo."""
+        return ClassOffering.objects.public().filter(class_record=self)
+
+    def page_run(self) -> "ClassOffering | None":
+        """The run whose description, photos, FAQs and sign up rail the class page shows.
+
+        Its newest run still open for registration, so the rail never reads closed beside an open
+        date; with none open, its newest public run.
+        """
+        runs = (
+            self.public_runs()
+            .select_related("category", "area", "class_record")
+            .prefetch_related("sessions", "instructor_rows")
+        )
+        open_ids = ClassOffering.objects.registration_open().filter(class_record=self).values("pk")
+        return runs.filter(pk__in=open_ids).order_by("-pk").first() or runs.order_by("-pk").first()
+
+    def times_run(self) -> int:
+        """How many public runs of this class have had a session start."""
+        return self.public_runs().filter(sessions__starts_at__lt=timezone.now()).distinct().count()
+
     @classmethod
     def follow_runs(cls, pk: int | None) -> None:
         """Keep class ``pk`` in step with its runs: gone with its last run, and filed where one of them is.
@@ -1803,13 +1825,19 @@ class ClassOffering(HeroCropMixin, models.Model):
         return self.title
 
     @property
-    def public_url(self) -> str:
-        """Absolute URL of this class's readable public page (on the book surface)."""
+    def public_path(self) -> str:
+        """This run's public page: its class's (#1260), or its own until a save files it under one."""
         from django.urls import reverse
 
+        slug = self.class_record.slug if self.class_record_id else self.slug
+        return reverse("classes:public_class_detail", kwargs={"slug": slug})
+
+    @property
+    def public_url(self) -> str:
+        """Absolute URL of this run's public page, its class's (on the book surface)."""
         from classes.emails import _absolute_url
 
-        return _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": self.slug}))
+        return _absolute_url(self.public_path)
 
     @property
     def qr_url(self) -> str:

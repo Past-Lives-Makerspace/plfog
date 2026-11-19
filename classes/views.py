@@ -37,6 +37,7 @@ from django.http import (
     HttpResponse,
     HttpResponseBadRequest,
     HttpResponseForbidden,
+    HttpResponsePermanentRedirect,
     JsonResponse,
     QueryDict,
     StreamingHttpResponse,
@@ -133,6 +134,7 @@ from classes.models import (
     ClassImage,
     ClassNotReadyError,
     ClassOffering,
+    ClassRecord,
     ClassSession,
     ClassSettings,
     CmsActivity,
@@ -177,7 +179,11 @@ def _browsable_classes() -> Any:
     classes always qualify; a dated class (single or series) drops off the
     instant its first session starts, so a part-finished series is never listed.
     """
-    return ClassOffering.objects.bookable().select_related("category").prefetch_related("sessions", "instructor_rows")
+    return (
+        ClassOffering.objects.bookable()
+        .select_related("category", "class_record")
+        .prefetch_related("sessions", "instructor_rows")
+    )
 
 
 def _bookable_run_options(offering: Any) -> list[Any]:
@@ -440,12 +446,12 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
     # Other dates this same class is offered on, so the visitor can switch dates
     # without hunting through the catalog. Only runs still open for registration are
     # shown (a started run and one past its cutoff are dropped), and each keeps its own seats.
+    # Since #1260 the list is every open run of the class, this one included, each with its own Register.
     sibling_offerings: list[Any] = []
-    if offering.grouping_key:
+    if offering.class_record_id:
         sibling_offerings = list(
             ClassOffering.objects.registration_open()
-            .filter(grouping_key=offering.grouping_key)
-            .exclude(pk=offering.pk)
+            .filter(class_record_id=offering.class_record_id)
             .prefetch_related("sessions", "instructor_rows")
         )
         sib_spots = ClassOffering.objects.filter(pk__in=[s.pk for s in sibling_offerings]).spots_remaining_map()
@@ -459,7 +465,8 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
     related_offerings = list(
         ClassOffering.objects.bookable()
         .filter(category=offering.category)
-        .exclude(pk=offering.pk)
+        .exclude(class_record_id=offering.class_record_id)
+        .select_related("class_record")
         .prefetch_related("instructor_rows")[:3]
     )
 
@@ -515,13 +522,33 @@ def _class_page_edit_url(request: HttpRequest, offering: ClassOffering) -> str:
 
 
 def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
-    """Full class detail page — schedule, info grid, (future: registration form)."""
+    """A class's one permanent page (#1260), or an old run address sent on to it.
+
+    ``slug`` is a class's address first. The page shows its newest public run's description,
+    photos and FAQs, every open run with its own Register, and how many times it has run. A slug
+    that is no class's is an old run address: a public run's 301s to its class's page with the
+    query string kept, and anything else is a 404, as before.
+    """
+    record = ClassRecord.objects.filter(slug=slug).first()
+    if record is not None:
+        offering = record.page_run()
+        if offering is None:
+            raise Http404("No public run of this class.")
+        return _render_class_page(request, offering, times_run=record.times_run())
     offering = get_object_or_404(
         ClassOffering.objects.public()
-        .select_related("category", "area")
+        .select_related("category", "area", "class_record")
         .prefetch_related("sessions", "instructor_rows"),
         slug=slug,
     )
+    if offering.class_record_id:
+        query = request.META.get("QUERY_STRING", "")
+        return HttpResponsePermanentRedirect(offering.public_path + (f"?{query}" if query else ""))
+    return _render_class_page(request, offering, times_run=0)
+
+
+def _render_class_page(request: HttpRequest, offering: ClassOffering, *, times_run: int) -> HttpResponse:
+    """The public class page for ``offering``, the run whose content it shows."""
     from hub.view_as import ROLE_ADMIN
     from membership.permissions import can_edit_class
 
@@ -545,6 +572,7 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
             "is_admin": is_admin,
             "is_instructor": is_instructor,
             "view_as": view_as,
+            "times_run": times_run,
         }
     )
     return render(request, "classes/public/detail.html", context)
@@ -562,7 +590,7 @@ def legacy_class_page(request: HttpRequest, alias: str) -> HttpResponse:
     offering = ClassOffering.objects.public().for_legacy_alias(alias)
     if offering is None:
         return render(request, "404.html", status=410)
-    return redirect("classes:public_class_detail", slug=offering.slug, permanent=True)
+    return redirect(offering.public_path, permanent=True)
 
 
 def public_instructor(request: HttpRequest, slug: str) -> HttpResponse:
@@ -574,6 +602,7 @@ def public_instructor(request: HttpRequest, slug: str) -> HttpResponse:
     current_classes = (
         ClassOffering.objects.public()  # type: ignore[misc]  # django-stubs can't see annotate() aliases
         .for_instructor(instructor)
+        .select_related("class_record")
         .prefetch_related("sessions", "instructor_rows")
         # ``next_session_at``, not ``first_session_at``: that name is the ``bookable()`` /
         # ``upcoming()`` contract (the earliest session ever) and the booking gates read it.
@@ -796,7 +825,7 @@ def _deflect_to_emailed_link(request: HttpRequest, registration: Registration) -
         "If you have already started signing up for this class, we just emailed that address "
         "a link to pick up where you left off.",
     )
-    return redirect("classes:public_class_detail", slug=registration.class_offering.slug)
+    return redirect(registration.class_offering.public_path)
 
 
 def _self_serve_redirect(request: HttpRequest, registration: Registration) -> HttpResponse:
@@ -1068,7 +1097,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
     CONFIRMED on success.
     """
     offering = get_object_or_404(
-        ClassOffering.objects.public().select_related("category", "instructor"),
+        ClassOffering.objects.public().select_related("category", "instructor", "class_record"),
         slug=slug,
     )
 
@@ -1082,7 +1111,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
     # part-way through. Send late arrivals back to the detail page with a note.
     if not offering.is_bookable:
         messages.info(request, "Registration has closed for this class — it has already started.")
-        return redirect("classes:public_class_detail", slug=offering.slug)
+        return redirect(offering.public_path)
 
     # The cutoff: a class this close to its first session takes no more sign-ups, and no
     # waitlist either. The hours are read off the row so the note matches the class page.
@@ -1091,7 +1120,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
     claim = _claimed_waitlist_registration(request, offering)
     if claim is None and not offering.registration_open:
         messages.info(request, registration_closed_message(offering))
-        return redirect("classes:public_class_detail", slug=offering.slug)
+        return redirect(offering.public_path)
 
     # Site-wide kill switch (Manage Features). When class registration is
     # off, refuse sign-ups regardless of the hidden button (defense in depth).
@@ -1103,7 +1132,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
             request,
             site_config.class_registration_disabled_note or "Online registration is currently unavailable.",
         )
-        return redirect("classes:public_class_detail", slug=offering.slug)
+        return redirect(offering.public_path)
 
     # The email runs first because who they are decides which form they get: a seat they
     # already hold, a claim link, or a fresh signup.
@@ -1203,7 +1232,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
 def register_success(request: HttpRequest, slug: str) -> HttpResponse:
     """Landing page after successful checkout — webhook does the real work."""
     offering = get_object_or_404(
-        ClassOffering.objects.public().select_related("category", "instructor"),
+        ClassOffering.objects.public().select_related("category", "instructor", "class_record"),
         slug=slug,
     )
     return render(
@@ -1220,7 +1249,7 @@ def register_success(request: HttpRequest, slug: str) -> HttpResponse:
 def register_cancelled(request: HttpRequest, slug: str) -> HttpResponse:
     """User backed out of Stripe Checkout — clean up the unpaid registration."""
     offering = get_object_or_404(
-        ClassOffering.objects.public().select_related("category", "instructor"),
+        ClassOffering.objects.public().select_related("category", "instructor", "class_record"),
         slug=slug,
     )
     token = request.GET.get("reg", "").strip()
@@ -1668,7 +1697,7 @@ def _why_teach_context(member: Member) -> dict[str, Any]:
     if settings_obj.example_class_id is not None:
         example = (
             ClassOffering.objects.filter(pk=settings_obj.example_class_id, status=ClassOffering.Status.PUBLISHED)
-            .select_related("category")
+            .select_related("category", "class_record")
             .prefetch_related("sessions", "instructor_rows")
             .first()
         )
@@ -4470,8 +4499,8 @@ def class_permalink(request: HttpRequest, pk: int) -> HttpResponse:
     after a slug change. A temporary (302) redirect, so scanners always re-resolve to the
     live slug rather than caching an old target.
     """
-    offering = get_object_or_404(ClassOffering, pk=pk)
-    return redirect("classes:public_class_detail", slug=offering.slug)
+    offering = get_object_or_404(ClassOffering.objects.select_related("class_record"), pk=pk)
+    return redirect(offering.public_path)
 
 
 def class_qr_download(request: HttpRequest, pk: int, fmt: str) -> HttpResponse:

@@ -44,6 +44,8 @@ def _sitemap(client: Client, host: str) -> str:
 
 def _class(slug: str, *, days: int, **kwargs) -> ClassOffering:
     kwargs.setdefault("status", ClassOffering.Status.PUBLISHED)
+    # Titled after the slug so the class's address is the slug the spec expects (#1260).
+    kwargs.setdefault("title", slug.replace("-", " ").title())
     offering = ClassOfferingFactory(slug=slug, **kwargs)
     start = timezone.now() + timedelta(days=days)
     ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
@@ -55,6 +57,7 @@ def describe_the_classes_host():
         instructor = InstructorFactory(instructor_slug="ada-lovelace")
         _class("forge-basics", days=5, category=CategoryFactory(slug="metal"), instructor=instructor)
         ClassOfferingFactory(
+            title="Flex Open",
             slug="flex-open",
             status=ClassOffering.Status.PUBLISHED,
             scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
@@ -74,6 +77,15 @@ def describe_the_classes_host():
         body = _sitemap(client, CLASSES)
 
         assert f"<lastmod>{timezone.localtime(offering.updated_at).date().isoformat()}</lastmod>" in body
+
+    def it_lists_a_class_with_several_dates_once_at_its_own_address(client: Client):
+        first = _class("forge-basics-2026-12-01", days=5, title="Forge Basics")
+        _class("forge-basics-2027-01-05", days=40, title="Forge Basics", category=first.category)
+
+        body = _sitemap(client, CLASSES)
+
+        assert body.count(f"<loc>https://{CLASSES}/classes/forge-basics/</loc>") == 1
+        assert "/classes/forge-basics-2026-12-01/" not in body
 
     def it_leaves_out_past_draft_private_and_cancelled_classes(client: Client):
         _class("long-gone", days=-30)

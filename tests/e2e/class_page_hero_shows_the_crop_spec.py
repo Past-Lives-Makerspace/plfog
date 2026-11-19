@@ -20,7 +20,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 import pytest
-from django.urls import reverse
 from PIL import Image
 from playwright.sync_api import Page, expect
 
@@ -118,7 +117,7 @@ def describe_the_class_page_banner():
         # column under the cap at both, so the frame has the copy's shape.
         ClassOffering.objects.filter(pk=offering.pk).update(status=ClassOffering.Status.PUBLISHED)
         settings.PUBLIC_HOSTS = [urlparse(live_server.url).hostname]
-        url = f"{live_server.url}{reverse('classes:public_class_detail', kwargs={'slug': offering.slug})}"
+        url = f"{live_server.url}{offering.public_path}"
         for width in (1366, 390):
             page.set_viewport_size({"width": width, "height": 900})
             page.goto(url)

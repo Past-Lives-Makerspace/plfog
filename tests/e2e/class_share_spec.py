@@ -58,7 +58,7 @@ def _published() -> ClassOffering:
 def _open(page: Page, live_server, settings) -> ClassOffering:
     offering = _published()
     settings.PUBLIC_HOSTS = [urlparse(live_server.url).hostname]
-    page.goto(f"{live_server.url}{reverse('classes:public_class_detail', kwargs={'slug': offering.slug})}")
+    page.goto(f"{live_server.url}{offering.public_path}")
     return offering
 
 
@@ -166,7 +166,7 @@ def describe_the_share_button():
         offering = _published()
         settings.PUBLIC_HOSTS = [urlparse(live_server.url).hostname]
         page.goto(f"{live_server.url}{reverse('classes:public_list')}")
-        detail_path = reverse("classes:public_class_detail", kwargs={"slug": offering.slug})
+        detail_path = offering.public_path
 
         page.locator(f"a.cls-title[href='{detail_path}']").click()
         page.wait_for_url(f"**{detail_path}")

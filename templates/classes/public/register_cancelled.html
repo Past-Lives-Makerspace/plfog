@@ -13,7 +13,7 @@
           <div class="dc-title">Registration not completed</div>
           <div class="dc-inst">{{ offering.title }}</div>
         </div>
-        <a class="back-link" href="{% url 'classes:public_class_detail' slug=offering.slug %}">&larr; Class details</a>
+        <a class="back-link" href="{{ offering.public_path }}">&larr; Class details</a>
       </div>
       <div class="detail-body">
         <p style="color:var(--text);font-size:14px;line-height:1.7">

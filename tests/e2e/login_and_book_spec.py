@@ -51,7 +51,7 @@ def describe_login_and_book():
         expect(page.locator("body")).to_contain_text(offering.title)
 
         # 3. Open its detail page and follow the register call-to-action.
-        detail_path = reverse("classes:public_class_detail", kwargs={"slug": offering.slug})
+        detail_path = offering.public_path
         page.goto(f"{live_server.url}{detail_path}")
         register_path = reverse("classes:register", kwargs={"slug": offering.slug})
         page.locator(f'a[href="{register_path}"]').first.click()
