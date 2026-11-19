@@ -15,6 +15,8 @@ urlpatterns = [
     path("discord/interactions/", views.discord_interactions, name="discord_interactions"),
     # Crawler policy — keep search engines out of /admin/ and private areas
     path("robots.txt", views.robots_txt, name="robots_txt"),
+    # This host's sitemap (#1259), listed in its robots.txt
+    path("sitemap.xml", views.sitemap_xml, name="sitemap_xml"),
     # Home page
     path("", views.home, name="home"),
     # Short, human-typable vanity share URL → 302 to the public guest guild page.

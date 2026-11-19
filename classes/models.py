@@ -636,6 +636,14 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             )
         )
 
+    def indexable(self) -> "ClassOfferingQuerySet":
+        """Class pages a search engine should list (#1259): public, and not yet ended.
+
+        The classes host's sitemap is this set. A past, draft, private, cancelled or archived
+        class is left out, and so is a demo class while demo classes are hidden.
+        """
+        return self.public().upcoming_published()
+
     def completed(self) -> "ClassOfferingQuerySet":
         """Published classes that have ended: a dated class's last session, or a flexible class's last day."""
         now = timezone.now()

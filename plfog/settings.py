@@ -228,6 +228,9 @@ GUILDS_ALLOWED_VIEW_NAMES: frozenset[str] = frozenset(
         "hub_orientation_book",
         "hub_guild_orientation_request_custom",
         "hub_orientation_cancel_mine",
+        # This host's robots.txt and sitemap (#1259).
+        "robots_txt",
+        "sitemap_xml",
     }
 )
 
@@ -275,6 +278,9 @@ TOURS_ALLOWED_VIEW_NAMES: frozenset[str] = frozenset(
         "tours_kiosk:check_in_result",
         "tours_kiosk:book",
         "tours_kiosk:booked",
+        # This host's robots.txt and sitemap (#1259).
+        "robots_txt",
+        "sitemap_xml",
     }
 )
 
@@ -291,6 +297,8 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django.contrib.sites",
+    # One /sitemap.xml per host (#1259, core.sitemaps).
+    "django.contrib.sitemaps",
     # Lets project templates override Django's built-in form widget templates
     # (see FORM_RENDERER below and templates/django/forms/widgets/).
     "django.forms",
@@ -349,6 +357,9 @@ MIDDLEWARE = [
     "hub.view_as.ViewAsMiddleware",
     "core.middleware.MemberLockoutMiddleware",
     "core.middleware.MemberAgreementMiddleware",
+    # After the lockout: an event, calendar or Help page on the classes host, and a guild page read signed
+    # out on the members host, 301 to the host each belongs to (#1259).
+    "core.middleware.CanonicalHostMiddleware",
     "plfog.service_worker_middleware.ServiceWorkerAllowedMiddleware",
     # Last, so it sees the final response: one usage row per signed in page view (#1078).
     "core.middleware.PageViewMiddleware",

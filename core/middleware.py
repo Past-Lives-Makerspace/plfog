@@ -407,6 +407,72 @@ class MemberLockoutMiddleware:
         return False
 
 
+#: Pages whose one public home is the members host (#1259): the event page, the calendar and Help. Read on the
+#: classes host they 301 there, so a search engine knows each by one address.
+MEMBERS_HOST_URL_NAMES = frozenset(
+    {
+        "hub_event_detail",
+        "hub_community_calendar",
+        "hub_help",
+        "hub_help_category",
+        "hub_help_article",
+        "hub_help_search",
+    }
+)
+
+#: The guild pages the guilds host serves to a signed out visitor (#1259). Read signed out on the members host
+#: they 301 there; a signed in member keeps them on the members host, where the guild tools are.
+GUILDS_HOST_URL_NAMES = frozenset(
+    {"hub_guild_directory", "hub_guild_detail", "hub_guild_detail_by_id", "hub_guild_announcements"}
+)
+
+
+class CanonicalHostMiddleware:
+    """301 a public page read on the wrong host to the host it belongs to, same path and query (#1259).
+
+    - Classes host: :data:`MEMBERS_HOST_URL_NAMES` go to ``MEMBER_BASE_URL``, for everyone.
+    - Members host (``MEMBER_HOST`` itself, so local dev and previews are untouched), signed out:
+      :data:`GUILDS_HOST_URL_NAMES` go to ``GUILDS_BASE_URL``. That redirect depends on who is
+      asking, so it carries ``no-store``: a browser that cached it would keep sending a member who
+      once visited signed out away from their guild tools.
+
+    Only GET and HEAD move; a form post is served where it lands. Runs after
+    ``MemberLockoutMiddleware``, so a locked out member is sent to the lockout page first.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if request.method not in ("GET", "HEAD"):
+            return self.get_response(request)
+        surface = getattr(request, "surface", None)
+        if surface == "public":
+            return self._redirect(request, MEMBERS_HOST_URL_NAMES, settings.MEMBER_BASE_URL, cacheable=True)
+        host = request.get_host().split(":", 1)[0].lower()
+        if surface == "members" and host == settings.MEMBER_HOST and not request.user.is_authenticated:
+            return self._redirect(request, GUILDS_HOST_URL_NAMES, settings.GUILDS_BASE_URL, cacheable=False)
+        return self.get_response(request)
+
+    def _redirect(
+        self, request: HttpRequest, url_names: frozenset[str], base_url: str, *, cacheable: bool
+    ) -> HttpResponse:
+        """The 301 to ``base_url`` when the request resolves to one of ``url_names``, else the page itself."""
+        from django.urls import Resolver404, resolve
+        from django.utils.cache import add_never_cache_headers
+
+        try:
+            match = resolve(request.path_info)
+        except Resolver404:
+            return self.get_response(request)
+        if match.view_name not in url_names:
+            return self.get_response(request)
+        response = HttpResponsePermanentRedirect(f"{base_url}{request.get_full_path()}")
+        if not cacheable:
+            add_never_cache_headers(response)
+        return response
+
+
 class MemberAgreementMiddleware:
     """Redirects active members to the Member Agreement if required and not yet accepted."""
 

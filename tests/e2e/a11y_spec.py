@@ -128,12 +128,12 @@ def describe_accessibility():
             "catalog": reverse("classes:public_list"),
             "detail": reverse("classes:public_class_detail", kwargs={"slug": offering.slug}),
             "login": reverse("account_request_login_code"),
-            # Two pages that render hub/base.html's guest chrome (.pl-public-topbar) on the
+            # A page that renders hub/base.html's guest chrome (.pl-public-topbar) on the
             # public host, so the shared anonymous chrome sits under the same zero-tolerance
-            # bar as the classes surface. The calendar is anonymous-reachable and /calendar/
-            # is not a member-only prefix; the 404 is Django's real handler404 (DEBUG is off
-            # under the live server), rendering templates/404.html on hub/base.html.
-            "calendar": reverse("hub_community_calendar"),
+            # bar as the classes surface: Django's real handler404 (DEBUG is off under the
+            # live server), rendering templates/404.html on hub/base.html. The calendar no
+            # longer renders here: on the classes host it 301s to the members host (#1259),
+            # and scanning it would follow the redirect to production.
             "not-found": "/this-page-does-not-exist/",
         }
 
