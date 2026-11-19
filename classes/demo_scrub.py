@@ -66,21 +66,34 @@ class DemoScrubPlan:
         return not self.deletes
 
 
-def _demo_querysets() -> tuple[Any, Any, Any, Any, Any]:
-    """The roots of the scrub: payouts, refunds, registrations, classes, categories.
+def _demo_querysets() -> tuple[Any, Any, Any, Any, Any, Any]:
+    """The roots of the scrub: payouts, refunds, registrations, runs, classes, categories.
 
-    Payouts and refunds PROTECT a registration and a registration PROTECTs its class, so
-    each is collected as a root of its own rather than reached by cascade.
+    Payouts and refunds PROTECT a registration, a registration PROTECTs its run, and a class
+    record PROTECTs its category, so each is collected as a root of its own rather than reached
+    by cascade. A class record is demo data when every run it has is a demo run (#1260).
     """
     from billing.models import PaymentRefund, Payout
-    from classes.models import DEMO_SLUG_PREFIX, DEMO_TITLE_PREFIX, Category, ClassOffering, Registration
+    from classes.models import (
+        DEMO_SLUG_PREFIX,
+        DEMO_TITLE_PREFIX,
+        Category,
+        ClassOffering,
+        ClassRecord,
+        Registration,
+    )
 
     offerings = ClassOffering.objects.demo()
     registrations = Registration.objects.filter(class_offering__in=offerings)
     payouts = Payout.objects.filter(registration__in=registrations)
     refunds = PaymentRefund.objects.filter(registration__in=registrations)
+    class_records = (
+        ClassRecord.objects.filter(runs__in=offerings)
+        .exclude(runs__in=ClassOffering.objects.exclude(pk__in=offerings))
+        .distinct()
+    )
     categories = Category.objects.filter(Q(slug__startswith=DEMO_SLUG_PREFIX) | Q(name__startswith=DEMO_TITLE_PREFIX))
-    return payouts, refunds, registrations, offerings, categories
+    return payouts, refunds, registrations, offerings, class_records, categories
 
 
 def _label(obj: Model) -> str:
@@ -102,7 +115,7 @@ def _collect() -> tuple[DemoScrubPlan, NestedObjects]:
     """Build the plan and the collector holding exactly its rows; the real run deletes through it."""
     from classes.models import ClassOffering, Registration
 
-    payouts, refunds, registrations, offerings, categories = _demo_querysets()
+    payouts, refunds, registrations, offerings, class_records, categories = _demo_querysets()
     blockers: list[str] = []
     warnings: list[str] = []
 
@@ -134,7 +147,7 @@ def _collect() -> tuple[DemoScrubPlan, NestedObjects]:
         warnings.append(f"'{offering.slug}' is still listed on Eventbrite; end that listing there.")
 
     collector = NestedObjects(using=DEFAULT_DB_ALIAS)
-    for qs in (payouts, refunds, registrations, offerings, categories):
+    for qs in (payouts, refunds, registrations, offerings, class_records, categories):
         collector.collect(list(qs))
     collected: set[Model] = {obj for objs in collector.data.values() for obj in objs}
     for obj in sorted(collector.protected - collected, key=lambda o: (_label(o), o.pk)):
