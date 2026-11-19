@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.db.models.signals import pre_delete
+from django.db.models.signals import post_delete, pre_delete
 from django.dispatch import receiver
 
-from classes.models import ClassApproval
+from classes.models import ClassApproval, ClassOffering, ClassRecord
 
 
 @receiver(pre_delete, sender=ClassApproval, dispatch_uid="classes.clear_review_bells_on_gate_delete")
@@ -19,3 +19,14 @@ def clear_review_bells_on_gate_delete(sender: type[ClassApproval], instance: Cla
     deleting the class, and only ``pre_delete`` fires for all three.
     """
     ClassApproval.mark_review_bells_read([instance.token])
+
+
+@receiver(post_delete, sender=ClassOffering, dispatch_uid="classes.class_record_follows_deleted_run")
+def class_record_follows_deleted_run(sender: type[ClassOffering], instance: ClassOffering, **kwargs: Any) -> None:
+    """Delete a run's class with its last run, or refile it, as the run goes (#1260).
+
+    A signal rather than a ``delete`` override, because a run is deleted one at a time and as a
+    queryset (the demo teardowns and the demo scrub), and ``post_delete`` fires for both, after
+    the rows are gone, so the class sees only the runs that remain.
+    """
+    ClassRecord.follow_runs(instance.class_record_id)

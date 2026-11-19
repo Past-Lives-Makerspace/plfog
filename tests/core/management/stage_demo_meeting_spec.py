@@ -10,8 +10,8 @@ import pytest
 from django.core.management import call_command
 
 from classes.factories import CategoryFactory, ClassOfferingFactory
-from classes.models import Category
-from core.management.commands.stage_demo_meeting import CATEGORY_NAME, CATEGORY_SLUG
+from classes.models import Category, ClassRecord
+from core.management.commands.stage_demo_meeting import CATEGORY_NAME, CATEGORY_SLUG, STAGED_SLUGS
 
 pytestmark = pytest.mark.django_db
 
@@ -22,6 +22,13 @@ def describe_stage_demo_meeting():
             CategoryFactory(slug=CATEGORY_SLUG, name=CATEGORY_NAME)
             call_command("stage_demo_meeting", "--remove")
             assert not Category.objects.filter(slug=CATEGORY_SLUG).exists()
+
+        def it_drops_the_demo_guild_type_and_its_classes_once_the_staged_runs_go():
+            category = CategoryFactory(slug=CATEGORY_SLUG, name=CATEGORY_NAME)
+            ClassOfferingFactory(category=category, slug=STAGED_SLUGS[0])
+            call_command("stage_demo_meeting", "--remove")
+            assert not Category.objects.filter(slug=CATEGORY_SLUG).exists()
+            assert not ClassRecord.objects.exists()
 
         def it_keeps_the_demo_guild_type_when_a_class_is_still_filed_under_it():
             category = CategoryFactory(slug=CATEGORY_SLUG, name=CATEGORY_NAME)

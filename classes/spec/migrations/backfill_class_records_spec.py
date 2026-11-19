@@ -8,13 +8,15 @@ historical models. Each test restores the schema to head in a ``finally``.
 from __future__ import annotations
 
 from importlib import import_module
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import pytest
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
+from django.utils import timezone
 
-from classes.factories import CategoryFactory, ClassOfferingFactory
+from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory
 from classes.models import ClassOffering, ClassRecord
 from classes.spec.migrations._head import migrate_all_to_head
 
@@ -38,8 +40,12 @@ def describe_migration_0107_backfill_class_records():
         wood, glass = CategoryFactory(slug="wood"), CategoryFactory(slug="glass")
         framing = [
             ClassOfferingFactory(title="Picture Framing - 1/2/26", slug="picture-framing", category=wood),
-            ClassOfferingFactory(title="Picture Framing - 3/4/26", slug="picture-framing-run", category=wood),
+            ClassOfferingFactory(title="Picture Framing - 3/4/27", slug="picture-framing-run", category=wood),
+            ClassOfferingFactory(title="Picture Framing - 5/6/26", slug="picture-framing-run-2", category=wood),
         ]
+        ClassSessionFactory(class_offering=framing[0], starts_at=timezone.now() - timedelta(days=300))
+        ClassSessionFactory(class_offering=framing[1], starts_at=timezone.now() + timedelta(days=30))
+        ClassSessionFactory(class_offering=framing[2], starts_at=timezone.now() - timedelta(days=30))
         glass_framing = ClassOfferingFactory(title="Picture Framing", slug="framing-glass", category=glass)
         forge_owner = ClassOfferingFactory(title="Open Forge Sundays", slug="forge", category=wood)
         forge = ClassOfferingFactory(title="Forge", slug="forge-2026-12-01", category=wood)
@@ -58,8 +64,8 @@ def describe_migration_0107_backfill_class_records():
         assert set(record.runs.values_list("pk", flat=True)) == {run.pk for run in framing}
         # The oldest class keeps the bare address, here also its own run's old address.
         assert record.slug == "picture-framing"
-        # The newest run names the class.
-        assert record.title == "Picture Framing - 3/4/26"
+        # The lead run names the class: the upcoming one, over the newer past one.
+        assert record.title == "Picture Framing - 3/4/27"
         assert record.category == wood
         assert ClassOffering.objects.get(pk=glass_framing.pk).class_record.slug == "picture-framing-glass"
         assert ClassOffering.objects.get(pk=forge_owner.pk).class_record.slug == "open-forge-sundays"
@@ -109,3 +115,36 @@ def describe_migration_0107_backfill_class_records():
             assert not ClassOffering.objects.filter(class_record__isnull=False).exists()
         finally:
             migrate_all_to_head()
+
+
+def _rank_of(**run: Any) -> tuple[int, bool, float, int]:
+    fields = {
+        "pk": 1,
+        "status": "published",
+        "scheduling_model": "fixed",
+        "flexible_ends_on": None,
+        "first_session": None,
+    }
+    return _migration.lead_rank({**fields, **run}, NOW, NOW.date())
+
+
+NOW = timezone.make_aware(datetime(2026, 11, 19, 12))
+
+
+def describe_lead_rank():
+    def it_puts_open_and_upcoming_runs_first_then_past_then_undated():
+        upcoming = _rank_of(first_session=NOW + timedelta(days=3))
+        open_window = _rank_of(scheduling_model="flexible")
+        past = _rank_of(first_session=NOW - timedelta(days=3))
+        ended_window = _rank_of(scheduling_model="flexible", flexible_ends_on=date(2026, 1, 1))
+        undated = _rank_of()
+        assert upcoming < open_window < past < undated
+        assert past < ended_window < undated
+
+    def it_takes_the_soonest_upcoming_and_the_most_recent_past():
+        assert _rank_of(first_session=NOW + timedelta(days=3)) < _rank_of(first_session=NOW + timedelta(days=9))
+        assert _rank_of(first_session=NOW - timedelta(days=3)) < _rank_of(first_session=NOW - timedelta(days=9))
+
+    def it_puts_a_published_run_before_a_draft_then_the_lowest_pk():
+        assert _rank_of(status="published", pk=9) < _rank_of(status="draft", pk=1)
+        assert _rank_of(pk=1) < _rank_of(pk=2)

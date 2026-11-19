@@ -134,3 +134,73 @@ def describe_runs_made_from_a_class():
 
         run.refresh_from_db()
         assert run.class_record_id == class_id
+
+
+def describe_a_class_whose_runs_go():
+    def it_goes_with_its_last_run_and_frees_its_address():
+        run = ClassOfferingFactory(title="Pottery", slug="pottery-2026-12-01")
+
+        run.delete()
+
+        assert not ClassRecord.objects.exists()
+        assert ClassOfferingFactory(title="Pottery", slug="pottery-2027-01-05").class_record.slug == "pottery"
+
+    def it_stays_while_a_run_remains():
+        first = ClassOfferingFactory(title="Pottery", slug="pottery-1")
+        second = ClassOfferingFactory(title="Pottery", slug="pottery-2", category=first.category)
+
+        first.delete()
+
+        assert ClassRecord.objects.get().runs.get() == second
+
+    def it_goes_when_its_runs_are_deleted_together():
+        first = ClassOfferingFactory(title="Pottery", slug="pottery-1")
+        second = ClassOfferingFactory(title="Pottery", slug="pottery-2", category=first.category)
+
+        ClassOffering.objects.filter(pk__in=[first.pk, second.pk]).delete()
+
+        assert not ClassRecord.objects.exists()
+
+    def it_follows_its_newest_run_when_none_is_left_in_its_class_type():
+        first = ClassOfferingFactory(title="Pottery", slug="pottery-1")
+        moved = ClassOfferingFactory(title="Pottery", slug="pottery-2", category=first.category)
+        elsewhere = CategoryFactory()
+        ClassOffering.objects.filter(pk=moved.pk).update(category=elsewhere)
+
+        first.delete()
+
+        assert ClassRecord.objects.get().category == elsewhere
+
+    def it_ignores_a_run_that_never_had_a_class():
+        run = ClassOfferingFactory(title="Pottery", slug="pottery")
+        ClassOffering.objects.filter(pk=run.pk).update(class_record=None)
+
+        ClassOffering.objects.filter(pk=run.pk).delete()
+
+        assert ClassRecord.objects.count() == 1
+
+
+def describe_a_class_whose_runs_move_class_type():
+    def it_moves_with_its_runs():
+        first = ClassOfferingFactory(title="Picture Framing", slug="framing-1")
+        second = ClassOfferingFactory(title="Picture Framing", slug="framing-2", category=first.category)
+        wood = CategoryFactory()
+
+        first.category = wood
+        first.save()
+
+        second.refresh_from_db()
+        assert second.category == wood
+        assert ClassRecord.objects.get().category == wood
+
+    def it_stays_while_a_run_remains_in_its_class_type():
+        first = ClassOfferingFactory(title="Picture Framing", slug="framing-1")
+        ClassOfferingFactory(title="Picture Framing", slug="framing-2", category=first.category)
+        old = first.category
+
+        # Renamed out of its group as it moves, so it moves alone.
+        first.title = "Mat Cutting"
+        first.category = CategoryFactory()
+        first.save()
+
+        assert ClassRecord.objects.get().category == old

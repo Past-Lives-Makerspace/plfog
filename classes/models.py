@@ -302,6 +302,25 @@ class ClassRecord(models.Model):
         return self.title
 
     @classmethod
+    def follow_runs(cls, pk: int | None) -> None:
+        """Keep class ``pk`` in step with its runs: gone with its last run, and filed where one of them is.
+
+        Called when a run is deleted (one row, a queryset or a cascade, through ``post_delete``)
+        and when a run moves Class Type. A class with no runs left is deleted, so its address is
+        free again and its Class Type can go. A class whose Class Type none of its runs is in any
+        more moves to its newest run's, so it never alone holds a Class Type in place.
+        """
+        record = cls.objects.filter(pk=pk).first()
+        if record is None:
+            return
+        runs = ClassOffering.objects.filter(class_record_id=record.pk)
+        newest_category_id = runs.order_by("-pk").values_list("category_id", flat=True).first()
+        if newest_category_id is None:
+            record.delete()
+        elif not runs.filter(category_id=record.category_id).exists():
+            cls.objects.filter(pk=record.pk).update(category_id=newest_category_id)
+
+    @classmethod
     def create_for(cls, run: "ClassOffering") -> "ClassRecord":
         """A new class for ``run``, the first of its runs, on a free address made from its title.
 
@@ -1894,29 +1913,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         category_written = update_fields is None or bool({"category", "category_id"} & set(update_fields))
         if old is not None and old.category_id != self.category_id and category_written:
             self._repoint_open_guild_lead_gate()
-
-        # When a grouped class moves to a new category, sync siblings so the
-        # group stays coherent (same grouping_key across all dates). Guarded by
-        # ``category_written`` for the same reason as the reopen above, and the cost of
-        # missing it is higher here: on a save that leaves the category where it was, this
-        # would carry every sibling off to a category the class itself never moved to,
-        # splitting the group it exists to keep together. A save that also renames the
-        # class out of its group moves it alone: its old runs keep their name and category,
-        # and stamping the new name's key on them would file them on the wrong catalog card.
-        # (``old`` loads only a few columns, so its title would read back the new one.)
-        if (
-            old is not None
-            and old.category_id != self.category_id
-            and category_written
-            and old.grouping_key
-            and grouping_key_for(self.title, old.category_id) == old.grouping_key
-        ):
-            type(self)._default_manager.filter(
-                grouping_key=old.grouping_key,
-            ).exclude(pk=self.pk).update(
-                category_id=self.category_id,
-                grouping_key=self.grouping_key,
-            )
+            self._carry_class_to_new_category(old)
 
         if creating:
             from classes import activity
@@ -1924,6 +1921,32 @@ class ClassOffering(HeroCropMixin, models.Model):
             activity.log(CmsActivity.Kind.CLASS_CREATED, class_offering=self)
 
         self._sync_payee()
+
+    def _carry_class_to_new_category(self, old: "ClassOffering") -> None:
+        """After this run moved Class Type, move its siblings and its class record with it.
+
+        Siblings first, so the group stays coherent (same grouping_key across all dates). Only
+        called on a save that wrote the category, and the cost of a wrong call is high: on a
+        save that leaves the category where it was, this would carry every sibling off to a
+        category the class itself never moved to, splitting the group it exists to keep
+        together. A save that also renames the class out of its group moves it alone: its old
+        runs keep their name and category, and stamping the new name's key on them would file
+        them on the wrong catalog card. (``old`` loads only a few columns, so its title would
+        read back the new one.)
+
+        Then the class record follows its runs (#1260), so it never holds on to a Class Type
+        none of them is in.
+        """
+        from classes.grouping import grouping_key_for
+
+        if old.grouping_key and grouping_key_for(self.title, old.category_id) == old.grouping_key:
+            type(self)._default_manager.filter(
+                grouping_key=old.grouping_key,
+            ).exclude(pk=self.pk).update(
+                category_id=self.category_id,
+                grouping_key=self.grouping_key,
+            )
+        ClassRecord.follow_runs(self.class_record_id)
 
     def _join_class_record(self, save_kwargs: dict[str, Any]) -> None:
         """File a run with no class under one before it saves, and save the column even on a narrow save."""
