@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load static rich_text classes_tags %}
+{% load static rich_text classes_tags seo %}
 {% comment %}
 The public event page (#831, part 5): the canonical link a QR, a flyer or the signage
 resolves to, in the look of the Holiday Bizarre HQ (static/css/event-page.css). Extends
@@ -17,6 +17,14 @@ data-hero-position and the script at the end lands it.
 {% endcomment %}
 {% block title %}{{ event.title }}{% endblock %}
 {% block extra_head %}
+{# What a search engine and a share card read (#1259). #}
+<meta name="description" content="{{ event.seo_description }}">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{ event.title }}">
+<meta property="og:description" content="{{ event.seo_description }}">
+<meta property="og:url" content="{% canonical_url %}">
+{% if event.hero_image_url %}<meta property="og:image" content="{{ event.hero_image_url|absolute_url:request }}">{% endif %}
+<script type="application/ld+json">{{ event.event_json_ld|json_ld }}</script>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{% static 'css/event-page.css' %}">
 {# The Share button's script, as the class page loads it: it binds once on document behind a flag on window and registers no Alpine component, so the head is the right place (FRONTEND, Scripts under hx-boost). #}

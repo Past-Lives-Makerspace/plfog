@@ -1,10 +1,22 @@
 {% extends "tours/public/base.html" %}
+{% load seo static %}
 {% comment %}
 The booking page, the root of tours.pastlives.space (#948, tours.public_views.book): the date
 strip and times, or the form for the picked time. Context: picker, chosen (the OpenTour the form
 books, or None), form, error, page_url, address, support_email.
 {% endcomment %}
 {% block title %}Book a Tour | Past Lives Makerspace{% endblock %}
+{# The booking page's one address is the host root, whatever ?date= or ?tour= a shared link carries; those variants stay out of search (#1259). #}
+{% block canonical %}<link rel="canonical" href="{% canonical_url "/" %}">{% endblock %}
+{% block robots %}{% if request.GET %}<meta name="robots" content="noindex">{% endif %}{% endblock %}
+{% block classes_extra_head %}
+{% static 'img/favicon.png' as fallback_logo %}
+<meta property="og:type" content="website">
+<meta property="og:title" content="Book a Tour | Past Lives Makerspace">
+<meta property="og:description" content="Book a free tour of {{ brand_name }}, Portland's community makerspace. Pick a time and we will show you around.">
+<meta property="og:url" content="{% canonical_url "/" %}">
+{% firstof brand_logo_url fallback_logo as og_image %}<meta property="og:image" content="{{ og_image|absolute_url:request }}">
+{% endblock %}
 
 {% block tours_content %}
 <div class="view">

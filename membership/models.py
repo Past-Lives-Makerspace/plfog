@@ -11392,6 +11392,39 @@ class CommunityEvent(StaffRequestMixin, HeroCropMixin, models.Model):
         return rich_body_to_text(self.description or "")
 
     @property
+    def seo_description(self) -> str:
+        """The page's meta description (#1259): the description as plain text, at most 160 characters."""
+        from core.seo import DESCRIPTION_LIMIT, truncate_at_word
+
+        text = " ".join(self.description_text.split()) or f"{self.title} at Past Lives Makerspace in Portland, OR."
+        return truncate_at_word(text, DESCRIPTION_LIMIT)
+
+    def event_json_ld(self) -> dict[str, Any]:
+        """This event as a schema.org Event for its page's JSON-LD (#1259), on its next date for a series."""
+        from urllib.parse import urlsplit
+
+        from core.seo import MAKERSPACE_PLACE
+
+        start = self.next_occurrence_start()
+        place = {**MAKERSPACE_PLACE, "name": self.location} if self.location else MAKERSPACE_PLACE
+        data: dict[str, Any] = {
+            "@context": "https://schema.org",
+            "@type": "Event",
+            "name": self.title,
+            "description": self.seo_description,
+            "startDate": start.isoformat(),
+            "endDate": (start + (self.ends_at - self.starts_at)).isoformat(),
+            "eventStatus": "https://schema.org/EventScheduled",
+            "eventAttendanceMode": "https://schema.org/OfflineEventAttendanceMode",
+            "location": place,
+            "url": self.public_url,
+        }
+        image = self.hero_image_url
+        if image:
+            data["image"] = [image if urlsplit(image).netloc else f"{settings.MEMBER_BASE_URL}{image}"]
+        return data
+
+    @property
     def gallery_display_images(self) -> list[dict[str, str]]:
         """The gallery rows the event page's gallery component renders, cover first.
 

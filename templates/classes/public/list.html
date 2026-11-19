@@ -1,7 +1,10 @@
 {% extends "classes/base_public.html" %}
 {% load classes_tags guidance %}
 
-{% block title %}Classes — Past Lives Makerspace{% endblock %}
+{% block title %}{% if class_type %}{{ class_type.name }} Classes{% else %}Classes{% endif %}{% if page_obj.number > 1 %}, Page {{ page_obj.number }}{% endif %} — Past Lives Makerspace{% endblock %}
+{% block meta_description %}{% if class_type %}{{ class_type.name }} classes at Past Lives Makerspace in Portland, OR, taught by working artists. See upcoming dates and register online.{% else %}{{ block.super }}{% endif %}{% if page_obj.number > 1 %} Page {{ page_obj.number }}.{% endif %}{% endblock %}
+{# A filtered catalog is the same classes again; search engines get the plain catalog and Class Type pages (#1259). #}
+{% block robots %}{% if is_filtered %}<meta name="robots" content="noindex">{% endif %}{% endblock %}
 
 {% block portal_content %}
 <div id="hero">

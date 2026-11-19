@@ -113,4 +113,5 @@ the class site), since only the tour pages and sign in resolve here. Children fi
 <link rel="stylesheet" href="{% static 'css/classes-register.css' %}">
 <link rel="stylesheet" href="{% static 'css/tours-public.css' %}">
 {# No GA include here: this template extends hub/base.html, which renders it in <head>. #}
+{% block classes_extra_head %}{% endblock %}
 {% endblock %}

@@ -170,7 +170,7 @@ def discord_interactions(request: HttpRequest) -> HttpResponse:
 
 
 def robots_txt(request: HttpRequest) -> HttpResponse:
-    """Serve robots.txt on the members host — keep crawlers out of /admin/ and private areas."""
+    """Serve robots.txt on every host: keep crawlers out of private areas, and name this host's sitemap (#1259)."""
     lines = [
         "User-agent: *",
         "Disallow: /admin/",
@@ -178,8 +178,19 @@ def robots_txt(request: HttpRequest) -> HttpResponse:
         "Disallow: /settings/",
         "Disallow: /billing/",
         "Disallow: /tab/",
+        f"Sitemap: {request.build_absolute_uri(reverse('sitemap_xml'))}",
     ]
     return HttpResponse("\n".join(lines) + "\n", content_type="text/plain")
+
+
+def sitemap_xml(request: HttpRequest) -> HttpResponse:
+    """This host's sitemap (#1259): the indexable pages of the surface the request came in on."""
+    from django.contrib.sitemaps.views import sitemap
+
+    from core.sitemaps import sitemaps_for
+
+    sections = sitemaps_for(request.surface, request.get_host())  # type: ignore[attr-defined]
+    return sitemap(request, sitemaps=sections)
 
 
 @require_GET

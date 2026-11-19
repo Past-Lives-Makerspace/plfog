@@ -3,6 +3,7 @@
 {% load classes_tags %}
 
 {% block title %}Your registration — {{ offering.title }}{% endblock %}
+{% block robots %}<meta name="robots" content="noindex">{% endblock %}{# A transactional page, never a search result (#1259). #}
 
 {% block classes_extra_head %}
 {% if finish_form %}<link rel="stylesheet" href="{% static 'css/classes-register.css' %}">{% endif %}
