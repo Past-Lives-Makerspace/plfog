@@ -59,7 +59,19 @@ def describe_plan_demo_scrub():
             ClassSession.objects.filter(class_offering=offering).values_list("pk", flat=True)
         )
         assert plan.deletes["classes.Category"] == [offering.category_id]
+        assert plan.deletes["classes.ClassRecord"] == [offering.class_record_id]
         assert real.pk not in plan.deletes["classes.ClassOffering"]
+        assert plan.blockers == []
+
+    def it_leaves_a_class_a_real_run_still_belongs_to():
+        real = ClassOfferingFactory(title="Wheel Throwing", slug="wheel-throwing")
+        demo = _demo_class(category=real.category)
+        ClassOffering.objects.filter(pk=demo.pk).update(class_record=real.class_record)
+
+        plan = plan_demo_scrub()
+
+        assert plan.deletes["classes.ClassOffering"] == [demo.pk]
+        assert "classes.ClassRecord" not in plan.deletes
         assert plan.blockers == []
 
     def it_writes_nothing():
@@ -124,7 +136,8 @@ def describe_plan_demo_scrub():
         real = ClassOfferingFactory(slug="real-in-demo-type", category=category)
 
         assert plan_demo_scrub().blockers == [
-            f"classes.ClassOffering {real.pk} is not demo data but holds on to a demo row."
+            f"classes.ClassOffering {real.pk} is not demo data but holds on to a demo row.",
+            f"classes.ClassRecord {real.class_record_id} is not demo data but holds on to a demo row.",
         ]
 
     def it_warns_about_a_demo_class_still_listed_on_eventbrite():

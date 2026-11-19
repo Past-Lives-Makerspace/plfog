@@ -267,6 +267,96 @@ class Category(HeroCropMixin, models.Model):
             offering._repoint_open_guild_lead_gate()
 
 
+# Room left under the 255 character slug column for a Class Type and a number after a class's title.
+_CLASS_SLUG_BASE_LENGTH = 180
+
+
+class ClassRecord(models.Model):
+    """One class across every date it runs (#1260): what keeps one permanent page.
+
+    Each run is a :class:`ClassOffering` with its own dates, seats, price, registrations and
+    payouts, and belongs to one class through ``ClassOffering.class_record``. The class holds
+    what stays the same from run to run: its address, title and Class Type. Description, photos,
+    FAQs and instructors stay on the runs for now; the class page shows its newest run's.
+    """
+
+    slug = models.SlugField(
+        max_length=255,
+        unique=True,
+        help_text="The class's permanent address under /classes/. Never changes once set.",
+    )
+    title = models.CharField(max_length=255, help_text="Public class title, shared by every run.")
+    category = models.ForeignKey(
+        Category,
+        on_delete=models.PROTECT,
+        related_name="class_records",
+        help_text="The Class Type every run of this class is filed under.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, help_text="When this class record was created.")
+    updated_at = models.DateTimeField(auto_now=True, help_text="When this class record last changed.")
+
+    class Meta:
+        ordering = ["title", "pk"]
+
+    def __str__(self) -> str:
+        return self.title
+
+    @classmethod
+    def follow_runs(cls, pk: int | None) -> None:
+        """Keep class ``pk`` in step with its runs: gone with its last run, and filed where one of them is.
+
+        Called when a run is deleted (one row, a queryset or a cascade, through ``post_delete``)
+        and when a run moves Class Type. A class with no runs left is deleted, so its address is
+        free again and its Class Type can go. A class whose Class Type none of its runs is in any
+        more moves to its newest run's, so it never alone holds a Class Type in place.
+        """
+        record = cls.objects.filter(pk=pk).first()
+        if record is None:
+            return
+        runs = ClassOffering.objects.filter(class_record_id=record.pk)
+        newest_category_id = runs.order_by("-pk").values_list("category_id", flat=True).first()
+        if newest_category_id is None:
+            record.delete()
+        elif not runs.filter(category_id=record.category_id).exists():
+            cls.objects.filter(pk=record.pk).update(category_id=newest_category_id)
+
+    @classmethod
+    def create_for(cls, run: "ClassOffering") -> "ClassRecord":
+        """A new class for ``run``, the first of its runs, on a free address made from its title.
+
+        The address is the title part of the run's ``grouping_key`` (its title slugified, any
+        imported date dropped), which ``save`` has already worked out.
+        """
+        base = run.grouping_key.split(":", 1)[0][:_CLASS_SLUG_BASE_LENGTH].strip("-") or "class"
+        own_runs = [run.pk] if run.pk else []
+        return cls.objects.create(
+            slug=cls.free_slug(base, run.category.slug, own_runs),
+            title=run.title,
+            category_id=run.category_id,
+        )
+
+    @classmethod
+    def free_slug(cls, base: str, category_slug: str, own_run_pks: Iterable[int]) -> str:
+        """The first of ``base``, ``base-<class type>``, ``base-<class type>-2``... nothing else answers to.
+
+        A class's address must not be another class's, nor the old address of a run in another
+        class: that run's links will be sent on to its own class, so the address stays its. A run
+        of this class (``own_run_pks``) may already hold it, because that link simply becomes the
+        class page.
+        """
+        own = list(own_run_pks)
+        candidates = itertools.chain(
+            [base, f"{base}-{category_slug}"],
+            (f"{base}-{category_slug}-{n}" for n in itertools.count(2)),
+        )
+        return next(
+            candidate
+            for candidate in candidates
+            if not cls.objects.filter(slug=candidate).exists()
+            and not ClassOffering.objects.filter(slug=candidate).exclude(pk__in=own).exists()
+        )
+
+
 # Storage folder + ceiling constants for class hero images. Keys under this prefix are
 # content-addressed (see core.images.store_content_addressed) so the same picture used by
 # many offerings is stored exactly once.
@@ -832,11 +922,15 @@ def _save_with_unique_slug(
     """
     for attempt in range(_SLUG_RETRY_LIMIT):
         offering.slug = _unique_slug(base, exclude_pk)
+        class_record_id = offering.class_record_id
         try:
             with transaction.atomic():
                 save()
             return
         except IntegrityError as error:
+            # A class the failed save started for the run rolled back with it (#1260); the retry
+            # must not point at it.
+            offering.class_record_id = class_record_id
             if not _is_slug_unique_violation(error) or attempt == _SLUG_RETRY_LIMIT - 1:
                 raise
 
@@ -1525,6 +1619,17 @@ class ClassOffering(HeroCropMixin, models.Model):
         blank=True,
         help_text="Hero image URL from the legacy CMS. Cleared after download_legacy_images runs.",
     )
+    class_record = models.ForeignKey(
+        ClassRecord,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="runs",
+        help_text=(
+            "The class this run belongs to (#1260). Set on first save from a run of the same "
+            "class, or a new class when there is none."
+        ),
+    )
     grouping_key = models.CharField(
         max_length=255,
         blank=True,
@@ -1803,6 +1908,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         update_fields = kwargs.get("update_fields")
         if update_fields is not None and {"title", "category", "category_id"} & set(update_fields):
             kwargs["update_fields"] = [*update_fields, "grouping_key"]
+        self._join_class_record(kwargs)
         # The Adjust tool saves only the four crop columns; the copy it cleared must land too.
         if update_fields is not None and copy_changed:
             kwargs["update_fields"] = [*kwargs["update_fields"], "hero_cropped"]
@@ -1815,29 +1921,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         category_written = update_fields is None or bool({"category", "category_id"} & set(update_fields))
         if old is not None and old.category_id != self.category_id and category_written:
             self._repoint_open_guild_lead_gate()
-
-        # When a grouped class moves to a new category, sync siblings so the
-        # group stays coherent (same grouping_key across all dates). Guarded by
-        # ``category_written`` for the same reason as the reopen above, and the cost of
-        # missing it is higher here: on a save that leaves the category where it was, this
-        # would carry every sibling off to a category the class itself never moved to,
-        # splitting the group it exists to keep together. A save that also renames the
-        # class out of its group moves it alone: its old runs keep their name and category,
-        # and stamping the new name's key on them would file them on the wrong catalog card.
-        # (``old`` loads only a few columns, so its title would read back the new one.)
-        if (
-            old is not None
-            and old.category_id != self.category_id
-            and category_written
-            and old.grouping_key
-            and grouping_key_for(self.title, old.category_id) == old.grouping_key
-        ):
-            type(self)._default_manager.filter(
-                grouping_key=old.grouping_key,
-            ).exclude(pk=self.pk).update(
-                category_id=self.category_id,
-                grouping_key=self.grouping_key,
-            )
+            self._carry_class_to_new_category(old)
 
         if creating:
             from classes import activity
@@ -1845,6 +1929,59 @@ class ClassOffering(HeroCropMixin, models.Model):
             activity.log(CmsActivity.Kind.CLASS_CREATED, class_offering=self)
 
         self._sync_payee()
+
+    def _carry_class_to_new_category(self, old: "ClassOffering") -> None:
+        """After this run moved Class Type, move its siblings and its class record with it.
+
+        Siblings first, so the group stays coherent (same grouping_key across all dates). Only
+        called on a save that wrote the category, and the cost of a wrong call is high: on a
+        save that leaves the category where it was, this would carry every sibling off to a
+        category the class itself never moved to, splitting the group it exists to keep
+        together. A save that also renames the class out of its group moves it alone: its old
+        runs keep their name and category, and stamping the new name's key on them would file
+        them on the wrong catalog card. (``old`` loads only a few columns, so its title would
+        read back the new one.)
+
+        Then the class record follows its runs (#1260), so it never holds on to a Class Type
+        none of them is in.
+        """
+        from classes.grouping import grouping_key_for
+
+        if old.grouping_key and grouping_key_for(self.title, old.category_id) == old.grouping_key:
+            type(self)._default_manager.filter(
+                grouping_key=old.grouping_key,
+            ).exclude(pk=self.pk).update(
+                category_id=self.category_id,
+                grouping_key=self.grouping_key,
+            )
+        ClassRecord.follow_runs(self.class_record_id)
+
+    def _join_class_record(self, save_kwargs: dict[str, Any]) -> None:
+        """File a run with no class under one before it saves, and save the column even on a narrow save."""
+        if self.class_record_id is not None:
+            return
+        self.class_record_id = self._class_record_id_to_join()
+        if save_kwargs.get("update_fields") is not None:
+            save_kwargs["update_fields"] = [*save_kwargs["update_fields"], "class_record"]
+
+    def _class_record_id_to_join(self) -> int:
+        """The class a run with no class joins (#1260): its siblings' class, else a new one.
+
+        A sibling is a run with the same ``grouping_key``, which is how Run it again, splitting
+        dates and the catalog card already tell one class's runs apart. A run the release before
+        #1260 saved during a deploy has no class either; its next save files it here.
+        """
+        if self.grouping_key:
+            sibling_class_id = (
+                type(self)
+                ._default_manager.filter(grouping_key=self.grouping_key, class_record__isnull=False)
+                .order_by("pk")
+                .values_list("class_record_id", flat=True)
+                .first()
+            )
+            if sibling_class_id is not None:
+                return sibling_class_id
+        return ClassRecord.create_for(self).pk
 
     # ── Instructors (#686) ───────────────────────────────────────────────────────────
 
@@ -4173,6 +4310,8 @@ class ClassOffering(HeroCropMixin, models.Model):
         self.title = f"{self.title} (copy)"
         self._reset_lifecycle_for_clone()
         self.legacy_cms_id = ""
+        # A copy is another class, so its save files it under a class of its own (#1260).
+        self.class_record = None
         self.channel_announced_at = None
         _save_with_unique_slug(self, base_slug, exclude_pk=None, save=self.save)
         self._copy_photos_and_faqs_from(source_pk)

@@ -78,6 +78,33 @@ def describe_admin_categories():
         assert response.status_code == 302
         assert not Category.objects.filter(pk=cat.pk).exists()
 
+    def it_deletes_a_category_whose_class_runs_were_deleted(admin_user, client, db):
+        from classes.factories import ClassOfferingFactory
+        from classes.models import Category, ClassRecord
+
+        client.force_login(admin_user)
+        run = ClassOfferingFactory()
+        cat = run.category
+        run.delete()
+        response = client.post(reverse("classes:admin_category_delete", kwargs={"pk": cat.pk}))
+        assert response.status_code == 302
+        assert not Category.objects.filter(pk=cat.pk).exists()
+        assert not ClassRecord.objects.exists()
+
+    def it_deletes_a_category_whose_classes_moved_to_another(admin_user, client, db):
+        from classes.factories import CategoryFactory, ClassOfferingFactory
+        from classes.models import Category
+
+        client.force_login(admin_user)
+        first = ClassOfferingFactory(title="Picture Framing", slug="framing-1")
+        ClassOfferingFactory(title="Picture Framing", slug="framing-2", category=first.category)
+        old = first.category
+        first.category = CategoryFactory()
+        first.save()
+        response = client.post(reverse("classes:admin_category_delete", kwargs={"pk": old.pk}))
+        assert response.status_code == 302
+        assert not Category.objects.filter(pk=old.pk).exists()
+
     def it_ignores_get_on_delete_and_redirects(admin_user, client, db):
         from classes.factories import CategoryFactory
         from classes.models import Category

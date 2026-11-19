@@ -11,7 +11,7 @@ from django.core.management import call_command
 from django.test import override_settings
 from PIL import Image
 
-from classes.models import ClassApproval, ClassOffering, Registration, RegistrationQuestion
+from classes.models import ClassApproval, ClassOffering, ClassRecord, Registration, RegistrationQuestion
 from core.management.commands.demo_data import (
     DEMO_EMAIL_DOMAIN,
     DEMO_IMAGE_DIRNAME,
@@ -247,6 +247,9 @@ def describe_demo_data_remove():
 
         assert User.objects.filter(email__endswith=f"@{DEMO_EMAIL_DOMAIN}").count() == 0
         assert ClassOffering.objects.filter(slug__startswith=DEMO_SLUG_PREFIX).count() == 0
+        # Each demo run's class went with it, so the demo Class Types could go too (#1260).
+        assert not ClassRecord.objects.filter(runs__isnull=True).exists()
+        assert not ClassRecord.objects.filter(category__slug__startswith=DEMO_SLUG_PREFIX).exists()
         assert Registration.objects.filter(email__endswith=f"@{DEMO_EMAIL_DOMAIN}").count() == 0
         assert Member.objects.filter(user__email__endswith=f"@{DEMO_EMAIL_DOMAIN}").count() == 0
 
