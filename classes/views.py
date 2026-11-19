@@ -452,6 +452,7 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
         sibling_offerings = list(
             ClassOffering.objects.registration_open()
             .filter(class_record_id=offering.class_record_id)
+            .select_related("category", "class_record")
             .prefetch_related("sessions", "instructor_rows")
         )
         sib_spots = ClassOffering.objects.filter(pk__in=[s.pk for s in sibling_offerings]).spots_remaining_map()
@@ -587,7 +588,7 @@ def _render_class_page(request: HttpRequest, offering: ClassOffering, *, times_t
         context["next_run"] = open_runs[0]
     # Each open date's Event names its own register page, unless sign up is switched off site wide.
     if open_runs and context["site_config"].class_registration_enabled:
-        events = [run.booking_event_json_ld() for run in open_runs]
+        events = [run.booking_event_json_ld(run.spots_left) for run in open_runs]
     else:
         events = [run.event_json_ld() for run in open_runs or [offering]]
     context["class_events"] = [event for event in events if event is not None]

@@ -8,6 +8,8 @@ import json
 import re
 
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -18,8 +20,8 @@ pytestmark = pytest.mark.django_db
 
 
 def _run(slug: str, *, days: int, category=None, **extra) -> ClassOffering:
+    extra.setdefault("title", "Picture Framing")
     run = ClassOfferingFactory(
-        title="Picture Framing",
         slug=slug,
         category=category or CategoryFactory(),
         status=ClassOffering.Status.PUBLISHED,
@@ -298,3 +300,17 @@ def describe_the_preview_of_one_run():
         assert "Next session" in body and "data-next-date" not in body
         assert '<div class="cp-detail__price">$55</div>' in body
         assert "<strong>7</strong> max class size" in body
+
+
+def describe_the_cost_of_several_dates():
+    def it_reads_the_page_in_as_many_queries_for_four_dates_as_for_two(client):
+        def queries(count: int) -> int:
+            first = _run(f"framing-{count}-0", days=10, title=f"Framing {count}")
+            for n in range(1, count):
+                _run(f"framing-{count}-{n}", days=10 + 7 * n, category=first.category, title=f"Framing {count}")
+            client.get(_class_path(first))  # warm the per process caches (site settings, content types)
+            with CaptureQueriesContext(connection) as captured:
+                assert client.get(_class_path(first)).status_code == 200
+            return len(captured)
+
+        assert queries(4) == queries(2)
