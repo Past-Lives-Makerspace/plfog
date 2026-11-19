@@ -1956,7 +1956,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             changed["category_id"] = self.category_id
         if not changed:
             return
-        ClassRecord.objects.filter(pk=self.class_record_id).update(**changed)
+        ClassRecord.objects.filter(runs=self).update(**changed)
         others = type(self)._default_manager.filter(class_record_id=self.class_record_id).exclude(pk=self.pk)
         if "title" in changed:
             others.mark_eventbrite_edit_saved()
