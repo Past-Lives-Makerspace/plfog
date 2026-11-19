@@ -89,7 +89,7 @@ from classes.composer import (
     first_unready_step,
     step_marks,
 )
-from classes.grouping import CatalogGroup, admin_group_rows, grouped_catalog
+from classes.grouping import CatalogGroup, admin_group_rows, catalog_key, grouped_catalog
 from classes.lifecycle import ADMIN_FACETS, INSTRUCTOR_FACETS, facet_rows, resolve_facet
 from classes.questions import prefill_answers
 from classes.table import prepare_table, table_search
@@ -188,11 +188,12 @@ def _bookable_run_options(offering: Any) -> list[Any]:
     its registration cutoff is not offered. Each returned offering carries a
     ``spots_left`` attribute for its label.
     """
-    runs = list(
-        ClassOffering.objects.registration_open()
-        .filter(grouping_key=offering.grouping_key)
-        .prefetch_related("sessions")
+    same_class = (
+        Q(class_record_id=offering.class_record_id)
+        if offering.class_record_id
+        else Q(grouping_key=offering.grouping_key)
     )
+    runs = list(ClassOffering.objects.registration_open().filter(same_class).prefetch_related("sessions"))
     if len(runs) <= 1:
         return []
     run_spots = ClassOffering.objects.filter(pk__in=[r.pk for r in runs]).spots_remaining_map()
@@ -282,12 +283,11 @@ def public_list(request: HttpRequest) -> HttpResponse:
 
     # Category chips and per-category counts always reflect the unfiltered
     # universe of browsable classes so users can see what else is out there.
-    # Counts are per-group (distinct grouping keys) so they match the collapsed
-    # cards rather than the raw, deduplicated offering rows.
+    # Counts are per class (#1260) so they match the collapsed cards rather than
+    # the raw, deduplicated offering rows.
     keys_by_category: dict[int, set[str]] = {}
     for offering in _browsable_classes():
-        key = offering.grouping_key or f"solo:{offering.pk}"
-        keys_by_category.setdefault(offering.category_id, set()).add(key)
+        keys_by_category.setdefault(offering.category_id, set()).add(catalog_key(offering))
     category_counts: dict[int, int] = {cat_id: len(keys) for cat_id, keys in keys_by_category.items()}
     # Show every class type in the catalog, even those with no bookable classes right
     # now, so members can see the full range of guilds. Zero-class types get a count of

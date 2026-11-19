@@ -305,10 +305,11 @@ class ClassRecord(models.Model):
     def follow_runs(cls, pk: int | None) -> None:
         """Keep class ``pk`` in step with its runs: gone with its last run, and filed where one of them is.
 
-        Called when a run is deleted (one row, a queryset or a cascade, through ``post_delete``)
-        and when a run moves Class Type. A class with no runs left is deleted, so its address is
-        free again and its Class Type can go. A class whose Class Type none of its runs is in any
-        more moves to its newest run's, so it never alone holds a Class Type in place.
+        Called when a run is deleted (one row, a queryset or a cascade, through ``post_delete``).
+        A class with no runs left is deleted, so its address is free again and its Class Type can
+        go. A class whose Class Type none of its remaining runs is in (one moved by a queryset
+        update, which skips ``save``) moves to its newest run's, so it never alone holds a Class
+        Type in place.
         """
         record = cls.objects.filter(pk=pk).first()
         if record is None:
@@ -442,6 +443,21 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         return self.filter(eventbrite_sync_state=ClassOffering.EventbriteSyncState.LISTED).update(
             eventbrite_sync_state=ClassOffering.EventbriteSyncState.PENDING,
             eventbrite_sync_error=EventbriteSync.GALLERY_CHANGED,
+        )
+
+    def mark_eventbrite_edit_saved(self) -> int:
+        """Send the listed classes here back to the retry set because their details changed; returns how many.
+
+        The queryset form of ``ClassOffering.mark_eventbrite_edit_saved`` for the one bulk edit
+        there is, a class's new title reaching its other runs (#1260): one UPDATE and no Eventbrite
+        call, and ``retry_eventbrite_pushes`` sends each on its next tick. Only ``LISTED`` rows
+        move, as for a gallery change.
+        """
+        from core.integrations.eventbrite import EventbriteSync
+
+        return self.filter(eventbrite_sync_state=ClassOffering.EventbriteSyncState.LISTED).update(
+            eventbrite_sync_state=ClassOffering.EventbriteSyncState.PENDING,
+            eventbrite_sync_error=EventbriteSync.EDIT_SAVED,
         )
 
     def refile_into_guild_categories(self, assignments: dict[int, int]) -> int:
@@ -1863,7 +1879,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             try:
                 old = (
                     type(self)
-                    ._default_manager.only("image", "grouping_key", "category_id", *HERO_CROP_FIELDS)
+                    ._default_manager.only("image", "grouping_key", "category_id", "title", *HERO_CROP_FIELDS)
                     .get(pk=self.pk)
                 )
             except type(self).DoesNotExist:
@@ -1913,7 +1929,8 @@ class ClassOffering(HeroCropMixin, models.Model):
         category_written = update_fields is None or bool({"category", "category_id"} & set(update_fields))
         if old is not None and old.category_id != self.category_id and category_written:
             self._repoint_open_guild_lead_gate()
-            self._carry_class_to_new_category(old)
+        if old is not None:
+            self._carry_to_class(old, update_fields)
 
         if creating:
             from classes import activity
@@ -1922,31 +1939,28 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         self._sync_payee()
 
-    def _carry_class_to_new_category(self, old: "ClassOffering") -> None:
-        """After this run moved Class Type, move its siblings and its class record with it.
+    def _carry_to_class(self, old: "ClassOffering", update_fields: Iterable[str] | None) -> None:
+        """Title and Class Type belong to the class (#1260): an edit on one run is made on the class and every run.
 
-        Siblings first, so the group stays coherent (same grouping_key across all dates). Only
-        called on a save that wrote the category, and the cost of a wrong call is high: on a
-        save that leaves the category where it was, this would carry every sibling off to a
-        category the class itself never moved to, splitting the group it exists to keep
-        together. A save that also renames the class out of its group moves it alone: its old
-        runs keep their name and category, and stamping the new name's key on them would file
-        them on the wrong catalog card. (``old`` loads only a few columns, so its title would
-        read back the new one.)
-
-        Then the class record follows its runs (#1260), so it never holds on to a Class Type
-        none of them is in.
+        One UPDATE for the class and one for its other runs, so every run of a class keeps one
+        title, one Class Type and so one ``grouping_key``, and the catalog shows it on one card.
+        Only what this save wrote counts: a narrow save that leaves the title or the Class Type
+        out writes neither, however the instance reads. Another run already listed on Eventbrite
+        goes back to the retry set when the title changes, so its listing gets the new name.
         """
-        from classes.grouping import grouping_key_for
-
-        if old.grouping_key and grouping_key_for(self.title, old.category_id) == old.grouping_key:
-            type(self)._default_manager.filter(
-                grouping_key=old.grouping_key,
-            ).exclude(pk=self.pk).update(
-                category_id=self.category_id,
-                grouping_key=self.grouping_key,
-            )
-        ClassRecord.follow_runs(self.class_record_id)
+        written = None if update_fields is None else set(update_fields)
+        changed: dict[str, Any] = {}
+        if (written is None or "title" in written) and old.title != self.title:
+            changed["title"] = self.title
+        if (written is None or {"category", "category_id"} & written) and old.category_id != self.category_id:
+            changed["category_id"] = self.category_id
+        if not changed:
+            return
+        ClassRecord.objects.filter(pk=self.class_record_id).update(**changed)
+        others = type(self)._default_manager.filter(class_record_id=self.class_record_id).exclude(pk=self.pk)
+        if "title" in changed:
+            others.mark_eventbrite_edit_saved()
+        others.update(**changed, grouping_key=self.grouping_key)
 
     def _join_class_record(self, save_kwargs: dict[str, Any]) -> None:
         """File a run with no class under one before it saves, and save the column even on a narrow save."""

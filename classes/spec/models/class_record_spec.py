@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory
 from classes.models import ClassOffering, ClassRecord
+from core.integrations.eventbrite import EventbriteSync
 
 pytestmark = pytest.mark.django_db
 
@@ -193,14 +194,61 @@ def describe_a_class_whose_runs_move_class_type():
         assert second.category == wood
         assert ClassRecord.objects.get().category == wood
 
-    def it_stays_while_a_run_remains_in_its_class_type():
+    def it_moves_every_run_when_one_is_renamed_and_moved_at_once():
         first = ClassOfferingFactory(title="Picture Framing", slug="framing-1")
-        ClassOfferingFactory(title="Picture Framing", slug="framing-2", category=first.category)
-        old = first.category
+        second = ClassOfferingFactory(title="Picture Framing", slug="framing-2", category=first.category)
+        wood = CategoryFactory()
 
-        # Renamed out of its group as it moves, so it moves alone.
         first.title = "Mat Cutting"
-        first.category = CategoryFactory()
+        first.category = wood
         first.save()
 
-        assert ClassRecord.objects.get().category == old
+        second.refresh_from_db()
+        record = ClassRecord.objects.get()
+        assert (record.title, record.category) == ("Mat Cutting", wood)
+        assert (second.title, second.category, second.grouping_key) == ("Mat Cutting", wood, first.grouping_key)
+
+
+def describe_a_renamed_class():
+    def it_renames_the_class_and_every_run_but_keeps_its_address():
+        first = ClassOfferingFactory(title="Make a Cup", slug="make-a-cup")
+        second = ClassOfferingFactory(title="Make a Cup", slug="make-a-cup-run", category=first.category)
+
+        second.title = "Make a Mug"
+        second.save(update_fields=["title"])
+
+        first.refresh_from_db()
+        record = ClassRecord.objects.get()
+        assert (record.title, record.slug) == ("Make a Mug", "make-a-cup")
+        assert first.title == "Make a Mug"
+        assert first.grouping_key == second.grouping_key == f"make-a-mug:{first.category_id}"
+
+    def it_queues_a_listed_run_to_send_eventbrite_the_new_name():
+        listed = ClassOfferingFactory(
+            title="Make a Cup",
+            slug="make-a-cup",
+            eventbrite_sync_state=ClassOffering.EventbriteSyncState.LISTED,
+        )
+        idle = ClassOfferingFactory(title="Make a Cup", slug="make-a-cup-idle", category=listed.category)
+        edited = ClassOfferingFactory(title="Make a Cup", slug="make-a-cup-run", category=listed.category)
+
+        edited.title = "Make a Mug"
+        edited.save()
+
+        listed.refresh_from_db()
+        idle.refresh_from_db()
+        assert listed.eventbrite_sync_state == ClassOffering.EventbriteSyncState.PENDING
+        assert listed.eventbrite_sync_error == EventbriteSync.EDIT_SAVED
+        assert idle.eventbrite_sync_state == ClassOffering.EventbriteSyncState.IDLE
+
+    def it_leaves_the_class_alone_on_a_save_that_does_not_write_the_title():
+        first = ClassOfferingFactory(title="Make a Cup", slug="make-a-cup")
+        second = ClassOfferingFactory(title="Make a Cup", slug="make-a-cup-run", category=first.category)
+
+        second.title = "Make a Mug"
+        second.capacity = 9
+        second.save(update_fields=["capacity"])
+
+        first.refresh_from_db()
+        assert first.title == "Make a Cup"
+        assert ClassRecord.objects.get().title == "Make a Cup"
