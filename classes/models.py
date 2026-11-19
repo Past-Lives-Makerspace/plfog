@@ -325,17 +325,17 @@ class ClassRecord(models.Model):
         of this class (``own_run_pks``) may already hold it, because that link simply becomes the
         class page.
         """
+        own = list(own_run_pks)
         candidates = itertools.chain(
             [base, f"{base}-{category_slug}"],
             (f"{base}-{category_slug}-{n}" for n in itertools.count(2)),
         )
-        for candidate in candidates:
-            if cls.objects.filter(slug=candidate).exists():
-                continue
-            if ClassOffering.objects.filter(slug=candidate).exclude(pk__in=list(own_run_pks)).exists():
-                continue
-            return candidate
-        raise AssertionError("unreachable: the candidates never run out")  # pragma: no cover
+        return next(
+            candidate
+            for candidate in candidates
+            if not cls.objects.filter(slug=candidate).exists()
+            and not ClassOffering.objects.filter(slug=candidate).exclude(pk__in=own).exists()
+        )
 
 
 # Storage folder + ceiling constants for class hero images. Keys under this prefix are
@@ -895,11 +895,15 @@ def _save_with_unique_slug(
     """
     for attempt in range(_SLUG_RETRY_LIMIT):
         offering.slug = _unique_slug(base, exclude_pk)
+        class_record_id = offering.class_record_id
         try:
             with transaction.atomic():
                 save()
             return
         except IntegrityError as error:
+            # A class the failed save started for the run rolled back with it (#1260); the retry
+            # must not point at it.
+            offering.class_record_id = class_record_id
             if not _is_slug_unique_violation(error) or attempt == _SLUG_RETRY_LIMIT - 1:
                 raise
 

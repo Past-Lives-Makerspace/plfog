@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
 from django.utils import timezone
@@ -110,6 +111,19 @@ def describe_runs_made_from_a_class():
 
         assert copy.class_record_id != source.class_record_id
         assert copy.class_record.title == "Make a Cup (copy)"
+
+    def it_files_a_duplicate_under_a_class_that_exists_after_a_slug_race():
+        ClassOfferingFactory(title="Taken", slug="taken")
+        source = ClassOfferingFactory(title="Make a Cup", slug="make-a-cup")
+
+        # The first save collides on the slug and rolls back, the class it started with it.
+        with patch("classes.models._unique_slug", side_effect=["taken", "make-a-cup-copy"]):
+            copy = ClassOffering.objects.get(pk=source.pk).duplicate()
+
+        copy.refresh_from_db()
+        assert copy.slug == "make-a-cup-copy"
+        assert ClassRecord.objects.filter(pk=copy.class_record_id).exists()
+        assert copy.class_record_id != source.class_record_id
 
     def it_stays_on_its_class_when_renamed():
         run = ClassOfferingFactory(title="Make a Cup", slug="make-a-cup")
