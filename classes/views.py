@@ -5644,9 +5644,11 @@ def admin_guild_tagging(request: HttpRequest) -> HttpResponse:
                 assignments[int(key.removeprefix("category_"))] = int(value)
             except ValueError:
                 continue
-        applied = ClassOffering.objects.refile_into_guild_categories(assignments)
+        applied, skipped = ClassOffering.objects.refile_into_guild_categories(assignments)
         noun = "class" if applied == 1 else "classes"
         messages.success(request, f"Re-filed {applied} {noun} into guild categories.")
+        for line in skipped:
+            messages.warning(request, f"Skipped {line}.")
         return redirect("classes:admin_guild_tagging")
 
     categories_by_name = {c.name: c for c in guild_categories}

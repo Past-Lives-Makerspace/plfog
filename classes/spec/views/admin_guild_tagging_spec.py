@@ -79,6 +79,31 @@ def describe_admin_guild_tagging():
             )
             assert b"Re-filed 1 class into guild categories." in response.content
 
+        def it_skips_a_class_whose_name_the_target_already_has_and_files_the_rest(admin_user, client, db):
+            client.force_login(admin_user)
+            metal = _guild_category("Metalworking")
+            ClassOfferingFactory(title="Blacksmithing 101", slug="bs-metal", category=metal)
+            clash = ClassOfferingFactory(title="Blacksmithing 101", slug="bs-101")
+            clash_run = ClassOfferingFactory(title="Blacksmithing 101", slug="bs-101-run", category=clash.category)
+            clean = ClassOfferingFactory(title="Forge Welding", slug="forge-welding")
+            response = client.post(
+                reverse("classes:admin_guild_tagging"),
+                {
+                    f"category_{clash.pk}": str(metal.pk),
+                    f"category_{clash_run.pk}": str(metal.pk),
+                    f"category_{clean.pk}": str(metal.pk),
+                },
+                follow=True,
+            )
+            body = response.content.decode()
+            assert "Re-filed 1 class into guild categories." in body
+            assert "Skipped Blacksmithing 101: Metalworking already has a class with this name." in body
+            clash.refresh_from_db()
+            clash_run.refresh_from_db()
+            clean.refresh_from_db()
+            assert clash.category_id == clash_run.category_id != metal.pk
+            assert clean.category_id == metal.pk
+
         def it_ignores_empty_values(admin_user, client, db):
             client.force_login(admin_user)
             _guild_category("Metalworking")

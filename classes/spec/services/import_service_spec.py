@@ -564,3 +564,31 @@ def describe_the_description_a_sync_writes():
 
         offering.refresh_from_db()
         assert offering.description == "<p>Now written.</p>"
+
+
+def describe_a_legacy_title_another_class_holds():
+    def it_skips_that_row_and_imports_the_rest(db, caplog):
+        from classes.import_service import sync_legacy_cms
+
+        first = [
+            _class_item(node_id="uuid-1", path_alias="/class/node-1", title="Intro to Welding"),
+            _class_item(node_id="uuid-2", path_alias="/class/node-2", title="Forge Basics"),
+        ]
+        with patch("urllib.request.urlopen", return_value=_make_mock_resp(_page(first))):
+            sync_legacy_cms()
+
+        renamed = [
+            _class_item(node_id="uuid-1", path_alias="/class/node-1", title="Intro to Welding", price="120.00"),
+            _class_item(node_id="uuid-2", path_alias="/class/node-2", title="Intro to Welding"),
+            _class_item(node_id="uuid-3", path_alias="/class/node-3", title="Torch Work"),
+        ]
+        with patch("urllib.request.urlopen", return_value=_make_mock_resp(_page(renamed))):
+            count = sync_legacy_cms()
+
+        assert count == 3
+        skipped = ClassOffering.objects.get(legacy_cms_id="uuid-2")
+        assert skipped.title == "Forge Basics"
+        assert skipped.status == ClassOffering.Status.PUBLISHED
+        assert ClassOffering.objects.get(legacy_cms_id="uuid-1").price_cents == 12000
+        assert ClassOffering.objects.filter(legacy_cms_id="uuid-3").exists()
+        assert "Legacy CMS sync skipped node uuid-2" in caplog.text

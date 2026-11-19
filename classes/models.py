@@ -469,8 +469,8 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
             )
         )
 
-    def refile_into_guild_categories(self, assignments: dict[int, int]) -> int:
-        """Re-file offerings into guild-linked categories; returns how many changed.
+    def refile_into_guild_categories(self, assignments: dict[int, int]) -> tuple[int, list[str]]:
+        """Re-file offerings into guild-linked categories; returns how many changed and what was skipped.
 
         ``assignments`` maps offering pk → target Category pk. Only offerings
         currently in a guild-less category and only guild-linked targets apply;
@@ -479,19 +479,31 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         save one-by-one on purpose: ``ClassOffering.save`` recomputes
         ``grouping_key`` when the category changes, which ``bulk_update`` would
         skip and quietly break catalog card grouping.
+
+        A row whose Class Type already has a class by its name is refused (#1260). Each row saves
+        in its own atomic block, so a refusal skips that class, all of its runs, and the rest of
+        the batch still applies. The second value is one line per skipped class for the page.
         """
         targets = Category.objects.filter(guild__isnull=False).in_bulk(assignments.values())
         offerings = self.filter(category__guild__isnull=True).in_bulk(assignments.keys())
         applied = 0
+        skipped: list[str] = []
+        skipped_classes: set[int | None] = set()
         for offering_pk, target_pk in assignments.items():
             offering = offerings.get(offering_pk)
             target = targets.get(target_pk)
-            if offering is None or target is None:
+            if offering is None or target is None or offering.class_record_id in skipped_classes:
                 continue
             offering.category = target
-            offering.save(update_fields=["category"])
+            try:
+                with transaction.atomic():
+                    offering.save(update_fields=["category"])
+            except ValidationError:
+                skipped_classes.add(offering.class_record_id)
+                skipped.append(f"{offering.title}: {target.name} already has a class with this name")
+                continue
             applied += 1
-        return applied
+        return applied, skipped
 
     def for_legacy_alias(self, alias: str) -> "ClassOffering | None":
         """The imported offering whose old classes.pastlives.space page was ``/class/<alias>``.
