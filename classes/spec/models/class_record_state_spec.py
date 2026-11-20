@@ -134,6 +134,26 @@ def describe_moving_state():
 
         assert _record(dated).state == State.RETIRED
 
+    def it_recomputes_once_a_deleted_run_is_gone():
+        older = _run("framing-1", days=-400)
+        recent = _run("framing-2", days=-30, category=older.category)
+        record = _record(older)
+        assert record.state == State.BETWEEN_RUNS
+
+        ClassOffering.objects.get(pk=recent.pk).delete()
+
+        record.refresh_from_db()
+        assert record.state == State.RETIRED
+        row = CmsActivity.objects.filter(kind=CmsActivity.Kind.CLASS_STATE_CHANGED).first()
+        assert row is not None and row.class_offering == older
+
+    def it_deletes_a_classs_only_run_with_its_dates():
+        run = _run("framing-1", days=-30)
+
+        ClassOffering.objects.get(pk=run.pk).delete()
+
+        assert not ClassRecord.objects.exists()
+
 
 def describe_no_longer_offered():
     def it_retires_a_class_between_runs_and_says_who():

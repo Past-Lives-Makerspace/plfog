@@ -36,8 +36,13 @@ def class_record_follows_deleted_run(sender: type[ClassOffering], instance: Clas
 def class_state_follows_deleted_session(sender: type[ClassSession], instance: ClassSession, **kwargs: Any) -> None:
     """Recompute the class's state when one of its runs loses a date (#1260).
 
-    A signal rather than a ``delete`` override, because dates are deleted one at a time, as a
-    queryset (the composer replacing a run's dates) and by cascade, and only ``post_delete``
-    fires for all three. A saved date recomputes in ``ClassSession.save``.
+    A signal rather than a ``delete`` override, because dates are deleted one at a time and as a
+    queryset (the composer replacing a run's dates), and only ``post_delete`` fires for both. A
+    saved date recomputes in ``ClassSession.save``. When the delete began at the run (a cascade),
+    the run row is still there and about to go, so ``ClassRecord.follow_runs`` recomputes once it
+    has gone instead.
     """
+    origin = kwargs.get("origin")
+    if isinstance(origin, ClassOffering) or getattr(origin, "model", None) is ClassOffering:
+        return
     instance.refresh_class_state()

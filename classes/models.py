@@ -457,8 +457,10 @@ class ClassRecord(models.Model):
         newest_category_id = runs.order_by("-pk").values_list("category_id", flat=True).first()
         if newest_category_id is None:
             record.delete()
-        elif not runs.filter(category_id=record.category_id).exists():
+            return
+        if not runs.filter(category_id=record.category_id).exists():
             cls.objects.filter(pk=record.pk).update(category_id=newest_category_id)
+        record.refresh_state()  # the run that went may have been the one keeping its state (#1260)
 
     @classmethod
     def create_for(cls, run: "ClassOffering") -> "ClassRecord":
