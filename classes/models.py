@@ -5666,6 +5666,17 @@ class ClassSession(models.Model):
     def __str__(self) -> str:
         return f"{self.class_offering.title} — {self.starts_at:%Y-%m-%d}"
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Save, then recompute the class's state: a run dated or re-dated can move it (#1260)."""
+        super().save(*args, **kwargs)
+        self.refresh_class_state()
+
+    def refresh_class_state(self) -> None:
+        """Recompute the state of the class this session's run belongs to, when it has one."""
+        record = ClassRecord.objects.filter(runs__pk=self.class_offering_id).first()
+        if record is not None:
+            record.refresh_state()
+
 
 #: What an admin reads in a personal code's description (#1065). The backfill migration writes
 #: its own wording, so its reverse can tell the codes it made from ones made at a grant.

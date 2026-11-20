@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.db.models.signals import post_delete, post_save, pre_delete
+from django.db.models.signals import post_delete, pre_delete
 from django.dispatch import receiver
 
 from classes.models import ClassApproval, ClassOffering, ClassRecord, ClassSession
@@ -32,15 +32,12 @@ def class_record_follows_deleted_run(sender: type[ClassOffering], instance: Clas
     ClassRecord.follow_runs(instance.class_record_id)
 
 
-@receiver(post_save, sender=ClassSession, dispatch_uid="classes.class_state_follows_saved_session")
 @receiver(post_delete, sender=ClassSession, dispatch_uid="classes.class_state_follows_deleted_session")
-def class_state_follows_session(sender: type[ClassSession], instance: ClassSession, **kwargs: Any) -> None:
-    """Recompute the class's state when one of its runs is dated, re-dated or loses a date (#1260).
+def class_state_follows_deleted_session(sender: type[ClassSession], instance: ClassSession, **kwargs: Any) -> None:
+    """Recompute the class's state when one of its runs loses a date (#1260).
 
-    A signal, because sessions are written by the composer, the date tools and the import alike.
+    A signal rather than a ``delete`` override, because dates are deleted one at a time, as a
+    queryset (the composer replacing a run's dates) and by cascade, and only ``post_delete``
+    fires for all three. A saved date recomputes in ``ClassSession.save``.
     """
-    if kwargs.get("raw"):
-        return
-    record = ClassRecord.objects.filter(runs__pk=instance.class_offering_id).first()
-    if record is not None:
-        record.refresh_state()
+    instance.refresh_class_state()
