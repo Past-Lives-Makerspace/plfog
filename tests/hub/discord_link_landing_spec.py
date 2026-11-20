@@ -72,8 +72,9 @@ def describe_discord_link_landing_nudge():
         assert response.status_code == 200
         assert b"Discord Connected" in response.content  # sanity: we're on the linked state
         assert b"Back in Discord, try" in response.content
-        assert b"/whats-on" in response.content
-        assert b"/fog-ping" in response.content
+        assert b"<code>/info</code>" in response.content
+        assert b"<code>/voting</code>" in response.content
+        assert b"<code>/whats-on</code>" not in response.content
 
     def it_hides_the_nudge_on_a_non_linked_state(settings):
         _configure(settings)

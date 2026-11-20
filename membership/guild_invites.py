@@ -90,8 +90,7 @@ def candidate_rows(guild: Guild) -> list[tuple[int, str]]:
 def banner_invite(guild: Guild, member: Member, *, is_member: bool) -> GuildInvite | None:
     """The open invite the guild page's banner offers ``member``, or None.
 
-    One query. An invitee who already joined some other way (a Discord reaction, the
-    ``/join-guild`` command) sees no banner, and their invite is closed here.
+    One query. An invitee who already joined some other way (a Discord reaction) sees no banner, and their invite is closed here.
     """
     from django.utils import timezone
 

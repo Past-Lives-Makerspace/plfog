@@ -43,7 +43,33 @@ def describe_build_info_embeds():
         _configure(discord_info_links_content="   ")
         links, _commands = dip.build_info_embeds()
         assert links["description"] == DISCORD_INFO_LINKS_DEFAULT
-        assert "https://pastlives.app" in links["description"]
+        assert "**📱 Past Lives Member Portal**" in links["description"]
+        assert "https://members.pastlives.space" in links["description"]
+        assert "pastlives.app" not in links["description"]
+        assert "(FOG)" not in links["description"]
+
+    def it_lists_only_the_commands_still_offered():
+        _links, commands = dip.build_info_embeds()
+        assert sorted(c.name for c in all_commands()) == [
+            "create-announcement",
+            "fog-ping",
+            "guide",
+            "info",
+            "link",
+            "poll",
+            "voting",
+        ]
+        for retired in (
+            "schedule-orientation",
+            "join-guild",
+            "create",
+            "cancel",
+            "balance",
+            "members",
+            "vote",
+            "whats-on",
+        ):
+            assert f"`/{retired}`" not in commands["description"]
 
     def it_lists_every_registered_command_with_its_description():
         _links, commands = dip.build_info_embeds()

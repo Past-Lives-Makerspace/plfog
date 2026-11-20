@@ -169,7 +169,6 @@ an empty list, and "all clear" would be a lie about a guild that does have work 
       <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:1rem;">Discord</h2>
       {% include "components/form_field.html" with field=form.discord_webhook_url %}
       {% include "components/form_field.html" with field=form.discord_post_enabled %}
-      {% include "components/form_field.html" with field=form.discord_welcome_message %}
     </div>
   </div>
 
@@ -480,7 +479,7 @@ confirm modal carries its own POST form, and template content can't nest a form.
 <div x-show="section === 'welcome_email'" x-cloak>
   <div class="hub-card" style="padding:1.5rem; margin-bottom:1.5rem;" data-help-key="guild.welcome-email">
     <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Welcome Email</h2>
-    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Sent to a member when they deliberately join this guild (the Join This Guild button, or the Discord /join-guild command). On by default; leave the subject and body blank to send the standard welcome.</p>
+    <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Sent to a member when they deliberately join this guild (the Join This Guild button). On by default; leave the subject and body blank to send the standard welcome.</p>
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
       <button type="button" class="pl-btn pl-btn--secondary"
               @click="$dispatch('open-modal', 'welcome-preview')"

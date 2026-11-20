@@ -1,4 +1,4 @@
-"""The hub app's member slash commands — ``/link`` (connect), ``/join-guild`` (follow a guild), and ``/vote`` (ballot).
+"""The hub app's member slash commands: ``/link`` (connect) and ``/create-announcement``.
 
 ``/link`` is the highest-leverage command: it's how a member in Discord connects their
 account to Past Lives, which gates *every* other part of the integration (guild sync, DMs,
@@ -14,14 +14,7 @@ configured, already linked, and not-yet-linked (the connect link). Any unexpecte
 is turned into the friendly error reply by :func:`core.events.discord_commands.dispatch`'s
 per-command guard, so Discord never sees a 500.
 
-``/join-guild`` mirrors the in-app subscribe path (:meth:`membership.models.Member.subscribe_to_guild`)
-over Discord: it records the app-side subscription row, self-heals the Discord role on every path, and — only
-for a brand-new subscription — posts a public welcome to the guild's channel and fires the fan-out
-(activity + lead notice + optional welcome email). It is ``defer=True`` because that fan-out
-can send email; all Discord side-effects are best-effort, so the ``GuildMembership`` row is
-the source of truth. It complements (never replaces) the emoji reaction-role flow.
-
-Both mirror the built-in ``/fog-ping`` reference command in :mod:`core.events.discord_commands`.
+``/link`` mirrors the built-in ``/fog-ping`` reference command in :mod:`core.events.discord_commands`.
 """
 
 from __future__ import annotations
@@ -47,7 +40,8 @@ _NOT_CONFIGURED = (
     "Connecting Discord isn't set up right now. Please try again later, or reach out to a Past Lives organizer."
 )
 _ALREADY_LINKED = (
-    "You're already connected as **{display_name}** — you're all set. Try `/whats-on` to see what's coming up."
+    "You're already connected as **{display_name}** — you're all set. "
+    "See what's coming up on the Calendar: {calendar_url}"
 )
 _CONNECT = (
     "Let's connect your Discord to your Past Lives account. **[Connect Discord]({connect_url})**"
@@ -81,7 +75,10 @@ def _link(interaction: Interaction, member: Member | None) -> dict:
         return reply(_NOT_CONFIGURED, ephemeral=True)
 
     if member is not None:
-        return reply(_ALREADY_LINKED.format(display_name=member.display_name), ephemeral=True)
+        return reply(
+            _ALREADY_LINKED.format(display_name=member.display_name, calendar_url=hub_url("hub_community_calendar")),
+            ephemeral=True,
+        )
 
     connect_url = _connect_url()
     button_row = {
@@ -104,245 +101,6 @@ LINK = SlashCommand(
 )
 
 register(LINK)
-
-
-# --- /join-guild --------------------------------------------------------------
-
-# Discord caps a command option's static choices at 25.
-_MAX_CHOICES = 25
-
-
-def _guild_choices() -> list[dict]:
-    """The ``guild`` option for ``/join-guild`` — one static choice per active guild.
-
-    Built at *serialization* time (inside ``register_discord_commands`` →
-    :meth:`SlashCommand.to_api_dict`), never at import time, so it is safe to query the DB.
-    Each choice's value is the guild ``slug`` (what the handler resolves on). Resilient at
-    both edges:
-
-    * More than 25 active guilds → capped at Discord's limit, with the dropped guilds logged
-      (they stay joinable in the hub) rather than silently lost.
-    * Zero active guilds → the option ships *without* a ``choices`` key — an empty-choices
-      option would 400 Discord's bulk command PUT — leaving a free-text field the handler's
-      lenient slug resolution still accepts.
-    """
-    from membership.models import Guild
-
-    guilds = list(Guild.objects.filter(is_active=True).order_by("name"))
-    if len(guilds) > _MAX_CHOICES:
-        logger.warning(
-            "join-guild: %d active guilds > %d; %r dropped from the picker (still joinable in the hub).",
-            len(guilds),
-            _MAX_CHOICES,
-            [g.name for g in guilds[_MAX_CHOICES:]],
-        )
-        guilds = guilds[:_MAX_CHOICES]
-    option: dict = {"name": "guild", "description": "Which guild to follow.", "type": 3, "required": True}
-    if guilds:
-        option["choices"] = [{"name": g.name, "value": g.slug} for g in guilds]
-    return [option]
-
-
-def _welcome_body(guild: Guild) -> str:
-    """The welcome copy — the lead's ``discord_welcome_message`` or a generic fallback."""
-    return guild.discord_welcome_message.strip() or f"Welcome to {guild.name}! A lead will say hi soon."
-
-
-def _join_guild(interaction: Interaction, member: Member | None) -> dict:
-    """Subscribe the caller to their chosen guild's updates and welcome them (spec §5).
-
-    Mirrors the in-app subscribe path (:meth:`membership.models.Member.subscribe_to_guild`), but keeps
-    its own inline sequence because the public channel welcome interleaves with ``created``:
-    ``record_app_join`` → ensure the Discord role on **every** path (idempotent self-heal) → and,
-    **only for a brand-new subscription**, post the public channel welcome and fire the fan-out.
-    An ``upgraded`` reaction-join (already
-    in the guild/channel) gets neither the public post nor the fan-out — no surprise
-    re-welcome. Every Discord side-effect is best-effort; the ``GuildMembership`` row is the
-    source of truth, so the ephemeral confirmation always returns.
-
-    ``requires_link=True`` means dispatch resolved a linked member before this runs (an
-    unlinked caller gets the connect prompt instead), so ``member`` is non-None.
-    """
-    from core.events import discord_roles
-    from core.events.channels import Message
-    from core.events.discord import guild_webhook, post_embed
-    from membership import orientations
-    from membership.models import Guild, GuildMembership
-
-    member = cast("Member", member)
-    slug = option_value(interaction, "guild")
-    guild = Guild.objects.filter(slug=slug, is_active=True).first()
-    if guild is None:
-        return reply("That guild wasn't found. Try `/join-guild` again.", ephemeral=True)
-
-    _membership, created, upgraded = GuildMembership.objects.record_app_join(guild, member)
-
-    # Always ensure the Discord role: idempotent, best-effort, and it self-heals a member who
-    # app-joined earlier but whose role never got assigned on a partial run.
-    discord_roles.on_membership_changed(guild, member, joined=True)
-
-    if created:
-        # Public welcome in the guild's channel — best-effort, gated on discord_post_enabled
-        # + a non-blank webhook (guild_webhook returns "" otherwise). No user @-mention: the
-        # embed *title* names the member (Message.discord_mention only does @here/@everyone).
-        hook = guild_webhook(guild)
-        if hook:
-            post_embed(
-                hook,
-                Message(title=f"Welcome {member.greeting_name} to {guild.name}!", body=_welcome_body(guild)),
-            )
-        # Welcome fan-out (activity + lead "New follower" notice), wrapped so an email hiccup
-        # can never swallow the member's confirmation. /join-guild is a deliberate join, so the
-        # member-facing welcome email fires too (there is no opt-out checkbox in Discord — a
-        # member who typed the command wants in). Both are wrapped best-effort.
-        try:
-            orientations.member_joined_guild(guild, member)
-            member.send_guild_welcome(guild)
-        except Exception:
-            logger.exception("join-guild: welcome fan-out failed for guild=%s member=%s", guild.pk, member.pk)
-
-    if created or upgraded:
-        return reply(f"You now follow **{guild.name}**! 🎉\n\n{_welcome_body(guild)}", ephemeral=True)
-    return reply(f"You already follow **{guild.name}**. Nothing to do.", ephemeral=True)
-
-
-JOIN_GUILD = SlashCommand(
-    name="join-guild",
-    description="Follow a Past Lives guild to get its updates.",
-    handler=_join_guild,
-    options_builder=_guild_choices,
-    requires_link=True,
-    defer=True,
-    ephemeral=True,
-    scope="guild",
-)
-
-register(JOIN_GUILD)
-
-
-# --- /vote --------------------------------------------------------------------
-
-_RANKED_OPTIONS = (
-    ("first", "Your 1st choice (5 pts).", True),
-    ("second", "Your 2nd choice (3 pts).", True),
-    ("third", "Your 3rd choice (2 pts).", True),
-)
-
-
-def _ballot_options() -> list[dict]:
-    """The ranked options for ``/vote`` — each one the ``/join-guild`` guild picker.
-
-    All three choices are required, mirroring the voting page.
-    Built from :func:`_guild_choices` so the slug values, the 25-choice Discord cap (beyond 25
-    active guilds the overflow is logged and dropped from the picker — the same constraint
-    ``/join-guild`` already lives with; those guilds stay votable on the hub page), and the
-    empty-choices guard are shared rather than re-implemented. One DB query serves all three.
-    """
-    base = _guild_choices()[0]
-    return [
-        {**base, "name": name, "description": description, "required": required}
-        for name, description, required in _RANKED_OPTIONS
-    ]
-
-
-def _vote(interaction: Interaction, member: Member | None) -> dict:
-    """Cast or change the member's ranked ballot — the hub page's exact validate + save path.
-
-    Validation is the very same ``VotePreferenceForm`` the voting page POSTs through
-    (active-guild querysets, all three required, distinct choices) and the save is the same
-    ``VotePreference.objects.cast_ballot`` call, so ``updated_at``, the Airtable push in
-    ``VotePreference.save()``, and the vote-activity post-save signal fire exactly as a page
-    submission would — no invented sync behavior. Validation failures name the problem in a
-    friendly ephemeral reply, never the generic error reply.
-
-    ``defer=True`` because ``cast_ballot`` → ``VotePreference.save()`` makes a synchronous
-    Airtable HTTP call when sync is enabled — the same reason ``/join-guild`` defers for its
-    fan-out; Discord's 3-second deadline is not a bet worth making against an external API.
-    """
-    from hub.forms import VotePreferenceForm
-    from membership.cycle import get_cycle_context
-    from membership.models import Guild, VotePreference
-    from membership.vote_calculator import WEIGHTS
-
-    member = cast("Member", member)  # requires_link=True: dispatch resolved a linked member before this runs
-    voting_url = hub_url("hub_guild_voting")
-
-    slugs = [option_value(interaction, name) or "" for name, *_ in _RANKED_OPTIONS]
-    provided = [slug for slug in slugs if slug]
-    guilds_by_slug = {g.slug: g for g in Guild.objects.filter(is_active=True, slug__in=provided)}
-    unknown = sorted({slug for slug in provided if slug not in guilds_by_slug})
-    if unknown:
-        named = ", ".join(f"`{slug}`" for slug in unknown)
-        return reply(
-            f"I couldn't find an active guild for {named} — pick from the dropdowns and try again, "
-            f"or vote on the page: {voting_url}",
-            ephemeral=True,
-        )
-
-    form = VotePreferenceForm(
-        data={
-            "guild_1st": guilds_by_slug[slugs[0]].pk if slugs[0] else "",
-            "guild_2nd": guilds_by_slug[slugs[1]].pk if slugs[1] else "",
-            "guild_3rd": guilds_by_slug[slugs[2]].pk if slugs[2] else "",
-        }
-    )
-    if not form.is_valid():
-        # Guilds resolved, so the reachable failures are the shared form rules: choices must be
-        # distinct and you can't skip a rank — surface the form's own message so Discord and the
-        # page speak identically.
-        # The clash message already names the guild and the choices; the per select notes would repeat it.
-        message = " ".join(str(error) for error in form.non_field_errors()) or " ".join(
-            str(error) for errors in form.errors.values() for error in errors
-        )
-        return reply(f"{message} Nothing was changed. Adjust your picks and try again.", ephemeral=True)
-
-    preference, created = VotePreference.objects.cast_ballot(
-        member,
-        guild_1st=form.cleaned_data["guild_1st"],
-        guild_2nd=form.cleaned_data["guild_2nd"],
-        guild_3rd=form.cleaned_data["guild_3rd"],
-    )
-
-    cycle = get_cycle_context()
-    verb = "in" if created else "updated"
-    ranked = [
-        (f"{label} — {guild.name} · {WEIGHTS[label]} pts")
-        for label, guild in (
-            ("1st", preference.guild_1st),
-            ("2nd", preference.guild_2nd),
-            ("3rd", preference.guild_3rd),
-        )
-        if guild
-    ]
-    embed = {
-        "title": f"Your ballot is {verb} — {cycle['current_cycle_label']} ✅",
-        "description": (
-            f"This cycle closes **{cycle['cycle_closes_on']}**.\n\n"
-            + "\n".join(ranked)
-            + "\n\nSee the live standings anytime with `/voting`."
-        ),
-    }
-    button_row = {
-        "type": 1,
-        "components": [
-            {"type": 2, "style": 5, "label": "Open the voting page", "url": voting_url},
-        ],
-    }
-    return reply("", ephemeral=True, embeds=[embed], components=[button_row])
-
-
-VOTE = SlashCommand(
-    name="vote",
-    description="Cast or change your three ranked guild-funding choices.",
-    handler=_vote,
-    options_builder=_ballot_options,
-    requires_link=True,
-    ephemeral=True,
-    defer=True,
-    scope="guild",
-)
-
-register(VOTE)
 
 
 # --- /create-announcement -----------------------------------------------------

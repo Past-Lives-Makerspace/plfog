@@ -599,8 +599,7 @@ class MemberQuerySet(models.QuerySet):
         """Active members listed in the directory: opted in, or holding a must-show role.
 
         The single source of truth for "who appears in the member directory" — the hub
-        directory page, :meth:`Guild.roster_members`, and the Discord ``/members`` command
-        all build on this filter so they can never drift. A member appears when they are
+        directory page and :meth:`Guild.roster_members` both build on this filter so they can never drift. A member appears when they are
         ACTIVE and either opted in (``show_in_directory``) or hold a role the community
         needs to reach: admin, guild lead, or instructor. Guild staff choose for themselves.
         """
@@ -1512,8 +1511,7 @@ class Member(StaffRequestMixin, models.Model):
         """Send this member the guild's welcome email once (idempotent per (member, guild)).
 
         The deliberate-join welcome. Called by the hero Join view (only when the member
-        left the modal's welcome box checked) and the Discord ``/join-guild`` command —
-        never by :meth:`subscribe_to_guild`, so the first-login picker and Settings toggle
+        left the modal's welcome box checked), never by :meth:`subscribe_to_guild`, so the first-login picker and Settings toggle
         never trigger it. Gated on the site-wide ``SiteConfiguration.guild_welcome_email_enabled``
         switch and the guild's ``welcome_email_enabled``; deduped forever per (member, guild).
         """
@@ -9574,7 +9572,7 @@ def _close_open_invites(guild: Guild, member: Member) -> None:
 
     Every join path writes its membership through :class:`GuildMembershipManager`, so this is
     the one place an invite closes on a join: the hero Join, the invite banner, the Settings
-    toggle, the first-login picker, Discord's ``/join-guild`` and the reaction sync.
+    toggle, the first-login picker and the Discord reaction sync.
     """
     GuildInvite.objects.open().filter(guild=guild, member=member).update(accepted_at=timezone.now())
 
@@ -12673,12 +12671,12 @@ class CommunityEvent(StaffRequestMixin, HeroCropMixin, models.Model):
         return changed or bool(removed)
 
     def can_manage_from_discord(self, member: "Member") -> bool:
-        """Who may open the ⚙ Manage card: the ``/cancel`` delete authority, plus the creator.
+        """Who may open the ⚙ Manage card: the card's cancel authority, plus the creator.
 
-        The first clause is byte-for-byte ``_cancel_authority``'s delete authority (admins,
-        the event's guild leads/staff); the creator clause widens *who sees the card only* —
-        what the card lets them do is still governed by the per-action authorities (``/cancel``
-        re-checks ``_cancel_authority``), so no new edit/delete power is minted.
+        The first clause is ``_can_cancel``'s delete authority (admins, the event's guild
+        leads/staff); the creator clause widens *who sees the card only* — what the card lets
+        them do is still governed by the per-action authorities (the Cancel confirm re-checks
+        ``_can_cancel``), so no new edit/delete power is minted.
         """
         if member.is_fog_admin or (self.guild is not None and member.can_edit_guild(self.guild)):
             return True
@@ -12711,7 +12709,7 @@ class CommunityEvent(StaffRequestMixin, HeroCropMixin, models.Model):
     def strip_discord_announcement_buttons(self) -> None:
         """Best-effort: drop the RSVP/Manage buttons off a cancelled event's announcement message.
 
-        Called from the ``/cancel`` delete fan-out so a removed event stops inviting clicks;
+        Called from the ⚙ Manage card's cancel fan-out so a removed event stops inviting clicks;
         no-ops when the message ids are unset, and a Discord failure is logged, never raised
         (stale clicks on a not-yet-stripped message degrade gracefully at the handler)."""
         if not (self.discord_announce_channel_id and self.discord_announce_message_id):
@@ -13749,8 +13747,8 @@ class VotePreferenceQuerySet(models.QuerySet):
     ) -> tuple[VotePreference, bool]:
         """Create or update ``member``'s persistent ballot — the one shared save path.
 
-        Both the hub voting page and the Discord ``/vote`` command land here, so every side
-        effect of a ballot save fires identically for both: ``updated_at`` (auto_now), the
+        The hub voting page lands here, so every side effect of a ballot save fires in one
+        place: ``updated_at`` (auto_now), the
         Airtable push in :meth:`VotePreference.save`, and the vote-activity post-save signal.
         Callers validate first (``hub.forms.VotePreferenceForm``); this method only persists.
 

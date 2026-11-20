@@ -6,8 +6,8 @@ Two flavors share the same `_bump` mechanics:
   per-key limits are handled by allauth itself (ACCOUNT_RATE_LIMITS); this adds a coarse
   total-sends cap on top so a single bad day can't drain the Resend daily quota.
 * **Keyed** per-actor counters (:func:`record_keyed_attempt` / :func:`keyed_within_limits`)
-  for member-facing actions that need a per-person cap, e.g. the Discord ``/create``
-  command's events-per-member limit. For an anonymous caller the actor is the address
+  for member-facing actions that need a per-person cap, e.g. the Discord ``/poll``
+  command's polls-per-member limit. For an anonymous caller the actor is the address
   :func:`client_rate_key` picks (the biometric unlock, the public event page's guest RSVP).
 """
 

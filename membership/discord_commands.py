@@ -1,5 +1,5 @@
-"""Membership's Discord slash commands: ``/whats-on``, ``/info``, ``/schedule-orientation``,
-``/voting``, ``/members``, ``/create``, ``/cancel``, and ``/poll``.
+"""Membership's Discord slash commands, ``/info``, ``/voting`` and ``/poll``, plus the
+#calendar announcement buttons (RSVP, the ⚙ Manage card and its Cancel confirm).
 
 Autodiscovered by :func:`core.events.discord_commands.autodiscover`. Each handler stays thin
 — it resolves a guild/window, calls an existing manager/service method, and hands the result
@@ -11,11 +11,8 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, datetime, timedelta
-from math import ceil
 from typing import TYPE_CHECKING, cast
 
-from core.deferred import defer
 from core.events.discord_commands import (
     ComponentHandler,
     ModalHandler,
@@ -40,26 +37,19 @@ from core.events.discord_interactions import (
     text_input,
     update_message,
 )
-from membership.when_text import WhenError
 from core.events.discord_replies import (
     format_local,
     guild_not_specified_reply,
     hub_url,
-    option_value,
     resolve_command_guild,
     truncate,
 )
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import User
-
-    from hub.forms import CommunityEventForm
     from membership.models import (
         CommunityEvent,
-        CommunityEventDraft,
         Guild,
         Member,
-        MemberQuerySet,
     )
     from membership.vote_calculator import VoteStanding
 
@@ -67,91 +57,6 @@ logger = logging.getLogger(__name__)
 
 # An interaction payload is Discord's JSON dict; the second arg is the resolved Member | None.
 Interaction = dict
-
-_SECTION_CAP = 8
-
-
-# --- /whats-on ----------------------------------------------------------------
-
-
-def _event_occurrences(frm: date, to: date) -> list[tuple[datetime, str, str]]:
-    """Published community events expanded to concrete ``(datetime, title, url)`` in ``[frm, to]``.
-
-    A recurring series carries no single future ``starts_at``, so each candidate row is asked
-    for its concrete occurrences in the window (``occurrences_in``) — a plain ``starts_at``
-    filter would silently drop a monthly series whose anchor is in the past.
-    """
-    from membership.models import CommunityEvent
-
-    rows = CommunityEvent.objects.published().upcoming().candidates_for_window(frm, to)
-    items = [(dt, row.title, row.public_url_on(dt)) for row in rows for dt in row.occurrences_in(frm, to)]
-    items.sort(key=lambda item: item[0])
-    return items
-
-
-def _class_sessions(to: date) -> list[tuple[datetime, str, str]]:
-    """Upcoming public class sessions starting on/before ``to`` as ``(datetime, title, url)``."""
-    from classes.models import ClassSession
-
-    sessions = (
-        ClassSession.objects.upcoming_public()
-        .filter(starts_at__date__lte=to)
-        .select_related("class_offering__class_record")
-    )
-    items = [(s.starts_at, s.class_offering.title, s.class_offering.public_url) for s in sessions]
-    items.sort(key=lambda item: item[0])
-    return items
-
-
-def _section_block(heading: str, items: list[tuple[datetime, str, str]], calendar_url: str) -> str:
-    """One markdown section — a heading over linked, dated lines — or ``""`` when empty.
-
-    Capped at :data:`_SECTION_CAP` items; an overflow appends a "…and more" line linking the
-    full calendar so nothing is silently truncated.
-    """
-    if not items:
-        return ""
-    lines = [f"**{heading}**"]
-    for dt, title, url in items[:_SECTION_CAP]:
-        lines.append(f"• [{title}]({url}) — {format_local(dt)}")
-    if len(items) > _SECTION_CAP:
-        lines.append(f"…and more — full calendar: {calendar_url}")
-    return "\n".join(lines)
-
-
-def _whats_on(interaction: Interaction, member: Member | None) -> dict:
-    """List community events + class sessions in the next 7 local days, each a linked, dated line."""
-    from django.utils import timezone
-
-    frm = timezone.localdate()
-    to = frm + timedelta(days=7)
-    calendar_url = hub_url("hub_community_calendar")
-
-    blocks = [
-        block
-        for block in (
-            _section_block("Events", _event_occurrences(frm, to), calendar_url),
-            _section_block("Classes", _class_sessions(to), calendar_url),
-        )
-        if block
-    ]
-    if not blocks:
-        return reply(f"Nothing scheduled in the next 7 days.\nBrowse the calendar: {calendar_url}", ephemeral=True)
-    return reply("📅 **This week at Past Lives**\n\n" + "\n\n".join(blocks), ephemeral=True)
-
-
-WHATS_ON = SlashCommand(
-    name="whats-on",
-    description="See events and classes coming up in the next 7 days.",
-    handler=_whats_on,
-    requires_link=False,
-    ephemeral=True,
-    defer=False,
-    scope="guild",
-)
-
-register(WHATS_ON)
-
 
 # --- /info --------------------------------------------------------------------
 
@@ -253,8 +158,7 @@ def _info(interaction: Interaction, member: Member | None) -> dict:
 def _guild_dropdown_option() -> dict:
     """A ``guild`` slash-command option rendered as a dropdown of active guilds (optional).
 
-    Used by ``/info`` (and mirrors ``/join-guild``'s picker):
-    each choice's value is the guild ``slug`` (resolved by :func:`resolve_command_guild`), and it
+    Used by ``/info``: each choice's value is the guild ``slug`` (resolved by :func:`resolve_command_guild`), and it
     stays ``required=False`` so a member can omit it to use the current channel's guild. Built at
     *serialization* time (inside ``register_discord_commands`` → :meth:`SlashCommand.to_api_dict`),
     so the DB query is safe; capped at Discord's 25-choice limit; ships WITHOUT a ``choices`` key
@@ -292,32 +196,6 @@ INFO = SlashCommand(
 )
 
 register(INFO)
-
-
-# --- /schedule-orientation ----------------------------------------------------
-
-
-def _schedule_orientation(interaction: Interaction, member: Member | None) -> dict:
-    """Point the member at the Orientations page, where every orientation is booked.
-
-    The command used to book from Discord, but that road skipped payment: a paid or
-    donation based type became a free request. Booking lives on the page, so the price,
-    the amount a member chooses and the checkout always apply.
-    """
-    return reply(f"Book an orientation on the Orientations page: {hub_url('hub_orientations')}", ephemeral=True)
-
-
-SCHEDULE_ORIENTATION = SlashCommand(
-    name="schedule-orientation",
-    description="Find and book an orientation on the members site.",
-    handler=_schedule_orientation,
-    requires_link=False,
-    ephemeral=True,
-    defer=False,
-    scope="guild",
-)
-
-register(SCHEDULE_ORIENTATION)
 
 
 # --- /voting ------------------------------------------------------------------
@@ -364,8 +242,7 @@ def _voting(interaction: Interaction, member: Member | None) -> dict:
     """This month's live guild-funding standings as one **public** embed.
 
     Visible to everyone in the channel, so it carries no personal data: the member's own
-    ballot is deliberately absent (a `/vote` nudge points at the private path instead —
-    that reply is ephemeral). Read-only: the link button is the change-your-vote path
+    ballot is deliberately absent. Read-only: the link button is the change-your-vote path
     (the page owns the form). No writes, no notifications.
     """
     from membership.cycle import get_cycle_context
@@ -385,7 +262,7 @@ def _voting(interaction: Interaction, member: Member | None) -> dict:
         "Your votes decide how the monthly funding pool is split. "
         f"This cycle closes **{cycle['cycle_closes_on']}**."
         f"\n\n{_standings_block(standings, zero_point_names)}"
-        "\n\nSet or change your own picks with `/vote` — only you see that reply.",
+        "\n\nSet or change your own picks on the voting page.",
         _EMBED_DESCRIPTION_LIMIT,
     )
     footer = f"Weighting: 1st = {WEIGHTS['1st']} pts · 2nd = {WEIGHTS['2nd']} pts · 3rd = {WEIGHTS['3rd']} pts"
@@ -416,1376 +293,6 @@ VOTING = SlashCommand(
 register(VOTING)
 
 
-# --- /members -----------------------------------------------------------------
-
-_CARDS_PER_PAGE = 5
-_CARD_TITLE_LIMIT = 80
-_CARD_DESCRIPTION_LIMIT = 950
-_SKILLS_SHOWN = 6
-_CUSTOM_ID_LIMIT = 100
-_SEARCH_LIMIT = 40
-# The fixed characters of a members custom_id at a 4-digit page: "members:9999::".
-_CUSTOM_ID_OVERHEAD = len("members:9999::")
-
-
-def _search_budget(slug_token: str) -> int:
-    """How many search characters fit a ``members:`` custom_id alongside ``slug_token``.
-
-    Computed once per slash invocation (§5.3): the search is truncated to this budget
-    *before* querying or encoding, so page 1 and every subsequent page run the same query
-    and every generated id fits Discord's 100-char cap by construction (4-digit page
-    headroom included).
-    """
-    return min(_SEARCH_LIMIT, _CUSTOM_ID_LIMIT - _CUSTOM_ID_OVERHEAD - len(slug_token))
-
-
-def _members_queryset(guild: Guild | None, search: str) -> MemberQuerySet:
-    """The directory queryset for one ``/members`` page — filter, prefetches, ordering.
-
-    Built on :meth:`MemberQuerySet.directory_visible` unconditionally (privacy parity with
-    the app directory by construction — no admin bypass), narrowed by the optional guild
-    and search, with the hub view's exact efficiency block so a page build costs zero
-    queries per card beyond the page fetch.
-    """
-    from allauth.account.models import EmailAddress
-    from django.db.models import Prefetch
-
-    from membership.models import Member, MemberContact
-
-    qs = Member.objects.directory_visible()
-    if guild is not None:
-        qs = qs.filter(guild_memberships__guild=guild)
-    if search:
-        qs = qs.search_skills(search)
-    return (
-        qs.select_related("membership_plan", "user")
-        .prefetch_related(
-            Prefetch(
-                "user__emailaddress_set",
-                queryset=EmailAddress.objects.filter(primary=True),
-                to_attr="_primary_emailaddresses",
-            ),
-            "guild_memberships__guild",
-            "skills__skill__category",
-            Prefetch(
-                "contacts",
-                queryset=MemberContact.objects.filter(show_in_directory=True),
-                to_attr="visible_contacts",
-            ),
-        )
-        .order_by("full_legal_name")
-    )
-
-
-def _skills_lines(member: Member) -> list[str]:
-    """The 🎨 skills + 💼 commissions lines, both inside the ``is_public("skills")`` gate.
-
-    Mirrors the directory card template exactly: the commissions block nests *inside* the
-    skills visibility gate (there is no independent commissions key), so skills-hidden hides
-    the commissions line too. Approved skills are filtered in Python from the prefetched
-    rows (``skills__skill__category``) — the ``approved_skills`` property would re-query
-    per card.
-    """
-    from membership.models import Skill
-
-    if not member.is_public("skills"):
-        return []
-    lines: list[str] = []
-    approved = [ms.skill.name for ms in member.skills.all() if ms.skill.status == Skill.Status.APPROVED]
-    if approved:
-        shown = ", ".join(approved[:_SKILLS_SHOWN])
-        more = f", +{len(approved) - _SKILLS_SHOWN} more" if len(approved) > _SKILLS_SHOWN else ""
-        lines.append(f"🎨 Skills: {shown}{more}")
-    if member.open_for_commissions:
-        note = f" — {member.commission_note}" if member.commission_note else ""
-        lines.append(f"💼 Open for commissions!{note}")
-    return lines
-
-
-def _member_card(member: Member) -> dict:
-    """One directory-card embed for ``member`` — every line honors the app's privacy gates.
-
-    Line-for-line mirror of ``templates/hub/member_directory.html``: a line is omitted
-    entirely when its data is empty or the member's ``is_public()`` toggle hides it — a
-    card never shows an empty labeled row. ``about_me`` is deliberately omitted for the
-    6000-char message budget; the footer's link button opens the full card in the app.
-    """
-    meta = [member.get_member_type_display()]
-    if member.pronouns and member.is_public("pronouns"):
-        meta.append(member.pronouns)
-    if member.join_date:
-        meta.append(member.join_date.strftime("Joined %b %Y"))
-    lines = [" · ".join(meta)]
-
-    guild_names = [gm.guild.name for gm in member.guild_memberships.all()]
-    if guild_names:
-        lines.append("🛠️ Guilds: " + ", ".join(guild_names))
-    lines.extend(_skills_lines(member))
-    email = member.primary_email
-    if email and member.is_public("email"):
-        lines.append(f"✉️ {email}")
-    if member.phone and member.is_public("phone"):
-        lines.append(f"📞 {member.phone}")
-    if member.discord_handle and member.is_public("discord_handle"):
-        lines.append(f"💬 {member.discord_handle}")
-    # Set by _members_queryset's Prefetch(to_attr=…) — rows already show_in_directory-filtered.
-    for contact in member.visible_contacts:  # type: ignore[attr-defined]
-        lines.append(f"🔗 {contact.label} — {contact.value}")
-
-    card: dict = {
-        "title": truncate(member.display_name, _CARD_TITLE_LIMIT),
-        "description": truncate("\n".join(lines), _CARD_DESCRIPTION_LIMIT),
-    }
-    if member.profile_photo and member.is_public("profile_photo"):
-        photo_url = member.profile_photo.url
-        # Local FileSystemStorage yields relative /media/… URLs Discord can't fetch — skip
-        # the thumbnail (text-only card) rather than ship a broken embed. Prod R2 URLs are
-        # absolute, public, and unsigned.
-        if photo_url.startswith("http"):
-            card["thumbnail"] = {"url": photo_url}
-    return card
-
-
-def _members_footer(page: int, page_count: int, total: int, guild: Guild | None, search: str) -> dict:
-    """The always-last footer embed — page position, filtered total, active filters, edit note."""
-    parts = [f"Page {page} of {page_count} · {total} member{'' if total == 1 else 's'}"]
-    if guild is not None:
-        parts.append(guild.name)
-    if search:
-        parts.append(f"“{search}”")
-    return {"description": " · ".join(parts) + "\nEdit what you share from the app — Settings → Directory."}
-
-
-def _directory_link_button() -> dict:
-    """The link button to the hub member directory — present in every state, including empty."""
-    return {"type": 2, "style": 5, "label": "Open the full directory", "url": hub_url("hub_member_directory")}
-
-
-def _members_components(page: int, page_count: int, slug_token: str, search: str) -> list[dict]:
-    """The one action row: Prev/Next pagers (omitted on a single page) + the directory link.
-
-    Prev/Next are secondary-style buttons disabled at the bounds (never a misfire), each
-    carrying the stateless ``members:<page>:<slug|->:<search>`` custom_id of its target page.
-    """
-    buttons: list[dict] = []
-    if page_count > 1:
-        buttons.append(
-            {
-                "type": 2,
-                "style": 2,
-                "label": "◀ Prev",
-                "custom_id": f"members:{page - 1}:{slug_token}:{search}",
-                "disabled": page <= 1,
-            }
-        )
-        buttons.append(
-            {
-                "type": 2,
-                "style": 2,
-                "label": "Next ▶",
-                "custom_id": f"members:{page + 1}:{slug_token}:{search}",
-                "disabled": page >= page_count,
-            }
-        )
-    buttons.append(_directory_link_button())
-    return [{"type": 1, "components": buttons}]
-
-
-def _members_page(guild: Guild | None, search: str, page: int) -> dict:
-    """Build one directory page: ``{"embeds": …, "components": …, "total": N}``.
-
-    The single builder both entry points (slash + component click) call. Stateless: it
-    re-counts and re-queries fresh every time, clamping the requested page to
-    ``[1, page_count]`` so a click after the roster shifted lands on a real page.
-    """
-    qs = _members_queryset(guild, search)
-    total = qs.count()
-    page_count = max(1, ceil(total / _CARDS_PER_PAGE))
-    page = min(max(1, page), page_count)
-    embeds = [_member_card(m) for m in qs[(page - 1) * _CARDS_PER_PAGE : page * _CARDS_PER_PAGE]]
-    embeds.append(_members_footer(page, page_count, total, guild, search))
-    slug_token = guild.slug if guild is not None else "-"
-    return {
-        "embeds": embeds,
-        "components": _members_components(page, page_count, slug_token, search),
-        "total": total,
-    }
-
-
-def _members_empty_text(guild: Guild | None, search: str) -> str:
-    """The no-matches copy — names the active filters and the fix, never a dead end."""
-    scope = ""
-    if guild is not None:
-        scope += f" in **{guild.name}**"
-    if search:
-        scope += f" for **“{search}”**"
-    return f"No members match{scope}. Try a broader search, or run `/members` without the filters to browse everyone."
-
-
-def _members(interaction: Interaction, member: Member | None) -> dict:
-    """Browse the member directory as ephemeral profile-card embeds with Prev/Next paging."""
-    from membership.models import Guild
-
-    member = cast("Member", member)  # requires_link=True: dispatch resolved a linked member before this runs
-    guild: Guild | None = None
-    slug = option_value(interaction, "guild")
-    if slug:
-        guild = Guild.objects.filter(is_active=True, slug=slug).first()
-        if guild is None:  # only reachable via the zero-guild free-text edge
-            return guild_not_specified_reply()
-    slug_token = guild.slug if guild is not None else "-"
-    search = (option_value(interaction, "search") or "").strip()[: _search_budget(slug_token)]
-
-    page_data = _members_page(guild, search, 1)
-    if page_data["total"] == 0:
-        return reply(
-            _members_empty_text(guild, search),
-            ephemeral=True,
-            components=[{"type": 1, "components": [_directory_link_button()]}],
-        )
-    return reply("", ephemeral=True, embeds=page_data["embeds"], components=page_data["components"])
-
-
-def _members_component(interaction: Interaction, member: Member | None) -> dict:
-    """A Prev/Next click: re-parse the stateless custom_id, rebuild the page, update in place."""
-    from membership.models import Guild
-
-    custom_id = interaction["data"]["custom_id"]
-    parts = custom_id.split(":", 3)
-    if len(parts) != 4 or not parts[1].isdigit() or int(parts[1]) < 1:
-        logger.warning("Malformed members custom_id %r", custom_id)
-        return error_reply()
-    _prefix, page_str, slug_token, search = parts
-
-    guild: Guild | None = None
-    if slug_token != "-":
-        guild = Guild.objects.filter(is_active=True, slug=slug_token).first()
-        if guild is None:  # the guild vanished (or deactivated) mid-browse — a genuine edge
-            logger.warning("members component: guild slug %r no longer resolves", slug_token)
-            return error_reply()
-
-    page_data = _members_page(guild, search, int(page_str))
-    if page_data["total"] == 0:  # the roster emptied between clicks — replace the stale cards
-        return update_message(
-            "",
-            embeds=[{"description": _members_empty_text(guild, search)}],
-            components=[{"type": 1, "components": [_directory_link_button()]}],
-        )
-    return update_message("", embeds=page_data["embeds"], components=page_data["components"])
-
-
-def _members_options() -> list[dict]:
-    """The ``/members`` options — the guild filter dropdown + a free-text search."""
-    return [
-        {**_guild_dropdown_option(), "description": "Filter to one guild — omit to browse everyone."},
-        {"name": "search", "description": "Match a name or skill.", "type": 3, "required": False},
-    ]
-
-
-MEMBERS = SlashCommand(
-    name="members",
-    description="Browse the member directory — profiles, skills, and contact info.",
-    handler=_members,
-    options_builder=_members_options,
-    requires_link=True,
-    ephemeral=True,
-    defer=False,
-    scope="guild",
-)
-
-register(MEMBERS)
-register_component(ComponentHandler(prefix="members", handler=_members_component, requires_link=True))
-
-
-# --- /create ------------------------------------------------------------------
-
-# The "guild" choice value that means "no guild — a makerspace wide event".
-_GENERAL_VALUE = "__general__"
-# The default event length when the typed When carries no explicit end time (the preview
-# card's Duration picker, shown only in that case, opens on this value).
-_CREATE_DEFAULT_DURATION_MINUTES = 120
-# The "email" values that trigger an audience email blast (everything else is "no email").
-_EMAIL_AUDIENCES = ("guild_members", "all_active")
-# Per-member creation caps (counted only when a Confirm actually creates an event).
-_CREATE_RATE_SCOPE = "discord_create"
-_CREATE_HOURLY_LIMIT = 4
-_CREATE_DAILY_LIMIT = 12
-# How long a preview's Confirm button stays live before the draft is treated as expired.
-_CONFIRM_WINDOW_MINUTES = 30
-
-# The Create-an-Event modal + preview-card prefixes, and how long a failed submission is cached.
-_CREATE_MODAL_PREFIX = "eventform"
-_CREATE_EDIT_PREFIX = "eventedit"
-_CREATE_CFG_PREFIX = "eventcfg"
-_CREATE_EDIT_TTL_SECONDS = 900
-
-# Preview-card config selects: (stored value, menu label). The stored value lands on the draft.
-_CREATE_RECURRENCE_CHOICES: list[tuple[str, str]] = [
-    ("none", "Does not repeat"),
-    ("weekly", "Weekly"),
-    ("semi_monthly", "Twice a month"),
-    ("monthly", "Monthly"),
-]
-_CREATE_EMAIL_CHOICES: list[tuple[str, str]] = [
-    ("none", "No email"),
-    ("guild_members", "Guild members only"),
-    ("all_active", "Whole membership"),
-]
-# Duration options (minutes, label). "All day" is a 24-hour span from the start time.
-_CREATE_DURATION_CHOICES: list[tuple[int, str]] = [
-    (30, "30 minutes"),
-    (60, "1 hour"),
-    (90, "1.5 hours"),
-    (120, "2 hours"),
-    (180, "3 hours"),
-    (240, "4 hours"),
-    (1440, "All day"),
-]
-
-_SETUP_INCOMPLETE = (
-    "Your Past Lives account isn't fully set up yet, so I can't create an event under your name. "
-    "Please reach out to a Past Lives organizer."
-)
-_PREVIEW_EXPIRED = "This preview expired or was already handled. Run /create again if you still want the event."
-_PREVIEW_CANCELLED = "Cancelled. Nothing was created."
-_CREATE_FANOUT_FAILED = (
-    "Something went wrong on our side and the event was not fully posted. Please check the calendar or try again."
-)
-
-
-def _not_permitted() -> str:
-    """The refusal under the Disabled member-event policy: a member's own session is a class now."""
-    return (
-        "Posting an event straight to the calendar is limited to guild leads and admins right now. "
-        f"To run your own session, host it as a class: {hub_url('classes:teach_overview')}"
-    )
-
-
-def _when_error_copy(error: WhenError) -> str:
-    """The member-facing reply for each typed `when` rejection — every one names a fix."""
-    copy = {
-        WhenError.UNPARSEABLE: (
-            "I could not read that date and time. Try one of these: next friday 6pm, "
-            "tomorrow 7pm to 9pm, 2026-09-12 18:00."
-        ),
-        WhenError.NO_TIME: "I got the day but not a start time. Add one, like next friday 6pm.",
-        WhenError.IN_PAST: (
-            "That time has already passed. Events need a start in the future. Check the date and try again."
-        ),
-        WhenError.TOO_FAR: "That date is more than a year away. Double check the year and try again.",
-    }
-    return copy[error]
-
-
-def _rate_limited_reply() -> dict:
-    """The friendly per-member cap refusal, pointing at the hub as the fallback."""
-    return reply(
-        f"You have hit the limit for creating events from Discord ({_CREATE_HOURLY_LIMIT} per hour, "
-        f"{_CREATE_DAILY_LIMIT} per day). Try again in a bit, or use the hub: {hub_url('hub_propose_event')}",
-        ephemeral=True,
-    )
-
-
-def _guild_not_found_reply(raw: str) -> dict:
-    """The ephemeral "no such guild" nudge, listing active guilds so it's never a dead end."""
-    from membership.models import Guild
-
-    names = list(Guild.objects.filter(is_active=True).order_by("name").values_list("name", flat=True)[:25])
-    content = (
-        f"I couldn't find an active guild matching `{raw}`. Pick one from the dropdown, choose "
-        "General, or run this in the guild's Discord channel."
-    )
-    if names:
-        content += "\n\nGuilds: " + ", ".join(names) + "."
-    return reply(content, ephemeral=True)
-
-
-def _channel_guild(interaction: Interaction) -> Guild | None:
-    """The guild mapped to the invoking channel, or ``None`` — the modal's Guild-select default."""
-    from membership.models import Guild
-
-    return Guild.objects.for_discord_channel(interaction.get("channel_id", ""))
-
-
-def _guild_from_select(slug: str) -> tuple[Guild | None, dict | None]:
-    """Resolve the submitted Guild-select value: ``(guild, None)`` or ``(None, error_reply)``.
-
-    ``No guild`` (or a blank value) → a site-wide event (``guild=None``); a guild slug
-    that no longer resolves (deactivated between open and submit) → the not-found reply.
-    """
-    from membership.models import Guild
-
-    if slug == _GENERAL_VALUE or not slug:
-        return None, None
-    guild = Guild.objects.filter(slug=slug, is_active=True).first()
-    if guild is None:
-        return None, _guild_not_found_reply(slug)
-    return guild, None
-
-
-def _build_event_form(
-    title: str,
-    details: str,
-    guild: Guild | None,
-    start_naive: datetime,
-    end_naive: datetime,
-    calendar: str,
-    *,
-    event_type: str,
-    location: str = "",
-    video_url: str = "",
-    recurrence: str = "none",
-) -> CommunityEventForm:
-    """Bind the shared :class:`~hub.forms.CommunityEventForm` to the command's inputs.
-
-    Reuses the web "Propose an event" form so date/time coercion (naive → aware), the
-    end-after-start rule, and the URL validation are all enforced exactly once, in one
-    place. ``details`` binds straight to the form's ``description`` field (a
-    blank-friendly Textarea), so an omitted value is an empty string. ``event_type`` is the
-    kind the preview card settled on, bound like any other field so the form applies its own
-    rule that a guild meeting needs a guild.
-    """
-    from hub.forms import CommunityEventForm
-
-    data = {
-        "title": title,
-        "description": details,
-        "starts_at": start_naive.strftime("%Y-%m-%dT%H:%M"),
-        "ends_at": end_naive.strftime("%Y-%m-%dT%H:%M"),
-        "location": location,
-        "video_url": video_url,
-        "recurrence": recurrence,
-        "google_calendar_target": calendar,
-        "event_type": event_type,
-    }
-    if guild is not None:
-        data["guild"] = str(guild.pk)
-    # ``can_choose_audience`` here only means "accept the two answers this draft already
-    # carries". The permission itself is enforced by the card, which is what collects them: the
-    # What-it-is select is only rendered for an author who passes :func:`_may_choose_audience`,
-    # and ``_event_cfg_component`` refuses a forged click from anyone else, so a draft can only
-    # reach this form on the members calendar, or as a guild meeting, if its author may put it
-    # there.
-    return CommunityEventForm(data=data, can_choose_audience=True)
-
-
-def _form_error_message(form: CommunityEventForm) -> str:
-    """Flatten the form's own validation errors into one member-facing line.
-
-    Reachable here: the end-before-start rule and a ``title`` longer than the model's
-    200-char limit. The caller wraps it in the error card (with an Edit Event button).
-    """
-    return " ".join(str(error) for errors in form.errors.values() for error in errors)
-
-
-def _photo_edit_url(event: CommunityEvent) -> str:
-    """Where this event's author goes to put a photo on it.
-
-    A photo cannot be uploaded through a Discord modal, so ``/create`` hands the author a link
-    to the composer that will take the file (#505 part 3). The guild-scoped composer for a
-    guild event, the admin one for a site-wide event: the same two surfaces the caller passed
-    to get here, so the link never lands them on a 403. Only offered to an author who
-    published the event themselves — a proposal's author has no composer for a live row.
-    """
-    if event.guild_id is not None:
-        return hub_url("hub_guild_event_edit", event.guild_id, event.pk)
-    return hub_url("hub_event_edit", event.pk)
-
-
-def _published_reply(event: CommunityEvent, emailed: int, *, calendar_url: str = "", photo_url: str = "") -> dict:
-    """The success reply for a live event — the hub link is the edit affordance (v1).
-
-    ``calendar_url`` (the just-posted #calendar RSVP card, when the instant announce
-    succeeded) adds a second link button so the creator lands on the card people will
-    actually RSVP on, not just the hub page. ``photo_url`` adds the "Add a photo" link, which
-    is how a picture gets onto an event made from Discord.
-    """
-    content = "Your event is live on the Calendar. ✅"
-    if emailed:
-        content += f"\nEmailed {emailed} member{'' if emailed == 1 else 's'}."
-    buttons = [{"type": 2, "style": 5, "label": "Open the event", "url": event.public_url}]
-    if calendar_url:
-        buttons.append({"type": 2, "style": 5, "label": "See it in #calendar", "url": calendar_url})
-    if photo_url:
-        buttons.append({"type": 2, "style": 5, "label": "Add a photo", "url": photo_url})
-    return reply(content, ephemeral=True, components=[{"type": 1, "components": buttons}])
-
-
-def _pending_reply() -> dict:
-    """The reply for a proposal that entered the review queue (APPROVAL policy)."""
-    return reply(
-        "Thanks — your event was submitted for review. A lead or admin will take a look, and "
-        "you'll get a note when they respond.",
-        ephemeral=True,
-    )
-
-
-def _finalize_event(
-    member: Member,
-    guild: Guild | None,
-    form: CommunityEventForm,
-    policy: str,
-    authored: bool,
-    email_choice: str,
-) -> dict:
-    """Author or propose the validated event, optionally email the audience, and build the reply.
-
-    The kind is the form's (:meth:`CommunityEventForm.resolved_event_type`), which is the
-    answer the card collected — the same call the web "Propose an event" view makes. It used to
-    be derived here from the guild, which is the thing #505 set out to stop: attaching a guild
-    filed the event as that guild's meeting, so a guild could never host anything else.
-
-    ``authored`` (a lead/admin) publishes straight to the calendar via
-    :meth:`CommunityEvent.schedule_or_go_live` (mirroring the web guild/admin event views);
-    everyone else routes through :meth:`CommunityEvent.propose`, whose OPEN/APPROVAL branch
-    decides publish-now vs the review queue. The email fan-out runs only on a published event,
-    and its own try/except keeps a post-publish email failure from reporting failure on an event
-    that is already live: the address fan-out is logged and the reply still reports it live
-    (``emailed = 0``). Once the event has a pk, the reply is always the published/pending one — the
-    caller's outer guard then only catches genuine publish/propose failures (nothing created).
-    """
-    event = form.save(commit=False)
-    if authored:
-        event.guild = guild
-        event.created_by = member.user
-        event.save()
-        event.schedule_or_go_live(actor=member.user)
-        published = True
-    else:
-        published = event.propose(
-            by=member.user, guild=guild, policy=policy, editing=False, event_type=form.resolved_event_type()
-        )
-
-    if not published:
-        return _pending_reply()
-    calendar_url = ""
-    try:
-        from hub.discord_calendar_posts import announce_community_event_now
-
-        calendar_url = announce_community_event_now(event)
-    except Exception:
-        logger.exception("create: instant channel announcement failed; the 15 minute announcer will post it")
-    emailed = 0
-    if email_choice in _EMAIL_AUDIENCES:
-        # The addresses are counted now for the reply; the send runs in the background like
-        # the launch announcement, so a big audience never holds Discord's reply (#845).
-        try:
-            addresses = event.email_announcement_addresses(email_choice)
-            emailed = len(addresses)
-            defer(
-                lambda: event.send_email_announcement(addresses, actor=member.user),
-                name=f"event:{event.pk}:email_announcement",
-            )
-        except Exception:
-            logger.exception("create: email announcement failed after the event was published")
-    # A Discord modal cannot take a file, so the reply offers the trip to the composer that
-    # can. Only for an author who published it: a proposer cannot open a live row.
-    photo_url = _photo_edit_url(event) if authored and not event.photo else ""
-    return _published_reply(event, emailed, calendar_url=calendar_url, photo_url=photo_url)
-
-
-def _local_naive(dt: datetime) -> datetime:
-    """An aware datetime as naive site-local — the form's expected input shape."""
-    from django.utils import timezone as django_tz
-
-    return django_tz.localtime(dt).replace(tzinfo=None)
-
-
-def _preview_branch_line(*, authored: bool, guild: Guild | None, policy: str, emails: bool) -> str:
-    """The preview's what-happens-on-confirm line (§6.C) — exactly one branch."""
-    from core.models import SiteConfiguration
-
-    if authored:
-        if guild is not None:
-            return "You can post for this guild, so this will publish right away."
-        return "You can post site wide events, so this will publish right away."
-    if policy == SiteConfiguration.MemberEventPolicy.OPEN:
-        return "This will publish right away."
-    line = (
-        "This will go to the review queue. A lead or admin will take a look, and you will hear back when they decide."
-    )
-    if emails:
-        line += " The email option only applies when an event publishes, so it will not be sent for a proposal."
-    return line
-
-
-def _config_select_row(field: str, pk: int, emoji_label: str, choices: list, current: object) -> dict:
-    """One preview-card config select — the current value in the placeholder, the rest as options."""
-    labels = dict(choices)
-    row_select = {
-        "type": 3,
-        "custom_id": f"{_CREATE_CFG_PREFIX}:{field}:{pk}",
-        "placeholder": f"{emoji_label}: {labels[current]}",
-        "options": [{"label": label, "value": str(value)} for value, label in choices],
-    }
-    return {"type": 1, "components": [row_select]}
-
-
-def _shape_choices(guild: Guild | None) -> list[tuple[str, str]]:
-    """The What-it-is select's options: ``("<audience>:<kind>", label)``, the norm first.
-
-    One select carries both of #505's questions because a Discord message may hold five
-    component rows and this card already spends four on selects and one on its buttons. They
-    stay two independent questions — every combination of the two is an option, so a guild
-    meeting can be open to the public and a members-only night need not be a meeting — they
-    just share a control.
-
-    A guild-less event has only one kind available: the check constraint forbids a guild-less
-    guild meeting, which is the same reason the web form's guild picker turns required the
-    moment you pick one. So those options drop out and the labels stop naming a kind.
-    """
-    from membership.models import CommunityEvent
-
-    public, members = CommunityEvent.GoogleCalendarTarget.PUBLIC, CommunityEvent.GoogleCalendarTarget.MEMBER
-    meeting, plain = CommunityEvent.EventType.GUILD_MEETING, CommunityEvent.EventType.COMMUNITY
-    if guild is None:
-        return [(f"{public}:{plain}", "Open to the public"), (f"{members}:{plain}", "For members")]
-    return [
-        (f"{public}:{meeting}", "Guild meeting, open to the public"),
-        (f"{members}:{meeting}", "Guild meeting, for members"),
-        (f"{public}:{plain}", "Something else, open to the public"),
-        (f"{members}:{plain}", "Something else, for members"),
-    ]
-
-
-def _draft_shape(draft: CommunityEventDraft) -> str:
-    """This draft's current What-it-is value, the key into :func:`_shape_choices`'s labels."""
-    return f"{draft.google_calendar_target}:{draft.event_type}"
-
-
-def _opening_kind(guild: Guild | None, member: Member) -> str:
-    """The kind a new draft starts on — the answer the web form would open on.
-
-    A guild is the context the modal was filled in for, so a guild draft opens on a guild
-    meeting, which is what ``/create`` has always saved and what the guild's own Events tab
-    defaults to on the web. Someone who is never asked the question gets a plain event instead
-    of having a meeting typed for them, which is what the web's Propose an event now saves for
-    them (#505) — the old rule read the guild alone and called a member's guild event a meeting.
-    """
-    from membership.models import CommunityEvent
-
-    if guild is not None and _may_choose_audience(member):
-        return str(CommunityEvent.EventType.GUILD_MEETING)
-    return str(CommunityEvent.EventType.COMMUNITY)
-
-
-def _may_choose_audience(member: Member) -> bool:
-    """True when this member may answer the card's two opening questions.
-
-    Who the event is for, and — where a guild gives that question two answers — what kind of
-    event it is. The same standing the web composer asks for, which it takes from
-    ``editable_meeting_scopes``: an admin (the one cross-guild tier, ``is_effective_staff``), or
-    anyone holding lead or staff authority in ANY guild.
-
-    Deliberately **not** ``authored``, which is scoped to the guild that was picked — a guild
-    staffer posting a guild-less event holds this permission on the web, and the two doors
-    must not disagree (#505).
-    """
-    return member.is_fog_admin or member.staffed_guilds.exists()
-
-
-def _create_card_parts(
-    draft: CommunityEventDraft, *, authored: bool, policy: str, can_choose_audience: bool
-) -> tuple[str, dict, list]:
-    """The shared (content, gold embed, component rows) of the upgraded /create preview card."""
-    guild = draft.guild
-    start_ts, end_ts = int(draft.starts_at.timestamp()), int(draft.ends_at.timestamp())
-    fields = [
-        {"name": "When", "value": f"<t:{start_ts}:F> to <t:{end_ts}:t>"},
-        {"name": "Guild", "value": guild.name if guild is not None else "No guild"},
-    ]
-    if draft.location:
-        fields.append({"name": "Location", "value": draft.location})
-    if draft.description:
-        fields.append({"name": "Description", "value": truncate(draft.description, 1024)})
-    embed = {"title": draft.title, "color": 0xEEB44B, "fields": fields}
-
-    # A site-wide (guild-less) event has no guild roster, so it never offers "Guild members
-    # only" — the re-render rebuilds this list from the draft each time, so an Edit Details
-    # guild change recomputes it. The stored email_choice can only be guild_members on a guild
-    # draft (the select never offers it otherwise, and the eventcfg handler rejects a forge).
-    email_choices = [choice for choice in _CREATE_EMAIL_CHOICES if choice[0] != "guild_members" or guild is not None]
-    # Answering the two questions is a guild-staff and admin permission (#505), so an author
-    # without it is never offered the row — rebuilt from the draft on every re-render, exactly
-    # like the email choices above. A draft can only hold an answer its author may give: drafts
-    # start public and a plain event, and the eventcfg handler rejects a forge.
-    rows = [_config_select_row("repeats", draft.pk, "🔁 Repeats", _CREATE_RECURRENCE_CHOICES, draft.recurrence)]
-    if can_choose_audience:
-        rows.append(_config_select_row("shape", draft.pk, "🏷 What it is", _shape_choices(guild), _draft_shape(draft)))
-    rows.append(_config_select_row("email", draft.pk, "✉️ Email invite", email_choices, draft.email_choice))
-    if not draft.when_had_end:
-        minutes = int((draft.ends_at - draft.starts_at).total_seconds() // 60)
-        rows.append(_config_select_row("duration", draft.pk, "⏱ Duration", _CREATE_DURATION_CHOICES, minutes))
-    rows.append(
-        {
-            "type": 1,
-            "components": [
-                {"type": 2, "style": 3, "label": "Create Event", "custom_id": f"create:confirm:{draft.pk}"},
-                {"type": 2, "style": 2, "label": "Edit Details", "custom_id": f"create:edit:{draft.pk}"},
-                {"type": 2, "style": 4, "label": "Cancel", "custom_id": f"create:cancel:{draft.pk}"},
-            ],
-        }
-    )
-    content = (
-        "Here's your event. Check it over, adjust the settings below, then hit Create Event.\n"
-        + _preview_branch_line(
-            authored=authored, guild=guild, policy=policy, emails=draft.email_choice in _EMAIL_AUDIENCES
-        )
-    )
-    return content, embed, rows
-
-
-def _create_preview_card(draft: CommunityEventDraft, *, authored: bool, policy: str, can_choose_audience: bool) -> dict:
-    """The upgraded preview as a fresh type-4 ephemeral (the modal-submit response)."""
-    content, embed, rows = _create_card_parts(
-        draft, authored=authored, policy=policy, can_choose_audience=can_choose_audience
-    )
-    return reply(content, ephemeral=True, embeds=[embed], components=rows)
-
-
-def _create_card_update(draft: CommunityEventDraft, *, authored: bool, policy: str, can_choose_audience: bool) -> dict:
-    """The upgraded preview as a type-7 in-place update (a config-select click re-renders it)."""
-    content, embed, rows = _create_card_parts(
-        draft, authored=authored, policy=policy, can_choose_audience=can_choose_audience
-    )
-    return update_message(content, embeds=[embed], components=rows)
-
-
-def _create_guild_options(selected_slug: str) -> list[dict]:
-    """The Guild-select options: No guild + active guilds (≤24), the current one preselected."""
-    from membership.models import Guild
-
-    guilds = list(Guild.objects.filter(is_active=True).order_by("name"))[:24]
-    selected = selected_slug or _GENERAL_VALUE
-    options = [{"label": "No guild", "value": _GENERAL_VALUE, "default": selected == _GENERAL_VALUE}]
-    options += [{"label": g.name, "value": g.slug, "default": g.slug == selected} for g in guilds]
-    return options
-
-
-def _create_modal(
-    *, title: str = "", when: str = "", guild_slug: str = "", location: str = "", description: str = ""
-) -> dict:
-    """The Create-an-Event modal, optionally prefilled (the Edit Details / Edit Event reopens)."""
-    return modal(
-        _CREATE_MODAL_PREFIX,
-        "Create an Event",
-        [
-            modal_label(
-                "Event Title",
-                text_input("title", value=title, max_length=200, placeholder="Intro to Lost Wax Casting"),
-                description="Shows on Discord, the calendar, and any email invite.",
-            ),
-            modal_label(
-                "When",
-                text_input("when", value=when, placeholder="next friday 6-8pm"),
-                description='Plain English works: "friday 6pm", "tomorrow 7-9pm", "sep 12 10am-2pm". End time optional.',
-            ),
-            modal_label(
-                "Guild",
-                string_select("guild", _create_guild_options(guild_slug)),
-                description="Who's hosting. We guessed from this channel; change it if that's wrong.",
-            ),
-            modal_label(
-                "Location",
-                text_input("location", value=location, required=False, placeholder="Main Shop Floor"),
-                description="Room, area, or address. Blank means the main shop.",
-            ),
-            modal_label(
-                "Description",
-                text_input("description", style=2, value=description, required=False, max_length=1000),
-                description="What to bring, skill level, cost. Shows on the calendar and in any email.",
-            ),
-        ],
-    )
-
-
-def _create_event(interaction: Interaction, member: Member | None) -> dict:
-    """Open the Create-an-Event modal (the slash command carries no options).
-
-    The per-member rate limit is peeked here at invoke time (recorded only on a successful
-    Create Event); a userless member and an over-cap member get their ephemeral reply
-    instead of the form. ``requires_link=True`` guarantees a linked ``member``.
-    """
-    from core.abuse_limits import keyed_within_limits
-
-    member = cast("Member", member)
-    if member.user is None:
-        return reply(_SETUP_INCOMPLETE, ephemeral=True)
-    if not keyed_within_limits(
-        _CREATE_RATE_SCOPE, str(member.pk), hourly_limit=_CREATE_HOURLY_LIMIT, daily_limit=_CREATE_DAILY_LIMIT
-    ):
-        return _rate_limited_reply()
-    guild = _channel_guild(interaction)
-    return _create_modal(guild_slug=guild.slug if guild is not None else _GENERAL_VALUE)
-
-
-def _cache_event_submission(*, title: str, when: str, guild_slug: str, location: str, description: str) -> str:
-    """Stash a failed submission under a short token so the Edit Event button can reopen it."""
-    import secrets
-
-    from django.core.cache import cache
-
-    token = secrets.token_urlsafe(9)
-    cache.set(
-        f"{_CREATE_MODAL_PREFIX}:{token}",
-        {"title": title, "when": when, "guild_slug": guild_slug, "location": location, "description": description},
-        _CREATE_EDIT_TTL_SECONDS,
-    )
-    return token
-
-
-def _create_error_card(
-    message: str, *, title: str, when: str, guild_slug: str, location: str, description: str
-) -> dict:
-    """The ephemeral submit error with a blurple Edit Event button that reopens the form prefilled."""
-    token = _cache_event_submission(
-        title=title, when=when, guild_slug=guild_slug, location=location, description=description
-    )
-    button_row = {
-        "type": 1,
-        "components": [{"type": 2, "style": 1, "label": "Edit Event", "custom_id": f"{_CREATE_EDIT_PREFIX}:{token}"}],
-    }
-    return reply(f"{message} Nothing was created yet.", ephemeral=True, components=[button_row])
-
-
-def _create_submit(interaction: Interaction, member: Member | None) -> dict:
-    """The Create-an-Event modal submit: parse + validate, then build the upgraded preview card.
-
-    A when-parse or form-validation failure returns the error card (Edit Event reopens the
-    modal prefilled from this exact submission). A valid submit drops the member's older
-    unconfirmed drafts, writes a fresh :class:`~membership.models.CommunityEventDraft` (with
-    the config defaults the card's selects then adjust), and returns the preview card. The
-    publish / propose fan-out still runs only on the Create Event click.
-    """
-    from django.utils import timezone as django_tz
-
-    from core.models import SiteConfiguration
-    from membership.models import CommunityEvent, CommunityEventDraft
-    from membership.when_text import parse_when
-
-    member = cast("Member", member)
-    if member.user is None:
-        return reply(_SETUP_INCOMPLETE, ephemeral=True)
-    values = parse_modal_values(interaction)
-    title = str(values.get("title", "")).strip()
-    when_text = str(values.get("when", "")).strip()
-    guild_slug = _first_selected(values.get("guild"))
-    location = str(values.get("location", "")).strip()
-    description = str(values.get("description", "")).strip()
-
-    guild, guild_error = _guild_from_select(guild_slug)
-    if guild_error is not None:
-        return guild_error
-
-    when = parse_when(
-        when_text,
-        duration_minutes=_CREATE_DEFAULT_DURATION_MINUTES,
-        now=django_tz.localtime(django_tz.now()).replace(tzinfo=None),
-    )
-    error_kwargs = {
-        "title": title,
-        "when": when_text,
-        "guild_slug": guild_slug,
-        "location": location,
-        "description": description,
-    }
-    if when.error is not None:
-        return _create_error_card(_when_error_copy(when.error), **error_kwargs)
-
-    opening_kind = _opening_kind(guild, member)
-    form = _build_event_form(
-        title,
-        description,
-        guild,
-        cast("datetime", when.start),
-        cast("datetime", when.end),
-        CommunityEvent.GoogleCalendarTarget.PUBLIC,
-        event_type=opening_kind,
-        location=location,
-    )
-    if not form.is_valid():
-        return _create_error_card(_form_error_message(form), **error_kwargs)
-
-    policy = SiteConfiguration.load().member_event_policy
-    authored = member.is_fog_admin or (guild is not None and member.can_edit_guild(guild))
-    if not authored and policy == SiteConfiguration.MemberEventPolicy.DISABLED:
-        return reply(_not_permitted(), ephemeral=True)
-
-    CommunityEventDraft.objects.claimable_for(member.user).delete()
-    cleaned = form.cleaned_data
-    draft = CommunityEventDraft.objects.create(
-        author=member.user,
-        guild=guild,
-        title=cleaned["title"],
-        starts_at=cleaned["starts_at"],
-        ends_at=cleaned["ends_at"],
-        location=cleaned["location"],
-        video_url="",
-        description=cleaned["description"],
-        recurrence=CommunityEvent.Recurrence.NONE,
-        google_calendar_target=CommunityEvent.GoogleCalendarTarget.PUBLIC,
-        event_type=opening_kind,
-        email_choice=CommunityEventDraft.EmailChoice.NONE,
-        when_had_end=when.had_end,
-    )
-    return _create_preview_card(
-        draft, authored=authored, policy=policy, can_choose_audience=_may_choose_audience(member)
-    )
-
-
-def _when_text_from_draft(draft: CommunityEventDraft) -> str:
-    """A parseable When string reconstructed from a draft, for the Edit Details reopen."""
-    from django.utils import timezone as django_tz
-
-    start = django_tz.localtime(draft.starts_at)
-    if draft.when_had_end:
-        end = django_tz.localtime(draft.ends_at)
-        return f"{start:%Y-%m-%d %-I:%M %p} to {end:%-I:%M %p}"
-    return f"{start:%Y-%m-%d %-I:%M %p}"
-
-
-def _first_selected(value: object) -> str:
-    """The first value of a submitted select (a ``values`` list), or ``""`` when absent."""
-    return str(value[0]) if isinstance(value, list) and value else ""
-
-
-# Preview-card config select → (draft attribute, allowed values) for the non-duration fields.
-_CREATE_CFG_APPLY: dict[str, tuple[str, set[str]]] = {
-    "repeats": ("recurrence", {value for value, _ in _CREATE_RECURRENCE_CHOICES}),
-    "email": ("email_choice", {value for value, _ in _CREATE_EMAIL_CHOICES}),
-}
-
-
-def _event_cfg_component(interaction: Interaction, member: Member | None) -> dict:
-    """A preview-card config select — apply the choice to the draft and re-render the card in place."""
-    from membership.models import CommunityEventDraft
-
-    member = cast("Member", member)
-    if member.user is None:
-        return update_message(_SETUP_INCOMPLETE)
-    custom_id = interaction["data"]["custom_id"]
-    parts = custom_id.split(":")
-    if len(parts) != 3 or not parts[2].isdigit():
-        logger.warning("Malformed eventcfg custom_id %r", custom_id)
-        return error_reply()
-    field, pk = parts[1], int(parts[2])
-    draft = CommunityEventDraft.objects.claimable_for(member.user).filter(pk=pk).first()
-    if draft is None:
-        return update_message(_PREVIEW_EXPIRED)
-    value = _first_selected(interaction["data"].get("values"))
-
-    if field == "duration":
-        if not value.isdigit() or int(value) not in {minutes for minutes, _ in _CREATE_DURATION_CHOICES}:
-            return error_reply()
-        draft.ends_at = draft.starts_at + timedelta(minutes=int(value))
-        draft.save(update_fields=["ends_at"])
-    elif field in _CREATE_CFG_APPLY:
-        attribute, allowed = _CREATE_CFG_APPLY[field]
-        # A site-wide draft never offers "Guild members only", so a guild_members value on one
-        # is a forged/tampered click — reject it (guards the v1.8.0 no-guild-email rule).
-        forged = value not in allowed or (field == "email" and value == "guild_members" and draft.guild is None)
-        if forged:
-            return error_reply()
-        setattr(draft, attribute, value)
-        draft.save(update_fields=[attribute])
-    elif field == "shape":
-        # The row is absent for an author who may not answer, and a guild-less draft is never
-        # offered a guild meeting, so either value from one is forged. Hiding the select is not
-        # a guard on its own: without this check a forged click still lands "member", or a
-        # guild meeting, on their draft (#505).
-        audience, _, kind = value.partition(":")
-        if value not in {option for option, _ in _shape_choices(draft.guild)} or not _may_choose_audience(member):
-            return error_reply()
-        draft.google_calendar_target, draft.event_type = audience, kind
-        draft.save(update_fields=["google_calendar_target", "event_type"])
-    else:
-        logger.warning("Unknown eventcfg field %r", field)
-        return error_reply()
-
-    guild = draft.guild
-    authored = member.is_fog_admin or (guild is not None and member.can_edit_guild(guild))
-    policy = _member_event_policy()
-    return _create_card_update(
-        draft, authored=authored, policy=policy, can_choose_audience=_may_choose_audience(member)
-    )
-
-
-def _event_edit_component(interaction: Interaction, member: Member | None) -> dict:
-    """The Edit Event click on a submit error — reopen the modal prefilled from the cache.
-
-    An expired/evicted token reopens a blank modal so the member can still start over."""
-    from django.core.cache import cache
-
-    _prefix, _, token = interaction["data"]["custom_id"].partition(":")
-    data = cache.get(f"{_CREATE_MODAL_PREFIX}:{token}") if token else None
-    if data is None:
-        return _create_modal()
-    return _create_modal(
-        title=data["title"],
-        when=data["when"],
-        guild_slug=data["guild_slug"],
-        location=data["location"],
-        description=data["description"],
-    )
-
-
-def _member_event_policy() -> str:
-    """The current site member-event policy (kept tiny so callers don't re-import SiteConfiguration)."""
-    from core.models import SiteConfiguration
-
-    return SiteConfiguration.load().member_event_policy
-
-
-def _confirm_create(interaction: Interaction, member: Member, draft: CommunityEventDraft) -> dict:
-    """The Confirm click: re-check, atomically claim, ack type 6, then publish / propose.
-
-    Authority and site policy are re-checked (state can shift between preview and click),
-    the per-member rate limit is re-peeked, and the draft is claimed with a single
-    conditional ``UPDATE … WHERE confirmed_at IS NULL`` — the one point that resolves a
-    double-click race: the loser updates 0 rows and must NOT create a second event. The
-    fan-out (announce + Google + Discord push, optional email) far exceeds Discord's
-    3-second window, so the click is acked with a type-6 deferred update and the preview
-    is then PATCHed in place — ``components`` falls back to ``[]`` on purpose, so the
-    Confirm / Cancel row is always replaced (by the success reply's own link button, or
-    by nothing).
-    """
-    from django.utils import timezone as django_tz
-
-    from core.abuse_limits import keyed_within_limits, record_keyed_attempt
-    from core.models import SiteConfiguration
-    from membership.models import CommunityEventDraft
-
-    policy = SiteConfiguration.load().member_event_policy
-    guild = draft.guild
-    authored = member.is_fog_admin or (guild is not None and member.can_edit_guild(guild))
-    if not authored and policy == SiteConfiguration.MemberEventPolicy.DISABLED:
-        draft.delete()
-        return update_message(_not_permitted())
-    if not keyed_within_limits(
-        _CREATE_RATE_SCOPE, str(member.pk), hourly_limit=_CREATE_HOURLY_LIMIT, daily_limit=_CREATE_DAILY_LIMIT
-    ):
-        draft.delete()
-        return update_message(_rate_limited_reply()["data"]["content"])
-
-    claimed = CommunityEventDraft.objects.filter(pk=draft.pk, author=member.user, confirmed_at__isnull=True).update(
-        confirmed_at=django_tz.now()
-    )
-    if not claimed:
-        return update_message(_PREVIEW_EXPIRED)
-
-    ack_component_deferred(interaction["id"], interaction["token"])
-    form = _build_event_form(
-        draft.title,
-        draft.description,
-        guild,
-        _local_naive(draft.starts_at),
-        _local_naive(draft.ends_at),
-        draft.google_calendar_target,
-        event_type=draft.event_type,
-        location=draft.location,
-        video_url=draft.video_url,
-        recurrence=draft.recurrence,
-    )
-    try:
-        if not form.is_valid():  # the same data validated at preview time — a failure here is a bug
-            raise ValueError(f"Draft {draft.pk} failed re-validation on confirm: {form.errors.as_json()}")
-        followup = _finalize_event(member, guild, form, policy, authored, draft.email_choice)
-        record_keyed_attempt(
-            _CREATE_RATE_SCOPE, str(member.pk), hourly_limit=_CREATE_HOURLY_LIMIT, daily_limit=_CREATE_DAILY_LIMIT
-        )
-    except Exception:
-        logger.exception("create: publish/propose fan-out failed after claim")
-        followup = reply(_CREATE_FANOUT_FAILED, ephemeral=True)
-    data = followup["data"]
-    send_followup(
-        interaction["token"],
-        content=data.get("content", ""),
-        embeds=data.get("embeds"),
-        components=data.get("components") or [],
-    )
-    return {}
-
-
-def _create_component(interaction: Interaction, member: Member | None) -> dict:
-    """The Create Event / Edit Details / Cancel click on a ``/create`` preview card.
-
-    Parses ``create:<action>:<draft_pk>``, reloads the caller's own unconfirmed draft
-    (missing / foreign / already-claimed → the friendly expired reply), enforces the confirm
-    window, then routes Cancel (delete + in-place replace), Edit Details (reopen the modal
-    prefilled from the draft), or Create Event (:func:`_confirm_create` — the only place an
-    event is created).
-    """
-    from django.utils import timezone as django_tz
-
-    from membership.models import CommunityEventDraft
-
-    member = cast("Member", member)
-    if member.user is None:
-        return update_message(_SETUP_INCOMPLETE)
-    custom_id = interaction["data"]["custom_id"]
-    parts = custom_id.split(":")
-    if len(parts) != 3 or parts[1] not in ("confirm", "cancel", "edit") or not parts[2].isdigit():
-        logger.warning("Malformed create custom_id %r", custom_id)
-        return error_reply()
-    _prefix, action, pk_str = parts
-
-    draft = CommunityEventDraft.objects.claimable_for(member.user).filter(pk=int(pk_str)).first()
-    if draft is None:
-        return update_message(_PREVIEW_EXPIRED)
-    if django_tz.now() - draft.created_at > timedelta(minutes=_CONFIRM_WINDOW_MINUTES):
-        draft.delete()
-        return update_message(_PREVIEW_EXPIRED)
-
-    if action == "cancel":
-        draft.delete()
-        return update_message(_PREVIEW_CANCELLED)
-    if action == "edit":
-        return _create_modal(
-            title=draft.title,
-            when=_when_text_from_draft(draft),
-            guild_slug=draft.guild.slug if draft.guild is not None else _GENERAL_VALUE,
-            location=draft.location,
-            description=draft.description,
-        )
-    return _confirm_create(interaction, member, draft)
-
-
-CREATE = SlashCommand(
-    name="create",
-    description="Create a Calendar event.",
-    handler=_create_event,
-    requires_link=True,
-    ephemeral=True,
-    defer=False,
-    scope="guild",
-)
-
-register(CREATE)
-register_modal(ModalHandler(prefix=_CREATE_MODAL_PREFIX, handler=_create_submit, requires_link=True))
-register_component(ComponentHandler(prefix="create", handler=_create_component, requires_link=True))
-register_component(ComponentHandler(prefix=_CREATE_CFG_PREFIX, handler=_event_cfg_component, requires_link=True))
-register_component(ComponentHandler(prefix=_CREATE_EDIT_PREFIX, handler=_event_edit_component, requires_link=True))
-
-
-# --- /cancel ------------------------------------------------------------------
-
-_CANCEL_EMPTY = (
-    "You have no upcoming events you can cancel from here. "
-    "If one of your published events needs to come down, ask a lead or admin."
-)
-_CANCEL_GONE = "That event was already handled. Nothing more to do."
-_CANCEL_NO_AUTH = "You can no longer cancel that event from here. Ask a lead or admin to remove it."
-_CANCEL_KEPT = "Kept. Nothing changed."
-_CANCEL_WITHDRAWN = "Proposal withdrawn."
-_CANCEL_DELETED = "Event cancelled and removed from the calendar, Google Calendar, and Discord."
-# Discord's per-select-menu option cap.
-_CANCEL_PICKER_CAP = 25
-
-
-def _withdrawable_events(member: Member) -> "list[CommunityEvent]":
-    """The member's own not-yet-published proposals (the states :meth:`withdraw` accepts)."""
-    from membership.models import CommunityEvent
-
-    states = (CommunityEvent.ModerationState.PENDING, CommunityEvent.ModerationState.CHANGES_REQUESTED)
-    return list(CommunityEvent.objects.filter(submitted_by=member.user, moderation_state__in=states))
-
-
-def _deletable_events(member: Member) -> "list[CommunityEvent]":
-    """Upcoming published/scheduled events this member may delete — the hub's exact authority.
-
-    A fog admin may delete any (mirroring the admin-only ``event_delete`` view); anyone
-    else only a guild event whose guild they can edit (mirroring ``guild_event_delete``).
-    "Upcoming" is an end in the future or a recurring series (whose anchor may be past).
-    The per-guild ``can_edit_guild`` check runs in Python — the candidate set is small
-    and the object-level check is the single source of authority truth.
-    """
-    from django.db.models import Q
-    from django.utils import timezone as django_tz
-
-    from membership.models import CommunityEvent
-
-    states = (CommunityEvent.ModerationState.PUBLISHED, CommunityEvent.ModerationState.SCHEDULED)
-    candidates = (
-        CommunityEvent.objects.filter(moderation_state__in=states)
-        .filter(Q(ends_at__gte=django_tz.now()) | ~Q(recurrence=CommunityEvent.Recurrence.NONE))
-        .select_related("guild")  # the per-event can_edit_guild check below reads event.guild
-    )
-    if member.is_fog_admin:
-        return list(candidates)
-    # `exclude(guild=None)` guarantees a guild at the query level; the cast narrows for mypy
-    # without adding a runtime branch the tests could never take.
-    return [event for event in candidates.exclude(guild=None) if member.can_edit_guild(cast("Guild", event.guild))]
-
-
-def _cancellable_events(member: Member) -> "list[CommunityEvent]":
-    """Everything the member may cancel, soonest-starting first, capped for the picker.
-
-    The withdraw and delete sets can't overlap (their moderation states are disjoint),
-    so a plain concatenation is dedupe-free.
-    """
-    events = _withdrawable_events(member) + _deletable_events(member)
-    events.sort(key=lambda event: event.starts_at)
-    return events[:_CANCEL_PICKER_CAP]
-
-
-def _cancel_authority(member: Member, event: CommunityEvent) -> str | None:
-    """Which cancel branch applies: ``"withdraw"``, ``"delete"``, or ``None`` (no authority)."""
-    from membership.models import CommunityEvent
-
-    withdraw_states = (CommunityEvent.ModerationState.PENDING, CommunityEvent.ModerationState.CHANGES_REQUESTED)
-    if event.moderation_state in withdraw_states and event.submitted_by_id == getattr(member.user, "pk", None):
-        return "withdraw"
-    delete_states = (CommunityEvent.ModerationState.PUBLISHED, CommunityEvent.ModerationState.SCHEDULED)
-    if event.moderation_state in delete_states and (
-        member.is_fog_admin or (event.guild is not None and member.can_edit_guild(event.guild))
-    ):
-        return "delete"
-    return None
-
-
-def _cancel_picker_reply(events: "list[CommunityEvent]") -> dict:
-    """The ephemeral Step-1 select menu of cancellable events (soonest first)."""
-    options = [
-        {"label": truncate(event.title, 100), "value": str(event.pk), "description": format_local(event.starts_at)}
-        for event in events
-    ]
-    row = {
-        "type": 1,
-        "components": [
-            {"type": 3, "custom_id": "cancel:pick", "placeholder": "Pick an event", "options": options},
-        ],
-    }
-    content = "Which event do you want to cancel?"
-    if len(events) == _CANCEL_PICKER_CAP:
-        content += f"\nOnly your next {_CANCEL_PICKER_CAP} are listed. The rest are on the hub."
-    return reply(content, ephemeral=True, components=[row])
-
-
-def _cancel_confirm_card(event: CommunityEvent, branch: str) -> dict:
-    """The Step-2 in-place confirm card — states plainly what confirming does."""
-    from membership.models import CommunityEvent
-
-    when_display = format_local(event.starts_at)
-    if branch == "withdraw":
-        content = (
-            f"Withdraw your proposal **{truncate(event.title, 100)}** ({when_display})? "
-            "It was never published, so it just comes off the review queue."
-        )
-    else:
-        content = (
-            f"Cancel **{truncate(event.title, 100)}** ({when_display})? It will be removed from the "
-            "Calendar, Google Calendar, and Discord. Members will not be notified automatically."
-        )
-        if event.recurrence != CommunityEvent.Recurrence.NONE:
-            content += " This removes the whole repeating series."
-    row = {
-        "type": 1,
-        "components": [
-            {"type": 2, "style": 4, "label": "Yes, cancel it", "custom_id": f"cancel:confirm:{event.pk}"},
-            {"type": 2, "style": 2, "label": "Keep it", "custom_id": f"cancel:keep:{event.pk}"},
-        ],
-    }
-    return update_message(content, components=[row])
-
-
-def _cancel(interaction: Interaction, member: Member | None) -> dict:
-    """List the caller's cancellable events as a select menu (or the friendly empty state)."""
-    member = cast("Member", member)
-    if member.user is None:
-        return reply(_SETUP_INCOMPLETE, ephemeral=True)
-    events = _cancellable_events(member)
-    if not events:
-        return reply(_CANCEL_EMPTY, ephemeral=True)
-    return _cancel_picker_reply(events)
-
-
-def _confirm_cancel(interaction: Interaction, member: Member, event: CommunityEvent, branch: str) -> dict:
-    """Execute the confirmed cancel — withdraw in-band, delete behind a type-6 deferred ack.
-
-    Withdraw is one DB delete (nothing was ever pushed), so it answers in-band. Delete
-    unwinds Google and Discord over REST first — slow, so the click is acked type-6 and
-    the confirm card PATCHed afterward (buttons stripped via ``components=[]``). The
-    remove calls are best-effort by design (mirroring the hub's ``event_delete``): each
-    logs its own failure and the row still goes away.
-    """
-    from membership.models import InvalidEventTransition
-
-    if branch == "withdraw":
-        try:
-            event.withdraw(by=cast("User", member.user))
-        except InvalidEventTransition:
-            return update_message(_CANCEL_GONE)
-        return update_message(_CANCEL_WITHDRAWN)
-
-    ack_component_deferred(interaction["id"], interaction["token"])
-    try:
-        event.remove_from_google()
-        event.remove_from_discord()
-        event.strip_discord_announcement_buttons()
-        event.delete()
-        content = _CANCEL_DELETED
-    except Exception:
-        logger.exception("cancel: delete fan-out failed for event %s", event.pk)
-        content = _CREATE_FANOUT_FAILED
-    send_followup(interaction["token"], content=content, components=[])
-    return {}
-
-
-def _cancel_component(interaction: Interaction, member: Member | None) -> dict:
-    """The ``/cancel`` select + button clicks: pick → confirm card → withdraw / delete / keep.
-
-    Authority is re-resolved from the live row on every click (state can shift between
-    steps — someone else may approve, publish, or delete first): a vanished row or a
-    lost authority never stacktraces, it lands on the friendly gone / no-authority copy.
-    """
-    from membership.models import CommunityEvent
-
-    member = cast("Member", member)
-    if member.user is None:
-        return update_message(_SETUP_INCOMPLETE)
-    custom_id = interaction["data"]["custom_id"]
-    parts = custom_id.split(":")
-    if len(parts) == 2 and parts[1] == "pick":
-        values = interaction["data"].get("values") or []
-        pk_str = values[0] if values else ""
-    elif len(parts) == 3 and parts[1] in ("confirm", "keep"):
-        pk_str = parts[2]
-    else:
-        logger.warning("Malformed cancel custom_id %r", custom_id)
-        return error_reply()
-    if not pk_str.isdigit():
-        logger.warning("Malformed cancel target %r in %r", pk_str, custom_id)
-        return error_reply()
-
-    if len(parts) == 3 and parts[1] == "keep":
-        return update_message(_CANCEL_KEPT)
-
-    event = CommunityEvent.objects.filter(pk=int(pk_str)).first()
-    if event is None:
-        return update_message(_CANCEL_GONE)
-    branch = _cancel_authority(member, event)
-    if branch is None:
-        return update_message(_CANCEL_NO_AUTH)
-
-    if parts[1] == "pick":
-        return _cancel_confirm_card(event, branch)
-    return _confirm_cancel(interaction, member, event, branch)
-
-
-CANCEL = SlashCommand(
-    name="cancel",
-    description="Withdraw or cancel one of your upcoming events.",
-    handler=_cancel,
-    requires_link=True,
-    ephemeral=True,
-    defer=False,
-    scope="guild",
-)
-
-register(CANCEL)
-register_component(ComponentHandler(prefix="cancel", handler=_cancel_component, requires_link=True))
-
-
 # --- event component (RSVP toggle + ⚙ Manage) ---------------------------------
 
 _RSVP_CLOSED = "This event has already ended, so RSVPs are closed."
@@ -1793,6 +300,17 @@ _EVENT_GONE = "This event is no longer on the calendar."
 _MANAGE_CREATOR_ONLY = (
     "Editing and cancelling a published event is handled by a guild lead or admin. "
     "Ask a lead if this event needs a change."
+)
+_SETUP_INCOMPLETE = (
+    "Your Past Lives account isn't fully set up yet, so I can't change an event under your name. "
+    "Please reach out to a Past Lives organizer."
+)
+_CANCEL_GONE = "That event was already handled. Nothing more to do."
+_CANCEL_NO_AUTH = "You can no longer cancel that event from here. Ask a lead or admin to remove it."
+_CANCEL_KEPT = "Kept. Nothing changed."
+_CANCEL_DELETED = "Event cancelled and removed from the calendar, Google Calendar, and Discord."
+_CANCEL_FAILED = (
+    "Something went wrong on our side and the event was not fully removed. Please check the calendar or try again."
 )
 
 
@@ -1818,17 +336,29 @@ def _event_edit_url(event: CommunityEvent) -> str:
     return hub_url("hub_event_edit", event.pk)
 
 
+def _can_cancel(member: Member, event: CommunityEvent) -> bool:
+    """Whether ``member`` may cancel ``event`` from Discord, the hub's exact delete authority.
+
+    A published or scheduled event only: a fog admin may cancel any (mirroring the admin-only
+    ``event_delete`` view); anyone else only a guild event whose guild they can edit
+    (mirroring ``guild_event_delete``).
+    """
+    from membership.models import CommunityEvent
+
+    delete_states = (CommunityEvent.ModerationState.PUBLISHED, CommunityEvent.ModerationState.SCHEDULED)
+    if event.moderation_state not in delete_states:
+        return False
+    return member.is_fog_admin or (event.guild is not None and member.can_edit_guild(event.guild))
+
+
 def _manage_card(event: CommunityEvent, member: Member) -> dict:
     """The ephemeral ⚙ Manage card.
 
-    An authorized manager (``_cancel_authority`` yields a branch) gets Edit + Cancel; a
-    creator without edit/cancel authority gets an honest "ask a lead" card with a plain link
-    to the event page — the same pre-existing gap ``/cancel``'s empty state acknowledges, not
-    widened and not hidden.
+    A member who may cancel the event gets Edit + Cancel; a creator without that authority
+    gets an honest "ask a lead" card with a plain link to the event page.
     """
-    branch = _cancel_authority(member, event)
     when = format_local(event.next_occurrence_start())
-    if branch is not None:
+    if _can_cancel(member, event):
         row = [
             {"type": 2, "style": 5, "label": "Edit on the hub", "url": _event_edit_url(event)},
             {"type": 2, "style": 4, "label": "Cancel this event", "custom_id": f"event:cancelcard:{event.pk}"},
@@ -1840,12 +370,82 @@ def _manage_card(event: CommunityEvent, member: Member) -> dict:
     return reply(content, ephemeral=True, components=[{"type": 1, "components": row}])
 
 
+def _cancel_confirm_card(event: CommunityEvent) -> dict:
+    """The in-place confirm card; states plainly what confirming does."""
+    from membership.models import CommunityEvent
+
+    content = (
+        f"Cancel **{truncate(event.title, 100)}** ({format_local(event.starts_at)})? It will be removed from the "
+        "Calendar, Google Calendar, and Discord. Members will not be notified automatically."
+    )
+    if event.recurrence != CommunityEvent.Recurrence.NONE:
+        content += " This removes the whole repeating series."
+    row = {
+        "type": 1,
+        "components": [
+            {"type": 2, "style": 4, "label": "Yes, cancel it", "custom_id": f"cancel:confirm:{event.pk}"},
+            {"type": 2, "style": 2, "label": "Keep it", "custom_id": f"cancel:keep:{event.pk}"},
+        ],
+    }
+    return update_message(content, components=[row])
+
+
+def _confirm_cancel(interaction: Interaction, event: CommunityEvent) -> dict:
+    """Delete the event behind a type-6 deferred ack, then PATCH the confirm card.
+
+    Unwinding Google and Discord over REST is slow, so the click is acked type-6 and the
+    confirm card PATCHed afterward (buttons stripped via ``components=[]``). The remove calls
+    are best-effort by design (mirroring the hub's ``event_delete``): each logs its own
+    failure and the row still goes away.
+    """
+    ack_component_deferred(interaction["id"], interaction["token"])
+    try:
+        event.remove_from_google()
+        event.remove_from_discord()
+        event.strip_discord_announcement_buttons()
+        event.delete()
+        content = _CANCEL_DELETED
+    except Exception:
+        logger.exception("cancel: delete fan-out failed for event %s", event.pk)
+        content = _CANCEL_FAILED
+    send_followup(interaction["token"], content=content, components=[])
+    return {}
+
+
+def _cancel_component(interaction: Interaction, member: Member | None) -> dict:
+    """The confirm card's Yes, cancel it / Keep it clicks (``cancel:<confirm|keep>:<pk>``).
+
+    Authority is re-resolved from the live row on the click (someone else may have deleted
+    or changed it since the card opened): a vanished row or a lost authority never
+    stacktraces, it lands on the friendly gone / no-authority copy.
+    """
+    from membership.models import CommunityEvent
+
+    member = cast("Member", member)
+    if member.user is None:
+        return update_message(_SETUP_INCOMPLETE)
+    custom_id = interaction["data"]["custom_id"]
+    parts = custom_id.split(":")
+    if len(parts) != 3 or parts[1] not in ("confirm", "keep") or not parts[2].isdigit():
+        logger.warning("Malformed cancel custom_id %r", custom_id)
+        return error_reply()
+    if parts[1] == "keep":
+        return update_message(_CANCEL_KEPT)
+
+    event = CommunityEvent.objects.filter(pk=int(parts[2])).first()
+    if event is None:
+        return update_message(_CANCEL_GONE)
+    if not _can_cancel(member, event):
+        return update_message(_CANCEL_NO_AUTH)
+    return _confirm_cancel(interaction, event)
+
+
 def _event_component(interaction: Interaction, member: Member | None) -> dict:
     """The announcement buttons: RSVP toggle, ⚙ Manage card, and the Cancel jump.
 
-    Parses ``event:<action>:<pk>``; a malformed id or unknown action lands on ``error_reply``
-    (the ``members`` pattern). A missing/unpublished event is the friendly "no longer on the
-    calendar" ephemeral. ``requires_link=True`` guarantees a linked ``member``.
+    Parses ``event:<action>:<pk>``; a malformed id or unknown action lands on ``error_reply``.
+    A missing/unpublished event is the friendly "no longer on the calendar" ephemeral.
+    ``requires_link=True`` guarantees a linked ``member``.
     """
     from membership.models import CommunityEvent
 
@@ -1872,14 +472,14 @@ def _event_component(interaction: Interaction, member: Member | None) -> dict:
             return _manage_no_auth_reply(event)
         return _manage_card(event, member)
     # cancelcard: re-resolve the authority (state may have shifted), then edit the ephemeral
-    # manage card into the EXISTING confirm card whose buttons route to _cancel_component.
-    branch = _cancel_authority(member, event)
-    if branch is None:
+    # manage card into the confirm card whose buttons route to _cancel_component.
+    if not _can_cancel(member, event):
         return update_message(_CANCEL_NO_AUTH)
-    return _cancel_confirm_card(event, branch)
+    return _cancel_confirm_card(event)
 
 
 register_component(ComponentHandler(prefix="event", handler=_event_component, requires_link=True))
+register_component(ComponentHandler(prefix="cancel", handler=_cancel_component, requires_link=True))
 
 
 # --- /poll --------------------------------------------------------------------
@@ -2030,7 +630,7 @@ _POLL_MODAL_INTRO = (
     "Submitting posts the poll in this channel right away. Polls cannot be edited after they post. "
     "Need a change? End it early with the gear and run /poll again."
 )
-# Per-member poll caps (counted only when a poll is actually posted), mirroring /create.
+# Per-member poll caps (counted only when a poll is actually posted), the same caps the old /create used.
 _POLL_RATE_SCOPE = "discord_poll"
 _POLL_HOURLY_LIMIT = 4
 _POLL_DAILY_LIMIT = 12

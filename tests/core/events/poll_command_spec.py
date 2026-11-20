@@ -437,9 +437,9 @@ def describe_modal_discord_limits():
     def it_keeps_every_label_and_description_within_the_verified_caps():
         # A live Discord rejection (v1.9.2) proved the description cap is 100, not the
         # documented 200 — one overlong string kills the whole modal. Pin every field.
-        from membership.discord_commands import _create_modal, _poll_modal
+        from membership.discord_commands import _poll_modal
 
-        for m in (_poll_modal(), _create_modal()):
+        for m in (_poll_modal(),):
             assert len(m["data"]["title"]) <= 45
             comps = m["data"]["components"]
             assert 1 <= len(comps) <= 5

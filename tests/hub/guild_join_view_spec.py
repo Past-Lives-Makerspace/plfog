@@ -165,7 +165,7 @@ def describe_guild_leave():
 def describe_guild_join_discord_announce():
     """The opt-in 'Announce on the guild's Discord channel?' box on the web join.
 
-    Reuses the ``/join-guild`` welcome plumbing (``guild_webhook`` + ``post_embed``), so the
+    Reuses the guild welcome plumbing (``guild_webhook`` + ``post_embed``), so the
     same per-guild gate (posting enabled AND a non-blank webhook) decides whether anything
     posts. ``post_embed`` is spied; ``guild_webhook`` stays real so the gate runs for real.
     """

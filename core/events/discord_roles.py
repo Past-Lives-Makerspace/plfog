@@ -78,7 +78,7 @@ def _send(
     """One bot request. None on a network error. Never raises.
 
     With ``retry`` a 429 is waited out and tried once more. Off by default, because the web
-    requests that call these helpers (guild join and leave, ``/join-guild``) must answer at
+    requests that call these helpers (guild join and leave) must answer at
     once; only background work (the leadership role tasks and command) opts in.
     """
     response = _request(method, url, params)
