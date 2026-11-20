@@ -42,7 +42,7 @@ def class_state_follows_deleted_session(sender: type[ClassSession], instance: Cl
     the run row is still there and about to go, so ``ClassRecord.follow_runs`` recomputes once it
     has gone instead.
     """
-    origin = kwargs.get("origin")
+    origin = kwargs["origin"]
     if isinstance(origin, ClassOffering) or getattr(origin, "model", None) is ClassOffering:
         return
     instance.refresh_class_state()
