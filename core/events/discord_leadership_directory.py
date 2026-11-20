@@ -11,14 +11,14 @@ active guild (never the example guild, whatever ``display_demo_guild`` says).
   is a read of the server's member list (:class:`Usernames`), Discord's limits are kept
   (a section too long for one embed continues in the next, and a message too full continues
   in the next message), and every payload carries ``allowed_mentions`` with an empty
-  ``parse``, so the guild lead role mentions never ping anyone. A member whose Discord handle
+  ``parse``, so nothing in it ever pings anyone. A member whose Discord handle
   is not public shows as a bare name; otherwise as their Discord username linked to their
   profile, read through their verified ``discord_user_id`` (``Member.link_discord``), else
   their typed handle in plain text when it looks like a username. Never a user mention:
   inside an embed, Discord shows one as the display name, or "unknown-user" to anyone whose
   app has not loaded that member.
   Member and admin text is escaped so it cannot build a link or mention.
-  Each guild shows its lead role mention and contact email when set; a People tab its intro.
+  Each guild shows its contact email when set; a People tab its intro.
 * :func:`sync_leadership_directory` is the task: it renders, and when the content hash equals
   the stored one and every stored message is still there it sends nothing; otherwise it edits
   the stored messages in order, posts any extra, deletes any surplus, and stores the ids and
@@ -282,11 +282,8 @@ def _guild_leads(guild: Guild, usernames: Callable[[str], str]) -> list[Person]:
 
 
 def _guild_entry(guild: Guild, people: list[Person]) -> str:
-    """A guild's emoji, name and lead role mention (when configured); its leads; its contact email (when set)."""
-    role_id = (guild.discord_lead_role_id or "").strip()
+    """A guild's emoji and name; its leads; its contact email (when set). No per guild lead role is mentioned (#1270)."""
     heading = f"{guild_emoji(guild.name)} **{_escape(guild.name)}**"
-    if role_id.isdigit():
-        heading += f" <@&{role_id}>"
     lines = [heading, " & ".join(person.text for person in people) if people else NO_LEAD_LINE]
     email = (guild.contact_email or "").strip()
     if email:

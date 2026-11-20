@@ -13,12 +13,16 @@ Members who should hold a role but have no linked Discord are listed once at the
 calls failed. Reads the server's member list once (one request per thousand members), never one
 request per member. This is how the drift from before the sync gets cleaned up, and how an
 admin checks the role ids are right.
+
+``--guild-leads-role-id <id>`` previews a Guild Leads id before it is entered in Site Settings
+(#1270): the dry run then treats that id as managed, so it lists everyone who would get it and
+everyone holding it who would lose it. It never combines with ``--apply``; nothing is saved.
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
@@ -64,10 +68,15 @@ class Command(BaseCommand):
             help="With --apply, also take managed roles off server members no linked member answers to "
             "(never one whose username matches an unlinked member's Discord handle).",
         )
+        parser.add_argument(
+            "--guild-leads-role-id",
+            default="",
+            help="Dry run only: preview this Guild Leads role id as if it were saved in Site Settings.",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         server = server_id()
-        settings = LeadershipRoleSettings.load()
+        settings = self._with_preview(LeadershipRoleSettings.load(), options)
         off = self._off_reason(server, settings)
         if off:
             self.stdout.write(off)
@@ -104,6 +113,18 @@ class Command(BaseCommand):
         self._summarize(unlinked, tally, apply=apply)
 
     @staticmethod
+    def _with_preview(settings: LeadershipRoleSettings, options: dict[str, Any]) -> LeadershipRoleSettings:
+        """``settings`` with the ``--guild-leads-role-id`` preview applied, when one was given."""
+        preview_id = options["guild_leads_role_id"].strip()
+        if not preview_id:
+            return settings
+        if options["apply"]:
+            raise CommandError("--guild-leads-role-id only previews; enter the id in Site Settings to apply it.")
+        if not preview_id.isdigit():
+            raise CommandError("A Discord role id is numbers only.")
+        return replace(settings, guild_leads_role_id=preview_id)
+
+    @staticmethod
     def _off_reason(server: str, settings: LeadershipRoleSettings) -> str:
         """Why nothing can be synced here, or "" when it can."""
         if not server:
@@ -111,7 +132,7 @@ class Command(BaseCommand):
         if bot_disabled("leadership role sync"):
             return "The Discord bot token is blank here (unset, or staging), so the sync is off."
         if not settings.managed:
-            return "No leadership, Guild Officers or guild lead role id is set, so there is nothing to sync."
+            return "No managed role id (leadership, Guild Officers, Guild Leads, Tour Guides, Instructors) is set, so there is nothing to sync."
         return ""
 
     def _strangers(
