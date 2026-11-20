@@ -87,6 +87,7 @@ def describe_info_post_save():
 
     def it_rejects_content_over_discords_embed_limit(client: Client):
         _superuser(client)
+        before = SiteConfiguration.load().discord_info_links_content
         with patch("hub.discord_info_post.sync_info_post") as fake_sync:
             resp = client.post(
                 reverse("hub_admin_site_settings"),
@@ -94,7 +95,7 @@ def describe_info_post_save():
             )
         assert resp.status_code == 200  # re-rendered with the validation error, not saved
         assert "Keep the links content under" in resp.content.decode()  # apostrophes HTML-escape; assert plain part
-        assert SiteConfiguration.load().discord_info_links_content == DISCORD_INFO_LINKS_DEFAULT
+        assert SiteConfiguration.load().discord_info_links_content == before
         fake_sync.assert_not_called()
 
 
@@ -111,8 +112,10 @@ def describe_info_post_sync_on_save():
 
     def it_does_not_call_discord_when_no_info_field_changed(client: Client):
         _superuser(client)
+        # The seeded row keeps whatever copy it was saved with, so post that back unchanged.
+        stored = SiteConfiguration.load().discord_info_links_content
         with patch("hub.discord_info_post.sync_info_post") as fake_sync:
-            resp = client.post(reverse("hub_admin_site_settings"), _settings_post())
+            resp = client.post(reverse("hub_admin_site_settings"), _settings_post(discord_info_links_content=stored))
         assert resp.status_code == 302
         fake_sync.assert_not_called()
 

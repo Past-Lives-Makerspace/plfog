@@ -1,8 +1,7 @@
 """Standard (default) copy for the per-guild join welcome email.
 
 The welcome email is ON by default: when a member deliberately joins a guild (the
-"Join This Guild" button with the welcome box checked, or the Discord ``/join-guild``
-command) they get a warm welcome, whether or not the guild wrote their own. A guild MAY
+"Join This Guild" button with the welcome box checked) they get a warm welcome, whether or not the guild wrote their own. A guild MAY
 still customize the subject and body on the Welcome Email tab of their guild editor; when
 they leave those blank, the standard copy below stands in.
 

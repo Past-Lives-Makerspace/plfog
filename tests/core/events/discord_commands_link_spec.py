@@ -52,11 +52,13 @@ def describe_handle_link():
             assert "Rowan" in result["data"]["content"]
             assert result["data"]["flags"] == 64
 
-        def it_nudges_whats_on(monkeypatch, linked_member):
+        def it_points_them_at_the_calendar_page(monkeypatch, linked_member, settings):
             _configured(monkeypatch)
+            settings.MEMBER_BASE_URL = "https://members.example"
             member = linked_member(discord_user_id="555", preferred_name="Rowan")
             result = _link({"member": {"user": {"id": "555"}}}, member)
-            assert "/whats-on" in result["data"]["content"]
+            assert "https://members.example/calendar/" in result["data"]["content"]
+            assert "/whats-on" not in result["data"]["content"]
 
         def it_does_not_hand_out_a_connect_link(monkeypatch, linked_member):
             _configured(monkeypatch)

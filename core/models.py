@@ -496,9 +496,9 @@ DISCORD_INFO_LINKS_DEFAULT = (
     "The community agreements every member signs on to:\n"
     "https://docs.google.com/document/d/1avWCAnbwDbO79k-n-_QpUc0P2Dz-s6f4/edit\n"
     "\n"
-    "**📱 Past Lives App (FOG)**\n"
+    "**📱 Past Lives Member Portal**\n"
     "Your member hub — profile, guilds, calendar, and more:\n"
-    "https://pastlives.app"
+    "https://members.pastlives.space"
 )
 
 
@@ -818,8 +818,8 @@ class SiteConfiguration(models.Model):
     guild_welcome_email_enabled = models.BooleanField(
         default=True,
         verbose_name="Send guild welcome emails",
-        help_text="When off, no guild welcome email is sent when a member joins a guild (the Join "
-        "button or the Discord /join-guild command), the join popup's email opt-in is hidden, and "
+        help_text="When off, no guild welcome email is sent when a member joins a guild with the Join "
+        "button, the join popup's email opt-in is hidden, and "
         "the Welcome Email tab is hidden from the guild editor. Per-guild settings are kept and "
         "take effect again when this is turned back on.",
     )

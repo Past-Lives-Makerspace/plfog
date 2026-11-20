@@ -29,13 +29,12 @@ from django.utils import timezone
 from core.integrations.discord_channel import (
     DEFAULT_TIMEOUT_SECONDS,
     MAX_EMBEDS_PER_MESSAGE,
-    discord_message_url,
     post_channel_message,
     recent_bot_post_titles,
 )
 
 if TYPE_CHECKING:
-    from membership.models import CommunityEvent
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -351,41 +350,6 @@ def _stamp(objs: list[Any], now: datetime, *, extra_fields: list[str] | None = N
     for obj in objs:
         obj.channel_announced_at = now
         obj.save(update_fields=fields)
-
-
-def announce_community_event_now(event: "CommunityEvent") -> str:
-    """Post one just-published CommunityEvent's #calendar card immediately.
-
-    The 15-minute announcer is the sweeper for web-created and scheduled events, but a
-    member publishing from ``/create`` is standing right there — the RSVP card should
-    exist before they finish reading the confirmation. Stamps ``channel_announced_at``
-    (and the message ids) exactly like the announcer, so the cron can never double-post.
-    Returns the message jump URL for the confirmation's link button, or ``""`` when
-    posting is off, the event was already announced, it isn't a published announceable
-    event, or the server id is unset. Raises :class:`DiscordChannelError` on a failed
-    post — the caller treats the whole call as best-effort.
-    """
-    from core.models import SiteConfiguration
-    from membership.models import CommunityEvent
-
-    channel_id = _posting_channel_id()
-    if not channel_id or event.channel_announced_at is not None:
-        return ""
-    if event.moderation_state != CommunityEvent.ModerationState.PUBLISHED:
-        return ""
-    if event.event_type == CommunityEvent.EventType.STUDIO_HOURS:
-        return ""
-    now = timezone.now()
-    message = post_channel_message(
-        channel_id, [event.discord_announcement_embed()], components=event.discord_announcement_components()
-    )
-    event.discord_announce_channel_id = channel_id
-    event.discord_announce_message_id = str(message["id"])
-    _stamp([event], now, extra_fields=_ANNOUNCE_ID_FIELDS)
-    server_id = (SiteConfiguration.load().discord_server_id or "").strip()
-    if not server_id:
-        return ""
-    return discord_message_url(server_id, channel_id, str(message["id"]))
 
 
 def announce_new_events() -> int:

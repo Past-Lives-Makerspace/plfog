@@ -13,7 +13,7 @@ from tests.membership.factories import GuildFactory, VotePreferenceFactory
 
 pytestmark = pytest.mark.django_db
 
-_VOTE_NUDGE = "Set or change your own picks with `/vote` — only you see that reply."
+_VOTE_NUDGE = "Set or change your own picks on the voting page."
 
 
 def _reply(member) -> dict:
@@ -94,7 +94,7 @@ def describe_voting():
 
     def it_never_broadcasts_the_invoking_members_own_picks(linked_member):
         """Privacy: the reply is public, so a member WITH a ballot must not have their three
-        ranked picks echoed to the channel — only the aggregate standings and the /vote nudge."""
+        ranked picks echoed to the channel — only the aggregate standings and the voting page nudge."""
         member = linked_member()
         g1 = GuildFactory(name="My First")
         g2 = GuildFactory(name="My Second")

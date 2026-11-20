@@ -23,8 +23,7 @@ def sync_interested_rsvps() -> int:
     """Sweep every upcoming pushed event; return how many had their RSVP list changed.
 
     Scope: PUBLISHED/SCHEDULED CommunityEvents holding a ``discord_event_id`` that are
-    still upcoming (end in the future, or recurring — the same "still alive" shape the
-    ``/cancel`` picker uses). A changed list refreshes the announcement embed so the
+    still upcoming (end in the future, or recurring). A changed list refreshes the announcement embed so the
     Attendees field stays live; the refresh is best-effort by design.
     """
     from django.db.models import Q

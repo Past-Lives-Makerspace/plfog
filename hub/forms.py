@@ -237,7 +237,6 @@ class GuildEditForm(forms.ModelForm):
             "discord_url",
             "discord_webhook_url",
             "discord_post_enabled",
-            "discord_welcome_message",
             "website_url",
             "show_members",
             "show_location_status",
@@ -274,9 +273,6 @@ class GuildEditForm(forms.ModelForm):
                 attrs={"rows": 2, "placeholder": "Extra notes, e.g. 'bring your current project'"}
             ),
             "contact_email": forms.EmailInput(attrs={"placeholder": "guild@example.com"}),
-            "discord_welcome_message": forms.Textarea(
-                attrs={"rows": 3, "placeholder": "Welcome to the guild! Here's how to get started..."},
-            ),
         }
         labels = {
             "about": "About",
@@ -296,7 +292,6 @@ class GuildEditForm(forms.ModelForm):
             "discord_url": "Discord channel link (shown to members)",
             "discord_webhook_url": "Email Members webhook (posts here, keep it private)",
             "discord_post_enabled": "Also post to our Discord",
-            "discord_welcome_message": "Discord welcome message",
             "website_url": "Website URL",
             "show_members": "Show members roster",
             "show_location_status": "Show location lights on the guild page",
@@ -316,10 +311,6 @@ class GuildEditForm(forms.ModelForm):
             "discord_webhook_url": (
                 "A private Discord webhook for your channel. Don't paste your public invite link here. "
                 "Blank = nothing posts to your channel."
-            ),
-            "discord_welcome_message": (
-                "Posted to your guild's Discord channel and sent to the member when someone starts "
-                "following your guild via /join-guild. Blank = a generic welcome."
             ),
         }
 
@@ -2445,7 +2436,7 @@ class VotePreferenceForm(forms.Form):
         g3 = cleaned.get("guild_3rd")
 
         # A guild picked twice: mark each later pick with the choice it repeats, and say which guild
-        # and which choices in the form's one message, so the page and /vote name the same clash.
+        # and which choices in the form's one message.
         ranks = {"guild_1st": "1st", "guild_2nd": "2nd", "guild_3rd": "3rd"}
         first_rank: dict[int, str] = {}
         clashes: dict[int, list[str]] = {}
@@ -3353,7 +3344,7 @@ class GuildWelcomeEmailForm(forms.ModelForm):
 
     Lives on the Welcome Email tab of the guild editor — it is the join-lifecycle email,
     sent once a member deliberately joins (the "Join This Guild" button with the welcome
-    box checked, or the Discord ``/join-guild`` command). The email *data* stays on
+    box checked). The email *data* stays on
     :class:`~membership.models.GuildOrientationSettings`; only the editing UI lives here.
     The welcome email is on by default and falls back to the standard copy, so enabling it
     needs no subject or body. Saving stamps ``welcome_email_updated_at`` when a welcome

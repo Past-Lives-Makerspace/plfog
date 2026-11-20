@@ -218,9 +218,9 @@ def describe_guide():
         for cmd in all_commands():
             assert f"**/{cmd.name}** — {cmd.description}" in description
 
-    def it_includes_join_guild_and_itself():
+    def it_includes_info_and_itself():
         description = _description()
-        assert "**/join-guild**" in description
+        assert "**/info**" in description
         assert "**/guide**" in description
 
     def it_points_unlinked_members_at_the_link_command():

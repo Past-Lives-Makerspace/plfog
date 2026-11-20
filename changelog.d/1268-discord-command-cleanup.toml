@@ -1,0 +1,12 @@
+bump = "minor"
+audience = ["members", "guild-leads"]
+date = "2026-11-20"
+title = "A shorter list of Discord commands"
+guidance = "none"
+changes = [
+  "These Discord commands are gone: /schedule-orientation, /join-guild, /create, /cancel, /balance, /members, /vote and /whats-on. Do each of these on the Member Portal instead.",
+  "Still there: /info, /voting, /poll, /link, /guide, /create-announcement and /fog-ping.",
+  "Guild leads, guild staff and admins can still cancel an event from the ⚙ Manage button on its post in #calendar.",
+  "The #important-info links now call the portal the Past Lives Member Portal and link to members.pastlives.space.",
+  "Guild Settings no longer has a Discord welcome message box, since only /join-guild sent it.",
+]

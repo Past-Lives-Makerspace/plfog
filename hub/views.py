@@ -4303,9 +4303,8 @@ def _guild_cta_context(request: HttpRequest, guild: Guild, member: Member | None
 def _announce_join_to_discord(guild: Guild, member: Member) -> None:
     """Best-effort: post a short celebratory note to the guild's own Discord channel.
 
-    Mirrors the ``/join-guild`` slash command's public welcome (``guild_webhook`` +
-    ``post_embed``, `hub/discord_commands.py`): the same per-guild webhook gate (posting
-    enabled AND a non-blank webhook URL), the member named in the embed title, no @-mention.
+    Uses ``guild_webhook`` + ``post_embed``: the per-guild webhook gate (posting enabled AND
+    a non-blank webhook URL), the member named in the embed title, no @-mention.
     Wrapped so a Discord hiccup can never fail or roll back the join — the ``GuildMembership``
     row is the source of truth. Only the deliberate web join with the box ticked reaches here;
     the silent paths (first-login picker, Settings toggle) never announce.
@@ -7661,8 +7660,8 @@ def event_edit(request: HttpRequest, event_pk: int | None = None) -> HttpRespons
             form.apply_hero_crop_to_instance(event)
             if review_first:
                 # Always the approval path, whatever SiteConfiguration.member_event_policy
-                # says: the policy governs members without the grant (the propose page and
-                # Discord /create), while the grant promises a review, so an OPEN policy must
+                # says: the policy governs members without the grant (the propose page),
+                # while the grant promises a review, so an OPEN policy must
                 # not let a holder's event publish itself.
                 event.propose(
                     by=user,

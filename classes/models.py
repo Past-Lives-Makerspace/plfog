@@ -5488,7 +5488,7 @@ class ClassSessionQuerySet(models.QuerySet["ClassSession"]):
         dated, purchasable inventory and should be counted.
 
         The ``display_demo_classes`` gate is mirrored here too — this is a second
-        member-facing choke-point (the Discord ``/whats-on`` digest reads it), so demo
+        member-facing choke-point (the Discord #calendar digest reads it), so demo
         (``demo-`` slug) sessions stay hidden unless that site setting is on, exactly
         like ``ClassOfferingQuerySet.public()``. That whole gate now lives in
         :meth:`public`; this is only the future-only half.
