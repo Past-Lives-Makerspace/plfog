@@ -600,7 +600,7 @@ def describe_public_category():
 
 def describe_public_class_detail():
     def it_renders_the_detail_page(published_class, client):
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_class.slug}))
+        response = client.get(published_class.public_path)
         assert response.status_code == 200
         assert b"Intro to Wheel Throwing" in response.content
         assert b"Deenie" in response.content
@@ -609,7 +609,7 @@ def describe_public_class_detail():
 
     def it_404s_on_draft_classes(db, client):
         offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT, slug="secret")
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        response = client.get(offering.public_path)
         assert response.status_code == 404
 
     def it_404s_on_private_classes(db, client):
@@ -618,7 +618,7 @@ def describe_public_class_detail():
             is_private=True,
             slug="private-one",
         )
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        response = client.get(offering.public_path)
         assert response.status_code == 404
 
     def it_offers_register_now_even_for_a_legacy_free_row(db, client):
@@ -631,7 +631,7 @@ def describe_public_class_detail():
             starts_at=timezone.now() + timedelta(days=3),
             ends_at=timezone.now() + timedelta(days=3, hours=2),
         )
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        response = client.get(offering.public_path)
         assert response.status_code == 200
         assert b"Register now" in response.content
         assert "Register — Free".encode() not in response.content
@@ -642,7 +642,7 @@ def describe_public_class_detail():
 
         for _ in range(published_class.capacity):
             RegistrationFactory(class_offering=published_class, status=Registration.Status.CONFIRMED)
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_class.slug}))
+        response = client.get(published_class.public_path)
         assert response.status_code == 200
         assert b"Sold out" in response.content
 
@@ -654,7 +654,7 @@ def describe_public_class_detail():
         config.class_registration_disabled_note = "Email the studio to reserve a seat."
         config.save()
 
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_class.slug}))
+        response = client.get(published_class.public_path)
         assert response.status_code == 200
         assert b"cp-detail__cta--disabled" in response.content
         assert b"Registration unavailable" in response.content
@@ -666,7 +666,7 @@ def describe_public_class_detail():
     def it_renders_a_unique_seo_title_and_meta_description(published_class, client):
         from django.utils.html import escape
 
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_class.slug}))
+        response = client.get(published_class.public_path)
         html = response.content.decode()
         assert response.status_code == 200
         assert escape(published_class.seo_title) in html
@@ -694,7 +694,7 @@ def describe_public_class_detail():
             about_me="Member directory blurb",
             instructor_bio="Twenty years at the anvil.",
         )
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": _anvil_class(instructor).slug}))
+        response = client.get(_anvil_class(instructor).public_path)
         assert response.status_code == 200
         assert b"Twenty years at the anvil." in response.content
         assert b"Member directory blurb" not in response.content
@@ -705,7 +705,7 @@ def describe_public_class_detail():
         instructor = InstructorFactory(
             full_legal_name="Sadie", instructor_slug="sadie", about_me="Member directory blurb", instructor_bio=""
         )
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": _anvil_class(instructor).slug}))
+        response = client.get(_anvil_class(instructor).public_path)
         assert response.status_code == 200
         assert b"Member directory blurb" not in response.content
         assert b"Sadie" in response.content
@@ -721,7 +721,7 @@ def describe_public_class_detail():
             )
             ClassSessionFactory(class_offering=upcoming, starts_at=soon, ends_at=soon + timedelta(hours=2))
 
-            response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_class.slug}))
+            response = client.get(published_class.public_path)
             assert upcoming in list(response.context["related_offerings"])
             assert b"Advanced Glazing" in response.content
 
@@ -735,7 +735,7 @@ def describe_public_class_detail():
             )
             ClassSessionFactory(class_offering=past, starts_at=past_start, ends_at=past_start + timedelta(hours=2))
 
-            response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_class.slug}))
+            response = client.get(published_class.public_path)
             assert past not in list(response.context["related_offerings"])
             assert b"Holiday Ornaments" not in response.content
 
@@ -814,16 +814,18 @@ def describe_catalog_grouping():
     def it_lists_other_dates_on_the_detail_page(db, client):
         cat = CategoryFactory(name="Smithing", slug="smithing")
         inst = InstructorFactory(full_legal_name="Glen", instructor_slug="glen")
-        first = _publish("Forge Night with Glen", "forge-a", cat, inst, days_out=2)
+        first = _publish("Forge Night with Glen", "forge-a", cat, inst, days_out=4)
         _publish("Forge Night with Glen", "forge-b", cat, inst, days_out=9)
 
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": first.slug}))
+        response = client.get(first.public_path)
 
-        assert b"Other Dates for This Class" in response.content
-        assert b"forge-b" in response.content
+        # Every open date of the class, this one included, each with its own Register (#1260).
+        assert b"Upcoming Dates" in response.content
+        assert b"/classes/forge-a/register/" in response.content
+        assert b"/classes/forge-b/register/" in response.content
 
     def it_omits_other_dates_when_a_class_stands_alone(published_class, client):
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": published_class.slug}))
+        response = client.get(published_class.public_path)
 
         assert b"Other Dates for This Class" not in response.content
 
@@ -846,7 +848,7 @@ def describe_catalog_grouping():
             ends_at=timezone.now() + timedelta(days=1, hours=2),
         )
 
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        response = client.get(offering.public_path)
 
         assert response.status_code == 200
         assert b"Other Dates for This Class" not in response.content
@@ -1051,7 +1053,7 @@ def describe_detail_hero_fallback():
             image="",
             category__name="Glass",
         )
-        resp = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        resp = client.get(offering.public_path)
         assert resp.status_code == 200
         assert "img/guild_logos/glass_color.svg" in resp.content.decode()
 
@@ -1064,7 +1066,7 @@ def describe_detail_hero_fallback():
             image="",
             category__name="Education",
         )
-        resp = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        resp = client.get(offering.public_path)
         assert resp.status_code == 200
         assert "cp-detail__hero-logo" in resp.content.decode()
         assert "img/favicon.png" in resp.content.decode()
@@ -1098,7 +1100,7 @@ def describe_detail_hero_crop():
             hero_crop_h=225,
         )
         assert "hero-crops/" in offering.hero_cropped.url
-        body = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        body = client.get(offering.public_path).content.decode()
         assert _banner_src(body) == offering.hero_cropped.url
         # The related classes strip and the card share the accessor; the original is nowhere.
         assert offering.image.url not in body
@@ -1106,12 +1108,12 @@ def describe_detail_hero_crop():
     def it_shows_the_upload_on_the_banner_without_a_box(client, db):
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, image__width=1000, image__height=600)
         assert not offering.hero_cropped
-        body = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        body = client.get(offering.public_path).content.decode()
         assert _banner_src(body) == offering.image.url
 
     def it_shows_the_cropped_copy_on_a_related_class_card(client, db):
         shared = CategoryFactory(name="Crop Related")
-        ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, slug="crop-host", category=shared)
+        host = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, slug="crop-host", category=shared)
         related = ClassOfferingFactory(
             status=ClassOffering.Status.PUBLISHED,
             slug="crop-related",
@@ -1125,7 +1127,7 @@ def describe_detail_hero_crop():
         )
         start = timezone.now() + timedelta(days=7)
         ClassSessionFactory(class_offering=related, starts_at=start, ends_at=start + timedelta(hours=2))
-        body = client.get(reverse("classes:public_class_detail", kwargs={"slug": "crop-host"})).content.decode()
+        body = client.get(host.public_path).content.decode()
         assert f'src="{related.hero_cropped.url}"' in body
         assert related.image.url not in body
 
@@ -1166,7 +1168,7 @@ def describe_detail_hero_shape():
             hero_crop_h=225,
         )
         client.force_login(admin_user)
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        response = client.get(offering.public_path)
         assert response.context["can_edit_offering"] is True
         body = response.content.decode()
         hero = _hero_tag(body)
@@ -1188,7 +1190,7 @@ def describe_detail_hero_shape():
 
     def it_frames_the_upload_in_its_own_shape_without_a_box(client, db):
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, image__width=1000, image__height=600)
-        body = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        body = client.get(offering.public_path).content.decode()
         assert 'style="--cp-hero-ratio: 1000 / 600;"' in _hero_tag(body)
         assert (
             f"""<div class="cp-detail__hero-backdrop" style="background-image: url('{offering.image.url}');">""" in body
@@ -1201,7 +1203,7 @@ def describe_detail_hero_shape():
             legacy_image_url="https://classes.pastlives.space/sites/default/files/glen.jpg",
         )
         client.force_login(admin_user)
-        body = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        body = client.get(offering.public_path).content.decode()
         assert 'style="--cp-hero-ratio: 16 / 9;"' in _hero_tag(body)
         proxied = offering.hero_image_url
         assert "_legacy-image" in proxied
@@ -1215,7 +1217,7 @@ def describe_detail_hero_shape():
 
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, image="", category=_category_with_hero())
         client.force_login(admin_user)
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        response = client.get(offering.public_path)
         assert response.context["can_edit_category"] is True
         body = response.content.decode()
         hero = _hero_tag(body)
@@ -1234,7 +1236,7 @@ def describe_detail_hero_shape():
 
     def it_shows_a_guest_the_category_hero_positioned_without_the_tool(client, db):
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, image="", category=_category_with_hero())
-        body = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        body = client.get(offering.public_path).content.decode()
         banner = re.search(r'<img class="cp-detail__hero-img cp-detail__hero-img--cover"[^>]*>', body)
         assert banner is not None, "no category banner rendered"
         assert 'style="object-position: 50% 50%;"' in banner.group(0)
@@ -1312,9 +1314,7 @@ def describe_the_description_on_the_class_page():
         )
         published_class.save(update_fields=["description"])
 
-        html = client.get(
-            reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
-        ).content.decode()
+        html = client.get(published_class.public_path).content.decode()
 
         prose = html.split('class="cp-detail__prose"', 1)[1].split("</section>", 1)[0]
         assert "<strong>coat hook</strong>" in prose
@@ -1325,9 +1325,7 @@ def describe_the_description_on_the_class_page():
         published_class.description = "Wear <closed toe shoes>.\n\nTake it home."
         published_class.save(update_fields=["description"])
 
-        html = client.get(
-            reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
-        ).content.decode()
+        html = client.get(published_class.public_path).content.decode()
 
         prose = html.split('class="cp-detail__prose"', 1)[1].split("</section>", 1)[0]
         assert "<p>Wear &lt;closed toe shoes&gt;.</p><p>Take it home.</p>" in prose
@@ -1357,7 +1355,7 @@ def describe_detail_guild_card():
             category__name="Metalworking",
             category__guild=guild,
         )
-        resp = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        resp = client.get(offering.public_path)
         assert resp.status_code == 200
         body = resp.content.decode()
         assert "<p>Welcome to the metal shop.</p>" in body
@@ -1374,7 +1372,7 @@ def describe_detail_guild_card():
             category__name="Glass",
             category__guild=guild,
         )
-        resp = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        resp = client.get(offering.public_path)
         assert "offered in partnership with the Glass Guild" in resp.content.decode()
 
 
@@ -1396,7 +1394,7 @@ def describe_a_flexible_class_page():
         )
 
     def _page(client, offering: ClassOffering) -> str:
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+        response = client.get(offering.public_path)
         assert response.status_code == 200
         return response.content.decode()
 
@@ -1515,7 +1513,7 @@ def describe_the_rail_and_the_card_of_a_flexible_class():
         offering = _flexible(slug="open-forge", capacity=1)
         for _ in range(3):
             RegistrationFactory(class_offering=offering, status=Registration.Status.CONFIRMED)
-        html = client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+        html = client.get(offering.public_path).content.decode()
         rail = _rail(html)
         assert 'data-help-key="class.register"' in rail
         assert "cp-detail__spots" not in rail
@@ -1525,9 +1523,7 @@ def describe_the_rail_and_the_card_of_a_flexible_class():
         assert "<strong>1</strong> session" not in rail
 
     def it_keeps_the_seat_math_on_a_fixed_class(published_class, client):
-        html = client.get(
-            reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
-        ).content.decode()
+        html = client.get(published_class.public_path).content.decode()
         rail = _rail(html)
         assert "cp-detail__spots--ok" in rail
         assert f"<strong>{published_class.capacity}</strong> max class size" in rail
@@ -1565,8 +1561,9 @@ def describe_the_rail_and_the_card_of_a_flexible_class():
         # Each row clipped at its own closing tag, so the last one never swallows the card footer's pill.
         rows = [row.split("</a>")[0] for row in html.split('<a class="cls-schedule__row cls-schedule__row--pick"')]
         assert len(rows) == 3
-        flexible_row = next(row for row in rows[1:] if "grouped-forge-2" in row)
-        fixed_row = next(row for row in rows[1:] if "grouped-forge-1" in row)
+        flexible = ClassOffering.objects.get(slug="grouped-forge-2")
+        flexible_row = next(row for row in rows[1:] if f"#date-{flexible.pk}" in row)
+        fixed_row = next(row for row in rows[1:] if f"#date-{fixed.pk}" in row)
         assert 'class="cls-spots' not in flexible_row
         assert 'class="cls-spots ok"' in fixed_row
         # The flexible row dates nothing: the flex line stands in for the session date.
@@ -1595,10 +1592,11 @@ def describe_the_rail_and_the_card_of_a_flexible_class():
             flexible_starts_on=date(2026, 11, 2),
             flexible_ends_on=date(2026, 12, 1),
         )
-        html = client.get(reverse("classes:public_class_detail", kwargs={"slug": fixed.slug})).content.decode()
-        rows = html.split('<li class="cp-detail__other-date">')[1:]
-        assert len(rows) == 1
-        row = rows[0].split("</li>")[0]
+        html = client.get(fixed.public_path).content.decode()
+        # Both dates are listed now, this one included (#1260); the flexible row is the second.
+        rows = [row.split("</li>")[0] for row in html.split('<li class="cp-detail__other-date" ')[1:]]
+        assert len(rows) == 2
+        row = rows[1]
         assert "grouped-forge-2" in row
         assert "Flexible: schedule with the instructor · Nov 2 to Dec 1, 2026" in row
         assert "cls-spots" not in row
@@ -1625,7 +1623,7 @@ def describe_sale_markup():
         assert '<span class="cls-price">$40</span>' in body
 
     def it_renders_the_sale_banner_and_struck_rail_price_on_the_detail_page(sale_class, client):
-        url = reverse("classes:public_class_detail", kwargs={"slug": sale_class.slug})
+        url = sale_class.public_path
         body = client.get(url).content.decode()
         assert 'class="cp-detail__sale-banner"' in body
         assert "Summer blowout!" in body
@@ -1641,7 +1639,7 @@ def describe_sale_markup():
         body = client.get(reverse("classes:public_list")).content.decode()
         assert "badge sale" not in body
         assert "cls-price--was" not in body
-        url = reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
+        url = published_class.public_path
         detail = client.get(url).content.decode()
         assert "cp-detail__sale-banner" not in detail
 
@@ -1659,9 +1657,7 @@ def describe_a_class_with_two_instructors():
         return reverse("classes:public_instructor", kwargs={"slug": slug})
 
     def it_names_both_in_the_byline_in_order_each_linked(published_class, shared, client):
-        html = client.get(
-            reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
-        ).content.decode()
+        html = client.get(published_class.public_path).content.decode()
         byline = html.split('class="cp-detail__byline"')[1].split("</div>")[0]
         assert byline.index("Deenie") < byline.index("Jenelle Giordano")
         assert f'href="{_instructor_url("deenie")}"' in byline
@@ -1671,26 +1667,20 @@ def describe_a_class_with_two_instructors():
     def it_links_only_those_with_an_instructor_page(published_class, client):
         no_page = InstructorFactory(full_legal_name="Pat Newhand", instructor_slug="")
         published_class.set_instructors([published_class.instructor, no_page])
-        html = client.get(
-            reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
-        ).content.decode()
+        html = client.get(published_class.public_path).content.decode()
         byline = html.split('class="cp-detail__byline"')[1].split("</div>")[0]
         assert "Pat Newhand" in byline
         assert byline.count("<a ") == 1
 
     def it_repeats_the_about_block_per_instructor_under_a_plural_heading(published_class, shared, client):
-        html = client.get(
-            reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
-        ).content.decode()
+        html = client.get(published_class.public_path).content.decode()
         assert "About the Instructors" in html
         assert "Your Instructor<" not in html
         assert html.count('class="cp-detail__instructor"') == 2
         assert html.index("See All Classes by Deenie") < html.index("See All Classes by Jenelle Giordano")
 
     def it_keeps_the_singular_heading_for_one_instructor(published_class, client):
-        html = client.get(
-            reverse("classes:public_class_detail", kwargs={"slug": published_class.slug})
-        ).content.decode()
+        html = client.get(published_class.public_path).content.decode()
         assert "Your Instructor" in html
         assert "About the Instructors" not in html
         assert html.count('class="cp-detail__instructor"') == 1

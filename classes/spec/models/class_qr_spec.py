@@ -13,9 +13,10 @@ pytestmark = pytest.mark.django_db
 def describe_class_qr():
     @override_settings(BOOK_BASE_URL="https://book.pastlives.app")
     def it_builds_an_absolute_public_url_on_the_book_host():
-        offering = ClassOfferingFactory(slug="intro-to-resin")
+        offering = ClassOfferingFactory(title="Intro to Resin", slug="intro-to-resin-2026-12-01")
         assert offering.public_url.startswith("https://book.pastlives.app")
-        assert "intro-to-resin" in offering.public_url
+        # The class's address (#1260), not the run's own slug.
+        assert offering.public_url.endswith("/classes/intro-to-resin/")
 
     def it_returns_a_scalable_svg_qr():
         offering = ClassOfferingFactory(slug="intro-to-resin")

@@ -34,6 +34,8 @@ def _hosts(settings) -> None:
 
 def _class(slug: str, *, days: int, **kwargs) -> ClassOffering:
     kwargs.setdefault("status", ClassOffering.Status.PUBLISHED)
+    # Titled after the slug so the class's address is the slug the spec requests (#1260).
+    kwargs.setdefault("title", slug.replace("-", " ").title())
     offering = ClassOfferingFactory(slug=slug, **kwargs)
     start = timezone.now() + timedelta(days=days)
     ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=2))
@@ -134,7 +136,8 @@ def describe_an_upcoming_class():
             "price": "75.00",
             "priceCurrency": "USD",
             "availability": "https://schema.org/InStock",
-            "url": f"{BASE}/classes/forge-basics/",
+            # An open date's Event points at its own register page (#1260).
+            "url": f"{BASE}/classes/forge-basics/register/",
         }
         assert event["image"][0].startswith(BASE)
         assert 'property="og:title" content="Forge Basics' in html

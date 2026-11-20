@@ -38,7 +38,7 @@ def _published() -> ClassOffering:
 
 
 def _public_page(client, offering: ClassOffering) -> str:
-    return client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+    return client.get(offering.public_path).content.decode()
 
 
 def describe_the_share_button():

@@ -50,7 +50,7 @@ def _dated(slug: str, *offsets_hours: float, hours: int | None = 48, **kwargs) -
 
 
 def _detail(client, offering: ClassOffering) -> str:
-    return client.get(reverse("classes:public_class_detail", kwargs={"slug": offering.slug})).content.decode()
+    return client.get(offering.public_path).content.decode()
 
 
 def _register_url(offering: ClassOffering) -> str:
@@ -58,7 +58,7 @@ def _register_url(offering: ClassOffering) -> str:
 
 
 def _detail_url(offering: ClassOffering) -> str:
-    return reverse("classes:public_class_detail", kwargs={"slug": offering.slug})
+    return offering.public_path
 
 
 def _rail(html: str) -> str:
@@ -251,8 +251,9 @@ def describe_other_dates_for_this_class():
     def it_lists_only_the_runs_still_open(client):
         current, open_run, closed_run = _runs("sibling", 100, 200, 10)
         other_dates = _other_dates(_detail(client, current))
-        assert _detail_url(open_run) in other_dates
-        assert _detail_url(closed_run) not in other_dates
+        assert _register_url(current) in other_dates
+        assert _register_url(open_run) in other_dates
+        assert _register_url(closed_run) not in other_dates
 
 
 def describe_the_run_switcher():

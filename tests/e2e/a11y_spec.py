@@ -126,7 +126,7 @@ def describe_accessibility():
 
         pages = {
             "catalog": reverse("classes:public_list"),
-            "detail": reverse("classes:public_class_detail", kwargs={"slug": offering.slug}),
+            "detail": offering.public_path,
             "login": reverse("account_request_login_code"),
             # A page that renders hub/base.html's guest chrome (.pl-public-topbar) on the
             # public host, so the shared anonymous chrome sits under the same zero-tolerance

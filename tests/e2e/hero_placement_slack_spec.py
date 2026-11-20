@@ -199,7 +199,7 @@ def describe_hero_placement_slack():
         _sign_in_as_admin(login_via_code)
         settings.PUBLIC_HOSTS = [urlparse(live_server.url).hostname]
         page.set_viewport_size(DESKTOP)
-        page.goto(f"{live_server.url}{reverse('classes:public_class_detail', kwargs={'slug': offering.slug})}")
+        page.goto(f"{live_server.url}{offering.public_path}")
         _wait_for_pixels(page)
         down, across = _open_adjust(page)
 
@@ -286,5 +286,5 @@ def describe_the_frame_range_each_template_states():
         )
         _sign_in_as_admin(login_via_code)
         settings.PUBLIC_HOSTS = [urlparse(live_server.url).hostname]
-        url = f"{live_server.url}{reverse('classes:public_class_detail', kwargs={'slug': offering.slug})}"
+        url = f"{live_server.url}{offering.public_path}"
         _assert_frames_in_range(page, url, "class")

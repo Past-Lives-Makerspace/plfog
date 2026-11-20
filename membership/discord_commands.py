@@ -93,7 +93,11 @@ def _class_sessions(to: date) -> list[tuple[datetime, str, str]]:
     """Upcoming public class sessions starting on/before ``to`` as ``(datetime, title, url)``."""
     from classes.models import ClassSession
 
-    sessions = ClassSession.objects.upcoming_public().filter(starts_at__date__lte=to).select_related("class_offering")
+    sessions = (
+        ClassSession.objects.upcoming_public()
+        .filter(starts_at__date__lte=to)
+        .select_related("class_offering__class_record")
+    )
     items = [(s.starts_at, s.class_offering.title, s.class_offering.public_url) for s in sessions]
     items.sort(key=lambda item: item[0])
     return items

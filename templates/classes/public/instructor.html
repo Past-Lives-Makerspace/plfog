@@ -39,7 +39,7 @@
           <div class="ip-sec">
             <h3>Current Classes</h3>
             {% for offering in current_classes %}
-              <a class="ip-cls" href="{% url 'classes:public_class_detail' slug=offering.slug %}">
+              <a class="ip-cls" href="{{ offering.public_path }}">
                 <div class="ip-cls-t">{{ offering.title }}</div>
                 <div class="ip-cls-m">
                   {{ offering.category.name }} · {{ offering.price_cents|cents_as_price }}

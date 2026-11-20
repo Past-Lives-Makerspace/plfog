@@ -11,10 +11,10 @@
       <div class="detail-head">
         <div>
           <div class="dc-cat">Payment due</div>
-          <div class="dc-title"><a href="{% url 'classes:public_class_detail' slug=offering.slug %}" style="color:inherit;text-decoration:none;">{{ offering.title }}</a></div>
+          <div class="dc-title"><a href="{{ offering.public_path }}" style="color:inherit;text-decoration:none;">{{ offering.title }}</a></div>
           <div class="dc-inst">with {{ offering.public_instructor_names }}</div>
         </div>
-        <a class="back-link" href="{% url 'classes:public_class_detail' slug=offering.slug %}">Class Page →</a>
+        <a class="back-link" href="{{ offering.public_path }}">Class Page →</a>
       </div>
       <div class="detail-body">
         {% if under_minimum %}

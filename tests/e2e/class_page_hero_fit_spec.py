@@ -17,7 +17,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 import pytest
-from django.urls import reverse
 from playwright.sync_api import Page
 
 from classes.factories import ClassOfferingFactory
@@ -71,7 +70,7 @@ def _assert_nothing_clipped(boxes: dict[str, Any]) -> None:
 
 
 def _open(page: Page, live_server, offering: ClassOffering) -> None:
-    page.goto(f"{live_server.url}{reverse('classes:public_class_detail', kwargs={'slug': offering.slug})}")
+    page.goto(f"{live_server.url}{offering.public_path}")
     page.wait_for_load_state("networkidle")
     page.evaluate("document.fonts.ready.then(() => true)")
     page.wait_for_function("() => document.querySelector('.cp-detail__hero-img').naturalWidth > 0")

@@ -247,7 +247,7 @@ def describe_register_view_when_class_registration_disabled():
         _disable_registration(note="Call the studio to sign up.")
         response = client.get(reverse("classes:register", kwargs={"slug": free_offering.slug}))
         assert response.status_code == 302
-        assert response.url == reverse("classes:public_class_detail", kwargs={"slug": free_offering.slug})
+        assert response.url == free_offering.public_path
 
         from django.contrib.messages import get_messages
 
@@ -258,7 +258,7 @@ def describe_register_view_when_class_registration_disabled():
         _disable_registration()
         response = client.post(reverse("classes:register", kwargs={"slug": free_offering.slug}), data=_post_data())
         assert response.status_code == 302
-        assert response.url == reverse("classes:public_class_detail", kwargs={"slug": free_offering.slug})
+        assert response.url == free_offering.public_path
         assert not Registration.objects.filter(class_offering=free_offering).exists()
 
     def it_falls_back_to_a_generic_message_when_the_note_is_blank(free_offering, client):
@@ -682,7 +682,7 @@ def describe_registering_for_a_flexible_class():
         flexible_offering.save(update_fields=["flexible_ends_on"])
         response = client.post(reverse("classes:register", kwargs={"slug": flexible_offering.slug}), data=_post_data())
         assert response.status_code == 302
-        assert response.url == reverse("classes:public_class_detail", kwargs={"slug": flexible_offering.slug})
+        assert response.url == flexible_offering.public_path
         assert not Registration.objects.filter(email="sam@example.com").exists()
 
     def it_still_waitlists_a_sold_out_fixed_class(paid_offering, client):

@@ -304,6 +304,44 @@ class ClassRecord(models.Model):
     def __str__(self) -> str:
         return self.title
 
+    def public_runs(self) -> "ClassOfferingQuerySet":
+        """This class's runs anyone may see: published, not private, not a hidden demo."""
+        return ClassOffering.objects.public().filter(class_record=self)
+
+    def page_run(self) -> "ClassOffering | None":
+        """The run the class page is built from.
+
+        With several dates open for sign up, the newest of them: its description, photos and FAQs
+        speak for the class, the soonest date speaks for booking, and each date books from its own
+        row. Otherwise the soonest date open for sign up, else the soonest still to come, else the
+        newest public run.
+        """
+        related, prefetched = ("category", "area", "class_record"), ("sessions", "instructor_rows")
+        open_runs = list(
+            ClassOffering.objects.registration_open()
+            .filter(class_record=self)
+            .select_related(*related)
+            .prefetch_related(*prefetched)
+        )
+        if len(open_runs) > 1:
+            return max(open_runs, key=lambda run: run.pk)
+        if open_runs:
+            return open_runs[0]
+        upcoming = (
+            ClassOffering.objects.bookable()
+            .filter(class_record=self)
+            .select_related(*related)
+            .prefetch_related(*prefetched)
+            .first()
+        )
+        if upcoming is not None:
+            return upcoming
+        return self.public_runs().select_related(*related).prefetch_related(*prefetched).order_by("-pk").first()
+
+    def times_taught(self) -> int:
+        """How many public runs of this class have already started: the times it was taught before."""
+        return self.public_runs().filter(sessions__starts_at__lt=timezone.now()).distinct().count()
+
     @classmethod
     def follow_runs(cls, pk: int | None) -> None:
         """Keep class ``pk`` in step with its runs: gone with its last run, and filed where one of them is.
@@ -1803,13 +1841,20 @@ class ClassOffering(HeroCropMixin, models.Model):
         return self.title
 
     @property
-    def public_url(self) -> str:
-        """Absolute URL of this class's readable public page (on the book surface)."""
+    def public_path(self) -> str:
+        """This run's public page: its class's (#1260), or its own until a save files it under one."""
         from django.urls import reverse
 
+        record = self.class_record
+        slug = record.slug if record is not None else self.slug
+        return reverse("classes:public_class_detail", kwargs={"slug": slug})
+
+    @property
+    def public_url(self) -> str:
+        """Absolute URL of this run's public page, its class's (on the book surface)."""
         from classes.emails import _absolute_url
 
-        return _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": self.slug}))
+        return _absolute_url(self.public_path)
 
     @property
     def qr_url(self) -> str:
@@ -4345,6 +4390,10 @@ class ClassOffering(HeroCropMixin, models.Model):
         A dated class starts at its next session (its first, once all have begun) and ends with
         its last; a flexible class spans its window, and has no Event without a first day.
         """
+        return self._event_json_ld(self.spots_remaining)
+
+    def _event_json_ld(self, spots: int | None) -> dict[str, Any] | None:
+        """:meth:`event_json_ld` with the seats left given, so a page listing several dates counts them once."""
         from urllib.parse import urlsplit
 
         from classes.templatetags.classes_tags import strip_date_suffix
@@ -4355,11 +4404,14 @@ class ClassOffering(HeroCropMixin, models.Model):
             start: date_type | datetime | None = self.flexible_starts_on
             end: date_type | datetime | None = self.flexible_ends_on
         else:
-            start = self.first_upcoming_session_at or self.earliest_session_at
-            end = self._last_session_ends_at
+            # Read off ``sessions.all()``, so a page that prefetched them asks nothing per date.
+            sessions = sorted(self.sessions.all(), key=lambda session: session.starts_at)
+            now = timezone.now()
+            upcoming = [session.starts_at for session in sessions if session.starts_at >= now]
+            start = upcoming[0] if upcoming else (sessions[0].starts_at if sessions else None)
+            end = max((session.ends_at for session in sessions), default=None)
         if start is None:
             return None
-        spots = self.spots_remaining
         data: dict[str, Any] = {
             "@context": "https://schema.org",
             "@type": "Event",
@@ -4383,6 +4435,23 @@ class ClassOffering(HeroCropMixin, models.Model):
         image = self.hero_image_url
         if image:
             data["image"] = [image if urlsplit(image).netloc else book_absolute_url(image)]
+        return data
+
+    def booking_event_json_ld(self, spots: int | None) -> dict[str, Any] | None:
+        """:meth:`event_json_ld` pointing at this run's own register page, for a class page listing its dates (#1260).
+
+        ``spots`` is the seats left, already counted for the page (``spots_remaining_map``).
+        """
+        from django.urls import reverse
+
+        from core.urls_util import book_absolute_url
+
+        data = self._event_json_ld(spots)
+        if data is None:
+            return None
+        register_url = book_absolute_url(reverse("classes:register", kwargs={"slug": self.slug}))
+        data["url"] = register_url
+        data["offers"]["url"] = register_url
         return data
 
     def finalize_recurring_slug(self) -> None:

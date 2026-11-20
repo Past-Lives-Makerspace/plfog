@@ -72,15 +72,23 @@ class ClassTypeSitemap(HostSitemap):
 
 
 class ClassSitemap(HostSitemap):
-    """Every class page still to come: upcoming, undated and open flexible classes."""
+    """Every class page still to come: upcoming, undated and open flexible classes.
 
-    def items(self) -> QuerySet[ClassOffering]:
+    Several runs share one class page (#1260), so each address is listed once, by the run
+    edited most recently, whose ``updated_at`` is then the page's ``lastmod``.
+    """
+
+    def items(self) -> list[ClassOffering]:
         from classes.models import ClassOffering
 
-        return ClassOffering.objects.indexable().order_by("pk")
+        runs = ClassOffering.objects.indexable().select_related("class_record").order_by("-updated_at", "-pk")
+        by_address: dict[str, ClassOffering] = {}
+        for run in runs:
+            by_address.setdefault(run.public_path, run)
+        return sorted(by_address.values(), key=lambda run: run.pk)
 
     def location(self, item: ClassOffering) -> str:
-        return reverse("classes:public_class_detail", kwargs={"slug": item.slug})
+        return item.public_path
 
     def lastmod(self, item: ClassOffering) -> datetime:
         return item.updated_at

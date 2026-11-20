@@ -142,7 +142,7 @@ def describe_move_to():
             reg.move_to(dst)
 
             body = mail.outbox[0].body
-            assert "/classes/mv-link-dst/" in body
+            assert dst.public_path in body
             assert f"/classes/my/{reg.self_serve_token}/" in body
 
         def it_carries_the_new_schedule():

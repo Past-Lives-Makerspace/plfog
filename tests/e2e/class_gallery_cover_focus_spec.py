@@ -82,7 +82,7 @@ def _publish(offering: ClassOffering) -> None:
 
 def _open_class_page(page: Page, live_server, offering: ClassOffering, settings) -> None:
     settings.PUBLIC_HOSTS = [urlparse(live_server.url).hostname]
-    page.goto(f"{live_server.url}{reverse('classes:public_class_detail', kwargs={'slug': offering.slug})}")
+    page.goto(f"{live_server.url}{offering.public_path}")
     expect(page.locator(".cls-gallery")).to_be_visible()
 
 

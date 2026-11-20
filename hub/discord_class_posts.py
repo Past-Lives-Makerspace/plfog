@@ -298,7 +298,7 @@ def _pending_offerings() -> list[ClassOffering]:
     return list(
         ClassOffering.objects.bookable()
         .filter(channel_announced_at__isnull=True)
-        .select_related("category", "instructor", "area")
+        .select_related("category", "instructor", "area", "class_record")
         .prefetch_related("sessions", "gallery_images", "instructor_rows")
     )
 

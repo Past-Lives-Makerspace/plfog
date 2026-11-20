@@ -743,7 +743,7 @@ def describe_crop_shape_picker():
         # width and square.
         ClassOffering.objects.filter(pk=offering.pk).update(status=ClassOffering.Status.PUBLISHED)
         settings.PUBLIC_HOSTS = [urlparse(live_server.url).hostname]
-        url = f"{live_server.url}{reverse('classes:public_class_detail', kwargs={'slug': offering.slug})}"
+        url = f"{live_server.url}{offering.public_path}"
         for width in (1366, 390):
             page.set_viewport_size({"width": width, "height": 900})
             page.goto(url)

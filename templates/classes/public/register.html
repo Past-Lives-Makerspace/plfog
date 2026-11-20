@@ -19,7 +19,7 @@
           <div class="dc-title">{{ offering.title }}</div>
           <div class="dc-inst">with {{ offering.public_instructor_names }}</div>
         </div>
-        <a class="back-link" href="{% url 'classes:public_class_detail' slug=offering.slug %}">&larr; Class details</a>
+        <a class="back-link" href="{{ offering.public_path }}">&larr; Class details</a>
       </div>
       <div class="detail-body">
         {% if not user.is_authenticated %}

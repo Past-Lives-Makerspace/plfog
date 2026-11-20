@@ -7,7 +7,8 @@ many sessions that is (one enrollment buys all of them). The date list may wrap
 with the count and the spots still on the right. Expects `member` (a ClassOffering
 with `.spots_left` annotated).
 {% endcomment %}
-<a class="cls-schedule__row cls-schedule__row--pick" href="{% url 'classes:public_class_detail' slug=member.slug %}">
+{# Each date lands on its own row of the class page's Upcoming Dates (#1260). #}
+<a class="cls-schedule__row cls-schedule__row--pick" href="{{ member.public_path }}#date-{{ member.pk }}">
   {% if member.is_flexible %}
     {# A flexible run has no session to date: the flex line and its window, if any (#545). #}
     <span class="cls-schedule__date">Flexible: schedule with the instructor</span>

@@ -37,10 +37,7 @@ def describe_class_card_media():
     def it_links_to_the_class_by_default():
         offering = _published(slug="linked-card")
         html = _media(offering)
-        assert (
-            f'<a class="cls-media" href="{reverse("classes:public_class_detail", kwargs={"slug": "linked-card"})}"'
-            in html
-        )
+        assert f'<a class="cls-media" href="{offering.public_path}"' in html
         assert "</a>" in html
         assert 'aria-label="View ' in html
 
@@ -141,7 +138,7 @@ def describe_class_card():
         html = render_to_string("classes/public/_class_card.html", {"group": CatalogGroup(offering)})
         assert 'class="cls-card"' in html
         assert 'style="object-position: 5% 95%;"' in html
-        assert f'href="{reverse("classes:public_class_detail", kwargs={"slug": "grouped-card"})}"' in html
+        assert f'href="{offering.public_path}"' in html
         assert '<a class="cls-title"' in html
         assert 'class="cls-inst"' in html and "<a href=" in html.split('class="cls-inst"')[1]
         assert "x-text=" not in html
@@ -193,7 +190,7 @@ def describe_catalog_and_detail_surfaces():
         category = CategoryFactory(name="Forge", slug="forge")
         current = _published(slug="current-forge", category=category)
         _published(slug="related-forge", category=category, card_focus_x=15, card_focus_y=85)
-        html = client.get(reverse("classes:public_class_detail", kwargs={"slug": current.slug})).content.decode()
+        html = client.get(current.public_path).content.decode()
         related_start = html.index("cp-detail__related")
         related = html[related_start:]
         assert 'style="object-position: 15% 85%;"' in related
