@@ -128,15 +128,38 @@ def describe_a_class_no_longer_offered_with_a_date_to_come():
 
         assert client.get("/classes/picture-framing/")["Location"] == CLASS_TYPE
 
-    def it_links_its_registrants_to_the_dates_register_page():
+    def it_does_not_loop_once_its_cutoff_has_passed(client):
+        run = _marked()
+        ClassOffering.objects.filter(pk=run.pk).update(registration_cutoff_hours=24 * 30)
+
+        response = client.get(run.register_path, follow=True)
+
+        assert response.status_code == 200
+        assert len(response.redirect_chain) == 1
+        assert response.redirect_chain[0][0] == CLASS_TYPE
+
+    def it_leaves_the_catalog_class_type_page_sitemap_and_new_class_posts(client):
+        from core.sitemaps import ClassSitemap
+        from hub.discord_class_posts import _pending_offerings
+
         run = _marked()
 
-        assert run.public_path == run.register_path
-
-    def it_leaves_the_catalog_class_type_page_and_sitemap(client):
-        run = _marked()
-
-        assert run not in ClassOffering.objects.bookable()
-        assert run not in ClassOffering.objects.indexable()
         assert run.register_path not in client.get(CLASS_TYPE).content.decode()
         assert "Picture Framing" not in client.get(reverse("classes:public_list")).content.decode()
+        assert run not in ClassSitemap("classes.pastlives.space").items()
+        assert run not in _pending_offerings()
+
+    def it_stays_on_the_guild_calendar_and_in_the_move_form():
+        from classes.forms import RegistrationMoveForm
+        from hub.calendar_entries import guild_calendar_entries
+        from tests.membership.factories import GuildFactory
+
+        run = _marked()
+        guild = GuildFactory()
+        ClassOffering.objects.filter(pk=run.pk).update(category=CategoryFactory(guild=guild))
+        today = timezone.localdate()
+
+        entries = guild_calendar_entries(guild, today, today + timedelta(days=30))
+
+        assert [entry.title for entry in entries if entry.source == "classes"] == ["Picture Framing"]
+        assert run in RegistrationMoveForm(instructor=run.instructor).fields["target"].queryset

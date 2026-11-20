@@ -682,7 +682,6 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         now = timezone.now()
         return (
             self.public()
-            .listed()
             .annotate(first_session_at=Min("sessions__starts_at"))
             .filter(
                 _flexible_window_open()
@@ -919,17 +918,17 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         """Class pages a search engine should list (#1259): public, and not yet ended.
 
         The classes host's sitemap is this set. A past, draft, private, cancelled or archived
-        class is left out, and so is a demo class while demo classes are hidden, and a run of a class
-        marked No longer offered.
+        class is left out, and so is a demo class while demo classes are hidden.
         """
-        return self.public().listed().upcoming_published()
+        return self.public().upcoming_published()
 
     def listed(self) -> "ClassOfferingQuerySet":
         """Runs public listings may show: not of a class marked No longer offered (#1260).
 
         Such a class is no longer offered, but people already signed up for one of its dates keep
-        their seat, so the run itself still takes its registrants and waitlist; it is only left out
-        of the catalog, Class Type pages, calendars, Discord posts and the sitemap.
+        their seat and the date still takes place, so only where the public browses leaves it out:
+        the catalog and Class Type pages, the sitemap and new Discord class posts. Calendars,
+        registration and everything else still see the run.
         """
         return self.exclude(class_record__no_longer_offered=True)
 
@@ -1969,17 +1968,13 @@ class ClassOffering(HeroCropMixin, models.Model):
         """This run's public page: its class's (#1260), or its own until a save files it under one.
 
         A Retired class's page is its Class Type's, so every link and old address reaches it in one hop.
-        A run nobody may see yet (a draft, a private run) keeps its class's address. A run still to
-        come of a class marked No longer offered links its own register page, so the emails its
-        registrants get never dead-end on the Class Type page.
+        A run nobody may see yet (a draft, a private run) keeps its class's address.
         """
         from django.urls import reverse
 
         record = self.class_record
         shown = self.status in (self.Status.PUBLISHED, self.Status.ARCHIVED) and not self.is_private
         if record is not None and shown and record.state == ClassRecord.State.RETIRED:
-            if self.is_bookable:
-                return self.register_path
             return reverse("classes:public_category", kwargs={"slug": self.category.slug})
         slug = record.slug if record is not None else self.slug
         return reverse("classes:public_class_detail", kwargs={"slug": slug})

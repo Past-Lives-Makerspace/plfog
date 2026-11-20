@@ -185,6 +185,7 @@ def _browsable_classes() -> Any:
     """
     return (
         ClassOffering.objects.bookable()
+        .listed()  # a No longer offered class leaves the catalog and Class Type pages (#1260)
         .select_related("category", "class_record")
         .prefetch_related("sessions", "instructor_rows")
     )
