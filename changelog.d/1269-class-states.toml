@@ -1,0 +1,11 @@
+bump = "minor"
+audience = ["members", "admins"]
+feature = "classes.catalog"
+guidance = "none"
+date = "2026-11-20"
+title = "A class not offered for a year hands its page to its Class Type"
+changes = [
+  "A class with no date to come and none in the past year now sends its page, old links and QR codes to its Class Type page, where visitors find what runs now.",
+  "A class between dates keeps its page, including one whose past dates were archived.",
+  "Admins can mark a class No longer offered, even with a date still to come; publishing a new date brings it back.",
+]
