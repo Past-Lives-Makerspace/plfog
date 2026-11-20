@@ -70,8 +70,11 @@ def backfill(apps: Any, schema_editor: Any) -> None:
     member_model = apps.get_model("membership", "Member")
     code_model = apps.get_model("classes", "DiscountCode")
     config_model = apps.get_model("core", "SiteConfiguration")
-    config = config_model.objects.filter(pk=1).first()
-    pct = config.instructor_code_discount_pct if config is not None else DEFAULT_PCT
+    # Only the column it needs: on SQLite a later core migration rebuilds the table without the
+    # columns core 0141 dropped from state, and a whole-row read of this historical model would ask for one.
+    pct = config_model.objects.filter(pk=1).values_list("instructor_code_discount_pct", flat=True).first()
+    if pct is None:
+        pct = DEFAULT_PCT
     taken = set(code_model.objects.values_list("code", flat=True))
     for member in member_model.objects.filter(instructor_oriented_at__isnull=False).order_by("pk"):
         if code_model.objects.filter(instructor=member, is_personal=True).exists():

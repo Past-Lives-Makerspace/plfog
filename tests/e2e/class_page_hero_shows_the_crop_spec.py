@@ -116,6 +116,7 @@ def describe_the_class_page_banner():
         # The public page at a desktop width and a phone width: a 16:9 copy fills the hero
         # column under the cap at both, so the frame has the copy's shape.
         ClassOffering.objects.filter(pk=offering.pk).update(status=ClassOffering.Status.PUBLISHED)
+        offering.class_record.refresh_state()  # a queryset publish skips save, as the nightly job heals
         settings.PUBLIC_HOSTS = [urlparse(live_server.url).hostname]
         url = f"{live_server.url}{offering.public_path}"
         for width in (1366, 390):
