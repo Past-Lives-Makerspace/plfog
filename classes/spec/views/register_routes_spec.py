@@ -109,6 +109,19 @@ def describe_an_old_register_address():
         assert response.status_code == 301
         assert response["Location"] == reverse(f"classes:{route}", kwargs=run.register_kwargs) + f"?{query}"
 
+    def it_keeps_a_sent_form_a_post_with_its_body(client):
+        run = _run("picture-framing-2026-12-01")
+
+        response = client.post("/classes/picture-framing-2026-12-01/register/?waitlist=1", data=_sign_up())
+
+        assert response.status_code == 308
+        assert response["Location"] == f"{run.register_path}?waitlist=1"
+
+    def it_still_moves_a_visit_with_a_301(client):
+        _run("picture-framing-2026-12-01")
+
+        assert client.get("/classes/picture-framing-2026-12-01/register/").status_code == 301
+
     def it_moves_without_a_query_when_there_is_none(client):
         run = _run("picture-framing-2026-12-01")
 

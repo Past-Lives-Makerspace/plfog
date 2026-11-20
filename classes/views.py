@@ -1133,7 +1133,11 @@ def register_old_address(request: HttpRequest, slug: str, route: str) -> HttpRes
     offering = get_object_or_404(ClassOffering.objects.public().select_related("class_record"), slug=slug)
     query = request.META.get("QUERY_STRING", "")
     target = reverse(f"classes:{route}", kwargs=offering.register_kwargs)
-    return HttpResponsePermanentRedirect(target + (f"?{query}" if query else ""))
+    # A POST (a form loaded before the move, sent after it) goes on as a 308, which keeps the
+    # method and the body; a 301 would turn it into an empty GET.
+    return HttpResponsePermanentRedirect(
+        target + (f"?{query}" if query else ""), preserve_request=request.method == "POST"
+    )
 
 
 def register(request: HttpRequest, class_slug: str, pk: int) -> HttpResponse:
