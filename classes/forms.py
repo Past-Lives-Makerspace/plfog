@@ -3010,12 +3010,11 @@ class RegistrationForm(forms.ModelForm):
         guest's saved answers ride the same refresh when the class asks questions: they can't
         pre-fill server-side until the email is known.
         """
-        from django.urls import reverse
 
         select_oob = "#reg-submit-label"
         if self._custom_questions:
             select_oob += ",#custom-questions-block"
-        url = reverse("classes:register", kwargs={"slug": self.offering.slug})
+        url = self.offering.register_path
         if self._refresh_params:
             url += "?" + urlencode(self._refresh_params)
         refresh_attrs = {

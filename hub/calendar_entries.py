@@ -120,7 +120,6 @@ def guild_calendar_entries(guild: Guild, fetch_from: date, fetch_to: date) -> li
     """Build synthetic calendar entries for a guild's published class sessions and
     upcoming orientation slots whose start date falls within ``[fetch_from, fetch_to]``."""
     from django.db.models import Exists, OuterRef, Q
-    from django.urls import reverse
 
     from classes.models import ClassOffering, ClassSession
     from membership.models import OrientationBooking
@@ -136,7 +135,7 @@ def guild_calendar_entries(guild: Guild, fetch_from: date, fetch_to: date) -> li
         class_offering_id__in=bookable_ids,
         starts_at__date__gte=fetch_from,
         starts_at__date__lte=fetch_to,
-    ).select_related("class_offering")
+    ).select_related("class_offering__class_record")
     for session in sessions:
         offering = session.class_offering
         entries.append(
@@ -146,7 +145,7 @@ def guild_calendar_entries(guild: Guild, fetch_from: date, fetch_to: date) -> li
                 start_dt=session.starts_at,
                 end_dt=session.ends_at,
                 source="classes",
-                url=reverse("classes:register", args=[offering.slug]),
+                url=offering.register_path,
                 guild=guild,
             )
         )

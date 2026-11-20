@@ -93,7 +93,7 @@ def _price_summary(body: str) -> str:
 
 def describe_register_view():
     def it_renders_the_form(paid_offering, client):
-        response = client.get(reverse("classes:register", kwargs={"slug": paid_offering.slug}))
+        response = client.get(paid_offering.register_path)
         assert response.status_code == 200
         assert b"Liability Waiver" in response.content
         assert b"Next" in response.content
@@ -105,7 +105,7 @@ def describe_register_view():
         member.pronouns = "they/them"
         member.save()
         client.force_login(member_user)
-        response = client.get(reverse("classes:register", kwargs={"slug": paid_offering.slug}))
+        response = client.get(paid_offering.register_path)
         assert response.status_code == 200
         body = response.content.decode()
         assert 'value="Robin"' in body
@@ -116,13 +116,13 @@ def describe_register_view():
 
     def it_404s_for_unpublished_class(db, client):
         offering = ClassOfferingFactory(status=ClassOffering.Status.DRAFT, slug="hidden")
-        response = client.get(reverse("classes:register", kwargs={"slug": offering.slug}))
+        response = client.get(offering.register_path)
         assert response.status_code == 404
 
     def it_confirms_immediately_for_a_free_class(free_offering, client):
-        response = client.post(reverse("classes:register", kwargs={"slug": free_offering.slug}), data=_post_data())
+        response = client.post(free_offering.register_path, data=_post_data())
         assert response.status_code == 302
-        assert response.url == reverse("classes:register_success", kwargs={"slug": free_offering.slug})
+        assert response.url == reverse("classes:register_success", kwargs=free_offering.register_kwargs)
         registration = Registration.objects.get(class_offering=free_offering)
         assert registration.status == Registration.Status.CONFIRMED
         assert registration.confirmed_at is not None
@@ -135,7 +135,7 @@ def describe_register_view():
         free_offering.welcome_email_subject = "Welcome to the demo"
         free_offering.welcome_email_body = "Bring your curiosity."
         free_offering.save(update_fields=["welcome_email_enabled", "welcome_email_subject", "welcome_email_body"])
-        client.post(reverse("classes:register", kwargs={"slug": free_offering.slug}), data=_post_data())
+        client.post(free_offering.register_path, data=_post_data())
         subjects = [m.subject for m in mail.outbox]
         assert "Welcome to the demo" in subjects  # fires alongside the order confirmation
 
@@ -144,7 +144,7 @@ def describe_register_view():
 
         client.force_login(member_user)
         client.post(
-            reverse("classes:register", kwargs={"slug": free_offering.slug}),
+            free_offering.register_path,
             data=_post_data(email="member@example.com"),
         )
         registration = Registration.objects.get(class_offering=free_offering)
@@ -155,7 +155,7 @@ def describe_register_view():
     def it_kicks_off_stripe_checkout_for_paid_classes(mock_checkout, paid_offering, client):
         mock_checkout.return_value = {"id": "cs_test_123", "url": "https://checkout.stripe.com/c/pay/cs_test_123"}
 
-        response = client.post(reverse("classes:register", kwargs={"slug": paid_offering.slug}), data=_post_data())
+        response = client.post(paid_offering.register_path, data=_post_data())
 
         assert response.status_code == 302
         assert response.url == "https://checkout.stripe.com/c/pay/cs_test_123"
@@ -174,13 +174,13 @@ def describe_register_view():
     def it_rolls_back_registration_when_stripe_fails(mock_checkout, paid_offering, client):
         mock_checkout.side_effect = RuntimeError("stripe down")
         with pytest.raises(RuntimeError):
-            client.post(reverse("classes:register", kwargs={"slug": paid_offering.slug}), data=_post_data())
+            client.post(paid_offering.register_path, data=_post_data())
         assert not Registration.objects.filter(class_offering=paid_offering).exists()
 
     def it_joins_waitlist_when_sold_out(paid_offering, client):
         for _ in range(paid_offering.capacity):
             RegistrationFactory(class_offering=paid_offering, status=Registration.Status.CONFIRMED)
-        response = client.post(reverse("classes:register", kwargs={"slug": paid_offering.slug}), data=_post_data())
+        response = client.post(paid_offering.register_path, data=_post_data())
         assert response.status_code == 302
         registration = Registration.objects.get(email="sam@example.com", class_offering=paid_offering)
         assert registration.status == Registration.Status.WAITLISTED
@@ -188,7 +188,7 @@ def describe_register_view():
     def it_logs_waitlist_joined_activity_not_registration_created(paid_offering, client):
         for _ in range(paid_offering.capacity):
             RegistrationFactory(class_offering=paid_offering, status=Registration.Status.CONFIRMED)
-        client.post(reverse("classes:register", kwargs={"slug": paid_offering.slug}), data=_post_data())
+        client.post(paid_offering.register_path, data=_post_data())
         registration = Registration.objects.get(email="sam@example.com", class_offering=paid_offering)
         assert CmsActivity.objects.filter(kind=CmsActivity.Kind.WAITLIST_JOINED, registration=registration).exists()
         assert not CmsActivity.objects.filter(
@@ -208,7 +208,7 @@ def describe_register_view():
             return_value=True,
         ) as spy:
             client.post(
-                reverse("classes:register", kwargs={"slug": free_offering.slug}),
+                free_offering.register_path,
                 data=_post_data(wants_newsletter="on"),
             )
         spy.assert_called_once()
@@ -228,7 +228,7 @@ def describe_register_view():
 
         with patch("core.integrations.mailchimp.MailchimpClient.subscribe") as spy:
             client.post(
-                reverse("classes:register", kwargs={"slug": free_offering.slug}),
+                free_offering.register_path,
                 data=_post_data(),  # wants_newsletter not set
             )
         spy.assert_not_called()
@@ -245,7 +245,7 @@ def describe_register_view_when_class_registration_disabled():
 
     def it_redirects_a_get_to_the_detail_page_with_the_note(free_offering, client):
         _disable_registration(note="Call the studio to sign up.")
-        response = client.get(reverse("classes:register", kwargs={"slug": free_offering.slug}))
+        response = client.get(free_offering.register_path)
         assert response.status_code == 302
         assert response.url == free_offering.public_path
 
@@ -256,14 +256,14 @@ def describe_register_view_when_class_registration_disabled():
 
     def it_refuses_a_post_and_creates_no_registration(free_offering, client):
         _disable_registration()
-        response = client.post(reverse("classes:register", kwargs={"slug": free_offering.slug}), data=_post_data())
+        response = client.post(free_offering.register_path, data=_post_data())
         assert response.status_code == 302
         assert response.url == free_offering.public_path
         assert not Registration.objects.filter(class_offering=free_offering).exists()
 
     def it_falls_back_to_a_generic_message_when_the_note_is_blank(free_offering, client):
         _disable_registration(note="")
-        response = client.get(reverse("classes:register", kwargs={"slug": free_offering.slug}))
+        response = client.get(free_offering.register_path)
 
         from django.contrib.messages import get_messages
 
@@ -272,15 +272,15 @@ def describe_register_view_when_class_registration_disabled():
 
     def it_allows_registration_when_the_switch_is_on(free_offering, client):
         # Default is enabled — the free class still confirms normally.
-        response = client.post(reverse("classes:register", kwargs={"slug": free_offering.slug}), data=_post_data())
+        response = client.post(free_offering.register_path, data=_post_data())
         assert response.status_code == 302
-        assert response.url == reverse("classes:register_success", kwargs={"slug": free_offering.slug})
+        assert response.url == reverse("classes:register_success", kwargs=free_offering.register_kwargs)
         assert Registration.objects.filter(class_offering=free_offering).exists()
 
 
 def describe_register_success_view():
     def it_renders_a_thanks_page(paid_offering, client):
-        response = client.get(reverse("classes:register_success", kwargs={"slug": paid_offering.slug}))
+        response = client.get(reverse("classes:register_success", kwargs=paid_offering.register_kwargs))
         assert response.status_code == 200
         assert b"You're registered" in response.content
 
@@ -288,14 +288,14 @@ def describe_register_success_view():
 def describe_register_cancelled_view():
     def it_deletes_the_pending_registration_when_token_provided(paid_offering, client):
         registration = RegistrationFactory(class_offering=paid_offering, status=Registration.Status.PENDING)
-        url = reverse("classes:register_cancelled", kwargs={"slug": paid_offering.slug})
+        url = reverse("classes:register_cancelled", kwargs=paid_offering.register_kwargs)
         response = client.get(f"{url}?reg={registration.self_serve_token}")
         assert response.status_code == 200
         assert not Registration.objects.filter(pk=registration.pk).exists()
 
     def it_keeps_confirmed_registrations_intact(paid_offering, client):
         registration = RegistrationFactory(class_offering=paid_offering, status=Registration.Status.CONFIRMED)
-        url = reverse("classes:register_cancelled", kwargs={"slug": paid_offering.slug})
+        url = reverse("classes:register_cancelled", kwargs=paid_offering.register_kwargs)
         client.get(f"{url}?reg={registration.self_serve_token}")
         assert Registration.objects.filter(pk=registration.pk).exists()
 
@@ -358,7 +358,7 @@ def describe_registration_initial_for_user():
             ends_at=timezone.now() + timedelta(days=5, hours=2),
         )
         client.force_login(user)
-        response = client.get(reverse("classes:register", kwargs={"slug": offering.slug}))
+        response = client.get(offering.register_path)
         assert response.status_code == 200
         assert b"nomember@example.com" in response.content
 
@@ -395,7 +395,7 @@ def describe_register_with_discount_code():
             "liability_signature": "Dee Count",
             "accepts_liability": "on",
         }
-        response = client.post(reverse("classes:register", kwargs={"slug": offering.slug}), data=data)
+        response = client.post(offering.register_path, data=data)
         assert response.status_code == 302
         code.refresh_from_db()
         assert code.use_count == 1
@@ -411,16 +411,16 @@ def describe_register_with_a_sale():
         return paid_offering
 
     def it_shows_the_struck_original_and_sale_price_in_the_summary(sale_offering, client):
-        body = client.get(reverse("classes:register", kwargs={"slug": sale_offering.slug})).content.decode()
+        body = client.get(sale_offering.register_path).content.decode()
         assert '<span class="reg-was">$100</span> $80' in body
         assert 'class="reg-sale-badge"' in body
 
     def it_shows_the_sale_price_on_the_submit_button(sale_offering, client):
-        body = client.get(reverse("classes:register", kwargs={"slug": sale_offering.slug})).content.decode()
+        body = client.get(sale_offering.register_path).content.decode()
         assert 'Next: <span id="reg-submit-label">$80</span>' in body
 
     def it_hides_the_code_box_and_explains_when_codes_are_blocked(sale_offering, client):
-        body = client.get(reverse("classes:register", kwargs={"slug": sale_offering.slug})).content.decode()
+        body = client.get(sale_offering.register_path).content.decode()
         assert "Discount code (optional)" not in body
         assert 'class="reg-sale-note"' in body
         assert "can't be combined with this offer" in body
@@ -428,14 +428,14 @@ def describe_register_with_a_sale():
     def it_keeps_the_code_box_when_the_sale_allows_stacking(sale_offering, client):
         sale_offering.sale_allow_discount_codes = True
         sale_offering.save()
-        body = client.get(reverse("classes:register", kwargs={"slug": sale_offering.slug})).content.decode()
+        body = client.get(sale_offering.register_path).content.decode()
         assert "Discount code (optional)" in body
         assert 'class="reg-sale-note"' not in body
 
     @patch("billing.stripe_utils.create_class_checkout_session")
     def it_charges_the_sale_price_and_marks_the_stripe_product_name(mock_checkout, sale_offering, client):
         mock_checkout.return_value = {"id": "cs_test_sale", "url": "https://checkout.stripe.com/c/pay/cs_test_sale"}
-        response = client.post(reverse("classes:register", kwargs={"slug": sale_offering.slug}), data=_post_data())
+        response = client.post(sale_offering.register_path, data=_post_data())
         assert response.status_code == 302
         kwargs = mock_checkout.call_args.kwargs
         assert kwargs["amount_cents"] == 8000
@@ -449,11 +449,11 @@ def describe_register_with_a_sale():
         sale_offering.save()
         DiscountCodeFactory(code="ZERO", discount_pct=None, discount_fixed_cents=8000)
         response = client.post(
-            reverse("classes:register", kwargs={"slug": sale_offering.slug}),
+            sale_offering.register_path,
             data=_post_data(discount_code="ZERO"),
         )
         assert response.status_code == 302
-        assert response.url == reverse("classes:register_success", kwargs={"slug": sale_offering.slug})
+        assert response.url == reverse("classes:register_success", kwargs=sale_offering.register_kwargs)
         registration = Registration.objects.get(class_offering=sale_offering)
         assert registration.status == Registration.Status.CONFIRMED
         assert registration.amount_paid_cents == 0
@@ -470,11 +470,11 @@ def describe_a_total_that_reaches_zero_through_discounts():
 
         DiscountCodeFactory(code="ONTHEHOUSE", discount_pct=100)
         response = client.post(
-            reverse("classes:register", kwargs={"slug": paid_offering.slug}),
+            paid_offering.register_path,
             data=_post_data(discount_code="ONTHEHOUSE"),
         )
         assert response.status_code == 302
-        assert response.url == reverse("classes:register_success", kwargs={"slug": paid_offering.slug})
+        assert response.url == reverse("classes:register_success", kwargs=paid_offering.register_kwargs)
         registration = Registration.objects.get(class_offering=paid_offering)
         assert registration.status == Registration.Status.CONFIRMED
         assert registration.amount_paid_cents == 0
@@ -512,7 +512,7 @@ def describe_client_ip():
             "accepts_liability": "on",
         }
         response = client.post(
-            reverse("classes:register", kwargs={"slug": offering.slug}),
+            offering.register_path,
             data=data,
             HTTP_X_FORWARDED_FOR="203.0.113.42, 10.0.0.1",
         )
@@ -531,20 +531,20 @@ def describe_the_price_quote_at_checkout():
 
     def it_quotes_the_full_price_to_a_logged_in_member_on_first_render(paid_offering, client, verified_member):
         client.force_login(verified_member)
-        body = client.get(reverse("classes:register", kwargs={"slug": paid_offering.slug})).content.decode()
+        body = client.get(paid_offering.register_path).content.decode()
         summary = _price_summary(body)
         assert '<div class="total">$100</div>' in summary
         assert 'Next: <span id="reg-submit-label">$100</span>' in body
 
     def it_quotes_the_full_price_for_a_non_member_email(paid_offering, client):
-        url = reverse("classes:register", kwargs={"slug": paid_offering.slug})
+        url = paid_offering.register_path
         body = client.get(url, {"email": "sam@example.com"}).content.decode()
         summary = _price_summary(body)
         assert '<div class="total">$100</div>' in summary
         assert 'Next: <span id="reg-submit-label">$100</span>' in body
 
     def it_quotes_the_full_price_when_the_refresh_carries_a_member_email(paid_offering, client, verified_member):
-        url = reverse("classes:register", kwargs={"slug": paid_offering.slug})
+        url = paid_offering.register_path
         body = client.get(url, {"email": "member@example.com"}).content.decode()
         summary = _price_summary(body)
         assert '<div class="total">$100</div>' in summary
@@ -554,24 +554,24 @@ def describe_the_price_quote_at_checkout():
         from classes.factories import DiscountCodeFactory
 
         DiscountCodeFactory(code="SAVE20", discount_pct=20)
-        url = reverse("classes:register", kwargs={"slug": paid_offering.slug})
+        url = paid_offering.register_path
         body = client.get(url, {"email": "member@example.com", "discount_code": "SAVE20"}).content.decode()
         assert '<div class="total">$80</div>' in _price_summary(body)
         assert 'Next: <span id="reg-submit-label">$80</span>' in body
 
     def it_wires_every_input_the_quote_depends_on_to_refresh_the_summary(paid_offering, client, verified_member):
         client.force_login(verified_member)
-        body = client.get(reverse("classes:register", kwargs={"slug": paid_offering.slug})).content.decode()
+        body = client.get(paid_offering.register_path).content.decode()
         for name in ("email", "discount_code"):
             tag = next(t for t in body.split("<input")[1:] if f'name="{name}"' in t and 'type="hidden"' not in t)
-            assert f'hx-get="{reverse("classes:register", kwargs={"slug": paid_offering.slug})}"' in tag, name
+            assert f'hx-get="{paid_offering.register_path}"' in tag, name
             assert 'hx-target="#reg-price-summary"' in tag and 'hx-select="#reg-price-summary"' in tag, name
             assert 'hx-select-oob="#reg-submit-label"' in tag, name
             assert 'hx-include="[name=email],[name=discount_code]"' in tag, name
 
     def it_keeps_the_waitlist_flag_on_the_refresh_url(paid_offering, client, verified_member):
         # A voluntary waitlist page refreshes as a waitlist page, never as a paid form's summary.
-        url = reverse("classes:register", kwargs={"slug": paid_offering.slug})
+        url = paid_offering.register_path
         body = client.get(url + "?waitlist=1").content.decode()
         email = next(t for t in body.split("<input")[1:] if 'name="email"' in t)
         assert f'hx-get="{url}?waitlist=1"' in email
@@ -585,7 +585,7 @@ def describe_the_price_quote_at_checkout():
             class_offering=paid_offering, status=Registration.Status.WAITLISTED, email="member@example.com"
         )
         client.force_login(verified_member)  # the member clicks the link from their own inbox
-        url = reverse("classes:register", kwargs={"slug": paid_offering.slug})
+        url = paid_offering.register_path
         body = client.get(url + f"?waitlist_token={claim.self_serve_token}").content.decode()
         email = next(t for t in body.split("<input")[1:] if 'name="email"' in t)
         assert f'hx-get="{url}?waitlist_token={claim.self_serve_token}"' in email
@@ -598,7 +598,7 @@ def describe_the_price_quote_at_checkout():
         DiscountCodeFactory(code="SAVE20", discount_pct=20)
         mock_checkout.return_value = {"id": "cs_test_full", "url": "https://checkout.stripe.com/c/pay/cs_test_full"}
         response = client.post(
-            reverse("classes:register", kwargs={"slug": paid_offering.slug}),
+            paid_offering.register_path,
             data=_post_data(email="member@example.com", discount_code="SAVE20"),
         )
         assert response.status_code == 302
@@ -612,7 +612,7 @@ def describe_the_price_quote_at_checkout():
     def it_charges_a_member_the_full_price_with_no_code(mock_checkout, paid_offering, client, verified_member):
         mock_checkout.return_value = {"id": "cs_test_mem", "url": "https://checkout.stripe.com/c/pay/cs_test_mem"}
         response = client.post(
-            reverse("classes:register", kwargs={"slug": paid_offering.slug}),
+            paid_offering.register_path,
             data=_post_data(email="member@example.com"),
         )
         assert response.status_code == 302
@@ -623,7 +623,7 @@ def describe_the_price_quote_at_checkout():
         for _ in range(paid_offering.capacity):
             RegistrationFactory(class_offering=paid_offering, status=Registration.Status.CONFIRMED)
         client.force_login(verified_member)
-        body = client.get(reverse("classes:register", kwargs={"slug": paid_offering.slug})).content.decode()
+        body = client.get(paid_offering.register_path).content.decode()
         assert 'name="discount_code"' not in body
 
 
@@ -646,7 +646,7 @@ def describe_registering_for_a_flexible_class():
         return offering
 
     def it_confirms_a_registration_past_the_stored_capacity(flexible_offering, client):
-        url = reverse("classes:register", kwargs={"slug": flexible_offering.slug})
+        url = flexible_offering.register_path
         page = client.get(url)
         assert page.status_code == 200
         assert page.context["is_waitlist"] is False
@@ -662,14 +662,14 @@ def describe_registering_for_a_flexible_class():
         mock_checkout.return_value = {"id": "cs_test_flex", "url": "https://checkout.stripe.com/c/pay/cs_test_flex"}
         flexible_offering.price_cents = 10000
         flexible_offering.save(update_fields=["price_cents"])
-        response = client.post(reverse("classes:register", kwargs={"slug": flexible_offering.slug}), data=_post_data())
+        response = client.post(flexible_offering.register_path, data=_post_data())
         assert response.status_code == 302
         assert response.url == "https://checkout.stripe.com/c/pay/cs_test_flex"
         registration = Registration.objects.get(email="sam@example.com", class_offering=flexible_offering)
         assert registration.status == Registration.Status.PENDING
 
     def it_registers_normally_on_a_stale_waitlist_link(flexible_offering, client):
-        url = reverse("classes:register", kwargs={"slug": flexible_offering.slug}) + "?waitlist=1"
+        url = flexible_offering.register_path + "?waitlist=1"
         assert client.get(url).context["is_waitlist"] is False
         response = client.post(url, data=_post_data())
         assert response.status_code == 302
@@ -680,7 +680,7 @@ def describe_registering_for_a_flexible_class():
     def it_closes_after_the_last_day(flexible_offering, client):
         flexible_offering.flexible_ends_on = timezone.localdate() - timedelta(days=1)
         flexible_offering.save(update_fields=["flexible_ends_on"])
-        response = client.post(reverse("classes:register", kwargs={"slug": flexible_offering.slug}), data=_post_data())
+        response = client.post(flexible_offering.register_path, data=_post_data())
         assert response.status_code == 302
         assert response.url == flexible_offering.public_path
         assert not Registration.objects.filter(email="sam@example.com").exists()
@@ -689,6 +689,4 @@ def describe_registering_for_a_flexible_class():
         # The Fixed path is untouched: the existing describe_register_view cases above pin it in full.
         for _ in range(paid_offering.capacity):
             RegistrationFactory(class_offering=paid_offering, status=Registration.Status.CONFIRMED)
-        assert (
-            client.get(reverse("classes:register", kwargs={"slug": paid_offering.slug})).context["is_waitlist"] is True
-        )
+        assert client.get(paid_offering.register_path).context["is_waitlist"] is True

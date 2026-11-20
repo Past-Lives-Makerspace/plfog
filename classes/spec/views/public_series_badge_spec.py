@@ -123,7 +123,7 @@ def describe_series_option_dates():
         assert f'other-date-when">{labels[0]} – {labels[-1]} ·' not in body
 
     def it_keeps_the_first_to_last_span_in_the_register_pages_run_picker(published_series, second_run, client):
-        body = client.get(reverse("classes:register", kwargs={"slug": published_series.slug})).content.decode()
+        body = client.get(published_series.register_path).content.decode()
         labels = _date_labels(second_run)
         assert f">{labels[0]} – {labels[-1]} · 3 sessions · 6 left</option>" in body
         assert ", ".join(labels) not in body

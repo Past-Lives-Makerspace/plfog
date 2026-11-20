@@ -14,7 +14,6 @@ from __future__ import annotations
 import re
 from datetime import timedelta
 
-from django.urls import reverse
 from django.utils import timezone
 from playwright.sync_api import expect
 
@@ -43,7 +42,7 @@ def _open_paid_class(live_server, page, login_via_code) -> None:
     DiscountCodeFactory(code="TENOFF", discount_pct=10, class_offering=None)
     login_via_code(MEMBER_EMAIL)
     expect(page).not_to_have_url(re.compile(r"/accounts/"))
-    page.goto(f"{live_server.url}{reverse('classes:register', kwargs={'slug': offering.slug})}")
+    page.goto(f"{live_server.url}{offering.register_path}")
 
 
 def describe_the_live_price_quote():

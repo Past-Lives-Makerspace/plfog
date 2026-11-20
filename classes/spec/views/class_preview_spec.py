@@ -306,13 +306,13 @@ def describe_page_parity_in_preview():
 
     def it_lists_other_dates_of_the_same_class(admin_user, instructor_fixture, category, client):
         first = _publish("Forge Night with Glen", "forge-a", category, instructor_fixture, days_out=4)
-        _publish("Forge Night with Glen", "forge-b", category, instructor_fixture, days_out=9)
+        second = _publish("Forge Night with Glen", "forge-b", category, instructor_fixture, days_out=9)
         client.force_login(admin_user)
         body = client.get(reverse("classes:class_preview", kwargs={"pk": first.pk})).content.decode()
         # Both open dates of the class, each with its own Register (#1260).
         assert 'class="cp-detail__other-date"' in body
         assert "cp-detail__other-date" in body.split("Upcoming Dates", 1)[1][:2000]
-        assert "/classes/forge-b/register/" in body
+        assert second.register_path in body
 
     def it_lists_related_classes_in_the_same_category(admin_user, instructor_fixture, category, client):
         offering = _publish("Forge Night", "forge-main", category, instructor_fixture, days_out=2)

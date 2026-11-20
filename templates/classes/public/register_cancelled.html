@@ -19,7 +19,7 @@
         <p style="color:var(--text);font-size:14px;line-height:1.7">
           You backed out of payment, so your spot wasn't reserved. No charge was made.
         </p>
-        <a class="btn-reg" href="{% url 'classes:register' slug=offering.slug %}" style="margin-top:14px">Try again</a>
+        <a class="btn-reg" href="{{ offering.register_path }}" style="margin-top:14px">Try again</a>
       </div>
     </div>
   </div>

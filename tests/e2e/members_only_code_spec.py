@@ -89,7 +89,7 @@ def describe_a_signed_out_buyer():
         ClassSessionFactory(class_offering=offering, starts_at=starts, ends_at=starts + timedelta(hours=3))
         DiscountCodeFactory(code="MEMBER10", discount_pct=10, class_offering=None, members_only=True)
 
-        page.goto(f"{live_server.url}{reverse('classes:register', kwargs={'slug': offering.slug})}")
+        page.goto(f"{live_server.url}{offering.register_path}")
         page.fill('input[name="first_name"]', "Casey")
         page.fill('input[name="last_name"]', "Visitor")
         page.fill('input[name="email"]', "casey.visitor@example.com")

@@ -137,7 +137,7 @@ def describe_an_upcoming_class():
             "priceCurrency": "USD",
             "availability": "https://schema.org/InStock",
             # An open date's Event points at its own register page (#1260).
-            "url": f"{BASE}/classes/forge-basics/register/",
+            "url": f"{BASE}{offering.register_path}",
         }
         assert event["image"][0].startswith(BASE)
         assert 'property="og:title" content="Forge Basics' in html
@@ -156,11 +156,11 @@ def describe_a_past_class():
 
 
 def describe_the_transactional_pages():
-    @pytest.mark.parametrize("suffix", ["register/", "register/success/", "register/cancelled/"])
+    @pytest.mark.parametrize("suffix", ["", "success/", "cancelled/"])
     def it_keeps_registration_out_of_search(client: Client, suffix: str):
-        _class("forge-basics", days=5)
+        offering = _class("forge-basics", days=5)
 
-        assert NOINDEX in _get(client, f"/classes/forge-basics/{suffix}")
+        assert NOINDEX in _get(client, f"{offering.register_path}{suffix}")
 
     def it_keeps_a_registration_page_out_of_search(client: Client):
         registration = RegistrationFactory(class_offering=_class("forge-basics", days=5))

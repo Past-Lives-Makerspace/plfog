@@ -53,7 +53,7 @@ def describe_login_and_book():
         # 3. Open its detail page and follow the register call-to-action.
         detail_path = offering.public_path
         page.goto(f"{live_server.url}{detail_path}")
-        register_path = reverse("classes:register", kwargs={"slug": offering.slug})
+        register_path = offering.register_path
         page.locator(f'a[href="{register_path}"]').first.click()
 
         # 4. Fill the registration form, including the typed liability signature.

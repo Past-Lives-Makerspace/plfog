@@ -360,10 +360,7 @@ def waitlist_spot_opened_context(data: SampleData) -> dict[str, Any]:
     from classes.models import ClassSettings
 
     registration = data.waitlisted
-    register_url = _absolute_url(
-        reverse("classes:register", kwargs={"slug": data.offering.slug})
-        + f"?waitlist_token={registration.self_serve_token}"
-    )
+    register_url = _absolute_url(data.offering.register_path + f"?waitlist_token={registration.self_serve_token}")
     return {
         "subject": f"A spot opened in {data.offering.title}!",
         "template_context": {

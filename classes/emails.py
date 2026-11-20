@@ -582,9 +582,7 @@ def send_waitlist_spot_opened(registration: "Registration") -> None:
     from core.events.senders import emit_with_email_shell
 
     offering = registration.class_offering
-    register_url = _absolute_url(
-        reverse("classes:register", kwargs={"slug": offering.slug}) + f"?waitlist_token={registration.self_serve_token}"
-    )
+    register_url = _absolute_url(offering.register_path + f"?waitlist_token={registration.self_serve_token}")
     class_url = offering.public_url
     settings_obj = ClassSettings.load()
     template_context = {

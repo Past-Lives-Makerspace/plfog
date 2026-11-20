@@ -731,7 +731,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
     from billing.models import Product
 
     guild = get_object_or_404(
-        Guild.objects.select_related("featured_class").prefetch_related(
+        Guild.objects.select_related("featured_class__class_record").prefetch_related(
             "featured_class__instructor_rows",
             "products__splits__guild",
             # Feeds Guild.studio_hours_display() + next_meeting_occurrence() from one cache (no N+1).
@@ -821,7 +821,7 @@ def guild_detail(request: HttpRequest, slug: str) -> HttpResponse:
         .filter(_first_session_at__lt=dj_timezone.now())
         .count()
     )
-    upcoming_classes = guild_classes.bookable().prefetch_related("instructor_rows")[:4]
+    upcoming_classes = guild_classes.bookable().select_related("class_record").prefetch_related("instructor_rows")[:4]
     calendar = _get_calendar_context(request, guild=guild)
     calendar["events_url"] = reverse("hub_guild_calendar_events", args=[guild.pk])
     # No default_filters_json: the guild calendar persists *disabled* filters

@@ -527,7 +527,7 @@ def describe_the_price_quote():
             form = RegistrationForm(offering=offering, settings_obj=settings_obj, member=_an_active_member())
             for name in ("email", "discount_code"):
                 attrs = form.fields[name].widget.attrs
-                assert attrs["hx-get"] == f"/classes/{offering.slug}/register/", name
+                assert attrs["hx-get"] == offering.register_path, name
                 assert attrs["hx-trigger"] == "change", name
                 assert attrs["hx-include"] == "[name=email],[name=discount_code]", name
                 assert attrs["hx-target"] == attrs["hx-select"] == "#reg-price-summary", name

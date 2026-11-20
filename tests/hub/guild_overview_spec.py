@@ -123,7 +123,7 @@ def describe_guild_overview():
         resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Forge Intro" in resp.content
         assert b"Other Guild Class" not in resp.content
-        assert reverse("classes:register", args=["forge-intro"]).encode() in resp.content
+        assert ClassOffering.objects.get(slug="forge-intro").register_path.encode() in resp.content
 
     def it_shows_the_get_involved_cta(client: Client):
         _member("ov3")

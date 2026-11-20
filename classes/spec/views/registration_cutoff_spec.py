@@ -54,7 +54,7 @@ def _detail(client, offering: ClassOffering) -> str:
 
 
 def _register_url(offering: ClassOffering) -> str:
-    return reverse("classes:register", kwargs={"slug": offering.slug})
+    return offering.register_path
 
 
 def _detail_url(offering: ClassOffering) -> str:
@@ -154,7 +154,7 @@ def describe_a_waitlist_claim_inside_the_cutoff():
         waiting = _waiting(closed)
         response = client.post(_claim_url(closed, waiting), data=_claim_post_data())
         assert response.status_code == 302
-        assert response.url == reverse("classes:register_success", kwargs={"slug": closed.slug})
+        assert response.url == reverse("classes:register_success", kwargs=closed.register_kwargs)
         waiting.refresh_from_db()
         assert waiting.status == Registration.Status.CONFIRMED
         assert Registration.objects.filter(class_offering=closed).count() == 1

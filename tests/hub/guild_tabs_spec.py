@@ -98,7 +98,7 @@ def describe_guild_tabs():
         resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Anvil Basics" in resp.content
         assert b"Secret Draft" not in resp.content
-        assert reverse("classes:register", args=["anvil-basics"]).encode() in resp.content
+        assert published.register_path.encode() in resp.content
 
     def it_scopes_the_calendar_to_this_guild(client: Client):
         _member("t3")
