@@ -661,7 +661,7 @@ def describe_public_class_detail():
         assert b"Email the studio to reserve a seat." in response.content
         # The live Register link must not be offered.
         assert b"Register now" not in response.content
-        assert reverse("classes:register", kwargs={"slug": published_class.slug}).encode() not in response.content
+        assert published_class.register_path.encode() not in response.content
 
     def it_renders_a_unique_seo_title_and_meta_description(published_class, client):
         from django.utils.html import escape
@@ -815,14 +815,14 @@ def describe_catalog_grouping():
         cat = CategoryFactory(name="Smithing", slug="smithing")
         inst = InstructorFactory(full_legal_name="Glen", instructor_slug="glen")
         first = _publish("Forge Night with Glen", "forge-a", cat, inst, days_out=4)
-        _publish("Forge Night with Glen", "forge-b", cat, inst, days_out=9)
+        second = _publish("Forge Night with Glen", "forge-b", cat, inst, days_out=9)
 
         response = client.get(first.public_path)
 
         # Every open date of the class, this one included, each with its own Register (#1260).
         assert b"Upcoming Dates" in response.content
-        assert b"/classes/forge-a/register/" in response.content
-        assert b"/classes/forge-b/register/" in response.content
+        assert first.register_path.encode() in response.content
+        assert second.register_path.encode() in response.content
 
     def it_omits_other_dates_when_a_class_stands_alone(published_class, client):
         response = client.get(published_class.public_path)
@@ -1583,7 +1583,7 @@ def describe_the_rail_and_the_card_of_a_flexible_class():
             category=category,
         )
         ClassSessionFactory(class_offering=fixed, starts_at=timezone.now() + timedelta(days=3))
-        _flexible(
+        flexible = _flexible(
             title="Grouped Forge",
             slug="grouped-forge-2",
             instructor=instructor,
@@ -1597,7 +1597,7 @@ def describe_the_rail_and_the_card_of_a_flexible_class():
         rows = [row.split("</li>")[0] for row in html.split('<li class="cp-detail__other-date" ')[1:]]
         assert len(rows) == 2
         row = rows[1]
-        assert "grouped-forge-2" in row
+        assert flexible.register_path in row
         assert "Flexible: schedule with the instructor · Nov 2 to Dec 1, 2026" in row
         assert "cls-spots" not in row
         assert "None" not in row
@@ -1632,7 +1632,7 @@ def describe_sale_markup():
         assert '<div class="cp-detail__price">$40</div>' in body
 
     def it_renders_the_struck_original_in_the_register_summary(sale_class, client):
-        body = client.get(reverse("classes:register", kwargs={"slug": sale_class.slug})).content.decode()
+        body = client.get(sale_class.register_path).content.decode()
         assert '<span class="reg-was">$50</span> $40' in body
 
     def it_hides_all_sale_markup_when_no_sale_is_active(published_class, client):

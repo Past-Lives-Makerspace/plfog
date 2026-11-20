@@ -52,7 +52,7 @@
           <select id="reg-run-select" onchange="if (this.value) location.assign(this.value)">
             {% for run in run_options %}
               {% with ses=run.sessions.all|upcoming_sessions %}
-              <option value="{% url 'classes:register' slug=run.slug %}"{% if run.pk == offering.pk %} selected{% endif %}>{{ ses|session_date_range }}{% if run.is_series %} · {{ ses|length }} sessions{% endif %}{% if run.spots_left is not None %} · {% if run.spots_left == 0 %}waitlist{% else %}{{ run.spots_left }} left{% endif %}{% endif %}</option>
+              <option value="{{ run.register_path }}"{% if run.pk == offering.pk %} selected{% endif %}>{{ ses|session_date_range }}{% if run.is_series %} · {{ ses|length }} sessions{% endif %}{% if run.spots_left is not None %} · {% if run.spots_left == 0 %}waitlist{% else %}{{ run.spots_left }} left{% endif %}{% endif %}</option>
               {% endwith %}
             {% endfor %}
           </select>

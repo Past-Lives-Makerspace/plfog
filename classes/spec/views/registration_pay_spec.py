@@ -242,7 +242,7 @@ def _bookable_offering(**kwargs):
 def describe_claim_link_guard():
     def _claim_click(client, offering, reg, *, follow=False):
         return client.get(
-            reverse("classes:register", kwargs={"slug": offering.slug}),
+            offering.register_path,
             {"waitlist_token": reg.self_serve_token},
             follow=follow,
         )
@@ -286,5 +286,5 @@ def describe_claim_link_guard():
 
     def it_ignores_an_unknown_token(db, client):
         offering = _bookable_offering()
-        response = client.get(reverse("classes:register", kwargs={"slug": offering.slug}), {"waitlist_token": "nope"})
+        response = client.get(offering.register_path, {"waitlist_token": "nope"})
         assert response.status_code == 200

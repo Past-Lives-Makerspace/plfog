@@ -71,7 +71,7 @@ def _sign_in(client, status: str) -> None:
 
 
 def _url(offering) -> str:
-    return reverse("classes:register", kwargs={"slug": offering.slug})
+    return offering.register_path
 
 
 def _total(body: str) -> str:

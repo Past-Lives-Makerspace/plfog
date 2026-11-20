@@ -110,7 +110,7 @@ def describe_featured_class():
         resp = client.get(reverse("hub_guild_detail", args=[guild.slug]))
         assert b"Featured Forge" in resp.content
         assert b"Featured" in resp.content
-        assert reverse("classes:register", args=["featured-forge"]).encode() in resp.content
+        assert offering.register_path.encode() in resp.content
         session_at = offering.first_upcoming_session_at
         assert session_at is not None
         assert timezone.localtime(session_at).strftime("%b").encode() in resp.content

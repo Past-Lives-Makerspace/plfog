@@ -180,7 +180,7 @@
 
         {% if guild.featured_class %}
         <section class="pl-guild-section">
-            <a href="{% if is_guilds_surface %}{{ BOOK_BASE_URL }}{% endif %}{% url 'classes:register' guild.featured_class.slug %}"{% if is_guilds_surface %} hx-boost="false"{% endif %} class="hub-card" style="display:flex; gap:1rem; align-items:center; text-decoration:none;">
+            <a href="{% if is_guilds_surface %}{{ BOOK_BASE_URL }}{% endif %}{{ guild.featured_class.register_path }}"{% if is_guilds_surface %} hx-boost="false"{% endif %} class="hub-card" style="display:flex; gap:1rem; align-items:center; text-decoration:none;">
                 <div style="flex:1;">
                     <span class="hub-badge">Featured</span>
                     <div style="font-weight:600; font-size:1.05rem; margin-top:0.35rem;">{{ guild.featured_class.title }}</div>
@@ -228,7 +228,7 @@
             <h2 class="pl-guild-section__h2">Upcoming Classes</h2>
             <div style="display:flex; flex-direction:column; gap:0.5rem;">
                 {% for c in upcoming_classes %}
-                <a href="{% if is_guilds_surface %}{{ BOOK_BASE_URL }}{% endif %}{% url 'classes:register' c.slug %}"{% if is_guilds_surface %} hx-boost="false"{% endif %} class="hub-card" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; text-decoration:none;">
+                <a href="{% if is_guilds_surface %}{{ BOOK_BASE_URL }}{% endif %}{{ c.register_path }}"{% if is_guilds_surface %} hx-boost="false"{% endif %} class="hub-card" style="display:flex; justify-content:space-between; align-items:center; gap:1rem; text-decoration:none;">
                     <div>
                         <strong>{{ c.title }}</strong>
                         {% if c.instructor_names %}<div class="hub-text-muted" style="font-size:0.8125rem;">with {{ c|instructors_for:request.user }}</div>{% endif %}

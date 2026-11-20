@@ -51,7 +51,7 @@ def describe_the_class_page():
         for run in (first, newest):
             assert f'id="date-{run.pk}"' in body
             assert f'data-register-run="{run.pk}"' in body
-            assert reverse("classes:register", kwargs={"slug": run.slug}) in body
+            assert run.register_path in body
 
     def it_sends_a_full_date_to_its_waitlist(client):
         first = _run("framing-1", days=10, capacity=0)
@@ -59,7 +59,7 @@ def describe_the_class_page():
 
         body = client.get(_class_path(first)).content.decode()
 
-        assert reverse("classes:register", kwargs={"slug": first.slug}) + "?waitlist=1" in body
+        assert first.register_path + "?waitlist=1" in body
         assert "Join the waitlist" in body
 
     def it_lists_no_dates_section_for_a_single_date(client):
@@ -259,7 +259,7 @@ def describe_search_data_for_several_dates():
         assert [event["offers"]["price"] for event in events] == ["70.00", "90.00"]
         assert events[1]["offers"]["availability"] == "https://schema.org/SoldOut"
         for event, run in zip(events, (soon, later), strict=True):
-            register = reverse("classes:register", kwargs={"slug": run.slug})
+            register = run.register_path
             assert event["url"].endswith(register)
             assert event["offers"]["url"].endswith(register)
 

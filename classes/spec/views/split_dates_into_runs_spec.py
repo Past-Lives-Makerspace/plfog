@@ -82,15 +82,16 @@ def describe_a_published_split_class():
         ]
 
     def it_offers_every_date_in_each_runs_picker(offering, client):
-        everyone = {offering.slug, *(run.slug for run in _runs(offering))}
-        for slug in everyone:
-            response = client.get(reverse("classes:register", kwargs={"slug": slug}))
+        runs = [offering, *_runs(offering)]
+        everyone = {run.slug for run in runs}
+        for run in runs:
+            response = client.get(run.register_path)
             assert {option.slug for option in response.context["run_options"]} == everyone
 
     def it_takes_a_seat_on_the_run_signed_up_for_only(offering, client):
         third = _runs(offering)[1]
         response = client.post(
-            reverse("classes:register", kwargs={"slug": third.slug}),
+            third.register_path,
             {
                 "first_name": "Sam",
                 "last_name": "Smith",

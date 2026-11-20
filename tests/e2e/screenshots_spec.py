@@ -58,7 +58,7 @@ def _public_pages(d: dict[str, object]) -> list[tuple[str, str]]:
             reverse("classes:public_instructor", kwargs={"slug": d["instructor"].instructor_slug}),
         ),
         ("Public — class detail", pub.public_path),
-        ("Public — registration form", reverse("classes:register", kwargs={"slug": pub.slug})),
+        ("Public — registration form", pub.register_path),
         ("Account — overview", reverse("account:overview")),
         ("Account — order history", reverse("account:history")),
         ("Account — receipts", reverse("account:receipts")),

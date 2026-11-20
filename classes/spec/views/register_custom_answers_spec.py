@@ -19,7 +19,7 @@ def describe_register_remembers_answers():
         client.force_login(member_user)
         data = _post_data(**{f"custom_q_{question.pk}": "Beginner"})
 
-        resp = client.post(reverse("classes:register", kwargs={"slug": free_offering.slug}), data=data)
+        resp = client.post(free_offering.register_path, data=data)
 
         assert resp.status_code == 302
         profile = UserProfile.objects.get(user=member_user)
@@ -30,7 +30,7 @@ def describe_register_remembers_answers():
         UserProfile.objects.create(user=member_user, custom_question_answers={str(question.pk): "Pro"})
         client.force_login(member_user)
 
-        resp = client.get(reverse("classes:register", kwargs={"slug": free_offering.slug}))
+        resp = client.get(free_offering.register_path)
 
         assert resp.context["answers_prefilled"] is True
         assert resp.context["form"][f"custom_q_{question.pk}"].value() == "Pro"
@@ -41,7 +41,7 @@ def describe_register_remembers_answers():
         RegistrationAnswer.objects.create(registration=prior, question=question, answer_text="Some")
 
         resp = client.get(
-            reverse("classes:register", kwargs={"slug": free_offering.slug}),
+            free_offering.register_path,
             {"email": "repeat@example.com"},
         )
 
@@ -53,21 +53,21 @@ def describe_register_remembers_answers():
     def it_does_not_flag_prefill_for_a_fresh_guest(free_offering, client):
         RegistrationQuestion.objects.create(prompt="Experience?")
 
-        resp = client.get(reverse("classes:register", kwargs={"slug": free_offering.slug}))
+        resp = client.get(free_offering.register_path)
 
         assert resp.context["answers_prefilled"] is False
 
     def it_wires_the_email_field_for_htmx_recall_when_questions_exist(free_offering, client):
         RegistrationQuestion.objects.create(prompt="Experience?")
 
-        resp = client.get(reverse("classes:register", kwargs={"slug": free_offering.slug}))
+        resp = client.get(free_offering.register_path)
 
         assert 'id="custom-questions-block"' in resp.content.decode()
 
 
 def describe_register_account_band():
     def it_shows_login_and_signup_links_for_anonymous_visitors(free_offering, client):
-        resp = client.get(reverse("classes:register", kwargs={"slug": free_offering.slug}))
+        resp = client.get(free_offering.register_path)
 
         body = resp.content.decode()
         assert "reg-account-band" in body
@@ -77,6 +77,6 @@ def describe_register_account_band():
     def it_hides_the_band_for_a_logged_in_visitor(free_offering, client, member_user):
         client.force_login(member_user)
 
-        resp = client.get(reverse("classes:register", kwargs={"slug": free_offering.slug}))
+        resp = client.get(free_offering.register_path)
 
         assert "reg-account-band" not in resp.content.decode()

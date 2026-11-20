@@ -11,7 +11,6 @@ from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
-from django.urls import reverse
 from django.utils import timezone
 
 from classes.factories import (
@@ -62,7 +61,7 @@ def describe_series_checkout():
         mock_checkout.return_value = {"id": "cs_test_series", "url": "https://checkout.stripe.com/c/pay/x"}
 
         response = client.post(
-            reverse("classes:register", kwargs={"slug": series_offering.slug}),
+            series_offering.register_path,
             data=_post_data(),
         )
 
@@ -83,7 +82,7 @@ def describe_series_checkout():
         before = series_offering.spots_remaining
 
         client.post(
-            reverse("classes:register", kwargs={"slug": series_offering.slug}),
+            series_offering.register_path,
             data=_post_data(),
         )
 
@@ -100,7 +99,7 @@ def describe_series_checkout():
         mock_checkout.return_value = {"id": "cs_test_series", "url": "https://checkout.stripe.com/c/pay/x"}
 
         client.post(
-            reverse("classes:register", kwargs={"slug": series_offering.slug}),
+            series_offering.register_path,
             data=_post_data(),
         )
 
@@ -114,7 +113,7 @@ def describe_series_checkout():
         mock_checkout.side_effect = RuntimeError("stripe down")
         with pytest.raises(RuntimeError):
             client.post(
-                reverse("classes:register", kwargs={"slug": series_offering.slug}),
+                series_offering.register_path,
                 data=_post_data(),
             )
         assert not series_offering.registrations.exists()
@@ -131,7 +130,7 @@ def describe_series_checkout():
         assert series_offering.spots_remaining == 0
 
         response = client.post(
-            reverse("classes:register", kwargs={"slug": series_offering.slug}),
+            series_offering.register_path,
             data=_post_data(),
         )
 
@@ -147,7 +146,7 @@ def describe_series_confirmation_webhook():
 
         mock_checkout.return_value = {"id": "cs_test_series", "url": "https://checkout.stripe.com/c/pay/x"}
         client.post(
-            reverse("classes:register", kwargs={"slug": series_offering.slug}),
+            series_offering.register_path,
             data=_post_data(),
         )
         registration = series_offering.registrations.get()
@@ -194,7 +193,7 @@ def describe_single_session_checkout_unchanged():
         )
         mock_checkout.return_value = {"id": "cs_test_single", "url": "https://checkout.stripe.com/c/pay/y"}
 
-        client.post(reverse("classes:register", kwargs={"slug": offering.slug}), data=_post_data())
+        client.post(offering.register_path, data=_post_data())
 
         kwargs = mock_checkout.call_args.kwargs
         assert kwargs["product_name"] == "One-Off Welding"

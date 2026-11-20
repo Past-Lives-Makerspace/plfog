@@ -10,7 +10,6 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
-from django.urls import reverse
 from django.utils import timezone
 
 from classes.factories import (
@@ -53,24 +52,24 @@ def _run(group, slug, *offsets_days, title="Blacksmithing 101"):
 def describe_run_picker():
     def it_offers_a_dropdown_listing_every_bookable_run(group, client):
         sep = _run(group, "bs-sep", 7, 14, 21)
-        _run(group, "bs-oct", 40, 47, 54)
+        oct_run = _run(group, "bs-oct", 40, 47, 54)
 
-        response = client.get(reverse("classes:register", kwargs={"slug": sep.slug}))
+        response = client.get(sep.register_path)
         body = response.content.decode()
 
         assert response.status_code == 200
         assert {o.slug for o in response.context["run_options"]} == {"bs-sep", "bs-oct"}
         assert 'id="reg-run-select"' in body
-        assert reverse("classes:register", kwargs={"slug": "bs-oct"}) in body
+        assert oct_run.register_path in body
         # The run being viewed is the pre-selected option.
-        assert f'value="{reverse("classes:register", kwargs={"slug": "bs-sep"})}" selected' in body
+        assert f'value="{sep.register_path}" selected' in body
 
     def it_excludes_started_runs_from_the_dropdown(group, client):
         sep = _run(group, "bs-sep", 7, 14, 21)
         _run(group, "bs-oct", 40, 47, 54)
         _run(group, "bs-started", -2, 5, 12)  # first date passed — not bookable
 
-        response = client.get(reverse("classes:register", kwargs={"slug": sep.slug}))
+        response = client.get(sep.register_path)
 
         slugs = {o.slug for o in response.context["run_options"]}
         assert slugs == {"bs-sep", "bs-oct"}
@@ -79,7 +78,7 @@ def describe_run_picker():
     def it_shows_no_dropdown_for_a_class_with_a_single_bookable_run(group, client):
         solo = _run(group, "solo-weld", 7, title="One-Off Welding")
 
-        response = client.get(reverse("classes:register", kwargs={"slug": solo.slug}))
+        response = client.get(solo.register_path)
 
         assert response.context["run_options"] == []
         assert 'id="reg-run-select"' not in response.content.decode()

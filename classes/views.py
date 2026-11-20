@@ -199,7 +199,12 @@ def _bookable_run_options(offering: Any) -> list[Any]:
         if offering.class_record_id
         else Q(grouping_key=offering.grouping_key)
     )
-    runs = list(ClassOffering.objects.registration_open().filter(same_class).prefetch_related("sessions"))
+    runs = list(
+        ClassOffering.objects.registration_open()
+        .filter(same_class)
+        .select_related("class_record")
+        .prefetch_related("sessions")
+    )
     if len(runs) <= 1:
         return []
     run_spots = ClassOffering.objects.filter(pk__in=[r.pk for r in runs]).spots_remaining_map()
@@ -764,7 +769,7 @@ def _confirm_free_registration(request: HttpRequest, registration: Registration)
     from core.services.guest_account import ensure_account_for_registration
 
     ensure_account_for_registration(registration)
-    return redirect("classes:register_success", slug=registration.class_offering.slug)
+    return redirect("classes:register_success", **registration.class_offering.register_kwargs)
 
 
 def _already_signed_up_message(registration: Registration) -> str:
@@ -913,7 +918,7 @@ def _resume_pending_checkout(request: HttpRequest, registration: Registration, f
     if session is not None and session["payment_status"] == "paid":
         messages.info(request, "We're finishing up your payment. Your confirmation email is on its way.")
         return redirect(
-            reverse("classes:register_success", kwargs={"slug": registration.class_offering.slug})
+            reverse("classes:register_success", kwargs=registration.class_offering.register_kwargs)
             + f"?reg={registration.self_serve_token}"
         )
 
@@ -1052,11 +1057,11 @@ def _start_registration_payment(
     from billing import stripe_utils
 
     success_url = (
-        request.build_absolute_uri(reverse("classes:register_success", kwargs={"slug": offering.slug}))
+        request.build_absolute_uri(reverse("classes:register_success", kwargs=offering.register_kwargs))
         + f"?reg={registration.self_serve_token}"
     )
     cancel_url = (
-        request.build_absolute_uri(reverse("classes:register_cancelled", kwargs={"slug": offering.slug}))
+        request.build_absolute_uri(reverse("classes:register_cancelled", kwargs=offering.register_kwargs))
         + f"?reg={registration.self_serve_token}"
     )
 
@@ -1105,7 +1110,33 @@ def _start_registration_payment(
     return redirect(checkout["url"])
 
 
-def register(request: HttpRequest, slug: str) -> HttpResponse:
+def _register_run(class_slug: str, pk: int) -> ClassOffering:
+    """The public run ``pk`` of the class at ``class_slug``, or a 404 (#1260).
+
+    A run whose class is not ``class_slug`` is a 404 too, so one run has one register address.
+    """
+    offering = get_object_or_404(
+        ClassOffering.objects.public().select_related("category", "instructor", "class_record"),
+        pk=pk,
+    )
+    if offering.register_kwargs["class_slug"] != class_slug:
+        raise Http404("This run belongs to another class.")
+    return offering
+
+
+def register_old_address(request: HttpRequest, slug: str, route: str) -> HttpResponse:
+    """A run's old register, success or cancelled address, moved for good to its class (#1260).
+
+    The query string goes along unchanged: a waitlist claim link carries ``waitlist_token`` and
+    Stripe returns an open Checkout with ``reg``, and dropping either loses the seat.
+    """
+    offering = get_object_or_404(ClassOffering.objects.public().select_related("class_record"), slug=slug)
+    query = request.META.get("QUERY_STRING", "")
+    target = reverse(f"classes:{route}", kwargs=offering.register_kwargs)
+    return HttpResponsePermanentRedirect(target + (f"?{query}" if query else ""))
+
+
+def register(request: HttpRequest, class_slug: str, pk: int) -> HttpResponse:
     """Public registration form — collects info, signs waivers, kicks off Stripe Checkout.
 
     A total of $0 after discounts (a 100% code or a legacy $0 row) confirms
@@ -1113,10 +1144,7 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
     Stripe Checkout Session; the webhook handler flips the registration to
     CONFIRMED on success.
     """
-    offering = get_object_or_404(
-        ClassOffering.objects.public().select_related("category", "instructor", "class_record"),
-        slug=slug,
-    )
+    offering = _register_run(class_slug, pk)
 
     stale_claim = _stale_claim_link_redirect(request, offering)
     if stale_claim is not None:
@@ -1246,12 +1274,9 @@ def register(request: HttpRequest, slug: str) -> HttpResponse:
     )
 
 
-def register_success(request: HttpRequest, slug: str) -> HttpResponse:
+def register_success(request: HttpRequest, class_slug: str, pk: int) -> HttpResponse:
     """Landing page after successful checkout — webhook does the real work."""
-    offering = get_object_or_404(
-        ClassOffering.objects.public().select_related("category", "instructor", "class_record"),
-        slug=slug,
-    )
+    offering = _register_run(class_slug, pk)
     return render(
         request,
         "classes/public/register_success.html",
@@ -1263,12 +1288,9 @@ def register_success(request: HttpRequest, slug: str) -> HttpResponse:
     )
 
 
-def register_cancelled(request: HttpRequest, slug: str) -> HttpResponse:
+def register_cancelled(request: HttpRequest, class_slug: str, pk: int) -> HttpResponse:
     """User backed out of Stripe Checkout — clean up the unpaid registration."""
-    offering = get_object_or_404(
-        ClassOffering.objects.public().select_related("category", "instructor", "class_record"),
-        slug=slug,
-    )
+    offering = _register_run(class_slug, pk)
     token = request.GET.get("reg", "").strip()
     if token:
         Registration.objects.filter(

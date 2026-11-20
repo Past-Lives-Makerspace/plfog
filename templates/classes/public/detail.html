@@ -327,7 +327,7 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
           <ul class="cp-detail__other-dates">
             {% for sibling in sibling_offerings %}
                 <li class="cp-detail__other-date" id="date-{{ sibling.pk }}">
-                  <a href="{% url 'classes:register' slug=sibling.slug %}{% if sibling.spots_left == 0 %}?waitlist=1{% endif %}" data-register-run="{{ sibling.pk }}">
+                  <a href="{{ sibling.register_path }}{% if sibling.spots_left == 0 %}?waitlist=1{% endif %}" data-register-run="{{ sibling.pk }}">
                     {% if sibling.is_flexible %}
                       {# A flexible run has no session to date: the flex line and its window, if any (#545). #}
                       <span class="cp-detail__other-date-when">Flexible: schedule with the instructor{% if sibling.has_flexible_window %} · {{ sibling.flexible_window_label }}{% endif %}</span>
@@ -485,7 +485,7 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
           {% endif %}
         {% elif is_flexible %}
           {# No seat cap (#545): no count, no sold out, no waitlist; Register now while the class is bookable. #}
-          <a class="cp-detail__cta" data-help-key="class.register" href="{% url 'classes:register' slug=offering.slug %}">
+          <a class="cp-detail__cta" data-help-key="class.register" href="{{ offering.register_path }}">
             Register now
           </a>
         {% else %}
@@ -499,11 +499,11 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
             {% endif %}
           </div>
           {% if spots_remaining > 0 %}
-            <a class="cp-detail__cta" data-help-key="class.register" href="{% url 'classes:register' slug=offering.slug %}">
+            <a class="cp-detail__cta" data-help-key="class.register" href="{{ offering.register_path }}">
               Register now
             </a>
           {% else %}
-            <a class="cp-detail__cta cp-detail__cta--waitlist" href="{% url 'classes:register' slug=offering.slug %}?waitlist=1">
+            <a class="cp-detail__cta cp-detail__cta--waitlist" href="{{ offering.register_path }}?waitlist=1">
               Join the waitlist
             </a>
             <div class="cp-detail__waitlist-hint">We'll email you the moment a spot opens. No charge to hold your place.</div>

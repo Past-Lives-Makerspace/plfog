@@ -108,7 +108,7 @@ def _session(
 
 
 def _register_url(offering: ClassOffering) -> str:
-    return reverse("classes:register", kwargs={"slug": offering.slug})
+    return offering.register_path
 
 
 def _owned_by(client, registration: Registration) -> Registration:
@@ -262,7 +262,7 @@ def describe_duplicate_registration():
             row = Registration.objects.get(class_offering=paid_offering, email="sam@example.com")
             assert response.status_code == 302
             assert response.url == (
-                reverse("classes:register_success", kwargs={"slug": paid_offering.slug})
+                reverse("classes:register_success", kwargs=paid_offering.register_kwargs)
                 + f"?reg={row.self_serve_token}"
             )
             assert mock_create.call_count == 1
@@ -646,7 +646,7 @@ def describe_claiming_a_waitlist_spot():
 
         response = client.post(_claim_url(free_offering, waiting), data=_post_data())
 
-        assert response.url == reverse("classes:register_success", kwargs={"slug": free_offering.slug})
+        assert response.url == reverse("classes:register_success", kwargs=free_offering.register_kwargs)
         waiting.refresh_from_db()
         assert waiting.status == Registration.Status.CONFIRMED
         assert Registration.objects.filter(class_offering=free_offering, email="sam@example.com").count() == 1

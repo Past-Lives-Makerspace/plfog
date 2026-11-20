@@ -54,14 +54,14 @@ def describe_catalog():
 def describe_register():
     def it_redirects_a_started_class_to_its_detail_page(client):
         series = _series("late-series", "Late Series", -1, 6, 13)
-        response = client.get(reverse("classes:register", kwargs={"slug": series.slug}))
+        response = client.get(series.register_path)
         assert response.status_code == 302
         assert response.url == series.public_path
 
     def it_does_not_create_a_registration_for_a_started_class(client):
         series = _series("late-series-2", "Late Series Two", -1, 6, 13)
         client.post(
-            reverse("classes:register", kwargs={"slug": series.slug}),
+            series.register_path,
             data={"first_name": "Sam", "last_name": "Smith", "email": "sam@example.com"},
         )
         assert not Registration.objects.filter(class_offering=series).exists()

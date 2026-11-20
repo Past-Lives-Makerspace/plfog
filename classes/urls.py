@@ -401,10 +401,25 @@ urlpatterns = [
     path("<int:pk>/flyer/", views.class_flyer, name="class_flyer"),
     # Stable QR permalink → redirects to the class's current public page (slug-proof).
     path("c/<int:pk>/", views.class_permalink, name="class_permalink"),
-    # Public registration — must come before the bare slug catch-all below.
-    path("<slug:slug>/register/", views.register, name="register"),
-    path("<slug:slug>/register/success/", views.register_success, name="register_success"),
-    path("<slug:slug>/register/cancelled/", views.register_cancelled, name="register_cancelled"),
+    # Public registration: one run of a class, under the class's address (#1260) — before the
+    # bare slug catch-all below.
+    path("<slug:class_slug>/register/<int:pk>/", views.register, name="register"),
+    path("<slug:class_slug>/register/<int:pk>/success/", views.register_success, name="register_success"),
+    path("<slug:class_slug>/register/<int:pk>/cancelled/", views.register_cancelled, name="register_cancelled"),
+    # A run's old register addresses, in waitlist claim emails and open Checkouts: 301 to the new route.
+    path("<slug:slug>/register/", views.register_old_address, {"route": "register"}, name="register_old"),
+    path(
+        "<slug:slug>/register/success/",
+        views.register_old_address,
+        {"route": "register_success"},
+        name="register_success_old",
+    ),
+    path(
+        "<slug:slug>/register/cancelled/",
+        views.register_old_address,
+        {"route": "register_cancelled"},
+        name="register_cancelled_old",
+    ),
     # Public class detail — keep last so admin/, category/, instructors/, my/ win.
     path("<slug:slug>/", views.public_class_detail, name="public_class_detail"),
 ]

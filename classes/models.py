@@ -1850,6 +1850,19 @@ class ClassOffering(HeroCropMixin, models.Model):
         return reverse("classes:public_class_detail", kwargs={"slug": slug})
 
     @property
+    def register_kwargs(self) -> dict[str, str | int]:
+        """The register, success and cancelled routes' arguments: this run under its class's address (#1260)."""
+        record = self.class_record
+        return {"class_slug": record.slug if record is not None else self.slug, "pk": self.pk}
+
+    @property
+    def register_path(self) -> str:
+        """This run's register page, under its class's address (#1260)."""
+        from django.urls import reverse
+
+        return reverse("classes:register", kwargs=self.register_kwargs)
+
+    @property
     def public_url(self) -> str:
         """Absolute URL of this run's public page, its class's (on the book surface)."""
         from classes.emails import _absolute_url
@@ -4442,14 +4455,13 @@ class ClassOffering(HeroCropMixin, models.Model):
 
         ``spots`` is the seats left, already counted for the page (``spots_remaining_map``).
         """
-        from django.urls import reverse
 
         from core.urls_util import book_absolute_url
 
         data = self._event_json_ld(spots)
         if data is None:
             return None
-        register_url = book_absolute_url(reverse("classes:register", kwargs={"slug": self.slug}))
+        register_url = book_absolute_url(self.register_path)
         data["url"] = register_url
         data["offers"]["url"] = register_url
         return data

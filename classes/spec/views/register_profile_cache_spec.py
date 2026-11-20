@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from django.urls import reverse
 
 from classes.spec.views.register_spec import _post_data
 
@@ -16,7 +15,7 @@ def describe_registration_profile_cache():
 
         client.force_login(member_user)
         data = _post_data(pronouns="xe/xem", phone="503-555-9999")
-        resp = client.post(reverse("classes:register", kwargs={"slug": free_offering.slug}), data=data)
+        resp = client.post(free_offering.register_path, data=data)
         assert resp.status_code == 302
         profile = UserProfile.objects.get(user=member_user)
         assert profile.pronouns == "xe/xem"
@@ -28,7 +27,7 @@ def describe_registration_profile_cache():
         UserProfile.objects.create(user=member_user, pronouns="she/her")
         client.force_login(member_user)
         data = _post_data(pronouns="xe/xem", phone="503-555-9999")
-        client.post(reverse("classes:register", kwargs={"slug": free_offering.slug}), data=data)
+        client.post(free_offering.register_path, data=data)
         profile = UserProfile.objects.get(user=member_user)
         assert profile.pronouns == "she/her"  # untouched
         assert profile.phone == "503-555-9999"  # was empty → filled
@@ -37,6 +36,6 @@ def describe_registration_profile_cache():
         from core.models import UserProfile
 
         data = _post_data(pronouns="xe/xem", phone="503-555-9999")
-        resp = client.post(reverse("classes:register", kwargs={"slug": free_offering.slug}), data=data)
+        resp = client.post(free_offering.register_path, data=data)
         assert resp.status_code == 302
         assert not UserProfile.objects.exists()
