@@ -56,9 +56,14 @@ def describe_old_class_page_link():
         assert response.status_code == 410
 
     @override_settings(**ON_CLASS_SITE)
-    def it_answers_gone_for_a_class_that_is_no_longer_listed(client: Client):
-        ClassOfferingFactory(legacy_cms_id="node-abc", slug="sewing-pattern", status=ClassOffering.Status.ARCHIVED)
-        assert _get(client, "/class/sewing-pattern").status_code == 410
+    def it_sends_an_archived_class_long_past_to_its_class_type(client: Client):
+        # Archiving no longer hides a class (#1260); one with nothing in a year is Retired.
+        offering = ClassOfferingFactory(
+            legacy_cms_id="node-abc", slug="sewing-pattern", status=ClassOffering.Status.ARCHIVED
+        )
+        response = _get(client, "/class/sewing-pattern")
+        assert response.status_code == 301
+        assert response["Location"] == f"/classes/category/{offering.category.slug}/"
 
     @override_settings(**ON_CLASS_SITE)
     def it_answers_gone_for_an_unknown_class_with_a_way_to_the_catalog(client: Client):

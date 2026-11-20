@@ -363,6 +363,17 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.DAILY,
     ),
     ScheduledJob(
+        key="refresh_class_states",
+        name="Class states",
+        description=(
+            "Moves each class between Scheduled, Between runs and Retired as its dates pass, "
+            "and files any date with no class under one."
+        ),
+        command="refresh_class_states",
+        schedule_label="Nightly ~6 AM",
+        cadence=Cadence.DAILY,
+    ),
+    ScheduledJob(
         key="generate_orientation_slots",
         name="Generate orientation slots",
         description="Opens the next batch of bookable orientation time slots.",

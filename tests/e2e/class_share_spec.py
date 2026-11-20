@@ -170,6 +170,11 @@ def describe_the_share_button():
 
         page.locator(f"a.cls-title[href='{detail_path}']").click()
         page.wait_for_url(f"**{detail_path}")
+        # Wait on what the click needs, not the URL: the swapped in menu's Alpine state and the
+        # share script, which a boosted arrival loads after the swap.
+        page.wait_for_function(
+            "() => !!(document.querySelector('.cp-share') || {})._x_dataStack && !!window.plClassShareBound"
+        )
         page.locator(SHARE_BUTTON).click()
 
         expect(page.locator(MENU)).to_be_visible()

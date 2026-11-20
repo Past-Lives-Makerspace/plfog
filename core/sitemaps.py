@@ -81,7 +81,7 @@ class ClassSitemap(HostSitemap):
     def items(self) -> list[ClassOffering]:
         from classes.models import ClassOffering
 
-        runs = ClassOffering.objects.indexable().select_related("class_record").order_by("-updated_at", "-pk")
+        runs = ClassOffering.objects.indexable().listed().select_related("class_record").order_by("-updated_at", "-pk")
         by_address: dict[str, ClassOffering] = {}
         for run in runs:
             by_address.setdefault(run.public_path, run)

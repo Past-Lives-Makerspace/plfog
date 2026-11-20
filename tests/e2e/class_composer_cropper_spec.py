@@ -742,6 +742,7 @@ def describe_crop_shape_picker():
         # holds and the square sits pillarboxed in it; at 390 the frame is the column's
         # width and square.
         ClassOffering.objects.filter(pk=offering.pk).update(status=ClassOffering.Status.PUBLISHED)
+        offering.class_record.refresh_state()  # a queryset publish skips save, as the nightly job heals
         settings.PUBLIC_HOSTS = [urlparse(live_server.url).hostname]
         url = f"{live_server.url}{offering.public_path}"
         for width in (1366, 390):

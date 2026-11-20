@@ -557,7 +557,7 @@ def sync_local_class_events() -> int:
         class_offering_id__in=bookable_ids,
         starts_at__gte=now,
         starts_at__lte=horizon,
-    ).select_related("class_offering", "class_offering__category")
+    ).select_related("class_offering__category", "class_offering__class_record")
 
     kept_pks: list[int] = []
     for session in qs:
@@ -571,7 +571,7 @@ def sync_local_class_events() -> int:
                 "title": strip_date_suffix(offering.title),
                 "description": offering.description_text[:500],
                 "location": "Past Lives Makerspace",
-                "url": f"/classes/{offering.slug}/",
+                "url": offering.public_path,
                 "start_dt": session.starts_at,
                 "end_dt": session.ends_at,
                 "all_day": False,

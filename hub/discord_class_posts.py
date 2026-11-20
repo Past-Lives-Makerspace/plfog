@@ -297,6 +297,7 @@ def _pending_offerings() -> list[ClassOffering]:
 
     return list(
         ClassOffering.objects.bookable()
+        .listed()  # a No longer offered class is not announced as new (#1260)
         .filter(channel_announced_at__isnull=True)
         .select_related("category", "instructor", "area", "class_record")
         .prefetch_related("sessions", "gallery_images", "instructor_rows")
