@@ -37,7 +37,7 @@ def describe_class_qr_download():
 def describe_class_permalink():
     def it_redirects_to_the_current_public_page(free_offering, client, db):
         resp = client.get(reverse("classes:class_permalink", args=[free_offering.pk]))
-        assert resp.status_code == 302
+        assert resp.status_code == 301
         assert resp["Location"] == free_offering.public_path
 
     def it_follows_a_slug_change_so_a_printed_qr_survives(free_offering, client, db):
@@ -45,7 +45,7 @@ def describe_class_permalink():
         free_offering.slug = "renamed-demo"
         free_offering.save(update_fields=["slug"])
         resp = client.get(permalink)
-        assert resp.status_code == 302
+        assert resp.status_code == 301
         # A run's slug no longer decides its address: the QR lands on the class page (#1260).
         assert resp["Location"] == free_offering.public_path
 

@@ -535,18 +535,21 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     """A class's one permanent page (#1260), or an old run address sent on to it.
 
     ``slug`` is a class's address first; ``ClassRecord.page_run`` picks the run it is built from.
-    It lists every open date with its own Register and how many times the class was taught. A slug
-    that is no class's is an old run address: a public run's 301s to its class's page with the
-    query string kept, and anything else is a 404, as before.
+    It lists every open date with its own Register and how many times the class was taught. A
+    Retired class 301s to its Class Type page. A slug that is no class's is an old run address: a
+    published or archived run's 301s to its class's page with the query string kept, and anything
+    else is a 404, as before.
     """
     record = ClassRecord.objects.filter(slug=slug).first()
     if record is not None:
         offering = record.page_run()
         if offering is None:
             raise Http404("No public run of this class.")
+        if record.state == ClassRecord.State.RETIRED:
+            return HttpResponsePermanentRedirect(offering.public_path)
         return _render_class_page(request, offering, times_taught=record.times_taught())
     offering = get_object_or_404(
-        ClassOffering.objects.public()
+        ClassOffering.objects.on_class_pages()
         .select_related("category", "area", "class_record")
         .prefetch_related("sessions", "instructor_rows"),
         slug=slug,
@@ -609,7 +612,7 @@ def legacy_class_page(request: HttpRequest, alias: str) -> HttpResponse:
     as a soft 404, and Gone tells it to drop the old page. A visitor still gets the themed
     not found page, with its way to the catalog.
     """
-    offering = ClassOffering.objects.public().for_legacy_alias(alias)
+    offering = ClassOffering.objects.on_class_pages().for_legacy_alias(alias)
     if offering is None:
         return render(request, "404.html", status=410)
     return redirect(offering.public_path, permanent=True)
@@ -1130,7 +1133,12 @@ def register_old_address(request: HttpRequest, slug: str, route: str) -> HttpRes
     The query string goes along unchanged: a waitlist claim link carries ``waitlist_token`` and
     Stripe returns an open Checkout with ``reg``, and dropping either loses the seat.
     """
-    offering = get_object_or_404(ClassOffering.objects.public().select_related("class_record"), slug=slug)
+    offering = get_object_or_404(
+        ClassOffering.objects.on_class_pages().select_related("category", "class_record"), slug=slug
+    )
+    record = offering.class_record
+    if record is not None and record.state == ClassRecord.State.RETIRED:
+        return HttpResponsePermanentRedirect(offering.public_path)  # its Class Type page, in one hop
     query = request.META.get("QUERY_STRING", "")
     target = reverse(f"classes:{route}", kwargs=offering.register_kwargs)
     # A POST (a form loaded before the move, sent after it) goes on as a 308, which keeps the
@@ -4538,12 +4546,12 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
 def class_permalink(request: HttpRequest, pk: int) -> HttpResponse:
     """Stable, slug-independent permalink → the class's current public page.
 
-    Class QR codes encode this (not the slug URL directly), so a printed QR keeps working
-    after a slug change. A temporary (302) redirect, so scanners always re-resolve to the
-    live slug rather than caching an old target.
+    Class QR codes encode this (not the slug URL directly), so a printed QR keeps working. Since
+    #1260 the target is the class's permanent address, or its Class Type's once Retired, so the
+    redirect is permanent (301).
     """
-    offering = get_object_or_404(ClassOffering.objects.select_related("class_record"), pk=pk)
-    return redirect(offering.public_path)
+    offering = get_object_or_404(ClassOffering.objects.select_related("category", "class_record"), pk=pk)
+    return redirect(offering.public_path, permanent=True)
 
 
 def class_qr_download(request: HttpRequest, pk: int, fmt: str) -> HttpResponse:

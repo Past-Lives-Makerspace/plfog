@@ -272,6 +272,10 @@ TITLE_TAKEN_MESSAGE = "Another class in this Class Type is already called {title
 
 # Room left under the 255 character slug column for a Class Type and a number after a class's title.
 _CLASS_SLUG_BASE_LENGTH = 180
+#: A class with no public session in this long, and none to come, is Retired (#1260; Felix, 2026-11-18).
+RETIRE_AFTER = timedelta(days=365)
+#: A run's columns whose change can move its class between Scheduled, Between runs and Retired.
+_CLASS_STATE_INPUTS = ("status", "is_private", "scheduling_model", "flexible_starts_on", "flexible_ends_on")
 
 
 class ClassRecord(models.Model):
@@ -295,6 +299,38 @@ class ClassRecord(models.Model):
         related_name="class_records",
         help_text="The Class Type every run of this class is filed under.",
     )
+
+    class State(models.TextChoices):
+        """Where the class stands for its public page (#1260); :meth:`state_now` is the one rule."""
+
+        SCHEDULED = "scheduled", "Scheduled"
+        BETWEEN_RUNS = "between_runs", "Between runs"
+        RETIRED = "retired", "Retired"
+
+    state = models.CharField(
+        max_length=20,
+        choices=State.choices,
+        default=State.SCHEDULED,
+        help_text="Scheduled, Between runs or Retired. A Retired class's page sends visitors to its Class Type.",
+    )
+    state_changed_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the class last moved between Scheduled, Between runs and Retired."
+    )
+    no_longer_offered = models.BooleanField(
+        default=False,
+        help_text="An admin retired this class by hand. Publishing a new run of it clears this.",
+    )
+    no_longer_offered_at = models.DateTimeField(
+        null=True, blank=True, help_text="When an admin marked this class No longer offered."
+    )
+    no_longer_offered_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text="The admin who marked this class No longer offered.",
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When this class record was created.")
     updated_at = models.DateTimeField(auto_now=True, help_text="When this class record last changed.")
 
@@ -304,9 +340,71 @@ class ClassRecord(models.Model):
     def __str__(self) -> str:
         return self.title
 
+    def state_now(self) -> "ClassRecord.State":
+        """The state the rule gives this class at this moment (#1260).
+
+        Retired when an admin marked it No longer offered (Felix, 2026-11-20: allowed even with a date
+        to come; publishing a new run clears the mark). Otherwise Scheduled: a published public run
+        with a future first session, an open flexible window, or no date set yet. Between runs: none
+        of those, but a public session (or a flexible window's last day) in the past 12 months.
+        Retired: otherwise.
+        """
+        if self.no_longer_offered:
+            return self.State.RETIRED
+        runs = ClassOffering.objects.filter(class_record=self)
+        undated = runs.public().filter(scheduling_model=ClassOffering.SchedulingModel.FIXED, sessions__isnull=True)
+        if runs.bookable().exists() or undated.exists():
+            return self.State.SCHEDULED
+        cutoff = timezone.now() - RETIRE_AFTER
+        recent = runs.on_class_pages().filter(
+            Q(sessions__starts_at__gte=cutoff)
+            | Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE, flexible_ends_on__gte=cutoff.date())
+        )
+        if recent.exists():
+            return self.State.BETWEEN_RUNS
+        return self.State.RETIRED
+
+    def refresh_state(self, *, actor: "User | None" = None) -> bool:
+        """Store :meth:`state_now` and log a move as a CmsActivity row; whether the state moved.
+
+        One row UPDATE, no outside call.
+        """
+        from classes import activity
+
+        new = self.state_now()
+        old = self.state
+        if new == old:
+            return False
+        now = timezone.now()
+        type(self).objects.filter(pk=self.pk).update(state=new, state_changed_at=now)
+        self.state, self.state_changed_at = new, now
+        activity.log(
+            CmsActivity.Kind.CLASS_STATE_CHANGED,
+            class_offering=ClassOffering.objects.filter(class_record=self).order_by("-pk").first(),
+            actor=actor,
+            payload={"class": self.slug, "from": old, "to": new},
+        )
+        return True
+
+    def mark_no_longer_offered(self, by: "User | None") -> None:
+        """Retire this class by hand, even with a date still to come (Felix, 2026-11-20)."""
+        type(self).objects.filter(pk=self.pk).update(
+            no_longer_offered=True, no_longer_offered_at=timezone.now(), no_longer_offered_by=by
+        )
+        self.no_longer_offered = True
+        self.refresh_state(actor=by)
+
+    def offer_again(self, by: "User | None") -> None:
+        """Clear the No longer offered mark; the rule then decides the state alone."""
+        type(self).objects.filter(pk=self.pk).update(
+            no_longer_offered=False, no_longer_offered_at=None, no_longer_offered_by=None
+        )
+        self.no_longer_offered = False
+        self.refresh_state(actor=by)
+
     def public_runs(self) -> "ClassOfferingQuerySet":
-        """This class's runs anyone may see: published, not private, not a hidden demo."""
-        return ClassOffering.objects.public().filter(class_record=self)
+        """This class's runs its page may show: published or archived, not private, not a hidden demo."""
+        return ClassOffering.objects.on_class_pages().filter(class_record=self)
 
     def page_run(self) -> "ClassOffering | None":
         """The run the class page is built from.
@@ -375,6 +473,8 @@ class ClassRecord(models.Model):
             slug=cls.free_slug(base, run.category.slug, own_runs),
             title=run.title,
             category_id=run.category_id,
+            # No public run yet; its first published date makes it Scheduled, logged as a move.
+            state=cls.State.RETIRED,
         )
 
     @classmethod
@@ -456,9 +556,20 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
         manage demo classes. ``bookable()`` calls this, so the gate covers the
         catalog, calendar, Discord posts, and every other public class surface at once.
         """
+        return self._seen_by_everyone([ClassOffering.Status.PUBLISHED])
+
+    def on_class_pages(self) -> "ClassOfferingQuerySet":
+        """Runs a class page and its old addresses may show (#1260): :meth:`public`, archived ones too.
+
+        Archiving keeps a run's records; it no longer takes its class's page down.
+        """
+        return self._seen_by_everyone([ClassOffering.Status.PUBLISHED, ClassOffering.Status.ARCHIVED])
+
+    def _seen_by_everyone(self, statuses: list[str]) -> "ClassOfferingQuerySet":
+        """Runs in ``statuses``, not private, and not a demo while demo classes are hidden."""
         from core.models import SiteConfiguration
 
-        qs = self.filter(status="published", is_private=False)
+        qs = self.filter(status__in=statuses, is_private=False)
         if not SiteConfiguration.load().display_demo_classes:
             qs = qs.exclude(slug__startswith=DEMO_SLUG_PREFIX)
         return qs
@@ -1842,10 +1953,17 @@ class ClassOffering(HeroCropMixin, models.Model):
 
     @property
     def public_path(self) -> str:
-        """This run's public page: its class's (#1260), or its own until a save files it under one."""
+        """This run's public page: its class's (#1260), or its own until a save files it under one.
+
+        A Retired class's page is its Class Type's, so every link and old address reaches it in one hop.
+        A run nobody may see yet (a draft, a private run) keeps its class's address.
+        """
         from django.urls import reverse
 
         record = self.class_record
+        shown = self.status in (self.Status.PUBLISHED, self.Status.ARCHIVED) and not self.is_private
+        if record is not None and shown and record.state == ClassRecord.State.RETIRED:
+            return reverse("classes:public_category", kwargs={"slug": self.category.slug})
         slug = record.slug if record is not None else self.slug
         return reverse("classes:public_class_detail", kwargs={"slug": slug})
 
@@ -1966,7 +2084,9 @@ class ClassOffering(HeroCropMixin, models.Model):
             try:
                 old = (
                     type(self)
-                    ._default_manager.only("image", "grouping_key", "category_id", "title", *HERO_CROP_FIELDS)
+                    ._default_manager.only(
+                        "image", "grouping_key", "category_id", "title", *HERO_CROP_FIELDS, *_CLASS_STATE_INPUTS
+                    )
                     .get(pk=self.pk)
                 )
             except type(self).DoesNotExist:
@@ -2020,6 +2140,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             self._repoint_open_guild_lead_gate()
         if old is not None:
             self._carry_to_class(old, update_fields)
+        self._refresh_class_state(old)
 
         if creating:
             from classes import activity
@@ -2027,6 +2148,19 @@ class ClassOffering(HeroCropMixin, models.Model):
             activity.log(CmsActivity.Kind.CLASS_CREATED, class_offering=self)
 
         self._sync_payee()
+
+    def _refresh_class_state(self, old: "ClassOffering | None") -> None:
+        """Recompute the class's state when this save published, cancelled, archived or moved the run (#1260)."""
+        if self.class_record_id is None:
+            return
+        if old is not None and all(getattr(old, field) == getattr(self, field) for field in _CLASS_STATE_INPUTS):
+            return
+        record = ClassRecord.objects.get(pk=self.class_record_id)
+        published_now = self.status == self.Status.PUBLISHED and (old is None or old.status != self.Status.PUBLISHED)
+        if published_now and record.no_longer_offered:
+            record.offer_again(None)  # publishing a new run brings the class back (Felix, 2026-11-20)
+        else:
+            record.refresh_state()
 
     def _carry_to_class(self, old: "ClassOffering", update_fields: Iterable[str] | None) -> None:
         """Title and Class Type belong to the class (#1260): an edit on one run is made on the class and every run.
@@ -7567,6 +7701,7 @@ class CmsActivity(models.Model):
         CLASS_UNPUBLISHED = "class_unpublished", "Taken back to draft"
         # Request a change is gone (#1186); the value stays so the rows it wrote still read.
         CLASS_CHANGE_REQUESTED = "class_change_requested", "Change requested by instructor"
+        CLASS_STATE_CHANGED = "class_state_changed", "Class state changed"
         REGISTRATION_CREATED = "registration_created", "Registered"
         REGISTRATION_CONFIRMED = "registration_confirmed", "Payment confirmed"
         REGISTRATION_CANCELLED = "registration_cancelled", "Cancelled"

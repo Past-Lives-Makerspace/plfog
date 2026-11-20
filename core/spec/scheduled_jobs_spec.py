@@ -69,6 +69,7 @@ _DISPATCHER_ALWAYS = {
 _DISPATCHER_DAILY = {
     "sync_all_sources",
     "retire_stale_orientor_hours",
+    "refresh_class_states",
     "generate_orientation_slots",
     "sweep_stale_refunds",
     "sync_stripe_fees",

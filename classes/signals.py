@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.db.models.signals import post_delete, pre_delete
+from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import receiver
 
-from classes.models import ClassApproval, ClassOffering, ClassRecord
+from classes.models import ClassApproval, ClassOffering, ClassRecord, ClassSession
 
 
 @receiver(pre_delete, sender=ClassApproval, dispatch_uid="classes.clear_review_bells_on_gate_delete")
@@ -30,3 +30,17 @@ def class_record_follows_deleted_run(sender: type[ClassOffering], instance: Clas
     the rows are gone, so the class sees only the runs that remain.
     """
     ClassRecord.follow_runs(instance.class_record_id)
+
+
+@receiver(post_save, sender=ClassSession, dispatch_uid="classes.class_state_follows_saved_session")
+@receiver(post_delete, sender=ClassSession, dispatch_uid="classes.class_state_follows_deleted_session")
+def class_state_follows_session(sender: type[ClassSession], instance: ClassSession, **kwargs: Any) -> None:
+    """Recompute the class's state when one of its runs is dated, re-dated or loses a date (#1260).
+
+    A signal, because sessions are written by the composer, the date tools and the import alike.
+    """
+    if kwargs.get("raw"):
+        return
+    record = ClassRecord.objects.filter(runs__pk=instance.class_offering_id).first()
+    if record is not None:
+        record.refresh_state()

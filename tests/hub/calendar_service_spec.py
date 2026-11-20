@@ -163,7 +163,7 @@ def describe_sync_local_class_events():
         sync_local_class_events()
 
         event = CalendarEvent.objects.get(source="classes")
-        assert event.url == "/classes/welding-101/"
+        assert event.url == offering.public_path == f"/classes/{offering.class_record.slug}/"
         assert "pastlives.space" not in event.url
 
     def it_skips_draft_private_and_past_sessions():

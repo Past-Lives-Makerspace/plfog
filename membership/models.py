@@ -8882,7 +8882,7 @@ class AnnouncementDraft(models.Model):
             # announcement is a direct notice to the roster, not a public page post. The roster is
             # passed explicitly (never the resolver default) so email-only + waitlist are honored.
             offering = cast("ClassOffering", self.class_offering)  # the guard above guarantees a class
-            class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+            class_url = offering.public_url
             class_user_ids, class_emails = self._class_recipients()
             # Hoisted so the exact timestamped period the emit claims is the one stamped below.
             period = f"announce:{self.pk}:{timezone.now():%Y%m%d%H%M%S%f}"
