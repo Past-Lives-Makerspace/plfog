@@ -154,6 +154,16 @@ def describe_moving_state():
 
         assert not ClassRecord.objects.exists()
 
+    def it_computes_the_state_of_a_class_a_save_files_a_run_under():
+        run = _run("framing-1", days=10)
+        ClassOffering.objects.filter(pk=run.pk).update(class_record=None)
+        ClassRecord.objects.all().delete()
+
+        run.refresh_from_db()
+        run.save()
+
+        assert _record(run).state == State.SCHEDULED
+
 
 def describe_no_longer_offered():
     def it_retires_a_class_between_runs_and_says_who():
@@ -237,4 +247,5 @@ def describe_the_daily_job():
         orphan.refresh_from_db()
         assert _record(orphan).state == State.SCHEDULED
         assert _record(run).state == State.BETWEEN_RUNS
-        assert "Filed 1 run(s) under a class; 2 class(es) changed state." in out.getvalue()
+        # The filed run's class gets its state as it is filed, so only the other one moves here.
+        assert "Filed 1 run(s) under a class; 1 class(es) changed state." in out.getvalue()

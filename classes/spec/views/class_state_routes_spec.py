@@ -37,20 +37,23 @@ def describe_a_retired_class():
 
     @pytest.mark.parametrize(
         "path",
-        [
-            "/classes/picture-framing/",
-            "/classes/picture-framing-2024-06-01/",
-            "/classes/picture-framing-2024-06-01/register/",
-            "/classes/picture-framing-2024-06-01/register/success/?reg=tok",
-        ],
+        ["/classes/picture-framing/", "/classes/picture-framing-2024-06-01/"],
     )
-    def it_sends_every_address_to_its_class_type_in_one_hop(client, path):
+    def it_sends_its_page_and_old_run_addresses_to_its_class_type_for_a_day(client, path):
         _retired()
 
         response = client.get(path)
 
         assert response.status_code == 301
         assert response["Location"] == CLASS_TYPE
+        assert response["Cache-Control"] == "max-age=86400"
+
+    def it_forwards_an_old_register_address_to_the_runs_own_route(client):
+        run = _retired()
+
+        response = client.get("/classes/picture-framing-2024-06-01/register/success/?reg=tok")
+
+        assert response["Location"] == f"/classes/picture-framing/register/{run.pk}/success/?reg=tok"
 
     def it_sends_its_qr_permalink_there_too(client):
         run = _retired()
@@ -58,6 +61,7 @@ def describe_a_retired_class():
         response = client.get(reverse("classes:class_permalink", kwargs={"pk": run.pk}))
 
         assert (response.status_code, response["Location"]) == (301, CLASS_TYPE)
+        assert response["Cache-Control"] == "max-age=86400"
 
     def it_sends_its_old_site_link_there_too(client):
         _retired("picture-framing-legacy", legacy_cms_id="node-9")
@@ -77,6 +81,7 @@ def describe_a_class_that_is_still_live():
         response = client.get(reverse("classes:class_permalink", kwargs={"pk": run.pk}))
 
         assert (response.status_code, response["Location"]) == (301, "/classes/picture-framing/")
+        assert response["Cache-Control"] == "max-age=86400"
 
     def it_shows_a_class_whose_runs_are_archived(client):
         _run("picture-framing-2026-10-01", days=-30, status=ClassOffering.Status.ARCHIVED)
@@ -97,3 +102,41 @@ def describe_a_class_that_is_still_live():
         _run("picture-framing-2026-12-01", days=10, is_private=True)
 
         assert client.get("/classes/picture-framing/").status_code == 404
+
+
+def describe_a_class_no_longer_offered_with_a_date_to_come():
+    def _marked() -> ClassOffering:
+        run = _run("picture-framing-2026-12-01", days=10)
+        run.class_record.mark_no_longer_offered(None)
+        run.refresh_from_db()
+        return run
+
+    @pytest.mark.parametrize(
+        ("suffix", "route_suffix", "query"),
+        [("register/", "", "waitlist_token=abc123"), ("register/success/", "success/", "reg=tok")],
+    )
+    def it_still_forwards_a_registrants_old_link_with_its_token(client, suffix, route_suffix, query):
+        run = _marked()
+
+        response = client.get(f"/classes/picture-framing-2026-12-01/{suffix}?{query}")
+
+        assert response.status_code == 301
+        assert response["Location"] == f"/classes/picture-framing/register/{run.pk}/{route_suffix}?{query}"
+
+    def it_sends_visitors_of_its_page_to_its_class_type(client):
+        _marked()
+
+        assert client.get("/classes/picture-framing/")["Location"] == CLASS_TYPE
+
+    def it_links_its_registrants_to_the_dates_register_page():
+        run = _marked()
+
+        assert run.public_path == run.register_path
+
+    def it_leaves_the_catalog_class_type_page_and_sitemap(client):
+        run = _marked()
+
+        assert run not in ClassOffering.objects.bookable()
+        assert run not in ClassOffering.objects.indexable()
+        assert run.register_path not in client.get(CLASS_TYPE).content.decode()
+        assert "Picture Framing" not in client.get(reverse("classes:public_list")).content.decode()

@@ -44,6 +44,7 @@ from django.http import (
 )
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.cache import patch_cache_control
 from django.utils import timezone
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.csrf import csrf_exempt
@@ -164,6 +165,9 @@ _ViewFunc = Callable[..., HttpResponse]
 # bound (all upcoming). Kept in one named place so the three magic numbers
 # don't scatter across the view and templates.
 WITHIN_DAYS = {"30": 30, "90": 90, "180": 180}
+
+#: How long a browser may keep a redirect whose target follows a class's state (#1260): a day.
+STATE_REDIRECT_MAX_AGE = 86400
 
 # Soft, non-blocking suggestion shown after a class submits with fewer than three
 # gallery photos. The hard requirement (own hero image plus at least one gallery
@@ -546,7 +550,8 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
         if offering is None:
             raise Http404("No public run of this class.")
         if record.state == ClassRecord.State.RETIRED:
-            return HttpResponsePermanentRedirect(offering.public_path)
+            category_path = reverse("classes:public_category", kwargs={"slug": record.category.slug})
+            return _state_redirect(category_path)
         return _render_class_page(request, offering, times_taught=record.times_taught())
     offering = get_object_or_404(
         ClassOffering.objects.on_class_pages()
@@ -556,8 +561,19 @@ def public_class_detail(request: HttpRequest, slug: str) -> HttpResponse:
     )
     if offering.class_record_id:
         query = request.META.get("QUERY_STRING", "")
-        return HttpResponsePermanentRedirect(offering.public_path + (f"?{query}" if query else ""))
+        return _state_redirect(offering.public_path + (f"?{query}" if query else ""))
     return _render_class_page(request, offering, times_taught=0)
+
+
+def _state_redirect(path: str) -> HttpResponsePermanentRedirect:
+    """A 301 whose target follows the class's state (#1260), cached for a day, not for good.
+
+    A browser keeps a bare 301 without limit, so a visitor who met a Retired class would never
+    see it again once it is offered again.
+    """
+    response = HttpResponsePermanentRedirect(path)
+    patch_cache_control(response, max_age=STATE_REDIRECT_MAX_AGE)
+    return response
 
 
 def _render_class_page(request: HttpRequest, offering: ClassOffering, *, times_taught: int) -> HttpResponse:
@@ -615,7 +631,7 @@ def legacy_class_page(request: HttpRequest, alias: str) -> HttpResponse:
     offering = ClassOffering.objects.on_class_pages().for_legacy_alias(alias)
     if offering is None:
         return render(request, "404.html", status=410)
-    return redirect(offering.public_path, permanent=True)
+    return _state_redirect(offering.public_path)
 
 
 def public_instructor(request: HttpRequest, slug: str) -> HttpResponse:
@@ -1136,9 +1152,6 @@ def register_old_address(request: HttpRequest, slug: str, route: str) -> HttpRes
     offering = get_object_or_404(
         ClassOffering.objects.on_class_pages().select_related("category", "class_record"), slug=slug
     )
-    record = offering.class_record
-    if record is not None and record.state == ClassRecord.State.RETIRED:
-        return HttpResponsePermanentRedirect(offering.public_path)  # its Class Type page, in one hop
     query = request.META.get("QUERY_STRING", "")
     target = reverse(f"classes:{route}", kwargs=offering.register_kwargs)
     # A POST (a form loaded before the move, sent after it) goes on as a 308, which keeps the
@@ -4551,7 +4564,7 @@ def class_permalink(request: HttpRequest, pk: int) -> HttpResponse:
     redirect is permanent (301).
     """
     offering = get_object_or_404(ClassOffering.objects.select_related("category", "class_record"), pk=pk)
-    return redirect(offering.public_path, permanent=True)
+    return _state_redirect(offering.public_path)
 
 
 def class_qr_download(request: HttpRequest, pk: int, fmt: str) -> HttpResponse:
