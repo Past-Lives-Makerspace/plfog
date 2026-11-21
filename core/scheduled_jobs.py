@@ -305,7 +305,10 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
     ScheduledJob(
         key="sync_discord_guild_roles",
         name="Sync Discord guild roles",
-        description="Keeps Discord guild roles in step with members' guild membership.",
+        description=(
+            "Adds members who react in #choose-your-guild to that guild, and gives every reactor the "
+            "guild's Discord role. Never takes a role or a membership away."
+        ),
         command="sync_discord_guild_roles",
         schedule_label="Every 15 min",
         cadence=Cadence.ALWAYS,
@@ -341,6 +344,17 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         command="post_weekly_classes_digest",
         schedule_label="Mon ~6 AM",
         cadence=Cadence.WEEKLY,
+    ),
+    ScheduledJob(
+        key="sync_discord_roles",
+        name="Daily Discord role sync",
+        description=(
+            "Gives each guild member who linked Discord their guild's role (never takes one away), then "
+            "keeps the leadership, Guild Officers, Guild Leads, Tour Guides and Instructors roles in step."
+        ),
+        command="sync_discord_roles",
+        schedule_label="Nightly ~6 AM",
+        cadence=Cadence.DAILY,
     ),
     ScheduledJob(
         key="sync_all_sources",

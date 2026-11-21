@@ -1,7 +1,8 @@
-"""BDD specs for membership.discord_sync — import, reconcile, and link orchestration.
+"""BDD specs for membership.discord_sync: import, reconcile, roster roles and link orchestration.
 
-All Discord HTTP (reactions + roles + OAuth) is mocked with ``respx``. Covers the
-provenance/anti-oscillation behavior, the completeness guardrail, and every link outcome.
+All Discord HTTP (reactions + roles + OAuth) is mocked with ``respx``. Covers provenance, the
+add only reaction mirror and roster sync (#1270), the import's completeness flag, and every link
+outcome.
 """
 
 from __future__ import annotations
@@ -196,15 +197,28 @@ def describe_reconcile_reactions():
         assert stats.added == 0
 
     @respx.mock
-    def it_removes_a_discord_row_when_the_member_stops_reacting(sync_config):
+    def it_keeps_a_discord_row_when_the_member_stops_reacting(sync_config):
         guild = GuildFactory()
         DiscordGuildEmojiFactory(emoji="🔥", guild=guild)
         member = MemberFactory(discord_user_id="u1")
         GuildMembership.objects.record_discord_join(guild, member)
         _mock_reactions({"🔥": []})  # complete fetch, nobody reacts
+        discord_sync.reconcile_reactions()
+        assert GuildMembership.objects.filter(guild=guild, member=member).exists()
+
+    @respx.mock
+    def it_clears_the_no_discord_role_mark_when_the_member_reacts_again(sync_config):
+        guild, other = GuildFactory(), GuildFactory()
+        DiscordGuildEmojiFactory(emoji="🔥", guild=guild)
+        member = MemberFactory(discord_user_id="u1")
+        GuildMembership.objects.record_app_join(guild, member)
+        GuildMembership.objects.record_app_join(other, member)
+        GuildMembership.objects.filter(member=member).update(no_discord_role=True)
+        _mock_reactions({"🔥": ["u1"]})
         stats = discord_sync.reconcile_reactions()
-        assert stats.removed == 1
-        assert not GuildMembership.objects.filter(guild=guild, member=member).exists()
+        assert stats.unmarked == 1
+        marks = dict(GuildMembership.objects.filter(member=member).values_list("guild_id", "no_discord_role"))
+        assert marks == {guild.pk: False, other.pk: True}
 
     @respx.mock
     def it_never_removes_a_source_app_row(sync_config):
@@ -215,18 +229,6 @@ def describe_reconcile_reactions():
         _mock_reactions({"🔥": []})
         discord_sync.reconcile_reactions()
         assert GuildMembership.objects.filter(guild=guild, member=member, source=GuildMembership.Source.APP).exists()
-
-    @respx.mock
-    def it_skips_removals_on_an_incomplete_fetch(sync_config):
-        guild = GuildFactory()
-        DiscordGuildEmojiFactory(emoji="🔥", guild=guild)
-        member = MemberFactory(discord_user_id="u1")
-        GuildMembership.objects.record_discord_join(guild, member)
-        _mock_reactions({"🔥": []}, flaky=["🔥"])  # 429 → incomplete
-        stats = discord_sync.reconcile_reactions()
-        assert stats.removed == 0
-        assert stats.skipped_guilds == 1
-        assert GuildMembership.objects.filter(guild=guild, member=member).exists()  # survives
 
     @respx.mock
     def it_collapses_two_emojis_onto_one_guild(sync_config):
@@ -288,8 +290,7 @@ def describe_reconcile_across_role_messages():
         member = MemberFactory(discord_user_id="u1")
         GuildMembership.objects.record_discord_join(glass, member)
         _mock_reactions_by_message({("msg2", "🔥"): ["u1"]})  # gone from msg, still on msg2
-        stats = discord_sync.reconcile_reactions()
-        assert stats.removed == 0
+        discord_sync.reconcile_reactions()
         assert GuildMembership.objects.filter(guild=glass, member=member).exists()
 
     @respx.mock
@@ -303,34 +304,8 @@ def describe_reconcile_across_role_messages():
         _mock_reactions_by_message({("msg", "🔥"): ["u1"], ("msg2", "🔥"): ["u2"]})
         stats = discord_sync.reconcile_reactions()
         assert stats.added == 2
-        assert stats.removed == 1  # only the member on neither message
-        assert set(GuildMembership.objects.filter(guild=glass).values_list("member_id", flat=True)) == {m1.pk, m2.pk}
-
-    @respx.mock
-    def it_removes_nobody_when_one_message_fetch_is_truncated(two_messages):
-        glass = GuildFactory(name="Glass")
-        DiscordGuildEmojiFactory(emoji="🔥", guild=glass)
-        member = MemberFactory(discord_user_id="u1")
-        GuildMembership.objects.record_discord_join(glass, member)
-        _mock_reactions_by_message({}, flaky=[("msg2", "🔥")])  # msg complete and empty, msg2 truncated
-        stats = discord_sync.reconcile_reactions()
-        assert stats.removed == 0
-        assert stats.skipped_guilds == 1
-        assert GuildMembership.objects.filter(guild=glass, member=member).exists()
-
-    @respx.mock
-    def it_still_removes_in_a_guild_whose_fetches_all_completed(two_messages):
-        glass, wood = GuildFactory(name="Glass"), GuildFactory(name="Wood")
-        DiscordGuildEmojiFactory(emoji="🔥", guild=glass)
-        DiscordGuildEmojiFactory(emoji="🪵", guild=wood)
-        member = MemberFactory(discord_user_id="u1")
-        GuildMembership.objects.record_discord_join(glass, member)
-        GuildMembership.objects.record_discord_join(wood, member)
-        _mock_reactions_by_message({}, flaky=[("msg2", "🔥")])
-        stats = discord_sync.reconcile_reactions()
-        assert stats.removed == 1  # Wood read fully on both messages; Glass held back
-        assert GuildMembership.objects.filter(guild=glass, member=member).exists()
-        assert not GuildMembership.objects.filter(guild=wood, member=member).exists()
+        members = set(GuildMembership.objects.filter(guild=glass).values_list("member_id", flat=True))
+        assert members == {m1.pk, m2.pk, gone.pk}  # un-reacting removes nobody (#1270)
 
     @respx.mock
     def it_nudges_an_unlinked_reactor_once_when_they_react_on_both_messages(two_messages):
@@ -372,15 +347,113 @@ def describe_reconcile_across_role_messages():
         member = MemberFactory(discord_user_id="u1")
         GuildMembership.objects.record_discord_join(glass, member)
         route = _mock_reactions_by_message({})
-        stats = discord_sync.reconcile_reactions()
+        discord_sync.reconcile_reactions()
         assert {c.request.url.path.split("/")[-3] for c in route.calls} == {"msg"}
-        assert stats.removed == 1  # exactly today's behavior: a complete empty read removes
 
     def it_does_not_run_on_extra_ids_alone(sync_config):
         sync_config.discord_role_message_id = ""
         sync_config.discord_role_message_extra_ids = "msg2"
         sync_config.save()
         assert discord_sync.reconcile_reactions().ran is False
+
+
+_MEMBERS_URL = "https://discord.com/api/v10/guilds/srv/members"
+
+
+def _mock_server(roles_by_user):
+    """The server member list: each Discord user id on the server and the role ids they hold."""
+    return respx.get(_MEMBERS_URL).mock(
+        return_value=httpx.Response(200, json=[{"user": {"id": u}, "roles": r} for u, r in roles_by_user.items()])
+    )
+
+
+def _put_roles(calls):
+    return sorted(tuple(c.request.url.path.split("/")[-3::2]) for c in calls)
+
+
+def describe_reconcile_gives_reactors_their_roles():
+    @respx.mock
+    def it_gives_every_reactor_linked_or_not_each_guild_role_they_lack(sync_config):
+        glass = GuildFactory(name="Glass", discord_role_ids=["71", "72"])
+        DiscordGuildEmojiFactory(emoji="🔥", guild=glass)
+        MemberFactory(discord_user_id="u1")
+        _mock_reactions({"🔥": ["u1", "stranger", "gone"]})
+        _mock_dm()
+        _mock_server({"u1": ["71"], "stranger": []})  # "gone" left the server
+        put = respx.put(url__regex=_ROLE_RE).mock(return_value=httpx.Response(204))
+        delete = respx.delete(url__regex=_ROLE_RE).mock(return_value=httpx.Response(204))
+        stats = discord_sync.reconcile_reactions()
+        assert _put_roles(put.calls) == [("stranger", "71"), ("stranger", "72"), ("u1", "72")]
+        assert stats.roles == discord_sync.RoleGrants(given=3, failed=0)
+        assert not delete.called
+
+    @respx.mock
+    def it_reads_no_member_list_when_no_reacted_guild_has_a_role(sync_config):
+        DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory())
+        MemberFactory(discord_user_id="u1")
+        _mock_reactions({"🔥": ["u1"]})
+        members = _mock_server({})
+        assert discord_sync.reconcile_reactions().roles == discord_sync.RoleGrants()
+        assert not members.called
+
+    @respx.mock
+    def it_counts_a_refused_or_failed_grant_and_an_unreadable_member_list(sync_config, monkeypatch):
+        from core.events import discord_roles
+
+        monkeypatch.setattr(discord_roles, "_sleep", lambda seconds: None)
+        DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory(discord_role_ids=["71", "72"]))
+        MemberFactory(discord_user_id="u1")
+        _mock_reactions({"🔥": ["u1"]})
+        _mock_server({"u1": []})
+        respx.put(url__regex=_ROLE_RE).mock(side_effect=[httpx.Response(403), httpx.Response(500)])
+        assert discord_sync.reconcile_reactions().roles == discord_sync.RoleGrants(given=0, failed=2)
+        respx.get(_MEMBERS_URL).mock(return_value=httpx.Response(500))
+        assert discord_sync.reconcile_reactions().roles == discord_sync.RoleGrants(failed=1)
+
+    @respx.mock
+    def it_leaves_alone_a_grant_discord_calls_benign(sync_config):
+        DiscordGuildEmojiFactory(emoji="🔥", guild=GuildFactory(discord_role_ids=["71"]))
+        MemberFactory(discord_user_id="u1")
+        _mock_reactions({"🔥": ["u1"]})
+        _mock_server({"u1": []})
+        respx.put(url__regex=_ROLE_RE).mock(return_value=httpx.Response(404))  # left mid run
+        assert discord_sync.reconcile_reactions().roles == discord_sync.RoleGrants()
+
+
+def describe_sync_roster_roles():
+    @respx.mock
+    def it_gives_each_linked_roster_member_their_guilds_roles_and_takes_nothing(sync_config):
+        wood = GuildFactory(name="Wood", discord_role_ids=["61"])
+        glass = GuildFactory(name="Glass", discord_role_ids=["71", "72"])
+        hidden = GuildFactory(name="Hidden", is_active=False, discord_role_ids=["81"])
+        gone = GuildFactory(name="Gone", discord_role_ids=["91"])
+        gone.soft_delete()
+        plain = GuildFactory(name="No role")
+        amy = MemberFactory(discord_user_id="u1")
+        bo = MemberFactory(discord_user_id="u2")
+        unlinked = MemberFactory(discord_user_id="")
+        for guild in (wood, glass, hidden, gone, plain):
+            GuildMembership.objects.record_app_join(guild, amy)
+        GuildMembership.objects.record_discord_join(glass, bo)
+        GuildMembership.objects.record_app_join(wood, bo)
+        GuildMembership.objects.filter(guild=wood, member=bo).update(no_discord_role=True)  # un-reacted
+        GuildMembership.objects.record_app_join(wood, unlinked)
+        _mock_server({"u1": ["61", "999"], "u2": ["72"]})
+        put = respx.put(url__regex=_ROLE_RE).mock(return_value=httpx.Response(204))
+        delete = respx.delete(url__regex=_ROLE_RE).mock(return_value=httpx.Response(204))
+
+        grants = discord_sync.sync_roster_roles()
+
+        assert _put_roles(put.calls) == [("u1", "71"), ("u1", "72"), ("u1", "81"), ("u2", "71")]
+        assert grants == discord_sync.RoleGrants(given=4, failed=0)
+        assert not delete.called
+
+    def it_does_nothing_with_a_blank_bot_token_or_server_id(sync_config, settings):
+        sync_config.discord_server_id = " "
+        sync_config.save()
+        assert discord_sync.sync_roster_roles() is None
+        settings.DISCORD_BOT_TOKEN = ""
+        assert discord_sync.sync_roster_roles() is None
 
 
 def describe_reconcile_nudges_unlinked_reactors():

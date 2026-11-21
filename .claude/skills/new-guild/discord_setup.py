@@ -1,10 +1,12 @@
-"""Make a private Discord channel, a lead role and a webhook for each new guild, then write the prod script.
+"""Make a guild role, a private Discord channel and a webhook for each new guild, then write the prod script.
 
     set -a; source ~/Code/plfog/.env; set +a
     python3 discord_setup.py spec.json out_dir/
 
 spec.json is a list of {"name", "channel", "topic", "about"}. Idempotent: an existing role or channel of
-the same name is reused, never duplicated. Writes out_dir/discord_out.json and out_dir/create_guilds.py.
+the same name is reused, never duplicated. The channel opens to the shared Guild Leads role and the
+guild's own role, and no per guild lead role is made (#1270). Writes out_dir/discord_out.json and
+out_dir/create_guilds.py, whose rows carry the guild role id as discord_role_ids.
 """
 
 import json
@@ -18,7 +20,8 @@ API = "https://discord.com/api/v10"
 BOT_USER = "1520295376727572661"
 GUILDS_CATEGORY = "936437688364597260"
 VIEW, SEND, HIST, EMBED, ATTACH, REACT, WEBHOOKS = 1024, 2048, 65536, 16384, 32768, 64, 1 << 29
-LEAD_ALLOW = VIEW | SEND | HIST | EMBED | ATTACH | REACT
+ALLOW = VIEW | SEND | HIST | EMBED | ATTACH | REACT
+GUILD_LEADS = "Guild Leads"
 
 
 def call(method: str, path: str, body: object = None) -> object:
@@ -37,17 +40,18 @@ def main(spec_path: str, out_dir: str) -> None:
     roles = {x["name"]: x for x in call("GET", f"/guilds/{SERVER}/roles")}
     channels = {x["name"]: x for x in call("GET", f"/guilds/{SERVER}/channels")}
     # A bot can only grant permissions it holds; fail before creating anything.
-    assert LEAD_ALLOW | WEBHOOKS == (LEAD_ALLOW | WEBHOOKS) & int(roles["Fog Bot"]["permissions"])
-    color = roles["Woodworkers Guild Lead"]["color"]
+    assert ALLOW | WEBHOOKS == (ALLOW | WEBHOOKS) & int(roles["Fog Bot"]["permissions"])
+    assert GUILD_LEADS in roles, f"No {GUILD_LEADS!r} role on the server; make it before a new guild."
+    leads = roles[GUILD_LEADS]
     rows = []
     for g in spec:
-        role_name = f"{g['name']} Lead"
-        role = roles.get(role_name) or call(
+        role = roles.get(g["name"]) or call(
             "POST",
             f"/guilds/{SERVER}/roles",
-            {"name": role_name, "permissions": "0", "color": color, "mentionable": True},
+            {"name": g["name"], "permissions": "0", "mentionable": True},
         )
-        # Private: @everyone denied, no Member grant. Admins see it through Administrator.
+        # Private: @everyone denied, no Member grant. Guild Leads and the guild's own role see it;
+        # admins see it through Administrator.
         channel = channels.get(g["channel"]) or call(
             "POST",
             f"/guilds/{SERVER}/channels",
@@ -58,7 +62,8 @@ def main(spec_path: str, out_dir: str) -> None:
                 "topic": g["topic"],
                 "permission_overwrites": [
                     {"id": SERVER, "type": 0, "allow": "0", "deny": str(VIEW | SEND)},
-                    {"id": role["id"], "type": 0, "allow": str(LEAD_ALLOW), "deny": "0"},
+                    {"id": leads["id"], "type": 0, "allow": str(ALLOW), "deny": "0"},
+                    {"id": role["id"], "type": 0, "allow": str(ALLOW), "deny": "0"},
                     {"id": BOT_USER, "type": 1, "allow": str(VIEW | SEND | HIST | WEBHOOKS), "deny": "0"},
                 ],
             },
@@ -78,14 +83,13 @@ def main(spec_path: str, out_dir: str) -> None:
                 "discord_channel_name": "#" + channel["name"],
                 "discord_url": f"https://discord.com/channels/{SERVER}/{channel['id']}",
                 "discord_webhook_url": f"https://discord.com/api/webhooks/{hook['id']}/{hook['token']}",
-                "lead_role_id": role["id"],
+                "discord_role_ids": [role["id"]],
             }
         )
     os.makedirs(out_dir, exist_ok=True)
     json.dump(rows, open(os.path.join(out_dir, "discord_out.json"), "w"), indent=1)
     template = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "create_guilds.py.tmpl")).read()
-    portal_rows = [{k: v for k, v in r.items() if k != "lead_role_id"} for r in rows]
-    open(os.path.join(out_dir, "create_guilds.py"), "w").write(template.replace("ROWS = []", f"ROWS = {portal_rows!r}"))
+    open(os.path.join(out_dir, "create_guilds.py"), "w").write(template.replace("ROWS = []", f"ROWS = {rows!r}"))
 
 
 if __name__ == "__main__":
