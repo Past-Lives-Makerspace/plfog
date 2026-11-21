@@ -1,5 +1,5 @@
 {% extends "hub/base.html" %}
-{% load static %}
+{% load static hub_tags %}
 {% block title %}Tours{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/tours.css' %}">
@@ -12,10 +12,18 @@ Every Week hours (rows of day, from, until, tour length and seats, each cut into
 tours), their Available On hours on picked dates (#1160, tours/partials/_dates.html), their days
 off, their Google Calendar (#951, tours/partials/_google_calendar.html), and whether their
 bookings wait for their Confirm (#1166, tours/partials/_confirm_mode.html). An
-admin picks whose hours to edit with the guide picker, which names each guide's calendar state. The page opens
-on Upcoming (tours/bookings.html, #949); admins also get the Settings tab (tours/settings.html).
+admin picks whose hours to edit with the guide picker, which names each guide's calendar state and
+applies on change. The page opens on Upcoming (tours/bookings.html, #949); admins also get the
+Settings tab (tours/settings.html).
+
+Every Week, Google Calendar's picker and Confirming Bookings save themselves as they are edited
+(#1279): the root is the plGuildAutosave component (static/js/guild_autosave.js, the guild
+settings one), each saving form carries data-autosave and a data-autosave-key naming the pill in
+its card (tours/partials/_save_status.html). Add Dates, Day Off, Connect and Disconnect act at once.
 {% endcomment %}
 {% include "tours/partials/_page_top.html" with tab="hours" %}
+
+<div x-data="plGuildAutosave({ section: 'hours' })" data-guild-autosave @pl-guild-autosave-leave.window="leave()" @pl-guild-autosave-delete.window="confirmDelete()">
 
 {% if is_admin %}
 <div class="hub-card pl-tours-panel" data-tour-guide-picker>
@@ -29,7 +37,7 @@ on Upcoming (tours/bookings.html, #949); admins also get the Settings tab (tours
         {% endfor %}
       </select>
     </div>
-    <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-picker__go">Show</button>
+    <noscript><button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Show</button></noscript>
   </form>
   {% if not picker_guides %}
   <p class="hub-text-muted pl-tours-picker__empty" data-tour-guides-empty>No Tour Guides yet. Turn on Tour Guide on a member's Permissions tab to add one.</p>
@@ -66,60 +74,49 @@ on Upcoming (tours/bookings.html, #949); admins also get the Settings tab (tours
 </script>
 
 {% if hours_refused %}
+{# Only without the script: the autosave shows a refusal on its row and never reloads the page. #}
 <div class="pl-tours-refused" role="alert" data-tour-hours-refused>
   <p class="pl-tours-refused__title">Your tour hours were not saved.</p>
-  <p class="pl-tours-refused__text">Fix the rows marked below, then press Save again. Nothing changed until then.</p>
+  <p class="pl-tours-refused__text">Fix the rows marked below and save again. Nothing changed until then.</p>
 </div>
 {% endif %}
 
-<form id="tour-hours-form" method="post" action="{% url 'tours:hours_save' %}" class="hub-form">
+<form id="tour-hours-form" method="post" action="{% url 'tours:hours_save' %}" class="hub-form" data-autosave data-autosave-key="hours" data-formset="hours" data-formset-required="{{ formset.empty_form|required_fields }}" data-autosave-confirm="tour-hours-delete">
   {% csrf_token %}
   <input type="hidden" name="guide" value="{{ target.pk }}">
   <div class="hub-card pl-tours-panel" data-tour-hours>
-    <h2 class="hub-detail-label pl-tours-panel__title">Every Week</h2>
-    <p class="hub-text-muted pl-tours-panel__intro">Hours that repeat every week. If your schedule changes from week to week, leave this empty and use Available On.</p>
+    <div class="pl-tours-panel__head" data-card-head>
+      <h2 class="hub-detail-label pl-tours-panel__title">Every Week</h2>
+      {% include "tours/partials/_save_status.html" with key="hours" %}
+    </div>
+    <p class="hub-text-muted pl-tours-panel__intro">Hours that repeat every week. If your schedule changes from week to week, leave this empty and use Available On. Every change saves as you make it.</p>
     {{ formset.management_form }}
     {% for error in formset.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
-    <div id="tour-hours-rows" class="pl-tours-rows" data-tour-hours-rows>
+    <div id="tour-hours-rows" class="pl-tours-rows" data-tour-hours-rows data-formset-rows>
       {% for row in formset %}
       {% if row.is_absent %}
-      {# A clone removed before the refused Save: the POST carried nothing for it, so it stays gone. #}
+      {# A row the POST carried nothing for (no script): it stays gone. #}
       {% elif row.errors or formset.non_form_errors or not row.instance.pk %}
       {% include "tours/partials/_hours_row.html" with row=row open=True saved=row.instance.pk %}
       {% else %}
       {% include "tours/partials/_hours_row.html" with row=row open=False saved=True %}
       {% endif %}
-      {% empty %}
-      <p class="hub-text-muted pl-tours-panel__empty" data-tour-hours-empty>No tour hours yet. Add the times you can give tours.</p>
       {% endfor %}
+      <p class="hub-text-muted pl-tours-panel__empty" data-tour-hours-empty data-formset-empty{% if formset.forms %} hidden{% endif %}>No tour hours yet. Add the times you can give tours.</p>
     </div>
 
-    {# Hidden empty-form template, cloned by + Add hours; a new row starts open. #}
-    <template id="tour-hours-empty-template">
+    {# The + Add hours clone source; a new row starts open and saves once Day, From and Until are picked. #}
+    <template id="tour-hours-empty-template" data-formset-template>
       {% include "tours/partials/_hours_row.html" with row=formset.empty_form open=True saved=False %}
     </template>
 
     <div class="pl-tours-panel__add">
-      <button type="button" class="hub-btn hub-btn--sm" data-tour-hours-add
-              onclick="
-                const tpl = document.getElementById('tour-hours-empty-template');
-                const total = document.getElementById('id_hours-TOTAL_FORMS');
-                const idx = parseInt(total.value, 10);
-                const wrap = document.createElement('div');
-                wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
-                const empty = document.querySelector('[data-tour-hours-empty]');
-                if (empty) { empty.remove(); }
-                document.getElementById('tour-hours-rows').appendChild(wrap.firstElementChild);
-                total.value = idx + 1;
-              ">
-        + Add hours
-      </button>
+      <button type="button" class="hub-btn hub-btn--sm" data-tour-hours-add data-formset-add>+ Add hours</button>
     </div>
   </div>
-  <div class="pl-tours-save-row">
-    <button type="submit" class="pl-btn pl-btn--primary" data-tour-hours-save>Save</button>
-  </div>
 </form>
+{# One confirm for every saved row's Delete; its Delete hands back to the autosave, which saves the row away. #}
+{% include "components/confirm_modal.html" with confirm_id="tour-hours-delete" confirm_title="Delete these tour hours?" confirm_message="Visitors can no longer book these times. Tours already booked stay booked." confirm_button_text="Delete" confirm_js="window.dispatchEvent(new CustomEvent('pl-guild-autosave-delete'))" %}
 
 {% include "tours/partials/_dates.html" %}
 
@@ -155,4 +152,8 @@ on Upcoming (tours/bookings.html, #949); admins also get the Settings tab (tours
 {# A refused day off posted without HTMX: reopen the modal on its errors. #}
 <div x-data x-init="$nextTick(() => $dispatch('open-modal', 'tour-day-off-modal'))" data-tour-day-off-reopen></div>
 {% endif %}
+
+{# A boosted navigation held behind a save that failed: Leave resumes it, Stay drops it. #}
+{% include "components/confirm_modal.html" with confirm_id="leave-while-saving" confirm_title="A change did not save" confirm_message="A change could not be saved. Leave anyway, or stay and try again?" confirm_button_text="Leave" confirm_cancel_text="Stay" confirm_button_style="primary" confirm_js="window.dispatchEvent(new CustomEvent('pl-guild-autosave-leave'))" %}
+</div>{# /plGuildAutosave #}
 {% endblock %}

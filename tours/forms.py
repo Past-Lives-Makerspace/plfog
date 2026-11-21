@@ -78,6 +78,10 @@ class TourHoursForm(forms.ModelForm):
             _seed_time_choice(self, "end_time", self.instance.end_time)
             _append_duration_choice(self.fields["tour_minutes"], self.instance.tour_minutes)
         else:
+            # A new row opens with From and Until blank, like its Day: the autosave (#1279) saves a
+            # row once every required field is picked, so a row must not look picked before it is.
+            for name in ("start_time", "end_time"):
+                cast(forms.ChoiceField, self.fields[name]).choices = half_hour_time_choices(required=False)
             _append_duration_choice(self.fields["tour_minutes"], defaults.default_tour_minutes)
             self.initial.setdefault("tour_minutes", defaults.default_tour_minutes)
             self.initial.setdefault("seats", defaults.default_seats)
@@ -130,45 +134,61 @@ class _TourHoursBaseFormSet(forms.BaseInlineFormSet):
     (a stale tab that never showed it, posting ``INITIAL_FORMS=0``). A row the POST carries, kept
     or deleted, is judged by what was posted. This keeps one guide and one start time to one row,
     which is what booking locks (``tours.availability.open_tour_at``).
+
+    Every overlap is the row's own error (#1279), never the formset's, so the autosave shows it on
+    the row (``hours-<i>-__all__``); two rows that overlap each get one naming the other.
     """
 
     def clean(self) -> None:
         super().clean()
         if any(self.errors):
             return
-        rows = [form.instance for form in self.forms if form.cleaned_data and not form.cleaned_data.get("DELETE")]
-        for index, row in enumerate(rows):
-            for other in rows[index + 1 :]:
-                if row.overlaps(other):
-                    raise forms.ValidationError(
-                        f"Two of these rows overlap on {row.get_weekday_display()}. A guide gives one tour at a time."
-                    )
-        self._refuse_clash_with_dated(rows)
+        kept = [form for form in self.forms if form.cleaned_data and not form.cleaned_data.get("DELETE")]
+        for index, form in enumerate(kept):
+            for other in kept[index + 1 :]:
+                if form.instance.overlaps(other.instance):
+                    _refuse_row(form, _overlap_message(other.instance))
+                    _refuse_row(other, _overlap_message(form.instance))
+        self._refuse_clash_with_dated(kept)
         carried = {form.instance.pk for form in self.forms if form.instance.pk is not None}
         for saved in self.get_queryset().exclude(pk__in=carried):
-            for row in rows:
-                if row.overlaps(saved):
-                    raise forms.ValidationError(
+            for form in kept:
+                if form.instance.overlaps(saved):
+                    _refuse_row(
+                        form,
                         f"These hours overlap saved {saved.get_weekday_display()} hours of "
                         f"{_meeting_time_label(saved.start_time.hour, saved.start_time.minute)} to "
                         f"{_meeting_time_label(saved.end_time.hour, saved.end_time.minute)} that this page "
-                        "does not show. Reload the page and try again."
+                        "does not show. Reload the page and try again.",
                     )
 
-    def _refuse_clash_with_dated(self, rows: list[TourHours]) -> None:
+    def _refuse_clash_with_dated(self, kept: list[forms.ModelForm]) -> None:
         """Refuse a weekly row that overlaps upcoming dated hours (#1160) on its weekday, naming the date."""
-        if not rows:
+        if not kept:
             return
         dated = TourHours.objects.upcoming_dated().filter(
-            guide=self.instance, weekday__in={row.weekday for row in rows}
+            guide=self.instance, weekday__in={form.instance.weekday for form in kept}
         )
         for other in dated:
-            for row in rows:
+            for form in kept:
+                row = form.instance
                 if row.overlaps(other):
-                    raise forms.ValidationError(
+                    _refuse_row(
+                        form,
                         f"Every {row.get_weekday_display()} {row.times_label} overlaps your hours on "
-                        f"{day_label(cast(date, other.date))}, {other.times_label}."
+                        f"{day_label(cast(date, other.date))}, {other.times_label}.",
                     )
+
+
+def _overlap_message(other: TourHours) -> str:
+    """A row's error when it overlaps ``other`` among the rows posted together."""
+    return f"These hours overlap your {other.get_weekday_display()} hours, {other.times_label}. A guide gives one tour at a time."
+
+
+def _refuse_row(form: forms.BaseForm, message: str) -> None:
+    """Put ``message`` on the row itself, once however many clashes name it."""
+    if message not in form.non_field_errors():
+        form.add_error(None, message)
 
 
 TourHoursFormSet = forms.inlineformset_factory(

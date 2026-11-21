@@ -152,13 +152,13 @@ def describe_google_calendar_on_my_hours():
         assert (connection.refresh_token, connection.calendar_id) == ("e2e-refresh", "primary")
         _capture(page, "connected")
 
-        # Pick the Tours calendar and save.
+        # Pick the Tours calendar: it saves on the change (#1279), no Save button.
+        assert page.locator("[data-tour-gcal-save]").count() == 0
         page.locator('select[name="calendar"]').select_option(TOURS_CAL)
-        with page.expect_navigation():
-            page.locator("[data-tour-gcal-save]").click()
-        page.locator('select[name="calendar"]').wait_for()
-        assert page.locator('select[name="calendar"]').input_value() == TOURS_CAL
+        page.locator('[data-tour-save-status="gcal"]').get_by_text("Saved").wait_for()
         assert TourCalendarConnection.objects.get(guide=guide).calendar_id == TOURS_CAL
+        page.reload()
+        assert page.locator('select[name="calendar"]').input_value() == TOURS_CAL
 
         # At a phone's width nothing scrolls sideways.
         page.set_viewport_size(PHONE)

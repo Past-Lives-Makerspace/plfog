@@ -1,8 +1,9 @@
 {% comment %}
 The My Hours tab's Google Calendar card (#951, tours.views): a Tour Guide connects their own Google
 Calendar, so each tour booked in their hours is added to it and the times it shows them busy are not
-offered to visitors. Connected shows the account, Disconnect (confirm_modal) and the calendar picker
-with Save last; broken shows why and Reconnect. An admin looking at someone else's hours reads their
+offered to visitors. Connected shows the account, Disconnect (confirm_modal) and the calendar picker,
+which saves on change (#1279, hours.html's plGuildAutosave root; its pill beside the title, no Save
+button); broken shows why and Reconnect. An admin looking at someone else's hours reads their
 state only: Google signs in whoever presses Connect, so nobody connects a calendar for someone else.
 
 Context: gcal_configured (the OAuth client is set and this is not staging), gcal (the target's
@@ -10,7 +11,10 @@ TourCalendarConnection or None), gcal_form (the picker, for the viewer's own hea
 is_self, target.
 {% endcomment %}
 <div class="hub-card pl-tours-panel pl-tours-gcal" data-tour-gcal="{% if not gcal_configured %}dormant{% elif not gcal %}none{% elif gcal.is_broken %}broken{% else %}connected{% endif %}">
-  <h2 class="hub-detail-label pl-tours-panel__title">Google Calendar</h2>
+  <div class="pl-tours-panel__head" data-card-head>
+    <h2 class="hub-detail-label pl-tours-panel__title">Google Calendar</h2>
+    {% if gcal_form %}{% include "tours/partials/_save_status.html" with key="gcal" %}{% endif %}
+  </div>
   {% if not gcal_configured %}
   <p class="hub-text-muted pl-tours-gcal__last" data-tour-gcal-dormant>Connecting a Google Calendar is not set up yet. Once an admin adds Google's sign in keys, you can connect yours here.</p>
   {% elif not is_self %}
@@ -41,10 +45,9 @@ is_self, target.
     <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'tour-gcal-disconnect')" data-tour-gcal-disconnect>Disconnect</button>
   </div>
   <p class="hub-text-muted pl-tours-gcal__checked">{% if gcal.busy_checked_at %}Busy times last read {{ gcal.busy_checked_at|date:"M j, g:i A" }}.{% else %}Busy times are read within 15 minutes.{% endif %}</p>
-  <form method="post" action="{% url 'tours:google_calendar' %}" class="hub-form pl-tours-gcal__form" data-tour-gcal-form>
+  <form method="post" action="{% url 'tours:google_calendar' %}" class="hub-form pl-tours-gcal__form" data-tour-gcal-form data-autosave data-autosave-key="gcal">
     {% csrf_token %}
     {% include "components/form_field.html" with field=gcal_form.calendar %}
-    <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm pl-btn--spaced" data-tour-gcal-save>Save</button>
   </form>
   {% endif %}
   {% if is_self and gcal and gcal_configured %}

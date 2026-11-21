@@ -94,7 +94,12 @@ def describe_tour_hours_formset():
     def it_refuses_two_rows_that_overlap(guide: Member):
         formset = _formset(guide, _formset_data(_row(0), _row(1, start_time="17:00", end_time="19:00")))
         assert not formset.is_valid()
-        assert formset.non_form_errors() == ["Two of these rows overlap on Tuesday. A guide gives one tour at a time."]
+        # On each row, naming the other (#1279), so the autosave shows it where the clash is.
+        assert formset.non_form_errors() == []
+        assert [form.non_field_errors() for form in formset.forms] == [
+            ["These hours overlap your Tuesday hours, 5:00 PM to 7:00 PM. A guide gives one tour at a time."],
+            ["These hours overlap your Tuesday hours, 4:00 PM to 6:00 PM. A guide gives one tour at a time."],
+        ]
 
     def it_saves_two_rows_that_do_not_overlap(guide: Member):
         formset = _formset(guide, _formset_data(_row(0), _row(1, start_time="18:00", end_time="20:00")))
@@ -106,7 +111,8 @@ def describe_tour_hours_formset():
         TourHoursFactory(guide=guide)
         formset = _formset(guide, _formset_data(_row(0, start_time="17:00", end_time="19:00")))
         assert not formset.is_valid()
-        assert formset.non_form_errors() == [
+        assert formset.non_form_errors() == []
+        assert formset.forms[0].non_field_errors() == [
             "These hours overlap saved Tuesday hours of 4:00 PM to 6:00 PM that this page does not show. "
             "Reload the page and try again."
         ]

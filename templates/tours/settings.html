@@ -10,12 +10,16 @@
 The Tours page's Settings tab (#947), admins only (tours.views.tour_settings): the front desk kiosk
 link with Create or Rotate (#950, each acts at once), then the house rules every guide's tour hours
 follow. The bookings switch comes first with its closed message, which only shows while bookings
-are off; the one Save sits at the bottom (FRONTEND rule 21).
+are off. The house rules save themselves as they are edited (#1279): the root is the
+plGuildAutosave component (static/js/guild_autosave.js), the form carries data-autosave, and each
+card's data-autosave-key names the pill beside its title (tours/partials/_save_status.html), so the
+card that was changed says Saving and Saved. No Save button.
 {% endcomment %}
 {% include "tours/partials/_page_top.html" with tab="settings" is_admin=True %}
-<p class="hub-text-muted pl-tours-settings__lead">The rules for facility tours: how far ahead and how late visitors can book, when they can still change a booking, and what new tour hours start with.</p>
+<div x-data="plGuildAutosave({ section: 'settings' })" data-guild-autosave @pl-guild-autosave-leave.window="leave()">
+<p class="hub-text-muted pl-tours-settings__lead">The rules for facility tours: how far ahead and how late visitors can book, when they can still change a booking, and what new tour hours start with. Every change saves as you make it.</p>
 
-{# The kiosk link acts at once, so it comes before the form whose Save sits last (FRONTEND rule 21). #}
+{# The kiosk link acts at once, so it comes before the rules that save themselves. #}
 <div class="hub-card pl-tours-panel" data-tour-settings-kiosk>
   <h2 class="hub-detail-label pl-tours-panel__title">Front Desk Kiosk</h2>
   <p class="hub-text-muted pl-tours-panel__intro">The lobby screen opens this link once to become the kiosk, where visitors check in for a tour or book one. It shows today's visitors by first name and last initial, so keep the link private.</p>
@@ -38,12 +42,15 @@ are off; the one Save sits at the bottom (FRONTEND rule 21).
   {% endif %}
 </div>
 
-<form method="post" action="{% url 'tours:settings' %}" class="hub-form" data-tour-settings-form>
+<form method="post" action="{% url 'tours:settings' %}" class="hub-form" data-tour-settings-form data-autosave data-autosave-key="settings">
   {% csrf_token %}
   {% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
 
-  <div class="hub-card pl-tours-panel" x-data="{ accepting: {{ form.accepting_bookings.value|yesno:'true,false' }} }" data-tour-settings-availability>
-    <h2 class="hub-detail-label pl-tours-panel__title">Availability</h2>
+  <div class="hub-card pl-tours-panel" x-data="{ accepting: {{ form.accepting_bookings.value|yesno:'true,false' }} }" data-tour-settings-availability data-autosave-key="availability">
+    <div class="pl-tours-panel__head" data-card-head>
+      <h2 class="hub-detail-label pl-tours-panel__title">Availability</h2>
+      {% include "tours/partials/_save_status.html" with key="availability" %}
+    </div>
     <div @change="accepting = $event.target.checked">
       {% include "components/form_field.html" with field=form.accepting_bookings %}
     </div>
@@ -52,21 +59,27 @@ are off; the one Save sits at the bottom (FRONTEND rule 21).
     </div>
   </div>
 
-  <div class="hub-card pl-tours-panel" data-tour-settings-booking>
-    <h2 class="hub-detail-label pl-tours-panel__title">Booking</h2>
+  <div class="hub-card pl-tours-panel" data-tour-settings-booking data-autosave-key="booking">
+    <div class="pl-tours-panel__head" data-card-head>
+      <h2 class="hub-detail-label pl-tours-panel__title">Booking</h2>
+      {% include "tours/partials/_save_status.html" with key="booking" %}
+    </div>
     {% include "components/form_field.html" with field=form.booking_horizon_days %}
     {% include "components/form_field.html" with field=form.min_notice_hours %}
     {% include "components/form_field.html" with field=form.cancel_cutoff_hours %}
   </div>
 
-  <div class="hub-card pl-tours-panel" data-tour-settings-defaults>
-    <h2 class="hub-detail-label pl-tours-panel__title">New Tour Hours</h2>
+  <div class="hub-card pl-tours-panel" data-tour-settings-defaults data-autosave-key="defaults">
+    <div class="pl-tours-panel__head" data-card-head>
+      <h2 class="hub-detail-label pl-tours-panel__title">New Tour Hours</h2>
+      {% include "tours/partials/_save_status.html" with key="defaults" %}
+    </div>
     {% include "components/form_field.html" with field=form.default_tour_minutes %}
     {% include "components/form_field.html" with field=form.default_seats %}
   </div>
-
-  <div class="pl-tours-save-row">
-    <button type="submit" class="pl-btn pl-btn--primary" data-tour-settings-save>Save</button>
-  </div>
 </form>
+
+{# A boosted navigation held behind a save that failed: Leave resumes it, Stay drops it. #}
+{% include "components/confirm_modal.html" with confirm_id="leave-while-saving" confirm_title="A change did not save" confirm_message="A change could not be saved. Leave anyway, or stay and try again?" confirm_button_text="Leave" confirm_cancel_text="Stay" confirm_button_style="primary" confirm_js="window.dispatchEvent(new CustomEvent('pl-guild-autosave-leave'))" %}
+</div>{# /plGuildAutosave #}
 {% endblock %}

@@ -108,10 +108,21 @@ def describe_confirm_first():
             page.set_viewport_size({"width": 1280, "height": 800})
             card.evaluate("(el) => el.scrollIntoView({block: 'center'})")
             shoot(page, Path(CAPTURE_DIR) / "step-1.png", target="tours.confirm-mode")
-        with page.expect_navigation():
-            card.locator("[data-tour-confirm-save]").click()
-        page.locator(".plt-msg", has_text="each booking waits for you").first.wait_for()
+        # The choice saves at once (#1279), no Save button; the card's pill says so.
+        assert card.locator("[data-tour-confirm-save]").count() == 0
+        card.locator('[data-tour-save-status="confirm"]').get_by_text("Saved").wait_for()
         assert TourGuideSettings.confirms_first(guide)
+        # The notice saves after a pause in typing.
+        card.locator('input[name="min_notice_hours"]').fill("60")
+        page.wait_for_function(
+            "() => document.querySelector('[data-guild-autosave]').plGuildAutosave.pending === 0"
+            " && document.querySelector('[data-tour-save-status=\"confirm\"]').dataset.saves >= 2"
+        )
+        assert TourGuideSettings.objects.get(guide=guide).min_notice_hours == 60
+        page.reload()
+        card = page.locator("[data-tour-confirm-mode]")
+        assert card.locator('[data-tour-confirm-choice="first"]').is_checked()
+        assert card.locator('input[name="min_notice_hours"]').input_value() == "60"
         page.locator("[data-tour-confirm-mode]").scroll_into_view_if_needed()
         _capture(page, "setting")
         _no_sideways_scroll(page)
