@@ -1,10 +1,12 @@
 {% extends "tours/kiosk/base.html" %}
 {% comment %}
 No tour today matched (#950), or too many tries from this screen (limited): try again, or
-schedule a tour. Context: limited.
+schedule a tour; Back goes to check in (#1273). Context: limited.
 {% endcomment %}
 {% block kiosk_content %}
 <section class="pl-kiosk__screen pl-kiosk__screen--center" data-kiosk-screen="{% if limited %}limited{% else %}no-match{% endif %}">
+  {% url 'tours_kiosk:check_in' as check_in_url %}
+  {% include "tours/kiosk/_head.html" with back=check_in_url %}
   {% if limited %}
   <h1 class="pl-kiosk__title">Too Many Tries</h1>
   <p class="pl-kiosk__lead">This screen needs a short break. Please find someone from Past Lives to check you in.</p>

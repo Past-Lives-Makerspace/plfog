@@ -118,6 +118,74 @@
     text-decoration: none;
 }
 
+/* Back and Start Over sit together at the heading's right (#1273); on the centred screens (Is This
+   You, no match) the heading carries only them, across the top. */
+.cp-page .pl-kiosk__head-actions {
+    display: flex;
+    gap: 1rem;
+    margin-left: auto;
+}
+
+.cp-page .pl-kiosk__screen--center {
+    padding-top: 1rem;
+}
+
+.cp-page .pl-kiosk__screen--center > .pl-kiosk__head {
+    align-self: stretch;
+    margin-bottom: 3rem;
+}
+
+.cp-page .pl-kiosk__screen--center > .pl-kiosk__title:first-child {
+    margin-top: 3rem;
+}
+
+/* Back leads: the gold outline marks it as the step back, Start Over stays the quiet way home. */
+.cp-page .pl-kiosk__back--step {
+    border-color: var(--gold-text);
+}
+
+/* Busy (#1273, tours-kiosk.js): the pressed control shows the spinner busy_submit.html's buttons
+   draw in components.css (its pl-btn-spin) beside "Loading...", and nothing else takes a tap. */
+body[data-kiosk-busy] a,
+body[data-kiosk-busy] button,
+body[data-kiosk-busy] input,
+body[data-kiosk-busy] select,
+body[data-kiosk-busy] label {
+    pointer-events: none;
+}
+
+body[data-kiosk-busy] {
+    cursor: progress;
+}
+
+.cp-page .pl-kiosk [aria-disabled="true"],
+.cp-page .pl-kiosk button:disabled:not([aria-busy="true"]),
+.cp-page .pl-kiosk input:disabled,
+.cp-page .pl-kiosk select:disabled {
+    opacity: 0.55;
+}
+
+.cp-page .pl-kiosk__busy {
+    display: inline-flex;
+    align-items: center;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.cp-page .pl-kiosk__busy::before,
+.cp-page .pl-kiosk .btn-reg[aria-busy="true"]::before {
+    content: '';
+    display: inline-block;
+    width: 0.9em;
+    height: 0.9em;
+    margin-right: 0.5em;
+    vertical-align: -0.1em;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: pl-btn-spin 0.6s linear infinite;
+}
+
 /* Every control shows where the keyboard is: cairn has no touchscreen. */
 .cp-page .pl-kiosk a:focus-visible,
 .cp-page .pl-kiosk button:focus-visible,
