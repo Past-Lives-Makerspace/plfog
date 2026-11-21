@@ -199,12 +199,12 @@ def describe_render_directory_payloads():
             "🛠️ **Zine Guild**\n*Looking for a lead!*"
         )
 
-    def it_shows_a_guild_lead_role_mention_and_contact_email_when_set():
+    def it_shows_a_contact_email_when_set_and_never_a_lead_role_mention():
         GuildFactory(name="Glass Guild", discord_lead_role_id="4242", contact_email="glass@example.com")
         GuildFactory(name="Tech Guild", discord_lead_role_id="", contact_email="")
         description = _titled(dld.render_directory_payloads(), "🛠️ Guild Leads")["description"]
         assert description == (
-            "🔮 **Glass Guild** <@&4242>\n*Looking for a lead!*\n✉️ glass\\@example.com\n\n"
+            "🔮 **Glass Guild**\n*Looking for a lead!*\n✉️ glass\\@example.com\n\n"
             "💻 **Tech Guild**\n*Looking for a lead!*"
         )
 
@@ -371,7 +371,8 @@ def describe_limits():
         text = "\n".join(embed["description"] for embed in _embeds(payloads))
         for number in range(60):
             assert f"Guild {number:02d} " in text  # nothing cut off
-            assert f"<@&{10**18 + number}>" in text and f"guild{number}\\@example.com" in text
+            assert f"guild{number}\\@example.com" in text
+        assert "<@&" not in text
         guild_embeds = [e for e in _embeds(payloads) if e["color"] == dld.GUILDS_COLOR]
         assert len(guild_embeds) > 1
         assert "title" in guild_embeds[0] and all("title" not in e for e in guild_embeds[1:])

@@ -6,7 +6,8 @@ tours still booked, by time).
 {% endcomment %}
 {% block kiosk_content %}
 <section class="pl-kiosk__screen" data-kiosk-screen="check-in">
-  {% include "tours/kiosk/_head.html" with title="Check In for Your Tour" %}
+  {% url 'tours_kiosk:home' as home_url %}
+  {% include "tours/kiosk/_head.html" with title="Check In for Your Tour" back=home_url %}
   <div class="pl-kiosk__ways">
     <div class="pl-kiosk__typed">
       <form method="post" action="{% url 'tours_kiosk:check_in' %}" class="pl-kiosk__card" autocomplete="off" data-kiosk-email-form data-pl-busy-submit data-pl-busy-label="Checking in...">

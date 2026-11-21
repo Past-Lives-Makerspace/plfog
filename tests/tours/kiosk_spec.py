@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, timedelta
+import re
+from datetime import UTC, date, time, timedelta
+from html import unescape
 from typing import Any
 
 import pytest
@@ -11,6 +13,7 @@ from django.test import Client, RequestFactory
 from django.http import HttpResponse
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import escapejs
 
 from core.models import EventDelivery, Notification, UserProfile
 from membership.models import Member
@@ -18,9 +21,11 @@ from tests.membership.factories import MemberFactory
 from tests.tours.conftest import make_guide, signed_in
 from tests.tours.factories import TourBookingFactory, TourHoursFactory, local
 from tours import kiosk
+from tours.availability import OpenTour
 from tours.booking import TourLockedError, check_in_tour
 from tours.forms import TourBookingForm
 from tours.models import FacilityTourSettings, TourBooking, TourGuideSettings
+from tours.picker import build_picker, either_guide
 
 pytestmark = pytest.mark.django_db
 
@@ -562,3 +567,222 @@ def describe_kiosk_settings():
         TourBooking.objects.filter(pk=booking.pk).update(checked_in_at=timezone.now())
         content = signed_in(admin).get(reverse("tours:upcoming")).content.decode()
         assert "data-tour-booking-checked-in" in content
+
+
+def _tour(name: str, hour: int = 16) -> OpenTour:
+    """An unsaved tour by a guide called ``name``, for the picker's naming alone."""
+    starts_at = local(_today() + timedelta(days=4), hour)
+    return OpenTour(
+        guide=Member(full_legal_name=name),
+        hours_id=1,
+        starts_at=starts_at,
+        ends_at=starts_at + timedelta(hours=1),
+        seats=4,
+        seats_taken=0,
+    )
+
+
+def describe_kiosk_guide_names():
+    """#1273: the kiosk names who gives each tour, by first name, everywhere a visitor picks or books one."""
+
+    @pytest.fixture
+    def day() -> date:
+        return _today() + timedelta(days=4)
+
+    @pytest.mark.parametrize(
+        ("names", "said"),
+        [
+            ([], ""),
+            (["Amber Ash"], "Amber"),
+            (["Amber Ash", "Sam Stone"], "Amber or Sam"),
+            (["Amber Ash", "Sam Stone", "Lee Lark"], "Amber, Sam or Lee"),
+            (["Amber Ash", "  ", "Sam Stone"], "Amber or Sam"),
+            (["  ", "Sam Stone"], "Sam"),
+        ],
+    )
+    def it_lists_the_guides_by_first_name(names: list[str], said: str):
+        assert either_guide([_tour(name) for name in names]) == said
+
+    def it_names_every_time_only_when_asked():
+        alone = _tour("Amber Ash", 10)
+        shared = [_tour("Amber Ash", 16), _tour("Sam Stone", 16)]
+        named = build_picker([alone, *shared], "", no_preference=True, name_guides=True).times
+        assert [(time.guide_name, time.no_preference) for time in named] == [("Amber", False), ("Amber or Sam", True)]
+        website = build_picker([alone, *shared], "", no_preference=True).times
+        assert [time.guide_name for time in website] == ["", ""]
+        reschedule = build_picker([alone, *shared], "").times
+        assert [time.guide_name for time in reschedule] == ["", "Amber", "Sam"]
+
+    def it_says_with_whom_beside_each_kiosk_time(kiosk_client: Client, guide: Member, day: date):
+        other = make_guide(full_legal_name="Olive Other")
+        TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
+        TourHoursFactory(guide=other, weekday=day.weekday(), seats=4, start_time=time(17), end_time=time(18))
+        times = kiosk_client.get(BOOK, {"date": f"{day:%Y-%m-%d}"}).content.decode()
+        alone, shared = times.split('data-tour-time="')[1:3]
+        assert "4:00 PM" in alone and "4 seats left with Gina</span>" in alone
+        assert "data-tour-no-preference" in shared and "5:00 PM" in shared
+        assert "4 seats left with Gina or Olive</span>" in shared
+
+    def it_keeps_the_website_times_unnamed(guide: Member, day: date):
+        TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
+        website = Client(HTTP_HOST=HOST).get("/", {"date": f"{day:%Y-%m-%d}"}).content.decode()
+        assert "data-tour-time=" in website and "with Gina" not in website
+
+    def it_names_the_one_guide_in_the_form_summary(kiosk_client: Client, guide: Member, day: date):
+        TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
+        form = kiosk_client.get(BOOK, {"tour": _key_for(guide, local(day, 16))}).content.decode()
+        assert "<span data-tour-guide-name>with Gina</span>" in form
+        assert "data-tour-change" not in form and "Pick a different time" not in form
+
+    def it_names_no_guide_for_a_tour_whose_guide_has_no_name(kiosk_client: Client, day: date):
+        nameless = make_guide(full_legal_name="", preferred_name="")
+        TourHoursFactory(guide=nameless, weekday=day.weekday(), seats=4)
+        form = kiosk_client.get(BOOK, {"tour": _key_for(nameless, local(day, 16))}).content.decode()
+        assert "data-tour-form" in form and "data-tour-guide-name" not in form
+
+    def it_follows_the_guide_dropdown_in_the_form_summary(kiosk_client: Client, guide: Member, day: date):
+        other = make_guide(full_legal_name="Olive Other")
+        for member in (guide, other):
+            TourHoursFactory(guide=member, weekday=day.weekday(), seats=4)
+        anyone = f"any-{local(day, 16).astimezone(UTC):%Y%m%dT%H%MZ}"
+        olive = _key_for(other, local(day, 16))
+        form = kiosk_client.get(BOOK, {"tour": anyone}).content.decode()
+        assert 'data-tour-guide-name x-text="names[guide]">No preference</span>' in form
+        assert f"'{escapejs(anyone)}': 'No preference'" in form and f"'{escapejs(olive)}': 'with Olive'" in form
+        # Sent back to fix the email, the summary keeps the guide picked.
+        data = {"tour": olive, "name": "Kim K", "email": "not an email", "party_size": "1"}
+        again = kiosk_client.post(BOOK, data).content.decode()
+        assert 'x-text="names[guide]">with Olive</span>' in again
+
+    def it_keeps_pick_a_different_time_on_the_website(guide: Member, day: date):
+        other = make_guide(full_legal_name="Olive Other")
+        for member in (guide, other):
+            TourHoursFactory(guide=member, weekday=day.weekday(), seats=4)
+        website = Client(HTTP_HOST=HOST)
+        for tour in (_key_for(guide, local(day, 16)), f"any-{local(day, 16).astimezone(UTC):%Y%m%dT%H%MZ}"):
+            form = website.get("/", {"tour": tour}).content.decode()
+            assert "data-tour-form" in form and "Pick a different time" in form
+            assert "data-tour-guide-name" not in form and "names:" not in form
+
+    def it_names_the_guide_on_you_are_booked(kiosk_client: Client, guide: Member, day: date):
+        TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
+        data = {"tour": _key_for(guide, local(day, 16)), "name": "Kim K", "email": "k@example.com", "party_size": "1"}
+        kiosk_client.post(BOOK, data)
+        booked = kiosk_client.get(BOOKED).content.decode()
+        assert '<p class="pl-kiosk__lead" data-kiosk-booked-guide>Your guide is Gina.</p>' in booked
+
+    def it_names_no_guide_on_you_are_booked_when_the_tour_lost_its_guide(
+        kiosk_client: Client, guide: Member, day: date
+    ):
+        TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
+        data = {"tour": _key_for(guide, local(day, 16)), "name": "Kim K", "email": "k@example.com", "party_size": "1"}
+        kiosk_client.post(BOOK, data)
+        TourBooking.objects.update(guide=None)
+        booked = kiosk_client.get(BOOKED).content.decode()
+        assert "You're Booked, Kim!" in booked and "data-kiosk-booked-guide" not in booked
+
+    def it_names_each_tours_guide_on_the_pick_list_only(kiosk_client: Client, guide: Member):
+        other = make_guide(full_legal_name="Olive Other")
+        _today_booking(guide, 16, visitor_name="Sam Rivera")
+        _today_booking(other, 17, visitor_name="Sam Ortiz")
+        TourBookingFactory(guide=None, starts_at=local(_today(), 18), visitor_name="Sam Nobody")
+        kiosk_client.post(CHECK_IN, {"name": "sam"})
+        pick = kiosk_client.get(RESULT).content.decode()
+        assert "4:00 PM with Gina</span>" in pick and "5:00 PM with Olive</span>" in pick
+        assert '<span class="pl-kiosk__name-at">6:00 PM</span>' in pick
+        listed = kiosk_client.get(CHECK_IN).content.decode()
+        assert '<span class="pl-kiosk__name-at">4:00 PM</span>' in listed and "with Gina" not in listed
+
+    def it_names_the_guide_on_is_this_you(kiosk_client: Client, guide: Member):
+        booking = _today_booking(guide, visitor_name="Sam Rivera")
+        kiosk_client.post(CHECK_IN, {"pick": str(booking.pk)})
+        confirm = kiosk_client.get(RESULT).content.decode()
+        assert "data-kiosk-confirm-guide>Your guide is Gina.</p>" in confirm
+        nobody = TourBookingFactory(guide=None, starts_at=local(_today(), 17), visitor_name="Pat Lee")
+        kiosk_client.post(CHECK_IN, {"pick": str(nobody.pk)})
+        assert "data-kiosk-confirm-guide" not in kiosk_client.get(RESULT).content.decode()
+
+    def it_gives_the_bookings_guide_by_first_name_or_nothing(guide: Member):
+        assert _today_booking(guide).guide_first_name == "Gina"
+        assert TourBookingFactory(guide=None, starts_at=local(_today(), 17)).guide_first_name == ""
+
+
+def _back(content: str) -> str | None:
+    """Where the heading's Back goes, or None with no Back."""
+    found = re.search(
+        r'<a href="([^"]*)" class="pl-kiosk__back pl-kiosk__back--step" data-kiosk-step-back>Back</a>', content
+    )
+    return unescape(found.group(1)) if found else None
+
+
+def describe_kiosk_back():
+    """#1273: every step of the flow has Back, a real link one step back; home and the finished screens have none."""
+
+    @pytest.fixture
+    def day() -> date:
+        return _today() + timedelta(days=4)
+
+    def it_shows_no_back_at_home(kiosk_client: Client):
+        home = kiosk_client.get(HOME).content.decode()
+        assert _back(home) is None and "data-kiosk-step-back" not in home
+
+    def it_goes_home_from_check_in(kiosk_client: Client):
+        content = kiosk_client.get(CHECK_IN).content.decode()
+        assert _back(content) == HOME
+        assert 'data-kiosk-arrows>\n    <a href="' in content and "data-kiosk-back>Start Over</a>" in content
+
+    def it_goes_home_from_the_times(kiosk_client: Client, guide: Member, day: date):
+        TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
+        assert _back(kiosk_client.get(BOOK, {"date": f"{day:%Y-%m-%d}"}).content.decode()) == HOME
+
+    def it_goes_home_from_the_closed_message(kiosk_client: Client):
+        rules = FacilityTourSettings.load()
+        rules.accepting_bookings = False
+        rules.save()
+        assert _back(kiosk_client.get(BOOK).content.decode()) == HOME
+
+    def it_goes_from_the_form_to_that_days_times(kiosk_client: Client, guide: Member, day: date):
+        TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
+        tour_key = _key_for(guide, local(day, 16))
+        assert _back(kiosk_client.get(BOOK, {"tour": tour_key}).content.decode()) == f"{BOOK}?date={day:%Y-%m-%d}"
+        data = {"tour": tour_key, "name": "Kim K", "email": "not an email", "party_size": "1"}
+        assert _back(kiosk_client.post(BOOK, data).content.decode()) == f"{BOOK}?date={day:%Y-%m-%d}"
+
+    def it_goes_home_from_the_times_shown_again_after_a_gone_time(kiosk_client: Client, guide: Member, day: date):
+        TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
+        data = {"tour": f"{guide.pk}-20000101T0000Z", "name": "Kim K", "email": "k@example.com", "party_size": "1"}
+        assert _back(kiosk_client.post(BOOK, data).content.decode()) == HOME
+
+    def it_goes_to_check_in_from_is_this_you_the_pick_list_and_no_match(kiosk_client: Client, guide: Member):
+        booking = _today_booking(guide, 16, visitor_name="Sam Rivera")
+        _today_booking(guide, 17, visitor_name="Sam Ortiz")
+        kiosk_client.post(CHECK_IN, {"pick": str(booking.pk)})
+        assert _back(kiosk_client.get(RESULT).content.decode()) == CHECK_IN
+        kiosk_client.post(CHECK_IN, {"name": "sam"})
+        assert _back(kiosk_client.get(RESULT).content.decode()) == CHECK_IN
+        kiosk_client.post(CHECK_IN, {"name": "nobody at all"})
+        no_match = kiosk_client.get(RESULT).content.decode()
+        assert 'data-kiosk-screen="no-match"' in no_match and _back(no_match) == CHECK_IN
+
+    def it_goes_to_check_in_from_too_many_tries(kiosk_client: Client, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr("tours.kiosk_views.CHECK_IN_HOURLY_LIMIT", 0)
+        kiosk_client.post(CHECK_IN, {"name": "nobody"})
+        limited = kiosk_client.get(RESULT).content.decode()
+        assert 'data-kiosk-screen="limited"' in limited and _back(limited) == CHECK_IN
+
+    def it_leaves_the_finished_screens_to_done(kiosk_client: Client, guide: Member, day: date):
+        booking = _today_booking(guide, visitor_name="Sam Rivera")
+        kiosk_client.post(CHECK_IN, {"booking": str(booking.pk)})
+        assert _back(kiosk_client.get(RESULT).content.decode()) is None
+        TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
+        data = {"tour": _key_for(guide, local(day, 16)), "name": "Kim K", "email": "k@example.com", "party_size": "1"}
+        kiosk_client.post(BOOK, data)
+        assert _back(kiosk_client.get(BOOKED).content.decode()) is None
+
+    def it_never_brings_back_a_past_result(kiosk_client: Client, guide: Member):
+        booking = _today_booking(guide, visitor_name="Sam Rivera")
+        kiosk_client.post(CHECK_IN, {"pick": str(booking.pk)})
+        back = _back(kiosk_client.get(RESULT).content.decode())
+        assert back == CHECK_IN
+        again = kiosk_client.get(back).content.decode()
+        assert 'data-kiosk-screen="check-in"' in again and "Is This You?" not in again

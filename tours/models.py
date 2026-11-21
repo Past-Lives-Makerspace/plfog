@@ -787,6 +787,13 @@ class TourBooking(models.Model):
         return f"{words[0]} {words[-1][0].upper()}."
 
     @property
+    def guide_first_name(self) -> str:
+        """The guide's first name as visitors see it (#1273, the kiosk's pick list and Is This You), or ""."""
+        from tours.notify import guide_first_name  # notify imports this module
+
+        return guide_first_name(self.guide)
+
+    @property
     def party_label(self) -> str:
         """``1 person`` or ``3 people``."""
         return "1 person" if self.party_size == 1 else f"{self.party_size} people"

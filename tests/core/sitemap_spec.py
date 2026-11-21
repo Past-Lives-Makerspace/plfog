@@ -87,15 +87,46 @@ def describe_the_classes_host():
         assert body.count(f"<loc>https://{CLASSES}/classes/forge-basics/</loc>") == 1
         assert "/classes/forge-basics-2026-12-01/" not in body
 
-    def it_leaves_out_past_draft_private_and_cancelled_classes(client: Client):
-        _class("long-gone", days=-30)
+    def it_dates_a_class_by_its_public_runs_not_a_draft_of_it(client: Client):
+        from datetime import datetime
+
+        offering = _class("forge-basics", days=5, title="Forge Basics")
+        draft = _class("forge-basics-draft", days=40, title="Forge Basics", status=ClassOffering.Status.DRAFT)
+        ClassOffering.objects.filter(pk=offering.pk).update(updated_at=timezone.make_aware(datetime(2026, 1, 2)))
+        ClassOffering.objects.filter(pk=draft.pk).update(updated_at=timezone.make_aware(datetime(2026, 3, 4)))
+
+        body = _sitemap(client, CLASSES)
+
+        assert "<lastmod>2026-01-02</lastmod>" in body
+        assert "2026-03-04" not in body
+
+    def it_drops_a_demo_class_once_demo_classes_are_hidden_without_waiting_for_the_nightly_job(client: Client):
+        config = SiteConfiguration.load()
+        config.display_demo_classes = True
+        config.save()
+        _class("demo-forge", days=5, title="Demo Forge")
+        assert "/classes/demo-forge/" in _sitemap(client, CLASSES)
+
+        config.display_demo_classes = False
+        config.save()
+
+        assert "/classes/demo-forge/" not in _sitemap(client, CLASSES)
+
+    def it_lists_a_class_between_runs(client: Client):
+        _class("lately", days=-30)
+
+        assert f"<loc>https://{CLASSES}/classes/lately/</loc>" in _sitemap(client, CLASSES)
+
+    def it_leaves_out_retired_no_longer_offered_draft_private_and_cancelled_classes(client: Client):
+        _class("long-gone", days=-400)
+        _class("set-aside", days=-30).class_record.mark_no_longer_offered(None)
         _class("still-a-draft", days=5, status=ClassOffering.Status.DRAFT)
         _class("by-invite", days=5, is_private=True)
         _class("called-off", days=5, status=ClassOffering.Status.CANCELLED)
 
         body = _sitemap(client, CLASSES)
 
-        for slug in ("long-gone", "still-a-draft", "by-invite", "called-off"):
+        for slug in ("long-gone", "set-aside", "still-a-draft", "by-invite", "called-off"):
             assert f"/classes/{slug}/" not in body
 
     def it_leaves_out_demo_class_types_while_demo_classes_are_hidden(client: Client):

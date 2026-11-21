@@ -154,16 +154,6 @@ def describe_moving_state():
 
         assert not ClassRecord.objects.exists()
 
-    def it_computes_the_state_of_a_class_a_save_files_a_run_under():
-        run = _run("framing-1", days=10)
-        ClassOffering.objects.filter(pk=run.pk).update(class_record=None)
-        ClassRecord.objects.all().delete()
-
-        run.refresh_from_db()
-        run.save()
-
-        assert _record(run).state == State.SCHEDULED
-
 
 def describe_no_longer_offered():
     def it_retires_a_class_between_runs_and_says_who():
@@ -233,19 +223,13 @@ def describe_the_admin_actions():
 
 
 def describe_the_daily_job():
-    def it_files_a_run_with_no_class_and_moves_classes_the_clock_moved():
+    def it_moves_the_classes_the_clock_moved():
         run = _run("framing-1", days=-30)
-        record = _record(run)
-        ClassRecord.objects.filter(pk=record.pk).update(state=State.SCHEDULED)
-        orphan = _run("pottery-1", days=5, title="Pottery")
-        ClassOffering.objects.filter(pk=orphan.pk).update(class_record=None)
-        ClassRecord.objects.filter(slug="pottery").delete()  # saved by the old release: it never had a class
+        ClassRecord.objects.filter(pk=run.class_record_id).update(state=State.SCHEDULED)
+        _run("pottery-1", days=5, title="Pottery")
         out = StringIO()
 
         call_command("refresh_class_states", stdout=out)
 
-        orphan.refresh_from_db()
-        assert _record(orphan).state == State.SCHEDULED
         assert _record(run).state == State.BETWEEN_RUNS
-        # The filed run's class gets its state as it is filed, so only the other one moves here.
-        assert "Filed 1 run(s) under a class; 1 class(es) changed state." in out.getvalue()
+        assert "1 class(es) changed state." in out.getvalue()

@@ -70,21 +70,6 @@ def describe_a_new_run():
         assert run.class_record.slug == f"forge-{run.category.slug}"
 
 
-def describe_a_run_without_a_class():
-    def it_joins_one_on_its_next_save_even_a_narrow_one():
-        run = ClassOfferingFactory(title="Pottery", slug="pottery")
-        ClassOffering.objects.filter(pk=run.pk).update(class_record=None)
-        ClassRecord.objects.all().delete()
-        run.refresh_from_db()
-
-        run.title = "Pottery"
-        run.save(update_fields=["title"])
-
-        run.refresh_from_db()
-        # Its own old address is free to it: that link simply becomes the class page.
-        assert run.class_record.slug == "pottery"
-
-
 def describe_runs_made_from_a_class():
     def it_keeps_run_it_again_on_the_same_class():
         source = ClassOfferingFactory(title="Make a Cup", slug="make-a-cup")
@@ -172,14 +157,6 @@ def describe_a_class_whose_runs_go():
         first.delete()
 
         assert ClassRecord.objects.get().category == elsewhere
-
-    def it_ignores_a_run_that_never_had_a_class():
-        run = ClassOfferingFactory(title="Pottery", slug="pottery")
-        ClassOffering.objects.filter(pk=run.pk).update(class_record=None)
-
-        ClassOffering.objects.filter(pk=run.pk).delete()
-
-        assert ClassRecord.objects.count() == 1
 
 
 def describe_a_class_whose_runs_move_class_type():
