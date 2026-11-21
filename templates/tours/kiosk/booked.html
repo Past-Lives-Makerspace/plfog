@@ -2,13 +2,14 @@
 {% comment %}
 A kiosk booking's confirmation (#950), shown once, then home after done_seconds. Never the
 visitor's Reschedule or Cancel links: those go to their email. Context: booking (None when the
-same booking was just made, with already_message), when.
+same booking was just made, with already_message), when, guide_name (#1273; empty for no guide).
 {% endcomment %}
 {% block kiosk_content %}
 <section class="pl-kiosk__screen pl-kiosk__screen--center" role="status" data-kiosk-screen="booked">
   {% if booking %}
   <h1 class="pl-kiosk__title pl-kiosk__title--big" data-kiosk-booked>You're Booked, {{ booking.visitor_first_name }}!</h1>
   <p class="pl-kiosk__lead">{{ when }}, {{ booking.party_label }}.</p>
+  {% if guide_name %}<p class="pl-kiosk__lead" data-kiosk-booked-guide>Your guide is {{ guide_name }}.</p>{% endif %}
   <p class="pl-kiosk__fine">We emailed you a confirmation with a calendar invite and links to reschedule or cancel.</p>
   {% else %}
   <h1 class="pl-kiosk__title" data-kiosk-already>Already Booked</h1>
