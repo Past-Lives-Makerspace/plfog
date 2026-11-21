@@ -2561,6 +2561,8 @@ class Member(StaffRequestMixin, models.Model):
         if had_slug:
             self.instructor_slug = ""
             self.save(update_fields=["instructor_slug"])
+            # Their page made them an instructor even with teaching locked (#1270).
+            self.reconcile_discord_roles()
         self.revoke_teaching(revoked_by=revoked_by)  # logs TEACHING_REVOKED unless already locked
         if had_slug and not was_teaching:
             SiteActivity.log(

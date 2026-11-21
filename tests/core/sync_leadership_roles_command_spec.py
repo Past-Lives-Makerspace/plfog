@@ -127,44 +127,71 @@ def describe_dry_run():
             _run()
 
 
-def describe_guild_leads_preview():
+def describe_role_id_previews():
     @pytest.fixture
     def holders(configured):
+        from django.utils import timezone
+
+        from membership.models import AdminCapability
+
         lead = MemberFactory(full_legal_name="Lena Lead", discord_user_id="10")
         GuildFactory(guild_lead=lead)
         MemberFactory(full_legal_name="Fran Former", discord_user_id="20")
+        guide = MemberFactory(full_legal_name="Gus Guide", discord_user_id="40")
+        AdminCapability.objects.create(member=guide, capability=AdminCapability.Capability.TOUR_GUIDE)
+        MemberFactory(full_legal_name="Tia Teacher", discord_user_id="50", instructor_oriented_at=timezone.now())
         respx.get(LIST_URL).mock(
             return_value=httpx.Response(
                 200,
                 json=[
                     {"user": {"id": "10"}, "roles": ["111", "222", "555"]},
-                    {"user": {"id": "20"}, "roles": ["555"]},
-                    {"user": {"id": "30", "username": "drifter"}, "roles": ["555"]},
+                    {"user": {"id": "20"}, "roles": ["555", "666"]},
+                    {"user": {"id": "30", "username": "drifter"}, "roles": ["555", "666"]},
+                    {"user": {"id": "40"}, "roles": []},
+                    {"user": {"id": "50"}, "roles": ["777"]},
                 ],
             )
         )
 
     @respx.mock
-    def it_lists_who_would_lose_an_unsaved_guild_leads_id_and_changes_nothing(holders):
+    def it_lists_who_would_get_and_lose_a_guild_leads_id_and_changes_nothing(holders):
         writes = respx.route(method__in=["PUT", "DELETE"]).mock(return_value=httpx.Response(204))
         out = _run("--guild-leads-role-id", " 555 ")
-        assert "Lena Lead" not in out
         assert "Fran Former (20): remove Guild Leads" in out
-        assert "Discord account drifter (30), no linked member: remove Guild Leads" in out
+        assert (
+            "Preview of Guild Leads (555), nothing saved:\n"
+            "  Would get it: nobody\n"
+            "  Would lose it: Fran Former, drifter (no linked member)"
+        ) in out
         assert not writes.called
         assert SiteConfiguration.load().discord_guild_leads_role_id == ""
 
     @respx.mock
-    def it_ignores_the_role_without_the_preview(holders):
-        assert "Guild Leads" not in _run()
+    def it_previews_tour_guides_and_instructors_together(holders):
+        out = _run("--tour-guides-role-id", "666", "--instructors-role-id", "777")
+        assert (
+            "Preview of Tour Guides (666), nothing saved:\n"
+            "  Would get it: Gus Guide\n"
+            "  Would lose it: Fran Former, drifter (no linked member)"
+        ) in out
+        assert "Preview of Instructors (777), nothing saved:\n  Would get it: nobody\n  Would lose it: nobody" in out
+        config = SiteConfiguration.load()
+        assert (config.discord_tour_guides_role_id, config.discord_instructors_role_id) == ("", "")
 
-    def it_never_applies_a_preview(configured):
+    @respx.mock
+    def it_ignores_the_roles_without_a_preview(holders):
+        out = _run()
+        assert "Guild Leads" not in out
+        assert "Preview of" not in out
+
+    @pytest.mark.parametrize("option", ["--guild-leads-role-id", "--tour-guides-role-id", "--instructors-role-id"])
+    def it_never_applies_a_preview(configured, option):
         with pytest.raises(CommandError, match="only previews"):
-            _run("--guild-leads-role-id", "555", "--apply")
+            _run(option, "555", "--apply")
 
     def it_refuses_an_id_that_is_not_a_number(configured):
         with pytest.raises(CommandError, match="numbers only"):
-            _run("--guild-leads-role-id", "Guild Leads")
+            _run("--guild-leads-role-id", "555", "--tour-guides-role-id", "Tour Guides")
 
 
 def describe_unlinked_holders():

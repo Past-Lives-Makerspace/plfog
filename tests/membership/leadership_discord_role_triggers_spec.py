@@ -240,6 +240,19 @@ def describe_teaching():
             member.apply_admin_role(Member.ADMIN_ROLE_INSTRUCTOR)
         assert _queued(callbacks) == [member.pk]
 
+    def it_queues_a_member_whose_page_is_removed_while_teaching_is_locked(django_capture_on_commit_callbacks):
+        member = _settled(
+            django_capture_on_commit_callbacks,
+            lambda: MemberFactory(instructor_oriented_at=None, instructor_slug="page-only"),
+        )
+        assert Member.objects.instructors().filter(pk=member.pk).exists()
+        with django_capture_on_commit_callbacks() as callbacks:
+            member.revoke_instructor(revoked_by=None)
+        assert _queued(callbacks) == [member.pk]
+        with django_capture_on_commit_callbacks() as again:
+            member.revoke_instructor(revoked_by=None)
+        assert _queued(again) == []
+
     def it_queues_the_member_when_an_instructor_page_is_minted_once(django_capture_on_commit_callbacks):
         member = MemberFactory(instructor_oriented_at=None, instructor_slug="")
         with django_capture_on_commit_callbacks(execute=True) as minted:
