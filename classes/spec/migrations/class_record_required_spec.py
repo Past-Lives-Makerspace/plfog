@@ -1,29 +1,45 @@
-"""Migration 0109 (#1260, part 6): it makes a run's class required, and refuses to guess one."""
+"""Migration 0109 (#1260, part 6): a run's class becomes required, and a run with none stops it."""
 
 from __future__ import annotations
 
-from importlib import import_module
-from unittest.mock import MagicMock
-
 import pytest
+from django.db import IntegrityError, connection
+from django.db.migrations.executor import MigrationExecutor
 
-_migration = import_module("classes.migrations.0109_class_record_required")
+from classes.factories import ClassOfferingFactory
+from classes.models import ClassOffering
+from classes.spec.migrations._head import migrate_all_to_head
+
+pytestmark = pytest.mark.django_db(transaction=True)
+
+_BEFORE = [("classes", "0108_class_record_states")]
+_AFTER = [("classes", "0109_class_record_required")]
 
 
-def _apps_with(unfiled: int) -> MagicMock:
-    apps = MagicMock()
-    apps.get_model.return_value.objects.filter.return_value.count.return_value = unfiled
-    return apps
+def _migrate(target: list[tuple[str, str]]) -> None:
+    MigrationExecutor(connection).migrate(target)
 
 
 def describe_migration_0109_class_record_required():
-    def it_stops_with_the_count_while_a_run_has_no_class():
-        with pytest.raises(RuntimeError, match="2 class run"):
-            _migration.refuse_runs_with_no_class(_apps_with(2), None)
+    def it_refuses_to_run_while_a_run_has_no_class():
+        run = ClassOfferingFactory(title="Unfiled", slug="unfiled")
+        try:
+            _migrate(_BEFORE)
+            ClassOffering.objects.filter(pk=run.pk).update(class_record=None)
 
-    def it_goes_ahead_when_every_run_has_a_class():
-        apps = _apps_with(0)
+            with pytest.raises(IntegrityError):
+                _migrate(_AFTER)
+        finally:
+            ClassOffering.objects.filter(pk=run.pk).delete()
+            migrate_all_to_head()
 
-        _migration.refuse_runs_with_no_class(apps, None)
+    def it_makes_the_class_required_when_every_run_has_one():
+        run = ClassOfferingFactory(title="Filed", slug="filed")
+        try:
+            _migrate(_BEFORE)
+            _migrate(_AFTER)
+        finally:
+            migrate_all_to_head()
 
-        apps.get_model.assert_called_once_with("classes", "ClassOffering")
+        with pytest.raises(IntegrityError):
+            ClassOffering.objects.filter(pk=run.pk).update(class_record=None)

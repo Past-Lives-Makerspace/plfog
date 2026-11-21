@@ -1,24 +1,12 @@
 """Every run belongs to a class (#1260, part 6): ``ClassOffering.class_record`` becomes NOT NULL.
 
-Production had no run without a class on 2026-11-20 (every save files its run under one). The
-check below refuses to guess: a run with no class stops the migration with its count, so the
-column is never forced onto a made-up class.
+Production had no run without a class on 2026-11-20 (every save files its run under one). No
+default is given, so a run with no class makes the database refuse the change and the migration
+stops; nothing is ever filed under a made-up class.
 """
-
-from typing import Any
 
 import django.db.models.deletion
 from django.db import migrations, models
-
-
-def refuse_runs_with_no_class(apps: Any, schema_editor: Any) -> None:
-    offering_model = apps.get_model("classes", "ClassOffering")
-    unfiled = offering_model.objects.filter(class_record__isnull=True).count()
-    if unfiled:
-        raise RuntimeError(
-            f"{unfiled} class run(s) have no class. Save each one (or run refresh_class_states on the "
-            "release before this) to file it under a class, then migrate again."
-        )
 
 
 class Migration(migrations.Migration):
@@ -27,7 +15,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(refuse_runs_with_no_class, migrations.RunPython.noop),
         migrations.AlterField(
             model_name="classoffering",
             name="class_record",
