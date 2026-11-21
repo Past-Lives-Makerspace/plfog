@@ -27,6 +27,8 @@
     var leaving = false;
     var requests = new Set();
     var doneTimer = null;
+    var startedAt = null;
+    var STUCK_MS = 15000;
 
     function show(state) {
         if (!indicator || !indicator.isConnected) {
@@ -49,6 +51,7 @@
 
     function start() {
         if (!busy()) {
+            startedAt = Date.now();
             show("on");
             if (document.body) {
                 document.body.setAttribute("aria-busy", "true");
@@ -75,6 +78,7 @@
 
     function clear() {
         leaving = false;
+        startedAt = null;
         requests.clear();
         window.clearTimeout(doneTimer);
         html.removeAttribute("data-tours-loading");
@@ -131,7 +135,8 @@
 
     window.addEventListener("submit", function (event) {
         var form = event.target;
-        if (event.defaultPrevented || busy() || (form.target && form.target !== "_self")) {
+        var target = (event.submitter && event.submitter.getAttribute("formtarget")) || form.getAttribute("target");
+        if (event.defaultPrevented || busy() || (target && target !== "_self")) {
             return;
         }
         start();
@@ -149,7 +154,7 @@
 
     // afterRequest follows every request, answered, failed, timed out or aborted; the error
     // events beside it are a second line, so each request counts once.
-    ["htmx:afterRequest", "htmx:sendError", "htmx:timeout"].forEach(function (name) {
+    ["htmx:afterRequest", "htmx:sendError", "htmx:timeout", "htmx:onLoadError"].forEach(function (name) {
         document.addEventListener(name, function (event) {
             if (requests.delete(event.detail && event.detail.xhr)) {
                 finish();
@@ -162,4 +167,17 @@
             clear();
         }
     });
+
+    // A load that never leaves (Stop pressed, a link handed to an app) must not block the page for good:
+    // coming back to the tab clears it, and after 15 seconds the page is usable again.
+    document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "visible" && leaving) {
+            clear();
+        }
+    });
+    window.setInterval(function () {
+        if (busy() && startedAt && Date.now() - startedAt > STUCK_MS) {
+            clear();
+        }
+    }, 1000);
 })();
