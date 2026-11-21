@@ -159,13 +159,15 @@ body[data-kiosk-busy] {
 }
 
 .cp-page .pl-kiosk [aria-disabled="true"],
+.pl-kiosk-bar [aria-disabled="true"],
 .cp-page .pl-kiosk button:disabled:not([aria-busy="true"]),
 .cp-page .pl-kiosk input:disabled,
 .cp-page .pl-kiosk select:disabled {
     opacity: 0.55;
 }
 
-.cp-page .pl-kiosk__busy {
+.cp-page .pl-kiosk__busy,
+.pl-kiosk-bar .pl-kiosk__busy {
     display: inline-flex;
     align-items: center;
     font-size: 18px;
@@ -173,6 +175,7 @@ body[data-kiosk-busy] {
 }
 
 .cp-page .pl-kiosk__busy::before,
+.pl-kiosk-bar .pl-kiosk__busy::before,
 .cp-page .pl-kiosk .btn-reg[aria-busy="true"]::before {
     content: '';
     display: inline-block;
