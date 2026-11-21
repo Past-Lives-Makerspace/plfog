@@ -374,7 +374,8 @@ class ClassRecord(models.Model):
             data["image"] = [image if urlsplit(image).netloc else book_absolute_url(image)]
         instances = []
         for run in dates:
-            event = run.booking_event_json_ld(run.spots_left) if register_links else run._event_json_ld(run.spots_left)
+            spots = run.spots_left  # type: ignore[attr-defined]  # counted onto each date by the class page
+            event = run.booking_event_json_ld(spots) if register_links else run._event_json_ld(spots)
             if event is not None:
                 event.pop("@context")
                 instances.append({**event, "@type": "CourseInstance", "courseMode": "Onsite"})
@@ -4668,7 +4669,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         self._reset_lifecycle_for_clone()
         self.legacy_cms_id = ""
         # A copy is another class, so its save files it under a class of its own (#1260).
-        self.class_record = None
+        self.class_record = None  # type: ignore[assignment]  # cleared so the save files the copy under a new class
         self.channel_announced_at = None
         _save_with_unique_slug(self, base_slug, exclude_pk=None, save=self.save)
         self._copy_photos_and_faqs_from(source_pk)
