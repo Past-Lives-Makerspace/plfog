@@ -240,6 +240,15 @@ def describe_teaching():
             member.apply_admin_role(Member.ADMIN_ROLE_INSTRUCTOR)
         assert _queued(callbacks) == [member.pk]
 
+    def it_queues_the_member_when_an_instructor_page_is_minted_once(django_capture_on_commit_callbacks):
+        member = MemberFactory(instructor_oriented_at=None, instructor_slug="")
+        with django_capture_on_commit_callbacks(execute=True) as minted:
+            assert member.ensure_instructor_slug()
+        assert _queued(minted) == [member.pk]
+        with django_capture_on_commit_callbacks() as again:
+            assert not member.ensure_instructor_slug()
+        assert _queued(again) == []
+
 
 def describe_leadership_directory():
     def it_queues_a_member_listed_on_a_tab(django_capture_on_commit_callbacks):

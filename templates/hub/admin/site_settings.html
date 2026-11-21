@@ -277,9 +277,11 @@
         {% include "components/form_field.html" with field=form.discord_member_role_id field_hint="The role every member has. Discord pings are read only from channels this role can see. Blank reads none." %}
         {% include "components/form_field.html" with field=form.discord_leadership_role_id field_hint="Guild leads, Co-Leads and people listed on a Leadership Directory People tab hold this role. Blank turns it off." %}
         {% include "components/form_field.html" with field=form.discord_guild_officers_role_id field_hint="Guild leads, all guild staff and people listed on a Leadership Directory People tab hold this role. Blank turns it off." %}
+        <div data-guidance-target="admin.discord-role-ids">
         {% include "components/form_field.html" with field=form.discord_guild_leads_role_id field_hint="Every guild's lead and Co-Leads hold this one shared role. Blank turns it off." %}
         {% include "components/form_field.html" with field=form.discord_tour_guides_role_id field_hint="Everyone granted the Tour Guide permission holds this role. Blank turns it off." %}
         {% include "components/form_field.html" with field=form.discord_instructors_role_id field_hint="Every active instructor holds this role. Blank turns it off." %}
+        </div>
         {% include "components/form_field.html" with field=form.discord_role_message_channel_id field_hint="The channel id of the reaction-role message." %}
         {% include "components/form_field.html" with field=form.discord_role_message_id field_hint="The reaction-role message id — update if it's reposted." %}
         {% include "components/form_field.html" with field=form.discord_role_message_extra_ids field_hint="More reaction-role messages in the same channel, for when one is full (Discord allows 20 reactions per message). Separate ids with commas or spaces. A reaction on any of them counts." %}

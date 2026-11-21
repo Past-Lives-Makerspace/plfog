@@ -2494,6 +2494,7 @@ class Member(StaffRequestMixin, models.Model):
         self.instructor_slug = slug
         self.save(update_fields=["instructor_slug"])
         self._turn_on_instructor_emails(None)
+        self.reconcile_discord_roles()  # an instructor page makes them an instructor (#1270)
         return True
 
     def _turn_on_instructor_emails(self, actor: "User | None") -> None:
@@ -2727,7 +2728,6 @@ class Member(StaffRequestMixin, models.Model):
 
             record(self, [AdminCapability.ADMIN_ROLE], granted_by=granted_by)
         if unlocked_via_promotion:
-            self.reconcile_discord_roles()
             self.clear_request_bells()
             from core.models import SiteActivity
 
