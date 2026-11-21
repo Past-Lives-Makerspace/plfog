@@ -1,0 +1,15 @@
+bump = "minor"
+date = "2026-11-20"
+audience = ["admins"]
+feature = "admin.discord-settings"
+guidance = "shots"
+target = "admin.discord-role-ids"
+title = "Discord Guild Leads, Tour Guides and Instructors roles can follow the portal"
+changes = [
+  "Site Settings, Discord tab, has three new role ids: Guild Leads, Tour Guides and Instructors. Each stays blank, and does nothing, until you paste an id.",
+  "Once set, every guild lead and Co-Lead holds Guild Leads, everyone granted Tour Guide holds Tour Guides, and every active instructor holds Instructors. Each comes off when that ends.",
+  "Each guild's own lead role is no longer kept in step, and its lead role id is gone from the guild rows.",
+]
+
+[[shots]]
+caption = "On Site Settings, Discord tab, paste the Guild Leads, Tour Guides and Instructors role ids under Guild-Role Sync Connection, then press Save settings."
