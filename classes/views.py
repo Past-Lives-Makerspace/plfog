@@ -512,6 +512,11 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
         # switches to the several dates layout in ``_render_class_page``.
         "several_dates": False,
         "next_run": offering,
+        # A preview is never indexed; the class page sets these from its class (#1260).
+        "class_indexable": False,
+        "class_state": "",
+        "canonical_path": "",
+        "class_json_ld": None,
         # The flexible block (#545): the template holds the copy, these hold the facts. The
         # instructor's name is read off the row in the template, so a spec can anchor on it.
         "is_flexible": offering.is_flexible,
@@ -605,18 +610,25 @@ def _render_class_page(request: HttpRequest, offering: ClassOffering, *, times_t
             "times_taught": times_taught,
         }
     )
-    # Several open dates (#1260): the page books through Upcoming Dates, the soonest of them
-    # speaks for the class in the hero and the rail, and search gets one Event per date.
+    # Several open dates (#1260): the page books through Upcoming Dates, and the soonest of them
+    # speaks for the class in the hero and the rail.
     open_runs: list[ClassOffering] = context["sibling_offerings"]
     if len(open_runs) > 1:
         context["several_dates"] = True
         context["next_run"] = open_runs[0]
-    # Each open date's Event names its own register page, unless sign up is switched off site wide.
-    if open_runs and context["site_config"].class_registration_enabled:
-        events = [run.booking_event_json_ld(run.spots_left) for run in open_runs]
-    else:
-        events = [run.event_json_ld() for run in open_runs or [offering]]
-    context["class_events"] = [event for event in events if event is not None]
+    # Search reads the class (#1260): indexed while Scheduled or Between runs, at the class's
+    # address, as one Course with a CourseInstance for each open date.
+    record = offering.class_record
+    context.update(
+        {
+            "class_state": record.state,
+            "class_indexable": record.is_indexable,
+            "canonical_path": reverse("classes:public_class_detail", kwargs={"slug": record.slug}),
+            "class_json_ld": record.course_json_ld(
+                offering, open_runs, register_links=context["site_config"].class_registration_enabled
+            ),
+        }
+    )
     return render(request, "classes/public/detail.html", context)
 
 

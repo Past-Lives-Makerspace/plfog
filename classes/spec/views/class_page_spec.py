@@ -14,7 +14,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory
-from classes.models import ClassOffering, ClassRecord
+from classes.models import ClassOffering
 
 pytestmark = pytest.mark.django_db
 
@@ -123,16 +123,6 @@ def describe_an_old_run_address():
 
         assert client.get(reverse("classes:public_class_detail", kwargs={"slug": draft.slug})).status_code == 404
 
-    def it_still_shows_a_run_with_no_class_at_its_own_address(client):
-        run = _run("framing-1", days=10)
-        ClassOffering.objects.filter(pk=run.pk).update(class_record=None)
-        ClassRecord.objects.all().delete()
-
-        response = client.get(reverse("classes:public_class_detail", kwargs={"slug": run.slug}))
-
-        assert response.status_code == 200
-        assert response.context["offering"] == run
-
 
 def describe_links_to_a_run():
     def it_points_at_the_class(client):
@@ -140,12 +130,6 @@ def describe_links_to_a_run():
 
         assert run.public_path == "/classes/picture-framing/"
         assert run.public_url.endswith("/classes/picture-framing/")
-
-    def it_points_at_the_run_until_it_has_a_class():
-        run = _run("framing-1", days=10)
-        run.class_record_id = None
-
-        assert run.public_path == "/classes/framing-1/"
 
     def it_sends_a_qr_permalink_to_the_class(client):
         run = _run("picture-framing-2026-12-01", days=10)
@@ -247,11 +231,12 @@ def _events(body: str) -> list[dict]:
 
 
 def describe_search_data_for_several_dates():
-    def it_gives_each_open_date_its_own_event_and_register_page(client):
+    def it_gives_each_open_date_its_own_course_instance_and_register_page(client):
         soon = _run("framing-1", days=10, price_cents=7000)
         later = _run("framing-2", days=40, category=soon.category, price_cents=9000, capacity=0)
 
-        events = _events(client.get(_class_path(soon)).content.decode())
+        (course,) = _events(client.get(_class_path(soon)).content.decode())
+        events = course["hasCourseInstance"]
 
         assert [event["startDate"] for event in events] == [
             run.sessions.get().starts_at.isoformat() for run in (soon, later)
@@ -262,6 +247,20 @@ def describe_search_data_for_several_dates():
             register = run.register_path
             assert event["url"].endswith(register)
             assert event["offers"]["url"].endswith(register)
+
+    def it_points_each_date_at_the_class_while_sign_up_is_off_and_has_no_picture_without_one(client):
+        from core.models import SiteConfiguration
+
+        config = SiteConfiguration.load()
+        config.class_registration_enabled = False
+        config.save()
+        soon = _run("framing-1", days=10, image="")
+
+        (course,) = _events(client.get(_class_path(soon)).content.decode())
+
+        (instance,) = course["hasCourseInstance"]
+        assert instance["url"].endswith("/classes/picture-framing/")
+        assert "image" not in course
 
 
 def describe_the_rail_for_several_dates():

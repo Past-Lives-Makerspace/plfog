@@ -3,8 +3,8 @@
 Each surface lists only its own indexable pages, on the host the request came in on, so the
 classes, tours, guilds and members hosts each hand a search engine their own map:
 
-- classes: the catalog, every Class Type page, each class still to come
-  (``ClassOffering.objects.indexable()``) and each active instructor's page;
+- classes: the catalog, every Class Type page, each class Scheduled or Between runs (#1260)
+  and each active instructor's page;
 - tours: the booking page at the root;
 - guilds: the directory and every guild it lists;
 - members: upcoming published events and the published, listed Help guides.
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from django.contrib.sites.requests import RequestSite
     from django.db.models import QuerySet
 
-    from classes.models import Category, ClassOffering
+    from classes.models import Category, ClassRecord
     from membership.models import CommunityEvent, Guild, Member, WikiArticle
 
 
@@ -72,26 +72,30 @@ class ClassTypeSitemap(HostSitemap):
 
 
 class ClassSitemap(HostSitemap):
-    """Every class page still to come: upcoming, undated and open flexible classes.
+    """Every class page search should know: each class Scheduled or Between runs (#1260).
 
-    Several runs share one class page (#1260), so each address is listed once, by the run
-    edited most recently, whose ``updated_at`` is then the page's ``lastmod``.
+    One entry per class at its permanent address. A Retired class, one marked No longer offered
+    and one with no public run are left out. ``lastmod`` is its most recently edited run's.
     """
 
-    def items(self) -> list[ClassOffering]:
-        from classes.models import ClassOffering
+    def items(self) -> QuerySet[ClassRecord]:
+        from django.db.models import Max
 
-        runs = ClassOffering.objects.indexable().listed().select_related("class_record").order_by("-updated_at", "-pk")
-        by_address: dict[str, ClassOffering] = {}
-        for run in runs:
-            by_address.setdefault(run.public_path, run)
-        return sorted(by_address.values(), key=lambda run: run.pk)
+        from classes.models import ClassRecord
 
-    def location(self, item: ClassOffering) -> str:
-        return item.public_path
+        return (
+            ClassRecord.objects.filter(
+                state__in=[ClassRecord.State.SCHEDULED, ClassRecord.State.BETWEEN_RUNS], no_longer_offered=False
+            )
+            .annotate(last_run_edit=Max("runs__updated_at"))
+            .order_by("pk")
+        )
 
-    def lastmod(self, item: ClassOffering) -> datetime:
-        return item.updated_at
+    def location(self, item: ClassRecord) -> str:
+        return reverse("classes:public_class_detail", kwargs={"slug": item.slug})
+
+    def lastmod(self, item: ClassRecord) -> datetime:
+        return item.last_run_edit  # type: ignore[attr-defined]  # the annotation above
 
 
 class InstructorSitemap(HostSitemap):

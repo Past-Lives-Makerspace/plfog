@@ -87,15 +87,21 @@ def describe_the_classes_host():
         assert body.count(f"<loc>https://{CLASSES}/classes/forge-basics/</loc>") == 1
         assert "/classes/forge-basics-2026-12-01/" not in body
 
-    def it_leaves_out_past_draft_private_and_cancelled_classes(client: Client):
-        _class("long-gone", days=-30)
+    def it_lists_a_class_between_runs(client: Client):
+        _class("lately", days=-30)
+
+        assert f"<loc>https://{CLASSES}/classes/lately/</loc>" in _sitemap(client, CLASSES)
+
+    def it_leaves_out_retired_no_longer_offered_draft_private_and_cancelled_classes(client: Client):
+        _class("long-gone", days=-400)
+        _class("set-aside", days=-30).class_record.mark_no_longer_offered(None)
         _class("still-a-draft", days=5, status=ClassOffering.Status.DRAFT)
         _class("by-invite", days=5, is_private=True)
         _class("called-off", days=5, status=ClassOffering.Status.CANCELLED)
 
         body = _sitemap(client, CLASSES)
 
-        for slug in ("long-gone", "still-a-draft", "by-invite", "called-off"):
+        for slug in ("long-gone", "set-aside", "still-a-draft", "by-invite", "called-off"):
             assert f"/classes/{slug}/" not in body
 
     def it_leaves_out_demo_class_types_while_demo_classes_are_hidden(client: Client):

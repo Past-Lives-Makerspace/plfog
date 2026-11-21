@@ -120,14 +120,20 @@ def describe_an_upcoming_class():
         assert _title(html).count("Past Lives") <= 1
         assert len(_title(html)) <= 60
 
-    def it_carries_event_json_ld_and_open_graph(client: Client):
+    def it_carries_one_course_with_a_course_instance_per_date_and_open_graph(client: Client):
         offering = _class("forge-basics", days=5, title="Forge Basics", price_cents=7500, capacity=4)
 
         html = _get(client, "/classes/forge-basics/")
-        event = _json_ld(html)
+        course = _json_ld(html)
+        (event,) = course["hasCourseInstance"]
 
-        assert event["@type"] == "Event"
-        assert event["name"] == "Forge Basics"
+        assert html.count("application/ld+json") == 1
+        assert (course["@type"], course["name"]) == ("Course", "Forge Basics")
+        assert course["url"] == f"{BASE}/classes/forge-basics/"
+        assert course["provider"] == {"@type": "Organization", "name": "Past Lives Makerspace"}
+        assert course["image"][0].startswith(BASE)
+        assert (event["@type"], event["courseMode"]) == ("CourseInstance", "Onsite")
+        assert "@context" not in event
         assert event["startDate"] == offering.sessions.get().starts_at.isoformat()
         assert event["endDate"] == offering.sessions.get().ends_at.isoformat()
         assert event["location"]["address"]["streetAddress"] == "2808 SE 9th Ave"
@@ -139,20 +145,32 @@ def describe_an_upcoming_class():
             # An open date's Event points at its own register page (#1260).
             "url": f"{BASE}{offering.register_path}",
         }
-        assert event["image"][0].startswith(BASE)
         assert 'property="og:title" content="Forge Basics' in html
         assert f'property="og:url" content="{BASE}/classes/forge-basics/"' in html
         assert 'property="og:image" content="https://' in html
 
 
-def describe_a_past_class():
-    def it_is_noindex_and_carries_no_event(client: Client):
-        _class("open-forge-sundays", days=-30)
+def describe_a_class_between_runs():
+    def it_stays_indexed_says_not_currently_scheduled_and_lists_no_date(client: Client):
+        _class("open-forge-sundays", days=-30, title="Open Forge Sundays")
 
         html = _get(client, "/classes/open-forge-sundays/")
 
-        assert NOINDEX in html
-        assert "application/ld+json" not in html
+        assert NOINDEX not in html
+        assert _canonicals(html) == [f"{BASE}/classes/open-forge-sundays/"]
+        assert "Not currently scheduled" in html
+        course = _json_ld(html)
+        assert course["@type"] == "Course"
+        assert "hasCourseInstance" not in course
+
+
+def describe_the_canonical():
+    def it_names_the_class_even_on_a_request_with_a_query(client: Client):
+        _class("forge-basics", days=5, title="Forge Basics")
+
+        html = _get(client, "/classes/forge-basics/?utm_source=flyer")
+
+        assert _canonicals(html) == [f"{BASE}/classes/forge-basics/"]
 
 
 def describe_the_transactional_pages():
@@ -193,13 +211,17 @@ def describe_the_class_title():
         instructor = InstructorFactory(full_legal_name="Anjali Figueira")
         offering = _class("cup", days=5, title="Make a Cup w/ Anjali", instructor=instructor)
 
-        assert "Figueira" not in offering.seo_title
-        assert offering.seo_title.startswith("Make a Cup w/ Anjali — ")
+        assert offering.seo_title == "Make a Cup w/ Anjali"  # the class's title, with no date (#1260)
 
 
 def describe_is_indexable():
-    def it_leaves_out_a_private_class():
-        assert _class("by-invite", days=5, is_private=True).is_indexable is False
+    def it_indexes_a_class_scheduled_or_between_runs():
+        assert _class("soon", days=5).class_record.is_indexable is True
+        assert _class("lately", days=-30).class_record.is_indexable is True
+
+    def it_leaves_out_a_retired_or_private_class():
+        assert _class("long-ago", days=-400).class_record.is_indexable is False
+        assert _class("by-invite", days=5, is_private=True).class_record.is_indexable is False
 
 
 def describe_event_json_ld():

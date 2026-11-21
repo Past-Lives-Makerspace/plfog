@@ -340,6 +340,48 @@ class ClassRecord(models.Model):
     def __str__(self) -> str:
         return self.title
 
+    @property
+    def is_indexable(self) -> bool:
+        """Whether search engines should index this class's page: Scheduled or Between runs (#1260)."""
+        return self.state in (self.State.SCHEDULED, self.State.BETWEEN_RUNS) and not self.no_longer_offered
+
+    def course_json_ld(
+        self, page_run: "ClassOffering", dates: "Sequence[ClassOffering]", *, register_links: bool
+    ) -> dict[str, Any]:
+        """This class as one schema.org Course, with a CourseInstance for each of ``dates`` (#1260).
+
+        ``page_run`` gives the name, description and picture, as the page does. Each date is the
+        run's Event data as a CourseInstance, pointing at its own register page unless
+        ``register_links`` is off (sign up switched off site wide); ``dates`` carry ``spots_left``
+        already counted for the page. A class Between runs has none.
+        """
+        from django.urls import reverse
+        from urllib.parse import urlsplit
+
+        from classes.templatetags.classes_tags import strip_date_suffix
+        from core.urls_util import book_absolute_url
+
+        data: dict[str, Any] = {
+            "@context": "https://schema.org",
+            "@type": "Course",
+            "name": strip_date_suffix(self.title).strip(),
+            "description": page_run.seo_description,
+            "url": book_absolute_url(reverse("classes:public_class_detail", kwargs={"slug": self.slug})),
+            "provider": {"@type": "Organization", "name": "Past Lives Makerspace"},
+        }
+        image = page_run.hero_image_url
+        if image:
+            data["image"] = [image if urlsplit(image).netloc else book_absolute_url(image)]
+        instances = []
+        for run in dates:
+            event = run.booking_event_json_ld(run.spots_left) if register_links else run._event_json_ld(run.spots_left)
+            if event is not None:
+                event.pop("@context")
+                instances.append({**event, "@type": "CourseInstance", "courseMode": "Onsite"})
+        if instances:
+            data["hasCourseInstance"] = instances
+        return data
+
     def state_now(self) -> "ClassRecord.State":
         """The state the rule gives this class at this moment (#1260).
 
@@ -913,14 +955,6 @@ class ClassOfferingQuerySet(models.QuerySet["ClassOffering"]):
                 | (fixed & Q(last_session_at__gte=now))
             )
         )
-
-    def indexable(self) -> "ClassOfferingQuerySet":
-        """Class pages a search engine should list (#1259): public, and not yet ended.
-
-        The classes host's sitemap is this set. A past, draft, private, cancelled or archived
-        class is left out, and so is a demo class while demo classes are hidden.
-        """
-        return self.public().upcoming_published()
 
     def listed(self) -> "ClassOfferingQuerySet":
         """Runs public listings may show: not of a class marked No longer offered (#1260).
@@ -1820,7 +1854,6 @@ class ClassOffering(HeroCropMixin, models.Model):
     class_record = models.ForeignKey(
         ClassRecord,
         on_delete=models.PROTECT,
-        null=True,
         blank=True,
         related_name="runs",
         help_text=(
@@ -4468,48 +4501,26 @@ class ClassOffering(HeroCropMixin, models.Model):
         cut = window.rsplit(" ", 1)[0] if " " in window else window
         return f"{cut.rstrip(' -–—,;:.')}…"
 
-    def _seo_date_label(self) -> str:
-        """Localized 'Mon D, YYYY' label for the offering's defining session.
-
-        Prefers the next upcoming session so live pages read as a future event;
-        falls back to the earliest session so expired/archived offerings still
-        carry a distinguishing, indexable date. Returns ``""`` when the offering
-        has no sessions at all.
-        """
-        dt = self.first_upcoming_session_at or self.earliest_session_at
-        if dt is None:
-            return ""
-        return date_format(localtime(dt), "M j, Y")
-
     @property
     def seo_title(self) -> str:
-        """Unique, ≤60-char class-identifying title for the page ``<title>``.
+        """≤60-char class-identifying title for the page ``<title>``.
 
-        Starts from the date-stripped base title and greedily appends the
-        session date then the instructor, dropping segments from the right when
-        over the 60-char budget. The date is added before the instructor because
-        it is the stronger uniqueness signal for sibling offerings of the same
-        class on different dates. The brand suffix is intentionally omitted to
-        stay within Google's title width.
+        The date-stripped title, then the instructor when they fit and the title does not
+        already name them. No date: the page is the class's, across all its dates (#1260). The
+        page template adds the brand once, within the same budget.
 
         Returns:
             A plain-text title of length 1–60 (HTML auto-escaped at render time).
         """
         from classes.templatetags.classes_tags import strip_date_suffix
 
-        base = strip_date_suffix(self.title).strip()
-        result = base
-        date_label = self._seo_date_label()
-        if date_label:
-            candidate = f"{result} — {date_label}"
-            if len(candidate) <= 60:
-                result = candidate
+        result = strip_date_suffix(self.title).strip()
         name = self.public_instructor_names.strip()
         if name:
             first_name = name.split(" ")[0]
             # Skip the instructor segment when the title already names them, so
             # "Blacksmithing 101 with Glen" + instructor "Glen Morris" doesn't
-            # read "... with Glen — <date> with Glen Morris".
+            # read "... with Glen with Glen Morris".
             # The first name as a whole word anywhere counts too (#1259): "Make a Cup w/ Anjali" names her already.
             mentions_instructor = name.lower() in result.lower() or bool(
                 re.search(rf"\b{re.escape(first_name)}\b", result, re.IGNORECASE)
@@ -4539,14 +4550,6 @@ class ClassOffering(HeroCropMixin, models.Model):
             base = strip_date_suffix(self.title).strip()
             raw = f"{base} at Past Lives Makerspace in Portland, OR. {self.category.name} class — register online."
         return self._truncate(raw, 160)
-
-    @property
-    def is_indexable(self) -> bool:
-        """Whether search engines should index this class page (#1259): listed and not yet ended.
-
-        The page's twin of :meth:`ClassOfferingQuerySet.indexable`; a page that is not gets ``noindex``.
-        """
-        return not self.is_private and self.lifecycle == self.Lifecycle.UPCOMING
 
     def event_json_ld(self) -> dict[str, Any] | None:
         """This class as a schema.org Event for the page's JSON-LD (#1259), or ``None`` without a start.
