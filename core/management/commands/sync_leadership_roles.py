@@ -13,12 +13,18 @@ Members who should hold a role but have no linked Discord are listed once at the
 calls failed. Reads the server's member list once (one request per thousand members), never one
 request per member. This is how the drift from before the sync gets cleaned up, and how an
 admin checks the role ids are right.
+
+``--guild-leads-role-id``, ``--tour-guides-role-id`` and ``--instructors-role-id`` preview an id
+before it is entered in Site Settings (#1270): the dry run treats it as managed and ends with one
+section per previewed role naming everyone who would get it and everyone holding it who would
+lose it, a server member no linked member answers to included. A preview never combines with
+``--apply``; nothing is saved.
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
@@ -53,6 +59,23 @@ class _Tally:
         self.failed += len(changes.failed)
 
 
+#: The ids a dry run can preview before they are saved: (option destination, settings attribute).
+PREVIEWS: tuple[tuple[str, str], ...] = (
+    ("guild_leads_role_id", "guild_leads_role_id"),
+    ("tour_guides_role_id", "tour_guides_role_id"),
+    ("instructors_role_id", "instructors_role_id"),
+)
+
+
+@dataclass
+class _Preview:
+    """Who would get, and who would lose, one previewed role."""
+
+    name: str
+    gain: list[str]
+    lose: list[str]
+
+
 class Command(BaseCommand):
     help = "List the Discord leadership role changes the app wants; --apply makes them."
 
@@ -64,10 +87,21 @@ class Command(BaseCommand):
             help="With --apply, also take managed roles off server members no linked member answers to "
             "(never one whose username matches an unlinked member's Discord handle).",
         )
+        for dest, _attribute in PREVIEWS:
+            parser.add_argument(
+                f"--{dest.replace('_', '-')}",
+                dest=dest,
+                default="",
+                help="Dry run only: preview this role id as if it were saved in Site Settings.",
+            )
 
     def handle(self, *args: Any, **options: Any) -> None:
         server = server_id()
-        settings = LeadershipRoleSettings.load()
+        settings = self._with_preview(LeadershipRoleSettings.load(), options)
+        self.previews = {
+            role_id: _Preview(settings.role_name(role_id), [], [])
+            for role_id in (getattr(settings, attribute) for dest, attribute in PREVIEWS if options[dest].strip())
+        }
         off = self._off_reason(server, settings)
         if off:
             self.stdout.write(off)
@@ -95,6 +129,7 @@ class Command(BaseCommand):
                 self.stdout.write(f"{member.staff_label} ({user_id}): not on the Discord server, skipped.")
                 continue
             to_add, to_remove = plan_changes(member_facts, current, settings)
+            self._note_preview(member.staff_label, to_add, to_remove)
             if to_add or to_remove:
                 tally.differing += 1
                 self.stdout.write(f"{member.staff_label} ({user_id}): {self._describe(to_add, to_remove, settings)}")
@@ -102,6 +137,35 @@ class Command(BaseCommand):
                     tally.count(reconcile_member(member, current=current, settings=settings))
         self._strangers(members, settings, tally, strip=options["strip_unlinked"])
         self._summarize(unlinked, tally, apply=apply)
+        self._report_previews()
+
+    def _note_preview(self, who: str, to_add: list[str], to_remove: list[str]) -> None:
+        """Record ``who`` under each previewed role they would get or lose."""
+        for role_id, preview in self.previews.items():
+            if role_id in to_add:
+                preview.gain.append(who)
+            if role_id in to_remove:
+                preview.lose.append(who)
+
+    def _report_previews(self) -> None:
+        """One section per previewed role: who would get it and who would lose it."""
+        for role_id, preview in self.previews.items():
+            self.stdout.write("")
+            self.stdout.write(f"Preview of {preview.name} ({role_id}), nothing saved:")
+            self.stdout.write("  Would get it: " + (", ".join(preview.gain) or "nobody"))
+            self.stdout.write("  Would lose it: " + (", ".join(preview.lose) or "nobody"))
+
+    @staticmethod
+    def _with_preview(settings: LeadershipRoleSettings, options: dict[str, Any]) -> LeadershipRoleSettings:
+        """``settings`` with each previewed role id applied (:data:`PREVIEWS`)."""
+        previewed = {attribute: options[dest].strip() for dest, attribute in PREVIEWS if options[dest].strip()}
+        if not previewed:
+            return settings
+        if options["apply"]:
+            raise CommandError("A role id preview only previews; enter the id in Site Settings to apply it.")
+        if not all(role_id.isdigit() for role_id in previewed.values()):
+            raise CommandError("A Discord role id is numbers only.")
+        return replace(settings, **previewed)
 
     @staticmethod
     def _off_reason(server: str, settings: LeadershipRoleSettings) -> str:
@@ -111,7 +175,7 @@ class Command(BaseCommand):
         if bot_disabled("leadership role sync"):
             return "The Discord bot token is blank here (unset, or staging), so the sync is off."
         if not settings.managed:
-            return "No leadership, Guild Officers or guild lead role id is set, so there is nothing to sync."
+            return "No managed role id (leadership, Guild Officers, Guild Leads, Tour Guides, Instructors) is set, so there is nothing to sync."
         return ""
 
     def _strangers(
@@ -137,6 +201,7 @@ class Command(BaseCommand):
             tally.differing += 1
             match = next((handles[_handle(n)] for n in server_member.names if _handle(n) in handles), None)
             marker = f" (matches unlinked app member {match})" if match else ""
+            self._note_preview(f"{server_member.username or user_id} (no linked member)", [], held)
             self.stdout.write(
                 f"Discord account {server_member.username or user_id} ({user_id}), no linked member{marker}: "
                 f"{self._describe([], held, settings)}"

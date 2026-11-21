@@ -1,22 +1,26 @@
-"""Discord leadership roles follow the app (#1148): guild lead roles, leadership and Guild Officers.
+"""Discord roles that follow the app (#1148, #1270): leadership, Guild Officers, Guild Leads, Tour Guides, Instructors.
 
-The app manages a fixed set of Discord roles, all ids kept in the database and never in code:
-each guild's ``Guild.discord_lead_role_id``, and ``SiteConfiguration.discord_leadership_role_id``
-and ``discord_guild_officers_role_id`` (blank turns that role off). Who should hold them:
+The app manages a fixed set of shared Discord roles, all ids kept in Site Settings and never in
+code (``SiteConfiguration.discord_<name>_role_id``; blank turns that role off). Who should hold them:
 
 ========================================================  ==========================================
 Who                                                       Roles
 ========================================================  ==========================================
-The lead (``Guild.guild_lead``) or a Co-Lead of a guild   that guild's lead role, leadership, Guild Officers
+The lead (``Guild.guild_lead``) or a Co-Lead of a guild   Guild Leads, leadership, Guild Officers
 Any other staff role (Secretary, Treasurer, Orientor,     Guild Officers
 custom title)
 Listed on a People tab of the Leadership Directory        leadership, Guild Officers
+Granted the Tour Guide permission                         Tour Guides
+An instructor (``Member.objects.instructors()``)          Instructors
 ========================================================  ==========================================
 
 A member holds the union. Only visible guilds count (``is_active`` and not soft deleted): a
 hidden guild's lead and staff lose what it gave them. ``Member.fog_role`` gives nothing: App
 Admin is an access level, and admins whose Discord leadership was taken away on purpose must
-not get it back (Felix, 2026-11-09). :func:`desired_role_ids` is the only place this mapping lives.
+not get it back (Felix, 2026-11-09); an admin who reaches Tours without the grant is no Tour
+Guide either (Felix, 2026-11-20). :func:`desired_role_ids` is the only place this mapping lives.
+Per guild lead roles (``Guild.discord_lead_role_id``) are no longer managed (#1270): the app
+neither adds nor removes them.
 
 :func:`reconcile_member` reads the member's roles once, then PUTs each role they should hold
 and do not, and DELETEs each managed role they hold and should not; a role outside the managed
@@ -45,7 +49,7 @@ from typing import TYPE_CHECKING
 from django.db import transaction
 from django.tasks import task
 
-from core.events.discord_roles import RoleOutcome, read_member_roles, role_outcome, server_member_role_ids
+from core.events.discord_roles import RoleOutcome, read_member_roles, role_outcome
 from core.tasks import enqueue_on_commit
 
 if TYPE_CHECKING:
@@ -60,6 +64,16 @@ class LeadershipRoleSyncError(Exception):
 
 GUILD_OFFICERS_NAME = "Guild Officers"
 
+#: Each managed role as (its Site Settings field, its name in reports and error messages). The
+#: :class:`LeadershipRoleSettings` attribute is the field without its ``discord_`` prefix.
+MANAGED_ROLES: tuple[tuple[str, str], ...] = (
+    ("discord_leadership_role_id", LEADERSHIP_NAME),
+    ("discord_guild_officers_role_id", GUILD_OFFICERS_NAME),
+    ("discord_guild_leads_role_id", "Guild Leads"),
+    ("discord_tour_guides_role_id", "Tour Guides"),
+    ("discord_instructors_role_id", "Instructors"),
+)
+
 
 @dataclass(frozen=True)
 class LeadershipFacts:
@@ -70,11 +84,15 @@ class LeadershipFacts:
         other_staff: They hold another staff role (Secretary, Treasurer, Orientor or a custom
             title) on a visible guild.
         listed: They are listed on a People tab of the Leadership Directory.
+        tour_guide: They hold the Tour Guide permission.
+        instructor: They are in ``Member.objects.instructors()``.
     """
 
     led_guild_ids: frozenset[int] = frozenset()
     other_staff: bool = False
     listed: bool = False
+    tour_guide: bool = False
+    instructor: bool = False
 
 
 NO_FACTS = LeadershipFacts()
@@ -82,48 +100,44 @@ NO_FACTS = LeadershipFacts()
 
 @dataclass(frozen=True)
 class LeadershipRoleSettings:
-    """The configured role ids, read once.
+    """The configured role ids, read once; "" turns that role off.
 
     Attributes:
-        leadership_role_id: ``SiteConfiguration.discord_leadership_role_id`` ("" is off).
-        guild_officers_role_id: ``SiteConfiguration.discord_guild_officers_role_id`` ("" is off).
-        lead_role_ids: Guild pk to its ``discord_lead_role_id``, for every guild that has one,
-            hidden and deleted guilds too, so their lead roles stay managed and are taken back.
-        guild_names: Guild pk to name, for :meth:`role_name`.
+        leadership_role_id: ``SiteConfiguration.discord_leadership_role_id``.
+        guild_officers_role_id: ``SiteConfiguration.discord_guild_officers_role_id``.
+        guild_leads_role_id: ``SiteConfiguration.discord_guild_leads_role_id``.
+        tour_guides_role_id: ``SiteConfiguration.discord_tour_guides_role_id``.
+        instructors_role_id: ``SiteConfiguration.discord_instructors_role_id``.
         access_role_ids: Roles that give members access and are never managed here:
             ``discord_member_role_id`` and every guild's ``discord_role_ids``.
     """
 
     leadership_role_id: str = ""
     guild_officers_role_id: str = ""
-    lead_role_ids: dict[int, str] = field(default_factory=dict)
-    guild_names: dict[int, str] = field(default_factory=dict)
+    guild_leads_role_id: str = ""
+    tour_guides_role_id: str = ""
+    instructors_role_id: str = ""
     access_role_ids: frozenset[str] = frozenset()
 
     @classmethod
     def load(cls) -> LeadershipRoleSettings:
-        """Read the ids from Site Settings and every guild."""
+        """Read the ids from Site Settings, and the access roles from Site Settings and every guild."""
         from core.models import SiteConfiguration
         from membership.models import Guild
 
         config = SiteConfiguration.load()
-        lead_role_ids: dict[int, str] = {}
-        guild_names: dict[int, str] = {}
         access = {(config.discord_member_role_id or "").strip()}
-        for pk, name, role_id, member_role_ids in Guild.all_objects.values_list(
-            "pk", "name", "discord_lead_role_id", "discord_role_ids"
-        ):
+        for member_role_ids in Guild.all_objects.values_list("discord_role_ids", flat=True):
             access.update(str(member_role_id).strip() for member_role_id in member_role_ids or [])
-            if role_id.strip():
-                lead_role_ids[pk] = role_id.strip()
-                guild_names[pk] = name
-        return cls(
-            leadership_role_id=config.discord_leadership_role_id.strip(),
-            guild_officers_role_id=config.discord_guild_officers_role_id.strip(),
-            lead_role_ids=lead_role_ids,
-            guild_names=guild_names,
-            access_role_ids=frozenset(role_id for role_id in access if role_id),
-        )
+        ids = {
+            field_name.removeprefix("discord_"): getattr(config, field_name).strip() for field_name, _ in MANAGED_ROLES
+        }
+        return cls(**ids, access_role_ids=frozenset(role_id for role_id in access if role_id))
+
+    def role_id(self, field_name: str) -> str:
+        """The id configured for one :data:`MANAGED_ROLES` field."""
+        role_id: str = getattr(self, field_name.removeprefix("discord_"))
+        return role_id
 
     @property
     def managed(self) -> frozenset[str]:
@@ -132,54 +146,59 @@ class LeadershipRoleSettings:
         A member access role is taken out even when an id was also typed in as a managed
         one, the second guard behind the Site Settings check (:func:`role_id_conflicts`).
         """
-        ids = {self.leadership_role_id, self.guild_officers_role_id, *self.lead_role_ids.values()}
+        ids = {self.role_id(field_name) for field_name, _ in MANAGED_ROLES}
         return frozenset(role_id for role_id in ids if role_id) - self.access_role_ids
 
     def role_name(self, role_id: str) -> str:
-        """A readable name for a managed role id, for the command's report."""
-        if role_id == self.leadership_role_id:
-            return LEADERSHIP_NAME
-        if role_id == self.guild_officers_role_id:
-            return GUILD_OFFICERS_NAME
-        for pk, lead_role_id in self.lead_role_ids.items():
-            if lead_role_id == role_id:
-                return f"{self.guild_names[pk]} Lead"
+        """A readable name for a managed role id, for the command's report; an unknown id reads as itself."""
+        for field_name, name in MANAGED_ROLES:
+            if role_id and self.role_id(field_name) == role_id:
+                return name
         return role_id
 
 
 def desired_role_ids(facts: LeadershipFacts, settings: LeadershipRoleSettings) -> frozenset[str]:
     """The managed role ids a member with these ``facts`` should hold. The one home of the mapping.
 
-    A lead or Co-Lead gets that guild's lead role, leadership and Guild Officers; any other
-    staff role gets Guild Officers; a People tab listing gets leadership and Guild Officers.
-    A blank setting contributes nothing.
+    A lead or Co-Lead gets Guild Leads, leadership and Guild Officers; any other staff role gets
+    Guild Officers; a People tab listing gets leadership and Guild Officers; the Tour Guide
+    permission gets Tour Guides; an instructor gets Instructors. A blank setting contributes nothing.
     """
+    leads = bool(facts.led_guild_ids)
     wanted: set[str] = set()
-    for guild_id in facts.led_guild_ids:
-        wanted.add(settings.lead_role_ids.get(guild_id, ""))
-    if facts.led_guild_ids or facts.listed:
+    if leads:
+        wanted.add(settings.guild_leads_role_id)
+    if leads or facts.listed:
         wanted.add(settings.leadership_role_id)
-    if facts.led_guild_ids or facts.other_staff or facts.listed:
+    if leads or facts.other_staff or facts.listed:
         wanted.add(settings.guild_officers_role_id)
+    if facts.tour_guide:
+        wanted.add(settings.tour_guides_role_id)
+    if facts.instructor:
+        wanted.add(settings.instructors_role_id)
     return frozenset(role_id for role_id in wanted if role_id) & settings.managed
 
 
 def leadership_facts(member_ids: Iterable[int] | None = None) -> dict[int, LeadershipFacts]:
-    """Each member's :class:`LeadershipFacts`, in three queries; a member with none is left out.
+    """Each member's :class:`LeadershipFacts`, in five queries; a member with none is left out.
 
     Args:
         member_ids: Only these members; None reads everyone who earns anything.
     """
-    from membership.models import Guild, GuildStaffMembership, LeadershipListing, LeadershipTab
+    from membership.models import AdminCapability, Guild, GuildStaffMembership, LeadershipListing, LeadershipTab, Member
 
     ids = None if member_ids is None else list(member_ids)
     leads = Guild.objects.filter(is_active=True, guild_lead__isnull=False)
     staff = GuildStaffMembership.objects.filter(guild__is_active=True, guild__deleted_at__isnull=True)
     listed = LeadershipListing.objects.filter(is_listed=True, tab__kind=LeadershipTab.Kind.PEOPLE)
+    guides = AdminCapability.objects.filter(capability=AdminCapability.Capability.TOUR_GUIDE)
+    teachers = Member.objects.instructors()
     if ids is not None:
         leads = leads.filter(guild_lead_id__in=ids)
         staff = staff.filter(member_id__in=ids)
         listed = listed.filter(member_id__in=ids)
+        guides = guides.filter(member_id__in=ids)
+        teachers = teachers.filter(pk__in=ids)
 
     led: dict[int, set[int]] = {}
     officers: set[int] = set()
@@ -191,13 +210,17 @@ def leadership_facts(member_ids: Iterable[int] | None = None) -> dict[int, Leade
         else:
             officers.add(member_id)
     on_tabs = set(listed.values_list("member_id", flat=True))
+    tour_guides = set(guides.values_list("member_id", flat=True))
+    instructors = set(teachers.values_list("pk", flat=True))
     return {
         member_id: LeadershipFacts(
             led_guild_ids=frozenset(led.get(member_id, ())),
             other_staff=member_id in officers,
             listed=member_id in on_tabs,
+            tour_guide=member_id in tour_guides,
+            instructor=member_id in instructors,
         )
-        for member_id in set(led) | officers | on_tabs
+        for member_id in set(led) | officers | on_tabs | tour_guides | instructors
     }
 
 
@@ -364,33 +387,12 @@ def strip_leadership_roles(discord_user_id: str) -> None:
 
 @task
 def remove_retired_role(role_id: str) -> None:
-    """Take a guild lead role id that was just replaced off everyone who holds it. Safe to run twice.
+    """Retired by #1270: per guild lead roles are no longer managed, so nothing is taken off anyone.
 
-    Enqueued when a guild's ``discord_lead_role_id`` changes away from ``role_id``: the
-    reconcile only manages ids still configured, so the old one would otherwise stay on its
-    holders. Skips a blank id, one still configured anywhere (another guild's lead role,
-    leadership, Guild Officers), since then the reconcile owns it, and a member access role
-    (``discord_member_role_id``, any guild's ``discord_role_ids``). Reads the member list once.
-
-    Raises:
-        LeadershipRoleSyncError: The member list could not be read, or a removal still failed
-            after its retry (raised after every holder was tried).
+    Kept so a task the previous release enqueued (a guild lead role id changed in Site Settings)
+    still imports and finishes; remove it in a later release.
     """
-    role_id = (role_id or "").strip()
-    server = server_id()
-    settings = LeadershipRoleSettings.load()
-    if not role_id or not server or role_id in settings.managed or role_id in settings.access_role_ids:
-        return
-    roster = server_member_role_ids(server, retry=True)
-    if roster is None:
-        raise LeadershipRoleSyncError(f"Could not read the Discord member list to retire role {role_id}.")
-    failed = [
-        user_id
-        for user_id, roles in roster.items()
-        if role_id in roles and role_outcome("DELETE", server, user_id, role_id, retry=True) in _REPORTED
-    ]
-    if failed:
-        raise LeadershipRoleSyncError(f"Could not take role {role_id} off {len(failed)} Discord accounts.")
+    del role_id
 
 
 def strip_on_commit(discord_user_id: str) -> None:
@@ -401,79 +403,38 @@ def strip_on_commit(discord_user_id: str) -> None:
 
 
 def role_id_conflicts(
-    *,
-    member_role_id: str,
-    leadership_role_id: str,
-    guild_officers_role_id: str,
-    guilds: dict[int, tuple[str, list[str], bool]],
-    check_guild_rows: bool = True,
-) -> tuple[dict[str, str], dict[int, str]]:
-    """Why the role ids as they would be saved clash, for the Site Settings save to refuse.
+    *, member_role_id: str, role_ids: dict[str, str], guild_member_role_ids: Iterable[str]
+) -> dict[str, str]:
+    """Why the managed role ids as they would be saved clash, for the Site Settings save to refuse.
 
-    The managed ids (leadership, Guild Officers, each guild's lead role) must all differ from
-    every member access role (the Member role and any guild's member role ids, every guild
-    counted), or the sync would hand out or take away access; leadership and Guild Officers
-    must differ, and a lead role may be neither. Two visible guilds may not share a lead role
-    id; a hidden or deleted guild's old one may be reused.
+    Each managed id must differ from every member access role (the Member role and every guild's
+    member role ids), or the sync would hand out or take away access, and from every other
+    managed id, or one portal fact would move another role. A blank id is off and never clashes.
 
     Args:
         member_role_id: ``discord_member_role_id``.
-        leadership_role_id: ``discord_leadership_role_id``.
-        guild_officers_role_id: ``discord_guild_officers_role_id``.
-        guilds: Guild pk to (its lead role id, its member role ids, whether it is visible:
-            active and not deleted), for every guild. A lead role id two visible guilds share
-            is reported on the later one in this order.
-        check_guild_rows: Also judge each guild's lead role id (when the guild rows were
-            posted). Off, only the site fields are judged, and a stored lead role id equal to
-            leadership or Guild Officers is reported on that site field.
+        role_ids: Each :data:`MANAGED_ROLES` field name to its id as it would be saved.
+        guild_member_role_ids: Every guild's ``discord_role_ids``, as they would be saved.
 
     Returns:
-        (Site Settings field name to message, guild pk to message for its lead role id).
+        Site Settings field name to message, for each id that clashes.
     """
-    access = {member_role_id.strip()} | {
-        str(role_id).strip() for _lead, member_ids, _live in guilds.values() for role_id in member_ids
-    }
-    access.discard("")
-    site_errors: dict[str, str] = {}
-    guild_errors: dict[int, str] = {}
-    access_message = "This id is a member access role (the Member role or a guild's role). Use a different role."
-    taken_message = "A guild already uses this id as its lead role. Use a different role."
-    leadership = leadership_role_id.strip()
-    officers = guild_officers_role_id.strip()
-    leads = {raw_lead.strip() for raw_lead, _member_ids, _live in guilds.values()} - {""}
-    if leadership in access:
-        site_errors["discord_leadership_role_id"] = access_message
-    elif not check_guild_rows and leadership in leads:
-        site_errors["discord_leadership_role_id"] = taken_message
-    if officers in access:
-        site_errors["discord_guild_officers_role_id"] = access_message
-    elif officers and officers == leadership:
-        site_errors["discord_guild_officers_role_id"] = "Guild Officers needs its own role, not the leadership role."
-    elif not check_guild_rows and officers in leads:
-        site_errors["discord_guild_officers_role_id"] = taken_message
-    if check_guild_rows:
-        guild_errors = _guild_row_conflicts(guilds, access, (leadership, officers), access_message)
-    return site_errors, guild_errors
-
-
-def _guild_row_conflicts(
-    guilds: dict[int, tuple[str, list[str], bool]], access: set[str], site_ids: tuple[str, str], access_message: str
-) -> dict[int, str]:
-    """Each guild whose lead role id is an access role, a site role, or another visible guild's."""
-    errors: dict[int, str] = {}
-    seen: set[str] = set()
-    for pk, (raw_lead, _member_ids, live) in guilds.items():
-        lead = raw_lead.strip()
-        if not lead:
+    access = {member_role_id.strip(), *(str(role_id).strip() for role_id in guild_member_role_ids)} - {""}
+    names = dict(MANAGED_ROLES)
+    errors: dict[str, str] = {}
+    taken: dict[str, str] = {}
+    for field_name, raw_id in role_ids.items():
+        role_id = raw_id.strip()
+        if not role_id:
             continue
-        if lead in access:
-            errors[pk] = access_message
-        elif lead in site_ids:
-            errors[pk] = "A guild lead role needs its own role, not the leadership or Guild Officers role."
-        elif live and lead in seen:
-            errors[pk] = "Another guild already uses this lead role id."
-        if live:
-            seen.add(lead)
+        if role_id in access:
+            errors[field_name] = (
+                "This id is a member access role (the Member role or a guild's role). Use a different role."
+            )
+        elif role_id in taken:
+            errors[field_name] = f"This is already the {names[taken[role_id]]} role id. Each role needs its own."
+        else:
+            taken[role_id] = field_name
     return errors
 
 

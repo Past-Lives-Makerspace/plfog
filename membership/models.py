@@ -1865,6 +1865,8 @@ class Member(StaffRequestMixin, models.Model):
         for capability in added:
             self.admin_capabilities.create(capability=capability, granted_by=granted_by)
         record(self, added, granted_by=granted_by)
+        if AdminCapability.Capability.TOUR_GUIDE in to_remove | set(added):
+            self.reconcile_discord_roles()
 
     def set_admin_capability(self, capability: str, enabled: bool, *, granted_by: "User | None" = None) -> None:
         """Grant or revoke a single :class:`AdminCapability` on this member.
@@ -1895,10 +1897,25 @@ class Member(StaffRequestMixin, models.Model):
             _row, created = self.admin_capabilities.get_or_create(
                 capability=capability, defaults={"granted_by": granted_by}
             )
-            if created:
-                record(self, [capability], granted_by=granted_by)
+            if not created:
+                return
+            record(self, [capability], granted_by=granted_by)
         elif self.admin_capabilities.filter(capability=capability).delete()[0]:
             PermissionSetup.withdraw(self, [capability])
+        else:
+            return
+        if capability == AdminCapability.Capability.TOUR_GUIDE:
+            self.reconcile_discord_roles()
+
+    def reconcile_discord_roles(self) -> None:
+        """Bring this member's managed Discord roles in step once the save commits (#1148, #1270).
+
+        For a change to a fact that earns one (the Tour Guide permission, teaching access); the
+        mapping is :func:`core.events.discord_leadership_roles.desired_role_ids`.
+        """
+        from core.events.discord_leadership_roles import reconcile_on_commit
+
+        reconcile_on_commit(self.pk)
 
     def can_edit_guild(self, guild: Guild) -> bool:
         """True when this member may edit the given guild.
@@ -2399,6 +2416,7 @@ class Member(StaffRequestMixin, models.Model):
         self.teaching_decided_at = timezone.now()
         self.teaching_decline_reason = ""
         self.save(update_fields=["instructor_oriented_at", "teaching_decided_at", "teaching_decline_reason"])
+        self.reconcile_discord_roles()
         self.clear_request_bells()
         SiteActivity.log(
             SiteActivity.Kind.TEACHING_GRANTED,
@@ -2442,6 +2460,7 @@ class Member(StaffRequestMixin, models.Model):
         self.instructor_oriented_at = None
         self.teaching_applied_at = None
         self.save(update_fields=["instructor_oriented_at", "teaching_applied_at"])
+        self.reconcile_discord_roles()
         PermissionSetup.withdraw(self, [AdminCapability.INSTRUCTOR])  # the Instructor badge goes with it (#1167)
         SiteActivity.log(
             SiteActivity.Kind.TEACHING_REVOKED,
@@ -2475,6 +2494,7 @@ class Member(StaffRequestMixin, models.Model):
         self.instructor_slug = slug
         self.save(update_fields=["instructor_slug"])
         self._turn_on_instructor_emails(None)
+        self.reconcile_discord_roles()  # an instructor page makes them an instructor (#1270)
         return True
 
     def _turn_on_instructor_emails(self, actor: "User | None") -> None:
@@ -2541,6 +2561,8 @@ class Member(StaffRequestMixin, models.Model):
         if had_slug:
             self.instructor_slug = ""
             self.save(update_fields=["instructor_slug"])
+            # Their page made them an instructor even with teaching locked (#1270).
+            self.reconcile_discord_roles()
         self.revoke_teaching(revoked_by=revoked_by)  # logs TEACHING_REVOKED unless already locked
         if had_slug and not was_teaching:
             SiteActivity.log(
@@ -3724,30 +3746,11 @@ class Guild(HeroCropMixin, models.Model):
         self.save(update_fields=["deleted_at"])
         self.reconcile_leadership_roles()
 
-    def release_lead_role_id_from_hidden_guilds(self) -> int:
-        """Blank this guild's lead role id on every hidden or deleted guild that still holds it (#1148).
-
-        A visible guild may take a hidden guild's old lead role id; blanking it there in the
-        same save means showing that guild again later cannot hand the role to two leads.
-
-        Returns:
-            How many guilds let it go.
-        """
-        role_id = self.discord_lead_role_id.strip()
-        if not role_id:
-            return 0
-        return (
-            Guild.all_objects.exclude(pk=self.pk)
-            .filter(discord_lead_role_id=role_id)
-            .filter(models.Q(is_active=False) | models.Q(deleted_at__isnull=False))
-            .update(discord_lead_role_id="")
-        )
-
     def reconcile_leadership_roles(self) -> None:
         """Bring the Discord leadership roles of this guild's lead and staff in step, after the commit (#1148).
 
         Called when something about the guild changes what its leaders should hold: it is
-        hidden, shown or deleted, or its lead role id changes. Who leads it changing goes
+        hidden, shown or deleted. Who leads it changing goes
         through :meth:`assign_lead`, :meth:`clear_lead` and the staff methods instead.
         """
         from core.events.discord_leadership_directory import directory_on_commit
