@@ -33,7 +33,7 @@ from membership.models import AdminCapability, Member
 from membership.permission_setup import SetupState
 from tours import signals
 from tours.availability import OpenTour, open_tour_at, open_tours
-from tours.models import FacilityTourSettings, TourBooking, TourGuideSettings
+from tours.models import FacilityTourSettings, TourBooking, TourBookingNote, TourGuideSettings
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -476,6 +476,7 @@ def cancel_tour_by_visitor(booking: TourBooking, *, now: datetime | None = None)
         locked.cancelled_by = None
         locked.sequence += 1
         locked.save(update_fields=["status", "cancelled_at", "cancelled_by", "sequence"])
+        gather_notes(group, locked)
         _after_commit(locked, signals.CANCELLED, was_request=was_request)
     return locked
 
@@ -491,6 +492,17 @@ def _locked_for_staff(booking: TourBooking, now: datetime) -> TourBooking:
     if reason:
         raise TourLockedError(reason)
     return locked
+
+
+def gather_notes(group: list[TourBooking], onto: TourBooking) -> None:
+    """Move every note on a No preference request's rows onto ``onto`` (#1274), the row that survives.
+
+    While shared, the rows show one Notes thread (:meth:`TourBooking.note_thread`); once the request
+    resolves, the other rows leave the group's view, so their notes join the confirmed row or the
+    row holding the visitor's link. Inside the caller's lock on the group.
+    """
+    if group:
+        TourBookingNote.objects.filter(booking__in=[row.pk for row in group]).exclude(booking=onto).update(booking=onto)
 
 
 def _lock_group(booking: TourBooking) -> list[TourBooking]:
@@ -551,6 +563,7 @@ def lapse_request(booking_id: int, *, now: datetime | None = None) -> TourBookin
             row.cancelled_by = None
             row.save(update_fields=["status", "cancelled_at", "cancelled_by"])
             _after_commit(row, signals.LAPSED, tell_visitor=row is rows[0])
+        gather_notes(group, rows[0])
     return rows[0]
 
 
@@ -570,6 +583,7 @@ def confirm_tour_request(booking: TourBooking, *, actor: User, now: datetime | N
         others = _other_pending(group, locked)
         if others:
             _take_shared_request(locked, others, actor=actor, now=moment)
+        gather_notes(group, locked)
         locked.status = TourBooking.Status.BOOKED
         locked.request_group = None
         locked.save(update_fields=["status", "request_group"])
@@ -614,6 +628,8 @@ def decline_tour_request(
         # yet, and the link they hold moves to the next row still pending.
         if others and locked.pk < others[0].pk:
             others[0].take_visitor_link_from(locked)
+        # The notes go with the visitor's link: to the row now holding it, or stay here on the last decline.
+        gather_notes(group, others[0] if others else locked)
         locked.status = TourBooking.Status.CANCELLED
         locked.cancelled_at = moment
         locked.cancelled_by = actor
@@ -635,7 +651,7 @@ def reschedule_tour_by_staff(
 
     The visitor's locks and seat count (:func:`reschedule_tour`), with neither the cancel cutoff
     nor the minimum notice: any tour that has not started yet. Another guide's tour is a
-    reassignment, which only an admin may make (the view checks). The visitor gets the moved
+    reassignment, which the booking's own guide or an admin may make (#1274; the view checks). The visitor gets the moved
     email with ``message``; each guide who is not ``actor`` hears about it.
 
     Raises:

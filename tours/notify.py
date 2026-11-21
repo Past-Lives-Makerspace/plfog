@@ -483,8 +483,7 @@ def tell_guide_checked_in(booking: TourBooking) -> None:
 
 def notes_url(booking: TourBooking) -> str:
     """The booking's row on its tab with its Notes open (#1274), relative, for the bell."""
-    tab = "tours:upcoming" if booking.status in TourBooking.UPCOMING else "tours:past"
-    return f"{reverse(tab)}?notes={booking.pk}#{request_anchor(booking)}"
+    return f"{reverse(booking.table_url_name(timezone.now()))}?notes={booking.pk}#{request_anchor(booking)}"
 
 
 def send_visitor_note(note: TourBookingNote) -> None:

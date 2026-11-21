@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import date, time, timedelta
 import pytest
 from django.contrib.messages import get_messages
@@ -14,6 +15,7 @@ from core.models import Notification
 from membership.models import Member
 from tests.tours.conftest import make_guide, signed_in
 from tests.tours.factories import TourBookingFactory, TourDayOffFactory, TourHoursFactory, local
+from tours import booking as booking_service
 from tours import coverage
 from tours.models import FacilityTourSettings, TourBooking, TourBookingNote
 
@@ -26,6 +28,8 @@ HOURS = reverse("tours:hours")
 HTMX = {"HTTP_HX_REQUEST": "true"}
 TODAY = timezone.localdate()
 DAY = TODAY + timedelta(days=3)
+#: Wednesday next week: always in the calendar's next week, and never started.
+NEXT_WEEK = TODAY - timedelta(days=TODAY.weekday()) + timedelta(days=9)
 
 
 def _flashes(response: HttpResponse) -> list[str]:
@@ -78,17 +82,21 @@ def describe_coverage():
         assert [gap.day for gap in coverage.uncovered_days(today=TODAY)] == [TODAY]
 
     def it_puts_every_guides_hours_and_tours_on_the_calendar(guide: Member, other: Member, admin: Member):
-        TourHoursFactory(guide=guide, weekday=TODAY.weekday(), start_time=time(11), end_time=time(13))
-        TourHoursFactory(guide=other, weekday=TODAY.weekday(), date=TODAY, start_time=time(14), end_time=time(15))
-        booked = TourBookingFactory(guide=other, starts_at=local(TODAY, 14), visitor_name="Sam Rivera", party_size=3)
-        TourBookingFactory(
-            guide=guide, starts_at=local(TODAY, 11), visitor_name="Rae Quest", status=TourBooking.Status.PENDING
+        TourHoursFactory(guide=guide, weekday=NEXT_WEEK.weekday(), start_time=time(11), end_time=time(13))
+        TourHoursFactory(
+            guide=other, weekday=NEXT_WEEK.weekday(), date=NEXT_WEEK, start_time=time(14), end_time=time(15)
         )
-        TourBookingFactory(guide=None, starts_at=local(TODAY, 12), visitor_name="No One")
-        TourBookingFactory(
-            guide=guide, starts_at=local(TODAY, 12), visitor_name="Gone Gwen", status=TourBooking.Status.CANCELLED
+        booked = TourBookingFactory(
+            guide=other, starts_at=local(NEXT_WEEK, 14), visitor_name="Sam Rivera", party_size=3
         )
-        cal = coverage.calendar_context(viewer=guide, is_admin=False)
+        TourBookingFactory(
+            guide=guide, starts_at=local(NEXT_WEEK, 11), visitor_name="Rae Quest", status=TourBooking.Status.PENDING
+        )
+        TourBookingFactory(guide=None, starts_at=local(NEXT_WEEK, 12), visitor_name="No One")
+        TourBookingFactory(
+            guide=guide, starts_at=local(NEXT_WEEK, 12), visitor_name="Gone Gwen", status=TourBooking.Status.CANCELLED
+        )
+        cal = coverage.calendar_context(viewer=guide, is_admin=False, week_offset=1)
         titles = [event.chip_title for event in cal["week_events"]]
         assert "Gina G. hours" in titles and "Olive O. hours" in titles
         assert "Tour: Sam R. (3)" in titles and "Request: Rae Q. (2)" in titles and "Tour: No O. (2)" in titles
@@ -100,7 +108,7 @@ def describe_coverage():
         assert urls["Tour: Sam R. (3)"] == f"{UPCOMING}#tour-booking-{booked.pk}"
         admin_urls = {
             event.chip_title: event.url
-            for event in coverage.calendar_context(viewer=admin, is_admin=True)["week_events"]
+            for event in coverage.calendar_context(viewer=admin, is_admin=True, week_offset=1)["week_events"]
         }
         assert admin_urls["Olive O. hours"] == f"{HOURS}?guide={other.pk}"
 
@@ -224,7 +232,7 @@ def describe_notes():
         content = signed_in(other).get(_notes_url(booked), {"next": UPCOMING}, **HTMX).content.decode()
         assert "Bring the big ladder story." in content and "Add Note" in content
         assert 'name="email_visitor"' not in content
-        assert "Only the tour's guide or an admin can email the visitor." in content
+        assert "or an admin can email the visitor." in content
         own = signed_in(guide).get(_notes_url(booked), **HTMX).content.decode()
         assert 'name="email_visitor"' in own
 
@@ -281,10 +289,20 @@ def describe_notes():
         stamp = timezone.localtime(note.created_at)
         assert f"{stamp:%a, %b} {stamp.day} · {stamp:%-I:%M %p}" in content
 
-    def it_leaves_the_change_links_out_once_the_tour_cannot_change(guide: Member, booked: TourBooking):
-        TourBooking.objects.filter(pk=booked.pk).update(status=TourBooking.Status.CANCELLED)
-        signed_in(guide).post(_note_url(booked), {"body": "Sorry we missed you.", "email_visitor": "on"})
+    def it_leaves_the_change_links_out_once_the_tour_cannot_change(guide: Member):
+        starts = timezone.now() - timedelta(days=1)
+        past = TourBookingFactory(guide=guide, starts_at=starts, ends_at=starts + timedelta(hours=1))
+        signed_in(guide).post(_note_url(past), {"body": "Thanks for coming!", "email_visitor": "on"})
         assert "/reschedule/" not in mail.outbox[0].body
+
+    def it_refuses_to_email_the_visitor_of_a_cancelled_tour(guide: Member, booked: TourBooking):
+        TourBooking.objects.filter(pk=booked.pk).update(status=TourBooking.Status.CANCELLED)
+        client = signed_in(guide)
+        content = client.get(_notes_url(booked), **HTMX).content.decode()
+        assert 'name="email_visitor"' not in content and "This tour is cancelled, so notes stay here." in content
+        response = client.post(_note_url(booked), {"body": "Sorry we missed you.", "email_visitor": "on"})
+        assert response.status_code == 403
+        assert mail.outbox == [] and not booked.notes.exists()
 
     def it_refuses_to_email_the_visitor_for_another_guide(other: Member, booked: TourBooking):
         response = signed_in(other).post(_note_url(booked), {"body": "Hi!", "email_visitor": "on"})
@@ -341,6 +359,7 @@ def describe_the_note_model():
         note = TourBookingNote(booking=booked, body="x")
         assert note.member_user_ids == set() and note.member_side_name == "Sam Rivera"
         assert note._tell_staff_side() is False
+        assert super(TourBookingNote, note).thread_marker == ""
         assert str(note).startswith("Note None on tour booking")
 
     def it_names_its_photo(guide: Member, booked: TourBooking):
@@ -348,3 +367,94 @@ def describe_the_note_model():
 
         photo = TourBookingNotePhoto(message=TourBookingNote(pk=4, booking=booked, body="x"))
         assert str(photo) == "Photo None on tour note 4"
+
+
+def describe_a_shared_request():
+    """A No preference request (#1255): one row per guide, one visitor, so one Notes thread."""
+
+    @pytest.fixture
+    def rows(guide: Member, other: Member) -> list[TourBooking]:
+        group = uuid.uuid4()
+        starts = local(TODAY + timedelta(days=4), 16)
+        return [
+            TourBookingFactory(
+                guide=who,
+                starts_at=starts,
+                request_group=group,
+                status=TourBooking.Status.PENDING,
+                visitor_name="Sam Rivera",
+            )
+            for who in (guide, other)
+        ]
+
+    def _note(member: Member, booking: TourBooking, body: str) -> TourBookingNote:
+        signed_in(member)
+        member.refresh_from_db()
+        return TourBookingNote.write(author=member.user, body=body, booking=booking)
+
+    def it_shows_every_rows_notes_on_each_row(guide: Member, other: Member, rows: list[TourBooking]):
+        _note(guide, rows[0], "Gina's note.")
+        _note(other, rows[1], "Olive's note.")
+        for row in rows:
+            content = signed_in(guide).get(_notes_url(row), **HTMX).content.decode()
+            assert "Gina&#x27;s note." in content and "Olive&#x27;s note." in content
+        table = signed_in(guide).get(UPCOMING).content.decode()
+        assert table.count("data-tour-note-count>2 notes<") == 2
+
+    def it_never_emails_the_visitor_while_shared(guide: Member, other: Member, admin: Member, rows: list[TourBooking]):
+        for member, row in ((other, rows[1]), (guide, rows[0]), (admin, rows[1])):
+            client = signed_in(member)
+            content = client.get(_notes_url(row), **HTMX).content.decode()
+            assert 'name="email_visitor"' not in content
+            assert client.post(_note_url(row), {"body": "Hi!", "email_visitor": "on"}).status_code == 403
+        assert mail.outbox == []
+        assert not TourBookingNote.objects.exists()
+
+    def it_moves_the_notes_onto_the_row_a_guide_confirms(guide: Member, other: Member, rows: list[TourBooking]):
+        _note(guide, rows[0], "Gina's note.")
+        _note(other, rows[1], "Olive's note.")
+        booking_service.confirm_tour_request(rows[1], actor=other.user)
+        assert sorted(rows[1].notes.values_list("body", flat=True)) == ["Gina's note.", "Olive's note."]
+        assert not rows[0].notes.exists()
+
+    def it_moves_the_notes_to_the_row_taking_the_link_on_a_decline(
+        guide: Member, other: Member, rows: list[TourBooking]
+    ):
+        _note(guide, rows[0], "Gina's note.")
+        booking_service.decline_tour_request(rows[0], actor=guide.user)
+        assert list(rows[1].notes.values_list("body", flat=True)) == ["Gina's note."]
+        booking_service.decline_tour_request(rows[1], actor=other.user)
+        assert list(rows[1].notes.values_list("body", flat=True)) == ["Gina's note."]
+
+    def it_moves_the_notes_to_the_row_with_the_link_on_a_lapse(guide: Member, other: Member, rows: list[TourBooking]):
+        _note(other, rows[1], "Olive's note.")
+        booking_service.lapse_request(rows[1].pk, now=rows[1].confirm_by)
+        assert list(rows[0].notes.values_list("body", flat=True)) == ["Olive's note."]
+
+    def it_moves_the_notes_to_the_row_the_visitor_cancels(guide: Member, other: Member, rows: list[TourBooking]):
+        _note(other, rows[1], "Olive's note.")
+        booking_service.cancel_tour_by_visitor(rows[0])
+        assert list(rows[0].notes.values_list("body", flat=True)) == ["Olive's note."]
+
+
+def describe_review_fixes():
+    def it_stops_belling_a_writer_who_no_longer_gives_tours(guide: Member, other: Member, booked: TourBooking):
+        signed_in(guide)
+        signed_in(other).post(_note_url(booked), {"body": "Olive here."})
+        other.admin_capabilities.all().delete()
+        signed_in(guide).post(_note_url(booked), {"body": "Thanks, Olive."})
+        assert not Notification.objects.filter(user=other.user, trigger="tour.note_added").exists()
+
+    def it_marks_an_emailed_note_edited_after_sending(guide: Member, booked: TourBooking):
+        signed_in(guide).post(_note_url(booked), {"body": "Park on 9th.", "email_visitor": "on"})
+        note = booked.notes.get()
+        note.edit(body="Park on 9th, by the ramp.")
+        assert note.thread_marker == "Emailed to the visitor, edited after sending"
+
+    def it_sends_a_started_tour_to_the_past_table(guide: Member):
+        starts = timezone.now() - timedelta(hours=1)
+        started = TourBookingFactory(guide=guide, starts_at=starts, ends_at=starts + timedelta(hours=1))
+        from tours.notify import notes_url
+
+        assert notes_url(started).startswith(f"{PAST}?notes=")
+        assert started.table_url_name(timezone.now()) == "tours:past"

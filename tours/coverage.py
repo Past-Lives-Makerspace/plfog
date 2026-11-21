@@ -129,11 +129,12 @@ def _hours_entries(by_day: dict[date, list[TourHours]], hours_url: Any) -> list[
 
 
 def _booking_entries(bookings: list[TourBooking]) -> list[CalendarEntry]:
+    now = timezone.now()
     entries = []
     for booking in bookings:
         kind = "Request" if booking.is_request else "Tour"
         guide = f" with {booking.guide.staff_label}" if booking.guide is not None else ", no guide"
-        tab = "tours:upcoming" if booking.status in TourBooking.UPCOMING else "tours:past"
+        tab = booking.table_url_name(now)
         entries.append(
             CalendarEntry(
                 pk=BOOKING_PK_OFFSET + booking.pk,

@@ -5,7 +5,8 @@ Guide reads them on their own side), then the box (components/thread_composer.ht
 may act on the booking, the Also email this to the visitor switch. Add Note lands back on the table with
 the modal open again (?notes=<pk>).
 
-Context: booking, thread_messages, note_form (a tours.forms.TourNoteForm), may_email, notes_next.
+Context: booking, thread_messages (every row's notes on a shared request, TourBooking.note_thread), note_form
+(a tours.forms.TourNoteForm), may_email, email_note (why there is no email switch), notes_next.
 {% endcomment %}
 <div class="pl-thread-summary" data-tour-notes-for="{{ booking.pk }}">
   <p class="pl-thread-summary__title"><strong>{{ booking.visitor_name }}</strong> · {{ booking.party_label }}</p>
@@ -18,7 +19,7 @@ Context: booking, thread_messages, note_form (a tours.forms.TourNoteForm), may_e
 {% if may_email %}{% with note="The tour's guide and anyone who wrote here get a notification." %}
 {% include "components/thread.html" with thread_messages=thread_messages viewer_is_staff=True thread_key="tour-notes" thread_empty="No notes yet. Leave one for the other guides, or switch on the email to write to the visitor." %}
 {% include "components/thread_composer.html" with thread_form=note_form thread_action=note_url thread_next=notes_next thread_body_label="Note" thread_note=note thread_button="Add Note" thread_extra_field=note_form.email_visitor %}
-{% endwith %}{% else %}{% with note="The tour's guide and anyone who wrote here get a notification. Only the tour's guide or an admin can email the visitor." %}
+{% endwith %}{% else %}{% with note="The tour's guide and anyone who wrote here get a notification. "|add:email_note %}
 {% include "components/thread.html" with thread_messages=thread_messages viewer_is_staff=True thread_key="tour-notes" thread_empty="No notes yet. Leave one for the tour's guide." %}
 {% include "components/thread_composer.html" with thread_form=note_form thread_action=note_url thread_next=notes_next thread_body_label="Note" thread_note=note thread_button="Add Note" %}
 {% endwith %}{% endif %}

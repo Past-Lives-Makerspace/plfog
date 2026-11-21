@@ -603,6 +603,7 @@ def _render_bookings(request: HttpRequest, tab: str) -> HttpResponse:
     page = Paginator(listed, BOOKINGS_PER_PAGE).get_page(request.GET.get("page"))
     listed_bookings = _with_row_rights(request, list(page.object_list))
     TourBooking.attach_shared_with(listed_bookings)
+    _count_shared_notes(listed_bookings)
     viewer = _viewer(request)
     params: dict[str, Any] = {"guide": guide.pk if guide else "", "show": show}
     url = reverse("tours:past" if tab == PAST else "tours:upcoming")
@@ -643,6 +644,21 @@ def _with_query(url: str, params: dict[str, Any]) -> str:
     return f"{url}?{urlencode(query)}" if query else url
 
 
+def _count_shared_notes(bookings: list[TourBooking]) -> None:
+    """A shared request's rows show one Notes thread (#1274), so each counts the whole group's notes (one query)."""
+    groups = {booking.request_group for booking in bookings if booking.request_group is not None}
+    if not groups:
+        return
+    counts = dict(
+        TourBookingNote.objects.filter(booking__request_group__in=groups)
+        .values_list("booking__request_group")
+        .annotate(total=Count("pk"))
+    )
+    for booking in bookings:
+        if booking.request_group is not None:
+            booking.note_count = counts.get(booking.request_group, 0)  # type: ignore[attr-defined]
+
+
 def _notes_to_open(request: HttpRequest) -> int | None:
     """The booking whose Notes the page opens on arrival (``?notes=<pk>``, a bell's link), or None."""
     raw = request.GET.get("notes", "")
@@ -653,7 +669,7 @@ def _notes_to_open(request: HttpRequest) -> int | None:
 
 @tour_guide_access_required
 def tour_upcoming(request: HttpRequest) -> HttpResponse:
-    """The Tours page's first tab: booked tours that have not started, soonest first (``?guide=`` for an admin)."""
+    """The Tours page's first tab: every guide's booked tours and requests that have not started, soonest first (#1274: ``?guide=``, ``?show=``)."""
     return _render_bookings(request, UPCOMING)
 
 
@@ -905,16 +921,33 @@ def tour_booking_decline(request: HttpRequest, pk: int) -> HttpResponse:
 
 def _notes_context(request: HttpRequest, booking: TourBooking, *, form: TourNoteForm | None = None) -> dict[str, Any]:
     """What the Notes modal draws: the booking's thread and the box, with the visitor switch for whoever may act."""
-    may_email = _may_act(request, booking)
+    may_email = _may_email(request, booking)
     return {
         "booking": booking,
-        "thread_messages": list(booking.notes.select_related("author").prefetch_related("photos")),
+        "thread_messages": list(booking.note_thread().select_related("author").prefetch_related("photos")),
         "note_form": form
         if form is not None
         else TourNoteForm(may_email=may_email, auto_id=f"id_tournote{booking.pk}_%s"),
         "may_email": may_email,
+        "email_note": _email_note(request, booking),
         "notes_next": _safe_tours_next(request),
     }
+
+
+def _email_note(request: HttpRequest, booking: TourBooking) -> str:
+    """Why the Notes box offers no email to the visitor, as its note line says it ("" when it does)."""
+    if not _may_act(request, booking):
+        return "Only the tour's guide or an admin can email the visitor."
+    if booking.status == TourBooking.Status.CANCELLED:
+        return "This tour is cancelled, so notes stay here."
+    if booking.is_shared_request:
+        return "Notes can be emailed to the visitor once a guide confirms this request."
+    return ""
+
+
+def _may_email(request: HttpRequest, booking: TourBooking) -> bool:
+    """Whether the viewer may email a note to this booking's visitor: they may act on it, and the row allows it."""
+    return _may_act(request, booking) and booking.may_email_visitor
 
 
 def _safe_tours_next(request: HttpRequest) -> str:
@@ -960,9 +993,11 @@ def tour_booking_note(request: HttpRequest, pk: int) -> HttpResponse:
     """
     booking = get_object_or_404(TourBooking.objects.select_related("guide"), pk=pk)
     back = _with_notes_open(_safe_tours_next(request), booking)
-    may_email = _may_act(request, booking)
+    may_email = _may_email(request, booking)
     if request.POST.get("email_visitor") and not may_email:
-        raise PermissionDenied("Only the tour's guide or an admin can email its visitor.")
+        raise PermissionDenied(
+            "Only the tour's guide or an admin can email its visitor, and not on a shared or cancelled request."
+        )
     form = TourNoteForm(request.POST, request.FILES, may_email=may_email)
     if not form.is_valid():
         messages.error(request, f"Not added. {form.error_summary()}")
@@ -1055,7 +1090,7 @@ def tour_booking_mark(request: HttpRequest, pk: int) -> HttpResponse:
     if request.headers.get("HX-Request") != "true":
         messages.add_message(request, messages.SUCCESS if tone == "success" else messages.ERROR, text)
         return redirect(_back_url(request, "tours:past"))
-    booking.note_count = booking.notes.count()  # type: ignore[attr-defined]
+    booking.note_count = booking.note_thread().count()  # type: ignore[attr-defined]
     response = render(
         request,
         "tours/partials/_booking_row.html",

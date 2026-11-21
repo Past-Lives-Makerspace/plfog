@@ -865,6 +865,30 @@ class TourBooking(models.Model):
                     if row.pk != booking.pk
                 )
 
+    def table_url_name(self, now: datetime) -> str:
+        """Which Tours table lists this booking (#1274): Upcoming until it starts, Past after."""
+        return "tours:upcoming" if self.status in self.UPCOMING and self.starts_at > now else "tours:past"
+
+    def note_thread(self) -> models.QuerySet[TourBookingNote]:
+        """This booking's notes (#1274), oldest first; a No preference request's (#1255) are every row's.
+
+        While a request is shared each guide's row is one copy of one visitor's request, so its
+        Notes are one conversation; :func:`tours.booking.gather_notes` moves them onto the row
+        that survives when the request resolves.
+        """
+        if self.request_group is not None:
+            return TourBookingNote.objects.filter(booking__request_group=self.request_group)
+        return TourBookingNote.objects.filter(booking=self)
+
+    @property
+    def may_email_visitor(self) -> bool:
+        """Whether a note on this row may be emailed to the visitor (#1274).
+
+        Not on a cancelled booking, and not while a No preference request is shared: its rows
+        hide the guide's name from the visitor, and only one of them holds the visitor's link.
+        """
+        return self.status != self.Status.CANCELLED and not self.is_shared_request
+
     def self_serve_refusal(self, *, now: datetime, cancel_cutoff_hours: int) -> str:
         """Why the visitor may not move or cancel this tour from the email links, or "" when they may.
 
@@ -1163,16 +1187,25 @@ class TourBookingNote(ThreadMessage):
 
     @property
     def thread_marker(self) -> str:
-        return "Emailed to the visitor" if self.sent_to_visitor else ""
+        """``Emailed to the visitor``, and once changed since, that the visitor has the words as first sent."""
+        if not self.sent_to_visitor:
+            return ""
+        return "Emailed to the visitor, edited after sending" if self.edited_at else "Emailed to the visitor"
 
     def staff_user_ids(self) -> set[int]:
-        """Who a note reaches: the tour's guide (or the admins when it has none) and every earlier writer, minus the author."""
+        """Who a note reaches: the tour's guide (or the admins with none) and every earlier writer still giving tours, minus the author."""
         from core.events.resolvers import tour_guides
 
         booking = self.booking
         audience = {user.pk for user, _reason in tour_guides({"guide": booking.guide})}
-        writers = set(booking.notes.exclude(pk=self.pk).exclude(author=None).values_list("author_id", flat=True))
-        return (audience | writers) - {self.author_id}
+        writer_ids = set(
+            booking.note_thread().exclude(pk=self.pk).exclude(author=None).values_list("author_id", flat=True)
+        )
+        # An earlier writer hears only while they still give tours (a Tour Guide, an admin or a superuser).
+        writers = set(
+            Member.objects.filter(guide_filter(), user_id__in=writer_ids - audience).values_list("user_id", flat=True)
+        )
+        return (audience | {writer for writer in writers if writer is not None}) - {self.author_id}
 
     def _tell_member_side(self) -> bool:
         """Every note is staff side: email the visitor when asked, and bell the other staff on the booking."""
