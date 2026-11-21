@@ -144,49 +144,9 @@
     border-color: var(--gold-text);
 }
 
-/* Busy (#1273, tours-kiosk.js): the pressed control shows the spinner busy_submit.html's buttons
-   draw in components.css (its pl-btn-spin) beside "Loading...", and nothing else takes a tap. */
-body[data-kiosk-busy] a,
-body[data-kiosk-busy] button,
-body[data-kiosk-busy] input,
-body[data-kiosk-busy] select,
-body[data-kiosk-busy] label {
-    pointer-events: none;
-}
-
-body[data-kiosk-busy] {
-    cursor: progress;
-}
-
-.cp-page .pl-kiosk [aria-disabled="true"],
-.pl-kiosk-bar [aria-disabled="true"],
-.cp-page .pl-kiosk button:disabled:not([aria-busy="true"]),
-.cp-page .pl-kiosk input:disabled,
-.cp-page .pl-kiosk select:disabled {
-    opacity: 0.55;
-}
-
-.cp-page .pl-kiosk__busy,
-.pl-kiosk-bar .pl-kiosk__busy {
-    display: inline-flex;
-    align-items: center;
-    font-size: 18px;
-    font-weight: 700;
-}
-
-.cp-page .pl-kiosk__busy::before,
-.pl-kiosk-bar .pl-kiosk__busy::before,
-.cp-page .pl-kiosk .btn-reg[aria-busy="true"]::before {
-    content: '';
-    display: inline-block;
-    width: 0.9em;
-    height: 0.9em;
-    margin-right: 0.5em;
-    vertical-align: -0.1em;
-    border: 2px solid currentColor;
-    border-right-color: transparent;
-    border-radius: 50%;
-    animation: pl-btn-spin 0.6s linear infinite;
+/* The loading bar (#1277, tours-public.css) a little heavier on cairn's 1920 by 1080 screen. */
+html:has(> body.tours-kiosk) .pl-tours-loading__bar {
+    height: 6px;
 }
 
 /* Every control shows where the keyboard is: cairn has no touchscreen. */
