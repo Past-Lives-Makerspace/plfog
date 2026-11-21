@@ -568,6 +568,12 @@ def describe_kiosk_back_names_and_busy():
         expect(page.locator(".pl-tourpub__time").filter(has_text="4:00 PM")).to_contain_text("with Gina")
         expect(page.locator(".pl-tourpub__time").filter(has_text="5:00 PM")).to_contain_text("with Gina or Olive")
         _capture(page, "1273-times")
+        if CAPTURE_DIR:
+            # The busy screen for the PR: the kiosk script marks the tap busy, then this cancels the load so it can be shot.
+            page.evaluate("window.addEventListener('click', (e) => e.preventDefault(), {once: true})")
+            page.locator(".pl-tourpub__time").filter(has_text="5:00 PM").click()
+            _capture(page, "1273-busy")
+            page.reload()
         page.locator(".pl-tourpub__time").filter(has_text="4:00 PM").click()
         expect(page.locator("[data-tour-form]")).to_be_visible()
         expect(page.locator("[data-tour-guide-name]")).to_have_text("with Gina")

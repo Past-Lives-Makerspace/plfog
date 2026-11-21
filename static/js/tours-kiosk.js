@@ -205,6 +205,10 @@
         if (link.protocol !== "http:" && link.protocol !== "https:") {
             return false;
         }
+        // An empty or bare fragment ("#", "#top") never loads a page, so it must never stick busy.
+        if ((link.getAttribute("href") || "").charAt(0) === "#") {
+            return false;
+        }
         var here = window.location;
         return !(link.hash && link.pathname === here.pathname && link.search === here.search);
     }
@@ -224,7 +228,8 @@
                 return;
             }
             var link = event.target.closest && event.target.closest("a[href]");
-            if (link && root.contains(link) && leavesForLink(link, event)) {
+            // The brand bar's home link sits outside the root but loads a page all the same.
+            if (link && (root.contains(link) || link.closest(".pl-kiosk-bar")) && leavesForLink(link, event)) {
                 markBusy(link, null);
             }
         });
