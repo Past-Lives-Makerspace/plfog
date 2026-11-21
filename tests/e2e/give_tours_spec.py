@@ -9,7 +9,8 @@ width nothing scrolls sideways.
 
 ``CAPTURE_1278_DIR=<dir>`` also saves, dark and light, at desktop (1280 by 800) and phone (390) widths:
 the sidebar with Tours, Give Tours full length, each tutorial step (the card), and My Hours with the
-toast. Run with ``pytest -m e2e`` on PostgreSQL.
+toast. ``GUIDANCE_1278_DIR=<dir>`` takes the fragment's three guidance shots to the standard frame
+(``tests/e2e/guidance.py``). Run with ``pytest -m e2e`` on PostgreSQL.
 """
 
 from __future__ import annotations
@@ -23,10 +24,12 @@ from django.urls import reverse
 from membership.models import AdminCapability, Member, PermissionSetup
 from tests.membership.factories import MembershipPlanFactory
 from tours import setup as tour_setup
+from tests.e2e.guidance import shoot
 from tours.views import BECAME_GUIDE_MESSAGE
 
 MEMBER_EMAIL = "give-tours-wren@example.com"
 CAPTURE_DIR = os.environ.get("CAPTURE_1278_DIR")
+GUIDANCE_DIR = os.environ.get("GUIDANCE_1278_DIR")
 DESKTOP = {"width": 1280, "height": 800}
 PHONE = {"width": 390, "height": 844}
 STEPS = ("Setting Up", "When Someone Books", "A Tour Day", "The Lobby Kiosk", "Getting Paid")
@@ -100,6 +103,16 @@ def _capture_toast(page) -> None:
     page.set_viewport_size(DESKTOP)
 
 
+def _guidance_shot(page, step: int, target: str) -> None:
+    """One of the fragment's guidance shots (changelog.d/1278-give-tours.toml), when GUIDANCE_1278_DIR is set."""
+    if not GUIDANCE_DIR:
+        return
+    page.locator(f'[data-guidance-target="{target}"]').first.scroll_into_view_if_needed()
+    page.mouse.move(0, 0)
+    shoot(page, Path(GUIDANCE_DIR) / f"step-{step}.png", target=target)
+    page.evaluate("() => document.querySelectorAll('style[data-guidance-ring]').forEach((s) => s.remove())")
+
+
 def _make_member() -> Member:
     MembershipPlanFactory()  # so the user signal provisions the member
     user = User.objects.create_user(username=MEMBER_EMAIL, email=MEMBER_EMAIL)
@@ -128,6 +141,7 @@ def describe_give_tours():
         tours_entry = page.locator('.hub-sidebar__nav a[data-nav="tours"]').first
         tours_entry.wait_for()
         _capture(page, "sidebar", drawer=True)
+        _guidance_shot(page, 1, "tours.sidebar-entry")
         with page.expect_navigation():
             tours_entry.click()
         page.wait_for_url(f"**{reverse('tours:give')}")
@@ -138,6 +152,7 @@ def describe_give_tours():
         # In the page, hidden: get_by_role skips hidden elements, so look it up by its form.
         assert page.locator("[data-give-become] button").count() == 1
         assert not page.locator("[data-give-become] button").is_visible()
+        _guidance_shot(page, 2, "tours.start-tutorial")
         _capture(page, "page", full_page=True)
         _no_sideways_scroll(page)
 
@@ -159,6 +174,7 @@ def describe_give_tours():
             if number < len(STEPS):
                 page.locator("[data-give-next]").click()
         assert not page.locator("[data-give-next]").is_visible()
+        _guidance_shot(page, 3, "tours.become-guide")
         _no_sideways_scroll(page)
 
         page.get_by_role("button", name="Become a Tour Guide").click()

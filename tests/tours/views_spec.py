@@ -90,7 +90,7 @@ def describe_where_it_lives():
         upcoming = reverse("tours:upcoming")
         for member in (guide, admin, plain):
             content = signed_in(member).get(reverse("hub_member_directory")).content.decode()
-            assert f'<a href="{upcoming}" class="hub-sidebar__link " data-nav="tours">' in content
+            assert f'<a href="{upcoming}" class="hub-sidebar__link " data-nav="tours"' in content
 
     def it_lights_the_tours_entry_not_the_tools_entry_with_no_way_back(guide: Member, admin: Member):
         for member in (guide, admin):

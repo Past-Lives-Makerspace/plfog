@@ -216,7 +216,7 @@ def _teach_nav(request: HttpRequest, member: Member | None, admin_nav_active: bo
 def _tours_nav(request: HttpRequest, member: Member | None) -> dict[str, Any] | None:
     """The sidebar's Tours entry (#1278), or ``None`` for anyone who is not an active member. No query.
 
-    Every active member gets it, beside Host a Class, because tours recruit the same way: the
+    Every active member gets it, directly after Reservations (Felix), because tours recruit the way Host a Class does: the
     entry opens the Tours page, whose gate (``hub.view_as.tour_guide_access_required``) shows a
     Tour Guide or admin their Upcoming tab and sends everyone else to Give Tours. Lights on every
     ``/facility-tours/`` path. An admin (the actual role) gets it whatever their member row says.

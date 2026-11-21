@@ -5,7 +5,7 @@ feature = "tours.give"
 guidance = "shots"
 title = "Any member can become a Tour Guide from Tours in the sidebar"
 changes = [
-  "Tours is in the sidebar for every member now, next to Host a Class.",
+  "Tours is in the sidebar for every member now, after Reservations.",
   "If you don't give tours yet, it opens Give Tours: hours you set yourself, the app handles the booking, and you're paid $50 when a visitor you toured becomes a member.",
   "A five step tutorial ends with Become a Tour Guide. Press it and you're a Tour Guide right away, then set your hours on My Hours.",
   "Tour Guides still land on Upcoming. The Tours card is gone from the Tools page.",
