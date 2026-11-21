@@ -140,8 +140,8 @@ def describe_tours_for_every_guide():
         page.locator("[data-tours-gaps]").wait_for()
         assert page.locator("[data-tours-gap]").count() > 0
         page.locator(".pl-calendar-filter", has_text="Olive Other").wait_for()
-        _guidance(page, 1, target="tours.gaps")
         _capture(page, "calendar")
+        _guidance(page, 1, target="tours.gaps")
         _no_sideways_scroll(page)
 
         # Add My Hours on a gap: Add Dates opens with that day picked.

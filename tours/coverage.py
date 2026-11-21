@@ -36,6 +36,8 @@ BOOKING_PK_OFFSET = 7_000_000_000
 #: The legend key of a tour whose guide's member record was deleted.
 NO_GUIDE_KEY = "no-guide"
 NO_GUIDE_COLOR = "var(--hub-text-muted)"
+#: How a grid chip shows its start: "4:00 PM", the house style.
+CHIP_TIME_FORMAT = "g:i A"
 
 
 @dataclass(frozen=True)
@@ -193,7 +195,7 @@ def calendar_context(
         return _hours_entries(_hours_by_day(fetch_from, fetch_to), hours_url) + _booking_entries(list(bookings))
 
     guides, unguided = _legend_guides()
-    return entries_calendar_context(
+    cal = entries_calendar_context(
         entries_for,
         week_offset=week_offset,
         month_offset=month_offset,
@@ -201,3 +203,6 @@ def calendar_context(
         legend=_legend(guides, has_unguided=unguided),
         events_url=reverse("tours:calendar_events"),
     )
+    # The house time style on the grid's chips ("4:00 PM"); the other calendars keep theirs.
+    cal["chip_time_format"] = CHIP_TIME_FORMAT
+    return cal

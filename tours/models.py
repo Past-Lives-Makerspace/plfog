@@ -1132,6 +1132,8 @@ class TourBookingNote(ThreadMessage):
 
     # Set by posting: whether a guide or an admin got a bell. Not a column.
     told_staff: bool = False
+    #: The thread's timestamp in the house style ("Sat, Nov 21 · 1:22 PM"); other threads keep their own.
+    time_format: ClassVar[str] = "D, M j · g:i A"
 
     booking = models.ForeignKey(
         TourBooking,

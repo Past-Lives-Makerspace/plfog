@@ -143,6 +143,7 @@ def describe_calendar_tab():
         client = signed_in(guide)
         fragment = client.get(events, {"week_offset": 1}, **HTMX).content.decode()
         assert "<html" not in fragment and "Gina G. hours" in fragment
+        assert 'pl-calendar-grid__chip-time">4:00 PM<' in fragment
         plain = client.get(events)
         assert (plain.status_code, plain["Location"]) == (302, CALENDAR)
 
@@ -277,6 +278,8 @@ def describe_notes():
         assert note.sent_to_visitor and note.thread_marker == "Emailed to the visitor"
         content = signed_in(guide).get(_notes_url(booked), **HTMX).content.decode()
         assert "data-thread-marker>Emailed to the visitor<" in content
+        stamp = timezone.localtime(note.created_at)
+        assert f"{stamp:%a, %b} {stamp.day} · {stamp:%-I:%M %p}" in content
 
     def it_leaves_the_change_links_out_once_the_tour_cannot_change(guide: Member, booked: TourBooking):
         TourBooking.objects.filter(pk=booked.pk).update(status=TourBooking.Status.CANCELLED)
