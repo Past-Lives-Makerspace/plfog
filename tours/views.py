@@ -582,6 +582,9 @@ def _with_row_rights(request: HttpRequest, bookings: list[TourBooking]) -> list[
     for booking in bookings:
         booking.can_act = is_admin or booking.guide_id == viewer_pk  # type: ignore[attr-defined]
         booking.can_answer = booking.is_request and booking.guide_id == viewer_pk  # type: ignore[attr-defined]
+        # Felix (#1274): any active member may become a Tour Guide (#1278), so a visitor's email and
+        # phone reach only their own guide and the admins; never rendered for anyone else.
+        booking.can_see_contact = booking.can_act  # type: ignore[attr-defined]
     return bookings
 
 

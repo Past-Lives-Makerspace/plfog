@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 from datetime import date, time, timedelta
 import pytest
 from django.contrib.messages import get_messages
@@ -551,3 +552,57 @@ def describe_review_fixes():
 
         assert notes_url(started).startswith(f"{PAST}?notes=")
         assert started.table_url_name(timezone.now()) == "tours:past"
+
+
+def describe_visitor_contact():
+    """Felix (#1274): a visitor's email and phone reach only their own guide and the admins."""
+
+    @pytest.fixture
+    def contact(guide: Member) -> TourBooking:
+        return TourBookingFactory(
+            guide=guide,
+            starts_at=local(DAY, 16),
+            visitor_name="Sam Rivera",
+            visitor_email="sam.private@example.com",
+            visitor_phone="503 555 0142",
+        )
+
+    def _shows(member: Member, url: str, **extra: Any) -> bool:
+        content = signed_in(member).get(url, **extra).content.decode()
+        return "sam.private@example.com" in content or "555 0142" in content
+
+    def it_shows_the_contact_on_upcoming_only_to_the_guide_and_admins(
+        guide: Member, other: Member, admin: Member, contact: TourBooking
+    ):
+        assert _shows(guide, UPCOMING) and _shows(admin, UPCOMING)
+        assert not _shows(other, UPCOMING)
+        assert f'data-tour-booking="{contact.pk}"' in signed_in(other).get(UPCOMING).content.decode()
+
+    def it_shows_the_contact_on_past_only_to_the_guide_and_admins(guide: Member, other: Member, admin: Member):
+        starts = timezone.now() - timedelta(days=1)
+        TourBookingFactory(
+            guide=guide,
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+            visitor_email="sam.private@example.com",
+            visitor_phone="503 555 0142",
+        )
+        assert _shows(guide, PAST) and _shows(admin, PAST)
+        assert not _shows(other, PAST)
+
+    def it_keeps_the_contact_in_a_marked_row_for_whoever_marks_it(guide: Member, admin: Member):
+        starts = timezone.now() - timedelta(days=1)
+        past = TourBookingFactory(
+            guide=guide, starts_at=starts, ends_at=starts + timedelta(hours=1), visitor_email="sam.private@example.com"
+        )
+        for member in (guide, admin):
+            row = signed_in(member).post(reverse("tours:booking_mark", args=[past.pk]), {"outcome": "attended"}, **HTMX)
+            assert "sam.private@example.com" in row.content.decode()
+
+    def it_never_puts_the_contact_in_notes_or_the_calendar(
+        guide: Member, other: Member, admin: Member, contact: TourBooking
+    ):
+        for member in (guide, other, admin):
+            assert not _shows(member, _notes_url(contact), **HTMX)
+            assert not _shows(member, CALENDAR)
+            assert not _shows(member, reverse("tours:calendar_events") + "?week_offset=1", **HTMX)
