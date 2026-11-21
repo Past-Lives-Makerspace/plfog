@@ -92,6 +92,8 @@ class ReconcileStats:
 
     added: int = 0
     unmarked: int = 0
+    marked: int = 0
+    taken: int = 0
     roles: RoleGrants = RoleGrants()
     nudged: int = 0
     ran: bool = True
@@ -215,7 +217,8 @@ def reconcile_reactions() -> ReconcileStats:
     and their membership's ``no_discord_role`` mark is cleared, since reacting again asks for
     the role back. Then every reactor, linked or not, gets each role of the guild they reacted
     for that they lack, read from one member list: this is the backstop for a reaction the live
-    listener missed. Nothing is ever removed here: un-reacting changes no membership.
+    listener missed. Un-reacting never removes a membership: a reaction row whose member no
+    longer reacts is marked ``no_discord_role`` and loses the guild's roles (:func:`_mark_unreacted`).
     """
     from membership.models import GuildMembership, Member
 
@@ -239,13 +242,49 @@ def reconcile_reactions() -> ReconcileStats:
         for user_id in ids:
             wanted.setdefault(user_id, set()).update(str(role_id) for role_id in guild.discord_role_ids or [])
 
+    marked, taken = _mark_unreacted(server_id, reactions)
     roles = give_missing_roles(server_id, wanted)
     # The adds above silently ignore a reactor no member has linked — nudge them (once
     # ever) so their guild pick isn't a black hole. After the membership work so a DM
     # failure can't block the reconcile itself.
     nudged = _nudge_unlinked_reactors({user_id for ids in reactions.reactors.values() for user_id in ids})
 
-    return ReconcileStats(added=added, unmarked=unmarked, roles=roles, nudged=nudged, ran=True)
+    return ReconcileStats(
+        added=added, unmarked=unmarked, marked=marked, taken=taken, roles=roles, nudged=nudged, ran=True
+    )
+
+
+def _mark_unreacted(server_id: str, reactions: _GuildReactions) -> tuple[int, int]:
+    """Mark ``no_discord_role`` on each reaction row whose linked member no longer reacts, and take
+    that guild's roles off them. Returns ``(rows marked, roles taken)``.
+
+    Only a ``source="discord"`` row is judged here: it exists because its member reacted, so a
+    missing reaction means they took it off. A portal join (``source="app"``) never reacted here,
+    so its un-react is the live listener's to see. A guild whose fetch was truncated is skipped,
+    since a missing reactor there may only be unread. The membership itself always stays.
+    """
+    from membership.models import GuildMembership
+
+    marked = 0
+    taken = 0
+    for pk, ids in reactions.reactors.items():
+        if not reactions.complete[pk]:
+            continue
+        guild = reactions.guilds[pk]
+        stale = (
+            GuildMembership.objects.filter(guild=guild, source=GuildMembership.Source.DISCORD, no_discord_role=False)
+            .exclude(member__discord_user_id="")
+            .exclude(member__discord_user_id__in=ids)
+        )
+        user_ids = sorted(set(stale.values_list("member__discord_user_id", flat=True)))
+        if not user_ids:
+            continue
+        marked += stale.update(no_discord_role=True)
+        for user_id in user_ids:
+            for role_id in guild.discord_role_ids or []:
+                outcome = discord_roles.role_outcome("DELETE", server_id, user_id.strip(), str(role_id), retry=True)
+                taken += outcome is RoleOutcome.DONE
+    return marked, taken
 
 
 def give_missing_roles(server_id: str, wanted: dict[str, set[str]]) -> RoleGrants:

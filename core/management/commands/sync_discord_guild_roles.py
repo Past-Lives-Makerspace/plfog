@@ -25,7 +25,8 @@ class Command(BaseCommand):
             return
         self.stdout.write(
             self.style.SUCCESS(
-                f"Discord guild-role sync: +{stats.added} added, {stats.unmarked} unmarked, "
+                f"Discord guild-role sync: +{stats.added} added, {stats.unmarked} unmarked, {stats.marked} marked, "
+                f"{stats.taken} roles taken, "
                 f"{stats.roles.given} roles given, {stats.roles.failed} role grants failed, "
                 f"{stats.nudged} unlinked reactor(s) nudged."
             )

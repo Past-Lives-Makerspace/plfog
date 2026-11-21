@@ -207,6 +207,61 @@ def describe_reconcile_reactions():
         assert GuildMembership.objects.filter(guild=guild, member=member).exists()
 
     @respx.mock
+    def it_marks_a_reaction_row_whose_member_stopped_reacting_and_takes_the_role(sync_config):
+        guild = GuildFactory(discord_role_ids=["71"])
+        DiscordGuildEmojiFactory(emoji="🔥", guild=guild)
+        member = MemberFactory(discord_user_id="u1")
+        GuildMembership.objects.record_discord_join(guild, member)
+        _mock_reactions({"🔥": []})
+        delete = respx.delete(url__regex=_ROLE_RE).mock(return_value=httpx.Response(204))
+        stats = discord_sync.reconcile_reactions()
+        row = GuildMembership.objects.get(guild=guild, member=member)
+        assert row.no_discord_role is True
+        assert (stats.marked, stats.taken) == (1, 1)
+        assert _put_roles(delete.calls) == [("u1", "71")]
+
+    @respx.mock
+    def it_leaves_a_portal_join_and_a_truncated_guild_unmarked(sync_config):
+        portal, truncated = GuildFactory(discord_role_ids=["71"]), GuildFactory(discord_role_ids=["72"])
+        DiscordGuildEmojiFactory(emoji="🔥", guild=portal)
+        DiscordGuildEmojiFactory(emoji="🪓", guild=truncated)
+        member = MemberFactory(discord_user_id="u1")
+        GuildMembership.objects.record_app_join(portal, member)
+        GuildMembership.objects.record_discord_join(truncated, member)
+        _mock_reactions({"🔥": []}, flaky=("🪓",))
+        delete = respx.delete(url__regex=_ROLE_RE).mock(return_value=httpx.Response(204))
+        stats = discord_sync.reconcile_reactions()
+        assert not GuildMembership.objects.filter(member=member, no_discord_role=True).exists()
+        assert (stats.marked, stats.taken) == (0, 0)
+        assert not delete.called
+
+    @respx.mock
+    def it_counts_no_role_taken_when_discord_refuses(sync_config, monkeypatch):
+        from core.events import discord_roles
+
+        monkeypatch.setattr(discord_roles, "_sleep", lambda seconds: None)
+        guild = GuildFactory(discord_role_ids=["71"])
+        DiscordGuildEmojiFactory(emoji="🔥", guild=guild)
+        GuildMembership.objects.record_discord_join(guild, MemberFactory(discord_user_id="u1"))
+        _mock_reactions({"🔥": []})
+        respx.delete(url__regex=_ROLE_RE).mock(return_value=httpx.Response(403))
+        stats = discord_sync.reconcile_reactions()
+        assert (stats.marked, stats.taken) == (1, 0)
+
+    @respx.mock
+    def it_skips_the_daily_role_for_a_member_who_un_reacted(sync_config):
+        guild = GuildFactory(discord_role_ids=["71"])
+        DiscordGuildEmojiFactory(emoji="🔥", guild=guild)
+        GuildMembership.objects.record_discord_join(guild, MemberFactory(discord_user_id="u1"))
+        _mock_reactions({"🔥": []})
+        respx.delete(url__regex=_ROLE_RE).mock(return_value=httpx.Response(204))
+        discord_sync.reconcile_reactions()
+        _mock_server({"u1": []})
+        put = respx.put(url__regex=_ROLE_RE).mock(return_value=httpx.Response(204))
+        discord_sync.sync_roster_roles()
+        assert not put.called
+
+    @respx.mock
     def it_clears_the_no_discord_role_mark_when_the_member_reacts_again(sync_config):
         guild, other = GuildFactory(), GuildFactory()
         DiscordGuildEmojiFactory(emoji="🔥", guild=guild)

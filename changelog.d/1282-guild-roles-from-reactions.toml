@@ -7,5 +7,5 @@ title = "Picking a guild in #choose-your-guild gives you its Discord role again"
 changes = [
   "React with a guild's emoji in #choose-your-guild and you get that guild's Discord role within 15 minutes, whether or not you have connected Discord to the portal.",
   "If you joined a guild in the portal and connected Discord, you get its Discord role too, when it has one. We check every morning.",
-  "Taking your reaction off never takes you out of the guild in the portal.",
+  "Taking your reaction off removes the guild's Discord role and keeps it off, but never takes you out of the guild in the portal.",
 ]
