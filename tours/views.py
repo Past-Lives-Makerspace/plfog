@@ -974,9 +974,11 @@ def _with_notes_open(url: str, booking: TourBooking) -> str:
 def tour_booking_notes(request: HttpRequest, pk: int) -> HttpResponse:
     """GET: a booking's notes and the box to add one, for the Notes modal (any Tour Guide or admin).
 
+    A row whose notes moved (a shared request another guide took, #1274) shows the surviving row's.
+
     A plain GET (a typed address, a history restore) lands on Upcoming with the modal open.
     """
-    booking = get_object_or_404(TourBooking.objects.select_related("guide"), pk=pk)
+    booking = get_object_or_404(TourBooking.objects.select_related("guide", "notes_moved_to__guide"), pk=pk).note_target
     if not wants_fragment(request):
         return redirect(_with_notes_open(reverse("tours:upcoming"), booking))
     return render(request, "tours/partials/_notes.html", _notes_context(request, booking))
@@ -987,11 +989,23 @@ def tour_booking_notes(request: HttpRequest, pk: int) -> HttpResponse:
 def tour_booking_note(request: HttpRequest, pk: int) -> HttpResponse:
     """POST: add a note to a booking; with ``email_visitor`` also email it to the visitor.
 
-    Any Tour Guide or admin may add a note. Emailing the visitor is for whoever may act on the
+    Any Tour Guide or admin may add a note. A row whose notes moved to another row of its resolved
+    No preference request posts there (``TourBooking.note_target``). Emailing the visitor is for whoever may act on the
     booking (its guide, or an admin): anyone else asking for it gets a 403, before anything is
     saved. Lands back on the page it came from with the Notes modal open and a flash.
     """
-    booking = get_object_or_404(TourBooking.objects.select_related("guide"), pk=pk)
+    get_object_or_404(TourBooking, pk=pk)
+    with transaction.atomic():
+        # The row is locked before its note target is read: a Confirm that resolves a shared
+        # request (#1255) holds this lock while it moves the notes, so a note posted meanwhile
+        # waits and then lands on the surviving row, never on the one it left (#1274).
+        locked = TourBooking.objects.select_for_update().get(pk=pk)
+        booking = TourBooking.objects.select_related("guide").get(pk=locked.note_target.pk)
+        return _post_note(request, booking)
+
+
+def _post_note(request: HttpRequest, booking: TourBooking) -> HttpResponse:
+    """Add the posted note to ``booking`` (already resolved to its note target, inside the lock)."""
     back = _with_notes_open(_safe_tours_next(request), booking)
     may_email = _may_email(request, booking)
     if request.POST.get("email_visitor") and not may_email:

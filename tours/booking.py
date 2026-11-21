@@ -502,7 +502,15 @@ def gather_notes(group: list[TourBooking], onto: TourBooking) -> None:
     row holding the visitor's link. Inside the caller's lock on the group.
     """
     if group:
-        TourBookingNote.objects.filter(booking__in=[row.pk for row in group]).exclude(booking=onto).update(booking=onto)
+        pks = [row.pk for row in group]
+        TourBookingNote.objects.filter(booking__in=pks).exclude(booking=onto).update(booking=onto)
+        # Every other row now opens, and posts to, the surviving row's Notes; a note posted on one
+        # waits on this lock (``tours.views.tour_booking_note``) and then lands there too.
+        TourBooking.objects.filter(pk__in=pks).exclude(pk=onto.pk).update(notes_moved_to=onto)
+        TourBooking.objects.filter(pk=onto.pk).update(notes_moved_to=None)
+        for row in group:
+            row.notes_moved_to = None if row.pk == onto.pk else onto
+        onto.notes_moved_to = None
 
 
 def _lock_group(booking: TourBooking) -> list[TourBooking]:

@@ -436,6 +436,99 @@ def describe_a_shared_request():
         booking_service.cancel_tour_by_visitor(rows[0])
         assert list(rows[0].notes.values_list("body", flat=True)) == ["Olive's note."]
 
+    def it_opens_the_winners_notes_from_a_taken_row(guide: Member, other: Member, rows: list[TourBooking]):
+        signed_in(other)
+        early = signed_in(guide).post(_note_url(rows[1]), {"body": "Gina's note."})
+        assert early["Location"] == f"{UPCOMING}?notes={rows[1].pk}"
+        booking_service.confirm_tour_request(rows[0], actor=guide.user)
+        rows[1].refresh_from_db()
+        assert rows[1].note_target == rows[0]
+        # The bell Olive got while it was shared links her own row; it opens Gina's thread now.
+        bell = Notification.objects.get(user=other.user, trigger="tour.note_added")
+        assert bell.url.startswith(f"{UPCOMING}?notes={rows[1].pk}")
+        content = signed_in(other).get(_notes_url(rows[1]), **HTMX).content.decode()
+        assert f'data-tour-notes-for="{rows[0].pk}"' in content and "Gina&#x27;s note." in content
+
+    def it_posts_a_note_on_a_taken_row_to_the_winner(guide: Member, other: Member, rows: list[TourBooking]):
+        signed_in(guide)
+        booking_service.confirm_tour_request(rows[0], actor=guide.user)
+        response = signed_in(other).post(_note_url(rows[1]), {"body": "Late note."})
+        assert response["Location"] == f"{UPCOMING}?notes={rows[0].pk}"
+        assert list(rows[0].notes.values_list("body", flat=True)) == ["Late note."]
+        assert not rows[1].notes.exists()
+        bell = Notification.objects.get(user=guide.user, trigger="tour.note_added")
+        assert bell.url == f"{UPCOMING}?notes={rows[0].pk}#tour-booking-{rows[0].pk}"
+
+    def it_points_every_row_at_the_last_survivor(guide: Member, other: Member, rows: list[TourBooking]):
+        tess = make_guide(full_legal_name="Tess Third")
+        signed_in(tess)
+        tess.refresh_from_db()
+        third = TourBookingFactory(
+            guide=tess,
+            starts_at=rows[0].starts_at,
+            request_group=rows[0].request_group,
+            status=TourBooking.Status.PENDING,
+        )
+        signed_in(guide)
+        booking_service.decline_tour_request(rows[0], actor=guide.user)
+        rows[0].refresh_from_db()
+        assert rows[0].note_target == rows[1]
+        signed_in(other)
+        booking_service.confirm_tour_request(third, actor=tess.user)
+        for row in rows:
+            row.refresh_from_db()
+            assert row.notes_moved_to_id == third.pk
+        third.refresh_from_db()
+        assert third.notes_moved_to_id is None
+
+    @pytest.mark.postgres_only
+    @pytest.mark.django_db(transaction=True)
+    def it_lands_a_note_posted_during_the_take_on_the_winner():
+        import threading
+        import time as clock
+        from unittest.mock import patch
+
+        from django.db import connection
+
+        gina, olive = make_guide(full_legal_name="Gina Guide"), make_guide(full_legal_name="Olive Other")
+        group = uuid.uuid4()
+        starts = local(TODAY + timedelta(days=4), 16)
+        rows = [
+            TourBookingFactory(guide=who, starts_at=starts, request_group=group, status=TourBooking.Status.PENDING)
+            for who in (gina, olive)
+        ]
+        signed_in(gina)
+        olive_client = signed_in(olive)
+        gina.refresh_from_db()
+        real_gather = booking_service.gather_notes
+        gathering = threading.Event()
+
+        def slow_gather(group_rows: list[TourBooking], onto: TourBooking) -> None:
+            gathering.set()
+            clock.sleep(0.5)
+            real_gather(group_rows, onto)
+
+        def take() -> None:
+            try:
+                booking_service.confirm_tour_request(rows[0], actor=gina.user)
+            finally:
+                connection.close()
+
+        def post() -> None:
+            try:
+                gathering.wait(5)
+                olive_client.post(_note_url(rows[1]), {"body": "Posted mid take."})
+            finally:
+                connection.close()
+
+        with patch.object(booking_service, "gather_notes", slow_gather):
+            threads = [threading.Thread(target=take), threading.Thread(target=post)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        assert list(TourBookingNote.objects.values_list("booking_id", "body")) == [(rows[0].pk, "Posted mid take.")]
+
 
 def describe_review_fixes():
     def it_stops_belling_a_writer_who_no_longer_gives_tours(guide: Member, other: Member, booked: TourBooking):

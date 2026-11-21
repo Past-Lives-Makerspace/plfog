@@ -13,6 +13,18 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.AddField(
+            model_name="tourbooking",
+            name="notes_moved_to",
+            field=models.ForeignKey(
+                blank=True,
+                help_text="Set on a No preference request's row (#1255) whose notes moved to another row of it when the request resolved (#1274): its Notes open, and new notes land on, that row.",
+                null=True,
+                on_delete=django.db.models.deletion.SET_NULL,
+                related_name="+",
+                to="tours.tourbooking",
+            ),
+        ),
         migrations.CreateModel(
             name="TourBookingNote",
             fields=[
