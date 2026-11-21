@@ -1,0 +1,10 @@
+bump = "minor"
+audience = ["members"]
+feature = "classes.catalog"
+guidance = "none"
+date = "2026-11-20"
+title = "A class page stays in search between its dates"
+changes = [
+  "A class with no date on the calendar keeps its page in search results, and the page says Not currently scheduled until a new date is added.",
+  "Search results name the class itself, not one of its dates, and list each upcoming date of it.",
+]
