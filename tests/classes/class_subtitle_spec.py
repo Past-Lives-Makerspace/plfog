@@ -18,7 +18,7 @@ from django.urls import reverse
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, InstructorFactory, UserFactory
 from classes.forms import SUBTITLE_HELP_TEXT, ClassOfferingForm, TeachClassOfferingForm, TeachPublishedClassForm
-from classes.models import ClassOffering
+from classes.models import ClassOffering, ClassRecord
 from classes.spec.live_edit import live_facts
 from membership.models import Member
 from tests.membership.factories import MembershipPlanFactory
@@ -94,7 +94,11 @@ def describe_the_subtitle_field():
     def it_fills_a_blank_subtitle_when_the_previous_release_inserts_a_class():
         # The migration applies while the previous release still serves (STANDARDS.md section 10),
         # and that release's INSERT names every column it knows, which is every one but subtitle.
-        unsaved = ClassOfferingFactory.build(category=CategoryFactory(), instructor=None, image="", slug="old-release")
+        category = CategoryFactory()
+        record = ClassRecord.objects.create(slug="old-release", title="Old Release", category=category)
+        unsaved = ClassOfferingFactory.build(
+            category=category, class_record=record, instructor=None, image="", slug="old-release"
+        )
         fields = [f for f in ClassOffering._meta.concrete_fields if not f.primary_key and f.name != "subtitle"]
         quote = connection.ops.quote_name
         with connection.cursor() as cursor:

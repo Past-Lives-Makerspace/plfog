@@ -13,13 +13,14 @@ from classes.models import ClassOffering
 
 def describe_ClassOffering():
     def describe_seo_title():
-        def it_is_unique_across_same_titled_offerings_on_different_dates(db):
+        def it_names_the_class_not_a_date_so_every_date_shares_it(db):
             inst = InstructorFactory(full_legal_name="Glen Smith")
             o1 = ClassOfferingFactory(title="Blacksmithing 101", slug="blacksmithing-101-a", instructor=inst)
             o2 = ClassOfferingFactory(title="Blacksmithing 101", slug="blacksmithing-101-b", instructor=inst)
             ClassSessionFactory(class_offering=o1, starts_at=timezone.now() + timedelta(days=3))
             ClassSessionFactory(class_offering=o2, starts_at=timezone.now() + timedelta(days=30))
-            assert o1.seo_title != o2.seo_title
+            # One page per class (#1260): the title is the class's, with no date.
+            assert o1.seo_title == o2.seo_title == "Blacksmithing 101 with Glen Smith"
 
         def it_names_every_instructor_when_the_title_has_room(db):
             # #686: the title reads the instructors list, in the order added.
@@ -51,11 +52,11 @@ def describe_ClassOffering():
                 assert o.seo_title == "Open Studio"
 
         def describe_with_only_a_past_session():
-            def it_still_includes_the_historical_date(db):
+            def it_carries_no_date(db):
                 o = ClassOfferingFactory(title="Welding Basics", instructor=None)
                 ClassSessionFactory(class_offering=o, starts_at=timezone.now() - timedelta(days=400))
                 assert "Welding Basics" in o.seo_title
-                assert any(ch.isdigit() for ch in o.seo_title)
+                assert not any(ch.isdigit() for ch in o.seo_title)
 
         def describe_when_the_title_already_names_the_instructor():
             def it_does_not_repeat_the_instructor(db):
