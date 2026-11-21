@@ -82,11 +82,12 @@ def _past(guide: Member | None, days: int, **kwargs: Any) -> TourBooking:
 
 
 def describe_access():
-    def it_refuses_every_list_and_action_to_a_plain_member(plain: Member, booked: TourBooking):
+    def it_sends_a_plain_member_to_give_tours_and_refuses_every_action(plain: Member, booked: TourBooking):
         client = signed_in(plain)
-        assert client.get(UPCOMING).status_code == 403
-        assert client.get(PAST).status_code == 403
-        assert client.get(_reschedule_url(booked), **HTMX).status_code == 403
+        give = reverse("tours:give")
+        assert client.get(UPCOMING)["Location"] == give
+        assert client.get(PAST)["Location"] == give
+        assert client.get(_reschedule_url(booked), **HTMX)["HX-Redirect"] == give
         assert client.post(_reschedule_url(booked), {"tour": "x"}).status_code == 403
         assert client.post(_cancel_url(booked)).status_code == 403
         assert client.post(_mark_url(booked), {"outcome": "attended"}).status_code == 403
@@ -451,9 +452,12 @@ def describe_back_url():
 
 
 def describe_where_it_lives():
-    def it_points_the_tools_card_and_the_guide_notices_at_upcoming(guide: Member):
+    def it_points_the_sidebar_entry_and_the_guide_notices_at_upcoming(guide: Member):
         client: Client = signed_in(guide)
-        assert f'href="{UPCOMING}" data-tool-tours' in client.get(reverse("hub_admin_tools")).content.decode()
+        assert (
+            f'href="{UPCOMING}" class="hub-sidebar__link active" data-nav="tours"'
+            in client.get(UPCOMING).content.decode()
+        )
         tabs = client.get(UPCOMING).content.decode()
         for tab in ("upcoming", "past", "hours"):
             assert f'data-tours-tab="{tab}"' in tabs

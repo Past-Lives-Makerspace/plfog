@@ -50,8 +50,8 @@ def _card(response) -> str:
 
 
 def describe_connect():
-    def it_refuses_a_member_without_the_permission(plain: Member):
-        assert signed_in(plain).get(CONNECT).status_code == 403
+    def it_sends_a_member_without_the_permission_to_give_tours(plain: Member):
+        assert signed_in(plain).get(CONNECT)["Location"] == reverse("tours:give")
 
     def it_says_so_while_google_is_not_set_up(guide: Member):
         response = signed_in(guide).get(CONNECT, follow=True)

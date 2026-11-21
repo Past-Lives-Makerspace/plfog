@@ -387,22 +387,64 @@ def tour_guide_access_required(view_func: _ViewFunc) -> _ViewFunc:
 
     Admins always have the Tour Guide abilities, by the actual role like every gate here. Which
     guide's hours a request may touch is the view's own check (``tours.views``): a guide their own,
-    an admin anyone's.
+    an admin anyone's. Anyone else who opens a Tours page (a GET) lands on Give Tours (#1278), the
+    page that recruits guides, never a 403; htmx gets ``HX-Redirect`` so the whole page changes. A
+    POST from them is still refused.
     """
-    from membership.models import AdminCapability
+    from functools import wraps
+    from typing import Any
 
-    return _capability_or_admin_required(
-        AdminCapability.Capability.TOUR_GUIDE,
-        "The Tours page requires admin privileges or the Tour Guide permission.",
-    )(view_func)
+    from django.contrib.auth.decorators import login_required
+    from django.http import HttpResponse, HttpResponseForbidden
+    from django.shortcuts import redirect
+    from django.urls import reverse
+
+    @wraps(view_func)
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        if has_tour_guide_access(request):
+            return view_func(request, *args, **kwargs)
+        if request.method not in ("GET", "HEAD"):
+            return HttpResponseForbidden("The Tours page requires admin privileges or the Tour Guide permission.")
+        give = reverse("tours:give")
+        if request.headers.get("HX-Request") == "true":
+            response = HttpResponse(status=204)
+            response["HX-Redirect"] = give
+            return response
+        return redirect(give)
+
+    return login_required(wrapper)  # type: ignore[return-value]
+
+
+def give_tours_access_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator gating Give Tours (#1278): Tour Guides and admins, and every active member.
+
+    Give Tours recruits guides, so it is open to the members it recruits; a guest account, a lapsed
+    member or an account with no member record gets a 403, and may not become a guide.
+    """
+    from functools import wraps
+    from typing import Any
+
+    from django.contrib.auth.decorators import login_required
+    from django.http import HttpResponseForbidden
+
+    from membership.models import Member
+
+    @wraps(view_func)
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        member = getattr(request.user, "member", None)
+        if has_tour_guide_access(request) or (member is not None and member.status == Member.Status.ACTIVE):
+            return view_func(request, *args, **kwargs)
+        return HttpResponseForbidden("Give Tours is for active members.")
+
+    return login_required(wrapper)  # type: ignore[return-value]
 
 
 def has_tour_guide_access(request: "HttpRequest") -> bool:
     """True when the user may open the Tours page: fog-admin (actual) or ``TOUR_GUIDE`` holder.
 
-    The template-side twin of :func:`tour_guide_access_required`, for the Admin Tools Tours card;
-    like :func:`has_billing_admin_access` it reads the actual role, and the view stays decorator
-    gated regardless.
+    The test :func:`tour_guide_access_required` applies, and what Give Tours (#1278) reads to tell a
+    guide from a member it is recruiting. Like :func:`has_billing_admin_access` it reads the actual
+    role.
     """
     from membership.models import AdminCapability
 

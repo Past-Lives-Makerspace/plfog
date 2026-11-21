@@ -1,6 +1,6 @@
 """End-to-end: a Tour Guide runs their tours from the Tours page's Upcoming and Past tabs (#949).
 
-The guide opens the Tools page from the sidebar, opens the Tours card (which lands on Upcoming) and
+The guide presses Tours in the sidebar (#1278), which lands on Upcoming, and
 sees both tabs empty. With bookings in place, the guide reschedules one tour through the Reschedule
 modal (date strip, time, a message, Move Tour), cancels another through the confirm modal with a
 message to the visitor, and marks a past tour attended on the Past tab, which swaps the row in
@@ -111,10 +111,9 @@ def describe_tours_upcoming_and_past():
         page.set_viewport_size(DESKTOP)
         page.goto(f"{live_server.url}{reverse('hub_home')}")
 
-        # Tools, then the Tours card, which opens on Upcoming: empty for now.
+        # Tours in the sidebar opens on Upcoming: empty for now.
         with page.expect_navigation():
-            page.locator(f'.hub-sidebar__nav a[href="{reverse("hub_admin_tools")}"]').first.click()
-        page.locator("[data-tool-tours]").click()
+            page.locator('.hub-sidebar__nav a[data-nav="tours"]').first.click()
         page.wait_for_url(f"**{reverse('tours:upcoming')}")
         page.locator('[data-tours-empty="upcoming"]').wait_for()
         _capture(page, "upcoming-empty")

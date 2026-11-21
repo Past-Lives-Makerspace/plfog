@@ -1,0 +1,13 @@
+{% comment %}
+The Tours entry (#1278) in the admin and member blocks of the sidebar, beside Host a Class. tours_nav
+(hub.context_processors._tours_nav) is there for every active member and every admin, and lights on
+every /facility-tours/ path. It always opens the Tours page; its gate sends a member who gives no
+tours to Give Tours. No feature switch.
+{% endcomment %}
+{% load guidance %}
+{% if tours_nav %}
+<a href="{{ tours_nav.url }}" class="hub-sidebar__link {{ tours_nav.active_class }}" data-nav="tours">
+    {% include "hub/partials/nav_icons/_tours.html" %}
+    Tours{% new_badge "tours.give" %}
+</a>
+{% endif %}

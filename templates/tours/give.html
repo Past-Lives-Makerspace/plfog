@@ -1,0 +1,271 @@
+{% extends "hub/base.html" %}
+{% load static guidance %}
+{% block title %}Give Tours{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/tours.css' %}">
+{% endblock %}
+
+{% block content %}
+{% comment %}
+Give Tours (#1278, tours.views.tour_give): where the sidebar's Tours entry lands for a member who gives
+no tours. The Host a Class page's shape and classes (classes/teach/why_teach.html, the .pl-teach-* rules
+in hub.css): a hero, What You Get, How It Works, Getting Paid, What We Ask Of You, Common Questions, then
+the card that starts the tutorial. The copy is written from the Tour Guide Guide wiki page and says only
+what the app does.
+
+The tutorial opens in that last card: one step per Guide section, the compose wizard's step pills
+(.pl-wizard-nav) and actions row. Become a Tour Guide shows on the last step alone, after Back; it posts to
+tours:become_guide, which grants Tour Guide and lands on My Hours with a toast. A Tour Guide or admin
+(is_guide) sees Open My Hours there instead, and Go to Tours in the hero.
+
+Context: is_guide.
+{% endcomment %}
+<div class="pl-teach pl-give" x-data="{ tutorial: false, step: 1, open(n) { this.tutorial = true; this.step = n; this.$nextTick(() => this.$refs.tutorial.scrollIntoView({ behavior: 'smooth', block: 'start' })); } }">
+
+    <div class="pl-guild-hero pl-guild-hero--noimg pl-teach-hero">
+        <div class="pl-guild-hero__content">
+            <h1 class="pl-guild-hero__title">Give Tours</h1>
+            <p class="pl-guild-hero__lead">Show curious people around Past Lives on hours you choose. The app handles the booking, and when someone you toured becomes a member, you're paid $50.</p>
+            <div class="pl-teach-hero__actions">
+                {% whats_new_button "tours.give" %}
+                {% if is_guide %}
+                <a class="pl-btn pl-btn--primary" href="{% url 'tours:upcoming' %}" data-give-go-tours>Go to Tours</a>
+                <button type="button" class="pl-btn pl-btn--secondary" @click="open(1)" data-give-start>Start the Tutorial</button>
+                {% else %}
+                <button type="button" class="pl-btn pl-btn--primary" @click="open(1)" data-give-start>Start the Tutorial</button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <section class="hub-card">
+        <h2 class="pl-teach-section__title">What You Get</h2>
+        <div class="pl-feature-grid">
+            <div class="hub-card pl-feature-card">
+                <span class="pl-feature-card__icon"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
+                <span class="pl-feature-card__title">Hours You Set</span>
+                <span class="pl-feature-card__desc">No fixed schedule. Give tours every week, or only on the dates you pick, and add Days Off when you are away.</span>
+            </div>
+            <div class="hub-card pl-feature-card">
+                <span class="pl-feature-card__icon"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+                <span class="pl-feature-card__title">Show Off the Space</span>
+                <span class="pl-feature-card__desc">Walk curious people through the place you love, and help them picture themselves making things here.</span>
+            </div>
+            <div class="hub-card pl-feature-card">
+                <span class="pl-feature-card__icon"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
+                <span class="pl-feature-card__title">$50 per New Member</span>
+                <span class="pl-feature-card__desc">When a visitor you gave a tour to becomes a member, you're paid $50.</span>
+            </div>
+            <div class="hub-card pl-feature-card">
+                <span class="pl-feature-card__icon"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></span>
+                <span class="pl-feature-card__title">The App Does the Rest</span>
+                <span class="pl-feature-card__desc">Visitors book online or at the lobby kiosk and get their confirmation and a reminder email. You get an email, a bell and a push for each booking, and a ping when they check in.</span>
+            </div>
+            <div class="hub-card pl-feature-card">
+                <span class="pl-feature-card__icon"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+                <span class="pl-feature-card__title">Your Calendar, Kept Current</span>
+                <span class="pl-feature-card__desc">Connect your Google Calendar if you use one. Your tours land on it, and times it shows you busy are not offered to visitors.</span>
+            </div>
+            <div class="hub-card pl-feature-card">
+                <span class="pl-feature-card__icon"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg></span>
+                <span class="pl-feature-card__title">A Team of Guides</span>
+                <span class="pl-feature-card__desc">The Calendar tab shows every guide's hours and the days nobody covers yet, so you can fill the gaps. Each tour has Notes the guides share.</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="hub-card">
+        <h2 class="pl-teach-section__title">How It Works</h2>
+        <div class="pl-md pl-teach-steps-md">
+            <ol>
+                <li><strong>Take the tutorial.</strong> Five short steps, right on this page. The last one has Become a Tour Guide.</li>
+                <li><strong>Set your hours.</strong> On My Hours, add the times you can give tours, every week or on dates you pick.</li>
+                <li><strong>Visitors book you.</strong> They pick an open time on tours.pastlives.space or at the lobby kiosk, and you get an email, a bell and a push.</li>
+                <li><strong>Show them around.</strong> Meet them in the lobby, give the tour, then mark it Attended on the Past tab.</li>
+            </ol>
+        </div>
+    </section>
+
+    <section class="hub-card">
+        <h2 class="pl-teach-section__title">Getting Paid</h2>
+        <div class="pl-teach-split__tiles">
+            <div class="pl-teach-split__tile pl-teach-split__tile--you">
+                <span class="pl-teach-split__pct">$50</span>
+                <span class="pl-teach-split__who">Per New Member</span>
+                <span class="pl-teach-split__what">When a visitor you gave a tour to becomes a member, you're paid $50.</span>
+            </div>
+            <div class="pl-teach-split__tile pl-teach-split__tile--space">
+                <span class="pl-teach-split__pct">Attended</span>
+                <span class="pl-teach-split__who">Your Record</span>
+                <span class="pl-teach-split__what">Mark each tour Attended on the Past tab. That is the record of who you toured.</span>
+            </div>
+            <div class="pl-teach-split__tile pl-teach-split__tile--guild">
+                <span class="pl-teach-split__pct">Tours Given</span>
+                <span class="pl-teach-split__who">Your Count</span>
+                <span class="pl-teach-split__what">Once you're set up, your card on the Tours page counts your tours and visitors.</span>
+            </div>
+        </div>
+    </section>
+
+    <section class="hub-card">
+        <h2 class="pl-teach-section__title">What We Ask Of You</h2>
+        <div class="pl-md pl-teach-asks-md">
+            <ul>
+                <li>Set hours you can keep, and add Days Off when you will be away.</li>
+                <li>Be in the lobby to meet your visitors when the tour starts.</li>
+                <li>If you pick Confirm First, answer each request by 24 hours before the tour.</li>
+                <li>After each tour, mark it Attended or No Show on the Past tab.</li>
+            </ul>
+        </div>
+    </section>
+
+    <section class="hub-card">
+        <h2 class="pl-teach-section__title">Common Questions</h2>
+        <div class="pl-teach-faq">
+            <details class="pl-disclosure pl-teach-faq__item" open>
+                <summary class="pl-disclosure__summary">
+                    <span class="pl-teach-faq__badge" aria-hidden="true">Q</span>
+                    <span class="pl-disclosure__title">Is there a fixed schedule?</span>
+                    <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+                </summary>
+                <div class="pl-disclosure__body pl-md pl-teach-faq__answer"><p>No. Visitors can only book times inside the hours you set, and you can change them any time on My Hours. Add Days Off when you are away.</p></div>
+            </details>
+            <details class="pl-disclosure pl-teach-faq__item">
+                <summary class="pl-disclosure__summary">
+                    <span class="pl-teach-faq__badge" aria-hidden="true">Q</span>
+                    <span class="pl-disclosure__title">How many visitors come on one tour?</span>
+                    <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+                </summary>
+                <div class="pl-disclosure__body pl-md pl-teach-faq__answer"><p>Up to the seats you set for those hours, anywhere from 1 to 50.</p></div>
+            </details>
+            <details class="pl-disclosure pl-teach-faq__item">
+                <summary class="pl-disclosure__summary">
+                    <span class="pl-teach-faq__badge" aria-hidden="true">Q</span>
+                    <span class="pl-disclosure__title">What if I can't make a tour?</span>
+                    <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+                </summary>
+                <div class="pl-disclosure__body pl-md pl-teach-faq__answer"><p>On the Upcoming tab, press the ... on the tour. Edit Guide or Time moves it or hands it to another guide, and Cancel Tour cancels it. The visitor is emailed, with your note if you add one.</p></div>
+            </details>
+            <details class="pl-disclosure pl-teach-faq__item">
+                <summary class="pl-disclosure__summary">
+                    <span class="pl-teach-faq__badge" aria-hidden="true">Q</span>
+                    <span class="pl-disclosure__title">Do I need a Google Calendar?</span>
+                    <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+                </summary>
+                <div class="pl-disclosure__body pl-md pl-teach-faq__answer"><p>No, it is optional. If you connect one, your tours land on it, and times it shows you busy are not offered to visitors.</p></div>
+            </details>
+            <details class="pl-disclosure pl-teach-faq__item">
+                <summary class="pl-disclosure__summary">
+                    <span class="pl-teach-faq__badge" aria-hidden="true">Q</span>
+                    <span class="pl-disclosure__title">Can I stop giving tours?</span>
+                    <span class="pl-disclosure__chevron" aria-hidden="true"></span>
+                </summary>
+                <div class="pl-disclosure__body pl-md pl-teach-faq__answer"><p>Yes. Delete your hours on My Hours and visitors can no longer book you. To stop being a Tour Guide altogether, ask an admin.</p></div>
+            </details>
+        </div>
+    </section>
+
+    <section class="hub-card pl-teach-apply pl-give-cta" x-ref="tutorial" data-give-cta>
+        <div x-show="!tutorial">
+            {% if is_guide %}
+            <h2 class="pl-teach-section__title">You're Already a Tour Guide</h2>
+            <p class="hub-text-muted">Your tours, your hours and the Guide are on the Tours page.</p>
+            <a class="pl-btn pl-btn--primary" href="{% url 'tours:upcoming' %}">Go to Tours</a>
+            {% else %}
+            <h2 class="pl-teach-section__title">Ready to Give Tours?</h2>
+            <p class="hub-text-muted">Five short steps on how tours work here. At the end, press Become a Tour Guide and set your hours.</p>
+            <button type="button" class="pl-btn pl-btn--primary" @click="open(1)" data-give-start>Start the Tutorial</button>
+            {% endif %}
+        </div>
+
+        <div class="pl-wizard pl-give-tutorial" x-show="tutorial" x-cloak data-give-tutorial>
+            <ol class="pl-wizard-nav" aria-label="Tutorial steps">
+                <li class="pl-wizard-nav__step" :class="{ 'is-active': step === 1, 'is-done': step > 1 }" :aria-current="step === 1 ? 'step' : null"><span class="pl-wizard-nav__n">1</span><span class="pl-give-pill__label">Setting Up</span></li>
+                <li class="pl-wizard-nav__step" :class="{ 'is-active': step === 2, 'is-done': step > 2 }" :aria-current="step === 2 ? 'step' : null"><span class="pl-wizard-nav__n">2</span><span class="pl-give-pill__label">When Someone Books</span></li>
+                <li class="pl-wizard-nav__step" :class="{ 'is-active': step === 3, 'is-done': step > 3 }" :aria-current="step === 3 ? 'step' : null"><span class="pl-wizard-nav__n">3</span><span class="pl-give-pill__label">A Tour Day</span></li>
+                <li class="pl-wizard-nav__step" :class="{ 'is-active': step === 4, 'is-done': step > 4 }" :aria-current="step === 4 ? 'step' : null"><span class="pl-wizard-nav__n">4</span><span class="pl-give-pill__label">The Lobby Kiosk</span></li>
+                <li class="pl-wizard-nav__step" :class="{ 'is-active': step === 5 }" :aria-current="step === 5 ? 'step' : null"><span class="pl-wizard-nav__n">5</span><span class="pl-give-pill__label">Getting Paid</span></li>
+            </ol>
+
+            <div class="pl-wizard-step pl-give-step" x-show="step === 1" data-give-step="1">
+                <p class="pl-give-step__count">Step 1 of 5</p>
+                <h3 class="pl-give-step__title">Setting Up</h3>
+                <div class="pl-md">
+                    <ul>
+                        <li>On My Hours, set the times you can give tours: Every Week for hours that repeat, or Available On for dates you pick.</li>
+                        <li>Each window is carved into back to back tours of the length you choose, each with 1 to 50 seats.</li>
+                        <li>Add Days Off for when you are away. Your hours offer nothing on those days, and tours already booked stay booked.</li>
+                        <li>Connect your Google Calendar on My Hours if you use one. Your tours land on it, and times it shows you busy are not offered to visitors.</li>
+                        <li>The Calendar tab shows every guide's hours. Days With No Tour Hours lists the days nobody covers yet, and Add My Hours fills one.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="pl-wizard-step pl-give-step" x-show="step === 2" x-cloak data-give-step="2">
+                <p class="pl-give-step__count">Step 2 of 5</p>
+                <h3 class="pl-give-step__title">When Someone Books</h3>
+                <div class="pl-md">
+                    <ul>
+                        <li>Visitors book an open time inside your hours on tours.pastlives.space, or at the front desk kiosk in the lobby.</li>
+                        <li>A booking is confirmed at once, and you get an email, a bell and a push. You hear again when a visitor moves or cancels.</li>
+                        <li>Rather confirm or decline each booking yourself? Pick Confirm First under Confirming Bookings on My Hours. Website visitors then send a request, and you answer it on the Upcoming tab by 24 hours before the tour. A request nobody answers by then is cancelled, and the visitor is told. Kiosk bookings are always confirmed at once.</li>
+                        <li>Upcoming lists every guide's tours. Press the ... on one of yours to Edit Guide or Time, or to Cancel Tour. The visitor is emailed, with your note if you add one. Notes on any tour are shared with the other guides.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="pl-wizard-step pl-give-step" x-show="step === 3" x-cloak data-give-step="3">
+                <p class="pl-give-step__count">Step 3 of 5</p>
+                <h3 class="pl-give-step__title">A Tour Day</h3>
+                <div class="pl-md">
+                    <ul>
+                        <li>Your visitors get a reminder email 24 hours before the tour.</li>
+                        <li>Meet them in the lobby. When they check in at the kiosk you get a bell and a push: "Your 10:00 tour is here."</li>
+                        <li>Afterwards, mark the tour Attended or No Show on the Past tab.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="pl-wizard-step pl-give-step" x-show="step === 4" x-cloak data-give-step="4">
+                <p class="pl-give-step__count">Step 4 of 5</p>
+                <h3 class="pl-give-step__title">The Lobby Kiosk</h3>
+                <div class="pl-md">
+                    <ul>
+                        <li>The screen in the lobby has two buttons, I Booked a Tour and Schedule a Tour.</li>
+                        <li>Visitors check in with the email they booked with or their name, and the kiosk tells them you will be right with them.</li>
+                        <li>Walk ins can book an open time right there.</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="pl-wizard-step pl-give-step" x-show="step === 5" x-cloak data-give-step="5">
+                <p class="pl-give-step__count">Step 5 of 5</p>
+                <h3 class="pl-give-step__title">Getting Paid</h3>
+                <div class="pl-md">
+                    <ul>
+                        <li>When a visitor you gave a tour to becomes a member, you're paid $50.</li>
+                        <li>Mark each tour Attended on the Past tab: that is the record of who you toured.</li>
+                        <li>Want to stop later? Delete your hours on My Hours, or ask an admin to turn Tour Guide off.</li>
+                    </ul>
+                </div>
+            </div>
+
+            {# The last step's action ends the actions row, after Back: Become a Tour Guide, or Open My Hours for a guide. #}
+            <div class="pl-wizard-actions pl-give-tutorial__actions">
+                <button type="button" class="pl-btn pl-btn--secondary" x-show="step > 1" @click="open(step - 1)" data-give-back>Back</button>
+                <button type="button" class="pl-btn pl-btn--primary" x-show="step < 5" @click="open(step + 1)" data-give-next>Next</button>
+                {% if is_guide %}
+                <a class="pl-btn pl-btn--primary" href="{% url 'tours:hours' %}" x-show="step === 5" data-give-hours>Open My Hours</a>
+                {% else %}
+                <form method="post" action="{% url 'tours:become_guide' %}" class="pl-give-tutorial__become" x-show="step === 5" data-give-become>
+                    {% csrf_token %}
+                    <button type="submit" class="pl-btn pl-btn--primary">Become a Tour Guide</button>
+                </form>
+                {% endif %}
+            </div>
+            {% if not is_guide %}<p class="pl-give-step__note" x-show="step === 5">You're a Tour Guide as soon as you press it, and an email follows with your next steps.</p>{% endif %}
+        </div>
+    </section>
+
+</div>
+{% endblock %}

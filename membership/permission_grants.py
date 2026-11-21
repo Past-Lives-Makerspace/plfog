@@ -8,7 +8,8 @@ its permission: what it lets them do, how, and a button per page, worded from
 :attr:`AdminCapability.GUIDES`. A permission with a Get Set Up card (#1167,
 :mod:`membership.permission_setup`) sends the card's step names and one Get Set Up button instead,
 so the email cannot drift from the page. A save that turns on two sends two emails (Felix: each
-email separate). A grant a member makes to themself sends nothing.
+email separate). A grant a member makes to themself sends nothing, except a self serve one: a member
+who becomes a Tour Guide on Give Tours (#1278) gets the same email, worded as their own doing.
 """
 
 from __future__ import annotations
@@ -31,18 +32,26 @@ if TYPE_CHECKING:
 PERMISSION_GRANTED_EVENT = "permission.granted"
 
 
-def record(member: Member, grants: Sequence[str], *, granted_by: User | None, guild: Guild | None = None) -> None:
+def record(
+    member: Member,
+    grants: Sequence[str],
+    *,
+    granted_by: User | None,
+    guild: Guild | None = None,
+    self_serve: bool = False,
+) -> None:
     """Email ``member`` once this save commits, one email per permission in ``grants`` (newly turned on).
 
     Nothing is sent for an empty list or when ``granted_by`` is the member themself (the View As
-    toggles, their own edit page). ``guild`` is the guild a Class Reviewer grant is for.
+    toggles, their own edit page), unless ``self_serve`` says the member chose it on a page made
+    for that (Give Tours, #1278). ``guild`` is the guild a Class Reviewer grant is for.
 
     Raises:
         KeyError: A grant has no entry in :attr:`AdminCapability.GUIDES`.
     """
     from membership.models import AdminCapability
 
-    if not grants or (granted_by is not None and granted_by.pk == member.user_id):
+    if not grants or (not self_serve and granted_by is not None and granted_by.pk == member.user_id):
         return
     for grant in grants:
         AdminCapability.GUIDES[grant]  # fail at the save, not in the worker
@@ -107,14 +116,18 @@ def email_context(member: Member, grant: str, granter: Member | None, guild: Gui
     """What ``membership/emails/permission_granted.{txt,html}`` reads.
 
     ``granter`` is whoever turned it on; None (a superuser with no member record) reads "An admin".
+    The member themself (a self serve grant, #1278) reads "You turned this on yourself", and their
+    questions go to an admin.
     """
     from membership.models import AdminCapability
 
+    self_serve = granter is not None and granter.pk == member.pk
     return {
         "first_name": member.greeting_name.split(" ")[0],
         "headline": granted_subject(grant, guild),
+        "self_serve": self_serve,
         "granter_name": granter.display_name if granter is not None else "An admin",
-        "help_contact": granter.display_name if granter is not None else "an admin",
+        "help_contact": granter.display_name if granter is not None and not self_serve else "an admin",
         "card": _card(member, grant, AdminCapability.GUIDES[grant], guild),
         "portal_url": member_absolute_url(reverse("hub_home")),
     }

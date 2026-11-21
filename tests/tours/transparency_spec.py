@@ -155,8 +155,8 @@ def describe_calendar_tab():
         plain = client.get(events)
         assert (plain.status_code, plain["Location"]) == (302, CALENDAR)
 
-    def it_refuses_a_plain_member(plain: Member):
-        assert signed_in(plain).get(CALENDAR).status_code == 403
+    def it_sends_a_plain_member_to_give_tours(plain: Member):
+        assert signed_in(plain).get(CALENDAR)["Location"] == reverse("tours:give")
 
 
 def describe_add_from_a_gap():
@@ -326,7 +326,7 @@ def describe_notes():
 
     def it_refuses_a_plain_member(plain: Member, booked: TourBooking):
         client = signed_in(plain)
-        assert client.get(_notes_url(booked), **HTMX).status_code == 403
+        assert client.get(_notes_url(booked), **HTMX)["HX-Redirect"] == reverse("tours:give")
         assert client.post(_note_url(booked), {"body": "x"}).status_code == 403
 
 

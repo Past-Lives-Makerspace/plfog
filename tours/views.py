@@ -1,9 +1,11 @@
 """The Tours page: the Upcoming and Past tabs with their staff actions (#949), the My Hours tab, and
 the Settings tab for admins (#947).
 
-The page is opened from the Tours card on the Tools page (``hub_admin_tools``), never the sidebar.
+The page is opened from the Tours entry in the sidebar, which every active member has (#1278).
 Everything here sits behind :func:`hub.view_as.tour_guide_access_required` (Tour Guides and
-admins) or :func:`hub.view_as.fog_admin_required` (the Settings tab). Which guide's hours a request
+admins; anyone else opening a tab lands on Give Tours) or :func:`hub.view_as.fog_admin_required`
+(the Settings tab). Give Tours and its Become a Tour Guide are
+:func:`hub.view_as.give_tours_access_required` (any active member). Which guide's hours a request
 may touch is decided once, in :func:`_target_guide`: a guide their own, an admin anyone who gives
 tours, so a guide who names another guide in a POST gets a 403 before any form is read.
 
@@ -37,7 +39,13 @@ from django.views.decorators.http import require_POST
 from core.htmx import wants_fragment
 from hub.calendar_pages import calendar_nav_params
 from hub.toast import trigger_toast
-from hub.view_as import ROLE_ADMIN, fog_admin_required, tour_guide_access_required
+from hub.view_as import (
+    ROLE_ADMIN,
+    fog_admin_required,
+    give_tours_access_required,
+    has_tour_guide_access,
+    tour_guide_access_required,
+)
 from membership.models import AdminCapability, Member, WikiPage
 from membership.permission_setup import SetupState
 from membership.permissions import can_edit_wiki_page
@@ -81,6 +89,7 @@ from tours.models import (
 )
 from tours.notify import short_when, when_label
 from tours.picker import build_picker, find_tour, guide_and_start
+from tours.setup import become_tour_guide
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -394,6 +403,7 @@ def tour_dates_delete(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect(_hours_url(_viewer(request), target))
 
 
+@tour_guide_access_required  # a member who gives no tours lands on Give Tours, like every other tab
 @fog_admin_required
 def tour_settings(request: HttpRequest) -> HttpResponse:
     """The Tours page's Settings tab (admins only): the front desk kiosk link (#950), then horizon,
@@ -426,6 +436,34 @@ def tour_guide(request: HttpRequest) -> HttpResponse:
             **_setup(request),
         },
     )
+
+
+#: The toast on My Hours after Become a Tour Guide (#1278).
+BECAME_GUIDE_MESSAGE = "You're a Tour Guide now. Set the hours you can give tours, and visitors can book you."
+
+
+@give_tours_access_required
+def tour_give(request: HttpRequest) -> HttpResponse:
+    """Give Tours (#1278): why giving tours is worth it, and the tutorial that ends in Become a Tour Guide.
+
+    Where every member who gives no tours lands from the Tours entry. A Tour Guide or admin who
+    opens it sees it too, with Open My Hours in place of the button that grants.
+    """
+    return render(request, "tours/give.html", {"is_guide": has_tour_guide_access(request)})
+
+
+@give_tours_access_required
+@require_POST
+def tour_become_guide(request: HttpRequest) -> HttpResponse:
+    """Become a Tour Guide, the tutorial's last step (#1278): grant Tour Guide, then My Hours with a toast.
+
+    A Tour Guide or admin pressing it again changes nothing and goes to My Hours.
+    """
+    if has_tour_guide_access(request):
+        return redirect("tours:hours")
+    become_tour_guide(_viewer(request))
+    messages.success(request, BECAME_GUIDE_MESSAGE)
+    return redirect("tours:hours")
 
 
 def _kiosk_url(house_rules: FacilityTourSettings) -> str:
