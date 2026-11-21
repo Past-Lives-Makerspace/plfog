@@ -1,0 +1,41 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}Tours: Calendar{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/tours.css' %}">
+<link rel="stylesheet" href="{% static 'css/calendar.css' %}">
+<link rel="stylesheet" href="{% static 'css/permission-setup.css' %}">
+{% endblock %}
+{% block content %}
+{% comment %}
+The Tours page's Calendar tab (#1274, tours.views.tour_calendar): every Tour Guide sees every guide's
+hours and tours, so anyone can fill the days nobody covers. First the Days With No Tour Hours card
+(tours.coverage.uncovered_days, today to the booking horizon), each day with Add My Hours into My
+Hours' Add Dates with that day picked; then the shared calendar shell (Week and Month, one chip per
+guide; tours.coverage.calendar_context), whose Week and Month steps load tours:calendar_events.
+
+Context: tab, is_admin, cal, gaps (GapDay list), horizon_days.
+{% endcomment %}
+{% include "tours/partials/_page_top.html" %}
+
+<div class="hub-card pl-tours-panel pl-tours-gaps" data-tours-gaps data-guidance-target="tours.gaps">
+  <h2 class="hub-detail-label pl-tours-panel__title">Days With No Tour Hours</h2>
+  {% if gaps %}
+  <p class="hub-text-muted pl-tours-panel__intro">Nobody gives tours on these days in the next {{ horizon_days }} days, so visitors cannot book them. Free on one? Add your hours.</p>
+  <ul class="pl-tours-gaps__list">
+    {% for gap in gaps %}
+    <li class="pl-tours-gaps__row" data-tours-gap="{{ gap.day|date:'Y-m-d' }}">
+      <span class="pl-tours-gaps__day">{{ gap.day|date:"l, M j" }}</span>
+      <a href="{{ gap.add_url }}" class="pl-btn pl-btn--secondary pl-btn--sm" data-tours-gap-add>Add My Hours</a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="hub-text-muted pl-tours-panel__empty" data-tours-gaps-empty>Every day in the next {{ horizon_days }} days has someone's tour hours.</p>
+  {% endif %}
+</div>
+
+<div class="pl-tours-calendar" data-tours-calendar>
+  {% include "hub/partials/guild_calendar_app.html" with cal=cal cal_key="tours" %}
+</div>
+{% endblock %}

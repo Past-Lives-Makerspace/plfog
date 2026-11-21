@@ -18,6 +18,7 @@ from django.utils import timezone
 
 from hub.forms import (
     _SLOT_DURATION_CHOICES,
+    ThreadMessageForm,
     _append_duration_choice,
     _meeting_time_label,
     _seed_time_choice,
@@ -545,3 +546,22 @@ class TourCalendarChoiceForm(forms.Form):
         field.choices = choices
         field.initial = connection.calendar_id
         field.help_text = "Times this calendar or your main one shows you busy are not offered to visitors."
+
+
+class TourNoteForm(ThreadMessageForm):
+    """A note on a booking (#1274): the shared thread's box, and for whoever may act on it, Also Email the Visitor.
+
+    The photos stay on the thread; the visitor's email carries the words alone.
+    """
+
+    email_visitor = forms.BooleanField(
+        required=False,
+        label="Also email this to the visitor",
+        help_text="They get your words by email, signed with your first name. Photos stay here.",
+    )
+
+    def __init__(self, *args: Any, may_email: bool, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["body"].label = "Note"
+        if not may_email:
+            del self.fields["email_visitor"]

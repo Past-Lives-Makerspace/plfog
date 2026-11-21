@@ -1,10 +1,10 @@
 {% comment %}
 The top of the Tours page (#947, #949), shared by its tabs: the way back to the Tools page whose
 Tours card opens it, the page header, the tab row, and the viewer's Get Set Up card (#1167). Upcoming,
-Past, My Hours and Guide are everyone's; Settings (the house rules, tours.views.tour_settings) is for
+Calendar (#1274), Past, My Hours and Guide are everyone's; Settings (the house rules, tours.views.tour_settings) is for
 admins only.
 
-Context: tab ("upcoming", "past", "hours", "guide" or "settings"), is_admin (the actual role), setup
+Context: tab ("upcoming", "calendar", "past", "hours", "guide" or "settings"), is_admin (the actual role), setup
 and setup_next (tours.views._setup),
 tools_page_title (from hub.context_processors: "Admin Tools" or "Guild Tools", empty when the
 viewer has no Tools page).
@@ -12,11 +12,12 @@ viewer has no Tools page).
 {% load tab_picker %}
 {# No Tools page to go back to (an admin previewing as a member or guest has none): no link. #}
 {% if tools_page_title %}<p class="pl-tours-back"><a href="{% url 'hub_admin_tools' %}" class="hub-btn hub-btn--sm hub-btn--ghost" data-tours-back>&larr; Back to {{ tools_page_title }}</a></p>{% endif %}
-{% include "components/page_header.html" with title="Tours" description="Facility tours for people curious about Past Lives. See who is coming, mark past tours, set the hours you can give tours, and mark the days you are away." new_key="tours" %}
+{% include "components/page_header.html" with title="Tours" description="Facility tours for people curious about Past Lives. See every guide's tours and hours, fill the days nobody covers, mark past tours, and set the hours you can give tours." new_key="tours" %}
 
 {% tab_picker "Tours" %}
 <nav class="pl-tabs" aria-label="Tours">
   <a href="{% url 'tours:upcoming' %}" class="vote-tab{% if tab == 'upcoming' %} vote-tab--active{% endif %}"{% if tab == 'upcoming' %} aria-current="page"{% endif %} data-tours-tab="upcoming">Upcoming</a>
+  <a href="{% url 'tours:calendar' %}" class="vote-tab{% if tab == 'calendar' %} vote-tab--active{% endif %}"{% if tab == 'calendar' %} aria-current="page"{% endif %} data-tours-tab="calendar">Calendar</a>
   <a href="{% url 'tours:past' %}" class="vote-tab{% if tab == 'past' %} vote-tab--active{% endif %}"{% if tab == 'past' %} aria-current="page"{% endif %} data-tours-tab="past">Past</a>
   <a href="{% url 'tours:hours' %}" class="vote-tab{% if tab == 'hours' %} vote-tab--active{% endif %}"{% if tab == 'hours' %} aria-current="page"{% endif %} data-tours-tab="hours">My Hours</a>
   <a href="{% url 'tours:guide' %}" class="vote-tab{% if tab == 'guide' %} vote-tab--active{% endif %}"{% if tab == 'guide' %} aria-current="page"{% endif %} data-tours-tab="guide">Guide</a>

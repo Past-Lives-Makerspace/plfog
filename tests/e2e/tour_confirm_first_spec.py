@@ -133,6 +133,7 @@ def describe_confirm_first():
 
         # Confirm Sam: booked, and the visitor gets the confirmation with the calendar invite.
         mail.outbox = []
+        page.locator(f'[data-tour-booking="{sam.pk}"] .pl-row-menu__trigger').click()
         with page.expect_navigation():
             row.locator(f'[data-tour-confirm="{sam.pk}"]').click()
         page.locator(".plt-msg", has_text="Sam Rivera's tour on").first.wait_for()
@@ -143,6 +144,7 @@ def describe_confirm_first():
 
         # Decline Lee with a message: the seats are free again and the visitor is told why.
         mail.outbox = []
+        page.locator(f'[data-tour-booking="{lee.pk}"] .pl-row-menu__trigger').click()
         page.locator(f'[data-tour-decline="{lee.pk}"]').click()
         dialog = page.get_by_role("dialog").filter(has_text="Decline This Request?")
         dialog.wait_for(state="visible")

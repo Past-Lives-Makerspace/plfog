@@ -3,60 +3,92 @@
 {% block title %}Tours: {% if tab == "past" %}Past{% else %}Upcoming{% endif %}{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/tours.css' %}">
+<link rel="stylesheet" href="{% static 'css/bookings-tab.css' %}">
 <link rel="stylesheet" href="{% static 'css/permission-setup.css' %}">
 {% endblock %}
 {% block content %}
 {% comment %}
-The Tours page's Upcoming and Past tabs (#949, tours.views.tour_upcoming and tour_past). Both list
-TourBooking rows themselves (never the carved tours): a guide their own, an admin every guide's
-with a guide filter. Upcoming is soonest first with Reschedule (the modal below) and Cancel (a
-confirm with a message to the visitor); Past is newest first with Attended and No Show. Both paged.
+The Tours page's Upcoming and Past tabs (#949, as tables since #1274; tours.views.tour_upcoming and
+tour_past). Both list TourBooking rows themselves (never the carved tours), every guide's for every
+Tour Guide and admin, in the house table (.pl-members-table, bookings-tab.css's stacking) with a "..."
+menu per row (partials/_booking_menu.html). The card's header holds the filters: on Upcoming the
+All / Requested / Confirmed chips, and on both the Guide select, which applies on change. Each row's
+confirms live after the table (partials/_booking_modals.html); the Edit modal and the Notes modal
+once per page. Both paged.
 
-Context: tab, is_admin, page, bookings, filter_guides, filter_guide, base_params.
+Context: tab, is_admin, viewer_pk, page, bookings, filter_guides, filter_guide, show, chips,
+is_filtered, base_params, notes_open (a booking pk to open Notes on), notes_next.
 {% endcomment %}
 {% include "tours/partials/_page_top.html" %}
 
-{% if is_admin %}
-<div class="hub-card pl-tours-panel" data-tours-filter>
-  <form method="get" action="{% if tab == 'past' %}{% url 'tours:past' %}{% else %}{% url 'tours:upcoming' %}{% endif %}" class="pl-tours-picker">
-    <div class="pl-form-group pl-tours-picker__field">
-      <label for="tours-guide-filter" class="pl-form-label">Guide</label>
-      <select id="tours-guide-filter" name="guide" class="pl-tours-input--text" onchange="this.form.requestSubmit()">
-        <option value=""{% if not filter_guide %} selected{% endif %}>All guides</option>
-        {% for guide in filter_guides %}
-        <option value="{{ guide.pk }}"{% if filter_guide and guide.pk == filter_guide.pk %} selected{% endif %}>{{ guide.staff_label }}</option>
-        {% endfor %}
-      </select>
+{% url 'tours:past' as past_url %}{% url 'tours:upcoming' as upcoming_url %}
+<div class="hub-card pl-tours-table-card" data-tours-list="{{ tab }}">
+  <div class="pl-tours-table-card__head" data-tours-filter>
+    {% if chips %}
+    <div class="pl-equip-chips pl-tours-table-card__chips" role="group" aria-label="Which tours">
+      {% for chip in chips %}
+      <a href="{{ chip.url }}" class="pl-equip-chip{% if chip.key == show %} pl-equip-chip--active{% endif %}"{% if chip.key == show %} aria-current="true"{% endif %} data-tours-chip="{{ chip.key }}">{{ chip.label }}{% if chip.count %}<span class="pl-equip-chip__count" data-tours-chip-count>{{ chip.count }}</span>{% endif %}</a>
+      {% endfor %}
     </div>
-    <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-picker__go">Show</button>
-  </form>
-</div>
-{% endif %}
+    {% endif %}
+    <form method="get" action="{% if tab == 'past' %}{{ past_url }}{% else %}{{ upcoming_url }}{% endif %}" class="hub-form-group pl-tours-table-card__guide">
+      {% if show != "all" %}<input type="hidden" name="show" value="{{ show }}">{% endif %}
+      <label for="tours-guide-filter" class="sr-only">Guide</label>
+      <select id="tours-guide-filter" name="guide" onchange="this.form.requestSubmit()" data-tours-guide-filter>
+        <option value=""{% if not filter_guide %} selected{% endif %}>All guides</option>
+        <option value="{{ viewer_pk }}"{% if filter_guide and filter_guide.pk == viewer_pk %} selected{% endif %}>My Tours</option>
+        {% for guide in filter_guides %}{% if guide.pk != viewer_pk %}
+        <option value="{{ guide.pk }}"{% if filter_guide and guide.pk == filter_guide.pk %} selected{% endif %}>{{ guide.staff_label }}</option>
+        {% endif %}{% endfor %}
+      </select>
+      <noscript><button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Show</button></noscript>
+    </form>
+  </div>
 
-<div class="pl-tours-bookings" data-tours-list="{{ tab }}">
   {% if bookings %}
-  <ul class="pl-tours-bookings__list">
+  <div class="pl-bookings__table-wrap">
+  <table class="pl-members-table pl-bookings-table pl-tours-table">
+    <thead>
+      <tr>
+        <th scope="col">When</th>
+        <th scope="col">Visitor</th>
+        <th scope="col">Guide</th>
+        <th scope="col">Status</th>
+        <th scope="col"><span class="sr-only">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
     {% for booking in bookings %}
     {% include "tours/partials/_booking_row.html" %}
     {% endfor %}
-  </ul>
+    </tbody>
+  </table>
+  </div>
   <div class="pl-tours-bookings__pages">
     {% include "components/table_pagination.html" with page=page base_params=base_params %}
   </div>
   {% else %}
-  <div class="hub-card pl-tours-panel pl-tours-bookings__empty" data-tours-empty="{{ tab }}">
+  <div class="pl-tours-bookings__empty" data-tours-empty="{{ tab }}">
     {% if tab == "past" %}
     <p class="pl-tours-bookings__empty-title">No past tours{% if filter_guide %} for {{ filter_guide.staff_label }}{% endif %} yet.</p>
     <p class="hub-text-muted pl-tours-bookings__empty-text">A tour shows up here once it starts, ready to mark attended or no show.</p>
     {% else %}
-    <p class="pl-tours-bookings__empty-title">No tours coming up{% if filter_guide %} for {{ filter_guide.staff_label }}{% endif %}.</p>
-    <p class="hub-text-muted pl-tours-bookings__empty-text">Visitors book the times in {% if is_admin %}each guide's{% else %}your{% endif %} tour hours on the tours site. <a href="{% url 'tours:hours' %}" data-tours-empty-hours>Set tour hours on My Hours</a>.</p>
+    <p class="pl-tours-bookings__empty-title">No {% if show == "requested" %}requests{% elif show == "confirmed" %}confirmed tours{% else %}tours{% endif %} coming up{% if filter_guide %} for {{ filter_guide.staff_label }}{% endif %}.</p>
+    <p class="hub-text-muted pl-tours-bookings__empty-text">Visitors book the times in each guide's tour hours on the tours site. <a href="{% url 'tours:hours' %}" data-tours-empty-hours>Set tour hours on My Hours</a>, or see the days nobody covers on the <a href="{% url 'tours:calendar' %}">Calendar</a>.</p>
     {% endif %}
+    {% if is_filtered %}<p class="pl-tours-bookings__empty-text"><a href="{% if tab == 'past' %}{{ past_url }}{% else %}{{ upcoming_url }}{% endif %}" data-tours-clear>Show All Tours →</a></p>{% endif %}
   </div>
   {% endif %}
 </div>
 
+{% for booking in bookings %}{% include "tours/partials/_booking_modals.html" %}{% endfor %}
 {% if tab == "upcoming" %}
-{% include "components/modal.html" with modal_id="tour-reschedule" modal_title="Reschedule Tour" modal_size="lg" modal_body="Loading open times..." %}
+{% include "components/modal.html" with modal_id="tour-reschedule" modal_title="Edit Tour" modal_size="lg" modal_body="Loading open times..." %}
 {% endif %}
+{% include "components/modal.html" with modal_id="tour-notes" modal_title="Notes" modal_size="md" %}
+{% if notes_open %}
+<div hidden data-tour-notes-autoload hx-get="{% url 'tours:booking_notes' notes_open %}?next={{ notes_next|urlencode }}" hx-trigger="load" hx-target="#tour-notes-body" hx-swap="innerHTML" x-data x-init="$dispatch('open-modal', 'tour-notes')"></div>
+{% endif %}
+{% include "components/thread_script.html" %}
+{% include "components/busy_submit.html" %}
 {% endblock %}

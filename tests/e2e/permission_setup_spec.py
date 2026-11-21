@@ -113,6 +113,7 @@ def describe_get_set_up():
         starts = timezone.now() - timedelta(hours=3)
         TourBookingFactory(guide=guide, starts_at=starts, ends_at=starts + timedelta(hours=1), party_size=3)
         page.goto(f"{live_server.url}{reverse('tours:past')}")
+        page.locator("[data-tour-booking] .pl-row-menu__trigger").first.click()
         page.locator('[data-tour-mark="attended"]').first.click()
         page.get_by_text(TOUR_GUIDE_SETUP.celebration).first.wait_for()
 

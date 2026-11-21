@@ -222,76 +222,102 @@
     max-width: 46rem;
 }
 
-/* The Upcoming and Past tabs (#949, tours/bookings.html): one card per booking, its time and status
-   on the first line, the visitor and their contact under it, the actions last. Cards stack the
-   same at every width, so nothing scrolls sideways on a phone. */
-.pl-tours-bookings {
+/* The Upcoming and Past tables (#949, a table since #1274, tours/bookings.html): one card whose
+   header holds the status chips and the Guide select, then the house table (.pl-members-table with
+   bookings-tab.css's stacking: labelled cards below 768px, the "..." pinned to the date line). */
+.pl-tours-table-card {
     margin-top: 1.5rem;
+    padding: 1.25rem;
 }
-.pl-tours-bookings__list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
+.pl-tours-table-card__head {
     display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1rem;
+    margin-bottom: 1rem;
+}
+.pl-tours-table-card__chips {
+    margin: 0;
+}
+.pl-tours-table-card__guide {
+    margin: 0 0 0 auto;
+}
+.pl-tours-table-card__guide select {
+    width: 16rem;
+    max-width: 100%;
+}
+.pl-tours-row__contact a {
+    overflow-wrap: anywhere;
+}
+.pl-tours-row__contact [data-tour-booking-phone] {
+    white-space: nowrap;
+}
+/* The time under the date on a wide screen; beside it in a stacked phone card. */
+@media (min-width: 769px) {
+    .pl-tours-row__time {
+        display: block;
+        font-size: 0.8125rem;
+        color: var(--hub-text-muted);
+    }
+    .pl-tours-row__sep {
+        display: none;
+    }
+}
+.pl-tours-table .hub-pill + .hub-pill {
+    margin-left: 0.25rem;
 }
 .pl-tours-bookings__pages {
     margin-top: 1rem;
 }
-.pl-tours-bookings__empty {
-    margin-top: 0;
+.pl-tours-bookings__empty p {
+    margin: 0;
 }
 .pl-tours-bookings__empty-title {
-    margin: 0;
     color: var(--hub-text);
     font-weight: 600;
 }
-.pl-tours-bookings__empty-text {
-    margin: 0.5rem 0 0;
+.pl-tours-bookings__empty .pl-tours-bookings__empty-text {
+    margin-top: 0.5rem;
     font-size: 0.875rem;
 }
-.pl-tours-booking {
-    padding: 1rem 1.25rem;
+@media (max-width: 640px) {
+    .pl-tours-table-card {
+        padding: 1rem;
+    }
+    .pl-tours-table-card__guide {
+        flex: 1 1 100%;
+        margin-left: 0;
+    }
+    .pl-tours-table-card__guide select {
+        width: 100%;
+    }
 }
-.pl-tours-booking__head {
+
+/* The Calendar tab (#1274, tours/calendar.html): the Days With No Tour Hours card, each day on
+   one row with Add My Hours at its right, then the shared calendar shell 1.5rem under it. */
+.pl-tours-gaps__list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+    gap: 0.5rem 1.5rem;
+}
+.pl-tours-gaps__row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
-    flex-wrap: wrap;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--hub-border);
 }
-.pl-tours-booking__when {
+.pl-tours-gaps__day {
     color: var(--hub-text);
-    font-family: "Lato", sans-serif;
-    font-weight: 700;
-}
-.pl-tours-booking__visitor {
-    margin: 0.5rem 0 0;
-    color: var(--hub-text);
-    overflow-wrap: anywhere;
-}
-.pl-tours-booking__name {
     font-weight: 600;
 }
-.pl-tours-booking__contact {
-    margin: 0.25rem 0 0;
-    font-size: 0.875rem;
-    overflow-wrap: anywhere;
-}
-.pl-tours-booking__sep {
-    margin: 0 0.5rem;
-    color: var(--hub-text-muted);
-}
-.pl-tours-booking__meta {
-    margin: 0.25rem 0 0;
-    font-size: 0.8125rem;
-}
-.pl-tours-booking__actions {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    margin-top: 0.75rem;
+.pl-tours-calendar {
+    margin-top: 1.5rem;
 }
 
 /* The Cancel Tour confirm's sentence, clear of the note field under it. */
@@ -610,17 +636,6 @@
         display: block;
         border-radius: 0.75rem;
     }
-}
-.pl-tours-booking__confirm-by {
-    margin: 0.5rem 0 0;
-    font-size: 0.8125rem;
-    font-weight: 700;
-}
-
-/* A No preference request (#1255): the other guides it also went to. */
-.pl-tours-booking__shared {
-    margin: 0.25rem 0 0;
-    font-size: 0.8125rem;
 }
 .pl-tours-confirm__notice {
     margin-top: 1.5rem;

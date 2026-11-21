@@ -1,0 +1,15 @@
+{% extends "tours/emails/_base.html" %}
+{% comment %}
+A note a Tour Guide or an admin wrote on the visitor's booking and chose to email them (#1274,
+tours.notify.send_visitor_note). Context: visitor_context plus staff_message, note_label and
+can_change (a booked tour that has not started: the Reschedule and Cancel actions apply).
+{% endcomment %}
+{% block content %}
+<p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ greeting_name }},</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">A message about your tour</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">We have a note for you about your <a href="{{ manage_url }}" style="color: #0d4876; text-decoration: none; font-weight: 700;">Past Lives Makerspace tour</a>.</p>
+{% include "tours/emails/_staff_message.html" %}
+{% include "tours/emails/_tour.html" %}
+<p style="margin: 0 0 16px; font-size: 13px; color: #55697a; line-height: 1.6;">Questions? Email <a href="mailto:{{ support_email }}" style="color: #0d4876;">{{ support_email }}</a>.</p>
+{% if can_change %}{% include "tours/emails/_actions.html" %}{% endif %}
+{% endblock %}

@@ -620,6 +620,18 @@ _GUIDANCE_LIST = (
         ),
     ),
     Guidance(
+        key="tours.calendar",
+        title="Tours Calendar and Bookings",
+        url_name="tours:calendar",
+        target="tours.gaps",
+        steps=(
+            "Open the Tours card on the Tools page and press Calendar to see every guide's hours and tours.",
+            "Days With No Tour Hours lists the days nobody covers. Press Add My Hours on one to add your hours for that day.",
+            "Upcoming lists every guide's tours. Use the chips and the Guide menu to narrow it, and the ... on a row for what you can do.",
+            "Press Notes on any tour to leave a note for the other guides. On your own tours you can also email it to the visitor.",
+        ),
+    ),
+    Guidance(
         key="tours.get-set-up",
         title="Get Set Up as a Tour Guide",
         url_name="tours:upcoming",

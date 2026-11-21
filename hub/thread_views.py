@@ -1,6 +1,6 @@
 """Edit and delete a posted thread message (#1140), on every thread and on kiln tickets.
 
-One pair of views serves the four shared threads (``core.threads``), keyed by the message
+One pair of views serves the five shared threads (``core.threads``), keyed by the message
 model's ``THREAD_KIND``: ``/threads/<kind>/<pk>/edit/`` and ``/threads/<kind>/<pk>/delete/``.
 The kiln app reuses :func:`edit_message` and :func:`delete_message` from its own URLs, so a
 guest's kiln pages stay under ``/kiln/``.
@@ -166,12 +166,20 @@ def _sees_reservation(request: HttpRequest, message: EquipmentReservationMessage
     return reservation_thread_side(request, message.reservation) is not None
 
 
+def _sees_tour_note(request: HttpRequest, message: Any) -> bool:
+    """A tour booking's notes (#1274) are every Tour Guide's and admin's (``hub.view_as.has_tour_guide_access``)."""
+    from hub.view_as import has_tour_guide_access
+
+    return has_tour_guide_access(request)
+
+
 #: Who can see each thread kind's messages: anyone else is answered 404.
 _SEES: dict[str, Callable[[HttpRequest, Any], bool]] = {
     "feedback": _sees_feedback,
     "class": _sees_class,
     "booking": _sees_booking,
     "reservation": _sees_reservation,
+    "tour": _sees_tour_note,
 }
 
 _ThreadView = Callable[[HttpRequest, ThreadMessage], HttpResponse]

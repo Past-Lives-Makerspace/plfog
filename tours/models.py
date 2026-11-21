@@ -24,6 +24,7 @@ from django.db.models import Q, Sum
 from django.utils import timezone
 
 from billing.fields import EncryptedCharField
+from core.threads import ThreadMessage, ThreadPhoto
 from membership.models import AdminCapability, Member
 
 if TYPE_CHECKING:
@@ -1109,3 +1110,108 @@ class TourCalendarCleanup(models.Model):
 
     def __str__(self) -> str:
         return f"Delete {self.event_id} from {self.calendar_id}"
+
+
+# --- Notes on a booking (#1274) ------------------------------------------------------------------
+
+
+class TourBookingNote(ThreadMessage):
+    """One note on a :class:`TourBooking`'s thread, by a Tour Guide or an admin (#1274).
+
+    Every note is from the staff side: the visitor never posts here (no member side, so
+    :attr:`member_user_ids` is empty). Any Tour Guide or admin reads and adds notes on any
+    booking. Posting tells the booking's guide (or the admins when it has none) and everyone else
+    who wrote a note on it, minus the author, by bell (:meth:`staff_user_ids`). A note posted with
+    ``sent_to_visitor`` also emails the visitor (:func:`tours.notify.send_visitor_note`); only
+    whoever may act on the booking may ask for that (``tours.views._staff_booking``).
+    """
+
+    THREAD_KIND: ClassVar[str] = "tour"
+    NOTICE_PERIOD: ClassVar[str] = "tour-note-{pk}"
+    STAFF_SIGNATURE: ClassVar[str] = "Tour Guide"
+
+    # Set by posting: whether a guide or an admin got a bell. Not a column.
+    told_staff: bool = False
+
+    booking = models.ForeignKey(
+        TourBooking,
+        on_delete=models.CASCADE,
+        related_name="notes",
+        help_text="The booking this note is on.",
+    )
+    sent_to_visitor = models.BooleanField(
+        default=False,
+        help_text="Whether this note was also emailed to the visitor when it was posted.",
+    )
+
+    class Meta(ThreadMessage.Meta):
+        pass
+
+    def __str__(self) -> str:
+        return f"Note {self.pk} on tour booking {self.booking_id}"
+
+    @property
+    def member_user_ids(self) -> set[int]:
+        """Nobody: the visitor has no side on this thread, so every note is a staff note."""
+        return set()
+
+    @property
+    def member_side_name(self) -> str:
+        return self.booking.visitor_name
+
+    @property
+    def thread_marker(self) -> str:
+        return "Emailed to the visitor" if self.sent_to_visitor else ""
+
+    def staff_user_ids(self) -> set[int]:
+        """Who a note reaches: the tour's guide (or the admins when it has none) and every earlier writer, minus the author."""
+        from core.events.resolvers import tour_guides
+
+        booking = self.booking
+        audience = {user.pk for user, _reason in tour_guides({"guide": booking.guide})}
+        writers = set(booking.notes.exclude(pk=self.pk).exclude(author=None).values_list("author_id", flat=True))
+        return (audience | writers) - {self.author_id}
+
+    def _tell_member_side(self) -> bool:
+        """Every note is staff side: email the visitor when asked, and bell the other staff on the booking."""
+        from tours import notify
+
+        told = False
+        if self.sent_to_visitor:
+            notify.send_visitor_note(self)
+            told = True
+        recipient_ids = self.staff_user_ids()
+        if recipient_ids:
+            notify.tell_staff_note(self, recipient_ids)
+            self.told_staff = True
+            told = True
+        return told
+
+    def _tell_staff_side(self) -> bool:
+        """Never called: nobody writes as the visitor."""
+        return False
+
+    def told_sentence(self) -> str:
+        """``We emailed it to Sam.`` and ``The other guides on this tour were told.``, as they happened."""
+        sentence = f" We emailed it to {self.booking.visitor_first_name}." if self.sent_to_visitor else ""
+        if self.told_staff:
+            sentence += " The other guides on this tour were told."
+        return sentence
+
+
+class TourBookingNotePhoto(ThreadPhoto):
+    """One photo posted with a :class:`TourBookingNote`; it stays on the thread, never in the visitor's email."""
+
+    message = models.ForeignKey(
+        TourBookingNote,
+        on_delete=models.CASCADE,
+        related_name="photos",
+        help_text="The note this photo was posted with.",
+    )
+    image = models.ImageField(upload_to="tour-notes/%Y/%m/", help_text="The uploaded photo, on the default storage.")
+
+    class Meta(ThreadPhoto.Meta):
+        pass
+
+    def __str__(self) -> str:
+        return f"Photo {self.pk} on tour note {self.message_id}"

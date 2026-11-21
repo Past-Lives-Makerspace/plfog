@@ -12,6 +12,8 @@ in ``templates/tours/emails/`` (:func:`core.events.senders.emit_with_email_shell
   staff member other than themselves makes (#949).
 - ``tour.checked_in``: the visitor checked in at the front desk kiosk (#950), bell and push only
   ("Your 4:00 tour is here").
+- ``tour.note_added``: a note on a booking (#1274), a bell to the tour's guide and the note's
+  other writers; a note sent to the visitor is ``tour.visitor_update`` ("A message about your tour").
 
 A staff move or cancel (#949) passes ``actor`` (the User who acted) and ``staff_message``: the
 visitor's email carries the message, and only the guides who are not ``actor`` are told, with
@@ -39,7 +41,7 @@ from core.events.scheduler import ScheduledOccurrence
 from core.events.scheduling import DEFAULT_WINDOW
 from core.events.senders import email_shell_message, emit_with_email_shell
 from tours import signals
-from tours.models import TOUR_ADDRESS, FacilityTourSettings, TourBooking, TourGuideSettings
+from tours.models import TOUR_ADDRESS, FacilityTourSettings, TourBooking, TourBookingNote, TourGuideSettings
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -50,6 +52,7 @@ VISITOR_EVENT = "tour.visitor_update"
 GUIDE_BOOKED_EVENT = "tour.booked"
 GUIDE_CHANGED_EVENT = "tour.visitor_changed"
 GUIDE_CHECKED_IN_EVENT = "tour.checked_in"
+NOTE_ADDED_EVENT = "tour.note_added"
 #: How long before a tour its reminder goes out.
 REMINDER_BEFORE = timedelta(hours=24)
 
@@ -475,6 +478,57 @@ def tell_guide_checked_in(booking: TourBooking) -> None:
         body=f"{booking.visitor_name}, {_people(booking)}, checked in at the front desk.",
         url=reverse("tours:upcoming"),
         period=f"tour:{booking.pk}:checked_in",
+    )
+
+
+def notes_url(booking: TourBooking) -> str:
+    """The booking's row on its tab with its Notes open (#1274), relative, for the bell."""
+    tab = "tours:upcoming" if booking.status in TourBooking.UPCOMING else "tours:past"
+    return f"{reverse(tab)}?notes={booking.pk}#{request_anchor(booking)}"
+
+
+def send_visitor_note(note: TourBookingNote) -> None:
+    """Email the visitor a note a Tour Guide or an admin wrote on their booking (#1274).
+
+    "A message about your Past Lives tour", in the visitor shell, with the note under "A note from
+    <first name>", the tour's facts and, while the tour is booked and has not started, the
+    Reschedule and Cancel links. No calendar invite: nothing about the tour changed. Once per note.
+    """
+    booking = note.booking
+    can_change = booking.status == TourBooking.Status.BOOKED and booking.starts_at > timezone.now()
+    emit_with_email_shell(
+        VISITOR_EVENT,
+        target=booking,
+        context={"user": None},
+        subject=f"A message about your Past Lives tour on {short_when(booking.starts_at)}",
+        text_template="tours/emails/visitor_note.txt",
+        html_template="tours/emails/visitor_note.html",
+        template_context=visitor_context(
+            booking, staff_message=note.body, note_label=note_label(note.author), can_change=can_change
+        ),
+        email_to=booking.visitor_email,
+        period=f"tour:{booking.pk}:note:{note.pk}",
+        recipient_user_ids=set(),
+    )
+
+
+def tell_staff_note(note: TourBookingNote, recipient_ids: set[int]) -> None:
+    """Bell the staff a note reaches (:meth:`TourBookingNote.staff_user_ids`) about a new note (#1274).
+
+    "Note on Sam's tour", with the writer's name and the note's words, linking the booking's
+    Notes. The period is the note's own (``NOTICE_PERIOD``), so an edit or a delete rewrites the bell.
+    """
+    booking = note.booking
+    writer = person_name(note.author) if note.author is not None else UNNAMED_STAFF
+    emit(
+        NOTE_ADDED_EVENT,
+        target=booking,
+        context={"guide": booking.guide},
+        title=f"Note on {booking.visitor_first_name}'s tour, {short_when(booking.starts_at)}",
+        body=f"{writer}: {note.body}",
+        url=notes_url(booking),
+        period=note.notice_period,
+        recipient_user_ids=recipient_ids,
     )
 
 

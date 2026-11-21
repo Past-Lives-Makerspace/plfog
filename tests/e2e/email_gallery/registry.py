@@ -994,6 +994,21 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="tour_visitor_lapsed_context",
     ),
     GalleryEmail(
+        key="tour_visitor_note",
+        name="A message about your tour (visitor)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when a Tour Guide or an admin adds a note to a booking on the Tours page with Also email this to the visitor on (#1274). The note stays on the booking's Notes thread."
+        ),
+        edit_pointer=_tpl("tours/emails", "visitor_note"),
+        audience="The visitor who booked the tour (by address).",
+        event_keys=frozenset({"tour.visitor_update"}),
+        text_template="tours/emails/visitor_note.txt",
+        html_template="tours/emails/visitor_note.html",
+        context_builder="tour_visitor_note_context",
+    ),
+    GalleryEmail(
         key="tour_guide_lapsed",
         name="Tour request lapsed (guide)",
         section="Guilds & Orientations",
