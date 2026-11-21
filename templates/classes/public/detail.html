@@ -3,7 +3,7 @@
 
 {% block title %}{{ offering.seo_title }}{% endblock %}
 {% block meta_description %}{{ offering.seo_description }}{% endblock %}
-{# A class that has ended stays reachable but out of search (#1259); a class to come carries Event data and Open Graph tags. #}
+{# Search follows the class (#1260): Open Graph tags always; robots, canonical and Course data from its state. #}
 {# The class decides (#1260): indexed while Scheduled or Between runs, never in a preview. #}
 {% block robots %}{% if not class_indexable %}<meta name="robots" content="noindex">{% endif %}{% endblock %}
 {% block canonical %}<link rel="canonical" href="{% canonical_url canonical_path %}">{% endblock %}
@@ -21,7 +21,6 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
 <meta property="og:description" content="{{ offering.seo_description }}">
 <meta property="og:url" content="{% canonical_url canonical_path %}">
 {% if offering.card_photo_url %}<meta property="og:image" content="{{ offering.card_photo_url|absolute_url:request }}">{% endif %}
-{# One Event per open date, each naming its own start, price and register page (#1260); a preview has none. #}
 {# One Course for the class, with a CourseInstance for each open date (#1260). #}
 {% if class_indexable and class_json_ld %}<script type="application/ld+json">{{ class_json_ld|json_ld }}</script>{% endif %}
 {% endblock %}
