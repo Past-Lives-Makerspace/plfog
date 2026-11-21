@@ -372,13 +372,30 @@ class ClassRecord(models.Model):
         image = page_run.hero_image_url
         if image:
             data["image"] = [image if urlsplit(image).netloc else book_absolute_url(image)]
+        lead = dates[0] if dates else page_run  # the soonest open date, else the run the page shows
+        data["offers"] = {
+            "@type": "Offer",
+            "price": f"{lead.price_cents / 100:.2f}",
+            "priceCurrency": "USD",
+            "category": "Paid" if lead.price_cents else "Free",
+        }
         instances = []
         for run in dates:
             spots = run.spots_left  # type: ignore[attr-defined]  # counted onto each date by the class page
             event = run.booking_event_json_ld(spots) if register_links else run._event_json_ld(spots)
             if event is not None:
                 event.pop("@context")
-                instances.append({**event, "@type": "CourseInstance", "courseMode": "Onsite"})
+                instance = {**event, "@type": "CourseInstance", "courseMode": "Onsite"}
+                instance["courseSchedule"] = {"@type": "Schedule", "startDate": event["startDate"]}
+                if "endDate" in event:
+                    instance["courseSchedule"]["endDate"] = event["endDate"]
+                minutes = sum(
+                    int((session.ends_at - session.starts_at).total_seconds() // 60) for session in run.sessions.all()
+                )
+                if minutes:
+                    hours, rest = divmod(minutes, 60)
+                    instance["courseWorkload"] = "PT" + (f"{hours}H" if hours else "") + (f"{rest}M" if rest else "")
+                instances.append(instance)
         if instances:
             data["hasCourseInstance"] = instances
         return data

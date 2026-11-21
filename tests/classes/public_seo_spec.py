@@ -17,7 +17,7 @@ from classes.factories import (
     InstructorFactory,
     RegistrationFactory,
 )
-from classes.models import ClassOffering
+from classes.models import ClassOffering, ClassSession
 
 pytestmark = pytest.mark.django_db
 
@@ -133,6 +133,13 @@ def describe_an_upcoming_class():
         assert course["provider"] == {"@type": "Organization", "name": "Past Lives Makerspace"}
         assert course["image"][0].startswith(BASE)
         assert (event["@type"], event["courseMode"]) == ("CourseInstance", "Onsite")
+        assert course["offers"] == {"@type": "Offer", "price": "75.00", "priceCurrency": "USD", "category": "Paid"}
+        assert event["courseSchedule"] == {
+            "@type": "Schedule",
+            "startDate": event["startDate"],
+            "endDate": event["endDate"],
+        }
+        assert event["courseWorkload"] == "PT2H"
         assert "@context" not in event
         assert event["startDate"] == offering.sessions.get().starts_at.isoformat()
         assert event["endDate"] == offering.sessions.get().ends_at.isoformat()
@@ -162,6 +169,17 @@ def describe_a_class_between_runs():
         course = _json_ld(html)
         assert course["@type"] == "Course"
         assert "hasCourseInstance" not in course
+        assert course["offers"]["category"] == "Paid"
+
+    def it_calls_a_free_class_free_and_counts_minutes_in_its_workload(client: Client):
+        offering = _class("open-shop", days=5, title="Open Shop", price_cents=0)
+        session = offering.sessions.get()
+        ClassSession.objects.filter(pk=session.pk).update(ends_at=session.starts_at + timedelta(minutes=90))
+
+        course = _json_ld(_get(client, "/classes/open-shop/"))
+
+        assert course["offers"]["category"] == "Free"
+        assert course["hasCourseInstance"][0]["courseWorkload"] == "PT1H30M"
 
 
 def describe_the_canonical():

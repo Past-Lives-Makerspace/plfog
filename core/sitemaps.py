@@ -75,21 +75,25 @@ class ClassSitemap(HostSitemap):
     """Every class page search should know: each class Scheduled or Between runs (#1260).
 
     One entry per class at its permanent address. A Retired class, one marked No longer offered
-    and one with no public run are left out. ``lastmod`` is its most recently edited run's.
+    and one with no run anyone may see now (a hidden demo) are left out. ``lastmod`` is its most
+    recently edited public run's.
     """
 
     def items(self) -> QuerySet[ClassRecord]:
-        from django.db.models import Max
+        from django.db.models import Exists, Max, OuterRef, Q
 
-        from classes.models import ClassRecord
+        from classes.models import ClassOffering, ClassRecord
 
-        return (
-            ClassRecord.objects.filter(
-                state__in=[ClassRecord.State.SCHEDULED, ClassRecord.State.BETWEEN_RUNS], no_longer_offered=False
-            )
-            .annotate(last_run_edit=Max("runs__updated_at"))
-            .order_by("pk")
+        records = ClassRecord.objects.filter(
+            state__in=[ClassRecord.State.SCHEDULED, ClassRecord.State.BETWEEN_RUNS], no_longer_offered=False
         )
+        # A class needs a run anyone may see now: the stored state does not follow the demo switch.
+        records = records.filter(Exists(ClassOffering.objects.on_class_pages().filter(class_record=OuterRef("pk"))))
+        # Only a public run's edit dates the page; a draft or private run is not on it.
+        shown = Q(
+            runs__status__in=[ClassOffering.Status.PUBLISHED, ClassOffering.Status.ARCHIVED], runs__is_private=False
+        )
+        return records.annotate(last_run_edit=Max("runs__updated_at", filter=shown)).order_by("pk")
 
     def location(self, item: ClassRecord) -> str:
         return reverse("classes:public_class_detail", kwargs={"slug": item.slug})
