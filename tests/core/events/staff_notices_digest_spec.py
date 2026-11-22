@@ -34,6 +34,7 @@ from tests.membership.factories import (
     EquipmentHoursFactory,
     EquipmentStaffMembershipFactory,
     MembershipPlanFactory,
+    SpaceRequestFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -47,7 +48,7 @@ def _outbox() -> None:
 
 
 # A request that asks a staff member to act; the digest counts it as one awaiting them.
-ASK = "instructor_application_received"
+ASK = "space.cubby_requested"
 
 
 def _member(username: str, *, fog_role: str = Member.FogRole.MEMBER) -> Member:
@@ -305,10 +306,9 @@ def describe_a_line_queued_before_its_event_went_instant():
     def it_sends_the_leftover_as_an_update_beside_a_real_request() -> None:
         admin = _member("leftover_admin", fog_role=Member.FogRole.ADMIN)
         _email_on(admin, ASK)
-        applicant = _member("leftover_applicant")
-        Member.objects.filter(pk=applicant.pk).update(teaching_applied_at=timezone.now())
+        request = SpaceRequestFactory()  # still pending, so its line is still open
         _queued(admin, LEFTOVER, title="Alex Doe registered for Pottery", url="/classes/pottery/", period="reg:7:a")
-        _queued(admin, ASK, title="Change to Pottery", url="/b", period=f"member:{applicant.pk}:applied")
+        _queued(admin, ASK, title="Change to Pottery", url="/b", period=f"spacereq:{request.pk}:submitted")
 
         (digest,) = _morning(_user(admin).email)
 

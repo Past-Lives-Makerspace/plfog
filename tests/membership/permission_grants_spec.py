@@ -141,16 +141,18 @@ def describe_instructor():
         assert email.subject == "You have been granted Instructor"
         assert reverse("classes:teach_overview") in _html(email)
 
-    def it_leaves_an_answered_application_to_its_own_approval_email(
+    def it_emails_a_member_left_with_an_old_application_stamp(
         granter: Member, pell: Member, django_capture_on_commit_callbacks
     ):
+        # The application and its approval email are gone (#1295); a stamp left from it changes nothing.
         from django.utils import timezone
 
         pell.teaching_applied_at = timezone.now()
         pell.save(update_fields=["teaching_applied_at"])
         with django_capture_on_commit_callbacks(execute=True):
             pell.grant_instructor(granted_by=granter)
-        assert _granted_emails() == []
+        [email] = _granted_emails()
+        assert email.subject == "You have been granted Instructor"
 
     def it_sends_nothing_to_an_instructor_already_on_or_to_yourself(
         granter: Member, pell: Member, django_capture_on_commit_callbacks

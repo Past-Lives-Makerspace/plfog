@@ -45,7 +45,6 @@ DIGEST_EVENTS = {
     "guild_announcement.submitted",
     "wiki.page_reported",
     "wiki.page_proposed",
-    "instructor_application_received",
     # A Past Due cubby rental (#979), dropped once paid (tests/membership/cubby_staff_rentals_spec.py).
     "cubbies.rental_past_due",
     # #894 part 4: FYI notices (tests/core/events/staff_notices_digest_spec.py). The Admins'

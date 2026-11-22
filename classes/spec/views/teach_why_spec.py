@@ -1,63 +1,64 @@
-"""BDD specs for the Host a Class page and the application page behind I'm Interested.
+"""BDD specs for the Host a Class page, its tutorial and Become an Instructor (#1295).
 
-Teaching stopped being self-service: a member applies, an admin says yes. These cover
-the Host a Class page in all four states, the application page (#793: GET for who may
-apply, POST with its guards and conditional answers), the branch that sends a member who
-CAN teach to their dashboard instead of the marketing page, and the admin-edited copy:
-every section renders its default, a blanked field hides its section, and nothing an
-admin types reaches the page unescaped or unsanitized.
+Becoming an instructor is self serve, like Become a Tour Guide (#1278): the page keeps its pitch
+and ends in a three step tutorial written from the Instructor Guide, whose last step's Become an
+Instructor turns teaching on for an active member and lands on the Teaching Overview with a toast.
+The application, its pending and declined states, the admin approve and decline and Instructor
+Inquiries are gone, and their addresses 404. These also cover the branch that sends a member who
+CAN teach to their dashboard instead of the page, and the admin-edited copy: every section renders
+its default, a blanked field hides its section, and nothing an admin types reaches the page
+unescaped or unsanitized.
 """
 
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
-from django.urls import reverse
+from django.contrib.auth.models import User
+from django.core import mail
+from django.test import Client
+from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
 from classes.factories import ClassOfferingFactory, UserFactory
 from classes.models import ClassOffering, ClassSettings
-from core.models import SiteActivity
-from membership.models import Member, OrgInfoPage, WikiArticle
+from classes.views import ALREADY_INSTRUCTOR_MESSAGE, BECAME_INSTRUCTOR_MESSAGE, HOST_A_CLASS_TUTORIAL
+from core.models import Notification, SiteActivity
+from membership.models import AdminCapability, Member, OrgInfoPage, WikiArticle
 
 HERO_TITLE = "Share What You Love"
-APPLY_BUTTON = "I'm Interested"
-APPLY_AGAIN_BUTTON = "I'm Still Interested"
-SEND_BUTTON = "Send Application"
-PENDING_BANNER = "Thanks, We Got Your Application"
-DECLINED_BANNER = "Not Right Now"
+START_BUTTON = "Start the Tutorial</button>"
+CONFIRM_BUTTON = "Become an Instructor</button>"
 APPROVED_BANNER = "You Can Host Classes"
 # Template-literal copy is NOT autoescaped (only variables are), so these match verbatim.
 PLACEHOLDER = "The guide has not been loaded yet."
-BLANK_NOTE_ERROR = "Tell us a little about what you want to host."
-APPLY_LINK = 'href="/classes/teach/apply/" data-teach-apply'
-APPLY_PAGE = "classes/teach/apply.html"
-# A complete application (#793) minus the note, which each test sets. Issue #536 asked how
-# to reach the member, #690 how much they have taught; #793 added the rest.
-CONTACT: dict[str, object] = {
-    "contact_method": "text",
-    "contact_detail": "503 555 0100",
-    "experience": "a_few",
-    "class_title": "Wheel Throwing 101",
-    "class_format": "series",
-    "practice_years": "3_to_10",
-    "taught_where": "The community college.",
-    "class_size": "5_to_8",
-    "availability": ["weekday_evenings", "weekends"],
-    "has_website": "no",
-    "has_socials": "no",
-}
-MISSING_METHOD_ERROR = "Pick how you would like us to reach you."
-MISSING_DETAIL_ERROR = "Tell us where to reach you: an email address or a phone number."
-BAD_EMAIL_ERROR = "That does not look like an email address. Check it and try again."
-BAD_PHONE_ERROR = "That does not look like a phone number. It needs at least seven digits."
-METHOD_SELECT = '<select name="contact_method"'
-DETAIL_INPUT = '<input type="text" name="contact_detail"'
+BECOME = reverse("classes:teach_become_instructor")
+OVERVIEW = reverse("classes:teach_overview")
+WHY = reverse("classes:teach_why")
+STEP_TITLES = ("Your Instructor Page", "Creating a Class", "How Review Goes")
 # The heading itself: the release notes on every hub page also say "Where the Money Goes".
 MONEY_TITLE = '<h2 class="pl-teach-section__title">Where the Money Goes</h2>'
 FAQ_ITEM = '<details class="pl-disclosure pl-teach-faq__item"'
 GUIDE_ITEM = '<details class="pl-disclosure pl-teach-guide">'
+#: Every address the application and Instructor Inquiries answered, now gone (#1295).
+REMOVED_PATHS = (
+    "/classes/teach/apply/",
+    "/classes/admin/instructor-inquiries/",
+    "/classes/admin/instructor-inquiries/export/",
+    "/classes/admin/instructor-inquiries/add/",
+    "/classes/admin/teaching-applications/1/approve/",
+    "/classes/admin/teaching-applications/1/decline/",
+)
+REMOVED_NAMES = (
+    "teach_apply",
+    "admin_instructor_inquiries",
+    "admin_instructor_inquiries_export",
+    "admin_instructor_inquiry_add",
+    "admin_teaching_approve",
+    "admin_teaching_decline",
+)
 
 # One marker per admin-edited field: text that is on the page only while that field
 # is filled. Used to prove each blanked field hides exactly its own section.
@@ -69,7 +70,7 @@ SECTION_MARKERS = {
     "teach_page_expectations": "What We Ask Of You",
     "teach_page_faq": "Common Questions",
     "teach_page_cta_title": "Got Something to Share?",
-    "teach_page_cta_line": "Tell us what you have in mind and an admin will take it from there.",
+    "teach_page_cta_line": "Three short steps on how hosting works here.",
 }
 
 
@@ -79,6 +80,17 @@ def _active_member_user(username: str) -> tuple[object, Member]:
     member.status = Member.Status.ACTIVE
     member.save(update_fields=["status"])
     return user, member
+
+
+def _signed_in(username: str) -> tuple[Client, Member]:
+    user, member = _active_member_user(username)
+    client = Client()
+    client.force_login(user)
+    return client, member
+
+
+def _granted_emails() -> list:
+    return [email for email in mail.outbox if email.subject.startswith("You have been granted")]
 
 
 def _seed_orientation_article() -> WikiArticle:
@@ -99,66 +111,68 @@ def _published_example() -> ClassOffering:
 
 
 def describe_teach_why():
-    def it_renders_the_hero_and_the_apply_button_for_a_member_who_never_applied(db, client):
+    def it_renders_the_pitch_and_a_three_step_tutorial_for_a_member_who_cannot_teach(db, client):
         _seed_orientation_article()
         user, _ = _active_member_user("never-applied@example.com")
         client.force_login(user)
-        response = client.get(reverse("classes:teach_why"))
+        response = client.get(WHY)
         assert response.status_code == 200
         content = response.content.decode()
         assert HERO_TITLE in content
-        assert APPLY_BUTTON in content
-        assert content.count(APPLY_LINK) == 2  # #793: both buttons are links to the page
-        assert "apply-to-teach" not in content  # the modal is gone
         assert "What we expect from instructors" in content
-        assert PENDING_BANNER not in content
-        assert DECLINED_BANNER not in content
+        assert re.findall(r'data-tutorial-step="(\d)"', content) == ["1", "2", "3"]
+        for title in STEP_TITLES:
+            assert f'<h3 class="pl-tutorial-step__title">{title}</h3>' in content
+        assert content.count(START_BUTTON) == 2  # the hero's and the bottom card's
+        assert content.count("data-teach-start") == 2
+        assert APPROVED_BANNER not in content
 
-    def it_renders_the_pending_banner_and_no_apply_button_while_waiting(db, client):
-        user, member = _active_member_user("pending-page@example.com")
-        member.apply_to_teach(
-            "I would like to run a two hour intro to wheel throwing.",
-            contact_method="email",
-            contact_detail="reach@example.com",
+    def it_writes_its_steps_from_the_instructor_guide():
+        # Prod WikiPage 25 (guide_for=instructor): Your Instructor Page, Creating a Class, How Review Goes.
+        assert tuple(step.title for step in HOST_A_CLASS_TUTORIAL) == STEP_TITLES
+        points = " ".join(point for step in HOST_A_CLASS_TUTORIAL for point in step.points)
+        assert "Instructor Profile tab" in points
+        assert "+ New Class on the Overview tab" in points
+        assert "Submit for Review" in points
+        assert " - " not in points and "\u2014" not in points and "\u2013" not in points
+
+    def it_puts_become_an_instructor_on_the_last_step_alone(db, client):
+        user, _ = _active_member_user("last-step@example.com")
+        client.force_login(user)
+        content = client.get(WHY).content.decode()
+        assert content.count(CONFIRM_BUTTON) == 1
+        assert re.search(
+            rf'action="{BECOME}" class="pl-tutorial__confirm" x-show="step === 3" data-tutorial-confirm', content
         )
-        client.force_login(user)
-        content = client.get(reverse("classes:teach_why")).content.decode()
-        assert PENDING_BANNER in content
-        assert "Application Sent" in content
-        assert "Waiting to Hear Back" in content
-        assert APPLY_LINK not in content
+        assert 'data-guidance-target="classes.become-instructor">Become an Instructor</button>' in content
+        assert content.index("data-tutorial-back") < content.index("data-tutorial-confirm")
+        assert "Every class you make is reviewed before it goes live." in content
+        assert "data-tutorial-holder" not in content
+        # Release notes on every hub page still quote the old buttons, so look for the controls themselves.
+        for gone in ("/classes/teach/apply/", "data-teach-apply", "Application Sent", "Waiting to Hear Back"):
+            assert gone not in content
 
-    def it_renders_the_decline_reason_and_an_apply_again_button(db, client):
-        user, member = _active_member_user("declined-page@example.com")
-        member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
-        member.decline_teaching(decided_by=None, reason="Finish the wheel orientation first.")
-        client.force_login(user)
-        content = client.get(reverse("classes:teach_why")).content.decode()
-        assert DECLINED_BANNER in content
-        assert "Finish the wheel orientation first." in content
-        assert APPLY_AGAIN_BUTTON in content
-        assert content.count(APPLY_LINK) == 2
-        assert "You are welcome to say you're interested again whenever you like." in content
-
-    def it_renders_the_approved_banner_for_an_instructor(db, client):
+    def it_gives_an_instructor_the_portal_in_place_of_the_tutorial(db, client):
         user, member = _active_member_user("approved-page@example.com")
         member.grant_teaching(granted_by=None)
         client.force_login(user)
-        content = client.get(reverse("classes:teach_why")).content.decode()
+        content = client.get(WHY).content.decode()
         assert APPROVED_BANNER in content
         assert "Go to the Teaching Portal" in content
         assert "Create a Class" in content
         assert "You Are Already In" in content
-        assert APPLY_BUTTON not in content
-        assert APPLY_LINK not in content
+        assert "data-tutorial" not in content
+        assert f'action="{BECOME}"' not in content
+        assert START_BUTTON not in content
 
-    def it_reads_approved_for_a_grandfathered_instructor_who_never_applied(db, client):
+    def it_dates_the_banner_from_when_teaching_was_turned_on(db, client):
         user, member = _active_member_user("grandfathered-page@example.com")
-        member.instructor_oriented_at = timezone.now()
+        member.instructor_oriented_at = timezone.make_aware(timezone.datetime(2026, 3, 4, 12))
         member.save(update_fields=["instructor_oriented_at"])
         client.force_login(user)
-        content = client.get(reverse("classes:teach_why")).content.decode()
+        content = client.get(WHY).content.decode()
         assert APPROVED_BANNER in content
+        assert "Since March 4, 2026." in content
 
     def it_403s_an_inactive_member(db, client):
         user = UserFactory(username="inactive-why@example.com")
@@ -166,15 +180,15 @@ def describe_teach_why():
         member.status = Member.Status.INVITED
         member.save(update_fields=["status"])
         client.force_login(user)
-        assert client.get(reverse("classes:teach_why")).status_code == 403
+        assert client.get(WHY).status_code == 403
 
     def it_fails_soft_when_the_help_center_seed_is_missing(db, client):
         user, _ = _active_member_user("noseed-why@example.com")
         client.force_login(user)
-        content = client.get(reverse("classes:teach_why")).content.decode()
+        content = client.get(WHY).content.decode()
         assert PLACEHOLDER in content
         assert "Read the Hosting Guide" in content
-        assert APPLY_BUTTON in content  # the interest path is never blocked by a missing seed
+        assert CONFIRM_BUTTON in content  # the tutorial is never blocked by a missing seed
 
     def describe_the_admin_edited_copy():
         def it_renders_every_default_section(db, client):
@@ -287,7 +301,7 @@ def describe_teach_why():
             for other, marker in SECTION_MARKERS.items():
                 if other != field:
                     assert marker in content
-            assert APPLY_BUTTON in content  # the buttons are structural and never hide
+            assert START_BUTTON in content  # the buttons are structural and never hide
 
         def it_escapes_a_plain_text_field_an_admin_typed(db, client):
             settings_obj = ClassSettings.load()
@@ -439,413 +453,141 @@ def describe_teach_overview_branching():
         assert client.get(reverse("classes:teach_overview")).status_code == 403
 
 
-def describe_the_application_page():
-    """#793: I'm Interested opens a page, not a modal. GET shows it to who may apply."""
+def describe_teach_become_instructor():
+    def it_turns_teaching_on_and_lands_on_the_teaching_overview_with_a_toast(db, django_capture_on_commit_callbacks):
+        client, member = _signed_in("become-view@example.com")
+        with django_capture_on_commit_callbacks(execute=True):
+            response = client.post(BECOME)
+        assert response.status_code == 302
+        assert response["Location"] == OVERVIEW
+        landed = client.get(OVERVIEW)
+        assert [str(message) for message in landed.context["messages"]] == [BECAME_INSTRUCTOR_MESSAGE]
+        content = landed.content.decode()
+        assert HERO_TITLE not in content  # the dashboard, not the page
+        assert 'data-permission-setup="instructor"' in content  # Get Set Up to Teach
+        member.refresh_from_db()
+        assert member.can_create_classes
+        assert client.get(reverse("classes:teach_class_create")).status_code == 200
 
-    def it_renders_every_section_for_a_member_who_never_applied(db, client):
-        user, _ = _active_member_user("page-new@example.com")
-        client.force_login(user)
-        response = client.get(reverse("classes:teach_apply"))
-        assert response.status_code == 200
-        assert APPLY_PAGE in [t.name for t in response.templates]
-        content = response.content.decode()
-        for section in ("idea", "experience", "logistics", "work", "contact", "else"):
-            assert f'data-apply-section="{section}"' in content
-        for title in ("Your Class Idea", "Your Experience", "Logistics", "Show Your Work", "How to Reach You"):
-            assert f'<h2 class="pl-teach-section__title">{title}</h2>' in content
-        assert '<form method="post" action="/classes/teach/apply/"' in content
-        # The server is the gate: a browser check would block Send on a hidden field.
-        assert "data-teach-application novalidate>" in content
-        assert f">{SEND_BUTTON}</button>" in content
-        assert "data-apply-errors" not in content
-
-    def it_hides_the_conditional_fields_until_a_pick_opens_them(db, client):
-        user, _ = _active_member_user("page-hidden@example.com")
-        client.force_login(user)
-        content = client.get(reverse("classes:teach_apply")).content.decode()
+    def it_grants_once_and_says_so_on_a_second_press(db, django_capture_on_commit_callbacks):
+        client, member = _signed_in("become-twice@example.com")
+        with django_capture_on_commit_callbacks(execute=True):
+            client.post(BECOME)
+        client.get(OVERVIEW)  # the first toast is read
+        with django_capture_on_commit_callbacks(execute=True):
+            response = client.post(BECOME)
+        assert response["Location"] == OVERVIEW
+        assert [str(message) for message in client.get(OVERVIEW).context["messages"]] == [ALREADY_INSTRUCTOR_MESSAGE]
+        assert ALREADY_INSTRUCTOR_MESSAGE == "You can already host classes."
+        assert len(_granted_emails()) == 1
         assert (
-            '''x-show="experience !== '' && experience !== 'first_time'" x-cloak data-reveal="taught_where"'''
-            in content
+            SiteActivity.objects.filter(kind=SiteActivity.Kind.INSTRUCTOR_SELF_SERVE, target_id=member.pk).count() == 1
         )
-        assert '''x-show="hasWebsite === 'yes'" x-cloak data-reveal="website"''' in content
-        assert '''x-show="hasSocials === 'yes'" x-cloak data-reveal="socials"''' in content
-        assert 'x-model="hasWebsite"' in content
-        assert 'x-model="experience"' in content
-        assert 'name="availability"' in content
 
-    def it_starts_a_member_asking_again_from_their_last_answers(db, client):
-        user, member = _active_member_user("page-again@example.com")
-        member.apply_to_teach(
-            "Wheel throwing.",
-            contact_method="email",
-            contact_detail="reach@example.com",
-            class_title="Wheel Throwing 101",
-            website="https://robin.example",
-            experience="a_few",
-            taught_where="The library.",
-        )
-        member.decline_teaching(decided_by=None, reason="Not yet.")
-        client.force_login(user)
-        content = client.get(reverse("classes:teach_apply")).content.decode()
-        assert 'value="Wheel Throwing 101"' in content
-        assert 'value="https://robin.example"' in content
-        assert "hasWebsite: 'yes'" in content
-        # Open from the start: the stored level and the website switch both show their field.
-        assert '''x-show="hasWebsite === 'yes'" data-reveal="website"''' in content
-        assert '''x-show="experience !== '' && experience !== 'first_time'" data-reveal="taught_where"''' in content
+    def it_logs_the_activity_row_and_rings_no_admin_bell(db, django_capture_on_commit_callbacks):
+        admin_client, admin = _signed_in("become-watcher@example.com")
+        admin.fog_role = Member.FogRole.ADMIN
+        admin.save(update_fields=["fog_role"])
+        admin.sync_user_permissions()
+        AdminCapability.objects.create(member=admin, capability=AdminCapability.Capability.CLASS_APPROVER)
+        client, member = _signed_in("become-logged@example.com")
+        with django_capture_on_commit_callbacks(execute=True):
+            client.post(BECOME)
+        [row] = SiteActivity.objects.filter(kind=SiteActivity.Kind.INSTRUCTOR_SELF_SERVE)
+        assert (row.actor, row.target) == (member.user, member)
+        feed = admin_client.get(reverse("manage_activity")).content.decode()
+        assert '<div class="hub-member-name">Made themselves an Instructor</div>' in feed
+        assert not Notification.objects.filter(user=admin.user).exists()
+        assert [email.to for email in mail.outbox] == [[member.primary_email]]
 
-    def it_sends_a_member_waiting_on_an_admin_back_to_the_host_a_class_page(db, client):
-        user, member = _active_member_user("page-pending@example.com")
-        member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
-        client.force_login(user)
-        response = client.get(reverse("classes:teach_apply"))
-        assert response.status_code == 302
-        assert response["Location"] == reverse("classes:teach_why")
+    @pytest.mark.parametrize("status", [Member.Status.GUEST, Member.Status.FORMER])
+    def it_refuses_a_guest_and_a_lapsed_member(db, status, django_capture_on_commit_callbacks):
+        client, member = _signed_in(f"become-{status}@example.com")
+        member.status = status
+        member.save(update_fields=["status"])
+        with django_capture_on_commit_callbacks(execute=True):
+            response = client.post(BECOME)
+        # Locked out before the view (MemberLockoutMiddleware); active_member_required's 403 backs it.
+        assert response.status_code in (302, 403)
+        assert response.status_code == 403 or response["Location"].startswith("/accounts/locked/")
+        member.refresh_from_db()
+        assert not member.can_create_classes
+        assert _granted_emails() == []
 
-    def it_sends_a_member_who_can_teach_to_the_portal(db, client):
-        user, member = _active_member_user("page-approved@example.com")
-        member.grant_teaching(granted_by=None)
-        client.force_login(user)
-        response = client.get(reverse("classes:teach_apply"))
-        assert response.status_code == 302
-        assert response["Location"] == reverse("classes:teach_overview")
-
-    def it_403s_an_inactive_member(db, client):
-        user = UserFactory(username="page-inactive@example.com")
-        member = Member.objects.get(user=user)
+    def it_refuses_an_invited_member_with_a_403(db):
+        client, member = _signed_in("become-invited@example.com")
         member.status = Member.Status.INVITED
         member.save(update_fields=["status"])
-        client.force_login(user)
-        assert client.get(reverse("classes:teach_apply")).status_code == 403
+        assert client.post(BECOME).status_code == 403
+        member.refresh_from_db()
+        assert not member.can_create_classes
 
-    def it_redirects_an_anonymous_visitor_to_login(db, client):
-        response = client.get(reverse("classes:teach_apply"))
+    def it_refuses_an_account_with_no_member_record(db):
+        user = User.objects.create_user("unlinked-becomer", "unlinked-becomer@example.com", "pw")
+        Member.objects.filter(user=user).delete()
+        client = Client()
+        client.force_login(user)
+        assert client.post(BECOME).status_code == 403
+
+    def it_answers_only_a_post(db):
+        client, _ = _signed_in("become-get@example.com")
+        assert client.get(BECOME).status_code == 405
+
+    def it_sends_an_anonymous_visitor_to_login(db, client):
+        response = client.post(BECOME)
         assert response.status_code == 302
-        assert "login" in response["Location"]
+        assert "/login" in response["Location"] or "/accounts/" in response["Location"]
 
-
-def describe_teach_apply():
-    def it_files_the_application_and_redirects_to_the_portal(db, client):
-        user, member = _active_member_user("apply-ok@example.com")
-        client.force_login(user)
-        response = client.post(
-            reverse("classes:teach_apply"), {"note": "Intro to wheel throwing, two hours.", **CONTACT}
-        )
-        assert response.status_code == 302
-        assert response["Location"] == reverse("classes:teach_overview")
+    def it_lets_a_member_whose_teaching_was_turned_off_turn_it_on_again(db):
+        admin = _active_member_user("become-revoker@example.com")[1]
+        client, member = _signed_in("become-again@example.com")
+        client.post(BECOME)
         member.refresh_from_db()
-        assert member.teaching_applied_at is not None
-        assert member.teaching_application_note == "Intro to wheel throwing, two hours."
-        assert member.teaching_contact_method == Member.TeachingContactMethod.TEXT
-        assert member.teaching_contact_detail == "503 555 0100"
-        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.TEACHING_APPLIED).count() == 1
-
-    def it_stores_every_answer_on_the_member(db, client):
-        """#793: each new answer lands beside the old ones."""
-        user, member = _active_member_user("apply-every@example.com")
-        client.force_login(user)
-        response = client.post(
-            reverse("classes:teach_apply"),
-            {
-                "note": "Wheel throwing.",
-                **CONTACT,
-                "shop_area": "Ceramics studio",
-                "certifications": "Kiln safety course.",
-                "space_needs": "Four wheels and the kiln.",
-                "anything_else": "I can bring my own clay.",
-                "has_website": "yes",
-                "website": "https://robin.example",
-                "has_socials": "yes",
-                "socials": "@robinmakes",
-            },
-        )
-        assert response.status_code == 302
+        member.revoke_instructor(revoked_by=admin)
+        assert client.get(reverse("classes:teach_class_create"))["Location"] == OVERVIEW
+        assert CONFIRM_BUTTON in client.get(WHY).content.decode()
+        assert client.post(BECOME)["Location"] == OVERVIEW
         member.refresh_from_db()
-        assert member.teaching_class_title == "Wheel Throwing 101"
-        assert member.teaching_class_format == Member.TeachingClassFormat.SERIES
-        assert member.teaching_shop_area == "Ceramics studio"
-        assert member.teaching_practice_years == Member.TeachingPracticeYears.THREE_TO_TEN
-        assert member.teaching_experience == Member.TeachingExperience.A_FEW
-        assert member.teaching_taught_where == "The community college."
-        assert member.teaching_certifications == "Kiln safety course."
-        assert member.teaching_space_needs == "Four wheels and the kiln."
-        assert member.teaching_class_size == Member.TeachingClassSize.FIVE_TO_EIGHT
-        assert member.teaching_availability == ["weekday_evenings", "weekends"]
-        assert member.teaching_website == "https://robin.example"
-        assert member.teaching_socials == "@robinmakes"
-        assert member.teaching_anything_else == "I can bring my own clay."
+        assert member.can_create_classes
 
-    def it_emits_the_approvers_notice_once(db, client, monkeypatch):
-        import importlib
 
-        emit_module = importlib.import_module("core.events.emit")
+def describe_the_removed_application():
+    @pytest.mark.parametrize("path", REMOVED_PATHS)
+    def it_404s_every_old_address_even_for_an_admin(db, path):
+        client, admin = _signed_in(f"removed-{REMOVED_PATHS.index(path)}@example.com")
+        admin.fog_role = Member.FogRole.ADMIN
+        admin.save(update_fields=["fog_role"])
+        admin.sync_user_permissions()
+        assert client.get(path).status_code == 404
+        assert client.post(path, {"reason": "x"}).status_code == 404
 
-        sent: list[str] = []
-        monkeypatch.setattr(emit_module, "emit", lambda key, **kwargs: sent.append(key))
-        user, _ = _active_member_user("apply-emit@example.com")
-        client.force_login(user)
-        client.post(reverse("classes:teach_apply"), {"note": "Wheel throwing.", **CONTACT})
-        assert sent == ["instructor_application_received"]
+    @pytest.mark.parametrize("name", REMOVED_NAMES)
+    def it_has_no_url_name_left(name):
+        with pytest.raises(NoReverseMatch):
+            reverse(f"classes:{name}", kwargs={"pk": 1} if "teaching" in name else None)
 
-    def it_keeps_every_answer_and_marks_the_website_when_yes_has_no_address(db, client):
-        user, member = _active_member_user("apply-no-url@example.com")
-        client.force_login(user)
-        response = client.post(
-            reverse("classes:teach_apply"),
-            {"note": "Wheel throwing.", **CONTACT, "has_website": "yes", "website": "", "shop_area": "Ceramics"},
-        )
-        assert response.status_code == 200
-        assert APPLY_PAGE in [t.name for t in response.templates]
-        content = response.content.decode()
-        assert "Add your website&#x27;s address, or pick No." in content
-        assert "data-apply-errors" in content
-        assert 'value="Wheel Throwing 101"' in content
-        assert 'value="Ceramics"' in content
-        assert "Wheel throwing.</textarea>" in content
-        assert re.search(r'name="class_format" value="series"[^>]*\bchecked\b', content)
-        # The website field comes back open, so the error is in sight.
-        assert '''x-show="hasWebsite === 'yes'" data-reveal="website"''' in content
-        member.refresh_from_db()
-        assert member.teaching_applied_at is None
-
-    def it_saves_no_website_on_no_even_when_one_was_typed(db, client):
-        user, member = _active_member_user("apply-no-site@example.com")
-        client.force_login(user)
-        response = client.post(
-            reverse("classes:teach_apply"),
-            {"note": "Wheel throwing.", **CONTACT, "has_website": "no", "website": "https://robin.example"},
-        )
-        assert response.status_code == 302
-        member.refresh_from_db()
-        assert member.teaching_website == ""
-
-    def it_treats_socials_the_same_way(db, client):
-        user, member = _active_member_user("apply-socials@example.com")
-        client.force_login(user)
-        response = client.post(
-            reverse("classes:teach_apply"), {"note": "Wheel throwing.", **CONTACT, "has_socials": "yes", "socials": ""}
-        )
-        assert response.status_code == 200
-        assert "Add your handles or links, or pick No." in response.content.decode()
-        response = client.post(
-            reverse("classes:teach_apply"),
-            {"note": "Wheel throwing.", **CONTACT, "has_socials": "no", "socials": "@robinmakes"},
-        )
-        assert response.status_code == 302
-        member.refresh_from_db()
-        assert member.teaching_socials == ""
-
-    def it_asks_where_they_have_taught_unless_it_is_their_first_time(db, client):
-        user, member = _active_member_user("apply-taught@example.com")
-        client.force_login(user)
-        response = client.post(
-            reverse("classes:teach_apply"), {"note": "Wheel throwing.", **CONTACT, "taught_where": ""}
-        )
-        assert response.status_code == 200
-        assert "Tell us where you have taught before." in response.content.decode()
-        response = client.post(
-            reverse("classes:teach_apply"),
-            {"note": "Wheel throwing.", **CONTACT, "experience": "first_time", "taught_where": "Somewhere."},
-        )
-        assert response.status_code == 302
-        member.refresh_from_db()
-        assert member.teaching_experience == Member.TeachingExperience.FIRST_TIME
-        assert member.teaching_taught_where == ""
-
-    def it_shows_the_error_on_the_page_when_no_experience_is_picked(db, client):
-        user, member = _active_member_user("no-level@example.com")
-        client.force_login(user)
-        response = client.post(reverse("classes:teach_apply"), {"note": "Wheel throwing.", **CONTACT, "experience": ""})
-        assert response.status_code == 200
-        content = response.content.decode()
-        assert "Pick how much teaching you have done." in content
-        assert 'name="experience"' in content
-        member.refresh_from_db()
-        assert member.teaching_applied_at is None
-
-    def it_refuses_an_instructor_and_says_the_portal_is_already_open(db, client):
-        from django.contrib.messages import get_messages
-
-        user, member = _active_member_user("apply-instructor@example.com")
-        member.instructor_oriented_at = timezone.now()
-        member.save(update_fields=["instructor_oriented_at"])
-        client.force_login(user)
-        response = client.post(reverse("classes:teach_apply"), {"note": "Let me apply again.", **CONTACT})
-        assert response.status_code == 302
-        assert response["Location"] == reverse("classes:teach_why")
-        member.refresh_from_db()
-        assert member.teaching_applied_at is None
-        assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.TEACHING_APPLIED).exists()
-        assert [m.message for m in get_messages(response.wsgi_request)] == [
-            "You can already host classes. The teaching portal is open."
+    def it_is_linked_from_no_template():
+        templates = Path(__file__).resolve().parents[3] / "templates"
+        needles = ("teach/apply", "instructor-inquiries", "teaching-applications", "teach_apply", "instructor_inquir")
+        found = [
+            f"{path.relative_to(templates)}: {needle}"
+            for path in templates.rglob("*.html")
+            for needle in needles
+            if needle in path.read_text()
         ]
+        assert found == []
 
-    def it_rerenders_with_the_field_error_on_a_blank_note(db, client):
-        user, member = _active_member_user("apply-blank@example.com")
-        client.force_login(user)
-        response = client.post(reverse("classes:teach_apply"), {"note": "   ", **CONTACT})
-        assert response.status_code == 200
-        assert BLANK_NOTE_ERROR in response.content.decode()
-        member.refresh_from_db()
-        assert member.teaching_applied_at is None
-
-    def it_thanks_the_member_on_the_page_it_lands_on(db, client):
-        user, _ = _active_member_user("apply-thanks@example.com")
-        client.force_login(user)
-        response = client.post(reverse("classes:teach_apply"), {"note": "Wheel throwing.", **CONTACT}, follow=True)
-        content = response.content.decode()
-        assert "Thanks. An admin will get back to you." in content
-        assert PENDING_BANNER in content
-
-    def it_says_it_already_has_the_application_on_a_duplicate(db, client):
-        user, member = _active_member_user("apply-dup-message@example.com")
-        member.apply_to_teach("First ask.", contact_method="email", contact_detail="reach@example.com")
-        client.force_login(user)
-        response = client.post(reverse("classes:teach_apply"), {"note": "Second ask.", **CONTACT}, follow=True)
-        assert "We already have your application." in response.content.decode()
-
-    def it_refuses_a_second_application_while_one_is_pending(db, client):
-        user, member = _active_member_user("apply-twice@example.com")
-        member.apply_to_teach("First ask.", contact_method="email", contact_detail="reach@example.com")
-        first_stamp = Member.objects.get(pk=member.pk).teaching_applied_at
-        client.force_login(user)
-        response = client.post(reverse("classes:teach_apply"), {"note": "Second ask.", **CONTACT})
-        assert response.status_code == 302
-        assert response["Location"] == reverse("classes:teach_why")
-        member.refresh_from_db()
-        assert member.teaching_applied_at == first_stamp
-        assert member.teaching_application_note == "First ask."
-
-    def it_403s_an_inactive_member_posting_directly(db, client):
-        user = UserFactory(username="apply-inactive@example.com")
-        member = Member.objects.get(user=user)
-        member.status = Member.Status.INVITED
-        member.save(update_fields=["status"])
-        client.force_login(user)
-        response = client.post(reverse("classes:teach_apply"), {"note": "Let me in.", **CONTACT})
-        assert response.status_code == 403
-        member.refresh_from_db()
-        assert member.teaching_applied_at is None
-
-    def it_redirects_an_anonymous_visitor_to_login(db, client):
-        response = client.post(reverse("classes:teach_apply"), {"note": "Let me in.", **CONTACT})
-        assert response.status_code == 302
-        assert "login" in response["Location"]
-
-
-def describe_the_application_pages_contact_fields():
-    """Issue #536: the page asks how to reach the member, and the POST checks the answer."""
-
-    def it_renders_the_select_the_detail_field_and_the_prefill_sources(db, client):
-        user, member = _active_member_user("contact-fields@example.com")
-        member.phone = "503 555 0100"
-        member.save(update_fields=["phone"])
-        client.force_login(user)
-        content = client.get(reverse("classes:teach_apply")).content.decode()
-        assert METHOD_SELECT in content
-        assert 'x-ref="method"' in content
-        assert '@change="pick($event.target.value)"' in content
-        assert '<option value="" selected>Pick one</option>' in content
-        assert '<option value="email">Email</option>' in content
-        assert '<option value="text">Text message</option>' in content
-        assert '<option value="phone">Phone call</option>' in content
-        assert DETAIL_INPUT in content
-        assert 'x-ref="detail"' in content
-        assert 'class="pl-form-label" x-text="label()">' in content
-        assert 'data-email="contact-fields@example.com"' in content
-        assert 'data-phone="503 555 0100"' in content
-        # The note, then how, then where.
-        assert content.index('name="note"') < content.index(METHOD_SELECT) < content.index(DETAIL_INPUT)
-        assert "Best way to reach you" in content
-        assert "Where to reach you" in content
-
-    def it_renders_an_empty_phone_prefill_for_a_member_with_no_phone_on_file(db, client):
-        user, _ = _active_member_user("no-phone@example.com")
-        client.force_login(user)
-        content = client.get(reverse("classes:teach_apply")).content.decode()
-        assert 'data-phone=""' in content
-
-    def it_shows_the_error_when_no_method_is_picked(db, client):
-        user, member = _active_member_user("no-method@example.com")
-        client.force_login(user)
-        response = client.post(
-            reverse("classes:teach_apply"),
-            {"note": "Wheel throwing.", **CONTACT, "contact_method": "", "contact_detail": "x"},
-        )
-        assert response.status_code == 200
-        assert MISSING_METHOD_ERROR in response.content.decode()
-        member.refresh_from_db()
-        assert member.teaching_applied_at is None
-
-    def it_shows_the_error_when_the_detail_is_blank(db, client):
-        user, member = _active_member_user("no-detail@example.com")
-        client.force_login(user)
-        response = client.post(
-            reverse("classes:teach_apply"),
-            {"note": "Wheel throwing.", **CONTACT, "contact_method": "email", "contact_detail": " "},
-        )
-        assert response.status_code == 200
-        assert MISSING_DETAIL_ERROR in response.content.decode()
-        member.refresh_from_db()
-        assert member.teaching_applied_at is None
-
-    def it_keeps_the_picked_method_selected_after_an_error(db, client):
-        user, _ = _active_member_user("keep-method@example.com")
-        client.force_login(user)
-        content = client.post(
-            reverse("classes:teach_apply"),
-            {"note": "", **CONTACT, "contact_method": "phone", "contact_detail": "503 555 0100"},
-        ).content.decode()
-        assert '<option value="phone" selected>Phone call</option>' in content
-        assert 'value="503 555 0100"' in content
-
-    def it_refuses_an_email_that_is_not_one(db, client):
-        user, member = _active_member_user("bad-email@example.com")
-        client.force_login(user)
-        response = client.post(
-            reverse("classes:teach_apply"),
-            {"note": "Wheel throwing.", **CONTACT, "contact_method": "email", "contact_detail": "robin at example"},
-        )
-        assert response.status_code == 200
-        assert BAD_EMAIL_ERROR in response.content.decode()
-        member.refresh_from_db()
-        assert member.teaching_applied_at is None
-
-    def it_refuses_a_phone_number_with_too_few_digits(db, client):
-        user, member = _active_member_user("bad-phone@example.com")
-        client.force_login(user)
-        response = client.post(
-            reverse("classes:teach_apply"),
-            {"note": "Wheel throwing.", **CONTACT, "contact_method": "phone", "contact_detail": "555 01"},
-        )
-        assert response.status_code == 200
-        assert BAD_PHONE_ERROR in response.content.decode()
-        member.refresh_from_db()
-        assert member.teaching_applied_at is None
-
-    def it_stores_a_punctuated_phone_number_as_typed(db, client):
-        user, member = _active_member_user("typed-phone@example.com")
-        client.force_login(user)
-        response = client.post(
-            reverse("classes:teach_apply"),
-            {"note": "Wheel throwing.", **CONTACT, "contact_method": "text", "contact_detail": "+1 (503) 555-0100"},
-        )
-        assert response.status_code == 302
-        member.refresh_from_db()
-        assert member.teaching_contact_method == Member.TeachingContactMethod.TEXT
-        assert member.teaching_contact_detail == "+1 (503) 555-0100"
-
-    def it_stores_an_email_address(db, client):
-        user, member = _active_member_user("typed-email@example.com")
-        client.force_login(user)
-        response = client.post(
-            reverse("classes:teach_apply"),
-            {"note": "Wheel throwing.", **CONTACT, "contact_method": "email", "contact_detail": "robin@example.com"},
-        )
-        assert response.status_code == 302
-        member.refresh_from_db()
-        assert member.teaching_contact_method == Member.TeachingContactMethod.EMAIL
-        assert member.teaching_contact_detail == "robin@example.com"
+    def it_leaves_no_interested_in_teaching_queue_on_the_admin_overview(db):
+        client, admin = _signed_in("overview-admin@example.com")
+        admin.fog_role = Member.FogRole.ADMIN
+        admin.save(update_fields=["fog_role"])
+        admin.sync_user_permissions()
+        applicant = _active_member_user("old-applicant@example.com")[1]
+        applicant.teaching_applied_at = timezone.now()  # a stamp the retired application left
+        applicant.save(update_fields=["teaching_applied_at"])
+        content = client.get(reverse("classes:admin_overview")).content.decode()
+        assert "Interested in Teaching" not in content
+        assert "teaching-applications" not in content
 
 
 def describe_retired_orientation_route():

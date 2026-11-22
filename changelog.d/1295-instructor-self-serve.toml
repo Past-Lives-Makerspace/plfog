@@ -1,0 +1,21 @@
+bump = "minor"
+date = "2026-11-21"
+audience = ["members"]
+feature = "classes.host"
+guidance = "shots"
+target = "classes.start-tutorial"
+title = "Any member can become an instructor from Host a Class"
+changes = [
+  "Host a Class ends in a three step tutorial now, in place of the application and the wait for an admin.",
+  "The steps cover your instructor page, creating a class and how review goes. On the last one, press Become an Instructor and you can host classes right away.",
+  "You land on your Teaching Overview, ready to start your first class. Every class is still reviewed before it goes live.",
+]
+
+[[shots]]
+caption = "Press Host a Class in the sidebar, then Start the Tutorial."
+
+[[shots]]
+caption = "Go through the three steps with Next."
+
+[[shots]]
+caption = "On the last step, press Become an Instructor. You land on your Teaching Overview."

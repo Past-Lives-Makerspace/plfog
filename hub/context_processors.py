@@ -316,7 +316,7 @@ def _teach_nav(request: HttpRequest, member: Member | None, admin_nav_active: bo
     ``can_create_classes``, which meant the only people who could find the teaching
     pages were the people who already had them. ``classes:teach_overview`` is the one
     destination and it branches by itself, showing the teaching dashboard to a member
-    who can teach and the "Host a Class" page (with I'm Interested) to everyone else.
+    who can teach and the "Host a Class" page (with its tutorial, #1295) to everyone else.
     The label follows the same split: an instructor reads "Teaching", everyone else
     reads "Host a Class", the invitation rather than the portal.
 

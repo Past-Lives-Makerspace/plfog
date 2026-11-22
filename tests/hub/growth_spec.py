@@ -90,10 +90,6 @@ def _member(when: datetime) -> None:
     _stamp(MemberFactory(), created_at=when)
 
 
-def _inquiry(when: datetime) -> None:
-    _stamp(MemberFactory(), teaching_applied_at=when)
-
-
 def _signup(when: datetime) -> None:
     _stamp(RegistrationFactory(), registered_at=when)
 
@@ -136,7 +132,6 @@ def _feedback(when: datetime) -> None:
 
 MAKERS: dict[str, Callable[[datetime], None]] = {
     "new_members": _member,
-    "instructor_inquiries": _inquiry,
     "class_signups": _signup,
     "class_signups_guest": _guest_signup,
     "class_signups_member": _member_signup,

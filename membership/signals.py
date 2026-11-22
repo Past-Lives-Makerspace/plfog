@@ -197,7 +197,6 @@ def _connect_request_bell_clearing() -> None:
     from membership.models import (
         CommunityEvent,
         MeetingItemProposal,
-        Member,
         SpaceRequest,
         WikiPage,
         WikiReport,
@@ -209,7 +208,6 @@ def _connect_request_bell_clearing() -> None:
         MeetingItemProposal,
         WikiReport,
         WikiPage,
-        Member,
     ):
         pre_delete.connect(
             clear_request_bells_on_delete, sender=model, dispatch_uid=f"membership.request_bells.{model.__name__}"

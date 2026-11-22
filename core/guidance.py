@@ -427,6 +427,17 @@ _GUIDANCE_LIST = (
         ),
     ),
     Guidance(
+        key="classes.host",
+        title="Host a Class",
+        url_name="classes:teach_why",
+        target="classes.start-tutorial",
+        steps=(
+            "Press Host a Class in the sidebar. It shows what you get and how a class runs here.",
+            "Press Start the Tutorial and go through the three steps with Next.",
+            "On the last one, press Become an Instructor. You land on your Teaching Overview, ready to start a class.",
+        ),
+    ),
+    Guidance(
         key="classes.email-past-students",
         title="Email My Past Students",
         url_name="hub_compose",

@@ -380,12 +380,6 @@ ROW_GROUPS: tuple[RowGroup, ...] = (
         event_keys=("space.request_approved", "space.request_declined"),
     ),
     RowGroup(
-        group_id="group.instructor_application_decision",
-        label="Updates to your request to host a class",
-        description="Your request to host a class was approved or declined.",
-        event_keys=("instructor_application_approved", "instructor_application_declined"),
-    ),
-    RowGroup(
         group_id="group.waitlist_promotion",
         label="Added from the waitlist",
         description=(

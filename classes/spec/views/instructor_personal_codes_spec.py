@@ -358,10 +358,11 @@ def describe_admin_pages():
 
 
 def describe_the_grant_views():
-    def it_makes_the_code_when_an_admin_approves_a_teaching_application(client, admin_user):
-        _, applicant = _member("pc-applicant@example.com", "Avery Applicant")
-        client.force_login(admin_user)
-        resp = client.post(reverse("classes:admin_teaching_approve", kwargs={"pk": applicant.pk}))
+    def it_makes_the_code_when_a_member_becomes_an_instructor_themself(client):
+        # Self serve on Host a Class (#1295) goes through the same grant as the admin's.
+        user, applicant = _member("pc-applicant@example.com", "Avery Applicant")
+        client.force_login(user)
+        resp = client.post(reverse("classes:teach_become_instructor"))
         assert resp.status_code == 302
         assert DiscountCode.objects.get(instructor=applicant, is_personal=True).code == "AVERY10"
 

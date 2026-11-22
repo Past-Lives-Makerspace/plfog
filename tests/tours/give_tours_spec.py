@@ -111,7 +111,7 @@ def describe_give_tours():
         assert '<h1 class="pl-guild-hero__title">Give Tours</h1>' in content
         for title in ("What You Get", "How It Works", "Getting Paid", "What We Ask Of You", "Common Questions"):
             assert f'<h2 class="pl-teach-section__title">{title}</h2>' in content
-        assert re.findall(r'data-give-step="(\d)"', content) == ["1", "2", "3", "4", "5"]
+        assert re.findall(r'data-tutorial-step="(\d)"', content) == ["1", "2", "3", "4", "5"]
         assert content.count("data-give-start") == 2
         assert 'href="{}" class="hub-sidebar__link active" data-nav="tours"'.format(UPCOMING) in content
 
@@ -119,16 +119,16 @@ def describe_give_tours():
         content = signed_in(plain).get(GIVE).content.decode()
         assert content.count("Become a Tour Guide</button>") == 1
         assert re.search(
-            rf'action="{BECOME}" class="pl-give-tutorial__become" x-show="step === 5" data-give-become', content
+            rf'action="{BECOME}" class="pl-tutorial__confirm" x-show="step === 5" data-tutorial-confirm', content
         )
-        assert content.index("data-give-back") < content.index("data-give-become")
-        assert "data-give-hours" not in content
+        assert content.index("data-tutorial-back") < content.index("data-tutorial-confirm")
+        assert "data-tutorial-holder" not in content
 
     def it_gives_a_tour_guide_open_my_hours_in_place_of_the_grant(guide: Member, admin: Member):
         for member in (guide, admin):
             content = signed_in(member).get(GIVE).content.decode()
             assert f'action="{BECOME}"' not in content
-            assert f'href="{HOURS}" x-show="step === 5" data-give-hours>Open My Hours</a>' in content
+            assert f'href="{HOURS}" x-show="step === 5" data-tutorial-holder>Open My Hours</a>' in content
             assert "data-give-go-tours>Go to Tours</a>" in content
 
     def it_refuses_a_guest_a_lapsed_member_and_an_account_with_no_member():

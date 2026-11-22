@@ -1,0 +1,52 @@
+{% comment %}
+The self serve tutorial (#1278 Give Tours, #1295 Host a Class; hub/tutorial.py): the compose wizard's
+step pills (.pl-wizard-nav) and actions row, one step per TutorialStep, seated in the page's call to
+action card by the .pl-tutorial-* rules in hub.css. The page's Alpine scope owns `tutorial`, `step`
+and `open(n)`; this partial only reads them, so the page's own Start the Tutorial buttons open it.
+
+The confirm shows on the last step alone, after Back: a form posting to confirm_url, whose button
+reads confirm_label and carries confirm_guidance as its guidance target, with confirm_note under the
+row. A member who already holds the permission (holder) sees a link to holder_url reading
+holder_label there instead, and no note.
+
+Context: steps, confirm_url, confirm_label, confirm_guidance, confirm_note, holder, holder_url,
+holder_label.
+{% endcomment %}
+{% with last=steps|length %}
+<div class="pl-wizard pl-tutorial" x-show="tutorial" x-cloak data-tutorial>
+    <ol class="pl-wizard-nav" aria-label="Tutorial steps">
+        {% for item in steps %}
+        <li class="pl-wizard-nav__step" :class="{ 'is-active': step === {{ forloop.counter }}{% if not forloop.last %}, 'is-done': step > {{ forloop.counter }}{% endif %} }" :aria-current="step === {{ forloop.counter }} ? 'step' : null"><span class="pl-wizard-nav__n">{{ forloop.counter }}</span><span class="pl-tutorial-pill__label">{{ item.title }}</span></li>
+        {% endfor %}
+    </ol>
+
+    {% for item in steps %}
+    <div class="pl-wizard-step pl-tutorial-step" x-show="step === {{ forloop.counter }}"{% if not forloop.first %} x-cloak{% endif %} data-tutorial-step="{{ forloop.counter }}">
+        <p class="pl-tutorial-step__count">Step {{ forloop.counter }} of {{ last }}</p>
+        <h3 class="pl-tutorial-step__title">{{ item.title }}</h3>
+        <div class="pl-md">
+            <ul>
+                {% for point in item.points %}
+                <li>{{ point }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+    {% endfor %}
+
+    {# The last step's action ends the actions row, after Back: the confirm, or the holder's link. #}
+    <div class="pl-wizard-actions pl-tutorial__actions">
+        <button type="button" class="pl-btn pl-btn--secondary" x-show="step > 1" @click="open(step - 1)" data-tutorial-back>Back</button>
+        <button type="button" class="pl-btn pl-btn--primary" x-show="step < {{ last }}" @click="open(step + 1)" data-tutorial-next>Next</button>
+        {% if holder %}
+        <a class="pl-btn pl-btn--primary" href="{{ holder_url }}" x-show="step === {{ last }}" data-tutorial-holder>{{ holder_label }}</a>
+        {% else %}
+        <form method="post" action="{{ confirm_url }}" class="pl-tutorial__confirm" x-show="step === {{ last }}" data-tutorial-confirm>
+            {% csrf_token %}
+            <button type="submit" class="pl-btn pl-btn--primary" data-guidance-target="{{ confirm_guidance }}">{{ confirm_label }}</button>
+        </form>
+        {% endif %}
+    </div>
+    {% if not holder %}<p class="pl-tutorial-step__note" x-show="step === {{ last }}">{{ confirm_note }}</p>{% endif %}
+</div>
+{% endwith %}

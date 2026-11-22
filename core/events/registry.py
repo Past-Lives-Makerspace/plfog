@@ -250,12 +250,9 @@ _PUSH_ON_BY_DEFAULT: frozenset[str] = frozenset(
         "voting.closing_soon",
         "voting.vote_soon",
         "voting.results_published",
-        # Teaching — your class's review outcome (instructor), and the answer to your
-        # own ask to teach (a decision the member is waiting on).
+        # Teaching — your class's review outcome (instructor).
         "instructor_class_approved",
         "instructor_changes_requested",
-        "instructor_application_approved",
-        "instructor_application_declined",
         # Equipment — your reservation is set (time-sensitive, carries the invite)
         "equipment.reservation_confirmed",
         # ...or a manager declined your request, so you need another time (#748)
@@ -495,10 +492,6 @@ CLASS_CANCELLED_ADMIN_NOTICE = "class_cancelled_admin_notice"
 # An instructor moved the dates of their own live class (#1186).
 CLASS_RESCHEDULED = "class_rescheduled"
 CLASS_RESCHEDULED_LEAD_NOTICE = "class_rescheduled_lead_notice"
-# Teaching applications: a member asks to teach, an admin answers (ask 2).
-INSTRUCTOR_APPLICATION_RECEIVED = "instructor_application_received"
-INSTRUCTOR_APPLICATION_APPROVED = "instructor_application_approved"
-INSTRUCTOR_APPLICATION_DECLINED = "instructor_application_declined"
 WIKI_GUILD_DIGEST_MONTHLY = "wiki.guild_digest_monthly"
 EVENT_SUBMITTED = "event.submitted"
 EVENT_APPROVED = "event.approved"
@@ -1342,48 +1335,6 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
-    # instructor_application_received — a member asked to teach. Routed to CLASS_APPROVERS
-    # (the CMS Administrators) rather than every admin: deciding who may host a class is
-    # the same duty as reviewing the classes themselves, so it belongs to the people who
-    # already hold that duty and sits in the same queue they already watch. This was
-    # FOG_ADMINS at first, on the reasoning that a capability nobody holds would notify
-    # nobody; the capability is now widely held and the queue is the CMS Administrators'
-    # own screen, so the narrower, correct audience wins. Granting the capability is what
-    # opts someone in. Per-recipient only, no broadcast; the application timestamp makes
-    # each ask its own dedupe period, so re-applying after a decline notifies again.
-    EventType(
-        key=INSTRUCTOR_APPLICATION_RECEIVED,
-        label="Someone applied to teach",
-        description="A member asked for teaching access and is waiting on a CMS Administrator.",
-        category="Classes",
-        recipient=Recipients.CLASS_APPROVERS,
-        channels=(_IN_APP_ON, _EMAIL_ON),
-        activity_kind=None,
-    ),
-    # instructor_application_approved — the member hears yes and gets the portal. Emitted
-    # by grant_teaching ONLY when a note exists, so an admin handing access to someone
-    # who never asked sends nothing. Label and description are member facing (the
-    # notification preferences page), so they read as the invitation, not a job.
-    EventType(
-        key=INSTRUCTOR_APPLICATION_APPROVED,
-        label="You can host classes",
-        description="An admin said yes to a member's note about hosting and opened the teaching portal.",
-        category="Classes",
-        recipient=Recipients.SINGLE_USER,
-        channels=(_IN_APP_ON, _EMAIL_ON),
-        activity_kind=None,
-    ),
-    # instructor_application_declined — the member hears no, in the admin's own words,
-    # with a way back to the page that explains hosting and lets them say so again.
-    EventType(
-        key=INSTRUCTOR_APPLICATION_DECLINED,
-        label="About hosting a class",
-        description="An admin said not right now to a member's note about hosting, with a reason.",
-        category="Classes",
-        recipient=Recipients.SINGLE_USER,
-        channels=(_IN_APP_ON, _EMAIL_ON),
-        activity_kind=None,
-    ),
     # wiki.guild_digest_monthly — one email per guild, on the 1st, to that guild's
     # leadership (lead + every staff role, orientors included). It carries the three things
     # a lead can act on in an afternoon: pages that went up, pages due a check, and what
@@ -1987,7 +1938,6 @@ _DIGEST_EMAIL_EVENTS: frozenset[str] = frozenset(
         "event.submitted",
         "wiki.page_reported",
         "wiki.page_proposed",
-        "instructor_application_received",
         # #979: a Past Due cubby rental, dropped from the digest once it is paid.
         "cubbies.rental_past_due",
         # #894 part 4: FYI notices nothing decides, so every line goes out. Each emit's

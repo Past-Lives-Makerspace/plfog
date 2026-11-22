@@ -1,6 +1,6 @@
 """BDD specs for the member picker helpers in ``membership.forms`` (#805).
 
-Three admin forms pick a member by label: Add Inquiry, Record Orientation and Give Credit.
+Admin forms pick a member by label: Record Orientation and Give Credit (Add Inquiry did too, until #1295).
 Some members carry a full legal name with a stray space (``'Wren Odalys Pike '``),
 and the pickers refused them: the label kept the space, the lookup keyed on it, and every
 caller stripped what was posted. Labels and lookups now both collapse and trim spaces.
@@ -12,7 +12,6 @@ from typing import Any
 
 import pytest
 
-from classes.forms import InstructorInquiryAddForm
 from hub.forms import EquipmentCreditForm, OrientationRecordForm
 from membership.forms import member_picker_key, member_picker_labels, member_picker_lookup
 from membership.models import Member
@@ -25,10 +24,6 @@ def _member(name: str) -> Member:
     return MemberFactory(full_legal_name=name, preferred_name="", status=Member.Status.ACTIVE)
 
 
-def _inquiry(member: str) -> InstructorInquiryAddForm:
-    return InstructorInquiryAddForm({"member": member})
-
-
 def _record(member: str) -> OrientationRecordForm:
     return OrientationRecordForm(None, {"member": member})
 
@@ -37,7 +32,7 @@ def _credit(member: str) -> EquipmentCreditForm:
     return EquipmentCreditForm({"member": member, "hours": "1"})
 
 
-FORMS: dict[str, Any] = {"add inquiry": _inquiry, "record orientation": _record, "give credit": _credit}
+FORMS: dict[str, Any] = {"record orientation": _record, "give credit": _credit}
 
 
 def _picked(form: Any) -> Member | None:

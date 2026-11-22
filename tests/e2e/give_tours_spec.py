@@ -147,11 +147,11 @@ def describe_give_tours():
         page.wait_for_url(f"**{reverse('tours:give')}")
         page.get_by_role("heading", name="Give Tours", level=1).wait_for()
         assert page.locator('.hub-sidebar__nav a[data-nav="tours"].active').count() >= 1
-        tutorial = page.locator("[data-give-tutorial]")
+        tutorial = page.locator("[data-tutorial]")
         assert not tutorial.is_visible()
         # In the page, hidden: get_by_role skips hidden elements, so look it up by its form.
-        assert page.locator("[data-give-become] button").count() == 1
-        assert not page.locator("[data-give-become] button").is_visible()
+        assert page.locator("[data-tutorial-confirm] button").count() == 1
+        assert not page.locator("[data-tutorial-confirm] button").is_visible()
         _guidance_shot(page, 2, "tours.start-tutorial")
         _capture(page, "page", full_page=True)
         _no_sideways_scroll(page)
@@ -159,21 +159,21 @@ def describe_give_tours():
         page.locator("[data-give-start]").first.click()
         tutorial.wait_for()
         for number, title in enumerate(STEPS, start=1):
-            step = page.locator(f'[data-give-step="{number}"]')
+            step = page.locator(f'[data-tutorial-step="{number}"]')
             step.wait_for()
             assert step.get_by_role("heading", name=title).is_visible()
             assert page.locator(f'.pl-wizard-nav__step[aria-current="step"]:has-text("{title}")').count() == 1
-            assert page.locator("[data-give-become] button").is_visible() is (number == len(STEPS))
-            assert page.locator("[data-give-back]").is_visible() is (number > 1)
+            assert page.locator("[data-tutorial-confirm] button").is_visible() is (number == len(STEPS))
+            assert page.locator("[data-tutorial-back]").is_visible() is (number > 1)
             _capture(page, f"step-{number}", target="[data-give-cta]")
             if number == 2:
-                page.locator("[data-give-back]").click()
-                page.locator('[data-give-step="1"]').wait_for()
-                page.locator("[data-give-next]").click()
+                page.locator("[data-tutorial-back]").click()
+                page.locator('[data-tutorial-step="1"]').wait_for()
+                page.locator("[data-tutorial-next]").click()
                 step.wait_for()
             if number < len(STEPS):
-                page.locator("[data-give-next]").click()
-        assert not page.locator("[data-give-next]").is_visible()
+                page.locator("[data-tutorial-next]").click()
+        assert not page.locator("[data-tutorial-next]").is_visible()
         _guidance_shot(page, 3, "tours.become-guide")
         _no_sideways_scroll(page)
 

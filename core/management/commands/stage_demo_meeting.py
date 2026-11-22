@@ -2,14 +2,13 @@
 
 Builds the accounts and class content one live walkthrough needs:
 
-* ``counciltreasurer+member@`` — a plain member with a clean teaching-application
-  state, so "a member asks to become an instructor" can be performed live.
+* ``counciltreasurer+member@`` — a plain member who cannot teach yet, so "a member
+  becomes an instructor" (Host a Class's tutorial, #1295) can be performed live.
 * ``counciltreasurer+instructor@`` — a teaching-enabled member ("Demo Teacher")
   owning three classes: a FULL paid class with a waitlist, a paid class with open
   seats, and a submit-ready DRAFT.
 * ``counciltreasurer+admin@`` — holds the CLASS_APPROVER capability, which is what
-  routes the review of a class with no guild lead and the "someone wants to host a
-  class" request to it. Neither follows the admin role.
+  routes the review of a class with no guild lead to it. It does not follow the admin role.
 * ``counciltreasurer+guildlead@`` — a plain member who leads the Cartographers
   Guild (no admin tier), so the guild-lead review stage is honestly a guild lead.
 
@@ -225,26 +224,12 @@ class Command(BaseCommand):
             )
 
     def _reset_member_persona(self) -> Member:
-        """Put the plain-member persona back to 'never asked to teach' with a clean roster."""
+        """Put the plain-member persona back to 'cannot teach yet' with a clean roster."""
         member = Member.objects.get(user__email__iexact=MEMBER_EMAIL)
         member.fog_role = Member.FogRole.MEMBER
         member.status = Member.Status.ACTIVE
         member.instructor_oriented_at = None
-        member.teaching_applied_at = None
-        member.clear_teaching_answers()
-        member.teaching_decided_at = None
-        member.teaching_decline_reason = ""
-        member.save(
-            update_fields=[
-                "fog_role",
-                "status",
-                "instructor_oriented_at",
-                "teaching_applied_at",
-                *Member.TEACHING_ANSWER_FIELDS,
-                "teaching_decided_at",
-                "teaching_decline_reason",
-            ]
-        )
+        member.save(update_fields=["fog_role", "status", "instructor_oriented_at"])
         stale = Registration.objects.filter(email__iexact=MEMBER_EMAIL)
         if stale.exists():
             self.stdout.write(f"  clearing {stale.count()} stale registration(s) for the member persona")
@@ -284,8 +269,6 @@ class Command(BaseCommand):
         member.welcome_email_sent_at = member.welcome_email_sent_at or timezone.now()
         if member.instructor_oriented_at is None:
             member.instructor_oriented_at = timezone.now()
-            member.teaching_decided_at = timezone.now()
-            member.teaching_decline_reason = ""
         member.save()
         member.ensure_instructor_slug()
         GuildMembership.objects.get_or_create(member=member, guild=guild)

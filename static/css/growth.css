@@ -1,5 +1,5 @@
 /* Growth (admin, #795): the date range bar, stat tiles, the Trend chart and the Classes and CMS
-   charts. Charts are server side inline svg like the Instructor Inquiries Board Report: the
+   charts. Charts are server side inline svg: the
    svg's own fill and stroke attributes are the downloaded PNG's colours (dark on white); the
    rules below theme it on the page. Each chart is drawn at a desktop and a phone width, and
    only the one that fits shows. */

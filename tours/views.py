@@ -40,6 +40,7 @@ from core.htmx import wants_fragment
 from hub.autosave import autosave_refused, autosave_saved, formset_rows, wants_autosave
 from hub.calendar_pages import calendar_nav_params
 from hub.toast import trigger_toast
+from hub.tutorial import TutorialStep
 from hub.view_as import (
     ROLE_ADMIN,
     fog_admin_required,
@@ -479,6 +480,64 @@ BECAME_GUIDE_MESSAGE = "You're a Tour Guide now. Set the hours you can give tour
 ALREADY_GUIDE_MESSAGE = "You're already a Tour Guide."
 
 
+#: Give Tours' tutorial (#1278), one step per section of the Tour Guide Guide wiki page, drawn by
+#: ``hub/partials/_tutorial.html``.
+GIVE_TOURS_TUTORIAL = (
+    TutorialStep(
+        "Setting Up",
+        (
+            "On My Hours, set the times you can give tours: Every Week for hours that repeat, or Available On for "
+            "dates you pick.",
+            "Each window is carved into back to back tours of the length you choose, each with 1 to 50 seats.",
+            "Add Days Off for when you are away. Your hours offer nothing on those days, and tours already booked "
+            "stay booked.",
+            "Connect your Google Calendar on My Hours if you use one. Your tours land on it, and times it shows you "
+            "busy are not offered to visitors.",
+            "The Calendar tab shows every guide's hours. Days With No Tour Hours lists the days nobody covers yet, "
+            "and Add My Hours fills one.",
+        ),
+    ),
+    TutorialStep(
+        "When Someone Books",
+        (
+            "Visitors book an open time inside your hours online at tours.pastlives.space, or at the kiosk in the "
+            "lobby.",
+            "You get an email, a bell and a push for each booking, and an email and a bell when a visitor moves or "
+            "cancels.",
+            "To confirm or decline each booking yourself, pick Confirm First under Confirming Bookings on My Hours.",
+            "Reschedule or cancel from the Upcoming tab: press the ... on the tour for Edit Guide or Time, or Cancel "
+            "Tour. The visitor is emailed, with your note if you add one.",
+        ),
+    ),
+    TutorialStep(
+        "A Tour Day",
+        (
+            "Visitors who booked a day or more ahead get a reminder email 24 hours before the tour.",
+            'Meet them in the lobby. When they check in at the kiosk you get a bell and a push that says "Your '
+            '10:00 tour is here".',
+            "Afterwards, mark the tour Attended or No Show on the Past tab.",
+        ),
+    ),
+    TutorialStep(
+        "The Lobby Kiosk",
+        (
+            "The screen in the lobby has two buttons, I Booked a Tour and Schedule a Tour.",
+            "Visitors check in with the email they booked with or their name, and the kiosk tells them you will be "
+            "right with them.",
+            "Walk ins can book an open time right there.",
+        ),
+    ),
+    TutorialStep(
+        "Getting Paid",
+        (
+            "When a visitor you gave a tour to becomes a member, you're paid $50.",
+            "Mark each tour Attended on the Past tab: that is the record of who you toured.",
+            "Want to stop later? Delete your hours on My Hours, or ask an admin to turn Tour Guide off.",
+        ),
+    ),
+)
+
+
 @give_tours_access_required
 def tour_give(request: HttpRequest) -> HttpResponse:
     """Give Tours (#1278): why giving tours is worth it, and the tutorial that ends in Become a Tour Guide.
@@ -486,7 +545,9 @@ def tour_give(request: HttpRequest) -> HttpResponse:
     Where every member who gives no tours lands from the Tours entry. A Tour Guide or admin who
     opens it sees it too, with Open My Hours in place of the button that grants.
     """
-    return render(request, "tours/give.html", {"is_guide": has_tour_guide_access(request)})
+    return render(
+        request, "tours/give.html", {"is_guide": has_tour_guide_access(request), "tutorial_steps": GIVE_TOURS_TUTORIAL}
+    )
 
 
 @give_tours_access_required
