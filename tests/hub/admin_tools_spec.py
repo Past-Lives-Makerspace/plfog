@@ -16,7 +16,7 @@ from django.test import Client
 from django.urls import reverse
 
 from membership.models import AdminCapability
-from hub.views import ADMIN_TOOL_SECTIONS, admin_tool_sections
+from hub.views import ADMIN_TOOL_SECTIONS, ToolCard, admin_tool_sections
 from tests.membership.factories import GuildFactory
 
 pytestmark = pytest.mark.django_db
@@ -278,13 +278,13 @@ _ADMIN_SECTIONS = [
         "manage",
         "Manage",
         [
+            "Cubbies",
+            "Guilds",
             "Manage All Classes",
             "Manage Events",
-            "Manage Members",
-            "Guilds",
-            "Member Agreement",
             "Manage Mailing Lists",
-            "Cubbies",
+            "Manage Members",
+            "Member Agreement",
         ],
     ),
     (
@@ -292,37 +292,37 @@ _ADMIN_SECTIONS = [
         "Tools",
         [
             "Email Members",
-            "Instructor Inquiries",
-            "Push Notification Test",
-            "Orientations",
-            "Spotlight",
-            "Polls",
             "Feedback Inbox",
             "Holiday Bizarre HQ",
+            "Instructor Inquiries",
+            "Orientations",
+            "Polls",
+            "Push Notification Test",
             "Slideshow",
+            "Spotlight",
         ],
     ),
-    ("reports", "Reports", ["Payments", "Reports", "Growth", "Usage"]),
+    ("reports", "Reports", ["Growth", "Payments", "Reports", "Usage"]),
     (
         "webmaster",
         "Webmaster",
         [
-            "Site Settings",
-            "Manage Features",
-            "Manage CMS",
-            "Automations",
-            "Notification Settings",
             "Activity",
+            "Automations",
             "Leadership Directory",
             "Locations",
+            "Manage CMS",
+            "Manage Features",
+            "Notification Settings",
+            "Site Settings",
         ],
     ),
 ]
 
 
 def describe_admin_tools_sections():
-    """#912: the cards sit in Manage, Tools, Reports and Webmaster, in Felix's order, and a
-    section with no card the viewer may open is not rendered."""
+    """#912: the cards sit in Manage, Tools, Reports and Webmaster, each section's cards alphabetical by
+    title (#1286), and a section with no card the viewer may open is not rendered."""
 
     def it_shows_a_fog_admin_the_four_sections_with_their_cards_in_order(client: Client):
         _login_superuser(client, "sections_admin")
@@ -345,7 +345,7 @@ def describe_admin_tools_sections():
         user = _login_guild_lead(client, "sections_lead")
         guild_name = user.member.led_guilds.get().name  # type: ignore[attr-defined]
         assert _sections(client) == [
-            ("guild", guild_name, ["Guild Settings", "Orientations", "Reservations", "Cubbies", "Events"]),
+            ("guild", guild_name, ["Cubbies", "Events", "Guild Settings", "Orientations", "Reservations"]),
             ("manage", "Manage", ["Manage Mailing Lists"]),
             ("tools", "Tools", ["Email Members"]),
             ("reports", "Reports", ["Orientation Bookings"]),
@@ -366,24 +366,32 @@ def describe_admin_tools_sections():
         assert _sections(client) == [("manage", "Manage", ["Manage Events"])]
 
     def describe_admin_tool_sections():
-        """The helper the view uses to decide which sections render."""
+        """The helper the view uses: each section's shown cards, alphabetical by title."""
 
         def _flags(on: set[str]) -> dict[str, bool]:
-            return {name: name in on for _, names in ADMIN_TOOL_SECTIONS for name in names}
+            return {card.flag: card.flag in on for _, cards in ADMIN_TOOL_SECTIONS for card in cards}
 
-        def it_shows_a_section_when_any_one_of_its_cards_shows():
-            assert admin_tool_sections(_flags({"tool_locations"})) == {
-                "guild": False,
-                "manage": False,
-                "tools": False,
-                "reports": False,
-                "webmaster": True,
+        def _titles(sections: dict[str, list[ToolCard]]) -> dict[str, list[str]]:
+            return {key: [card.title for card in cards] for key, cards in sections.items()}
+
+        def it_keeps_only_the_cards_that_show():
+            assert _titles(admin_tool_sections(_flags({"tool_locations", "tool_activity"}))) == {
+                "guild": [],
+                "manage": [],
+                "tools": [],
+                "reports": [],
+                "webmaster": ["Activity", "Locations"],
             }
 
-        def it_hides_every_section_when_no_card_shows():
+        def it_leaves_every_section_empty_when_no_card_shows():
             assert admin_tool_sections(_flags(set())) == dict.fromkeys(
-                ("guild", "manage", "tools", "reports", "webmaster"), False
+                ("guild", "manage", "tools", "reports", "webmaster"), []
             )
+
+        def it_sorts_ignoring_case(monkeypatch):
+            table = (("tools", (ToolCard("b", "beta", "tool_b"), ToolCard("a", "Alpha", "tool_a"))),)
+            monkeypatch.setattr("hub.views.ADMIN_TOOL_SECTIONS", table)
+            assert _titles(admin_tool_sections({"tool_a": True, "tool_b": True})) == {"tools": ["Alpha", "beta"]}
 
         def it_refuses_flags_missing_a_card():
             flags = _flags(set())
@@ -398,8 +406,8 @@ def describe_admin_tools_sections():
             context_flags = {
                 key for key in response.context.keys() if key.startswith("tool_") and key != "tool_sections"
             }
-            section_flags = [name for _, names in ADMIN_TOOL_SECTIONS for name in names]
-            assert sorted(section_flags) == sorted(context_flags)
+            section_flags = {card.flag for _, cards in ADMIN_TOOL_SECTIONS for card in cards}
+            assert section_flags == context_flags
 
 
 def describe_admin_tools_cards():

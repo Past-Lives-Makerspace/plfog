@@ -65,12 +65,17 @@ def _nav_request(rf, user, path: str, picked: str | None = None) -> HttpRequest:
 
 
 def describe_the_entry():
-    def it_shows_for_a_guild_lead_right_after_reservations(plain_user, client):
+    def it_shows_for_a_guild_lead_in_its_alphabetical_place(plain_user, client):
+        # #1286: the main group is alphabetical, so Manage Bookings sits between Leadership Directory and Member Directory.
         GuildFactory(guild_lead=plain_user.member)
         client.force_login(plain_user)
         nav = _sidebar(client)
         assert ENTRY in nav
-        assert nav.index(ENTRY) > nav.index(reverse("hub_equipment_index"))
+        assert (
+            nav.index(reverse("hub_leadership_directory"))
+            < nav.index(ENTRY)
+            < nav.index(reverse("hub_member_directory"))
+        )
         assert nav.index(ENTRY) < nav.index(reverse("hub_help"))
         assert f'href="{HOME}"' in _entry(nav)
 
@@ -97,8 +102,8 @@ def describe_the_entry():
         assert ENTRY in nav
         assert f'href="{reverse("hub_orientations")}"' not in nav
         assert f'href="{reverse("hub_equipment_index")}"' not in nav
-        # The admin block, not the member block: the voting entry below it is the admin destination.
-        assert nav.index(ENTRY) < nav.index(reverse("hub_admin_voting_overview"))
+        # An admin's Guild Voting opens the results, and sorts before Manage Bookings (#1286).
+        assert nav.index(reverse("hub_admin_voting_overview")) < nav.index(ENTRY)
 
     def it_lands_on_the_home_directly(plain_user, client):
         GuildFactory(guild_lead=plain_user.member)

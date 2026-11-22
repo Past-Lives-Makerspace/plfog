@@ -1,0 +1,9 @@
+bump = "patch"
+date = "2026-11-21"
+audience = "members"
+guidance = "none"
+title = "The sidebar and the Tools page are in alphabetical order"
+changes = [
+  "The sidebar lists its entries alphabetically, for everyone. Home stays at the top, and Help, Knowledge Base and Member Wiki stay together below.",
+  "Each section of the Tools page lists its cards alphabetically too.",
+]

@@ -77,17 +77,17 @@ def _page_title(body: str) -> str:
 
 
 def _guild_cards(guild: Guild, *, cubbies: bool = True) -> list[str]:
-    """The guild section's card targets for ``guild``, in page order.
+    """The guild section's card targets for ``guild``, in page order: alphabetical by title (#1286).
 
     Cubbies is there only for whoever runs the guild's cubbies, its lead or staff (#1015).
     """
     edit = reverse("hub_guild_edit", args=[guild.pk])
     return [
+        *([reverse("hub_guild_cubbies", args=[guild.pk])] if cubbies else []),
+        f"{edit}?tab=events",
         edit,
         reverse("hub_guild_orientations", args=[guild.pk]),
         f"{edit}?tab=reservations",
-        *([reverse("hub_guild_cubbies", args=[guild.pk])] if cubbies else []),
-        f"{edit}?tab=events",
     ]
 
 
@@ -98,7 +98,7 @@ def _guild_section_hrefs(client: Client, query: str = "") -> list[str]:
     return re.findall(r'class="hub-card pl-tool-card" href="([^"]+)"', section.group(0))
 
 
-_GUILD_CARDS = ["Guild Settings", "Orientations", "Reservations", "Cubbies", "Events"]
+_GUILD_CARDS = ["Cubbies", "Events", "Guild Settings", "Orientations", "Reservations"]
 
 
 def describe_guild_tools():
@@ -117,7 +117,7 @@ def describe_guild_tools():
             sections = _sections(client)
             assert "guild" not in [key for key, _, _ in sections]
             reports = dict((key, cards) for key, _, cards in sections)["reports"]
-            assert reports == ["Payments", "Reports", "Growth", "Usage"]
+            assert reports == ["Growth", "Payments", "Reports", "Usage"]
             assert "Orientations" in dict((key, cards) for key, _, cards in sections)["tools"]
 
     def describe_an_admin_viewing_as_a_guild_lead():
@@ -192,7 +192,7 @@ def describe_guild_tools():
             assert reports == ["Orientation Bookings"]
             ClassOfferingFactory(category=CategoryFactory(guild=guild))
             reports = dict((key, cards) for key, _, cards in _sections(client))["reports"]
-            assert reports == ["Registrations", "Orientation Bookings"]
+            assert reports == ["Orientation Bookings", "Registrations"]
 
         def it_opens_both_reports(client: Client):
             member = _login(client, "gt_lead_reports")
@@ -209,7 +209,7 @@ def describe_guild_tools():
             GuildFactory(guild_lead=member)
             member.admin_capabilities.create(capability=AdminCapability.Capability.BILLING_APPROVER)
             reports = dict((key, cards) for key, _, cards in _sections(client))["reports"]
-            assert reports == ["Payments", "Reports", "Orientation Bookings"]
+            assert reports == ["Orientation Bookings", "Payments", "Reports"]
 
     def describe_guild_staff_with_two_guilds():
         def _staff_two(client: Client, username: str) -> tuple[Guild, Guild]:

@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from django.utils import timezone as dj_timezone
@@ -5900,79 +5900,105 @@ def hub_push_test(request: HttpRequest) -> HttpResponse:
     )
 
 
-# Admin Tools' sections in page order, each naming its cards' ``tool_*`` flags in card order (#912).
-# The template lays the cards out in the same order; this table decides which sections render.
+class ToolCard(NamedTuple):
+    """One Tools page card (#1286): its branch in ``hub/partials/_tool_card.html``, its title and its flag.
+
+    The title is the one the card shows and the one its section sorts by, so the two cannot disagree.
+    The flag is the view's ``tool_*`` visibility flag; the guild section's cards share ``tool_guild``.
+    """
+
+    key: str
+    title: str
+    flag: str
+
+
+# Admin Tools' sections in page order (#912), each listing its cards. A section shows its cards alphabetically by
+# title (#1286, :func:`admin_tool_sections`), so the order written here is not the order on the page.
 # "guild" is Guild Tools' own section (#921): one guild's cards, under that guild's name, shown only
 # to a viewer who runs a guild and is not viewing as an admin, so Admin Tools never renders it.
-ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    # tool_guild_cubbies is the guild section's Cubbies card (#1015); it is true only while tool_guild is.
-    ("guild", ("tool_guild", "tool_guild_cubbies")),
+ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[ToolCard, ...]], ...] = (
+    (
+        "guild",
+        (
+            # Cubbies (#1015) is true only while tool_guild is, for whoever runs the guild's cubbies.
+            ToolCard("guild_settings", "Guild Settings", "tool_guild"),
+            ToolCard("guild_orientations", "Orientations", "tool_guild"),
+            ToolCard("guild_reservations", "Reservations", "tool_guild"),
+            ToolCard("guild_cubbies", "Cubbies", "tool_guild_cubbies"),
+            ToolCard("guild_events", "Events", "tool_guild"),
+        ),
+    ),
     (
         "manage",
         (
-            "tool_manage_classes",
-            "tool_manage_events",
-            "tool_manage_members",
-            "tool_guilds",
-            "tool_member_agreement",
-            "tool_mailing_lists",
-            "tool_cubbies",
+            ToolCard("manage_classes", "Manage All Classes", "tool_manage_classes"),
+            ToolCard("manage_events", "Manage Events", "tool_manage_events"),
+            ToolCard("manage_members", "Manage Members", "tool_manage_members"),
+            ToolCard("guilds", "Guilds", "tool_guilds"),
+            ToolCard("member_agreement", "Member Agreement", "tool_member_agreement"),
+            ToolCard("mailing_lists", "Manage Mailing Lists", "tool_mailing_lists"),
+            ToolCard("cubbies", "Cubbies", "tool_cubbies"),
         ),
     ),
     (
         "tools",
         (
-            "tool_announcements",
-            "tool_instructor_inquiries",
-            "tool_push_test",
-            "tool_orientations",
-            "tool_spotlight",
-            "tool_polls",
-            "tool_feedback",
-            "tool_holiday_bizarre",
-            "tool_slideshow",
+            ToolCard("announcements", "Email Members", "tool_announcements"),
+            ToolCard("instructor_inquiries", "Instructor Inquiries", "tool_instructor_inquiries"),
+            ToolCard("push_test", "Push Notification Test", "tool_push_test"),
+            ToolCard("orientations", "Orientations", "tool_orientations"),
+            ToolCard("spotlight", "Spotlight", "tool_spotlight"),
+            ToolCard("polls", "Polls", "tool_polls"),
+            ToolCard("feedback", "Feedback Inbox", "tool_feedback"),
+            ToolCard("holiday_bizarre", "Holiday Bizarre HQ", "tool_holiday_bizarre"),
+            ToolCard("slideshow", "Slideshow", "tool_slideshow"),
         ),
     ),
     (
         "reports",
         (
-            "tool_payments",
-            "tool_reports",
-            "tool_growth",
-            "tool_usage",
-            "tool_registrations",
-            "tool_orientation_bookings",
+            ToolCard("payments", "Payments", "tool_payments"),
+            ToolCard("reports", "Reports", "tool_reports"),
+            ToolCard("growth", "Growth", "tool_growth"),
+            ToolCard("usage", "Usage", "tool_usage"),
+            ToolCard("registrations", "Registrations", "tool_registrations"),
+            ToolCard("orientation_bookings", "Orientation Bookings", "tool_orientation_bookings"),
         ),
     ),
     (
         "webmaster",
         (
-            "tool_site_settings",
-            "tool_features",
-            "tool_cms",
-            "tool_automations",
-            "tool_notifications",
-            "tool_activity",
-            "tool_leadership",
-            "tool_locations",
+            ToolCard("site_settings", "Site Settings", "tool_site_settings"),
+            ToolCard("features", "Manage Features", "tool_features"),
+            ToolCard("cms", "Manage CMS", "tool_cms"),
+            ToolCard("automations", "Automations", "tool_automations"),
+            ToolCard("notifications", "Notification Settings", "tool_notifications"),
+            ToolCard("activity", "Activity", "tool_activity"),
+            ToolCard("leadership", "Leadership Directory", "tool_leadership"),
+            ToolCard("locations", "Locations", "tool_locations"),
         ),
     ),
 )
 
 
-def admin_tool_sections(flags: dict[str, bool]) -> dict[str, bool]:
-    """Which Admin Tools sections render: a section shows when at least one of its cards does.
+def admin_tool_sections(flags: dict[str, bool]) -> dict[str, list[ToolCard]]:
+    """Each Admin Tools section's cards the viewer may open, alphabetically by title, ignoring case (#1286).
+
+    A section with no card left is an empty list, which the template reads as not rendering it.
 
     Args:
         flags: every card's ``tool_*`` visibility flag, as the view hands them to the template.
 
     Returns:
-        Each section key from :data:`ADMIN_TOOL_SECTIONS` mapped to whether it renders.
+        Each section key from :data:`ADMIN_TOOL_SECTIONS` mapped to its shown cards in title order.
 
     Raises:
-        KeyError: a section names a flag the view did not compute.
+        KeyError: a card names a flag the view did not compute.
     """
-    return {key: any(flags[name] for name in names) for key, names in ADMIN_TOOL_SECTIONS}
+    return {
+        key: sorted((card for card in cards if flags[card.flag]), key=lambda card: card.title.casefold())
+        for key, cards in ADMIN_TOOL_SECTIONS
+    }
 
 
 def _guild_cubby_counts(guild: Guild) -> dict[str, int]:

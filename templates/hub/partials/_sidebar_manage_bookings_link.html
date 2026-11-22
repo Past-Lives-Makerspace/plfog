@@ -1,0 +1,5 @@
+{# One home for everyone who runs orientations or equipment (#768): gated by role in hub_sidebar, never by a feature switch, so an admin keeps it with Orientations and Reservations both off. #}
+<a href="{{ manage_bookings_nav.url }}" class="hub-sidebar__link{% if manage_bookings_nav.is_active %} active{% endif %}" data-nav="manage-bookings">
+    {% include "hub/partials/nav_icons/_manage_bookings.html" %}
+    Manage Bookings
+</a>
