@@ -10,6 +10,7 @@ import httpx
 import pytest
 import respx
 from django.db import transaction
+from django.utils import timezone
 
 from core.events import discord_roles
 from core.events.discord_leadership_roles import (
@@ -31,7 +32,7 @@ from core.events.discord_leadership_roles import (
     strip_on_commit,
 )
 from core.models import SiteConfiguration
-from membership.models import GuildStaffMembership, LeadershipTab, Member
+from membership.models import AdminCapability, GuildStaffMembership, LeadershipTab, Member
 from tests.membership.factories import (
     GuildFactory,
     GuildStaffMembershipFactory,
@@ -44,7 +45,10 @@ pytestmark = pytest.mark.django_db
 API = "https://discord.com/api/v10"
 LEADERSHIP = "111"
 OFFICERS = "222"
-WOOD_LEAD = "333"
+GUILD_LEADS = "333"
+TOURS = "666"
+TEACHERS = "777"
+WOOD_LEAD = "888"  # a per guild lead role, no longer managed (#1270)
 MEMBER_ROLE = "999"
 
 
@@ -70,8 +74,9 @@ def _settings(**overrides: object) -> LeadershipRoleSettings:
     values: dict[str, object] = {
         "leadership_role_id": LEADERSHIP,
         "guild_officers_role_id": OFFICERS,
-        "lead_role_ids": {1: WOOD_LEAD},
-        "guild_names": {1: "Woodworkers"},
+        "guild_leads_role_id": GUILD_LEADS,
+        "tour_guides_role_id": TOURS,
+        "instructors_role_id": TEACHERS,
     }
     values.update(overrides)
     return LeadershipRoleSettings(**values)  # type: ignore[arg-type]
@@ -143,9 +148,9 @@ def describe_server_member_role_ids():
 
 
 def describe_desired_role_ids():
-    def it_gives_a_lead_their_guilds_lead_role_leadership_and_guild_officers():
+    def it_gives_a_lead_guild_leads_leadership_and_guild_officers():
         facts = LeadershipFacts(led_guild_ids=frozenset({1}))
-        assert desired_role_ids(facts, _settings()) == {WOOD_LEAD, LEADERSHIP, OFFICERS}
+        assert desired_role_ids(facts, _settings()) == {GUILD_LEADS, LEADERSHIP, OFFICERS}
 
     def it_gives_other_staff_guild_officers_only():
         assert desired_role_ids(LeadershipFacts(other_staff=True), _settings()) == {OFFICERS}
@@ -153,34 +158,53 @@ def describe_desired_role_ids():
     def it_gives_a_listed_member_leadership_and_guild_officers():
         assert desired_role_ids(LeadershipFacts(listed=True), _settings()) == {LEADERSHIP, OFFICERS}
 
+    def it_gives_a_tour_guide_tour_guides_only():
+        assert desired_role_ids(LeadershipFacts(tour_guide=True), _settings()) == {TOURS}
+
+    def it_gives_an_instructor_instructors_only():
+        assert desired_role_ids(LeadershipFacts(instructor=True), _settings()) == {TEACHERS}
+
     def it_gives_nothing_to_someone_with_no_facts():
         assert desired_role_ids(NO_FACTS, _settings()) == frozenset()
 
-    def it_skips_a_guild_with_no_lead_role_and_blank_settings():
-        facts = LeadershipFacts(led_guild_ids=frozenset({2}), listed=True)
-        assert desired_role_ids(facts, _settings(leadership_role_id="", guild_officers_role_id="")) == frozenset()
+    def it_skips_blank_settings():
+        facts = LeadershipFacts(led_guild_ids=frozenset({2}), listed=True, tour_guide=True, instructor=True)
+        blank = _settings(
+            leadership_role_id="",
+            guild_officers_role_id="",
+            guild_leads_role_id="",
+            tour_guides_role_id="",
+            instructors_role_id="",
+        )
+        assert desired_role_ids(facts, blank) == frozenset()
 
     def it_gives_the_union_for_someone_in_several_rows():
-        facts = LeadershipFacts(led_guild_ids=frozenset({1}), other_staff=True, listed=True)
-        assert desired_role_ids(facts, _settings()) == {WOOD_LEAD, LEADERSHIP, OFFICERS}
+        facts = LeadershipFacts(led_guild_ids=frozenset({1}), other_staff=True, listed=True, instructor=True)
+        assert desired_role_ids(facts, _settings()) == {GUILD_LEADS, LEADERSHIP, OFFICERS, TEACHERS}
 
 
 def describe_leadership_role_settings():
-    def it_manages_every_set_id_including_hidden_and_deleted_guilds():
+    def it_manages_the_five_shared_roles_and_no_per_guild_lead_role():
+        config = SiteConfiguration.load()
+        config.discord_guild_leads_role_id = GUILD_LEADS
+        config.discord_tour_guides_role_id = f" {TOURS} "
+        config.discord_instructors_role_id = TEACHERS
+        config.save()
         GuildFactory(name="Wood", discord_lead_role_id=WOOD_LEAD)
-        GuildFactory(name="Hidden", is_active=False, discord_lead_role_id="444")
-        gone = GuildFactory(name="Gone", discord_lead_role_id="555")
-        gone.soft_delete()
-        GuildFactory(name="No role")
         settings = LeadershipRoleSettings.load()
-        assert settings.managed == {LEADERSHIP, OFFICERS, WOOD_LEAD, "444", "555"}
+        assert settings.managed == {LEADERSHIP, OFFICERS, GUILD_LEADS, TOURS, TEACHERS}
 
     def it_names_each_managed_role():
         settings = _settings()
         assert settings.role_name(LEADERSHIP) == "leadership"
         assert settings.role_name(OFFICERS) == "Guild Officers"
-        assert settings.role_name(WOOD_LEAD) == "Woodworkers Lead"
+        assert settings.role_name(GUILD_LEADS) == "Guild Leads"
+        assert settings.role_name(TOURS) == "Tour Guides"
+        assert settings.role_name(TEACHERS) == "Instructors"
         assert settings.role_name("123") == "123"
+
+    def it_never_names_a_blank_id():
+        assert _settings(instructors_role_id="").role_name("") == ""
 
 
 def describe_leadership_facts():
@@ -229,6 +253,19 @@ def describe_leadership_facts():
         admin = MemberFactory(fog_role=Member.FogRole.ADMIN)
         assert leadership_facts([admin.pk]) == {}
 
+    def it_reads_a_tour_guide_grant():
+        member = MemberFactory()
+        AdminCapability.objects.create(member=member, capability=AdminCapability.Capability.TOUR_GUIDE)
+        AdminCapability.objects.create(member=MemberFactory(), capability=AdminCapability.Capability.REFUNDS)
+        assert leadership_facts([member.pk]) == {member.pk: LeadershipFacts(tour_guide=True)}
+        assert set(leadership_facts()) == {member.pk}
+
+    def it_reads_an_instructor_and_not_a_former_one():
+        teacher = MemberFactory(instructor_oriented_at=timezone.now())
+        former = MemberFactory(instructor_oriented_at=timezone.now(), status=Member.Status.FORMER)
+        facts = leadership_facts([teacher.pk, former.pk])
+        assert facts == {teacher.pk: LeadershipFacts(instructor=True)}
+
     def it_reads_everyone_when_no_ids_are_given():
         lead = MemberFactory()
         GuildFactory(guild_lead=lead)
@@ -249,8 +286,7 @@ def describe_reconcile_member():
         guild = GuildFactory(discord_lead_role_id=WOOD_LEAD)
         member = MemberFactory(discord_user_id="u1")
         GuildStaffMembershipFactory(guild=guild, member=member, role=GuildStaffMembership.Role.TREASURER)
-        GuildFactory(name="Old", discord_lead_role_id="444")
-        _member_get("u1", ["444", LEADERSHIP, MEMBER_ROLE])
+        _member_get("u1", [WOOD_LEAD, LEADERSHIP, MEMBER_ROLE])
         put = respx.put(url__regex=rf"{API}/guilds/srv/members/u1/roles/\d+").mock(return_value=httpx.Response(204))
         delete = respx.delete(url__regex=rf"{API}/guilds/srv/members/u1/roles/\d+").mock(
             return_value=httpx.Response(204)
@@ -259,11 +295,9 @@ def describe_reconcile_member():
         changes = reconcile_member(member)
 
         assert changes.added == [OFFICERS]
-        assert set(changes.removed) == {"444", LEADERSHIP}
+        assert changes.removed == [LEADERSHIP]
         assert [call.request.url.path.rsplit("/", 1)[1] for call in put.calls] == [OFFICERS]
-        removed = {call.request.url.path.rsplit("/", 1)[1] for call in delete.calls}
-        assert removed == {"444", LEADERSHIP}
-        assert MEMBER_ROLE not in removed
+        assert [call.request.url.path.rsplit("/", 1)[1] for call in delete.calls] == [LEADERSHIP]
 
     @respx.mock
     def it_sends_nothing_when_the_roles_already_match():
@@ -276,14 +310,28 @@ def describe_reconcile_member():
 
     @respx.mock
     def it_keeps_roles_still_earned_through_another_row():
+        config = SiteConfiguration.load()
+        config.discord_guild_leads_role_id = GUILD_LEADS
+        config.save()
         member = MemberFactory(discord_user_id="u1")
         LeadershipListingFactory(member=member)
-        _member_get("u1", [LEADERSHIP, OFFICERS, WOOD_LEAD])
-        GuildFactory(discord_lead_role_id=WOOD_LEAD)  # no longer leads it
+        _member_get("u1", [LEADERSHIP, OFFICERS, GUILD_LEADS])  # no longer leads a guild
         delete = respx.delete(url__regex=r".+").mock(return_value=httpx.Response(204))
         changes = reconcile_member(member)
-        assert changes.removed == [WOOD_LEAD]
+        assert changes.removed == [GUILD_LEADS]
         assert delete.call_count == 1
+
+    @respx.mock
+    def it_gives_a_tour_guide_and_an_instructor_their_roles():
+        config = SiteConfiguration.load()
+        config.discord_tour_guides_role_id = TOURS
+        config.discord_instructors_role_id = TEACHERS
+        config.save()
+        member = MemberFactory(discord_user_id="u1", instructor_oriented_at=timezone.now())
+        AdminCapability.objects.create(member=member, capability=AdminCapability.Capability.TOUR_GUIDE)
+        _member_get("u1", [])
+        respx.put(url__regex=r".+").mock(return_value=httpx.Response(204))
+        assert reconcile_member(member).added == [TOURS, TEACHERS]
 
     @respx.mock
     def it_gives_a_fog_role_admin_nothing_and_takes_leadership_away():
@@ -414,70 +462,11 @@ def describe_reconcile_on_commit():
 
 
 def describe_remove_retired_role():
-    def _roster(*entries: tuple[str, list[str]]) -> respx.Route:
-        return respx.get(f"{API}/guilds/srv/members").mock(
-            return_value=httpx.Response(200, json=[{"user": {"id": uid}, "roles": roles} for uid, roles in entries])
-        )
-
     @respx.mock
-    def it_takes_the_old_role_off_every_holder_and_nothing_else():
-        _roster(("u1", ["777", MEMBER_ROLE]), ("u2", [MEMBER_ROLE]), ("u3", ["777"]))
-        delete = respx.delete(url__regex=r".+").mock(return_value=httpx.Response(204))
-        remove_retired_role.call("777")
-        assert sorted(call.request.url.path for call in delete.calls) == [
-            "/api/v10/guilds/srv/members/u1/roles/777",
-            "/api/v10/guilds/srv/members/u3/roles/777",
-        ]
-
-    @respx.mock
-    def it_tries_every_holder_then_fails_loudly(no_wait):
-        _roster(("u1", ["777"]), ("u2", ["777"]))
-        delete = respx.delete(url__regex=r".+").mock(side_effect=[httpx.ConnectError("down"), httpx.Response(204)])
-        with pytest.raises(LeadershipRoleSyncError, match="off 1 Discord accounts"):
-            remove_retired_role.call("777")
-        assert delete.call_count == 2
-
-    @respx.mock
-    def it_skips_a_member_access_role():
-        config = SiteConfiguration.load()
-        config.discord_member_role_id = "888"
-        config.save()
-        GuildFactory(discord_role_ids=["777"])
+    def it_is_retired_and_takes_nothing_off_anyone():
         route = respx.route().mock(return_value=httpx.Response(204))
-        remove_retired_role.call("777")
-        remove_retired_role.call("888")
+        remove_retired_role.call(WOOD_LEAD)
         assert not route.called
-
-    @respx.mock
-    def it_skips_an_id_still_used_as_another_guilds_lead_role():
-        GuildFactory(discord_lead_role_id="777")
-        route = respx.route().mock(return_value=httpx.Response(204))
-        remove_retired_role.call("777")
-        assert not route.called
-
-    @pytest.mark.parametrize("role_id", [LEADERSHIP, OFFICERS, "", "  "])
-    @respx.mock
-    def it_skips_a_blank_id_and_the_leadership_and_officers_ids(role_id):
-        route = respx.route().mock(return_value=httpx.Response(204))
-        remove_retired_role.call(role_id)
-        assert not route.called
-
-    @respx.mock
-    def it_skips_when_the_server_id_is_blank():
-        config = SiteConfiguration.load()
-        config.discord_server_id = ""
-        config.save()
-        route = respx.route().mock(return_value=httpx.Response(204))
-        remove_retired_role.call("777")
-        assert not route.called
-
-    @respx.mock
-    def it_deletes_nothing_and_fails_when_the_member_list_cannot_be_read():
-        respx.get(f"{API}/guilds/srv/members").mock(return_value=httpx.Response(403))
-        delete = respx.delete(url__regex=r".+").mock(return_value=httpx.Response(204))
-        with pytest.raises(LeadershipRoleSyncError, match="member list"):
-            remove_retired_role.call("777")
-        assert not delete.called
 
 
 def describe_rate_limits():
@@ -598,15 +587,17 @@ def describe_member_access_roles():
         config = SiteConfiguration.load()
         config.discord_member_role_id = LEADERSHIP
         config.save()
-        GuildFactory(discord_role_ids=[OFFICERS], discord_lead_role_id="333")
-        GuildFactory(name="Clash", discord_lead_role_id=OFFICERS)
+        config.discord_guild_leads_role_id = GUILD_LEADS
+        config.save()
+        GuildFactory(discord_role_ids=[OFFICERS])
+        GuildFactory(name="No roles", discord_role_ids=[])
         settings = LeadershipRoleSettings.load()
-        assert settings.managed == {"333"}
+        assert settings.managed == {GUILD_LEADS}
         assert settings.access_role_ids == {LEADERSHIP, OFFICERS}
 
     def it_never_wants_an_access_role():
         facts = LeadershipFacts(led_guild_ids=frozenset({1}), listed=True)
-        assert desired_role_ids(facts, _settings(access_role_ids=frozenset({LEADERSHIP}))) == {WOOD_LEAD, OFFICERS}
+        assert desired_role_ids(facts, _settings(access_role_ids=frozenset({LEADERSHIP}))) == {GUILD_LEADS, OFFICERS}
 
 
 def describe_failing_tasks():
@@ -638,15 +629,6 @@ def describe_refused_roles():
         with pytest.raises(LeadershipRoleSyncError, match=LEADERSHIP):
             reconcile_leadership_roles.call(member.pk)
 
-    @respx.mock
-    def it_fails_the_retire_task_on_a_403():
-        respx.get(f"{API}/guilds/srv/members").mock(
-            return_value=httpx.Response(200, json=[{"user": {"id": "u1"}, "roles": ["777"]}])
-        )
-        respx.delete(url__regex=r".+").mock(return_value=httpx.Response(403))
-        with pytest.raises(LeadershipRoleSyncError):
-            remove_retired_role.call("777")
-
 
 def describe_benign_outcomes():
     @respx.mock
@@ -673,7 +655,7 @@ def describe_strip_managed_roles():
         delete = respx.delete(url__regex=r".+").mock(return_value=httpx.Response(204))
         strip_leadership_roles.call("u1")
         removed = sorted(call.request.url.path.rsplit("/", 1)[1] for call in delete.calls)
-        assert removed == sorted([LEADERSHIP, WOOD_LEAD])
+        assert removed == [LEADERSHIP]
 
     @respx.mock
     def it_fails_the_task_when_a_removal_fails():
@@ -686,9 +668,7 @@ def describe_strip_managed_roles():
     def it_sends_nothing_for_a_blank_id_a_blank_server_or_no_managed_role():
         route = respx.route().mock(return_value=httpx.Response(204))
         assert strip_managed_roles("").ok
-        assert strip_managed_roles(
-            "u1", current=[], settings=_settings(leadership_role_id="", guild_officers_role_id="", lead_role_ids={})
-        ).ok
+        assert strip_managed_roles("u1", current=[], settings=LeadershipRoleSettings()).ok
         config = SiteConfiguration.load()
         config.discord_server_id = ""
         config.save()
@@ -704,58 +684,31 @@ def describe_strip_managed_roles():
 
 
 def describe_role_id_conflicts():
-    def _check(**overrides: object) -> tuple[dict[str, str], dict[int, str]]:
-        values: dict[str, object] = {
-            "member_role_id": "1",
-            "leadership_role_id": "10",
-            "guild_officers_role_id": "20",
-            "guilds": {1: ("30", ["2"], True), 2: ("40", ["3"], True)},
+    def _check(**role_ids: str) -> dict[str, str]:
+        ids = {
+            "discord_leadership_role_id": "10",
+            "discord_guild_officers_role_id": "20",
+            "discord_guild_leads_role_id": "30",
+            "discord_tour_guides_role_id": "",
+            "discord_instructors_role_id": "",
         }
-        values.update(overrides)
-        return role_id_conflicts(**values)  # type: ignore[arg-type]
+        ids.update(role_ids)
+        return role_id_conflicts(member_role_id="1", role_ids=ids, guild_member_role_ids=["2", " 3 "])
 
-    def it_passes_distinct_ids():
-        assert _check() == ({}, {})
+    def it_passes_distinct_ids_and_blanks():
+        assert _check() == {}
 
-    def it_refuses_a_site_id_that_is_a_member_access_role():
-        site, _guilds = _check(leadership_role_id="1", guild_officers_role_id="3")
-        assert set(site) == {"discord_leadership_role_id", "discord_guild_officers_role_id"}
+    def it_refuses_an_id_that_is_a_member_access_role():
+        errors = _check(discord_leadership_role_id="1", discord_tour_guides_role_id="3")
+        assert set(errors) == {"discord_leadership_role_id", "discord_tour_guides_role_id"}
+        assert "member access role" in errors["discord_leadership_role_id"]
 
-    def it_refuses_officers_equal_to_leadership():
-        site, _guilds = _check(guild_officers_role_id="10")
-        assert "own role" in site["discord_guild_officers_role_id"]
-
-    def it_refuses_lead_ids_that_clash():
-        _site, guilds = _check(
-            guilds={
-                1: ("2", ["2"], True),
-                2: ("10", [], True),
-                3: ("30", [], True),
-                4: ("30", [], True),
-                5: ("", [], True),
-            }
-        )
-        assert set(guilds) == {1, 2, 4}
-        assert "Another guild" in guilds[4]
-
-    def it_judges_only_the_site_fields_when_the_guild_rows_are_not_posted():
-        site, guilds = _check(
-            leadership_role_id="30",
-            guild_officers_role_id="40",
-            guilds={1: ("30", [], True), 2: ("40", [], False), 3: ("2", ["2"], True)},
-            check_guild_rows=False,
-        )
-        assert set(site) == {"discord_leadership_role_id", "discord_guild_officers_role_id"}
-        assert guilds == {}
-
-    def it_lets_a_hidden_or_deleted_guilds_old_lead_id_be_reused():
-        _site, guilds = _check(guilds={1: ("30", [], False), 2: ("30", [], True), 3: ("30", [], False)})
-        assert guilds == {}
-
-    def it_still_checks_a_hidden_guilds_member_roles_and_lead_against_access():
-        site, guilds = _check(leadership_role_id="9", guilds={1: ("1", ["9"], False)})
-        assert set(site) == {"discord_leadership_role_id"}
-        assert set(guilds) == {1}
+    def it_refuses_an_id_another_managed_role_already_uses():
+        errors = _check(discord_guild_officers_role_id="10", discord_instructors_role_id=" 30 ")
+        assert errors == {
+            "discord_guild_officers_role_id": "This is already the leadership role id. Each role needs its own.",
+            "discord_instructors_role_id": "This is already the Guild Leads role id. Each role needs its own.",
+        }
 
 
 def describe_scan_fallback():

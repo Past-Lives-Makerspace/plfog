@@ -1,4 +1,4 @@
-"""Every change that moves who leads what enqueues a Discord leadership role reconcile after commit (#1148).
+"""Every change that moves who leads, guides or teaches enqueues a Discord role reconcile after commit (#1148, #1270).
 
 Each spec captures the commit callbacks and reads which members a
 :class:`~core.events.discord_leadership_roles._ReconcileWhenCommitted` was queued for; nothing
@@ -15,11 +15,12 @@ import pytest
 import respx
 from django.core.management import call_command
 from django.db import transaction
+from django.utils import timezone
 
 from core.events.discord_leadership_roles import _ReconcileWhenCommitted
 from core.models import SiteConfiguration
 from hub.forms import GuildRoleForm, GuildVisibilityForm
-from membership.models import Guild, GuildStaffMembership, LeadershipListing, LeadershipTab
+from membership.models import AdminCapability, GuildStaffMembership, LeadershipListing, LeadershipTab, Member
 from tests.membership.factories import (
     GuildFactory,
     GuildStaffMembershipFactory,
@@ -148,100 +149,27 @@ def describe_guild_changes():
             form.save()
         assert _queued(callbacks) == []
 
-    def it_queues_the_lead_and_co_leads_when_the_lead_role_id_changes(django_capture_on_commit_callbacks):
-        lead = MemberFactory()
-        guild = GuildFactory(guild_lead=lead)
-        co_lead = GuildStaffMembershipFactory(guild=guild, role=GuildStaffMembership.Role.CO_LEAD)
-        form = GuildRoleForm({"discord_role_ids": "", "discord_lead_role_id": "4321"}, instance=guild)
+    def it_queues_nothing_when_a_guilds_member_role_ids_change(django_capture_on_commit_callbacks):
+        guild = GuildFactory(guild_lead=MemberFactory(), discord_lead_role_id="4321")
+        form = GuildRoleForm({"discord_role_ids": "77 78"}, instance=guild)
         assert form.is_valid()
         with django_capture_on_commit_callbacks() as callbacks:
             form.save()
         guild.refresh_from_db()
+        assert guild.discord_role_ids == ["77", "78"]
         assert guild.discord_lead_role_id == "4321"
-        assert _queued(callbacks) == sorted([lead.pk, co_lead.member_id])
-
-    @pytest.mark.parametrize("new_id", ["5555", ""])
-    @respx.mock
-    def it_takes_the_replaced_lead_role_off_its_holders_after_commit(
-        new_id, settings, django_capture_on_commit_callbacks
-    ):
-        settings.DISCORD_BOT_TOKEN = "bot-tok"
-        config = SiteConfiguration.load()
-        config.discord_server_id = "srv"
-        config.save()
-        guild = GuildFactory(discord_lead_role_id="4321")
-        respx.get("https://discord.com/api/v10/guilds/srv/members").mock(
-            return_value=httpx.Response(200, json=[{"user": {"id": "u9"}, "roles": ["4321", "1"]}])
-        )
-        delete = respx.delete(url__regex=r".+").mock(return_value=httpx.Response(204))
-        form = GuildRoleForm({"discord_role_ids": "", "discord_lead_role_id": new_id}, instance=guild)
-        assert form.is_valid()
-        with django_capture_on_commit_callbacks(execute=True):
-            form.save()
-            assert not delete.called
-        assert [call.request.url.path for call in delete.calls] == ["/api/v10/guilds/srv/members/u9/roles/4321"]
-
-    @respx.mock
-    def it_retires_nothing_when_a_lead_role_id_is_first_set(settings, django_capture_on_commit_callbacks):
-        settings.DISCORD_BOT_TOKEN = "bot-tok"
-        config = SiteConfiguration.load()
-        config.discord_server_id = "srv"
-        config.save()
-        guild = GuildFactory()
-        route = respx.route().mock(return_value=httpx.Response(200, json=[]))
-        form = GuildRoleForm({"discord_role_ids": "", "discord_lead_role_id": "4321"}, instance=guild)
-        assert form.is_valid()
-        with django_capture_on_commit_callbacks(execute=True):
-            form.save()
-        assert not route.called
-
-    def it_releases_the_lead_role_id_only_from_hidden_and_deleted_guilds():
-        hidden = GuildFactory(name="Hidden", is_active=False, discord_lead_role_id="4321")
-        gone = GuildFactory(name="Gone", discord_lead_role_id="4321")
-        gone.soft_delete()
-        visible = GuildFactory(name="Visible", discord_lead_role_id="4321")
-        guild = GuildFactory(name="Taker")
-        form = GuildRoleForm({"discord_role_ids": "", "discord_lead_role_id": "4321"}, instance=guild)
-        assert form.is_valid()
-        form.save()
-        values = dict(
-            Guild.all_objects.filter(pk__in=[hidden.pk, gone.pk, visible.pk]).values_list(
-                "name", "discord_lead_role_id"
-            )
-        )
-        assert values == {"Hidden": "", "Gone": "", "Visible": "4321"}
-
-    def it_releases_nothing_when_the_lead_role_id_is_cleared():
-        GuildFactory(name="Hidden", is_active=False, discord_lead_role_id="")
-        assert GuildFactory(name="Blank").release_lead_role_id_from_hidden_guilds() == 0
-
-    def it_queues_nothing_when_the_lead_role_id_is_unchanged(django_capture_on_commit_callbacks):
-        guild = GuildFactory(guild_lead=MemberFactory(), discord_lead_role_id="4321")
-        form = GuildRoleForm({"discord_role_ids": "77", "discord_lead_role_id": "4321"}, instance=guild)
-        assert form.is_valid()
-        with django_capture_on_commit_callbacks() as callbacks:
-            form.save()
         assert _queued(callbacks) == []
 
     def it_queues_nothing_until_a_form_commits(django_capture_on_commit_callbacks):
         guild = GuildFactory(guild_lead=MemberFactory())
-        role_form = GuildRoleForm({"discord_role_ids": "", "discord_lead_role_id": "4321"}, instance=guild)
         visibility_form = GuildVisibilityForm({"is_active": "", "is_new_guild": ""}, instance=guild)
-        assert role_form.is_valid()
         assert visibility_form.is_valid()
         with django_capture_on_commit_callbacks() as callbacks:
-            role_form.save(commit=False)
             visibility_form.save(commit=False)
         assert _queued(callbacks) == []
 
-    @pytest.mark.parametrize("value", ["Wood Lead", "\u00b2\u00b3", "12 34"])
-    def it_refuses_a_lead_role_id_that_is_not_ascii_digits(value):
-        form = GuildRoleForm({"discord_role_ids": "", "discord_lead_role_id": value}, instance=GuildFactory())
-        assert not form.is_valid()
-        assert "digits only" in form.errors["discord_lead_role_id"][0]
-
     def it_refuses_superscript_digits_in_the_member_role_ids():
-        form = GuildRoleForm({"discord_role_ids": "12 \u00b2", "discord_lead_role_id": ""}, instance=GuildFactory())
+        form = GuildRoleForm({"discord_role_ids": "12 \u00b2"}, instance=GuildFactory())
         assert not form.is_valid()
         assert "discord_role_ids" in form.errors
 
@@ -251,6 +179,88 @@ def describe_guild_changes():
         with django_capture_on_commit_callbacks() as callbacks:
             guild.soft_delete()
         assert _queued(callbacks) == [lead.pk]
+
+
+def describe_tour_guide_permission():
+    TOUR_GUIDE = AdminCapability.Capability.TOUR_GUIDE
+
+    def it_queues_the_member_on_a_grant_and_a_revoke(django_capture_on_commit_callbacks):
+        member = MemberFactory()
+        with django_capture_on_commit_callbacks(execute=True) as granted:
+            member.set_admin_capability(TOUR_GUIDE, True)
+        assert _queued(granted) == [member.pk]
+        with django_capture_on_commit_callbacks() as revoked:
+            member.set_admin_capability(TOUR_GUIDE, False)
+        assert _queued(revoked) == [member.pk]
+
+    def it_queues_nothing_when_nothing_changes_or_for_another_permission(django_capture_on_commit_callbacks):
+        member = _settled(django_capture_on_commit_callbacks, MemberFactory)
+        _settled(django_capture_on_commit_callbacks, lambda: member.set_admin_capability(TOUR_GUIDE, True))
+        with django_capture_on_commit_callbacks() as callbacks:
+            member.set_admin_capability(TOUR_GUIDE, True)
+            member.set_admin_capability(AdminCapability.Capability.REFUNDS, True)
+            member.set_admin_capability(AdminCapability.Capability.REFUNDS, False)
+            member.set_admin_capability(AdminCapability.Capability.WEBMASTER, False)
+        assert _queued(callbacks) == []
+
+    def it_queues_the_member_when_the_edit_page_adds_or_drops_it(django_capture_on_commit_callbacks):
+        member = MemberFactory()
+        with django_capture_on_commit_callbacks(execute=True) as added:
+            member.sync_admin_capabilities([TOUR_GUIDE])
+        assert _queued(added) == [member.pk]
+        with django_capture_on_commit_callbacks(execute=True) as dropped:
+            member.sync_admin_capabilities([AdminCapability.Capability.REFUNDS])
+        assert _queued(dropped) == [member.pk]
+        with django_capture_on_commit_callbacks() as untouched:
+            member.sync_admin_capabilities([])
+        assert _queued(untouched) == []
+
+
+def describe_teaching():
+    def it_queues_the_member_when_teaching_is_granted_once(django_capture_on_commit_callbacks):
+        member = MemberFactory(instructor_oriented_at=None)
+        with django_capture_on_commit_callbacks() as callbacks:
+            member.grant_teaching(granted_by=None)
+        assert _queued(callbacks) == [member.pk]
+        with django_capture_on_commit_callbacks() as again:
+            member.grant_teaching(granted_by=None)
+        assert _queued(again) == []
+
+    def it_queues_the_member_when_teaching_is_revoked(django_capture_on_commit_callbacks):
+        member = _settled(
+            django_capture_on_commit_callbacks, lambda: MemberFactory(instructor_oriented_at=timezone.now())
+        )
+        with django_capture_on_commit_callbacks() as callbacks:
+            member.revoke_teaching(revoked_by=None)
+        assert _queued(callbacks) == [member.pk]
+
+    def it_queues_a_member_made_an_instructor_on_the_edit_page(django_capture_on_commit_callbacks):
+        member = MemberFactory(instructor_oriented_at=None, instructor_slug="")
+        with django_capture_on_commit_callbacks() as callbacks:
+            member.apply_admin_role(Member.ADMIN_ROLE_INSTRUCTOR)
+        assert _queued(callbacks) == [member.pk]
+
+    def it_queues_a_member_whose_page_is_removed_while_teaching_is_locked(django_capture_on_commit_callbacks):
+        member = _settled(
+            django_capture_on_commit_callbacks,
+            lambda: MemberFactory(instructor_oriented_at=None, instructor_slug="page-only"),
+        )
+        assert Member.objects.instructors().filter(pk=member.pk).exists()
+        with django_capture_on_commit_callbacks() as callbacks:
+            member.revoke_instructor(revoked_by=None)
+        assert _queued(callbacks) == [member.pk]
+        with django_capture_on_commit_callbacks() as again:
+            member.revoke_instructor(revoked_by=None)
+        assert _queued(again) == []
+
+    def it_queues_the_member_when_an_instructor_page_is_minted_once(django_capture_on_commit_callbacks):
+        member = MemberFactory(instructor_oriented_at=None, instructor_slug="")
+        with django_capture_on_commit_callbacks(execute=True) as minted:
+            assert member.ensure_instructor_slug()
+        assert _queued(minted) == [member.pk]
+        with django_capture_on_commit_callbacks() as again:
+            assert not member.ensure_instructor_slug()
+        assert _queued(again) == []
 
 
 def describe_leadership_directory():
@@ -434,8 +444,10 @@ def describe_end_to_end():
         config.discord_leadership_role_id = "111"
         config.discord_guild_officers_role_id = "222"
         config.save()
+        config.discord_guild_leads_role_id = "333"
+        config.save()
         member = MemberFactory(discord_user_id="u1")
-        guild = GuildFactory(discord_lead_role_id="333")
+        guild = GuildFactory(discord_lead_role_id="444")  # an old per guild lead role, never given (#1270)
         respx.get("https://discord.com/api/v10/guilds/srv/members/u1").mock(
             return_value=httpx.Response(200, json={"roles": []})
         )

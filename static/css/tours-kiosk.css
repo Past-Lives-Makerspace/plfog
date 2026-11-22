@@ -118,6 +118,37 @@
     text-decoration: none;
 }
 
+/* Back and Start Over sit together at the heading's right (#1273); on the centred screens (Is This
+   You, no match) the heading carries only them, across the top. */
+.cp-page .pl-kiosk__head-actions {
+    display: flex;
+    gap: 1rem;
+    margin-left: auto;
+}
+
+.cp-page .pl-kiosk__screen--center {
+    padding-top: 1rem;
+}
+
+.cp-page .pl-kiosk__screen--center > .pl-kiosk__head {
+    align-self: stretch;
+    margin-bottom: 3rem;
+}
+
+.cp-page .pl-kiosk__screen--center > .pl-kiosk__title:first-child {
+    margin-top: 3rem;
+}
+
+/* Back leads: the gold outline marks it as the step back, Start Over stays the quiet way home. */
+.cp-page .pl-kiosk__back--step {
+    border-color: var(--gold-text);
+}
+
+/* The loading bar (#1277, tours-public.css) a little heavier on cairn's 1920 by 1080 screen. */
+html:has(> body.tours-kiosk) .pl-tours-loading__bar {
+    height: 6px;
+}
+
 /* Every control shows where the keyboard is: cairn has no touchscreen. */
 .cp-page .pl-kiosk a:focus-visible,
 .cp-page .pl-kiosk button:focus-visible,

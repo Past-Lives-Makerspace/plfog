@@ -255,7 +255,9 @@ def describe_booking():
 
     def it_disables_the_book_button_once_pressed(guide: Member, hours: Any):
         content = _client().get(f"/?tour={_key(guide, 16)}").content.decode()
-        assert 'data-tour-form data-pl-busy-submit data-pl-busy-label="Booking..."' in content
+        assert "data-tour-form data-pl-busy-submit>" in content
+        assert 'data-pl-busy="hold">Book My Tour</button>' in content
+        assert "js/tours-loading" in content
         assert "window.plBusySubmitBound" in content
         assert "No password. You sign in with a code we email you." in content
         assert "shows up in your account" not in content

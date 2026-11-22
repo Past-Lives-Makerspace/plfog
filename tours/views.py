@@ -37,6 +37,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from core.htmx import wants_fragment
+from hub.autosave import autosave_refused, autosave_saved, formset_rows, wants_autosave
 from hub.calendar_pages import calendar_nav_params
 from hub.toast import trigger_toast
 from hub.view_as import (
@@ -60,6 +61,7 @@ from tours.booking import (
     cancel_tour_by_staff,
     confirm_tour_request,
     decline_tour_request,
+    lock_for_note,
     mark_tour_outcome,
     reschedule_tour_by_staff,
 )
@@ -294,8 +296,12 @@ def tour_hours(request: HttpRequest) -> HttpResponse:
 def tour_hours_save(request: HttpRequest) -> HttpResponse:
     """Save one guide's whole set of hours rows (adds, edits and deletes in one POST).
 
-    The posted ``guide`` is checked before the formset is read. Valid: a flash and a redirect
-    back to the tab. Invalid: the tab again with each row's errors, its rows open.
+    The posted ``guide`` is checked before the formset is read. The Every Week card saves itself
+    as it is edited (#1279, ``hub.autosave``): its posts answer JSON, each row's pk in posted
+    order or a 422 with every error keyed by field name (an overlap on its row); a row deleted
+    elsewhere since the page loaded is skipped, named under ``gone`` and toasted. Without the
+    script, valid is a flash and a redirect back to the tab, invalid the tab again with each
+    row's errors, its rows open.
     """
     target = _target_guide(request, request.POST.get("guide", ""))
     formset = _hours_formset(target, request.POST)
@@ -306,6 +312,17 @@ def tour_hours_save(request: HttpRequest) -> HttpResponse:
         saved = formset.is_valid()
         if saved:
             formset.save()
+    if wants_autosave(request):
+        if not saved:
+            return autosave_refused(formset)
+        gone = formset.gone_rows
+        response = autosave_saved({HOURS_PREFIX: formset_rows(formset)}, gone={HOURS_PREFIX: gone} if gone else None)
+        if gone:
+            # Deleted elsewhere (another tab, an admin on ?guide=): the rest saved, the page drops it.
+            trigger_toast(
+                response, "Some of these hours were deleted elsewhere, so they are gone from this page.", "info"
+            )
+        return response
     if not saved:
         return _render_hours(request, target, formset=formset, hours_refused=True)
     messages.success(request, "Tour hours saved.")
@@ -315,14 +332,22 @@ def tour_hours_save(request: HttpRequest) -> HttpResponse:
 @tour_guide_access_required
 @require_POST
 def tour_confirm_mode_save(request: HttpRequest) -> HttpResponse:
-    """Save whether the guide's bookings wait for their Confirm (#1166): the Confirming Bookings card."""
+    """Save whether the guide's bookings wait for their Confirm (#1166): the Confirming Bookings card.
+
+    The card saves itself as it is edited (#1279): an autosave post answers JSON, a refusal a 422
+    under the field. Without the script, a flash and a redirect back to the tab.
+    """
     target = _target_guide(request, request.POST.get("guide", ""))
     instance = TourGuideSettings.objects.filter(guide=target).first() or TourGuideSettings(guide=target)
     form = TourConfirmModeForm(request.POST, instance=instance)
     if not form.is_valid():
+        if wants_autosave(request):
+            return autosave_refused(form)
         messages.error(request, str(next(iter(form.errors.values()))[0]))
         return redirect(_hours_url(_viewer(request), target))
     saved = form.save()
+    if wants_autosave(request):
+        return autosave_saved()
     messages.success(request, f"Saved. {saved.summary}")
     return redirect(_hours_url(_viewer(request), target))
 
@@ -407,13 +432,23 @@ def tour_dates_delete(request: HttpRequest, pk: int) -> HttpResponse:
 @fog_admin_required
 def tour_settings(request: HttpRequest) -> HttpResponse:
     """The Tours page's Settings tab (admins only): the front desk kiosk link (#950), then horizon,
-    notice, cutoff, defaults and the bookings switch."""
+    notice, cutoff, defaults and the bookings switch.
+
+    Tour Settings save themselves as they are edited (#1279): an autosave post answers JSON, a
+    refusal a 422 under the field, which leaves every stored value as it was. Without the
+    script, a flash and a redirect, or the tab again with the errors.
+    """
     instance = FacilityTourSettings.load()
     form = FacilityTourSettingsForm(request.POST or None, instance=instance)
-    if request.method == "POST" and form.is_valid():
-        form.save()
-        messages.success(request, "Tour Settings saved.")
-        return redirect("tours:settings")
+    if request.method == "POST":
+        if form.is_valid():
+            form.save()
+            if wants_autosave(request):
+                return autosave_saved()
+            messages.success(request, "Tour Settings saved.")
+            return redirect("tours:settings")
+        if wants_autosave(request):
+            return autosave_refused(form)
     return render(request, "tours/settings.html", {"form": form, "kiosk_url": _kiosk_url(instance), **_setup(request)})
 
 
@@ -549,16 +584,23 @@ def tour_google_callback(request: HttpRequest) -> HttpResponse:
 @tour_guide_access_required
 @require_POST
 def tour_google_calendar(request: HttpRequest) -> HttpResponse:
-    """Pick which of the guide's own calendars tours are written to; their upcoming tours move there."""
+    """Pick which of the guide's own calendars tours are written to; their upcoming tours move there.
+
+    The picker saves on change (#1279): an autosave post answers JSON, a refusal a 422 under it.
+    """
     connection = get_object_or_404(
         TourCalendarConnection, guide=_viewer(request), status=TourCalendarConnection.Status.CONNECTED
     )
     form = TourCalendarChoiceForm(request.POST, connection=connection)
     if not form.is_valid():
+        if wants_autosave(request):
+            return autosave_refused(form)
         messages.error(request, "Pick one of your calendars from the list.")
         return redirect("tours:hours")
     if form.cleaned_data["calendar"] != connection.calendar_id:
         calendar_sync.choose_calendar(connection, form.cleaned_data["calendar"])
+    if wants_autosave(request):
+        return autosave_saved()
     messages.success(request, f"Tours will be written to {connection.calendar_label}.")
     return redirect("tours:hours")
 
@@ -622,6 +664,9 @@ def _with_row_rights(request: HttpRequest, bookings: list[TourBooking]) -> list[
     for booking in bookings:
         booking.can_act = is_admin or booking.guide_id == viewer_pk  # type: ignore[attr-defined]
         booking.can_answer = booking.is_request and booking.guide_id == viewer_pk  # type: ignore[attr-defined]
+        # Felix (#1274): any active member may become a Tour Guide (#1278), so a visitor's email and
+        # phone reach only their own guide and the admins; never rendered for anyone else.
+        booking.can_see_contact = booking.can_act  # type: ignore[attr-defined]
     return bookings
 
 
@@ -1014,9 +1059,11 @@ def _with_notes_open(url: str, booking: TourBooking) -> str:
 def tour_booking_notes(request: HttpRequest, pk: int) -> HttpResponse:
     """GET: a booking's notes and the box to add one, for the Notes modal (any Tour Guide or admin).
 
+    A row whose notes moved (a shared request another guide took, #1274) shows the surviving row's.
+
     A plain GET (a typed address, a history restore) lands on Upcoming with the modal open.
     """
-    booking = get_object_or_404(TourBooking.objects.select_related("guide"), pk=pk)
+    booking = get_object_or_404(TourBooking.objects.select_related("guide", "notes_moved_to__guide"), pk=pk).note_target
     if not wants_fragment(request):
         return redirect(_with_notes_open(reverse("tours:upcoming"), booking))
     return render(request, "tours/partials/_notes.html", _notes_context(request, booking))
@@ -1027,11 +1074,23 @@ def tour_booking_notes(request: HttpRequest, pk: int) -> HttpResponse:
 def tour_booking_note(request: HttpRequest, pk: int) -> HttpResponse:
     """POST: add a note to a booking; with ``email_visitor`` also email it to the visitor.
 
-    Any Tour Guide or admin may add a note. Emailing the visitor is for whoever may act on the
+    Any Tour Guide or admin may add a note. A row whose notes moved to another row of its resolved
+    No preference request posts there (``TourBooking.note_target``). Emailing the visitor is for whoever may act on the
     booking (its guide, or an admin): anyone else asking for it gets a 403, before anything is
     saved. Lands back on the page it came from with the Notes modal open and a flash.
     """
-    booking = get_object_or_404(TourBooking.objects.select_related("guide"), pk=pk)
+    get_object_or_404(TourBooking, pk=pk)
+    with transaction.atomic():
+        # The request's rows and then this row are locked before its note target is read, in the
+        # order a Confirm or Decline takes them: one that moves the notes meanwhile finishes first,
+        # and the note lands on the row they went to, never on the one they left (#1274).
+        locked = lock_for_note(pk)
+        booking = TourBooking.objects.select_related("guide").get(pk=locked.note_target.pk)
+        return _post_note(request, booking)
+
+
+def _post_note(request: HttpRequest, booking: TourBooking) -> HttpResponse:
+    """Add the posted note to ``booking`` (already resolved to its note target, inside the lock)."""
     back = _with_notes_open(_safe_tours_next(request), booking)
     may_email = _may_email(request, booking)
     if request.POST.get("email_visitor") and not may_email:

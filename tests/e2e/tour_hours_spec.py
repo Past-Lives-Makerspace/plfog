@@ -2,9 +2,11 @@
 
 The guide presses Tours in the sidebar (#1278), which lands on Upcoming, opens
 its My Hours tab, adds Tuesday 4:00 to 6:00 PM with 1 hour tours and 4 seats
-through + Add hours, saves, and sees the row folded to its summary after the reload. A second row
-added and removed again never reaches the save. Delete asks first, then saves the page without the
-row. A day off is added through the Add Day Off modal. At a phone's width nothing scrolls sideways.
+through + Add hours, and the row saves itself once Day, From and Until are picked (#1279: no Save
+button; the Every Week pill says Saved), then reads folded to its summary after a reload. A second
+row added and removed again never saves. Changing a time saves it. An overlapping row shows the
+clash on the row and is not saved. Delete asks first, then saves the row away. A day off is added
+through the Add Day Off modal. At a phone's width nothing scrolls sideways.
 ``CAPTURE_947_DIR=<dir>`` also saves dark and light pictures at desktop and phone widths. Run with
 ``pytest -m e2e`` on PostgreSQL.
 """
@@ -21,7 +23,7 @@ from django.utils import timezone
 
 from membership.models import AdminCapability, Member
 from tests.membership.factories import MembershipPlanFactory
-from tours.models import TourDayOff, TourHours
+from tours.models import FacilityTourSettings, TourDayOff, TourHours
 
 GUIDE_EMAIL = "tour-guide-hours@example.com"
 CAPTURE_DIR = os.environ.get("CAPTURE_947_DIR")
@@ -57,6 +59,23 @@ def _set_drawer(page, *, is_open: bool) -> None:
     page.wait_for_timeout(300)
 
 
+def _hours_saved_past(page, count: int) -> None:
+    """Wait until the Every Week pill reads Saved after at least ``count`` saves (the queue drained)."""
+    page.wait_for_function(
+        "(n) => { const pill = document.querySelector('[data-tour-save-status=\"hours\"]');"
+        " const root = document.querySelector('[data-guild-autosave]').plGuildAutosave;"
+        " return !!pill && root.pending === 0 && Number(pill.dataset.saves) >= n"
+        " && pill.textContent.trim() === 'Saved' && pill.offsetParent !== null; }",
+        arg=count,
+    )
+
+
+def _saves(page) -> int:
+    """The saves counted so far, once the queue has drained."""
+    page.wait_for_function("() => document.querySelector('[data-guild-autosave]').plGuildAutosave.pending === 0")
+    return int(page.locator('[data-tour-save-status="hours"]').get_attribute("data-saves") or 0)
+
+
 def _make_guide() -> Member:
     MembershipPlanFactory()  # so the user signal provisions the member
     user = User.objects.create_user(username=GUIDE_EMAIL, email=GUIDE_EMAIL)
@@ -84,34 +103,64 @@ def describe_tour_hours_editor():
         _capture(page, "empty")
 
         page.locator("[data-tour-hours-add]").click()
-        page.locator("[data-tour-hours-empty]").wait_for(state="detached")
+        page.locator("[data-tour-hours-empty]").wait_for(state="hidden")
+        assert page.locator("[data-tour-hours-save]").count() == 0
         row = page.locator("[data-tour-hours-row]").first
         row.locator("[data-tour-hours-body]").wait_for(state="visible")
+        # Day alone leaves From and Until blank, so the row is not saved yet.
         row.locator('select[name="hours-0-weekday"]').select_option("1")
         row.locator('select[name="hours-0-start_time"]').select_option("16:00")
+        before = _saves(page)
+        assert not TourHours.objects.exists()
         row.locator('select[name="hours-0-end_time"]').select_option("18:00")
-        row.locator('select[name="hours-0-tour_minutes"]').select_option("60")
+        _hours_saved_past(page, before + 1)
+        assert TourHours.objects.count() == 1
+        before = _saves(page)
         row.locator('input[name="hours-0-seats"]').fill("4")
         row.locator('input[name="hours-0-seats"]').dispatch_event("change")
         row.locator("[data-tour-hours-summary]").get_by_text(
             "Tuesday · 4:00 PM to 6:00 PM · 1 hour each · 4 seats"
         ).wait_for()
+        _hours_saved_past(page, before + 1)
+        assert list(TourHours.objects.values_list("guide_id", "weekday", "seats")) == [(guide.pk, 1, 4)]
+        assert row.locator('input[name="hours-0-id"]').input_value() == str(TourHours.objects.get().pk)
 
-        # A second row added and removed again is gone before the save.
+        # A second row added and removed again never saves.
         page.locator("[data-tour-hours-add]").click()
         page.locator("[data-tour-hours-row]").nth(1).locator("[data-tour-hours-remove]").click()
         assert page.locator("[data-tour-hours-row]").count() == 1
+        assert TourHours.objects.count() == 1
 
-        with page.expect_navigation():
-            page.locator("[data-tour-hours-save]").click()
-        assert list(TourHours.objects.values_list("guide_id", "weekday", "seats")) == [(guide.pk, 1, 4)]
-
+        page.reload()
         saved = page.locator("[data-tour-hours-row]").first
         saved.locator("[data-tour-hours-summary]").get_by_text(
             "Tuesday · 4:00 PM to 6:00 PM · 1 hour each · 4 seats"
         ).wait_for()
         assert not saved.locator("[data-tour-hours-body]").is_visible()
         _capture(page, "saved")
+
+        # Changing a time saves it without a press; a reload shows it.
+        saved.locator("[data-tour-hours-edit]").click()
+        before = _saves(page)
+        saved.locator('select[name="hours-0-end_time"]').select_option("19:00")
+        _hours_saved_past(page, before + 1)
+        assert TourHours.objects.get().end_time == time(19)
+        page.reload()
+        page.locator("[data-tour-hours-summary]").first.get_by_text("Tuesday · 4:00 PM to 7:00 PM").wait_for()
+
+        # An overlapping row shows the clash on that row and is not saved.
+        page.locator("[data-tour-hours-add]").click()
+        clash = page.locator("[data-tour-hours-row]").nth(1)
+        clash.locator('select[name="hours-1-weekday"]').select_option("1")
+        clash.locator('select[name="hours-1-start_time"]').select_option("17:00")
+        clash.locator('select[name="hours-1-end_time"]').select_option("20:00")
+        clash.locator("[data-autosave-error]").get_by_text(
+            "These hours overlap your Tuesday hours, 4:00 PM to 7:00 PM. A guide gives one tour at a time."
+        ).wait_for()
+        page.locator('[data-tour-save-status="hours"]').get_by_text("Not saved").wait_for()
+        assert TourHours.objects.count() == 1
+        clash.locator("[data-tour-hours-remove]").click()
+        assert page.locator("[data-tour-hours-row]").count() == 1
 
         # Day off through the modal.
         page.locator("[data-tour-day-off-add]").click()
@@ -130,17 +179,97 @@ def describe_tour_hours_editor():
         page.set_viewport_size(DESKTOP)
         _set_drawer(page, is_open=True)
 
-        # Delete asks first, then saves the page without the row.
+        # Delete asks first, then saves the row away.
+        page.reload()
         saved = page.locator("[data-tour-hours-row]").first
         saved.locator("[data-tour-hours-edit]").click()
         saved.locator("[data-tour-hours-delete]").click()
         dialog = page.get_by_role("dialog").filter(has_text="Delete these tour hours?")
         dialog.wait_for(state="visible")
         assert TourHours.objects.exists()
-        with page.expect_navigation():
-            dialog.get_by_role("button", name="Delete", exact=True).click()
+        before = _saves(page)
+        dialog.get_by_role("button", name="Delete", exact=True).click()
+        _hours_saved_past(page, before + 1)
         page.locator("[data-tour-hours-empty]").wait_for()
+        assert page.locator("[data-tour-hours-row]").count() == 0
         assert not TourHours.objects.exists()
+
+
+def describe_stale_tab():
+    def it_saves_past_a_row_deleted_elsewhere_and_takes_it_off_the_page(live_server, page, login_via_code):
+        guide = _make_guide()
+        kept = TourHours.objects.create(
+            guide=guide,
+            weekday=TourHours.Weekday.TUESDAY,
+            start_time=time(16),
+            end_time=time(18),
+            tour_minutes=60,
+            seats=4,
+        )
+        gone = TourHours.objects.create(
+            guide=guide,
+            weekday=TourHours.Weekday.SATURDAY,
+            start_time=time(11),
+            end_time=time(13),
+            tour_minutes=60,
+            seats=4,
+        )
+        login_via_code(GUIDE_EMAIL)
+        page.set_viewport_size(DESKTOP)
+        page.goto(f"{live_server.url}{reverse('tours:hours')}")
+        assert page.locator("[data-tour-hours-row]").count() == 2
+        gone.delete()  # another tab, or an admin on ?guide=
+
+        row = page.locator("[data-tour-hours-row]").first
+        row.locator("[data-tour-hours-edit]").click()
+        before = _saves(page)
+        row.locator('select[name="hours-0-end_time"]').select_option("19:00")
+        _hours_saved_past(page, before + 1)
+        page.locator("text=deleted elsewhere >> visible=true").first.wait_for()
+        assert page.locator("[data-tour-hours-row]").count() == 1
+        assert TourHours.objects.get(pk=kept.pk).end_time == time(19)
+
+        # The next edit saves as usual: the gone row is never posted again.
+        before = _saves(page)
+        row.locator('select[name="hours-0-end_time"]').select_option("20:00")
+        _hours_saved_past(page, before + 1)
+        assert TourHours.objects.get(pk=kept.pk).end_time == time(20)
+
+
+def describe_tour_settings_autosave():
+    def it_says_not_saved_on_the_card_that_holds_the_error(live_server, page, login_via_code):
+        admin = _make_guide()
+        admin.fog_role = Member.FogRole.ADMIN
+        admin.save(update_fields=["fog_role"])
+        login_via_code(GUIDE_EMAIL)
+        page.set_viewport_size(DESKTOP)
+        page.goto(f"{live_server.url}{reverse('tours:settings')}")
+        page.wait_for_function("() => !!document.querySelector('[data-guild-autosave]').plGuildAutosave")
+        assert page.locator("[data-tour-noscript-save]").is_hidden()
+
+        # Bookings off with no closed message: refused, Not saved on Availability.
+        page.locator('input[name="closed_message"]').evaluate("(el) => { el.value = ''; }")
+        page.locator('[data-tour-settings-availability] input[name="accepting_bookings"]').evaluate(
+            "(el) => el.click()"
+        )
+        availability = page.locator('[data-tour-save-status="availability"]')
+        availability.get_by_text("Not saved").wait_for()
+        page.locator("[data-tour-settings-availability] [data-autosave-error]").wait_for()
+
+        # An edit on Booking posts the same form: still refused, and the pill stays where the reason is.
+        with page.expect_response(lambda r: r.request.method == "POST" and r.status == 422):
+            page.locator('input[name="booking_horizon_days"]').fill("45")
+            page.locator('input[name="booking_horizon_days"]').dispatch_event("change")
+        page.wait_for_function("() => document.querySelector('[data-guild-autosave]').plGuildAutosave.pending === 0")
+        availability.get_by_text("Not saved").wait_for()
+        assert page.locator('[data-tour-save-status="booking"]').is_hidden()
+        assert FacilityTourSettings.load().booking_horizon_days == 30
+
+        # Writing the message saves everything.
+        page.locator('input[name="closed_message"]').fill("Back in December.")
+        availability.get_by_text("Saved", exact=True).wait_for()
+        saved = FacilityTourSettings.load()
+        assert (saved.accepting_bookings, saved.booking_horizon_days) == (False, 45)
 
 
 #: ``CAPTURE_1160_DIR=<dir>`` saves the What's New shots (``step-1.png`` to ``step-3.png``, the

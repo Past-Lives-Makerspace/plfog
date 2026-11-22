@@ -15,7 +15,7 @@ from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.utils import timezone
 
-from tests.membership.factories import GuildFactory
+from membership.models import Guild
 
 _APP = "polls"
 _BEFORE = "0001_initial"
@@ -59,9 +59,11 @@ def describe_migration_0002_poll_guild():
             Poll = apps.get_model(_APP, "Poll")
             PollChoice = apps.get_model(_APP, "PollChoice")
             now = timezone.now()
-            # Only polls is rolled back, so the guild table keeps today's columns (#1153 added a
-            # required one the historical Guild model never knew): make the guild with today's model.
-            guild = GuildFactory(name="Zorblax Guild")
+            # The guild table keeps today's columns (#1153 added a required one the historical Guild
+            # model never knew), so the row is today's model; but rolling polls back also rolls back
+            # the classes migrations hanging off membership, so Guild.save(), which makes a Class
+            # Type and reads ClassOffering, must not run: bulk_create inserts the row alone.
+            (guild,) = Guild.objects.bulk_create([Guild(name="Zorblax Guild", slug="zorblax-guild")])
             guild_poll = Poll.objects.create(
                 question="Zorblax guild?", opens_at=now, closes_at=now + timedelta(days=7), guild_id=guild.pk
             )

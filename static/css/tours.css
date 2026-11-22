@@ -13,6 +13,26 @@
 .pl-tours-panel__title:has(+ .pl-tours-panel__intro) {
     margin-bottom: 0.25rem;
 }
+/* A card that saves itself (#1279): its title with the save pill on the right, on one line. */
+.pl-tours-panel__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    flex-wrap: wrap;
+    min-height: 1.75rem;
+    margin: 0 0 0.75rem;
+}
+.pl-tours-panel__head:has(+ .pl-tours-panel__intro) {
+    margin-bottom: 0.25rem;
+}
+.pl-tours-panel__head .pl-tours-panel__title {
+    margin: 0;
+}
+/* A refused row's error, which the autosave puts at the top of the row, clear of its summary line. */
+.pl-tours-row > .pl-field-errors {
+    margin: 0 0 0.5rem;
+}
 .pl-tours-panel__intro {
     margin: 0 0 1rem;
     font-size: 0.8125rem;
@@ -104,10 +124,6 @@
 }
 
 /* Save under the hours card, clear of the Days Off card below it. */
-.pl-tours-save-row {
-    margin-top: 1.5rem;
-}
-
 /* Days Off: one row per day or run of days, Delete on the right. */
 .pl-tours-days-off__list {
     list-style: none;
@@ -617,10 +633,6 @@
     font-size: 0.8125rem;
     max-width: 46rem;
 }
-.pl-tours-confirm__save {
-    margin-top: 1.5rem;
-}
-
 @media (max-width: 480px) {
     .pl-tours-confirm {
         display: flex;

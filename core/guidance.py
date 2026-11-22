@@ -473,6 +473,19 @@ _GUIDANCE_LIST = (
             "If you help run more than one guild, pick the guild at the top of the page.",
         ),
     ),
+    # Discord settings (#1270): the role ids the portal keeps in step, on Site Settings' Discord tab.
+    Guidance(
+        key="admin.discord-settings",
+        title="Discord Settings",
+        url_name="hub_admin_site_settings",
+        query={"tab": "discord"},
+        steps=(
+            "Open Site Settings from Admin Tools and press the Discord tab.",
+            "Under Guild-Role Sync Connection, paste each Discord role id the portal should keep in step. Blank turns that role off.",
+            "Under Guild → Discord Role, each guild lists the role ids its members get when they join.",
+        ),
+        target="admin.discord-role-ids",
+    ),
     Guidance(
         key="admin.payment-report",
         title="Payment Report",
