@@ -4,13 +4,17 @@ line summary with an Edit button (FRONTEND rule 25), the equipment Opening Hours
 
 Parameters:
   row   — required, one TourHoursForm (or the formset's empty_form for the + Add hours template)
-  open  — True starts the row expanded (a new row, or one with errors after a failed save)
-  saved — True for a row already in the database: Delete confirms, then flips its hidden DELETE and saves the page
+  open  — True starts the row expanded (a new row, or one with errors after a refused save)
+  saved — True for a row already in the database: Delete, where a new row has Remove
 
-The fields stay in the DOM while collapsed (x-show), so Save posts every row. plTourHoursRow
-(tours/hours.html) rebuilds the summary from the row's own controls as they change.
+The row saves itself (#1279, the formset contract in FRONTEND.md): a data-formset-row whose Delete
+and Remove are data-formset-remove, so the autosave confirms a saved row's Delete (hours.html's one
+tour-hours-delete confirm), flips its hidden DELETE and saves, and drops a never saved row. The
+fields stay in the DOM while collapsed (x-show), so every post carries every row. plTourHoursRow
+(tours/hours.html) rebuilds the summary from the row's own controls as they change, and opens the
+row when the autosave puts an error in it (pl-autosave-error).
 {% endcomment %}
-<div class="hub-card pl-tours-row" x-data="plTourHoursRow({{ open|yesno:'true,false' }})" @change="refresh()" data-tour-hours-row>
+<div class="hub-card pl-tours-row" x-data="plTourHoursRow({{ open|yesno:'true,false' }})" @change="refresh()" @pl-autosave-error="editing = true" data-tour-hours-row data-formset-row>
   <div class="pl-tours-row__summary">
     <span class="pl-tours-row__text" x-text="summary" data-tour-hours-summary>{% if saved %}{{ row.summary }}{% endif %}</span>
     <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="editing = !editing" :aria-expanded="editing ? 'true' : 'false'" :aria-label="(editing ? 'Done editing ' : 'Edit ') + summary" x-text="editing ? 'Done' : 'Edit'" data-tour-hours-edit>Edit</button>
@@ -27,12 +31,9 @@ The fields stay in the DOM while collapsed (x-show), so Save posts every row. pl
     </div>
     <div hidden>{{ row.DELETE }}</div>
     {% if saved %}
-    {% with pks=row.instance.pk|stringformat:"s" delete_js="document.getElementById('"|add:row.DELETE.id_for_label|add:"').checked = true; document.getElementById('tour-hours-form').requestSubmit();" %}
-    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" @click="$dispatch('open-confirm', 'tour-hours-del-{{ pks }}')" data-tour-hours-delete>Delete</button>
-    {% include "components/confirm_modal.html" with confirm_id="tour-hours-del-"|add:pks confirm_title="Delete these tour hours?" confirm_message="Visitors can no longer book these times. Tours already booked stay booked." confirm_button_text="Delete" confirm_js=delete_js %}
-    {% endwith %}
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-tour-hours-delete data-formset-remove>Delete</button>
     {% else %}
-    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" onclick="this.closest('[data-tour-hours-row]').remove();" data-tour-hours-remove>Remove</button>
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-tour-hours-remove data-formset-remove>Remove</button>
     {% endif %}
   </div>
 </div>

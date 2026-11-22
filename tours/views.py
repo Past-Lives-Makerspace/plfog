@@ -35,6 +35,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from core.htmx import wants_fragment
+from hub.autosave import autosave_refused, autosave_saved, formset_rows, wants_autosave
 from hub.calendar_pages import calendar_nav_params
 from hub.toast import trigger_toast
 from hub.view_as import ROLE_ADMIN, fog_admin_required, tour_guide_access_required
@@ -285,8 +286,12 @@ def tour_hours(request: HttpRequest) -> HttpResponse:
 def tour_hours_save(request: HttpRequest) -> HttpResponse:
     """Save one guide's whole set of hours rows (adds, edits and deletes in one POST).
 
-    The posted ``guide`` is checked before the formset is read. Valid: a flash and a redirect
-    back to the tab. Invalid: the tab again with each row's errors, its rows open.
+    The posted ``guide`` is checked before the formset is read. The Every Week card saves itself
+    as it is edited (#1279, ``hub.autosave``): its posts answer JSON, each row's pk in posted
+    order or a 422 with every error keyed by field name (an overlap on its row); a row deleted
+    elsewhere since the page loaded is skipped, named under ``gone`` and toasted. Without the
+    script, valid is a flash and a redirect back to the tab, invalid the tab again with each
+    row's errors, its rows open.
     """
     target = _target_guide(request, request.POST.get("guide", ""))
     formset = _hours_formset(target, request.POST)
@@ -297,6 +302,17 @@ def tour_hours_save(request: HttpRequest) -> HttpResponse:
         saved = formset.is_valid()
         if saved:
             formset.save()
+    if wants_autosave(request):
+        if not saved:
+            return autosave_refused(formset)
+        gone = formset.gone_rows
+        response = autosave_saved({HOURS_PREFIX: formset_rows(formset)}, gone={HOURS_PREFIX: gone} if gone else None)
+        if gone:
+            # Deleted elsewhere (another tab, an admin on ?guide=): the rest saved, the page drops it.
+            trigger_toast(
+                response, "Some of these hours were deleted elsewhere, so they are gone from this page.", "info"
+            )
+        return response
     if not saved:
         return _render_hours(request, target, formset=formset, hours_refused=True)
     messages.success(request, "Tour hours saved.")
@@ -306,14 +322,22 @@ def tour_hours_save(request: HttpRequest) -> HttpResponse:
 @tour_guide_access_required
 @require_POST
 def tour_confirm_mode_save(request: HttpRequest) -> HttpResponse:
-    """Save whether the guide's bookings wait for their Confirm (#1166): the Confirming Bookings card."""
+    """Save whether the guide's bookings wait for their Confirm (#1166): the Confirming Bookings card.
+
+    The card saves itself as it is edited (#1279): an autosave post answers JSON, a refusal a 422
+    under the field. Without the script, a flash and a redirect back to the tab.
+    """
     target = _target_guide(request, request.POST.get("guide", ""))
     instance = TourGuideSettings.objects.filter(guide=target).first() or TourGuideSettings(guide=target)
     form = TourConfirmModeForm(request.POST, instance=instance)
     if not form.is_valid():
+        if wants_autosave(request):
+            return autosave_refused(form)
         messages.error(request, str(next(iter(form.errors.values()))[0]))
         return redirect(_hours_url(_viewer(request), target))
     saved = form.save()
+    if wants_autosave(request):
+        return autosave_saved()
     messages.success(request, f"Saved. {saved.summary}")
     return redirect(_hours_url(_viewer(request), target))
 
@@ -397,13 +421,23 @@ def tour_dates_delete(request: HttpRequest, pk: int) -> HttpResponse:
 @fog_admin_required
 def tour_settings(request: HttpRequest) -> HttpResponse:
     """The Tours page's Settings tab (admins only): the front desk kiosk link (#950), then horizon,
-    notice, cutoff, defaults and the bookings switch."""
+    notice, cutoff, defaults and the bookings switch.
+
+    Tour Settings save themselves as they are edited (#1279): an autosave post answers JSON, a
+    refusal a 422 under the field, which leaves every stored value as it was. Without the
+    script, a flash and a redirect, or the tab again with the errors.
+    """
     instance = FacilityTourSettings.load()
     form = FacilityTourSettingsForm(request.POST or None, instance=instance)
-    if request.method == "POST" and form.is_valid():
-        form.save()
-        messages.success(request, "Tour Settings saved.")
-        return redirect("tours:settings")
+    if request.method == "POST":
+        if form.is_valid():
+            form.save()
+            if wants_autosave(request):
+                return autosave_saved()
+            messages.success(request, "Tour Settings saved.")
+            return redirect("tours:settings")
+        if wants_autosave(request):
+            return autosave_refused(form)
     return render(request, "tours/settings.html", {"form": form, "kiosk_url": _kiosk_url(instance), **_setup(request)})
 
 
@@ -509,16 +543,23 @@ def tour_google_callback(request: HttpRequest) -> HttpResponse:
 @tour_guide_access_required
 @require_POST
 def tour_google_calendar(request: HttpRequest) -> HttpResponse:
-    """Pick which of the guide's own calendars tours are written to; their upcoming tours move there."""
+    """Pick which of the guide's own calendars tours are written to; their upcoming tours move there.
+
+    The picker saves on change (#1279): an autosave post answers JSON, a refusal a 422 under it.
+    """
     connection = get_object_or_404(
         TourCalendarConnection, guide=_viewer(request), status=TourCalendarConnection.Status.CONNECTED
     )
     form = TourCalendarChoiceForm(request.POST, connection=connection)
     if not form.is_valid():
+        if wants_autosave(request):
+            return autosave_refused(form)
         messages.error(request, "Pick one of your calendars from the list.")
         return redirect("tours:hours")
     if form.cleaned_data["calendar"] != connection.calendar_id:
         calendar_sync.choose_calendar(connection, form.cleaned_data["calendar"])
+    if wants_autosave(request):
+        return autosave_saved()
     messages.success(request, f"Tours will be written to {connection.calendar_label}.")
     return redirect("tours:hours")
 
