@@ -265,7 +265,8 @@ def describe_guild_tools():
             body = client.get(_TOOLS).content.decode()
             assert _sidebar_label(body) == "Admin Tools"
             assert _page_title(body) == "Admin Tools"
-            assert _sections(client) == [("classes", "Classes", ["Email Members", "My Classes", "Registrations"])]
+            # A profile without the teaching grant reaches the composer but not the portal (#1291).
+            assert _sections(client) == [("classes", "Classes", ["Email Members"])]
 
     def describe_an_instructor_who_is_guild_staff():
         def it_sees_guild_tools(client: Client):

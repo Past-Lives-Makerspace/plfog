@@ -469,13 +469,24 @@ def describe_admin_tools_activity_link():
         )
         return user
 
-    def it_appears_on_the_admin_tools_page_for_admins(client):
+    def it_appears_on_the_admin_tools_page_for_a_webmaster_admin(client):
+        from membership.models import AdminCapability, Member
+
+        user = _member(Member.FogRole.ADMIN)
+        user.member.admin_capabilities.create(capability=AdminCapability.Capability.WEBMASTER)  # type: ignore[attr-defined]
+        client.force_login(user)
+        resp = client.get(reverse("hub_admin_tools"))
+        assert resp.status_code == 200
+        assert reverse("manage_activity").encode() in resp.content
+
+    def it_is_off_the_page_for_an_admin_without_webmaster(client):
+        # #1291: the Activity Log tile is a Webmaster tile; the page itself keeps its own gate.
         from membership.models import Member
 
         client.force_login(_member(Member.FogRole.ADMIN))
         resp = client.get(reverse("hub_admin_tools"))
         assert resp.status_code == 200
-        assert reverse("manage_activity").encode() in resp.content
+        assert reverse("manage_activity").encode() not in resp.content
 
     def it_is_hidden_from_non_admins(client):
         from membership.models import Member

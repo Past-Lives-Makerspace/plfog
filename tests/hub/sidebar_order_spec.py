@@ -247,12 +247,16 @@ def _webmaster() -> User:
 
 def _lead_who_teaches() -> User:
     user = _lead()
-    Member.objects.filter(user=user).update(instructor_slug="order-lead-teaches")
+    Member.objects.filter(user=user).update(
+        instructor_slug="order-lead-teaches", instructor_oriented_at=timezone.now() - timedelta(days=1)
+    )
     return user
 
 
 def _teaches() -> User:
-    return _member("order_teaches", instructor_slug="order-teaches")
+    return _member(
+        "order_teaches", instructor_slug="order-teaches", instructor_oriented_at=timezone.now() - timedelta(days=1)
+    )
 
 
 def describe_the_tools_page_order():

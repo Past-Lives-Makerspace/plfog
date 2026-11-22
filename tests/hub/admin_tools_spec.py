@@ -12,10 +12,12 @@ import re
 
 import pytest
 from django.contrib.auth.models import User
+from django.utils import timezone
 from django.test import Client
 from django.urls import reverse
 
 from membership.models import AdminCapability, Member
+from classes.factories import CategoryFactory, ClassOfferingFactory
 from hub.views import ADMIN_TOOL_SECTIONS, ToolCard, admin_tool_sections
 from tests.membership.factories import GuildFactory
 
@@ -70,9 +72,18 @@ def _login_webmaster(client: Client, username: str = "webmaster") -> User:
     return user
 
 
+def _grant_teaching(user: User) -> None:
+    """An ACTIVE member with a profile and the teaching grant, what the teaching portal's gate admits."""
+    Member.objects.filter(user=user).update(
+        instructor_slug=user.username,
+        instructor_oriented_at=timezone.now(),
+        status=Member.Status.ACTIVE,
+    )
+
+
 def _login_instructor(client: Client, username: str = "instructor") -> User:
     user = _login_user(client, username)
-    Member.objects.filter(user=user).update(instructor_slug=username)
+    _grant_teaching(user)
     return user
 
 
@@ -381,9 +392,32 @@ def describe_admin_tools_sections():
 
     def it_gives_a_guild_lead_who_teaches_their_guild_then_classes(client: Client):
         user = _login_guild_lead(client, "sections_lead_teacher")
-        Member.objects.filter(user=user).update(instructor_slug="sections-lead-teacher")
+        _grant_teaching(user)
         guild_name = user.member.led_guilds.get().name  # type: ignore[attr-defined]
         assert _sections(client) == [("guild", guild_name, _GUILD_CARDS), _CLASSES_SECTION]
+
+    def it_gives_a_revoked_instructor_email_members_without_the_portal_tiles(client: Client):
+        # Revoking teaching keeps the profile slug, which still reaches the composer, but the portal 302s away.
+        user = _login_instructor(client, "sections_revoked")
+        Member.objects.filter(user=user).update(instructor_oriented_at=None)
+        assert _sections(client) == [("classes", "Classes", ["Email Members"])]
+
+    def it_gives_a_guild_lead_named_on_a_class_without_the_grant_no_portal_tiles(client: Client):
+        user = _login_guild_lead(client, "sections_lead_named")
+        Member.objects.filter(user=user).update(status=Member.Status.ACTIVE)
+        ClassOfferingFactory(
+            category=CategoryFactory(guild=user.member.led_guilds.get()),  # type: ignore[attr-defined]
+            instructor=user.member,  # type: ignore[attr-defined]
+        )
+        grid = _tools_grid(client)
+        assert "data-tool-my-classes" not in grid
+        assert "data-tool-teach-registrations" not in grid
+
+    def it_gives_an_invited_member_with_the_grant_email_members_without_the_portal_tiles(client: Client):
+        # The portal admits only ACTIVE members; an invited one still reaches this page as an instructor.
+        user = _login_instructor(client, "sections_invited")
+        Member.objects.filter(user=user).update(status=Member.Status.INVITED)
+        assert _sections(client) == [("classes", "Classes", ["Email Members"])]
 
     def it_links_the_classes_cards_to_the_teaching_pages(client: Client):
         _login_instructor(client, "sections_instructor_links")

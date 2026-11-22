@@ -457,7 +457,7 @@ _GUIDANCE_LIST = (
         steps=(
             "Admins open All Classes from Admin Tools. A guild lead or Class Reviewer presses Review in the review email, or under Needs Attention on Guild Settings.",
             "Approve, request changes or deny each class waiting on you. A request for changes starts a conversation with the instructors.",
-            "One email at 8 AM lists every class still waiting on you. A class waiting 3 days or more shows in red on Manage Classes and on Home for admins.",
+            "One email at 8 AM lists every class still waiting on you. A class waiting 3 days or more shows in red on All Classes and on Home for admins.",
         ),
     ),
     # Admin and guild tools
@@ -469,7 +469,7 @@ _GUIDANCE_LIST = (
         tour="admin",
         steps=(
             "Open Admin Tools, or Guild Tools if you help run a guild, from the sidebar.",
-            "Cards are grouped into Manage, Tools, Reports and Webmaster. You see only the cards you can use.",
+            "Cards are grouped into Admin, Webmaster, your guild and Classes, each in A to Z order. You see only the groups and cards you can use.",
             "If you help run more than one guild, pick the guild at the top of the page.",
         ),
     ),
@@ -480,7 +480,7 @@ _GUIDANCE_LIST = (
         url_name="hub_admin_site_settings",
         query={"tab": "discord"},
         steps=(
-            "Open Site Settings from Admin Tools and press the Discord tab.",
+            "Open Site Settings from Admin Tools, under Webmaster, and press the Discord tab.",
             "Under Guild-Role Sync Connection, paste each Discord role id the portal should keep in step. Blank turns that role off.",
             "Under Guild → Discord Role, each guild lists the role ids its members get when they join.",
         ),
@@ -512,7 +512,7 @@ _GUIDANCE_LIST = (
         url_name="hub_announcements",
         help_key="announcements.compose",
         steps=(
-            "Open Email Members from Admin Tools or Guild Tools, or the Email Members button on a guild page.",
+            "Guild leads and staff open Email Members from their guild's group on Guild Tools, instructors from Classes on the same page, and admins, leads and staff from the Email Members button on a guild page.",
             "Write one email for a class, a guild, the guild leads, all instructors or everyone, with one image under the message if you like. It also sends an app notification and, for a guild or everyone, a Discord post.",
             "For a guild, turn off Push notification, Email and Post to Discord to post it only at the top of the guild page. Nobody is notified.",
             "Instructors can pick My Past Students to email everyone who took any of their classes.",

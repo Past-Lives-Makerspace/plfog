@@ -5918,7 +5918,8 @@ class ToolCard(NamedTuple):
 # - "admin": admins; a Billing Administrator alone gets Payments and Reports, a Calendar Administrator alone Events.
 # - "webmaster": only an admin holding the Webmaster capability. Tile visibility only: each page keeps its own gate.
 # - "guild": one guild's cards under that guild's name, for its lead or staff who is not viewing as an admin (#921).
-# - "classes": whoever teaches, by the test :func:`_can_compose` uses (the profile flag or a class they teach).
+# - "classes": Email Members for whoever teaches, by the test :func:`_can_compose` uses (the profile flag or a class
+#   they teach); My Classes and Registrations only with the teaching portal's own gate, granted and ACTIVE.
 ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[ToolCard, ...]], ...] = (
     (
         "admin",
@@ -5973,8 +5974,8 @@ ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[ToolCard, ...]], ...] = (
         "classes",
         (
             ToolCard("classes_announcements", "Email Members", "tool_teaching"),
-            ToolCard("my_classes", "My Classes", "tool_teaching"),
-            ToolCard("teach_registrations", "Registrations", "tool_teaching"),
+            ToolCard("my_classes", "My Classes", "tool_teaching_portal"),
+            ToolCard("teach_registrations", "Registrations", "tool_teaching_portal"),
         ),
     ),
 )
@@ -6016,17 +6017,17 @@ def _guild_cubby_counts(guild: Guild) -> dict[str, int]:
 def hub_admin_tools(request: HttpRequest) -> HttpResponse:
     """The tools page: Admin Tools for an admin, Guild Tools for anyone else who runs a guild (#921).
 
-    Its cards are grouped into Manage, Tools, Reports and Webmaster (#912), and Guild Tools adds a
-    section for one guild the viewer runs (``?guild=<pk>`` picks it, :class:`GuildToolsGuilds`).
-    Open to whoever :func:`_tools_page_title` names it for (admin, lead or staff,
-    instructor, Billing or Calendar Administrator); each card shows only to whoever can use it,
-    and a section with no card it may open is not rendered. View as aware for actual admins: an
-    admin previewing as a plain member is bounced home, and others with no tool are too.
+    Its cards sit in four sections (#1291, :data:`ADMIN_TOOL_SECTIONS`): Admin, Webmaster (an admin
+    holding the Webmaster capability), one guild the viewer runs (``?guild=<pk>`` picks it,
+    :class:`GuildToolsGuilds`) and Classes; a viewer sees every section they qualify for. Open to
+    whoever :func:`_tools_page_title` names it for (admin, lead or staff, instructor, Billing or
+    Calendar Administrator); each card shows only to whoever can use it, and a section with no card
+    it may open is not rendered. View as aware for actual admins: an admin previewing as a plain
+    member is bounced home, and others with no tool are too.
 
-    In Guild Tools the Orientations card is the Reports section's Orientation Bookings (the
-    Orientations page's Bookings tab, scoped to what the viewer runs, with its CSV export), and
-    Registrations joins Reports while a guild they run has a class: both already scoped, so
-    nothing site wide is offered that the viewer could not open before.
+    The guild section's Orientation Bookings (the Orientations page's Bookings tab, scoped to what
+    the viewer runs, with its CSV export) and Registrations (while a guild they run has a class)
+    are already scoped, so nothing site wide is offered that the viewer could not open before.
     """
     from classes.models import ClassOffering
     from hub.guild_tools import GUILD_TOOLS_TITLE, GuildToolsGuilds
@@ -6080,11 +6081,15 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
         "tool_mailing_lists": tool_guild,
         "tool_orientation_bookings": tool_guild,
         "tool_registrations": guild_tools is not None
-        and tool_guild
         and ClassOffering.objects.filter(category__guild__in=guild_tools.guilds).exists(),
-        # Classes (#1291): whoever teaches, by the test _can_compose uses; an admin who teaches gets it too.
+        # Classes (#1291): Email Members for whoever teaches, by the test _can_compose uses; an admin who teaches too.
         "tool_teaching": member is not None
         and (member.is_instructor or _compose_editable_classes(request, member).exists()),
+        # My Classes and Registrations open the teaching portal, so they follow its gate (teaching_member_required):
+        # an ACTIVE member granted teaching. A revoked instructor keeps a profile slug but not these tiles.
+        "tool_teaching_portal": member is not None
+        and member.status == Member.Status.ACTIVE
+        and member.can_create_classes,
     }
     ctx = _get_hub_context(request)
     return render(
