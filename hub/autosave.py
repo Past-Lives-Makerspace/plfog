@@ -6,7 +6,8 @@ browser without the script and answers the header with JSON instead:
 
 - a valid save is ``{"saved": true, "rows": {"<prefix>": [pk | null, ...]}}``, one pk per
   formset row in posted order so the script can stamp a new row's hidden ``id`` and never
-  post it as new again;
+  post it as new again, and ``"gone": {"<prefix>": [index, ...]}`` for rows deleted elsewhere,
+  which the script removes;
 - a refused save is a 422 ``{"errors": {"<html field name>": [...]}}`` plus the error toast
   the leadership editor's ``_refused`` sets in ``HX-Trigger``, keyed the way the inputs are
   named (``faq-2-question``), with a row's own errors under ``<prefix>-<i>-__all__``, a plain
@@ -26,9 +27,18 @@ def wants_autosave(request: HttpRequest) -> bool:
     return request.headers.get("X-Autosave") == "1"
 
 
-def autosave_saved(rows: dict[str, list[int | None]] | None = None) -> JsonResponse:
-    """The 200 for a save that landed, with each formset's row pks in posted order."""
-    return JsonResponse({"saved": True, "rows": rows or {}})
+def autosave_saved(
+    rows: dict[str, list[int | None]] | None = None, gone: dict[str, list[int]] | None = None
+) -> JsonResponse:
+    """The 200 for a save that landed, with each formset's row pks in posted order.
+
+    ``gone`` names, per formset, the posted indices of rows deleted elsewhere since the page
+    loaded (the Tours page, #1279): the script takes them off the page. Left out when there are none.
+    """
+    body: dict[str, object] = {"saved": True, "rows": rows or {}}
+    if gone:
+        body["gone"] = gone
+    return JsonResponse(body)
 
 
 def _is_deleted(formset: BaseFormSet, form: BaseForm) -> bool:

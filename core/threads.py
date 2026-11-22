@@ -175,6 +175,11 @@ class ThreadMessage(models.Model):
         return (user_display_name(self.author) if self.author is not None else "") or self.staff_signature
 
     @property
+    def thread_marker(self) -> str:
+        """A second tag beside the author line (a tour note's "Emailed to the visitor", #1274), or "" for none."""
+        return ""
+
+    @property
     def shows_staff_tag(self) -> bool:
         """A staff message signed with a person's name carries the signature as a tag; the signature alone does not."""
         return self.is_from_staff and self.author_name != self.staff_signature

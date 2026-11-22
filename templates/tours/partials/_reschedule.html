@@ -1,8 +1,8 @@
 {% comment %}
-The Reschedule modal's body on the Upcoming tab (#949, tours.views.tour_booking_reschedule). The
-visitor's date strip and times (tours.picker.build_picker) as htmx buttons that reload this body:
-an admin first picks whose tours (moving to another guide reassigns the tour), a guide sees only
-their own. No minimum notice and no cancel cutoff for staff: any open tour with room for the party
+The Edit Tour modal's body on the Upcoming tab (#949; the guide picker for everyone who may act since
+#1274, tours.views.tour_booking_reschedule). The visitor's date strip and times (tours.picker.build_picker)
+as htmx buttons that reload this body: first whose tours (moving to another guide reassigns the tour,
+whether its own guide or an admin moves it), then the time. No minimum notice and no cancel cutoff for staff: any open tour with room for the party
 that has not started. Picking a time shows the confirm with the optional message to the visitor.
 
 Context: booking, when, destination (whose tours), is_admin, move_guides, picker, chosen,
@@ -11,7 +11,7 @@ chosen_when, form (a StaffRescheduleForm while a time is chosen), error, move_ur
 <div class="pl-tours-move" data-tour-move="{{ booking.pk }}">
   <p class="pl-form-note pl-tours-modal-lead">{{ booking.visitor_name }}, {{ booking.party_label }}. Now {{ when }}{% if booking.guide %} with {{ booking.guide.staff_label }}{% endif %}.</p>
 
-  {% if is_admin %}
+  {% if move_guides %}
   <div class="pl-form-group pl-tours-move__guide">
     <label for="tour-move-guide-{{ booking.pk }}" class="pl-form-label">Guide</label>
     <select id="tour-move-guide-{{ booking.pk }}" name="guide" class="pl-tours-input--text"
@@ -73,6 +73,6 @@ chosen_when, form (a StaffRescheduleForm while a time is chosen), error, move_ur
     </ul>
   </section>
   {% else %}
-  <p class="hub-text-muted pl-tours-move__empty" data-tour-move-empty>{% if destination.pk == booking.guide_id or not is_admin %}No other open times have room for this party.{% else %}{{ destination.staff_label }} has no open times with room for this party.{% endif %} Add tour hours on My Hours{% if is_admin %}, or pick another guide{% endif %}.</p>
+  <p class="hub-text-muted pl-tours-move__empty" data-tour-move-empty>{% if destination.pk == booking.guide_id %}No other open times have room for this party.{% else %}{{ destination.staff_label }} has no open times with room for this party.{% endif %} Add tour hours on My Hours, or pick another guide.</p>
   {% endif %}
 </div>

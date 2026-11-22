@@ -569,6 +569,7 @@ TOUR_BOOKED = "tour.booked"  # a visitor booked one of your facility tours (#948
 TOUR_VISITOR_CHANGED = "tour.visitor_changed"  # a visitor moved or cancelled your tour from their email (#948)
 TOUR_VISITOR_UPDATE = "tour.visitor_update"  # the visitor's own tour emails, by address only (#948)
 TOUR_CHECKED_IN = "tour.checked_in"  # your visitor checked in at the front desk kiosk (#950)
+TOUR_NOTE_ADDED = "tour.note_added"  # someone wrote a note on one of your tours, or one you wrote on (#1274)
 CUBBIES_RENTED = "cubbies.rented"  # your cubby rental is active (#978)
 CUBBIES_PAYMENT_FAILED = "cubbies.payment_failed"  # a monthly cubby charge failed, once per invoice (#978)
 CUBBIES_RENTAL_ENDED = "cubbies.rental_ended"  # your cubby rental ended and the cubby is free (#978)
@@ -1723,6 +1724,19 @@ _NEW_EVENTS: list[EventType] = [
         key=TOUR_CHECKED_IN,
         label="Your tour is here",
         description="A visitor checked in at the front desk for one of your facility tours.",
+        category="Tours",
+        recipient=Recipients.TOUR_GUIDES,
+        channels=(_IN_APP_ON,),
+        activity_kind=None,
+    ),
+    # tour.note_added: a Tour Guide or an admin wrote a note on a booking (#1274). Goes to the tour's
+    # guide (or the admins when it has none) and everyone else who wrote a note on it, minus the
+    # author; the sender passes that set (TourBookingNote.staff_user_ids). Bell only: the note is
+    # read on the Tours page. The period is the note.
+    EventType(
+        key=TOUR_NOTE_ADDED,
+        label="Notes on tours",
+        description="Someone wrote a note on one of your facility tours, or on one you wrote a note on.",
         category="Tours",
         recipient=Recipients.TOUR_GUIDES,
         channels=(_IN_APP_ON,),

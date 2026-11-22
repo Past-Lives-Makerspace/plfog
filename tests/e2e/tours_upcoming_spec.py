@@ -89,6 +89,11 @@ def _settled(page, selector: str) -> None:
     page.wait_for_function("() => !document.querySelector('.htmx-settling, .htmx-swapping, .htmx-request')")
 
 
+def _open_row_menu(page, pk: int) -> None:
+    """Open the "..." menu of one Tours table row (#1274), where its actions live."""
+    page.locator(f'[data-tour-booking="{pk}"] .pl-row-menu__trigger').click()
+
+
 def _no_sideways_scroll(page) -> None:
     page.set_viewport_size(PHONE)
     _set_drawer(page, is_open=False)
@@ -148,6 +153,7 @@ def describe_tours_upcoming_and_past():
         _no_sideways_scroll(page)
 
         # Reschedule Sam from 4:00 to 5:00 through the modal.
+        _open_row_menu(page, sam.pk)
         page.locator(f'[data-tour-reschedule="{sam.pk}"]').click()
         modal = page.locator("#tour-reschedule-body")
         _settled(page, f'#tour-reschedule-body [data-tour-move-time="{_key(guide, five)}"]')
@@ -166,6 +172,7 @@ def describe_tours_upcoming_and_past():
         assert any(message.to == ["sam@example.com"] and "Our 4:00 ran long" in message.body for message in mail.outbox)
 
         # Cancel Lee through the confirm modal, with a message.
+        _open_row_menu(page, lee.pk)
         page.locator(f'[data-tour-cancel="{lee.pk}"]').click()
         dialog = page.get_by_role("dialog").filter(has_text="Cancel This Tour?")
         dialog.wait_for(state="visible")
@@ -189,6 +196,7 @@ def describe_tours_upcoming_and_past():
         row = page.locator(f'[data-tour-booking="{pat.pk}"]')
         row.wait_for()
         _capture(page, "past")
+        _open_row_menu(page, pat.pk)
         _settled(page, f'[data-tour-booking="{pat.pk}"] [data-tour-mark="attended"]')
         row.locator('[data-tour-mark="attended"]').click()
         page.locator(f'[data-tour-booking="{pat.pk}"] [data-tour-booking-status="attended"]').wait_for()
@@ -250,6 +258,7 @@ def describe_admin_view():
         _no_sideways_scroll(page)
 
         # The modal's guide picker shows Olive's times; picking one reassigns Sam to her.
+        _open_row_menu(page, sam.pk)
         page.locator(f'[data-tour-reschedule="{sam.pk}"]').click()
         modal = page.locator("#tour-reschedule-body")
         _settled(page, "#tour-reschedule-body [data-tour-move-guide]")

@@ -1,58 +1,40 @@
 {% comment %}
-One booking on the Tours page's Upcoming or Past tab (#949): when, status, the visitor with their
-party, email and phone (tap to mail or call), the guide and how it was booked, then the row's
-actions. Upcoming: Reschedule (loads the modal's body) and Cancel Tour (a confirm with an optional
-message to the visitor). A request (#1166) carries Confirm and Decline (a confirm with an optional
-message) instead, for the tour's own guide only (#1166, AC10: admins see it, never answer it), with its
-confirm by time, and for a No preference request (#1255, booking.shared_with) the other guides it went to; its id is the anchor the guide's request email and bell link to. Past: Attended
-and No Show, either changeable, posted over htmx so the row comes back in its new state
-(tours.views.tour_booking_mark).
+One booking in the Tours page's Upcoming or Past table (#949, a table row since #1274): when, the visitor
+with their party, email and phone (tap to mail or call), the guide ("You" for the viewer's own), the
+status with a request's confirm by time (#1166), the guides a No preference request also went to
+(#1255, booking.shared_with), a kiosk check in and the note count, then the "..." menu
+(partials/_booking_menu.html). Its id is the anchor the guide's request email, the bells and the
+Calendar tab link to. Past rows come back from tours.views.tour_booking_mark over htmx in their new state.
 
-Context: booking, tab ("upcoming" or "past"), is_admin, viewer_pk (the viewer's member pk).
+The visitor's email and phone go only to the tour's own guide and admins (Felix, #1274:
+booking.can_see_contact); any other Tour Guide gets the row without them.
+
+Context: booking (stamped can_act, can_answer and can_see_contact by tours.views._with_row_rights, note_count annotated),
+tab ("upcoming" or "past"), is_admin, viewer_pk (the viewer's member pk).
 {% endcomment %}
-{% with pks=booking.pk|stringformat:"s" %}
-<li class="hub-card pl-tours-booking{% if booking.is_request %} pl-tours-booking--request{% endif %}" id="tour-booking-{{ booking.pk }}" data-tour-booking="{{ booking.pk }}">
-  <div class="pl-tours-booking__head">
-    <span class="pl-tours-booking__when" data-tour-booking-when>{{ booking.starts_at|date:"D, M j" }} · {{ booking.starts_at|time:"g:i A" }} to {{ booking.ends_at|time:"g:i A" }}</span>
-    <span class="pl-status-badge pl-status-badge--{{ booking.status_badge }}" data-tour-booking-status="{{ booking.status }}">{% if tab == "past" and booking.status == "booked" %}Not Marked{% else %}{{ booking.get_status_display }}{% endif %}</span>
-  </div>
-  <p class="pl-tours-booking__visitor"><span class="pl-tours-booking__name">{{ booking.visitor_name }}</span> · {{ booking.party_label }}</p>
-  <p class="pl-tours-booking__contact">
-    <a href="mailto:{{ booking.visitor_email }}" data-tour-booking-email>{{ booking.visitor_email }}</a>{% if booking.visitor_phone %}<span class="pl-tours-booking__sep" aria-hidden="true">·</span><a href="tel:{{ booking.visitor_phone_href }}" data-tour-booking-phone>{{ booking.visitor_phone }}</a>{% endif %}
-  </p>
-  <p class="hub-text-muted pl-tours-booking__meta">{% if booking.guide %}Guide: {{ booking.guide.staff_label }}{% else %}No guide assigned{% endif %} · Booked on the {{ booking.get_source_display|lower }}{% if booking.checked_in_at %} · <span data-tour-booking-checked-in>Checked in at {{ booking.checked_in_at|time:"g:i A" }}</span>{% endif %}</p>
-  {% if tab == "upcoming" and booking.is_request %}
-  <p class="pl-tours-booking__confirm-by" data-tour-confirm-by>Confirm by {{ booking.confirm_by|date:"D, M j" }}, {{ booking.confirm_by|time:"g:i A" }}{% if booking.guide_id != viewer_pk %} · Only {{ booking.guide.staff_label|default:"its guide" }} can confirm or decline it{% endif %}</p>
-  {% if booking.shared_with %}<p class="hub-text-muted pl-tours-booking__shared" data-tour-shared-with>No preference: also sent to {{ booking.shared_with|join:", " }}. Whoever confirms first gets the tour.</p>{% endif %}
-  {% endif %}
-  {% if tab == "upcoming" and booking.is_request and booking.guide_id == viewer_pk %}
-  <div class="pl-tours-booking__actions">
-    <form method="post" action="{% url 'tours:booking_confirm' booking.pk %}" hx-post="{% url 'tours:booking_confirm' booking.pk %}">
-      {% csrf_token %}
-      <button type="submit" class="pl-btn pl-btn--primary pl-btn--sm" data-tour-confirm="{{ booking.pk }}">Confirm</button>
-    </form>
-    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'tour-decline-{{ pks }}')" data-tour-decline="{{ booking.pk }}">Decline</button>
-  </div>
-  {% url 'tours:booking_decline' booking.pk as decline_url %}
-  {% if booking.shared_with %}{% include "components/confirm_modal.html" with confirm_id="tour-decline-"|add:pks confirm_title="Decline This Request?" confirm_message="It stays with the other guides, and the visitor is emailed only if none of them takes it." confirm_hx_post=decline_url confirm_note_name="message" confirm_note_label="Message to the visitor (optional)" confirm_note_hint="Sent only if you turn out to be the last guide to decline." confirm_button_text="Decline" confirm_cancel_text="Keep It" %}{% else %}
-  {% include "components/confirm_modal.html" with confirm_id="tour-decline-"|add:pks confirm_title="Decline This Request?" confirm_message="The visitor is emailed and their seats are free again." confirm_hx_post=decline_url confirm_note_name="message" confirm_note_label="Message to the visitor (optional)" confirm_note_hint="Added to the email we send them." confirm_button_text="Decline" confirm_cancel_text="Keep It" %}{% endif %}
-  {% elif tab == "upcoming" and not booking.is_request %}
-  <div class="pl-tours-booking__actions">
-    <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm"
-            hx-get="{% url 'tours:booking_reschedule' booking.pk %}" hx-target="#tour-reschedule-body" hx-swap="innerHTML"
-            @click="$dispatch('open-modal', 'tour-reschedule')" data-tour-reschedule="{{ booking.pk }}">Reschedule</button>
-    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'tour-cancel-{{ pks }}')" data-tour-cancel="{{ booking.pk }}">Cancel Tour</button>
-  </div>
-  {% url 'tours:booking_cancel' booking.pk as cancel_url %}
-  {% include "components/confirm_modal.html" with confirm_id="tour-cancel-"|add:pks confirm_title="Cancel This Tour?" confirm_body_include="tours/partials/_cancel_confirm_body.html" confirm_hx_post=cancel_url confirm_note_name="message" confirm_note_label="Message to the visitor (optional)" confirm_note_hint="Added to the cancellation email we send them." confirm_button_text="Cancel Tour" confirm_cancel_text="Keep It" %}
-  {% else %}
-  <form class="pl-tours-booking__actions" method="post" action="{% url 'tours:booking_mark' booking.pk %}"
-        hx-post="{% url 'tours:booking_mark' booking.pk %}" hx-target="closest [data-tour-booking]" hx-swap="outerHTML"
-        aria-label="Mark {{ booking.visitor_name }}'s tour" data-tour-mark-form>
-    {% csrf_token %}
-    <button type="submit" name="outcome" value="attended" class="pl-btn pl-btn--sm {% if booking.status == 'attended' %}pl-btn--primary{% else %}pl-btn--secondary{% endif %}" aria-pressed="{% if booking.status == 'attended' %}true{% else %}false{% endif %}" data-tour-mark="attended">Attended</button>
-    <button type="submit" name="outcome" value="no_show" class="pl-btn pl-btn--sm {% if booking.status == 'no_show' %}pl-btn--primary{% else %}pl-btn--secondary{% endif %}" aria-pressed="{% if booking.status == 'no_show' %}true{% else %}false{% endif %}" data-tour-mark="no_show">No Show</button>
-  </form>
-  {% endif %}
-</li>
-{% endwith %}
+<tr class="pl-tours-row{% if booking.is_request %} pl-tours-row--request{% endif %}" id="tour-booking-{{ booking.pk }}" data-tour-booking="{{ booking.pk }}">
+  <td class="pl-bookings-table__when" data-tour-booking-when>{{ booking.starts_at|date:"D, M j" }}<span class="pl-tours-row__sep" aria-hidden="true"> · </span><span class="pl-tours-row__time">{{ booking.starts_at|time:"g:i A" }} to {{ booking.ends_at|time:"g:i A" }}</span></td>
+  <td data-label="Visitor">
+    <span class="pl-bookings-table__name">{{ booking.visitor_name }}</span>
+    <span class="pl-bookings-table__owner">{{ booking.party_label }}</span>
+    {% if booking.can_see_contact %}<span class="pl-bookings-table__owner pl-tours-row__contact"><a href="mailto:{{ booking.visitor_email }}" data-tour-booking-email>{{ booking.visitor_email }}</a>{% if booking.visitor_phone %}<span aria-hidden="true"> · </span><a href="tel:{{ booking.visitor_phone_href }}" data-tour-booking-phone>{{ booking.visitor_phone }}</a>{% endif %}</span>{% endif %}
+  </td>
+  <td data-label="Guide">
+    <span class="pl-bookings-table__name" data-tour-booking-guide>{% if not booking.guide %}No guide{% elif booking.guide_id == viewer_pk %}You{% else %}{{ booking.guide.staff_label }}{% endif %}</span>
+    {% if booking.source == "kiosk" %}<span class="pl-bookings-table__owner">Booked at the kiosk</span>{% endif %}
+  </td>
+  <td data-label="Status" class="pl-bookings-table__status">
+    <span class="hub-pill {% if booking.is_request %}hub-pill--warn{% elif booking.status == 'attended' or tab == 'upcoming' %}hub-pill--ok{% elif booking.status == 'no_show' %}hub-pill--danger{% else %}hub-pill--neutral{% endif %}" data-tour-booking-status="{{ booking.status }}">{% if tab == "past" and booking.status == "booked" %}Not Marked{% elif tab == "upcoming" and booking.status == "booked" %}Confirmed{% else %}{{ booking.get_status_display }}{% endif %}</span>
+    {% if booking.note_count %}<span class="hub-pill hub-pill--neutral" data-tour-note-count>{{ booking.note_count }} note{{ booking.note_count|pluralize }}</span>{% endif %}
+    {% if booking.checked_in_at %}<span class="pl-bookings-table__paid" data-tour-booking-checked-in>Checked in at {{ booking.checked_in_at|time:"g:i A" }}</span>{% endif %}
+    {% if tab == "upcoming" and booking.is_request %}
+    <span class="pl-bookings-table__paid" data-tour-confirm-by>Confirm by {{ booking.confirm_by|date:"D, M j" }}, {{ booking.confirm_by|time:"g:i A" }}{% if not booking.can_answer %} · Only {{ booking.guide.staff_label|default:"its guide" }} can confirm or decline it{% endif %}</span>
+    {% if booking.shared_with %}<span class="pl-bookings-table__paid hub-text-muted" data-tour-shared-with>No preference: also sent to {{ booking.shared_with|join:", " }}. Whoever confirms first gets the tour.</span>{% endif %}
+    {% endif %}
+  </td>
+  <td class="pl-bookings-table__actions">
+    {% with menu_label="Actions for "|add:booking.visitor_name %}
+    {% include "components/row_actions.html" with menu_include="tours/partials/_booking_menu.html" menu_label=menu_label %}
+    {% endwith %}
+  </td>
+</tr>

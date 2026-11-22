@@ -18,6 +18,7 @@ from django.utils import timezone
 
 from hub.forms import (
     _SLOT_DURATION_CHOICES,
+    ThreadMessageForm,
     _append_duration_choice,
     _meeting_time_label,
     _seed_time_choice,
@@ -77,6 +78,10 @@ class TourHoursForm(forms.ModelForm):
             _seed_time_choice(self, "end_time", self.instance.end_time)
             _append_duration_choice(self.fields["tour_minutes"], self.instance.tour_minutes)
         else:
+            # A new row opens with From and Until blank, like its Day: the autosave (#1279) saves a
+            # row once every required field is picked, so a row must not look picked before it is.
+            for name in ("start_time", "end_time"):
+                cast(forms.ChoiceField, self.fields[name]).choices = half_hour_time_choices(required=False)
             _append_duration_choice(self.fields["tour_minutes"], defaults.default_tour_minutes)
             self.initial.setdefault("tour_minutes", defaults.default_tour_minutes)
             self.initial.setdefault("seats", defaults.default_seats)
@@ -129,45 +134,89 @@ class _TourHoursBaseFormSet(forms.BaseInlineFormSet):
     (a stale tab that never showed it, posting ``INITIAL_FORMS=0``). A row the POST carries, kept
     or deleted, is judged by what was posted. This keeps one guide and one start time to one row,
     which is what booking locks (``tours.availability.open_tour_at``).
+
+    Every overlap is the row's own error (#1279), never the formset's, so the autosave shows it on
+    the row (``hours-<i>-__all__``); two rows that overlap each get one naming the other.
     """
+
+    def get_form_kwargs(self, index: int | None) -> dict[str, Any]:
+        """A saved row the page still shows but that is gone (deleted elsewhere, #1279) reads as absent.
+
+        Its posted id names no weekly row of this guide any more, which Django would refuse
+        ("Select a valid choice") on every later save from that tab. Built without its fields and
+        allowed empty, it is skipped like a removed clone, the rest of the post saves, and
+        :attr:`gone_rows` tells the autosave to take it off the page.
+        """
+        kwargs = super().get_form_kwargs(index)
+        if index is not None and self.is_bound and index < self.initial_form_count() and self._is_gone(index):
+            prefix = f"{self.add_prefix(index)}-"
+            kwargs["data"] = {key: value for key, value in self.data.items() if not key.startswith(prefix)}
+            kwargs["empty_permitted"] = True
+        return kwargs
+
+    def _is_gone(self, i: int) -> bool:
+        raw = str(self.data.get(f"{self.add_prefix(i)}-id", ""))
+        if not raw.isdigit():
+            return False
+        if not hasattr(self, "_weekly_pks"):
+            self._weekly_pks = {row.pk for row in self.get_queryset()}
+        return int(raw) not in self._weekly_pks
+
+    @property
+    def gone_rows(self) -> list[int]:
+        """The posted indices of rows that were deleted elsewhere since the page loaded."""
+        return [index for index in range(self.initial_form_count()) if self._is_gone(index)]
 
     def clean(self) -> None:
         super().clean()
         if any(self.errors):
             return
-        rows = [form.instance for form in self.forms if form.cleaned_data and not form.cleaned_data.get("DELETE")]
-        for index, row in enumerate(rows):
-            for other in rows[index + 1 :]:
-                if row.overlaps(other):
-                    raise forms.ValidationError(
-                        f"Two of these rows overlap on {row.get_weekday_display()}. A guide gives one tour at a time."
-                    )
-        self._refuse_clash_with_dated(rows)
+        kept = [form for form in self.forms if form.cleaned_data and not form.cleaned_data.get("DELETE")]
+        for index, form in enumerate(kept):
+            for other in kept[index + 1 :]:
+                if form.instance.overlaps(other.instance):
+                    _refuse_row(form, _overlap_message(other.instance))
+                    _refuse_row(other, _overlap_message(form.instance))
+        self._refuse_clash_with_dated(kept)
         carried = {form.instance.pk for form in self.forms if form.instance.pk is not None}
         for saved in self.get_queryset().exclude(pk__in=carried):
-            for row in rows:
-                if row.overlaps(saved):
-                    raise forms.ValidationError(
+            for form in kept:
+                if form.instance.overlaps(saved):
+                    _refuse_row(
+                        form,
                         f"These hours overlap saved {saved.get_weekday_display()} hours of "
                         f"{_meeting_time_label(saved.start_time.hour, saved.start_time.minute)} to "
                         f"{_meeting_time_label(saved.end_time.hour, saved.end_time.minute)} that this page "
-                        "does not show. Reload the page and try again."
+                        "does not show. Reload the page and try again.",
                     )
 
-    def _refuse_clash_with_dated(self, rows: list[TourHours]) -> None:
+    def _refuse_clash_with_dated(self, kept: list[forms.ModelForm]) -> None:
         """Refuse a weekly row that overlaps upcoming dated hours (#1160) on its weekday, naming the date."""
-        if not rows:
+        if not kept:
             return
         dated = TourHours.objects.upcoming_dated().filter(
-            guide=self.instance, weekday__in={row.weekday for row in rows}
+            guide=self.instance, weekday__in={form.instance.weekday for form in kept}
         )
         for other in dated:
-            for row in rows:
+            for form in kept:
+                row = form.instance
                 if row.overlaps(other):
-                    raise forms.ValidationError(
+                    _refuse_row(
+                        form,
                         f"Every {row.get_weekday_display()} {row.times_label} overlaps your hours on "
-                        f"{day_label(cast(date, other.date))}, {other.times_label}."
+                        f"{day_label(cast(date, other.date))}, {other.times_label}.",
                     )
+
+
+def _overlap_message(other: TourHours) -> str:
+    """A row's error when it overlaps ``other`` among the rows posted together."""
+    return f"These hours overlap your {other.get_weekday_display()} hours, {other.times_label}. A guide gives one tour at a time."
+
+
+def _refuse_row(form: forms.BaseForm, message: str) -> None:
+    """Put ``message`` on the row itself, once however many clashes name it."""
+    if message not in form.non_field_errors():
+        form.add_error(None, message)
 
 
 TourHoursFormSet = forms.inlineformset_factory(
@@ -545,3 +594,22 @@ class TourCalendarChoiceForm(forms.Form):
         field.choices = choices
         field.initial = connection.calendar_id
         field.help_text = "Times this calendar or your main one shows you busy are not offered to visitors."
+
+
+class TourNoteForm(ThreadMessageForm):
+    """A note on a booking (#1274): the shared thread's box, and for whoever may act on it, Also Email the Visitor.
+
+    The photos stay on the thread; the visitor's email carries the words alone.
+    """
+
+    email_visitor = forms.BooleanField(
+        required=False,
+        label="Also email this to the visitor",
+        help_text="They get your words by email, signed with your first name. Photos stay here.",
+    )
+
+    def __init__(self, *args: Any, may_email: bool, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.fields["body"].label = "Note"
+        if not may_email:
+            del self.fields["email_visitor"]

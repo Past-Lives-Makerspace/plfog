@@ -108,10 +108,21 @@ def describe_confirm_first():
             page.set_viewport_size({"width": 1280, "height": 800})
             card.evaluate("(el) => el.scrollIntoView({block: 'center'})")
             shoot(page, Path(CAPTURE_DIR) / "step-1.png", target="tours.confirm-mode")
-        with page.expect_navigation():
-            card.locator("[data-tour-confirm-save]").click()
-        page.locator(".plt-msg", has_text="each booking waits for you").first.wait_for()
+        # The choice saves at once (#1279), no Save button; the card's pill says so.
+        assert card.locator("[data-tour-confirm-save]").count() == 0
+        card.locator('[data-tour-save-status="confirm"]').get_by_text("Saved", exact=True).wait_for()
         assert TourGuideSettings.confirms_first(guide)
+        # The notice saves after a pause in typing.
+        card.locator('input[name="min_notice_hours"]').fill("60")
+        page.wait_for_function(
+            "() => document.querySelector('[data-guild-autosave]').plGuildAutosave.pending === 0"
+            " && document.querySelector('[data-tour-save-status=\"confirm\"]').dataset.saves >= 2"
+        )
+        assert TourGuideSettings.objects.get(guide=guide).min_notice_hours == 60
+        page.reload()
+        card = page.locator("[data-tour-confirm-mode]")
+        assert card.locator('[data-tour-confirm-choice="first"]').is_checked()
+        assert card.locator('input[name="min_notice_hours"]').input_value() == "60"
         page.locator("[data-tour-confirm-mode]").scroll_into_view_if_needed()
         _capture(page, "setting")
         _no_sideways_scroll(page)
@@ -133,6 +144,7 @@ def describe_confirm_first():
 
         # Confirm Sam: booked, and the visitor gets the confirmation with the calendar invite.
         mail.outbox = []
+        page.locator(f'[data-tour-booking="{sam.pk}"] .pl-row-menu__trigger').click()
         with page.expect_navigation():
             row.locator(f'[data-tour-confirm="{sam.pk}"]').click()
         page.locator(".plt-msg", has_text="Sam Rivera's tour on").first.wait_for()
@@ -143,6 +155,7 @@ def describe_confirm_first():
 
         # Decline Lee with a message: the seats are free again and the visitor is told why.
         mail.outbox = []
+        page.locator(f'[data-tour-booking="{lee.pk}"] .pl-row-menu__trigger').click()
         page.locator(f'[data-tour-decline="{lee.pk}"]').click()
         dialog = page.get_by_role("dialog").filter(has_text="Decline This Request?")
         dialog.wait_for(state="visible")

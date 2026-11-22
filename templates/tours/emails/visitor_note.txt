@@ -1,0 +1,9 @@
+{% autoescape off %}Hi {{ greeting_name }},
+
+We have a note for you about your Past Lives Makerspace tour.
+
+{% include "tours/emails/_staff_message.txt" %}{% include "tours/emails/_tour.txt" %}
+Questions? Email {{ support_email }}.
+
+Your tour: {{ manage_url }}
+{% if can_change %}{% include "tours/emails/_actions.txt" %}{% endif %}{% include "tours/emails/_footer.txt" %}{% endautoescape %}
