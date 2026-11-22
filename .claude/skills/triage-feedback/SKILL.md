@@ -76,13 +76,22 @@ Felix may answer with "Other" to change the route or rewrite the reply. His word
 
 1. **The work.** Ticket via `/create-issue` (it handles the board). Build via `/drive` in a fresh agent,
    one per ticket. A prod change through the app as Felix, read back after.
-2. **The reply and status**, signed in as Felix, at
-   `https://members.pastlives.space/manage/feedback/<pk>/` in a new Chrome tab (never the marketing host):
-   - **Not planned or Not a bug:** the reply goes in **Where It Stands**' **Comment** field with the
-     status, then **Save**. The form refuses those statuses without it, and the member gets one message.
-   - **Everything else:** type the reply in **Comment to <name>** and press **Send to <name>** first.
-     Then set **Where It Stands** and **GitHub issue link** and **Save**, leaving its Comment empty.
-   - Never **Mark Live** or **Mark Fixed**: it carries no comment.
+2. **The reply and status**, through the feedback API as Felix (never Chrome; it is slower and a
+   save can be cut off by the next navigation). The token is `FOG_API_TOKEN` in `~/Code/plfog/.env`
+   and belongs to Felix's account, so every write is his:
+
+       BASE=https://members.pastlives.space/api/v1/feedback
+       AUTH="Authorization: Token $FOG_API_TOKEN"
+       curl -sf -X POST -H "$AUTH" -H 'Content-Type: application/json' -d '{"body": "<reply>"}' $BASE/<pk>/comment/
+       curl -sf -X PATCH -H "$AUTH" -H 'Content-Type: application/json' -d '{"status": "planned", "github_issue_url": "<url>"}' $BASE/<pk>/
+
+   Build the JSON with `jq -n --arg` rather than by hand, so a quote in the reply cannot break it.
+   - **Not planned or Not a bug:** one `PATCH` with the reply as `comment` and the status. The model
+     refuses those statuses without it, and the member gets one message.
+   - **Everything else:** `POST .../comment/` with the reply first, then `PATCH` the status and issue
+     link with no `comment`.
+   - A status change alone (Felix says "move it to Live", no reply) is one `PATCH` with `status` only.
+   - A refusal is a 400 in the inbox page's words; fix the request, never fall back to the page.
 3. **Proof.** Read production again: the newest comment is the approved text, the status and issue link
    are as approved.
 
