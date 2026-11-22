@@ -460,7 +460,9 @@ def describe_a_shared_request():
         bell = Notification.objects.get(user=guide.user, trigger="tour.note_added")
         assert bell.url == f"{UPCOMING}?notes={rows[0].pk}#tour-booking-{rows[0].pk}"
 
-    def it_points_every_row_at_the_last_survivor(guide: Member, other: Member, rows: list[TourBooking]):
+    def it_keeps_pending_rows_on_their_own_after_a_decline_handoff(
+        guide: Member, other: Member, rows: list[TourBooking]
+    ):
         tess = make_guide(full_legal_name="Tess Third")
         signed_in(tess)
         tess.refresh_from_db()
@@ -472,15 +474,25 @@ def describe_a_shared_request():
         )
         signed_in(guide)
         booking_service.decline_tour_request(rows[0], actor=guide.user)
-        rows[0].refresh_from_db()
-        assert rows[0].note_target == rows[1]
-        signed_in(other)
+        for row in (*rows, third):
+            row.refresh_from_db()
+        assert (rows[0].notes_moved_to_id, rows[1].notes_moved_to_id, third.notes_moved_to_id) == (
+            rows[1].pk,
+            None,
+            None,
+        )
+        header = signed_in(tess).get(_notes_url(third), **HTMX).content.decode()
+        assert f'data-tour-notes-for="{third.pk}"' in header and "Tess Third" in header
+        signed_in(tess).post(_note_url(third), {"body": "Tess here."})
+        assert list(third.notes.values_list("body", flat=True)) == ["Tess here."]
+        assert "Tess here." in signed_in(other).get(_notes_url(rows[1]), **HTMX).content.decode()
         booking_service.confirm_tour_request(third, actor=tess.user)
         for row in rows:
             row.refresh_from_db()
             assert row.notes_moved_to_id == third.pk
         third.refresh_from_db()
         assert third.notes_moved_to_id is None
+        assert list(third.notes.values_list("body", flat=True)) == ["Tess here."]
 
     @pytest.mark.postgres_only
     @pytest.mark.django_db(transaction=True)
