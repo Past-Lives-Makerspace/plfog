@@ -283,17 +283,77 @@ def describe_mark_broken():
 
 
 def describe_event_body():
-    def it_names_the_visitor_and_party_and_carries_their_contact(booking: TourBooking):
-        body = calendar_sync.event_body(booking)
-        assert body["summary"] == "Past Lives tour: Sam Rivera (2)"
-        assert "Email: sam@example.com" in body["description"]
-        assert "Phone: 503 555 0142" in body["description"]
-        assert body["extendedProperties"]["private"] == {"plfogTour": "1", "plfogBooking": str(booking.pk)}
-        assert body["start"]["dateTime"] == booking.starts_at.astimezone(UTC).isoformat()
+    """The event a guide runs the tour from (feedback request #33)."""
+
+    def it_titles_the_event_with_the_visitor_and_party(booking: TourBooking):
+        assert calendar_sync.event_body(booking)["summary"] == "Tour: Sam Rivera (2)"
+
+    def it_lays_out_the_details_with_bold_labels_in_order(booking: TourBooking):
+        description = calendar_sync.event_body(booking)["description"]
+        lines = description.split("<br>")
+        assert lines[0] == "<b>Name:</b> Sam Rivera"
+        assert lines[1] == "<b>Party size:</b> 2 people"
+        assert lines[2] == '<b>Phone:</b> <a href="tel:5035550142">503 555 0142</a>'
+        assert lines[3] == '<b>Email:</b> <a href="mailto:sam@example.com">sam@example.com</a>'
+        assert lines[4] == (
+            f"<b>Booking:</b> #{booking.pk} · "
+            f'<a href="https://members.example.org/facility-tours/#tour-booking-{booking.pk}">Open on the Tours page</a>'
+        )
+        assert len(lines) == 5
 
     def it_leaves_out_a_missing_phone(booking: TourBooking):
         booking.visitor_phone = ""
-        assert "Phone" not in calendar_sync.event_body(booking)["description"]
+        description = calendar_sync.event_body(booking)["description"]
+        assert "Phone" not in description
+        assert "tel:" not in description
+
+    def it_escapes_what_the_visitor_typed(booking: TourBooking):
+        booking.visitor_name = "<script>alert(1)</script> & co"
+        body = calendar_sync.event_body(booking)
+        assert "<script>" not in body["description"]
+        assert "<b>Name:</b> &lt;script&gt;alert(1)&lt;/script&gt; &amp; co" in body["description"]
+        # The title is plain text in Google, so it carries the name as typed.
+        assert body["summary"] == "Tour: <script>alert(1)</script> & co (2)"
+
+    def it_keeps_the_sync_fields_and_adds_no_attendee(booking: TourBooking):
+        body = calendar_sync.event_body(booking)
+        assert body["location"] == calendar_sync.TOUR_ADDRESS
+        assert body["status"] == "confirmed"
+        assert body["transparency"] == "opaque"
+        assert body["extendedProperties"]["private"] == {"plfogTour": "1", "plfogBooking": str(booking.pk)}
+        assert body["start"]["dateTime"] == booking.starts_at.astimezone(UTC).isoformat()
+        assert body["end"]["dateTime"] == booking.ends_at.astimezone(UTC).isoformat()
+        assert "attendees" not in body
+
+    def it_shows_the_guests_answers_once_bookings_carry_them(booking: TourBooking):
+        # Bookings do not store these yet (feedback request #32); set on the instance, they slot in.
+        booking.pronouns = "she/her"
+        booking.interests = ["Ceramics", "Woodshop"]
+        booking.found_us_through = "Instagram"
+        booking.guest_notes = "Bringing my <kid>"
+        body = calendar_sync.event_body(booking)
+        assert body["summary"] == "Tour: Sam Rivera (2) · Ceramics, Woodshop"
+        labels = [line.split("</b>")[0] for line in body["description"].split("<br>")]
+        assert labels == [
+            "<b>Name:",
+            "<b>Pronouns:",
+            "<b>Party size:",
+            "<b>Phone:",
+            "<b>Email:",
+            "<b>Interested in:",
+            "<b>Found us through:",
+            "<b>Notes from the guest:",
+            "<b>Booking:",
+        ]
+        assert "<b>Interested in:</b> Ceramics, Woodshop" in body["description"]
+        assert "<b>Notes from the guest:</b> Bringing my &lt;kid&gt;" in body["description"]
+
+    def it_skips_blank_answers(booking: TourBooking):
+        booking.pronouns = "  "
+        booking.interests = []
+        body = calendar_sync.event_body(booking)
+        assert "Pronouns" not in body["description"]
+        assert body["summary"] == "Tour: Sam Rivera (2)"
 
     def it_makes_a_stable_id_google_accepts(booking: TourBooking, settings):
         event_id = calendar_sync.event_id_for(booking)
@@ -334,7 +394,7 @@ def describe_sync_booking():
         route = respx.put(f"{PRIMARY}/ev1").mock(return_value=httpx.Response(200, json={"id": "ev1"}))
         row = _row(booking, connection=connection, calendar_id="primary", event_id="ev1")
         calendar_sync.sync_booking(row, now=timezone.now())
-        assert _sent(route)["summary"] == "Past Lives tour: Sam Rivera (2)"
+        assert _sent(route)["summary"] == "Tour: Sam Rivera (2)"
         assert TourCalendarSync.objects.get(pk=row.pk).event_id == "ev1"
 
     @respx.mock

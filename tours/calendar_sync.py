@@ -7,8 +7,9 @@ Nothing here runs inside a visitor's request: every Google call is made by the
 commit) and only marks the booking's :class:`~tours.models.TourCalendarSync` row due, raising its
 ``generation``. :func:`sync_due_bookings` claims each due row (``claimed_until``, so two overlapping
 runs never write one row), reads the booking fresh and brings Google to it (:func:`sync_booking`):
-an event on the guide's chosen calendar with the current times, title "Past Lives tour: <visitor>
-(<party size>)" and the visitor's contact in the description; none for a cancelled tour; and an
+an event on the guide's chosen calendar with the current times, title "Tour: <visitor> (<party
+size>)" and a description the guide runs the tour from (:func:`event_body`, feedback #33); none for a
+cancelled tour; and an
 event left on another guide's calendar (a reassignment) or on a calendar the guide stopped using is
 deleted first. Due is cleared only while the row still holds the generation read, so a move that
 commits while the job talks to Google is written on the next run, never lost. Event ids are ours
@@ -48,6 +49,7 @@ from django.db import transaction
 from django.db.models import F, Q
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import escape, format_html
 
 from tours import google
 from tours.models import (
@@ -428,17 +430,68 @@ def event_id_for(booking: TourBooking) -> str:
     return f"pltour{booking.pk}s{site}"
 
 
-def event_body(booking: TourBooking) -> dict[str, Any]:
-    """The Google event for a booking: who, how many, how to reach them, marked as ours."""
-    from tours.notify import tours_page_url
+#: The guest's answers from the booking form, each ``(label, TourBooking attribute)``, in the order
+#: the guide reads them. Bookings do not store these yet (feedback request #32): a line shows only
+#: once the booking carries the attribute with a value, so adding the fields with these names is all
+#: it takes. ``pronouns`` sits under Name; the rest follow Email.
+GUEST_ANSWERS: tuple[tuple[str, str], ...] = (
+    ("Interested in", "interests"),
+    ("Found us through", "found_us_through"),
+    ("Notes from the guest", "guest_notes"),
+)
 
-    lines = [f"{booking.visitor_name}, {booking.party_label}", f"Email: {booking.visitor_email}"]
+
+def _answer(booking: TourBooking, attribute: str) -> str:
+    """One of the guest's answers as text, "" when the booking has no such field or it is blank.
+
+    A list (interests ticked from several) reads as ``Ceramics, Woodshop``.
+    """
+    value = getattr(booking, attribute, None)
+    if isinstance(value, list | tuple):
+        value = ", ".join(str(item).strip() for item in value if str(item).strip())
+    return str(value or "").strip()
+
+
+def _line(label: str, value_html: str) -> str:
+    """``<b>Label:</b> value``; the caller escapes the value."""
+    return format_html("<b>{}:</b> {}", label, value_html)
+
+
+def event_body(booking: TourBooking) -> dict[str, Any]:
+    """The Google event for a booking, laid out so the guide can run the tour from it (feedback #33).
+
+    Title ``Tour: <visitor> (<party size>)``, then `` · <interests>`` once bookings carry them. The
+    description is HTML, which Google Calendar renders (bold labels, links), one line per ``<br>``:
+    Name, Pronouns, Party size, Phone (a ``tel:`` link to tap), Email, the guest's answers (:data:`GUEST_ANSWERS`), and the
+    booking's number with a link to its row on the Tours page. Every value the visitor typed is
+    escaped. The link is the guide's own view, never the visitor's self serve one: a guide's calendar
+    may be shared, and that link cancels the tour. The guest is never an attendee, so Google never
+    emails them; the location, our marker and the times in UTC are what the sync keys on.
+    """
+    from tours.notify import request_url
+
+    interests = _answer(booking, "interests")
+    summary = f"Tour: {booking.visitor_name} ({booking.party_size})"
+    if interests:
+        summary += f" · {interests}"
+
+    lines = [_line("Name", escape(booking.visitor_name))]
+    if pronouns := _answer(booking, "pronouns"):
+        lines.append(_line("Pronouns", escape(pronouns)))
+    lines.append(_line("Party size", escape(booking.party_label)))
     if booking.visitor_phone:
-        lines.append(f"Phone: {booking.visitor_phone}")
-    lines += ["", f"Tours page: {tours_page_url()}"]
+        phone = format_html('<a href="tel:{}">{}</a>', booking.visitor_phone_href, booking.visitor_phone)
+        lines.append(_line("Phone", phone))
+    email = format_html('<a href="mailto:{0}">{0}</a>', booking.visitor_email)
+    lines.append(_line("Email", email))
+    for label, attribute in GUEST_ANSWERS:
+        if answer := _answer(booking, attribute):
+            lines.append(_line(label, escape(answer)))
+    manage = format_html('#{} · <a href="{}">Open on the Tours page</a>', booking.pk, request_url(booking))
+    lines.append(_line("Booking", manage))
     return {
-        "summary": f"Past Lives tour: {booking.visitor_name} ({booking.party_size})",
-        "description": "\n".join(lines),
+        "summary": summary,
+        "description": "<br>".join(lines),
         "location": TOUR_ADDRESS,
         "start": {"dateTime": booking.starts_at.astimezone(UTC).isoformat()},
         "end": {"dateTime": booking.ends_at.astimezone(UTC).isoformat()},
