@@ -26,7 +26,13 @@ if TYPE_CHECKING:
     from django.http import HttpRequest
 
     from billing.payments_panel import PanelWindow
-    from billing.reconciliation import RecipientAllocation, ReconciliationResult, RecipientKey, TransactionLine
+    from billing.reconciliation import (
+        RecipientAllocation,
+        RecipientKey,
+        RecipientKind,
+        ReconciliationResult,
+        TransactionLine,
+    )
 
 _M = TypeVar("_M", bound=Model)
 
@@ -189,14 +195,24 @@ class PaymentsScope:
             kind: [alloc for alloc in rows if (kind.value, alloc.recipient_id) in keys]
             for kind, rows in result.groups.items()
         }
-        # A producer row counts every payment of that person's, in scope or not; these are rebuilt from the
-        # lines shown, so the rows, the tile and the CSV agree. Any guild's cubby payee is its guild's share.
+        # A producer row counts every payment of that person's, in scope or not, so every producer row the
+        # viewer sees is rebuilt from the lines shown and the scoped lines paid earlier that fell due in these
+        # dates, with every money column from those lines' payout state. Any guild's cubby payee is its guild's.
         cubby_payees = {
-            key for line in lines if line.source_kind == "cubby" for key in line.shares if key[0] == "cubby_payee"
+            key
+            for line in [*lines, *due_earlier]
+            if line.source_kind == "cubby"
+            for key in line.shares
+            if key[0] == "cubby_payee"
         }
-        for kind in (RecipientKind.ORIENTATOR, RecipientKind.MANAGER, RecipientKind.CUBBY_PAYEE):
-            wanted = cubby_payees if kind is RecipientKind.CUBBY_PAYEE else keys
-            groups[kind] = _scoped_producer_rows(result.groups[kind], lines, wanted)
+        rebuilt = _scoped_producer_groups(result, lines, due_earlier, keys | cubby_payees)
+        for kind in (
+            RecipientKind.INSTRUCTOR,
+            RecipientKind.ORIENTATOR,
+            RecipientKind.MANAGER,
+            RecipientKind.CUBBY_PAYEE,
+        ):
+            groups[kind] = rebuilt[kind]
         groups[RecipientKind.PL] = []
         counted = [line for line in lines if not line.omitted]
         return replace(
@@ -303,46 +319,37 @@ def _guild_filter(kind: str, guilds: frozenset[int]) -> Q:
     return filters[kind]
 
 
-def _scoped_producer_rows(
-    rows: list[RecipientAllocation], lines: list[TransactionLine], wanted: Iterable[RecipientKey]
-) -> list[RecipientAllocation]:
-    """The producer rows among ``wanted`` that the shown ``lines`` pay, counted from those lines alone.
+def _scoped_producer_groups(
+    result: ReconciliationResult,
+    lines: list[TransactionLine],
+    due_earlier: list[TransactionLine],
+    wanted: frozenset[RecipientKey] | set[RecipientKey],
+) -> dict[RecipientKind, list[RecipientAllocation]]:
+    """The viewer's producer rows (instructor, orientor, manager, a guild's cubby payee), built from scoped lines only.
 
-    For a guild's cubby payee (#979, :func:`_line_keys`) and the viewer's own orientor and manager rows
-    (#1297). A row whose whole total comes from these lines keeps its row as built. One also paid
-    from lines out of scope keeps only Amount and Transactions, recounted from these lines; its
-    Stripe and owed columns would carry the other money, so they read zero here.
+    The reconciliation's own aggregation (``_aggregate_lines``, ``_build_groups``) runs over the
+    lines in scope and the scoped lines paid earlier that fell due in these dates (#985), so Amount,
+    Transactions (a line counts only when its share is above zero), Sent through Stripe, Owed now,
+    Not yet due, Stripe retrying and Paid by hand all come from those lines' payout state. A row
+    built over the whole makerspace is never kept, because a payee paid by another guild too would
+    carry that guild's money (#1297 review). A row whose only activity is a share paid earlier that
+    fell due in these dates still shows. The account badge is the payee's own and is carried over.
+    Tab purchase lines carry no producer share and are left out.
     """
-    from billing import reconciliation
+    from billing.reconciliation import _aggregate_lines, _build_groups
 
-    wanted = set(wanted)
-    totals: dict[RecipientKey, int] = {}
-    counts: dict[RecipientKey, int] = {}
-    for line in lines:
-        if line.omitted:
-            continue
-        for key, cents in line.shares.items():
-            if key in wanted:
-                totals[key] = totals.get(key, 0) + cents
-                counts[key] = counts.get(key, 0) + 1
-    kept: list[RecipientAllocation] = []
-    for alloc in rows:
-        row_key: RecipientKey = (alloc.kind.value, alloc.recipient_id)
-        if row_key not in totals:
-            continue
-        if (alloc.total_cents, alloc.transaction_count) == (totals[row_key], counts[row_key]):
-            kept.append(alloc)
-            continue
-        kept.append(
-            reconciliation.RecipientAllocation(
-                kind=alloc.kind,
-                recipient_id=alloc.recipient_id,
-                label=alloc.label,
-                total_cents=totals[row_key],
-                transaction_count=counts[row_key],
-            )
-        )
-    return kept
+    aggregate = _aggregate_lines([line for line in lines if line.source_kind != "tab"], due_earlier, result.window)
+    built = _build_groups(aggregate, {}, True, include_voting=False)
+    badges = {
+        (alloc.kind.value, alloc.recipient_id): alloc.payout_badge for rows in result.groups.values() for alloc in rows
+    }
+    scoped: dict[RecipientKind, list[RecipientAllocation]] = {}
+    for kind, rows in built.items():
+        kept = [alloc for alloc in rows if (kind.value, alloc.recipient_id) in wanted]
+        for alloc in kept:
+            alloc.payout_badge = badges.get((kind.value, alloc.recipient_id))
+        scoped[kind] = kept
+    return scoped
 
 
 def _line_keys(line: TransactionLine, keys: frozenset[RecipientKey]) -> frozenset[RecipientKey]:

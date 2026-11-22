@@ -588,7 +588,7 @@ def describe_review_round():
         rows = _csv(client, _REPORTS_CSV)
         assert ["Cubby Payees", payment.payee.finance_name] == rows[1][:2]
 
-    def it_recounts_a_payee_also_paid_by_another_guild_and_hides_its_money(client: Client, world: dict[str, Any]):
+    def it_recounts_a_payee_also_paid_by_another_guild_from_its_own_lines(client: Client, world: dict[str, Any]):
         from membership.models import CubbyPayment
 
         CubbyPayment.objects.filter(pk=world["metal_cubby"].pk).update(payee=world["wood_cubby"].payee)
@@ -596,7 +596,9 @@ def describe_review_round():
         result = client.get(_REPORTS).context["reconciliation"]
         (row,) = result.groups[RecipientKind.CUBBY_PAYEE]
         assert (row.total_cents, row.transaction_count) == (1700, 1)
-        assert (row.stripe_cents, row.owed_now_cents, row.not_due_cents, row.paid_by_hand_cents) == (0, 0, 0, 0)
+        # Every column comes from Wood's one cubby line (just paid, so Not yet due); Metal's $17.00 is in none.
+        assert (row.stripe_cents, row.owed_now_cents, row.not_due_cents, row.paid_by_hand_cents) == (0, 0, 1700, 0)
+        assert row.retrying_cents == 0
         assert result.producers_total_cents == result.viewer_share_total_cents
 
     def it_writes_the_lines_and_your_share_into_the_scoped_reports_csv(client: Client, world: dict[str, Any]):
@@ -718,3 +720,125 @@ def describe_personal_shares():
         OrientationBooking.objects.filter(pk=world["wood_orientation"].pk).update(oriented_by=orientor.member)  # type: ignore[attr-defined]
         _login(client, orientor)
         assert client.get(_REPORTS).status_code == 403
+
+
+def describe_scoped_producer_rows_rebuilt():
+    """#1297 delta review: every producer row a scoped viewer sees is built from the scoped lines alone."""
+
+    def _window() -> tuple[Any, Any, str]:
+        from datetime import datetime, time, timedelta
+
+        today = timezone.localdate()
+        start = today - timedelta(days=10)
+        start_dt = datetime.combine(start, time.min, tzinfo=timezone.get_current_timezone())
+        return start_dt, today, f"&start={start.isoformat()}&end={today.isoformat()}"
+
+    def it_never_shows_another_guild_s_cubby_money_through_a_shared_payee(client: Client):
+        from datetime import timedelta
+
+        BillingSettings.load()
+        start_dt, _today, query = _window()
+        lead = _user("shared_payee_lead")
+        guild_a = GuildFactory(name="Guild A", guild_lead=lead.member)  # type: ignore[attr-defined]
+        guild_b = GuildFactory(name="Guild B")
+        payee = MemberFactory(full_legal_name="Shared Payee")
+        own = CubbyPaymentFactory(
+            rental=CubbyRentalFactory(cubby=CubbyFactory(unit=ShelfUnitFactory(guild=guild_a))),
+            payee=payee,
+            amount_cents=2000,
+            paid_at=start_dt + timedelta(days=1),
+        )
+        # Guild B's rent, paid before the dates, falls due inside them: Owed now for the payee, never Guild A's.
+        CubbyPaymentFactory(
+            rental=CubbyRentalFactory(cubby=CubbyFactory(unit=ShelfUnitFactory(guild=guild_b))),
+            payee=payee,
+            amount_cents=3000,
+            paid_at=start_dt - timedelta(hours=1),
+        )
+        full = build_reconciliation(window=parse_window(*query.replace("&start=", "").split("&end=")))
+        (payee_row,) = full.groups[RecipientKind.CUBBY_PAYEE]
+        assert payee_row.owed_now_cents == 1700 + 2550
+
+        _login(client, lead)
+        result = client.get(_REPORTS + query).context["reconciliation"]
+        (row,) = result.groups[RecipientKind.CUBBY_PAYEE]
+        assert (row.recipient_id, row.total_cents, row.transaction_count) == (own.payee_id, 1700, 1)
+        assert (row.owed_now_cents, row.paid_by_hand_cents, row.retrying_cents, row.not_due_cents) == (1700, 0, 0, 0)
+        assert result.due_earlier_lines == []
+        body = client.get(_REPORTS + query).content.decode()
+        assert "$25.50" not in body
+        assert "$42.50" not in body
+        report = _csv(client, _REPORTS_CSV + "?" + query.lstrip("&"))
+        (csv_row,) = [row for row in report if row[:1] == ["Cubby Payees"]]
+        assert csv_row[3] == "17.00"
+        assert csv_row[7] == "17.00"
+        assert not any("25.50" in cell or "42.50" in cell for row in report for cell in row)
+
+    def it_counts_a_fully_refunded_orientation_as_no_transaction_and_owes_the_rest(client: Client):
+        from datetime import timedelta
+
+        from billing.models import PaymentRefund
+        from tests.billing.factories import PaymentRefundFactory
+
+        BillingSettings.load()
+        start_dt, _today, query = _window()
+        staff = _user("refund_orientor")
+        guild = GuildFactory(name="Refund Guild")
+        GuildStaffMembershipFactory(guild=guild, member=staff.member)  # type: ignore[attr-defined]
+        bookings = []
+        for _ in range(2):
+            booking = OrientationBookingFactory(
+                slot=OrientationSlotFactory(
+                    guild=guild,
+                    starts_at=start_dt + timedelta(days=1),
+                    ends_at=start_dt + timedelta(days=1, hours=1),
+                ),
+                oriented_by=staff.member,  # type: ignore[attr-defined]
+                amount_paid_cents=4000,
+                status=OrientationBooking.Status.CONFIRMED,
+            )
+            OrientationBooking.objects.filter(pk=booking.pk).update(requested_at=start_dt + timedelta(hours=2))
+            bookings.append(booking)
+        PaymentRefundFactory(
+            registration=None,
+            orientation_booking=bookings[1],
+            amount_cents=4000,
+            status=PaymentRefund.Status.SUCCEEDED,
+        )
+        _login(client, staff)
+        result = client.get(_REPORTS + query).context["reconciliation"]
+        (row,) = result.groups[RecipientKind.ORIENTATOR]
+        assert (row.transaction_count, row.total_cents, row.owed_now_cents) == (1, 2800, 2800)
+        assert result.producers_total_cents == result.viewer_share_total_cents
+
+    def it_keeps_a_producer_row_whose_only_activity_fell_due_from_earlier(client: Client):
+        from datetime import timedelta
+
+        BillingSettings.load()
+        start_dt, _today, query = _window()
+        staff = _user("earlier_orientor")
+        guild = GuildFactory(name="Earlier Guild")
+        GuildStaffMembershipFactory(guild=guild, member=staff.member)  # type: ignore[attr-defined]
+        booking = OrientationBookingFactory(
+            slot=OrientationSlotFactory(
+                guild=guild,
+                starts_at=start_dt - timedelta(hours=2),
+                ends_at=start_dt - timedelta(hours=1),
+            ),
+            oriented_by=staff.member,  # type: ignore[attr-defined]
+            amount_paid_cents=4000,
+            status=OrientationBooking.Status.CONFIRMED,
+        )
+        OrientationBooking.objects.filter(pk=booking.pk).update(requested_at=start_dt - timedelta(days=3))
+        _login(client, staff)
+        result = client.get(_REPORTS + query).context["reconciliation"]
+        assert [(line.source_kind, line.source_pk) for line in result.due_earlier_lines] == [
+            ("orientation", booking.pk)
+        ]
+        (row,) = result.groups[RecipientKind.ORIENTATOR]
+        assert (row.recipient_id, row.total_cents, row.transaction_count, row.owed_now_cents) == (
+            staff.member.pk,  # type: ignore[attr-defined]
+            0,
+            0,
+            2800,
+        )
