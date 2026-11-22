@@ -477,11 +477,14 @@ def describe_who_sees_what():
             assert response.status_code == 200
             assert _row_pks(response.content.decode()) == [row.pk]
 
-        def it_refuses_a_lock_only_instructor_with_no_rows(client: Client):
+        def it_gives_a_lock_only_instructor_with_no_rows_its_mailing_lists_alone(client: Client):
+            # #1294 (Felix): Your Students always shows for an instructor, so the tab opens on it alone.
             _instructor(client, "lockonly", status=ClassOffering.Status.DRAFT, slug=False)
             response = client.get(reverse("hub_announcements"))
-            assert response.status_code == 302
-            assert response.url == reverse("hub_home")
+            assert response.status_code == 200
+            body = response.content.decode()
+            assert "data-student-lists" in body
+            assert 'data-announcements-tab="drafts"' not in body
 
     def describe_an_unlinked_account():
         def it_sees_nothing_and_is_refused(client: Client):

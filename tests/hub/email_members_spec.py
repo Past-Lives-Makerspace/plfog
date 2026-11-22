@@ -112,15 +112,16 @@ def describe_the_mailing_lists_tab():
         assert 'data-announcements-tab="sent"' in html
         assert "data-announcements-table" not in html
 
-    def it_is_not_offered_to_an_instructor_who_runs_no_guild(client: Client):
+    def it_offers_an_instructor_who_runs_no_guild_its_students_alone(client: Client):
+        # #1294 (Felix): Your Students always shows for an instructor; no guild list joins it.
         user = _login_user(client, "ml_teacher")
         member = user.member  # type: ignore[attr-defined]
         member.instructor_slug = "ml-teacher"
         member.save(update_fields=["instructor_slug"])
         response = client.get(_tab_url())
         html = response.content.decode()
-        assert response.context["tab"] == "drafts"
-        assert 'data-announcements-tab="mailing-lists"' not in html
+        assert response.context["tab"] == "mailing-lists"
+        assert "data-student-lists" in html
         assert "data-mailing-lists" not in html
 
     def it_still_refuses_someone_who_runs_no_guild_and_cannot_email(client: Client):

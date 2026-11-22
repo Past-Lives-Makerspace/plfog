@@ -269,6 +269,56 @@ def billing_admin_access_required(view_func: _ViewFunc) -> _ViewFunc:
     )(view_func)
 
 
+def payments_access_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator gating the read only Payments and Reports views (#1294).
+
+    Passes admins and Billing Administrators, who see everything, and anyone whose
+    :class:`billing.scope.PaymentsScope` is not empty: a guild lead or staffer, or someone
+    who teaches a class. What each of them sees is the view's business, read from the same
+    scope. Every money changing view keeps its own stricter decorator.
+    """
+    from functools import wraps
+    from typing import Any
+
+    from django.contrib.auth.decorators import login_required
+    from django.http import HttpResponseForbidden
+
+    @wraps(view_func)
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        from billing.scope import PaymentsScope
+
+        if PaymentsScope.for_request(request).is_empty:
+            return HttpResponseForbidden("Payments are for guild leads, guild staff, instructors and admins.")
+        return view_func(request, *args, **kwargs)
+
+    return login_required(wrapper)  # type: ignore[return-value]
+
+
+def reports_access_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator gating the read only Reports views, the Reconciliation tab's table, CSV and print (#1294).
+
+    Passes admins, who see every recipient, and anyone whose Reports
+    :class:`billing.scope.PaymentsScope` is not empty: a guild lead or staffer, or someone who
+    teaches. A Billing Administrator who does neither is refused, as the Reconciliation tab always
+    refused them. Adjusting, marking paid and snapshots stay ``fog_admin_required``.
+    """
+    from functools import wraps
+    from typing import Any
+
+    from django.contrib.auth.decorators import login_required
+    from django.http import HttpResponseForbidden
+
+    @wraps(view_func)
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        from billing.scope import PaymentsScope
+
+        if PaymentsScope.for_request(request, reports=True).is_empty:
+            return HttpResponseForbidden("Reports are for guild leads, guild staff, instructors and admins.")
+        return view_func(request, *args, **kwargs)
+
+    return login_required(wrapper)  # type: ignore[return-value]
+
+
 def classes_review_access_required(view_func: _ViewFunc) -> _ViewFunc:
     """Decorator gating the class review surfaces: fog-admins or CMS Administrators.
 

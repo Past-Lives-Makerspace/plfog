@@ -325,6 +325,29 @@
 .pl-mailing-lists__link:hover .pl-mailing-lists__go {
     text-decoration: underline;
 }
+/* Your Students (#1294): an instructor's Past Students and per class lists, under the guild lists. */
+.pl-mailing-lists + .pl-mailing-lists {
+    margin-top: 1.5rem;
+}
+.pl-mailing-lists__title {
+    margin: 0 0 0.5rem;
+    font-size: 1.125rem;
+}
+.pl-mailing-lists__label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.pl-mailing-lists__go--off {
+    color: var(--hub-text-muted);
+    cursor: not-allowed;
+}
+.pl-mailing-lists__count {
+    color: var(--hub-text-muted);
+    font-size: 0.875rem;
+}
 
 /* --- The Release Update card on Email Members (#922) ---------------------- */
 

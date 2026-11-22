@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
@@ -5915,11 +5915,14 @@ class ToolCard(NamedTuple):
 # The tools page's sections in page order (#1291, Felix): Admin, Webmaster, the viewer's guild, Classes. A section
 # shows its cards alphabetically by title (#1286, :func:`admin_tool_sections`), so the order written here is not the
 # order on the page, and a viewer sees every section they qualify for.
-# - "admin": admins; a Billing Administrator alone gets Payments and Reports, a Calendar Administrator alone Events.
+# - "admin": admins; a Billing Administrator alone gets Payments (Reports is Reconciliation, admins only, #250 and
+#   #1294), a Calendar Administrator alone Events.
 # - "webmaster": only an admin holding the Webmaster capability. Tile visibility only: each page keeps its own gate.
 # - "guild": one guild's cards under that guild's name, for its lead or staff who is not viewing as an admin (#921).
+#   Payments and Reports (#1294) open the billing pages, scoped to every guild the viewer runs.
 # - "classes": Email Members for whoever teaches, by the test :func:`_can_compose` uses (the profile flag or a class
-#   they teach); My Classes and Registrations only with the teaching portal's own gate, granted and ACTIVE.
+#   they teach); My Classes and Registrations only with the teaching portal's own gate, granted and ACTIVE; Payments
+#   and Reports (#1294) for a non-admin who teaches any class, scoped to those classes (:func:`_teaching_member`).
 ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[ToolCard, ...]], ...] = (
     (
         "admin",
@@ -5966,8 +5969,10 @@ ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[ToolCard, ...]], ...] = (
             ToolCard("mailing_lists", "Mailing Lists", "tool_mailing_lists"),
             ToolCard("orientation_bookings", "Orientation Bookings", "tool_orientation_bookings"),
             ToolCard("guild_orientations", "Orientations", "tool_guild"),
-            ToolCard("guild_reservations", "Reservations", "tool_guild"),
+            ToolCard("guild_payments", "Payments", "tool_guild"),
             ToolCard("registrations", "Registrations", "tool_registrations"),
+            ToolCard("guild_reports", "Reports", "tool_guild"),
+            ToolCard("guild_reservations", "Reservations", "tool_guild"),
         ),
     ),
     (
@@ -5975,7 +5980,9 @@ ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[ToolCard, ...]], ...] = (
         (
             ToolCard("classes_announcements", "Email Members", "tool_teaching"),
             ToolCard("my_classes", "My Classes", "tool_teaching_portal"),
+            ToolCard("teach_payments", "Payments", "tool_teaching_payments"),
             ToolCard("teach_registrations", "Registrations", "tool_teaching_portal"),
+            ToolCard("teach_reports", "Reports", "tool_teaching_payments"),
         ),
     ),
 )
@@ -6046,7 +6053,11 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
     # lead they preview would, so their own admin standing must not add these cards.
     view_as = getattr(request, "view_as", None)
     previewing_admin = view_as is not None and view_as.actual_is_admin and not is_admin
-    tool_payments = tool_reports = has_billing_admin_access(request) and not previewing_admin
+    tool_payments = has_billing_admin_access(request) and not previewing_admin
+    # Reports opens Reconciliation, admin only on purpose since #250 ("money disbursement decisions are a strictly
+    # admin duty"), so a Billing Administrator who is not an admin gets no Reports tile here (#1294). One who
+    # leads, staffs or teaches still has the scoped Reports tile in that section.
+    tool_reports = is_admin
     tool_manage_events = has_events_admin_access(request) and not previewing_admin
     selected = guild_tools.selected if guild_tools is not None else None
     tool_guild = selected is not None
@@ -6090,6 +6101,9 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
         "tool_teaching_portal": member is not None
         and member.status == Member.Status.ACTIVE
         and member.can_create_classes,
+        # Payments and Reports for the classes they teach (#1294): the billing scope's own test, an instructors row on
+        # any class. Not for an admin, whose Admin section already opens both unscoped.
+        "tool_teaching_payments": not is_admin and _teaching_member(member) is not None,
     }
     ctx = _get_hub_context(request)
     return render(
@@ -6451,12 +6465,15 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
     member = _get_member(request)
     can_open = _can_open_announcements(request, member)
     guilds = list(manageable_guilds(request))
-    if not can_open and not guilds:
+    asked = request.GET.get("tab")
+    # The instructor's lists (#1294) are read only for the tab that shows them; every tab counts them.
+    student_lists = StudentMailingLists.for_request(request, member, full=asked == "mailing-lists" or not can_open)
+    if not can_open and not guilds and student_lists is None:
         messages.error(request, _compose_refusal_message(request))
         return redirect("hub_home")
-    asked = request.GET.get("tab")
     rows = _announcement_rows(request, member)
-    if guilds and (asked == "mailing-lists" or not can_open):
+    lists_count = len(guilds) + (student_lists.count if student_lists is not None else 0)
+    if lists_count and (asked == "mailing-lists" or not can_open):
         return render(
             request,
             "hub/announcements.html",
@@ -6465,13 +6482,15 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
                 "tab": "mailing-lists",
                 "can_open": can_open,
                 "mailing_lists": [(guild, _mailing_list_url(guild)) for guild in guilds],
+                "student_lists": student_lists,
+                "mailing_lists_count": lists_count,
                 "drafts_count": rows.resumable().count() if can_open else 0,
                 "sent_count": rows.sent_or_sending().count() if can_open else 0,
                 "polls_count": _sent_polls(rows).count() if can_open else 0,
             },
         )
     if asked == "polls":
-        return _polls_tab(request, rows, guilds)
+        return _polls_tab(request, rows, guilds, lists_count)
     tab = "sent" if asked == "sent" else "drafts"
     rows = rows.select_related("guild", "class_offering", "author__member", "funding_snapshot")
     drafts = rows.resumable()
@@ -6506,6 +6525,7 @@ def announcements_overview(request: HttpRequest) -> HttpResponse:
             "polls_count": _sent_polls(rows).count(),
             "can_open": True,
             "mailing_lists": [(guild, _mailing_list_url(guild)) for guild in guilds],
+            "mailing_lists_count": lists_count,
             # The release update composer moved here from Site Settings (#922); admins only.
             "can_send_release": _viewing_as_admin(request),
         },
@@ -6519,7 +6539,9 @@ def _sent_polls(rows: AnnouncementDraftQuerySet) -> Any:
     return EmailPoll.objects.sent().filter(draft__in=rows).order_by("-opens_at", "-pk")
 
 
-def _polls_tab(request: HttpRequest, rows: AnnouncementDraftQuerySet, guilds: list[Guild]) -> HttpResponse:
+def _polls_tab(
+    request: HttpRequest, rows: AnnouncementDraftQuerySet, guilds: list[Guild], lists_count: int
+) -> HttpResponse:
     """Email Members' Polls tab (#1142 part 4): each sent poll this sender may see, its audience,
     how many of those it went to answered, open or closed, and View Results. One query for the
     page of polls, their counts annotated."""
@@ -6553,6 +6575,7 @@ def _polls_tab(request: HttpRequest, rows: AnnouncementDraftQuerySet, guilds: li
             "polls_count": table["page"].paginator.count,
             "can_open": True,
             "mailing_lists": [(guild, _mailing_list_url(guild)) for guild in guilds],
+            "mailing_lists_count": lists_count,
             "can_send_release": _viewing_as_admin(request),
         },
     )
@@ -6562,6 +6585,86 @@ def _polls_tab(request: HttpRequest, rows: AnnouncementDraftQuerySet, guilds: li
 def manage_mailing_lists(request: HttpRequest) -> HttpResponse:
     """The old Manage Mailing Lists page, now the Mailing Lists tab of Email Members (#920)."""
     return redirect(f"{reverse('hub_announcements')}?tab=mailing-lists")
+
+
+@dataclass(frozen=True)
+class StudentMailingLists:
+    """An instructor's lists on the Mailing Lists tab (#1294): My Past Students and each class's roster.
+
+    Attributes:
+        past_students: how many people My Past Students reaches (``classes.past_students.past_students``:
+            every confirmed registrant of every class they teach, once each, less opt outs); None when
+            only counted.
+        classes: each class they teach with anyone confirmed on it and that they may email, newest
+            first, with how many are confirmed (what the class audience reaches without the waitlist);
+            empty when only counted.
+        count: how many lists there are: one for My Past Students plus one per class.
+    """
+
+    count: int
+    past_students: int | None = None
+    classes: tuple[tuple[ClassOffering, int], ...] = ()
+
+    @classmethod
+    def for_request(cls, request: HttpRequest, member: Member | None, *, full: bool) -> StudentMailingLists | None:
+        """The viewer's lists, or None when they are no instructor.
+
+        An instructor is whoever teaches a class (:func:`_teaching_member`, the composer's own test) or
+        holds the instructor profile or the teaching grant (Felix: Your Students always shows for an
+        instructor). With nobody registered yet the section still shows, Past Students at 0 and no class.
+
+        The classes are the ones :func:`_can_announce_to_class` admits, asked once for a member with the
+        teaching grant (every row then answers the same, as :func:`_compose_editable_classes` explains)
+        and per class otherwise. ``full`` reads the roster sizes; without it only the lists are counted.
+        """
+        from classes.models import Registration
+        from classes.past_students import past_students
+
+        teacher = _teaching_member(member)
+        if teacher is None and member is not None and (member.is_instructor or member.can_create_classes):
+            teacher = member
+        if teacher is None:
+            return None
+        taught = list(
+            ClassOffering.objects.for_instructor(teacher)
+            .annotate(confirmed=Count("registrations", filter=Q(registrations__status=Registration.Status.CONFIRMED)))
+            .filter(confirmed__gt=0)
+            .select_related("category")
+            .order_by("-created_at", "-pk")
+        )
+        if teacher.can_create_classes:
+            reachable = taught if taught and _can_announce_to_class(request, taught[0]) else []
+        elif not full:
+            # The Drafts, Sent and Polls tabs only count the lists (#1294 review): no per class gate there.
+            # Without the grant, _can_announce_to_class admits a class to an effective admin or to the lead or
+            # staff of its own guild (classes.access, the guild leg); a reviewer grant never sends email.
+            return cls(count=1 + _guild_reachable_count(request, teacher, taught))
+        else:
+            reachable = [offering for offering in taught if _can_announce_to_class(request, offering)]
+        if not full:
+            return cls(count=1 + len(reachable))
+        students = past_students(teacher)
+        return cls(
+            count=1 + len(reachable),
+            past_students=len(students.users) + len(students.guests),
+            classes=tuple((offering, offering.confirmed) for offering in reachable),  # type: ignore[attr-defined]
+        )
+
+
+def _guild_reachable_count(request: HttpRequest, teacher: Member, taught: Sequence[ClassOffering]) -> int:
+    """How many of ``taught`` a member without the teaching grant may email, in one query (#1294 review).
+
+    The count :class:`StudentMailingLists` shows off the Mailing Lists tab, matching what
+    :func:`_can_announce_to_class` admits there: every class for an effective admin, none in a Guest
+    preview, else the classes of a guild they lead or staff.
+    """
+    view_as = getattr(request, "view_as", None)
+    if view_as is None or not view_as.is_member:
+        return 0
+    if view_as.is_admin:
+        return len(taught)
+    staffed = set(teacher.staffed_guilds.values_list("pk", flat=True))
+    return sum(1 for offering in taught if offering.category is not None and offering.category.guild_id in staffed)
 
 
 def _mailing_list_url(guild: Guild) -> str:

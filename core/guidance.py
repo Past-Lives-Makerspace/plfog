@@ -518,6 +518,18 @@ _GUIDANCE_LIST = (
         ),
     ),
     Guidance(
+        key="billing.payments",
+        title="Payments and Reports",
+        url_name="billing_admin_dashboard",
+        query={"tab": "payments"},
+        steps=(
+            "Guild leads and staff open Payments or Reports from their guild's group on Guild Tools, instructors from Classes.",
+            "Payments lists what members paid the guilds you run and the classes you teach, cubby rent included, with CSV export.",
+            "Reports shows what those payments collected and your share of it, for a month or any dates, with CSV and PDF export.",
+            "Refunds stay with the treasurer and admins.",
+        ),
+    ),
+    Guidance(
         key="admin.email-members",
         title="Email Members",
         url_name="hub_announcements",

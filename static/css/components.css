@@ -1938,13 +1938,12 @@ select[multiple] option:checked {
     font-size: 0.8125rem;
 }
 
-/* Payments ledger cells (the billing dashboard's dark-fixed partial — literal
-   colors match the page's own pl-* chrome, like .pl-text-muted there). */
-.pl-payer-link { color: #a0c0e0; }
-.pl-cell-muted { color: #96ACBB; }
+/* Payments ledger cells, on the hub tokens so they follow the theme (#1294). */
+.pl-payer-link { color: var(--hub-link); }
+.pl-cell-muted { color: var(--hub-text-muted); }
 .pl-table-empty {
     text-align: center;
-    color: #96ACBB;
+    color: var(--hub-text-muted);
     padding: 2rem;
 }
 

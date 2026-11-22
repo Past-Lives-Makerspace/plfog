@@ -108,6 +108,8 @@ _GUILD_CARDS = [
     "Mailing Lists",
     "Orientation Bookings",
     "Orientations",
+    "Payments",
+    "Reports",
     "Reservations",
 ]
 
@@ -217,8 +219,10 @@ def describe_guild_tools():
             GuildFactory(guild_lead=member)
             member.admin_capabilities.create(capability=AdminCapability.Capability.BILLING_APPROVER)
             sections = _sections(client)
-            assert sections[0] == ("admin", "Admin", ["Payments", "Reports"])
+            assert sections[0] == ("admin", "Admin", ["Payments"])
             assert [key for key, _, _ in sections] == ["admin", "guild"]
+            # Their own Reports is the guild section's scoped card (#1294); Reconciliation stays with admins.
+            assert "Reports" in sections[1][2]
 
     def describe_guild_staff_with_two_guilds():
         def _staff_two(client: Client, username: str) -> tuple[Guild, Guild]:

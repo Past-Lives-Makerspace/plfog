@@ -1,4 +1,4 @@
-{% load classes_tags %}{# One Transaction Detail line on the Reconciliation tab; needs line. #}
+{% load classes_tags %}{# One Transaction Detail line on the Reconciliation tab; needs line. Scoped Reports (#1294) show the viewer's share in place of the actions, and none of the treasurer's notes or payout badges. #}
           <tr style="cursor:default{% if line.omitted %};opacity:0.5;text-decoration:line-through{% endif %}">
             <td>{{ line.date|date:"M j" }}</td>
             <td><span class="pl-badge pl-badge--muted">{{ line.source_kind|capfirst }}</span></td>
@@ -7,13 +7,18 @@
               {{ line.item }}
               {% if line.overridden %}<span class="pl-badge pl-badge--warn">Adjusted</span>{% endif %}
               {% if line.omitted %}<span class="pl-badge pl-badge--fail">Omitted</span>{% endif %}
+              {% if not reconciliation_scoped %}
               {% if line.payee_kept_share %}<span class="pl-badge pl-badge--warn">Payee kept share</span>{% endif %}
               {% if line.note %}<span class="pl-text-muted" style="font-size:0.75rem">({{ line.note }})</span>{% endif %}
               {% if line.payout %}<span class="pl-recon-payout" data-line-payout-state="{{ line.payout.state }}"><span class="pl-status-badge pl-status-badge--{{ line.payout.badge.tone }}">{{ line.payout.badge.label }}</span></span>{% endif %}
+              {% endif %}
             </td>
             <td class="text-right">{{ line.gross_cents|cents_as_dollars }}</td>
             <td class="text-right">{{ line.refunded_cents|cents_as_dollars }}</td>
             <td class="text-right">{{ line.net_cents|cents_as_dollars }}</td>
+            {% if reconciliation_scoped %}
+            <td class="text-right" data-recon-viewer-share>{{ line.viewer_share_cents|cents_as_dollars }}</td>
+            {% else %}
             <td class="text-right">
               <div class="pl-row-actions">
               {% if line.payout.owed %}
@@ -42,4 +47,5 @@
               {% endif %}
               </div>
             </td>
+            {% endif %}
           </tr>

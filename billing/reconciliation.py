@@ -155,6 +155,9 @@ class TransactionLine:
     # no fee record yet, Stripe not read yet, or not a Stripe payment. Never read None as zero.
     stripe_fee_cents: int | None = None
     stripe_net_cents: int | None = None
+    # Reports for a guild lead, staff or instructor (#1294): the cents of this line that are theirs. None
+    # on the unscoped reconciliation, where every recipient's share is shown.
+    viewer_share_cents: int | None = None
 
 
 @dataclass
@@ -221,6 +224,11 @@ class ReconciliationResult:
         return sum(
             alloc.total_cents for kind in GROUP_ORDER if kind is not RecipientKind.PL for alloc in self.groups[kind]
         )
+
+    @property
+    def viewer_share_total_cents(self) -> int:
+        """Scoped Reports (#1294): the viewer's share of every line shown, omitted lines counting nothing."""
+        return sum(line.viewer_share_cents or 0 for line in self.lines)
 
     @property
     def pl_total_cents(self) -> int:
@@ -1489,15 +1497,61 @@ def _csv_lines(result: ReconciliationResult, writer: Any) -> Iterator[str]:
             )
 
 
+SCOPED_LINE_HEADERS = ["Date", "Source", "Payer", "Item", "Gross", "Refunded", "Net", "Your Share"]
+
+
+def _cents(cents: int) -> str:
+    return f"{cents / 100:.2f}"
+
+
+def _scoped_line_rows(result: ReconciliationResult, writer: Any) -> Iterator[str]:
+    """Scoped Reports (#1294): the Transaction Detail lines the page shows, then the viewer's share total.
+
+    Written under the recipient rows after a blank row, so the CSV carries everything the page does:
+    the lines, the lines paid earlier that fell due in these dates under their own heading, and Your
+    Share, which sums the lines as the page's tile does.
+    """
+    sections = [("Transactions", result.lines)]
+    if result.due_earlier_lines:
+        sections.append(("Paid Earlier, Fell Due in These Dates", result.due_earlier_lines))
+    for title, lines in sections:
+        yield writer.writerow([])
+        yield writer.writerow([title])
+        yield writer.writerow(SCOPED_LINE_HEADERS)
+        for line in lines:
+            yield writer.writerow(
+                [
+                    _iso_day(line.date),
+                    line.source_kind.capitalize(),
+                    line.payer_name,
+                    line.item,
+                    _cents(line.gross_cents),
+                    _cents(line.refunded_cents),
+                    _cents(line.net_cents),
+                    _cents(line.viewer_share_cents or 0),
+                ]
+            )
+    yield writer.writerow([])
+    yield writer.writerow(["Your Share", "", "", "", "", "", "", _cents(result.viewer_share_total_cents)])
+
+
 def _iso_day(when: datetime | None) -> str:
     """``when`` as its Pacific day, "2026-11-05", or an empty cell."""
     return "" if when is None else timezone.localtime(when).date().isoformat()
 
 
-def stream_reconciliation_csv(result: ReconciliationResult) -> StreamingHttpResponse:
-    """Streaming CSV of the per-recipient allocation, one row per recipient."""
+def stream_reconciliation_csv(result: ReconciliationResult, *, scoped: bool = False) -> StreamingHttpResponse:
+    """Streaming CSV of the per-recipient allocation, one row per recipient.
+
+    ``scoped`` (#1294) adds the viewer's lines and their share total (:func:`_scoped_line_rows`).
+    """
+    from itertools import chain
+
     writer = csv.writer(_Echo())
-    response = StreamingHttpResponse(_csv_lines(result, writer), content_type="text/csv")
+    rows = _csv_lines(result, writer)
+    if scoped:
+        rows = chain(rows, _scoped_line_rows(result, writer))
+    response = StreamingHttpResponse(rows, content_type="text/csv")
     stamp = timezone.now().strftime("%Y%m%d")
     response["Content-Disposition"] = f'attachment; filename="plfog-reconciliation-{stamp}.csv"'
     return response

@@ -117,7 +117,7 @@ guild still must not be offered it.{% endcomment %}
       {% endfor %}
     </section>
 
-    {# ② At a glance (no money — instructors don't see revenue) #}
+    {# ② At a glance: counts only; the money for the classes they teach is on Payments and Reports (#1294), linked under the counts. #}
     <section class="hub-card" style="margin:0;">
       <h2 class="overview-title" style="margin-bottom:0.9rem;">At a Glance</h2>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;">
@@ -126,6 +126,7 @@ guild still must not be offered it.{% endcomment %}
         <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.drafts }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">drafts</div></div>
         <div><div style="font-size:1.6rem;font-weight:700;">{{ stats.total_signups }}</div><div style="color:var(--hub-text-muted);font-size:.8rem;">total sign-ups</div></div>
       </div>
+      <p class="hub-text-muted pl-teach-money" data-teach-money>What your classes collected is on <a href="{% url 'billing_admin_dashboard' %}?tab=payments">Payments</a>, and your share of it on <a href="{% url 'billing_admin_reports' %}">Reports</a>.</p>
     </section>
 
     {# ③ Waitlist pressure — compact strip #}
