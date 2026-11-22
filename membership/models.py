@@ -9604,6 +9604,13 @@ class GuildMembership(models.Model):
             "directions from fighting."
         ),
     )
+    no_discord_role = models.BooleanField(
+        default=False,
+        help_text=(
+            "The member took their reaction off this guild's Discord role message, so the daily Discord "
+            "role sync does not give the guild's role back. Reacting again clears it (#1270)."
+        ),
+    )
 
     objects = GuildMembershipManager()
 
