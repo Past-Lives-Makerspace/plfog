@@ -33,6 +33,16 @@ Penny rounding: each split's amount is `round(entry.amount * percent / 100, 2, R
 
 Guild payouts are reconciled manually via the admin Reports page — no automated Stripe Connect transfers. Instructor and orientor shares are moving to Stripe Connect Express (#662); guild shares stay manual.
 
+## Who sees what on Payments and Reports (#1294)
+
+Payments (the dashboard's Payments tab) and Reports (its Reconciliation tab) are one set of pages for everyone, narrowed on the server by `billing/scope.py`'s `PaymentsScope`, never by hiding columns:
+
+- **Admins** see everything, and the tab is Reconciliation with every control. **Billing Administrators** see every payment on Payments, as before; Reports is scoped for them like anyone else (`PaymentsScope.for_request(request, reports=True)`), so one who runs nothing is still refused Reconciliation.
+- **Guild leads and staff** (`manageable_guilds`) see their guilds' class registrations, orientation bookings (`OrientationBooking.guild`), equipment reservations and their late fees (the item's guild), cubby invoices (the unit's guild, Reports only, since Payments has no cubby source) and My Tab purchases of their products (a `TabEntrySplit` naming the guild). A tab charge bundles a member's whole cycle, so a scoped viewer gets one row or line per purchase (`payments_panel._tab_entry_rows`, `PaymentsScope._tab_entry_lines`), never the charge.
+- **Instructors** (an instructors row on any class) see every registration of every class they teach, payee or not; a co-instructor's share of a class someone else is paid for is 0. A lead who teaches sees the union.
+
+`PaymentsScope.restrict(kind, queryset)` is the one filter, read by every ledger source and by `scope_reconciliation`, which keeps the viewer's lines (each with `TransactionLine.viewer_share_cents`), their own recipient rows only (Past Lives dropped) and recomputes the totals. A scoped viewer gets the Payments and Reports tabs alone (`views._DashboardTabs`; Overview and Open Tabs list every tab), no refund control, and on Reports no snapshots, adjust, mark paid, payouts needing attention or unassigned banners. `hub.view_as.payments_access_required` gates the read only Payments views and `reports_access_required` the Reconciliation table, CSV and print; every money changing endpoint keeps its own stricter decorator, so a scoped viewer's POST answers 403. There is no guild filter, so a crafted `?guild=` changes nothing.
+
 ## Tab Flow
 
 1. Member adds payment method → `Tab.set_payment_method()` attaches to Stripe customer
@@ -89,7 +99,7 @@ Set on local, Hetzner, and Render. **Losing this key bricks the stored Stripe cr
 - `payment-method/confirm/` → saves PM to Tab
 - `payment-method/remove/` → detaches PM
 - `webhooks/stripe/` → handles payment_intent.succeeded/.payment_failed, the Checkout fan-in, and the cubby subscription events (`invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated` / `.deleted`, #978)
-- `admin/dashboard/` → multi-tab admin payments page
+- `admin/dashboard/` → multi-tab payments page: admins and Billing Administrators see everything; guild leads, staff and instructors their own money (#1294, Who sees what above)
 - `admin/add-entry/` → admin add-charge-to-tab
 - `admin/connect-platform/test/` → AJAX verify pasted platform secret
 - `admin/connect-platform/save/` → persist platform credentials

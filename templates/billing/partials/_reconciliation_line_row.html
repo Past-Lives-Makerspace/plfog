@@ -1,4 +1,4 @@
-{% load classes_tags %}{# One Transaction Detail line on the Reconciliation tab; needs line. #}
+{% load classes_tags %}{# One Transaction Detail line on the Reconciliation tab; needs line. Scoped Reports (#1294) show the viewer's share in place of the actions. #}
           <tr style="cursor:default{% if line.omitted %};opacity:0.5;text-decoration:line-through{% endif %}">
             <td>{{ line.date|date:"M j" }}</td>
             <td><span class="pl-badge pl-badge--muted">{{ line.source_kind|capfirst }}</span></td>
@@ -14,6 +14,9 @@
             <td class="text-right">{{ line.gross_cents|cents_as_dollars }}</td>
             <td class="text-right">{{ line.refunded_cents|cents_as_dollars }}</td>
             <td class="text-right">{{ line.net_cents|cents_as_dollars }}</td>
+            {% if reconciliation_scoped %}
+            <td class="text-right" data-recon-viewer-share>{{ line.viewer_share_cents|cents_as_dollars }}</td>
+            {% else %}
             <td class="text-right">
               <div class="pl-row-actions">
               {% if line.payout.owed %}
@@ -42,4 +45,5 @@
               {% endif %}
               </div>
             </td>
+            {% endif %}
           </tr>

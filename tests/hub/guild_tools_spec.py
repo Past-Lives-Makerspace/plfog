@@ -108,6 +108,8 @@ _GUILD_CARDS = [
     "Mailing Lists",
     "Orientation Bookings",
     "Orientations",
+    "Payments",
+    "Reports",
     "Reservations",
 ]
 

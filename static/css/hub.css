@@ -3917,6 +3917,12 @@ html:not(.dark) .admin-table-wrap tbody tr:nth-child(even) {
     font-size: 0.9em;
 }
 
+/* The instructor Overview's At a Glance: where the money for their classes is (#1294). */
+.cms-overview .pl-teach-money {
+    margin: 0.9rem 0 0;
+    font-size: 0.875rem;
+}
+
 /* Subordinate heading for a block nested inside an Overview card (e.g. Recent
    sign-ups within "At a glance"). Lighter than .overview-title to signal nesting. */
 .cms-overview .overview-subtitle {

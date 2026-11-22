@@ -5,6 +5,7 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
@@ -29,7 +30,13 @@ from billing.forms import CONTEXT_ADMIN_DASHBOARD, TabItemForm
 from billing.models import BillingSettings, Payout, PayoutAccount, Tab, TabCharge, TabEntry
 from core.integrations.eventbrite import EventbriteError
 from hub.permission_setup_views import page_setups
-from hub.view_as import billing_admin_access_required, fog_admin_required, refund_authority_required
+from hub.view_as import (
+    billing_admin_access_required,
+    fog_admin_required,
+    payments_access_required,
+    refund_authority_required,
+    reports_access_required,
+)
 
 if TYPE_CHECKING:
     from membership.models import Member
@@ -312,11 +319,14 @@ def _payments_panel_context(request: HttpRequest) -> dict[str, object]:
     """Shared context for the Payments tab and its standalone table partial.
 
     The same filters feed the page render, the ``refund-done`` HTMX refresh, and
-    the CSV export, so all three always agree on what "the current view" means.
+    the CSV export, so all three always agree on what "the current view" means. A guild lead,
+    staffer or instructor sees only their own rows (#1294, :class:`billing.scope.PaymentsScope`)
+    and no refund control.
     """
     from urllib.parse import urlencode
 
     from billing.payments_panel import build_payments_ledger, parse_window
+    from billing.scope import PaymentsScope
     from hub.view_as import has_refund_authority
 
     source = request.GET.get("source", "all")
@@ -324,11 +334,13 @@ def _payments_panel_context(request: HttpRequest) -> dict[str, object]:
     window = parse_window(request.GET.get("start", ""), request.GET.get("end", ""))
     view_as = request.view_as  # type: ignore[attr-defined]
     viewer_is_fog_admin = view_as.has_actual("admin")
+    scope = PaymentsScope.for_request(request)
     ledger = build_payments_ledger(
         window=window,
         source=source,
         status=status,
         viewer_is_admin=viewer_is_fog_admin,
+        scope=scope,
     )
     payments_query = urlencode(
         {
@@ -345,12 +357,74 @@ def _payments_panel_context(request: HttpRequest) -> dict[str, object]:
         "payments_start": window.start.isoformat(),
         "payments_end": window.end.isoformat(),
         "payments_query": payments_query,
-        "viewer_has_refund_authority": has_refund_authority(request),
+        "viewer_has_refund_authority": has_refund_authority(request) and scope.everything,
         "viewer_is_fog_admin": viewer_is_fog_admin,
+        "payments_scoped": scope.is_scoped,
     }
 
 
-@billing_admin_access_required
+_DASHBOARD_TAB_ORDER = ("overview", "open-tabs", "payments", "reconciliation", "settings", "stripe")
+_DASHBOARD_TAB_LABELS = {
+    "overview": "Overview",
+    "open-tabs": "Open Tabs",
+    "payments": "Payments",
+    "reconciliation": "Reconciliation",
+    "settings": "Settings",
+    "stripe": "Stripe",
+}
+
+
+@dataclass(frozen=True)
+class _DashboardTabs:
+    """The Payments dashboard's tab set for one viewer: a function of (My Tab on, role, billing scope).
+
+    ``allowed`` renders; ``refused`` answers 403 (Settings and Stripe to a non-admin, Reconciliation to
+    someone with no share in it); anything else falls back to ``default``. ``row`` is the tab row in
+    page order, with Reconciliation called Reports for anyone but an admin (#1294).
+    """
+
+    allowed: frozenset[str]
+    refused: frozenset[str]
+    default: str
+    tabs_on: bool
+    scoped: bool
+    row: list[tuple[str, str]]
+
+    @classmethod
+    def for_request(cls, request: HttpRequest, *, my_tab_on: bool) -> _DashboardTabs:
+        from billing.scope import PaymentsScope
+
+        view_as = request.view_as  # type: ignore[attr-defined]
+        is_admin = view_as.has_actual("admin")
+        scoped = PaymentsScope.for_request(request).is_scoped
+        reports_scope = PaymentsScope.for_request(request, reports=True)
+        # The tab ledger tabs list every member's tab, so a scoped viewer never gets them.
+        tabs_on = my_tab_on and not scoped
+        allowed = {"overview", "open-tabs", "payments"} if tabs_on else {"payments"}
+        refused: set[str] = set()
+        if is_admin:
+            allowed |= {"settings", "stripe"}
+        else:
+            refused |= {"settings", "stripe"}
+        if reports_scope.is_empty:
+            refused.add("reconciliation")
+        else:
+            allowed.add("reconciliation")
+        labels = {
+            **_DASHBOARD_TAB_LABELS,
+            "reconciliation": "Reconciliation" if reports_scope.everything else "Reports",
+        }
+        return cls(
+            allowed=frozenset(allowed),
+            refused=frozenset(refused),
+            default="overview" if tabs_on else "payments",
+            tabs_on=tabs_on,
+            scoped=scoped,
+            row=[(tab, labels[tab]) for tab in _DASHBOARD_TAB_ORDER if tab in allowed],
+        )
+
+
+@payments_access_required
 def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
     """Admin payments dashboard — tabbed view of billing data.
 
@@ -359,6 +433,11 @@ def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
     becomes the first and default tab; the Settings and Stripe tabs stay admin-only
     in every state (they configure Stripe, which powers class and orientation
     payments regardless of the flag — config never hides behind its own feature).
+
+    A guild lead, staffer or instructor (#1294) gets two tabs, Payments and Reports (the
+    Reconciliation tab, read only), each narrowed to their own money; the tab ledger tabs show
+    the whole makerspace's tabs, so they stay with Billing Administrators and admins. A Billing
+    Administrator who is not an admin gets Reports too when they lead, staff or teach.
     """
     from django.contrib import admin as django_admin
 
@@ -374,27 +453,25 @@ def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
 
     view_as = request.view_as  # type: ignore[attr-defined]
     viewer_is_fog_admin = view_as.has_actual("admin")
-
-    # Tab set as a function of (flag, role). Settings/Stripe stay admin-only in every state.
-    tabs_on = is_on("my_tab")
-    default_tab = "overview" if tabs_on else "payments"
-    allowed = {"overview", "open-tabs", "payments"} if tabs_on else {"payments"}
-    if viewer_is_fog_admin:
-        allowed |= {"settings", "stripe", "reconciliation"}
-
-    active_tab = request.GET.get("tab", default_tab)
-    # A non-admin probing Settings/Stripe/Reconciliation is an access question → 403
-    # (money-disbursement config stays actual-admin only); a feature-hidden tab
-    # (?tab=overview with tabs off) is a feature question → fall back.
-    if active_tab in {"settings", "stripe", "reconciliation"} and not viewer_is_fog_admin:
+    tabs = _DashboardTabs.for_request(request, my_tab_on=is_on("my_tab"))
+    active_tab = request.GET.get("tab", tabs.default)
+    # A non-admin probing Settings/Stripe is an access question → 403 (money-disbursement
+    # config stays actual-admin only), and so is Reconciliation for someone with no share in
+    # it; a feature-hidden tab (?tab=overview with tabs off) is a feature question → fall back.
+    if active_tab in tabs.refused:
         return HttpResponse("Admin access required.", status=403)
-    if active_tab not in allowed:
-        active_tab = default_tab
+    if active_tab not in tabs.allowed:
+        active_tab = tabs.default
+    tabs_on = tabs.tabs_on
+    scoped = tabs.scoped
 
     context: dict[str, object] = {
         **django_admin.site.each_context(request),
         "active_tab": active_tab,
         "viewer_is_fog_admin": viewer_is_fog_admin,
+        "payments_scoped": scoped,
+        # The tab row, in page order; a single tab draws no row.
+        "dashboard_tabs": tabs.row,
     }
 
     # --- Overview + Open Tabs context (tab-ledger tables — only when My Tab is on) ---
@@ -506,19 +583,29 @@ def admin_tab_dashboard(request: HttpRequest) -> HttpResponse:
 
 
 def _reconciliation_context(request: HttpRequest) -> dict[str, object]:
-    """Shared context for the Reconciliation tab, its table partial, and the print/CSV exports."""
+    """Shared context for the Reconciliation tab, its table partial, and the print/CSV exports.
+
+    For anyone but an admin it is Reports (#1294): :meth:`billing.scope.PaymentsScope.scope_reconciliation`
+    narrows the result to the viewer's payments and recipient rows, the tab payout summary to
+    their guilds, and leaves out the snapshots and the payouts needing attention, which are the
+    treasurer's.
+    """
     from urllib.parse import urlencode
 
     from billing.models import ReconciliationSnapshot
     from billing.payments_panel import parse_window
     from billing.reconciliation import build_reconciliation
     from billing.reports import build_report
+    from billing.scope import PaymentsScope
 
     window = parse_window(request.GET.get("start", ""), request.GET.get("end", ""))
     view_as = request.view_as  # type: ignore[attr-defined]
     viewer_is_fog_admin = view_as.has_actual("admin")
-    result = build_reconciliation(window=window)
+    scope = PaymentsScope.for_request(request, reports=True)
+    result = scope.scope_reconciliation(build_reconciliation(window=window))
     _rows, payout_summary, admin_total = build_report(start_date=window.start, end_date=window.end)
+    if scope.is_scoped:
+        payout_summary = [row for row in payout_summary if row.guild_id in scope.guild_ids]
     query = urlencode({"start": window.start.isoformat(), "end": window.end.isoformat()})
     return {
         "reconciliation": result,
@@ -532,8 +619,14 @@ def _reconciliation_context(request: HttpRequest) -> dict[str, object]:
         ),
         "reconciliation_payout_summary": payout_summary,
         "reconciliation_admin_total": admin_total,
-        "reconciliation_snapshots": ReconciliationSnapshot.objects.all(),
-        "payouts_needing_attention": Payout.objects.needs_attention().select_related(
+        "reconciliation_scoped": scope.is_scoped,
+        "reconciliation_scope_has_guilds": bool(scope.guild_ids),
+        "reconciliation_snapshots": ReconciliationSnapshot.objects.none()
+        if scope.is_scoped
+        else ReconciliationSnapshot.objects.all(),
+        "payouts_needing_attention": Payout.objects.none()
+        if scope.is_scoped
+        else Payout.objects.needs_attention().select_related(
             "payee",
             "registration__class_offering",
             "orientation_booking__orientation_type",
@@ -545,47 +638,52 @@ def _reconciliation_context(request: HttpRequest) -> dict[str, object]:
     }
 
 
-@fog_admin_required
+@reports_access_required
 def reconciliation_table(request: HttpRequest) -> HttpResponse:
-    """The reconciliation allocation table alone — the HTMX refresh target."""
+    """The reconciliation allocation table alone — the HTMX refresh target; scoped for non-admins (#1294)."""
     return render(request, "billing/partials/reconciliation_table.html", _reconciliation_context(request))
 
 
-@fog_admin_required
+@reports_access_required
 def admin_reconciliation_csv(request: HttpRequest) -> StreamingHttpResponse:
-    """Streaming CSV of the per-recipient allocation for the current window."""
+    """Streaming CSV of the per-recipient allocation for the current window; a non-admin's own rows only (#1294)."""
     from billing.payments_panel import parse_window
     from billing.reconciliation import build_reconciliation, stream_reconciliation_csv
+    from billing.scope import PaymentsScope
 
     window = parse_window(request.GET.get("start", ""), request.GET.get("end", ""))
-    return stream_reconciliation_csv(build_reconciliation(window=window))
+    scope = PaymentsScope.for_request(request, reports=True)
+    return stream_reconciliation_csv(scope.scope_reconciliation(build_reconciliation(window=window)))
 
 
-@fog_admin_required
+@reports_access_required
 def reconciliation_print(request: HttpRequest) -> HttpResponse:
-    """Print-optimized allocation table (Print -> Save as PDF from the browser)."""
+    """Print-optimized allocation table (Print -> Save as PDF from the browser); scoped for non-admins (#1294)."""
     from billing.payments_panel import parse_window
     from billing.reconciliation import build_reconciliation
+    from billing.scope import PaymentsScope
 
     window = parse_window(request.GET.get("start", ""), request.GET.get("end", ""))
-    result = build_reconciliation(window=window)
+    scope = PaymentsScope.for_request(request, reports=True)
+    result = scope.scope_reconciliation(build_reconciliation(window=window))
     return render(
         request,
         "billing/reconciliation_print.html",
-        {"reconciliation": result, "generated_at": timezone.now()},
+        {"reconciliation": result, "generated_at": timezone.now(), "reconciliation_scoped": scope.is_scoped},
     )
 
 
-@billing_admin_access_required
+@payments_access_required
 def billing_admin_payments_table(request: HttpRequest) -> HttpResponse:
     """The payments ledger table alone — the ``refund-done`` HTMX refresh target."""
     return render(request, "billing/partials/payments_table.html", _payments_panel_context(request))
 
 
-@billing_admin_access_required
+@payments_access_required
 def admin_payments_csv(request: HttpRequest) -> StreamingHttpResponse:
-    """Streaming CSV of the payments ledger, same filters via GET."""
+    """Streaming CSV of the payments ledger, same filters via GET; a scoped viewer's own rows only (#1294)."""
     from billing.payments_panel import build_payments_ledger, parse_window, stream_payments_csv
+    from billing.scope import PaymentsScope
 
     window = parse_window(request.GET.get("start", ""), request.GET.get("end", ""))
     view_as = request.view_as  # type: ignore[attr-defined]
@@ -594,6 +692,7 @@ def admin_payments_csv(request: HttpRequest) -> StreamingHttpResponse:
         source=request.GET.get("source", "all"),
         status=request.GET.get("status", "all"),
         viewer_is_admin=view_as.has_actual("admin"),
+        scope=PaymentsScope.for_request(request),
     )
     return stream_payments_csv(ledger)
 
@@ -1027,12 +1126,13 @@ def billing_admin_retry_charge(request: HttpRequest, charge_pk: int) -> JsonResp
     return JsonResponse({"status": "failed"})
 
 
-@billing_admin_access_required
+@payments_access_required
 def admin_reports(request: HttpRequest) -> HttpResponse:
     """Retired: the Reports page folded into the Reconciliation tab (301 to it).
 
-    The per-guild payout summary now renders as a section of the admin-only
-    Reconciliation tab. Old links / bookmarks land there instead of 404ing.
+    The per-guild payout summary now renders as a section of the Reconciliation tab. Old links /
+    bookmarks land there instead of 404ing. The Tools page's Reports cards open this URL, for
+    admins and, scoped to their own money, for guild leads, staff and instructors (#1294).
     """
     from urllib.parse import urlencode
 
@@ -1043,7 +1143,7 @@ def admin_reports(request: HttpRequest) -> HttpResponse:
     return redirect(f"/billing/admin/dashboard/?{query}", permanent=True)
 
 
-@billing_admin_access_required
+@payments_access_required
 def admin_reports_csv(request: HttpRequest) -> HttpResponse:
     """Retired: superseded by the reconciliation CSV (a superset). 301 to it."""
     from urllib.parse import urlencode

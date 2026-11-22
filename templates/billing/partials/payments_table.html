@@ -35,7 +35,7 @@ initial render and the post-refund HTMX refresh (refund-done).
           {% endif %}
         </td>
         <td>
-          {% if row.source_kind == "tab" %}
+          {% if row.source_kind == "tab" and row.tab_pk %}
           <span onclick="openTabModal({{ row.tab_pk }})" style="cursor:pointer;">{{ row.payer_name }}</span>
           {% elif row.payer_url %}
           <a href="{{ row.payer_url }}" class="pl-payer-link">{{ row.payer_name }}</a>

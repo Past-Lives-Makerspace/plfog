@@ -145,13 +145,16 @@ def describe_admin_tools_billing_cards():
             assert _SETTINGS_HREF not in content
 
     def describe_a_guild_lead_without_the_capability():
-        def it_reaches_the_page_but_sees_no_billing_cards(client: Client):
+        def it_reaches_the_page_and_sees_only_its_guild_s_scoped_billing_cards(client: Client):
+            # #1294: the guild section's Payments and Reports open the same pages, scoped; the Admin cards stay away.
             _login_guild_lead(client, "lead_nocards")
             response = client.get(reverse("hub_admin_tools"))
             assert response.status_code == 200
             content = response.content.decode()
-            assert _PAYMENTS_HREF not in content
-            assert _REPORTS_HREF not in content
+            assert f'href="{_PAYMENTS_HREF}">' not in content
+            assert f'href="{_REPORTS_HREF}">' not in content
+            assert f'href="{_PAYMENTS_HREF}?tab=payments" data-tool-scoped-payments' in content
+            assert f'href="{_REPORTS_HREF}" data-tool-scoped-reports' in content
 
     def describe_a_fog_admin():
         def it_sees_both_billing_cards(client: Client):
@@ -180,10 +183,11 @@ def describe_admin_tools_billing_cards():
             assert has_card == admitted
 
         def it_holds_for_a_guild_lead(client: Client):
+            # #1294: a lead's card is the guild section's scoped one, and the page admits them.
             _login_guild_lead(client, "parity_lead")
             has_card = _PAYMENTS_HREF in client.get(reverse("hub_admin_tools")).content.decode()
             admitted = client.get(_PAYMENTS_HREF).status_code == 200
-            assert has_card is False
+            assert has_card is True
             assert has_card == admitted
 
         def it_holds_for_a_fog_admin(client: Client):
@@ -342,6 +346,8 @@ _GUILD_CARDS = [
     "Mailing Lists",
     "Orientation Bookings",
     "Orientations",
+    "Payments",
+    "Reports",
     "Reservations",
 ]
 _CLASSES_SECTION = ("classes", "Classes", ["Email Members", "My Classes", "Registrations"])

@@ -19,6 +19,7 @@ from django.utils import timezone
 
 if TYPE_CHECKING:
     from billing.models import PaymentRefund
+    from billing.scope import PaymentsScope
 
 MAX_ROWS = 500
 
@@ -214,7 +215,44 @@ def _tab_rows(window: PanelWindow) -> list[PaymentRow]:
     return rows
 
 
-def _class_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRow]:
+def _tab_entry_rows(window: PanelWindow, scope: PaymentsScope) -> list[PaymentRow]:
+    """My Tab purchases of a scoped viewer's guilds' products (#1294), one row per purchase.
+
+    A tab charge bundles everything a member bought, so a guild lead or staffer sees the
+    purchases of their guild's products instead of the charge: each dated, and paid or failed,
+    by the charge that carried it. Pending purchases have not been charged and are not ledger
+    rows, as pending charges are not. No tab detail link: that modal shows the whole tab.
+    """
+    from django.db.models.functions import Coalesce
+
+    from billing.models import TabCharge, TabEntry
+
+    entries = (
+        scope.restrict("tab", TabEntry.objects.filter(voided_at__isnull=True))
+        .filter(tab_charge__status__in=[TabCharge.Status.SUCCEEDED, TabCharge.Status.FAILED])
+        .annotate(effective_charged_at=Coalesce("tab_charge__charged_at", "tab_charge__created_at"))
+        .filter(effective_charged_at__gte=window.start_dt, effective_charged_at__lt=window.end_dt)
+        .select_related("tab__member", "tab_charge")
+    )
+    rows: list[PaymentRow] = []
+    for entry in entries:
+        charge = cast("TabCharge", entry.tab_charge)
+        rows.append(
+            PaymentRow(
+                source_kind="tab",
+                source_pk=entry.pk,
+                payer_name=entry.tab.member.finance_name,
+                payer_url=None,
+                item=entry.description,
+                amount_cents=int(round(entry.amount * 100)),
+                status="paid" if charge.status == TabCharge.Status.SUCCEEDED else "charge_failed",
+                date=entry.effective_charged_at,
+            )
+        )
+    return rows
+
+
+def _class_rows(window: PanelWindow, *, viewer_is_admin: bool, scope: PaymentsScope) -> list[PaymentRow]:
     """Paid class registration rows, with refund state derived from the ledger.
 
     Includes rows with NO ``stripe_payment_id`` — a staff Mark as Paid (cash,
@@ -226,7 +264,7 @@ def _class_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRo
     from classes.models import Registration
 
     registrations = (
-        Registration.objects.without_demo_money()
+        scope.restrict("class", Registration.objects.without_demo_money())
         .filter(amount_paid_cents__gt=0)
         .filter(confirmed_at__gte=window.start_dt, confirmed_at__lt=window.end_dt)
         .select_related("class_offering", "member")
@@ -260,7 +298,7 @@ def _class_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRo
     return rows
 
 
-def _orientation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRow]:
+def _orientation_rows(window: PanelWindow, *, viewer_is_admin: bool, scope: PaymentsScope) -> list[PaymentRow]:
     """Paid orientation-booking rows, with refund state derived from the ledger.
 
     ``PENDING_PAYMENT`` holds are excluded — no money has moved yet. Dated by
@@ -272,7 +310,8 @@ def _orientation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[Pay
     from membership.models import OrientationBooking
 
     bookings = (
-        OrientationBooking.objects.filter(amount_paid_cents__gt=0)
+        scope.restrict("orientation", OrientationBooking.objects.all())
+        .filter(amount_paid_cents__gt=0)
         .exclude(status=OrientationBooking.Status.PENDING_PAYMENT)
         .filter(OrientationBooking.money_between_q(window.start_dt, window.end_dt))
         .select_related("guild", "member", "orientation_type__guild", "orientation_type__equipment")
@@ -303,7 +342,7 @@ def _orientation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[Pay
     return rows
 
 
-def _reservation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRow]:
+def _reservation_rows(window: PanelWindow, *, viewer_is_admin: bool, scope: PaymentsScope) -> list[PaymentRow]:
     """Paid equipment reservation rows (#749), with refund state derived from the ledger.
 
     ``PENDING_PAYMENT`` holds are excluded: no money has moved yet. A declined or cancelled
@@ -315,7 +354,8 @@ def _reservation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[Pay
     from membership.models import EquipmentReservation
 
     reservations = (
-        EquipmentReservation.objects.filter(amount_paid_cents__gt=0)
+        scope.restrict("reservation", EquipmentReservation.objects.all())
+        .filter(amount_paid_cents__gt=0)
         .exclude(status=EquipmentReservation.Status.PENDING_PAYMENT)
         .filter(created_at__gte=window.start_dt, created_at__lt=window.end_dt)
         .select_related("equipment", "member")
@@ -345,7 +385,7 @@ def _reservation_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[Pay
     return rows
 
 
-def _late_fee_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[PaymentRow]:
+def _late_fee_rows(window: PanelWindow, *, viewer_is_admin: bool, scope: PaymentsScope) -> list[PaymentRow]:
     """Paid late cancellation fee rows (#456), with refund state derived from the ledger.
 
     PAID and REFUNDED fees only: money moved on both (a REFUNDED fee was paid first), and a
@@ -357,9 +397,8 @@ def _late_fee_rows(window: PanelWindow, *, viewer_is_admin: bool) -> list[Paymen
     from billing.models import LateCancellationFee
 
     fees = (
-        LateCancellationFee.objects.filter(
-            status__in=[LateCancellationFee.Status.PAID, LateCancellationFee.Status.REFUNDED]
-        )
+        scope.restrict("late_fee", LateCancellationFee.objects.all())
+        .filter(status__in=[LateCancellationFee.Status.PAID, LateCancellationFee.Status.REFUNDED])
         .filter(paid_at__gte=window.start_dt, paid_at__lt=window.end_dt)
         .select_related(
             "member",
@@ -401,23 +440,29 @@ def build_payments_ledger(
     source: str = "all",
     status: str = "all",
     viewer_is_admin: bool = False,
+    scope: PaymentsScope | None = None,
 ) -> PaymentsLedger:
     """Merge, filter, sort (date desc), and cap the ledger; compute the header stats.
 
     Unknown ``source``/``status`` values behave like ``"all"`` — filter chips are
     URL parameters, and a stale link should show everything rather than nothing.
+    ``scope`` (#1294) narrows every source to what the viewer may see; None is everything.
+    A scoped viewer's tab rows are purchases, not charges (:func:`_tab_entry_rows`).
     """
+    from billing.scope import PaymentsScope
+
+    scope = PaymentsScope(everything=True) if scope is None else scope
     rows: list[PaymentRow] = []
     if source in ("all", "tab"):
-        rows.extend(_tab_rows(window))
+        rows.extend(_tab_entry_rows(window, scope) if scope.is_scoped else _tab_rows(window))
     if source in ("all", "class"):
-        rows.extend(_class_rows(window, viewer_is_admin=viewer_is_admin))
+        rows.extend(_class_rows(window, viewer_is_admin=viewer_is_admin, scope=scope))
     if source in ("all", "orientation"):
-        rows.extend(_orientation_rows(window, viewer_is_admin=viewer_is_admin))
+        rows.extend(_orientation_rows(window, viewer_is_admin=viewer_is_admin, scope=scope))
     if source in ("all", "reservation"):
-        rows.extend(_reservation_rows(window, viewer_is_admin=viewer_is_admin))
+        rows.extend(_reservation_rows(window, viewer_is_admin=viewer_is_admin, scope=scope))
     if source in ("all", "late_fee"):
-        rows.extend(_late_fee_rows(window, viewer_is_admin=viewer_is_admin))
+        rows.extend(_late_fee_rows(window, viewer_is_admin=viewer_is_admin, scope=scope))
 
     wanted = _STATUS_FILTERS.get(status)
     if wanted is not None:

@@ -1,0 +1,25 @@
+bump = "minor"
+date = "2026-11-21"
+audience = ["instructors", "guild-staff"]
+feature = "billing.payments"
+guidance = "shots"
+title = "Payments and Reports for your guild and your classes"
+changes = [
+  "Guild leads and staff now have Payments and Reports in their guild's group on Guild Tools. Payments lists what members paid the guilds you run: classes, orientations, reservations, late fees and products bought on My Tab.",
+  "Reports shows what those payments collected and your guild's share, cubby rent included, for a month or any dates, with CSV and PDF export.",
+  "Instructors get Payments and Reports under Classes for every class they teach, with their share.",
+  "Instructors also have Your Students on Email Members' Mailing Lists tab: Past Students, everyone who took any of your classes, and one list per class. Anyone who stopped your emails is left off.",
+  "Refunds and payouts stay with the treasurer and admins.",
+]
+
+[[shots]]
+caption = "On Guild Tools, press Payments in your guild's group. Instructors find it under Classes."
+
+[[shots]]
+caption = "Payments lists only your guild's or your classes' payments. Export CSV downloads the same rows."
+
+[[shots]]
+caption = "Press Reports to see what was collected and your share. Pick a month or dates, then Export CSV or PDF."
+
+[[shots]]
+caption = "On Email Members, the Mailing Lists tab shows Your Students. Press Email beside Past Students or a class."

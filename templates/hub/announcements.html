@@ -13,9 +13,11 @@ pagination work. Rows stack into labelled cards at 768px and below (the members 
 The Mailing Lists tab (?tab=mailing-lists) lists the guilds whose mailing list this viewer may manage
 (membership.permissions.manageable_guilds), each opening its Your Mailing List card in Guild Settings;
 the Admin Tools Manage Mailing Lists card links here. A viewer with a list but no Drafts or Sent (can_open
-false) sees that tab alone.
+false) sees that tab alone. Someone who teaches also gets Your Students (#1294, hub.views.StudentMailingLists):
+My Past Students and each class's roster, each opening the composer on that audience.
 
-Context: tab, can_open, mailing_lists ([(Guild, url)]), rows ([(AnnouncementDraft, people reached or None, emails sent or None,
+Context: tab, can_open, mailing_lists ([(Guild, url)]), mailing_lists_count (guild and student lists), student_lists
+(StudentMailingLists or None, on the Mailing Lists tab), rows ([(AnnouncementDraft, people reached or None, emails sent or None,
 AnnouncementProgress or None)]; the last three only on the Sent tab), page, base_params,
 drafts_count, sent_count, polls_count, can_send_release (the admin only Release Update card, #922). The Polls tab (?tab=polls, #1142)
 reads poll_rows ([(EmailPoll with sent_count and answered_count, is_open)]).
@@ -34,13 +36,14 @@ reads poll_rows ([(EmailPoll with sent_count and answered_count, is_open)]).
   <a href="{% url 'hub_announcements' %}?tab=sent" class="vote-tab{% if tab == 'sent' %} vote-tab--active{% endif %}"{% if tab == 'sent' %} aria-current="page"{% endif %} data-announcements-tab="sent">Sent <span class="hub-badge vote-tab__count" data-announcements-count="sent">{{ sent_count }}</span></a>
   <a href="{% url 'hub_announcements' %}?tab=polls" class="vote-tab{% if tab == 'polls' %} vote-tab--active{% endif %}"{% if tab == 'polls' %} aria-current="page"{% endif %} data-announcements-tab="polls" data-guidance-target="guild.email-polls-tab">Polls <span class="hub-badge vote-tab__count" data-announcements-count="polls">{{ polls_count }}</span></a>
   {% endif %}
-  {% if mailing_lists %}
-  <a href="{% url 'hub_announcements' %}?tab=mailing-lists" class="vote-tab{% if tab == 'mailing-lists' %} vote-tab--active{% endif %}"{% if tab == 'mailing-lists' %} aria-current="page"{% endif %} data-announcements-tab="mailing-lists">Mailing Lists <span class="hub-badge vote-tab__count" data-announcements-count="mailing-lists">{{ mailing_lists|length }}</span></a>
+  {% if mailing_lists_count %}
+  <a href="{% url 'hub_announcements' %}?tab=mailing-lists" class="vote-tab{% if tab == 'mailing-lists' %} vote-tab--active{% endif %}"{% if tab == 'mailing-lists' %} aria-current="page"{% endif %} data-announcements-tab="mailing-lists">Mailing Lists <span class="hub-badge vote-tab__count" data-announcements-count="mailing-lists">{{ mailing_lists_count }}</span></a>
   {% endif %}
 </nav>
 {% endtab_picker %}
 
 {% if tab == 'mailing-lists' %}
+{% if mailing_lists %}
 <div class="hub-card pl-mailing-lists" data-mailing-lists>
   <p class="pl-mailing-lists__intro">Pick a guild to open its mailing list in Guild Settings. Everyone on it gets the emails you send that guild.</p>
   <ul class="pl-mailing-lists__list">
@@ -54,6 +57,36 @@ reads poll_rows ([(EmailPoll with sent_count and answered_count, is_open)]).
     {% endfor %}
   </ul>
 </div>
+{% endif %}
+{% if student_lists %}
+{# Your Students (#1294): My Past Students, then each class's roster, each opening the composer on that audience. #}
+<section class="hub-card pl-mailing-lists" data-student-lists>
+  <h2 class="pl-mailing-lists__title">Your Students</h2>
+  <p class="pl-mailing-lists__intro">Email everyone who took your classes, or one class. Anyone who stopped your emails is left off.</p>
+  <ul class="pl-mailing-lists__list">
+    <li class="pl-mailing-lists__row">
+      <a href="{% url 'hub_compose' %}?audience=students" class="pl-mailing-lists__link" data-student-list="past-students">
+        <span class="pl-mailing-lists__label">
+          <span class="pl-mailing-lists__name">Past Students</span>
+          <span class="pl-mailing-lists__count" data-student-list-count>{{ student_lists.past_students }} {% if student_lists.past_students == 1 %}person{% else %}people{% endif %}, everyone who took any of your classes</span>
+        </span>
+        <span class="pl-mailing-lists__go">Email &rarr;</span>
+      </a>
+    </li>
+    {% for offering, confirmed in student_lists.classes %}
+    <li class="pl-mailing-lists__row">
+      <a href="{% url 'hub_compose' %}?audience=class:{{ offering.pk }}&amp;lock=1" class="pl-mailing-lists__link" data-student-list="class-{{ offering.pk }}">
+        <span class="pl-mailing-lists__label">
+          <span class="pl-mailing-lists__name">{{ offering.title }}</span>
+          <span class="pl-mailing-lists__count" data-student-list-count>{{ confirmed }} registered</span>
+        </span>
+        <span class="pl-mailing-lists__go">Email &rarr;</span>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
 {% elif tab == 'polls' %}
 {# The Polls tab (#1142): each sent poll with its audience, how many answered of those it went to, open or closed, and View Results. #}
 <div class="hub-card pl-announcements-card" data-announcements-polls>

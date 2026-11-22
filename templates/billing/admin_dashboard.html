@@ -83,6 +83,10 @@
   .pl-date-input { padding: 0.35rem 0.625rem; font-size: 0.8125rem; border-radius: 6px; background: var(--hub-input-bg); color: var(--hub-text); border: 1px solid var(--hub-input-border, rgba(255,255,255,0.15)); }
   .pl-date-input::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
   [data-theme="light"] .pl-date-input::-webkit-calendar-picker-indicator { filter: none; }
+  /* Light theme (#1294, now that guild leads and instructors open this page): the title and stat tiles were cream on navy only. */
+  [data-theme="light"] .pl-dashboard > div > div > .pl-card__title, [data-theme="light"] [data-reports-scoped] .pl-card__title, [data-theme="light"] [data-help-key="admin.reconciliation"] .pl-card__title { color: var(--hub-text); }
+  [data-theme="light"] .pl-stat { background-color: var(--hub-card-bg); border: 1px solid var(--hub-border); }
+  [data-theme="light"] .pl-stat__value { color: #b07a12; }
 
   /* Settings form */
   .pl-form-row { margin-bottom: 1.25rem; }
@@ -112,7 +116,9 @@
 
   <div>
     <div style="display:flex;align-items:center;gap:0.625rem;"><h1 class="pl-card__title">Payments Dashboard</h1>{% whats_new_button "admin.reconciliation" %}</div>
-    {% if features.my_tab.is_on %}
+    {% if payments_scoped %}
+    <p class="pl-text-muted" data-payments-scoped>Payments for the guilds you run and the classes you teach, and your share of them under Reports.</p>
+    {% elif features.my_tab.is_on %}
     <p class="pl-text-muted">Tab billing, charge history, and Stripe configuration.</p>
     {% elif viewer_is_fog_admin %}
     <p class="pl-text-muted">Payment history and Stripe configuration.</p>
@@ -124,19 +130,12 @@
   {% if setups %}<div>{% include "hub/partials/_permission_setups.html" %}</div>{% endif %}
 
   {# --- Tab navigation (suppressed when only one tab would render) --- #}
-  {% if features.my_tab.is_on or viewer_is_fog_admin %}
+  {% if dashboard_tabs|length > 1 %}
   {% tab_picker "Payments" %}
   <nav class="pl-tabs" aria-label="Payments Dashboard">
-    {% if features.my_tab.is_on %}
-    <a href="?tab=overview" class="vote-tab{% if active_tab == 'overview' %} vote-tab--active{% endif %}"{% if active_tab == 'overview' %} aria-current="page"{% endif %}>Overview</a>
-    <a href="?tab=open-tabs" class="vote-tab{% if active_tab == 'open-tabs' %} vote-tab--active{% endif %}"{% if active_tab == 'open-tabs' %} aria-current="page"{% endif %}>Open Tabs</a>
-    {% endif %}
-    <a href="?tab=payments" class="vote-tab{% if active_tab == 'payments' %} vote-tab--active{% endif %}"{% if active_tab == 'payments' %} aria-current="page"{% endif %}>Payments</a>
-    {% if viewer_is_fog_admin %}
-    <a href="?tab=reconciliation" class="vote-tab{% if active_tab == 'reconciliation' %} vote-tab--active{% endif %}"{% if active_tab == 'reconciliation' %} aria-current="page"{% endif %}>Reconciliation</a>
-    <a href="?tab=settings" class="vote-tab{% if active_tab == 'settings' %} vote-tab--active{% endif %}"{% if active_tab == 'settings' %} aria-current="page"{% endif %}>Settings</a>
-    <a href="?tab=stripe" class="vote-tab{% if active_tab == 'stripe' %} vote-tab--active{% endif %}"{% if active_tab == 'stripe' %} aria-current="page"{% endif %}>Stripe</a>
-    {% endif %}
+    {% for tab_key, tab_label in dashboard_tabs %}
+    <a href="?tab={{ tab_key }}" class="vote-tab{% if active_tab == tab_key %} vote-tab--active{% endif %}"{% if active_tab == tab_key %} aria-current="page"{% endif %} data-dashboard-tab="{{ tab_key }}">{{ tab_label }}</a>
+    {% endfor %}
   </nav>
   {% endtab_picker %}
   {% endif %}
@@ -347,10 +346,17 @@
   {# ================================================================ #}
   {% if active_tab == "reconciliation" %}
 
+  {% if reconciliation_scoped %}
+  <div data-reports-scoped>
+    <h2 class="pl-card__title" style="font-size:1.35rem">Reports</h2>
+    <p class="pl-text-muted">What was collected for the guilds you run and the classes you teach in these dates, and your share of it.</p>
+  </div>
+  {% else %}
   <div data-help-key="admin.reconciliation">
     <h2 class="pl-card__title" style="font-size:1.35rem">Reconciliation</h2>
     <p class="pl-text-muted">How much to disburse to each guild, instructor, orientor, equipment manager and Past Lives for the selected month.</p>
   </div>
+  {% endif %}
 
   <div class="pl-toolbar">
     <form method="get" action="" class="pl-date-form">
@@ -365,7 +371,9 @@
     <div class="pl-actions">
       <a href="{% url 'billing_admin_reconciliation_csv' %}?{{ reconciliation_query }}" class="pl-btn pl-btn--secondary pl-btn--sm" hx-boost="false" data-pl-download>Export CSV</a>
       <a href="{% url 'billing_admin_reconciliation_print' %}?{{ reconciliation_query }}" target="_blank" data-pl-new-window class="pl-btn pl-btn--secondary pl-btn--sm">Export PDF</a>
+      {% if not reconciliation_scoped %}
       <button type="button" class="pl-btn pl-btn--primary pl-btn--sm" onclick="document.getElementById('recon-snapshot-modal').style.display='flex'">Take Snapshot</button>
+      {% endif %}
     </div>
   </div>
 
@@ -376,6 +384,7 @@
     {% include "billing/partials/reconciliation_table.html" %}
   </div>
 
+  {% if not reconciliation_scoped %}
   {# Snapshot history #}
   <div class="pl-card">
     <div class="pl-section-label">Snapshot History</div>
@@ -441,6 +450,7 @@
       window.dispatchEvent(new CustomEvent('close-modal', { detail: 'txn-adjust' }));
     });
   </script>
+  {% endif %}{# /not reconciliation_scoped #}
 
   {% endif %}{# /reconciliation #}
 

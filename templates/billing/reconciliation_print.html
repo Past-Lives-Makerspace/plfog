@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Reconciliation {{ reconciliation.window.start|date:"M j" }} – {{ reconciliation.window.end|date:"M j, Y" }} · Past Lives</title>
+<title>{% if reconciliation_scoped %}Report{% else %}Reconciliation{% endif %} {{ reconciliation.window.start|date:"M j" }} – {{ reconciliation.window.end|date:"M j, Y" }} · Past Lives</title>
 <style>
   * { box-sizing: border-box; }
   body { font-family: 'Lato', system-ui, sans-serif; color: #111; background: #f4f4f4; margin: 0; padding: 1.5rem; }
@@ -36,14 +36,15 @@
 </div>
 
 <div class="sheet">
-  <h1>Reconciliation</h1>
+  <h1>{% if reconciliation_scoped %}Your Report{% else %}Reconciliation{% endif %}</h1>
   <p class="meta">{{ reconciliation.window.start|date:"F j" }} – {{ reconciliation.window.end|date:"F j, Y" }} · Generated {{ generated_at|date:"M j, Y g:i A" }}</p>
 
-  {% if reconciliation.unassigned_note_count %}
+  {% if reconciliation.unassigned_note_count and not reconciliation_scoped %}
   <div class="banner">{{ reconciliation.unassigned_note_count }} payment(s) had no instructor, manager or guild set, so that share went to Past Lives.</div>
   {% endif %}
 
   {% for kind, heading, rows in reconciliation.ordered_groups %}
+  {% if rows or not reconciliation_scoped %}
   <div class="group">
     <h2>{{ heading }}</h2>
     {% if rows %}
@@ -74,6 +75,7 @@
     <p class="muted">No {{ heading }} in this window.</p>
     {% endif %}
   </div>
+  {% endif %}
   {% endfor %}
 
   <table>
