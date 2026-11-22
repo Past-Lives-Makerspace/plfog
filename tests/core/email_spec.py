@@ -1,7 +1,9 @@
 """BDD-style tests for core.email.send — the logged email wrapper."""
 
+import json
 from unittest.mock import patch
 
+import icalendar
 import pytest
 from django.core import mail
 
@@ -94,6 +96,16 @@ def describe_send():
             assert message.alternatives == [("<p>fancy</p>", "text/html")]
             assert message.attachments[0][0] == "orientation.ics"
 
+        def it_keeps_an_attachment_with_a_non_text_parameterised_type_a_plain_file():
+            core_email.send(
+                to="member@example.com",
+                subject="Hi",
+                trigger_kind="x",
+                text_body="plain",
+                attachments=[("a.bin", b"x", "application/octet-stream; name=a.bin")],
+            )
+            assert mail.outbox[0].attachments[0][0] == "a.bin"
+
         def it_omits_the_html_alternative_when_none_is_given():
             core_email.send(
                 to="member@example.com",
@@ -128,3 +140,64 @@ def describe_send():
                         best_effort=True,
                     )
                 assert log.status == TransactionalEmailLog.Status.FAILED
+
+
+def describe_calendar_invites():
+    """#1287: an invite's ``method`` must reach the recipient, or calendars ignore a move or cancel."""
+
+    def _send_invite(method: str = "CANCEL") -> TransactionalEmailLog:
+        return core_email.send(
+            to="sam@example.com",
+            subject="Your tour is cancelled",
+            trigger_kind="tours.visitor",
+            text_body="Cancelled.",
+            html_body="<p>Cancelled.</p>",
+            attachments=[("tour.ics", b"BEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\n", core_email.invite_mimetype(method))],
+        )
+
+    def it_names_the_method_in_the_content_type():
+        assert core_email.invite_mimetype("REQUEST") == "text/calendar; method=REQUEST"
+
+    def it_builds_a_message_whose_calendar_part_carries_the_method():
+        _send_invite()
+        built = mail.outbox[0].message()
+        (part,) = [p for p in built.walk() if p.get_content_type() == "text/calendar"]
+        assert part.get_param("method") == "CANCEL"
+        assert part.get_filename() == "tour.ics"
+        assert part.get_content_disposition() == "attachment"
+        assert "METHOD:CANCEL" in part.get_content()
+
+    def it_takes_an_invite_given_as_text():
+        core_email.send(
+            to="sam@example.com",
+            subject="Booked",
+            trigger_kind="tours.visitor",
+            text_body="Booked.",
+            attachments=[("tour.ics", "BEGIN:VCALENDAR", core_email.invite_mimetype("REQUEST"))],
+        )
+        (part,) = mail.outbox[0].attachments
+        assert (part.get_param("method"), part.get_content()) == ("REQUEST", "BEGIN:VCALENDAR\n")
+
+    def it_hands_resend_the_content_type_with_the_method(settings):
+        settings.EMAIL_BACKEND = "anymail.backends.resend.EmailBackend"
+        settings.ANYMAIL = {"RESEND_API_KEY": "test-key"}
+        with patch("requests.Session.request") as request:
+            request.return_value.status_code = 200
+            request.return_value.json.return_value = {"id": "resend-id"}
+            log = _send_invite()
+        assert log.status == TransactionalEmailLog.Status.SENT
+        (attachment,) = json.loads(request.call_args.kwargs["data"])["attachments"]
+        assert attachment["filename"] == "tour.ics"
+        assert attachment["content_type"].startswith("text/calendar;")
+        assert 'method="CANCEL"' in attachment["content_type"]
+
+
+def describe_add_invite_parties():
+    def it_makes_the_sending_address_the_organizer_and_the_recipient_the_attendee(settings):
+        settings.DEFAULT_FROM_EMAIL = "Past Lives <hello@pastlives.space>"
+        event = icalendar.Event()
+        core_email.add_invite_parties(event, attendee_email="sam@example.com", attendee_name="Sam")
+        assert str(event["organizer"]) == "mailto:hello@pastlives.space"
+        assert event["organizer"].params["cn"] == "Past Lives Makerspace"
+        assert str(event["attendee"]) == "mailto:sam@example.com"
+        assert event["attendee"].params["cn"] == "Sam"

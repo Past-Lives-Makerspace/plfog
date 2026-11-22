@@ -23,6 +23,7 @@ from django.db.models import Q
 from django.urls import reverse
 from django.utils import dateformat, timezone
 
+from core.email import add_invite_parties, invite_mimetype
 from core.events.emit import emit
 from core.events.senders import emit_with_email_shell
 from core.models import SiteActivity
@@ -254,6 +255,9 @@ def build_ics(booking: OrientationBooking, *, method: str, status: str) -> bytes
         # later SEQUENCE is what tells them this copy supersedes the one they hold.
         event.add("sequence", ics_sequence(booking.moved_by_guild_at))
     event.add("status", status)
+    # An invitation from us to the member at the address the email goes to, so their calendar
+    # applies a move or a cancel (#1287).
+    add_invite_parties(event, attendee_email=booking.member.primary_email, attendee_name=booking.member.greeting_name)
     if slot.location:
         event.add("location", slot.location)
     description = f"{booking.orientation_type.name} orientation for {booking.orientation_type.owner_name} at Past Lives Makerspace."
@@ -344,7 +348,7 @@ def _emit_member_email(
 
 
 def _ics(booking: OrientationBooking, *, method: str, status: str) -> tuple[str, bytes, str]:
-    return ("orientation.ics", build_ics(booking, method=method, status=status), "text/calendar")
+    return ("orientation.ics", build_ics(booking, method=method, status=status), invite_mimetype(method))
 
 
 def _fan_out_request(booking: OrientationBooking, *, actor: User | None = None) -> None:

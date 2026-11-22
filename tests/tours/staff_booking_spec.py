@@ -41,8 +41,7 @@ CLOSE = FOUR - timedelta(hours=3)
 
 
 def _ics(message: Any) -> str:
-    content = message.attachments[0][1]
-    return content.decode() if isinstance(content, bytes) else str(content)
+    return message.attachments[0].get_content()
 
 
 def _user(member: Member) -> User:

@@ -24,6 +24,7 @@ from tours.notify import (
     announce,
     build_ics,
     guide_first_name,
+    send_visitor_email,
     support_email,
     tell_guide_booked,
     tour_reminder_occurrences,
@@ -54,6 +55,27 @@ def describe_build_ics():
         assert "DTSTART:20300109T000000Z" in invite
         assert "2808 SE 9th Ave" in invite
         assert "for 1 person." in invite
+
+    def it_is_an_invitation_from_the_sending_address_to_the_visitor(booking: TourBooking, settings: Any):
+        settings.DEFAULT_FROM_EMAIL = "noreply@pastlives.space"
+        booking.visitor_name = "Sam"
+        invite = build_ics(booking).decode().replace("\r\n ", "")
+        assert 'ORGANIZER;CN="Past Lives Makerspace":mailto:noreply@pastlives.space' in invite
+        assert "ATTENDEE;CN=Sam;ROLE=REQ-PARTICIPANT;RSVP=FALSE:mailto:sam@example.com" in invite
+
+
+def describe_visitor_invite_part():
+    def it_sends_a_booked_tour_as_a_calendar_request(booking: TourBooking):
+        send_visitor_email(booking, signals.BOOKED)
+        (part,) = _visitor_mail()[0].attachments
+        assert (part.get_content_type(), part.get_param("method")) == ("text/calendar", "REQUEST")
+        assert part.get_filename() == "tour.ics"
+
+    def it_sends_a_cancelled_tour_as_a_calendar_cancel(booking: TourBooking):
+        send_visitor_email(booking, signals.CANCELLED)
+        (part,) = _visitor_mail()[0].attachments
+        assert part.get_param("method") == "CANCEL"
+        assert "METHOD:CANCEL" in part.get_content()
 
 
 def describe_reminders():
