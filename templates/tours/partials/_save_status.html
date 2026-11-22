@@ -1,0 +1,14 @@
+{% comment %}
+One card's autosave status on the Tours page (#1279): the house save pill (.pl-meeting-savestate,
+the guild settings one), shown only while the plGuildAutosave root's last save was this card's
+(savingKey, from the nearest data-autosave-key, static/js/guild_autosave.js). "Saving…", then
+"Saved", or "Not saved" beside a refused field's error. Must sit inside that root.
+
+Parameters:
+  key — required, the card's data-autosave-key ("hours", "confirm", "gcal", "availability", ...)
+{% endcomment %}
+<span class="pl-meeting-savestate pl-tours-savestate" data-save-pill data-tour-save-status="{{ key }}"
+      :class="'pl-meeting-savestate--' + (pending > 0 ? 'saving' : (refused ? 'error' : state))"
+      :data-saves="saves"
+      x-show="savingKey === '{{ key }}' && (pending > 0 || state !== 'idle')"
+      x-text="pending > 0 ? 'Saving…' : (refused ? 'Not saved' : label())" aria-live="polite" x-cloak></span>

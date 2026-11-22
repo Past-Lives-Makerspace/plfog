@@ -21,6 +21,14 @@
  * another row is invalid completes with the next good post; only a `<prefix>-__all__` error
  * (where the model's delete blockers land) or a failed request unflags it.
  *
+ * Status per card: a page may show one pill per card in place of one per page (the Tours page,
+ * #1279). The nearest `[data-autosave-key]` around the control that changed (the form itself
+ * when it carries one) names the save, `savingKey` holds the name of the one last posted, and a
+ * pill shows only while its key is that one. `refused` is true after a 422, so such a pill can
+ * read "Not saved" beside the error; the page wide pill keeps its words. A 422 hands the pill to
+ * the card holding the first error, so a form spread over several cards (Tour Settings) says Not
+ * saved where the reason is, not where the last edit was.
+ *
  * Leaving: a pending typing timer is flushed (with keepalive, so a hard navigation cannot
  * lose it) and the page holds while a save is pending or failed: the native prompt on a hard
  * navigation (the sidebar carries hx-boost="false"), and on a boosted one the request is
@@ -69,6 +77,12 @@
 
   function ignored(el) {
     return !!el.closest("[data-autosave-ignore]");
+  }
+
+  // Which card's pill a save belongs to: the nearest [data-autosave-key] in the form, else the form's own.
+  function noteKey(form, el) {
+    var holder = el && el.closest ? el.closest("[data-autosave-key]") : null;
+    form.plAutosaveKey = holder && form.contains(holder) ? holder.dataset.autosaveKey : form.dataset.autosaveKey || "";
   }
 
   // --- Formset rows ---
@@ -272,16 +286,19 @@
     return Object.prototype.hasOwnProperty.call(errors, prefixOf(form) + "-__all__");
   }
 
-  function applyRows(form, rows) {
+  // A row the server reports gone (deleted elsewhere since the page loaded, the Tours page #1279)
+  // leaves like a deleted one, so the next post never names it again.
+  function applyRows(form, rows, gone) {
     var prefix = prefixOf(form);
     if (!prefix || !rows[prefix]) return;
+    var goneHere = (gone && gone[prefix]) || [];
     rows[prefix].forEach(function (pk, index) {
       var input = form.querySelector('input[name="' + prefix + "-" + index + '-id"]');
       var row = input && rowOf(input);
       if (!row) return;
       if (pk !== null) {
         input.value = pk;
-      } else if (deleteInput(row) && deleteInput(row).checked) {
+      } else if ((deleteInput(row) && deleteInput(row).checked) || goneHere.indexOf(index) !== -1) {
         row.remove();
       }
     });
@@ -397,6 +414,8 @@
         reason: "",
         pending: 0,
         saves: 0,
+        savingKey: "",
+        refused: false,
 
         init() {
           root = this.$el;
@@ -461,6 +480,7 @@
           // Marked before the mode check: a keystroke in an hours form's Location saves on the
           // blur, and a save finishing meanwhile must not remember the form with it typed in.
           markEdited(form);
+          noteKey(form, el);
           if (!isTyped(el) || form.dataset.autosave === "change") return;
           var self = this;
           clearTimeout(timers.get(form));
@@ -475,6 +495,7 @@
           var form = formOf(el);
           if (!form || ignored(el) || !el.name) return;
           markEdited(form);
+          noteKey(form, el);
           this.saveNow(form);
         },
         save(form, keepalive) {
@@ -504,13 +525,15 @@
           var data = payload(form);
           var sig = signature(data);
           if (sig === form.plAutosaveSaved) return;
+          this.savingKey = form.plAutosaveKey || form.dataset.autosaveKey || "";
           var response = await this.post(form.action, data, keepalive);
+          this.refused = response.status === 422;
           if (response.ok) {
             var saved = await response.json();
             clearErrors(form);
             // Before applyRows renumbers the rows: the sent data is keyed by the names they had.
             clearFiles(form, data);
-            applyRows(form, saved.rows);
+            applyRows(form, saved.rows, saved.gone);
             // The form as it now reads is what the server holds, unless it was edited while this
             // save ran: then that edit must post, so nothing is remembered.
             form.plAutosaveSaved = form.plAutosaveEdited ? null : signature(payload(form));
@@ -522,6 +545,12 @@
               placeErrors(form, key, refused.errors[key]);
             });
             if (refusesFormset(form, refused.errors)) unflagDeletes(form);
+            // A form spread over several cards says Not saved on the card holding the first error.
+            var firstError = form.querySelector("[data-autosave-error]");
+            if (firstError) {
+              noteKey(form, firstError);
+              this.savingKey = form.plAutosaveKey || "";
+            }
             this.state = "saved";
           } else {
             unflagDeletes(form);
@@ -617,6 +646,7 @@
         },
         deleteRow(form, row) {
           markEdited(form);
+          noteKey(form, row);
           flagDelete(row);
           this.saveNow(form);
         },

@@ -127,7 +127,10 @@ def describe_where_it_lives():
 def describe_my_hours():
     def it_shows_the_empty_state_before_any_hours(guide: Member):
         content = signed_in(guide).get(HOURS).content.decode()
-        assert "data-tour-hours-empty>No tour hours yet. Add the times you can give tours.</p>" in content
+        assert (
+            "data-tour-hours-empty data-formset-empty>No tour hours yet. Add the times you can give tours.</p>"
+            in content
+        )
         assert ">Every Week</h2>" in content
         assert "data-tour-guide-picker" not in content
 
@@ -147,8 +150,8 @@ def describe_my_hours():
         )
         content = client.get(HOURS).content.decode()
         assert "Tuesday · 4:00 PM to 6:00 PM · 1 hour each · 4 seats" in content
-        assert "data-tour-hours-empty>" not in content
-        assert "data-tour-hours-delete" in content
+        assert "data-tour-hours-empty data-formset-empty hidden>" in content
+        assert "data-tour-hours-delete data-formset-remove>Delete</button>" in content
 
     def it_deletes_a_row_when_its_delete_flag_is_posted(guide: Member):
         hours = TourHoursFactory(guide=guide)
@@ -157,10 +160,12 @@ def describe_my_hours():
         assert not TourHours.objects.exists()
 
     def it_confirms_before_a_saved_row_is_deleted(guide: Member):
-        hours = TourHoursFactory(guide=guide)
+        TourHoursFactory(guide=guide)
         content = signed_in(guide).get(HOURS).content.decode()
-        assert f"open-confirm', 'tour-hours-del-{hours.pk}'" in content
-        assert "Delete these tour hours?" in content
+        # One confirm for every row (#1279): the autosave opens it, and its Delete hands back.
+        assert 'data-autosave-confirm="tour-hours-delete"' in content
+        assert content.count("Delete these tour hours?") == 1
+        assert "window.dispatchEvent(new CustomEvent('pl-guild-autosave-delete'))" in content
 
     def it_starts_a_new_row_from_the_tour_settings_defaults(guide: Member):
         tour_settings = FacilityTourSettings.load()
@@ -173,7 +178,12 @@ def describe_my_hours():
         response = signed_in(guide).post(SAVE, _hours_post(guide, {}, {"start_time": "17:00", "end_time": "19:00"}))
         assert response.status_code == 200
         content = response.content.decode()
-        assert "Two of these rows overlap on Tuesday. A guide gives one tour at a time." in content
+        assert (
+            "These hours overlap your Tuesday hours, 4:00 PM to 6:00 PM. A guide gives one tour at a time." in content
+        )
+        assert (
+            "These hours overlap your Tuesday hours, 5:00 PM to 7:00 PM. A guide gives one tour at a time." in content
+        )
         assert 'x-data="plTourHoursRow(true)"' in content
         assert not TourHours.objects.exists()
 
