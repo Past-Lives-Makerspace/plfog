@@ -11,7 +11,7 @@ member's Pay button. Names are factory strings no changelog could contain (STAND
 from __future__ import annotations
 
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 from unittest.mock import patch
 
@@ -133,9 +133,17 @@ def describe_recording_with_a_bill():
         assert (booking.bill_amount_cents, booking.amount_paid_cents, booking.bill_state) == (4000, 0, "unpaid")
         slot = booking.slot
         assert (slot.source, slot.seats, slot.orienter) == (OrientationSlot.Source.CUSTOM, 1, world["lead"])
-        assert slot.ends_at <= timezone.now()
+        # Started, not ended: just after local midnight it starts at midnight and is still running (_billed_starts_at).
+        assert slot.starts_at <= timezone.now()
         assert timezone.localtime(slot.starts_at).date() == timezone.localdate()
         assert any("sent a $40 bill" in m for m in _messages(response))
+
+    def it_files_the_slot_under_today_either_side_of_local_midnight(around_midnight: datetime, client: Client):
+        world = _world(client)
+        client.post(RECORD_URL, _post(str(world["type"]), "Quincy Billee", oriented_by=str(world["lead"].pk)))
+        slot = OrientationBooking.objects.get(member=world["target"]).slot
+        assert slot.starts_at <= around_midnight
+        assert timezone.localtime(slot.starts_at).date() == timezone.localdate(around_midnight)
 
     def it_orients_the_member_at_once(client: Client):
         world = _world(client)

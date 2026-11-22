@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
 import pytest
 from django.contrib.messages import get_messages
 from django.core import mail
@@ -27,10 +27,21 @@ PAST = reverse("tours:past")
 CALENDAR = reverse("tours:calendar")
 HOURS = reverse("tours:hours")
 HTMX = {"HTTP_HX_REQUEST": "true"}
-TODAY = timezone.localdate()
-DAY = TODAY + timedelta(days=3)
-#: Wednesday next week: always in the calendar's next week, and never started.
-NEXT_WEEK = TODAY - timedelta(days=TODAY.weekday()) + timedelta(days=9)
+
+
+def _today() -> date:
+    """Today's local date, read when the spec runs: a date read at import goes stale across local midnight."""
+    return timezone.localdate()
+
+
+def _day() -> date:
+    return _today() + timedelta(days=3)
+
+
+def _next_week() -> date:
+    """Wednesday next week: always in the calendar's next week, and never started."""
+    today = _today()
+    return today - timedelta(days=today.weekday()) + timedelta(days=9)
 
 
 def _flashes(response: HttpResponse) -> list[str]:
@@ -58,44 +69,47 @@ def other() -> Member:
 
 @pytest.fixture
 def booked(guide: Member) -> TourBooking:
-    return TourBookingFactory(guide=guide, starts_at=local(DAY, 16), visitor_name="Sam Rivera", party_size=2)
+    return TourBookingFactory(guide=guide, starts_at=local(_day(), 16), visitor_name="Sam Rivera", party_size=2)
 
 
 def describe_coverage():
     def it_finds_the_days_no_guide_covers(guide: Member, other: Member):
         _short_horizon(6)
-        weekly_day = TODAY + timedelta(days=1)
+        weekly_day = _today() + timedelta(days=1)
         TourHoursFactory(guide=guide, weekday=weekly_day.weekday())
-        dated = TODAY + timedelta(days=2)
+        dated = _today() + timedelta(days=2)
         TourHoursFactory(guide=other, weekday=dated.weekday(), date=dated)
         TourDayOffFactory(guide=guide, starts_on=weekly_day, ends_on=weekly_day)
-        gaps = [gap.day for gap in coverage.uncovered_days(today=TODAY)]
+        gaps = [gap.day for gap in coverage.uncovered_days(today=_today())]
         assert dated not in gaps
         assert weekly_day in gaps
         assert len(gaps) == 6
-        assert coverage.uncovered_days(today=TODAY)[0].add_url == f"{HOURS}?add={TODAY.isoformat()}#available-on"
+        assert coverage.uncovered_days(today=_today())[0].add_url == f"{HOURS}?add={_today().isoformat()}#available-on"
 
     def it_leaves_out_the_hours_of_someone_who_no_longer_gives_tours(guide: Member):
         _short_horizon(0)
-        TourHoursFactory(guide=guide, weekday=TODAY.weekday())
-        assert coverage.uncovered_days(today=TODAY) == []
+        TourHoursFactory(guide=guide, weekday=_today().weekday())
+        assert coverage.uncovered_days(today=_today()) == []
         guide.admin_capabilities.all().delete()
-        assert [gap.day for gap in coverage.uncovered_days(today=TODAY)] == [TODAY]
+        assert [gap.day for gap in coverage.uncovered_days(today=_today())] == [_today()]
 
     def it_puts_every_guides_hours_and_tours_on_the_calendar(guide: Member, other: Member, admin: Member):
-        TourHoursFactory(guide=guide, weekday=NEXT_WEEK.weekday(), start_time=time(11), end_time=time(13))
+        TourHoursFactory(guide=guide, weekday=_next_week().weekday(), start_time=time(11), end_time=time(13))
         TourHoursFactory(
-            guide=other, weekday=NEXT_WEEK.weekday(), date=NEXT_WEEK, start_time=time(14), end_time=time(15)
+            guide=other, weekday=_next_week().weekday(), date=_next_week(), start_time=time(14), end_time=time(15)
         )
         booked = TourBookingFactory(
-            guide=other, starts_at=local(NEXT_WEEK, 14), visitor_name="Sam Rivera", party_size=3
+            guide=other, starts_at=local(_next_week(), 14), visitor_name="Sam Rivera", party_size=3
         )
         TourBookingFactory(
-            guide=guide, starts_at=local(NEXT_WEEK, 11), visitor_name="Rae Quest", status=TourBooking.Status.PENDING
+            guide=guide, starts_at=local(_next_week(), 11), visitor_name="Rae Quest", status=TourBooking.Status.PENDING
         )
-        TourBookingFactory(guide=None, starts_at=local(NEXT_WEEK, 12), visitor_name="No One")
+        TourBookingFactory(guide=None, starts_at=local(_next_week(), 12), visitor_name="No One")
         TourBookingFactory(
-            guide=guide, starts_at=local(NEXT_WEEK, 12), visitor_name="Gone Gwen", status=TourBooking.Status.CANCELLED
+            guide=guide,
+            starts_at=local(_next_week(), 12),
+            visitor_name="Gone Gwen",
+            status=TourBooking.Status.CANCELLED,
         )
         cal = coverage.calendar_context(viewer=guide, is_admin=False, week_offset=1)
         titles = [event.chip_title for event in cal["week_events"]]
@@ -116,7 +130,7 @@ def describe_coverage():
     def it_links_a_past_tour_to_the_past_table(guide: Member):
         attended = TourBookingFactory(
             guide=guide,
-            starts_at=local(TODAY, 0, 30),
+            starts_at=local(_today(), 0, 30),
             visitor_name="Pat Past",
             status=TourBooking.Status.ATTENDED,
         )
@@ -132,23 +146,29 @@ def describe_coverage():
 def describe_calendar_tab():
     def it_shows_every_guide_the_calendar_and_the_gaps(guide: Member, other: Member):
         _short_horizon(2)
-        TourHoursFactory(guide=other, weekday=TODAY.weekday())
+        TourHoursFactory(guide=other, weekday=_today().weekday())
         content = signed_in(guide).get(CALENDAR).content.decode()
         assert 'aria-current="page" data-tours-tab="calendar"' in content
         assert "Olive Other" in content and "data-tours-calendar" in content
-        assert f'data-tours-gap="{(TODAY + timedelta(days=1)).isoformat()}"' in content
-        assert f'data-tours-gap="{TODAY.isoformat()}"' not in content
-        assert f'href="{HOURS}?add={(TODAY + timedelta(days=1)).isoformat()}#available-on"' in content
+        assert f'data-tours-gap="{(_today() + timedelta(days=1)).isoformat()}"' in content
+        assert f'data-tours-gap="{_today().isoformat()}"' not in content
+        assert f'href="{HOURS}?add={(_today() + timedelta(days=1)).isoformat()}#available-on"' in content
 
     def it_says_so_when_every_day_is_covered(guide: Member):
         _short_horizon(0)
-        TourHoursFactory(guide=guide, weekday=TODAY.weekday())
+        TourHoursFactory(guide=guide, weekday=_today().weekday())
         content = signed_in(guide).get(CALENDAR).content.decode()
         assert "data-tours-gaps-empty" in content and "Every day in the next 0 days" in content
 
+    def it_says_so_either_side_of_local_midnight(guide: Member, around_midnight: datetime):
+        _short_horizon(0)
+        TourHoursFactory(guide=guide, weekday=timezone.localdate(around_midnight).weekday())
+        content = signed_in(guide).get(CALENDAR).content.decode()
+        assert "data-tours-gaps-empty" in content
+
     def it_steps_weeks_over_htmx_and_sends_a_plain_get_to_the_tab(guide: Member):
         events = reverse("tours:calendar_events")
-        TourHoursFactory(guide=guide, weekday=(TODAY + timedelta(days=7)).weekday())
+        TourHoursFactory(guide=guide, weekday=(_today() + timedelta(days=7)).weekday())
         client = signed_in(guide)
         fragment = client.get(events, {"week_offset": 1}, **HTMX).content.decode()
         assert "<html" not in fragment and "Gina G. hours" in fragment
@@ -162,7 +182,7 @@ def describe_calendar_tab():
 
 def describe_add_from_a_gap():
     def it_opens_add_dates_with_the_day_picked(guide: Member):
-        day = TODAY + timedelta(days=4)
+        day = _today() + timedelta(days=4)
         content = signed_in(guide).get(HOURS, {"add": day.isoformat()}).content.decode()
         assert f'"picked": ["{day.isoformat()}"]' in content
         assert "plTourDates('tour-dates-config', true)" in content
@@ -176,7 +196,7 @@ def describe_add_from_a_gap():
 
 def describe_table():
     def it_filters_by_status_and_counts_the_requests(guide: Member, booked: TourBooking):
-        request_ = TourBookingFactory(guide=guide, starts_at=local(DAY, 17), status=TourBooking.Status.PENDING)
+        request_ = TourBookingFactory(guide=guide, starts_at=local(_day(), 17), status=TourBooking.Status.PENDING)
         client = signed_in(guide)
         everything = client.get(UPCOMING).content.decode()
         assert (
@@ -376,7 +396,7 @@ def describe_a_shared_request():
     @pytest.fixture
     def rows(guide: Member, other: Member) -> list[TourBooking]:
         group = uuid.uuid4()
-        starts = local(TODAY + timedelta(days=4), 16)
+        starts = local(_today() + timedelta(days=4), 16)
         return [
             TourBookingFactory(
                 guide=who,
@@ -529,7 +549,7 @@ def describe_a_shared_request():
 
         gina, olive, tess = (make_guide(full_legal_name=name) for name in ("Gina Guide", "Olive Other", "Tess Third"))
         group = uuid.uuid4()
-        starts = local(TODAY + timedelta(days=4), 16)
+        starts = local(_today() + timedelta(days=4), 16)
         rows = [
             TourBookingFactory(guide=who, starts_at=starts, request_group=group, status=TourBooking.Status.PENDING)
             for who in (gina, olive, tess)
@@ -588,7 +608,7 @@ def describe_a_shared_request():
 
         gina, olive = make_guide(full_legal_name="Gina Guide"), make_guide(full_legal_name="Olive Other")
         group = uuid.uuid4()
-        starts = local(TODAY + timedelta(days=4), 16)
+        starts = local(_today() + timedelta(days=4), 16)
         rows = [
             TourBookingFactory(guide=who, starts_at=starts, request_group=group, status=TourBooking.Status.PENDING)
             for who in (gina, olive)
@@ -656,7 +676,7 @@ def describe_visitor_contact():
     def contact(guide: Member) -> TourBooking:
         return TourBookingFactory(
             guide=guide,
-            starts_at=local(DAY, 16),
+            starts_at=local(_day(), 16),
             visitor_name="Sam Rivera",
             visitor_email="sam.private@example.com",
             visitor_phone="503 555 0142",
