@@ -83,8 +83,11 @@ def describe_migration_0076_host_a_class_starting_copy():
         finally:
             migrate_all_to_head()
 
-    def it_matches_the_current_model_defaults():
+    def it_matches_the_current_model_defaults_after_0111_rewords_the_faq():
         from classes.models import ClassSettings
 
+        later = import_module("classes.migrations.0111_teach_page_self_serve_copy")
         for name, (_old, new) in COPY_FIELDS.items():
+            if name == "teach_page_faq":
+                new = new.replace(later.OLD_FAQ_QUESTION, later.NEW_FAQ_QUESTION)
             assert ClassSettings._meta.get_field(name).default == new
