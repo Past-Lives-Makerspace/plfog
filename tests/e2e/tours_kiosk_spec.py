@@ -19,9 +19,10 @@ visitor in and book a tour. ``matchMedia("(any-pointer: fine)")`` is stubbed, si
 Chromium reports a mouse; ``window.__plMouse(true)`` plugs one in.
 
 The fourth (#1273) walks every Back, checks the guides' first names beside the times, in the form
-(following the Guide dropdown) and on Is This You and the pick list, and holds a request in flight to
-see a pressed link or button go busy while every other control is disabled and a second press sends
-nothing; a page restored from the back/forward cache gets its controls back.
+(following the Guide dropdown) and on Is This You and the pick list, and records the moment a link
+or a button is pressed to see the whole page loading (#1277: the gold top bar and the dim, nothing
+inside the control) while a second press sends nothing; a failed validation shows nothing, and a
+page restored from the back/forward cache is cleared.
 
 ``CAPTURE_950_DIR=<dir>`` saves every kiosk screen (home, check in, list, confirm, welcome, pick list, no match, schedule picker,
 form, confirmation) at cairn's 1920 by 1080 in both themes, and the
@@ -491,47 +492,55 @@ def _back_to(page, screen: str) -> None:
     _screen(page, screen)
 
 
-BUSY_STATE = """() => ({
-    busy: [...document.querySelectorAll('[aria-busy="true"]')].length,
-    labels: document.querySelectorAll("[data-kiosk-busy-label]").length,
-    off: [...document.querySelectorAll("a[href], button, input, select")].filter((el) => el.disabled || el.getAttribute("aria-disabled") === "true").length,
-    marked: document.body.hasAttribute("data-kiosk-busy"),
+LOADING_STATE = """() => ({
+    loading: document.documentElement.getAttribute("data-tours-loading"),
+    scrim: (() => {
+        const el = document.querySelector("[data-tours-loading-indicator]");
+        return el ? getComputedStyle(el).display : "none";
+    })(),
+    bodyBusy: document.body.getAttribute("aria-busy"),
+    inControl: document.querySelectorAll('[data-kiosk-busy-label], .pl-kiosk__busy, [aria-busy="true"]:not(body)').length,
 })"""
 
+# The whole page loading, in the same event as the press (#1277): the bar and the scrim on, the
+# body busy, nothing inside a control.
+LOADING = {"loading": "on", "scrim": "block", "bodyBusy": "true", "inControl": 0}
+IDLE = {"loading": None, "scrim": "none", "bodyBusy": None, "inControl": 0}
 
-IDLE = {"busy": None, "label": None, "disabled": False, "ariaDisabled": None, "tabindex": None}
-
-# Once, on the next press (event "click" or "submit", after tours-kiosk.js marked it busy): each
-# selector's busy state, kept in sessionStorage past the page change; then the pressed control is
+# Once, on the next press (event "click" or "submit" on window, registered after tours-loading.js,
+# so it runs after the press was marked): the page's loading state and the pressed control's text
+# and disabled flag, kept in sessionStorage past the page change; then the pressed control is
 # pressed again, a link elsewhere is clicked and the form resubmitted, all of which must send nothing.
-RECORD_PRESS = """([kind, selectors]) => {
-    const read = (el) => {
-        const label = el.querySelector("[data-kiosk-busy-label]");
-        return {
-            busy: el.getAttribute("aria-busy"),
-            label: label ? label.textContent : null,
-            disabled: el.disabled === true,
-            ariaDisabled: el.getAttribute("aria-disabled"),
-            tabindex: el.getAttribute("tabindex"),
-        };
-    };
+RECORD_PRESS = """([kind, state]) => {
+    const read = eval(state);
     const once = (event) => {
-        document.removeEventListener(kind, once);
+        window.removeEventListener(kind, once);
         const pressed = event.submitter || event.target.closest("a[href]");
-        sessionStorage.setItem("kioskPress", JSON.stringify(selectors.map((sel) => read(document.querySelector(sel)))));
+        sessionStorage.setItem("kioskPress", JSON.stringify({
+            page: read(),
+            text: pressed.textContent.replace(/\\s+/g, " ").trim(),
+            disabled: pressed.disabled === true,
+        }));
         pressed.click();
-        document.querySelector("a[href]:not([aria-busy])").click();
+        document.querySelector("a[href]").click();
         if (pressed.form) pressed.form.requestSubmit(pressed);
     };
-    document.addEventListener(kind, once);
+    window.addEventListener(kind, once);
+}"""
+
+# Freezes the bar at 60% so a still image shows it, for the PR's screenshots only.
+FREEZE_BAR = """() => {
+    const style = document.createElement("style");
+    style.textContent = ".pl-tours-loading__bar { animation: none !important; transform: scaleX(0.6) !important; }";
+    document.head.appendChild(style);
 }"""
 
 
-def _record_press(page, kind: str, selectors: list[str]) -> None:
-    page.evaluate(RECORD_PRESS, [kind, selectors])
+def _record_press(page, kind: str) -> None:
+    page.evaluate(RECORD_PRESS, [kind, LOADING_STATE])
 
 
-def _recorded(page) -> list[dict]:
+def _recorded(page) -> dict:
     return page.evaluate("() => JSON.parse(sessionStorage.getItem('kioskPress'))")
 
 
@@ -569,10 +578,12 @@ def describe_kiosk_back_names_and_busy():
         expect(page.locator(".pl-tourpub__time").filter(has_text="5:00 PM")).to_contain_text("with Gina or Olive")
         _capture(page, "1273-times")
         if CAPTURE_DIR:
-            # The busy screen for the PR: the kiosk script marks the tap busy, then this cancels the load so it can be shot.
+            # The loading screen for the PR (#1277): tours-loading.js marks the tap, then this cancels the load so it can be shot.
+            page.evaluate(FREEZE_BAR)
             page.evaluate("window.addEventListener('click', (e) => e.preventDefault(), {once: true})")
             page.locator(".pl-tourpub__time").filter(has_text="5:00 PM").click()
-            _capture(page, "1273-busy")
+            assert page.evaluate(LOADING_STATE) == LOADING
+            _capture(page, "1277-loading")
             page.reload()
         page.locator(".pl-tourpub__time").filter(has_text="4:00 PM").click()
         expect(page.locator("[data-tour-form]")).to_be_visible()
@@ -618,49 +629,60 @@ def describe_kiosk_back_names_and_busy():
         page.locator("[data-kiosk-back]").click()
         _at_home(page, live_server)
 
-        # A pressed link: spinner and label at once, everything else off, a second press sends nothing.
-        # The busy page lives only until the next arrives (a locator or evaluate would wait for that
+        # A pressed link: the bar and the dim at once, nothing inside the link, a second press sends nothing.
+        # The loading page lives only until the next arrives (a locator or evaluate would wait for that
         # navigation), so the page records it the moment the press lands, presses again, and keeps it.
         check_in_url = f"{live_server.url}{reverse('tours_kiosk:check_in')}"
         sent = []
         page.on("request", lambda request: sent.append(request.method) if request.url == check_in_url else None)
-        _record_press(page, "click", ['[data-kiosk-go="check-in"]', '[data-kiosk-go="book"]', "[data-kiosk-brand]"])
-        page.locator('[data-kiosk-go="check-in"]').click()
+        go_check_in = page.locator('[data-kiosk-go="check-in"]')
+        label = " ".join(go_check_in.text_content().split())
+        _record_press(page, "click")
+        go_check_in.click()
         _screen(page, "check-in")
-        pressed, book, brand = _recorded(page)
-        assert pressed == {**IDLE, "busy": "true", "label": "Loading..."}
-        assert book == brand == {**IDLE, "ariaDisabled": "true", "tabindex": "-1"}
+        assert _recorded(page) == {"page": LOADING, "text": label, "disabled": False}
+        assert sent == ["GET"]
+        assert page.evaluate(LOADING_STATE) == IDLE
+
+        # A failed native validation sends nothing and shows nothing: the page stays usable.
+        page.locator("[data-kiosk-email-form] button").click()
+        assert page.evaluate(LOADING_STATE) == IDLE
         assert sent == ["GET"]
 
-        # A pressed submit button (a tapped name): the same, and only its one POST goes out.
+        # A pressed submit button (a tapped name): the same, its label kept, and only its one POST goes out.
         sent.clear()
-        name = f'[data-kiosk-name="{sam.pk}"]'
-        _record_press(
-            page, "submit", [name, "#kiosk-email", "[data-kiosk-email-form] button", "[data-kiosk-step-back]"]
-        )
-        page.locator(name).click()
+        name = page.locator(f'[data-kiosk-name="{sam.pk}"]')
+        label = " ".join(name.text_content().split())
+        _record_press(page, "submit")
+        name.click()
         _screen(page, "confirm")
         expect(page.locator("[data-kiosk-confirm-who]")).to_have_text("Sam R., 4:00 PM")
-        pressed, email, check_in, back = _recorded(page)
-        assert pressed == {**IDLE, "busy": "true", "label": "Loading..."}
-        assert email["disabled"] and check_in["disabled"]
-        assert back == {**IDLE, "ariaDisabled": "true", "tabindex": "-1"}
+        assert _recorded(page) == {"page": LOADING, "text": label, "disabled": False}
         assert sent == ["POST"]
 
-        # A page restored from the back/forward cache has every control back (then goes home).
-        page.locator("[data-kiosk-back]").click()
+        # busy_submit.html still disables a typed form's button and keeps its label (data-pl-busy="hold").
+        _back_to(page, "check-in")
+        page.locator("#kiosk-name").fill("Nobody Here")
+        _record_press(page, "submit")
+        page.locator("[data-kiosk-name-form] button").click()
+        _screen(page, "no-match")
+        assert _recorded(page) == {"page": LOADING, "text": "Find My Tour", "disabled": True}
+
+        # Escape still goes home.
+        page.keyboard.press("Escape")
         _at_home(page, live_server)
-        sent.clear()
-        busy, restored = page.evaluate(
+
+        # A page restored from the back/forward cache is cleared (then goes home).
+        loading, restored = page.evaluate(
             """(state) => {
                 const read = eval(state);
                 document.querySelector('[data-kiosk-go="check-in"]').click();
-                const busy = read();
+                const loading = read();
                 window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
-                return [busy, read()];
+                return [loading, read()];
             }""",
-            BUSY_STATE,
+            LOADING_STATE,
         )
-        assert busy["busy"] == 1 and busy["labels"] == 1 and busy["off"] > 0 and busy["marked"]
-        assert restored == {"busy": 0, "labels": 0, "off": 0, "marked": False}
+        assert loading == LOADING
+        assert restored == IDLE
         _at_home(page, live_server)

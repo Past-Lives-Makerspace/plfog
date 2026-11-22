@@ -9,7 +9,11 @@ Yes). The account toggle starts on, so that visitor gets a GUEST account; a seco
 off and gets none. Google Analytics only ever sees the booking page with its token redacted. A tour three hours away shows the "too close" page; with bookings closed the host shows the
 closed message. At a phone's width nothing scrolls sideways.
 
-``CAPTURE_948_DIR=<dir>`` saves each page at desktop (1100) and phone (390) widths in both themes,
+The second spec (#1277) holds a boosted day link's request to see the whole page loading (the gold
+top bar and the dim) while a second tap sends nothing, then shows a failed htmx request and a
+failed native validation leave the page usable.
+
+``CAPTURE_948_DIR=<dir>`` saves each page at desktop (1100) and phone (390) widths in both themes (the loading state at 1280 and 390),
 and every email the flow sent (plus the reminder) as ``.html`` beside a picture of it. Run with
 ``pytest -m e2e`` on PostgreSQL.
 """
@@ -245,3 +249,93 @@ def describe_tour_booking():
         reminder = build_reminder_occurrence(soon).messages
         assert reminder is not None
         _save_email(page, "visitor-reminder", next(iter(reminder.values())).html_body or "")
+
+
+# The tours site's loading state (#1277): the bar and the scrim on <html>, the body busy, nothing inside a control.
+LOADING_STATE = """() => ({
+    loading: document.documentElement.getAttribute("data-tours-loading"),
+    scrim: (() => {
+        const el = document.querySelector("[data-tours-loading-indicator]");
+        return el ? getComputedStyle(el).display : "none";
+    })(),
+    bodyBusy: document.body.getAttribute("aria-busy"),
+    inControl: document.querySelectorAll('[aria-busy="true"]:not(body)').length,
+})"""
+LOADING = {"loading": "on", "scrim": "block", "bodyBusy": "true", "inControl": 0}
+IDLE = {"loading": None, "scrim": "none", "bodyBusy": None, "inControl": 0}
+SETTLED = "() => !document.documentElement.hasAttribute('data-tours-loading')"
+WIDE = {"width": 1280, "height": 900}
+
+
+def _capture_loading(page, name: str) -> None:
+    """The loading state at desktop (1280) and phone (390), dark and light, its bar frozen at 60% for a still."""
+    if not CAPTURE_DIR:
+        return
+    Path(CAPTURE_DIR).mkdir(parents=True, exist_ok=True)
+    page.add_style_tag(
+        content=".pl-tours-loading__bar { animation: none !important; transform: scaleX(0.6) !important; }"
+    )
+    for size_name, size in (("desktop", WIDE), ("phone", PHONE)):
+        page.set_viewport_size(size)
+        for theme in ("dark", "light"):
+            page.evaluate("(light) => window.__plSetTheme(light)", theme == "light")
+            page.wait_for_timeout(500)
+            page.screenshot(path=str(Path(CAPTURE_DIR) / f"1277-{name}-{size_name}-{theme}.png"))
+    page.evaluate("() => window.__plSetTheme(true)")
+    page.set_viewport_size(DESKTOP)
+
+
+def describe_tours_loading_indicator():
+    def it_dims_the_page_under_a_top_bar_until_the_response_lands(live_server, page, settings):
+        settings.TOURS_HOSTS = [urlparse(live_server.url).hostname]
+        settings.TOURS_BASE_URL = live_server.url
+        guide = _make_guide()
+        first, second = (timezone.localdate() + timedelta(days=n) for n in (4, 5))
+        for day in (first, second):
+            TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
+        page.set_viewport_size(DESKTOP)
+        page.goto(f"{live_server.url}/?date={first:%Y-%m-%d}")
+        page.locator(f'[data-tour-day="{first:%Y-%m-%d}"][aria-current="date"]').wait_for()
+        assert page.evaluate(LOADING_STATE) == IDLE
+
+        # A boosted day link: the bar and the dim in the same tap, while its request is held.
+        sent: list[str] = []
+        page.on("request", lambda request: sent.append(request.url) if "?date=" in request.url else None)
+        held = []
+        page.route(lambda url: url.endswith(f"?date={second:%Y-%m-%d}"), lambda route: held.append(route))
+        page.locator(f'[data-tour-day="{second:%Y-%m-%d}"]').click()
+        page.wait_for_function("() => document.documentElement.getAttribute('data-tours-loading') === 'on'")
+        assert page.evaluate(LOADING_STATE) == LOADING
+
+        # A second tap, by pointer (it lands on the scrim) or on the link itself, sends nothing.
+        box = page.locator(f'[data-tour-day="{first:%Y-%m-%d}"]').bounding_box()
+        assert box is not None
+        page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+        page.evaluate(f"() => document.querySelector('[data-tour-day=\"{first:%Y-%m-%d}\"]').click()")
+        page.wait_for_timeout(300)
+        assert len(sent) == 1 and sent[0].endswith(f"?date={second:%Y-%m-%d}")
+        _capture_loading(page, "booking-page")
+
+        # The response lands: the new day, and the page takes taps again.
+        held[0].continue_()
+        page.locator(f'[data-tour-day="{second:%Y-%m-%d}"][aria-current="date"]').wait_for()
+        page.wait_for_function(SETTLED)
+        assert page.evaluate(LOADING_STATE) == IDLE
+
+        # A failed htmx request leaves nothing dimmed or blocked.
+        page.route(
+            lambda url: url.endswith(f"?date={first:%Y-%m-%d}"),
+            lambda route: route.fulfill(status=500, body="Server Error"),
+        )
+        page.locator(f'[data-tour-day="{first:%Y-%m-%d}"]').click()
+        page.wait_for_function(SETTLED)
+        assert page.evaluate(LOADING_STATE) == IDLE
+        page.locator(f'[data-tour-day="{second:%Y-%m-%d}"][aria-current="date"]').wait_for()
+
+        # Still usable: a time opens the form, and a submit that fails native validation shows nothing.
+        page.locator(".pl-tourpub__time").filter(has_text="4:00 PM").click()
+        page.locator("[data-tour-form]").wait_for()
+        page.wait_for_function(SETTLED)
+        page.locator("[data-tour-form] button[type=submit]").click()
+        assert page.evaluate(LOADING_STATE) == IDLE
+        assert page.locator("[data-tour-form] button[type=submit]").text_content() == "Book My Tour"
