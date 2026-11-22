@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal
@@ -6629,10 +6629,16 @@ class StudentMailingLists:
             ClassOffering.objects.for_instructor(teacher)
             .annotate(confirmed=Count("registrations", filter=Q(registrations__status=Registration.Status.CONFIRMED)))
             .filter(confirmed__gt=0)
+            .select_related("category")
             .order_by("-created_at", "-pk")
         )
         if teacher.can_create_classes:
             reachable = taught if taught and _can_announce_to_class(request, taught[0]) else []
+        elif not full:
+            # The Drafts, Sent and Polls tabs only count the lists (#1294 review): no per class gate there.
+            # Without the grant, _can_announce_to_class admits a class to an effective admin or to the lead or
+            # staff of its own guild (classes.access, the guild leg); a reviewer grant never sends email.
+            return cls(count=1 + _guild_reachable_count(request, teacher, taught))
         else:
             reachable = [offering for offering in taught if _can_announce_to_class(request, offering)]
         if not full:
@@ -6643,6 +6649,22 @@ class StudentMailingLists:
             past_students=len(students.users) + len(students.guests),
             classes=tuple((offering, offering.confirmed) for offering in reachable),  # type: ignore[attr-defined]
         )
+
+
+def _guild_reachable_count(request: HttpRequest, teacher: Member, taught: Sequence[ClassOffering]) -> int:
+    """How many of ``taught`` a member without the teaching grant may email, in one query (#1294 review).
+
+    The count :class:`StudentMailingLists` shows off the Mailing Lists tab, matching what
+    :func:`_can_announce_to_class` admits there: every class for an effective admin, none in a Guest
+    preview, else the classes of a guild they lead or staff.
+    """
+    view_as = getattr(request, "view_as", None)
+    if view_as is None or not view_as.is_member:
+        return 0
+    if view_as.is_admin:
+        return len(taught)
+    staffed = set(teacher.staffed_guilds.values_list("pk", flat=True))
+    return sum(1 for offering in taught if offering.category is not None and offering.category.guild_id in staffed)
 
 
 def _mailing_list_url(guild: Guild) -> str:

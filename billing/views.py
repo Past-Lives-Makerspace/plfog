@@ -653,7 +653,9 @@ def admin_reconciliation_csv(request: HttpRequest) -> StreamingHttpResponse:
 
     window = parse_window(request.GET.get("start", ""), request.GET.get("end", ""))
     scope = PaymentsScope.for_request(request, reports=True)
-    return stream_reconciliation_csv(scope.scope_reconciliation(build_reconciliation(window=window)))
+    return stream_reconciliation_csv(
+        scope.scope_reconciliation(build_reconciliation(window=window)), scoped=scope.is_scoped
+    )
 
 
 @reports_access_required

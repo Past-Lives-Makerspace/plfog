@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from django.http import HttpRequest
 
     from billing.payments_panel import PanelWindow
-    from billing.reconciliation import ReconciliationResult, RecipientKey, TransactionLine
+    from billing.reconciliation import RecipientAllocation, ReconciliationResult, RecipientKey, TransactionLine
 
 _M = TypeVar("_M", bound=Model)
 
@@ -43,11 +43,14 @@ class PaymentsScope:
         everything: True for an admin or a Billing Administrator; the other fields are then unused.
         guild_ids: the guilds the viewer leads or staffs.
         instructor_id: the viewer's member pk when they teach any class, else None.
+        member_id: the viewer's member pk, whose own orientor and equipment manager shares are theirs
+            (Felix, #1297); it opens nothing on its own.
     """
 
     everything: bool
     guild_ids: frozenset[int] = frozenset()
     instructor_id: int | None = None
+    member_id: int | None = None
 
     @classmethod
     def for_request(cls, request: HttpRequest, *, reports: bool = False) -> PaymentsScope:
@@ -59,8 +62,17 @@ class PaymentsScope:
         like anyone else. Admin standing is the actual role, like every billing gate, so a View as
         preview neither grants nor narrows it. The guilds are
         :func:`~membership.permissions.manageable_guilds`; teaching is an instructors row on any
-        class, any status (``ClassOffering.objects.for_instructor``).
+        class, any status (``ClassOffering.objects.for_instructor``). Built once per request and kind
+        (``reports``), since the decorator, the dashboard's tab set and the panel all ask.
         """
+        cache: dict[bool, PaymentsScope] = request.__dict__.setdefault("_payments_scopes", {})
+        if reports not in cache:
+            cache[reports] = cls._build(request, reports=reports)
+        return cache[reports]
+
+    @classmethod
+    def _build(cls, request: HttpRequest, *, reports: bool) -> PaymentsScope:
+        """Read the scope; :meth:`for_request` keeps it on the request, so one page load reads it once per kind."""
         from classes.models import ClassOffering
         from hub.view_as import ROLE_ADMIN, has_billing_admin_access
         from membership.permissions import manageable_guilds
@@ -76,7 +88,12 @@ class PaymentsScope:
         instructor_id = (
             member.pk if member is not None and ClassOffering.objects.for_instructor(member).exists() else None
         )
-        return cls(everything=False, guild_ids=guild_ids, instructor_id=instructor_id)
+        return cls(
+            everything=False,
+            guild_ids=guild_ids,
+            instructor_id=instructor_id,
+            member_id=member.pk if member is not None else None,
+        )
 
     @property
     def is_scoped(self) -> bool:
@@ -90,10 +107,17 @@ class PaymentsScope:
 
     @property
     def recipient_keys(self) -> frozenset[RecipientKey]:
-        """The reconciliation recipients whose share is the viewer's: their guilds and themselves as instructor."""
+        """The reconciliation recipients whose share is the viewer's.
+
+        Their guilds, themselves as instructor, and (Felix, #1297) themselves as orientor and as an
+        equipment item's manager, so Your Share counts a staffer's own orientor fee and manager share
+        on the lines in scope beside the guild's cut.
+        """
         keys: set[RecipientKey] = {("guild", guild_id) for guild_id in self.guild_ids}
         if self.instructor_id is not None:
             keys.add(("instructor", self.instructor_id))
+        if self.member_id is not None:
+            keys |= {("orientator", self.member_id), ("manager", self.member_id)}
         return frozenset(keys)
 
     def _filter(self, kind: str) -> Q | None:
@@ -165,6 +189,14 @@ class PaymentsScope:
             kind: [alloc for alloc in rows if (kind.value, alloc.recipient_id) in keys]
             for kind, rows in result.groups.items()
         }
+        # A producer row counts every payment of that person's, in scope or not; these are rebuilt from the
+        # lines shown, so the rows, the tile and the CSV agree. Any guild's cubby payee is its guild's share.
+        cubby_payees = {
+            key for line in lines if line.source_kind == "cubby" for key in line.shares if key[0] == "cubby_payee"
+        }
+        for kind in (RecipientKind.ORIENTATOR, RecipientKind.MANAGER, RecipientKind.CUBBY_PAYEE):
+            wanted = cubby_payees if kind is RecipientKind.CUBBY_PAYEE else keys
+            groups[kind] = _scoped_producer_rows(result.groups[kind], lines, wanted)
         groups[RecipientKind.PL] = []
         counted = [line for line in lines if not line.omitted]
         return replace(
@@ -269,6 +301,48 @@ def _guild_filter(kind: str, guilds: frozenset[int]) -> Q:
         "cubby": Q(rental__cubby__unit__guild_id__in=guilds),
     }
     return filters[kind]
+
+
+def _scoped_producer_rows(
+    rows: list[RecipientAllocation], lines: list[TransactionLine], wanted: Iterable[RecipientKey]
+) -> list[RecipientAllocation]:
+    """The producer rows among ``wanted`` that the shown ``lines`` pay, counted from those lines alone.
+
+    For a guild's cubby payee (#979, :func:`_line_keys`) and the viewer's own orientor and manager rows
+    (#1297). A row whose whole total comes from these lines keeps its row as built. One also paid
+    from lines out of scope keeps only Amount and Transactions, recounted from these lines; its
+    Stripe and owed columns would carry the other money, so they read zero here.
+    """
+    from billing import reconciliation
+
+    wanted = set(wanted)
+    totals: dict[RecipientKey, int] = {}
+    counts: dict[RecipientKey, int] = {}
+    for line in lines:
+        if line.omitted:
+            continue
+        for key, cents in line.shares.items():
+            if key in wanted:
+                totals[key] = totals.get(key, 0) + cents
+                counts[key] = counts.get(key, 0) + 1
+    kept: list[RecipientAllocation] = []
+    for alloc in rows:
+        row_key: RecipientKey = (alloc.kind.value, alloc.recipient_id)
+        if row_key not in totals:
+            continue
+        if (alloc.total_cents, alloc.transaction_count) == (totals[row_key], counts[row_key]):
+            kept.append(alloc)
+            continue
+        kept.append(
+            reconciliation.RecipientAllocation(
+                kind=alloc.kind,
+                recipient_id=alloc.recipient_id,
+                label=alloc.label,
+                total_cents=totals[row_key],
+                transaction_count=counts[row_key],
+            )
+        )
+    return kept
 
 
 def _line_keys(line: TransactionLine, keys: frozenset[RecipientKey]) -> frozenset[RecipientKey]:

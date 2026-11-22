@@ -299,7 +299,7 @@ def describe_a_guild_lead():
     def it_sees_its_guild_s_reports_and_share(client: Client, world: dict[str, Any]):
         _login(client, world["lead"])
         assert _report_keys(client) == _wood_report_keys(world)
-        assert _recipients(client) == {("guild", world["wood"].pk)}
+        assert _recipients(client) == {("guild", world["wood"].pk), ("cubby_payee", world["wood_cubby"].payee_id)}
         result = client.get(_REPORTS).context["reconciliation"]
         tab_line = next(line for line in result.lines if line.source_kind == "tab")
         assert (tab_line.gross_cents, tab_line.viewer_share_cents) == (2000, 1600)
@@ -346,7 +346,14 @@ def describe_a_guild_lead():
         assert "Metal Forging" not in payments
         assert "Metal Rod Bundle" not in payments
         report = list(csv.reader(io.StringIO(b"".join(client.get(_REPORTS_CSV).streaming_content).decode())))  # type: ignore[attr-defined]
-        assert [row[1] for row in report[1:]] == ["Wood"]
+        recipients = report[1 : report.index([])]
+        assert [row[:2] for row in recipients] == [
+            ["Guilds", "Wood"],
+            ["Cubby Payees", world["wood_cubby"].payee.finance_name],
+        ]
+        items = {row[3] for row in report if len(row) == 8}
+        assert "Metal Forging" not in items
+        assert "Metal Rod Bundle" not in items
 
     def it_serves_the_table_refreshes_and_print_scoped(client: Client, world: dict[str, Any]):
         _login(client, world["lead"])
@@ -375,7 +382,7 @@ def describe_guild_staff():
         _login(client, world["staff"])
         assert _ledger_keys(client) == _wood_payment_keys(world)
         assert _report_keys(client) == _wood_report_keys(world)
-        assert _recipients(client) == {("guild", world["wood"].pk)}
+        assert _recipients(client) == {("guild", world["wood"].pk), ("cubby_payee", world["wood_cubby"].payee_id)}
 
 
 def describe_an_instructor():
@@ -409,7 +416,11 @@ def describe_a_guild_lead_who_teaches():
         assert ("class", world["metal_class"].pk) in payments
         assert ("class", world["wood_class"].pk) not in payments
         assert _report_keys(client) == _metal_report_keys(world) | {("class", world["lead_teaches"].pk)}
-        assert _recipients(client) == {("guild", world["metal"].pk), ("instructor", member.pk)}
+        assert _recipients(client) == {
+            ("guild", world["metal"].pk),
+            ("instructor", member.pk),
+            ("cubby_payee", world["metal_cubby"].payee_id),
+        }
 
     def it_lists_a_class_in_its_guild_that_it_teaches_once(client: Client, world: dict[str, Any]):
         from classes.models import Registration
@@ -545,3 +556,165 @@ def describe_payments_scope():
         scope = PaymentsScope(everything=False, guild_ids=frozenset({world["wood"].pk}))
         old = PanelWindow(start=date(2020, 1, 1), end=date(2020, 1, 31))
         assert scope.scope_reconciliation(build_reconciliation(window=old)).lines == []
+
+
+def _csv(client: Client, url: str) -> list[list[str]]:
+    return list(csv.reader(io.StringIO(b"".join(client.get(url).streaming_content).decode())))  # type: ignore[attr-defined]
+
+
+def describe_review_round():
+    """#1297 review: the tile, the table and the CSVs agree, and scoped viewers see none of the treasurer's notes."""
+
+    def it_keeps_its_guild_s_cubby_payee_row_so_the_tile_matches_the_rows(client: Client, world: dict[str, Any]):
+        _login(client, world["lead"])
+        result = client.get(_REPORTS).context["reconciliation"]
+        payee_rows = result.groups[RecipientKind.CUBBY_PAYEE]
+        assert [(row.recipient_id, row.total_cents, row.transaction_count) for row in payee_rows] == [
+            (world["wood_cubby"].payee_id, 1700, 1)
+        ]
+        assert result.producers_total_cents == result.viewer_share_total_cents
+
+    def it_shows_a_guild_with_only_cubby_income_its_row_and_csv_line(client: Client):
+        BillingSettings.load()
+        lead = _user("cubby_only_lead")
+        guild = GuildFactory(name="Cubby Only", guild_lead=lead.member)  # type: ignore[attr-defined]
+        payment = _cubby_payment(guild)
+        _login(client, lead)
+        result = client.get(_REPORTS).context["reconciliation"]
+        assert [(row.recipient_id, row.total_cents) for row in result.groups[RecipientKind.CUBBY_PAYEE]] == [
+            (payment.payee_id, 1700)
+        ]
+        assert result.viewer_share_total_cents == 1700
+        rows = _csv(client, _REPORTS_CSV)
+        assert ["Cubby Payees", payment.payee.finance_name] == rows[1][:2]
+
+    def it_recounts_a_payee_also_paid_by_another_guild_and_hides_its_money(client: Client, world: dict[str, Any]):
+        from membership.models import CubbyPayment
+
+        CubbyPayment.objects.filter(pk=world["metal_cubby"].pk).update(payee=world["wood_cubby"].payee)
+        _login(client, world["lead"])
+        result = client.get(_REPORTS).context["reconciliation"]
+        (row,) = result.groups[RecipientKind.CUBBY_PAYEE]
+        assert (row.total_cents, row.transaction_count) == (1700, 1)
+        assert (row.stripe_cents, row.owed_now_cents, row.not_due_cents, row.paid_by_hand_cents) == (0, 0, 0, 0)
+        assert result.producers_total_cents == result.viewer_share_total_cents
+
+    def it_writes_the_lines_and_your_share_into_the_scoped_reports_csv(client: Client, world: dict[str, Any]):
+        _login(client, world["lead"])
+        result = client.get(_REPORTS).context["reconciliation"]
+        rows = _csv(client, _REPORTS_CSV)
+        start = rows.index(["Transactions"])
+        assert rows[start + 1] == ["Date", "Source", "Payer", "Item", "Gross", "Refunded", "Net", "Your Share"]
+        detail = rows[start + 2 : start + 2 + len(result.lines)]
+        assert {row[3] for row in detail} >= {"Wood Spoon Carving", "Wood Glue Bottle"}
+        assert sum(round(float(row[7]) * 100) for row in detail) == result.viewer_share_total_cents
+        assert rows[-1][0] == "Your Share"
+        assert rows[-1][7] == f"{result.viewer_share_total_cents / 100:.2f}"
+
+    def it_adds_paid_earlier_lines_under_their_own_heading(world: dict[str, Any]):
+        from dataclasses import replace
+
+        from billing.reconciliation import stream_reconciliation_csv
+
+        scope = PaymentsScope(everything=False, guild_ids=frozenset({world["wood"].pk}))
+        result = scope.scope_reconciliation(build_reconciliation(window=parse_window("", "")))
+        result = replace(result, due_earlier_lines=result.lines[:1])
+        body = b"".join(stream_reconciliation_csv(result, scoped=True).streaming_content).decode()  # type: ignore[attr-defined]
+        assert "Paid Earlier, Fell Due in These Dates" in body
+
+    def it_keeps_the_admin_reconciliation_csv_to_its_recipient_rows(client: Client, world: dict[str, Any]):
+        User.objects.create_superuser(username="csvboss", password="pass", email="csvboss@example.com")
+        client.login(username="csvboss", password="pass")
+        rows = _csv(client, _REPORTS_CSV)
+        assert ["Transactions"] not in rows
+        assert all(row and row[0] != "Your Share" for row in rows)
+
+    def it_writes_a_refunded_cubby_into_the_payments_csv_refund_columns(client: Client, world: dict[str, Any]):
+        from membership.models import CubbyPayment
+
+        CubbyPayment.objects.filter(pk=world["wood_cubby"].pk).update(stripe_refund_id="re_csv")
+        _login(client, world["lead"])
+        ledger = client.get(_PAYMENTS).context["ledger"]
+        rows = _csv(client, _PAYMENTS_CSV)
+        cubby = [row for row in rows if row[1] == "Cubby"]
+        assert [row[5:] for row in cubby] == [["Refunded", "Succeeded", "20.00", "", "Cubbies", ""]]
+        refunded = sum(round(float(row[7]) * 100) for row in rows[1:] if row[6] == "Succeeded")
+        assert refunded == ledger.refunded_cents
+
+    def it_hides_notes_kept_shares_and_payout_badges_from_a_scoped_viewer(client: Client, world: dict[str, Any]):
+        _login(client, world["lead"])
+        body = client.get(_REPORTS).content.decode()
+        assert "unset -&gt; Past Lives" not in body
+        assert "data-line-payout-state" not in body
+        assert "Payee kept share" not in body
+
+    def it_still_shows_them_to_an_admin(client: Client, world: dict[str, Any]):
+        User.objects.create_superuser(username="noteboss", password="pass", email="noteboss@example.com")
+        client.login(username="noteboss", password="pass")
+        assert "unset -&gt; Past Lives" in client.get(_REPORTS).content.decode()
+
+    def it_builds_each_scope_once_per_request(client: Client, world: dict[str, Any], monkeypatch):
+        calls: list[bool] = []
+        real = PaymentsScope._build.__func__  # type: ignore[attr-defined]
+
+        def counting(cls: type[PaymentsScope], request: Any, *, reports: bool) -> PaymentsScope:
+            calls.append(reports)
+            return real(cls, request, reports=reports)
+
+        monkeypatch.setattr(PaymentsScope, "_build", classmethod(counting))
+        _login(client, world["lead"])
+        assert client.get(_REPORTS).status_code == 200
+        assert sorted(calls) == [False, True]
+
+
+def describe_personal_shares():
+    """Felix (#1297): Your Share counts a staffer's own orientor fee and equipment manager share beside the guild cut."""
+
+    def it_adds_a_staffer_s_own_orientor_share_to_the_guild_cut(client: Client, world: dict[str, Any]):
+        staff = world["staff"].member  # type: ignore[attr-defined]
+        booking = world["wood_orientation"]
+        OrientationBooking.objects.filter(pk=booking.pk).update(oriented_by=staff)
+        _login(client, world["staff"])
+        result = client.get(_REPORTS).context["reconciliation"]
+        line = next(item for item in result.lines if (item.source_kind, item.source_pk) == ("orientation", booking.pk))
+        guild_cut = line.shares[("guild", world["wood"].pk)]
+        orientor = line.shares[("orientator", staff.pk)]
+        assert (guild_cut, orientor) == (600, 2800)
+        assert line.viewer_share_cents == guild_cut + orientor
+        assert [(row.recipient_id, row.total_cents) for row in result.groups[RecipientKind.ORIENTATOR]] == [
+            (staff.pk, orientor)
+        ]
+        assert result.producers_total_cents == result.viewer_share_total_cents
+        rows = _csv(client, _REPORTS_CSV)
+        assert ["Orientors", staff.finance_name] in [row[:2] for row in rows]
+
+    def it_adds_an_equipment_manager_s_own_share(client: Client, world: dict[str, Any]):
+        lead = world["lead"].member  # type: ignore[attr-defined]
+        reservation = world["wood_reservation"]
+        reservation.equipment.payee = lead
+        reservation.equipment.save(update_fields=["payee"])
+        _login(client, world["lead"])
+        result = client.get(_REPORTS).context["reconciliation"]
+        line = next(i for i in result.lines if (i.source_kind, i.source_pk) == ("reservation", reservation.pk))
+        assert line.viewer_share_cents == line.shares[("guild", world["wood"].pk)] + line.shares[("manager", lead.pk)]
+        assert [row.recipient_id for row in result.groups[RecipientKind.MANAGER]] == [lead.pk]
+        assert result.producers_total_cents == result.viewer_share_total_cents
+
+    def it_counts_only_the_orientations_in_scope_for_an_orientor_of_another_guild(
+        client: Client, world: dict[str, Any]
+    ):
+        staff = world["staff"].member  # type: ignore[attr-defined]
+        OrientationBooking.objects.filter(pk__in=[world["wood_orientation"].pk, world["metal_orientation"].pk]).update(
+            oriented_by=staff
+        )
+        _login(client, world["staff"])
+        result = client.get(_REPORTS).context["reconciliation"]
+        (row,) = result.groups[RecipientKind.ORIENTATOR]
+        assert row.transaction_count == 1
+        assert result.producers_total_cents == result.viewer_share_total_cents
+
+    def it_opens_nothing_to_an_orientor_who_runs_no_guild(client: Client, world: dict[str, Any]):
+        orientor = _user("lone_orientor")
+        OrientationBooking.objects.filter(pk=world["wood_orientation"].pk).update(oriented_by=orientor.member)  # type: ignore[attr-defined]
+        _login(client, orientor)
+        assert client.get(_REPORTS).status_code == 403

@@ -65,7 +65,7 @@ def describe_your_students():
         html = _page(client, **_TAB)
         assert "data-student-lists" in html
         assert _student_rows(html) == {
-            "past-students": "2 people, everyone who took any of your classes",
+            "past-students": "2 people, everyone who took any of your classes. Anyone who stopped your emails is left off.",
             f"class-{newer.pk}": "1 registered",
             f"class-{older.pk}": "2 registered",
         }
@@ -161,3 +161,66 @@ def describe_your_students():
         html = _page(client)
         assert "data-student-lists" in html
         assert 'data-announcements-tab="drafts"' not in html
+
+
+def describe_counting_off_the_tab():
+    """#1297 review: Drafts, Sent and Polls count the lists without asking each class's gate."""
+
+    def it_asks_no_class_gate_off_the_tab_for_a_member_without_the_grant(client: Client, monkeypatch):
+        import hub.views
+
+        member = _teacher(client, "ms_count_ungranted", granted=False)
+        guild = GuildFactory(guild_lead=member)
+        from classes.factories import CategoryFactory
+
+        _confirmed(
+            ClassOfferingFactory(instructor=member, category=CategoryFactory(guild=guild)),
+            "in-guild@x.com",
+        )
+        _confirmed(ClassOfferingFactory(instructor=member), "outside@x.com")
+        asked: list[int] = []
+        real = hub.views._can_announce_to_class
+
+        def counting(request, offering):  # noqa: ANN001, ANN202
+            asked.append(offering.pk)
+            return real(request, offering)
+
+        monkeypatch.setattr(hub.views, "_can_announce_to_class", counting)
+        drafts = _page(client)
+        assert asked == []
+        badge = re.search(r'data-announcements-count="mailing-lists">(\d+)<', drafts)
+        assert badge is not None
+        tab = _page(client, **_TAB)
+        listed = re.search(r'data-announcements-count="mailing-lists">(\d+)<', tab)
+        assert listed is not None
+        # One guild list, Past Students, and the one class in the guild they lead.
+        assert badge.group(1) == listed.group(1) == "3"
+
+    def it_counts_every_class_for_an_admin_without_the_grant(client: Client):
+        from django.test import RequestFactory
+
+        from hub.view_as import ViewAs
+        from hub.views import _guild_reachable_count
+
+        member = _teacher(client, "ms_count_admin", granted=False)
+        request = RequestFactory().get("/")
+        request.view_as = ViewAs(actual=frozenset({"admin", "member"}), picked=None)  # type: ignore[attr-defined]
+        taught = [ClassOfferingFactory(instructor=member), ClassOfferingFactory(instructor=member)]
+        assert _guild_reachable_count(request, member, taught) == 2
+        request.view_as = None  # type: ignore[attr-defined]
+        assert _guild_reachable_count(request, member, taught) == 0
+
+
+def describe_the_opt_out_line():
+    def it_sits_on_past_students_only_never_on_the_intro_or_a_class(client: Client):
+        # Felix (#1297): opt outs apply to Past Students; a class roster send is unchanged.
+        member = _teacher(client, "ms_optout_copy")
+        offering = ClassOfferingFactory(instructor=member, status=ClassOffering.Status.PUBLISHED)
+        _confirmed(offering, "copy@x.com")
+        html = _page(client, **_TAB)
+        intro = re.search(r'pl-mailing-lists__intro">([^<]+)<', html[html.index("data-student-lists") :])
+        assert intro is not None
+        assert "stopped" not in intro.group(1)
+        rows = _student_rows(html)
+        assert rows["past-students"].endswith("Anyone who stopped your emails is left off.")
+        assert "stopped" not in rows[f"class-{offering.pk}"]

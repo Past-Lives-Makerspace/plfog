@@ -62,14 +62,14 @@ reads poll_rows ([(EmailPoll with sent_count and answered_count, is_open)]).
 {# Your Students (#1294): My Past Students, then each class's roster, each opening the composer on that audience. #}
 <section class="hub-card pl-mailing-lists" data-student-lists data-guidance-target="announcements.your-students">
   <h2 class="pl-mailing-lists__title">Your Students</h2>
-  <p class="pl-mailing-lists__intro">Email everyone who took your classes, or one class. Anyone who stopped your emails is left off.</p>
+  <p class="pl-mailing-lists__intro">Email everyone who took your classes, or one class.</p>
   <ul class="pl-mailing-lists__list">
     <li class="pl-mailing-lists__row">
       {% if student_lists.past_students %}
       <a href="{% url 'hub_compose' %}?audience=students" class="pl-mailing-lists__link" data-student-list="past-students">
         <span class="pl-mailing-lists__label">
           <span class="pl-mailing-lists__name">Past Students</span>
-          <span class="pl-mailing-lists__count" data-student-list-count>{{ student_lists.past_students }} {% if student_lists.past_students == 1 %}person{% else %}people{% endif %}, everyone who took any of your classes</span>
+          <span class="pl-mailing-lists__count" data-student-list-count>{{ student_lists.past_students }} {% if student_lists.past_students == 1 %}person{% else %}people{% endif %}, everyone who took any of your classes. Anyone who stopped your emails is left off.</span>
         </span>
         <span class="pl-mailing-lists__go">Email &rarr;</span>
       </a>

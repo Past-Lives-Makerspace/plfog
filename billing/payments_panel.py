@@ -541,6 +541,10 @@ def _csv_lines(ledger: PaymentsLedger, writer: Any) -> Iterator[str]:
             f"{row.amount_cents / 100:.2f}",
             row.status_label,
         ]
+        if row.direct_refunded_cents:
+            # A cubby refund (#1294) is on the payment itself, not a PaymentRefund row; made in the Cubbies manager.
+            yield writer.writerow([*base, "Succeeded", f"{row.direct_refunded_cents / 100:.2f}", "", "Cubbies", ""])
+            continue
         if not row.refund_rows:
             yield writer.writerow([*base, "", "", "", "", ""])
             continue
