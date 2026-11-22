@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from django.db import IntegrityError, connection
 from django.db.migrations.executor import MigrationExecutor
@@ -20,17 +22,23 @@ def _migrate(target: list[tuple[str, str]]) -> None:
     MigrationExecutor(connection).migrate(target)
 
 
+def _runs_at(target: list[tuple[str, str]]) -> Any:
+    """The run model as it stood at ``target``: the current one carries columns a later migration adds."""
+    return MigrationExecutor(connection).loader.project_state(target).apps.get_model("classes", "ClassOffering")
+
+
 def describe_migration_0109_class_record_required():
     def it_refuses_to_run_while_a_run_has_no_class():
         run = ClassOfferingFactory(title="Unfiled", slug="unfiled")
         try:
             _migrate(_BEFORE)
-            ClassOffering.objects.filter(pk=run.pk).update(class_record=None)
+            _runs_at(_BEFORE).objects.filter(pk=run.pk).update(class_record=None)
 
             with pytest.raises(IntegrityError):
                 _migrate(_AFTER)
         finally:
-            ClassOffering.objects.filter(pk=run.pk).delete()
+            # File the run again through the historical model, so the way back to head runs.
+            _runs_at(_BEFORE).objects.filter(pk=run.pk).update(class_record_id=run.class_record_id)
             migrate_all_to_head()
 
     def it_makes_the_class_required_when_every_run_has_one():
