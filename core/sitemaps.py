@@ -56,16 +56,12 @@ class PathsSitemap(HostSitemap):
 
 
 class ClassTypeSitemap(HostSitemap):
-    """Every Class Type page the catalog lists, demo ones only while demo classes show."""
+    """Every Class Type page the catalog links: those with a class to book (#1261); any other one is empty."""
 
     def items(self) -> QuerySet[Category]:
-        from classes.models import DEMO_SLUG_PREFIX, Category
-        from core.models import SiteConfiguration
+        from classes.models import Category
 
-        qs = Category.objects.order_by("pk")
-        if not SiteConfiguration.load().display_demo_classes:
-            qs = qs.exclude(slug__startswith=DEMO_SLUG_PREFIX)
-        return qs
+        return Category.with_classes_to_book().order_by("pk")
 
     def location(self, item: Category) -> str:
         return reverse("classes:public_category", kwargs={"slug": item.slug})

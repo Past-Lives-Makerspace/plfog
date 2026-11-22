@@ -1,0 +1,17 @@
+bump = "minor"
+date = "2026-11-21"
+audience = ["members", "instructors"]
+title = "Browse classes by Class Type, and see every class an instructor teaches"
+changes = [
+  "The class list links each Class Type that has a class to book. Tap one to see only those classes.",
+  "An instructor's page lists their classes once each. Past Classes links every class whose page is still up; a class no longer offered is listed without a link.",
+]
+feature = "classes.catalog"
+guidance = "shots"
+target = "classes.class-type-links"
+
+[[shots]]
+caption = "Under the filters, Browse by Class Type links each Class Type with a class to book."
+
+[[shots]]
+caption = "On an instructor's page, Past Classes links each class still on the site."

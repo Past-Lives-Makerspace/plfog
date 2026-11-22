@@ -130,17 +130,29 @@ def describe_the_classes_host():
             assert f"/classes/{slug}/" not in body
 
     def it_leaves_out_demo_class_types_while_demo_classes_are_hidden(client: Client):
-        CategoryFactory(slug="demo-pottery")
+        _class("demo-wheel-throwing", days=5, category=CategoryFactory(slug="demo-pottery"))
 
         assert "/classes/category/demo-pottery/" not in _sitemap(client, CLASSES)
 
     def it_lists_demo_class_types_while_demo_classes_show(client: Client):
-        CategoryFactory(slug="demo-pottery")
+        _class("demo-wheel-throwing", days=5, category=CategoryFactory(slug="demo-pottery"))
         config = SiteConfiguration.load()
         config.display_demo_classes = True
         config.save()
 
         assert "/classes/category/demo-pottery/" in _sitemap(client, CLASSES)
+
+    def it_leaves_out_a_class_type_with_no_class_to_book(client: Client):
+        # Its page lists only classes to book, so it would be empty (#1261).
+        CategoryFactory(slug="empty-type")
+        _class("past-pour", days=-30, category=CategoryFactory(slug="past-only"))
+        _class("next-pour", days=5, category=CategoryFactory(slug="booking-now"))
+
+        body = _sitemap(client, CLASSES)
+
+        assert "/classes/category/empty-type/" not in body
+        assert "/classes/category/past-only/" not in body
+        assert f"<loc>https://{CLASSES}/classes/category/booking-now/</loc>" in body
 
     def it_leaves_out_a_former_instructor(client: Client):
         InstructorFactory(instructor_slug="moved-away", status="former")

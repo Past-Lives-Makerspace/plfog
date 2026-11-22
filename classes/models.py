@@ -255,6 +255,15 @@ class Category(HeroCropMixin, models.Model):
         if self.pk and old_guild_id != self.guild_id and guild_written:
             self._repoint_pending_classes()
 
+    @classmethod
+    def with_classes_to_book(cls) -> "models.QuerySet[Category]":
+        """Class Types with a class open to book now (#1261): the ones the catalog links and the sitemap lists.
+
+        A Class Type page lists only such classes, so any other Class Type's page is empty. The same
+        rule as the catalog's own list (``bookable().listed()``), demo gate included.
+        """
+        return cls.objects.filter(pk__in=ClassOffering.objects.bookable().listed().values("category_id"))
+
     def _repoint_pending_classes(self) -> None:
         """Re-ask the right guild for every class in review here once this Class Type's guild changes (#1183).
 
@@ -339,6 +348,13 @@ class ClassRecord(models.Model):
 
     def __str__(self) -> str:
         return self.title
+
+    @property
+    def public_path(self) -> str:
+        """This class's permanent page, ``/classes/<slug>/``."""
+        from django.urls import reverse
+
+        return reverse("classes:public_class_detail", kwargs={"slug": self.slug})
 
     @property
     def is_indexable(self) -> bool:
