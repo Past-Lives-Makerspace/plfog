@@ -512,7 +512,7 @@ _GUIDANCE_LIST = (
         url_name="hub_announcements",
         help_key="announcements.compose",
         steps=(
-            "Guild leads and staff open Email Members from their guild's group on Guild Tools, instructors from Classes on the same page, and admins, leads and staff from the Email Members button on a guild page.",
+            "Guild leads and staff open Email Members from their guild's group on Guild Tools, instructors from Classes on Admin Tools or Guild Tools, and admins, leads and staff from the Email Members button on a guild page.",
             "Write one email for a class, a guild, the guild leads, all instructors or everyone, with one image under the message if you like. It also sends an app notification and, for a guild or everyone, a Discord post.",
             "For a guild, turn off Push notification, Email and Post to Discord to post it only at the top of the guild page. Nobody is notified.",
             "Instructors can pick My Past Students to email everyone who took any of their classes.",
