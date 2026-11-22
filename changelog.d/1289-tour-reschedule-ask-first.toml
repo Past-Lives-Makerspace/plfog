@@ -1,0 +1,10 @@
+bump = "minor"
+date = "2026-11-21"
+audience = ["admins"]
+title = "Rescheduling a tour asks the visitor first"
+changes = [
+  "Reschedule on the Tours page now asks the visitor instead of moving their tour at once. They get an email with Accept New Time and Keep My Time.",
+  "The tour stays at its time until they answer, and Upcoming shows Waiting for the Visitor with the time you asked for.",
+  "You get an email and a bell with their answer. If the new time filled up before they accepted, they keep their time and you are told.",
+  "Asking again replaces the earlier request, and its email buttons say it is no longer open.",
+]
