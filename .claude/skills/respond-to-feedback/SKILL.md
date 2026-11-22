@@ -77,12 +77,18 @@ into the session scratchpad; the browser upload only reads from there.
 
 ## 5. Send it as Felix
 
-The Feedback Inbox at `https://members.pastlives.space/manage/feedback/<pk>/` (never the marketing
-host), in Chrome, signed in as Felix. Open a new tab rather than reusing his.
+**No photos:** use the feedback API, as `/triage-feedback` step 5 shows (`POST .../comment/` with the
+sentence, then `PATCH` the status if it changed). The token is `FOG_API_TOKEN` in `~/Code/plfog/.env`,
+Felix's account.
+
+**With photos:** the API takes text only (`FeedbackApiCommentForm`), so photos go through the Feedback
+Inbox at `https://members.pastlives.space/manage/feedback/<pk>/` (never the marketing host), in Chrome,
+signed in as Felix. Open a new tab rather than reusing his.
 
 1. Type the sentence in **Comment to <name>**, attach the photos to **Photos (optional)** with the file
    upload tool on that input, and press **Send to <name>**.
-2. Then set the status under **Where it stands** and press **Save**, if it changed.
+2. Then set the status with the API's `PATCH`, or under **Where it stands** and **Save**. Wait for the
+   save to finish before leaving the page.
 
 The **Mark Live** and **Close** buttons under Resolve it do **not** carry the comment box's text, so a
 reply sent that way arrives empty. Send the comment first, always.
