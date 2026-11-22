@@ -1569,6 +1569,45 @@ a.cp-detail__cta--waitlist:hover {
 }
 .cp-filter__reset:hover { background: var(--gold-glow); text-decoration: none; color: var(--gold); }
 
+/* Browse by Class Type (#1261): a link to each Class Type page with a class to book. The chips
+   wrap rather than scroll, so every type shows at 390px; the page tokens carry both themes. */
+.pl-type-links {
+  max-width: var(--max);
+  margin: 0 auto 24px;
+  padding: 0 24px;
+}
+.pl-type-links__label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text2);
+}
+.pl-type-links__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.cp-page a.pl-type-links__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg2);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.cp-page a.pl-type-links__chip:hover { border-color: var(--gold); color: var(--text); text-decoration: none; }
+.cp-page a.pl-type-links__chip--active { border-color: var(--gold); background: var(--gold-glow); }
+.pl-type-links__count { color: var(--text2); font-weight: 700; }
+
 .cp-filter__popover {
   position: absolute;
   top: calc(100% + 10px);

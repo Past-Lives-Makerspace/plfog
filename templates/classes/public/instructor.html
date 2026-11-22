@@ -58,13 +58,21 @@
         {% endif %}
 
         {% if past_classes %}
-          <div class="ip-sec">
+          <div class="ip-sec" data-guidance-target="classes.instructor-past-classes">
             <h3>Past Classes</h3>
-            {% for offering in past_classes %}
-              <div class="ip-cls past">
-                <div class="ip-cls-t">{{ offering.title }}</div>
-                <div class="ip-cls-m">{{ offering.category.name }}</div>
+            {# One per class (#1261): linked while its page is up, plain text once Retired (its page then goes to its Class Type). #}
+            {% for record in past_classes %}
+              {% if record.is_indexable %}
+              <a class="ip-cls" href="{{ record.public_path }}" data-past-class-link>
+                <div class="ip-cls-t">{{ record.title }}</div>
+                <div class="ip-cls-m">{{ record.category.name }}</div>
+              </a>
+              {% else %}
+              <div class="ip-cls past" data-past-class-retired>
+                <div class="ip-cls-t">{{ record.title }}</div>
+                <div class="ip-cls-m">{{ record.category.name }}</div>
               </div>
+              {% endif %}
             {% endfor %}
           </div>
         {% endif %}

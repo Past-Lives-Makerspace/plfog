@@ -132,6 +132,18 @@
   </div>
 </form>
 
+{# Each Class Type with a class to book links its own page (#1261); a type with none would open an empty page. #}
+{% if class_type_links %}
+<nav class="pl-type-links" aria-label="Browse by Class Type" data-class-type-links data-guidance-target="classes.class-type-links">
+  <span class="pl-type-links__label">Browse by Class Type</span>
+  <div class="pl-type-links__row">
+    {% for cat in class_type_links %}
+    <a class="pl-type-links__chip{% if class_type and class_type.pk == cat.pk %} pl-type-links__chip--active{% endif %}" href="{% url 'classes:public_category' slug=cat.slug %}"{% if class_type and class_type.pk == cat.pk %} aria-current="page"{% endif %}>{{ cat.name }} <span class="pl-type-links__count">{{ cat.class_count }}</span></a>
+    {% endfor %}
+  </div>
+</nav>
+{% endif %}
+
 <div class="view">
   <div class="cp-container" id="catalog">
     <div id="cls-results">

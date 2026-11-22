@@ -19,6 +19,7 @@ from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import (
     Count,
+    Exists,
     Max,
     Min,
     OuterRef,
@@ -381,6 +382,9 @@ def _catalog(request: HttpRequest, *, class_type: Category | None) -> HttpRespon
         "settings_obj": settings_obj,
         "site_config": SiteConfiguration.load(),
         "categories": categories,
+        # The Class Type links under the filters (#1261): only types with a class to book, since a
+        # Class Type page lists only those; the same rule as ``Category.with_classes_to_book``.
+        "class_type_links": [cat for cat in categories if cat.class_count],  # type: ignore[attr-defined]
         "selected_category_slug": selected_category_slug,
         "selected_guild_slug": selected_guild_slug,
         "selected_guild": selected_guild,
@@ -651,15 +655,20 @@ def legacy_class_page(request: HttpRequest, alias: str) -> HttpResponse:
 
 
 def public_instructor(request: HttpRequest, slug: str) -> HttpResponse:
-    """Public instructor profile — bio, photo, current + past classes."""
+    """Public instructor profile: bio, photo, their classes to come and the classes they taught (#1261).
+
+    Current Classes is one card per class with a date to come, at its soonest. Past Classes is
+    every other class with a public run they teach: linked while its page is up (Scheduled with
+    another instructor's date, or Between runs), plain text once Retired, whose page is gone.
+    """
     from membership.models import Member as MemberModel
 
     instructor = get_object_or_404(MemberModel, instructor_slug=slug, status=MemberModel.Status.ACTIVE)
     now = timezone.now()
-    current_classes = (
+    upcoming_runs = (
         ClassOffering.objects.public()  # type: ignore[misc]  # django-stubs can't see annotate() aliases
         .for_instructor(instructor)
-        .select_related("class_record")
+        .select_related("class_record", "category")
         .prefetch_related("sessions", "instructor_rows")
         # ``next_session_at``, not ``first_session_at``: that name is the ``bookable()`` /
         # ``upcoming()`` contract (the earliest session ever) and the booking gates read it.
@@ -667,11 +676,16 @@ def public_instructor(request: HttpRequest, slug: str) -> HttpResponse:
         .filter(Q(next_session_at__isnull=False) | Q(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE))
         .order_by("next_session_at", "title")
     )
-    past_classes = (
-        ClassOffering.objects.for_instructor(instructor)
-        .filter(status=ClassOffering.Status.ARCHIVED)
-        .select_related("category")
-        .order_by("-updated_at")
+    current_classes: list[ClassOffering] = []
+    for run in upcoming_runs:  # one card per class: its soonest date
+        if all(shown.class_record_id != run.class_record_id for shown in current_classes):
+            current_classes.append(run)
+    taught = ClassOffering.objects.on_class_pages().filter(class_record=OuterRef("pk"), instructors=instructor)
+    past_classes = sorted(
+        ClassRecord.objects.filter(Exists(taught))
+        .exclude(pk__in=[run.class_record_id for run in current_classes])
+        .select_related("category"),
+        key=lambda record: (not record.is_indexable, record.title.lower()),
     )
     return render(
         request,
