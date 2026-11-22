@@ -23,7 +23,7 @@ from django.utils import timezone
 
 from membership.models import AdminCapability, Member
 from tests.membership.factories import MembershipPlanFactory
-from tours.models import TourDayOff, TourHours
+from tours.models import FacilityTourSettings, TourDayOff, TourHours
 
 GUIDE_EMAIL = "tour-guide-hours@example.com"
 CAPTURE_DIR = os.environ.get("CAPTURE_947_DIR")
@@ -200,6 +200,83 @@ def describe_tour_hours_editor():
         page.locator("[data-tour-hours-empty]").wait_for()
         assert page.locator("[data-tour-hours-row]").count() == 0
         assert not TourHours.objects.exists()
+
+
+def describe_stale_tab():
+    def it_saves_past_a_row_deleted_elsewhere_and_takes_it_off_the_page(live_server, page, login_via_code):
+        guide = _make_guide()
+        kept = TourHours.objects.create(
+            guide=guide,
+            weekday=TourHours.Weekday.TUESDAY,
+            start_time=time(16),
+            end_time=time(18),
+            tour_minutes=60,
+            seats=4,
+        )
+        gone = TourHours.objects.create(
+            guide=guide,
+            weekday=TourHours.Weekday.SATURDAY,
+            start_time=time(11),
+            end_time=time(13),
+            tour_minutes=60,
+            seats=4,
+        )
+        login_via_code(GUIDE_EMAIL)
+        page.set_viewport_size(DESKTOP)
+        page.goto(f"{live_server.url}{reverse('tours:hours')}")
+        assert page.locator("[data-tour-hours-row]").count() == 2
+        gone.delete()  # another tab, or an admin on ?guide=
+
+        row = page.locator("[data-tour-hours-row]").first
+        row.locator("[data-tour-hours-edit]").click()
+        before = _saves(page)
+        row.locator('select[name="hours-0-end_time"]').select_option("19:00")
+        _hours_saved_past(page, before + 1)
+        page.locator("text=deleted elsewhere >> visible=true").first.wait_for()
+        assert page.locator("[data-tour-hours-row]").count() == 1
+        assert TourHours.objects.get(pk=kept.pk).end_time == time(19)
+
+        # The next edit saves as usual: the gone row is never posted again.
+        before = _saves(page)
+        row.locator('select[name="hours-0-end_time"]').select_option("20:00")
+        _hours_saved_past(page, before + 1)
+        assert TourHours.objects.get(pk=kept.pk).end_time == time(20)
+
+
+def describe_tour_settings_autosave():
+    def it_says_not_saved_on_the_card_that_holds_the_error(live_server, page, login_via_code):
+        admin = _make_guide()
+        admin.fog_role = Member.FogRole.ADMIN
+        admin.save(update_fields=["fog_role"])
+        login_via_code(GUIDE_EMAIL)
+        page.set_viewport_size(DESKTOP)
+        page.goto(f"{live_server.url}{reverse('tours:settings')}")
+        page.wait_for_function("() => !!document.querySelector('[data-guild-autosave]').plGuildAutosave")
+        assert page.locator("[data-tour-noscript-save]").is_hidden()
+
+        # Bookings off with no closed message: refused, Not saved on Availability.
+        page.locator('input[name="closed_message"]').evaluate("(el) => { el.value = ''; }")
+        page.locator('[data-tour-settings-availability] input[name="accepting_bookings"]').evaluate(
+            "(el) => el.click()"
+        )
+        availability = page.locator('[data-tour-save-status="availability"]')
+        availability.get_by_text("Not saved").wait_for()
+        page.locator("[data-tour-settings-availability] [data-autosave-error]").wait_for()
+
+        # An edit on Booking posts the same form: still refused, and the pill stays where the reason is.
+        with page.expect_response(lambda r: r.request.method == "POST" and r.status == 422):
+            page.locator('input[name="booking_horizon_days"]').fill("45")
+            page.locator('input[name="booking_horizon_days"]').dispatch_event("change")
+        page.wait_for_function("() => document.querySelector('[data-guild-autosave]').plGuildAutosave.pending === 0")
+        availability.get_by_text("Not saved").wait_for()
+        assert page.locator('[data-tour-save-status="booking"]').is_hidden()
+        assert FacilityTourSettings.load().booking_horizon_days == 30
+
+        # Writing the message saves everything.
+        page.locator('input[name="closed_message"]').fill("Back in December.")
+        availability.get_by_text("Saved", exact=True).wait_for()
+        saved = FacilityTourSettings.load()
+        assert (saved.accepting_bookings, saved.booking_horizon_days) == (False, 45)
 
 
 #: ``CAPTURE_1160_DIR=<dir>`` saves the What's New shots (``step-1.png`` to ``step-3.png``, the

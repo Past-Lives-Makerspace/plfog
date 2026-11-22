@@ -139,6 +139,34 @@ class _TourHoursBaseFormSet(forms.BaseInlineFormSet):
     the row (``hours-<i>-__all__``); two rows that overlap each get one naming the other.
     """
 
+    def get_form_kwargs(self, index: int | None) -> dict[str, Any]:
+        """A saved row the page still shows but that is gone (deleted elsewhere, #1279) reads as absent.
+
+        Its posted id names no weekly row of this guide any more, which Django would refuse
+        ("Select a valid choice") on every later save from that tab. Built without its fields and
+        allowed empty, it is skipped like a removed clone, the rest of the post saves, and
+        :attr:`gone_rows` tells the autosave to take it off the page.
+        """
+        kwargs = super().get_form_kwargs(index)
+        if index is not None and self.is_bound and index < self.initial_form_count() and self._is_gone(index):
+            prefix = f"{self.add_prefix(index)}-"
+            kwargs["data"] = {key: value for key, value in self.data.items() if not key.startswith(prefix)}
+            kwargs["empty_permitted"] = True
+        return kwargs
+
+    def _is_gone(self, i: int) -> bool:
+        raw = str(self.data.get(f"{self.add_prefix(i)}-id", ""))
+        if not raw.isdigit():
+            return False
+        if not hasattr(self, "_weekly_pks"):
+            self._weekly_pks = {row.pk for row in self.get_queryset()}
+        return int(raw) not in self._weekly_pks
+
+    @property
+    def gone_rows(self) -> list[int]:
+        """The posted indices of rows that were deleted elsewhere since the page loaded."""
+        return [index for index in range(self.initial_form_count()) if self._is_gone(index)]
+
     def clean(self) -> None:
         super().clean()
         if any(self.errors):

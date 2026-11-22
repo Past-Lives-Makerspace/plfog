@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from datetime import time, timedelta
 from typing import Any
-from unittest import mock
 
 import pytest
-from django.db import transaction
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -137,15 +137,16 @@ def describe_every_week_autosave():
         assert response.status_code == 422
         assert response.json()["errors"] == {"hours-0-tour_minutes": ["These hours are shorter than one tour."]}
 
-    def it_checks_and_saves_under_the_guides_hours_lock(guide: Member):
-        seen: list[bool] = []
-
-        def lock(target: Member) -> None:
-            seen.append(target == guide and transaction.get_connection().in_atomic_block)
-
-        with mock.patch("tours.views.lock_guide_hours", side_effect=lock):
-            signed_in(guide).post(SAVE, _hours_post(guide, {}), **AUTOSAVE)
-        assert seen == [True]
+    @pytest.mark.postgres_only
+    def it_locks_the_guide_before_checking_and_saving_an_autosave(guide: Member):
+        with CaptureQueriesContext(connection) as queries:
+            response = signed_in(guide).post(SAVE, _hours_post(guide, {}), **AUTOSAVE)
+        assert response.status_code == 200
+        sql = [query["sql"] for query in queries.captured_queries]
+        lock = next(index for index, text in enumerate(sql) if "FOR NO KEY UPDATE" in text)
+        assert '"membership_member"' in sql[lock] and str(guide.pk) in sql[lock]
+        insert = next(index for index, text in enumerate(sql) if text.startswith('INSERT INTO "tours_tourhours"'))
+        assert lock < insert
 
     def it_saves_another_guides_hours_for_an_admin(admin: Member):
         other = make_guide()
@@ -157,6 +158,44 @@ def describe_every_week_autosave():
         other = make_guide()
         assert signed_in(guide).post(SAVE, _hours_post(other, {}), **AUTOSAVE).status_code == 403
         assert not TourHours.objects.exists()
+
+
+def describe_a_row_deleted_elsewhere():
+    """A stale tab (#1279 review): the row it still shows was deleted in another tab or by an admin."""
+
+    def it_saves_the_rest_and_names_the_gone_row(guide: Member):
+        kept = TourHoursFactory(guide=guide)
+        gone = TourHoursFactory(guide=guide, weekday=TourHours.Weekday.WEDNESDAY)
+        gone_pk = gone.pk
+        gone.delete()
+        data = _hours_post(guide, {"id": str(kept.pk), "seats": "9"}, {"id": str(gone_pk), "weekday": "2"}, initial=2)
+        response = signed_in(guide).post(SAVE, data, **AUTOSAVE)
+        assert response.status_code == 200
+        assert response.json() == {"saved": True, "rows": {"hours": [kept.pk, None]}, "gone": {"hours": [1]}}
+        assert "deleted elsewhere" in response["HX-Trigger"]
+        assert list(TourHours.objects.values_list("pk", "seats")) == [(kept.pk, 9)]
+
+    def it_keeps_refusing_only_the_real_error_beside_a_gone_row(guide: Member):
+        data = _hours_post(guide, {"id": "999999"}, {"end_time": "16:30"}, initial=1)
+        response = signed_in(guide).post(SAVE, data, **AUTOSAVE)
+        assert response.status_code == 422
+        assert response.json()["errors"] == {"hours-1-tour_minutes": ["These hours are shorter than one tour."]}
+
+    def it_saves_the_rest_without_the_script_too(guide: Member):
+        data = _hours_post(guide, {"id": "999999"}, {"weekday": "4"}, initial=1)
+        assert signed_in(guide).post(SAVE, data).status_code == 302
+        assert list(TourHours.objects.values_list("weekday", flat=True)) == [TourHours.Weekday.FRIDAY]
+
+    def it_never_touches_another_guides_row_named_in_the_post(guide: Member):
+        theirs = TourHoursFactory(guide=make_guide())
+        data = _hours_post(guide, {"id": str(theirs.pk), "seats": "1"}, initial=1)
+        response = signed_in(guide).post(SAVE, data, **AUTOSAVE)
+        assert response.json()["gone"] == {"hours": [0]}
+        theirs.refresh_from_db()
+        assert theirs.seats == 4
+
+    def it_names_nothing_gone_on_an_ordinary_save(guide: Member):
+        assert "gone" not in signed_in(guide).post(SAVE, _hours_post(guide, {}), **AUTOSAVE).json()
 
 
 def describe_new_hours_row():
@@ -212,6 +251,7 @@ def describe_google_calendar_autosave():
         assert 'data-tour-gcal-form data-autosave data-autosave-key="gcal"' in content
         assert 'data-tour-save-status="gcal"' in content
         assert "data-tour-gcal-save" not in content
+        assert content.count("data-tour-noscript-save>Save</button></noscript>") == 3
 
 
 def describe_tour_settings_autosave():
@@ -246,6 +286,13 @@ def describe_pages_carry_no_save_button():
         assert "A change could not be saved. Leave anyway, or stay and try again?" in content
         for gone in ("data-tour-hours-save", "data-tour-confirm-save", "pl-tours-save-row"):
             assert gone not in content
+        # Without the script each form still has its Save (#1279 review).
+        assert (
+            content.count(
+                '<noscript><button type="submit" class="pl-btn pl-btn--primary pl-btn--sm pl-btn--spaced" data-tour-noscript-save>Save</button></noscript>'
+            )
+            == 2
+        )
 
     def it_applies_the_admins_guide_picker_on_change_with_show_only_without_script(admin: Member):
         make_guide()
@@ -263,5 +310,6 @@ def describe_pages_carry_no_save_button():
         for key in ("availability", "booking", "defaults"):
             assert f'data-tour-save-status="{key}"' in content
         assert "data-tour-settings-save" not in content
+        assert content.count("data-tour-noscript-save>Save</button></noscript>") == 1
         # Actions stay buttons.
         assert "data-tour-kiosk-create>Create Kiosk Link</button>" in content

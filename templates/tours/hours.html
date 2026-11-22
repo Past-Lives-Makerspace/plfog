@@ -113,6 +113,8 @@ its card (tours/partials/_save_status.html). Add Dates, Day Off, Connect and Dis
     <div class="pl-tours-panel__add">
       <button type="button" class="hub-btn hub-btn--sm" data-tour-hours-add data-formset-add>+ Add hours</button>
     </div>
+    {# Without the script nothing saves itself: the one Save posts every row. #}
+    <noscript><button type="submit" class="pl-btn pl-btn--primary pl-btn--sm pl-btn--spaced" data-tour-noscript-save>Save</button></noscript>
   </div>
 </form>
 {# One confirm for every saved row's Delete; its Delete hands back to the autosave, which saves the row away. #}

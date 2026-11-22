@@ -2,8 +2,8 @@
 The My Hours tab's Google Calendar card (#951, tours.views): a Tour Guide connects their own Google
 Calendar, so each tour booked in their hours is added to it and the times it shows them busy are not
 offered to visitors. Connected shows the account, Disconnect (confirm_modal) and the calendar picker,
-which saves on change (#1279, hours.html's plGuildAutosave root; its pill beside the title, no Save
-button); broken shows why and Reconnect. An admin looking at someone else's hours reads their
+which saves on change (#1279, hours.html's plGuildAutosave root; its pill beside the title; Save shows only
+without the script); broken shows why and Reconnect. An admin looking at someone else's hours reads their
 state only: Google signs in whoever presses Connect, so nobody connects a calendar for someone else.
 
 Context: gcal_configured (the OAuth client is set and this is not staging), gcal (the target's
@@ -48,6 +48,7 @@ is_self, target.
   <form method="post" action="{% url 'tours:google_calendar' %}" class="hub-form pl-tours-gcal__form" data-tour-gcal-form data-autosave data-autosave-key="gcal">
     {% csrf_token %}
     {% include "components/form_field.html" with field=gcal_form.calendar %}
+    <noscript><button type="submit" class="pl-btn pl-btn--primary pl-btn--sm pl-btn--spaced" data-tour-noscript-save>Save</button></noscript>
   </form>
   {% endif %}
   {% if is_self and gcal and gcal_configured %}

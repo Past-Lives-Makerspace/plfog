@@ -101,6 +101,19 @@ def describe_tour_hours_formset():
             ["These hours overlap your Tuesday hours, 4:00 PM to 6:00 PM. A guide gives one tour at a time."],
         ]
 
+    def it_skips_a_saved_row_deleted_elsewhere_and_names_it_gone(guide: Member):
+        kept = TourHoursFactory(guide=guide)
+        data = _formset_data(_row(0, id=str(kept.pk)), _row(1, id="999999", weekday="3"), initial=2)
+        formset = _formset(guide, data)
+        assert formset.is_valid(), formset.errors
+        assert formset.gone_rows == [1]
+
+    def it_still_refuses_a_posted_id_that_is_not_a_number(guide: Member):
+        formset = _formset(guide, _formset_data(_row(0, id="abc"), initial=1))
+        assert not formset.is_valid()
+        assert formset.gone_rows == []
+        assert "id" in formset.forms[0].errors
+
     def it_saves_two_rows_that_do_not_overlap(guide: Member):
         formset = _formset(guide, _formset_data(_row(0), _row(1, start_time="18:00", end_time="20:00")))
         assert formset.is_valid(), formset.errors

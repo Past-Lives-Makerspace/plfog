@@ -110,7 +110,7 @@ def describe_confirm_first():
             shoot(page, Path(CAPTURE_DIR) / "step-1.png", target="tours.confirm-mode")
         # The choice saves at once (#1279), no Save button; the card's pill says so.
         assert card.locator("[data-tour-confirm-save]").count() == 0
-        card.locator('[data-tour-save-status="confirm"]').get_by_text("Saved").wait_for()
+        card.locator('[data-tour-save-status="confirm"]').get_by_text("Saved", exact=True).wait_for()
         assert TourGuideSettings.confirms_first(guide)
         # The notice saves after a pause in typing.
         card.locator('input[name="min_notice_hours"]').fill("60")

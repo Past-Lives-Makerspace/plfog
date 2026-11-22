@@ -13,7 +13,8 @@ follow. The bookings switch comes first with its closed message, which only show
 are off. The house rules save themselves as they are edited (#1279): the root is the
 plGuildAutosave component (static/js/guild_autosave.js), the form carries data-autosave, and each
 card's data-autosave-key names the pill beside its title (tours/partials/_save_status.html), so the
-card that was changed says Saving and Saved. No Save button.
+card that was changed says Saving and Saved (a refusal: Not saved on the card holding the error).
+The one Save shows only without the script (<noscript>).
 {% endcomment %}
 {% include "tours/partials/_page_top.html" with tab="settings" is_admin=True %}
 <div x-data="plGuildAutosave({ section: 'settings' })" data-guild-autosave @pl-guild-autosave-leave.window="leave()">
@@ -77,6 +78,8 @@ card that was changed says Saving and Saved. No Save button.
     {% include "components/form_field.html" with field=form.default_tour_minutes %}
     {% include "components/form_field.html" with field=form.default_seats %}
   </div>
+  {# Without the script nothing saves itself: the one Save posts every card. #}
+  <noscript><button type="submit" class="pl-btn pl-btn--primary pl-btn--sm pl-btn--spaced" data-tour-noscript-save>Save</button></noscript>
 </form>
 
 {# A boosted navigation held behind a save that failed: Leave resumes it, Stay drops it. #}

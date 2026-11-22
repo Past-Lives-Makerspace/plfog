@@ -8,5 +8,4 @@ changes = [
   "On My Hours, Every Week, Confirming Bookings and the Google Calendar picker save as you change them, with Saving and Saved beside each card's title. There is no Save button to forget.",
   "A new row of weekly hours saves once its day and times are picked. Hours that overlap say so on that row and are not saved.",
   "Tour Settings save the same way, and a value that is not allowed shows its reason under the field while the last good one stays.",
-  "An admin's guide picker on My Hours switches guides as soon as you pick one.",
 ]

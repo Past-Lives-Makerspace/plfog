@@ -288,7 +288,8 @@ def tour_hours_save(request: HttpRequest) -> HttpResponse:
 
     The posted ``guide`` is checked before the formset is read. The Every Week card saves itself
     as it is edited (#1279, ``hub.autosave``): its posts answer JSON, each row's pk in posted
-    order or a 422 with every error keyed by field name (an overlap on its row). Without the
+    order or a 422 with every error keyed by field name (an overlap on its row); a row deleted
+    elsewhere since the page loaded is skipped, named under ``gone`` and toasted. Without the
     script, valid is a flash and a redirect back to the tab, invalid the tab again with each
     row's errors, its rows open.
     """
@@ -302,7 +303,16 @@ def tour_hours_save(request: HttpRequest) -> HttpResponse:
         if saved:
             formset.save()
     if wants_autosave(request):
-        return autosave_saved({HOURS_PREFIX: formset_rows(formset)}) if saved else autosave_refused(formset)
+        if not saved:
+            return autosave_refused(formset)
+        gone = formset.gone_rows
+        response = autosave_saved({HOURS_PREFIX: formset_rows(formset)}, gone={HOURS_PREFIX: gone} if gone else None)
+        if gone:
+            # Deleted elsewhere (another tab, an admin on ?guide=): the rest saved, the page drops it.
+            trigger_toast(
+                response, "Some of these hours were deleted elsewhere, so they are gone from this page.", "info"
+            )
+        return response
     if not saved:
         return _render_hours(request, target, formset=formset, hours_refused=True)
     messages.success(request, "Tour hours saved.")

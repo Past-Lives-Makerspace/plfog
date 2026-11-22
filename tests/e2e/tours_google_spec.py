@@ -155,7 +155,7 @@ def describe_google_calendar_on_my_hours():
         # Pick the Tours calendar: it saves on the change (#1279), no Save button.
         assert page.locator("[data-tour-gcal-save]").count() == 0
         page.locator('select[name="calendar"]').select_option(TOURS_CAL)
-        page.locator('[data-tour-save-status="gcal"]').get_by_text("Saved").wait_for()
+        page.locator('[data-tour-save-status="gcal"]').get_by_text("Saved", exact=True).wait_for()
         assert TourCalendarConnection.objects.get(guide=guide).calendar_id == TOURS_CAL
         page.reload()
         assert page.locator('select[name="calendar"]').input_value() == TOURS_CAL
