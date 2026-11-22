@@ -1,4 +1,4 @@
-"""The Tours page (#947): its My Hours tab and days off, its admin Settings tab, and where it lives (the Tools page)."""
+"""The Tours page (#947): its My Hours tab and days off, its admin Settings tab, and where it lives (the sidebar, #1278)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from membership.models import Member
-from tests.membership.factories import GuildFactory, MemberFactory
+from tests.membership.factories import MemberFactory
 from tests.tours.conftest import make_guide, signed_in
 from tests.tours.factories import TourDayOffFactory, TourHoursFactory
 from tours.models import FacilityTourSettings, TourDayOff, TourHours
@@ -24,6 +24,7 @@ HOURS = reverse("tours:hours")
 SAVE = reverse("tours:hours_save")
 DAY_OFF_SAVE = reverse("tours:day_off_save")
 SETTINGS = reverse("tours:settings")
+GIVE = reverse("tours:give")
 
 
 def _hours_post(guide: Member, *rows: dict[str, str], initial: int = 0) -> dict[str, str]:
@@ -55,14 +56,14 @@ def describe_access():
         assert response.status_code == 302
         assert "/login" in response["Location"] or "/accounts/" in response["Location"]
 
-    def it_refuses_every_tours_url_to_a_member_without_the_permission(plain: Member):
+    def it_sends_a_member_without_the_permission_to_give_tours_and_refuses_their_saves(plain: Member):
         client = signed_in(plain)
         day_off = TourDayOffFactory(guide=plain)
-        assert client.get(HOURS).status_code == 403
+        assert client.get(HOURS).url == GIVE
+        assert client.get(SETTINGS).url == GIVE
         assert client.post(SAVE, _hours_post(plain, {})).status_code == 403
         assert client.post(DAY_OFF_SAVE, _day_off_post(plain, starts_on=_in(3))).status_code == 403
         assert client.post(reverse("tours:day_off_delete", args=[day_off.pk])).status_code == 403
-        assert client.get(SETTINGS).status_code == 403
         assert not TourHours.objects.exists()
         assert TourDayOff.objects.filter(pk=day_off.pk).exists()
 
@@ -83,30 +84,24 @@ def describe_access():
 
 
 def describe_where_it_lives():
-    """Felix: Tours is a card on the Tools page, never a sidebar entry."""
+    """#1278: Tours is a sidebar entry for every active member, after Reservations; the Tools page no longer opens it."""
 
-    def it_has_no_sidebar_entry_of_its_own(guide: Member, admin: Member):
+    def it_gives_guides_admins_and_members_the_sidebar_entry(guide: Member, admin: Member, plain: Member):
+        upcoming = reverse("tours:upcoming")
+        for member in (guide, admin, plain):
+            content = signed_in(member).get(reverse("hub_member_directory")).content.decode()
+            assert f'<a href="{upcoming}" class="hub-sidebar__link " data-nav="tours"' in content
+
+    def it_lights_the_tours_entry_not_the_tools_entry_with_no_way_back(guide: Member, admin: Member):
         for member in (guide, admin):
-            content = signed_in(member).get(reverse("hub_home")).content.decode()
-            assert 'data-nav="tours"' not in content
-            assert f'href="{HOURS}"' not in content
+            content = signed_in(member).get(HOURS).content.decode()
+            assert f'href="{reverse("tours:upcoming")}" class="hub-sidebar__link active" data-nav="tours"' in content
+            assert not re.search(rf'href="{reverse("hub_admin_tools")}" class="hub-sidebar__link\s+active"', content)
+            assert "data-tours-back" not in content
 
-    def it_lights_the_tools_entry_and_links_back_to_the_tools_page(guide: Member):
-        content = signed_in(guide).get(HOURS).content.decode()
-        tools = reverse("hub_admin_tools")
-        assert re.search(rf'href="{tools}" class="hub-sidebar__link\s+active"', content)
-        assert (
-            f'<a href="{tools}" class="hub-btn hub-btn--sm hub-btn--ghost" data-tours-back>&larr; Back to Admin Tools</a>'
-            in content
-        )
-
-    def it_names_guild_tools_on_the_way_back_for_a_guild_lead(guide: Member):
-        GuildFactory(guild_lead=guide)
-        assert "&larr; Back to Guild Tools</a>" in signed_in(guide).get(HOURS).content.decode()
-
-    def it_does_not_light_the_tools_entry_elsewhere(guide: Member):
+    def it_does_not_light_the_tours_entry_elsewhere(guide: Member):
         content = signed_in(guide).get(reverse("hub_member_directory")).content.decode()
-        assert not re.search(rf'href="{reverse("hub_admin_tools")}" class="hub-sidebar__link\s+active"', content)
+        assert 'class="hub-sidebar__link active" data-nav="tours"' not in content
 
     def it_gives_admins_alone_the_settings_tab(guide: Member, admin: Member):
         assert 'data-tours-tab="settings"' not in signed_in(guide).get(HOURS).content.decode()
@@ -118,16 +113,18 @@ def describe_where_it_lives():
 
     def it_opens_the_page_once_the_permission_is_granted(plain: Member):
         client = signed_in(plain)
-        assert client.get(HOURS).status_code == 403
+        assert client.get(HOURS).url == GIVE
         plain.set_admin_capability("tour_guide", True)
         assert client.get(HOURS).status_code == 200
-        assert "data-tool-tours" in client.get(reverse("hub_admin_tools")).content.decode()
 
 
 def describe_my_hours():
     def it_shows_the_empty_state_before_any_hours(guide: Member):
         content = signed_in(guide).get(HOURS).content.decode()
-        assert "data-tour-hours-empty>No tour hours yet. Add the times you can give tours.</p>" in content
+        assert (
+            "data-tour-hours-empty data-formset-empty>No tour hours yet. Add the times you can give tours.</p>"
+            in content
+        )
         assert ">Every Week</h2>" in content
         assert "data-tour-guide-picker" not in content
 
@@ -147,8 +144,8 @@ def describe_my_hours():
         )
         content = client.get(HOURS).content.decode()
         assert "Tuesday · 4:00 PM to 6:00 PM · 1 hour each · 4 seats" in content
-        assert "data-tour-hours-empty>" not in content
-        assert "data-tour-hours-delete" in content
+        assert "data-tour-hours-empty data-formset-empty hidden>" in content
+        assert "data-tour-hours-delete data-formset-remove>Delete</button>" in content
 
     def it_deletes_a_row_when_its_delete_flag_is_posted(guide: Member):
         hours = TourHoursFactory(guide=guide)
@@ -157,10 +154,12 @@ def describe_my_hours():
         assert not TourHours.objects.exists()
 
     def it_confirms_before_a_saved_row_is_deleted(guide: Member):
-        hours = TourHoursFactory(guide=guide)
+        TourHoursFactory(guide=guide)
         content = signed_in(guide).get(HOURS).content.decode()
-        assert f"open-confirm', 'tour-hours-del-{hours.pk}'" in content
-        assert "Delete these tour hours?" in content
+        # One confirm for every row (#1279): the autosave opens it, and its Delete hands back.
+        assert 'data-autosave-confirm="tour-hours-delete"' in content
+        assert content.count("Delete these tour hours?") == 1
+        assert "window.dispatchEvent(new CustomEvent('pl-guild-autosave-delete'))" in content
 
     def it_starts_a_new_row_from_the_tour_settings_defaults(guide: Member):
         tour_settings = FacilityTourSettings.load()
@@ -173,7 +172,12 @@ def describe_my_hours():
         response = signed_in(guide).post(SAVE, _hours_post(guide, {}, {"start_time": "17:00", "end_time": "19:00"}))
         assert response.status_code == 200
         content = response.content.decode()
-        assert "Two of these rows overlap on Tuesday. A guide gives one tour at a time." in content
+        assert (
+            "These hours overlap your Tuesday hours, 4:00 PM to 6:00 PM. A guide gives one tour at a time." in content
+        )
+        assert (
+            "These hours overlap your Tuesday hours, 5:00 PM to 7:00 PM. A guide gives one tour at a time." in content
+        )
         assert 'x-data="plTourHoursRow(true)"' in content
         assert not TourHours.objects.exists()
 
@@ -374,18 +378,17 @@ def describe_tour_settings():
         assert settings_row.accepting_bookings is False
         assert 'x-show="!accepting" data-tour-closed-message' in client.get(SETTINGS).content.decode()
 
-    def it_has_no_card_of_its_own_on_admin_tools(admin: Member):
+    def it_has_no_card_on_admin_tools(admin: Member):
         content = signed_in(admin).get(reverse("hub_admin_tools")).content.decode()
         assert f'href="{SETTINGS}"' not in content
-        assert "data-tool-tours" in content
+        assert "data-tool-tours" not in content
 
 
-def describe_the_back_link():
-    def it_drops_the_way_back_for_an_admin_previewing_as_a_member(admin: Member):
+def describe_an_admin_previewing_as_a_member():
+    def it_still_opens_the_page(admin: Member):
         client = signed_in(admin)
         session = client.session
         session["view_as_role"] = "member"
         session.save()
         content = client.get(HOURS).content.decode()
-        assert "data-tours-back" not in content
         assert "Facility tours for people curious about Past Lives." in content

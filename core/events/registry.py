@@ -569,6 +569,7 @@ TOUR_BOOKED = "tour.booked"  # a visitor booked one of your facility tours (#948
 TOUR_VISITOR_CHANGED = "tour.visitor_changed"  # a visitor moved or cancelled your tour from their email (#948)
 TOUR_VISITOR_UPDATE = "tour.visitor_update"  # the visitor's own tour emails, by address only (#948)
 TOUR_CHECKED_IN = "tour.checked_in"  # your visitor checked in at the front desk kiosk (#950)
+TOUR_NOTE_ADDED = "tour.note_added"  # someone wrote a note on one of your tours, or one you wrote on (#1274)
 CUBBIES_RENTED = "cubbies.rented"  # your cubby rental is active (#978)
 CUBBIES_PAYMENT_FAILED = "cubbies.payment_failed"  # a monthly cubby charge failed, once per invoice (#978)
 CUBBIES_RENTAL_ENDED = "cubbies.rental_ended"  # your cubby rental ended and the cubby is free (#978)
@@ -1728,6 +1729,19 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON,),
         activity_kind=None,
     ),
+    # tour.note_added: a Tour Guide or an admin wrote a note on a booking (#1274). Goes to the tour's
+    # guide (or the admins when it has none) and everyone else who wrote a note on it, minus the
+    # author; the sender passes that set (TourBookingNote.staff_user_ids). Bell only: the note is
+    # read on the Tours page. The period is the note.
+    EventType(
+        key=TOUR_NOTE_ADDED,
+        label="Notes on tours",
+        description="Someone wrote a note on one of your facility tours, or on one you wrote a note on.",
+        category="Tours",
+        recipient=Recipients.TOUR_GUIDES,
+        channels=(_IN_APP_ON,),
+        activity_kind=None,
+    ),
     # tour.calendar_busy: a Tour Guide's connected Google Calendar now shows them busy during one of
     # their booked tours (#951). The tour stays booked; the guide decides. Bell only, once per booking
     # and start (tours.calendar_sync.alert_busy_conflicts).
@@ -1893,14 +1907,15 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_FORCED),
         activity_kind=None,
     ),
-    # A permission turned on for you by someone else (#1163): an admin capability, Instructor, the
-    # Admin role or a guild's Class Reviewer. Bell on, email forced (nobody should hold a duty they do
-    # not know about), one per save from membership.permission_grants with the
-    # membership/emails/permission_granted.{txt,html} body.
+    # A permission turned on for you (#1163): by someone else (an admin capability, Instructor, the
+    # Admin role or a guild's Class Reviewer), or by you on a self serve page (Become a Tour Guide,
+    # #1278). Bell on, email forced (nobody should hold a duty they do not know about), one per save
+    # from membership.permission_grants with the membership/emails/permission_granted.{txt,html} body.
+    # Only the member hears; admins see a self serve grant in the Activity Log.
     EventType(
         key=PERMISSION_GRANTED,
         label="Permission granted",
-        description="Someone turned on a permission for you. What it lets you do and where to go.",
+        description="A permission was turned on for you, by an admin or by you. What it lets you do and where to go.",
         category="Membership",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_FORCED),

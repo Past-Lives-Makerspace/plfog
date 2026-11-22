@@ -67,6 +67,7 @@ _DISPATCHER_ALWAYS = {
     "check_task_queue",
 }
 _DISPATCHER_DAILY = {
+    "sync_discord_roles",
     "sync_all_sources",
     "retire_stale_orientor_hours",
     "refresh_class_states",

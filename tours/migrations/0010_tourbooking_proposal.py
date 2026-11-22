@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("membership", "0288_member_name_shown_to_members"),
-        ("tours", "0008_tourbooking_request_group"),
+        ("tours", "0009_tour_booking_notes"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

@@ -160,7 +160,7 @@ def describe_answering_a_request():
         assert confirmed.status == TourBooking.Status.BOOKED
         (email,) = _to("sam@example.com")
         assert email.subject.startswith("Your Past Lives tour is confirmed:")
-        assert "METHOD:REQUEST" in str(email.attachments[0][1])
+        assert "METHOD:REQUEST" in email.attachments[0].get_content()
         assert _to(first.user.email) == []
 
     def it_declines_with_the_note_and_frees_the_seats(first: Member, django_capture_on_commit_callbacks: Any):

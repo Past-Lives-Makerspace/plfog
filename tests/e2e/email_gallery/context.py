@@ -1161,6 +1161,17 @@ def tour_visitor_lapsed_context(data: SampleData) -> dict[str, Any]:
     )
 
 
+def tour_visitor_note_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``tours.notify.send_visitor_note``: a guide's note emailed to the visitor (#1274)."""
+    context = _tour_visitor(data, "A message about your Past Lives tour on {when}")
+    context["template_context"].update(
+        note_label="A note from Gina",
+        staff_message="Park on SE 9th and come in the front door. I'll meet you by the gallery wall.",
+        can_change=True,
+    )
+    return context
+
+
 def tour_guide_lapsed_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``tours.notify.tell_guide_changed`` for a request that lapsed (#1166)."""
     from tours.models import TourBooking
@@ -1291,6 +1302,18 @@ def permission_granted_context(data: SampleData) -> dict[str, Any]:
     return {
         "subject": permission_grants.granted_subject(grant, None),
         "template_context": permission_grants.email_context(data.member, grant, data.lead, None),
+    }
+
+
+def permission_granted_self_serve_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``tours.setup.become_tour_guide`` (#1278): the sample member made themselves a Tour Guide."""
+    from membership import permission_grants
+    from membership.models import AdminCapability
+
+    grant = AdminCapability.Capability.TOUR_GUIDE
+    return {
+        "subject": permission_grants.granted_subject(grant, None),
+        "template_context": permission_grants.email_context(data.member, grant, data.member, None),
     }
 
 

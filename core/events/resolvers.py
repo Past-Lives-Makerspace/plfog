@@ -795,8 +795,8 @@ def tour_guides(context: dict[str, Any]) -> list[Recipient]:
     """The facility tour's guide (``context["guide"]``), or the admins when it has none (#948, #949).
 
     A tour's guide is set when it is booked; it is empty only when that guide's member record
-    was deleted. Only an admin can see or act on a tour with no guide (the Tours page shows a
-    guide their own tours alone), so the admins hear about it rather than every Tour Guide.
+    was deleted. Only an admin can act on a tour with no guide (every Tour Guide sees it on the
+    Tours page since #1274, read only), so the admins hear about it rather than every Tour Guide.
     """
     guide: Member | None = _require(context, "guide")
     if guide is not None:

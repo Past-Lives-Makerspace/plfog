@@ -268,15 +268,17 @@ def describe_failures():
         monkeypatch.setattr(discord_roles, "_sleep", lambda seconds: None)
         respx.put(url__regex=r".+").mock(return_value=httpx.Response(429))
         respx.delete(url__regex=r".+").mock(return_value=httpx.Response(204))
-        out = _run("--apply")
-        assert "Added 0 roles and removed 2." in out
-        assert "3 role changes failed; see the log, then run --apply again." in out
+        out = StringIO()
+        with pytest.raises(CommandError, match="3 role changes failed; see the log, then run --apply again."):
+            call_command("sync_leadership_roles", "--apply", stdout=out)
+        assert "Added 0 roles and removed 2." in out.getvalue()
 
     @respx.mock
     def it_counts_a_403_as_a_failure(drift):
         respx.put(url__regex=r".+").mock(return_value=httpx.Response(403))
         respx.delete(url__regex=r".+").mock(return_value=httpx.Response(403))
-        assert "5 role changes failed" in _run("--apply")
+        with pytest.raises(CommandError, match="5 role changes failed"):
+            _run("--apply")
 
     def it_stops_when_the_bot_token_is_blank(configured, settings):
         settings.DISCORD_BOT_TOKEN = ""

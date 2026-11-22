@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-11-21"
+title = "Cancelled and moved tours and orientations now update your calendar"
+changes = [
+  "The calendar invite in a tour or orientation email is now a real invitation from Past Lives Makerspace.",
+  "When the tour or orientation moves, the event on your calendar moves with it, and when it is cancelled, the event comes off.",
+]

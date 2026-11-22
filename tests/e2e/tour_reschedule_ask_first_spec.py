@@ -1,7 +1,8 @@
 """End-to-end: a guide's reschedule asks the visitor first, and the guide hears the answer (#1283).
 
 Gina reschedules Sam's 4:00 tour to 5:00 from the Reschedule modal with a note. The tour stays at
-4:00 and its row on Upcoming says Waiting for the Visitor with the proposed time. Sam opens the
+4:00, and its row on Upcoming and its entry on the Calendar tab say Waiting for the Visitor with the
+proposed time. Sam opens the
 email's Accept New Time link on the tours site, sees the proposal with both answers, and accepts:
 the tour moves to 5:00, Sam gets the moved email with the invite, and Gina gets New tour time
 accepted while her row no longer waits. ``CAPTURE_1283_DIR=<dir>`` saves the modal, the waiting row,
@@ -33,7 +34,7 @@ DESKTOP = {"width": 1280, "height": 800}
 PHONE = {"width": 390, "height": 844}
 
 
-def _capture(page, name: str, focus: str, *, public: bool = False) -> None:
+def _capture(page, name: str, focus: str, *, public: bool = False, whole_phone: bool = False) -> None:
     """Dark, at desktop and phone widths with ``focus`` scrolled into view, when CAPTURE_1283_DIR is set.
 
     The visitor's page is taken whole at phone width; a hub page is the viewport (its modal is fixed).
@@ -56,7 +57,8 @@ def _capture(page, name: str, focus: str, *, public: bool = False) -> None:
         page.wait_for_timeout(400)
         page.locator(focus).first.scroll_into_view_if_needed()
         page.screenshot(
-            path=str(Path(CAPTURE_DIR) / f"1283-{name}-{label}-dark.png"), full_page=public and label == "phone"
+            path=str(Path(CAPTURE_DIR) / f"1283-{name}-{label}-dark.png"),
+            full_page=(public or whole_phone) and label == "phone",
         )
     page.set_viewport_size(DESKTOP)
 
@@ -108,6 +110,7 @@ def describe_ask_the_visitor_first():
         page.locator(f'[data-tour-booking="{sam.pk}"]').wait_for()
 
         # Gina asks Sam to move to 5:00, with a note.
+        page.locator(f'[data-tour-booking="{sam.pk}"] .pl-row-menu__trigger').click()
         page.locator(f'[data-tour-reschedule="{sam.pk}"]').click()
         modal = page.locator("#tour-reschedule-body")
         _settled(page, f'#tour-reschedule-body [data-tour-move-time="{_key(guide, five)}"]')
@@ -125,6 +128,14 @@ def describe_ask_the_visitor_first():
         sam.refresh_from_db()
         assert (sam.starts_at, sam.proposed_starts_at) == (four, five)
         _capture(page, "upcoming-waiting", f'[data-tour-booking="{sam.pk}"]')
+        page.goto(f"{live_server.url}{reverse('tours:calendar')}")
+        # A tour three days out may fall in next week, so the month always holds it.
+        page.get_by_role("button", name="Month", exact=True).click()
+        waiting = ".pl-calendar-list__guild:visible:has-text('Waiting for the Visitor, asked to move to')"
+        page.locator(waiting).first.wait_for()
+        assert page.locator(".pl-calendar-grid--month:visible", has_text="Sam R. (2) · Waiting").count() == 1
+        _capture(page, "calendar-waiting", waiting, whole_phone=True)
+        page.goto(f"{live_server.url}{reverse('tours:upcoming')}")
 
         (asked,) = [message for message in mail.outbox if message.to == ["sam@example.com"]]
         assert asked.subject.startswith("Can your Past Lives tour move to")

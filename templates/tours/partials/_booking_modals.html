@@ -1,0 +1,16 @@
+{% comment %}
+The confirms one Tours table row's menu opens (#1274), rendered after the table so no modal sits inside
+a <tr>: a request's Decline for its own guide (#1166; a No preference request's says it stays with the
+other guides, #1255) and a booked tour's Cancel Tour for whoever may act. Context: booking (with its
+row rights), tab.
+{% endcomment %}
+{% with pks=booking.pk|stringformat:"s" %}
+{% if tab == "upcoming" and booking.is_request and booking.can_answer %}
+{% url 'tours:booking_decline' booking.pk as decline_url %}
+{% if booking.shared_with %}{% include "components/confirm_modal.html" with confirm_id="tour-decline-"|add:pks confirm_title="Decline This Request?" confirm_message="It stays with the other guides, and the visitor is emailed only if none of them takes it." confirm_hx_post=decline_url confirm_note_name="message" confirm_note_label="Message to the visitor (optional)" confirm_note_hint="Sent only if you turn out to be the last guide to decline." confirm_button_text="Decline" confirm_cancel_text="Keep It" %}{% else %}
+{% include "components/confirm_modal.html" with confirm_id="tour-decline-"|add:pks confirm_title="Decline This Request?" confirm_message="The visitor is emailed and their seats are free again." confirm_hx_post=decline_url confirm_note_name="message" confirm_note_label="Message to the visitor (optional)" confirm_note_hint="Added to the email we send them." confirm_button_text="Decline" confirm_cancel_text="Keep It" %}{% endif %}
+{% elif tab == "upcoming" and not booking.is_request and booking.can_act %}
+{% url 'tours:booking_cancel' booking.pk as cancel_url %}
+{% include "components/confirm_modal.html" with confirm_id="tour-cancel-"|add:pks confirm_title="Cancel This Tour?" confirm_body_include="tours/partials/_cancel_confirm_body.html" confirm_hx_post=cancel_url confirm_note_name="message" confirm_note_label="Message to the visitor (optional)" confirm_note_hint="Added to the cancellation email we send them." confirm_button_text="Cancel Tour" confirm_cancel_text="Keep It" %}
+{% endif %}
+{% endwith %}

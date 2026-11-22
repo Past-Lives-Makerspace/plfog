@@ -122,8 +122,12 @@ def describe_answering():
         assert (booked.starts_at, booked.sequence, booked.has_open_proposal) == (FIVE, 1, False)
         (moved,) = _to("sam@example.com")
         assert moved.subject.startswith("Your Past Lives tour moved to")
-        content = moved.attachments[0][1]
-        assert "SEQUENCE:1" in (content.decode() if isinstance(content, bytes) else str(content))
+        part = moved.attachments[0]
+        assert (part.get_content_type(), part.get_param("method")) == ("text/calendar", "REQUEST")
+        invite = part.get_content()
+        assert f"UID:tour-{booked.pk}@pastlives" in invite and "SEQUENCE:1" in invite
+        assert "METHOD:REQUEST" in invite and "ORGANIZER" in invite and "ATTENDEE" in invite
+        assert "Answering the calendar invite changes nothing." in moved.body
         assert [change["change"] for change in heard] == [signals.MOVED]
 
     def it_tells_the_guide_who_proposed_once_by_email_and_bell(
@@ -328,6 +332,16 @@ def describe_the_guides_page():
         assert f"Asked to move to {timezone.localtime(FIVE):%a, %b} {FIVE.day} · 5:00 PM" in row
         modal = client.get(reverse("tours:booking_reschedule", args=[booked.pk]), **HTMX).content.decode()
         assert "data-tour-move-pending" in modal and "Asking for another time replaces that one." in modal
+
+    def it_shows_the_pending_proposal_on_the_calendar(guide: Member, booked: TourBooking):
+        client = signed_in(guide)
+        calendar = reverse("tours:calendar")
+        assert "Waiting for the Visitor, asked to move to" not in client.get(calendar).content.decode()
+        _propose(booked, guide, _user(guide))
+        content = client.get(calendar).content.decode()
+        assert "Waiting for the Visitor, asked to move to" in content
+        assert "Tour: Sam R. (2) · Waiting" in content
+        assert f"{timezone.localtime(FIVE):%a, %b} {FIVE.day} at 5:00 PM" in content
 
     def it_names_the_other_guide_on_a_proposed_reassignment(admin: Member, other: Member, booked: TourBooking):
         _propose(booked, other, _user(admin), starts_at=FOUR)

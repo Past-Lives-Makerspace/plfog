@@ -45,6 +45,7 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
             "user_profile_photo_url": "",
             "can_create_classes": False,
             "teach_nav": None,
+            "tours_nav": None,
             "manage_bookings_nav": None,
             "tools_nav_active": False,
             "classes_admin_nav_active": False,
@@ -80,9 +81,9 @@ def hub_sidebar(request: HttpRequest) -> dict[str, Any]:
         "view_as_instructor": _instructor_row(request, member),
         "can_create_classes": member is not None and member.can_create_classes,
         "teach_nav": teach_nav,
+        "tours_nav": _tours_nav(request, member),
         "manage_bookings_nav": _manage_bookings_nav(request),
-        # The Tools entry also lights on the Tours pages (#947), which its Tours card opens.
-        "tools_nav_active": admin_nav_active or request.path.startswith("/facility-tours/"),
+        "tools_nav_active": admin_nav_active,
         "classes_admin_nav_active": admin_nav_active,
         "classes_catalog_active_class": _classes_catalog_active_class(request, admin_nav_active, teach_nav),
         # The guest menu and the kiln pages' way back (#691); no query.
@@ -210,6 +211,29 @@ def _teach_nav(request: HttpRequest, member: Member | None, admin_nav_active: bo
         # False means this is the "Host a Class" invitation, which features.teach governs.
         "teaches": member.can_create_classes,
     }
+
+
+def _tours_nav(request: HttpRequest, member: Member | None) -> dict[str, Any] | None:
+    """The sidebar's Tours entry (#1278), or ``None`` for anyone who is not an active member. No query.
+
+    Every active member gets it, directly after Reservations (Felix), because tours recruit the way Host a Class does: the
+    entry opens the Tours page, whose gate (``hub.view_as.tour_guide_access_required``) shows a
+    Tour Guide or admin their Upcoming tab and sends everyone else to Give Tours. Lights on every
+    ``/facility-tours/`` path. An admin (the actual role) gets it whatever their member status says,
+    but an account with no member record does not: the Tours tabs need one (``tours.views._viewer``).
+    """
+    from django.urls import reverse
+
+    from hub.view_as import ROLE_ADMIN
+
+    if member is None:
+        return None
+    view_as = getattr(request, "view_as", None)
+    is_admin = view_as is not None and view_as.has_actual(ROLE_ADMIN)
+    if not is_admin and member.status != Member.Status.ACTIVE:
+        return None
+    is_active = request.path.startswith("/facility-tours/")
+    return {"url": reverse("tours:upcoming"), "active_class": "active" if is_active else ""}
 
 
 def _manage_bookings_nav(request: HttpRequest) -> dict[str, Any] | None:

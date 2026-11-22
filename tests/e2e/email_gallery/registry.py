@@ -691,7 +691,8 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         trigger_note=(
             "Sent once per permission when someone else turns on an admin capability, Instructor, the Admin "
             "role or a guild's Class Reviewer for the member (#1163); two in one save send two. Its card "
-            "comes from AdminCapability.GUIDES. A grant to yourself sends nothing."
+            "comes from AdminCapability.GUIDES. A grant to yourself sends nothing, except a self serve one "
+            "(the next card)."
         ),
         edit_pointer=_tpl("membership/emails", "permission_granted"),
         audience="The member just granted the permission.",
@@ -699,6 +700,23 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         text_template="membership/emails/permission_granted.txt",
         html_template="membership/emails/permission_granted.html",
         context_builder="permission_granted_context",
+    ),
+    GalleryEmail(
+        key="permission_granted_self_serve",
+        name="Permission granted (self serve)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when a member makes themselves a Tour Guide with Become a Tour Guide at the end of Give "
+            "Tours' tutorial (#1278): the same email, worded as their own doing, with questions sent to an "
+            'admin. Admins get nothing; the Activity Log shows "Made themselves a Tour Guide".'
+        ),
+        edit_pointer=_tpl("membership/emails", "permission_granted"),
+        audience="The member who just made themselves a Tour Guide.",
+        event_keys=frozenset({"permission.granted"}),
+        text_template="membership/emails/permission_granted.txt",
+        html_template="membership/emails/permission_granted.html",
+        context_builder="permission_granted_self_serve_context",
     ),
     GalleryEmail(
         key="discord_reconnect",
@@ -992,6 +1010,21 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         text_template="tours/emails/visitor_lapsed.txt",
         html_template="tours/emails/visitor_lapsed.html",
         context_builder="tour_visitor_lapsed_context",
+    ),
+    GalleryEmail(
+        key="tour_visitor_note",
+        name="A message about your tour (visitor)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when a Tour Guide or an admin adds a note to a booking on the Tours page with Also email this to the visitor on (#1274). The note stays on the booking's Notes thread."
+        ),
+        edit_pointer=_tpl("tours/emails", "visitor_note"),
+        audience="The visitor who booked the tour (by address).",
+        event_keys=frozenset({"tour.visitor_update"}),
+        text_template="tours/emails/visitor_note.txt",
+        html_template="tours/emails/visitor_note.html",
+        context_builder="tour_visitor_note_context",
     ),
     GalleryEmail(
         key="tour_guide_lapsed",

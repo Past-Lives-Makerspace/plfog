@@ -159,6 +159,7 @@ def describe_no_preference():
             page.set_viewport_size(DESKTOP)
         _no_sideways_scroll(page)
 
+        page.locator(f'[data-tour-booking="{rows[0].pk}"] .pl-row-menu__trigger').click()
         with page.expect_navigation():
             row.locator(f'[data-tour-confirm="{rows[0].pk}"]').click()
         page.locator(".plt-msg", has_text="Sam Rivera's tour on").first.wait_for()

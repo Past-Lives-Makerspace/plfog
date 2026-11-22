@@ -82,11 +82,12 @@ def _past(guide: Member | None, days: int, **kwargs: Any) -> TourBooking:
 
 
 def describe_access():
-    def it_refuses_every_list_and_action_to_a_plain_member(plain: Member, booked: TourBooking):
+    def it_sends_a_plain_member_to_give_tours_and_refuses_every_action(plain: Member, booked: TourBooking):
         client = signed_in(plain)
-        assert client.get(UPCOMING).status_code == 403
-        assert client.get(PAST).status_code == 403
-        assert client.get(_reschedule_url(booked), **HTMX).status_code == 403
+        give = reverse("tours:give")
+        assert client.get(UPCOMING)["Location"] == give
+        assert client.get(PAST)["Location"] == give
+        assert client.get(_reschedule_url(booked), **HTMX)["HX-Redirect"] == give
         assert client.post(_reschedule_url(booked), {"tour": "x"}).status_code == 403
         assert client.post(_cancel_url(booked)).status_code == 403
         assert client.post(_mark_url(booked), {"outcome": "attended"}).status_code == 403
@@ -110,10 +111,10 @@ def describe_access():
             TourBooking.Status.BOOKED,
         )
 
-    def it_refuses_a_guide_another_guides_list(guide: Member, other: Member):
+    def it_lets_a_guide_filter_by_any_guide(guide: Member, other: Member):
         client = signed_in(guide)
-        assert client.get(UPCOMING, {"guide": other.pk}).status_code == 403
-        assert client.get(PAST, {"guide": other.pk}).status_code == 403
+        assert client.get(UPCOMING, {"guide": other.pk}).status_code == 200
+        assert client.get(PAST, {"guide": other.pk}).status_code == 200
         assert client.get(UPCOMING, {"guide": guide.pk}).status_code == 200
 
     def it_404s_an_admins_unknown_guide(admin: Member):
@@ -126,18 +127,21 @@ def describe_access():
 
 
 def describe_upcoming():
-    def it_lists_a_guides_own_booked_tours_soonest_first(guide: Member, other: Member, booked: TourBooking):
+    def it_lists_every_guides_booked_tours_soonest_first(guide: Member, other: Member, booked: TourBooking):
         later = TourBookingFactory(guide=guide, starts_at=FIVE, visitor_name="Later Larry")
-        TourBookingFactory(guide=other, starts_at=FOUR, visitor_name="Not Mine")
+        theirs = TourBookingFactory(guide=other, starts_at=FOUR, visitor_name="Olive's Visitor")
         TourBookingFactory(guide=guide, starts_at=FIVE, status=TourBooking.Status.CANCELLED, visitor_name="Gone Gwen")
         _past(guide, 1, visitor_name="Past Pete")
         content = signed_in(guide).get(UPCOMING).content.decode()
         assert content.index(f'data-tour-booking="{booked.pk}"') < content.index(f'data-tour-booking="{later.pk}"')
-        for absent in ("Not Mine", "Gone Gwen", "Past Pete", "data-tours-filter"):
+        assert f'data-tour-booking="{theirs.pk}"' in content
+        for absent in ("Gone Gwen", "Past Pete"):
             assert absent not in content
+        assert '<option value="" selected>All guides</option>' in content
+        assert f'<option value="{guide.pk}">My Tours</option>' in content
         assert 'href="mailto:sam@example.com"' in content
         assert 'href="tel:+15035550100"' in content
-        assert "Booked on the website" in content
+        assert "Booked at the kiosk" not in content
         assert f'data-tour-reschedule="{booked.pk}"' in content
         assert f"tour-cancel-{booked.pk}" in content
         assert 'aria-current="page" data-tours-tab="upcoming"' in content
@@ -151,7 +155,7 @@ def describe_upcoming():
         everything = client.get(UPCOMING).content.decode()
         for booking in (booked, theirs, unassigned):
             assert f'data-tour-booking="{booking.pk}"' in everything
-        assert "No guide assigned" in everything
+        assert "data-tour-booking-guide>No guide<" in everything
         assert f'<option value="{other.pk}">Olive Other</option>' in everything
         filtered = client.get(UPCOMING, {"guide": other.pk}).content.decode()
         assert f'data-tour-booking="{theirs.pk}"' in filtered
@@ -161,10 +165,11 @@ def describe_upcoming():
     def it_says_so_when_nothing_is_coming_up(guide: Member, admin: Member, other: Member):
         content = signed_in(guide).get(UPCOMING).content.decode()
         assert 'data-tours-empty="upcoming"' in content
-        assert "Visitors book the times in your tour hours" in content
+        assert "Visitors book the times in each guide's tour hours" in content
+        assert "data-tours-clear" not in content
         filtered = signed_in(admin).get(UPCOMING, {"guide": other.pk}).content.decode()
         assert "No tours coming up for Olive Other." in filtered
-        assert "each guide's tour hours" in filtered
+        assert "data-tours-clear" in filtered
 
     def it_pages_the_list(guide: Member):
         for minute in range(26):
@@ -192,7 +197,8 @@ def describe_past():
         assert "Cancelled Cal" not in content and f'data-tour-booking="{booked.pk}"' not in content
         assert 'data-tour-booking-status="booked">Not Marked' in content
         assert 'data-tour-booking-status="attended">Attended' in content
-        assert 'value="attended" class="pl-btn pl-btn--sm pl-btn--primary" aria-pressed="true"' in content
+        assert f'data-tour-booking="{older.pk}"' in content
+        assert 'value="attended" class="pl-row-menu__item" role="menuitem" aria-pressed="true"' in content
 
     def it_says_so_when_no_tour_has_happened(guide: Member):
         content = signed_in(guide).get(PAST).content.decode()
@@ -210,7 +216,7 @@ def describe_reschedule_modal():
         content = signed_in(guide).get(_reschedule_url(booked), **HTMX).content.decode()
         assert f'data-tour-move-time="{_tour_key(guide, FIVE)}"' in content
         assert f'data-tour-move-time="{_tour_key(guide, FOUR)}"' not in content
-        assert "data-tour-move-guide" not in content
+        assert f'<option value="{guide.pk}" selected>Gina Guide</option>' in content
         assert "Sam Rivera, 2 people." in content
 
     def it_leaves_out_a_time_without_room_for_the_party(guide: Member, booked: TourBooking):
@@ -250,10 +256,13 @@ def describe_reschedule_modal():
         assert "Olive Other has no open times with room for this party." in content
         assert "or pick another guide" in content
 
-    def it_refuses_a_guide_who_picks_another_guide_and_404s_a_non_guide(
+    def it_lets_a_guide_hand_their_tour_to_another_guide_and_404s_a_non_guide(
         guide: Member, other: Member, admin: Member, plain: Member, booked: TourBooking
     ):
-        assert signed_in(guide).get(_reschedule_url(booked), {"guide": other.pk}, **HTMX).status_code == 403
+        _hours(other)
+        content = signed_in(guide).get(_reschedule_url(booked), {"guide": other.pk}, **HTMX).content.decode()
+        assert f'data-tour-move-time="{_tour_key(other, FOUR)}"' in content
+        assert signed_in(guide).get(_reschedule_url(booked), {"guide": plain.pk}, **HTMX).status_code == 404
         client = signed_in(admin)
         assert client.get(_reschedule_url(booked), {"guide": plain.pk}, **HTMX).status_code == 404
         assert client.get(_reschedule_url(booked), {"guide": "abc"}, **HTMX).status_code == 404
@@ -387,7 +396,7 @@ def describe_mark():
             "showToast": {"message": "Vera Visitor marked attended.", "type": "success"}
         }
         content = response.content.decode()
-        assert content.strip().startswith("<li") and 'data-tour-booking-status="attended"' in content
+        assert content.strip().startswith("<tr") and 'data-tour-booking-status="attended"' in content
         past.refresh_from_db()
         assert past.status == TourBooking.Status.ATTENDED
         assert UserProfile.objects.get(user=visitor.user).completed_tour_at == past.starts_at
@@ -447,9 +456,12 @@ def describe_back_url():
 
 
 def describe_where_it_lives():
-    def it_points_the_tools_card_and_the_guide_notices_at_upcoming(guide: Member):
+    def it_points_the_sidebar_entry_and_the_guide_notices_at_upcoming(guide: Member):
         client: Client = signed_in(guide)
-        assert f'href="{UPCOMING}" data-tool-tours' in client.get(reverse("hub_admin_tools")).content.decode()
+        assert (
+            f'href="{UPCOMING}" class="hub-sidebar__link active" data-nav="tours"'
+            in client.get(UPCOMING).content.decode()
+        )
         tabs = client.get(UPCOMING).content.decode()
         for tab in ("upcoming", "past", "hours"):
             assert f'data-tours-tab="{tab}"' in tabs

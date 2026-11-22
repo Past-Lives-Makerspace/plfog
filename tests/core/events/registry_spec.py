@@ -99,6 +99,7 @@ _BRAND_NEW_KEYS = {
     "tour.visitor_changed",
     "tour.visitor_update",
     "tour.checked_in",
+    "tour.note_added",
     "tour.calendar_busy",
     "tour.calendar_broken",
     "tour.calendar_gone",

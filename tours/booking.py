@@ -33,7 +33,7 @@ from membership.models import AdminCapability, Member
 from membership.permission_setup import SetupState
 from tours import signals
 from tours.availability import OpenTour, open_tour_at, open_tours
-from tours.models import FacilityTourSettings, TourBooking, TourGuideSettings
+from tours.models import FacilityTourSettings, TourBooking, TourBookingNote, TourGuideSettings
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -481,6 +481,7 @@ def cancel_tour_by_visitor(booking: TourBooking, *, now: datetime | None = None)
         locked.cancelled_by = None
         locked.sequence += 1
         locked.save(update_fields=["status", "cancelled_at", "cancelled_by", "sequence"])
+        gather_notes(group, locked)
         _after_commit(locked, signals.CANCELLED, was_request=was_request)
     return locked
 
@@ -496,6 +497,42 @@ def _locked_for_staff(booking: TourBooking, now: datetime) -> TourBooking:
     if reason:
         raise TourLockedError(reason)
     return locked
+
+
+def gather_notes(group: list[TourBooking], onto: TourBooking) -> None:
+    """Move every note on a No preference request's rows onto ``onto`` (#1274), the row that survives.
+
+    While shared, the rows show one Notes thread (:meth:`TourBooking.note_thread`); once the request
+    resolves, the other rows leave the group's view, so their notes join the confirmed row or the
+    row holding the visitor's link. Inside the caller's lock on the group.
+    """
+    if group:
+        pks = [row.pk for row in group]
+        TourBookingNote.objects.filter(booking__in=pks).exclude(booking=onto).update(booking=onto)
+        # Every other row now opens, and posts to, the surviving row's Notes; a note posted on one
+        # waits on this lock (``tours.views.tour_booking_note``) and then lands there too.
+        # Only rows already out of the request point on: a row still pending reads the whole group's
+        # thread itself, and pointing it would make a note posted there wait on another row's lock.
+        TourBooking.objects.filter(pk__in=pks).exclude(pk=onto.pk).exclude(status=TourBooking.Status.PENDING).update(
+            notes_moved_to=onto
+        )
+        TourBooking.objects.filter(pk=onto.pk).update(notes_moved_to=None)
+        onto.notes_moved_to = None
+
+
+def lock_for_note(pk: int) -> TourBooking:
+    """Lock a booking for a new note (#1274) the way every request answer does, and return it.
+
+    A No preference request's rows first, in pk order (:func:`_lock_group`), then the row itself:
+    the order Confirm, Decline, a lapse and the visitor's Cancel take, so a note posted while one of
+    them runs waits its turn and can never deadlock it. Its :attr:`TourBooking.note_target` is then
+    read fresh. Call inside a transaction.
+
+    Raises:
+        TourBooking.DoesNotExist: no such booking.
+    """
+    _lock_group(TourBooking.objects.get(pk=pk))
+    return TourBooking.objects.select_for_update().get(pk=pk)
 
 
 def _lock_group(booking: TourBooking) -> list[TourBooking]:
@@ -556,6 +593,7 @@ def lapse_request(booking_id: int, *, now: datetime | None = None) -> TourBookin
             row.cancelled_by = None
             row.save(update_fields=["status", "cancelled_at", "cancelled_by"])
             _after_commit(row, signals.LAPSED, tell_visitor=row is rows[0])
+        gather_notes(group, rows[0])
     return rows[0]
 
 
@@ -575,6 +613,7 @@ def confirm_tour_request(booking: TourBooking, *, actor: User, now: datetime | N
         others = _other_pending(group, locked)
         if others:
             _take_shared_request(locked, others, actor=actor, now=moment)
+        gather_notes(group, locked)
         locked.status = TourBooking.Status.BOOKED
         locked.request_group = None
         locked.save(update_fields=["status", "request_group"])
@@ -623,6 +662,9 @@ def decline_tour_request(
         locked.cancelled_at = moment
         locked.cancelled_by = actor
         locked.save(update_fields=["status", "cancelled_at", "cancelled_by"])
+        # The notes go with the visitor's link: to the row now holding it, or stay here on the last
+        # decline. After the save, so this row, no longer pending, points on.
+        gather_notes(group, others[0] if others else locked)
         _after_commit(locked, signals.DECLINED, actor=actor, staff_message=message.strip(), tell_visitor=not others)
     return locked
 
@@ -643,7 +685,7 @@ def propose_tour_time(
     stale. Checked as a staff move is (#949: any open tour that has not started, no cancel cutoff
     or minimum notice, room for the party now), but no seats are held: they are counted again
     when the visitor accepts (:func:`answer_tour_proposal`). Another guide's tour is a
-    reassignment, which only an admin may propose (the view checks).
+    reassignment, which the booking's own guide or an admin may propose (#1274; the view checks).
 
     Raises:
         TourLockedError: the booking is cancelled, has started, or is a request.

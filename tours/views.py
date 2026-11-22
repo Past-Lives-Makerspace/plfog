@@ -1,9 +1,11 @@
 """The Tours page: the Upcoming and Past tabs with their staff actions (#949), the My Hours tab, and
 the Settings tab for admins (#947).
 
-The page is opened from the Tours card on the Tools page (``hub_admin_tools``), never the sidebar.
+The page is opened from the Tours entry in the sidebar, which every active member has (#1278).
 Everything here sits behind :func:`hub.view_as.tour_guide_access_required` (Tour Guides and
-admins) or :func:`hub.view_as.fog_admin_required` (the Settings tab). Which guide's hours a request
+admins; anyone else opening a tab lands on Give Tours) or :func:`hub.view_as.fog_admin_required`
+(the Settings tab). Give Tours and its Become a Tour Guide are
+:func:`hub.view_as.give_tours_access_required` (any active member). Which guide's hours a request
 may touch is decided once, in :func:`_target_guide`: a guide their own, an admin anyone who gives
 tours, so a guide who names another guide in a POST gets a 403 before any form is read.
 
@@ -17,16 +19,16 @@ admin any guide's: a reassignment), so a forged POST gets the same 403 the page 
 from __future__ import annotations
 
 import secrets
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any, cast
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -35,12 +37,20 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from core.htmx import wants_fragment
+from hub.autosave import autosave_refused, autosave_saved, formset_rows, wants_autosave
+from hub.calendar_pages import calendar_nav_params
 from hub.toast import trigger_toast
-from hub.view_as import ROLE_ADMIN, fog_admin_required, tour_guide_access_required
+from hub.view_as import (
+    ROLE_ADMIN,
+    fog_admin_required,
+    give_tours_access_required,
+    has_tour_guide_access,
+    tour_guide_access_required,
+)
 from membership.models import AdminCapability, Member, WikiPage
 from membership.permission_setup import SetupState
 from membership.permissions import can_edit_wiki_page
-from tours import calendar_sync, google
+from tours import calendar_sync, coverage, google
 from tours.availability import OpenTour, open_tours
 from tours.booking import (
     GONE_MESSAGE,
@@ -51,6 +61,7 @@ from tours.booking import (
     cancel_tour_by_staff,
     confirm_tour_request,
     decline_tour_request,
+    lock_for_note,
     mark_tour_outcome,
     propose_tour_time,
 )
@@ -64,11 +75,13 @@ from tours.forms import (
     TourDatesForm,
     TourDayOffForm,
     TourHoursFormSet,
+    TourNoteForm,
 )
 from tours.models import (
     MAX_HORIZON_DAYS,
     FacilityTourSettings,
     TourBooking,
+    TourBookingNote,
     TourCalendarConnection,
     TourDayOff,
     TourGuideSettings,
@@ -78,6 +91,7 @@ from tours.models import (
 )
 from tours.notify import short_when, when_label
 from tours.picker import build_picker, find_tour, guide_and_start
+from tours.setup import become_tour_guide
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -195,9 +209,12 @@ def _dates_form(target: Member, data: Any = None) -> TourDatesForm:
     return TourDatesForm(data, guide=target, defaults=FacilityTourSettings.load())
 
 
-def _calendar_config(target: Member, dated: list[TourHours], dates_form: TourDatesForm) -> dict[str, Any]:
+def _calendar_config(
+    target: Member, dated: list[TourHours], dates_form: TourDatesForm, *, add: date | None = None
+) -> dict[str, Any]:
     """What the Available On calendar (``plTourDates``) draws: the pickable range, the days that
-    already have dated hours (a dot), the days off (struck through) and any picks to restore."""
+    already have dated hours (a dot), the days off (struck through) and any picks to restore, or
+    the day a Calendar tab gap asked to add (``add``, #1274)."""
     today = timezone.localdate()
     last = today + timedelta(days=MAX_DATED_DAYS_AHEAD)
     return {
@@ -205,8 +222,18 @@ def _calendar_config(target: Member, dated: list[TourHours], dates_form: TourDat
         "last": last.isoformat(),
         "dated": sorted({row.date.isoformat() for row in dated if row.date is not None}),
         "off": [day.isoformat() for day in TourDayOff.objects.filter(guide=target).covered_days(today, last)],
-        "picked": dates_form.picked_iso,
+        "picked": dates_form.picked_iso if dates_form.is_bound or add is None else [add.isoformat()],
     }
+
+
+def _day_to_add(raw: str) -> date | None:
+    """The ``?add=YYYY-MM-DD`` day a Calendar tab gap links with (#1274), when Add Dates may pick it; else None."""
+    try:
+        day = date.fromisoformat(raw)
+    except ValueError:
+        return None
+    today = timezone.localdate()
+    return day if today <= day <= today + timedelta(days=MAX_DATED_DAYS_AHEAD) else None
 
 
 def _render_hours(
@@ -218,6 +245,7 @@ def _render_hours(
     open_day_off: bool = False,
     hours_refused: bool = False,
     dates_form: TourDatesForm | None = None,
+    add: date | None = None,
 ) -> HttpResponse:
     viewer = _viewer(request)
     is_admin = _is_admin(request)
@@ -244,9 +272,9 @@ def _render_hours(
             "hours_refused": hours_refused,
             "days_off": list(TourDayOff.objects.upcoming().filter(guide=target)),
             "dates_form": dates_form,
-            "open_dates": dates_form.is_bound,
+            "open_dates": dates_form.is_bound or add is not None,
             "dated_hours": dated,
-            "dates_calendar": _calendar_config(target, dated, dates_form),
+            "dates_calendar": _calendar_config(target, dated, dates_form, add=add),
             "confirm_form": TourConfirmModeForm(instance=TourGuideSettings.objects.filter(guide=target).first()),
             **_setup(request),
         },
@@ -255,8 +283,12 @@ def _render_hours(
 
 @tour_guide_access_required
 def tour_hours(request: HttpRequest) -> HttpResponse:
-    """The Tours page's My Hours tab: the weekly hours editor and the days off (``?guide=`` for an admin)."""
-    return _render_hours(request, _target_guide(request, request.GET.get("guide", "")))
+    """The Tours page's My Hours tab: the weekly hours editor and the days off (``?guide=`` for an admin).
+
+    ``?add=YYYY-MM-DD`` (a gap on the Calendar tab, #1274) opens Add Dates with that day picked.
+    """
+    target = _target_guide(request, request.GET.get("guide", ""))
+    return _render_hours(request, target, add=_day_to_add(request.GET.get("add", "")))
 
 
 @tour_guide_access_required
@@ -264,8 +296,12 @@ def tour_hours(request: HttpRequest) -> HttpResponse:
 def tour_hours_save(request: HttpRequest) -> HttpResponse:
     """Save one guide's whole set of hours rows (adds, edits and deletes in one POST).
 
-    The posted ``guide`` is checked before the formset is read. Valid: a flash and a redirect
-    back to the tab. Invalid: the tab again with each row's errors, its rows open.
+    The posted ``guide`` is checked before the formset is read. The Every Week card saves itself
+    as it is edited (#1279, ``hub.autosave``): its posts answer JSON, each row's pk in posted
+    order or a 422 with every error keyed by field name (an overlap on its row); a row deleted
+    elsewhere since the page loaded is skipped, named under ``gone`` and toasted. Without the
+    script, valid is a flash and a redirect back to the tab, invalid the tab again with each
+    row's errors, its rows open.
     """
     target = _target_guide(request, request.POST.get("guide", ""))
     formset = _hours_formset(target, request.POST)
@@ -276,6 +312,17 @@ def tour_hours_save(request: HttpRequest) -> HttpResponse:
         saved = formset.is_valid()
         if saved:
             formset.save()
+    if wants_autosave(request):
+        if not saved:
+            return autosave_refused(formset)
+        gone = formset.gone_rows
+        response = autosave_saved({HOURS_PREFIX: formset_rows(formset)}, gone={HOURS_PREFIX: gone} if gone else None)
+        if gone:
+            # Deleted elsewhere (another tab, an admin on ?guide=): the rest saved, the page drops it.
+            trigger_toast(
+                response, "Some of these hours were deleted elsewhere, so they are gone from this page.", "info"
+            )
+        return response
     if not saved:
         return _render_hours(request, target, formset=formset, hours_refused=True)
     messages.success(request, "Tour hours saved.")
@@ -285,14 +332,22 @@ def tour_hours_save(request: HttpRequest) -> HttpResponse:
 @tour_guide_access_required
 @require_POST
 def tour_confirm_mode_save(request: HttpRequest) -> HttpResponse:
-    """Save whether the guide's bookings wait for their Confirm (#1166): the Confirming Bookings card."""
+    """Save whether the guide's bookings wait for their Confirm (#1166): the Confirming Bookings card.
+
+    The card saves itself as it is edited (#1279): an autosave post answers JSON, a refusal a 422
+    under the field. Without the script, a flash and a redirect back to the tab.
+    """
     target = _target_guide(request, request.POST.get("guide", ""))
     instance = TourGuideSettings.objects.filter(guide=target).first() or TourGuideSettings(guide=target)
     form = TourConfirmModeForm(request.POST, instance=instance)
     if not form.is_valid():
+        if wants_autosave(request):
+            return autosave_refused(form)
         messages.error(request, str(next(iter(form.errors.values()))[0]))
         return redirect(_hours_url(_viewer(request), target))
     saved = form.save()
+    if wants_autosave(request):
+        return autosave_saved()
     messages.success(request, f"Saved. {saved.summary}")
     return redirect(_hours_url(_viewer(request), target))
 
@@ -373,16 +428,27 @@ def tour_dates_delete(request: HttpRequest, pk: int) -> HttpResponse:
     return redirect(_hours_url(_viewer(request), target))
 
 
+@tour_guide_access_required  # a member who gives no tours lands on Give Tours, like every other tab
 @fog_admin_required
 def tour_settings(request: HttpRequest) -> HttpResponse:
     """The Tours page's Settings tab (admins only): the front desk kiosk link (#950), then horizon,
-    notice, cutoff, defaults and the bookings switch."""
+    notice, cutoff, defaults and the bookings switch.
+
+    Tour Settings save themselves as they are edited (#1279): an autosave post answers JSON, a
+    refusal a 422 under the field, which leaves every stored value as it was. Without the
+    script, a flash and a redirect, or the tab again with the errors.
+    """
     instance = FacilityTourSettings.load()
     form = FacilityTourSettingsForm(request.POST or None, instance=instance)
-    if request.method == "POST" and form.is_valid():
-        form.save()
-        messages.success(request, "Tour Settings saved.")
-        return redirect("tours:settings")
+    if request.method == "POST":
+        if form.is_valid():
+            form.save()
+            if wants_autosave(request):
+                return autosave_saved()
+            messages.success(request, "Tour Settings saved.")
+            return redirect("tours:settings")
+        if wants_autosave(request):
+            return autosave_refused(form)
     return render(request, "tours/settings.html", {"form": form, "kiosk_url": _kiosk_url(instance), **_setup(request)})
 
 
@@ -405,6 +471,36 @@ def tour_guide(request: HttpRequest) -> HttpResponse:
             **_setup(request),
         },
     )
+
+
+#: The toast on My Hours after Become a Tour Guide (#1278).
+BECAME_GUIDE_MESSAGE = "You're a Tour Guide now. Set the hours you can give tours, and visitors can book you."
+#: The toast for a second Become a Tour Guide that raced the first past the view's check.
+ALREADY_GUIDE_MESSAGE = "You're already a Tour Guide."
+
+
+@give_tours_access_required
+def tour_give(request: HttpRequest) -> HttpResponse:
+    """Give Tours (#1278): why giving tours is worth it, and the tutorial that ends in Become a Tour Guide.
+
+    Where every member who gives no tours lands from the Tours entry. A Tour Guide or admin who
+    opens it sees it too, with Open My Hours in place of the button that grants.
+    """
+    return render(request, "tours/give.html", {"is_guide": has_tour_guide_access(request)})
+
+
+@give_tours_access_required
+@require_POST
+def tour_become_guide(request: HttpRequest) -> HttpResponse:
+    """Become a Tour Guide, the tutorial's last step (#1278): grant Tour Guide, then My Hours with a toast.
+
+    A Tour Guide or admin pressing it again changes nothing and goes to My Hours.
+    """
+    if has_tour_guide_access(request):
+        return redirect("tours:hours")
+    # Two presses racing both pass the check above; the one that loses the lock is told so.
+    messages.success(request, BECAME_GUIDE_MESSAGE if become_tour_guide(_viewer(request)) else ALREADY_GUIDE_MESSAGE)
+    return redirect("tours:hours")
 
 
 def _kiosk_url(house_rules: FacilityTourSettings) -> str:
@@ -488,16 +584,23 @@ def tour_google_callback(request: HttpRequest) -> HttpResponse:
 @tour_guide_access_required
 @require_POST
 def tour_google_calendar(request: HttpRequest) -> HttpResponse:
-    """Pick which of the guide's own calendars tours are written to; their upcoming tours move there."""
+    """Pick which of the guide's own calendars tours are written to; their upcoming tours move there.
+
+    The picker saves on change (#1279): an autosave post answers JSON, a refusal a 422 under it.
+    """
     connection = get_object_or_404(
         TourCalendarConnection, guide=_viewer(request), status=TourCalendarConnection.Status.CONNECTED
     )
     form = TourCalendarChoiceForm(request.POST, connection=connection)
     if not form.is_valid():
+        if wants_autosave(request):
+            return autosave_refused(form)
         messages.error(request, "Pick one of your calendars from the list.")
         return redirect("tours:hours")
     if form.cleaned_data["calendar"] != connection.calendar_id:
         calendar_sync.choose_calendar(connection, form.cleaned_data["calendar"])
+    if wants_autosave(request):
+        return autosave_saved()
     messages.success(request, f"Tours will be written to {connection.calendar_label}.")
     return redirect("tours:hours")
 
@@ -522,16 +625,12 @@ def tour_google_disconnect(request: HttpRequest) -> HttpResponse:
 
 
 def _list_guide(request: HttpRequest) -> Member | None:
-    """Whose bookings the Upcoming and Past tabs list: a guide's own; an admin's every guide's (None) or ``?guide=``.
+    """Whose bookings the Upcoming and Past tables list (#1274): every guide's (None), or ``?guide=``'s.
 
-    A guide naming another guide gets a 403, like every other way into someone else's tours.
+    Every Tour Guide sees every guide's bookings, read only on the rows that are not theirs
+    (:func:`_may_act`); ``?guide=`` with their own pk is My Tours.
     """
-    viewer = _viewer(request)
     raw = request.GET.get("guide", "")
-    if not _is_admin(request):
-        if raw and raw != str(viewer.pk):
-            raise PermissionDenied("Only an admin can see another guide's tours.")
-        return viewer
     if not raw:
         return None
     if not raw.isdigit():
@@ -540,44 +639,122 @@ def _list_guide(request: HttpRequest) -> Member | None:
 
 
 def _filter_guides() -> list[Member]:
-    """The admin's guide filter: everyone who gives tours, and anyone who has bookings, by name."""
+    """The table's guide filter: everyone who gives tours, and anyone who has bookings, by name."""
     people = Member.objects.filter(guide_filter() | Q(tour_bookings__isnull=False)).distinct()
     return sorted(people, key=lambda member: member.staff_label.casefold())
 
 
-def _render_bookings(request: HttpRequest, tab: str) -> HttpResponse:
-    """One of the two list tabs: the guide's bookings (or an admin's pick), paged."""
-    now = timezone.now()
+#: The Upcoming table's status chips (#1274): ``?show=`` and the statuses each one lists.
+SHOW_CHIPS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "all": ("All", TourBooking.UPCOMING),
+    "requested": ("Requested", (TourBooking.Status.PENDING,)),
+    "confirmed": ("Confirmed", (TourBooking.Status.BOOKED,)),
+}
+
+
+def _may_act(request: HttpRequest, booking: TourBooking) -> bool:
+    """Whether the viewer may edit, cancel, mark or email the visitor about ``booking``: its guide, or an admin."""
+    return _is_admin(request) or booking.guide_id == _viewer(request).pk
+
+
+def _with_row_rights(request: HttpRequest, bookings: list[TourBooking]) -> list[TourBooking]:
+    """Stamp each row with what the viewer may do on it, for its "..." menu (never stored)."""
+    viewer_pk = _viewer(request).pk
     is_admin = _is_admin(request)
+    for booking in bookings:
+        booking.can_act = is_admin or booking.guide_id == viewer_pk  # type: ignore[attr-defined]
+        booking.can_answer = booking.is_request and booking.guide_id == viewer_pk  # type: ignore[attr-defined]
+        # Felix (#1274): any active member may become a Tour Guide (#1278), so a visitor's email and
+        # phone reach only their own guide and the admins; never rendered for anyone else.
+        booking.can_see_contact = booking.can_act  # type: ignore[attr-defined]
+    return bookings
+
+
+def _render_bookings(request: HttpRequest, tab: str) -> HttpResponse:
+    """One of the two table tabs (#1274): every guide's bookings, or one guide's, paged, with each row's menu."""
+    now = timezone.now()
     guide = _list_guide(request)
-    bookings = TourBooking.objects.select_related("guide", "proposed_guide")
+    show = request.GET.get("show", "all") if tab == UPCOMING else "all"
+    if show not in SHOW_CHIPS:
+        show = "all"
+    bookings = TourBooking.objects.select_related("guide", "proposed_guide").annotate(note_count=Count("notes"))
     listed = bookings.upcoming(now) if tab == UPCOMING else bookings.past(now)
     if guide is not None:
         listed = listed.filter(guide=guide)
+    requested_count = 0
+    if tab == UPCOMING:
+        requested_count = listed.filter(status=TourBooking.Status.PENDING).count()
+        listed = listed.filter(status__in=SHOW_CHIPS[show][1])
     page = Paginator(listed, BOOKINGS_PER_PAGE).get_page(request.GET.get("page"))
-    listed_bookings = list(page.object_list)
+    listed_bookings = _with_row_rights(request, list(page.object_list))
     TourBooking.attach_shared_with(listed_bookings)
-    filtered = is_admin and guide is not None
+    _count_shared_notes(listed_bookings)
+    viewer = _viewer(request)
+    params: dict[str, Any] = {"guide": guide.pk if guide else "", "show": show}
+    url = reverse("tours:past" if tab == PAST else "tours:upcoming")
+    chips = [
+        {
+            "key": key,
+            "label": label,
+            "count": requested_count if key == "requested" else 0,
+            "url": _with_query(url, {**params, "show": key}),
+        }
+        for key, (label, _statuses) in SHOW_CHIPS.items()
+    ]
     return render(
         request,
         "tours/bookings.html",
         {
             "tab": tab,
-            "is_admin": is_admin,
-            "viewer_pk": _viewer(request).pk,
+            "is_admin": _is_admin(request),
+            "viewer_pk": viewer.pk,
             "page": page,
             "bookings": listed_bookings,
-            "filter_guides": _filter_guides() if is_admin else [],
-            "filter_guide": guide if filtered else None,
-            "base_params": urlencode({"guide": guide.pk}) if filtered and guide is not None else "",
+            "filter_guides": _filter_guides(),
+            "filter_guide": guide,
+            "show": show,
+            "chips": chips if tab == UPCOMING else [],
+            "is_filtered": guide is not None or show != "all",
+            "base_params": _with_query("", params).lstrip("?"),
+            "notes_open": _notes_to_open(request),
+            "notes_next": request.get_full_path(),
             **_setup(request),
         },
     )
 
 
+def _with_query(url: str, params: dict[str, Any]) -> str:
+    """``url`` with ``params``, leaving out blanks and the default ``show=all``."""
+    query = {key: value for key, value in params.items() if value and not (key == "show" and value == "all")}
+    return f"{url}?{urlencode(query)}" if query else url
+
+
+def _count_shared_notes(bookings: list[TourBooking]) -> None:
+    """A shared request's rows show one Notes thread (#1274), so each counts the whole group's notes (one query)."""
+    groups = {booking.request_group for booking in bookings if booking.request_group is not None}
+    if not groups:
+        return
+    counts = dict(
+        TourBookingNote.objects.filter(booking__request_group__in=groups)
+        .values_list("booking__request_group")
+        .annotate(total=Count("pk"))
+    )
+    for booking in bookings:
+        if booking.request_group is not None:
+            booking.note_count = counts.get(booking.request_group, 0)  # type: ignore[attr-defined]
+
+
+def _notes_to_open(request: HttpRequest) -> int | None:
+    """The booking whose Notes the page opens on arrival (``?notes=<pk>``, a bell's link), or None."""
+    raw = request.GET.get("notes", "")
+    if not raw.isdigit() or not TourBooking.objects.filter(pk=int(raw)).exists():
+        return None
+    return int(raw)
+
+
 @tour_guide_access_required
 def tour_upcoming(request: HttpRequest) -> HttpResponse:
-    """The Tours page's first tab: booked tours that have not started, soonest first (``?guide=`` for an admin)."""
+    """The Tours page's first tab: every guide's booked tours and requests that have not started, soonest first (#1274: ``?guide=``, ``?show=``)."""
     return _render_bookings(request, UPCOMING)
 
 
@@ -596,16 +773,15 @@ def _staff_booking(request: HttpRequest, pk: int) -> TourBooking:
 
 
 def _destination_guide(request: HttpRequest, booking: TourBooking, raw: str) -> Member:
-    """Whose open tours a reschedule picks from: the booking's guide by default.
+    """Whose open tours an Edit picks from: the booking's guide by default.
 
-    Anyone else is a reassignment, an admin's only (403 for a guide), and must give tours (404
+    Anyone else is a reassignment, open to whoever may act on the booking (#1274: its guide hands
+    it on, or an admin; :func:`_staff_booking` has already checked), and must give tours (404
     otherwise). A booking with no guide starts from the viewer's own tours.
     """
     own = booking.guide if booking.guide is not None else _viewer(request)
     if not raw or raw == str(own.pk):
         return own
-    if not _is_admin(request):
-        raise PermissionDenied("Only an admin can move a tour to another guide.")
     if not raw.isdigit():
         raise Http404("Unknown guide.")
     return get_object_or_404(Member.objects.filter(guide_filter()).distinct(), pk=int(raw))
@@ -626,7 +802,7 @@ def _staff_tours(booking: TourBooking, guide: Member) -> list[OpenTour]:
 
 
 def _move_guides(destination: Member) -> list[Member]:
-    """The admin's destination picker: everyone who gives tours and has tour hours, plus the one shown."""
+    """The Edit modal's guide picker: everyone who gives tours and has tour hours, plus the one shown."""
     people = Member.objects.filter(guide_filter(), tour_hours__isnull=False).distinct()
     found = {member.pk: member for member in people}
     found.setdefault(destination.pk, destination)
@@ -663,7 +839,7 @@ def _render_reschedule(
             "when": when_label(booking.starts_at),
             "destination": guide,
             "is_admin": is_admin,
-            "move_guides": _move_guides(guide) if is_admin else [],
+            "move_guides": _move_guides(guide),
             "picker": build_picker(tours, day),
             "chosen": chosen,
             "chosen_when": when_label(chosen.starts_at) if chosen else "",
@@ -828,6 +1004,160 @@ def tour_booking_decline(request: HttpRequest, pk: int) -> HttpResponse:
     return _done(request)
 
 
+# --- Notes (#1274) ---------------------------------------------------------------------------------
+
+
+def _notes_context(request: HttpRequest, booking: TourBooking, *, form: TourNoteForm | None = None) -> dict[str, Any]:
+    """What the Notes modal draws: the booking's thread and the box, with the visitor switch for whoever may act."""
+    may_email = _may_email(request, booking)
+    return {
+        "booking": booking,
+        "thread_messages": list(booking.note_thread().select_related("author").prefetch_related("photos")),
+        "note_form": form
+        if form is not None
+        else TourNoteForm(may_email=may_email, auto_id=f"id_tournote{booking.pk}_%s"),
+        "may_email": may_email,
+        "email_note": _email_note(request, booking),
+        "notes_next": _safe_tours_next(request),
+    }
+
+
+def _email_note(request: HttpRequest, booking: TourBooking) -> str:
+    """Why the Notes box offers no email to the visitor, as its note line says it ("" when it does)."""
+    if not _may_act(request, booking):
+        return "Only the tour's guide or an admin can email the visitor."
+    if booking.status == TourBooking.Status.CANCELLED:
+        return "This tour is cancelled, so notes stay here."
+    if booking.is_shared_request:
+        return "Notes can be emailed to the visitor once a guide confirms this request."
+    return ""
+
+
+def _may_email(request: HttpRequest, booking: TourBooking) -> bool:
+    """Whether the viewer may email a note to this booking's visitor: they may act on it, and the row allows it."""
+    return _may_act(request, booking) and booking.may_email_visitor
+
+
+def _safe_tours_next(request: HttpRequest) -> str:
+    """The Upcoming or Past table the Notes modal came from (``next``, filters kept), so Add Note lands back on it.
+
+    Anything else, another site or another page, is Upcoming.
+    """
+    raw = request.POST.get("next") or request.GET.get("next") or ""
+    tables = {reverse("tours:upcoming"), reverse("tours:past")}
+    if url_has_allowed_host_and_scheme(raw, allowed_hosts={request.get_host()}) and urlsplit(raw).path in tables:
+        return raw
+    return reverse("tours:upcoming")
+
+
+def _with_notes_open(url: str, booking: TourBooking) -> str:
+    """``url`` with ``?notes=<pk>`` in place of any it had, so the page opens the Notes modal again."""
+    parts = urlsplit(url)
+    query = [(key, value) for key, value in parse_qsl(parts.query) if key != "notes"]
+    query.append(("notes", str(booking.pk)))
+    return f"{parts.path}?{urlencode(query)}"
+
+
+@tour_guide_access_required
+def tour_booking_notes(request: HttpRequest, pk: int) -> HttpResponse:
+    """GET: a booking's notes and the box to add one, for the Notes modal (any Tour Guide or admin).
+
+    A row whose notes moved (a shared request another guide took, #1274) shows the surviving row's.
+
+    A plain GET (a typed address, a history restore) lands on Upcoming with the modal open.
+    """
+    booking = get_object_or_404(TourBooking.objects.select_related("guide", "notes_moved_to__guide"), pk=pk).note_target
+    if not wants_fragment(request):
+        return redirect(_with_notes_open(reverse("tours:upcoming"), booking))
+    return render(request, "tours/partials/_notes.html", _notes_context(request, booking))
+
+
+@tour_guide_access_required
+@require_POST
+def tour_booking_note(request: HttpRequest, pk: int) -> HttpResponse:
+    """POST: add a note to a booking; with ``email_visitor`` also email it to the visitor.
+
+    Any Tour Guide or admin may add a note. A row whose notes moved to another row of its resolved
+    No preference request posts there (``TourBooking.note_target``). Emailing the visitor is for whoever may act on the
+    booking (its guide, or an admin): anyone else asking for it gets a 403, before anything is
+    saved. Lands back on the page it came from with the Notes modal open and a flash.
+    """
+    get_object_or_404(TourBooking, pk=pk)
+    with transaction.atomic():
+        # The request's rows and then this row are locked before its note target is read, in the
+        # order a Confirm or Decline takes them: one that moves the notes meanwhile finishes first,
+        # and the note lands on the row they went to, never on the one they left (#1274).
+        locked = lock_for_note(pk)
+        booking = TourBooking.objects.select_related("guide").get(pk=locked.note_target.pk)
+        return _post_note(request, booking)
+
+
+def _post_note(request: HttpRequest, booking: TourBooking) -> HttpResponse:
+    """Add the posted note to ``booking`` (already resolved to its note target, inside the lock)."""
+    back = _with_notes_open(_safe_tours_next(request), booking)
+    may_email = _may_email(request, booking)
+    if request.POST.get("email_visitor") and not may_email:
+        raise PermissionDenied(
+            "Only the tour's guide or an admin can email its visitor, and not on a shared or cancelled request."
+        )
+    form = TourNoteForm(request.POST, request.FILES, may_email=may_email)
+    if not form.is_valid():
+        messages.error(request, f"Not added. {form.error_summary()}")
+        return redirect(back)
+    note = TourBookingNote.post(
+        author=cast("User", request.user),
+        body=form.cleaned_data["body"],
+        photos=form.cleaned_data["photos"],
+        booking=booking,
+        sent_to_visitor=bool(form.cleaned_data.get("email_visitor")),
+    )
+    messages.success(request, "Note added." + note.told_sentence())
+    return redirect(back)
+
+
+# --- Calendar (#1274) -------------------------------------------------------------------------------
+
+
+@tour_guide_access_required
+def tour_calendar(request: HttpRequest) -> HttpResponse:
+    """The Calendar tab: every guide's hours and tours on the shared calendar, and the days nobody covers."""
+    week_offset, month_offset, event_page = calendar_nav_params(request)
+    return render(
+        request,
+        "tours/calendar.html",
+        {
+            "tab": "calendar",
+            "is_admin": _is_admin(request),
+            "cal": coverage.calendar_context(
+                viewer=_viewer(request),
+                is_admin=_is_admin(request),
+                week_offset=week_offset,
+                month_offset=month_offset,
+                event_page=event_page,
+            ),
+            "gaps": coverage.uncovered_days(),
+            "horizon_days": FacilityTourSettings.load().booking_horizon_days,
+            **_setup(request),
+        },
+    )
+
+
+@tour_guide_access_required
+def tour_calendar_events(request: HttpRequest) -> HttpResponse:
+    """The Calendar tab's grid and list for its Week and Month navigation (htmx); a plain GET lands on the tab."""
+    if not wants_fragment(request):
+        return redirect("tours:calendar")
+    week_offset, month_offset, event_page = calendar_nav_params(request)
+    cal = coverage.calendar_context(
+        viewer=_viewer(request),
+        is_admin=_is_admin(request),
+        week_offset=week_offset,
+        month_offset=month_offset,
+        event_page=event_page,
+    )
+    return render(request, "hub/partials/calendar_content.html", cal)
+
+
 def _with_setup_finished(request: HttpRequest, booking: TourBooking, outcome: str, text: str) -> str:
     """The Attended toast, plus the badge line when this tour finishes the guide's Get Set Up (#1167).
 
@@ -862,10 +1192,17 @@ def tour_booking_mark(request: HttpRequest, pk: int) -> HttpResponse:
     if request.headers.get("HX-Request") != "true":
         messages.add_message(request, messages.SUCCESS if tone == "success" else messages.ERROR, text)
         return redirect(_back_url(request, "tours:past"))
+    booking.note_count = booking.note_thread().count()  # type: ignore[attr-defined]
     response = render(
         request,
         "tours/partials/_booking_row.html",
-        {"booking": booking, "tab": PAST, "is_admin": _is_admin(request), "viewer_pk": _viewer(request).pk},
+        {
+            "booking": _with_row_rights(request, [booking])[0],
+            "tab": PAST,
+            "notes_next": _back_url(request, "tours:past"),
+            "is_admin": _is_admin(request),
+            "viewer_pk": _viewer(request).pk,
+        },
     )
     trigger_toast(response, text, tone)
     return response

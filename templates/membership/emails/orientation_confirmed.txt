@@ -8,7 +8,7 @@ Good news — {% if slot.orienter %}{{ slot.orienter_first_name }} confirmed you
 {% endif %}
 {% if booking.hold_state == "captured" %}{% load classes_tags %}We charged the {{ booking.amount_paid_cents|cents_as_price }} held on your card.
 
-{% endif %}We've attached an updated calendar invite. See you there!
+{% endif %}We've attached an updated calendar invite. See you there! To change or cancel, use the links in this email. Answering the calendar invite changes nothing.
 
 The {{ owner_page_label }}: {{ owner_url }}
 Can't make it? Cancel here: {{ cancel_url }}

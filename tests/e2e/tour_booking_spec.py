@@ -185,8 +185,7 @@ def describe_tour_booking():
         booking.refresh_from_db()
         assert (booking.starts_at, booking.sequence) == (five, 1)
         moved = _only("Your Past Lives tour moved")
-        invite = moved.attachments[0][1]
-        invite = invite.decode() if isinstance(invite, bytes) else invite
+        invite = moved.attachments[0].get_content()
         assert f"UID:tour-{booking.pk}@pastlives" in invite and "SEQUENCE:1" in invite
         assert _only("Tour moved", to=GUIDE_EMAIL)
 

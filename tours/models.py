@@ -24,6 +24,7 @@ from django.db.models import Q, Sum
 from django.utils import timezone
 
 from billing.fields import EncryptedCharField
+from core.threads import ThreadMessage, ThreadPhoto
 from membership.models import AdminCapability, Member
 
 if TYPE_CHECKING:
@@ -760,6 +761,17 @@ class TourBooking(models.Model):
         related_name="tour_times_proposed",
         help_text="The guide or admin who proposed the open new time; they hear the visitor's answer.",
     )
+    notes_moved_to = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        help_text=(
+            "Set on a No preference request's row (#1255) whose notes moved to another row of it when the "
+            "request resolved (#1274): its Notes open, and new notes land on, that row."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When it was booked.")
 
     objects = TourBookingQuerySet.as_manager()
@@ -961,6 +973,40 @@ class TourBooking(models.Model):
         if self.proposed_starts_at is None or self.proposed_starts_at <= now:
             return "passed"
         return ""
+
+    def table_url_name(self, now: datetime) -> str:
+        """Which Tours table lists this booking (#1274): Upcoming until it starts, Past after."""
+        return "tours:upcoming" if self.status in self.UPCOMING and self.starts_at > now else "tours:past"
+
+    @property
+    def note_target(self) -> TourBooking:
+        """The booking whose Notes this row shows and takes (#1274): itself, or where its notes moved.
+
+        :func:`tours.booking.gather_notes` points every other row of a resolved No preference
+        request straight at the surviving row, so this is never more than one step.
+        """
+        return self.notes_moved_to if self.notes_moved_to is not None else self
+
+    def note_thread(self) -> models.QuerySet[TourBookingNote]:
+        """This booking's notes (#1274), oldest first; a No preference request's (#1255) are every row's.
+
+        While a request is shared each guide's row is one copy of one visitor's request, so its
+        Notes are one conversation; :func:`tours.booking.gather_notes` moves them onto the row
+        that survives when the request resolves, and a row whose notes moved reads that row's.
+        """
+        target = self.note_target
+        if target.request_group is not None:
+            return TourBookingNote.objects.filter(booking__request_group=target.request_group)
+        return TourBookingNote.objects.filter(booking=target)
+
+    @property
+    def may_email_visitor(self) -> bool:
+        """Whether a note on this row may be emailed to the visitor (#1274).
+
+        Not on a cancelled booking, and not while a No preference request is shared: its rows
+        hide the guide's name from the visitor, and only one of them holds the visitor's link.
+        """
+        return self.status != self.Status.CANCELLED and not self.is_shared_request
 
     def self_serve_refusal(self, *, now: datetime, cancel_cutoff_hours: int) -> str:
         """Why the visitor may not move or cancel this tour from the email links, or "" when they may.
@@ -1207,3 +1253,119 @@ class TourCalendarCleanup(models.Model):
 
     def __str__(self) -> str:
         return f"Delete {self.event_id} from {self.calendar_id}"
+
+
+# --- Notes on a booking (#1274) ------------------------------------------------------------------
+
+
+class TourBookingNote(ThreadMessage):
+    """One note on a :class:`TourBooking`'s thread, by a Tour Guide or an admin (#1274).
+
+    Every note is from the staff side: the visitor never posts here (no member side, so
+    :attr:`member_user_ids` is empty). Any Tour Guide or admin reads and adds notes on any
+    booking. Posting tells the booking's guide (or the admins when it has none) and everyone else
+    who wrote a note on it, minus the author, by bell (:meth:`staff_user_ids`). A note posted with
+    ``sent_to_visitor`` also emails the visitor (:func:`tours.notify.send_visitor_note`); only
+    whoever may act on the booking may ask for that (``tours.views._staff_booking``).
+    """
+
+    THREAD_KIND: ClassVar[str] = "tour"
+    NOTICE_PERIOD: ClassVar[str] = "tour-note-{pk}"
+    STAFF_SIGNATURE: ClassVar[str] = "Tour Guide"
+
+    # Set by posting: whether a guide or an admin got a bell. Not a column.
+    told_staff: bool = False
+    #: The thread's timestamp in the house style ("Sat, Nov 21 · 1:22 PM"); other threads keep their own.
+    time_format: ClassVar[str] = "D, M j · g:i A"
+
+    booking = models.ForeignKey(
+        TourBooking,
+        on_delete=models.CASCADE,
+        related_name="notes",
+        help_text="The booking this note is on.",
+    )
+    sent_to_visitor = models.BooleanField(
+        default=False,
+        help_text="Whether this note was also emailed to the visitor when it was posted.",
+    )
+
+    class Meta(ThreadMessage.Meta):
+        pass
+
+    def __str__(self) -> str:
+        return f"Note {self.pk} on tour booking {self.booking_id}"
+
+    @property
+    def member_user_ids(self) -> set[int]:
+        """Nobody: the visitor has no side on this thread, so every note is a staff note."""
+        return set()
+
+    @property
+    def member_side_name(self) -> str:
+        return self.booking.visitor_name
+
+    @property
+    def thread_marker(self) -> str:
+        """``Emailed to the visitor``, and once changed since, that the visitor has the words as first sent."""
+        if not self.sent_to_visitor:
+            return ""
+        return "Emailed to the visitor, edited after sending" if self.edited_at else "Emailed to the visitor"
+
+    def staff_user_ids(self) -> set[int]:
+        """Who a note reaches: the tour's guide (or the admins with none) and every earlier writer still giving tours, minus the author."""
+        from core.events.resolvers import tour_guides
+
+        booking = self.booking
+        audience = {user.pk for user, _reason in tour_guides({"guide": booking.guide})}
+        writer_ids = set(
+            booking.note_thread().exclude(pk=self.pk).exclude(author=None).values_list("author_id", flat=True)
+        )
+        # An earlier writer hears only while they still give tours (a Tour Guide, an admin or a superuser).
+        writers = set(
+            Member.objects.filter(guide_filter(), user_id__in=writer_ids - audience).values_list("user_id", flat=True)
+        )
+        return (audience | {writer for writer in writers if writer is not None}) - {self.author_id}
+
+    def _tell_member_side(self) -> bool:
+        """Every note is staff side: email the visitor when asked, and bell the other staff on the booking."""
+        from tours import notify
+
+        told = False
+        if self.sent_to_visitor:
+            notify.send_visitor_note(self)
+            told = True
+        recipient_ids = self.staff_user_ids()
+        if recipient_ids:
+            notify.tell_staff_note(self, recipient_ids)
+            self.told_staff = True
+            told = True
+        return told
+
+    def _tell_staff_side(self) -> bool:
+        """Never called: nobody writes as the visitor."""
+        return False
+
+    def told_sentence(self) -> str:
+        """``We emailed it to Sam.`` and ``The other guides on this tour were told.``, as they happened."""
+        sentence = f" We emailed it to {self.booking.visitor_first_name}." if self.sent_to_visitor else ""
+        if self.told_staff:
+            sentence += " The other guides on this tour were told."
+        return sentence
+
+
+class TourBookingNotePhoto(ThreadPhoto):
+    """One photo posted with a :class:`TourBookingNote`; it stays on the thread, never in the visitor's email."""
+
+    message = models.ForeignKey(
+        TourBookingNote,
+        on_delete=models.CASCADE,
+        related_name="photos",
+        help_text="The note this photo was posted with.",
+    )
+    image = models.ImageField(upload_to="tour-notes/%Y/%m/", help_text="The uploaded photo, on the default storage.")
+
+    class Meta(ThreadPhoto.Meta):
+        pass
+
+    def __str__(self) -> str:
+        return f"Photo {self.pk} on tour note {self.message_id}"

@@ -1,0 +1,21 @@
+bump = "minor"
+date = "2026-11-21"
+audience = ["admins"]
+feature = "tours.calendar"
+guidance = "shots"
+title = "Tour Guides see every guide's hours, tours and notes"
+changes = [
+  "The Tours page has a Calendar tab with every guide's hours and tours, and a list of the days nobody gives tours. Add My Hours on a day opens Add Dates with it picked.",
+  "Upcoming and Past now list every guide's tours in one table. Filter by Requested, Confirmed or guide, and use the ... on a row for its actions.",
+  "Every tour has Notes for the guides. On your own tours you can also email a note to the visitor.",
+  "Edit on your own tour can hand it to another guide.",
+]
+
+[[shots]]
+caption = "Open the Calendar tab. Days With No Tour Hours lists the days nobody covers."
+
+[[shots]]
+caption = "On Upcoming, press the ... on a tour for Notes, Edit Guide or Time and Cancel Tour."
+
+[[shots]]
+caption = "In Notes, write to the other guides. Switch on the email to send it to the visitor too."

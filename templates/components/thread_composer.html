@@ -5,12 +5,15 @@ The box under a thread (core.threads): the message, photos through the shared dr
 always tells the other side; the note beside the button says who.
 
 Context: thread_form (a hub.forms.ThreadMessageForm), thread_action (the POST url), thread_next (a
-local path to land back on, or ""), thread_body_label, thread_note (who hears it), thread_button.
+local path to land back on, or ""), thread_body_label, thread_note (who hears it), thread_button, and
+optionally thread_extra_field (one more field of the form, drawn above Send: a tour note's Also email
+this to the visitor switch, #1274).
 {% endcomment %}
 <form method="post" action="{{ thread_action }}" enctype="multipart/form-data" class="pl-thread-reply" data-thread-reply data-pl-busy-submit data-pl-busy-label="Sending...">
   {% csrf_token %}
   {% if thread_next %}<input type="hidden" name="next" value="{{ thread_next }}">{% endif %}
   {% include "components/form_field.html" with field=thread_form.body field_label=thread_body_label field_hint_off=True %}
   {% include "components/thread_photos_field.html" with field=thread_form.photos %}
+  {% if thread_extra_field %}{% include "components/form_field.html" with field=thread_extra_field %}{% endif %}
   <div class="pl-thread-reply__row"><span class="pl-thread-reply__note">{{ thread_note }}</span><button type="submit" class="hub-btn hub-btn--primary" data-thread-send data-pl-busy>{{ thread_button }}</button></div>
 </form>
