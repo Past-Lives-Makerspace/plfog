@@ -512,6 +512,9 @@ def _class_detail_context(request: HttpRequest, offering: ClassOffering) -> dict
         # switches to the several dates layout in ``_render_class_page``.
         "several_dates": False,
         "next_run": offering,
+        # The class's Search title and description, else the generated ones (#1261); a preview shows them too.
+        "class_search_title": offering.class_record.page_title(offering),
+        "class_search_description": offering.class_record.page_description(offering),
         # A preview is never indexed; the class page sets these from its class (#1260).
         "class_indexable": False,
         "class_state": "",
@@ -4538,6 +4541,7 @@ def admin_class_create(request: HttpRequest) -> HttpResponse:
             offering.status = ClassOffering.Status.DRAFT
             offering.save()
             form.save_instructors(offering)
+            form.save_search_text(offering)
             session_formset.instance = offering
             session_formset.save()
             offering.apply_scheduling_model()

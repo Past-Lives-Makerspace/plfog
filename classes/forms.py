@@ -1136,7 +1136,64 @@ class _InstructorsMixin:
         return json.dumps(self.instructor_rows)
 
 
+SEARCH_TITLE_HINT = (
+    "Up to 60 characters. What Google and link previews show as the title. Leave blank to use the one shown."
+)
+SEARCH_DESCRIPTION_HINT = (
+    "Up to 160 characters. The line under the title in Google and link previews. Leave blank to use the one shown."
+)
+
+
+class _SearchTextMixin:
+    """Search title and Search description (#1261): the class's, edited from any of its runs' editors.
+
+    They live on the class (:class:`ClassRecord`), not the run, so they are form fields of their own,
+    shown with the class's saved text and the generated text as the placeholder. A POST without
+    a field's key leaves that field as saved, so a page that does not carry them blanks nothing.
+    """
+
+    fields: dict[str, forms.Field]
+    instance: ClassOffering
+    cleaned_data: dict[str, Any]
+    is_bound: bool
+    data: Any
+
+    def setup_search_text_fields(self) -> None:
+        """Add both fields, prefilled from the class this run belongs to (none on a new run)."""
+        from classes.models import SEARCH_DESCRIPTION_LIMIT, SEARCH_TITLE_LIMIT
+
+        record = self.instance.class_record if self.instance.class_record_id else None
+        generated_title = self.instance.seo_title if record is not None else ""
+        generated_description = self.instance.seo_description if record is not None else ""
+        self.fields["search_title"] = forms.CharField(
+            label="Search title",
+            max_length=SEARCH_TITLE_LIMIT,
+            required=False,
+            initial=record.search_title if record is not None else "",
+            help_text=SEARCH_TITLE_HINT,
+            widget=forms.TextInput(attrs={"placeholder": generated_title}),
+        )
+        self.fields["search_description"] = forms.CharField(
+            label="Search description",
+            max_length=SEARCH_DESCRIPTION_LIMIT,
+            required=False,
+            initial=record.search_description if record is not None else "",
+            help_text=SEARCH_DESCRIPTION_HINT,
+            widget=forms.Textarea(attrs={"rows": 2, "placeholder": generated_description}),
+        )
+
+    def save_search_text(self, offering: ClassOffering) -> None:
+        """Write the posted fields to ``offering``'s class, which its save has just filed it under."""
+        from classes.models import ClassRecord
+
+        posted = {name: self.cleaned_data[name] for name in ("search_title", "search_description") if name in self.data}
+        if not posted or offering.class_record_id is None:
+            return
+        ClassRecord.objects.get(pk=offering.class_record_id).set_search_text(**posted)
+
+
 class ClassOfferingForm(
+    _SearchTextMixin,
     _InstructorsMixin,
     _EventbriteMixin,
     _RichDescriptionMixin,
@@ -1209,6 +1266,7 @@ class ClassOfferingForm(
         self.fields["category"].label = "Class Type"
         # An admin picks every instructor; a new class starts with nobody listed.
         self.setup_instructors_fields(author=None, can_edit=can_edit_instructors)
+        self.setup_search_text_fields()
         self.add_hero_crop_field()
         self.add_card_focus_field()
         self.setup_scheduling_type_field()
@@ -1239,10 +1297,12 @@ class ClassOfferingForm(
             offering.save()
             self.save_m2m()
             self.save_instructors(offering)
+            self.save_search_text(offering)
         return offering
 
 
 class TeachClassOfferingForm(
+    _SearchTextMixin,
     _InstructorsMixin,
     _EventbriteMixin,
     _RichDescriptionMixin,
@@ -1331,6 +1391,7 @@ class TeachClassOfferingForm(
         self.setup_instructors_fields(
             author=None if self.instance.pk else teaching_member, can_edit=can_edit_instructors
         )
+        self.setup_search_text_fields()
         self.add_hero_crop_field()
         self.add_card_focus_field()
         self.setup_scheduling_type_field()
@@ -1367,6 +1428,7 @@ class TeachClassOfferingForm(
         if commit:
             offering.save()
             self.save_instructors(offering)
+            self.save_search_text(offering)
         return offering
 
 
@@ -2251,6 +2313,7 @@ class CategoryForm(forms.ModelForm):
 
 
 class TeachPublishedClassForm(
+    _SearchTextMixin,
     _InstructorsMixin,
     _EventbriteRulesMixin,
     _RichDescriptionMixin,
@@ -2345,6 +2408,7 @@ class TeachPublishedClassForm(
             del self.fields["flexible_ends_on"]
         self.add_hero_crop_field()
         self.setup_instructors_fields(author=None, can_edit=can_edit_instructors)
+        self.setup_search_text_fields()
 
     def clean_flexible_booking_text(self) -> str:
         return clean_flexible_booking_text(self)
@@ -2388,6 +2452,7 @@ class TeachPublishedClassForm(
             offering.save()
             self.save_m2m()
             self.save_instructors(offering)
+            self.save_search_text(offering)
         return offering
 
 
