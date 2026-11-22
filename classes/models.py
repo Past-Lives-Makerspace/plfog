@@ -53,6 +53,7 @@ from core.integrations.eventbrite_choices import EventbriteCategory, EventbriteS
 from core.html_sanitize import is_editor_html, rich_body_to_text, rich_html_to_text
 from core.images import cut_hero_crop, normalize_field_if_uploaded
 from core.models import HERO_CROP_FIELDS, HeroCropMixin
+from core.seo import DESCRIPTION_LIMIT, TITLE_LIMIT
 from core.threads import ThreadMessage, ThreadPhoto
 from core.validators import validate_image_content, validate_image_size
 from membership.names import user_name_or_email
@@ -255,6 +256,15 @@ class Category(HeroCropMixin, models.Model):
         if self.pk and old_guild_id != self.guild_id and guild_written:
             self._repoint_pending_classes()
 
+    @classmethod
+    def with_classes_to_book(cls) -> "models.QuerySet[Category]":
+        """Class Types with a class open to book now (#1261): the ones the catalog links and the sitemap lists.
+
+        A Class Type page lists only such classes, so any other Class Type's page is empty. The same
+        rule as the catalog's own list (``bookable().listed()``), demo gate included.
+        """
+        return cls.objects.filter(pk__in=ClassOffering.objects.bookable().listed().values("category_id"))
+
     def _repoint_pending_classes(self) -> None:
         """Re-ask the right guild for every class in review here once this Class Type's guild changes (#1183).
 
@@ -274,6 +284,11 @@ TITLE_TAKEN_MESSAGE = "Another class in this Class Type is already called {title
 _CLASS_SLUG_BASE_LENGTH = 180
 #: A class with no public session in this long, and none to come, is Retired (#1260; Felix, 2026-11-18).
 RETIRE_AFTER = timedelta(days=365)
+
+#: The longest Search title and Search description an editor may set (#1261): what search results show.
+SEARCH_TITLE_LIMIT = TITLE_LIMIT
+SEARCH_DESCRIPTION_LIMIT = DESCRIPTION_LIMIT
+
 #: A run's columns whose change can move its class between Scheduled, Between runs and Retired.
 _CLASS_STATE_INPUTS = ("status", "is_private", "scheduling_model", "flexible_starts_on", "flexible_ends_on")
 
@@ -331,6 +346,18 @@ class ClassRecord(models.Model):
         related_name="+",
         help_text="The admin who marked this class No longer offered.",
     )
+    search_title = models.CharField(
+        max_length=SEARCH_TITLE_LIMIT,
+        blank=True,
+        default="",
+        help_text="What search results and link previews show as this class's title. Blank uses the generated one.",
+    )
+    search_description = models.CharField(
+        max_length=SEARCH_DESCRIPTION_LIMIT,
+        blank=True,
+        default="",
+        help_text="What search results and link previews show under the title. Blank uses the generated one.",
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When this class record was created.")
     updated_at = models.DateTimeField(auto_now=True, help_text="When this class record last changed.")
 
@@ -339,6 +366,30 @@ class ClassRecord(models.Model):
 
     def __str__(self) -> str:
         return self.title
+
+    def page_title(self, page_run: "ClassOffering") -> str:
+        """The class page's title in search and link previews (#1261): the Search title, else ``page_run``'s generated one."""
+        return self.search_title.strip() or page_run.seo_title
+
+    def page_description(self, page_run: "ClassOffering") -> str:
+        """The class page's description in search and link previews (#1261): the Search description, else the generated one."""
+        return self.search_description.strip() or page_run.seo_description
+
+    def set_search_text(self, **values: str) -> None:
+        """Store any of ``search_title`` and ``search_description``, trimmed; one row UPDATE (#1261)."""
+        cleaned = {field: value.strip() for field, value in values.items()}
+        if not cleaned:
+            return
+        type(self).objects.filter(pk=self.pk).update(**cleaned, updated_at=timezone.now())
+        for field, value in cleaned.items():
+            setattr(self, field, value)
+
+    @property
+    def public_path(self) -> str:
+        """This class's permanent page, ``/classes/<slug>/``."""
+        from django.urls import reverse
+
+        return reverse("classes:public_class_detail", kwargs={"slug": self.slug})
 
     @property
     def is_indexable(self) -> bool:
@@ -364,8 +415,8 @@ class ClassRecord(models.Model):
         data: dict[str, Any] = {
             "@context": "https://schema.org",
             "@type": "Course",
-            "name": strip_date_suffix(self.title).strip(),
-            "description": page_run.seo_description,
+            "name": self.search_title.strip() or strip_date_suffix(self.title).strip(),
+            "description": self.page_description(page_run),
             "url": book_absolute_url(reverse("classes:public_class_detail", kwargs={"slug": self.slug})),
             "provider": {"@type": "Organization", "name": "Past Lives Makerspace"},
         }

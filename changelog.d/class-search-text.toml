@@ -1,0 +1,14 @@
+bump = "minor"
+date = "2026-11-21"
+audience = ["instructors", "guild-staff", "admins"]
+title = "Choose how your class shows in Google"
+changes = [
+  "The class editor has a Search title and a Search description, on the Review step and on a live class's edit page.",
+  "Leave them blank and the class keeps the title and description made for it. Every date of the class shares them.",
+]
+feature = "classes.teach"
+guidance = "shots"
+target = "classes.search-text"
+
+[[shots]]
+caption = "On the Review step, fill in How It Shows In Search, or leave it blank to keep the text shown."

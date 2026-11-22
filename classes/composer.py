@@ -101,7 +101,15 @@ COMPOSER_STEPS: tuple[ComposerStep, ...] = (
         tab_label="6. Review",
         heading="Review And Submit",
         # Submit to Eventbrite and its fee and category sit on the last page (#725).
-        fields=("eventbrite_enabled", "eventbrite_fee_payer", "eventbrite_category", "eventbrite_subcategory"),
+        # How the class shows in search (#1261) sits beside the page and card previews.
+        fields=(
+            "eventbrite_enabled",
+            "eventbrite_fee_payer",
+            "eventbrite_category",
+            "eventbrite_subcategory",
+            "search_title",
+            "search_description",
+        ),
     ),
 )
 

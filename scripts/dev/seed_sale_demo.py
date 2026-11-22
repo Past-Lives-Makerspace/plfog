@@ -27,7 +27,6 @@ django.setup()
 
 from datetime import timedelta  # noqa: E402
 
-from django.urls import reverse  # noqa: E402
 from django.utils import timezone  # noqa: E402
 
 from classes.models import Category, ClassOffering, ClassSession  # noqa: E402
@@ -36,10 +35,7 @@ from classes.models import Category, ClassOffering, ClassSession  # noqa: E402
 def main() -> None:
     already = next((o for o in ClassOffering.objects.filter(sale_enabled=True) if o.sale_is_active), None)
     if already is not None:
-        print(
-            f"Already on sale: '{already.title}' ({already.sale_savings_display}) — "
-            f"{reverse('classes:public_class_detail', kwargs={'slug': already.slug})}"
-        )
+        print(f"Already on sale: '{already.title}' ({already.sale_savings_display}) — {already.public_path}")
         return
 
     offering = (
@@ -67,7 +63,7 @@ def main() -> None:
     print(
         f"'{offering.title}' is now {offering.sale_savings_display}: "
         f"{offering.price_cents}¢ → {offering.sale_price_cents}¢ — "
-        f"{reverse('classes:public_class_detail', kwargs={'slug': offering.slug})}"
+        f"{offering.public_path}"
     )
 
 
