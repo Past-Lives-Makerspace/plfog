@@ -103,6 +103,7 @@ def describe_request_orientation():
         member_email = next(m for m in mail.outbox if m.to == [member.primary_email])
         assert b"BEGIN:VCALENDAR" in _ics_bytes(member_email)
         assert member_email.attachments[0].get_param("method") == "REQUEST"
+        assert "Answering the calendar\ninvite changes nothing." in member_email.body
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_REQUESTED).exists()
         assert Notification.objects.filter(user=lead.user, trigger="orientation_requested").exists()
 
@@ -233,8 +234,19 @@ def describe_decline_orientation():
         assert (message.body, message.author_id, message.is_from_staff) == ("try next month", None, True)
         assert "try next month" in mail.outbox[0].body
         assert mail.outbox[0].to == [member.primary_email]
-        assert mail.outbox[0].attachments == []
+        (invite,) = mail.outbox[0].attachments
+        assert invite.get_param("method") == "CANCEL"
+        assert f"UID:orientation-{booking.pk}@pastlives" in invite.get_content()
+        assert "STATUS:CANCELLED" in invite.get_content()
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_DECLINED).exists()
+
+    def it_cancels_the_requests_invite_with_the_same_uid_and_sequence():
+        booking = OrientationBookingFactory(member=_member_with_user("dec_seq"))
+        requested = orientations.build_ics(booking, method="REQUEST", status="TENTATIVE")
+        orientations.decline_orientation(booking)
+        cancel = mail.outbox[0].attachments[0].get_content().encode()
+        for line in (f"UID:orientation-{booking.pk}@pastlives".encode(), b"SEQUENCE"):
+            assert (line in requested) == (line in cancel)
 
 
 def describe_cancel_orientation():

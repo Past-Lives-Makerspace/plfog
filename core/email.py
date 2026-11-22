@@ -79,10 +79,17 @@ def _attachment_part(filename: str, content: str | bytes, mimetype: str) -> MIME
     params = dict((header.get_params() or [])[1:])
     if header.get_content_maintype() != "text" or not params:
         return None
-    text = content.decode() if isinstance(content, bytes) else content
+    # As bytes, so the part goes out base64 and byte exact: a str would have its CRLF line
+    # endings turned into LF, which iCalendar (RFC 5545) does not allow.
+    data = content.encode() if isinstance(content, str) else content
     part = MIMEPart()
     part.set_content(
-        text, subtype=header.get_content_subtype(), disposition="attachment", filename=filename, params=params
+        data,
+        "text",
+        header.get_content_subtype(),
+        disposition="attachment",
+        filename=filename,
+        params={"charset": "utf-8", **params},
     )
     return part
 

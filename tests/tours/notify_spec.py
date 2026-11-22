@@ -70,6 +70,7 @@ def describe_visitor_invite_part():
         (part,) = _visitor_mail()[0].attachments
         assert (part.get_content_type(), part.get_param("method")) == ("text/calendar", "REQUEST")
         assert part.get_filename() == "tour.ics"
+        assert "Answering the calendar invite changes nothing." in _visitor_mail()[0].body
 
     def it_sends_a_cancelled_tour_as_a_calendar_cancel(booking: TourBooking):
         send_visitor_email(booking, signals.CANCELLED)

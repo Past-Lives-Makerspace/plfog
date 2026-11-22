@@ -1625,7 +1625,8 @@ def _after_decline(
         subject=f"About your orientation request — {booking.orientation_type.owner_name}",
         template="orientation_declined",
         extra_context={"decline_message": decline_message, "decline_reason": reason},
-        ics=None,
+        # The request email put a tentative invite on the member's calendar; this takes it off (#1287).
+        ics=_ics(booking, method="CANCEL", status="CANCELLED"),
         in_app_title="Orientation not confirmed",
         in_app_body=f"Your orientation request for {booking.orientation_type.owner_name} couldn't be confirmed.",
     )

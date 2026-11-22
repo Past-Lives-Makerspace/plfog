@@ -1,5 +1,6 @@
 """BDD-style tests for core.email.send — the logged email wrapper."""
 
+import base64
 import json
 from unittest.mock import patch
 
@@ -176,7 +177,7 @@ def describe_calendar_invites():
             attachments=[("tour.ics", "BEGIN:VCALENDAR", core_email.invite_mimetype("REQUEST"))],
         )
         (part,) = mail.outbox[0].attachments
-        assert (part.get_param("method"), part.get_content()) == ("REQUEST", "BEGIN:VCALENDAR\n")
+        assert (part.get_param("method"), part.get_content()) == ("REQUEST", "BEGIN:VCALENDAR")
 
     def it_hands_resend_the_content_type_with_the_method(settings):
         settings.EMAIL_BACKEND = "anymail.backends.resend.EmailBackend"
@@ -190,6 +191,8 @@ def describe_calendar_invites():
         assert attachment["filename"] == "tour.ics"
         assert attachment["content_type"].startswith("text/calendar;")
         assert 'method="CANCEL"' in attachment["content_type"]
+        # Byte exact: iCalendar's CRLF line endings survive (RFC 5545), where a text part would send LF.
+        assert base64.b64decode(attachment["content"]) == b"BEGIN:VCALENDAR\r\nMETHOD:CANCEL\r\n"
 
 
 def describe_add_invite_parties():
