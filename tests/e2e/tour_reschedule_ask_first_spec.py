@@ -24,12 +24,15 @@ from django.urls import reverse
 from django.utils import timezone
 
 from membership.models import AdminCapability, Member
+from tests.e2e.guidance import shoot
 from tests.membership.factories import MembershipPlanFactory
 from tests.tours.factories import TourBookingFactory, TourHoursFactory, local
 from tours.models import TourBooking
 
 GUIDE_EMAIL = "tour-guide-ask-first@example.com"
 CAPTURE_DIR = os.environ.get("CAPTURE_1283_DIR")
+#: Where the What's New shots go (docs/GUIDANCE.md), step-1.png to step-3.png at the standard frame.
+GUIDANCE_DIR = os.environ.get("GUIDANCE_1283_DIR")
 DESKTOP = {"width": 1280, "height": 800}
 PHONE = {"width": 390, "height": 844}
 
@@ -61,6 +64,21 @@ def _capture(page, name: str, focus: str, *, public: bool = False, whole_phone: 
             full_page=(public or whole_phone) and label == "phone",
         )
     page.set_viewport_size(DESKTOP)
+
+
+def _guidance_shot(page, step: int, selector: str) -> None:
+    """Step ``step`` of the fragment's shots, ``selector`` ringed in gold, when GUIDANCE_1283_DIR is set.
+
+    The ring hangs off ``data-guidance-target``, so the control is marked for the shot alone.
+    """
+    if not GUIDANCE_DIR:
+        return
+    page.evaluate("() => document.querySelectorAll('.plt-toast').forEach((el) => el.remove())")
+    control = page.locator(selector).first
+    control.evaluate("(el) => el.setAttribute('data-guidance-target', 'shot.step')")
+    control.scroll_into_view_if_needed()
+    shoot(page, Path(GUIDANCE_DIR) / f"step-{step}.png", target="shot.step")
+    control.evaluate("(el) => el.removeAttribute('data-guidance-target')")
 
 
 def _settled(page, selector: str) -> None:
@@ -118,6 +136,7 @@ def describe_ask_the_visitor_first():
         _settled(page, "#tour-reschedule-body [data-tour-move-ask]")
         modal.locator('textarea[name="message"]').fill("Our 4:00 runs long that day. Would 5:00 work?")
         _capture(page, "modal", "[data-tour-move-save]")
+        _guidance_shot(page, 1, "[data-tour-move-save]")
         mail.outbox = []
         with page.expect_navigation():
             modal.locator("[data-tour-move-save]").click()
@@ -128,6 +147,7 @@ def describe_ask_the_visitor_first():
         sam.refresh_from_db()
         assert (sam.starts_at, sam.proposed_starts_at) == (four, five)
         _capture(page, "upcoming-waiting", f'[data-tour-booking="{sam.pk}"]')
+        _guidance_shot(page, 2, f'[data-tour-proposal="{sam.pk}"]')
         page.goto(f"{live_server.url}{reverse('tours:calendar')}")
         # A tour three days out may fall in next week, so the month always holds it.
         page.get_by_role("button", name="Month", exact=True).click()
@@ -157,6 +177,7 @@ def describe_ask_the_visitor_first():
         sam.refresh_from_db()
         assert sam.starts_at == four
         _capture(visitor, "visitor-answer", "[data-tour-answers]", public=True)
+        _guidance_shot(visitor, 3, "[data-tour-answers]")
         mail.outbox = []
         with visitor.expect_navigation():
             visitor.locator('[data-tour-answer="accept"]').click()
