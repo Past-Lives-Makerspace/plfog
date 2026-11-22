@@ -9,8 +9,8 @@ unlinked member's typed Discord handle or name (compared without a leading @, a 
 ``#1234`` tag or case). ``--apply`` leaves those people alone; ``--apply --strip-unlinked`` also takes their
 managed roles off, except from the matched ones, who may be real leaders yet to link.
 Members who should hold a role but have no linked Discord are listed once at the end.
-``--apply`` makes the changes and prints how many roles were added and removed, and how many
-calls failed. Reads the server's member list once (one request per thousand members), never one
+``--apply`` makes the changes and prints how many roles were added and removed; a change that
+still failed makes the command fail, naming how many. Reads the server's member list once (one request per thousand members), never one
 request per member. This is how the drift from before the sync gets cleaned up, and how an
 admin checks the role ids are right.
 
@@ -228,9 +228,7 @@ class Command(BaseCommand):
         if apply:
             self.stdout.write(self.style.SUCCESS(f"Added {tally.added} roles and removed {tally.removed}."))
             if tally.failed:
-                self.stdout.write(
-                    self.style.ERROR(f"{tally.failed} role changes failed; see the log, then run --apply again.")
-                )
+                raise CommandError(f"{tally.failed} role changes failed; see the log, then run --apply again.")
         elif tally.differing:
             self.stdout.write(f"Dry run: {tally.differing} members differ and nothing was changed. Run with --apply.")
         else:

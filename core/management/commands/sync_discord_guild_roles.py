@@ -1,10 +1,9 @@
-"""Reconcile Discord reaction-role memberships with the app (cron-facing).
+"""Mirror the #choose-your-guild reactions into the app and onto Discord (cron-facing). Add only.
 
-Calls :func:`membership.discord_sync.reconcile_reactions`, which reads the reaction-role
-message and keeps every ``source="discord"`` guild membership in step — adding members who
-react, and (only on a complete fetch) removing those who un-react. No-ops when Discord is
-unconfigured. Added to the 15-minute ``run_scheduled_tasks`` always-run tuple; the
-underlying ``emit``/join logic is idempotent, so re-running every tick is safe.
+Calls :func:`membership.discord_sync.reconcile_reactions`: a linked reactor joins the guild
+(``source="discord"``) and their "no Discord role" mark clears, and every reactor gets the guild
+role they lack. Un-reacting removes nothing here (#1270). No-ops when Discord is unconfigured.
+In the 15 minute ``run_scheduled_tasks`` tick; safe to re-run.
 """
 
 from __future__ import annotations
@@ -15,7 +14,7 @@ from django.core.management.base import BaseCommand
 
 
 class Command(BaseCommand):
-    help = "Reconcile Discord reaction-role memberships (add reactors, remove un-reactors)."
+    help = "Mirror the role message reactions into guild memberships and roles (add only)."
 
     def handle(self, *args: Any, **options: Any) -> None:
         from membership.discord_sync import reconcile_reactions
@@ -26,8 +25,9 @@ class Command(BaseCommand):
             return
         self.stdout.write(
             self.style.SUCCESS(
-                f"Discord guild-role sync: +{stats.added} added, -{stats.removed} removed, "
-                f"{stats.skipped_guilds} guild(s) skipped (incomplete fetch), "
+                f"Discord guild-role sync: +{stats.added} added, {stats.unmarked} unmarked, {stats.marked} marked, "
+                f"{stats.taken} roles taken, "
+                f"{stats.roles.given} roles given, {stats.roles.failed} role grants failed, "
                 f"{stats.nudged} unlinked reactor(s) nudged."
             )
         )

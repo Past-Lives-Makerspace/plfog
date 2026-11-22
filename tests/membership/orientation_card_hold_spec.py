@@ -580,6 +580,9 @@ def describe_release_unconfirmed_holds():
         declined = next(m for m in _member_mail(booking) if "about your orientation request" in m.subject.lower())
         assert "wasn't confirmed in time, so we closed it before the hold on your card ran out." in declined.body
         assert "We released the $15 hold on your card. You were not charged." in declined.body
+        (invite,) = declined.attachments
+        assert invite.get_param("method") == "CANCEL"
+        assert f"UID:orientation-{booking.pk}@pastlives" in invite.get_content()
 
     def it_leaves_a_request_still_inside_the_window():
         booking = _aged(5.9)

@@ -12,7 +12,7 @@ Your orientation is confirmed, so we charged the {{ booking.amount_paid_cents|ce
 {% elif booking.amount_paid_cents %}
 Your payment stays with this booking. Nothing was refunded or charged.
 {% endif %}
-We've attached an updated calendar invite. See you there!
+We've attached an updated calendar invite. See you there! To change or cancel, use the links in this email. Answering the calendar invite changes nothing.
 
 The {{ owner_page_label }}: {{ owner_url }}
 Can't make the new time? Cancel here: {{ cancel_url }}

@@ -48,8 +48,7 @@ FIVE = local(TUESDAY, 17)
 
 def _ics(message: Any) -> str:
     """The calendar invite attached to an email, as text."""
-    content = message.attachments[0][1]
-    return content.decode() if isinstance(content, bytes) else str(content)
+    return message.attachments[0].get_content()
 
 
 def _visitor(party: int = 2, email: str = "sam@example.com", name: str = "Sam Rivera") -> Visitor:
@@ -209,7 +208,7 @@ def describe_what_booking_sends():
         visitor_mail = [message for message in mail.outbox if message.to == ["sam@example.com"]]
         assert len(visitor_mail) == 1
         assert visitor_mail[0].subject == "Your Past Lives tour is booked: Tue, Jan 8 at 4:00 PM"
-        assert visitor_mail[0].attachments[0][0] == "tour.ics"
+        assert visitor_mail[0].attachments[0].get_filename() == "tour.ics"
         invite = _ics(visitor_mail[0])
         assert f"UID:tour-{booking.pk}@pastlives" in invite
         assert "SEQUENCE:0" in invite

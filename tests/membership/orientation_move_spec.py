@@ -74,8 +74,7 @@ def _soon(days: int = 5, hour: int = 14) -> object:
 
 
 def _ics(message: object) -> bytes:
-    _filename, content, _mime = message.attachments[0]
-    return content if isinstance(content, bytes) else content.encode()
+    return message.attachments[0].get_content().encode()
 
 
 def _paid(booking: OrientationBooking) -> OrientationBooking:

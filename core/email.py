@@ -12,8 +12,11 @@ staging box. Outside staging the policy is a no-op.
 
 from __future__ import annotations
 
+from email.message import Message, MIMEPart
+from email.utils import parseaddr
 from typing import TYPE_CHECKING
 
+import icalendar
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives, send_mail
 
@@ -24,7 +27,71 @@ if TYPE_CHECKING:
     from core.email_prefs import StopLink
 
 # An attachment as (filename, content, mimetype) — e.g. ("orientation.ics", ics_bytes, "text/calendar").
+# A text mimetype may carry parameters ("text/calendar; method=REQUEST"); see _attachment_part.
 Attachment = tuple[str, str | bytes, str]
+
+#: The name calendars show for the organizer of every invite we send (#1287).
+INVITE_ORGANIZER_NAME = "Past Lives Makerspace"
+
+
+def invite_mimetype(method: str) -> str:
+    """The Content-Type of a calendar invite attachment: ``text/calendar; method=REQUEST`` or ``CANCEL``.
+
+    Calendars act on the ``method`` parameter: it is what makes the file an invitation, so a
+    cancel removes the event and a move updates it rather than adding a second one.
+    """
+    return f"text/calendar; method={method}"
+
+
+def add_invite_parties(event: icalendar.Event, *, attendee_email: str, attendee_name: str) -> None:
+    """Add the ORGANIZER and ATTENDEE an invitation needs, so calendars apply its updates (#1287).
+
+    The organizer is the address every email goes out from (``DEFAULT_FROM_EMAIL``): Gmail
+    ignores a REQUEST or CANCEL whose organizer is not its sender. The attendee is the
+    address the email is sent to. An invite must therefore go out with the default From.
+
+    Args:
+        event: The VEVENT to add the two lines to.
+        attendee_email: The recipient's address.
+        attendee_name: The recipient's name, shown as the attendee's CN.
+    """
+    _name, sender = parseaddr(settings.DEFAULT_FROM_EMAIL)
+    organizer = icalendar.vCalAddress(f"mailto:{sender}")
+    organizer.params["cn"] = icalendar.vText(INVITE_ORGANIZER_NAME)
+    event.add("organizer", organizer)
+    attendee = icalendar.vCalAddress(f"mailto:{attendee_email}")
+    attendee.params["cn"] = icalendar.vText(attendee_name)
+    attendee.params["role"] = icalendar.vText("REQ-PARTICIPANT")
+    attendee.params["rsvp"] = icalendar.vText("FALSE")
+    event.add("attendee", attendee)
+
+
+def _attachment_part(filename: str, content: str | bytes, mimetype: str) -> MIMEPart | None:
+    """A text attachment whose mimetype carries parameters, as a MIME part; None for any other.
+
+    Django's ``attach(filename, content, mimetype)`` and anymail's Resend backend both expect
+    a bare ``type/subtype`` (anymail rejects any other against the file extension), so a
+    ``method=`` parameter would be lost or refused. A MIME part keeps the whole Content-Type
+    header, and anymail hands that header to Resend as the attachment's ``content_type``.
+    """
+    header = Message()
+    header["Content-Type"] = mimetype
+    params = dict((header.get_params() or [])[1:])
+    if header.get_content_maintype() != "text" or not params:
+        return None
+    # As bytes, so the part goes out base64 and byte exact: a str would have its CRLF line
+    # endings turned into LF, which iCalendar (RFC 5545) does not allow.
+    data = content.encode() if isinstance(content, str) else content
+    part = MIMEPart()
+    part.set_content(
+        data,
+        "text",
+        header.get_content_subtype(),
+        disposition="attachment",
+        filename=filename,
+        params={"charset": "utf-8", **params},
+    )
+    return part
 
 
 def _deliver(
@@ -68,7 +135,11 @@ def _deliver(
     if html_body:
         message.attach_alternative(html_body, "text/html")
     for filename, content, mimetype in attachments or []:
-        message.attach(filename, content, mimetype)
+        part = _attachment_part(filename, content, mimetype)
+        if part is not None:
+            message.attach(part)
+        else:
+            message.attach(filename, content, mimetype)
     message.send()
 
 
