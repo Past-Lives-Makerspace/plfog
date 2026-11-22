@@ -304,11 +304,6 @@ class MembershipPlan(models.Model):
 # ---------------------------------------------------------------------------
 
 
-def _known_choice_or_blank(choices: type[models.TextChoices], value: str) -> str:
-    """``value`` as a member of ``choices``, or "" when blank; an unknown value raises ``ValueError``."""
-    return choices(value) if value else ""
-
-
 class MemberQuerySet(models.QuerySet):
     def active(self) -> MemberQuerySet:
         return self.filter(status=Member.Status.ACTIVE)
@@ -405,68 +400,6 @@ class MemberQuerySet(models.QuerySet):
     def paying(self) -> MemberQuerySet:
         """Only standard members count as paying."""
         return self.filter(member_type=Member.MemberType.STANDARD)
-
-    def awaiting_teaching_decision(self) -> MemberQuerySet:
-        """Active members whose teaching application is still waiting on an admin.
-
-        The DB-level mirror of :attr:`Member.teaching_application_state` == PENDING:
-        applied, not yet granted teaching access, and not sitting on a decline. Ordered
-        oldest first so the admin queue answers the longest wait before the newest ask.
-        """
-        return (
-            self.filter(
-                status=Member.Status.ACTIVE,
-                instructor_oriented_at__isnull=True,
-                teaching_applied_at__isnull=False,
-            )
-            .exclude(teaching_decided_at__isnull=False, teaching_decline_reason__gt="")
-            .order_by("teaching_applied_at")
-        )
-
-    def teaching_inquiries(
-        self, *, applied_from: date_type | None = None, applied_to: date_type | None = None
-    ) -> MemberQuerySet:
-        """Every member who has asked to teach, pending or decided, newest ask first.
-
-        The Instructor Inquiries page and its CSV read this. Only the latest ask per member
-        exists (``apply_to_teach`` overwrites ``teaching_applied_at``). The bounds are local
-        calendar days and both are inclusive.
-        """
-        inquiries = self.filter(teaching_applied_at__isnull=False)
-        if applied_from is not None:
-            inquiries = inquiries.filter(teaching_applied_at__date__gte=applied_from)
-        if applied_to is not None:
-            inquiries = inquiries.filter(teaching_applied_at__date__lte=applied_to)
-        return inquiries.order_by("-teaching_applied_at")
-
-    def in_teaching_state(self, state: Member.TeachingApplicationState) -> MemberQuerySet:
-        """Members whose :attr:`Member.teaching_application_state` is ``state``, decided in SQL.
-
-        Mirrors the property's resolution order: the teaching unlock wins, a decline needs
-        both a reason and a decision stamp, and an application stamp otherwise means pending.
-        """
-        states = Member.TeachingApplicationState
-        declined = Q(teaching_decided_at__isnull=False, teaching_decline_reason__gt="")
-        locked = Q(instructor_oriented_at__isnull=True)
-        conditions = {
-            states.APPROVED: Q(instructor_oriented_at__isnull=False),
-            states.DECLINED: locked & declined,
-            states.PENDING: locked & ~declined & Q(teaching_applied_at__isnull=False),
-            states.NONE: locked & ~declined & Q(teaching_applied_at__isnull=True),
-        }
-        return self.filter(conditions[state])
-
-    def free_to_ask_to_teach(self) -> MemberQuerySet:
-        """Members ``apply_to_teach`` would take: active, unable to teach and with no ask pending.
-
-        A member who never asked and one who was declined both qualify, as on the page
-        behind I'm Interested. The admin's Add Inquiry picker lists these (#794).
-        """
-        states = Member.TeachingApplicationState
-        return self.active().filter(
-            Q(pk__in=self.in_teaching_state(states.NONE).values("pk"))
-            | Q(pk__in=self.in_teaching_state(states.DECLINED).values("pk"))
-        )
 
     def instructors(self) -> MemberQuerySet:
         """Every active instructor: approved to teach, listed on any class, or holding an instructor page.
@@ -682,7 +615,7 @@ class OnboardingChecklist:
     complete: bool
 
 
-class Member(StaffRequestMixin, models.Model):
+class Member(models.Model):
     # Queryset annotation (set by MemberQuerySet.with_lease_totals)
     total_monthly_rent: Decimal
     # Queryset annotations (set by MemberQuerySet.with_email_status)
@@ -710,19 +643,8 @@ class Member(StaffRequestMixin, models.Model):
         MEMBER = "member", "Member"
         ADMIN = "admin", "Admin"
 
-    class TeachingApplicationState(models.TextChoices):
-        """Where a member stands with the teaching portal (labels only; no field stores this).
-
-        Derived from the four ``teaching_*`` fields plus the teaching unlock by
-        :attr:`Member.teaching_application_state` — the single source the marketing
-        page, the sidebar copy, and the admin queue all read.
-        """
-
-        NONE = "none", "Not applied"
-        PENDING = "pending", "Waiting on an admin"
-        APPROVED = "approved", "Approved"
-        DECLINED = "declined", "Declined"
-
+    # TeachingContactMethod to TeachingAvailability are the retired application's choices: their
+    # columns stay one release (#1295), so they stay with them.
     class TeachingContactMethod(models.TextChoices):
         """How a member asked to be reached about their teaching application.
 
@@ -776,28 +698,6 @@ class Member(StaffRequestMixin, models.Model):
         WEEKDAY_DAYTIME = "weekday_daytime", "Weekday daytime"
         WEEKDAY_EVENINGS = "weekday_evenings", "Weekday evenings"
         WEEKENDS = "weekends", "Weekends"
-
-    # Every answer a teaching application stores, in the order the application page asks
-    # them. ``apply_to_teach`` overwrites all of them and the demo reset clears all of them,
-    # so a new question added here is kept and cleared the same way as the rest.
-    TEACHING_ANSWER_FIELDS: ClassVar[tuple[str, ...]] = (
-        "teaching_class_title",
-        "teaching_application_note",
-        "teaching_class_format",
-        "teaching_shop_area",
-        "teaching_practice_years",
-        "teaching_experience",
-        "teaching_taught_where",
-        "teaching_certifications",
-        "teaching_space_needs",
-        "teaching_class_size",
-        "teaching_availability",
-        "teaching_website",
-        "teaching_socials",
-        "teaching_contact_method",
-        "teaching_contact_detail",
-        "teaching_anything_else",
-    )
 
     class EmailGap(models.TextChoices):
         """Why a member has no usable email (labels only; no field stores this).
@@ -1084,6 +984,10 @@ class Member(StaffRequestMixin, models.Model):
             "Cleared when an admin revokes access."
         ),
     )
+    # The teaching application's columns, from teaching_applied_at to teaching_decline_reason, and
+    # the Teaching* choices above them: nothing reads or writes them since teaching became self
+    # serve (#1295). They stay one release (STANDARDS 10); a later release drops them
+    # (membership/AGENTS.md, Owed #1295).
     teaching_applied_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -1241,14 +1145,6 @@ class Member(StaffRequestMixin, models.Model):
     )
 
     MAX_SKILLS = 15
-
-    #: The bell rows a decision clears (#894 part 3, :class:`core.models.StaffRequestMixin`).
-    REQUEST_EVENT_KEYS: ClassVar[tuple[str, ...]] = ("instructor_application_received",)
-
-    @property
-    def request_bell_path(self) -> str:
-        """This member's row in the admin queue's teaching applications: the admins' bell link."""
-        return f"{reverse('classes:admin_overview')}#applicant-{self.pk}"
 
     def __str__(self) -> str:
         return self.display_name
@@ -2094,372 +1990,44 @@ class Member(StaffRequestMixin, models.Model):
         """
         return self.instructor_oriented_at is not None
 
-    @property
-    def teaching_application_state(self) -> "Member.TeachingApplicationState":
-        """Where this member stands with the teaching portal — the single source of truth.
-
-        Resolution order matters. ``can_create_classes`` wins first, so every
-        grandfathered instructor (granted long before applications existed, with no
-        application row at all) reads APPROVED rather than "never applied". A decline
-        needs BOTH a reason and a decision stamp, so a half-written row can never mask
-        a live application. Otherwise an application stamp means PENDING, and a member
-        who never asked reads NONE.
-        """
-        states = self.TeachingApplicationState
-        if self.can_create_classes:
-            return states.APPROVED
-        if self.teaching_decline_reason and self.teaching_decided_at is not None:
-            return states.DECLINED
-        if self.teaching_applied_at is not None:
-            return states.PENDING
-        return states.NONE
-
-    @property
-    def teaching_contact_method_label(self) -> str:
-        """The contact method as lower case prose ("text message"), or "" when never asked.
-
-        The notification to the admins and the queue row both say "Contact them at
-        503 555 0100 (text message)"; an application filed before the question existed
-        has no method and reads as "".
-        """
-        if not self.teaching_contact_method:
-            return ""
-        return str(self.TeachingContactMethod(self.teaching_contact_method).label).lower()
-
-    @property
-    def teaching_contact_summary(self) -> str:
-        """Where to reach an applicant, as the Instructor Inquiries page and CSV show it.
-
-        "503 555 0100 (text message)"; the bare detail when no method was asked.
-        """
-        method = self.teaching_contact_method_label
-        return f"{self.teaching_contact_detail} ({method})" if method else self.teaching_contact_detail
-
-    @property
-    def teaching_availability_display(self) -> str:
-        """When the member could usually teach, as words ("Weekday evenings, Weekends"); "" when never asked."""
-        labels = dict(self.TeachingAvailability.choices)
-        # A value no longer in the choices shows as stored rather than taking the page down.
-        return ", ".join(str(labels.get(value, value)) for value in self.teaching_availability)
-
-    def clear_teaching_answers(self) -> None:
-        """Blank every answer in :attr:`TEACHING_ANSWER_FIELDS`, in memory; the caller saves."""
-        for name in self.TEACHING_ANSWER_FIELDS:
-            field = self._meta.get_field(name)
-            assert isinstance(field, models.Field)  # every answer is a concrete column
-            setattr(self, name, field.get_default())
-
-    def _teaching_contact_method(self, method: str, detail: str, *, may_be_unknown: bool) -> str:
-        """The checked contact method for ``apply_to_teach``; ``detail`` is already stripped.
-
-        Both are required, except that an ask an admin files by hand (``may_be_unknown``)
-        may leave both blank. One without the other is never kept.
-        """
-        if not (may_be_unknown and not method and not detail):
-            if not method:
-                raise ValueError("A teaching application needs to say how the member wants to be reached")
-            if not detail:
-                raise ValueError("A teaching application needs an email address or phone number to reach the member at")
-        return _known_choice_or_blank(self.TeachingContactMethod, method)
-
-    def apply_to_teach(
-        self,
-        note: str,
-        *,
-        contact_method: str,
-        contact_detail: str,
-        website: str = "",
-        socials: str = "",
-        experience: str = "",
-        class_title: str = "",
-        class_format: str = "",
-        shop_area: str = "",
-        practice_years: str = "",
-        taught_where: str = "",
-        certifications: str = "",
-        space_needs: str = "",
-        class_size: str = "",
-        availability: Sequence[str] = (),
-        anything_else: str = "",
-        applied_at: datetime_type | None = None,
-        added_by: User | None = None,
-    ) -> None:
-        """Record this member's ask to teach and put it in front of the admins.
-
-        Teaching is not self-service: this only files the request. An admin turns the
-        Instructor permission on (``grant_teaching``) to actually open the portal.
-        Re-applying after a decline is deliberate and clears the old decline, so the
-        member is back in the queue with a clean slate rather than reading a stale no.
-        Every answer in :attr:`TEACHING_ANSWER_FIELDS` is overwritten, so an answer
-        left out of a new application reads blank rather than carrying the old one.
-
-        The keyword answers are what :meth:`classes.forms.TeachingApplicationForm.answers`
-        returns, so a caller with a valid form passes ``**form.answers()``. Which answers
-        are required, and the rules between them (where they taught only past a first
-        timer, a website only on yes), are the form's; this checks only what would
-        corrupt the record.
-
-        Args:
-            note: What they want to teach, in their own words. Required.
-            contact_method: A :class:`TeachingContactMethod` value: how they want to be
-                reached. Required.
-            contact_detail: The email address or phone number for that method, stored
-                as typed. Required; the form has already checked its shape.
-            website: The member's website, already checked by the form. Optional.
-            socials: Social handles or links, as typed. Optional.
-            experience: A :class:`TeachingExperience` value. The form requires it; blank
-                is kept for callers that file an application without the question.
-            class_title: The class's working title.
-            class_format: A :class:`TeachingClassFormat` value, or blank.
-            shop_area: Which shop or area the class uses, as typed.
-            practice_years: A :class:`TeachingPracticeYears` value, or blank.
-            taught_where: Where they have taught before, as typed.
-            certifications: Relevant certifications or safety training, as typed.
-            space_needs: Equipment or space at Past Lives the class needs, as typed.
-            class_size: A :class:`TeachingClassSize` value, or blank.
-            availability: :class:`TeachingAvailability` values, any number.
-            anything_else: Anything else for the admin, as typed.
-            applied_at: When they asked. Defaults to now; never in the future.
-            added_by: The admin who filed this ask by hand for a member who reached out
-                by email or in person (#794, Add Inquiry). The ask is recorded exactly as
-                the member's own, but the activity row is ``TEACHING_INQUIRY_ADDED`` with
-                this admin as its actor, no ``instructor_application_received`` notice
-                goes out (the admin already knows), and the contact answers may both be
-                blank, because the admin may not know how the member wants to be reached.
-
-        Raises:
-            ValueError: If the member is not ACTIVE, if ``note`` is blank, if
-                ``contact_method`` or ``contact_detail`` is blank (both may be blank for
-                an ``added_by`` ask, never just one), if a choice answer is not a known
-                choice, if ``website`` is not an http or https address, if
-                ``applied_at`` is in the future, or if they already have an application
-                waiting on an admin or can already teach.
-        """
-        from core.events.emit import emit
-        from core.models import SiteActivity
-
-        if self.status != self.Status.ACTIVE:
-            raise ValueError(f"Member {self.pk} is not active and cannot apply to teach")
-        note = note.strip()
-        if not note:
-            raise ValueError("A teaching application needs a note saying what they want to teach")
-        contact_detail = contact_detail.strip()
-        method = self._teaching_contact_method(contact_method, contact_detail, may_be_unknown=added_by is not None)
-        now = timezone.now()
-        if applied_at is not None and applied_at > now:
-            raise ValueError("A teaching application cannot be dated in the future")
-        experience = _known_choice_or_blank(self.TeachingExperience, experience)
-        class_format = _known_choice_or_blank(self.TeachingClassFormat, class_format)
-        practice_years = _known_choice_or_blank(self.TeachingPracticeYears, practice_years)
-        class_size = _known_choice_or_blank(self.TeachingClassSize, class_size)
-        # Dedupe keeping order, so a repeated pick is stored once.
-        slots = list(dict.fromkeys(str(self.TeachingAvailability(value).value) for value in availability))
-        website = website.strip()
-        if website:
-            # Only http and https, whoever calls this: the address becomes a link on the admin pages.
-            try:
-                URLValidator(schemes=["http", "https"])(website)
-            except ValidationError as error:
-                raise ValueError(f"Not a web address: {website!r}") from error
-        if self.teaching_application_state == self.TeachingApplicationState.PENDING:
-            raise ValueError(f"Member {self.pk} already has a teaching application waiting on an admin")
-        if self.can_create_classes:
-            # The page never offers the button to an instructor; this is the crafted POST
-            # backstop, so an approved member cannot ping the admins about an empty queue.
-            raise ValueError(f"Member {self.pk} can already teach and has nothing to apply for")
-        answers: dict[str, object] = {
-            "teaching_class_title": class_title.strip(),
-            "teaching_application_note": note,
-            "teaching_class_format": class_format,
-            "teaching_shop_area": shop_area.strip(),
-            "teaching_practice_years": practice_years,
-            "teaching_experience": experience,
-            "teaching_taught_where": taught_where.strip(),
-            "teaching_certifications": certifications.strip(),
-            "teaching_space_needs": space_needs.strip(),
-            "teaching_class_size": class_size,
-            "teaching_availability": slots,
-            "teaching_website": website,
-            "teaching_socials": socials.strip(),
-            "teaching_contact_method": method,
-            "teaching_contact_detail": contact_detail,
-            "teaching_anything_else": anything_else.strip(),
-        }
-        for field, value in answers.items():
-            setattr(self, field, value)
-        self.teaching_applied_at = applied_at or now
-        self.teaching_decided_at = None
-        self.teaching_decline_reason = ""
-        self.save(
-            update_fields=[
-                "teaching_applied_at",
-                *self.TEACHING_ANSWER_FIELDS,
-                "teaching_decided_at",
-                "teaching_decline_reason",
-            ]
-        )
-        if added_by is not None:
-            SiteActivity.log(
-                SiteActivity.Kind.TEACHING_INQUIRY_ADDED,
-                actor=added_by,
-                target=self,
-                payload={
-                    "member": self.staff_label,
-                    "reached_out_on": timezone.localdate(self.teaching_applied_at).isoformat(),
-                },
-            )
-            return
-        SiteActivity.log(SiteActivity.Kind.TEACHING_APPLIED, actor=self.user, target=self)
-        review_url = self._teaching_review_url()
-        emit(
-            "instructor_application_received",
-            actor=self.user,
-            target=self,
-            context={
-                "member_name": self.staff_label,
-                "application_note": note,
-                "contact_method": self.teaching_contact_method_label,
-                "contact_detail": contact_detail,
-                "review_url": review_url,
-            },
-            url=review_url,
-            period=f"member:{self.pk}:teaching_application:{self.teaching_applied_at.isoformat()}",
-        )
-
-    def decline_teaching(self, *, decided_by: "Member | None", reason: str) -> None:
-        """Turn down a teaching application, with a reason the member will read.
-
-        Leaves ``teaching_applied_at`` in place as the historical record of when they
-        asked; the reason plus the decision stamp are what move them to DECLINED. They
-        may apply again whenever they like.
-
-        Only a PENDING application can be declined. Declining anyone else is nonsense
-        the UI never offers: an instructor would stay APPROVED (``can_create_classes``
-        resolves first) and a member who never asked would be emailed a reply to a
-        question they never posed. A crafted POST gets the ``ValueError`` instead.
-
-        Args:
-            decided_by: The admin deciding, or ``None`` for a superuser with no linked
-                Member (the activity row is then system-attributed).
-            reason: Why. Required, and shown to the member verbatim.
-
-        Raises:
-            ValueError: If ``reason`` is blank, or if there is no application waiting.
-        """
-        from core.events.emit import emit
-        from core.models import SiteActivity
-
-        reason = reason.strip()
-        if not reason:
-            raise ValueError("A declined teaching application needs a reason the member can read")
-        if self.teaching_application_state != self.TeachingApplicationState.PENDING:
-            raise ValueError(f"Member {self.pk} has no teaching application waiting on a decision")
-        self.teaching_decided_at = timezone.now()
-        self.teaching_decline_reason = reason[:300]
-        self.save(update_fields=["teaching_decided_at", "teaching_decline_reason"])
-        self.clear_request_bells()
-        SiteActivity.log(
-            SiteActivity.Kind.TEACHING_APPLICATION_DECLINED,
-            actor=decided_by.user if decided_by is not None else None,
-            target=self,
-        )
-        why_url = self._teaching_why_url()
-        emit(
-            "instructor_application_declined",
-            actor=decided_by.user if decided_by is not None else None,
-            target=self,
-            context={
-                "user": self.user,
-                "member_name": self.display_name,
-                "decline_reason": self.teaching_decline_reason,
-                "teach_url": why_url,
-            },
-            url=why_url,
-            period=f"member:{self.pk}:teaching_declined:{self.teaching_decided_at.isoformat()}",
-        )
-
-    def _teaching_review_url(self) -> str:
-        """Absolute URL of the admin queue where a teaching application is decided."""
-        base = settings.MEMBER_BASE_URL.rstrip("/")
-        return f"{base}{self.request_bell_path}"
-
-    def _teaching_why_url(self) -> str:
-        """Absolute URL of the Teach at Past Lives page — where the member reads their state."""
-        base = settings.MEMBER_BASE_URL.rstrip("/")
-        return f"{base}{reverse('classes:teach_why')}"
-
-    def _teaching_portal_url(self) -> str:
-        """Absolute URL of the teaching portal, the approved member's next step."""
-        base = settings.MEMBER_BASE_URL.rstrip("/")
-        return f"{base}{reverse('classes:teach_overview')}"
-
     def grant_teaching(self, *, granted_by: "Member | None") -> None:
-        """Admin override: unlock the teaching portal for this member.
+        """Unlock the teaching portal for this member.
 
-        Idempotent — granting an already-unlocked member is a no-op (no duplicate
+        Idempotent: granting an already-unlocked member is a no-op (no duplicate
         activity row, original timestamp kept). ``granted_by=None`` covers a
-        superuser acting without a linked Member (emergency access) — the
-        activity row is then system-attributed.
-
-        Closes out any teaching application at the same time: the decision is stamped
-        and a previous decline is cleared. The "you can teach now" email goes out ONLY
-        when there is an application to answer, so an admin handing access to someone
-        who never asked does not send them a reply to a question they never posed.
+        superuser acting without a linked Member (emergency access); the
+        activity row is then system-attributed. The email that says what teaching
+        opens is :meth:`grant_instructor`'s, through ``permission_grants.record``.
         """
-        from core.events.emit import emit
         from core.models import SiteActivity
 
         if self.instructor_oriented_at is not None:
             return
-        answering_an_application = self.teaching_applied_at is not None
         self.instructor_oriented_at = timezone.now()
-        self.teaching_decided_at = timezone.now()
-        self.teaching_decline_reason = ""
-        self.save(update_fields=["instructor_oriented_at", "teaching_decided_at", "teaching_decline_reason"])
+        self.save(update_fields=["instructor_oriented_at"])
         self.reconcile_discord_roles()
-        self.clear_request_bells()
         SiteActivity.log(
             SiteActivity.Kind.TEACHING_GRANTED,
             actor=granted_by.user if granted_by is not None else None,
             target=self,
         )
         self._turn_on_instructor_emails(granted_by.user if granted_by is not None else None)
-        if not answering_an_application:
-            return
-        portal_url = self._teaching_portal_url()
-        emit(
-            "instructor_application_approved",
-            actor=granted_by.user if granted_by is not None else None,
-            target=self,
-            context={
-                "user": self.user,
-                "member_name": self.display_name,
-                "portal_url": portal_url,
-            },
-            url=portal_url,
-            period=f"member:{self.pk}:teaching_approved:{self.instructor_oriented_at.isoformat()}",
-        )
 
     def revoke_teaching(self, *, revoked_by: "Member | None") -> None:
         """Admin override: lock the teaching portal for this member.
 
-        Existing classes are untouched — drafts, pending, and published offerings
+        Existing classes are untouched: drafts, pending, and published offerings
         keep their status, registrations, and emails; the member simply can't enter
-        the teach portal or create new classes until re-unlocked. The one road back is
-        an admin grant. Idempotent — revoking an already-locked member is a no-op (no log).
-
-        Clears ``teaching_applied_at`` so the member reads "not applied" and can ask
-        again; without that they would sit forever on a "your application is in" page
-        for an application that was already answered. The note is deliberately kept as
-        the historical record of what they once asked for.
+        the teach portal or create new classes until it is on again, by an admin or by
+        the member themself on Host a Class (:meth:`become_instructor`, #1295).
+        Idempotent: revoking an already-locked member is a no-op (no log).
         """
         from core.models import SiteActivity
 
         if self.instructor_oriented_at is None:
             return
         self.instructor_oriented_at = None
-        self.teaching_applied_at = None
-        self.save(update_fields=["instructor_oriented_at", "teaching_applied_at"])
+        self.save(update_fields=["instructor_oriented_at"])
         self.reconcile_discord_roles()
         PermissionSetup.withdraw(self, [AdminCapability.INSTRUCTOR])  # the Instructor badge goes with it (#1167)
         SiteActivity.log(
@@ -2514,37 +2082,73 @@ class Member(StaffRequestMixin, models.Model):
         "Turning it off removes both (existing classes are untouched)."
     )
 
-    def grant_instructor(self, *, granted_by: "Member | None") -> None:
+    def grant_instructor(self, *, granted_by: "Member | None", self_serve: bool = False) -> None:
         """Make this member a public instructor: a bio page (``instructor_slug``) + teaching access.
 
         The single "Instructor" permission unifies the two grants. Mints a unique slug from
         their name if they don't already have one (the public instructor page), then unlocks
         the teaching portal via :meth:`grant_teaching`. Idempotent. A member who already
-        completed the instructor orientation just gains the bio page — and that page going live
+        completed the instructor orientation just gains the bio page, and that page going live
         is still audited: ``grant_teaching`` no-ops when teaching was already unlocked, so the
         slug mint logs its own ``SiteActivity`` here rather than going unrecorded.
 
-        Someone else turning it on emails the member what it does (#1163), unless the grant
-        answers their teaching application, whose own approval email already says so.
+        Turning it on emails the member what it does (#1163). ``self_serve`` is the member
+        choosing it themself on Host a Class (#1295, :meth:`become_instructor`), which sends that
+        email too, worded as their own doing; a grant from their own edit page or View As sends none.
         """
         from core.models import SiteActivity
         from membership.permission_grants import record
 
         already_teaching = self.instructor_oriented_at is not None
-        # Answering an application already sends "you can teach now"; a second email would repeat it.
-        answers_application = not already_teaching and self.teaching_applied_at is not None
         was_instructor = already_teaching and self.is_instructor
         minted = self.ensure_instructor_slug()
         self.grant_teaching(granted_by=granted_by)  # logs TEACHING_GRANTED unless already unlocked
-        if not was_instructor and not answers_application:
-            record(self, [AdminCapability.INSTRUCTOR], granted_by=granted_by.user if granted_by is not None else None)
+        if not was_instructor:
+            record(
+                self,
+                [AdminCapability.INSTRUCTOR],
+                granted_by=granted_by.user if granted_by is not None else None,
+                self_serve=self_serve,
+            )
         if minted and already_teaching:
-            # The teaching half no-op'd, but the public page just went live — record it.
+            # The teaching half no-op'd, but the public page just went live; record it.
             SiteActivity.log(
                 SiteActivity.Kind.TEACHING_GRANTED,
                 actor=granted_by.user if granted_by is not None else None,
                 target=self,
             )
+
+    def become_instructor(self) -> bool:
+        """Turn teaching on for this member themself, the confirm at the end of Host a Class's tutorial (#1295).
+
+        Self serve like Become a Tour Guide (#1278): an active member only (a guest or a lapsed
+        member raises), and one whose teaching an admin turned off may turn it on again. The grant
+        goes through :meth:`grant_instructor` with the member as granter, so the public page, the
+        grant email (worded as their own doing), the Discord Instructors role and the instructor
+        emails follow as they do for an admin's grant. Admins hear nothing; the Activity Log gets
+        "Made themselves an Instructor". The member row is locked first, so a second press sends
+        nothing twice. Every class they make still goes through class review.
+
+        Returns:
+            True when this turned teaching on; False when they could already teach, and nothing changed.
+
+        Raises:
+            ValueError: The member is not active.
+        """
+        from core.models import SiteActivity
+
+        with transaction.atomic():
+            locked = Member.objects.select_for_update().get(pk=self.pk)
+            if locked.status != self.Status.ACTIVE:
+                raise ValueError(f"Member {self.pk} is not active and cannot become an instructor")
+            if locked.can_create_classes:
+                self.instructor_oriented_at = locked.instructor_oriented_at
+                return False
+            locked.grant_instructor(granted_by=locked, self_serve=True)
+            SiteActivity.log(SiteActivity.Kind.INSTRUCTOR_SELF_SERVE, actor=locked.user, target=locked)
+        self.instructor_oriented_at = locked.instructor_oriented_at
+        self.instructor_slug = locked.instructor_slug
+        return True
 
     def revoke_instructor(self, *, revoked_by: "Member | None") -> None:
         """Remove the instructor permission: clears the public bio page AND locks teaching.
@@ -2730,7 +2334,6 @@ class Member(StaffRequestMixin, models.Model):
 
             record(self, [AdminCapability.ADMIN_ROLE], granted_by=granted_by)
         if unlocked_via_promotion:
-            self.clear_request_bells()
             from core.models import SiteActivity
 
             # System-attributed row (actor=None) — the method has no actor parameter.
@@ -2945,11 +2548,6 @@ class Member(StaffRequestMixin, models.Model):
 
             member = self
             transaction.on_commit(lambda: orientations.retire_stale_orientor_hours(member=member), robust=True)
-        if left_active and writes_status and self.teaching_applied_at is not None:
-            # Only an active member's application waits on an admin (awaiting_teaching_decision),
-            # so one who leaves ACTIVE no longer asks in the admins' bell. Only on that change:
-            # an ordinary save costs no query.
-            self.clear_request_bells()
         self._sync_directory_if_renamed(kwargs.get("update_fields"))
 
     #: The fields the Discord leadership directory post reads for a person (#1149): the name, the

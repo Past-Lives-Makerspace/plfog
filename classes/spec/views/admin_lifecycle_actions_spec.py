@@ -201,9 +201,8 @@ def describe_admin_overview_queue():
         assert "Needs Attention · all clear" in html
         assert "Waiting on You" not in html
         assert "With Guild Leads" not in html
-        # The anchor admins are mailed, and the admin tour's target, both have to resolve
-        # even with nothing waiting — which is why they fall back to the wrapper.
-        assert html.count('id="teaching-applications"') == 1
+        # The admin tour's target has to resolve even with nothing waiting, so it sits on the wrapper.
+        assert 'id="teaching-applications"' not in html  # the retired queue's anchor (#1295)
         assert html.count('data-help-key="admin.review-queue"') == 1
 
     def it_offers_review_it_yourself_for_a_leadless_guild(admin_user, client, db):

@@ -1,5 +1,5 @@
 /*
- * Download a chart as a PNG (the Instructor Inquiries Board Report, #690, and Growth, #795).
+ * Download a chart as a PNG (Growth, #795; first made for the retired Instructor Inquiries Board Report, #690).
  *
  * A [data-chart-download="<filename>"] button inside a [data-chart] figure draws that
  * figure's inline svg onto a white canvas at three times its size and saves it. The svg's own

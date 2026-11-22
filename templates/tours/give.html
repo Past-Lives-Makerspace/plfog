@@ -13,12 +13,13 @@ in hub.css): a hero, What You Get, How It Works, Getting Paid, What We Ask Of Yo
 the card that starts the tutorial. The copy is written from the Tour Guide Guide wiki page and says only
 what the app does.
 
-The tutorial opens in that last card: one step per Guide section, the compose wizard's step pills
-(.pl-wizard-nav) and actions row. Become a Tour Guide shows on the last step alone, after Back; it posts to
-tours:become_guide, which grants Tour Guide and lands on My Hours with a toast. A Tour Guide or admin
-(is_guide) sees Open My Hours there instead, and Go to Tours in the hero.
+The tutorial opens in that last card: one step per Guide section (tours.views.GIVE_TOURS_TUTORIAL), drawn
+by the shared hub/partials/_tutorial.html that Host a Class uses too (#1295). Become a Tour Guide shows on
+the last step alone, after Back; it posts to tours:become_guide, which grants Tour Guide and lands on My
+Hours with a toast. A Tour Guide or admin (is_guide) sees Open My Hours there instead, and Go to Tours in
+the hero.
 
-Context: is_guide.
+Context: is_guide, tutorial_steps.
 {% endcomment %}
 <div class="pl-teach pl-give" x-data="{ tutorial: false, step: 1, open(n) { this.tutorial = true; this.step = n; this.$nextTick(() => this.$refs.tutorial.scrollIntoView({ behavior: 'smooth', block: 'start' })); } }">
 
@@ -178,93 +179,8 @@ Context: is_guide.
             {% endif %}
         </div>
 
-        <div class="pl-wizard pl-give-tutorial" x-show="tutorial" x-cloak data-give-tutorial>
-            <ol class="pl-wizard-nav" aria-label="Tutorial steps">
-                <li class="pl-wizard-nav__step" :class="{ 'is-active': step === 1, 'is-done': step > 1 }" :aria-current="step === 1 ? 'step' : null"><span class="pl-wizard-nav__n">1</span><span class="pl-give-pill__label">Setting Up</span></li>
-                <li class="pl-wizard-nav__step" :class="{ 'is-active': step === 2, 'is-done': step > 2 }" :aria-current="step === 2 ? 'step' : null"><span class="pl-wizard-nav__n">2</span><span class="pl-give-pill__label">When Someone Books</span></li>
-                <li class="pl-wizard-nav__step" :class="{ 'is-active': step === 3, 'is-done': step > 3 }" :aria-current="step === 3 ? 'step' : null"><span class="pl-wizard-nav__n">3</span><span class="pl-give-pill__label">A Tour Day</span></li>
-                <li class="pl-wizard-nav__step" :class="{ 'is-active': step === 4, 'is-done': step > 4 }" :aria-current="step === 4 ? 'step' : null"><span class="pl-wizard-nav__n">4</span><span class="pl-give-pill__label">The Lobby Kiosk</span></li>
-                <li class="pl-wizard-nav__step" :class="{ 'is-active': step === 5 }" :aria-current="step === 5 ? 'step' : null"><span class="pl-wizard-nav__n">5</span><span class="pl-give-pill__label">Getting Paid</span></li>
-            </ol>
-
-            <div class="pl-wizard-step pl-give-step" x-show="step === 1" data-give-step="1">
-                <p class="pl-give-step__count">Step 1 of 5</p>
-                <h3 class="pl-give-step__title">Setting Up</h3>
-                <div class="pl-md">
-                    <ul>
-                        <li>On My Hours, set the times you can give tours: Every Week for hours that repeat, or Available On for dates you pick.</li>
-                        <li>Each window is carved into back to back tours of the length you choose, each with 1 to 50 seats.</li>
-                        <li>Add Days Off for when you are away. Your hours offer nothing on those days, and tours already booked stay booked.</li>
-                        <li>Connect your Google Calendar on My Hours if you use one. Your tours land on it, and times it shows you busy are not offered to visitors.</li>
-                        <li>The Calendar tab shows every guide's hours. Days With No Tour Hours lists the days nobody covers yet, and Add My Hours fills one.</li>
-                    </ul>
-                </div>
-            </div>
-
-            <div class="pl-wizard-step pl-give-step" x-show="step === 2" x-cloak data-give-step="2">
-                <p class="pl-give-step__count">Step 2 of 5</p>
-                <h3 class="pl-give-step__title">When Someone Books</h3>
-                <div class="pl-md">
-                    <ul>
-                        <li>Visitors book an open time inside your hours online at tours.pastlives.space, or at the kiosk in the lobby.</li>
-                        <li>You get an email, a bell and a push for each booking, and an email and a bell when a visitor moves or cancels.</li>
-                        <li>To confirm or decline each booking yourself, pick Confirm First under Confirming Bookings on My Hours.</li>
-                        <li>Reschedule or cancel from the Upcoming tab: press the ... on the tour for Edit Guide or Time, or Cancel Tour. The visitor is emailed, with your note if you add one.</li>
-                    </ul>
-                </div>
-            </div>
-
-            <div class="pl-wizard-step pl-give-step" x-show="step === 3" x-cloak data-give-step="3">
-                <p class="pl-give-step__count">Step 3 of 5</p>
-                <h3 class="pl-give-step__title">A Tour Day</h3>
-                <div class="pl-md">
-                    <ul>
-                        <li>Visitors who booked a day or more ahead get a reminder email 24 hours before the tour.</li>
-                        <li>Meet them in the lobby. When they check in at the kiosk you get a bell and a push that says "Your 10:00 tour is here".</li>
-                        <li>Afterwards, mark the tour Attended or No Show on the Past tab.</li>
-                    </ul>
-                </div>
-            </div>
-
-            <div class="pl-wizard-step pl-give-step" x-show="step === 4" x-cloak data-give-step="4">
-                <p class="pl-give-step__count">Step 4 of 5</p>
-                <h3 class="pl-give-step__title">The Lobby Kiosk</h3>
-                <div class="pl-md">
-                    <ul>
-                        <li>The screen in the lobby has two buttons, I Booked a Tour and Schedule a Tour.</li>
-                        <li>Visitors check in with the email they booked with or their name, and the kiosk tells them you will be right with them.</li>
-                        <li>Walk ins can book an open time right there.</li>
-                    </ul>
-                </div>
-            </div>
-
-            <div class="pl-wizard-step pl-give-step" x-show="step === 5" x-cloak data-give-step="5">
-                <p class="pl-give-step__count">Step 5 of 5</p>
-                <h3 class="pl-give-step__title">Getting Paid</h3>
-                <div class="pl-md">
-                    <ul>
-                        <li>When a visitor you gave a tour to becomes a member, you're paid $50.</li>
-                        <li>Mark each tour Attended on the Past tab: that is the record of who you toured.</li>
-                        <li>Want to stop later? Delete your hours on My Hours, or ask an admin to turn Tour Guide off.</li>
-                    </ul>
-                </div>
-            </div>
-
-            {# The last step's action ends the actions row, after Back: Become a Tour Guide, or Open My Hours for a guide. #}
-            <div class="pl-wizard-actions pl-give-tutorial__actions">
-                <button type="button" class="pl-btn pl-btn--secondary" x-show="step > 1" @click="open(step - 1)" data-give-back>Back</button>
-                <button type="button" class="pl-btn pl-btn--primary" x-show="step < 5" @click="open(step + 1)" data-give-next>Next</button>
-                {% if is_guide %}
-                <a class="pl-btn pl-btn--primary" href="{% url 'tours:hours' %}" x-show="step === 5" data-give-hours>Open My Hours</a>
-                {% else %}
-                <form method="post" action="{% url 'tours:become_guide' %}" class="pl-give-tutorial__become" x-show="step === 5" data-give-become>
-                    {% csrf_token %}
-                    <button type="submit" class="pl-btn pl-btn--primary" data-guidance-target="tours.become-guide">Become a Tour Guide</button>
-                </form>
-                {% endif %}
-            </div>
-            {% if not is_guide %}<p class="pl-give-step__note" x-show="step === 5">You're a Tour Guide as soon as you press it, and an email follows with your next steps.</p>{% endif %}
-        </div>
+        {% url 'tours:become_guide' as become_url %}{% url 'tours:hours' as hours_url %}
+        {% include "hub/partials/_tutorial.html" with steps=tutorial_steps confirm_url=become_url confirm_label="Become a Tour Guide" confirm_guidance="tours.become-guide" confirm_note="You're a Tour Guide as soon as you press it, and an email follows with your next steps." holder=is_guide holder_url=hours_url holder_label="Open My Hours" %}
     </section>
 
 </div>

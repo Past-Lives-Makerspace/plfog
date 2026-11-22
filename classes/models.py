@@ -121,12 +121,12 @@ Run It Again In One Click: Went well? Make a copy with new dates and keep everyt
 # still accepts the older Markdown a no JS textarea might carry.
 DEFAULT_TEACH_PAGE_HOW_IT_WORKS = (
     "<ol>"
-    "<li><strong>Say you're interested.</strong> Tell us what you'd like to host. A sentence is plenty. "
-    "An admin reads every note.</li>"
-    "<li><strong>Build your page.</strong> Once you're in, the editor walks you through it in five short steps. "
+    "<li><strong>Take the tutorial.</strong> Three short steps, right on this page. The last one has "
+    "Become an Instructor, and teaching is on as soon as you press it.</li>"
+    "<li><strong>Build your page.</strong> The editor walks you through it in six short steps. "
     "Save a draft any time and come back.</li>"
-    "<li><strong>Open sign ups.</strong> Send it for a quick look. Your guild lead and an admin check it over, "
-    "then it goes into the catalog and out to members.</li>"
+    "<li><strong>Open sign ups.</strong> Send it for review. Your guild's lead, or an admin when the guild has "
+    "no lead, approves it, then it goes into the catalog.</li>"
     "</ol>"
 )
 
@@ -143,8 +143,9 @@ DEFAULT_TEACH_PAGE_FAQ = (
     "<h3>Do I Need to Be an Expert?</h3>"
     "<p>No. You need to be safe and clear. Plenty of great classes are run by people two steps ahead of "
     "everyone else in the room.</p>"
-    "<h3>How Long Until I Hear Back?</h3>"
-    "<p>An admin usually gets to it within a week. You can check this page any time to see where things stand.</p>"
+    "<h3>Who Checks My Class?</h3>"
+    "<p>Your guild's lead, or an admin when the guild has no lead. Every class is reviewed before it is "
+    "published, and one sent back comes with a note saying what to change.</p>"
     "<h3>Can I Charge for It?</h3>"
     "<p>Yes. You set the price when you build the page. Every class costs at least $1.00.</p>"
     "<h3>What If Nobody Signs Up?</h3>"
@@ -155,7 +156,9 @@ DEFAULT_TEACH_PAGE_SPLIT_NOTE = "Every class splits the same way."
 
 DEFAULT_TEACH_PAGE_CTA_TITLE = "Got Something to Share?"
 
-DEFAULT_TEACH_PAGE_CTA_LINE = "Tell us what you have in mind and an admin will take it from there."
+DEFAULT_TEACH_PAGE_CTA_LINE = (
+    "Three short steps on how hosting works here. At the end, press Become an Instructor and start your first class."
+)
 
 #: Feature card icons, assigned by position (card 1 gets the first key, and so on,
 #: wrapping past the end). The order is chosen so the six default cards read right; an
@@ -7969,7 +7972,7 @@ class ClassSettings(models.Model):
         blank=True,
         default=DEFAULT_TEACH_PAGE_CTA_TITLE,
         help_text=(
-            "The headline on the card at the bottom of the page, above the I'm Interested button. "
+            "The headline on the card at the bottom of the page, above the Start the Tutorial button. "
             "Leave blank to show no headline."
         ),
     )

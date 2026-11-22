@@ -374,8 +374,9 @@ def describe_admin_tools_sections():
         assert len(titles) == len(set(titles)) == 25
 
     def it_never_offers_instructor_inquiries(client: Client):
+        # Retired outright (#1295): its address 404s (classes/spec/views/teach_why_spec.py).
         _login_webmaster(client, "sections_no_inquiries")
-        assert reverse("classes:admin_instructor_inquiries") not in _tools_grid(client)
+        assert "/classes/admin/instructor-inquiries/" not in _tools_grid(client)
 
     def it_keeps_the_help_key_on_the_wrapper_the_admin_tour_targets(client: Client):
         _login_superuser(client, "sections_help_key")

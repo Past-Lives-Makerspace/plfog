@@ -949,12 +949,6 @@ def _wiki_proposals() -> dict[str, QuerySet[Any]]:
     return {"wiki_proposed": WikiPage.objects.awaiting_publication()}
 
 
-def _teaching_applications() -> dict[str, QuerySet[Any]]:
-    from membership.models import Member
-
-    return {"member": Member.objects.awaiting_teaching_decision()}
-
-
 def _past_due_cubby_rentals() -> dict[str, QuerySet[Any]]:
     from membership.models import CubbyRental
 
@@ -969,7 +963,6 @@ _OPEN_CHECKS: dict[str, OpenCheckFn] = {
     "event.submitted": _open_by_request(_submitted_events),
     "wiki.page_reported": _open_by_request(_wiki_reports),
     "wiki.page_proposed": _open_by_request(_wiki_proposals),
-    "instructor_application_received": _open_by_request(_teaching_applications),
     "cubbies.rental_past_due": _open_by_request(_past_due_cubby_rentals),
     # #894 part 4: FYI notices (a signup, a booking); nothing decides them.
     "new_member_joined": always_open,

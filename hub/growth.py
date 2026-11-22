@@ -18,9 +18,8 @@ Never exclude on the JSON key itself (``.exclude(payload__source=...)``): SQL co
 key as NULL, so that exclude also drops every row without the key, which is nearly all of them.
 The marker rows are matched with a filter and removed by primary key instead.
 
-The charts are inline SVG drawn from the geometry built here (like the Instructor Inquiries
-Board Report, ``classes/inquiries.py``), so the template does no arithmetic and the page loads
-no chart library. Each chart is built twice, at the widths the approved mockup drew on a
+The charts are inline SVG drawn from the geometry built here, so the template does no arithmetic
+and the page loads no chart library. Each chart is built twice, at the widths the approved mockup drew on a
 desktop and on a phone; ``growth.css`` shows the one that fits.
 """
 
@@ -121,13 +120,6 @@ class Metric:
 
 _METRIC_LIST: tuple[Metric, ...] = (
     Metric("new_members", "New Members", "People", lambda: Member.objects.all(), "created_at"),
-    Metric(
-        "instructor_inquiries",
-        "Instructor Inquiries",
-        "People",
-        lambda: Member.objects.exclude(teaching_applied_at=None),
-        "teaching_applied_at",
-    ),
     Metric("class_signups", "Class Signups", "Classes and CMS", portal_signups, "registered_at"),
     Metric(
         "class_signups_guest",

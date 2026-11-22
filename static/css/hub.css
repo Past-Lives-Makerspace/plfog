@@ -8125,6 +8125,52 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     }
 }
 
+/* The self serve tutorial (hub/partials/_tutorial.html: Give Tours #1278, Host a Class #1295). The
+   compose wizard's pieces (.pl-wizard-*); these rules only seat it inside the centered call to
+   action card: left aligned, its buttons in the actions row rather than under a paragraph, and the
+   step's heading and count. */
+.pl-tutorial {
+    text-align: left;
+}
+.pl-teach-apply .pl-tutorial .pl-btn {
+    margin-top: 0;
+}
+.pl-tutorial-step__count {
+    margin: 0;
+    color: var(--hub-text-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.pl-tutorial-step__title {
+    margin: 0.25rem 0 0.75rem;
+    font-size: 1.25rem;
+}
+.pl-tutorial__confirm {
+    display: flex;
+}
+.pl-tutorial-step__note {
+    margin: 0.75rem 0 0;
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+}
+/* On a phone the step pills would wrap into rows: the steps not open show their number alone. */
+@media (max-width: 640px) {
+    .pl-tutorial .pl-wizard-nav__step:not(.is-active) {
+        padding: 0.3rem;
+    }
+    .pl-tutorial .pl-wizard-nav__step:not(.is-active) .pl-tutorial-pill__label {
+        display: none;
+    }
+    .pl-tutorial__confirm {
+        flex: 1 1 auto;
+    }
+    .pl-tutorial__confirm .pl-btn {
+        width: 100%;
+    }
+}
+
 /* The Teaching Marketing Page under Class Settings: the heading, its "?" bubble and
    the View the Page link on one row, then the form's section titles and the three
    percentage inputs side by side. */

@@ -61,12 +61,12 @@ urlpatterns = [
     path("stop-emails/<str:token>/", views.stop_past_student_emails, name="stop_past_student_emails"),
     # Teaching portal (member self-serve for instructors)
     path("teach/", views.teach_overview, name="teach_overview"),
-    # Teach at Past Lives — the marketing page and apply-to-teach front door. Open to
-    # any active member, so a locked deep link and an approved instructor both land here.
+    # Host a Class: the marketing page and its tutorial, whose confirm turns teaching on (#1295).
+    # Open to any active member, so a locked deep link and an instructor both land here.
     path("teach/why/", views.teach_why, name="teach_why"),
-    path("teach/apply/", views.teach_apply, name="teach_apply"),
-    # The retired self-serve orientation. Teaching is admin-approved now, so its old
-    # URL (linked from the Help Center and from old emails) permanently redirects.
+    path("teach/become/", views.teach_become_instructor, name="teach_become_instructor"),
+    # The retired orientation page. Its old URL (linked from the Help Center and from old
+    # emails) permanently redirects to Host a Class.
     path(
         "teach/orientation/",
         RedirectView.as_view(pattern_name="classes:teach_why", permanent=True),
@@ -169,28 +169,6 @@ urlpatterns = [
     # Admin — /classes/admin/ is the Overview dashboard; the classes list moves to /admin/classes/.
     path("admin/", views.admin_overview, name="admin_overview"),
     path("admin/classes/", views.admin_classes, name="admin_classes"),
-    # Teaching applications queue actions (the overview card).
-    path("admin/instructor-inquiries/", views.admin_instructor_inquiries, name="admin_instructor_inquiries"),
-    path(
-        "admin/instructor-inquiries/export/",
-        views.admin_instructor_inquiries_export,
-        name="admin_instructor_inquiries_export",
-    ),
-    path(
-        "admin/instructor-inquiries/add/",
-        views.admin_instructor_inquiry_add,
-        name="admin_instructor_inquiry_add",
-    ),
-    path(
-        "admin/teaching-applications/<int:pk>/approve/",
-        views.admin_teaching_approve,
-        name="admin_teaching_approve",
-    ),
-    path(
-        "admin/teaching-applications/<int:pk>/decline/",
-        views.admin_teaching_decline,
-        name="admin_teaching_decline",
-    ),
     path("admin/new/", views.admin_class_create, name="admin_class_create"),
     path(
         "admin/new/eventbrite-check/",

@@ -185,7 +185,7 @@ def describe_admin_section():
         def it_does_not_see_a_capability_it_does_not_hold(db):
             user = _member_user("cap2")
             _grant(user, AdminCapability.Capability.SPACE_APPROVER)
-            assert _section_of(user, "instructor_application_received") is None
+            assert _section_of(user, "class_review_overdue") is None
 
     def describe_an_equipment_manager():
         # equipment.reservation_made routes to EQUIPMENT_MANAGERS: a per-equipment staff
@@ -432,11 +432,6 @@ def describe_row_groups():
             "Your studio or cubby request was approved or declined.",
             "Spaces & Equipment",
         ),
-        "group.instructor_application_decision": (
-            "Updates to your request to host a class",
-            "Your request to host a class was approved or declined.",
-            "Classes",
-        ),
         "group.waitlist_promotion": (
             "Added from the waitlist",
             "Staff moved you off the waitlist into a class. If the class is paid, this carries your payment link.",
@@ -496,7 +491,6 @@ def describe_row_groups():
             "registration_removed",
             "registration_moved",
             "class_rescheduled",
-            "group.instructor_application_decision",
         ]
 
     def describe_group_membership():

@@ -24,7 +24,6 @@ if TYPE_CHECKING:
     from billing.payouts import LinePayout
 
     from classes.models import ClassOffering, Registration
-    from membership.models import Member
 
 
 class _Echo:
@@ -129,73 +128,13 @@ def _registration_cells(reg: Registration, payout: LinePayout | None) -> list[st
     ]
 
 
-INSTRUCTOR_INQUIRIES_CSV_HEADERS = [
-    "Date Reached Out",
-    "Name",
-    "What They Want to Teach",
-    "Website",
-    "Socials",
-    "Experience Level",
-    "Contact",
-    "Status",
-    # The application page's answers (#793), after the original eight so a saved
-    # spreadsheet's columns keep their places.
-    "Class Title",
-    "Format",
-    "Shop or Area",
-    "Years Practicing",
-    "Where They Have Taught",
-    "Certifications or Safety Training",
-    "Equipment or Space Needed",
-    "Class Size",
-    "When They Can Teach",
-    "Anything Else",
-]
-
-
 _FORMULA_LEADS = ("=", "+", "-", "@", "\t", "\r")
 
 
 def _neutralise_formula(cell: str) -> str:
     """Prefix an apostrophe to text a spreadsheet would run as a formula (CSV injection).
 
-    The inquiry columns are what applicants typed, so ``=HYPERLINK(...)`` in a note must
-    open as text in Excel or Sheets, not as a live formula.
+    A cell holding what someone typed (an instructor's name) must open as text in Excel or
+    Sheets, never as a live formula such as ``=HYPERLINK(...)``.
     """
     return f"'{cell}" if cell.startswith(_FORMULA_LEADS) else cell
-
-
-def stream_instructor_inquiries_csv(inquiries: QuerySet[Member]) -> StreamingHttpResponse:
-    """Stream the filtered Instructor Inquiries (#690) as CSV, one row per member, every column."""
-    pseudo = _Echo()
-    writer = csv.writer(pseudo)
-
-    def iter_rows() -> Iterator[str]:
-        yield writer.writerow(INSTRUCTOR_INQUIRIES_CSV_HEADERS)
-        for member in inquiries.iterator(chunk_size=500):
-            row = [
-                timezone.localtime(member.teaching_applied_at).date().isoformat(),
-                member.staff_label,
-                member.teaching_application_note,
-                member.teaching_website,
-                member.teaching_socials,
-                member.get_teaching_experience_display(),
-                member.teaching_contact_summary,
-                member.teaching_application_state.value.capitalize(),
-                member.teaching_class_title,
-                member.get_teaching_class_format_display(),
-                member.teaching_shop_area,
-                member.get_teaching_practice_years_display(),
-                member.teaching_taught_where,
-                member.teaching_certifications,
-                member.teaching_space_needs,
-                member.get_teaching_class_size_display(),
-                member.teaching_availability_display,
-                member.teaching_anything_else,
-            ]
-            yield writer.writerow([_neutralise_formula(cell) for cell in row])
-
-    response = StreamingHttpResponse(iter_rows(), content_type="text/csv")
-    stamp = timezone.now().strftime("%Y%m%d")
-    response["Content-Disposition"] = f'attachment; filename="instructor-inquiries-{stamp}.csv"'
-    return response

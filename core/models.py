@@ -2168,11 +2168,15 @@ class SiteActivity(models.Model):
         LATE_FEE_WAIVED = "late_fee_waived", "Late cancellation fee waived"
         LATE_FEE_REFUNDED = "late_fee_refunded", "Late cancellation fee refunded"
         INSTRUCTOR_ORIENTED = "instructor_oriented", "Completed instructor orientation"
+        # The application kinds (applied, declined, inquiry added) are history since teaching became
+        # self serve (#1295): nothing writes them, and the rows already written keep their labels.
         TEACHING_APPLIED = "teaching_applied", "Applied to teach"
         TEACHING_APPLICATION_DECLINED = "teaching_application_declined", "Teaching application declined"
         TEACHING_GRANTED = "teaching_granted", "Teaching access granted"
         TEACHING_REVOKED = "teaching_revoked", "Teaching access revoked"
         TEACHING_INQUIRY_ADDED = "teaching_inquiry_added", "Teaching inquiry added"
+        # A member confirmed the tutorial on Host a Class (#1295), the Tour Guide row's twin below.
+        INSTRUCTOR_SELF_SERVE = "instructor_self_serve", "Made themselves an Instructor"
         # A member pressed Become a Tour Guide on Give Tours (#1278): a grant with no admin in it, so admins
         # see it here rather than hear of it (Felix).
         TOUR_GUIDE_SELF_SERVE = "tour_guide_self_serve", "Made themselves a Tour Guide"
@@ -2391,6 +2395,7 @@ SITE_ACTIVITY_CATEGORIES: dict[str, tuple[str, tuple[SiteActivity.Kind, ...]]] =
             _Kind.TEACHING_GRANTED,
             _Kind.TEACHING_REVOKED,
             _Kind.TEACHING_INQUIRY_ADDED,
+            _Kind.INSTRUCTOR_SELF_SERVE,
         ),
     ),
     "orientations": (

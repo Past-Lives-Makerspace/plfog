@@ -312,6 +312,7 @@ def describe_activity_feed_filters():
             "teaching_granted",
             "teaching_revoked",
             "teaching_inquiry_added",
+            "instructor_self_serve",
         }
 
     def it_groups_the_event_options_by_category(client):

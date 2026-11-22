@@ -67,9 +67,6 @@ _BRAND_NEW_KEYS = {
     "class_cancelled_admin_notice",
     "class_rescheduled",
     "class_rescheduled_lead_notice",
-    "instructor_application_received",
-    "instructor_application_approved",
-    "instructor_application_declined",
     "wiki.guild_digest_monthly",
     "class_registration_admin_notice",
     "classes.duplicate_payment_alert",
@@ -329,9 +326,14 @@ def describe_event_registry():
             with pytest.raises(KeyError):
                 get_event("class_validation_requested")
 
-        def it_routes_the_teach_request_to_class_approvers_not_every_admin():
-            """Deciding who may host a class is the CMS Administrators' duty, not the admin tier's."""
-            assert get_event("instructor_application_received").recipient is Recipients.CLASS_APPROVERS
+        @pytest.mark.parametrize(
+            "key",
+            ["instructor_application_received", "instructor_application_approved", "instructor_application_declined"],
+        )
+        def it_has_no_teaching_application_event_left(key):
+            """Becoming an instructor is self serve (#1295): nobody applies, so nobody is asked or answered."""
+            with pytest.raises(KeyError):
+                get_event(key)
 
         def it_routes_the_move_notice_to_the_registrant():
             assert get_event("registration_moved").recipient is Recipients.REGISTRANT

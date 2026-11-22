@@ -1,8 +1,9 @@
-/* The Add Inquiry member picker on Instructor Inquiries (#805).
+/* A member picker, first made for Add Inquiry on the retired Instructor Inquiries page (#805,
+ * removed by #1295), and kept for the cubby Assign Rental form.
  *
- * Alpine component `inquiryMemberPicker`, on the wrapper around the Member field of the
- * Add Inquiry modal (templates/classes/admin/partials/inquiry_add_form.html). The field is
- * a search box over a scrolling list of every member who may ask, drawn by the page as
+ * Alpine component `inquiryMemberPicker`, on the wrapper around a Member field
+ * (templates/hub/cubbies/_assign_form.html). The field is
+ * a search box over a scrolling list of the members the page offers, drawn by the page as
  * role="option" rows (a native datalist is drawn by the browser, and Safari's cannot be
  * scrolled). Typing hides the rows that do not match, spaces collapsed and case ignored;
  * clicking a row, or Enter on the row the arrow keys moved to, puts its label in the box,

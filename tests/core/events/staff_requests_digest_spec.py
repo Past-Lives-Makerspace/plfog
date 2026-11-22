@@ -14,9 +14,7 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth.models import User
 from django.core import mail
-from django.db import connection
 from django.test import Client
-from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -54,7 +52,6 @@ PART_3_EVENTS = (
     "event.submitted",
     "wiki.page_reported",
     "wiki.page_proposed",
-    "instructor_application_received",
 )
 
 
@@ -233,77 +230,6 @@ def describe_wiki_page_proposed():
         page = WikiPageFactory(guild=guild, official=True, is_published=False)
         assert f'id="safety-{page.pk}"' in client.get(reverse("hub_wiki_review")).content.decode()
         _assert_delete_clears(page, "wiki.page_proposed")
-
-
-def describe_instructor_application_received():
-    def _applicant() -> Member:
-        member = MemberFactory()
-        with patch("core.events.emit.emit"):
-            member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
-        return member
-
-    def it_is_open_until_declined_and_declining_clears_the_bell():
-        member = _applicant()
-        _assert_lifecycle(
-            member,
-            "instructor_application_received",
-            f"member:{member.pk}:teaching_application:x",
-            lambda: member.decline_teaching(decided_by=None, reason="Do the orientation first."),
-        )
-
-    def it_clears_the_bell_when_teaching_is_granted_or_given_by_promotion():
-        member = _applicant()
-        bell = _bell(member, "instructor_application_received", _approver())
-        member.grant_teaching(granted_by=None)
-        assert _read(bell)
-        promoted = _applicant()
-        bell = _bell(promoted, "instructor_application_received", _approver_admin())
-        promoted.apply_admin_role(Member.ADMIN_ROLE_INSTRUCTOR)
-        assert _read(bell)
-
-    def it_names_the_applicant_in_the_bell_link():
-        member = MemberFactory()
-        with patch("core.events.emit.emit") as fake:
-            member.apply_to_teach("Wheel throwing.", contact_method="email", contact_detail="reach@example.com")
-        sent = _emitted(fake, "instructor_application_received")
-        assert notification_click_url(sent["url"]) == member.request_bell_path
-        assert member.request_bell_path == f"{reverse('classes:admin_overview')}#applicant-{member.pk}"
-
-    def it_lands_on_the_applicants_row_in_the_admin_queue(client: Client):
-        member = _applicant()
-        admin = _approver_admin()
-        admin.is_superuser = True
-        admin.save(update_fields=["is_superuser"])
-        client.force_login(admin)
-        html = client.get(reverse("classes:admin_overview")).content.decode()
-        assert f'id="applicant-{member.pk}"' in html
-
-    def it_clears_only_on_leaving_active_so_an_ordinary_save_asks_nothing_of_the_bell():
-        member = _applicant()
-        bell = _bell(member, "instructor_application_received", _approver())
-        Member.objects.filter(pk=member.pk).update(status=Member.Status.FORMER)
-        former = Member.objects.get(pk=member.pk)
-        with CaptureQueriesContext(connection) as queries:
-            former.save()
-        assert not [q for q in queries.captured_queries if "core_notification" in q["sql"]]
-        assert not _read(bell)
-        active = Member.objects.get(pk=_applicant().pk)
-        bell = _bell(active, "instructor_application_received", _approver_admin())
-        active.status = Member.Status.SUSPENDED
-        active.save()
-        assert _read(bell)
-
-    def it_closes_and_clears_the_bell_when_the_applicant_leaves_active():
-        member = _applicant()
-        bell = _bell(member, "instructor_application_received", _approver())
-        row = _queued(member, "instructor_application_received", _approver_admin(), f"member:{member.pk}:x:y")
-        member.status = Member.Status.FORMER
-        member.save()
-        assert _read(bell)
-        assert not _is_open("instructor_application_received", row)
-
-    def it_clears_the_bell_when_the_member_is_deleted():
-        _assert_delete_clears(_applicant(), "instructor_application_received")
 
 
 def describe_class_change_requested():

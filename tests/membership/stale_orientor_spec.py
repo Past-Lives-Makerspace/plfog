@@ -12,12 +12,10 @@ from io import StringIO
 from unittest.mock import patch
 
 import pytest
-from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.utils import timezone
 
 from core.events.discord_leadership_directory import _SyncWhenCommitted
-from core.models import Notification
 from membership import orientations
 from membership.models import (
     GuildStaffMembership,
@@ -252,26 +250,6 @@ def describe_a_member_leaving_active():
             written.status = Member.Status.FORMER
             written.save(update_fields=["status"])
         assert len(scheduled) == 1
-
-    def it_clears_the_teaching_bell_only_when_the_save_writes_the_status():
-        member = MemberFactory(teaching_applied_at=timezone.now())
-        reviewer = User.objects.create_user(username="bell-reviewer", email="bell-reviewer@example.com")
-        bell = Notification.objects.create(
-            user=reviewer,
-            trigger="instructor_application_received",
-            title="Teaching application",
-            body="A member applied to teach.",
-            url=member.request_bell_path,
-        )
-        member.status = Member.Status.FORMER
-        member.save(update_fields=["full_legal_name"])
-        bell.refresh_from_db()
-        assert bell.read_at is None
-        written = Member.objects.get(pk=member.pk)
-        written.status = Member.Status.FORMER
-        written.save(update_fields=["status"])
-        bell.refresh_from_db()
-        assert bell.read_at is not None
 
     def it_keeps_everything_on_an_ordinary_save(django_capture_on_commit_callbacks):
         orientor = MemberFactory()

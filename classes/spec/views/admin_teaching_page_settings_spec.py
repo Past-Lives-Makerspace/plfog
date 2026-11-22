@@ -51,7 +51,7 @@ def describe_admin_teaching_page_settings():
         content = response.content.decode()
         assert "Teaching Marketing Page" in content.split('class="pl-teach-page-settings__title">')[1][:60]
         assert 'vote-tab vote-tab--active" aria-current="page">Settings</a>' in content
-        assert "until an admin says yes to them." in content
+        assert "until they become an instructor." in content
         assert "View the Page" in content
         assert f'href="{reverse("classes:teach_why")}"' in content
         assert "Every field here is one section of the page. Blank a field to hide its section." in content

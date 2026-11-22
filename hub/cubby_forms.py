@@ -310,8 +310,8 @@ class CubbyPricingForm(forms.ModelForm):
 class CubbyAssignForm(forms.Form):
     """Assign a Cubby (#979, mockup view assign): a member, one of the guild's open cubbies, and how they pay.
 
-    The member is a search box over a list the page draws (``inquiryMemberPicker``, as on Add
-    Inquiry): typing narrows it and picking a name fills the box, whose label is what posts.
+    The member is a search box over a list the page draws (``inquiryMemberPicker``, first made for
+    Add Inquiry): typing narrows it and picking a name fills the box, whose label is what posts.
     The cubby is a select of the guild's open cubbies grouped by shelf unit. Comped is free;
     Paid Another Way records what the member pays the guild each month, never charged here.
     ``cleaned_data`` carries ``member``, ``cubby_obj``, ``source`` and ``amount_cents``.
