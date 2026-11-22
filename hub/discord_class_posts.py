@@ -91,7 +91,9 @@ def _digest_blocks(now: datetime) -> list[str]:
     public_ids = ClassOffering.objects.public().values_list("pk", flat=True)
     sessions = (
         ClassSession.objects.filter(class_offering_id__in=public_ids, starts_at__gte=now, starts_at__lt=horizon)
-        .select_related("class_offering")
+        # The class and its Class Type ride along: each line links the class page (#1261), and a
+        # Retired class's page is its Class Type's, so neither costs a query per line.
+        .select_related("class_offering__class_record", "class_offering__category")
         .prefetch_related("class_offering__instructor_rows")
         .order_by("starts_at")
     )
@@ -109,7 +111,7 @@ def _digest_blocks(now: datetime) -> list[str]:
     flexible = (
         ClassOffering.objects.bookable()
         .filter(scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE)
-        .select_related("instructor")
+        .select_related("instructor", "class_record", "category")
     )
     flexible_lines = [_class_line(offering, time_prefix=_window_prefix(offering)) for offering in flexible]
     if flexible_lines:
