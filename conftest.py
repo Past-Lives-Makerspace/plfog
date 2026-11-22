@@ -237,6 +237,20 @@ def fall_back_nights(request: pytest.FixtureRequest) -> Iterator[datetime]:
     yield from _frozen_now(request.param)
 
 
+#: Either side of local midnight, where a spec that mixes UTC and local days, or builds "past" from
+#: today's date and a fixed hour, goes red: CI failed three such specs between 07:30 and 09:00 UTC.
+AROUND_MIDNIGHT = {
+    "before-midnight-2330": datetime(2026, 11, 21, 23, 30, tzinfo=_PACIFIC),
+    "after-midnight-0005": datetime(2026, 11, 22, 0, 5, tzinfo=_PACIFIC),
+}
+
+
+@pytest.fixture(params=list(AROUND_MIDNIGHT.values()), ids=list(AROUND_MIDNIGHT))
+def around_midnight(request: pytest.FixtureRequest) -> Iterator[datetime]:
+    """Run the spec once per ``AROUND_MIDNIGHT`` moment, with ``timezone.now`` frozen there in UTC."""
+    yield from _frozen_now(request.param)
+
+
 @pytest.fixture(params=list(FIVE_DAYS_BEFORE_FALL_BACK_NIGHTS.values()), ids=list(FIVE_DAYS_BEFORE_FALL_BACK_NIGHTS))
 def five_days_before_fall_back_nights(request: pytest.FixtureRequest) -> Iterator[datetime]:
     """``fall_back_nights`` for a spec that seeds five days out."""

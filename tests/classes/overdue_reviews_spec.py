@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 import pytest
 from django.core.management import call_command
@@ -37,6 +37,14 @@ def _lead_named(name: str) -> Member:
     return member
 
 
+def _local_evening(days_out: int) -> datetime:
+    """6 PM local, ``days_out`` local days from today: always ahead, and that many days off at any hour.
+
+    ``now + 23 days 1 hour`` lands after local midnight when now is after 11 PM, which is 24 local days.
+    """
+    return timezone.make_aware(datetime.combine(timezone.localdate() + timedelta(days=days_out), time(18)))
+
+
 @pytest.fixture
 def mugs() -> ClassOffering:
     guild = GuildFactory(name="Ceramics Guild", guild_lead=_lead_named("Jay Holtman"))
@@ -46,7 +54,7 @@ def mugs() -> ClassOffering:
         instructor=InstructorFactory(full_legal_name="Erin Corrales"),
         category=CategoryFactory(guild=guild),
     )
-    ClassSessionFactory(class_offering=offering, starts_at=timezone.now() + timedelta(days=23, hours=1))
+    ClassSessionFactory(class_offering=offering, starts_at=_local_evening(23))
     return offering
 
 
@@ -58,6 +66,13 @@ def describe_overdue_reviews():
         assert row.days_waiting == 3
         assert row.waiting_on == "Jay Holtman"
         assert row.marker == "Waiting 3 days · starts in 23 days"
+
+    def it_counts_days_to_the_first_session_on_local_dates_either_side_of_midnight(
+        around_midnight: datetime, mugs: ClassOffering
+    ):
+        _gate(mugs, Role.GUILD_LEAD, 3.01)
+        [row] = overdue_reviews()
+        assert row.days_until_start == 23
 
     def it_leaves_out_a_review_younger_than_three_days(mugs: ClassOffering):
         _gate(mugs, Role.GUILD_LEAD, 2.9)
