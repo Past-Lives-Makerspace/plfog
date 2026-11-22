@@ -135,11 +135,11 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 /tour/                          The visitor's tour pages, ONLY on tours.pastlives.space (TOURS_HOSTS), whose root is the booking page; /tour/b/<token>/ (and reschedule/, cancel/) from the emails
 /kiln/                          Kiln tickets (a guest's home; members land on the Ceramics Guild page's ?tab=kiln; /kiln/load/, /kiln/unload/, /kiln/log/, /kiln/lists/ for the crew and admins)
 /guilds/<pk>/cubbies/           A guild's Cubbies manager (#977): Layout, a cubby's page at /cubbies/<pk>/, Pricing at /guilds/<pk>/cubbies/pricing/; /cubbies/ opens the first guild the viewer runs
-/tools/                         Admin Tools for admins, Guild Tools for guild leads and staff (#912, #921; hub/guild_tools.py)
+/tools/                         Admin Tools for admins, Guild Tools for guild leads and staff (#912, #921; hub/guild_tools.py); groups Admin, Webmaster, a guild, Classes (#1291)
 /manage/spotlight/              Admin Tools > Spotlight (#708): the Spotlight messages that crawl across the top of Home (#935)
 /manage/site-settings/          Site Settings: Brand, General, Calendar, Emails, Discord
 /manage/member-agreement/, /manage/features/, /manage/cms/, /manage/automations/
-                                Member Agreement, Manage Features, Manage CMS, Automations (#922; Site Settings tabs until then)
+                                Member Agreement, Manage Features, Manage CMS, Automations (#922; Site Settings tabs until then); Webmaster tiles on Admin Tools (#1291)
 /manage/bookings/               Manage Bookings (#768): the one home for everyone who runs orientations or equipment; /orientations/manage/ 302s here
 ```
 

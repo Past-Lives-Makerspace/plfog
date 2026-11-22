@@ -16,7 +16,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from hub.forms import GuildVisibilityForm, VotePreferenceForm
-from membership.models import Guild, Member
+from membership.models import AdminCapability, Guild, Member
 from tests.features import turn_on
 from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, MembershipPlanFactory
 
@@ -179,8 +179,8 @@ def describe_admin_guilds_page():
 
 
 def describe_the_admin_tools_card():
-    def it_shows_to_an_admin(client: Client):
-        _admin(client)
+    def it_shows_to_a_webmaster_admin(client: Client):
+        _admin(client).admin_capabilities.create(capability=AdminCapability.Capability.WEBMASTER)
         assert b"data-tool-guilds" in client.get(reverse("hub_admin_tools")).content
 
     def it_is_not_on_guild_tools(client: Client):

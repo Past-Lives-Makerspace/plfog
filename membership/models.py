@@ -4934,8 +4934,9 @@ class AdminCapability(models.Model):
         ADMIN_ROLE: PermissionGuide(
             "Admin",
             "Opens every admin page in the Member Portal, including members, guilds, classes and Site Settings.",
-            "Start from Admin Tools. Admin duties such as reviewing classes are separate permissions you can "
-            "turn on for yourself from the View As menu.",
+            "Start from Admin Tools. Site Settings, Guilds and the other site pages sit in its Webmaster "
+            "group, shown to holders of the Webmaster permission. Duties such as reviewing classes are "
+            "separate permissions you can turn on for yourself from the View As menu.",
             (GuidePage("Admin Tools", "hub_admin_tools"), GuidePage("Manage Members", "hub_admin_members")),
         ),
         CLASS_REVIEWER: PermissionGuide(

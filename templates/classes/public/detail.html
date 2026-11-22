@@ -1,8 +1,9 @@
 {% extends "classes/base_public.html" %}
 {% load classes_tags rich_text seo static %}
 
-{% block title %}{{ offering.seo_title }}{% endblock %}
-{% block meta_description %}{{ offering.seo_description }}{% endblock %}
+{# The class's Search title and description when set, else the generated ones (#1261). #}
+{% block title %}{{ class_search_title }}{% endblock %}
+{% block meta_description %}{{ class_search_description }}{% endblock %}
 {# Search follows the class (#1260): Open Graph tags always; robots, canonical and Course data from its state. #}
 {# The class decides (#1260): indexed while Scheduled or Between runs, never in a preview. #}
 {% block robots %}{% if not class_indexable %}<meta name="robots" content="noindex">{% endif %}{% endblock %}
@@ -17,8 +18,8 @@ appends and runs it on the first boosted arrival here (FRONTEND.md, Scripts unde
 {% block classes_extra_head %}
 <script defer src="{% static 'js/class_share.js' %}"></script>
 <meta property="og:type" content="website">
-<meta property="og:title" content="{{ offering.seo_title }}">
-<meta property="og:description" content="{{ offering.seo_description }}">
+<meta property="og:title" content="{{ class_search_title }}">
+<meta property="og:description" content="{{ class_search_description }}">
 <meta property="og:url" content="{% canonical_url canonical_path %}">
 {% if offering.card_photo_url %}<meta property="og:image" content="{{ offering.card_photo_url|absolute_url:request }}">{% endif %}
 {# One Course for the class, with a CourseInstance for each open date (#1260). #}

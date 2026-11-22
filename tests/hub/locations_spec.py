@@ -22,7 +22,7 @@ from classes.factories import ClassOfferingFactory, ClassSessionFactory
 from classes.models import ClassOffering
 from hub.forms import CommunityEventForm, EquipmentForm, LocationForm, OrientationTypeForm
 from membership.forms import LocationChoiceField
-from membership.models import CommunityEvent, Equipment, Location, Member, OrientationType
+from membership.models import AdminCapability, CommunityEvent, Equipment, Location, Member, OrientationType
 from tests.membership.factories import (
     CommunityEventFactory,
     EquipmentFactory,
@@ -396,7 +396,8 @@ def describe_the_admin_locations_page():
         assert retired not in LocationForm().fields["guild"].queryset
 
     def it_puts_a_card_on_admin_tools_for_an_admin_only(client: Client):
-        _login(client, "loc_tools_admin", fog_role=Member.FogRole.ADMIN)
+        admin = _login(client, "loc_tools_admin", fog_role=Member.FogRole.ADMIN)
+        admin.member.admin_capabilities.create(capability=AdminCapability.Capability.WEBMASTER)  # type: ignore[attr-defined]
         assert reverse("hub_admin_locations") in client.get(reverse("hub_admin_tools")).content.decode()
         client.logout()
         user = _login(client, "loc_tools_lead")

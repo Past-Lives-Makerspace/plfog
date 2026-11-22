@@ -20,7 +20,7 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from playwright.sync_api import expect
 
-from membership.models import Guild, Member
+from membership.models import AdminCapability, Guild, Member
 from tests.e2e.guidance import shoot
 from tests.features import turn_on
 from tests.membership.factories import GuildFactory, MembershipPlanFactory
@@ -61,6 +61,8 @@ def _sign_in_as_admin(login_via_code) -> None:
     member.fog_role = Member.FogRole.ADMIN
     member.save(update_fields=["fog_role"])
     member.sync_user_permissions()
+    # The Guilds tile shows only to an admin holding Webmaster (#1291).
+    member.admin_capabilities.create(capability=AdminCapability.Capability.WEBMASTER)
 
 
 def _open_guilds_page(page, live_server) -> None:

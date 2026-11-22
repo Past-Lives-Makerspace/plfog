@@ -350,6 +350,13 @@ a:hover { color: var(--hub-link-hover); }
     gap: 2px;
 }
 
+/* The main group (#1286): laid out like the nav itself, so wrapping it changes nothing on screen. */
+.hub-sidebar__group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
 .hub-sidebar__divider {
     border: 0;
     border-top: 1px solid var(--hub-sidebar-border);

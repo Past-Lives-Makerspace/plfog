@@ -15,6 +15,7 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from playwright.sync_api import expect
 
+from membership.models import AdminCapability
 from tests.membership.factories import MembershipPlanFactory
 
 ADMIN_EMAIL = "settings-pages-admin@example.com"
@@ -27,6 +28,8 @@ def _sign_in_as_admin(login_via_code) -> None:
     user.is_staff = True
     user.is_superuser = True
     user.save(update_fields=["is_staff", "is_superuser"])
+    # These pages' Tools tiles show only to an admin holding Webmaster (#1291).
+    user.member.admin_capabilities.create(capability=AdminCapability.Capability.WEBMASTER)  # type: ignore[attr-defined]
 
 
 def describe_the_pages_split_from_site_settings():
@@ -38,14 +41,15 @@ def describe_the_pages_split_from_site_settings():
         expect(page.get_by_role("heading", name="Manage CMS", level=1)).to_be_visible()
 
         page.goto(f"{live_server.url}{reverse('hub_admin_tools')}")
-        for title, url_name in (
-            ("Member Agreement", "hub_admin_member_agreement"),
-            ("Manage Features", "hub_admin_features"),
-            ("Automations", "hub_admin_automations"),
+        # The tiles drop "Manage" (#1291); the pages keep their own headings.
+        for tile, heading, url_name in (
+            ("Member Agreement", "Member Agreement", "hub_admin_member_agreement"),
+            ("Features", "Manage Features", "hub_admin_features"),
+            ("Automations", "Automations", "hub_admin_automations"),
         ):
-            page.locator(".pl-tool-card", has_text=title).first.click()
+            page.locator(".pl-tool-card", has_text=tile).first.click()
             expect(page).to_have_url(re.compile(re.escape(reverse(url_name)) + "$"))
-            expect(page.get_by_role("heading", name=title, level=1)).to_be_visible()
+            expect(page.get_by_role("heading", name=heading, level=1)).to_be_visible()
             page.go_back()
 
     def it_saves_a_feature_state_and_a_switch_with_one_save(live_server, page, login_via_code):

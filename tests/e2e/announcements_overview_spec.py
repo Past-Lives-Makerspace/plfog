@@ -91,9 +91,9 @@ def describe_the_announcements_page():
         made, guild, reader = _seed()
         _sign_in_as_admin(login_via_code)
 
-        # Admin Tools, then the Announcements card, lands on the Drafts tab with the job's draft.
-        page.goto(f"{live_server.url}{reverse('hub_admin_tools')}")
-        page.locator(f'a.pl-tool-card[href="{reverse("hub_announcements")}"]').click()
+        # The Email Members page opens on the Drafts tab with the job's draft. Its Tools tile sits in a guild's
+        # section and in Classes since #1291, so this admin, who does neither, opens it directly.
+        page.goto(f"{live_server.url}{reverse('hub_announcements')}")
         results_row = _row(page, made.pk)
         expect(results_row).to_be_visible()
         expect(page.locator('[data-announcements-tab="drafts"]')).to_have_attribute("aria-current", "page")

@@ -66,12 +66,12 @@ def describe_the_tours_entry():
             assert response.status_code == 200
             assert 'aria-current="page" data-tours-tab="upcoming">Upcoming</a>' in response.content.decode()
 
-    def it_sits_directly_after_reservations_in_the_sidebar(plain: Member, admin: Member):
-        # Felix (#1278): alphabetical, after Reservations, in the member and the admin blocks alike.
-        reservations = f'href="{reverse("hub_equipment_index")}"'
+    def it_sits_after_spaces_in_the_alphabetical_sidebar(plain: Member, admin: Member):
+        # #1286: the main group is alphabetical, so Tours follows Spaces for a member and an admin alike.
+        spaces = f'href="{reverse("hub_spaces")}"'
         for member in (plain, admin):
             content = signed_in(member).get(reverse("hub_member_directory")).content.decode()
-            after = content[content.index(reservations) :]
+            after = content[content.index(spaces) :]
             assert after.index('data-nav="tours"') < after.index("</a>", after.index("</a>") + 1)
 
     def it_shows_no_entry_to_a_guest_account():

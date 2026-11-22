@@ -187,7 +187,7 @@ def _class_urls(data: SampleData, registration: Any) -> dict[str, str]:
         "self_serve_url": _absolute_url(
             reverse("classes:my_registration", kwargs={"token": registration.self_serve_token})
         ),
-        "class_url": _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": data.offering.slug})),
+        "class_url": data.offering.public_url,
     }
 
 
@@ -325,9 +325,8 @@ def review_submitted_instructor_context(data: SampleData) -> dict[str, Any]:
 
 def review_decision_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``classes.emails.send_class_review_decision`` — the fully-approved outcome."""
-    from classes.emails import _absolute_url
 
-    public_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": data.offering.slug}))
+    public_url = data.offering.public_url
     return {
         "subject": f"Your class '{data.offering.title}' is live!",
         "template_context": {
@@ -503,11 +502,10 @@ def duplicate_payment_alert_context(data: SampleData) -> dict[str, Any]:
 
 def class_registration_admin_notice_context(data: SampleData) -> dict[str, Any]:
     """Reproduces ``classes.emails.send_admin_registration_notification`` exactly."""
-    from classes.emails import _absolute_url
 
     registration = data.registration
     offering = data.offering
-    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+    class_url = offering.public_url
     instructor = offering.instructor.display_name if offering.instructor else "N/A"
     minimum_line = f"Needs {offering.minimum_signups} confirmed to run.\n" if offering.minimum_signups_at_stake else ""
     return {
@@ -531,7 +529,7 @@ def registration_resume_link_context(data: SampleData) -> dict[str, Any]:
     registration = data.registration
     offering = data.offering
     self_serve_url = _absolute_url(reverse("classes:my_registration", kwargs={"token": registration.self_serve_token}))
-    class_url = _absolute_url(reverse("classes:public_class_detail", kwargs={"slug": offering.slug}))
+    class_url = offering.public_url
     name = registration.first_name.strip()
     greeting = f"Hi {name}," if name else "Hi,"
     return {

@@ -1,0 +1,13 @@
+{% comment %}
+The Teaching or Host a Class entry (hub.context_processors._teach_nav). An instructor keeps Teaching and the
+whole portal in ALL three states of the teach switch (#405): the switch is the recruiting invitation, not the
+door to somebody's own classes. Everyone else sees the Host a Class invitation, which the switch governs.
+{% endcomment %}
+{% if teach_nav.teaches %}
+<a href="{{ teach_nav.url }}" class="hub-sidebar__link{% if teach_nav.is_active %} active{% endif %}" data-nav="teach">
+    {% include "hub/partials/nav_icons/_teach.html" %}
+    {{ teach_nav.label }}
+</a>
+{% else %}
+{% include "hub/partials/_sidebar_feature_link.html" with feature=features.teach url=teach_nav.url label=teach_nav.label icon="hub/partials/nav_icons/_teach.html" active=teach_nav.active_class nav_key="teach" %}
+{% endif %}
