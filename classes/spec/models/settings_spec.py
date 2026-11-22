@@ -299,7 +299,7 @@ def describe_ClassSettings():
 
 
 def describe_the_self_serve_copy_migration():
-    """classes/0110 (#1295): copy written for the retired application is replaced only where nobody edited it."""
+    """classes/0111 (#1295): copy written for the retired application is replaced only where nobody edited it."""
 
     def _migration():
         import importlib
@@ -330,6 +330,35 @@ def describe_the_self_serve_copy_migration():
         settings.teach_page_cta_line = "Our own line."
         settings.save()
         _migration().rewrite_unedited_copy(django_apps, None)
+        settings = ClassSettings.load()
+        assert settings.teach_page_how_it_works == "<ol><li>Talk to Lee.</li></ol>"
+        assert settings.teach_page_faq == "<h3>Own Question?</h3><p>Own answer.</p>"
+        assert settings.teach_page_cta_line == "Our own line."
+
+    def it_reverse_restores_the_application_copy_where_the_new_copy_is_untouched(db):
+        from django.apps import apps as django_apps
+
+        migration = _migration()
+        settings = ClassSettings.load()
+        settings.teach_page_how_it_works = migration.NEW_HOW_IT_WORKS
+        settings.teach_page_faq = "<h3>Do I Need to Be an Expert?</h3><p>No.</p>" + migration.NEW_FAQ_QUESTION
+        settings.teach_page_cta_line = migration.NEW_CTA_LINE
+        settings.save()
+        migration.restore_unedited_copy(django_apps, None)
+        settings = ClassSettings.load()
+        assert settings.teach_page_how_it_works == migration.OLD_HOW_IT_WORKS
+        assert settings.teach_page_faq == "<h3>Do I Need to Be an Expert?</h3><p>No.</p>" + migration.OLD_FAQ_QUESTION
+        assert settings.teach_page_cta_line == migration.OLD_CTA_LINE
+
+    def it_reverse_leaves_copy_an_admin_edited_alone(db):
+        from django.apps import apps as django_apps
+
+        settings = ClassSettings.load()
+        settings.teach_page_how_it_works = "<ol><li>Talk to Lee.</li></ol>"
+        settings.teach_page_faq = "<h3>Own Question?</h3><p>Own answer.</p>"
+        settings.teach_page_cta_line = "Our own line."
+        settings.save()
+        _migration().restore_unedited_copy(django_apps, None)
         settings = ClassSettings.load()
         assert settings.teach_page_how_it_works == "<ol><li>Talk to Lee.</li></ol>"
         assert settings.teach_page_faq == "<h3>Own Question?</h3><p>Own answer.</p>"

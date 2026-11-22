@@ -57,6 +57,24 @@ def rewrite_unedited_copy(apps, schema_editor):
             row.save(update_fields=changed)
 
 
+def restore_unedited_copy(apps, schema_editor):
+    """Put the application's wording back wherever the tutorial's copy was never changed."""
+    ClassSettings = apps.get_model("classes", "ClassSettings")
+    for row in ClassSettings.objects.all():
+        changed = []
+        if row.teach_page_how_it_works == NEW_HOW_IT_WORKS:
+            row.teach_page_how_it_works = OLD_HOW_IT_WORKS
+            changed.append("teach_page_how_it_works")
+        if NEW_FAQ_QUESTION in row.teach_page_faq:
+            row.teach_page_faq = row.teach_page_faq.replace(NEW_FAQ_QUESTION, OLD_FAQ_QUESTION)
+            changed.append("teach_page_faq")
+        if row.teach_page_cta_line == NEW_CTA_LINE:
+            row.teach_page_cta_line = OLD_CTA_LINE
+            changed.append("teach_page_cta_line")
+        if changed:
+            row.save(update_fields=changed)
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("classes", "0110_class_record_search_text"),
@@ -103,5 +121,5 @@ class Migration(migrations.Migration):
                 help_text="The How It Works steps, a numbered list. Each step shows a gold number. Use the toolbar for bold, lists and links. Leave blank to hide the section.",
             ),
         ),
-        migrations.RunPython(rewrite_unedited_copy, migrations.RunPython.noop),
+        migrations.RunPython(rewrite_unedited_copy, restore_unedited_copy),
     ]
