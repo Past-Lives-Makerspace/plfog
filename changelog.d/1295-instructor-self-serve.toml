@@ -4,7 +4,7 @@ audience = ["members"]
 feature = "classes.host"
 guidance = "shots"
 target = "classes.start-tutorial"
-title = "Any member can become an instructor from Host a Class"
+title = "Any member can become an instructor in three steps"
 changes = [
   "Host a Class ends in a three step tutorial now, in place of the application and the wait for an admin.",
   "The steps cover your instructor page, creating a class and how review goes. On the last one, press Become an Instructor and you can host classes right away.",
