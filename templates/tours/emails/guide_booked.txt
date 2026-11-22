@@ -4,9 +4,7 @@
 
 Confirm by {{ confirm_by }}. A request still waiting then is cancelled and the visitor told.{% if shared_with %}
 
-The visitor had no preference, so we also sent it to {{ shared_with }}. Whoever confirms first gets the tour.{% endif %}{% elif actor_name %}Tour moved to you
-
-{{ actor_name }} moved {{ booking.visitor_name }}'s tour for {{ people }} to you. The visitor has been emailed.{% else %}New tour booked
+The visitor had no preference, so we also sent it to {{ shared_with }}. Whoever confirms first gets the tour.{% endif %}{% else %}New tour booked
 
 {{ booking.visitor_name }} booked a tour for {{ people }}.{% endif %}
 

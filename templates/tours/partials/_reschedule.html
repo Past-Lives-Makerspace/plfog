@@ -4,12 +4,15 @@ The Edit Tour modal's body on the Upcoming tab (#949; the guide picker for every
 as htmx buttons that reload this body: first whose tours (moving to another guide reassigns the tour,
 whether its own guide or an admin moves it), then the time. No minimum notice and no cancel cutoff for staff: any open tour with room for the party
 that has not started. Picking a time shows the confirm with the optional message to the visitor.
+Saving asks the visitor first (#1283): nothing moves until they accept, and a new time replaces
+an open one.
 
 Context: booking, when, destination (whose tours), is_admin, move_guides, picker, chosen,
 chosen_when, form (a StaffRescheduleForm while a time is chosen), error, move_url.
 {% endcomment %}
 <div class="pl-tours-move" data-tour-move="{{ booking.pk }}">
   <p class="pl-form-note pl-tours-modal-lead">{{ booking.visitor_name }}, {{ booking.party_label }}. Now {{ when }}{% if booking.guide %} with {{ booking.guide.staff_label }}{% endif %}.</p>
+  {% if booking.has_open_proposal %}<p class="pl-form-note pl-tours-move__pending" data-tour-move-pending>Still waiting for them to answer {{ booking.proposed_starts_at|date:"D, M j" }} at {{ booking.proposed_starts_at|time:"g:i A" }}. Asking for another time replaces that one.</p>{% endif %}
 
   {% if move_guides %}
   <div class="pl-form-group pl-tours-move__guide">
@@ -28,7 +31,7 @@ chosen_when, form (a StaffRescheduleForm while a time is chosen), error, move_ur
 
   {% if chosen %}
   <div class="pl-tours-move__chosen" data-tour-move-chosen="{{ chosen.key }}">
-    <p class="pl-tours-move__chosen-when">Move to {{ chosen_when }}{% if chosen.guide.pk != booking.guide_id %} with {{ chosen.guide.staff_label }}{% endif %}</p>
+    <p class="pl-tours-move__chosen-when">Ask to move to {{ chosen_when }}{% if chosen.guide.pk != booking.guide_id %} with {{ chosen.guide.staff_label }}{% endif %}</p>
     <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost"
             hx-get="{{ move_url }}?guide={{ destination.pk }}&amp;date={{ chosen.starts_at|date:'Y-m-d' }}" hx-target="#tour-reschedule-body" hx-swap="innerHTML" data-tour-move-change>Pick a Different Time</button>
   </div>
@@ -36,10 +39,11 @@ chosen_when, form (a StaffRescheduleForm while a time is chosen), error, move_ur
         hx-post="{{ move_url }}" hx-target="#tour-reschedule-body" hx-swap="innerHTML" data-tour-move-form>
     {% csrf_token %}
     {{ form.tour }}
+    <p class="pl-form-note pl-tours-move__ask" data-tour-move-ask>We'll email {{ booking.visitor_first_name }} to accept the new time or keep theirs. The tour stays where it is until they answer, and you'll hear what they chose.</p>
     {% include "components/form_field.html" with field=form.message %}
     <div class="pl-tours-modal-actions">
       <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'tour-reschedule')">Cancel</button>
-      <button type="submit" class="pl-btn pl-btn--primary" hx-disabled-elt="this" data-tour-move-save>Move Tour</button>
+      <button type="submit" class="pl-btn pl-btn--primary" hx-disabled-elt="this" data-tour-move-save>Ask the Visitor</button>
     </div>
   </form>
   {% elif picker.days %}

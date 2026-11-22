@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 from django.db import transaction
@@ -443,7 +443,12 @@ def _move(
     locked.starts_at = tour.starts_at
     locked.ends_at = tour.ends_at
     locked.sequence += 1
-    locked.save(update_fields=["guide", "starts_at", "ends_at", "sequence"])
+    changed = ["guide", "starts_at", "ends_at", "sequence"]
+    if locked.has_open_proposal:
+        # A move answers any open proposal (#1283): its links then say it is no longer open.
+        locked.drop_proposal()
+        changed += list(TourBooking.PROPOSAL_FIELDS)
+    locked.save(update_fields=changed)
     _after_commit(locked, signals.MOVED, previous_guide=previous_guide, previous_starts_at=previous_starts_at, **extra)
     return locked
 
@@ -664,7 +669,7 @@ def decline_tour_request(
     return locked
 
 
-def reschedule_tour_by_staff(
+def propose_tour_time(
     booking: TourBooking,
     *,
     guide: Member,
@@ -673,30 +678,107 @@ def reschedule_tour_by_staff(
     message: str = "",
     now: datetime | None = None,
 ) -> TourBooking:
-    """A Tour Guide or an admin moves the booking to the guide's tour at ``starts_at`` (#949).
+    """A Tour Guide or an admin asks the visitor to move to the guide's tour at ``starts_at`` (#1283).
 
-    The visitor's locks and seat count (:func:`reschedule_tour`), with neither the cancel cutoff
-    nor the minimum notice: any tour that has not started yet. Another guide's tour is a
-    reassignment, which the booking's own guide or an admin may make (#1274; the view checks). The visitor gets the moved
-    email with ``message``; each guide who is not ``actor`` hears about it.
+    The booking keeps its time: the proposal is recorded and the visitor emailed Accept New Time
+    and Keep My Time, with ``message``. A new proposal replaces an open one, whose links then go
+    stale. Checked as a staff move is (#949: any open tour that has not started, no cancel cutoff
+    or minimum notice, room for the party now), but no seats are held: they are counted again
+    when the visitor accepts (:func:`answer_tour_proposal`). Another guide's tour is a
+    reassignment, which the booking's own guide or an admin may propose (#1274; the view checks).
 
     Raises:
-        TourLockedError: the booking is cancelled or has started.
+        TourLockedError: the booking is cancelled, has started, or is a request.
         TourUnavailableError: no tour then, or it is the booking's own tour.
         TourFullError: the tour has fewer seats left than the party.
     """
     moment = now or timezone.now()
     with transaction.atomic():
         locked = _locked_for_staff(booking, moment)
-        return _move(
-            locked,
-            guide=guide,
-            starts_at=starts_at,
-            now=moment,
-            staff=True,
-            actor=actor,
-            staff_message=message.strip(),
-        )
+        tour = open_tour_at(guide, starts_at, now=moment, staff=True)
+        if tour is None:
+            raise TourUnavailableError(GONE_MESSAGE)
+        if locked.guide_id == guide.pk and locked.starts_at == tour.starts_at:
+            raise TourUnavailableError(SAME_TIME_MESSAGE)
+        if tour.seats_left < locked.party_size:
+            raise TourFullError(tour.seats_left)
+        locked.propose_time(guide, tour.starts_at, proposed_by=actor, now=moment)
+        written = message.strip()
+        transaction.on_commit(lambda: _send_proposal(locked, actor, written), robust=True)
+    return locked
+
+
+def _send_proposal(booking: TourBooking, actor: User, message: str) -> None:
+    from tours import notify
+
+    notify.send_proposal_email(booking, actor=actor, staff_message=message)
+
+
+#: What :func:`answer_tour_proposal` did.
+ACCEPTED = "accepted"
+KEPT = "kept"
+#: The visitor accepted, but the proposed tour filled up or closed since: they keep their time.
+UNAVAILABLE = "unavailable"
+
+
+def answer_tour_proposal(booking: TourBooking, *, accept: bool, proposal: str, now: datetime | None = None) -> str:
+    """The visitor accepts or keeps their time against the proposal named by ``proposal`` (#1283).
+
+    Decides on the row-locked booking (:meth:`TourBooking.proposal_refusal`), so a second answer,
+    a cancel or a newer proposal that landed first wins and this one changes nothing. Accept moves
+    the booking through the same lock and seat count as any move, under the staff rules the guide
+    picked it by; when that tour filled up or closed since, the proposal is dropped and the
+    booking keeps its time. Keep drops the proposal. Every answer tells the guide, the proposed
+    guide and the proposer once it has committed; a move also sends the visitor the moved email.
+
+    Returns:
+        :data:`ACCEPTED`, :data:`KEPT`, :data:`UNAVAILABLE`, or a refusal (``"already"``,
+        ``"stale"``, ``"passed"``) when nothing changed.
+    """
+    moment = now or timezone.now()
+    with transaction.atomic():
+        locked = TourBooking.objects.select_for_update().get(pk=booking.pk)
+        refusal = locked.proposal_refusal(proposal, moment)
+        if refusal:
+            return refusal
+        proposed_guide = cast("Member", locked.proposed_guide)
+        proposed_starts_at = cast("datetime", locked.proposed_starts_at)
+        proposer = locked.proposed_by
+        previous_guide, previous_starts_at = locked.guide, locked.starts_at
+        answer = KEPT
+        if accept:
+            try:
+                with transaction.atomic():
+                    _move(
+                        locked,
+                        guide=proposed_guide,
+                        starts_at=proposed_starts_at,
+                        now=moment,
+                        staff=True,
+                        answered_proposal=True,
+                    )
+                answer = ACCEPTED
+            except (TourUnavailableError, TourFullError):
+                answer = UNAVAILABLE
+        if answer != ACCEPTED:
+            locked.clear_proposal()
+
+        def tell() -> None:
+            from tours import notify
+
+            notify.tell_guides_of_answer(
+                locked,
+                answer,
+                proposal=proposal,
+                previous_guide=previous_guide,
+                previous_starts_at=previous_starts_at,
+                proposed_guide=proposed_guide,
+                proposed_starts_at=proposed_starts_at,
+                proposer=proposer,
+            )
+
+        transaction.on_commit(tell, robust=True)
+    return answer
 
 
 def cancel_tour_by_staff(

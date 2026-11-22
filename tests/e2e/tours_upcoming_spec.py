@@ -2,7 +2,7 @@
 
 The guide presses Tours in the sidebar (#1278), which lands on Upcoming, and
 sees both tabs empty. With bookings in place, the guide reschedules one tour through the Reschedule
-modal (date strip, time, a message, Move Tour), cancels another through the confirm modal with a
+modal (date strip, time, a message, Ask the Visitor: the tour waits on the visitor's answer, #1283), cancels another through the confirm modal with a
 message to the visitor, and marks a past tour attended on the Past tab, which swaps the row in
 place with a toast. At a phone's width nothing scrolls sideways. ``CAPTURE_949_DIR=<dir>`` also
 saves dark and light pictures at desktop (1100) and phone (390, sidebar drawer closed) widths of
@@ -165,9 +165,10 @@ def describe_tours_upcoming_and_past():
         mail.outbox = []
         with page.expect_navigation():
             modal.locator("[data-tour-move-save]").click()
-        page.locator(".plt-msg", has_text="Sam Rivera's tour moved to").first.wait_for()
+        page.locator(".plt-msg", has_text="We asked Sam Rivera to move to").first.wait_for()
+        page.locator(f'[data-tour-proposal="{sam.pk}"]').wait_for()
         sam.refresh_from_db()
-        assert (sam.starts_at, sam.sequence) == (five, 1)
+        assert (sam.starts_at, sam.sequence, sam.proposed_starts_at) == (four, 0, five)
         assert any(message.to == ["sam@example.com"] and "Our 4:00 ran long" in message.body for message in mail.outbox)
 
         # Cancel Lee through the confirm modal, with a message.
@@ -268,6 +269,6 @@ def describe_admin_view():
         _settled(page, "#tour-reschedule-body [data-tour-move-save]")
         with page.expect_navigation():
             modal.locator("[data-tour-move-save]").click()
-        page.locator(".plt-msg", has_text="Sam Rivera's tour moved to").first.wait_for()
+        page.locator(".plt-msg", has_text="We asked Sam Rivera to move to").first.wait_for()
         sam.refresh_from_db()
-        assert sam.guide == olive
+        assert (sam.guide, sam.proposed_guide) == (gina, olive)

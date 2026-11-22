@@ -1,4 +1,4 @@
-"""Staff moves, cancels and marks a facility tour (#949): the locks, no cutoff, the emails and who is told."""
+"""Staff proposals (#1283), cancels and marks of a facility tour (#949): the locks, no cutoff, the emails and who is told."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ from tours.booking import (
     TourUnavailableError,
     cancel_tour_by_staff,
     mark_tour_outcome,
-    reschedule_tour_by_staff,
+    propose_tour_time,
 )
 from tours.models import FacilityTourSettings, TourBooking
 from tours.notify import note_label, person_name
@@ -89,144 +89,99 @@ def describe_the_staff_window():
         assert open_tour_at(guide, FOUR, now=FOUR + timedelta(minutes=1), staff=True) is None
 
 
-def describe_reschedule_tour_by_staff():
-    def it_moves_inside_the_cutoff_and_raises_the_sequence(guide: Member, booked: TourBooking):
-        moved = reschedule_tour_by_staff(booked, guide=guide, starts_at=FIVE, actor=_user(guide), now=CLOSE)
+def describe_propose_tour_time():
+    def it_records_the_proposal_inside_the_cutoff_and_keeps_the_time(guide: Member, booked: TourBooking):
+        actor = _user(guide)
+        proposed = propose_tour_time(booked, guide=guide, starts_at=FIVE, actor=actor, now=CLOSE)
         booked.refresh_from_db()
-        assert (booked.starts_at, booked.ends_at, booked.sequence, moved.pk) == (
+        assert (booked.starts_at, booked.sequence, proposed.pk) == (FOUR, 0, booked.pk)
+        assert (booked.proposed_guide, booked.proposed_starts_at, booked.proposed_at, booked.proposed_by) == (
+            guide,
             FIVE,
-            FIVE + timedelta(hours=1),
-            1,
-            booked.pk,
+            CLOSE,
+            actor,
         )
 
-    def it_reassigns_to_another_guides_tour(guide: Member, booked: TourBooking, other: Member, admin: Member):
-        reschedule_tour_by_staff(booked, guide=other, starts_at=FOUR, actor=_user(admin), now=NOW)
+    def it_proposes_another_guides_tour_without_reassigning(
+        guide: Member, booked: TourBooking, other: Member, admin: Member
+    ):
+        propose_tour_time(booked, guide=other, starts_at=FOUR, actor=_user(admin), now=NOW)
         booked.refresh_from_db()
-        assert booked.guide == other
+        assert (booked.guide, booked.proposed_guide) == (guide, other)
 
     def it_refuses_the_booking_own_time(guide: Member, booked: TourBooking):
         with pytest.raises(TourUnavailableError, match=SAME_TIME_MESSAGE):
-            reschedule_tour_by_staff(booked, guide=guide, starts_at=FOUR, actor=_user(guide), now=NOW)
+            propose_tour_time(booked, guide=guide, starts_at=FOUR, actor=_user(guide), now=NOW)
 
     def it_refuses_a_time_no_hours_yield(guide: Member, booked: TourBooking):
         with pytest.raises(TourUnavailableError, match=GONE_MESSAGE):
-            reschedule_tour_by_staff(booked, guide=guide, starts_at=local(TUESDAY, 19), actor=_user(guide), now=NOW)
+            propose_tour_time(booked, guide=guide, starts_at=local(TUESDAY, 19), actor=_user(guide), now=NOW)
 
-    def it_never_overbooks(guide: Member, booked: TourBooking):
+    def it_refuses_a_tour_without_room_for_the_party(guide: Member, booked: TourBooking):
         TourBookingFactory(guide=guide, starts_at=FIVE, party_size=3)
         with pytest.raises(TourFullError):
-            reschedule_tour_by_staff(booked, guide=guide, starts_at=FIVE, actor=_user(guide), now=NOW)
+            propose_tour_time(booked, guide=guide, starts_at=FIVE, actor=_user(guide), now=NOW)
         booked.refresh_from_db()
-        assert (booked.starts_at, booked.sequence) == (FOUR, 0)
+        assert booked.proposed_at is None
 
     def it_refuses_a_cancelled_or_started_tour(guide: Member, booked: TourBooking):
         actor = _user(guide)
         with pytest.raises(TourLockedError) as started:
-            reschedule_tour_by_staff(booked, guide=guide, starts_at=FIVE, actor=actor, now=FOUR)
+            propose_tour_time(booked, guide=guide, starts_at=FIVE, actor=actor, now=FOUR)
         assert started.value.reason == "past"
         TourBooking.objects.filter(pk=booked.pk).update(status=TourBooking.Status.CANCELLED)
         with pytest.raises(TourLockedError) as cancelled:
-            reschedule_tour_by_staff(booked, guide=guide, starts_at=FIVE, actor=actor, now=NOW)
+            propose_tour_time(booked, guide=guide, starts_at=FIVE, actor=actor, now=NOW)
         assert cancelled.value.reason == "cancelled"
 
     def it_refuses_a_tour_already_marked(guide: Member, booked: TourBooking):
         TourBooking.objects.filter(pk=booked.pk).update(status=TourBooking.Status.ATTENDED)
         with pytest.raises(TourLockedError) as refused:
-            reschedule_tour_by_staff(booked, guide=guide, starts_at=FIVE, actor=_user(guide), now=NOW)
+            propose_tour_time(booked, guide=guide, starts_at=FIVE, actor=_user(guide), now=NOW)
         assert refused.value.reason == "past"
 
-    def it_emails_the_visitor_the_move_with_the_message_and_tells_no_guide_who_acted(
+    def it_emails_the_visitor_accept_and_keep_with_the_message_and_no_invite(
         guide: Member, booked: TourBooking, django_capture_on_commit_callbacks: Any
     ):
         actor = _user(guide)
         with django_capture_on_commit_callbacks(execute=True):
-            reschedule_tour_by_staff(
+            proposed = propose_tour_time(
                 booked, guide=guide, starts_at=FIVE, actor=actor, message="  Running late, sorry!  ", now=CLOSE
             )
-        visitor = _to("sam@example.com")
-        assert [message.subject for message in visitor] == ["Your Past Lives tour moved to Tue, Jan 8 at 5:00 PM"]
-        invite = _ics(visitor[0])
-        assert f"UID:tour-{booked.pk}@pastlives" in invite and "SEQUENCE:1" in invite
-        assert "A note from Gina:\nRunning late, sorry!" in visitor[0].body
-        assert "Running late, sorry!" in str(visitor[0].alternatives[0][0])
+        (email,) = _to("sam@example.com")
+        assert email.subject == "Can your Past Lives tour move to Tue, Jan 8 at 5:00 PM?"
+        assert email.attachments == []
+        link = f"/tour/b/{booked.self_serve_token}/?proposal={proposed.proposal_key}"
+        assert f"{link}&answer=accept" in email.body and f"{link}&answer=keep" in email.body
+        assert "A note from Gina:\nRunning late, sorry!" in email.body
+        html = str(email.alternatives[0][0])
+        assert "Accept New Time" in html and "Keep My Time" in html and "Running late, sorry!" in html
         assert _to(actor.email) == []
-        assert not Notification.objects.filter(user=actor).exists()
+        assert not Notification.objects.exists()
 
-    def it_tells_the_guide_when_an_admin_moved_their_tour(
-        guide: Member, booked: TourBooking, admin: Member, django_capture_on_commit_callbacks: Any
-    ):
-        guide_user, admin_user = _user(guide), _user(admin)
-        with django_capture_on_commit_callbacks(execute=True):
-            reschedule_tour_by_staff(booked, guide=guide, starts_at=FIVE, actor=admin_user, message="", now=NOW)
-        told = _to(guide_user.email)
-        assert [message.subject for message in told] == ["Tour moved: Tue, Jan 8 at 4:00 PM to Tue, Jan 8 at 5:00 PM"]
-        assert "Ada Admin moved Sam Rivera's tour for 2 people from" in told[0].body
-        assert "A note from" not in _to("sam@example.com")[0].body
-        bell = Notification.objects.get(user=guide_user)
-        assert (bell.title, bell.body, bell.url) == (
-            "Tour moved",
-            "Ada Admin moved Sam Rivera's tour on Tue, Jan 8 at 4:00 PM to Tue, Jan 8 at 5:00 PM.",
-            "/facility-tours/",
-        )
-        assert not Notification.objects.filter(user=admin_user).exists()
-
-    def it_tells_the_old_and_new_guide_on_a_reassignment(
-        guide: Member, booked: TourBooking, other: Member, admin: Member, django_capture_on_commit_callbacks: Any
-    ):
-        guide_user, other_user, admin_user = _user(guide), _user(other), _user(admin)
-        with django_capture_on_commit_callbacks(execute=True):
-            reschedule_tour_by_staff(
-                booked, guide=other, starts_at=FOUR, actor=admin_user, message="Gina is sick", now=NOW
-            )
-        old = _to(guide_user.email)
-        assert len(old) == 1 and "to Olive. It is off your schedule." in old[0].body
-        assert "Their note to the visitor:\nGina is sick" in old[0].body
-        new = _to(other_user.email)
-        assert [message.subject for message in new] == ["Tour moved to you: Tue, Jan 8 at 4:00 PM"]
-        assert "Ada Admin moved Sam Rivera's tour for 2 people to you." in new[0].body
-        assert Notification.objects.get(user=guide_user).body == (
-            "Ada Admin moved Sam Rivera's tour on Tue, Jan 8 at 4:00 PM to Olive."
-        )
-        assert Notification.objects.get(user=other_user).title == "Tour moved to you"
-        assert _to(admin_user.email) == []
-
-    def it_tells_only_the_new_guide_when_the_tour_had_none(
-        booked: TourBooking, other: Member, admin: Member, django_capture_on_commit_callbacks: Any
-    ):
-        TourBooking.objects.filter(pk=booked.pk).update(guide=None)
-        booked.refresh_from_db()
-        other_user = _user(other)
-        with django_capture_on_commit_callbacks(execute=True):
-            reschedule_tour_by_staff(booked, guide=other, starts_at=FOUR, actor=_user(admin), now=NOW)
-        assert [message.subject for message in _to(other_user.email)] == ["Tour moved to you: Tue, Jan 8 at 4:00 PM"]
-        assert Notification.objects.count() == 1
-
-    def it_sends_the_part_5_seam_with_who_acted(
-        guide: Member, booked: TourBooking, admin: Member, django_capture_on_commit_callbacks: Any
+    def it_sends_no_seam_since_nothing_moved(
+        guide: Member, booked: TourBooking, django_capture_on_commit_callbacks: Any
     ):
         heard: list[dict[str, Any]] = []
 
         def receiver(sender: object, **kwargs: Any) -> None:
             heard.append(kwargs)
 
-        actor = _user(admin)
         signals.tour_booking_changed.connect(receiver)
         try:
-            with django_capture_on_commit_callbacks(execute=False) as callbacks:
-                reschedule_tour_by_staff(booked, guide=guide, starts_at=FIVE, actor=actor, message="hi", now=NOW)
-            assert heard == []
-            for callback in callbacks:
-                callback()
+            with django_capture_on_commit_callbacks(execute=True):
+                propose_tour_time(booked, guide=guide, starts_at=FIVE, actor=_user(guide), now=NOW)
         finally:
             signals.tour_booking_changed.disconnect(receiver)
-        assert len(heard) == 1
-        assert (heard[0]["change"], heard[0]["previous_guide"], heard[0]["previous_starts_at"]) == (
-            signals.MOVED,
-            guide,
-            FOUR,
-        )
-        assert (heard[0]["actor"], heard[0]["staff_message"]) == (actor, "hi")
+        assert heard == []
+
+    def it_replaces_an_open_proposal_with_a_new_key(guide: Member, booked: TourBooking, other: Member):
+        actor = _user(guide)
+        first = propose_tour_time(booked, guide=guide, starts_at=FIVE, actor=actor, now=NOW).proposal_key
+        second = propose_tour_time(
+            booked, guide=guide, starts_at=FIVE, actor=actor, now=NOW + timedelta(minutes=5)
+        ).proposal_key
+        assert first and second and first != second
 
 
 def describe_cancel_tour_by_staff():

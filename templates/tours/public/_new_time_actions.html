@@ -1,0 +1,22 @@
+{% comment %}
+Accept New Time and Keep My Time for a guide's proposed new time (#1283, tours.public_views.manage).
+Each POSTs the proposal's key and its answer as hidden fields (the busy script disables the
+pressed button, which would drop a button's own value) to the manage page; a GET of the emailed link changes nothing. The
+answer the visitor tapped in the email (picked, "accept" or "keep") is the primary button and comes first.
+Context: booking, proposal_key, picked.
+{% endcomment %}
+{% url 'tours_public:manage' booking.self_serve_token as answer_url %}
+<div class="pl-tourpub__actions pl-tourpub__answers{% if picked == "keep" %} pl-tourpub__answers--keep{% endif %}" data-tour-answers>
+  <form method="post" action="{{ answer_url }}" class="pl-tourpub__form" hx-boost="false" data-pl-busy-submit>
+    {% csrf_token %}
+    <input type="hidden" name="proposal" value="{{ proposal_key }}">
+    <input type="hidden" name="answer" value="accept">
+    <button type="submit" class="{% if picked == "keep" %}pl-tourpub__answer-alt{% else %}btn-reg{% endif %} pl-tourpub__answer" data-pl-busy="hold" data-tour-answer="accept">Accept New Time</button>
+  </form>
+  <form method="post" action="{{ answer_url }}" class="pl-tourpub__form" hx-boost="false" data-pl-busy-submit>
+    {% csrf_token %}
+    <input type="hidden" name="proposal" value="{{ proposal_key }}">
+    <input type="hidden" name="answer" value="keep">
+    <button type="submit" class="{% if picked == "keep" %}btn-reg{% else %}pl-tourpub__answer-alt{% endif %} pl-tourpub__answer" data-pl-busy="hold" data-tour-answer="keep">Keep My Time</button>
+  </form>
+</div>

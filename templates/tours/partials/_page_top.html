@@ -12,7 +12,7 @@ and setup_next (tours.views._setup).
 
 {% tab_picker "Tours" %}
 <nav class="pl-tabs" aria-label="Tours">
-  <a href="{% url 'tours:upcoming' %}" class="vote-tab{% if tab == 'upcoming' %} vote-tab--active{% endif %}"{% if tab == 'upcoming' %} aria-current="page"{% endif %} data-tours-tab="upcoming">Upcoming</a>
+  <a href="{% url 'tours:upcoming' %}" data-guidance-target="tours.upcoming" class="vote-tab{% if tab == 'upcoming' %} vote-tab--active{% endif %}"{% if tab == 'upcoming' %} aria-current="page"{% endif %} data-tours-tab="upcoming">Upcoming</a>
   <a href="{% url 'tours:calendar' %}" class="vote-tab{% if tab == 'calendar' %} vote-tab--active{% endif %}"{% if tab == 'calendar' %} aria-current="page"{% endif %} data-tours-tab="calendar">Calendar</a>
   <a href="{% url 'tours:past' %}" class="vote-tab{% if tab == 'past' %} vote-tab--active{% endif %}"{% if tab == 'past' %} aria-current="page"{% endif %} data-tours-tab="past">Past</a>
   <a href="{% url 'tours:hours' %}" class="vote-tab{% if tab == 'hours' %} vote-tab--active{% endif %}"{% if tab == 'hours' %} aria-current="page"{% endif %} data-tours-tab="hours">My Hours</a>

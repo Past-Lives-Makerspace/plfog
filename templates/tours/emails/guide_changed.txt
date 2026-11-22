@@ -1,10 +1,16 @@
-{% autoescape off %}{% if change == "taken" %}Tour request taken{% elif change == "lapsed" %}Tour request lapsed{% elif change == "cancelled" %}Tour cancelled{% else %}Tour moved{% endif %}
+{% autoescape off %}{% if change == "taken" %}Tour request taken{% elif change == "lapsed" %}Tour request lapsed{% elif change == "cancelled" %}Tour cancelled{% elif change == "accepted" %}New tour time accepted{% elif change == "kept" %}Tour time kept{% elif change == "unavailable" %}New tour time no longer open{% else %}Tour moved{% endif %}
 
-{% if change == "taken" %}{{ taken_by_name }} confirmed {{ booking.visitor_name }}'s request for {{ people }} on {{ when }} first, so it is off your list. Nothing is needed from you.
+{% if change == "accepted" %}{{ booking.visitor_name }} accepted the new time. Their tour for {{ people }} moved from {{ previous_when }} to {{ proposed_when }}{% if booking.guide %}, with {{ booking.guide.staff_label }}{% endif %}, and they have an updated calendar invite.
+
+{% elif change == "kept" %}{{ booking.visitor_name }} kept their tour for {{ people }} on {{ previous_when }} and turned down {{ proposed_when }}. Nothing moved.
+
+{% elif change == "unavailable" %}{{ booking.visitor_name }} accepted {{ proposed_when }}, but that tour had filled up or closed, so their tour for {{ people }} stays on {{ previous_when }}. Reschedule it again if you still need it moved.
+
+{% elif change == "taken" %}{{ taken_by_name }} confirmed {{ booking.visitor_name }}'s request for {{ people }} on {{ when }} first, so it is off your list. Nothing is needed from you.
 
 {% elif change == "lapsed" %}{{ booking.visitor_name }}'s request for {{ people }} on {{ when }} was not confirmed by its confirm by time, 24 hours before the tour. We cancelled it, freed the seats and told the visitor.
 
-{% elif actor_name %}{% if change == "cancelled" %}{{ actor_name }} cancelled {{ booking.visitor_name }}'s tour for {{ people }} on {{ when }}. The visitor has been emailed and the seats are open again.{% elif stays_with_guide %}{{ actor_name }} moved {{ booking.visitor_name }}'s tour for {{ people }} from {{ previous_when }} to {{ when }}. The visitor has been emailed.{% else %}{{ actor_name }} moved {{ booking.visitor_name }}'s tour for {{ people }} on {{ previous_when }} to {{ new_guide_name }}. It is off your schedule.{% endif %}
+{% elif actor_name %}{{ actor_name }} cancelled {{ booking.visitor_name }}'s tour for {{ people }} on {{ when }}. The visitor has been emailed and the seats are open again.
 
 {% include "tours/emails/_staff_message.txt" with note_label="Their note to the visitor" %}{% elif change == "cancelled" %}{{ booking.visitor_name }} cancelled their tour for {{ people }} on {{ when }}. Their seats are open again.
 

@@ -275,7 +275,7 @@ def describe_reschedule_modal():
 
 
 def describe_reschedule_post():
-    def it_moves_the_tour_and_sends_the_page_back_with_a_flash(
+    def it_asks_the_visitor_first_and_sends_the_page_back_with_a_flash(
         guide: Member, booked: TourBooking, django_capture_on_commit_callbacks: Any
     ):
         client = signed_in(guide)
@@ -289,29 +289,33 @@ def describe_reschedule_post():
             )
         assert (response.status_code, response["HX-Redirect"]) == (204, f"{UPCOMING}?page=1")
         booked.refresh_from_db()
-        assert (booked.starts_at, booked.sequence) == (FIVE, 1)
-        assert _flashes(response)[0].startswith("Sam Rivera's tour moved to")
+        assert (booked.starts_at, booked.sequence, booked.proposed_starts_at) == (FOUR, 0, FIVE)
+        assert _flashes(response) == [
+            f"We asked Sam Rivera to move to {short_when(FIVE)}. "
+            "Their tour stays put until they accept, and you'll hear their answer."
+        ]
         visitor = [message for message in mail.outbox if message.to == ["sam@example.com"]]
         assert len(visitor) == 1 and "See you at five" in visitor[0].body
+        assert visitor[0].subject.startswith("Can your Past Lives tour move to")
 
     def it_redirects_a_plain_post(guide: Member, booked: TourBooking):
         response = signed_in(guide).post(_reschedule_url(booked), {"tour": _tour_key(guide, FIVE)})
         assert (response.status_code, response["Location"]) == (302, UPCOMING)
 
-    def it_lets_an_admin_reassign(admin: Member, other: Member, booked: TourBooking):
+    def it_lets_an_admin_propose_another_guides_tour(admin: Member, guide: Member, other: Member, booked: TourBooking):
         _hours(other)
         response = signed_in(admin).post(_reschedule_url(booked), {"tour": _tour_key(other, FOUR)}, **HTMX)
         assert response.status_code == 204
         booked.refresh_from_db()
-        assert booked.guide == other
+        assert (booked.guide, booked.proposed_guide) == (guide, other)
 
-    def it_moves_inside_the_cancel_cutoff(guide: Member, booked: TourBooking):
+    def it_proposes_inside_the_cancel_cutoff(guide: Member, booked: TourBooking):
         client = signed_in(guide)
         with patch("django.utils.timezone.now", return_value=FOUR - timedelta(hours=2)):
             response = client.post(_reschedule_url(booked), {"tour": _tour_key(guide, FIVE)}, **HTMX)
         assert response.status_code == 204
         booked.refresh_from_db()
-        assert booked.starts_at == FIVE
+        assert (booked.starts_at, booked.proposed_starts_at) == (FOUR, FIVE)
 
     def it_shows_the_modal_again_with_why(guide: Member, booked: TourBooking):
         client = signed_in(guide)

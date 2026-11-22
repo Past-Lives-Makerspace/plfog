@@ -914,7 +914,7 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         section="Guilds & Orientations",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent when a visitor moves their tour from the Reschedule link, or a Tour Guide or admin moves it from the Tours page (with their optional note). The calendar invite keeps its UID with a higher SEQUENCE, so it replaces the old one."
+            "Sent when a visitor moves their tour from the Reschedule link, or accepts a new time a Tour Guide or admin asked for (#1283). The calendar invite keeps its UID with a higher SEQUENCE, so it replaces the old one."
         ),
         edit_pointer=_tpl("tours/emails", "visitor_moved"),
         audience="The visitor who booked the tour (by address).",
@@ -957,7 +957,7 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         section="Guilds & Orientations",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent to the tour's guide when a visitor books one of their tours (with a bell and push), or to the admins when the tour has no guide. Also sent, as Tour moved to you, when an admin hands a tour to this guide."
+            "Sent to the tour's guide when a visitor books one of their tours (with a bell and push), or to the admins when the tour has no guide."
         ),
         edit_pointer=_tpl("tours/emails", "guide_booked"),
         audience="The tour's guide.",
@@ -1057,12 +1057,42 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="tour_guide_request_context",
     ),
     GalleryEmail(
+        key="tour_visitor_new_time",
+        name="Tour new time asked (visitor)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when a Tour Guide or admin reschedules a tour from the Tours page (#1283): it asks the visitor to accept the new time or keep theirs, with the staff note. Nothing moves and no calendar invite goes until they accept."
+        ),
+        edit_pointer=_tpl("tours/emails", "visitor_new_time"),
+        audience="The visitor who booked the tour (by address).",
+        event_keys=frozenset({"tour.visitor_update"}),
+        text_template="tours/emails/visitor_new_time.txt",
+        html_template="tours/emails/visitor_new_time.html",
+        context_builder="tour_visitor_new_time_context",
+    ),
+    GalleryEmail(
+        key="tour_guide_answer",
+        name="New tour time answered (guide)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent (with a bell) to the tour's guide, the guide it would move to, and whoever asked, when the visitor accepts a new time, keeps theirs, or accepts one that filled up meanwhile (#1283)."
+        ),
+        edit_pointer=_tpl("tours/emails", "guide_changed"),
+        audience="The tour's guide, the proposed guide and the guide or admin who asked.",
+        event_keys=frozenset({"tour.visitor_changed"}),
+        text_template="tours/emails/guide_changed.txt",
+        html_template="tours/emails/guide_changed.html",
+        context_builder="tour_guide_answer_context",
+    ),
+    GalleryEmail(
         key="tour_guide_changed",
         name="Tour moved or cancelled (guide)",
         section="Guilds & Orientations",
         renderer=Renderer.SHELL_TEMPLATE,
         trigger_note=(
-            "Sent to the tour's guide when a visitor moves or cancels it from their email links (with a bell), or when someone else moves, reassigns or cancels it from the Tours page."
+            "Sent to the tour's guide when a visitor moves or cancels it from their email links (with a bell), or when someone else cancels it from the Tours page."
         ),
         edit_pointer=_tpl("tours/emails", "guide_changed"),
         audience="The tour's guide.",

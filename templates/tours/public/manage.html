@@ -3,7 +3,13 @@
 The visitor's booking (#948, tours.public_views.manage), opened from the email or right after
 booking (just = "booked"), moving ("moved") or cancelling ("cancelled"). Reschedule and Cancel
 show while refusal is empty. A request (#1166, booking.is_request) waits for its guide: the page
-says so and offers Cancel My Request alone. Context: booking, when, refusal, just, address, support_email.
+says so and offers Cancel My Request alone. While a guide's proposed new time is open (#1283,
+proposal_open) the page shows it with Accept New Time and Keep My Time above the usual buttons
+(the email's links add ?proposal=<key>&answer=, picked); an answer lands here as "moved", "kept"
+or "unavailable" (that time filled up or closed). A link to a proposal that no longer applies sets
+proposal_closed ("stale", "already" or "passed") and the page says so.
+Context: booking, when, refusal, just, address, support_email, proposal_open, proposal_closed,
+proposed_when, new_guide_name, proposal_key, picked.
 {% endcomment %}
 {% block title %}Your Tour | Past Lives Makerspace{% endblock %}
 
@@ -14,7 +20,7 @@ says so and offers Cancel My Request alone. Context: booking, when, refusal, jus
       <div class="detail-head">
         <div>
           <div class="dc-cat">{{ booking.get_status_display }}</div>
-          <h1 class="dc-title">{% if booking.is_request %}{% if just == "booked" %}Request Sent{% else %}Your Tour Request{% endif %}{% elif just == "booked" %}You're Booked{% elif just == "moved" %}Your Tour Moved{% elif booking.status == "cancelled" %}Your Tour Is Cancelled{% else %}Your Tour{% endif %}</h1>
+          <h1 class="dc-title">{% if booking.is_request %}{% if just == "booked" %}Request Sent{% else %}Your Tour Request{% endif %}{% elif just == "booked" %}You're Booked{% elif just == "moved" %}Your Tour Moved{% elif just == "kept" %}You Kept Your Time{% elif booking.status == "cancelled" %}Your Tour Is Cancelled{% else %}Your Tour{% endif %}</h1>
         </div>
       </div>
       <div class="detail-body">
@@ -24,15 +30,29 @@ says so and offers Cancel My Request alone. Context: booking, when, refusal, jus
         <p class="pl-tourpub__lead" data-tour-confirmed>We emailed {{ booking.visitor_email }} a confirmation with a calendar invite. See you soon!</p>
         {% elif just == "cancelled" %}
         <p class="pl-tourpub__lead" data-tour-cancelled>Your tour is cancelled and we let your guide know. We emailed {{ booking.visitor_email }} to confirm.</p>
+        {% elif just == "kept" %}
+        <p class="pl-tourpub__lead" data-tour-kept>You're keeping your time, and we let your guide know.</p>
+        {% elif just == "unavailable" %}
+        <p class="pl-tourpub__lead" data-tour-unavailable>That new time filled up or closed before you answered, so you keep your current time. We let your guide know.</p>
+        {% endif %}
+        {% if proposal_closed %}
+        <p class="pl-tourpub__lead pl-tourpub__notice" data-tour-proposal-closed="{{ proposal_closed }}">{% if proposal_closed == "passed" %}That request for a new time has passed, so you keep your current time.{% elif proposal_closed == "already" %}That request for a new time is no longer open: this tour was cancelled or has already started.{% else %}That request for a new time is no longer open: it was already answered or replaced.{% endif %}</p>
         {% endif %}
         {% include "tours/public/_details.html" %}
+        {% if proposal_open %}
+        <section class="pl-tourpub__proposal" aria-labelledby="tour-proposal-title" data-tour-proposal>
+          <h2 class="pl-tourpub__proposal-title" id="tour-proposal-title">Your Guide Asked to Move Your Tour</h2>
+          {% include "tours/public/_new_time_offer.html" %}
+          {% include "tours/public/_new_time_actions.html" %}
+        </section>
+        {% endif %}
         {% if not refusal and booking.is_request %}
         <div class="pl-tourpub__actions">
           <a href="{% url 'tours_public:cancel' booking.self_serve_token %}" class="back-link pl-tourpub__secondary" data-tour-cancel>Cancel My Request</a>
         </div>
         {% elif not refusal %}
         <div class="pl-tourpub__actions">
-          <a href="{% url 'tours_public:reschedule' booking.self_serve_token %}" class="btn-reg" data-tour-reschedule>Reschedule</a>
+          <a href="{% url 'tours_public:reschedule' booking.self_serve_token %}" class="{% if proposal_open %}pl-tourpub__answer-alt{% else %}btn-reg{% endif %}" data-tour-reschedule>Reschedule</a>
           <a href="{% url 'tours_public:cancel' booking.self_serve_token %}" class="back-link pl-tourpub__secondary" data-tour-cancel>Cancel My Tour</a>
         </div>
         {% elif refusal == "too_close" %}

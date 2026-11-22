@@ -30,6 +30,8 @@ from membership.models import AdminCapability, Member
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from django.contrib.auth.models import User
+
 #: The most seats one tour can hold, on the settings page and on every hours row.
 MAX_SEATS = 50
 #: The farthest ahead visitors can be allowed to book, in days.
@@ -726,6 +728,39 @@ class TourBooking(models.Model):
             "time, the first guide to confirm gets it. Cleared on the row a guide confirms."
         ),
     )
+    # --- Ask the visitor first (#1283) ---------------------------------------------------------
+    proposed_guide = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="tour_times_offered",
+        help_text=(
+            "Whose tour a guide or admin asked to move this booking to (#1283), awaiting the visitor's "
+            "answer. Empty when no proposal is open."
+        ),
+    )
+    proposed_starts_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="The new start a guide or admin asked the visitor to accept (#1283). Empty when none is open.",
+    )
+    proposed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the open proposal was made. Its Accept and Keep links carry it, so a replaced "
+            "proposal's links say it is no longer open."
+        ),
+    )
+    proposed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="tour_times_proposed",
+        help_text="The guide or admin who proposed the open new time; they hear the visitor's answer.",
+    )
     notes_moved_to = models.ForeignKey(
         "self",
         null=True,
@@ -740,6 +775,9 @@ class TourBooking(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, help_text="When it was booked.")
 
     objects = TourBookingQuerySet.as_manager()
+
+    #: The columns one proposal lives in (#1283), saved together.
+    PROPOSAL_FIELDS: ClassVar[tuple[str, ...]] = ("proposed_guide", "proposed_starts_at", "proposed_at", "proposed_by")
 
     #: The first names of the other guides a shared request (#1255) also went to, for the Upcoming row;
     #: filled by :meth:`attach_shared_with`, never stored.
@@ -882,6 +920,59 @@ class TourBooking(models.Model):
                     for row in by_group.get(booking.request_group, [])
                     if row.pk != booking.pk
                 )
+
+    @property
+    def has_open_proposal(self) -> bool:
+        """Whether a new time a guide or admin proposed (#1283) waits on the visitor's answer."""
+        return self.proposed_at is not None
+
+    @property
+    def proposal_key(self) -> str:
+        """The open proposal's identity in its Accept and Keep links (#1283), or "" when none is open.
+
+        Microseconds since the epoch of ``proposed_at``, so a link drawn for one proposal never
+        matches the one that replaced it.
+        """
+        if self.proposed_at is None:
+            return ""
+        epoch = datetime(1970, 1, 1, tzinfo=UTC)
+        return str((self.proposed_at - epoch) // timedelta(microseconds=1))
+
+    def propose_time(self, guide: Member, starts_at: datetime, *, proposed_by: User, now: datetime) -> None:
+        """Record ``guide``'s tour at ``starts_at`` as the new time to ask the visitor about, replacing any open one."""
+        self.proposed_guide = guide
+        self.proposed_starts_at = starts_at
+        self.proposed_at = now
+        self.proposed_by = proposed_by
+        self.save(update_fields=list(self.PROPOSAL_FIELDS))
+
+    def drop_proposal(self) -> None:
+        """Forget the open proposal in memory; the caller saves :attr:`PROPOSAL_FIELDS`."""
+        self.proposed_guide = None
+        self.proposed_starts_at = None
+        self.proposed_at = None
+        self.proposed_by = None
+
+    def clear_proposal(self) -> None:
+        """The visitor kept their time, or the proposed time can no longer be had: drop the proposal."""
+        self.drop_proposal()
+        self.save(update_fields=list(self.PROPOSAL_FIELDS))
+
+    def proposal_refusal(self, proposal: str, now: datetime) -> str:
+        """Why an Accept or Keep drawn for ``proposal`` may not act on this booking (#1283), or "" when it may.
+
+        ``"already"`` when the booking is no longer booked or has started, ``"stale"`` when that
+        proposal was answered or replaced (or none was named, or its guide is gone), ``"passed"`` when the proposed time
+        has come and gone. No cancel cutoff: the guide asked, so the visitor may answer up to the tour.
+        """
+        if self.status != self.Status.BOOKED or self.starts_at <= now:
+            return "already"
+        if not proposal or proposal != self.proposal_key or self.proposed_guide_id is None:
+            # No proposed guide left (their member record was deleted) is a proposal nobody can give.
+            return "stale"
+        if self.proposed_starts_at is None or self.proposed_starts_at <= now:
+            return "passed"
+        return ""
 
     def table_url_name(self, now: datetime) -> str:
         """Which Tours table lists this booking (#1274): Upcoming until it starts, Past after."""

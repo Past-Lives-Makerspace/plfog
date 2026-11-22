@@ -1083,6 +1083,40 @@ def tour_visitor_moved_context(data: SampleData) -> dict[str, Any]:
     return _tour_visitor(data, "Your Past Lives tour moved to {when}", sequence=1, previous_starts_at=True, staff=True)
 
 
+def tour_visitor_new_time_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``tours.notify.send_proposal_email`` (#1283)."""
+    from tours.notify import proposal_links, short_when, visitor_context, when_label
+
+    booking = _tour_booking(data)
+    proposed = booking.starts_at + timedelta(hours=1)
+    booking.proposed_guide, booking.proposed_starts_at, booking.proposed_at = data.lead, proposed, timezone.now()
+    return {
+        "subject": f"Can your Past Lives tour move to {short_when(proposed)}?",
+        "template_context": visitor_context(
+            booking,
+            proposed_when=when_label(proposed),
+            new_guide_name="",
+            staff_message="Our 4:00 slot runs long that day. Would 5:00 work instead?",
+            note_label="A note from Mara",
+            **proposal_links(booking),
+        ),
+    }
+
+
+def tour_guide_answer_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``tours.notify.tell_guides_of_answer`` for an accepted new time (#1283)."""
+    from tours.notify import guide_context, short_when, when_label
+
+    booking = _tour_booking(data)
+    previous = booking.starts_at - timedelta(hours=1)
+    return {
+        "subject": f"New tour time accepted: {short_when(booking.starts_at)}",
+        "template_context": guide_context(
+            booking, change="accepted", previous_when=when_label(previous), proposed_when=when_label(booking.starts_at)
+        ),
+    }
+
+
 def tour_visitor_cancelled_context(data: SampleData) -> dict[str, Any]:
     from tours.models import TourBooking
 

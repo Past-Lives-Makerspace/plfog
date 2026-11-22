@@ -24,6 +24,7 @@ from django.utils import timezone
 from hub.calendar_entries import CalendarEntry
 from hub.calendar_pages import ITEM_LEGEND_COLORS, LegendChip, entries_calendar_context
 from tours.models import FacilityTourSettings, TourBooking, TourDayOff, TourHours
+from tours.notify import short_when
 
 if TYPE_CHECKING:
     from membership.models import Member
@@ -135,17 +136,24 @@ def _booking_entries(bookings: list[TourBooking]) -> list[CalendarEntry]:
         kind = "Request" if booking.is_request else "Tour"
         guide = f" with {booking.guide.staff_label}" if booking.guide is not None else ", no guide"
         tab = booking.table_url_name(now)
+        owner_label = "Tour request" if booking.is_request else "Booked tour"
+        waiting = booking.proposed_starts_at is not None
+        if booking.proposed_starts_at is not None:
+            # A reschedule waiting on the visitor's answer (#1283): the chip says Waiting, the list line says for what.
+            owner_label = (
+                f"Booked tour · Waiting for the Visitor, asked to move to {short_when(booking.proposed_starts_at)}"
+            )
         entries.append(
             CalendarEntry(
                 pk=BOOKING_PK_OFFSET + booking.pk,
                 title=f"{kind}: {booking.kiosk_name}, {booking.party_label}{guide}",
-                chip_title=f"{kind}: {booking.kiosk_name} ({booking.party_size})",
+                chip_title=f"{kind}: {booking.kiosk_name} ({booking.party_size}){' · Waiting' if waiting else ''}",
                 start_dt=booking.starts_at,
                 end_dt=booking.ends_at,
                 source="reservation",
                 url=f"{reverse(tab)}#tour-booking-{booking.pk}",
                 legend_key=str(booking.guide_id) if booking.guide_id is not None else NO_GUIDE_KEY,
-                owner_label="Tour request" if booking.is_request else "Booked tour",
+                owner_label=owner_label,
             )
         )
     return entries

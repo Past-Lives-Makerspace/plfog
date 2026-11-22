@@ -283,3 +283,69 @@ html[data-tours-loading="done"] .pl-tours-loading__bar {
         transition: none;
     }
 }
+
+/* A guide's proposed new time (#1283): the manage page's section, the time itself, and the two answers. */
+.cp-page .pl-tourpub__proposal {
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+}
+
+.cp-page .pl-tourpub__proposal-title {
+    font-family: var(--heading);
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--text);
+}
+
+.cp-page .pl-tourpub__offer {
+    margin-top: 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--gold-text);
+    border-radius: var(--r);
+    background: var(--bg3);
+}
+
+.cp-page .pl-tourpub__offer-when {
+    margin-top: 0.25rem;
+    font-family: var(--heading);
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--gold-text);
+}
+
+.cp-page .pl-tourpub__offer-meta {
+    margin-top: 0.25rem;
+    font-size: 13px;
+    color: var(--text2);
+}
+
+.cp-page .pl-tourpub__answer {
+    width: 100%;
+}
+
+/* The answer not tapped in the email, and Reschedule while a proposal is open: an outlined button, so only one reads as primary. */
+.cp-page .pl-tourpub__answer-alt {
+    display: block;
+    padding: 13px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-align: center;
+    text-decoration: none;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.cp-page .pl-tourpub__answer-alt:hover {
+    border-color: var(--gold-text);
+}
+
+/* Tapped Keep My Time in the email: Keep comes first. */
+.cp-page .pl-tourpub__answers--keep {
+    flex-direction: column-reverse;
+}

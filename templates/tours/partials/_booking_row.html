@@ -4,7 +4,8 @@ with their party, email and phone (tap to mail or call), the guide ("You" for th
 status with a request's confirm by time (#1166), the guides a No preference request also went to
 (#1255, booking.shared_with), a kiosk check in and the note count, then the "..." menu
 (partials/_booking_menu.html). Its id is the anchor the guide's request email, the bells and the
-Calendar tab link to. Past rows come back from tours.views.tour_booking_mark over htmx in their new state.
+Calendar tab link to. A reschedule waiting on the visitor (#1283) shows Waiting for the Visitor
+and the proposed time in the status cell. Past rows come back from tours.views.tour_booking_mark over htmx in their new state.
 
 The visitor's email and phone go only to the tour's own guide and admins (Felix, #1274:
 booking.can_see_contact); any other Tour Guide gets the row without them.
@@ -27,6 +28,10 @@ tab ("upcoming" or "past"), is_admin, viewer_pk (the viewer's member pk).
     <span class="hub-pill {% if booking.is_request %}hub-pill--warn{% elif booking.status == 'attended' or tab == 'upcoming' %}hub-pill--ok{% elif booking.status == 'no_show' %}hub-pill--danger{% else %}hub-pill--neutral{% endif %}" data-tour-booking-status="{{ booking.status }}">{% if tab == "past" and booking.status == "booked" %}Not Marked{% elif tab == "upcoming" and booking.status == "booked" %}Confirmed{% else %}{{ booking.get_status_display }}{% endif %}</span>
     {% if booking.note_count %}<span class="hub-pill hub-pill--neutral" data-tour-note-count>{{ booking.note_count }} note{{ booking.note_count|pluralize }}</span>{% endif %}
     {% if booking.checked_in_at %}<span class="pl-bookings-table__paid" data-tour-booking-checked-in>Checked in at {{ booking.checked_in_at|time:"g:i A" }}</span>{% endif %}
+    {% if tab == "upcoming" and booking.has_open_proposal %}
+    <span class="hub-pill hub-pill--warn" data-tour-proposal="{{ booking.pk }}">Waiting for the Visitor</span>
+    <span class="pl-bookings-table__paid" data-tour-proposed-when>Asked to move to {{ booking.proposed_starts_at|date:"D, M j" }} · {{ booking.proposed_starts_at|time:"g:i A" }}{% if booking.proposed_guide and booking.proposed_guide_id != booking.guide_id %} with {{ booking.proposed_guide.staff_label }}{% endif %}</span>
+    {% endif %}
     {% if tab == "upcoming" and booking.is_request %}
     <span class="pl-bookings-table__paid" data-tour-confirm-by>Confirm by {{ booking.confirm_by|date:"D, M j" }}, {{ booking.confirm_by|time:"g:i A" }}{% if not booking.can_answer %} · Only {{ booking.guide.staff_label|default:"its guide" }} can confirm or decline it{% endif %}</span>
     {% if booking.shared_with %}<span class="pl-bookings-table__paid hub-text-muted" data-tour-shared-with>No preference: also sent to {{ booking.shared_with|join:", " }}. Whoever confirms first gets the tour.</span>{% endif %}
