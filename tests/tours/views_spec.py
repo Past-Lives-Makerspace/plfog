@@ -84,7 +84,7 @@ def describe_access():
 
 
 def describe_where_it_lives():
-    """#1278: Tours is a sidebar entry for every active member, beside Host a Class; the Tools page no longer opens it."""
+    """#1278: Tours is a sidebar entry for every active member, after Reservations; the Tools page no longer opens it."""
 
     def it_gives_guides_admins_and_members_the_sidebar_entry(guide: Member, admin: Member, plain: Member):
         upcoming = reverse("tours:upcoming")

@@ -219,15 +219,18 @@ def _tours_nav(request: HttpRequest, member: Member | None) -> dict[str, Any] | 
     Every active member gets it, directly after Reservations (Felix), because tours recruit the way Host a Class does: the
     entry opens the Tours page, whose gate (``hub.view_as.tour_guide_access_required``) shows a
     Tour Guide or admin their Upcoming tab and sends everyone else to Give Tours. Lights on every
-    ``/facility-tours/`` path. An admin (the actual role) gets it whatever their member row says.
+    ``/facility-tours/`` path. An admin (the actual role) gets it whatever their member status says,
+    but an account with no member record does not: the Tours tabs need one (``tours.views._viewer``).
     """
     from django.urls import reverse
 
     from hub.view_as import ROLE_ADMIN
 
+    if member is None:
+        return None
     view_as = getattr(request, "view_as", None)
     is_admin = view_as is not None and view_as.has_actual(ROLE_ADMIN)
-    if not is_admin and (member is None or member.status != Member.Status.ACTIVE):
+    if not is_admin and member.status != Member.Status.ACTIVE:
         return None
     is_active = request.path.startswith("/facility-tours/")
     return {"url": reverse("tours:upcoming"), "active_class": "active" if is_active else ""}

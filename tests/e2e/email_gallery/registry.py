@@ -691,7 +691,8 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         trigger_note=(
             "Sent once per permission when someone else turns on an admin capability, Instructor, the Admin "
             "role or a guild's Class Reviewer for the member (#1163); two in one save send two. Its card "
-            "comes from AdminCapability.GUIDES. A grant to yourself sends nothing."
+            "comes from AdminCapability.GUIDES. A grant to yourself sends nothing, except a self serve one "
+            "(the next card)."
         ),
         edit_pointer=_tpl("membership/emails", "permission_granted"),
         audience="The member just granted the permission.",
@@ -699,6 +700,23 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         text_template="membership/emails/permission_granted.txt",
         html_template="membership/emails/permission_granted.html",
         context_builder="permission_granted_context",
+    ),
+    GalleryEmail(
+        key="permission_granted_self_serve",
+        name="Permission granted (self serve)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent when a member makes themselves a Tour Guide with Become a Tour Guide at the end of Give "
+            "Tours' tutorial (#1278): the same email, worded as their own doing, with questions sent to an "
+            'admin. Admins get nothing; the Activity Log shows "Made themselves a Tour Guide".'
+        ),
+        edit_pointer=_tpl("membership/emails", "permission_granted"),
+        audience="The member who just made themselves a Tour Guide.",
+        event_keys=frozenset({"permission.granted"}),
+        text_template="membership/emails/permission_granted.txt",
+        html_template="membership/emails/permission_granted.html",
+        context_builder="permission_granted_self_serve_context",
     ),
     GalleryEmail(
         key="discord_reconnect",

@@ -65,7 +65,8 @@ def become_tour_guide(member: Member) -> bool:
     Permissions tab takes, so whatever follows a grant there follows this one. The row records the
     member as its own granter, which is what marks it self serve; the "You have been granted" email
     (#1163) goes anyway, worded as their own doing (``permission_grants.record(self_serve=True)``).
-    The tutorial covered A Tour Day, so Learn How a Tour Day Goes is done. The member row is locked
+    The tutorial covered A Tour Day, so Learn How a Tour Day Goes is done. Admins hear nothing (Felix);
+    the Activity Log gets its own line, "Made themselves a Tour Guide". The member row is locked
     first, so a second press sends nothing twice.
 
     Args:
@@ -74,6 +75,7 @@ def become_tour_guide(member: Member) -> bool:
     Returns:
         True when this made them a Tour Guide; False when they already were, and nothing changed.
     """
+    from core.models import SiteActivity
     from membership import permission_grants
     from membership.models import Member, PermissionSetup
 
@@ -85,6 +87,7 @@ def become_tour_guide(member: Member) -> bool:
         member.set_admin_capability(capability, True, granted_by=member.user)
         permission_grants.record(member, [capability], granted_by=member.user, self_serve=True)
         PermissionSetup.for_member(member, capability).mark_read(LEARN)
+        SiteActivity.log(SiteActivity.Kind.TOUR_GUIDE_SELF_SERVE, actor=member.user, target=member)
     return True
 
 

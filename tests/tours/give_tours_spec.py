@@ -19,12 +19,13 @@ from django.core import mail
 from django.test import Client, RequestFactory
 from django.urls import reverse
 
+from core.models import Notification, SiteActivity
 from hub.context_processors import _tours_nav
 from membership.models import AdminCapability, Member, PermissionSetup
 from tests.membership.factories import MemberFactory
 from tests.tours.conftest import signed_in
 from tours import setup as tour_setup
-from tours.views import BECAME_GUIDE_MESSAGE
+from tours.views import ALREADY_GUIDE_MESSAGE, BECAME_GUIDE_MESSAGE
 
 pytestmark = pytest.mark.django_db
 
@@ -95,8 +96,13 @@ def describe_the_tours_entry():
             assert _tours_nav(_request(former.user), former) is None  # type: ignore[arg-type]
             assert _tours_nav(_request(None), None) is None  # type: ignore[arg-type]
 
-        def it_is_there_for_an_admin_with_no_member_record():
-            assert _tours_nav(_request(None, admin=True), None) == {"url": UPCOMING, "active_class": ""}  # type: ignore[arg-type]
+        def it_is_absent_for_an_admin_with_no_member_record():
+            # The Tours tabs need a member record (404 without one), so the entry would lead nowhere.
+            assert _tours_nav(_request(None, admin=True), None) is None  # type: ignore[arg-type]
+
+        def it_is_there_for_an_admin_whatever_their_member_status():
+            former = _member(status=Member.Status.FORMER)
+            assert _tours_nav(_request(former.user, admin=True), former) == {"url": UPCOMING, "active_class": ""}  # type: ignore[arg-type]
 
 
 def describe_give_tours():
@@ -202,6 +208,33 @@ def describe_become_a_tour_guide():
         client.force_login(user)
         assert client.post(BECOME).status_code == 403
         assert not AdminCapability.objects.filter(capability=TOUR_GUIDE).exists()
+
+    def it_writes_its_own_activity_log_line_and_tells_no_admin(
+        plain: Member, admin: Member, django_capture_on_commit_callbacks
+    ):
+        # Felix (#1278): admins hear nothing of a self serve grant; the Activity Log shows it.
+        admin_client = signed_in(admin)  # the admin has an account, so a bell or an email could reach it
+        admin.refresh_from_db()
+        admin.sync_user_permissions()  # an admin's account is staff, which the Activity page asks for
+        with django_capture_on_commit_callbacks(execute=True):
+            signed_in(plain).post(BECOME)
+        [row] = SiteActivity.objects.filter(kind=SiteActivity.Kind.TOUR_GUIDE_SELF_SERVE)
+        assert (row.actor, row.target) == (plain.user, plain)
+        assert row.line.headline == "Made themselves a Tour Guide"
+        assert row.by == plain.staff_label
+        feed = admin_client.get(reverse("manage_activity")).content.decode()
+        assert '<div class="hub-member-name">Made themselves a Tour Guide</div>' in feed
+        assert not Notification.objects.filter(user=admin.user).exists()
+        assert [email.to for email in mail.outbox] == [[plain.primary_email]]
+
+    def it_tells_the_press_that_lost_a_race_it_is_already_a_guide(guide: Member):
+        # Two presses at once both pass the view's check; become_tour_guide's lock lets one grant.
+        with patch("tours.views.has_tour_guide_access", return_value=False):
+            client = signed_in(guide)
+            client.post(BECOME)
+        messages = [str(message) for message in client.get(HOURS).context["messages"]]
+        assert messages == [ALREADY_GUIDE_MESSAGE]
+        assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.TOUR_GUIDE_SELF_SERVE).exists()
 
     def it_answers_only_a_post(plain: Member):
         assert signed_in(plain).get(BECOME).status_code == 405

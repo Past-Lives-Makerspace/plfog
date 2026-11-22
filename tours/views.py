@@ -440,6 +440,8 @@ def tour_guide(request: HttpRequest) -> HttpResponse:
 
 #: The toast on My Hours after Become a Tour Guide (#1278).
 BECAME_GUIDE_MESSAGE = "You're a Tour Guide now. Set the hours you can give tours, and visitors can book you."
+#: The toast for a second Become a Tour Guide that raced the first past the view's check.
+ALREADY_GUIDE_MESSAGE = "You're already a Tour Guide."
 
 
 @give_tours_access_required
@@ -461,8 +463,8 @@ def tour_become_guide(request: HttpRequest) -> HttpResponse:
     """
     if has_tour_guide_access(request):
         return redirect("tours:hours")
-    become_tour_guide(_viewer(request))
-    messages.success(request, BECAME_GUIDE_MESSAGE)
+    # Two presses racing both pass the check above; the one that loses the lock is told so.
+    messages.success(request, BECAME_GUIDE_MESSAGE if become_tour_guide(_viewer(request)) else ALREADY_GUIDE_MESSAGE)
     return redirect("tours:hours")
 
 
