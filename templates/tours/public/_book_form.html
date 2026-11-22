@@ -3,16 +3,18 @@ The visitor's booking form for the picked time (#948): the chosen time, name, em
 size, the optional account toggle and the honeypot. Shared by the booking page and the front desk
 kiosk (#950, kiosk set: autocomplete off). Context: form, chosen (the OpenTour it books), guides
 (tours.picker.GuideChoice, #1255: where two or more guides share the time, the Guide dropdown posts
-the tour key, No preference first; empty for one guide), page_url, kiosk. Alpine keeps the seats line
-on the picked guide and disables a guide without room for the party; without it the booking refuses.
+the tour key, No preference first; empty for one guide), page_url, kiosk, chosen_guide (the kiosk's
+one guide). Alpine keeps the seats line on the picked guide and disables a guide without room for the
+party; without it the booking refuses. At the kiosk (#1273) the summary names the guide, following the
+dropdown, and the heading's Back replaces "Pick a different time"; the website is unchanged.
 {% endcomment %}
-<div class="pl-tourpub__booking" x-data="{ party: Number('{{ form.party_size.value|default:1|escapejs }}') || 1, guide: '{{ form.tour.value|escapejs }}', anyone: '{{ guides.0.key|escapejs }}', seats: { {% for g in guides %}'{{ g.key|escapejs }}': {{ g.seats_left }}{% if not forloop.last %}, {% endif %}{% endfor %} }, fit() { if (this.anyone && this.seats[this.guide] < this.party) { this.guide = this.anyone } } }" x-effect="fit()">
+<div class="pl-tourpub__booking" x-data="{ party: Number('{{ form.party_size.value|default:1|escapejs }}') || 1, guide: '{{ form.tour.value|escapejs }}', anyone: '{{ guides.0.key|escapejs }}', seats: { {% for g in guides %}'{{ g.key|escapejs }}': {{ g.seats_left }}{% if not forloop.last %}, {% endif %}{% endfor %} },{% if kiosk %} names: { {% for g in guides %}'{{ g.key|escapejs }}': '{% if g.no_preference %}{{ g.name|escapejs }}{% else %}with {{ g.name|escapejs }}{% endif %}'{% if not forloop.last %}, {% endif %}{% endfor %} },{% endif %} fit() { if (this.anyone && this.seats[this.guide] < this.party) { this.guide = this.anyone } } }" x-effect="fit()">
 <div class="reg-summary pl-tourpub__chosen" data-tour-chosen="{{ chosen.key }}">
   <div class="pl-tourpub__chosen-when">{{ chosen.starts_at|date:"l, F j" }} at {{ chosen.starts_at|time:"g:i A" }}</div>
-  <div class="pl-tourpub__chosen-meta"><span data-tour-seats{% if guides %} x-text="seats[guide] + (seats[guide] === 1 ? ' seat left' : ' seats left')"{% endif %}>{{ chosen.seats_left }} seat{{ chosen.seats_left|pluralize }} left</span> · <a href="{{ page_url }}?date={{ chosen.starts_at|date:'Y-m-d' }}" data-tour-change>Pick a different time</a></div>
+  <div class="pl-tourpub__chosen-meta"><span data-tour-seats{% if guides %} x-text="seats[guide] + (seats[guide] === 1 ? ' seat left' : ' seats left')"{% endif %}>{{ chosen.seats_left }} seat{{ chosen.seats_left|pluralize }} left</span>{% if kiosk %}{% include "tours/kiosk/_form_guide.html" %}{% else %} · <a href="{{ page_url }}?date={{ chosen.starts_at|date:'Y-m-d' }}" data-tour-change>Pick a different time</a>{% endif %}</div>
 </div>
 {% if form.non_field_errors %}<div class="reg-error-block pl-tourpub__notice">{% for err in form.non_field_errors %}{{ err }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</div>{% endif %}
-<form method="post" action="{{ page_url }}" class="reg-form pl-tourpub__form" hx-boost="false"{% if kiosk %} autocomplete="off"{% endif %} data-tour-form data-pl-busy-submit data-pl-busy-label="Booking...">
+<form method="post" action="{{ page_url }}" class="reg-form pl-tourpub__form" hx-boost="false"{% if kiosk %} autocomplete="off"{% endif %} data-tour-form data-pl-busy-submit>
   {% csrf_token %}
   {% if guides %}
   <div class="reg-field pl-tourpub__guide">
@@ -60,7 +62,7 @@ on the picked guide and disables a guide without room for the party; without it 
     <label for="{{ form.website.id_for_label }}">{{ form.website.label }}</label>
     {{ form.website }}
   </div>
-  <button type="submit" class="btn-reg pl-tourpub__submit" data-pl-busy>Book My Tour</button>
+  <button type="submit" class="btn-reg pl-tourpub__submit" data-pl-busy="hold">Book My Tour</button>
   <p class="reg-help pl-tourpub__fine">Tours are free. We will email you a confirmation with links to reschedule or cancel.</p>
 </form>
 </div>

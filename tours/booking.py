@@ -502,7 +502,32 @@ def gather_notes(group: list[TourBooking], onto: TourBooking) -> None:
     row holding the visitor's link. Inside the caller's lock on the group.
     """
     if group:
-        TourBookingNote.objects.filter(booking__in=[row.pk for row in group]).exclude(booking=onto).update(booking=onto)
+        pks = [row.pk for row in group]
+        TourBookingNote.objects.filter(booking__in=pks).exclude(booking=onto).update(booking=onto)
+        # Every other row now opens, and posts to, the surviving row's Notes; a note posted on one
+        # waits on this lock (``tours.views.tour_booking_note``) and then lands there too.
+        # Only rows already out of the request point on: a row still pending reads the whole group's
+        # thread itself, and pointing it would make a note posted there wait on another row's lock.
+        TourBooking.objects.filter(pk__in=pks).exclude(pk=onto.pk).exclude(status=TourBooking.Status.PENDING).update(
+            notes_moved_to=onto
+        )
+        TourBooking.objects.filter(pk=onto.pk).update(notes_moved_to=None)
+        onto.notes_moved_to = None
+
+
+def lock_for_note(pk: int) -> TourBooking:
+    """Lock a booking for a new note (#1274) the way every request answer does, and return it.
+
+    A No preference request's rows first, in pk order (:func:`_lock_group`), then the row itself:
+    the order Confirm, Decline, a lapse and the visitor's Cancel take, so a note posted while one of
+    them runs waits its turn and can never deadlock it. Its :attr:`TourBooking.note_target` is then
+    read fresh. Call inside a transaction.
+
+    Raises:
+        TourBooking.DoesNotExist: no such booking.
+    """
+    _lock_group(TourBooking.objects.get(pk=pk))
+    return TourBooking.objects.select_for_update().get(pk=pk)
 
 
 def _lock_group(booking: TourBooking) -> list[TourBooking]:
@@ -628,12 +653,13 @@ def decline_tour_request(
         # yet, and the link they hold moves to the next row still pending.
         if others and locked.pk < others[0].pk:
             others[0].take_visitor_link_from(locked)
-        # The notes go with the visitor's link: to the row now holding it, or stay here on the last decline.
-        gather_notes(group, others[0] if others else locked)
         locked.status = TourBooking.Status.CANCELLED
         locked.cancelled_at = moment
         locked.cancelled_by = actor
         locked.save(update_fields=["status", "cancelled_at", "cancelled_by"])
+        # The notes go with the visitor's link: to the row now holding it, or stay here on the last
+        # decline. After the save, so this row, no longer pending, points on.
+        gather_notes(group, others[0] if others else locked)
         _after_commit(locked, signals.DECLINED, actor=actor, staff_message=message.strip(), tell_visitor=not others)
     return locked
 

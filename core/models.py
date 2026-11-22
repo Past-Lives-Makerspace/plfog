@@ -698,6 +698,30 @@ class SiteConfiguration(models.Model):
         "people listed on a Leadership Directory People tab, kept in step with the app (#1148). "
         "Blank: never added or removed.",
     )
+    discord_guild_leads_role_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        verbose_name="Guild Leads role id",
+        help_text="The one shared Discord Guild Leads role, held by every guild's lead and Co-Leads, kept in "
+        "step with the app (#1270). Blank: never added or removed.",
+    )
+    discord_tour_guides_role_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        verbose_name="Tour Guides role id",
+        help_text="The Discord Tour Guides role, held by everyone granted the Tour Guide permission, kept in "
+        "step with the app (#1270). Blank: never added or removed.",
+    )
+    discord_instructors_role_id = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        verbose_name="Instructors role id",
+        help_text="The Discord Instructors role, held by every active instructor (approved to teach, listed on "
+        "a class, or holding an instructor page), kept in step with the app (#1270). Blank: never added or removed.",
+    )
     discord_role_message_channel_id = models.CharField(
         max_length=32,
         blank=True,

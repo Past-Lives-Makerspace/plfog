@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 from datetime import date, time, timedelta
 import pytest
 from django.contrib.messages import get_messages
@@ -436,6 +437,194 @@ def describe_a_shared_request():
         booking_service.cancel_tour_by_visitor(rows[0])
         assert list(rows[0].notes.values_list("body", flat=True)) == ["Olive's note."]
 
+    def it_opens_the_winners_notes_from_a_taken_row(guide: Member, other: Member, rows: list[TourBooking]):
+        signed_in(other)
+        early = signed_in(guide).post(_note_url(rows[1]), {"body": "Gina's note."})
+        assert early["Location"] == f"{UPCOMING}?notes={rows[1].pk}"
+        booking_service.confirm_tour_request(rows[0], actor=guide.user)
+        rows[1].refresh_from_db()
+        assert rows[1].note_target == rows[0]
+        # The bell Olive got while it was shared links her own row; it opens Gina's thread now.
+        bell = Notification.objects.get(user=other.user, trigger="tour.note_added")
+        assert bell.url.startswith(f"{UPCOMING}?notes={rows[1].pk}")
+        content = signed_in(other).get(_notes_url(rows[1]), **HTMX).content.decode()
+        assert f'data-tour-notes-for="{rows[0].pk}"' in content and "Gina&#x27;s note." in content
+
+    def it_posts_a_note_on_a_taken_row_to_the_winner(guide: Member, other: Member, rows: list[TourBooking]):
+        signed_in(guide)
+        booking_service.confirm_tour_request(rows[0], actor=guide.user)
+        response = signed_in(other).post(_note_url(rows[1]), {"body": "Late note."})
+        assert response["Location"] == f"{UPCOMING}?notes={rows[0].pk}"
+        assert list(rows[0].notes.values_list("body", flat=True)) == ["Late note."]
+        assert not rows[1].notes.exists()
+        bell = Notification.objects.get(user=guide.user, trigger="tour.note_added")
+        assert bell.url == f"{UPCOMING}?notes={rows[0].pk}#tour-booking-{rows[0].pk}"
+
+    def it_keeps_pending_rows_on_their_own_after_a_decline_handoff(
+        guide: Member, other: Member, rows: list[TourBooking]
+    ):
+        tess = make_guide(full_legal_name="Tess Third")
+        signed_in(tess)
+        tess.refresh_from_db()
+        third = TourBookingFactory(
+            guide=tess,
+            starts_at=rows[0].starts_at,
+            request_group=rows[0].request_group,
+            status=TourBooking.Status.PENDING,
+        )
+        signed_in(guide)
+        booking_service.decline_tour_request(rows[0], actor=guide.user)
+        for row in (*rows, third):
+            row.refresh_from_db()
+        assert (rows[0].notes_moved_to_id, rows[1].notes_moved_to_id, third.notes_moved_to_id) == (
+            rows[1].pk,
+            None,
+            None,
+        )
+        header = signed_in(tess).get(_notes_url(third), **HTMX).content.decode()
+        assert f'data-tour-notes-for="{third.pk}"' in header and "Tess Third" in header
+        signed_in(tess).post(_note_url(third), {"body": "Tess here."})
+        assert list(third.notes.values_list("body", flat=True)) == ["Tess here."]
+        assert "Tess here." in signed_in(other).get(_notes_url(rows[1]), **HTMX).content.decode()
+        booking_service.confirm_tour_request(third, actor=tess.user)
+        for row in rows:
+            row.refresh_from_db()
+            assert row.notes_moved_to_id == third.pk
+        third.refresh_from_db()
+        assert third.notes_moved_to_id is None
+        assert list(third.notes.values_list("body", flat=True)) == ["Tess here."]
+
+    def it_sends_a_note_on_a_declined_row_to_the_lowest_pending_row(
+        guide: Member, other: Member, rows: list[TourBooking]
+    ):
+        tess = make_guide(full_legal_name="Tess Third")
+        signed_in(tess)
+        tess.refresh_from_db()
+        third = TourBookingFactory(
+            guide=tess,
+            starts_at=rows[0].starts_at,
+            request_group=rows[0].request_group,
+            status=TourBooking.Status.PENDING,
+        )
+        booking_service.decline_tour_request(third, actor=tess.user)
+        for row in (*rows, third):
+            row.refresh_from_db()
+        assert (rows[0].notes_moved_to_id, rows[1].notes_moved_to_id, third.notes_moved_to_id) == (
+            None,
+            None,
+            rows[0].pk,
+        )
+        signed_in(tess).post(_note_url(third), {"body": "Tess, after declining."})
+        assert list(rows[0].notes.values_list("body", flat=True)) == ["Tess, after declining."]
+        assert "Tess, after declining." in signed_in(other).get(_notes_url(rows[1]), **HTMX).content.decode()
+
+    @pytest.mark.postgres_only
+    @pytest.mark.django_db(transaction=True)
+    def it_never_deadlocks_a_note_on_a_declined_row_against_a_confirm():
+        import threading
+        import time as clock
+        from unittest.mock import patch
+
+        from django.db import connection
+
+        gina, olive, tess = (make_guide(full_legal_name=name) for name in ("Gina Guide", "Olive Other", "Tess Third"))
+        group = uuid.uuid4()
+        starts = local(TODAY + timedelta(days=4), 16)
+        rows = [
+            TourBookingFactory(guide=who, starts_at=starts, request_group=group, status=TourBooking.Status.PENDING)
+            for who in (gina, olive, tess)
+        ]
+        for member in (gina, olive):
+            signed_in(member)
+            member.refresh_from_db()
+        tess_client = signed_in(tess)
+        tess.refresh_from_db()
+        booking_service.decline_tour_request(rows[2], actor=tess.user)
+        real_lock = booking_service._lock_group
+        locking = threading.Event()
+        errors: list[BaseException] = []
+
+        def slow_lock(booking: TourBooking) -> list[TourBooking]:
+            group_rows = real_lock(booking)
+            locking.set()
+            clock.sleep(0.5)
+            return group_rows
+
+        def take() -> None:
+            try:
+                booking_service.confirm_tour_request(rows[1], actor=olive.user)
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+            finally:
+                connection.close()
+
+        def post() -> None:
+            try:
+                locking.wait(5)
+                response = tess_client.post(_note_url(rows[2]), {"body": "Posted mid confirm."})
+                assert response.status_code == 302
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+            finally:
+                connection.close()
+
+        with patch.object(booking_service, "_lock_group", slow_lock):
+            threads = [threading.Thread(target=take), threading.Thread(target=post)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(30)
+        assert errors == []
+        assert list(TourBookingNote.objects.values_list("booking_id", "body")) == [(rows[1].pk, "Posted mid confirm.")]
+
+    @pytest.mark.postgres_only
+    @pytest.mark.django_db(transaction=True)
+    def it_lands_a_note_posted_during_the_take_on_the_winner():
+        import threading
+        import time as clock
+        from unittest.mock import patch
+
+        from django.db import connection
+
+        gina, olive = make_guide(full_legal_name="Gina Guide"), make_guide(full_legal_name="Olive Other")
+        group = uuid.uuid4()
+        starts = local(TODAY + timedelta(days=4), 16)
+        rows = [
+            TourBookingFactory(guide=who, starts_at=starts, request_group=group, status=TourBooking.Status.PENDING)
+            for who in (gina, olive)
+        ]
+        signed_in(gina)
+        olive_client = signed_in(olive)
+        gina.refresh_from_db()
+        real_gather = booking_service.gather_notes
+        gathering = threading.Event()
+
+        def slow_gather(group_rows: list[TourBooking], onto: TourBooking) -> None:
+            gathering.set()
+            clock.sleep(0.5)
+            real_gather(group_rows, onto)
+
+        def take() -> None:
+            try:
+                booking_service.confirm_tour_request(rows[0], actor=gina.user)
+            finally:
+                connection.close()
+
+        def post() -> None:
+            try:
+                gathering.wait(5)
+                olive_client.post(_note_url(rows[1]), {"body": "Posted mid take."})
+            finally:
+                connection.close()
+
+        with patch.object(booking_service, "gather_notes", slow_gather):
+            threads = [threading.Thread(target=take), threading.Thread(target=post)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        assert list(TourBookingNote.objects.values_list("booking_id", "body")) == [(rows[0].pk, "Posted mid take.")]
+
 
 def describe_review_fixes():
     def it_stops_belling_a_writer_who_no_longer_gives_tours(guide: Member, other: Member, booked: TourBooking):
@@ -458,3 +647,57 @@ def describe_review_fixes():
 
         assert notes_url(started).startswith(f"{PAST}?notes=")
         assert started.table_url_name(timezone.now()) == "tours:past"
+
+
+def describe_visitor_contact():
+    """Felix (#1274): a visitor's email and phone reach only their own guide and the admins."""
+
+    @pytest.fixture
+    def contact(guide: Member) -> TourBooking:
+        return TourBookingFactory(
+            guide=guide,
+            starts_at=local(DAY, 16),
+            visitor_name="Sam Rivera",
+            visitor_email="sam.private@example.com",
+            visitor_phone="503 555 0142",
+        )
+
+    def _shows(member: Member, url: str, **extra: Any) -> bool:
+        content = signed_in(member).get(url, **extra).content.decode()
+        return "sam.private@example.com" in content or "555 0142" in content
+
+    def it_shows_the_contact_on_upcoming_only_to_the_guide_and_admins(
+        guide: Member, other: Member, admin: Member, contact: TourBooking
+    ):
+        assert _shows(guide, UPCOMING) and _shows(admin, UPCOMING)
+        assert not _shows(other, UPCOMING)
+        assert f'data-tour-booking="{contact.pk}"' in signed_in(other).get(UPCOMING).content.decode()
+
+    def it_shows_the_contact_on_past_only_to_the_guide_and_admins(guide: Member, other: Member, admin: Member):
+        starts = timezone.now() - timedelta(days=1)
+        TourBookingFactory(
+            guide=guide,
+            starts_at=starts,
+            ends_at=starts + timedelta(hours=1),
+            visitor_email="sam.private@example.com",
+            visitor_phone="503 555 0142",
+        )
+        assert _shows(guide, PAST) and _shows(admin, PAST)
+        assert not _shows(other, PAST)
+
+    def it_keeps_the_contact_in_a_marked_row_for_whoever_marks_it(guide: Member, admin: Member):
+        starts = timezone.now() - timedelta(days=1)
+        past = TourBookingFactory(
+            guide=guide, starts_at=starts, ends_at=starts + timedelta(hours=1), visitor_email="sam.private@example.com"
+        )
+        for member in (guide, admin):
+            row = signed_in(member).post(reverse("tours:booking_mark", args=[past.pk]), {"outcome": "attended"}, **HTMX)
+            assert "sam.private@example.com" in row.content.decode()
+
+    def it_never_puts_the_contact_in_notes_or_the_calendar(
+        guide: Member, other: Member, admin: Member, contact: TourBooking
+    ):
+        for member in (guide, other, admin):
+            assert not _shows(member, _notes_url(contact), **HTMX)
+            assert not _shows(member, CALENDAR)
+            assert not _shows(member, reverse("tours:calendar_events") + "?week_offset=1", **HTMX)

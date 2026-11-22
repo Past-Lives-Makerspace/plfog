@@ -188,11 +188,16 @@ def book(request: HttpRequest) -> HttpResponse:
     """Schedule a tour at the kiosk: the website's date strip, times and form, in kiosk chrome.
 
     The same notice and horizon as the website (:func:`tours.public_views.all_open_tours`); the
-    optional account toggle starts on, as there. A booking lands on :func:`booked`.
+    optional account toggle starts on, as there. A booking lands on :func:`booked`. Every time names
+    its guide (#1273), and Back goes from the form to that day's times, from the times home.
     """
     tour_settings = FacilityTourSettings.load()
     if not tour_settings.accepting_bookings:
-        return _render(request, "tours/kiosk/book.html", {"closed_message": tour_settings.closed_message})
+        return _render(
+            request,
+            "tours/kiosk/book.html",
+            {"closed_message": tour_settings.closed_message, "back_url": reverse("tours_kiosk:home")},
+        )
     tours = all_open_tours(kiosk=True)
     if request.method == "POST":
         attempt = post_booking(request, tours, offer_account=True, kiosk=True)
@@ -211,16 +216,19 @@ def book(request: HttpRequest) -> HttpResponse:
         attempt = Attempt() if chosen is None else booking_form(request, tours, chosen, offer_account=True, kiosk=True)
     chosen = attempt.chosen if attempt.form is not None else None
     raw_day = f"{timezone.localdate(chosen.starts_at):%Y-%m-%d}" if chosen else request.GET.get("date", "")
+    page_url = reverse("tours_kiosk:book")
     return _render(
         request,
         "tours/kiosk/book.html",
         {
-            "picker": build_picker(tours, raw_day, no_preference=True),
+            "picker": build_picker(tours, raw_day, no_preference=True, name_guides=True),
             "chosen": chosen,
+            "chosen_guide": guide_first_name(chosen.guide) if chosen else "",
             "guides": attempt.guides,
             "form": attempt.form,
             "error": attempt.error,
-            "page_url": reverse("tours_kiosk:book"),
+            "page_url": page_url,
+            "back_url": f"{page_url}?date={raw_day}" if chosen else reverse("tours_kiosk:home"),
         },
     )
 
@@ -241,6 +249,7 @@ def booked(request: HttpRequest) -> HttpResponse:
         "tours/kiosk/booked.html",
         {
             "booking": booking,
+            "guide_name": guide_first_name(booking.guide) if booking else "",
             "when": when_label(booking.starts_at) if booking else "",
             "already_message": ALREADY_BOOKED_MESSAGE,
             "idle_seconds": 0,

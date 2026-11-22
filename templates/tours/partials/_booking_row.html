@@ -6,7 +6,10 @@ status with a request's confirm by time (#1166), the guides a No preference requ
 (partials/_booking_menu.html). Its id is the anchor the guide's request email, the bells and the
 Calendar tab link to. Past rows come back from tours.views.tour_booking_mark over htmx in their new state.
 
-Context: booking (stamped can_act and can_answer by tours.views._with_row_rights, note_count annotated),
+The visitor's email and phone go only to the tour's own guide and admins (Felix, #1274:
+booking.can_see_contact); any other Tour Guide gets the row without them.
+
+Context: booking (stamped can_act, can_answer and can_see_contact by tours.views._with_row_rights, note_count annotated),
 tab ("upcoming" or "past"), is_admin, viewer_pk (the viewer's member pk).
 {% endcomment %}
 <tr class="pl-tours-row{% if booking.is_request %} pl-tours-row--request{% endif %}" id="tour-booking-{{ booking.pk }}" data-tour-booking="{{ booking.pk }}">
@@ -14,7 +17,7 @@ tab ("upcoming" or "past"), is_admin, viewer_pk (the viewer's member pk).
   <td data-label="Visitor">
     <span class="pl-bookings-table__name">{{ booking.visitor_name }}</span>
     <span class="pl-bookings-table__owner">{{ booking.party_label }}</span>
-    <span class="pl-bookings-table__owner pl-tours-row__contact"><a href="mailto:{{ booking.visitor_email }}" data-tour-booking-email>{{ booking.visitor_email }}</a>{% if booking.visitor_phone %}<span aria-hidden="true"> · </span><a href="tel:{{ booking.visitor_phone_href }}" data-tour-booking-phone>{{ booking.visitor_phone }}</a>{% endif %}</span>
+    {% if booking.can_see_contact %}<span class="pl-bookings-table__owner pl-tours-row__contact"><a href="mailto:{{ booking.visitor_email }}" data-tour-booking-email>{{ booking.visitor_email }}</a>{% if booking.visitor_phone %}<span aria-hidden="true"> · </span><a href="tel:{{ booking.visitor_phone_href }}" data-tour-booking-phone>{{ booking.visitor_phone }}</a>{% endif %}</span>{% endif %}
   </td>
   <td data-label="Guide">
     <span class="pl-bookings-table__name" data-tour-booking-guide>{% if not booking.guide %}No guide{% elif booking.guide_id == viewer_pk %}You{% else %}{{ booking.guide.staff_label }}{% endif %}</span>

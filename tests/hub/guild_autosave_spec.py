@@ -21,7 +21,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client
 from django.urls import reverse
 
-from hub.autosave import autosave_refused, formset_rows
+from hub.autosave import autosave_refused, autosave_saved, formset_rows
 from hub.forms import GuildLinkFormSet
 from membership.models import (
     CommunityEvent,
@@ -108,6 +108,14 @@ def _refused(response, key: str) -> list[str]:
 
 
 def describe_autosave_helpers():
+    def it_names_rows_gone_elsewhere_only_when_there_are_some():
+        assert json.loads(autosave_saved({"hours": [3, None]}, gone={"hours": [1]}).content) == {
+            "saved": True,
+            "rows": {"hours": [3, None]},
+            "gone": {"hours": [1]},
+        }
+        assert json.loads(autosave_saved().content) == {"saved": True, "rows": {}}
+
     def it_reports_a_deleted_row_as_none_and_a_kept_row_by_pk():
         guild = GuildFactory()
         kept = GuildLinkFactory(guild=guild)

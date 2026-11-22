@@ -11,7 +11,11 @@
    the items of a group (ARROW_GROUPS; Up and Down by row in a grid); Enter flips a switch rather
    than submitting its form; the day strip is one tab stop, so Tab reaches the times; Schedule a
    Tour focuses the picked day's first time, its form the first field to fill, and the pick list
-   its first name. */
+   its first name.
+
+   Every tap shows it went through (#1277, people tapped again): static/js/tours-loading.js, loaded
+   for the whole tours site, draws the gold top bar, dims the page and swallows every further tap
+   until the next page arrives. */
 (function () {
     "use strict";
 

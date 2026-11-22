@@ -10,7 +10,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from classes.factories import CategoryFactory, ClassOfferingFactory, ClassSessionFactory, RegistrationFactory
-from classes.models import ClassOffering, ClassRecord, Registration
+from classes.models import ClassOffering, Registration
 
 pytestmark = pytest.mark.django_db
 
@@ -50,19 +50,6 @@ def describe_the_register_routes():
             f"/picture-framing/register/{later.pk}/success/"
         )
         assert client.get(later.register_path).context["offering"] == later
-
-    def it_keeps_a_run_with_no_class_under_its_own_slug():
-        run = _run("framing-1")
-        run.class_record = None
-
-        assert run.register_path == f"/classes/framing-1/register/{run.pk}/"
-
-    def it_finds_a_run_with_no_class_at_its_own_slug(client):
-        run = _run("framing-1")
-        ClassOffering.objects.filter(pk=run.pk).update(class_record=None)
-        ClassRecord.objects.all().delete()
-
-        assert client.get(f"/classes/framing-1/register/{run.pk}/").status_code == 200
 
     def it_is_not_found_under_another_class(client):
         run = _run("framing-1")

@@ -1,7 +1,13 @@
 {% comment %}
-A kiosk screen's heading with its Start Over link home (#950). Context: title.
+A kiosk screen's heading (#950): its title, then Back one step in the flow (#1273, a real link,
+never history.back(), since result screens are shown once) beside Start Over home. The two are one
+arrow key group. Context: title (optional: the centred screens keep their own), back (the previous
+step's address; empty shows no Back).
 {% endcomment %}
 <div class="pl-kiosk__head">
-  <h1 class="pl-kiosk__title">{{ title }}</h1>
-  <a href="{% url 'tours_kiosk:home' %}" class="pl-kiosk__back" data-kiosk-back>Start Over</a>
+  {% if title %}<h1 class="pl-kiosk__title">{{ title }}</h1>{% endif %}
+  <div class="pl-kiosk__head-actions" data-kiosk-arrows>
+    {% if back %}<a href="{{ back }}" class="pl-kiosk__back pl-kiosk__back--step" data-kiosk-step-back>Back</a>{% endif %}
+    <a href="{% url 'tours_kiosk:home' %}" class="pl-kiosk__back" data-kiosk-back>Start Over</a>
+  </div>
 </div>

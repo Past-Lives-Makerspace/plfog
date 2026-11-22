@@ -79,7 +79,8 @@ class TimeChoice:
     """One tour among the picked day's times. ``guide_name`` is set when two guides share the time.
 
     On the booking pages (#1255) a time two or more guides share is one choice, ``tour`` a
-    :class:`NoPreference` and ``no_preference`` set, with no guide named.
+    :class:`NoPreference` and ``no_preference`` set, with no guide named. At the kiosk (#1273,
+    ``name_guides``) every time names its guide, and a No preference time all of them ("Amber or Sam").
     """
 
     tour: OpenTour
@@ -110,13 +111,24 @@ class GuideChoice:
     no_preference: bool = False
 
 
-def build_picker(tours: list[OpenTour], raw_day: str, *, no_preference: bool = False) -> Picker:
+def either_guide(tours: list[OpenTour]) -> str:
+    """The guides of ``tours`` by first name, ``Amber or Sam`` (``Amber, Sam or Lee``); a guide with no name is left out."""
+    names = [name for name in (guide_first_name(tour.guide) for tour in tours) if name]
+    if len(names) < 2:
+        return "".join(names)
+    return f"{', '.join(names[:-1])} or {names[-1]}"
+
+
+def build_picker(
+    tours: list[OpenTour], raw_day: str, *, no_preference: bool = False, name_guides: bool = False
+) -> Picker:
     """The days that have a tour, ``raw_day`` (``YYYY-MM-DD``) picked when it is one of them, else the first.
 
     With ``no_preference`` (the visitor's booking page and the kiosk, #1255), a time two or more
     guides share is one choice, No preference, carrying the most seats any one of them has left;
     the form's Guide dropdown then names them. Without it (the Reschedule pages) each guide's tour
-    is its own choice, named.
+    is its own choice, named. With ``name_guides`` (the kiosk, #1273) a time one guide gives names
+    that guide too, and a No preference time names every guide sharing it.
     """
     by_day: dict[date, list[OpenTour]] = {}
     for tour in tours:
@@ -133,9 +145,10 @@ def build_picker(tours: list[OpenTour], raw_day: str, *, no_preference: bool = F
     times: list[TimeChoice] = []
     for same in by_start.values():
         if len(same) == 1:
-            times.append(TimeChoice(tour=same[0], guide_name=""))
+            times.append(TimeChoice(tour=same[0], guide_name=either_guide(same) if name_guides else ""))
         elif no_preference:
-            times.append(TimeChoice(tour=NoPreference.among(same), guide_name="", no_preference=True))
+            named = either_guide(same) if name_guides else ""
+            times.append(TimeChoice(tour=NoPreference.among(same), guide_name=named, no_preference=True))
         else:
             times.extend(TimeChoice(tour=tour, guide_name=guide_first_name(tour.guide)) for tour in same)
     return Picker(days=[DayChoice(day=day, selected=day == picked) for day in by_day], day=picked, times=times)

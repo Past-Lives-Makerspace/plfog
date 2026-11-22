@@ -365,10 +365,7 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
     ScheduledJob(
         key="refresh_class_states",
         name="Class states",
-        description=(
-            "Moves each class between Scheduled, Between runs and Retired as its dates pass, "
-            "and files any date with no class under one."
-        ),
+        description=("Moves each class between Scheduled, Between runs and Retired as its dates pass."),
         command="refresh_class_states",
         schedule_label="Nightly ~6 AM",
         cadence=Cadence.DAILY,

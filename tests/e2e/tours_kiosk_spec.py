@@ -18,6 +18,12 @@ mouse plugged in the Keyboard Only Mode badge shows, and arrow keys, Tab, Enter 
 visitor in and book a tour. ``matchMedia("(any-pointer: fine)")`` is stubbed, since headless
 Chromium reports a mouse; ``window.__plMouse(true)`` plugs one in.
 
+The fourth (#1273) walks every Back, checks the guides' first names beside the times, in the form
+(following the Guide dropdown) and on Is This You and the pick list, and records the moment a link
+or a button is pressed to see the whole page loading (#1277: the gold top bar and the dim, nothing
+inside the control) while a second press sends nothing; a failed validation shows nothing, and a
+page restored from the back/forward cache is cleared.
+
 ``CAPTURE_950_DIR=<dir>`` saves every kiosk screen (home, check in, list, confirm, welcome, pick list, no match, schedule picker,
 form, confirmation) at cairn's 1920 by 1080 in both themes, and the
 Settings tab's kiosk section at desktop (1100) and phone (390, sidebar drawer closed) widths in both
@@ -27,7 +33,7 @@ themes. Run with ``pytest -m e2e`` on PostgreSQL.
 from __future__ import annotations
 
 import os
-from datetime import timedelta
+from datetime import time, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -303,6 +309,7 @@ def describe_tours_kiosk():
         _screen(page, "booked")
         _hold(page)
         expect(page.locator("[data-kiosk-booked]")).to_have_text("You're Booked, Kim!")
+        expect(page.locator("[data-kiosk-booked-guide]")).to_have_text("Your guide is Gina.")
         _capture(page, "confirmation")
         kim = TourBooking.objects.get(visitor_email="kim.kiosk@example.com")
         assert kim.source == TourBooking.Source.KIOSK and kim.party_size == 2
@@ -376,6 +383,20 @@ def describe_tours_kiosk():
         _focused(page, '[data-kiosk-go="book"]')
         page.keyboard.press("ArrowLeft")
         _focused(page, '[data-kiosk-go="check-in"]')
+        page.keyboard.press("Enter")
+        _screen(page, "check-in")
+
+        # Back and Start Over (#1273): Shift+Tab reaches the heading, the arrow keys move between them.
+        _focused(page, "#kiosk-email")
+        page.keyboard.press("Shift+Tab")
+        _focused(page, "[data-kiosk-back]")
+        page.keyboard.press("ArrowLeft")
+        _focused(page, "[data-kiosk-step-back]")
+        page.keyboard.press("ArrowRight")
+        _focused(page, "[data-kiosk-back]")
+        page.keyboard.press("ArrowLeft")
+        page.keyboard.press("Enter")
+        _at_home(page, live_server)
         page.keyboard.press("Enter")
         _screen(page, "check-in")
 
@@ -463,4 +484,205 @@ def describe_tours_kiosk():
         assert kim.source == TourBooking.Source.KIOSK and kim.party_size == 2
         assert kim.starts_at == local(day, 16)
         page.keyboard.press("Enter")
+        _at_home(page, live_server)
+
+
+def _back_to(page, screen: str) -> None:
+    page.locator("[data-kiosk-step-back]").click()
+    _screen(page, screen)
+
+
+LOADING_STATE = """() => ({
+    loading: document.documentElement.getAttribute("data-tours-loading"),
+    scrim: (() => {
+        const el = document.querySelector("[data-tours-loading-indicator]");
+        return el ? getComputedStyle(el).display : "none";
+    })(),
+    bodyBusy: document.body.getAttribute("aria-busy"),
+    inControl: document.querySelectorAll('[data-kiosk-busy-label], .pl-kiosk__busy, [aria-busy="true"]:not(body)').length,
+})"""
+
+# The whole page loading, in the same event as the press (#1277): the bar and the scrim on, the
+# body busy, nothing inside a control.
+LOADING = {"loading": "on", "scrim": "block", "bodyBusy": "true", "inControl": 0}
+IDLE = {"loading": None, "scrim": "none", "bodyBusy": None, "inControl": 0}
+
+# Once, on the next press (event "click" or "submit" on window, registered after tours-loading.js,
+# so it runs after the press was marked): the page's loading state and the pressed control's text
+# and disabled flag, kept in sessionStorage past the page change; then the pressed control is
+# pressed again, a link elsewhere is clicked and the form resubmitted, all of which must send nothing.
+RECORD_PRESS = """([kind, state]) => {
+    const read = eval(state);
+    const once = (event) => {
+        window.removeEventListener(kind, once);
+        const pressed = event.submitter || event.target.closest("a[href]");
+        sessionStorage.setItem("kioskPress", JSON.stringify({
+            page: read(),
+            text: pressed.textContent.replace(/\\s+/g, " ").trim(),
+            disabled: pressed.disabled === true,
+        }));
+        pressed.click();
+        document.querySelector("a[href]").click();
+        if (pressed.form) pressed.form.requestSubmit(pressed);
+    };
+    window.addEventListener(kind, once);
+}"""
+
+# Freezes the bar at 60% so a still image shows it, for the PR's screenshots only.
+FREEZE_BAR = """() => {
+    const style = document.createElement("style");
+    style.textContent = ".pl-tours-loading__bar { animation: none !important; transform: scaleX(0.6) !important; }";
+    document.head.appendChild(style);
+}"""
+
+
+def _record_press(page, kind: str) -> None:
+    page.evaluate(RECORD_PRESS, [kind, LOADING_STATE])
+
+
+def _recorded(page) -> dict:
+    return page.evaluate("() => JSON.parse(sessionStorage.getItem('kioskPress'))")
+
+
+def describe_kiosk_back_names_and_busy():
+    def it_steps_back_names_guides_and_shows_every_tap(live_server, page, settings):
+        settings.TOURS_HOSTS = [urlparse(live_server.url).hostname]
+        settings.TOURS_BASE_URL = live_server.url
+        gina = _member(GUIDE_EMAIL, "Gina Guide")
+        olive = _member("olive-kiosk@example.com", "Olive Other")
+        for guide in (gina, olive):
+            guide.admin_capabilities.create(capability=AdminCapability.Capability.TOUR_GUIDE)
+        today = timezone.localdate()
+        sam = TourBookingFactory(guide=gina, starts_at=local(today, 16), visitor_name="Sam Rivera")
+        TourBookingFactory(guide=olive, starts_at=local(today, 17), visitor_name="Sam Ortiz")
+        day = today + timedelta(days=4)
+        TourHoursFactory(guide=gina, weekday=day.weekday(), seats=4)
+        TourHoursFactory(guide=olive, weekday=day.weekday(), seats=4, start_time=time(17), end_time=time(18))
+        key = FacilityTourSettings.load().rotate_kiosk_key()
+        page.set_viewport_size(CAIRN)
+        page.goto(f"{live_server.url}{HOME}?key={key}")
+        _at_home(page, live_server)
+        expect(page.locator("[data-kiosk-step-back]")).to_have_count(0)
+
+        # Check in: Back goes home.
+        _check_in_screen(page)
+        _back_to(page, "home")
+
+        # The times name their guide; the form names it too, with Back in place of Pick a Different Time.
+        page.locator('[data-kiosk-go="book"]').click()
+        _screen(page, "book")
+        page.locator(f'[data-tour-day="{day:%Y-%m-%d}"]').click()
+        picked_day = page.locator(f'[data-tour-day="{day:%Y-%m-%d}"][aria-current="date"]')
+        expect(picked_day).to_be_visible()
+        expect(page.locator(".pl-tourpub__time").filter(has_text="4:00 PM")).to_contain_text("with Gina")
+        expect(page.locator(".pl-tourpub__time").filter(has_text="5:00 PM")).to_contain_text("with Gina or Olive")
+        _capture(page, "1273-times")
+        if CAPTURE_DIR:
+            # The loading screen for the PR (#1277): tours-loading.js marks the tap, then this cancels the load so it can be shot.
+            page.evaluate(FREEZE_BAR)
+            page.evaluate("window.addEventListener('click', (e) => e.preventDefault(), {once: true})")
+            page.locator(".pl-tourpub__time").filter(has_text="5:00 PM").click()
+            assert page.evaluate(LOADING_STATE) == LOADING
+            _capture(page, "1277-loading")
+            page.reload()
+        page.locator(".pl-tourpub__time").filter(has_text="4:00 PM").click()
+        expect(page.locator("[data-tour-form]")).to_be_visible()
+        expect(page.locator("[data-tour-guide-name]")).to_have_text("with Gina")
+        expect(page.locator("[data-tour-change]")).to_have_count(0)
+        _capture(page, "1273-form")
+        _back_to(page, "book")
+        expect(picked_day).to_be_visible()
+        expect(page.locator("[data-tour-form]")).to_have_count(0)
+
+        # A time two guides share: No preference until the dropdown picks one.
+        page.locator(".pl-tourpub__time").filter(has_text="5:00 PM").click()
+        names = page.locator("[data-tour-guide-name]")
+        expect(names).to_have_text("No preference")
+        page.locator("[data-tour-guide]").select_option(label="Olive (4 seats left)")
+        expect(names).to_have_text("with Olive")
+        page.locator("[data-tour-guide]").select_option(label="No preference")
+        expect(names).to_have_text("No preference")
+        _back_to(page, "book")
+        _back_to(page, "home")
+
+        # Is This You names the guide; Back goes to check in.
+        _check_in_screen(page)
+        page.locator(f'[data-kiosk-name="{sam.pk}"]').click()
+        _screen(page, "confirm")
+        expect(page.locator("[data-kiosk-confirm-guide]")).to_have_text("Your guide is Gina.")
+        _capture(page, "1273-confirm")
+        _back_to(page, "check-in")
+
+        # The pick list names each tour's guide; Back goes to check in.
+        page.locator("#kiosk-name").fill("sam")
+        page.locator("#kiosk-name").press("Enter")
+        _screen(page, "pick")
+        expect(page.locator("[data-kiosk-pick]")).to_contain_text("4:00 PM with Gina")
+        expect(page.locator("[data-kiosk-pick]")).to_contain_text("5:00 PM with Olive")
+        _back_to(page, "check-in")
+
+        # No match: Back goes to check in.
+        page.locator("#kiosk-name").fill("Nobody Here")
+        page.locator("#kiosk-name").press("Enter")
+        _screen(page, "no-match")
+        _back_to(page, "check-in")
+        page.locator("[data-kiosk-back]").click()
+        _at_home(page, live_server)
+
+        # A pressed link: the bar and the dim at once, nothing inside the link, a second press sends nothing.
+        # The loading page lives only until the next arrives (a locator or evaluate would wait for that
+        # navigation), so the page records it the moment the press lands, presses again, and keeps it.
+        check_in_url = f"{live_server.url}{reverse('tours_kiosk:check_in')}"
+        sent = []
+        page.on("request", lambda request: sent.append(request.method) if request.url == check_in_url else None)
+        go_check_in = page.locator('[data-kiosk-go="check-in"]')
+        label = " ".join(go_check_in.text_content().split())
+        _record_press(page, "click")
+        go_check_in.click()
+        _screen(page, "check-in")
+        assert _recorded(page) == {"page": LOADING, "text": label, "disabled": False}
+        assert sent == ["GET"]
+        assert page.evaluate(LOADING_STATE) == IDLE
+
+        # A failed native validation sends nothing and shows nothing: the page stays usable.
+        page.locator("[data-kiosk-email-form] button").click()
+        assert page.evaluate(LOADING_STATE) == IDLE
+        assert sent == ["GET"]
+
+        # A pressed submit button (a tapped name): the same, its label kept, and only its one POST goes out.
+        sent.clear()
+        name = page.locator(f'[data-kiosk-name="{sam.pk}"]')
+        label = " ".join(name.text_content().split())
+        _record_press(page, "submit")
+        name.click()
+        _screen(page, "confirm")
+        expect(page.locator("[data-kiosk-confirm-who]")).to_have_text("Sam R., 4:00 PM")
+        assert _recorded(page) == {"page": LOADING, "text": label, "disabled": False}
+        assert sent == ["POST"]
+
+        # busy_submit.html still disables a typed form's button and keeps its label (data-pl-busy="hold").
+        _back_to(page, "check-in")
+        page.locator("#kiosk-name").fill("Nobody Here")
+        _record_press(page, "submit")
+        page.locator("[data-kiosk-name-form] button").click()
+        _screen(page, "no-match")
+        assert _recorded(page) == {"page": LOADING, "text": "Find My Tour", "disabled": True}
+
+        # Escape still goes home.
+        page.keyboard.press("Escape")
+        _at_home(page, live_server)
+
+        # A page restored from the back/forward cache is cleared (then goes home).
+        loading, restored = page.evaluate(
+            """(state) => {
+                const read = eval(state);
+                document.querySelector('[data-kiosk-go="check-in"]').click();
+                const loading = read();
+                window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+                return [loading, read()];
+            }""",
+            LOADING_STATE,
+        )
+        assert loading == LOADING
+        assert restored == IDLE
         _at_home(page, live_server)

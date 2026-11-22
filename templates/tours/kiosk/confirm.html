@@ -2,12 +2,15 @@
 {% comment %}
 "Is this you?" (#950): a tapped name or a pick list choice is confirmed before it checks in, so a
 wrong tap never checks in someone else. Yes, Check Me In posts the booking; Not Me goes back to
-check in. Context: booking.
+check in, as does Back (#1273). Names the guide. Context: booking.
 {% endcomment %}
 {% block kiosk_content %}
 <section class="pl-kiosk__screen pl-kiosk__screen--center" data-kiosk-screen="confirm">
+  {% url 'tours_kiosk:check_in' as check_in_url %}
+  {% include "tours/kiosk/_head.html" with back=check_in_url %}
   <h1 class="pl-kiosk__title">Is This You?</h1>
   <p class="pl-kiosk__lead pl-kiosk__confirm-who" data-kiosk-confirm-who>{{ booking.kiosk_name }}, {{ booking.starts_at|time:"g:i A" }}</p>
+  {% if booking.guide_first_name %}<p class="pl-kiosk__fine" data-kiosk-confirm-guide>Your guide is {{ booking.guide_first_name }}.</p>{% endif %}
   <form method="post" action="{% url 'tours_kiosk:check_in' %}" class="pl-kiosk__choices pl-kiosk__choices--buttons" autocomplete="off" data-kiosk-arrows data-kiosk-confirm-form>
     {% csrf_token %}
     <button type="submit" name="booking" value="{{ booking.pk }}" class="pl-kiosk__choice pl-kiosk__choice--primary" autofocus data-kiosk-confirm-yes>
