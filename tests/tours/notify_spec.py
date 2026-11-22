@@ -87,6 +87,8 @@ def describe_reminders():
         reminders = _visitor_mail()
         assert [message.subject for message in reminders] == ["Reminder: your Past Lives tour is Tue, Jan 8 at 4:00 PM"]
         assert "your tour of Past Lives Makerspace is tomorrow!" in reminders[0].body
+        assert "Answering the calendar invite changes nothing." in reminders[0].body
+        assert reminders[0].attachments[0].get_param("method") == "REQUEST"
 
     def it_waits_until_the_tick_24_hours_before(booking: TourBooking):
         early = FOUR - timedelta(hours=25)
