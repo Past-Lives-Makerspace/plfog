@@ -39,7 +39,7 @@ def describe_admin_settings_hub():
         assert "Liability text, photo release text, and reminder timing." in content
         assert "Teaching Marketing Page</h3>" in content
         assert (
-            "The page a member sees under Host a Class until an admin says yes. Every word of it, plus the money split."
+            "The page a member sees under Host a Class until they become an instructor. Every word of it, plus the money split."
             in content
         )
         assert "Host a Class</h3>" not in content

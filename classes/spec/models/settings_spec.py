@@ -304,7 +304,7 @@ def describe_the_self_serve_copy_migration():
     def _migration():
         import importlib
 
-        return importlib.import_module("classes.migrations.0110_teach_page_self_serve_copy")
+        return importlib.import_module("classes.migrations.0111_teach_page_self_serve_copy")
 
     def it_rewrites_the_untouched_application_copy(db):
         from django.apps import apps as django_apps

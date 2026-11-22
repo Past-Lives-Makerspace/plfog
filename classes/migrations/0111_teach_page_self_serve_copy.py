@@ -59,7 +59,7 @@ def rewrite_unedited_copy(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("classes", "0109_class_record_required"),
+        ("classes", "0110_class_record_search_text"),
     ]
 
     operations = [
