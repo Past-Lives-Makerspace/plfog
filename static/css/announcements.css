@@ -340,6 +340,10 @@
     min-width: 0;
     overflow-wrap: anywhere;
 }
+.pl-mailing-lists__go--off {
+    color: var(--hub-text-muted);
+    cursor: not-allowed;
+}
 .pl-mailing-lists__count {
     color: var(--hub-text-muted);
     font-size: 0.875rem;

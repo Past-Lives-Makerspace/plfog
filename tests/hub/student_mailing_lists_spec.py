@@ -109,12 +109,30 @@ def describe_your_students():
         assert "data-mailing-lists" in html
         assert "data-student-lists" not in html
 
-    def it_has_no_list_before_anyone_registered(client: Client):
+    def it_shows_an_empty_list_with_email_disabled_before_anyone_registered(client: Client):
+        # Felix: Your Students always shows for an instructor; an empty list offers no send.
         member = _teacher(client, "ms_nobody")
         ClassOfferingFactory(instructor=member, status=ClassOffering.Status.PUBLISHED)
         html = _page(client, **_TAB)
-        assert "data-student-lists" not in html
-        assert 'data-announcements-tab="mailing-lists"' not in html
+        assert "data-student-lists" in html
+        assert _student_rows(html) == {"past-students": "0 people. No students yet."}
+        assert "data-student-list-disabled" in html
+        assert "?audience=students" not in html
+        assert re.search(r'data-announcements-count="mailing-lists">1<', html)
+
+    def it_shows_an_instructor_who_teaches_no_class_yet_the_empty_list(client: Client):
+        _teacher(client, "ms_noclass")
+        html = _page(client, **_TAB)
+        assert _student_rows(html) == {"past-students": "0 people. No students yet."}
+
+    def it_disables_past_students_when_everyone_stopped_its_emails(client: Client):
+        member = _teacher(client, "ms_allstopped")
+        offering = ClassOfferingFactory(instructor=member, status=ClassOffering.Status.PUBLISHED)
+        _confirmed(offering, "gone@x.com")
+        PastStudentOptOut.objects.record(instructor=member, email="gone@x.com")
+        rows = _student_rows(_page(client, **_TAB))
+        assert rows["past-students"] == "0 people. No students yet."
+        assert rows[f"class-{offering.pk}"] == "1 registered"
 
     def it_keeps_past_students_but_not_classes_it_may_no_longer_email(client: Client):
         # Revoked teaching: the composer still offers My Past Students, but no class roster.

@@ -212,6 +212,7 @@ def _wood_payment_keys(w: dict[str, Any]) -> set[tuple[str, int]]:
         ("orientation", w["wood_orientation"].pk),
         ("reservation", w["wood_reservation"].pk),
         ("late_fee", w["wood_late_fee"].pk),
+        ("cubby", w["wood_cubby"].pk),
         ("tab", w["wood_entry"].pk),
     }
 
@@ -259,7 +260,22 @@ def describe_a_guild_lead():
         _login(client, world["lead"])
         ledger = client.get(_PAYMENTS).context["ledger"]
         assert ledger.collected_cents == sum(row.amount_cents for row in ledger.rows)
-        assert ledger.collected_cents == 10000 + 10000 + 4000 + 3000 + world["wood_late_fee"].amount_cents + 2000
+        assert ledger.collected_cents == 10000 + 10000 + 4000 + 3000 + world["wood_late_fee"].amount_cents + 2000 + 2000
+
+    def it_lists_its_cubby_rent_and_counts_a_refunded_one_as_refunded(client: Client, world: dict[str, Any]):
+        from membership.models import CubbyPayment
+
+        CubbyPayment.objects.filter(pk=world["wood_cubby"].pk).update(stripe_refund_id="re_cubby")
+        _login(client, world["lead"])
+        response = client.get(f"{_PAYMENTS}&source=cubby")
+        ledger = response.context["ledger"]
+        assert [(row.source_pk, row.status, row.direct_refunded_cents, row.can_refund) for row in ledger.rows] == [
+            (world["wood_cubby"].pk, "refunded", 2000, False)
+        ]
+        assert (ledger.collected_cents, ledger.refunded_cents, ledger.net_cents) == (2000, 2000, 0)
+        body = response.content.decode()
+        assert "− $20.00 refunded" in body
+        assert 'data-payments-source="cubby"' in body
 
     def it_gets_payments_and_reports_and_no_other_tab(client: Client, world: dict[str, Any]):
         _login(client, world["lead"])
@@ -412,6 +428,7 @@ def describe_a_billing_administrator():
         everything = build_payments_ledger(window=parse_window("", ""))
         assert _ledger_keys(client) == {(row.source_kind, row.source_pk) for row in everything.rows}
         assert ("tab", world["charge"].pk) in _ledger_keys(client)
+        assert {("cubby", world["wood_cubby"].pk), ("cubby", world["metal_cubby"].pk)} <= _ledger_keys(client)
         assert client.get(_PAYMENTS).context["payments_scoped"] is False
 
     def it_still_has_no_reconciliation_when_it_runs_nothing(client: Client, world: dict[str, Any]):

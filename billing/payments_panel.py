@@ -29,6 +29,7 @@ SOURCE_LABELS = {
     "orientation": "Orientation",
     "reservation": "Reservation",
     "late_fee": "Late fee",
+    "cubby": "Cubby",
 }
 
 STATUS_LABELS = {
@@ -82,6 +83,8 @@ class PaymentRow:
     pending_age: str = ""  # e.g. "2 h" when status == "refund_pending"
     item_url: str = ""  # orientation, reservation and late fee rows: the owner page the item text links to
     booking_url: str = ""  # orientation rows: the linked booking's respond page
+    # Cubby rows (#1294): a cubby refund is a Stripe refund id on the payment, not a PaymentRefund row.
+    direct_refunded_cents: int = 0
 
     @property
     def status_label(self) -> str:
@@ -434,6 +437,43 @@ def _late_fee_rows(window: PanelWindow, *, viewer_is_admin: bool, scope: Payment
     return rows
 
 
+def _cubby_rows(window: PanelWindow, *, scope: PaymentsScope) -> list[PaymentRow]:
+    """Paid cubby invoices (#979) in the window, dated by when Stripe took them (#1294).
+
+    A cubby refund is the whole payment, recorded as ``stripe_refund_id`` on the payment itself, so
+    the row carries it as ``direct_refunded_cents``. No refund action: cubby refunds are made from
+    the guild's Cubbies manager, as before. The item links to the guild's Cubbies Rentals tab.
+    """
+    from django.urls import reverse
+
+    from membership.models import CubbyPayment
+
+    payments = (
+        scope.restrict("cubby", CubbyPayment.objects.all())
+        .filter(paid_at__gte=window.start_dt, paid_at__lt=window.end_dt)
+        .select_related("rental__member", "rental__cubby__unit__guild")
+    )
+    rows: list[PaymentRow] = []
+    for payment in payments:
+        cubby = payment.rental.cubby
+        guild = cubby.unit.guild
+        rows.append(
+            PaymentRow(
+                source_kind="cubby",
+                source_pk=payment.pk,
+                payer_name=payment.rental.member.finance_name,
+                payer_url=None,
+                item=f"Cubby {cubby.label}, {guild.name}",
+                amount_cents=payment.amount_cents,
+                status="refunded" if payment.refunded_cents else "paid",
+                date=payment.paid_at,
+                item_url=reverse("hub_guild_cubbies_rentals", args=[guild.pk]),
+                direct_refunded_cents=payment.refunded_cents,
+            )
+        )
+    return rows
+
+
 def build_payments_ledger(
     *,
     window: PanelWindow,
@@ -463,6 +503,8 @@ def build_payments_ledger(
         rows.extend(_reservation_rows(window, viewer_is_admin=viewer_is_admin, scope=scope))
     if source in ("all", "late_fee"):
         rows.extend(_late_fee_rows(window, viewer_is_admin=viewer_is_admin, scope=scope))
+    if source in ("all", "cubby"):
+        rows.extend(_cubby_rows(window, scope=scope))
 
     wanted = _STATUS_FILTERS.get(status)
     if wanted is not None:
@@ -470,7 +512,9 @@ def build_payments_ledger(
 
     rows.sort(key=lambda row: row.date, reverse=True)
     collected = sum(row.amount_cents for row in rows if row.status != "charge_failed")
-    refunded = sum(r.amount_cents for row in rows for r in row.succeeded_refunds)
+    refunded = sum(r.amount_cents for row in rows for r in row.succeeded_refunds) + sum(
+        row.direct_refunded_cents for row in rows
+    )
     return PaymentsLedger(
         rows=tuple(rows[:MAX_ROWS]),
         total_count=len(rows),

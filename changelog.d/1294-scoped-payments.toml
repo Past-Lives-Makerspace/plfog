@@ -1,15 +1,16 @@
 bump = "minor"
 date = "2026-11-21"
-audience = ["instructors", "guild-staff"]
+audience = ["instructors", "guild-staff", "admins"]
 feature = "billing.payments"
 guidance = "shots"
 title = "Payments and Reports for your guild and your classes"
 changes = [
-  "Guild leads and staff now have Payments and Reports in their guild's group on Guild Tools. Payments lists what members paid the guilds you run: classes, orientations, reservations, late fees and products bought on My Tab.",
-  "Reports shows what those payments collected and your guild's share, cubby rent included, for a month or any dates, with CSV and PDF export.",
+  "Guild leads and staff now have Payments and Reports in their guild's group on Guild Tools. Payments lists what members paid the guilds you run: classes, orientations, reservations, late fees, cubby rent and products bought on My Tab.",
+  "Reports shows what those payments collected and your guild's share, for a month or any dates, with CSV and PDF export.",
   "Instructors get Payments and Reports under Classes for every class they teach, with their share.",
   "Instructors also have Your Students on Email Members' Mailing Lists tab: Past Students, everyone who took any of your classes, and one list per class. Anyone who stopped your emails is left off.",
   "Refunds and payouts stay with the treasurer and admins.",
+  "Payments now lists cubby rent for admins and the treasurer too, and the Payments and Reports pages follow light and dark mode.",
 ]
 
 [[shots]]

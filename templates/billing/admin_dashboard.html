@@ -1,121 +1,15 @@
 {% extends "hub/base.html" %}
 {% load static classes_tags guidance tab_picker %}
-{% block extra_head %}<link rel="stylesheet" href="{% static 'css/permission-setup.css' %}">{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'css/permission-setup.css' %}"><link rel="stylesheet" href="{% static 'css/payments-dashboard.css' %}">{% endblock %}
 
 {% block title %}Payments — Past Lives{% endblock %}
 
 {% block content %}
-<style>
-  .pl-dashboard { display: flex; flex-direction: column; gap: 1.5rem; padding: 2rem 2.5rem; }
-  .pl-card { background-color: #092E4C; border: 1px solid transparent; border-radius: 10px; padding: 2rem; }
-  .pl-card__title { font-family: 'Lato', system-ui, sans-serif; font-size: 1.75rem; font-weight: 700; color: #F4EFDD; margin-bottom: 0.5rem; }
-  .pl-text-muted { color: #96ACBB; font-size: 0.9375rem; }
-  .pl-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
-  .pl-stats--3 { grid-template-columns: repeat(3, 1fr); }
-  .pl-stat { background-color: rgba(255,255,255,0.04); border-radius: 8px; padding: 1.25rem; text-align: center; }
-  .pl-stat__value { font-family: 'Lato', system-ui, sans-serif; font-size: 2rem; font-weight: 900; color: #EEB44B; line-height: 1.2; }
-  .pl-stat__label { font-size: 0.8125rem; color: #96ACBB; margin-top: 0.25rem; }
-  .pl-section-label { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #96ACBB; margin-bottom: 0.75rem; }
-  .pl-section-label--spaced { margin-top: 1.25rem; }
-  .pl-split-form .pl-form-row input[type="number"] { width: 6rem; }
-  .pl-split-note { margin: 0 0 1.25rem; max-width: 60ch; font-size: 0.875rem; line-height: 1.5; }
-  .pl-table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }
-  .pl-table thead th { text-align: left; padding: 0.5rem 0.75rem; font-weight: 500; color: #96ACBB; border-bottom: 1px solid rgba(255,255,255,0.08); font-size: 0.875rem; }
-  .pl-table thead th.text-right { text-align: right; }
-  .pl-table tbody td { padding: 0.5rem 0.75rem; color: #F4EFDD; border-bottom: 1px solid rgba(255,255,255,0.04); }
-  .pl-table tbody td.text-right { text-align: right; }
-  .pl-table tbody tr { cursor: pointer; }
-  .pl-table tbody tr:hover td { background: rgba(255,255,255,0.03); }
-  .pl-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
-  .pl-btn { display: inline-flex; align-items: center; padding: 0.625rem 1.5rem; font-family: 'Inter', system-ui, sans-serif; font-size: 0.9375rem; font-weight: 700; border: none; border-radius: 6px; cursor: pointer; text-decoration: none; transition: background-color 0.15s ease; }
-  .pl-btn--primary { background-color: #EEB44B; color: #092E4C; }
-  .pl-btn--primary:hover { background-color: #d4a043; color: #092E4C; }
-  .pl-btn--secondary { background-color: transparent; border: 1px solid rgba(255,255,255,0.12); color: #F4EFDD; }
-  .pl-btn--secondary:hover { background-color: rgba(255,255,255,0.06); color: #F4EFDD; }
-  .pl-btn--danger { background-color: transparent; border: 1px solid rgba(248,113,113,0.3); color: #f87171; }
-  .pl-btn--danger:hover { background-color: rgba(248,113,113,0.08); }
-  .pl-btn--sm { padding: 0.35rem 0.875rem; font-size: 0.8125rem; }
-
-  /* Tab navigation */
-
-  /* Filter chips */
-  .pl-filters { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-  .pl-filter { padding: 0.3rem 0.875rem; border-radius: 20px; font-size: 0.8125rem; color: #96ACBB; border: 1px solid rgba(255,255,255,0.12); text-decoration: none; transition: all 0.15s ease; }
-  .pl-filter:hover { color: #F4EFDD; border-color: rgba(255,255,255,0.25); }
-  .pl-filter.active { background: rgba(238,180,75,0.12); border-color: rgba(238,180,75,0.4); color: #EEB44B; }
-
-  /* Badges */
-  .pl-badge { display: inline-block; font-size: 0.75rem; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 500; }
-  .pl-badge--ok { background: rgba(52,211,153,0.15); color: #6ee7b7; }
-  .pl-badge--warn { background: rgba(251,191,36,0.15); color: #fbbf24; }
-  .pl-badge--fail { background: rgba(220,60,60,0.15); color: #f87171; }
-  .pl-badge--muted { background: rgba(255,255,255,0.06); color: #96ACBB; }
-
-  /* Toolbar row */
-  .pl-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
-
-  /* Modal — scoped under .pl-modal-overlay so these dark-fixed styles hit only the
-     page's own vanilla modals, never the theme-aware hub components/modal.html
-     (.pl-modal-backdrop) that the refund flow uses. */
-  .pl-modal-overlay { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; background-color: rgba(0,0,0,0.6); padding: 1rem; }
-  .pl-modal-overlay .pl-modal { background-color: #092E4C; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 20px 60px rgba(0,0,0,0.4); max-width: 560px; width: 100%; max-height: 90vh; overflow-y: auto; }
-  .pl-modal-overlay .pl-modal__header { display: flex; align-items: flex-start; justify-content: space-between; padding: 1.25rem 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.08); }
-  .pl-modal-overlay .pl-modal__title { font-family: 'Lato', system-ui, sans-serif; font-size: 1.1rem; font-weight: 700; color: #F4EFDD; margin: 0; }
-  .pl-modal-overlay .pl-modal__subtitle { font-size: 0.8125rem; color: #96ACBB; margin-top: 0.2rem; }
-  .pl-modal-overlay .pl-modal__close { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #96ACBB; padding: 0; line-height: 1; flex-shrink: 0; }
-  .pl-modal-overlay .pl-modal__close:hover { color: #F4EFDD; }
-  .pl-modal-overlay .pl-modal__body { padding: 1.5rem; }
-  .pl-modal-overlay .pl-modal__footer { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; border-top: 1px solid rgba(255,255,255,0.08); gap: 0.75rem; flex-wrap: wrap; }
-  .pl-modal-overlay .pl-modal__field { margin-bottom: 1.25rem; }
-  .pl-modal-overlay .pl-modal__field:last-child { margin-bottom: 0; }
-  .pl-modal-overlay .pl-modal__field label { display: block; font-size: 0.85rem; font-weight: 500; color: #96ACBB; margin-bottom: 0.375rem; }
-  .pl-modal-overlay .pl-modal__field select, .pl-modal-overlay .pl-modal__field input[type="text"], .pl-modal-overlay .pl-modal__field input[type="number"] { width: 100%; padding: 0.625rem 0.875rem; font-size: 0.9375rem; color: #F4EFDD; background-color: #0a1929; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; box-sizing: border-box; }
-  .pl-modal-overlay .pl-modal__field select:focus, .pl-modal-overlay .pl-modal__field input:focus { outline: none; border-color: #EEB44B; box-shadow: 0 0 0 3px rgba(238,180,75,0.15); }
-  .pl-modal-overlay .pl-modal__pills { display: flex; gap: 0.75rem; margin-bottom: 1.25rem; }
-  .pl-modal-overlay .pl-modal__pill { flex: 1; background: rgba(255,255,255,0.04); border-radius: 8px; padding: 0.75rem; text-align: center; }
-  .pl-modal-overlay .pl-modal__pill-value { font-size: 1.25rem; font-weight: 900; color: #EEB44B; }
-  .pl-modal-overlay .pl-modal__pill-label { font-size: 0.7rem; color: #96ACBB; margin-top: 0.15rem; }
-
-  /* Payments tab */
-  .pl-table-scroll { overflow-x: auto; }
-  .pl-table-scroll.htmx-request { opacity: 0.5; }
-  .pl-date-form { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
-  .pl-date-input { padding: 0.35rem 0.625rem; font-size: 0.8125rem; border-radius: 6px; background: var(--hub-input-bg); color: var(--hub-text); border: 1px solid var(--hub-input-border, rgba(255,255,255,0.15)); }
-  .pl-date-input::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
-  [data-theme="light"] .pl-date-input::-webkit-calendar-picker-indicator { filter: none; }
-  /* Light theme (#1294, now that guild leads and instructors open this page): the title and stat tiles were cream on navy only. */
-  [data-theme="light"] .pl-dashboard > div > div > .pl-card__title, [data-theme="light"] [data-reports-scoped] .pl-card__title, [data-theme="light"] [data-help-key="admin.reconciliation"] .pl-card__title { color: var(--hub-text); }
-  [data-theme="light"] .pl-stat { background-color: var(--hub-card-bg); border: 1px solid var(--hub-border); }
-  [data-theme="light"] .pl-stat__value { color: #b07a12; }
-
-  /* Settings form */
-  .pl-form-row { margin-bottom: 1.25rem; }
-  .pl-form-row label { display: block; font-size: 0.875rem; font-weight: 500; color: #96ACBB; margin-bottom: 0.375rem; }
-  .pl-form-row select, .pl-form-row input[type="time"], .pl-form-row input[type="number"], .pl-form-row input[type="text"] { padding: 0.625rem 0.875rem; font-size: 0.9375rem; color: #F4EFDD; background-color: #0a1929; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; width: 100%; box-sizing: border-box; }
-  .pl-form-row select:focus, .pl-form-row input:focus { outline: none; border-color: #EEB44B; box-shadow: 0 0 0 3px rgba(238,180,75,0.15); }
-  .pl-form-hint { font-size: 0.8125rem; color: #96ACBB; margin-top: 0.25rem; }
-  .pl-form-errors { color: #f87171; font-size: 0.8125rem; margin-top: 0.25rem; }
-  .pl-form-actions { margin-top: 1.5rem; }
-
-  /* Stripe test/live key groups */
-  .pl-mode-badge-row { margin: 0.75rem 0 0.25rem; }
-  .pl-key-groups { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; margin-top: 1.5rem; }
-  .pl-key-group { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 1.25rem; }
-  .pl-key-group__header { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 1rem; }
-  .pl-key-group__title { font-family: 'Lato', system-ui, sans-serif; font-size: 1.05rem; font-weight: 700; color: #F4EFDD; }
-  .pl-key-test-result { font-size: 0.875rem; margin: 0.5rem 0; min-height: 1.2em; }
-
-  @media (max-width: 768px) {
-    .pl-stats, .pl-stats--3 { grid-template-columns: 1fr; }
-    .pl-key-groups { grid-template-columns: 1fr; }
-    .pl-dashboard { padding: 1.25rem; }
-  }
-</style>
 
 <div class="pl-dashboard">
 
   <div>
-    <div style="display:flex;align-items:center;gap:0.625rem;"><h1 class="pl-card__title">Payments Dashboard</h1>{% whats_new_button "admin.reconciliation" %}</div>
+    <div style="display:flex;align-items:center;gap:0.625rem;"><h1 class="pl-card__title">Payments Dashboard</h1>{% if active_tab == "reconciliation" and not reconciliation_scoped %}{% whats_new_button "admin.reconciliation" %}{% else %}{% whats_new_button "billing.payments" %}{% endif %}</div>
     {% if payments_scoped %}
     <p class="pl-text-muted" data-payments-scoped>Payments for the guilds you run and the classes you teach, and your share of them under Reports.</p>
     {% elif features.my_tab.is_on %}
@@ -134,7 +28,7 @@
   {% tab_picker "Payments" %}
   <nav class="pl-tabs" aria-label="Payments Dashboard">
     {% for tab_key, tab_label in dashboard_tabs %}
-    <a href="?tab={{ tab_key }}" class="vote-tab{% if active_tab == tab_key %} vote-tab--active{% endif %}"{% if active_tab == tab_key %} aria-current="page"{% endif %} data-dashboard-tab="{{ tab_key }}">{{ tab_label }}</a>
+    <a href="?tab={{ tab_key }}" class="vote-tab{% if active_tab == tab_key %} vote-tab--active{% endif %}"{% if active_tab == tab_key %} aria-current="page"{% endif %} data-dashboard-tab="{{ tab_key }}"{% if tab_key == "reconciliation" %} data-guidance-target="billing.reports-tab"{% endif %}>{{ tab_label }}</a>
     {% endfor %}
   </nav>
   {% endtab_picker %}
@@ -155,11 +49,11 @@
       <div class="pl-stat__label">Collected This Month</div>
     </div>
     <div class="pl-stat">
-      <div class="pl-stat__value" style="color:{% if failed_count %}#f87171{% else %}#EEB44B{% endif %}">{{ failed_count }}</div>
+      <div class="pl-stat__value" style="color:{% if failed_count %}var(--hub-danger-text){% else %}var(--pl-dash-accent){% endif %}">{{ failed_count }}</div>
       <div class="pl-stat__label">Failed Charges</div>
     </div>
     <div class="pl-stat">
-      <div class="pl-stat__value" style="color:{% if locked_count %}#f87171{% else %}#EEB44B{% endif %}">{{ locked_count }}</div>
+      <div class="pl-stat__value" style="color:{% if locked_count %}var(--hub-danger-text){% else %}var(--pl-dash-accent){% endif %}">{{ locked_count }}</div>
       <div class="pl-stat__label">Locked Tabs</div>
     </div>
   </div>
@@ -215,9 +109,9 @@
         <tr>
           <td onclick="openTabModal({{ charge.tab.pk }})" style="cursor:pointer">{{ charge.tab.member.staff_label }}</td>
           <td class="text-right">${{ charge.amount }}</td>
-          <td style="color:#96ACBB">{{ charge.failure_reason|truncatewords:8 }}</td>
+          <td style="color:var(--hub-text-muted)">{{ charge.failure_reason|truncatewords:8 }}</td>
           <td>{{ charge.retry_count }}</td>
-          <td style="color:#96ACBB">{{ charge.created_at|date:"M j, Y" }}</td>
+          <td style="color:var(--hub-text-muted)">{{ charge.created_at|date:"M j, Y" }}</td>
           <td>
             <button class="pl-btn pl-btn--sm pl-btn--secondary" onclick="retryCharge({{ charge.pk }}, this)">Retry</button>
           </td>
@@ -262,12 +156,12 @@
         <tr onclick="openTabModal({{ tab.pk }})">
           <td>{{ tab.member.staff_label }}</td>
           <td class="text-right">${{ tab.current_balance }}</td>
-          <td class="text-right" style="color:#96ACBB">${{ tab.effective_tab_limit }}</td>
+          <td class="text-right" style="color:var(--hub-text-muted)">${{ tab.effective_tab_limit }}</td>
           <td>{% if tab.has_payment_method %}{{ tab.payment_method_brand }} ···· {{ tab.payment_method_last4 }}{% else %}<span class="pl-badge pl-badge--warn">None</span>{% endif %}</td>
           <td>{% if tab.is_locked %}<span class="pl-badge pl-badge--fail">Locked</span>{% elif not tab.has_payment_method %}<span class="pl-badge pl-badge--warn">No card</span>{% else %}<span class="pl-badge pl-badge--ok">Active</span>{% endif %}</td>
         </tr>
         {% empty %}
-        <tr><td colspan="5" style="text-align:center;color:#96ACBB;padding:2rem">No tabs match this filter.</td></tr>
+        <tr><td colspan="5" style="text-align:center;color:var(--hub-text-muted);padding:2rem">No tabs match this filter.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -303,6 +197,7 @@
       {# The Orientation chip ships hidden until that payment source exists (companion spec). #}
       <a href="?tab=payments&source=reservation&status={{ payments_status }}&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_source == 'reservation' %}active{% endif %}">Reservations</a>
       <a href="?tab=payments&source=late_fee&status={{ payments_status }}&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_source == 'late_fee' %}active{% endif %}">Late fees</a>
+      <a href="?tab=payments&source=cubby&status={{ payments_status }}&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_source == 'cubby' %}active{% endif %}" data-payments-source="cubby">Cubbies</a>
     </div>
     <div class="pl-filters">
       <a href="?tab=payments&source={{ payments_source }}&status=all&start={{ payments_start }}&end={{ payments_end }}" class="pl-filter {% if payments_status == 'all' %}active{% endif %}">All</a>
@@ -321,7 +216,7 @@
              onclick="try { this.showPicker() } catch (e) {}">
       <button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Apply</button>
     </form>
-    <a href="{% url 'billing_admin_payments_csv' %}?{{ payments_query }}" class="pl-btn pl-btn--secondary pl-btn--sm" hx-boost="false" data-pl-download>Export CSV</a>
+    <a href="{% url 'billing_admin_payments_csv' %}?{{ payments_query }}" class="pl-btn pl-btn--secondary pl-btn--sm" hx-boost="false" data-pl-download data-guidance-target="billing.payments-export">Export CSV</a>
   </div>
 
   <div class="pl-table-scroll"
@@ -525,10 +420,10 @@
   {# ---- Stripe Platform Credentials ---- #}
   <div class="pl-card">
     <div class="pl-section-label">Stripe Platform Credentials</div>
-    <p style="color:#96ACBB;font-size:0.875rem;margin:0 0 1.25rem">
+    <p style="color:var(--hub-text-muted);font-size:0.875rem;margin:0 0 1.25rem">
       All charges route through the single Past Lives platform Stripe account. Store both a Test and a Live key set;
       the Testing Mode switch below decides which one every charge uses. Get the keys from
-      <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noopener" style="color:#a0c0e0">dashboard.stripe.com/apikeys</a>.
+      <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noopener" style="color:var(--hub-link)">dashboard.stripe.com/apikeys</a>.
     </p>
 
     <form method="post" action="{% url 'billing_save_connect_platform' %}" id="connect-platform-form">
@@ -583,12 +478,12 @@
 
       <div class="pl-form-actions">
         <button type="button" class="pl-btn pl-btn--secondary" x-data @click="$dispatch('open-modal', 'new-stripe-account')">Put new account credentials</button>
-        <span style="color:#96ACBB;font-size:0.8125rem;margin-left:0.75rem">For {{ billing_settings.mode_label }} mode. The current keys move to Previous account.</span>
+        <span style="color:var(--hub-text-muted);font-size:0.8125rem;margin-left:0.75rem">For {{ billing_settings.mode_label }} mode. The current keys move to Previous account.</span>
       </div>
 
       {# ---- Previous account (#702): remove with the previous_* fields once PLM FOG closes ---- #}
       <div class="pl-section-label" style="margin-top:1.5rem">Previous Account</div>
-      <p style="color:#96ACBB;font-size:0.875rem;margin:0 0 1.25rem">
+      <p style="color:var(--hub-text-muted);font-size:0.875rem;margin:0 0 1.25rem">
         The Stripe account plfog charged on before the switch. Refunds, refund lookups and webhooks for payments made there use these keys; nothing new is charged on it. Leave blank when there is no previous account.
       </p>
       <div class="pl-key-groups">
@@ -633,7 +528,7 @@
         {% for product in products %}
         <tr>
           <td>{{ product.name }}</td>
-          <td style="color:#96ACBB">{{ product.guild.name }}</td>
+          <td style="color:var(--hub-text-muted)">{{ product.guild.name }}</td>
           <td>${{ product.price }}</td>
           <td>{% if product.is_active %}<span class="pl-badge pl-badge--ok">Active</span>{% else %}<span class="pl-badge pl-badge--muted">Inactive</span>{% endif %}</td>
         </tr>
@@ -641,7 +536,7 @@
       </tbody>
     </table>
     {% else %}
-    <div style="color:#96ACBB;padding:1rem 0">No products configured yet.</div>
+    <div style="color:var(--hub-text-muted);padding:1rem 0">No products configured yet.</div>
     {% endif %}
   </div>
 
@@ -653,7 +548,7 @@
     };
     var sk = document.getElementById(secretIds[slot]).value;
     var resultEl = document.getElementById('connect-platform-test-result-' + slot);
-    resultEl.style.color = '#96ACBB';
+    resultEl.style.color = 'var(--hub-text-muted)';
     resultEl.textContent = 'Testing…';
     var fd = new FormData();
     fd.append('secret_key', sk);
@@ -662,15 +557,15 @@
       .then(function(r){return r.json();})
       .then(function(d){
         if (d.ok) {
-          resultEl.style.color = '#a0e0c0';
+          resultEl.style.color = 'var(--hub-text)';
           resultEl.textContent = '✓ Connected to ' + d.stripe_account_id + ' — ' + d.display_name;
         } else {
-          resultEl.style.color = '#e0a0a0';
+          resultEl.style.color = 'var(--hub-danger-text)';
           resultEl.textContent = '✗ ' + d.error;
         }
       })
       .catch(function(e){
-        resultEl.style.color = '#e0a0a0';
+        resultEl.style.color = 'var(--hub-danger-text)';
         resultEl.textContent = '✗ ' + e;
       });
   }
@@ -714,7 +609,7 @@
           <div class="pl-modal__pill-label">Outstanding</div>
         </div>
         <div class="pl-modal__pill">
-          <div class="pl-modal__pill-value" style="color:#F4EFDD" id="tdm-limit">—</div>
+          <div class="pl-modal__pill-value" style="color:var(--hub-text)" id="tdm-limit">—</div>
           <div class="pl-modal__pill-label">Tab Limit</div>
         </div>
         <div class="pl-modal__pill">
@@ -816,9 +711,9 @@
         const entriesEl = document.getElementById('tdm-entries');
         entriesEl.innerHTML = data.pending_entries.length
           ? data.pending_entries.map(e =>
-              '<tr><td>' + e.description + '</td><td style="color:#96ACBB">' + e.date + '</td><td class="text-right">$' + e.amount + '</td></tr>'
+              '<tr><td>' + e.description + '</td><td style="color:var(--hub-text-muted)">' + e.date + '</td><td class="text-right">$' + e.amount + '</td></tr>'
             ).join('')
-          : '<tr><td colspan="3" style="color:#96ACBB;text-align:center;padding:0.75rem">No pending entries.</td></tr>';
+          : '<tr><td colspan="3" style="color:var(--hub-text-muted);text-align:center;padding:0.75rem">No pending entries.</td></tr>';
 
         const historyEl = document.getElementById('tdm-history');
         historyEl.innerHTML = data.charge_history.length
@@ -829,9 +724,9 @@
               const action = (c.status === 'succeeded' && c.receipt_url)
                 ? '<a href="' + c.receipt_url + '" target="_blank" class="pl-btn pl-btn--sm pl-btn--secondary">Receipt</a>'
                 : '';
-              return '<tr><td style="color:#96ACBB">' + c.date + '</td><td>' + badge + '</td><td class="text-right">$' + c.amount + '</td><td>' + action + '</td></tr>';
+              return '<tr><td style="color:var(--hub-text-muted)">' + c.date + '</td><td>' + badge + '</td><td class="text-right">$' + c.amount + '</td><td>' + action + '</td></tr>';
             }).join('')
-          : '<tr><td colspan="4" style="color:#96ACBB;text-align:center;padding:0.75rem">No charge history.</td></tr>';
+          : '<tr><td colspan="4" style="color:var(--hub-text-muted);text-align:center;padding:0.75rem">No charge history.</td></tr>';
 
         const adminLink = document.getElementById('tdm-admin-link');
         if (adminLink) {

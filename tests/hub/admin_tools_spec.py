@@ -132,11 +132,21 @@ def describe_admin_tools_billing_cards():
             _login_billing_approver(client, "appr_page")
             assert client.get(reverse("hub_admin_tools")).status_code == 200
 
-        def it_sees_the_payments_and_reports_cards(client: Client):
+        def it_sees_the_payments_card_but_no_reports_card(client: Client):
+            # #1294: Reports opens Reconciliation, admin only since #250, so the card that answered 403 is gone.
             _login_billing_approver(client, "appr_cards")
             content = client.get(reverse("hub_admin_tools")).content.decode()
             assert _PAYMENTS_HREF in content
-            assert _REPORTS_HREF in content
+            assert _REPORTS_HREF not in content
+            assert client.get(_PAYMENTS_HREF).status_code == 200
+
+        def it_gets_only_a_scoped_reports_card_when_it_also_leads_a_guild(client: Client):
+            user = _login_billing_approver(client, "appr_lead")
+            GuildFactory(guild_lead=user.member)  # type: ignore[attr-defined]
+            content = client.get(reverse("hub_admin_tools")).content.decode()
+            assert f'href="{_REPORTS_HREF}">' not in content
+            assert f'href="{_REPORTS_HREF}" data-tool-scoped-reports' in content
+            assert client.get(_REPORTS_HREF, follow=True).status_code == 200
 
         def it_sees_none_of_the_admin_only_cards(client: Client):
             _login_billing_approver(client, "appr_noadmin")
@@ -431,9 +441,10 @@ def describe_admin_tools_sections():
         assert f'href="{reverse("classes:teach_dashboard")}" data-tool-my-classes' in grid
         assert f'href="{reverse("classes:teach_registrations")}" data-tool-teach-registrations' in grid
 
-    def it_gives_a_billing_approver_only_payments_and_reports(client: Client):
+    def it_gives_a_billing_approver_only_payments(client: Client):
+        # Reports opens Reconciliation, admin only since #250, so #1294 hid its card from them.
         _login_billing_approver(client, "sections_biller")
-        assert _sections(client) == [("admin", "Admin", ["Payments", "Reports"])]
+        assert _sections(client) == [("admin", "Admin", ["Payments"])]
 
     def it_gives_a_guild_lead_who_guides_no_tours_card(client: Client):
         # #1278: Tours lives in the sidebar now, never on this page.

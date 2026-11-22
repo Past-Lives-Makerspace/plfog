@@ -52,6 +52,7 @@ initial render and the post-refund HTMX refresh (refund-done).
           {% for refund in row.succeeded_refunds %}
           <span class="pl-refund-line">− {{ refund.amount_cents|cents_as_dollars }} refunded{% if refund.settled_at %} {{ refund.settled_at|date:"M j" }}{% endif %}</span>
           {% endfor %}
+          {% if row.direct_refunded_cents %}<span class="pl-refund-line">− {{ row.direct_refunded_cents|cents_as_dollars }} refunded</span>{% endif %}
         </td>
         <td>
           {% if row.status == "paid" %}<span class="pl-badge pl-badge--ok">Paid</span>

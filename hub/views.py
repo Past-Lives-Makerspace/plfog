@@ -5915,7 +5915,8 @@ class ToolCard(NamedTuple):
 # The tools page's sections in page order (#1291, Felix): Admin, Webmaster, the viewer's guild, Classes. A section
 # shows its cards alphabetically by title (#1286, :func:`admin_tool_sections`), so the order written here is not the
 # order on the page, and a viewer sees every section they qualify for.
-# - "admin": admins; a Billing Administrator alone gets Payments and Reports, a Calendar Administrator alone Events.
+# - "admin": admins; a Billing Administrator alone gets Payments (Reports is Reconciliation, admins only, #250 and
+#   #1294), a Calendar Administrator alone Events.
 # - "webmaster": only an admin holding the Webmaster capability. Tile visibility only: each page keeps its own gate.
 # - "guild": one guild's cards under that guild's name, for its lead or staff who is not viewing as an admin (#921).
 #   Payments and Reports (#1294) open the billing pages, scoped to every guild the viewer runs.
@@ -6052,7 +6053,11 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
     # lead they preview would, so their own admin standing must not add these cards.
     view_as = getattr(request, "view_as", None)
     previewing_admin = view_as is not None and view_as.actual_is_admin and not is_admin
-    tool_payments = tool_reports = has_billing_admin_access(request) and not previewing_admin
+    tool_payments = has_billing_admin_access(request) and not previewing_admin
+    # Reports opens Reconciliation, admin only on purpose since #250 ("money disbursement decisions are a strictly
+    # admin duty"), so a Billing Administrator who is not an admin gets no Reports tile here (#1294). One who
+    # leads, staffs or teaches still has the scoped Reports tile in that section.
+    tool_reports = is_admin
     tool_manage_events = has_events_admin_access(request) and not previewing_admin
     selected = guild_tools.selected if guild_tools is not None else None
     tool_guild = selected is not None
@@ -6602,8 +6607,11 @@ class StudentMailingLists:
 
     @classmethod
     def for_request(cls, request: HttpRequest, member: Member | None, *, full: bool) -> StudentMailingLists | None:
-        """The viewer's lists, or None when they teach nothing (:func:`_teaching_member`, the composer's own test)
-        or nobody has ever registered for a class they teach.
+        """The viewer's lists, or None when they are no instructor.
+
+        An instructor is whoever teaches a class (:func:`_teaching_member`, the composer's own test) or
+        holds the instructor profile or the teaching grant (Felix: Your Students always shows for an
+        instructor). With nobody registered yet the section still shows, Past Students at 0 and no class.
 
         The classes are the ones :func:`_can_announce_to_class` admits, asked once for a member with the
         teaching grant (every row then answers the same, as :func:`_compose_editable_classes` explains)
@@ -6613,6 +6621,8 @@ class StudentMailingLists:
         from classes.past_students import past_students
 
         teacher = _teaching_member(member)
+        if teacher is None and member is not None and (member.is_instructor or member.can_create_classes):
+            teacher = member
         if teacher is None:
             return None
         taught = list(
@@ -6621,11 +6631,8 @@ class StudentMailingLists:
             .filter(confirmed__gt=0)
             .order_by("-created_at", "-pk")
         )
-        if not taught:
-            # Nobody has ever registered, so there is no list yet; My Past Students would reach no one.
-            return None
         if teacher.can_create_classes:
-            reachable = taught if _can_announce_to_class(request, taught[0]) else []
+            reachable = taught if taught and _can_announce_to_class(request, taught[0]) else []
         else:
             reachable = [offering for offering in taught if _can_announce_to_class(request, offering)]
         if not full:

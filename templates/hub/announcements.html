@@ -60,11 +60,12 @@ reads poll_rows ([(EmailPoll with sent_count and answered_count, is_open)]).
 {% endif %}
 {% if student_lists %}
 {# Your Students (#1294): My Past Students, then each class's roster, each opening the composer on that audience. #}
-<section class="hub-card pl-mailing-lists" data-student-lists>
+<section class="hub-card pl-mailing-lists" data-student-lists data-guidance-target="announcements.your-students">
   <h2 class="pl-mailing-lists__title">Your Students</h2>
   <p class="pl-mailing-lists__intro">Email everyone who took your classes, or one class. Anyone who stopped your emails is left off.</p>
   <ul class="pl-mailing-lists__list">
     <li class="pl-mailing-lists__row">
+      {% if student_lists.past_students %}
       <a href="{% url 'hub_compose' %}?audience=students" class="pl-mailing-lists__link" data-student-list="past-students">
         <span class="pl-mailing-lists__label">
           <span class="pl-mailing-lists__name">Past Students</span>
@@ -72,6 +73,16 @@ reads poll_rows ([(EmailPoll with sent_count and answered_count, is_open)]).
         </span>
         <span class="pl-mailing-lists__go">Email &rarr;</span>
       </a>
+      {% else %}
+      {# Nobody to email yet: the row shows, its Email is disabled, so an empty send is never offered. #}
+      <div class="pl-mailing-lists__link pl-mailing-lists__link--empty" data-student-list="past-students">
+        <span class="pl-mailing-lists__label">
+          <span class="pl-mailing-lists__name">Past Students</span>
+          <span class="pl-mailing-lists__count" data-student-list-count>0 people. No students yet.</span>
+        </span>
+        <span class="pl-mailing-lists__go pl-mailing-lists__go--off" aria-disabled="true" data-student-list-disabled>Email</span>
+      </div>
+      {% endif %}
     </li>
     {% for offering, confirmed in student_lists.classes %}
     <li class="pl-mailing-lists__row">
