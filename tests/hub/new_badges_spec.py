@@ -8,6 +8,7 @@ depends on the repo's fragments or on the calendar. Assertions anchor on markup 
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import Any
 
 import pytest
@@ -119,6 +120,6 @@ def describe_home_and_the_sidebar():
         html = client.get(reverse("hub_home")).content.decode()
         assert f'<span class="pl-quicklink__label">Calendar{_badge("calendar.events")}</span>' in html
         assert f'<span class="pl-quicklink__label">Guild Voting{_badge("guild.voting")}</span>' in html
-        assert f"Calendar{_badge('calendar.events')}\n            </a>" in html
+        assert re.search(re.escape(f"Calendar{_badge('calendar.events')}") + r"\s*</a>", html)
         assert f"Guild Voting{_badge('guild.voting')}\n</a>" in html
         assert html.count(_badge("calendar.events")) == 2 and html.count(_badge("guild.voting")) == 2

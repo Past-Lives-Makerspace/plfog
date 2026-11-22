@@ -33,7 +33,13 @@ from classes.models import ClassOffering, Registration
 from core.models import EventDelivery, Notification
 from hub.forms import AnnouncementComposeForm, discord_channel_choices, split_audience
 from hub.views import _announcement_previews, _compose_count_for, _compose_editable_guilds, _compose_first_error
-from membership.models import ANNOUNCEMENT_RESEND_WINDOW, AnnouncementDraft, GuildAnnouncement, Member
+from membership.models import (
+    ANNOUNCEMENT_RESEND_WINDOW,
+    AdminCapability,
+    AnnouncementDraft,
+    GuildAnnouncement,
+    Member,
+)
 from tests.membership.factories import (
     AnnouncementDraftFactory,
     GuildFactory,
@@ -1563,13 +1569,12 @@ def describe_admin_tools_sidebar_link():
 
 
 def describe_admin_tools_page():
-    def it_shows_every_tool_to_an_admin(client: Client):
-        _login_admin(client)
+    def it_shows_every_tool_to_a_webmaster_admin(client: Client):
+        user = _login_admin(client)
+        user.member.admin_capabilities.create(capability=AdminCapability.Capability.WEBMASTER)  # type: ignore[attr-defined]
         content = client.get(reverse("hub_admin_tools")).content.decode()
-        assert (
-            f'<a class="hub-card pl-tool-card" href="{reverse("hub_announcements")}" data-tool-email-members>'
-            in content
-        )
+        # Email Members sits in a guild's section and in Classes since #1291, not in Admin.
+        assert "data-tool-email-members" not in content
         assert f'href="{reverse("hub_orientations")}?view=bookings"' in content
         assert reverse("hub_admin_members") in content
         assert reverse("hub_push_test") in content

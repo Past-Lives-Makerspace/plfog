@@ -1,0 +1,297 @@
+{% comment %}
+One Tools page card (#1286), drawn by its key from hub.views.ADMIN_TOOL_SECTIONS. The section lists its cards
+sorted by title and only those the viewer may open, so a card here has no gate of its own; its title is card.title,
+the table's, which is what the section sorts by. A new card is a ToolCard there and a branch here.
+{% endcomment %}
+{% load guidance %}
+{% if card.key == "guild_cubbies" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_guild_cubbies' guild.pk %}" data-tool-guild-cubbies>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="1.5"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}{% new_badge "guild.cubbies" %}</span>
+  <span class="pl-tool-card__desc">Build the shelves and set the price for the guild's rental cubbies.</span>
+  {% if guild_cubby_counts.total %}<span class="pl-cubby-toolstats" data-cubby-toolstats><span class="pl-cubby-chip pl-cubby-chip--open"><svg class="pl-cubby-ico" aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>{{ guild_cubby_counts.open }} open</span>{% if guild_cubby_counts.out %}<span class="pl-cubby-chip pl-cubby-chip--out"><svg class="pl-cubby-ico" aria-hidden="true" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z"/></svg>{{ guild_cubby_counts.out }} out of service</span>{% endif %}</span>{% endif %}
+</a>
+{% elif card.key == "manage_classes" %}
+<a class="hub-card pl-tool-card" href="{% url 'classes:admin_overview' %}">
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">Review, approve, and schedule classes across the makerspace.</span>
+</a>
+{% elif card.key == "manage_events" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_admin_events' %}" data-tool-manage-events>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}{% new_badge "admin.events" %}</span>
+  <span class="pl-tool-card__desc">Every event on the Calendar: review proposals, publish, duplicate and unpublish.</span>
+</a>
+{% elif card.key == "manage_members" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_admin_members' %}">
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}{% new_badge "admin.manage-members" %}</span>
+  <span class="pl-tool-card__desc">Add, edit, and review members and their roles.</span>
+</a>
+{% elif card.key == "guilds" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_admin_guilds' %}" data-tool-guilds data-guidance-target="admin.guilds-card">
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V10l7-5 7 5v11"/><path d="M10 21v-6h4v6"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}{% new_badge "admin.guilds" %}</span>
+  <span class="pl-tool-card__desc">Every guild in one list: whether members can see it, and its New Guild badge.</span>
+</a>
+{% elif card.key == "member_agreement" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_admin_member_agreement' %}" data-tool-member-agreement>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">Whether members must accept the agreement before using the portal, its link and its edition.</span>
+</a>
+{% elif card.key == "mailing_lists" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_announcements' %}?tab=mailing-lists" data-tool-mailing-lists>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">Who your guild's emails reach: its members, plus the addresses you add or import.</span>
+</a>
+{% elif card.key == "cubbies" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_cubbies_home' %}" data-tool-cubbies>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="1.5"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}{% new_badge "guild.cubbies" %}</span>
+  <span class="pl-tool-card__desc">Every guild's rental cubbies: build the shelves and set the price.</span>
+</a>
+{% elif card.key == "announcements" or card.key == "classes_announcements" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_announcements' %}" data-tool-email-members>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}{% new_badge "admin.email-members" %}</span>
+  <span class="pl-tool-card__desc">Email a class, a guild or everyone, post it to Discord and send an app notification.</span>
+  <span class="hub-pill hub-pill--neutral pl-tool-card__formerly" data-formerly-announcements>Formerly called Announcements</span>
+</a>
+{% elif card.key == "push_test" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_push_test' %}">
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">Check a member's push devices and send them a test notification.</span>
+</a>
+{% elif card.key == "orientations" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_orientations' %}?view=bookings">
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M16 11l2 2 4-4"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">Review and run new-member orientations for your guild.</span>
+</a>
+{% elif card.key == "spotlight" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_admin_spotlight' %}" data-tool-spotlight>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}{% if spotlight_waiting_count %} <span class="hub-badge" data-spotlight-waiting-count>{{ spotlight_waiting_count }} waiting</span>{% endif %}</span>
+  <span class="pl-tool-card__desc">Short messages that crawl across the top of Home.</span>
+</a>
+{% elif card.key == "polls" %}
+<a class="hub-card pl-tool-card" href="{% url 'polls:admin' %}" data-tool-polls>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">Ask members one question on Home, close it, and see past results.</span>
+</a>
+{% elif card.key == "feedback" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_admin_feedback_inbox' %}" data-tool-feedback>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}{% if feedback_received_count %} <span class="hub-badge" data-feedback-received-count>{{ feedback_received_count }} new</span>{% endif %}</span>
+  <span class="pl-tool-card__desc">Bug reports and feature requests members sent. Set where each stands and the sender is told.</span>
+</a>
+{% elif card.key == "holiday_bizarre" %}
+<a class="hub-card pl-tool-card" href="{% url 'hq:index' %}" data-tool-holiday-bizarre>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">The organising hub: doors, goals, volunteer shifts, the wine wall and the ledger. Share each door with the people who need it.</span>
+</a>
+{% elif card.key == "slideshow" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_admin_slideshow' %}">
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">The wall monitors: screens, slides, and what shows automatically.</span>
+</a>
+{% elif card.key == "payments" %}
+<a class="hub-card pl-tool-card" href="{% url 'billing_admin_dashboard' %}">
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">Review payments across the makerspace, with refund history and CSV export.</span>
+</a>
+{% elif card.key == "reports" %}
+<a class="hub-card pl-tool-card" href="{% url 'billing_admin_reports' %}">
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}{% new_badge "admin.reconciliation" %}</span>
+  <span class="pl-tool-card__desc">Revenue reports and guild payout summaries, with CSV export.</span>
+</a>
+{% elif card.key == "registrations" %}
+<a class="hub-card pl-tool-card" href="{% url 'classes:admin_registrations' %}" data-tool-registrations>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}{% new_badge "admin.payment-report" %}</span>
+  <span class="pl-tool-card__desc">Who signed up for your guild's classes, with a date range and CSV export.</span>
+</a>
+{% elif card.key == "orientation_bookings" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_orientations' %}?view=bookings" data-tool-orientation-bookings>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M16 11l2 2 4-4"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">Every booking for the orientations you run, with CSV export.</span>
+</a>
+{% elif card.key == "growth" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_admin_growth' %}" data-tool-growth>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">How the Member Portal has grown since launch: new members, class signups, classes, CMS activity and reservations over any date range.</span>
+</a>
+{% elif card.key == "usage" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_admin_usage' %}" data-tool-usage>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">Which pages each role opens, the least used pages, and the activity log counted by week. Counts only.</span>
+</a>
+{% elif card.key == "site_settings" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_admin_site_settings' %}" data-tool-site-settings>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">The site's brand, sign in and registration, Calendar feeds, emails and the Discord connection.</span>
+</a>
+{% elif card.key == "features" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_admin_features' %}" data-tool-features>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="5" width="22" height="14" rx="7" ry="7"/><circle cx="16" cy="12" r="3"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">What shows in the sidebar, and the site wide switches such as class registration and late fees.</span>
+</a>
+{% elif card.key == "cms" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_admin_cms' %}" data-tool-cms>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">The legacy CMS sync, instructor discount codes and how classes match their instructors.</span>
+</a>
+{% elif card.key == "automations" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_admin_automations' %}" data-tool-automations>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">Every scheduled job: pause it, run it now and look back at what it did.</span>
+</a>
+{% elif card.key == "notifications" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_admin_notifications' %}">
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">Configure which events notify members, and how.</span>
+</a>
+{% elif card.key == "activity" %}
+<a class="hub-card pl-tool-card" href="{% url 'manage_activity' %}">
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}{% new_badge "admin.site-activity" %}</span>
+  <span class="pl-tool-card__desc">The site-wide feed of what's happening across the makerspace.</span>
+</a>
+{% elif card.key == "leadership" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_admin_leadership' %}">
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2.5"/><path d="M5.5 18a3.5 3.5 0 0 1 7 0"/><path d="M15 9h4"/><path d="M15 13h4"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">The Leadership Directory's tabs, who is on each, in what order, and the words around them.</span>
+</a>
+{% elif card.key == "locations" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_admin_locations' %}">
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">The areas of the building that classes, events, orientations and equipment use, and which guild each belongs to.</span>
+</a>
+{% elif card.key == "guild_settings" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_guild_edit' guild.pk %}" data-tool-guild-settings>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}{% new_badge "guild.staff" %}</span>
+  <span class="pl-tool-card__desc">The guild page, meetings, studio hours, staff and the welcome email.</span>
+</a>
+{% elif card.key == "guild_orientations" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_guild_orientations' guild.pk %}" data-tool-guild-orientations>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M16 11l2 2 4-4"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}{% new_badge "guild.orientations" %}</span>
+  <span class="pl-tool-card__desc">The guild's orientations, who runs them and their hours.</span>
+</a>
+{% elif card.key == "guild_reservations" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_guild_edit' guild.pk %}?tab=reservations" data-tool-guild-reservations>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}{% new_badge "guild.reservations" %}</span>
+  <span class="pl-tool-card__desc">The guild's reservable equipment and its Reservations tab on the guild page.</span>
+</a>
+{% elif card.key == "guild_events" %}
+<a class="hub-card pl-tool-card" href="{% url 'hub_guild_edit' guild.pk %}?tab=events" data-tool-guild-events>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">Add and edit the guild's events on the calendar.</span>
+</a>
+{% elif card.key == "my_classes" %}
+<a class="hub-card pl-tool-card" href="{% url 'classes:teach_dashboard' %}" data-tool-my-classes>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">Every class you teach, from draft to past, with its schedule and status.</span>
+</a>
+{% elif card.key == "teach_registrations" %}
+<a class="hub-card pl-tool-card" href="{% url 'classes:teach_registrations' %}" data-tool-teach-registrations>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">Everyone signed up for the classes you teach, grouped by class.</span>
+</a>
+{% endif %}

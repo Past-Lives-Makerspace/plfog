@@ -1,0 +1,21 @@
+bump = "patch"
+date = "2026-11-21"
+audience = ["members", "instructors", "guild-staff", "admins"]
+feature = "admin.tools"
+guidance = "shots"
+title = "The sidebar is alphabetical, and the Tools page is grouped by what you do"
+changes = [
+  "The sidebar lists its entries alphabetically, for everyone. Home stays at the top, and Help, Knowledge Base and Member Wiki stay together below.",
+  "The Tools page now has four groups: Admin, Webmaster, your guild and Classes. You see each group that fits you, with its tiles in alphabetical order.",
+  "Guild leads and staff find Email Members, Mailing Lists, Orientation Bookings and Registrations with the rest of their guild's tiles.",
+  "Instructors get a Classes group with Email Members, My Classes and Registrations.",
+]
+
+[[shots]]
+caption = "The sidebar lists everything between Home and Help from A to Z."
+
+[[shots]]
+caption = "Open Guild Tools from the sidebar. Your guild's tiles sit together under its name."
+
+[[shots]]
+caption = "If you teach, the Classes group has Email Members, My Classes and Registrations."

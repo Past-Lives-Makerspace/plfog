@@ -1,7 +1,7 @@
 {% comment %}
 One sidebar entry for a switchable feature (#405). All three states come from this single
-call site, which is the point: the sidebar is written twice in base.html (an admin block and
-a member block), and a gate added to only one of them does nothing for half the roster.
+call site: _sidebar_main_nav.html draws the main group's switchable entries through it from
+hub.context_processors.SidebarEntry, and base.html the resources' Knowledge Base and Member Wiki.
 
   feature  — required. The FeatureView from the `features` context dict, e.g. features.voting.
   url      — required for the On state. The destination; ignored in the other two.

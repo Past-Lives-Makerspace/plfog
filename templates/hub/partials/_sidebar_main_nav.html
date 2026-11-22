@@ -1,0 +1,14 @@
+{% comment %}
+The sidebar's main group (#1286): every entry between Home's divider and the resources' divider, in the
+alphabetical order hub.context_processors._sidebar_main_nav sorts by the label this viewer reads. A switchable
+feature draws through _sidebar_feature_link.html, so its switch decides on, coming soon or nothing; any other
+entry names its own template, which keeps its own gate. A new entry is a SidebarEntry there, never a line here.
+{% endcomment %}
+{% load hub_tags %}
+{% for entry in sidebar_main_nav %}
+{% if entry.feature %}
+{% include "hub/partials/_sidebar_feature_link.html" with feature=features|get_item:entry.feature url=entry.url label=entry.label icon=entry.icon active=entry.active help_key=entry.help_key new_key=entry.new_key %}
+{% else %}
+{% include entry.template %}
+{% endif %}
+{% endfor %}

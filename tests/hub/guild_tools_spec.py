@@ -77,17 +77,17 @@ def _page_title(body: str) -> str:
 
 
 def _guild_cards(guild: Guild, *, cubbies: bool = True) -> list[str]:
-    """The guild section's card targets for ``guild``, in page order.
+    """The guild section's targets on ``guild`` itself, in page order: alphabetical by title (#1286).
 
     Cubbies is there only for whoever runs the guild's cubbies, its lead or staff (#1015).
     """
     edit = reverse("hub_guild_edit", args=[guild.pk])
     return [
+        *([reverse("hub_guild_cubbies", args=[guild.pk])] if cubbies else []),
+        f"{edit}?tab=events",
         edit,
         reverse("hub_guild_orientations", args=[guild.pk]),
         f"{edit}?tab=reservations",
-        *([reverse("hub_guild_cubbies", args=[guild.pk])] if cubbies else []),
-        f"{edit}?tab=events",
     ]
 
 
@@ -95,10 +95,21 @@ def _guild_section_hrefs(client: Client, query: str = "") -> list[str]:
     grid = _grid(client.get(_TOOLS + query).content.decode())
     section = re.search(r'data-tools-section="guild".*?</section>', grid, re.S)
     assert section is not None, "the guild section did not render"
-    return re.findall(r'class="hub-card pl-tool-card" href="([^"]+)"', section.group(0))
+    # Only the cards that open this guild's own pages; Email Members, Mailing Lists and the bookings are site pages (#1291).
+    hrefs = re.findall(r'class="hub-card pl-tool-card" href="([^"]+)"', section.group(0))
+    return [href for href in hrefs if href.startswith("/guilds/")]
 
 
-_GUILD_CARDS = ["Guild Settings", "Orientations", "Reservations", "Cubbies", "Events"]
+_GUILD_CARDS = [
+    "Cubbies",
+    "Email Members",
+    "Events",
+    "Guild Settings",
+    "Mailing Lists",
+    "Orientation Bookings",
+    "Orientations",
+    "Reservations",
+]
 
 
 def describe_guild_tools():
@@ -115,10 +126,8 @@ def describe_guild_tools():
             GuildFactory(guild_lead=member)
             ClassOfferingFactory(category=CategoryFactory(guild=member.led_guilds.get()))
             sections = _sections(client)
-            assert "guild" not in [key for key, _, _ in sections]
-            reports = dict((key, cards) for key, _, cards in sections)["reports"]
-            assert reports == ["Payments", "Reports", "Growth", "Usage"]
-            assert "Orientations" in dict((key, cards) for key, _, cards in sections)["tools"]
+            assert [key for key, _, _ in sections] == ["admin"]
+            assert "Orientations" in sections[0][2]
 
     def describe_an_admin_viewing_as_a_guild_lead():
         def it_sees_guild_tools_for_the_guild_they_lead(client: Client):
@@ -188,11 +197,10 @@ def describe_guild_tools():
         def it_shows_registrations_only_while_its_guild_has_a_class(client: Client):
             member = _login(client, "gt_lead_regs")
             guild = GuildFactory(guild_lead=member)
-            reports = dict((key, cards) for key, _, cards in _sections(client))["reports"]
-            assert reports == ["Orientation Bookings"]
+            assert "Registrations" not in dict((key, cards) for key, _, cards in _sections(client))["guild"]
             ClassOfferingFactory(category=CategoryFactory(guild=guild))
-            reports = dict((key, cards) for key, _, cards in _sections(client))["reports"]
-            assert reports == ["Registrations", "Orientation Bookings"]
+            cards = dict((key, cards) for key, _, cards in _sections(client))["guild"]
+            assert cards == sorted([*_GUILD_CARDS, "Registrations"], key=str.casefold)
 
         def it_opens_both_reports(client: Client):
             member = _login(client, "gt_lead_reports")
@@ -208,8 +216,9 @@ def describe_guild_tools():
             member = _login(client, "gt_lead_biller")
             GuildFactory(guild_lead=member)
             member.admin_capabilities.create(capability=AdminCapability.Capability.BILLING_APPROVER)
-            reports = dict((key, cards) for key, _, cards in _sections(client))["reports"]
-            assert reports == ["Payments", "Reports", "Orientation Bookings"]
+            sections = _sections(client)
+            assert sections[0] == ("admin", "Admin", ["Payments", "Reports"])
+            assert [key for key, _, _ in sections] == ["admin", "guild"]
 
     def describe_guild_staff_with_two_guilds():
         def _staff_two(client: Client, username: str) -> tuple[Guild, Guild]:
@@ -256,7 +265,8 @@ def describe_guild_tools():
             body = client.get(_TOOLS).content.decode()
             assert _sidebar_label(body) == "Admin Tools"
             assert _page_title(body) == "Admin Tools"
-            assert _sections(client) == [("tools", "Tools", ["Email Members"])]
+            # A profile without the teaching grant reaches the composer but not the portal (#1291).
+            assert _sections(client) == [("classes", "Classes", ["Email Members"])]
 
     def describe_an_instructor_who_is_guild_staff():
         def it_sees_guild_tools(client: Client):

@@ -230,5 +230,5 @@ def describe_tools_cards():
     def it_gives_admins_a_manage_card_to_every_guild(client: Client):
         _login(client, "tools_admin", fog_role=Member.FogRole.ADMIN)
         content = client.get(reverse("hub_admin_tools")).content.decode()
-        manage = content.split('data-tools-section="manage"', 1)[1].split("</section>", 1)[0]
+        manage = content.split('data-tools-section="admin"', 1)[1].split("</section>", 1)[0]
         assert f'href="{reverse("hub_cubbies_home")}" data-tool-cubbies' in manage

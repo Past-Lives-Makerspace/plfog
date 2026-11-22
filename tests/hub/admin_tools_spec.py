@@ -12,11 +12,13 @@ import re
 
 import pytest
 from django.contrib.auth.models import User
+from django.utils import timezone
 from django.test import Client
 from django.urls import reverse
 
-from membership.models import AdminCapability
-from hub.views import ADMIN_TOOL_SECTIONS, admin_tool_sections
+from membership.models import AdminCapability, Member
+from classes.factories import CategoryFactory, ClassOfferingFactory
+from hub.views import ADMIN_TOOL_SECTIONS, ToolCard, admin_tool_sections
 from tests.membership.factories import GuildFactory
 
 pytestmark = pytest.mark.django_db
@@ -61,6 +63,28 @@ def _login_superuser(client: Client, username: str = "fogadmin") -> User:
     User.objects.create_superuser(username=username, password="pass", email=f"{username}@example.com")
     client.login(username=username, password="pass")
     return User.objects.get(username=username)
+
+
+def _login_webmaster(client: Client, username: str = "webmaster") -> User:
+    """An admin holding the Webmaster capability, the only viewer of the Webmaster tiles (#1291)."""
+    user = _login_superuser(client, username)
+    user.member.admin_capabilities.create(capability=AdminCapability.Capability.WEBMASTER)  # type: ignore[attr-defined]
+    return user
+
+
+def _grant_teaching(user: User) -> None:
+    """An ACTIVE member with a profile and the teaching grant, what the teaching portal's gate admits."""
+    Member.objects.filter(user=user).update(
+        instructor_slug=user.username,
+        instructor_oriented_at=timezone.now(),
+        status=Member.Status.ACTIVE,
+    )
+
+
+def _login_instructor(client: Client, username: str = "instructor") -> User:
+    user = _login_user(client, username)
+    _grant_teaching(user)
+    return user
 
 
 _TOURS_HREF = reverse("tours:upcoming")
@@ -273,117 +297,172 @@ def _sections(client: Client) -> list[tuple[str, str, list[str]]]:
     return [(key, heading, re.findall(r'pl-tool-card__title">([^<]+)<', cards)) for key, heading, cards in found]
 
 
-_ADMIN_SECTIONS = [
-    (
-        "manage",
-        "Manage",
-        [
-            "Manage All Classes",
-            "Manage Events",
-            "Manage Members",
-            "Guilds",
-            "Member Agreement",
-            "Manage Mailing Lists",
-            "Cubbies",
-        ],
-    ),
-    (
-        "tools",
-        "Tools",
-        [
-            "Email Members",
-            "Instructor Inquiries",
-            "Push Notification Test",
-            "Orientations",
-            "Spotlight",
-            "Polls",
-            "Feedback Inbox",
-            "Holiday Bizarre HQ",
-            "Slideshow",
-        ],
-    ),
-    ("reports", "Reports", ["Payments", "Reports", "Growth", "Usage"]),
-    (
-        "webmaster",
-        "Webmaster",
-        [
-            "Site Settings",
-            "Manage Features",
-            "Manage CMS",
-            "Automations",
-            "Notification Settings",
-            "Activity",
-            "Leadership Directory",
-            "Locations",
-        ],
-    ),
+_ADMIN_SECTION = (
+    "admin",
+    "Admin",
+    [
+        "All Classes",
+        "Cubbies",
+        "Events",
+        "Growth",
+        "Holiday Bizarre HQ",
+        "Members",
+        "Orientations",
+        "Payments",
+        "Polls",
+        "Reports",
+        "Slideshow",
+        "Spotlight",
+        "Usage",
+    ],
+)
+_WEBMASTER_SECTION = (
+    "webmaster",
+    "Webmaster",
+    [
+        "Activity Log",
+        "Automations",
+        "CMS",
+        "Features",
+        "Feedback Inbox",
+        "Guilds",
+        "Leadership Directory",
+        "Locations",
+        "Member Agreement",
+        "Notification Settings",
+        "Push Notification Test",
+        "Site Settings",
+    ],
+)
+_GUILD_CARDS = [
+    "Cubbies",
+    "Email Members",
+    "Events",
+    "Guild Settings",
+    "Mailing Lists",
+    "Orientation Bookings",
+    "Orientations",
+    "Reservations",
 ]
+_CLASSES_SECTION = ("classes", "Classes", ["Email Members", "My Classes", "Registrations"])
 
 
 def describe_admin_tools_sections():
-    """#912: the cards sit in Manage, Tools, Reports and Webmaster, in Felix's order, and a
-    section with no card the viewer may open is not rendered."""
+    """#1291 (Felix): Admin, Webmaster, the viewer's guild and Classes, in that order, each section's cards
+    alphabetical by title (#1286); a viewer sees every section they qualify for, and a section with no card
+    they may open is not rendered."""
 
-    def it_shows_a_fog_admin_the_four_sections_with_their_cards_in_order(client: Client):
+    def it_shows_a_webmaster_admin_the_admin_and_webmaster_sections(client: Client):
+        _login_webmaster(client, "sections_webmaster")
+        assert _sections(client) == [_ADMIN_SECTION, _WEBMASTER_SECTION]
+
+    def it_shows_an_admin_without_webmaster_the_admin_section_alone(client: Client):
         _login_superuser(client, "sections_admin")
-        GuildFactory()  # Manage Mailing Lists shows once there is a guild whose list to open
-        assert _sections(client) == _ADMIN_SECTIONS
+        assert _sections(client) == [_ADMIN_SECTION]
+
+    def it_hides_the_webmaster_tiles_from_a_webmaster_previewing_as_a_member_who_leads_a_guild(client: Client):
+        user = _login_webmaster(client, "sections_webmaster_preview")
+        GuildFactory(guild_lead=user.member)  # type: ignore[attr-defined]
+        session = client.session
+        session["view_as_role"] = "member"
+        session.save()
+        assert [key for key, _, _ in _sections(client)] == ["guild"]
 
     def it_puts_every_card_in_exactly_one_section(client: Client):
-        _login_superuser(client, "sections_once")
-        GuildFactory()
+        _login_webmaster(client, "sections_once")
         titles = _card_titles(client)
-        assert len(titles) == len(set(titles)) == 28
+        assert len(titles) == len(set(titles)) == 25
+
+    def it_never_offers_instructor_inquiries(client: Client):
+        _login_webmaster(client, "sections_no_inquiries")
+        assert reverse("classes:admin_instructor_inquiries") not in _tools_grid(client)
 
     def it_keeps_the_help_key_on_the_wrapper_the_admin_tour_targets(client: Client):
         _login_superuser(client, "sections_help_key")
         assert 'class="pl-tools-sections" data-help-key="admin.tools-grid"' in _tools_grid(client)
 
-    def it_gives_a_guild_lead_their_guild_then_manage_tools_and_reports(client: Client):
-        # #921: a guild lead sees Guild Tools; Orientations moves to Reports as Orientation Bookings.
-        # #935: Manage Mailing Lists moved to Manage, which renders for the lead with that card alone.
+    def it_gives_a_guild_lead_their_guild_alone(client: Client):
         user = _login_guild_lead(client, "sections_lead")
         guild_name = user.member.led_guilds.get().name  # type: ignore[attr-defined]
-        assert _sections(client) == [
-            ("guild", guild_name, ["Guild Settings", "Orientations", "Reservations", "Cubbies", "Events"]),
-            ("manage", "Manage", ["Manage Mailing Lists"]),
-            ("tools", "Tools", ["Email Members"]),
-            ("reports", "Reports", ["Orientation Bookings"]),
-        ]
+        assert _sections(client) == [("guild", guild_name, _GUILD_CARDS)]
 
-    def it_gives_a_billing_approver_only_the_reports_section_without_growth(client: Client):
+    def it_gives_an_instructor_the_classes_section_alone(client: Client):
+        _login_instructor(client, "sections_instructor")
+        assert _sections(client) == [_CLASSES_SECTION]
+
+    def it_gives_a_guild_lead_who_teaches_their_guild_then_classes(client: Client):
+        user = _login_guild_lead(client, "sections_lead_teacher")
+        _grant_teaching(user)
+        guild_name = user.member.led_guilds.get().name  # type: ignore[attr-defined]
+        assert _sections(client) == [("guild", guild_name, _GUILD_CARDS), _CLASSES_SECTION]
+
+    def it_gives_a_revoked_instructor_email_members_without_the_portal_tiles(client: Client):
+        # Revoking teaching keeps the profile slug, which still reaches the composer, but the portal 302s away.
+        user = _login_instructor(client, "sections_revoked")
+        Member.objects.filter(user=user).update(instructor_oriented_at=None)
+        assert _sections(client) == [("classes", "Classes", ["Email Members"])]
+
+    def it_gives_a_guild_lead_named_on_a_class_without_the_grant_no_portal_tiles(client: Client):
+        user = _login_guild_lead(client, "sections_lead_named")
+        Member.objects.filter(user=user).update(status=Member.Status.ACTIVE)
+        ClassOfferingFactory(
+            category=CategoryFactory(guild=user.member.led_guilds.get()),  # type: ignore[attr-defined]
+            instructor=user.member,  # type: ignore[attr-defined]
+        )
+        grid = _tools_grid(client)
+        assert "data-tool-my-classes" not in grid
+        assert "data-tool-teach-registrations" not in grid
+
+    def it_gives_an_invited_member_with_the_grant_email_members_without_the_portal_tiles(client: Client):
+        # The portal admits only ACTIVE members; an invited one still reaches this page as an instructor.
+        user = _login_instructor(client, "sections_invited")
+        Member.objects.filter(user=user).update(status=Member.Status.INVITED)
+        assert _sections(client) == [("classes", "Classes", ["Email Members"])]
+
+    def it_links_the_classes_cards_to_the_teaching_pages(client: Client):
+        _login_instructor(client, "sections_instructor_links")
+        grid = _tools_grid(client)
+        assert f'href="{reverse("classes:teach_dashboard")}" data-tool-my-classes' in grid
+        assert f'href="{reverse("classes:teach_registrations")}" data-tool-teach-registrations' in grid
+
+    def it_gives_a_billing_approver_only_payments_and_reports(client: Client):
         _login_billing_approver(client, "sections_biller")
-        assert _sections(client) == [("reports", "Reports", ["Payments", "Reports"])]
+        assert _sections(client) == [("admin", "Admin", ["Payments", "Reports"])]
 
     def it_gives_a_guild_lead_who_guides_no_tours_card(client: Client):
-        # #1278: Tours lives in the sidebar now, so Guild Tools' Tools section is Email Members alone.
+        # #1278: Tours lives in the sidebar now, never on this page.
         user = _login_guild_lead(client, "sections_lead_guide")
         user.member.admin_capabilities.create(capability=AdminCapability.Capability.TOUR_GUIDE)  # type: ignore[attr-defined]
-        assert ("tools", "Tools", ["Email Members"]) in _sections(client)
+        assert _TOURS_HREF not in _tools_grid(client)
 
-    def it_gives_a_calendar_administrator_only_the_manage_section(client: Client):
+    def it_gives_a_calendar_administrator_only_events(client: Client):
         _login_events_approver(client, "sections_calendar")
-        assert _sections(client) == [("manage", "Manage", ["Manage Events"])]
+        assert _sections(client) == [("admin", "Admin", ["Events"])]
 
     def describe_admin_tool_sections():
-        """The helper the view uses to decide which sections render."""
+        """The helper the view uses: each section's shown cards, alphabetical by title."""
 
         def _flags(on: set[str]) -> dict[str, bool]:
-            return {name: name in on for _, names in ADMIN_TOOL_SECTIONS for name in names}
+            return {card.flag: card.flag in on for _, cards in ADMIN_TOOL_SECTIONS for card in cards}
 
-        def it_shows_a_section_when_any_one_of_its_cards_shows():
-            assert admin_tool_sections(_flags({"tool_locations"})) == {
-                "guild": False,
-                "manage": False,
-                "tools": False,
-                "reports": False,
-                "webmaster": True,
+        def _titles(sections: dict[str, list[ToolCard]]) -> dict[str, list[str]]:
+            return {key: [card.title for card in cards] for key, cards in sections.items()}
+
+        def it_keeps_only_the_cards_that_show():
+            assert _titles(admin_tool_sections(_flags({"tool_usage", "tool_growth"}))) == {
+                "admin": ["Growth", "Usage"],
+                "webmaster": [],
+                "guild": [],
+                "classes": [],
             }
 
-        def it_hides_every_section_when_no_card_shows():
-            assert admin_tool_sections(_flags(set())) == dict.fromkeys(
-                ("guild", "manage", "tools", "reports", "webmaster"), False
-            )
+        def it_leaves_every_section_empty_when_no_card_shows():
+            assert admin_tool_sections(_flags(set())) == dict.fromkeys(("admin", "webmaster", "guild", "classes"), [])
+
+        def it_sorts_ignoring_case(monkeypatch):
+            table = (("tools", (ToolCard("b", "beta", "tool_b"), ToolCard("a", "Alpha", "tool_a"))),)
+            monkeypatch.setattr("hub.views.ADMIN_TOOL_SECTIONS", table)
+            assert _titles(admin_tool_sections({"tool_a": True, "tool_b": True})) == {"tools": ["Alpha", "beta"]}
 
         def it_refuses_flags_missing_a_card():
             flags = _flags(set())
@@ -393,13 +472,13 @@ def describe_admin_tools_sections():
 
         def it_names_every_flag_the_view_hands_the_template(client: Client):
             # A card added to the view but to no section would never render under a heading.
-            _login_superuser(client, "sections_flags")
+            _login_webmaster(client, "sections_flags")
             response = client.get(reverse("hub_admin_tools"))
             context_flags = {
                 key for key in response.context.keys() if key.startswith("tool_") and key != "tool_sections"
             }
-            section_flags = [name for _, names in ADMIN_TOOL_SECTIONS for name in names]
-            assert sorted(section_flags) == sorted(context_flags)
+            section_flags = {card.flag for _, cards in ADMIN_TOOL_SECTIONS for card in cards}
+            assert section_flags == context_flags
 
 
 def describe_admin_tools_cards():
@@ -416,7 +495,7 @@ def describe_admin_tools_cards():
         }
 
         def it_links_each_card_to_its_page(client: Client):
-            _login_superuser(client, "split_cards_admin")
+            _login_webmaster(client, "split_cards_admin")
             grid = _tools_grid(client)
             for marker, url_name in _CARDS.items():
                 assert f'href="{reverse(url_name)}" {marker}' in grid
@@ -427,7 +506,7 @@ def describe_admin_tools_cards():
             assert not [marker for marker in _CARDS if marker in grid]
 
         def it_describes_what_site_settings_still_holds(client: Client):
-            _login_superuser(client, "split_cards_copy")
+            _login_webmaster(client, "split_cards_copy")
             assert "brand, sign in and registration, Calendar feeds, emails and the Discord connection" in _tools_grid(
                 client
             )
@@ -441,19 +520,14 @@ def describe_admin_tools_cards():
             _login_guild_lead(client, "slideshow_lead")
             assert reverse("hub_admin_slideshow") not in _tools_grid(client)
 
-    def describe_the_instructor_inquiries_tile():
-        def it_shows_for_a_fog_admin(client: Client):
-            _login_superuser(client, "inquiries_admin")
-            assert reverse("classes:admin_instructor_inquiries") in _tools_grid(client)
-
-        def it_does_not_show_for_a_guild_lead(client: Client):
-            _login_guild_lead(client, "inquiries_lead")
-            assert reverse("classes:admin_instructor_inquiries") not in _tools_grid(client)
-
     def describe_the_leadership_directory_tile():
-        def it_shows_for_a_fog_admin(client: Client):
-            _login_superuser(client, "leadership_admin")
+        def it_shows_for_a_webmaster(client: Client):
+            _login_webmaster(client, "leadership_admin")
             assert reverse("hub_admin_leadership") in _tools_grid(client)
+
+        def it_does_not_show_for_an_admin_without_webmaster(client: Client):
+            _login_superuser(client, "leadership_plain_admin")
+            assert reverse("hub_admin_leadership") not in _tools_grid(client)
 
         def it_does_not_show_for_a_guild_lead(client: Client):
             _login_guild_lead(client, "leadership_lead")
