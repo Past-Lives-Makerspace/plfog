@@ -1183,13 +1183,23 @@ class _SearchTextMixin:
         )
 
     def save_search_text(self, offering: ClassOffering) -> None:
-        """Write the posted fields to ``offering``'s class, which its save has just filed it under."""
+        """Write the fields this editor changed to ``offering``'s class, which its save has just filed it under.
+
+        Only a changed field is written. A new run starts both blank, so it never blanks, or takes over,
+        the text of the class its title files it under; and a form opened before another run's
+        editor changed a field writes that field back only if this editor changed it too.
+        """
         from classes.models import ClassRecord
 
-        posted = {name: self.cleaned_data[name] for name in ("search_title", "search_description") if name in self.data}
-        if not posted or offering.class_record_id is None:
-            return
-        ClassRecord.objects.get(pk=offering.class_record_id).set_search_text(**posted)
+        changed = self.changed_data  # type: ignore[attr-defined]  # the form this mixes into has it
+        # A POST without a field's key changes nothing, though the form reads the missing key as blank.
+        edited = {
+            name: self.cleaned_data[name]
+            for name in ("search_title", "search_description")
+            if name in self.data and name in changed
+        }
+        if edited:
+            ClassRecord.objects.get(pk=offering.class_record_id).set_search_text(**edited)
 
 
 class ClassOfferingForm(

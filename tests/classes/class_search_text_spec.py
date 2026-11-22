@@ -168,6 +168,28 @@ def describe_the_editor_forms():
         record = ClassRecord.objects.get(pk=offering.class_record_id)
         assert (record.search_title, record.search_description) == (TITLE, DESCRIPTION)
 
+    def it_leaves_the_class_text_alone_when_a_new_run_joins_it():
+        existing = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, title="Forge a Leaf Dish")
+        existing.class_record.set_search_text(search_title=TITLE, search_description=DESCRIPTION)
+        data = _composer_data(search_title="", search_description="", category=str(existing.category_id))
+        form = TeachClassOfferingForm(data=data)
+        assert form.is_valid(), form.errors
+        run = form.save()
+        assert run.class_record_id == existing.class_record_id
+        record = ClassRecord.objects.get(pk=existing.class_record_id)
+        assert (record.search_title, record.search_description) == (TITLE, DESCRIPTION)
+
+    def it_keeps_a_change_made_from_another_run_that_this_editor_did_not_touch():
+        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
+        stale = TeachPublishedClassForm(
+            data=_published_payload(offering, search_title="", search_description="Mine"), instance=offering
+        )  # opened while both were blank
+        offering.class_record.set_search_text(search_title=TITLE)  # another run's editor saves meanwhile
+        assert stale.is_valid(), stale.errors
+        stale.save()
+        record = ClassRecord.objects.get(pk=offering.class_record_id)
+        assert (record.search_title, record.search_description) == (TITLE, "Mine")
+
     def it_clears_a_field_posted_empty():
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         offering.class_record.set_search_text(search_title=TITLE, search_description=DESCRIPTION)
