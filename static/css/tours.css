@@ -617,6 +617,17 @@
     font-weight: 700;
 }
 
+/* A reschedule waiting on the visitor's answer (#1283): the badge, then the proposed time. */
+.pl-tours-booking__proposal {
+    margin: 0.75rem 0 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 700;
+}
+
 /* A No preference request (#1255): the other guides it also went to. */
 .pl-tours-booking__shared {
     margin: 0.25rem 0 0;

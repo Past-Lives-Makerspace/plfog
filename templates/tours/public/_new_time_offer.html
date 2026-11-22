@@ -1,0 +1,9 @@
+{% comment %}
+The proposed new time beside the current one (#1283): the new time page and the manage page.
+Context: proposed_when, new_guide_name (set only when the tour would go to another guide).
+{% endcomment %}
+<div class="pl-tourpub__offer" data-tour-offer>
+  <div class="dc-lbl">Proposed New Time</div>
+  <p class="pl-tourpub__offer-when" data-tour-proposed-when>{{ proposed_when }}</p>
+  {% if new_guide_name %}<p class="pl-tourpub__offer-meta">With {{ new_guide_name }} as your guide</p>{% endif %}
+</div>

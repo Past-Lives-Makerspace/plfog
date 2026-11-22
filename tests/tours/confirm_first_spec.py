@@ -34,7 +34,7 @@ from tours.booking import (
     decline_tour_request,
     lapse_request,
     reschedule_tour,
-    reschedule_tour_by_staff,
+    propose_tour_time,
 )
 from tours.models import FacilityTourSettings, TourBooking, TourGuideSettings
 from tours.notify import request_url, tour_reminder_occurrences
@@ -205,7 +205,7 @@ def describe_a_request_meanwhile():
         with pytest.raises(TourLockedError) as visitor:
             reschedule_tour(booking, guide=first, starts_at=FIVE, now=NOW - timedelta(days=3))
         with pytest.raises(TourLockedError) as staff_move:
-            reschedule_tour_by_staff(booking, guide=first, starts_at=FIVE, actor=first.user, now=NOW)
+            propose_tour_time(booking, guide=first, starts_at=FIVE, actor=first.user, now=NOW)
         with pytest.raises(TourLockedError) as staff_cancel:
             cancel_tour_by_staff(booking, actor=first.user, now=NOW)
         assert {visitor.value.reason, staff_move.value.reason, staff_cancel.value.reason} == {"request"}

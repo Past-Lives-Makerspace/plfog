@@ -52,7 +52,7 @@ from tours.booking import (
     confirm_tour_request,
     decline_tour_request,
     mark_tour_outcome,
-    reschedule_tour_by_staff,
+    propose_tour_time,
 )
 from tours.forms import (
     FacilityTourSettingsForm,
@@ -550,7 +550,7 @@ def _render_bookings(request: HttpRequest, tab: str) -> HttpResponse:
     now = timezone.now()
     is_admin = _is_admin(request)
     guide = _list_guide(request)
-    bookings = TourBooking.objects.select_related("guide")
+    bookings = TourBooking.objects.select_related("guide", "proposed_guide")
     listed = bookings.upcoming(now) if tab == UPCOMING else bookings.past(now)
     if guide is not None:
         listed = listed.filter(guide=guide)
@@ -715,8 +715,9 @@ def tour_booking_reschedule(request: HttpRequest, pk: int) -> HttpResponse:
     """The Reschedule modal (GET, a fragment) and the move itself (POST), for a guide or an admin.
 
     GET ``?guide=`` (admins) picks whose tours, ``?date=`` a day and ``?tour=<key>`` a time, which
-    shows the confirm with the optional message to the visitor. The POST moves the booking through
-    :func:`tours.booking.reschedule_tour_by_staff`; a refusal shows the modal again with why. The
+    shows the confirm with the optional message to the visitor. The POST asks the visitor first
+    (#1283, :func:`tours.booking.propose_tour_time`): the booking keeps its time until they accept,
+    and the row shows it waiting. A refusal shows the modal again with why. The
     posted tour's guide goes through :func:`_destination_guide`, so a guide cannot reassign by a
     forged key. A plain GET (not htmx) lands on the Upcoming tab.
     """
@@ -743,7 +744,7 @@ def tour_booking_reschedule(request: HttpRequest, pk: int) -> HttpResponse:
     if not form.is_valid():
         return _render_reschedule(request, booking, guide, raw_tour=form.data["tour"], form=form)
     try:
-        moved = reschedule_tour_by_staff(
+        proposed = propose_tour_time(
             booking,
             guide=guide,
             starts_at=target[1],
@@ -756,7 +757,9 @@ def tour_booking_reschedule(request: HttpRequest, pk: int) -> HttpResponse:
     except TourBookingError as exc:
         return _render_reschedule(request, booking, guide, error=str(exc))
     messages.success(
-        request, f"{moved.visitor_name}'s tour moved to {short_when(moved.starts_at)}. We emailed them the new time."
+        request,
+        f"We asked {proposed.visitor_name} to move to {short_when(target[1])}. "
+        "Their tour stays put until they accept, and you'll hear their answer.",
     )
     return _done(request)
 

@@ -28,12 +28,16 @@ from core.abuse_limits import client_rate_key, record_keyed_attempt
 from membership.models import Member
 from tours.availability import OpenTour, open_tours
 from tours.booking import (
+    ACCEPTED,
     ALREADY_BOOKED_MESSAGE,
+    KEPT,
+    UNAVAILABLE,
     TourAlreadyBookedError,
     GONE_MESSAGE,
     TourBookingError,
     TourLockedError,
     Visitor,
+    answer_tour_proposal,
     book_any_guide,
     book_tour,
     cancel_tour_by_visitor,
@@ -266,7 +270,7 @@ def book(request: HttpRequest) -> HttpResponse:
 
 def _booking(token: str) -> TourBooking | None:
     """The booking a self serve token names, or None for a tampered or unknown one."""
-    return TourBooking.objects.select_related("guide").filter(self_serve_token=token).first()
+    return TourBooking.objects.select_related("guide", "proposed_guide").filter(self_serve_token=token).first()
 
 
 def _invalid(request: HttpRequest) -> HttpResponse:
@@ -297,7 +301,23 @@ def _booking_context(booking: TourBooking) -> dict[str, Any]:
         context.update(
             confirm_by=short_when(booking.confirm_by), notice_hours=None if shared else guide_notice_hours(booking)
         )
+    if booking.proposed_starts_at is not None:
+        # The open proposal (#1283): its time, and the guide's name only when it hands the tour to another guide.
+        new_guide = booking.proposed_guide
+        context.update(
+            proposed_when=when_label(booking.proposed_starts_at),
+            new_guide_name="" if booking.proposed_guide_id in (None, booking.guide_id) else guide_first_name(new_guide),
+            proposal_key=booking.proposal_key,
+        )
     return context
+
+
+#: What lands on the manage page, by query flag: after booking, a move or cancel, and an answer to a proposed time (#1283).
+MANAGE_FLAGS: tuple[str, ...] = ("booked", "moved", "cancelled", "kept", "unavailable")
+#: The two answers to a proposed time (#1283), as the email links and the forms name them: accept or not.
+ANSWERS: dict[str, bool] = {"accept": True, "keep": False}
+#: Where each answer lands on the manage page.
+_ANSWER_LANDINGS: dict[str, str] = {ACCEPTED: "moved", KEPT: "kept", UNAVAILABLE: "unavailable"}
 
 
 @tours_surface_only
@@ -306,17 +326,36 @@ def manage(request: HttpRequest, token: str) -> HttpResponse:
 
     The confirmation after booking (``?booked=1``) and the landing after a move (``?moved=1``) or
     a cancel (``?cancelled=1``).
+
+    While a guide's proposed new time is open (#1283) it shows that time with Accept New Time and
+    Keep My Time, which POST here with the proposal's key. The email's two buttons open this page
+    as ``?proposal=<key>&answer=accept|keep`` (the answer tapped comes first), so a mail scanner
+    opening a link changes nothing. A link to a proposal that was answered, replaced, cancelled or
+    has passed says the request is no longer open; an answer lands as ``?moved=1``, ``?kept=1`` or
+    ``?unavailable=1`` (that tour filled up or closed since).
     """
     booking = _booking(token)
     if booking is None:
         return _invalid(request)
+    asked = request.POST if request.method == "POST" else request.GET
+    link_proposal, picked = asked.get("proposal", ""), asked.get("answer", "")
+    proposal_closed = booking.proposal_refusal(link_proposal, timezone.now()) if link_proposal else ""
+    if request.method == "POST" and link_proposal and not proposal_closed and picked in ANSWERS:
+        result = answer_tour_proposal(booking, accept=ANSWERS[picked], proposal=link_proposal)
+        if result in _ANSWER_LANDINGS:
+            return redirect(f"{reverse('tours_public:manage', args=[token])}?{_ANSWER_LANDINGS[result]}=1")
+        proposal_closed = result
+        booking.refresh_from_db()
     return render_page(
         request,
         "tours/public/manage.html",
         {
             **_booking_context(booking),
             "refusal": _refusal(booking),
-            "just": next((flag for flag in ("booked", "moved", "cancelled") if flag in request.GET), ""),
+            "proposal_open": not booking.proposal_refusal(booking.proposal_key, timezone.now()),
+            "proposal_closed": proposal_closed,
+            "picked": "keep" if picked == "keep" else "accept",
+            "just": next((flag for flag in MANAGE_FLAGS if flag in request.GET), ""),
         },
     )
 

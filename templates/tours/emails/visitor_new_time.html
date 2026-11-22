@@ -1,0 +1,21 @@
+{% extends "tours/emails/_base.html" %}
+{% comment %}
+A guide or admin asks the visitor to move their tour (#1283, tours.notify.send_proposal_email): the
+current tour, the proposed time, the staff note, and Accept New Time and Keep My Time, each opening
+the manage page with that answer first (a link never answers on its own). No calendar invite until they accept.
+{% endcomment %}
+{% block content %}
+<p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ greeting_name }},</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">Can your tour move to {{ proposed_when }}?</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">Your guide asked to move your <a href="{{ manage_url }}" style="color: #0d4876; text-decoration: none; font-weight: 700;">tour of Past Lives</a> to <strong>{{ proposed_when }}</strong>{% if new_guide_name %}, with {{ new_guide_name }} as your guide{% endif %}. Nothing changes until you answer: accept the new time, or keep the one you have.</p>
+{% include "tours/emails/_staff_message.html" %}
+<p style="margin: 16px 0 0; font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">Your tour now</p>
+{% include "tours/emails/_tour.html" %}
+<div style="text-align: center; margin: 24px 0 0;">
+    <a href="{{ accept_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Accept New Time</a>
+</div>
+<div style="text-align: center; margin: 12px 0 0;">
+    <a href="{{ keep_url }}" style="display: inline-block; padding: 11px 31px; border: 1px solid #0d4876; color: #0d4876; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Keep My Time</a>
+</div>
+<p style="margin: 16px 0 0; text-align: center; font-size: 12px; color: #55697a;">Neither works? <a href="{{ reschedule_url }}" style="color: #0d4876;">Pick another time</a> or <a href="{{ cancel_url }}" style="color: #0d4876;">cancel your tour</a>.</p>
+{% endblock %}

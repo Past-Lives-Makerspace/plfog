@@ -1,7 +1,7 @@
 {% comment %}
 One booking on the Tours page's Upcoming or Past tab (#949): when, status, the visitor with their
 party, email and phone (tap to mail or call), the guide and how it was booked, then the row's
-actions. Upcoming: Reschedule (loads the modal's body) and Cancel Tour (a confirm with an optional
+actions. Upcoming: Reschedule (loads the modal's body; it asks the visitor first, #1283, and the row then shows "Waiting for the Visitor" with the proposed time) and Cancel Tour (a confirm with an optional
 message to the visitor). A request (#1166) carries Confirm and Decline (a confirm with an optional
 message) instead, for the tour's own guide only (#1166, AC10: admins see it, never answer it), with its
 confirm by time, and for a No preference request (#1255, booking.shared_with) the other guides it went to; its id is the anchor the guide's request email and bell link to. Past: Attended
@@ -21,6 +21,9 @@ Context: booking, tab ("upcoming" or "past"), is_admin, viewer_pk (the viewer's 
     <a href="mailto:{{ booking.visitor_email }}" data-tour-booking-email>{{ booking.visitor_email }}</a>{% if booking.visitor_phone %}<span class="pl-tours-booking__sep" aria-hidden="true">·</span><a href="tel:{{ booking.visitor_phone_href }}" data-tour-booking-phone>{{ booking.visitor_phone }}</a>{% endif %}
   </p>
   <p class="hub-text-muted pl-tours-booking__meta">{% if booking.guide %}Guide: {{ booking.guide.staff_label }}{% else %}No guide assigned{% endif %} · Booked on the {{ booking.get_source_display|lower }}{% if booking.checked_in_at %} · <span data-tour-booking-checked-in>Checked in at {{ booking.checked_in_at|time:"g:i A" }}</span>{% endif %}</p>
+  {% if tab == "upcoming" and booking.has_open_proposal %}
+  <p class="pl-tours-booking__proposal" data-tour-proposal="{{ booking.pk }}"><span class="pl-status-badge pl-status-badge--warn">Waiting for the Visitor</span> <span>Asked to move to {{ booking.proposed_starts_at|date:"D, M j" }} · {{ booking.proposed_starts_at|time:"g:i A" }}{% if booking.proposed_guide and booking.proposed_guide_id != booking.guide_id %} with {{ booking.proposed_guide.staff_label }}{% endif %}</span></p>
+  {% endif %}
   {% if tab == "upcoming" and booking.is_request %}
   <p class="pl-tours-booking__confirm-by" data-tour-confirm-by>Confirm by {{ booking.confirm_by|date:"D, M j" }}, {{ booking.confirm_by|time:"g:i A" }}{% if booking.guide_id != viewer_pk %} · Only {{ booking.guide.staff_label|default:"its guide" }} can confirm or decline it{% endif %}</p>
   {% if booking.shared_with %}<p class="hub-text-muted pl-tours-booking__shared" data-tour-shared-with>No preference: also sent to {{ booking.shared_with|join:", " }}. Whoever confirms first gets the tour.</p>{% endif %}

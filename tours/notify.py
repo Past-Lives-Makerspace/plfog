@@ -10,6 +10,10 @@ in ``templates/tours/emails/`` (:func:`core.events.senders.emit_with_email_shell
   first (#1166) "New tour request" with Confirm and Decline.
 - ``tour.visitor_changed``: the guide hears every move and cancel a visitor makes, and every one a
   staff member other than themselves makes (#949).
+- A guide's or admin's reschedule asks the visitor first (#1283): ``tour.visitor_update`` carries
+  the proposal with Accept New Time and Keep My Time (:func:`send_proposal_email`), and the answer
+  reaches the guide, the proposed guide and the proposer by ``tour.visitor_changed``
+  (:func:`tell_guides_of_answer`).
 - ``tour.checked_in``: the visitor checked in at the front desk kiosk (#950), bell and push only
   ("Your 4:00 tour is here").
 
@@ -193,6 +197,14 @@ def support_email() -> str:
     return SiteConfiguration.load().org_support_email or "info@pastlives.space"
 
 
+def proposal_links(booking: TourBooking) -> dict[str, str]:
+    """The open proposal's Accept and Keep links (#1283), absolute; each carries the proposal's key."""
+    url = (
+        f"{tours_url(reverse('tours_public:manage', args=[booking.self_serve_token]))}?proposal={booking.proposal_key}"
+    )
+    return {"accept_url": f"{url}&answer=accept", "keep_url": f"{url}&answer=keep"}
+
+
 def visitor_context(booking: TourBooking, **extra: Any) -> dict[str, Any]:
     """What every visitor email renders against."""
     return {
@@ -247,6 +259,101 @@ def send_visitor_email(booking: TourBooking, change: str, *, was_request: bool =
         period=f"tour:{booking.pk}:{change}:{booking.sequence}",
         recipient_user_ids=set(),
     )
+
+
+def send_proposal_email(booking: TourBooking, *, actor: User, staff_message: str = "") -> None:
+    """Ask the visitor to accept or keep their time against the booking's open proposal (#1283).
+
+    No calendar invite: nothing moves until they accept, and then the moved email carries it.
+    The period names the proposal, so a replacement sends again and a retry never does.
+    """
+    proposed_starts_at = booking.proposed_starts_at
+    assert proposed_starts_at is not None, "send_proposal_email needs an open proposal"
+    proposed_guide = booking.proposed_guide
+    emit_with_email_shell(
+        VISITOR_EVENT,
+        target=booking,
+        context={"user": None},
+        subject=f"Can your Past Lives tour move to {short_when(proposed_starts_at)}?",
+        text_template="tours/emails/visitor_new_time.txt",
+        html_template="tours/emails/visitor_new_time.html",
+        template_context=visitor_context(
+            booking,
+            proposed_when=when_label(proposed_starts_at),
+            new_guide_name=""
+            if booking.proposed_guide_id in (None, booking.guide_id)
+            else guide_first_name(proposed_guide),
+            staff_message=staff_message,
+            note_label=note_label(actor),
+            **proposal_links(booking),
+        ),
+        attachments=[],
+        email_to=booking.visitor_email,
+        period=f"tour:{booking.pk}:proposal:{booking.proposal_key}",
+        recipient_user_ids=set(),
+    )
+
+
+def _answer_audience(*people: Member | None) -> list[Member]:
+    """Each member once, in order, skipping the empty ones."""
+    seen: dict[int, Member] = {}
+    for person in people:
+        if person is not None:
+            seen.setdefault(person.pk, person)
+    return list(seen.values())
+
+
+def tell_guides_of_answer(
+    booking: TourBooking,
+    answer: str,
+    *,
+    proposal: str,
+    previous_guide: Member | None,
+    previous_starts_at: datetime,
+    proposed_guide: Member,
+    proposed_starts_at: datetime,
+    proposer: User | None,
+) -> None:
+    """Tell the guide, the proposed guide and whoever proposed it how the visitor answered (#1283).
+
+    ``answer`` is ``"accepted"`` (the booking moved), ``"kept"`` or ``"unavailable"`` (they
+    accepted, but that tour filled up or closed since, so they keep their time). By email and bell,
+    as every other booking change reaches a guide (``tour.visitor_changed``). The proposed guide is
+    always told, so someone always hears.
+    """
+    old_when, new_when = short_when(previous_starts_at), short_when(proposed_starts_at)
+    if answer == "accepted":
+        title, subject = "New tour time accepted", f"New tour time accepted: {new_when}"
+        body = f"{booking.visitor_name} accepted the new time: their tour moved from {old_when} to {new_when}."
+    elif answer == "kept":
+        title, subject = "Tour time kept", f"Tour time kept: {old_when}"
+        body = f"{booking.visitor_name} kept their tour on {old_when} and turned down {new_when}."
+    else:
+        title, subject = "New tour time no longer open", f"New tour time no longer open: {new_when}"
+        body = (
+            f"{booking.visitor_name} accepted {new_when}, but it had filled up or closed, "
+            f"so their tour stays on {old_when}."
+        )
+    proposer_member: Member | None = getattr(proposer, "member", None)
+    for guide in _answer_audience(previous_guide, proposed_guide, proposer_member):
+        emit_with_email_shell(
+            GUIDE_CHANGED_EVENT,
+            target=booking,
+            context={"guide": guide},
+            subject=subject,
+            text_template="tours/emails/guide_changed.txt",
+            html_template="tours/emails/guide_changed.html",
+            template_context=guide_context(
+                booking,
+                change=answer,
+                previous_when=when_label(previous_starts_at),
+                proposed_when=when_label(proposed_starts_at),
+            ),
+            in_app_title=title,
+            in_app_body=body,
+            url=f"{reverse('tours:upcoming')}#{request_anchor(booking)}",
+            period=f"tour:{booking.pk}:proposal:{proposal}:{answer}:{guide.pk}",
+        )
 
 
 def guide_context(booking: TourBooking, **extra: Any) -> dict[str, Any]:
@@ -381,8 +488,12 @@ def announce(
     tell_visitor: bool = True,
     shared_with: tuple[str, ...] = (),
     taken_by: Member | None = None,
+    answered_proposal: bool = False,
 ) -> None:
     """Every email and notice for a booking just booked, moved or cancelled (after commit).
+
+    A move the visitor made by accepting a proposed time (``answered_proposal``, #1283) sends only
+    the visitor's moved email here; :func:`tell_guides_of_answer` tells the guides.
 
     A visitor's move to another guide's tour tells the old guide it moved away and the new guide
     it was booked; a move within one guide's tours tells that guide once. A staff change
@@ -405,7 +516,7 @@ def announce(
             by_staff=actor is not None,
             note_label=note_label(actor),
         )
-    if change in (signals.CONFIRMED, signals.DECLINED):
+    if answered_proposal or change in (signals.CONFIRMED, signals.DECLINED):
         return
     if change in (signals.LAPSED, signals.TAKEN):
         tell_guide_changed(booking, booking.guide, change, taken_by=taken_by)

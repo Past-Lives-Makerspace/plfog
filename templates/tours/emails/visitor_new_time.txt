@@ -1,0 +1,12 @@
+{% autoescape off %}Hi {{ greeting_name }},
+
+Your guide asked to move your tour of Past Lives Makerspace to {{ proposed_when }}{% if new_guide_name %}, with {{ new_guide_name }} as your guide{% endif %}. Nothing changes until you answer: accept the new time, or keep the one you have.
+
+{% include "tours/emails/_staff_message.txt" %}Your tour now:
+{% include "tours/emails/_tour.txt" %}
+Accept the new time: {{ accept_url }}
+Keep my time: {{ keep_url }}
+
+Neither works? Pick another time: {{ reschedule_url }}
+Cancel: {{ cancel_url }}
+{% include "tours/emails/_footer.txt" %}{% endautoescape %}
