@@ -148,7 +148,8 @@ def _demo_class_slug(member: Member) -> dict[str, Any]:
     offering = ClassOffering.objects.registration_open().first()
     if offering is None:
         raise ValueError("No bookable class open for registration exists for the member tour register stop")
-    return {"slug": offering.slug}
+    # The class's address, not the run's: the run's old address only answers with a redirect (#1260, #1261).
+    return {"slug": offering.class_record.slug}
 
 
 def _instructor_class_pk(member: Member) -> dict[str, Any]:

@@ -384,7 +384,7 @@ _CURATED: dict[str, EventCopy] = {
             "member_name": "Robin Vale",
             "class_title": "Intro to Lost-Wax Casting",
             "class_starts_at": "Saturday, July 12 at 1:00 PM",
-            "class_url": "https://pastlives.example/classes/42/",
+            "class_url": "https://pastlives.example/classes/blacksmithing-101/",
         },
         channels={
             Channel.IN_APP: ChannelCopy(
@@ -416,7 +416,7 @@ _CURATED: dict[str, EventCopy] = {
             "member_name": "Robin Vale",
             "class_title": "Intro to Lost-Wax Casting",
             "class_starts_at": "tomorrow at 1:00 PM",
-            "class_url": "https://pastlives.example/classes/42/",
+            "class_url": "https://pastlives.example/classes/blacksmithing-101/",
         },
         channels={
             Channel.IN_APP: ChannelCopy(

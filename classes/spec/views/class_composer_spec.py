@@ -284,6 +284,8 @@ def _full_payload(category, **extra) -> dict:
         "registration_cutoff_hours": "36",
         "area": "",
         "add_instructor": "",
+        "search_title": "Round Trip Search Title",
+        "search_description": "Round Trip Search Description",
         "video_url": VIDEO,
         "hero_crop": json.dumps({"x": 10, "y": 20, "w": 320, "h": 180}),
         "card_focus": json.dumps({"x": 30, "y": 70}),
@@ -326,6 +328,8 @@ def _assert_round_trip(offering: ClassOffering, category) -> None:
     assert offering.registration_cutoff_hours is None
     assert offering.video_url == VIDEO
     assert (offering.card_focus_x, offering.card_focus_y) == (30, 70)
+    assert offering.class_record.search_title == "Round Trip Search Title"
+    assert offering.class_record.search_description == "Round Trip Search Description"
 
 
 def _png_upload(name: str, width: int, height: int) -> SimpleUploadedFile:

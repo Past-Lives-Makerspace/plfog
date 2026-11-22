@@ -425,6 +425,13 @@ Do not merge them.
         {% include "classes/_components/readiness_list.html" with readiness=readiness link_hints=True jump=True grid=True %}
       </section>
       {% endif %}
+      {# The class's, not this run's (#1261): every run of the class shares them. Blank shows the generated text as the placeholder. #}
+      <div class="pl-compose-section" data-search-text data-guidance-target="classes.search-text">
+        <h3 class="pl-compose-section__title">How It Shows In Search</h3>
+        <p class="pl-compose-section__note">Optional. Every date of this class shares these.</p>
+        {% include "components/form_field.html" with field=form.search_title %}
+        {% include "components/form_field.html" with field=form.search_description %}
+      </div>
       {% if offering and offering.pk %}
       <div class="pl-compose-section">
         <h3 class="pl-compose-section__title">How Your Page Looks</h3>
