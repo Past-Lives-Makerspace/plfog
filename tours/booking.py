@@ -515,6 +515,21 @@ def gather_notes(group: list[TourBooking], onto: TourBooking) -> None:
         onto.notes_moved_to = None
 
 
+def lock_for_note(pk: int) -> TourBooking:
+    """Lock a booking for a new note (#1274) the way every request answer does, and return it.
+
+    A No preference request's rows first, in pk order (:func:`_lock_group`), then the row itself:
+    the order Confirm, Decline, a lapse and the visitor's Cancel take, so a note posted while one of
+    them runs waits its turn and can never deadlock it. Its :attr:`TourBooking.note_target` is then
+    read fresh. Call inside a transaction.
+
+    Raises:
+        TourBooking.DoesNotExist: no such booking.
+    """
+    _lock_group(TourBooking.objects.get(pk=pk))
+    return TourBooking.objects.select_for_update().get(pk=pk)
+
+
 def _lock_group(booking: TourBooking) -> list[TourBooking]:
     """Every row of the booking's No preference request (#1255), locked in pk order; [] for any other booking.
 

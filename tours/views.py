@@ -53,6 +53,7 @@ from tours.booking import (
     cancel_tour_by_staff,
     confirm_tour_request,
     decline_tour_request,
+    lock_for_note,
     mark_tour_outcome,
     reschedule_tour_by_staff,
 )
@@ -1040,10 +1041,10 @@ def tour_booking_note(request: HttpRequest, pk: int) -> HttpResponse:
     """
     get_object_or_404(TourBooking, pk=pk)
     with transaction.atomic():
-        # The row is locked before its note target is read: a Confirm that resolves a shared
-        # request (#1255) holds this lock while it moves the notes, so a note posted meanwhile
-        # waits and then lands on the surviving row, never on the one it left (#1274).
-        locked = TourBooking.objects.select_for_update().get(pk=pk)
+        # The request's rows and then this row are locked before its note target is read, in the
+        # order a Confirm or Decline takes them: one that moves the notes meanwhile finishes first,
+        # and the note lands on the row they went to, never on the one they left (#1274).
+        locked = lock_for_note(pk)
         booking = TourBooking.objects.select_related("guide").get(pk=locked.note_target.pk)
         return _post_note(request, booking)
 

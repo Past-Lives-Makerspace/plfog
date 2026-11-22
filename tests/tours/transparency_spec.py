@@ -494,6 +494,89 @@ def describe_a_shared_request():
         assert third.notes_moved_to_id is None
         assert list(third.notes.values_list("body", flat=True)) == ["Tess here."]
 
+    def it_sends_a_note_on_a_declined_row_to_the_lowest_pending_row(
+        guide: Member, other: Member, rows: list[TourBooking]
+    ):
+        tess = make_guide(full_legal_name="Tess Third")
+        signed_in(tess)
+        tess.refresh_from_db()
+        third = TourBookingFactory(
+            guide=tess,
+            starts_at=rows[0].starts_at,
+            request_group=rows[0].request_group,
+            status=TourBooking.Status.PENDING,
+        )
+        booking_service.decline_tour_request(third, actor=tess.user)
+        for row in (*rows, third):
+            row.refresh_from_db()
+        assert (rows[0].notes_moved_to_id, rows[1].notes_moved_to_id, third.notes_moved_to_id) == (
+            None,
+            None,
+            rows[0].pk,
+        )
+        signed_in(tess).post(_note_url(third), {"body": "Tess, after declining."})
+        assert list(rows[0].notes.values_list("body", flat=True)) == ["Tess, after declining."]
+        assert "Tess, after declining." in signed_in(other).get(_notes_url(rows[1]), **HTMX).content.decode()
+
+    @pytest.mark.postgres_only
+    @pytest.mark.django_db(transaction=True)
+    def it_never_deadlocks_a_note_on_a_declined_row_against_a_confirm():
+        import threading
+        import time as clock
+        from unittest.mock import patch
+
+        from django.db import connection
+
+        gina, olive, tess = (make_guide(full_legal_name=name) for name in ("Gina Guide", "Olive Other", "Tess Third"))
+        group = uuid.uuid4()
+        starts = local(TODAY + timedelta(days=4), 16)
+        rows = [
+            TourBookingFactory(guide=who, starts_at=starts, request_group=group, status=TourBooking.Status.PENDING)
+            for who in (gina, olive, tess)
+        ]
+        for member in (gina, olive):
+            signed_in(member)
+            member.refresh_from_db()
+        tess_client = signed_in(tess)
+        tess.refresh_from_db()
+        booking_service.decline_tour_request(rows[2], actor=tess.user)
+        real_lock = booking_service._lock_group
+        locking = threading.Event()
+        errors: list[BaseException] = []
+
+        def slow_lock(booking: TourBooking) -> list[TourBooking]:
+            group_rows = real_lock(booking)
+            locking.set()
+            clock.sleep(0.5)
+            return group_rows
+
+        def take() -> None:
+            try:
+                booking_service.confirm_tour_request(rows[1], actor=olive.user)
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+            finally:
+                connection.close()
+
+        def post() -> None:
+            try:
+                locking.wait(5)
+                response = tess_client.post(_note_url(rows[2]), {"body": "Posted mid confirm."})
+                assert response.status_code == 302
+            except BaseException as exc:  # noqa: BLE001
+                errors.append(exc)
+            finally:
+                connection.close()
+
+        with patch.object(booking_service, "_lock_group", slow_lock):
+            threads = [threading.Thread(target=take), threading.Thread(target=post)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(30)
+        assert errors == []
+        assert list(TourBookingNote.objects.values_list("booking_id", "body")) == [(rows[1].pk, "Posted mid confirm.")]
+
     @pytest.mark.postgres_only
     @pytest.mark.django_db(transaction=True)
     def it_lands_a_note_posted_during_the_take_on_the_winner():
