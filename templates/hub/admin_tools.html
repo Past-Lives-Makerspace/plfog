@@ -23,7 +23,7 @@
 {% include "hub/partials/_permission_setups.html" %}
 
 {# Felix's sections in his order (#1291): Admin, Webmaster, the viewer's guild, Classes. hub.views.ADMIN_TOOL_SECTIONS lists each section's cards alphabetically by title (#1286), only those the viewer may open, and a section with none is left out. #}
-<div class="pl-tools-sections" data-help-key="admin.tools-grid">
+<div class="pl-tools-sections" data-help-key="admin.tools-grid" data-guidance-target="admin.tools-grid">
   {% if tool_sections.admin %}
   <section class="pl-tools-section" data-tools-section="admin" aria-labelledby="tools-section-admin">
     <h2 class="hub-detail-label pl-tools-section__title" id="tools-section-admin">Admin</h2>
@@ -73,7 +73,7 @@
   {% endwith %}
   {% endif %}
   {% if tool_sections.classes %}
-  <section class="pl-tools-section" data-tools-section="classes" aria-labelledby="tools-section-classes">
+  <section class="pl-tools-section" data-tools-section="classes" data-guidance-target="admin.tools-classes" aria-labelledby="tools-section-classes">
     <h2 class="hub-detail-label pl-tools-section__title" id="tools-section-classes">Classes</h2>
     <div class="pl-tools-grid">
       {% for card in tool_sections.classes %}{% include "hub/partials/_tool_card.html" %}{% endfor %}
