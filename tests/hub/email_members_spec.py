@@ -41,7 +41,8 @@ def _list_url(guild) -> str:
 
 def describe_the_admin_tools_cards():
     def it_names_the_email_members_card_with_its_formerly_badge(client: Client):
-        _login_admin(client)
+        user = _login_user(client, "em_card_lead")
+        GuildFactory(guild_lead=user.member)  # type: ignore[attr-defined]
         html = client.get(reverse("hub_admin_tools")).content.decode()
         assert '<span class="pl-tool-card__title">Email Members' in html
         assert "Email a class, a guild or everyone, post it to Discord and send an app notification." in html

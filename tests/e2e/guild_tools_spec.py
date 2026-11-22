@@ -49,8 +49,8 @@ def describe_guild_tools_in_the_browser():
 
         for section, title, url in (
             ("guild", "Guild Settings", reverse("hub_guild_edit", args=[led.pk])),
-            ("tools", "Email Members", reverse("hub_announcements")),
-            ("reports", "Orientation Bookings", reverse("hub_orientations") + "?view=bookings"),
+            ("guild", "Email Members", reverse("hub_announcements")),
+            ("guild", "Orientation Bookings", reverse("hub_orientations") + "?view=bookings"),
         ):
             page.locator(f'[data-tools-section="{section}"] .pl-tool-card', has_text=title).click()
             expect(page).to_have_url(re.compile(re.escape(url) + "$"))

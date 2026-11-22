@@ -16,7 +16,7 @@ from PIL import Image
 
 from core.events.registry import FEEDBACK_COMMENT_ADDED, FEEDBACK_REQUEST_UPDATED
 from core.models import FeedbackComment, FeedbackRequest, Notification
-from membership.models import Member
+from membership.models import AdminCapability, Member
 from tests.core.factories import FeedbackRequestFactory
 from tests.membership.factories import GuildFactory
 
@@ -35,6 +35,13 @@ def _photo(name: str = "shot.png") -> SimpleUploadedFile:
 def _admin(client: Client, username: str = "inboxer") -> User:
     user = User.objects.create_superuser(username=username, password="pass", email=f"{username}@example.com")
     client.login(username=username, password="pass")
+    return user
+
+
+def _webmaster(client: Client, username: str = "inbox_webmaster") -> User:
+    """The Feedback Inbox tile shows only to an admin holding Webmaster (#1291)."""
+    user = _admin(client, username)
+    user.member.admin_capabilities.create(capability=AdminCapability.Capability.WEBMASTER)  # type: ignore[attr-defined]
     return user
 
 
@@ -108,7 +115,7 @@ def describe_permissions():
 
 def describe_admin_tools_card():
     def it_links_the_inbox_with_the_count_of_new_requests(client: Client):
-        _admin(client)
+        _webmaster(client)
         FeedbackRequestFactory.create_batch(2)
         FeedbackRequestFactory(status=Status.PLANNED)
 
@@ -118,7 +125,7 @@ def describe_admin_tools_card():
         assert "data-feedback-received-count>2 new<" in body
 
     def it_shows_no_count_when_nothing_is_new(client: Client):
-        _admin(client)
+        _webmaster(client)
 
         body = client.get(reverse("hub_admin_tools")).content.decode()
 

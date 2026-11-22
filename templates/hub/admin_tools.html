@@ -22,8 +22,24 @@
 </div>
 {% include "hub/partials/_permission_setups.html" %}
 
-{# Four sections in Felix's order (#912), after Guild Tools' own guild section (#921); hub.views.ADMIN_TOOL_SECTIONS lists each section's cards alphabetically by title (#1286), only those the viewer may open, and a section with none is left out. #}
+{# Felix's sections in his order (#1291): Admin, Webmaster, the viewer's guild, Classes. hub.views.ADMIN_TOOL_SECTIONS lists each section's cards alphabetically by title (#1286), only those the viewer may open, and a section with none is left out. #}
 <div class="pl-tools-sections" data-help-key="admin.tools-grid">
+  {% if tool_sections.admin %}
+  <section class="pl-tools-section" data-tools-section="admin" aria-labelledby="tools-section-admin">
+    <h2 class="hub-detail-label pl-tools-section__title" id="tools-section-admin">Admin</h2>
+    <div class="pl-tools-grid">
+      {% for card in tool_sections.admin %}{% include "hub/partials/_tool_card.html" %}{% endfor %}
+    </div>
+  </section>
+  {% endif %}
+  {% if tool_sections.webmaster %}
+  <section class="pl-tools-section" data-tools-section="webmaster" aria-labelledby="tools-section-webmaster">
+    <h2 class="hub-detail-label pl-tools-section__title" id="tools-section-webmaster">Webmaster</h2>
+    <div class="pl-tools-grid">
+      {% for card in tool_sections.webmaster %}{% include "hub/partials/_tool_card.html" %}{% endfor %}
+    </div>
+  </section>
+  {% endif %}
   {% if tool_sections.guild %}
   {% with guild=guild_tools.selected %}
   {% comment %}
@@ -56,35 +72,11 @@
   </section>
   {% endwith %}
   {% endif %}
-  {% if tool_sections.manage %}
-  <section class="pl-tools-section" data-tools-section="manage" aria-labelledby="tools-section-manage">
-    <h2 class="hub-detail-label pl-tools-section__title" id="tools-section-manage">Manage</h2>
+  {% if tool_sections.classes %}
+  <section class="pl-tools-section" data-tools-section="classes" aria-labelledby="tools-section-classes">
+    <h2 class="hub-detail-label pl-tools-section__title" id="tools-section-classes">Classes</h2>
     <div class="pl-tools-grid">
-      {% for card in tool_sections.manage %}{% include "hub/partials/_tool_card.html" %}{% endfor %}
-    </div>
-  </section>
-  {% endif %}
-  {% if tool_sections.tools %}
-  <section class="pl-tools-section" data-tools-section="tools" aria-labelledby="tools-section-tools">
-    <h2 class="hub-detail-label pl-tools-section__title" id="tools-section-tools">Tools</h2>
-    <div class="pl-tools-grid">
-      {% for card in tool_sections.tools %}{% include "hub/partials/_tool_card.html" %}{% endfor %}
-    </div>
-  </section>
-  {% endif %}
-  {% if tool_sections.reports %}
-  <section class="pl-tools-section" data-tools-section="reports" aria-labelledby="tools-section-reports">
-    <h2 class="hub-detail-label pl-tools-section__title" id="tools-section-reports">Reports</h2>
-    <div class="pl-tools-grid">
-      {% for card in tool_sections.reports %}{% include "hub/partials/_tool_card.html" %}{% endfor %}
-    </div>
-  </section>
-  {% endif %}
-  {% if tool_sections.webmaster %}
-  <section class="pl-tools-section" data-tools-section="webmaster" aria-labelledby="tools-section-webmaster">
-    <h2 class="hub-detail-label pl-tools-section__title" id="tools-section-webmaster">Webmaster</h2>
-    <div class="pl-tools-grid">
-      {% for card in tool_sections.webmaster %}{% include "hub/partials/_tool_card.html" %}{% endfor %}
+      {% for card in tool_sections.classes %}{% include "hub/partials/_tool_card.html" %}{% endfor %}
     </div>
   </section>
   {% endif %}

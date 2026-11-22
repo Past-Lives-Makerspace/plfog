@@ -69,7 +69,7 @@ the table's, which is what the section sorts by. A new card is a ToolCard there 
   <span class="pl-tool-card__title">{{ card.title }}{% new_badge "guild.cubbies" %}</span>
   <span class="pl-tool-card__desc">Every guild's rental cubbies: build the shelves and set the price.</span>
 </a>
-{% elif card.key == "announcements" %}
+{% elif card.key == "announcements" or card.key == "classes_announcements" %}
 <a class="hub-card pl-tool-card" href="{% url 'hub_announcements' %}" data-tool-email-members>
   <span class="pl-tool-card__icon">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
@@ -77,14 +77,6 @@ the table's, which is what the section sorts by. A new card is a ToolCard there 
   <span class="pl-tool-card__title">{{ card.title }}{% new_badge "admin.email-members" %}</span>
   <span class="pl-tool-card__desc">Email a class, a guild or everyone, post it to Discord and send an app notification.</span>
   <span class="hub-pill hub-pill--neutral pl-tool-card__formerly" data-formerly-announcements>Formerly called Announcements</span>
-</a>
-{% elif card.key == "instructor_inquiries" %}
-<a class="hub-card pl-tool-card" href="{% url 'classes:admin_instructor_inquiries' %}">
-  <span class="pl-tool-card__icon">
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="13" rx="2"/><path d="M8 21l4-5 4 5"/><path d="M6 8h8"/><path d="M6 12h5"/></svg>
-  </span>
-  <span class="pl-tool-card__title">{{ card.title }}</span>
-  <span class="pl-tool-card__desc">Every member who asked to teach, with a date filter, CSV export and a board report.</span>
 </a>
 {% elif card.key == "push_test" %}
 <a class="hub-card pl-tool-card" href="{% url 'hub_push_test' %}">
@@ -285,5 +277,21 @@ the table's, which is what the section sorts by. A new card is a ToolCard there 
   </span>
   <span class="pl-tool-card__title">{{ card.title }}</span>
   <span class="pl-tool-card__desc">Add and edit the guild's events on the calendar.</span>
+</a>
+{% elif card.key == "my_classes" %}
+<a class="hub-card pl-tool-card" href="{% url 'classes:teach_dashboard' %}" data-tool-my-classes>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">Every class you teach, from draft to past, with its schedule and status.</span>
+</a>
+{% elif card.key == "teach_registrations" %}
+<a class="hub-card pl-tool-card" href="{% url 'classes:teach_registrations' %}" data-tool-teach-registrations>
+  <span class="pl-tool-card__icon">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+  </span>
+  <span class="pl-tool-card__title">{{ card.title }}</span>
+  <span class="pl-tool-card__desc">Everyone signed up for the classes you teach, grouped by class.</span>
 </a>
 {% endif %}

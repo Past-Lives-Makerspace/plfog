@@ -5904,7 +5904,7 @@ class ToolCard(NamedTuple):
     """One Tools page card (#1286): its branch in ``hub/partials/_tool_card.html``, its title and its flag.
 
     The title is the one the card shows and the one its section sorts by, so the two cannot disagree.
-    The flag is the view's ``tool_*`` visibility flag; the guild section's cards share ``tool_guild``.
+    The flag is the view's ``tool_*`` visibility flag; several cards of a section may share one.
     """
 
     key: str
@@ -5912,70 +5912,69 @@ class ToolCard(NamedTuple):
     flag: str
 
 
-# Admin Tools' sections in page order (#912), each listing its cards. A section shows its cards alphabetically by
-# title (#1286, :func:`admin_tool_sections`), so the order written here is not the order on the page.
-# "guild" is Guild Tools' own section (#921): one guild's cards, under that guild's name, shown only
-# to a viewer who runs a guild and is not viewing as an admin, so Admin Tools never renders it.
+# The tools page's sections in page order (#1291, Felix): Admin, Webmaster, the viewer's guild, Classes. A section
+# shows its cards alphabetically by title (#1286, :func:`admin_tool_sections`), so the order written here is not the
+# order on the page, and a viewer sees every section they qualify for.
+# - "admin": admins; a Billing Administrator alone gets Payments and Reports, a Calendar Administrator alone Events.
+# - "webmaster": only an admin holding the Webmaster capability. Tile visibility only: each page keeps its own gate.
+# - "guild": one guild's cards under that guild's name, for its lead or staff who is not viewing as an admin (#921).
+# - "classes": whoever teaches, by the test :func:`_can_compose` uses (the profile flag or a class they teach).
 ADMIN_TOOL_SECTIONS: tuple[tuple[str, tuple[ToolCard, ...]], ...] = (
     (
-        "guild",
+        "admin",
         (
-            # Cubbies (#1015) is true only while tool_guild is, for whoever runs the guild's cubbies.
-            ToolCard("guild_settings", "Guild Settings", "tool_guild"),
-            ToolCard("guild_orientations", "Orientations", "tool_guild"),
-            ToolCard("guild_reservations", "Reservations", "tool_guild"),
-            ToolCard("guild_cubbies", "Cubbies", "tool_guild_cubbies"),
-            ToolCard("guild_events", "Events", "tool_guild"),
-        ),
-    ),
-    (
-        "manage",
-        (
-            ToolCard("manage_classes", "Manage All Classes", "tool_manage_classes"),
-            ToolCard("manage_events", "Manage Events", "tool_manage_events"),
-            ToolCard("manage_members", "Manage Members", "tool_manage_members"),
-            ToolCard("guilds", "Guilds", "tool_guilds"),
-            ToolCard("member_agreement", "Member Agreement", "tool_member_agreement"),
-            ToolCard("mailing_lists", "Manage Mailing Lists", "tool_mailing_lists"),
+            ToolCard("manage_classes", "All Classes", "tool_manage_classes"),
             ToolCard("cubbies", "Cubbies", "tool_cubbies"),
-        ),
-    ),
-    (
-        "tools",
-        (
-            ToolCard("announcements", "Email Members", "tool_announcements"),
-            ToolCard("instructor_inquiries", "Instructor Inquiries", "tool_instructor_inquiries"),
-            ToolCard("push_test", "Push Notification Test", "tool_push_test"),
-            ToolCard("orientations", "Orientations", "tool_orientations"),
-            ToolCard("spotlight", "Spotlight", "tool_spotlight"),
-            ToolCard("polls", "Polls", "tool_polls"),
-            ToolCard("feedback", "Feedback Inbox", "tool_feedback"),
-            ToolCard("holiday_bizarre", "Holiday Bizarre HQ", "tool_holiday_bizarre"),
-            ToolCard("slideshow", "Slideshow", "tool_slideshow"),
-        ),
-    ),
-    (
-        "reports",
-        (
-            ToolCard("payments", "Payments", "tool_payments"),
-            ToolCard("reports", "Reports", "tool_reports"),
+            ToolCard("manage_events", "Events", "tool_manage_events"),
             ToolCard("growth", "Growth", "tool_growth"),
+            ToolCard("holiday_bizarre", "Holiday Bizarre HQ", "tool_holiday_bizarre"),
+            ToolCard("manage_members", "Members", "tool_manage_members"),
+            ToolCard("orientations", "Orientations", "tool_orientations"),
+            ToolCard("payments", "Payments", "tool_payments"),
+            ToolCard("polls", "Polls", "tool_polls"),
+            ToolCard("reports", "Reports", "tool_reports"),
+            ToolCard("slideshow", "Slideshow", "tool_slideshow"),
+            ToolCard("spotlight", "Spotlight", "tool_spotlight"),
             ToolCard("usage", "Usage", "tool_usage"),
-            ToolCard("registrations", "Registrations", "tool_registrations"),
-            ToolCard("orientation_bookings", "Orientation Bookings", "tool_orientation_bookings"),
         ),
     ),
     (
         "webmaster",
         (
-            ToolCard("site_settings", "Site Settings", "tool_site_settings"),
-            ToolCard("features", "Manage Features", "tool_features"),
-            ToolCard("cms", "Manage CMS", "tool_cms"),
-            ToolCard("automations", "Automations", "tool_automations"),
-            ToolCard("notifications", "Notification Settings", "tool_notifications"),
-            ToolCard("activity", "Activity", "tool_activity"),
-            ToolCard("leadership", "Leadership Directory", "tool_leadership"),
-            ToolCard("locations", "Locations", "tool_locations"),
+            ToolCard("activity", "Activity Log", "tool_webmaster"),
+            ToolCard("automations", "Automations", "tool_webmaster"),
+            ToolCard("cms", "CMS", "tool_webmaster"),
+            ToolCard("features", "Features", "tool_webmaster"),
+            ToolCard("feedback", "Feedback Inbox", "tool_webmaster"),
+            ToolCard("guilds", "Guilds", "tool_webmaster"),
+            ToolCard("leadership", "Leadership Directory", "tool_webmaster"),
+            ToolCard("locations", "Locations", "tool_webmaster"),
+            ToolCard("member_agreement", "Member Agreement", "tool_webmaster"),
+            ToolCard("notifications", "Notification Settings", "tool_webmaster"),
+            ToolCard("push_test", "Push Notification Test", "tool_webmaster"),
+            ToolCard("site_settings", "Site Settings", "tool_webmaster"),
+        ),
+    ),
+    (
+        "guild",
+        (
+            ToolCard("guild_cubbies", "Cubbies", "tool_guild_cubbies"),
+            ToolCard("announcements", "Email Members", "tool_announcements"),
+            ToolCard("guild_events", "Events", "tool_guild"),
+            ToolCard("guild_settings", "Guild Settings", "tool_guild"),
+            ToolCard("mailing_lists", "Mailing Lists", "tool_mailing_lists"),
+            ToolCard("orientation_bookings", "Orientation Bookings", "tool_orientation_bookings"),
+            ToolCard("guild_orientations", "Orientations", "tool_guild"),
+            ToolCard("guild_reservations", "Reservations", "tool_guild"),
+            ToolCard("registrations", "Registrations", "tool_registrations"),
+        ),
+    ),
+    (
+        "classes",
+        (
+            ToolCard("classes_announcements", "Email Members", "tool_teaching"),
+            ToolCard("my_classes", "My Classes", "tool_teaching"),
+            ToolCard("teach_registrations", "Registrations", "tool_teaching"),
         ),
     ),
 )
@@ -6048,49 +6047,44 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
     previewing_admin = view_as is not None and view_as.actual_is_admin and not is_admin
     tool_payments = tool_reports = has_billing_admin_access(request) and not previewing_admin
     tool_manage_events = has_events_admin_access(request) and not previewing_admin
+    selected = guild_tools.selected if guild_tools is not None else None
+    tool_guild = selected is not None
     flags = {
-        "tool_announcements": _can_compose(request, member),
-        "tool_mailing_lists": bool(guild_tools.guilds) if guild_tools else manageable_guilds(request).exists(),
-        # Guild Tools shows the same page as Orientation Bookings under Reports instead.
-        "tool_orientations": is_admin,
-        "tool_guild": guild_tools is not None and guild_tools.selected is not None,
-        # The guild section's Cubbies card (#1015): only for a guild whose cubbies the viewer runs,
-        # its lead or staff (an admin never sees this section). The other four cards ride on tool_guild.
-        "tool_guild_cubbies": guild_tools is not None
-        and guild_tools.selected is not None
-        and can_manage_cubbies(request, guild_tools.selected),
-        "tool_orientation_bookings": guild_tools is not None,
-        "tool_registrations": guild_tools is not None
-        and ClassOffering.objects.filter(category__guild__in=guild_tools.guilds).exists(),
-        "tool_manage_members": is_admin,
-        # Every guild's Visible and New Guild switches in one table (#1086).
-        "tool_guilds": is_admin,
+        # Admin (#1291): admins, plus the capability holders' own cards above.
+        "tool_manage_classes": is_admin,
         # Guild cubbies (#977): admins open the manager here, with its guild picker.
         "tool_cubbies": is_admin,
-        "tool_manage_classes": is_admin,
         "tool_manage_events": tool_manage_events,
-        "tool_payments": tool_payments,
-        "tool_reports": tool_reports,
-        "tool_activity": is_admin,
-        "tool_notifications": is_admin,
-        "tool_site_settings": is_admin,
-        # Split out of Site Settings in #922, behind the same admin gate.
-        "tool_member_agreement": is_admin,
-        "tool_features": is_admin,
-        "tool_cms": is_admin,
-        "tool_automations": is_admin,
-        "tool_slideshow": is_admin,
         "tool_growth": is_admin,
-        "tool_usage": is_admin,
         # Admins reach the HQ here as well as from the sidebar, which shows it to them once an HQ exists.
         "tool_holiday_bizarre": is_admin,
-        "tool_instructor_inquiries": is_admin,
-        "tool_leadership": is_admin,
-        "tool_locations": is_admin,
-        "tool_feedback": is_admin,
-        "tool_spotlight": is_admin,
+        "tool_manage_members": is_admin,
+        # Guild Tools shows the same page as Orientation Bookings in the guild section instead.
+        "tool_orientations": is_admin,
+        "tool_payments": tool_payments,
         "tool_polls": is_admin,
-        "tool_push_test": is_admin,
+        "tool_reports": tool_reports,
+        "tool_slideshow": is_admin,
+        "tool_spotlight": is_admin,
+        "tool_usage": is_admin,
+        # Webmaster (#1291, Felix): only an admin holding the Webmaster capability sees these twelve tiles. Each page
+        # behind them keeps its own gate, so another admin still opens them by URL; this is the tiles alone.
+        "tool_webmaster": is_admin
+        and member is not None
+        and member.has_admin_capability(AdminCapability.Capability.WEBMASTER),
+        # The guild section (#921): one guild the viewer leads or staffs, never for an admin.
+        "tool_guild": tool_guild,
+        # Cubbies (#1015): only for a guild whose cubbies the viewer runs, its lead or staff.
+        "tool_guild_cubbies": selected is not None and can_manage_cubbies(request, selected),
+        "tool_announcements": tool_guild and _can_compose(request, member),
+        "tool_mailing_lists": tool_guild,
+        "tool_orientation_bookings": tool_guild,
+        "tool_registrations": guild_tools is not None
+        and tool_guild
+        and ClassOffering.objects.filter(category__guild__in=guild_tools.guilds).exists(),
+        # Classes (#1291): whoever teaches, by the test _can_compose uses; an admin who teaches gets it too.
+        "tool_teaching": member is not None
+        and (member.is_instructor or _compose_editable_classes(request, member).exists()),
     }
     ctx = _get_hub_context(request)
     return render(
@@ -6106,7 +6100,7 @@ def hub_admin_tools(request: HttpRequest) -> HttpResponse:
             "guild_cubby_counts": _guild_cubby_counts(guild_tools.selected)
             if flags["tool_guild_cubbies"] and guild_tools and guild_tools.selected
             else None,
-            "feedback_received_count": FeedbackRequest.objects.received().count() if is_admin else 0,
+            "feedback_received_count": FeedbackRequest.objects.received().count() if flags["tool_webmaster"] else 0,
             "spotlight_waiting_count": QueuedDiscordMessage.objects.waiting().count() if is_admin else 0,
         },
     )

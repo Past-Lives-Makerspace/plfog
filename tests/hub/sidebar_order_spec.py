@@ -239,13 +239,37 @@ def _tool_sections(client: Client, query: str = "") -> list[tuple[str, list[str]
     return [(key, re.findall(r'pl-tool-card__title">([^<]+?)\s*<', cards)) for key, cards in found]
 
 
+def _webmaster() -> User:
+    user = _admin()
+    user.member.admin_capabilities.create(capability=AdminCapability.Capability.WEBMASTER)  # type: ignore[attr-defined]
+    return user
+
+
+def _lead_who_teaches() -> User:
+    user = _lead()
+    Member.objects.filter(user=user).update(instructor_slug="order-lead-teaches")
+    return user
+
+
+def _teaches() -> User:
+    return _member("order_teaches", instructor_slug="order-teaches")
+
+
 def describe_the_tools_page_order():
-    @pytest.mark.parametrize(("make_user", "role_entry"), [p for p in _ROLES if p.id in ("admin", "guild_lead")])
-    def it_sorts_every_section_by_card_title(client: Client, make_user, role_entry: str):
-        GuildFactory()  # Manage Mailing Lists shows once there is a guild whose list to open
+    @pytest.mark.parametrize(
+        ("make_user", "section_keys"),
+        [
+            pytest.param(_webmaster, ["admin", "webmaster"], id="admin_with_webmaster"),
+            pytest.param(_admin, ["admin"], id="admin_without_webmaster"),
+            pytest.param(_lead, ["guild"], id="guild_lead"),
+            pytest.param(_teaches, ["classes"], id="instructor"),
+            pytest.param(_lead_who_teaches, ["guild", "classes"], id="guild_lead_who_teaches"),
+        ],
+    )
+    def it_sorts_every_section_by_card_title(client: Client, make_user, section_keys: list[str]):
         client.force_login(make_user())
         sections = _tool_sections(client)
-        assert sections, "no tools section rendered"
+        assert [key for key, _ in sections] == section_keys
         for key, titles in sections:
             assert titles, key
             assert titles == _alphabetical(titles), key
@@ -253,7 +277,7 @@ def describe_the_tools_page_order():
     def it_sorts_whatever_order_the_table_lists_its_cards_in(client: Client, monkeypatch):
         reversed_table = tuple((key, tuple(reversed(cards))) for key, cards in hub_views.ADMIN_TOOL_SECTIONS)
         monkeypatch.setattr(hub_views, "ADMIN_TOOL_SECTIONS", reversed_table)
-        client.force_login(_admin())
+        client.force_login(_webmaster())
         for key, titles in _tool_sections(client):
             assert titles == _alphabetical(titles), key
 

@@ -455,7 +455,7 @@ _GUIDANCE_LIST = (
         url_kwargs=_review_queue,
         help_key="admin.review-queue",
         steps=(
-            "Admins open Manage Classes from Admin Tools. A guild lead or Class Reviewer presses Review in the review email, or under Needs Attention on Guild Settings.",
+            "Admins open All Classes from Admin Tools. A guild lead or Class Reviewer presses Review in the review email, or under Needs Attention on Guild Settings.",
             "Approve, request changes or deny each class waiting on you. A request for changes starts a conversation with the instructors.",
             "One email at 8 AM lists every class still waiting on you. A class waiting 3 days or more shows in red on Manage Classes and on Home for admins.",
         ),
@@ -524,7 +524,7 @@ _GUIDANCE_LIST = (
         title="Manage Members",
         url_name="hub_admin_members",
         steps=(
-            "Open Manage Members from Admin Tools and pick a member.",
+            "Open Members from Admin Tools and pick a member.",
             "The Permissions tab lists every guild they lead or help run, with a Class Reviewer switch for each, and the Can create events switch.",
             "Add them to a guild's staff, change a title or make them a guild lead from the same tab.",
         ),
@@ -534,7 +534,7 @@ _GUIDANCE_LIST = (
         title="Guilds",
         url_name="hub_admin_guilds",
         steps=(
-            "Open Guilds from Admin Tools, under Manage.",
+            "Open Guilds from Admin Tools, under Webmaster.",
             "Every guild is one row. Visible to members hides or shows the guild; New Guild puts a gold badge on the guild's page, directory card and sidebar row.",
             "Each switch saves the moment you flip it. Settings opens that guild's settings page.",
         ),
@@ -545,7 +545,7 @@ _GUIDANCE_LIST = (
         url_name="hub_admin_events",
         help_key="admin.event-review",
         steps=(
-            "Open Manage Events from Admin Tools.",
+            "Open Events from Admin Tools.",
             "Events are listed by what is waiting for a review, scheduled, live and past. Each has its own page with Approve, Request changes, Decline, Duplicate, Unpublish and Delete.",
             "An event published without an announcement is marked Not announced, with Announce now for when it is time.",
         ),
@@ -556,7 +556,7 @@ _GUIDANCE_LIST = (
         url_name="manage_activity",
         help_key="admin.activity",
         steps=(
-            "Open Site Activity from Admin Tools.",
+            "Open Activity Log from Admin Tools, under Webmaster.",
             "The Email Queue tab shows what waits for the 8 AM review email, the reminders going out in the next 24 hours, and the morning emails sent this week.",
         ),
     ),
@@ -568,7 +568,7 @@ _GUIDANCE_LIST = (
         help_key="admin.activity",
         target="activity.email-search",
         steps=(
-            "Open Site Activity from Admin Tools and pick Email Log.",
+            "Open Activity Log from Admin Tools, under Webmaster, and pick Email Log.",
             "Type part of an address into Recipient to see every email sent to that person.",
             "Pick a Type, a Status or From and To dates to narrow the list. The count above it shows how many were sent and how many failed.",
         ),
@@ -581,7 +581,7 @@ _GUIDANCE_LIST = (
         help_key="admin.activity",
         target="activity.new-members",
         steps=(
-            "Open Site Activity from Admin Tools and pick New Members.",
+            "Open Activity Log from Admin Tools, under Webmaster, and pick New Members.",
             "Each member added from Airtable shows when they were added, where their welcome email stands and when they first signed in. Pick 30, 60 or 90 days, or turn on Never signed in.",
             "Can't find someone? Type a name or email to search the portal and Airtable together and see where they stand.",
         ),
