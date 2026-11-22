@@ -228,10 +228,7 @@
     font-size: 0.875rem;
 }
 
-/* The way back to the Tools page above the Tours header, and the Settings tab's lead line. */
-.pl-tours-back {
-    margin: 0 0 1rem;
-}
+/* The Settings tab's lead line. */
 .pl-tours-settings__lead {
     margin: 1.5rem 0 0;
     font-size: 0.875rem;
@@ -651,4 +648,50 @@
 }
 .pl-tours-confirm__notice {
     margin-top: 1.5rem;
+}
+
+/* Give Tours (#1278, tours/give.html). The page is the Host a Class page's pieces (.pl-teach-* in
+   hub.css) and the tutorial is the compose wizard's (.pl-wizard-*); these rules only seat the
+   tutorial inside the centered call to action card: left aligned, its buttons in the actions row
+   rather than under a paragraph, and the step's heading and count. */
+.pl-give-tutorial {
+    text-align: left;
+}
+.pl-teach-apply .pl-give-tutorial .pl-btn {
+    margin-top: 0;
+}
+.pl-give-step__count {
+    margin: 0;
+    color: var(--hub-text-muted);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.pl-give-step__title {
+    margin: 0.25rem 0 0.75rem;
+    font-size: 1.25rem;
+}
+.pl-give-tutorial__become {
+    display: flex;
+}
+.pl-give-step__note {
+    margin: 0.75rem 0 0;
+    color: var(--hub-text-muted);
+    font-size: 0.8125rem;
+}
+/* On a phone the five step pills would wrap into four rows: the steps not open show their number alone. */
+@media (max-width: 640px) {
+    .pl-give-tutorial .pl-wizard-nav__step:not(.is-active) {
+        padding: 0.3rem;
+    }
+    .pl-give-tutorial .pl-wizard-nav__step:not(.is-active) .pl-give-pill__label {
+        display: none;
+    }
+    .pl-give-tutorial__become {
+        flex: 1 1 auto;
+    }
+    .pl-give-tutorial__become .pl-btn {
+        width: 100%;
+    }
 }

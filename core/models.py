@@ -2173,6 +2173,9 @@ class SiteActivity(models.Model):
         TEACHING_GRANTED = "teaching_granted", "Teaching access granted"
         TEACHING_REVOKED = "teaching_revoked", "Teaching access revoked"
         TEACHING_INQUIRY_ADDED = "teaching_inquiry_added", "Teaching inquiry added"
+        # A member pressed Become a Tour Guide on Give Tours (#1278): a grant with no admin in it, so admins
+        # see it here rather than hear of it (Felix).
+        TOUR_GUIDE_SELF_SERVE = "tour_guide_self_serve", "Made themselves a Tour Guide"
         GUILD_JOINED = "guild_joined", "Joined a guild"
         LEASE_ACTIVATED = "lease_activated", "Space agreement activated"
         SPACE_REQUEST = "space_request", "Space request"
@@ -2365,6 +2368,7 @@ SITE_ACTIVITY_CATEGORIES: dict[str, tuple[str, tuple[SiteActivity.Kind, ...]]] =
             _Kind.INVITE_ACCEPTED,
             _Kind.MEMBER_SIGNUP,
             _Kind.ACCOUNT_DELETED,
+            _Kind.TOUR_GUIDE_SELF_SERVE,
         ),
     ),
     "voting": (

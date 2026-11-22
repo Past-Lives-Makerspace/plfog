@@ -107,6 +107,16 @@ def describe_admin_capabilities():
             granter.set_admin_capability(Cap.REFUNDS, True, granted_by=granter.user)
         assert _granted_emails() == []
 
+    def it_emails_a_self_serve_grant_as_the_members_own_doing(pell: Member, django_capture_on_commit_callbacks):
+        # #1278: Become a Tour Guide on Give Tours is a grant to yourself that still sends the email.
+        with django_capture_on_commit_callbacks(execute=True):
+            permission_grants.record(pell, [Cap.TOUR_GUIDE], granted_by=pell.user, self_serve=True)
+        [email] = _granted_emails()
+        assert "You turned this on yourself in the Member Portal" in email.body
+        assert "Pell Wrenfield turned this on" not in email.body
+        assert "don't hesitate to ask an admin." in email.body
+        assert "Hi Pell, you turned this on yourself in the" in _html(email)
+
     def it_emails_a_single_toggle_turned_on_by_someone_else_once(
         granter: Member, pell: Member, django_capture_on_commit_callbacks
     ):

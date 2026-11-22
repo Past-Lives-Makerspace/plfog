@@ -1271,6 +1271,18 @@ def permission_granted_context(data: SampleData) -> dict[str, Any]:
     }
 
 
+def permission_granted_self_serve_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``tours.setup.become_tour_guide`` (#1278): the sample member made themselves a Tour Guide."""
+    from membership import permission_grants
+    from membership.models import AdminCapability
+
+    grant = AdminCapability.Capability.TOUR_GUIDE
+    return {
+        "subject": permission_grants.granted_subject(grant, None),
+        "template_context": permission_grants.email_context(data.member, grant, data.member, None),
+    }
+
+
 def guild_invite_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``membership.guild_invites.notify_invited``: the guild's lead invited the sample member."""
     from membership import guild_invites

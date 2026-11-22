@@ -4,12 +4,16 @@ Four steps on the Tours page: connect a Google Calendar (optional, and unavailab
 sign in is not set up here), set tour hours, read how a tour day goes (Got It), and give a first
 tour, done when one of the guide's tours is marked Attended. Once done the card folds to the tours
 they have given, the visitors on them, and how a guide is paid; the pay itself is never tracked.
+
+A member becomes a Tour Guide themself at the end of Give Tours' tutorial (#1278,
+:func:`become_tour_guide`), which counts as reading how a tour day goes.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from django.db import transaction
 from django.db.models import Count, Sum
 
 from membership.models import AdminCapability
@@ -52,6 +56,39 @@ def tour_guide_facts(member: Member) -> SetupFacts:
         notes=notes,
         stats=(SetupStat(given["tours"], "Tours Given"), SetupStat(given["visitors"] or 0, "Visitors")),
     )
+
+
+def become_tour_guide(member: Member) -> bool:
+    """Grant ``member`` Tour Guide themself, at the end of Give Tours' tutorial (#1278).
+
+    The grant goes through :meth:`Member.set_admin_capability`, the path an admin's grant on the
+    Permissions tab takes, so whatever follows a grant there follows this one. The row records the
+    member as its own granter, which is what marks it self serve; the "You have been granted" email
+    (#1163) goes anyway, worded as their own doing (``permission_grants.record(self_serve=True)``).
+    The tutorial covered A Tour Day, so Learn How a Tour Day Goes is done. Admins hear nothing (Felix);
+    the Activity Log gets its own line, "Made themselves a Tour Guide". The member row is locked
+    first, so a second press sends nothing twice.
+
+    Args:
+        member: an active member, whom the view has already checked.
+
+    Returns:
+        True when this made them a Tour Guide; False when they already were, and nothing changed.
+    """
+    from core.models import SiteActivity
+    from membership import permission_grants
+    from membership.models import Member, PermissionSetup
+
+    capability = AdminCapability.Capability.TOUR_GUIDE
+    with transaction.atomic():
+        Member.objects.select_for_update().only("pk").get(pk=member.pk)
+        if member.has_admin_capability(capability):
+            return False
+        member.set_admin_capability(capability, True, granted_by=member.user)
+        permission_grants.record(member, [capability], granted_by=member.user, self_serve=True)
+        PermissionSetup.for_member(member, capability).mark_read(LEARN)
+        SiteActivity.log(SiteActivity.Kind.TOUR_GUIDE_SELF_SERVE, actor=member.user, target=member)
+    return True
 
 
 TOUR_GUIDE_SETUP = PermissionSetupSpec(

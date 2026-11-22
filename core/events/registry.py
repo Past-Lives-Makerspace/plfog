@@ -1907,14 +1907,15 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_FORCED),
         activity_kind=None,
     ),
-    # A permission turned on for you by someone else (#1163): an admin capability, Instructor, the
-    # Admin role or a guild's Class Reviewer. Bell on, email forced (nobody should hold a duty they do
-    # not know about), one per save from membership.permission_grants with the
-    # membership/emails/permission_granted.{txt,html} body.
+    # A permission turned on for you (#1163): by someone else (an admin capability, Instructor, the
+    # Admin role or a guild's Class Reviewer), or by you on a self serve page (Become a Tour Guide,
+    # #1278). Bell on, email forced (nobody should hold a duty they do not know about), one per save
+    # from membership.permission_grants with the membership/emails/permission_granted.{txt,html} body.
+    # Only the member hears; admins see a self serve grant in the Activity Log.
     EventType(
         key=PERMISSION_GRANTED,
         label="Permission granted",
-        description="Someone turned on a permission for you. What it lets you do and where to go.",
+        description="A permission was turned on for you, by an admin or by you. What it lets you do and where to go.",
         category="Membership",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_FORCED),

@@ -1,6 +1,6 @@
 {% autoescape off %}Hi {{ first_name }},
 
-{{ headline }}. {{ granter_name }} turned this on for you in the Member Portal: {{ portal_url }}
+{{ headline }}. {% if self_serve %}You turned this on yourself{% else %}{{ granter_name }} turned this on for you{% endif %} in the Member Portal: {{ portal_url }}
 
 {{ card.title|upper }}
 What it does: {{ card.what }}

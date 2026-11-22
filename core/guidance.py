@@ -625,7 +625,7 @@ _GUIDANCE_LIST = (
         title="Tour Hours",
         url_name="tours:hours",
         steps=(
-            "Open the Tours card on the Tools page and press My Hours.",
+            "Press Tours in the sidebar, then My Hours.",
             "Every Week is for hours that repeat. If your schedule changes from week to week, use Available On.",
             "Press + Add Dates, tap the days you are free, set From, To, Tour length and Seats, then press Add.",
             "Visitors can book tours on those dates. Delete a date from the list if your plans change.",
@@ -638,10 +638,21 @@ _GUIDANCE_LIST = (
         url_name="tours:calendar",
         target="tours.gaps",
         steps=(
-            "Open the Tours card on the Tools page and press Calendar to see every guide's hours and tours.",
+            "Press Tours in the sidebar, then Calendar, to see every guide's hours and tours.",
             "Days With No Tour Hours lists the days nobody covers. Press Add My Hours on one to add your hours for that day.",
             "Upcoming lists every guide's tours. Use the chips and the Guide menu to narrow it, and the ... on a row for what you can do.",
             "Press Notes on any tour to leave a note for the other guides. On your own tours you can also email it to the visitor.",
+        ),
+    ),
+    Guidance(
+        key="tours.give",
+        title="Give Tours",
+        url_name="tours:give",
+        steps=(
+            "Press Tours in the sidebar. If you don't give tours yet, it opens Give Tours.",
+            "Read why giving tours is worth it, then press Start the Tutorial.",
+            "Go through the five steps with Next. On the last one, press Become a Tour Guide.",
+            "You land on My Hours. Set the times you can give tours, and visitors can book you.",
         ),
     ),
     Guidance(
@@ -650,7 +661,7 @@ _GUIDANCE_LIST = (
         url_name="tours:upcoming",
         target="tours.get-set-up",
         steps=(
-            "Open the Tours card on the Tools page. Get Set Up sits at the top while you have steps left.",
+            "Press Tours in the sidebar. Get Set Up sits at the top while you have steps left.",
             "Each step opens when you get to it. Most tick themselves once you do the thing: connect your calendar, set your hours, give your first tour.",
             "Finish every step to earn the Tour Guide badge on your Member Directory card.",
             "The Guide tab has the full guide, kept up to date by admins on the wiki.",
