@@ -8,7 +8,7 @@ in ``templates/tours/emails/`` (:func:`core.events.senders.emit_with_email_shell
   the booking's stable UID and its SEQUENCE, and the Reschedule and Cancel links.
 - ``tour.booked``: the guide's "New tour booked" (email, bell and push), or for a guide who confirms
   first (#1166) "New tour request" with Confirm and Decline.
-- ``tour.visitor_changed``: the guide hears every move and cancel a visitor makes, and every one a
+- ``tour.visitor_changed``: the guide hears every move and cancel a visitor makes, and every cancel a
   staff member other than themselves makes (#949).
 - A guide's or admin's reschedule asks the visitor first (#1283): ``tour.visitor_update`` carries
   the proposal with Accept New Time and Keep My Time (:func:`send_proposal_email`), and the answer
@@ -17,9 +17,9 @@ in ``templates/tours/emails/`` (:func:`core.events.senders.emit_with_email_shell
 - ``tour.checked_in``: the visitor checked in at the front desk kiosk (#950), bell and push only
   ("Your 4:00 tour is here").
 
-A staff move or cancel (#949) passes ``actor`` (the User who acted) and ``staff_message``: the
-visitor's email carries the message, and only the guides who are not ``actor`` are told, with
-copy naming who acted. Every guide link opens the Tours page's Upcoming tab.
+A staff cancel (#949) passes ``actor`` (the User who acted) and ``staff_message``: the
+visitor's email carries the message, and the guide is told unless they are ``actor``, with copy
+naming who acted. Every guide link opens the Tours page's Upcoming tab.
 
 The reminder goes 24 hours before through the scheduled occurrences walker
 (:func:`tour_reminder_occurrences`, the ``send_tour_reminders`` job), once per start.
@@ -375,13 +375,10 @@ def shared_with_label(names: tuple[str, ...]) -> str:
     return f"{', '.join(names[:-1])} and {names[-1]}"
 
 
-def tell_guide_booked(
-    booking: TourBooking, guide: Member | None, *, actor_name: str = "", shared_with: tuple[str, ...] = ()
-) -> None:
+def tell_guide_booked(booking: TourBooking, guide: Member | None, *, shared_with: tuple[str, ...] = ()) -> None:
     """Tell ``guide`` (or the admins when there is none) a tour of theirs was booked, or requested (#1166).
 
-    With ``actor_name`` (#949) a staff member moved someone else's tour to this guide. A request's
-    email offers Confirm and Decline, each opening the request on the Upcoming tab: a link in an
+    A request's email offers Confirm and Decline, each opening the request on the Upcoming tab: a link in an
     email never acts on its own, since mail scanners open links. ``shared_with`` names the other
     guides a No preference request (#1255) also went to: whoever confirms first gets it.
     """
@@ -392,9 +389,6 @@ def tell_guide_booked(
         body = f"{booking.visitor_name}, {_people(booking)}, {when}. Confirm by {short_when(booking.confirm_by)}."
         if others:
             body += f" Also sent to {others}: whoever confirms first gets it."
-    elif actor_name:
-        title, subject = "Tour moved to you", f"Tour moved to you: {when}"
-        body = f"{actor_name} moved {booking.visitor_name}'s tour, {_people(booking)}, to you: {when}."
     else:
         title, subject = "New tour booked", f"New tour booked: {when}"
         body = f"{booking.visitor_name}, {_people(booking)}, {when}."
@@ -405,9 +399,7 @@ def tell_guide_booked(
         subject=subject,
         text_template="tours/emails/guide_booked.txt",
         html_template="tours/emails/guide_booked.html",
-        template_context=guide_context(
-            booking, actor_name=actor_name, request_url=request_url(booking), shared_with=others
-        ),
+        template_context=guide_context(booking, request_url=request_url(booking), shared_with=others),
         in_app_title=title,
         in_app_body=body,
         url=f"{reverse('tours:upcoming')}#{request_anchor(booking)}",
@@ -448,10 +440,7 @@ def tell_guide_changed(
     else:
         new_when = short_when(booking.starts_at)
         title, subject = "Tour moved", f"Tour moved: {when} to {new_when}"
-        if stays_with_guide or not actor_name:
-            body = f"{who} moved {whose} tour on {when} to {new_when}."
-        else:
-            body = f"{who} moved {whose} tour on {when} to {guide_first_name(booking.guide)}."
+        body = f"{who} moved {whose} tour on {when} to {new_when}."
     emit_with_email_shell(
         GUIDE_CHANGED_EVENT,
         target=booking,
@@ -466,7 +455,6 @@ def tell_guide_changed(
             stays_with_guide=stays_with_guide,
             actor_name=actor_name,
             staff_message=staff_message,
-            new_guide_name=guide_first_name(booking.guide),
             taken_by_name=guide_first_name(taken_by) if taken_by is not None else "",
         ),
         in_app_title=title,
@@ -496,8 +484,8 @@ def announce(
     the visitor's moved email here; :func:`tell_guides_of_answer` tells the guides.
 
     A visitor's move to another guide's tour tells the old guide it moved away and the new guide
-    it was booked; a move within one guide's tours tells that guide once. A staff change
-    (``actor``, #949) is told the same way to every guide involved except ``actor``.
+    it was booked; a move within one guide's tours tells that guide once. A staff cancel
+    (``actor``, #949) tells the tour's guide unless they made it.
 
     A request (#1166) tells the guide as a booking does, with Confirm and Decline. Its confirm and
     decline are the guide's (or an admin's) own answer and tell only the visitor.
@@ -522,7 +510,7 @@ def announce(
         tell_guide_changed(booking, booking.guide, change, taken_by=taken_by)
         return
     if actor is not None:
-        _tell_guides_staff_changed(booking, change, actor, previous_guide, previous_starts_at, staff_message)
+        _tell_guide_staff_cancelled(booking, actor, staff_message)
         return
     if change in (signals.BOOKED, signals.REQUESTED):
         tell_guide_booked(booking, booking.guide, shared_with=shared_with)
@@ -535,39 +523,18 @@ def announce(
         tell_guide_booked(booking, booking.guide)
 
 
-def _tell_guides_staff_changed(
-    booking: TourBooking,
-    change: str,
-    actor: User,
-    previous_guide: Member | None,
-    previous_starts_at: datetime | None,
-    staff_message: str,
-) -> None:
-    """Tell the guides of a staff move or cancel (#949), never the one who made it.
+def _tell_guide_staff_cancelled(booking: TourBooking, actor: User, staff_message: str) -> None:
+    """Tell the tour's guide a staff member cancelled it (#949), unless that guide cancelled it.
 
-    A tour with no guide tells nobody: the staff member who acted is the one looking after it.
+    A staff reschedule asks the visitor first (#1283) and never moves a tour here, so a cancel is
+    the one staff change that reaches this point. A tour with no guide tells nobody: the staff
+    member who acted is the one looking after it.
     """
-    name = person_name(actor)
-
-    def someone_else(guide: Member | None) -> bool:
-        return guide is not None and guide.user_id != actor.pk
-
-    if change == signals.CANCELLED:
-        if someone_else(booking.guide):
-            tell_guide_changed(booking, booking.guide, change, actor_name=name, staff_message=staff_message)
-        return
-    if someone_else(previous_guide):
+    guide = booking.guide
+    if guide is not None and guide.user_id != actor.pk:
         tell_guide_changed(
-            booking,
-            previous_guide,
-            change,
-            previous_starts_at=previous_starts_at,
-            actor_name=name,
-            staff_message=staff_message,
+            booking, guide, signals.CANCELLED, actor_name=person_name(actor), staff_message=staff_message
         )
-    reassigned = previous_guide is None or booking.guide_id != previous_guide.pk
-    if reassigned and someone_else(booking.guide):
-        tell_guide_booked(booking, booking.guide, actor_name=name)
 
 
 def tell_guide_checked_in(booking: TourBooking) -> None:
