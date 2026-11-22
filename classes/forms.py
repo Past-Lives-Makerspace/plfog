@@ -1157,12 +1157,14 @@ class _SearchTextMixin:
     cleaned_data: dict[str, Any]
     is_bound: bool
     data: Any
+    _search_text_on_create: bool
 
     def setup_search_text_fields(self) -> None:
         """Add both fields, prefilled from the class this run belongs to (none on a new run)."""
         from classes.models import SEARCH_DESCRIPTION_LIMIT, SEARCH_TITLE_LIMIT
 
         record = self.instance.class_record if self.instance.class_record_id else None
+        self._search_text_on_create = self.instance.pk is None
         generated_title = self.instance.seo_title if record is not None else ""
         generated_description = self.instance.seo_description if record is not None else ""
         self.fields["search_title"] = forms.CharField(
@@ -1172,6 +1174,8 @@ class _SearchTextMixin:
             initial=record.search_title if record is not None else "",
             help_text=SEARCH_TITLE_HINT,
             widget=forms.TextInput(attrs={"placeholder": generated_title}),
+            # The page posts back what it showed, so "changed" means changed on this page, not since.
+            show_hidden_initial=True,
         )
         self.fields["search_description"] = forms.CharField(
             label="Search description",
@@ -1180,26 +1184,32 @@ class _SearchTextMixin:
             initial=record.search_description if record is not None else "",
             help_text=SEARCH_DESCRIPTION_HINT,
             widget=forms.Textarea(attrs={"rows": 2, "placeholder": generated_description}),
+            show_hidden_initial=True,
         )
 
     def save_search_text(self, offering: ClassOffering) -> None:
-        """Write the fields this editor changed to ``offering``'s class, which its save has just filed it under.
+        """Write the fields this page changed to ``offering``'s class, which its save has just filed it under.
 
-        Only a changed field is written. A new run starts both blank, so it never blanks, or takes over,
-        the text of the class its title files it under; and a form opened before another run's
-        editor changed a field writes that field back only if this editor changed it too.
+        A field is written only when its posted value differs from the value the page was rendered
+        with (``show_hidden_initial``), so a field nobody touched never overwrites what another
+        run's editor saved meanwhile, and clearing a shown value does clear it. A POST without a
+        field's key writes nothing. On a new run, whose title may file it under an existing class,
+        a field is written only while that class's field is blank: a new run can fill an empty
+        field but never replace one already set.
         """
         from classes.models import ClassRecord
 
         changed = self.changed_data  # type: ignore[attr-defined]  # the form this mixes into has it
-        # A POST without a field's key changes nothing, though the form reads the missing key as blank.
+        record = ClassRecord.objects.get(pk=offering.class_record_id)
         edited = {
             name: self.cleaned_data[name]
             for name in ("search_title", "search_description")
-            if name in self.data and name in changed
+            if name in self.data
+            and name in changed
+            and not (self._search_text_on_create and getattr(record, name).strip())
         }
         if edited:
-            ClassRecord.objects.get(pk=offering.class_record_id).set_search_text(**edited)
+            record.set_search_text(**edited)
 
 
 class ClassOfferingForm(

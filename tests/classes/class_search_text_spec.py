@@ -179,21 +179,45 @@ def describe_the_editor_forms():
         record = ClassRecord.objects.get(pk=existing.class_record_id)
         assert (record.search_title, record.search_description) == (TITLE, DESCRIPTION)
 
-    def it_keeps_a_change_made_from_another_run_that_this_editor_did_not_touch():
-        offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
-        stale = TeachPublishedClassForm(
-            data=_published_payload(offering, search_title="", search_description="Mine"), instance=offering
-        )  # opened while both were blank
-        offering.class_record.set_search_text(search_title=TITLE)  # another run's editor saves meanwhile
-        assert stale.is_valid(), stale.errors
-        stale.save()
-        record = ClassRecord.objects.get(pk=offering.class_record_id)
-        assert (record.search_title, record.search_description) == (TITLE, "Mine")
+    def it_keeps_a_new_runs_text_off_a_class_that_already_has_its_own():
+        existing = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED, title="Forge a Leaf Dish")
+        existing.class_record.set_search_text(search_title="Pewter Casting Class in Portland")
+        data = _composer_data(
+            search_title="Cheap pewter", search_description=DESCRIPTION, category=str(existing.category_id)
+        )
+        form = TeachClassOfferingForm(data=data)
+        assert form.is_valid(), form.errors
+        assert form.save().class_record_id == existing.class_record_id
+        record = ClassRecord.objects.get(pk=existing.class_record_id)
+        # The set field stays; the blank one is the new run's to fill.
+        assert (record.search_title, record.search_description) == ("Pewter Casting Class in Portland", DESCRIPTION)
 
-    def it_clears_a_field_posted_empty():
+    def it_keeps_a_change_another_run_saved_after_this_page_was_shown(client: Client):
+        instructor = _instructor()
+        offering = ClassOfferingFactory(instructor=instructor, status=ClassOffering.Status.PUBLISHED)
+        client.force_login(instructor.user)
+        url = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
+        html = client.get(url).content.decode()
+        assert 'name="initial-search_title"' in html  # the page carries what it showed
+        offering.class_record.set_search_text(search_title="Foo")  # another run's editor saves meanwhile
+        payload = _published_payload(
+            offering,
+            **{
+                "search_title": "",
+                "initial-search_title": "",
+                "search_description": "Mine",
+                "initial-search_description": "",
+            },
+        )
+        assert client.post(url, payload).status_code == 302
+        record = ClassRecord.objects.get(pk=offering.class_record_id)
+        assert (record.search_title, record.search_description) == ("Foo", "Mine")
+
+    def it_clears_a_field_the_page_showed_and_the_editor_emptied():
         offering = ClassOfferingFactory(status=ClassOffering.Status.PUBLISHED)
         offering.class_record.set_search_text(search_title=TITLE, search_description=DESCRIPTION)
-        form = TeachPublishedClassForm(data=_published_payload(offering, search_title=""), instance=offering)
+        payload = _published_payload(offering, **{"search_title": "", "initial-search_title": TITLE})
+        form = TeachPublishedClassForm(data=payload, instance=offering)
         assert form.is_valid(), form.errors
         form.save()
         record = ClassRecord.objects.get(pk=offering.class_record_id)
@@ -208,6 +232,7 @@ def describe_the_editor_pages():
         section = review[review.index("data-search-text") :]
         assert 'name="search_title"' in section and 'maxlength="60"' in section
         assert 'name="search_description"' in section and 'maxlength="160"' in section
+        assert 'name="initial-search_title"' in section and 'name="initial-search_description"' in section
 
     def it_saves_from_the_admin_composer(client: Client):
         client.force_login(_admin())
