@@ -58,8 +58,7 @@ def _enabled_guild_with_lead(username: str = "svc_lead") -> tuple[object, object
 
 
 def _ics_bytes(message: object) -> bytes:
-    _filename, content, _mime = message.attachments[0]
-    return content if isinstance(content, bytes) else content.encode()
+    return message.attachments[0].get_content().encode()
 
 
 def describe_build_ics():
@@ -82,6 +81,13 @@ def describe_build_ics():
         booking = OrientationBookingFactory(slot=slot)
         assert b"LOCATION" in orientations.build_ics(booking, method="REQUEST", status="CONFIRMED")
 
+    def it_is_an_invitation_from_the_sending_address_to_the_member(settings):
+        settings.DEFAULT_FROM_EMAIL = "Past Lives <hello@pastlives.space>"
+        booking = OrientationBookingFactory(member=MemberFactory(preferred_name="Wren"))
+        ics = orientations.build_ics(booking, method="REQUEST", status="CONFIRMED").decode().replace("\r\n ", "")
+        assert 'ORGANIZER;CN="Past Lives Makerspace":mailto:hello@pastlives.space' in ics
+        assert f"ATTENDEE;CN=Wren;ROLE=REQ-PARTICIPANT;RSVP=FALSE:mailto:{booking.member.primary_email}" in ics
+
 
 def describe_request_orientation():
     def it_creates_a_requested_booking_and_emails_member_and_lead():
@@ -96,6 +102,8 @@ def describe_request_orientation():
         assert recipients == {member.primary_email, lead.primary_email}
         member_email = next(m for m in mail.outbox if m.to == [member.primary_email])
         assert b"BEGIN:VCALENDAR" in _ics_bytes(member_email)
+        assert member_email.attachments[0].get_param("method") == "REQUEST"
+        assert "Answering the calendar\ninvite changes nothing." in member_email.body
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_REQUESTED).exists()
         assert Notification.objects.filter(user=lead.user, trigger="orientation_requested").exists()
 
@@ -226,8 +234,19 @@ def describe_decline_orientation():
         assert (message.body, message.author_id, message.is_from_staff) == ("try next month", None, True)
         assert "try next month" in mail.outbox[0].body
         assert mail.outbox[0].to == [member.primary_email]
-        assert mail.outbox[0].attachments == []
+        (invite,) = mail.outbox[0].attachments
+        assert invite.get_param("method") == "CANCEL"
+        assert f"UID:orientation-{booking.pk}@pastlives" in invite.get_content()
+        assert "STATUS:CANCELLED" in invite.get_content()
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_DECLINED).exists()
+
+    def it_cancels_the_requests_invite_with_the_same_uid_and_sequence():
+        booking = OrientationBookingFactory(member=_member_with_user("dec_seq"))
+        requested = orientations.build_ics(booking, method="REQUEST", status="TENTATIVE")
+        orientations.decline_orientation(booking)
+        cancel = mail.outbox[0].attachments[0].get_content().encode()
+        for line in (f"UID:orientation-{booking.pk}@pastlives".encode(), b"SEQUENCE"):
+            assert (line in requested) == (line in cancel)
 
 
 def describe_cancel_orientation():
@@ -242,6 +261,7 @@ def describe_cancel_orientation():
         assert booking.status == OrientationBooking.Status.CANCELLED
         assert mail.outbox[0].to == [member.primary_email]
         assert b"METHOD:CANCEL" in _ics_bytes(mail.outbox[0])
+        assert mail.outbox[0].attachments[0].get_param("method") == "CANCEL"
         assert SiteActivity.objects.filter(kind=SiteActivity.Kind.ORIENTATION_CANCELLED).exists()
         assert Notification.objects.filter(user=lead.user, trigger="orientation_requested").exists()
         assert Notification.objects.filter(user=member.user, trigger="orientation_update").exists()

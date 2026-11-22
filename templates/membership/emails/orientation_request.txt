@@ -19,6 +19,8 @@ automatically as a full refund to your card.
 The folks who run this orientation will review your request and respond ASAP
 to confirm. We've
 attached a tentative calendar invite so you can hold the date.
+To change or cancel, use the links in this email. Answering the calendar
+invite changes nothing.
 
 Manage your request: {{ owner_url }}
 Need to cancel? {{ cancel_url }}

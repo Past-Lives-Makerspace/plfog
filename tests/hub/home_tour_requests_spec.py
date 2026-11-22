@@ -135,7 +135,7 @@ def describe_answering_from_home():
         assert pending.status == TourBooking.Status.BOOKED
         (email,) = [message for message in mail.outbox if message.to == ["zorblax@example.com"]]
         assert email.subject.startswith("Your Past Lives tour is confirmed:")
-        assert "METHOD:REQUEST" in str(email.attachments[0][1])
+        assert "METHOD:REQUEST" in email.attachments[0].get_content()
         home = client.get(HOME).content.decode()
         assert "Zorblax Visitor&#x27;s tour on" in home and "is confirmed. We emailed them." in home
         assert f'data-tour-request="{pending.pk}"' not in home

@@ -3,7 +3,7 @@
 A quick reminder: your tour of Past Lives Makerspace is tomorrow!
 
 {% include "tours/emails/_tour.txt" %}
-See you soon!
+See you soon! To change or cancel, use the links in this email. Answering the calendar invite changes nothing.
 
 Your tour: {{ manage_url }}
 {% include "tours/emails/_actions.txt" %}{% include "tours/emails/_footer.txt" %}{% endautoescape %}

@@ -34,6 +34,7 @@ from django.conf import settings
 from django.urls import reverse
 from django.utils import timezone
 
+from core.email import add_invite_parties, invite_mimetype
 from core.events.channels import Message
 from core.events.emit import emit
 from core.events.registry import Channel
@@ -166,6 +167,8 @@ def build_ics(booking: TourBooking, *, cancelled: bool = False) -> bytes:
     event.add("dtstamp", timezone.now())
     event.add("sequence", booking.sequence)
     event.add("status", "CANCELLED" if cancelled else "CONFIRMED")
+    # An invitation from us to the visitor, so their calendar applies a move or a cancel (#1287).
+    add_invite_parties(event, attendee_email=booking.visitor_email, attendee_name=booking.visitor_name)
     event.add("location", TOUR_ADDRESS)
     event.add(
         "description",
@@ -177,7 +180,11 @@ def build_ics(booking: TourBooking, *, cancelled: bool = False) -> bytes:
 
 
 def _ics_attachment(booking: TourBooking, *, cancelled: bool = False) -> tuple[str, bytes, str]:
-    return ("tour.ics", build_ics(booking, cancelled=cancelled), "text/calendar")
+    return (
+        "tour.ics",
+        build_ics(booking, cancelled=cancelled),
+        invite_mimetype("CANCEL" if cancelled else "REQUEST"),
+    )
 
 
 def guide_notice_hours(booking: TourBooking) -> int | None:
