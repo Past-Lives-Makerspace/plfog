@@ -170,6 +170,26 @@ def describe_inbox():
 
         assert list(response.context["page"].object_list) == [match]
 
+    def it_shows_each_request_number_before_its_subject(client: Client):
+        _admin(client)
+        request = FeedbackRequestFactory(subject="Zzpay later")
+
+        body = client.get(INBOX).content.decode()
+
+        assert f'<span class="pl-feedback-number" data-feedback-number>#{request.pk}</span> Zzpay later</a>' in body
+
+    def it_keeps_backlog_in_the_open_view_and_offers_it_as_one_status(client: Client):
+        _admin(client)
+        backlog = FeedbackRequestFactory(status=Status.BACKLOG)
+        FeedbackRequestFactory(status=Status.RECEIVED)
+
+        open_view = client.get(INBOX)
+        only_backlog = client.get(INBOX, {"status": "backlog"})
+
+        assert backlog in open_view.context["page"].object_list
+        assert list(only_backlog.context["page"].object_list) == [backlog]
+        assert '<option value="backlog" selected>Backlog</option>' in only_backlog.content.decode()
+
     def it_says_so_when_nothing_matches_the_filters(client: Client):
         _admin(client)
         FeedbackRequestFactory(category="bug")
@@ -216,6 +236,28 @@ def describe_request_page():
         assert "Zzthe full message" in body
         assert request.user.email in body
         assert "https://github.com/o/r/issues/42" in body
+
+    def it_puts_the_number_before_the_subject_in_the_heading(client: Client):
+        _admin(client)
+        request = FeedbackRequestFactory(subject="Zzpay later")
+
+        body = client.get(_page(request.pk)).content.decode()
+
+        heading = f'<h1 class="hub-page-title"><span class="pl-feedback-number" data-feedback-number>#{request.pk}</span> Zzpay later</h1>'
+        assert heading in body
+        assert f"<title>#{request.pk} Zzpay later" in body
+
+    def it_offers_backlog_with_no_comment_on_a_feature_request(client: Client):
+        _admin(client)
+        request = FeedbackRequestFactory(category="feature")
+
+        choices = client.get(_page(request.pk)).context["form"].fields["status"].choices
+        response = _post(client, request, status="backlog")
+
+        assert ("backlog", "Backlog") in choices
+        assert response.status_code == 302
+        request.refresh_from_db()
+        assert request.status == Status.BACKLOG
 
     def it_links_a_member_sender_to_their_member_page(client: Client):
         _admin(client)

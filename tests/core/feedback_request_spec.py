@@ -122,6 +122,7 @@ def describe_labels():
         ("category", "status", "label", "phrase", "tone"),
         [
             (Category.FEATURE, Status.RECEIVED, "Received", "received", "neutral"),
+            (Category.BUG, Status.BACKLOG, "Backlog", "in the backlog", "info"),
             (Category.FEATURE, Status.PLANNED, "Planned", "planned", "primary"),
             (Category.FEATURE, Status.BUILDING, "Building", "being built", "primary"),
             (Category.FEATURE, Status.LIVE, "Live", "live", "ok"),
@@ -167,7 +168,7 @@ def describe_labels():
 
 
 def describe_apply_admin_update():
-    @pytest.mark.parametrize("status", [Status.PLANNED, Status.BUILDING, Status.LIVE])
+    @pytest.mark.parametrize("status", [Status.BACKLOG, Status.PLANNED, Status.BUILDING, Status.LIVE])
     def it_tells_the_sender_once_on_each_move_forward(admin: User, status: str):
         request = FeedbackRequestFactory()
 
@@ -179,6 +180,18 @@ def describe_apply_admin_update():
         [message] = mail.outbox
         assert message.to == [request.user.email]
         assert message.subject == f"Your request: {request.subject} is {request.status_phrase}"
+
+    def it_moves_to_backlog_with_no_comment_or_issue_link_and_keeps_it_open(admin: User):
+        request = FeedbackRequestFactory(category=Category.FEATURE)
+
+        assert _update(request, admin, status=Status.BACKLOG) is True
+
+        request.refresh_from_db()
+        assert (request.status, request.github_issue_url, request.comments.count()) == (Status.BACKLOG, "", 0)
+        assert list(FeedbackRequest.objects.open()) == [request]
+        assert list(FeedbackRequest.objects.received()) == []
+        [message] = mail.outbox
+        assert message.subject == f"Your request: {request.subject} is in the backlog"
 
     def it_tells_the_sender_not_planned_with_the_reason(admin: User):
         request = FeedbackRequestFactory()
@@ -457,7 +470,9 @@ def describe_the_comment_in_a_notice():
 
 
 def describe_general_feedback():
-    @pytest.mark.parametrize("status", [Status.PLANNED, Status.BUILDING, Status.LIVE, Status.NOT_PLANNED])
+    @pytest.mark.parametrize(
+        "status", [Status.BACKLOG, Status.PLANNED, Status.BUILDING, Status.LIVE, Status.NOT_PLANNED]
+    )
     def it_refuses_any_status_but_received(admin: User, status: str):
         request = FeedbackRequestFactory(category=Category.FEEDBACK)
 
@@ -733,6 +748,7 @@ def describe_closing():
         ("status", "closed"),
         [
             (Status.RECEIVED, False),
+            (Status.BACKLOG, False),
             (Status.PLANNED, False),
             (Status.BUILDING, False),
             (Status.LIVE, True),

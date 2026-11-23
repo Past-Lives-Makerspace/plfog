@@ -1,6 +1,6 @@
 {% extends "hub/base.html" %}
 {% load static %}
-{% block title %}{{ feedback_request.subject }} · Feedback Inbox{% endblock %}
+{% block title %}#{{ feedback_request.pk }} {{ feedback_request.subject }} · Feedback Inbox{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/feedback.css' %}">
 {% endblock %}
@@ -16,11 +16,10 @@ every link and post so Back to inbox keeps the filters.
 {% endcomment %}
 <div class="pl-feedback-admin">
 <p class="pl-feedback-admin__back"><a href="{% url 'hub_admin_feedback_inbox' %}{% if inbox_query %}?{{ inbox_query }}{% endif %}" class="hub-btn hub-btn--sm hub-btn--ghost">&larr; Back to inbox</a></p>
-<h1 class="hub-page-title">{{ feedback_request.subject }}</h1>
+<h1 class="hub-page-title"><span class="pl-feedback-number" data-feedback-number>#{{ feedback_request.pk }}</span> {{ feedback_request.subject }}</h1>
 <p class="pl-feedback-admin__meta">
   <span class="hub-pill hub-pill--{{ feedback_request.status_tone }}" data-feedback-status="{{ feedback_request.status }}">{{ feedback_request.status_label }}</span>
   <span>{{ feedback_request.get_category_display }}</span>
-  <span>Request #{{ feedback_request.pk }}</span>
   <span>Sent {{ feedback_request.created_at|date:"M j, Y g:i A" }}</span>
 </p>
 
