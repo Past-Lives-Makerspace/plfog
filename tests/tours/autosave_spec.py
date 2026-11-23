@@ -218,6 +218,7 @@ def describe_confirming_bookings_is_gone():
         assert signed_in(guide).post("/facility-tours/hours/confirming/save/", {}).status_code == 404
 
 
+@pytest.mark.usefixtures("google_on")
 def describe_google_calendar_autosave():
     def it_saves_the_picked_calendar_and_answers_json(guide: Member):
         TourCalendarConnectionFactory(guide=guide)

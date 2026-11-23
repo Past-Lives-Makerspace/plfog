@@ -19,6 +19,7 @@ from django.utils import timezone
 from factory.django import mute_signals
 
 from billing.models import PaymentRefund
+from billing.scope import PaymentsScope
 from core.models import SiteActivity
 from membership import orientations, webhook_handlers
 from membership.models import (
@@ -823,7 +824,7 @@ def describe_finance_readers_ignore_uncharged_holds():
         booking = _orientor_booking()
         assert not payouts.has_earning(booking.oriented_by)
         assert booking not in payouts._bookings()
-        assert _orientation_rows(_window(), viewer_is_admin=True) == []
+        assert _orientation_rows(_window(), viewer_is_admin=True, scope=PaymentsScope(everything=True)) == []
         assert _orientation_lines(_window(), {}, {}) == []
         queryset, _field = stripe_fees.paid_sources()["orientation"]
         assert booking not in queryset
@@ -835,7 +836,10 @@ def describe_finance_readers_ignore_uncharged_holds():
         booking = _orientor_booking(status=Status.CONFIRMED, amount_paid_cents=1500, paid_at=timezone.now())
         assert payouts.has_earning(booking.oriented_by)
         assert booking in payouts._bookings()
-        assert [row.amount_cents for row in _orientation_rows(_window(), viewer_is_admin=True)] == [1500]
+        assert [
+            row.amount_cents
+            for row in _orientation_rows(_window(), viewer_is_admin=True, scope=PaymentsScope(everything=True))
+        ] == [1500]
 
     def it_leaves_a_released_hold_out_too():
         from billing import payouts
