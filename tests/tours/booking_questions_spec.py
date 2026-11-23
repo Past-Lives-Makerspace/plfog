@@ -207,7 +207,7 @@ def describe_the_upcoming_tab():
 
 def describe_required_and_checkbox_fields():
     """Morlock's review of the preview: say which fields are required, offer the newsletter, and
-    ask about a dedicated studio (feedback request #7 for the newsletter)."""
+    ask about a dedicated studio (feedback request #35 for the newsletter)."""
 
     def it_marks_name_email_and_phone_required():
         form = _form()

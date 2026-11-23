@@ -3,7 +3,6 @@ date = "2026-11-22"
 audience = ["members", "admins"]
 feature = "tours.hours"
 guidance = "shots"
-target = "tours.available-on"
 title = "Booking a tour shows a real calendar"
 changes = [
   "Pick a Day is a month calendar now: Sunday to Saturday, a block for each month, days without tours greyed out.",

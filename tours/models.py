@@ -722,7 +722,7 @@ class TourBooking(models.Model):
         help_text="What brings them to Past Lives: what they make, and what they hope to find here.",
     )
     # Two boxes on the booking form, both unticked to start (Morlock, reviewing #32): a studio
-    # lead for the guide, and a newsletter opt-in (feedback request #7) that subscribes the
+    # lead for the guide, and a newsletter opt-in (feedback request #35) that subscribes the
     # visitor in Mailchimp (tours.tasks.subscribe_tour_visitor). The opt-in is kept as the record
     # of their consent.
     wants_studio = models.BooleanField(default=False, help_text="They ticked interest in a dedicated studio space.")

@@ -65,7 +65,7 @@ data-tour-draft so static/js/tour-booking-draft.js keeps what was typed in the t
     {% if field.errors %}<ul class="reg-errors">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
   </div>
   {% endfor %}
-  {# Two boxes, both off to start (#32 review, #7): studio interest for the guide, and the newsletter. #}
+  {# Two boxes, both off to start (#32 review, #35): studio interest for the guide, and the newsletter. #}
   <div class="pl-tourpub__account" data-tour-studio>
     {% include "components/toggle.html" with field=form.wants_studio toggle_label=form.wants_studio.label toggle_description="Your guide will make sure you see the studios." %}
   </div>
