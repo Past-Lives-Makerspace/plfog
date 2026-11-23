@@ -9213,7 +9213,7 @@ class GuildMembership(models.Model):
             "directions from fighting."
         ),
     )
-    # Unused since #1319: un-reacting now removes the membership itself. Kept until a later PR drops it.
+    # Unused since #1319: un-reacting removes the membership itself (0290 removed the marked rows). Dropped later.
     no_discord_role = models.BooleanField(
         default=False,
         help_text=(
