@@ -17,7 +17,7 @@ open_request_pk (int or None).
     <details class="pl-disclosure pl-feedback-request" id="{{ item.anchor }}" data-feedback-request="{{ item.pk }}"{% if item.pk == open_request_pk %} open{% endif %}>
       <summary class="pl-disclosure__summary">
         <span class="pl-disclosure__text">
-          <span class="pl-disclosure__title">{{ item.subject }}</span>
+          <span class="pl-disclosure__title"><span class="pl-feedback-number" data-feedback-number>#{{ item.pk }}</span> {{ item.subject }}</span>
           <span class="pl-disclosure__hint pl-feedback-request__meta">
             <span class="hub-pill hub-pill--{{ item.status_tone }}" data-feedback-status="{{ item.status }}">{{ item.status_label }}</span>
             <span>{{ item.get_category_display }}</span>

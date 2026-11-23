@@ -22,6 +22,7 @@ from django.contrib.auth.models import User
 from django.core import mail
 from django.urls import reverse
 from django.utils import timezone
+from playwright.sync_api import expect
 
 from membership.models import AdminCapability, Member
 from tests.e2e.guidance import shoot
@@ -153,7 +154,9 @@ def describe_ask_the_visitor_first():
         page.get_by_role("button", name="Month", exact=True).click()
         waiting = ".pl-calendar-list__guild:visible:has-text('Waiting for the Visitor, asked to move to')"
         page.locator(waiting).first.wait_for()
-        assert page.locator(".pl-calendar-grid--month:visible", has_text="Sam R. (2) · Waiting").count() == 1
+        # expect() retries: the month grid turns visible a beat after the list, and a one-shot count
+        # taken in that beat read 0 under Playwright 1.65.
+        expect(page.locator(".pl-calendar-grid--month:visible", has_text="Sam R. (2) · Waiting")).to_have_count(1)
         _capture(page, "calendar-waiting", waiting, whole_phone=True)
         page.goto(f"{live_server.url}{reverse('tours:upcoming')}")
 

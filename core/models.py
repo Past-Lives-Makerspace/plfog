@@ -3744,6 +3744,7 @@ class FeedbackRequest(models.Model):
 
     class Status(models.TextChoices):
         RECEIVED = "received", "Received"
+        BACKLOG = "backlog", "Backlog"
         PLANNED = "planned", "Planned"
         BUILDING = "building", "Building"
         LIVE = "live", "Live"
@@ -3751,9 +3752,18 @@ class FeedbackRequest(models.Model):
         NOT_A_BUG = "not_a_bug", "Not a bug"
         CLOSED = "closed", "Closed"
 
-    # A move to one of these tells the sender; a move back to Received does not.
+    # A move to one of these tells the sender; a move back to Received does not. Backlog is
+    # "we will do it eventually": open, and neither Received nor discarded.
     NOTIFYING_STATUSES: frozenset[str] = frozenset(
-        {Status.PLANNED, Status.BUILDING, Status.LIVE, Status.NOT_PLANNED, Status.NOT_A_BUG, Status.CLOSED}
+        {
+            Status.BACKLOG,
+            Status.PLANNED,
+            Status.BUILDING,
+            Status.LIVE,
+            Status.NOT_PLANNED,
+            Status.NOT_A_BUG,
+            Status.CLOSED,
+        }
     )
 
     # The one place that says which statuses close a request. The inbox's Open view leaves them
@@ -3769,6 +3779,7 @@ class FeedbackRequest(models.Model):
     # How a status reads in a sentence: "Your request: <subject> is <phrase>".
     _STATUS_PHRASES: dict[str, str] = {
         Status.RECEIVED: "received",
+        Status.BACKLOG: "in the backlog",
         Status.PLANNED: "planned",
         Status.BUILDING: "being built",
         Status.LIVE: "live",
@@ -3780,6 +3791,7 @@ class FeedbackRequest(models.Model):
     # The existing hub-pill tone for each status.
     _STATUS_TONES: dict[str, str] = {
         Status.RECEIVED: "neutral",
+        Status.BACKLOG: "info",
         Status.PLANNED: "primary",
         Status.BUILDING: "primary",
         Status.LIVE: "ok",
