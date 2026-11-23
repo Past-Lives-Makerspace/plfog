@@ -1,7 +1,9 @@
 """Inbound Discord reader — who reacted with a given emoji on the role message.
 
 The *inbound* half of the two-way guild sync reads **reactions** (never roles), so it is
-structurally disjoint from the outbound role writer (:mod:`core.events.discord_roles`).
+structurally disjoint from the outbound role writer (:mod:`core.events.discord_roles`). Its one
+write, :func:`remove_reaction`, takes a member's emoji off when they leave the guild in the portal
+(#1319), so the emoji and the roster agree.
 
 The removal guardrail lives here. :func:`fetch_reactors` pages Discord's reactions
 endpoint and reports whether it read the reaction list **completely** (every page a 2xx,
@@ -124,3 +126,32 @@ def _retry_after_seconds(response: httpx.Response) -> float:
         return max(0.0, float(raw))
     except (TypeError, ValueError):
         return 1.0
+
+
+def remove_reaction(channel_id: str, message_id: str, emoji: str, user_id: str) -> bool:
+    """Take ``user_id``'s ``emoji`` reaction off a role message. Never raises.
+
+    ``DELETE /channels/{ch}/messages/{msg}/reactions/{emoji}/{user}`` needs the bot's Manage
+    Messages permission. Returns ``True`` when nothing is left to do: a 2xx, a 404 (the reaction,
+    message or emoji is already gone), or a blank token or id. Returns ``False`` on a network error,
+    a 429 after the retries, or any other non-2xx, so the caller can fail its task and be retried.
+    """
+    if bot_disabled("reaction remove") or not channel_id or not message_id or not emoji or not user_id:
+        return True
+    url = f"{API_BASE}/channels/{channel_id}/messages/{message_id}/reactions/{quote(emoji, safe='')}/{user_id}"
+    headers = {"Authorization": f"Bot {bot_token()}"}
+    retries = 0
+    while True:
+        try:
+            response = httpx.delete(url, headers=headers, timeout=_DEFAULT_TIMEOUT_SECONDS)
+        except httpx.HTTPError as exc:
+            logger.warning("Discord reaction remove failed (network error): %s", exc)
+            return False
+        if response.status_code == 429 and retries < _MAX_RATE_LIMIT_RETRIES:
+            retries += 1
+            time.sleep(min(_retry_after_seconds(response), _MAX_RETRY_SLEEP_SECONDS))
+            continue
+        if response.is_success or response.status_code == 404:
+            return True
+        logger.warning("Discord reaction remove failed: %s %s", response.status_code, response.text[:300])
+        return False

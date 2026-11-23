@@ -1416,11 +1416,21 @@ class Member(models.Model):
         orientations.send_guild_welcome(guild, self)
 
     def unsubscribe_from_guild(self, guild: Guild) -> None:
-        """Remove this member's subscription to ``guild`` (idempotent) and drop the Discord role."""
+        """Remove this member's subscription to ``guild`` (idempotent), drop the Discord role and take their emoji off.
+
+        A linked member's emoji for the guild comes off #choose-your-guild by a task queued on
+        commit (:func:`membership.discord_sync.remove_guild_reactions`), so the 15 minute reaction
+        sync cannot put them back on the roster (#1319).
+        """
         from core.events import discord_roles
+        from core.tasks import enqueue_on_commit
+        from membership.discord_sync import remove_guild_reactions
 
         GuildMembership.objects.filter(guild=guild, member=self).delete()
         discord_roles.on_membership_changed(guild, self, joined=False)
+        user_id = (self.discord_user_id or "").strip()
+        if user_id:
+            enqueue_on_commit(remove_guild_reactions, user_id, guild.pk)
 
     def answer_guild_updates_prompt(self, guilds: Iterable[Guild]) -> int:
         """Record the member's first-login guild updates answer (idempotent to re-call).
@@ -9156,16 +9166,19 @@ class GuildMembershipManager(models.Manager["GuildMembership"]):
 
     def record_discord_join(self, guild: Guild, member: Member) -> tuple[GuildMembership, bool]:
         """Inbound reaction mirror. Create as ``source="discord"``; NEVER downgrade an
-        existing ``source="app"`` row (``get_or_create`` with ``defaults`` leaves it
-        untouched). A new row closes the member's open invite to the guild; an existing one
-        already did when it was written, so the 15 minute reconcile adds no write per reactor.
-        Returns ``(membership, created)``.
+        existing ``source="app"`` or ``"invite"`` row, but mark it ``reacted`` once, so a later
+        missing reaction removes it like any emoji row (#1320). A new row closes the member's open
+        invite to the guild; an existing one already did when it was written, so the 15 minute
+        reconcile adds no write per reactor after the first. Returns ``(membership, created)``.
         """
         membership, created = self.get_or_create(
-            guild=guild, member=member, defaults={"source": self.model.Source.DISCORD}
+            guild=guild, member=member, defaults={"source": self.model.Source.DISCORD, "reacted": True}
         )
         if created:
             _close_open_invites(guild, member)
+        elif not membership.reacted:
+            membership.reacted = True
+            membership.save(update_fields=["reacted"])
         return membership, created
 
 
@@ -9203,6 +9216,15 @@ class GuildMembership(models.Model):
             "directions from fighting."
         ),
     )
+    reacted = models.BooleanField(
+        default=False,
+        help_text=(
+            "The member reacted for this guild in #choose-your-guild while on its roster, so taking the "
+            "reaction off removes the membership, whatever its source. A row written by a reaction is "
+            "always treated as reacted (#1320)."
+        ),
+    )
+    # Unused since #1319: un-reacting removes the membership itself (0291 marked its rows reacted). Dropped later.
     no_discord_role = models.BooleanField(
         default=False,
         help_text=(

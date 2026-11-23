@@ -28,6 +28,7 @@ from typing import Any, Protocol
 
 import discord
 from django.db import close_old_connections
+from django.utils import timezone
 
 from core.events.discord_dm import bot_token
 
@@ -107,7 +108,7 @@ def dispatch(event: ReactionEvent) -> bool:
     guild_id = _matching_guild_id(event.emoji, DiscordGuildEmoji.objects.mapping())
     if guild_id is None:
         return False
-    enqueue_on_commit(apply_reaction, event.user_id, guild_id, event.added)
+    enqueue_on_commit(apply_reaction, event.user_id, guild_id, event.added, timezone.now().isoformat())
     return True
 
 
