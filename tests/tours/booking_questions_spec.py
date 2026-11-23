@@ -153,7 +153,7 @@ def describe_booking_on_the_website():
         assert "What brings you to Past Lives?" in content
         assert "most interested in" not in content and "Anything else you" not in content
         assert "How did you learn about us?" in content
-        assert "If someone here referred you, their name" in content
+        assert "What was their name?" in content
         assert "stairs" not in content.lower()
 
 
@@ -341,3 +341,25 @@ def describe_how_they_learned_about_us():
         labels = [label for _, label in _form().fields["found_us_through"].choices]
         assert "Someone told me about it!" in labels
         assert not any("friend" in label.lower() or "coworker" in label.lower() for label in labels)
+
+
+def describe_who_told_them():
+    """Morlock, 2026-11-22: the referral question reads naturally and only follows "Someone told me about it!"."""
+
+    def it_asks_their_name_and_mentions_the_referral_bonus():
+        field = _form().fields["referred_by"]
+        assert field.label == "What was their name?"
+        assert field.help_text == "If they're an active member here, they'll get a $50 referral bonus when you join."
+
+    def it_shows_only_while_someone_told_them(guide: Member, hours: Any):
+        content = Client(HTTP_HOST=HOST).get("/", {"tour": _key(guide)}).content.decode()
+        assert 'x-model="found"' in content
+        assert """data-tour-question="referred_by" x-show="found === 'Someone told me about it!'" x-cloak""" in content
+
+    def it_keeps_the_name_with_that_answer(guide: Member, hours: Any):
+        Client(HTTP_HOST=HOST).post("/", _post(guide))
+        assert TourBooking.objects.get().referred_by == "Jo Member"
+
+    def it_drops_a_name_typed_before_another_answer_was_picked(guide: Member, hours: Any):
+        Client(HTTP_HOST=HOST).post("/", _post(guide, found_us_through="Instagram"))
+        assert TourBooking.objects.get().referred_by == ""

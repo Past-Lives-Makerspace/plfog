@@ -487,6 +487,10 @@ class FacilityTourSettingsForm(forms.ModelForm):
 QUESTION_FIELDS = ("pronouns", "found_us_through", "referred_by", "guest_notes")
 
 
+#: The answer that asks for a name (Morlock, 2026-11-22), for the template's x-show.
+TOLD_ANSWER = FoundUs.TOLD.value
+
+
 class TourBookingForm(forms.Form):
     """The visitor's details on tours.pastlives.space (#948): name, email, phone (required since
     feedback request #32), party size, then SimplyBook's optional questions (#32): pronouns,
@@ -515,7 +519,14 @@ class TourBookingForm(forms.Form):
         choices=[("", "Pick one"), *FoundUs.choices],
         label="How did you learn about us?",
     )
-    referred_by = forms.CharField(max_length=200, required=False, label="If someone here referred you, their name")
+    # Asked only once they pick "Someone told me about it!" (Morlock, 2026-11-22): _book_form.html shows it
+    # then, and clean() drops a name typed before another answer was picked. The bonus is Morlock's words.
+    referred_by = forms.CharField(
+        max_length=200,
+        required=False,
+        label="What was their name?",
+        help_text="If they're an active member here, they'll get a $50 referral bonus when you join.",
+    )
     # One open question in place of "most interested in" and "anything else" (Morlock, 2026-11-22):
     # what they make and what they want from us, so the guide knows where to take them.
     guest_notes = forms.CharField(
@@ -561,9 +572,16 @@ class TourBookingForm(forms.Form):
         self.fields["phone"].widget = forms.TextInput(attrs={"type": "tel", "autocomplete": "off" if kiosk else "tel"})
         # The ideal studio field follows the studio box (Morlock).
         self.fields["wants_studio"].widget.attrs["x-model"] = "studio"
+        # The referral question follows "Someone told me about it!" (Morlock).
+        self.fields["found_us_through"].widget.attrs["x-model"] = "found"
         if kiosk:
             for name in ("pronouns", "referred_by", "guest_notes", "studio_description"):
                 self.fields[name].widget.attrs["autocomplete"] = "off"
+
+    @property
+    def told_answer(self) -> str:
+        """The found us answer that opens the referral question, for ``_book_form.html``."""
+        return TOLD_ANSWER
 
     @property
     def question_fields(self) -> list[forms.BoundField]:
@@ -575,6 +593,9 @@ class TourBookingForm(forms.Form):
         if not cleaned.get("wants_studio"):
             # Typed, then the box was unticked: the field was hidden, so it was not meant to send.
             cleaned["studio_description"] = ""
+        if cleaned.get("found_us_through") != FoundUs.TOLD:
+            # The same for a name typed before another way of learning about us was picked.
+            cleaned["referred_by"] = ""
         return cleaned
 
     @property
