@@ -714,6 +714,15 @@ class TourBooking(models.Model):
         max_length=200, blank=True, default="", help_text="Who here referred them, as they typed it."
     )
     guest_notes = models.TextField(blank=True, default="", help_text="Anything they wanted us to know before the tour.")
+    # Two boxes on the booking form, both unticked to start (Morlock, reviewing #32): a studio
+    # lead for the guide, and a newsletter opt-in (feedback request #7) that subscribes the
+    # visitor in Mailchimp (tours.tasks.subscribe_tour_visitor). The opt-in is kept as the record
+    # of their consent.
+    wants_studio = models.BooleanField(default=False, help_text="They ticked interest in a dedicated studio space.")
+    studio_description = models.TextField(
+        blank=True, default="", help_text="Their ideal studio and what they'd do with it, asked once they tick the box."
+    )
+    wants_newsletter = models.BooleanField(default=False, help_text="They asked to join the Past Lives newsletter.")
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
@@ -898,8 +907,12 @@ class TourBooking(models.Model):
     @property
     def guest_answers(self) -> list[tuple[str, str]]:
         """The booking questions answered (feedback request #32), as ``(label, answer)`` in order,
-        for the guide's email and the Upcoming row; a skipped question is left out."""
+        for the guide's email and the Upcoming row; a skipped question is left out, and a ticked
+        studio box reads "Interested in a studio: Yes"."""
         answers = [(label, str(getattr(self, name)).strip()) for label, name in GUEST_ANSWER_LABELS]
+        if self.wants_studio:
+            answers.append(("Interested in a studio", "Yes"))
+            answers.append(("Ideal studio", self.studio_description.strip()))
         return [(label, answer) for label, answer in answers if answer]
 
     @property

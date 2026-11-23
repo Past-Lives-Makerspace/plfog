@@ -82,6 +82,9 @@ def describe_the_form():
             "found_us_through",
             "referred_by",
             "guest_notes",
+            "wants_studio",
+            "studio_description",
+            "wants_newsletter",
             "website",
         ]
 
@@ -89,7 +92,6 @@ def describe_the_form():
         form = _form(phone="")
         assert not form.is_valid()
         assert "phone" in form.errors
-        assert form.fields["phone"].label == "Phone"
 
     def it_takes_every_answer_as_optional_but_the_phone():
         assert _form().is_valid()
@@ -203,3 +205,113 @@ def describe_the_upcoming_tab():
         TourBookingFactory(guide=guide, starts_at=local(_day(), 16))
         content = signed_in(guide).get(reverse("tours:upcoming")).content.decode()
         assert "data-tour-booking-answers" not in content
+
+
+def describe_required_and_checkbox_fields():
+    """Morlock's review of the preview: say which fields are required, offer the newsletter, and
+    ask about a dedicated studio (feedback request #7 for the newsletter)."""
+
+    def it_marks_name_email_and_phone_required():
+        form = _form()
+        assert [form.fields[name].label for name in ("name", "email", "phone")] == [
+            "Your name (required)",
+            "Email (required)",
+            "Phone (required)",
+        ]
+        assert all(form.fields[name].required for name in ("name", "email", "phone"))
+        assert "email" in _form(email="").errors
+
+    def it_says_optional_nowhere_since_required_is_marked():
+        assert not any("(optional)" in str(field.label) for field in _form().fields.values())
+
+    def it_offers_the_newsletter_and_the_studio_unticked():
+        form = _form()
+        assert form.fields["wants_newsletter"].label == "Sign me up for the Past Lives newsletter"
+        assert form.fields["wants_studio"].label == "I'm interested in a dedicated studio space"
+        assert not form.fields["wants_newsletter"].initial and not form.fields["wants_studio"].initial
+
+    def it_keeps_both_boxes_on_the_booking(guide: Member, hours: Any):
+        Client(HTTP_HOST=HOST).post("/", _post(guide, wants_newsletter="on", wants_studio="on"))
+        booking = TourBooking.objects.get()
+        assert (booking.wants_newsletter, booking.wants_studio) == (True, True)
+
+    def it_leaves_both_off_when_unticked(guide: Member, hours: Any):
+        Client(HTTP_HOST=HOST).post("/", _post(guide))
+        booking = TourBooking.objects.get()
+        assert (booking.wants_newsletter, booking.wants_studio) == (False, False)
+
+    def it_tells_the_guide_about_studio_interest(guide: Member):
+        booking = TourBookingFactory(guide=guide, starts_at=local(_day(), 16), wants_studio=True)
+        assert ("Interested in a studio", "Yes") in booking.guest_answers
+        assert all(label != "Interested in a studio" for label, _ in TourBookingFactory(guide=guide).guest_answers)
+
+
+def describe_the_newsletter_signup():
+    class _Mailchimp:
+        enabled = True
+
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        def subscribe(self, **kwargs: Any) -> bool:
+            self.calls.append(kwargs)
+            return True
+
+    def _book(guide: Member, capture: Any, **values: str) -> list[dict[str, Any]]:
+        from unittest.mock import patch
+
+        fake = _Mailchimp()
+        with patch("core.integrations.mailchimp.MailchimpClient.from_site_config", return_value=fake):
+            with capture(execute=True):
+                Client(HTTP_HOST=HOST).post("/", _post(guide, **values))
+        return fake.calls
+
+    def it_subscribes_a_visitor_who_ticked_it(guide: Member, hours: Any, django_capture_on_commit_callbacks: Any):
+        calls = _book(guide, django_capture_on_commit_callbacks, wants_newsletter="on")
+        assert calls == [
+            {"email": "olivia@example.com", "first_name": "Olivia", "last_name": "Vittitow", "tags": ["tour-visitor"]}
+        ]
+
+    def it_tags_studio_interest(guide: Member, hours: Any, django_capture_on_commit_callbacks: Any):
+        calls = _book(guide, django_capture_on_commit_callbacks, wants_newsletter="on", wants_studio="on")
+        assert calls[0]["tags"] == ["tour-visitor", "tour-studio-interest"]
+
+    def it_never_subscribes_one_who_did_not(guide: Member, hours: Any, django_capture_on_commit_callbacks: Any):
+        assert _book(guide, django_capture_on_commit_callbacks) == []
+        assert _book(guide, django_capture_on_commit_callbacks, wants_studio="on", email="b@example.com") == []
+
+    def it_invites_the_rest_from_the_confirmation_email(
+        guide: Member, hours: Any, django_capture_on_commit_callbacks: Any
+    ):
+        _book(guide, django_capture_on_commit_callbacks)
+        _book(guide, django_capture_on_commit_callbacks, wants_newsletter="on", email="joined@example.com")
+        invited = next(message for message in mail.outbox if message.to == ["olivia@example.com"])
+        joined = next(message for message in mail.outbox if message.to == ["joined@example.com"])
+        link = "https://www.pastlives.space/#footer-sections"
+        assert "Join our newsletter" in invited.body and link in invited.body
+        assert link in invited.alternatives[0][0]
+        assert "Join our newsletter" not in joined.body and link not in joined.alternatives[0][0]
+
+
+def describe_the_ideal_studio_question():
+    """Morlock: ticking the studio box opens a field to describe their ideal studio."""
+
+    def it_follows_the_studio_box_on_the_form():
+        form = _form()
+        assert form.fields["studio_description"].label == "Describe your ideal studio and what you'd do with it"
+        assert list(form.fields).index("studio_description") == list(form.fields).index("wants_studio") + 1
+
+    def it_shows_only_while_the_box_is_ticked(guide: Member, hours: Any):
+        content = Client(HTTP_HOST=HOST).get("/", {"tour": _key(guide)}).content.decode()
+        assert 'x-model="studio"' in content
+        assert 'data-tour-studio-description x-show="studio"' in content
+
+    def it_keeps_the_description_with_the_box(guide: Member, hours: Any):
+        Client(HTTP_HOST=HOST).post("/", _post(guide, wants_studio="on", studio_description="  A kiln corner  "))
+        booking = TourBooking.objects.get()
+        assert booking.studio_description == "A kiln corner"
+        assert ("Ideal studio", "A kiln corner") in booking.guest_answers
+
+    def it_drops_a_description_typed_before_the_box_was_unticked(guide: Member, hours: Any):
+        Client(HTTP_HOST=HOST).post("/", _post(guide, studio_description="A kiln corner"))
+        assert TourBooking.objects.get().studio_description == ""

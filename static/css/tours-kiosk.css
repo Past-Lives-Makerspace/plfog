@@ -510,3 +510,6 @@ html:has(> body.tours-kiosk) .pl-tours-loading__bar {
 html:has(.pl-kiosk[data-kiosk-keyboard]) {
     scroll-padding-bottom: 8rem;
 }
+
+/* Hidden until Alpine starts, so a field that follows a toggle (the ideal studio, #32) never flashes. */
+[x-cloak] { display: none !important; }

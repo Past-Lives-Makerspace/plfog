@@ -472,7 +472,16 @@ def describe_tours_kiosk():
         page.keyboard.type("2")
         page.keyboard.press("Tab")
         # The booking questions (#32), all optional: Tab past each.
-        for question in ("pronouns", "interests", "found_us_through", "referred_by", "guest_notes"):
+        # Then the studio and newsletter toggles; the ideal studio field stays hidden while unticked.
+        for question in (
+            "pronouns",
+            "interests",
+            "found_us_through",
+            "referred_by",
+            "guest_notes",
+            "wants_studio",
+            "wants_newsletter",
+        ):
             _focused(page, f'[name="{question}"]')
             page.keyboard.press("Tab")
         _focused(page, 'input[name="create_account"]')

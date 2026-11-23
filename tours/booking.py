@@ -121,17 +121,34 @@ class Visitor:
     found_us_through: str = ""
     referred_by: str = ""
     guest_notes: str = ""
+    wants_studio: bool = False
+    studio_description: str = ""
+    wants_newsletter: bool = False
 
     @property
-    def answers(self) -> dict[str, str]:
-        """The booking questions' answers, trimmed, as the booking's fields of the same names."""
-        return {name: getattr(self, name).strip() for name in ANSWER_FIELDS}
+    def answers(self) -> dict[str, Any]:
+        """The booking questions' answers, trimmed, and the two boxes, as the booking's fields."""
+        answers: dict[str, Any] = {name: getattr(self, name).strip() for name in ANSWER_FIELDS}
+        boxes = {"wants_studio": self.wants_studio, "wants_newsletter": self.wants_newsletter}
+        return {**answers, **boxes, "studio_description": self.studio_description.strip()}
 
     @property
     def first_and_last(self) -> tuple[str, str]:
         """The name split at its first space, for a new account's first and last name."""
         first, _, last = self.name.strip().partition(" ")
         return first, last.strip()
+
+
+def _join_newsletter(booking: TourBooking) -> None:
+    """Subscribe the visitor in Mailchimp once the booking commits, when they ticked the box (#7).
+
+    One booking per booking form, so a No preference request subscribes through its first row.
+    """
+    if booking.wants_newsletter:
+        from core.tasks import enqueue_on_commit
+        from tours.tasks import subscribe_tour_visitor
+
+        enqueue_on_commit(subscribe_tour_visitor, booking.pk)
 
 
 def _after_commit(booking: TourBooking, change: str, **extra: Any) -> None:
@@ -212,6 +229,7 @@ def book_tour(
             status=TourBooking.Status.PENDING if request else TourBooking.Status.BOOKED,
         )
         _after_commit(booking, signals.REQUESTED if request else signals.BOOKED)
+        _join_newsletter(booking)
         if request:
             from tours.tasks import lapse_tour_request
 
@@ -347,6 +365,7 @@ def _request_every_guide(
         from tours.notify import guide_first_name
         from tours.tasks import lapse_tour_request
 
+        _join_newsletter(rows[0])
         for row in rows:
             others = tuple(guide_first_name(other.guide) for other in rows if other.pk != row.pk)
             _after_commit(row, signals.REQUESTED, tell_visitor=row is rows[0], shared_with=others)

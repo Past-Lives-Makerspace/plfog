@@ -505,14 +505,15 @@ class TourBookingForm(forms.Form):
     """
 
     tour = forms.CharField(widget=forms.HiddenInput)
-    name = forms.CharField(max_length=200, label="Your name")
-    email = forms.EmailField(label="Email")
-    phone = forms.CharField(max_length=40, label="Phone")
+    # The required three say so; nothing else is required, so nothing says "optional" (Morlock).
+    name = forms.CharField(max_length=200, label="Your name (required)")
+    email = forms.EmailField(label="Email (required)")
+    phone = forms.CharField(max_length=40, label="Phone (required)")
     party_size = forms.TypedChoiceField(coerce=int, label="How many people")
     # SimplyBook's questions (feedback request #32), each optional and in its order, so the guide
     # knows who is coming and what to show them. Stairs is not asked: the freight elevator is
     # there for anyone who wants it (Morlock).
-    pronouns = forms.CharField(max_length=60, required=False, label="Pronouns (optional)")
+    pronouns = forms.CharField(max_length=60, required=False, label="Pronouns")
     interests = forms.CharField(
         max_length=300, required=False, label="What areas or disciplines are you most interested in?"
     )
@@ -521,14 +522,24 @@ class TourBookingForm(forms.Form):
         choices=[("", "Pick one"), *FoundUs.choices],
         label="Past Lives grows through community. We'd love to know how you found your way to us.",
     )
-    referred_by = forms.CharField(
-        max_length=200, required=False, label="If someone here referred you, their name (optional)"
-    )
+    referred_by = forms.CharField(max_length=200, required=False, label="If someone here referred you, their name")
     guest_notes = forms.CharField(
         max_length=1000,
         required=False,
         label="Anything else you'd like us to know before your tour?",
         widget=forms.Textarea(attrs={"rows": 3}),
+    )
+    wants_studio = forms.BooleanField(required=False, initial=False, label="I'm interested in a dedicated studio space")
+    # Shown once the box above is ticked (Alpine, _book_form.html); kept only with the box.
+    studio_description = forms.CharField(
+        max_length=1000,
+        required=False,
+        label="Describe your ideal studio and what you'd do with it",
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
+    # Unticked, as on the class registration form (feedback request #7).
+    wants_newsletter = forms.BooleanField(
+        required=False, initial=False, label="Sign me up for the Past Lives newsletter"
     )
     # Starts on: accounts are encouraged (Felix, #948), and the class booking form defaults its box on too.
     create_account = forms.BooleanField(required=False, initial=True, label=CREATE_ACCOUNT_LABEL)
@@ -551,8 +562,10 @@ class TourBookingForm(forms.Form):
         self.fields["name"].widget.attrs.update({"autocomplete": "off" if kiosk else "name"})
         self.fields["email"].widget.attrs.update({"autocomplete": "off" if kiosk else "email"})
         self.fields["phone"].widget = forms.TextInput(attrs={"type": "tel", "autocomplete": "off" if kiosk else "tel"})
+        # The ideal studio field follows the studio box (Morlock).
+        self.fields["wants_studio"].widget.attrs["x-model"] = "studio"
         if kiosk:
-            for name in ("pronouns", "interests", "referred_by", "guest_notes"):
+            for name in ("pronouns", "interests", "referred_by", "guest_notes", "studio_description"):
                 self.fields[name].widget.attrs["autocomplete"] = "off"
         if not offer_account:
             del self.fields["create_account"]
@@ -561,6 +574,13 @@ class TourBookingForm(forms.Form):
     def question_fields(self) -> list[forms.BoundField]:
         """The booking questions (feedback request #32), in order, for the template to draw."""
         return [self[name] for name in QUESTION_FIELDS]
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        if not cleaned.get("wants_studio"):
+            # Typed, then the box was unticked: the field was hidden, so it was not meant to send.
+            cleaned["studio_description"] = ""
+        return cleaned
 
     @property
     def honeypot_tripped(self) -> bool:

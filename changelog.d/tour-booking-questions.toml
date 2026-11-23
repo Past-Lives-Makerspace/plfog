@@ -5,13 +5,17 @@ feature = "tours.calendar"
 guidance = "shots"
 title = "Tour bookings ask what the guide needs to know"
 changes = [
-  "Booking a tour now asks for a phone number, plus optional pronouns, what you're most interested in, how you found Past Lives, who referred you, and anything else we should know.",
-  "The same questions are on the lobby kiosk.",
-  "Guides see the answers in their new booking email and under the visitor on the Upcoming tab.",
+  "Booking a tour asks for your name, email and phone, plus optional pronouns, what you're most interested in, how you found Past Lives, who referred you, and anything else we should know.",
+  "Tick that you're interested in a dedicated studio to tell us about your ideal studio and what you'd do with it.",
+  "Tick the newsletter box to join the Past Lives newsletter. Your confirmation email has a link to join if you didn't.",
+  "The same questions are on the lobby kiosk, and guides see the answers in their new booking email and on the Upcoming tab.",
 ]
 
 [[shots]]
-caption = "The booking form asks a few questions after your name, email, phone and party size. Only the phone is required."
+caption = "The booking form marks what is required and asks a few optional questions after your name, email, phone and party size."
+
+[[shots]]
+caption = "Tick the studio box and a field opens to describe your ideal studio. The newsletter box sits below it."
 
 [[shots]]
 caption = "On Upcoming, the tour's guide sees the visitor's answers under their email and phone."
