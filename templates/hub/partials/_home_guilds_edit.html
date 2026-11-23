@@ -1,0 +1,14 @@
+{% comment %}Body of Home's Edit Your Guilds modal (#1318): the Settings > Guild Updates switches
+   with surface=home, so each change joins or leaves at once (toast) and redraws the chips
+   behind the modal. Done only closes; there is nothing left to save.{% endcomment %}
+<p class="hub-text-muted pl-home-guilds__intro">
+    Switch a guild on to join it, off to leave. Joining puts you on its roster and gives you its Discord role. Changes save right away.
+</p>
+{% if guild_edit_rows %}
+{% include "hub/partials/_guild_toggle_rows.html" with rows=guild_edit_rows toggle_label="Join" toggle_surface="home" %}
+{% else %}
+<p class="hub-text-muted pl-home-guilds__intro">No guilds have been set up yet. Check back soon.</p>
+{% endif %}
+<div class="pl-modal__actions pl-home-guilds__actions">
+    <button type="button" class="pl-btn pl-btn--primary" @click="$dispatch('close-modal', 'home-guilds-edit')">Done</button>
+</div>

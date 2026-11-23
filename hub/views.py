@@ -4261,6 +4261,10 @@ def guild_membership_set(request: HttpRequest, pk: int) -> HttpResponse:
     ``guild_updates_prompt_answered_at``: flipping any toggle is an answer, so the
     first-login prompt never resurrects (including for a legacy member unsubscribing
     from their last guild).
+
+    The same switch in Home's Edit Your Guilds modal (#1318) posts ``surface=home``: the
+    join or leave is identical, the toast says joined or left, and the response carries
+    Home's Your Guilds chips out of band so they follow the switch.
     """
     guild = get_object_or_404(Guild, pk=pk)
     member = _get_member(request)
@@ -4268,6 +4272,8 @@ def guild_membership_set(request: HttpRequest, pk: int) -> HttpResponse:
     if member is None:
         trigger_toast(response, "Your account is not linked to a membership.", "error")
         return response
+    if request.POST.get("surface") == "home":
+        return _home_guild_membership_set(request, guild, member)
     if "joined" in request.POST:
         member.subscribe_to_guild(guild)
         trigger_toast(response, f"You'll get updates from {guild.name}.", "success")
@@ -4279,6 +4285,26 @@ def guild_membership_set(request: HttpRequest, pk: int) -> HttpResponse:
             "info",
         )
     member.mark_guild_updates_answered()
+    return response
+
+
+def _home_guild_membership_set(request: HttpRequest, guild: Guild, member: Member) -> HttpResponse:
+    """Join or leave from Home's Edit Your Guilds modal: the Settings path, Home's words, the chips OOB (#1318)."""
+    from hub.home import my_guild_shortcuts
+
+    if "joined" in request.POST:
+        member.subscribe_to_guild(guild)
+        message, kind = f"You joined {guild.name}.", "success"
+    else:
+        member.unsubscribe_from_guild(guild)
+        message, kind = f"You left {guild.name}. You can rejoin any time.", "info"
+    member.mark_guild_updates_answered()
+    response = render(
+        request,
+        "hub/partials/_home_my_guilds_list.html",
+        {"my_guilds": my_guild_shortcuts(member), "oob": True},
+    )
+    trigger_toast(response, message, kind)
     return response
 
 

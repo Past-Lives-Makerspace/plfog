@@ -1,0 +1,22 @@
+/* Home's Your Guilds card (#1318): the heading with Edit on its right, and the Edit Your Guilds
+   modal around the shared guild switch rows (.pl-guild-toggle-*, hub.css). Layout only; every
+   colour comes from the card, button and switch components, so both themes need nothing here. */
+.pl-home-guilds__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+.pl-home-guilds__head .pl-home-heading { margin: 0; }
+
+.pl-home-guilds__intro {
+    font-size: 0.875rem;
+    margin: 0 0 1rem;
+}
+
+.pl-home-guilds__actions { justify-content: flex-end; }
+
+@media (max-width: 639px) {
+    .pl-home-guilds__actions .pl-btn { width: 100%; min-height: 48px; }
+}
