@@ -9166,16 +9166,19 @@ class GuildMembershipManager(models.Manager["GuildMembership"]):
 
     def record_discord_join(self, guild: Guild, member: Member) -> tuple[GuildMembership, bool]:
         """Inbound reaction mirror. Create as ``source="discord"``; NEVER downgrade an
-        existing ``source="app"`` row (``get_or_create`` with ``defaults`` leaves it
-        untouched). A new row closes the member's open invite to the guild; an existing one
-        already did when it was written, so the 15 minute reconcile adds no write per reactor.
-        Returns ``(membership, created)``.
+        existing ``source="app"`` or ``"invite"`` row, but mark it ``reacted`` once, so a later
+        missing reaction removes it like any emoji row (#1320). A new row closes the member's open
+        invite to the guild; an existing one already did when it was written, so the 15 minute
+        reconcile adds no write per reactor after the first. Returns ``(membership, created)``.
         """
         membership, created = self.get_or_create(
-            guild=guild, member=member, defaults={"source": self.model.Source.DISCORD}
+            guild=guild, member=member, defaults={"source": self.model.Source.DISCORD, "reacted": True}
         )
         if created:
             _close_open_invites(guild, member)
+        elif not membership.reacted:
+            membership.reacted = True
+            membership.save(update_fields=["reacted"])
         return membership, created
 
 
@@ -9211,6 +9214,14 @@ class GuildMembership(models.Model):
             "or a Discord-reaction mirror (discord). Inbound reaction sync only ever adds/removes "
             "'discord' rows and never touches 'app' or 'invite' rows — this is what keeps the two "
             "directions from fighting."
+        ),
+    )
+    reacted = models.BooleanField(
+        default=False,
+        help_text=(
+            "The member reacted for this guild in #choose-your-guild while on its roster, so taking the "
+            "reaction off removes the membership, whatever its source. A row written by a reaction is "
+            "always treated as reacted (#1320)."
         ),
     )
     # Unused since #1319: un-reacting removes the membership itself (0290 removed the marked rows). Dropped later.

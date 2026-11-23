@@ -12,8 +12,8 @@ Three entry points:
   Discord as roles) and sends the one confirmation email. It reads every reaction on every
   role message, which ran a connect past gunicorn's 30 seconds inline (feedback request 15).
 * :func:`reconcile_reactions` — the 15-minute cron: add a ``source="discord"`` membership for
-  each linked reactor, remove the ``source="discord"`` membership of a linked member who no
-  longer reacts, and give every reactor, linked or not, a mapped guild role they lack. A guild's
+  each linked reactor (or mark their portal join ``reacted``), remove a reacted membership whose
+  linked member no longer reacts, and give every reactor, linked or not, a mapped guild role they lack. A guild's
   emoji and its roster agree (Felix, 2026-11-23, #1319). Also DMs a one-time "you're halfway
   there" nudge to reactors with no linked member, so a guild pick from an unlinked Discord
   account isn't silently ignored.
@@ -217,8 +217,8 @@ def reconcile_reactions() -> ReconcileStats:
     """Mirror every reaction on the role messages into the app and onto Discord.
 
     Runs every 15 minutes. No-ops (``ran=False``) unless Discord is fully configured. For each
-    mapped guild: a linked reactor gets a ``source="discord"`` membership (silent, no email).
-    A reaction row whose linked member no longer reacts is removed and the guild's roles come
+    mapped guild: a linked reactor gets a ``source="discord"`` membership (silent, no email), or
+    their portal join is marked ``reacted``. A reacted row whose linked member no longer reacts is removed and the guild's roles come
     off (:func:`_remove_unreacted`). Then every reactor, linked or not, gets each role of the
     guild they reacted for that they lack, read from one member list: this is the backstop for
     a reaction the live listener missed.
@@ -255,11 +255,15 @@ def _remove_unreacted(server_id: str, reactions: _GuildReactions) -> tuple[int, 
     """Remove each reaction row whose linked member no longer reacts, and take that guild's roles
     off them. Silent, no email. Returns ``(rows removed, roles taken)``.
 
-    Only a ``source="discord"`` row is judged here: it exists because its member reacted, so a
-    missing reaction means they took it off. A portal join (``source="app"``) may never have
-    reacted, since a bot cannot react for them, so its un-react is the live listener's to see. A
-    guild whose fetch was truncated is skipped, since a missing reactor there may only be unread.
+    Only a row its member reacted for is judged here: a ``source="discord"`` row exists because
+    they reacted, and a portal or invite join is marked ``reacted`` once a reaction of theirs is
+    seen (:meth:`GuildMembershipManager.record_discord_join`), so a missing reaction means they
+    took it off, even while the live listener was down. A portal join that never reacted is never
+    judged, since a bot cannot react for them. A guild whose fetch was truncated is skipped, since
+    a missing reactor there may only be unread.
     """
+    from django.db.models import Q
+
     from membership.models import GuildMembership
 
     left = 0
@@ -269,7 +273,7 @@ def _remove_unreacted(server_id: str, reactions: _GuildReactions) -> tuple[int, 
             continue
         guild = reactions.guilds[pk]
         stale = (
-            GuildMembership.objects.filter(guild=guild, source=GuildMembership.Source.DISCORD)
+            GuildMembership.objects.filter(Q(source=GuildMembership.Source.DISCORD) | Q(reacted=True), guild=guild)
             .exclude(member__discord_user_id="")
             .exclude(member__discord_user_id__in=ids)
         )
