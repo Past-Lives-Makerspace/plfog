@@ -1439,7 +1439,7 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
-    # feedback.request_updated — a request sent from the Feedback page moved to Planned,
+    # feedback.request_updated — a request sent from the Feedback page moved to Backlog, Planned,
     # Building, Live (Fixed for a bug), Not planned, Not a bug or Closed (#693, #963). One key for
     # every transition: the status and any comment written in the same save travel in the context.
     # The sender is a User, who may have no Member row. The period carries the status and a
@@ -1447,7 +1447,7 @@ _NEW_EVENTS: list[EventType] = [
     EventType(
         key=FEEDBACK_REQUEST_UPDATED,
         label="Updates to your requests",
-        description="Something you sent is planned, being built, live, not planned, not a bug or closed.",
+        description="Something you sent is in the backlog, planned, being built, live, not planned, not a bug or closed.",
         category="Your requests",
         recipient=Recipients.SINGLE_USER,
         channels=(_IN_APP_ON, _EMAIL_ON),

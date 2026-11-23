@@ -51,10 +51,13 @@ For each request, before forming a view:
 |---|---|---|
 | **Build now** | A confirmed bug or a wanted feature, small enough to start today | `/create-issue`, then `/drive` it in its own agent; status Building once the PR opens |
 | **File only** | Real and wanted, but not now, or too big for today | `/create-issue` to Backlog; status Planned; issue link on the request |
+| **Backlog** | Felix will do it eventually, but not soon enough to ticket now | No ticket; status Backlog, which keeps it open and tells the sender it is in the backlog; a reply is optional |
 | **Prod change** | Fixed by a data or settings change in production: a role, a permission, a typo in a record, a Site Settings switch. No code. | Make the change through the app's own admin as Felix (never raw SQL), then read it back |
 | **Reply only** | Already exists, works as designed, already in flight, needs more from the sender, or general feedback | Send the reply; status per the verdict |
 
-Not a bug and Not planned are Felix's calls. Recommend them, never decide them.
+Not a bug, Not planned and Backlog are Felix's calls. Recommend them, never decide them. Offer Backlog
+whenever a request is wanted but not soon: it is "I'll do this eventually", neither Received nor
+discarded, and needs no comment or issue link.
 
 ## 4. Ask Felix
 

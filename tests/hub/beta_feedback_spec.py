@@ -406,6 +406,15 @@ def describe_your_requests():
         assert 'data-feedback-status="planned">Planned<' in body
         assert "Updated " in body
 
+    def it_shows_each_request_number_before_its_subject_and_a_backlog_pill(client: Client):
+        user = _login(client, "numbered")
+        request = FeedbackRequestFactory(user=user, subject="Zzlater idea", status=FeedbackRequest.Status.BACKLOG)
+
+        body = client.get("/feedback/").content.decode()
+
+        assert f'<span class="pl-feedback-number" data-feedback-number>#{request.pk}</span> Zzlater idea' in body
+        assert 'class="hub-pill hub-pill--info" data-feedback-status="backlog">Backlog<' in body
+
     def it_shows_the_thread_with_the_original_message_first(client: Client):
         user = _login(client, "threader")
         admin = User.objects.create_superuser(username="answerer", password="pass", email="answerer@example.com")

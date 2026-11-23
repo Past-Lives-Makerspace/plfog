@@ -627,6 +627,8 @@ a:hover { color: var(--hub-link-hover); }
    the family above; new in-family modifiers, no new prefix/token. */
 .hub-pill--neutral { background: rgba(139, 151, 168, 0.18); color: var(--hub-text-muted); }
 .hub-pill--danger { background: rgba(224, 85, 85, 0.16); color: #f0a0a0; }
+/* Info: the --hub-blue accent, theme aware through its tokens (a Backlog feedback request, #1305). */
+.hub-pill--info { background: var(--hub-blue-soft); color: var(--hub-blue); }
 
 /* ========================================
    Google Calendar sync-state badge (Screen C / E)

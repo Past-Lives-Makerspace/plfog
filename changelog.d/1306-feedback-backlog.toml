@@ -1,0 +1,10 @@
+bump = "minor"
+date = "2026-11-22"
+audience = ["members", "admins"]
+feature = "feedback.requests"
+guidance = "link"
+title = "Feedback requests can wait in the backlog, and show their number"
+changes = [
+  "A request the team means to get to eventually can now be marked Backlog. It stays open, and you get a notice that it is in the backlog.",
+  "Every request now shows its number before its subject, like #23, on your Feedback page and in the Feedback Inbox.",
+]

@@ -302,6 +302,15 @@ def describe_partial_update():
         assert response.data["status"] == Status.NOT_A_BUG
         assert len(mail.outbox) == 1
 
+    def it_moves_a_request_to_backlog_with_no_comment_or_link(admin_client):
+        request = FeedbackRequestFactory(category=Category.FEATURE)
+
+        response = admin_client.patch(_detail(request), {"status": "backlog"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert (response.data["status"], response.data["status_label"]) == ("backlog", "Backlog")
+        assert len(mail.outbox) == 1
+
     def it_refuses_a_bad_status_or_link(admin_client):
         request = FeedbackRequestFactory()
 
