@@ -139,11 +139,22 @@ body.tours-portal {
     margin: 0 0 1rem;
 }
 
+.cp-page .pl-tourpub__step-short {
+    display: none;
+}
+
+/* A phone has room for "Time, Details, Booked", not the full names. */
 @media (max-width: 480px) {
     .cp-page .pl-tourpub__step {
-        font-size: 11px;
-        gap: 0.25rem;
+        font-size: 12px;
+        gap: 0.3rem;
         padding: 0.45rem 0.25rem;
+    }
+    .cp-page .pl-tourpub__step-full {
+        display: none;
+    }
+    .cp-page .pl-tourpub__step-short {
+        display: inline;
     }
 }
 
@@ -201,12 +212,12 @@ body.tours-portal {
 /* On a phone the page's three paddings (page, container, card) ate 128px of a 320px screen, leaving
    days of 33px. Trim them on the booking page only, so a 375 to 390px phone gets days of 40px or more. */
 @media (max-width: 480px) {
-    .hub-content:has(.pl-tourpub__calendar),
-    .cp-container:has(.pl-tourpub__calendar) {
+    .hub-content:has(.pl-tourpub__steps),
+    .cp-container:has(.pl-tourpub__steps) {
         padding-left: 8px;
         padding-right: 8px;
     }
-    .cp-page .pl-tourpub .detail-body:has(.pl-tourpub__calendar) {
+    .cp-page .pl-tourpub .detail-body:has(.pl-tourpub__steps) {
         padding-left: 12px;
         padding-right: 12px;
     }
