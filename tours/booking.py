@@ -621,6 +621,34 @@ def confirm_tour_request(booking: TourBooking, *, actor: User, now: datetime | N
     return locked
 
 
+def book_waiting_requests(*, now: datetime | None = None) -> list[TourBooking]:
+    """Book every request still waiting for its guide (#1309): Confirm First is gone, so none may be left hanging.
+
+    Queued once by migration 0011 when it moves every guide to Confirm Automatically. Each request
+    is confirmed as its guide would have (:func:`confirm_tour_request`): the visitor gets the
+    confirmation with the calendar invite, the guide's Google Calendar the event. A No preference
+    request (#1255) books its first row and tells the other guides it was taken. A request whose
+    tour has started or whose confirm by time has passed is left to the lapse it was queued with;
+    one whose guide has no account (nobody to confirm as) is left too. Safe to run twice.
+
+    Returns:
+        The bookings it booked.
+    """
+    moment = now or timezone.now()
+    booked: list[TourBooking] = []
+    waiting = TourBooking.objects.filter(status=TourBooking.Status.PENDING, starts_at__gt=moment)
+    for request in waiting.select_related("guide__user").order_by("pk"):
+        guide_user = request.guide.user if request.guide is not None else None
+        if guide_user is None:
+            continue
+        try:
+            booked.append(confirm_tour_request(request, actor=guide_user, now=moment))
+        except TourLockedError:
+            # Taken by an earlier row of its own No preference request, or past its confirm by time.
+            continue
+    return booked
+
+
 def _take_shared_request(locked: TourBooking, others: list[TourBooking], *, actor: User, now: datetime) -> None:
     """``locked``'s guide confirmed a No preference request first (#1255).
 

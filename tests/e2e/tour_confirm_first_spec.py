@@ -1,6 +1,6 @@
-"""End-to-end: a Tour Guide picks Confirm First, then confirms one request and declines another (#1166).
+"""End-to-end: a Tour Guide on Confirm First confirms one request and declines another (#1166).
 
-The guide sets Confirm First on My Hours. Two visitors book on the website, so both wait as
+The guide is on Confirm First (set on the row: no guide can choose it since #1309). Two visitors book on the website, so both wait as
 requests: the guide's email offers Confirm and Decline, and Upcoming shows each request with those
 buttons. Confirm books the first (the visitor gets the confirmation with its calendar invite);
 Decline, with a message, frees the second's seats and tells that visitor. On the tours host a
@@ -99,33 +99,11 @@ def describe_confirm_first():
         login_via_code(GUIDE_EMAIL)
         page.set_viewport_size(DESKTOP)
 
-        # My Hours: Confirm Automatically is picked until the guide chooses Confirm First.
-        page.goto(f"{live_server.url}{reverse('tours:hours')}")
-        card = page.locator("[data-tour-confirm-mode]")
-        assert card.locator('[data-tour-confirm-choice="automatic"]').is_checked()
-        card.get_by_text("Confirm First", exact=True).click()
-        if CAPTURE_DIR:
-            page.set_viewport_size({"width": 1280, "height": 800})
-            card.evaluate("(el) => el.scrollIntoView({block: 'center'})")
-            shoot(page, Path(CAPTURE_DIR) / "step-1.png", target="tours.confirm-mode")
-        # The choice saves at once (#1279), no Save button; the card's pill says so.
-        assert card.locator("[data-tour-confirm-save]").count() == 0
-        card.locator('[data-tour-save-status="confirm"]').get_by_text("Saved", exact=True).wait_for()
-        assert TourGuideSettings.confirms_first(guide)
-        # The notice saves after a pause in typing.
-        card.locator('input[name="min_notice_hours"]').fill("60")
-        page.wait_for_function(
-            "() => document.querySelector('[data-guild-autosave]').plGuildAutosave.pending === 0"
-            " && document.querySelector('[data-tour-save-status=\"confirm\"]').dataset.saves >= 2"
+        # No guide can choose Confirm First since #1309; the requests the No preference pool (#1255)
+        # still makes, behind Tour Settings' switch, are answered the same way, so the mode is set here.
+        TourGuideSettings.objects.create(
+            guide=guide, confirm_mode=TourGuideSettings.ConfirmMode.FIRST, min_notice_hours=60
         )
-        assert TourGuideSettings.objects.get(guide=guide).min_notice_hours == 60
-        page.reload()
-        card = page.locator("[data-tour-confirm-mode]")
-        assert card.locator('[data-tour-confirm-choice="first"]').is_checked()
-        assert card.locator('input[name="min_notice_hours"]').input_value() == "60"
-        page.locator("[data-tour-confirm-mode]").scroll_into_view_if_needed()
-        _capture(page, "setting")
-        _no_sideways_scroll(page)
 
         mail.outbox = []
         sam = book_tour(guide=guide, starts_at=local(day, 16), visitor=Visitor("Sam Rivera", "sam@example.com", "", 2))

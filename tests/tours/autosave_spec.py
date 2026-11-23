@@ -1,6 +1,6 @@
 """The Tours page's settings forms save themselves as they are edited (#1279).
 
-Every Week, Confirming Bookings, Google Calendar's picker and Tour Settings post with the autosave
+Every Week, Google Calendar's picker and Tour Settings post with the autosave
 header (``static/js/guild_autosave.js``) and answer JSON through ``hub.autosave``: a 200 with each
 hours row's pk in posted order, or a 422 with every error keyed by its html field name (an overlap
 on its row). The pages carry the autosave markers and no Save button.
@@ -21,13 +21,12 @@ from membership.models import Member
 from tests.tours.conftest import make_guide, signed_in
 from tests.tours.factories import TourCalendarConnectionFactory, TourHoursFactory
 from tours.forms import TourHoursForm
-from tours.models import FacilityTourSettings, TourCalendarConnection, TourGuideSettings, TourHours
+from tours.models import FacilityTourSettings, TourCalendarConnection, TourHours
 
 pytestmark = pytest.mark.django_db
 
 HOURS = reverse("tours:hours")
 SAVE = reverse("tours:hours_save")
-CONFIRM_MODE = reverse("tours:confirm_mode_save")
 CHOOSE = reverse("tours:google_calendar")
 SETTINGS = reverse("tours:settings")
 AUTOSAVE = {"HTTP_X_AUTOSAVE": "1"}
@@ -210,27 +209,15 @@ def describe_new_hours_row():
         assert form.fields["start_time"].choices[0] == ("06:00", "6:00 AM")
 
 
-def describe_confirming_bookings_autosave():
-    def it_saves_the_choice_and_answers_json(guide: Member):
-        data = {"guide": str(guide.pk), "confirm_mode": "first", "min_notice_hours": "72"}
-        response = signed_in(guide).post(CONFIRM_MODE, data, **AUTOSAVE)
-        assert response.status_code == 200
-        assert response.json() == {"saved": True, "rows": {}}
-        saved = TourGuideSettings.objects.get(guide=guide)
-        assert (saved.confirm_mode, saved.min_notice_hours) == ("first", 72)
-
-    def it_refuses_a_notice_under_the_house_minimum_under_the_field(guide: Member):
-        TourGuideSettings.objects.create(guide=guide, confirm_mode="first", min_notice_hours=48)
-        data = {"guide": str(guide.pk), "confirm_mode": "first", "min_notice_hours": "2"}
-        response = signed_in(guide).post(CONFIRM_MODE, data, **AUTOSAVE)
-        assert response.status_code == 422
-        assert response.json()["errors"] == {
-            "min_notice_hours": ["At least 24 hours: the minimum notice in Tour Settings."]
-        }
-        assert TourGuideSettings.objects.get(guide=guide).min_notice_hours == 48
+def describe_confirming_bookings_is_gone():
+    def it_shows_no_confirm_card_and_has_no_save_url(guide: Member):
+        # Confirm First was removed (#1309): every booking is booked at once.
+        content = signed_in(guide).get(HOURS).content.decode()
+        assert "/facility-tours/hours/confirming/save/" not in content
+        assert 'data-guidance-target="tours.confirm-mode"' not in content
+        assert signed_in(guide).post("/facility-tours/hours/confirming/save/", {}).status_code == 404
 
 
-@pytest.mark.usefixtures("google_on")
 def describe_google_calendar_autosave():
     def it_saves_the_picked_calendar_and_answers_json(guide: Member):
         TourCalendarConnectionFactory(guide=guide)
@@ -251,7 +238,7 @@ def describe_google_calendar_autosave():
         assert 'data-tour-gcal-form data-autosave data-autosave-key="gcal"' in content
         assert 'data-tour-save-status="gcal"' in content
         assert "data-tour-gcal-save" not in content
-        assert content.count("data-tour-noscript-save>Save</button></noscript>") == 3
+        assert content.count("data-tour-noscript-save>Save</button></noscript>") == 2
 
 
 def describe_tour_settings_autosave():
@@ -282,7 +269,6 @@ def describe_pages_carry_no_save_button():
         assert "x-data=\"plGuildAutosave({ section: 'hours' })\"" in content
         assert 'data-autosave data-autosave-key="hours" data-formset="hours"' in content
         assert 'data-formset-required="weekday start_time end_time tour_minutes seats"' in content
-        assert 'data-tour-confirm-mode data-autosave data-autosave-key="confirm"' in content
         assert "A change could not be saved. Leave anyway, or stay and try again?" in content
         for gone in ("data-tour-hours-save", "data-tour-confirm-save", "pl-tours-save-row"):
             assert gone not in content
@@ -291,7 +277,7 @@ def describe_pages_carry_no_save_button():
             content.count(
                 '<noscript><button type="submit" class="pl-btn pl-btn--primary pl-btn--sm pl-btn--spaced" data-tour-noscript-save>Save</button></noscript>'
             )
-            == 2
+            == 1
         )
 
     def it_applies_the_admins_guide_picker_on_change_with_show_only_without_script(admin: Member):

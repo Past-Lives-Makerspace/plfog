@@ -136,6 +136,15 @@ class FacilityTourSettings(models.Model):
         ],
         help_text="The seats a new row of tour hours starts with.",
     )
+    guides_share_hours = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "Off (the default, #1309): each tour hour belongs to one guide, a guide cannot post hours another "
+            "guide already has, and visitors pick a time with no guide named. On: guides may post the same "
+            "hours, and visitors pick a guide or No preference for a time two guides share (#1255)."
+        ),
+    )
     kiosk_key = models.CharField(
         max_length=64,
         blank=True,
@@ -220,7 +229,12 @@ class TourHoursQuerySet(models.QuerySet["TourHours"]):
 
 
 def lock_guide_hours(guide: Member) -> None:
-    """Hold one guide's hours still until the transaction ends (#1160): ``SELECT ... FOR NO KEY UPDATE`` on their member row.
+    """Hold every guide's hours still until the transaction ends (#1160, #1309): the Tour Settings row, then the guide's member row.
+
+    The Tour Settings row first (``FOR NO KEY UPDATE``, made by :meth:`FacilityTourSettings.load`
+    when missing): since #1309 a save is checked against every other guide's hours too, so two
+    guides saving at once must queue on one row, or each would miss the other's new hours. No
+    booking takes that row, so it orders before everything a booking locks.
 
     Every save of a guide's hours (the Every Week formset, Add Dates) takes this before it checks
     for overlaps and keeps the check and the write in the same transaction, so two saves at once
@@ -236,6 +250,8 @@ def lock_guide_hours(guide: Member) -> None:
 
     if not transaction.get_connection().in_atomic_block:
         raise RuntimeError("lock_guide_hours must run inside transaction.atomic().")
+    FacilityTourSettings.load()
+    list(FacilityTourSettings.objects.select_for_update(no_key=True).filter(pk=1).values_list("pk", flat=True))
     list(Member.objects.select_for_update(no_key=True).filter(pk=guide.pk).values_list("pk", flat=True))
 
 
@@ -347,6 +363,17 @@ class TourHours(models.Model):
         if self.date is not None and other.date is not None and self.date != other.date:
             return False
         return self.start_time < other.end_time and other.start_time < self.end_time
+
+    @property
+    def posted_order(self) -> tuple[datetime, int]:
+        """Which of two guides' overlapping hours came first (#1309): the earlier posted owns the time for visitors."""
+        return (self.created_at, self.pk)
+
+    @property
+    def when_label(self) -> str:
+        """``Every Tuesday, 2:00 PM to 4:00 PM`` or ``Sat, Nov 15, 11:00 AM to 3:00 PM``: the hours in a sentence."""
+        day = day_label(self.date) if self.date is not None else f"Every {self.get_weekday_display()}"
+        return f"{day}, {self.times_label}"
 
     def applies_on(self, day: Day) -> bool:
         """Whether this row yields tours on ``day``: its weekday for weekly hours, its date for dated ones."""
@@ -474,8 +501,10 @@ CONFIRM_BEFORE_HOURS = 24
 class TourGuideSettings(models.Model):
     """One guide's own tour choices (#1166): whether a visitor's booking waits for their Confirm.
 
-    Made the first time a guide saves the choice on My Hours. A guide with no row confirms
-    automatically, as every guide did before, so nothing changes until a guide picks Confirm First.
+    No guide can pick Confirm First any more (#1309): the My Hours card is gone and migration 0011
+    set every row to Confirm Automatically. The table and the request machinery stay, read by the
+    No preference pool (#1255) behind ``FacilityTourSettings.guides_share_hours``; dropping the
+    table is a follow-up.
     """
 
     class ConfirmMode(models.TextChoices):

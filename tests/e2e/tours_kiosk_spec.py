@@ -45,6 +45,7 @@ from playwright.sync_api import expect
 from core.models import Notification
 from membership.models import AdminCapability, Member
 from tests.membership.factories import MembershipPlanFactory
+from tests.tours.conftest import let_guides_share_hours
 from tests.tours.factories import TourBookingFactory, TourHoursFactory, local
 from tours.models import FacilityTourSettings, TourBooking
 
@@ -558,6 +559,7 @@ def describe_kiosk_back_names_and_busy():
         day = today + timedelta(days=4)
         TourHoursFactory(guide=gina, weekday=day.weekday(), seats=4)
         TourHoursFactory(guide=olive, weekday=day.weekday(), seats=4, start_time=time(17), end_time=time(18))
+        let_guides_share_hours()  # two guides at 5:00 PM need Tour Settings' switch on (#1309)
         key = FacilityTourSettings.load().rotate_kiosk_key()
         page.set_viewport_size(CAIRN)
         page.goto(f"{live_server.url}{HOME}?key={key}")

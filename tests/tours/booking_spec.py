@@ -261,7 +261,7 @@ def describe_reschedule_tour():
         assert four is not None and five is not None
         assert (four.seats_left, five.seats_left) == (4, 2)
 
-    def it_moves_to_another_guides_tour(guide: Member, booked: TourBooking):
+    def it_moves_to_another_guides_tour(guide: Member, booked: TourBooking, shared_hours: None):
         other = make_guide(full_legal_name="Olive Other")
         TourHoursFactory(guide=other)
         reschedule_tour(booked, guide=other, starts_at=FOUR, now=NOW)
@@ -306,7 +306,7 @@ def describe_reschedule_tour():
         assert Notification.objects.get(user=guide.user).title == "Tour moved"
 
     def it_tells_the_old_guide_it_left_and_the_new_guide_it_arrived(
-        guide: Member, booked: TourBooking, django_capture_on_commit_callbacks: Any
+        guide: Member, booked: TourBooking, django_capture_on_commit_callbacks: Any, shared_hours: None
     ):
         other = make_guide(full_legal_name="Olive Other")
         TourHoursFactory(guide=other)

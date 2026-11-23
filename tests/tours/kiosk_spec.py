@@ -409,7 +409,7 @@ def describe_kiosk_booking():
         assert f'href="{BOOK}?tour={_key_for(guide, local(day, 16))}"' in content
 
     def it_offers_the_guide_dropdown_where_guides_share_a_time_and_books_at_once(
-        kiosk_client: Client, guide: Member, day: date
+        kiosk_client: Client, guide: Member, day: date, shared_hours: None
     ):
         other = make_guide(full_legal_name="Olive Other")
         TourGuideSettings.objects.create(guide=other, confirm_mode=TourGuideSettings.ConfirmMode.FIRST)
@@ -613,7 +613,7 @@ def describe_kiosk_guide_names():
         reschedule = build_picker([alone, *shared], "").times
         assert [time.guide_name for time in reschedule] == ["", "Amber", "Sam"]
 
-    def it_says_with_whom_beside_each_kiosk_time(kiosk_client: Client, guide: Member, day: date):
+    def it_says_with_whom_beside_each_kiosk_time(kiosk_client: Client, guide: Member, day: date, shared_hours: None):
         other = make_guide(full_legal_name="Olive Other")
         TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
         TourHoursFactory(guide=other, weekday=day.weekday(), seats=4, start_time=time(17), end_time=time(18))
@@ -640,7 +640,9 @@ def describe_kiosk_guide_names():
         form = kiosk_client.get(BOOK, {"tour": _key_for(nameless, local(day, 16))}).content.decode()
         assert "data-tour-form" in form and "data-tour-guide-name" not in form
 
-    def it_follows_the_guide_dropdown_in_the_form_summary(kiosk_client: Client, guide: Member, day: date):
+    def it_follows_the_guide_dropdown_in_the_form_summary(
+        kiosk_client: Client, guide: Member, day: date, shared_hours: None
+    ):
         other = make_guide(full_legal_name="Olive Other")
         for member in (guide, other):
             TourHoursFactory(guide=member, weekday=day.weekday(), seats=4)
@@ -654,7 +656,7 @@ def describe_kiosk_guide_names():
         again = kiosk_client.post(BOOK, data).content.decode()
         assert 'x-text="names[guide]">with Olive</span>' in again
 
-    def it_keeps_pick_a_different_time_on_the_website(guide: Member, day: date):
+    def it_keeps_pick_a_different_time_on_the_website(guide: Member, day: date, shared_hours: None):
         other = make_guide(full_legal_name="Olive Other")
         for member in (guide, other):
             TourHoursFactory(guide=member, weekday=day.weekday(), seats=4)

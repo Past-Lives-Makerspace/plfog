@@ -10,13 +10,13 @@
 The Tours page's My Hours tab (#947, tours.views.tour_hours), for Tour Guides and admins: a guide's
 Every Week hours (rows of day, from, until, tour length and seats, each cut into back to back
 tours), their Available On hours on picked dates (#1160, tours/partials/_dates.html), their days
-off, their Google Calendar (#951, tours/partials/_google_calendar.html), and whether their
-bookings wait for their Confirm (#1166, tours/partials/_confirm_mode.html). An
+off, and their Google Calendar (#951, tours/partials/_google_calendar.html). Confirming Bookings
+(#1166) is gone since #1309: every booking is booked at once. An
 admin picks whose hours to edit with the guide picker, which names each guide's calendar state and
 applies on change. The page opens on Upcoming (tours/bookings.html, #949); admins also get the
 Settings tab (tours/settings.html).
 
-Every Week, Google Calendar's picker and Confirming Bookings save themselves as they are edited
+Every Week and Google Calendar's picker save themselves as they are edited
 (#1279): the root is the plGuildAutosave component (static/js/guild_autosave.js, the guild
 settings one), each saving form carries data-autosave and a data-autosave-key naming the pill in
 its card (tours/partials/_save_status.html). Add Dates, Day Off, Connect and Disconnect act at once.
@@ -84,7 +84,7 @@ its card (tours/partials/_save_status.html). Add Dates, Day Off, Connect and Dis
 <form id="tour-hours-form" method="post" action="{% url 'tours:hours_save' %}" class="hub-form" data-autosave data-autosave-key="hours" data-formset="hours" data-formset-required="{{ formset.empty_form|required_fields }}" data-autosave-confirm="tour-hours-delete">
   {% csrf_token %}
   <input type="hidden" name="guide" value="{{ target.pk }}">
-  <div class="hub-card pl-tours-panel" data-tour-hours>
+  <div class="hub-card pl-tours-panel" data-tour-hours data-guidance-target="tours.every-week">
     <div class="pl-tours-panel__head" data-card-head>
       <h2 class="hub-detail-label pl-tours-panel__title">Every Week</h2>
       {% include "tours/partials/_save_status.html" with key="hours" %}
@@ -147,7 +147,6 @@ its card (tours/partials/_save_status.html). Add Dates, Day Off, Connect and Dis
 
 {% include "tours/partials/_google_calendar.html" %}
 
-{% include "tours/partials/_confirm_mode.html" %}
 
 {% include "components/modal.html" with modal_id="tour-day-off-modal" modal_title="Add Day Off" modal_size="md" modal_body_include="tours/partials/_day_off_form.html" %}
 {% if open_day_off %}

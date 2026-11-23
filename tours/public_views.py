@@ -258,7 +258,7 @@ def book(request: HttpRequest) -> HttpResponse:
         request,
         "tours/public/book.html",
         {
-            "picker": build_picker(tours, raw_day, no_preference=True),
+            "picker": build_picker(tours, raw_day, no_preference=tour_settings.guides_share_hours),
             "chosen": chosen,
             "guides": attempt.guides,
             "form": attempt.form,

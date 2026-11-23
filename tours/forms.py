@@ -13,6 +13,7 @@ from typing import Any, cast
 
 from django import forms
 from django.db import transaction
+from django.db.models import Q
 from django.http import QueryDict
 from django.utils import timezone
 
@@ -30,10 +31,10 @@ from tours.models import (
     FacilityTourSettings,
     TourCalendarConnection,
     TourDayOff,
-    TourGuideSettings,
     TourHours,
     day_label,
 )
+from tours.notify import guide_first_name
 
 #: The longest run of days one day off may cover.
 MAX_DAY_OFF_DAYS = 366
@@ -178,6 +179,7 @@ class _TourHoursBaseFormSet(forms.BaseInlineFormSet):
                     _refuse_row(form, _overlap_message(other.instance))
                     _refuse_row(other, _overlap_message(form.instance))
         self._refuse_clash_with_dated(kept)
+        self._refuse_other_guides(kept)
         carried = {form.instance.pk for form in self.forms if form.instance.pk is not None}
         for saved in self.get_queryset().exclude(pk__in=carried):
             for form in kept:
@@ -189,6 +191,22 @@ class _TourHoursBaseFormSet(forms.BaseInlineFormSet):
                         f"{_meeting_time_label(saved.end_time.hour, saved.end_time.minute)} that this page "
                         "does not show. Reload the page and try again.",
                     )
+
+    def _refuse_other_guides(self, kept: list[forms.ModelForm]) -> None:
+        """Refuse a new row, or one whose day or times changed, that runs into another guide's hours (#1309).
+
+        A saved row posted again unchanged is left alone, so hours that overlapped before #1309 keep saving.
+        """
+        moved = [
+            form
+            for form in kept
+            if form.instance.pk is None or {"weekday", "start_time", "end_time"} & set(form.changed_data)
+        ]
+        others = other_guides_hours(self.instance, {form.instance.weekday for form in moved})
+        for form in moved:
+            for owner in others:
+                if form.instance.overlaps(owner):
+                    _refuse_row(form, taken_message(owner))
 
     def _refuse_clash_with_dated(self, kept: list[forms.ModelForm]) -> None:
         """Refuse a weekly row that overlaps upcoming dated hours (#1160) on its weekday, naming the date."""
@@ -206,6 +224,31 @@ class _TourHoursBaseFormSet(forms.BaseInlineFormSet):
                         f"Every {row.get_weekday_display()} {row.times_label} overlaps your hours on "
                         f"{day_label(cast(date, other.date))}, {other.times_label}.",
                     )
+
+
+def other_guides_hours(guide: Member, weekdays: set[int]) -> list[TourHours]:
+    """Every other guide's weekly and upcoming dated hours on ``weekdays``, while hours are one guide's (#1309).
+
+    Empty while Tour Settings lets guides share hours (#1255). Only guides who give tours today
+    (``TourHours.objects.offered``): a revoked guide's kept rows hold no time. One query.
+    """
+    if FacilityTourSettings.load().guides_share_hours or not weekdays:
+        return []
+    today = timezone.localdate()
+    return list(
+        TourHours.objects.offered()
+        .exclude(guide=guide)
+        .filter(weekday__in=weekdays)
+        .filter(Q(date__isnull=True) | Q(date__gte=today))
+        .select_related("guide")
+        .order_by("date", "start_time")
+    )
+
+
+def taken_message(owner: TourHours) -> str:
+    """The refusal naming whose hours a row runs into (#1309): ``Every Tuesday, 2:00 PM to 4:00 PM is Amber's.``"""
+    name = guide_first_name(owner.guide) or "another guide"
+    return f"{owner.when_label} is {name}'s. Each tour hour belongs to one guide, so pick a time nobody has."
 
 
 def _overlap_message(other: TourHours) -> str:
@@ -326,6 +369,7 @@ class TourDatesForm(forms.Form):
                 first_day, last_day
             )
         )
+        others = other_guides_hours(self.guide, {row.weekday for row in rows})
         problems: list[str] = []
         for row in rows:
             day = cast(date, row.date)
@@ -346,6 +390,7 @@ class TourDatesForm(forms.Form):
                         )
                     else:
                         problems.append(f"{label}: overlaps hours already on that date, {other.times_label}.")
+                problems.extend(f"{label}: {taken_message(owner)}" for owner in others if row.overlaps(owner))
         return problems
 
     def save(self) -> list[TourHours]:
@@ -434,6 +479,7 @@ class FacilityTourSettingsForm(forms.ModelForm):
             "booking_horizon_days",
             "min_notice_hours",
             "cancel_cutoff_hours",
+            "guides_share_hours",
             "default_tour_minutes",
             "default_seats",
         ]
@@ -443,6 +489,7 @@ class FacilityTourSettingsForm(forms.ModelForm):
             "booking_horizon_days": "Booking horizon (days)",
             "min_notice_hours": "Minimum notice (hours)",
             "cancel_cutoff_hours": "Cancel and reschedule cutoff (hours)",
+            "guides_share_hours": "Let guides share hours",
             "default_seats": "Default seats per tour",
         }
         widgets = {
@@ -464,6 +511,10 @@ class FacilityTourSettingsForm(forms.ModelForm):
         self.fields[
             "cancel_cutoff_hours"
         ].help_text = "How close to a tour visitors can still cancel or move it from their email."
+        self.fields["guides_share_hours"].help_text = (
+            "Off, each tour hour belongs to one guide and visitors pick a time. On, two guides may post the same "
+            "hours, and visitors pick a guide or No preference."
+        )
         self.fields["default_tour_minutes"].help_text = "What a new row of tour hours starts with."
         self.fields["default_seats"].help_text = "What a new row of tour hours starts with. Use 1 to 50."
         if self.instance.pk:
@@ -545,28 +596,6 @@ class StaffTourMessageForm(forms.Form):
         widget=forms.Textarea(attrs={"rows": 3}),
         help_text="Added to the email we send them.",
     )
-
-
-class TourConfirmModeForm(forms.ModelForm):
-    """The My Hours tab's Confirming Bookings card (#1166): Confirm First or Confirm Automatically,
-    and under Confirm First how far ahead visitors must book."""
-
-    class Meta:
-        model = TourGuideSettings
-        fields = ("confirm_mode", "min_notice_hours")
-        labels = {"min_notice_hours": "Visitors book at least (hours ahead)"}
-        widgets = {
-            "confirm_mode": forms.RadioSelect,
-            "min_notice_hours": forms.NumberInput(attrs={"class": "pl-tours-input--narrow"}),
-        }
-
-    def clean_min_notice_hours(self) -> int:
-        """Never below Tour Settings' minimum notice, and over the 24 hours a request has to be confirmed by."""
-        hours = int(self.cleaned_data["min_notice_hours"])
-        house = FacilityTourSettings.load().min_notice_hours
-        if hours < house:
-            raise forms.ValidationError(f"At least {house} hours: the minimum notice in Tour Settings.")
-        return hours
 
 
 class StaffRescheduleForm(StaffTourMessageForm):

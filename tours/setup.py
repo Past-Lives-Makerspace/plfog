@@ -151,8 +151,7 @@ TOUR_GUIDE_SETUP = PermissionSetupSpec(
             why="Here is what happens between a booking and the tour.",
             email_line="Learn how a tour day goes",
             how=(
-                "Bookings are confirmed at once, unless you pick Confirm First under Confirming Bookings on "
-                "My Hours. Then you confirm or decline each request on Upcoming by 24 hours before the tour.",
+                "Bookings are confirmed at once. Posting hours means you give any tour booked in them.",
                 "You get an email, a bell and a push for each booking, and hear again if the visitor moves or cancels.",
                 "Visitors check in at the lobby kiosk by their email or name, and your phone pings: "
                 '"Your 10:00 tour is here."',

@@ -1,4 +1,9 @@
-"""Confirm First (#1166): a guide's bookings wait as requests holding their seats until they confirm or decline."""
+"""Confirm First (#1166): a guide's bookings wait as requests holding their seats until they confirm or decline.
+
+No guide can choose it since #1309 (the My Hours card is gone); the request machinery stays for the
+No preference pool (#1255) behind Tour Settings' ``guides_share_hours``, so these specs set the
+mode on the row directly.
+"""
 
 from __future__ import annotations
 
@@ -119,7 +124,7 @@ def describe_the_tour_guide_permission_email():
     def it_describes_the_choice():
         # permission_grants_spec holds that the email carries this line word for word.
         how = AdminCapability.GUIDES[AdminCapability.Capability.TOUR_GUIDE].how
-        assert "confirmed automatically" in how and "Confirm First under Confirming Bookings" in how
+        assert "confirmed automatically, so there is nothing to confirm" in how and "Confirm First" not in how
 
 
 def describe_booking_a_guide_who_confirms_first():
@@ -265,52 +270,6 @@ def describe_the_tours_page():
         page = signed_in(guide).get(UPCOMING).content.decode()
         by = timezone.localtime(request_.starts_at - timedelta(hours=24))
         assert f"Confirm by {by:%a, %b} {by.day}, {by:%-I:%M %p}" in page
-
-
-def describe_the_confirming_bookings_card():
-    def it_shows_the_choice_and_saves_the_guides_own(guide: Member):
-        client = signed_in(guide)
-        page = client.get(reverse("tours:hours")).content.decode()
-        assert 'checked data-tour-confirm-choice="automatic"' in page
-        assert 'name="min_notice_hours" value="48"' in page
-        response = client.post(reverse("tours:confirm_mode_save"), {"confirm_mode": "first", "min_notice_hours": "72"})
-        assert (response.status_code, response["Location"]) == (302, reverse("tours:hours"))
-        assert _flashes(response) == [
-            "Saved. Visitors book at least 72 hours ahead, and each booking waits for you to confirm or decline it."
-        ]
-        assert TourGuideSettings.confirms_first(guide)
-        assert 'checked data-tour-confirm-choice="first"' in client.get(reverse("tours:hours")).content.decode()
-
-    def it_lets_an_admin_set_a_guides_and_refuses_a_bad_choice(admin: Member, guide: Member):
-        client = signed_in(admin)
-        url = reverse("tours:confirm_mode_save")
-        bad = client.post(url, {"guide": guide.pk, "confirm_mode": "never", "min_notice_hours": "48"})
-        assert _flashes(bad) == ["Select a valid choice. never is not one of the available choices."]
-        assert bad["Location"] == f"{reverse('tours:hours')}?guide={guide.pk}"
-        client.post(url, {"guide": guide.pk, "confirm_mode": "first", "min_notice_hours": "48"})
-        assert TourGuideSettings.confirms_first(guide)
-
-    def it_holds_the_notice_over_the_house_minimum_and_the_confirm_by_day(guide: Member):
-        client = signed_in(guide)
-        url = reverse("tours:confirm_mode_save")
-        house = FacilityTourSettings.load()
-        house.min_notice_hours = 30
-        house.save()
-        below = client.post(url, {"confirm_mode": "first", "min_notice_hours": "28"})
-        assert _flashes(below) == ["At least 30 hours: the minimum notice in Tour Settings."]
-        house.min_notice_hours = 0
-        house.save()
-        day = client.post(url, {"confirm_mode": "first", "min_notice_hours": "24"})
-        assert _flashes(day)[-1:] == ["More than 24 hours, so there is time to answer before the confirm by time."]
-        assert not TourGuideSettings.confirms_first(guide)
-
-    def it_refuses_a_guide_setting_someone_elses(guide: Member):
-        other = make_guide(full_legal_name="Olive Other")
-        response = signed_in(guide).post(
-            reverse("tours:confirm_mode_save"), {"guide": other.pk, "confirm_mode": "first"}
-        )
-        assert response.status_code == 403
-        assert not TourGuideSettings.confirms_first(other)
 
 
 def describe_the_visitors_page():

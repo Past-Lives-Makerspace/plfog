@@ -163,8 +163,10 @@ def open_tours(
     """The tours visitors can book from ``first_day`` to ``last_day`` (local days, both included).
 
     Each offered guide's hours are carved into tours of the row's length; a guide's days off, any
-    tour past the booking horizon and any tour inside the minimum notice drop out. Two guides with
-    the same hours give two tours. A tour with no seat left drops out too unless ``include_full``,
+    tour past the booking horizon and any tour inside the minimum notice drop out. For visitors each
+    time is one guide's (#1309): where two guides' hours overlap, the guide whose hours were posted
+    first gives the tour (:func:`_first_posted`); staff, and Tour Settings' ``guides_share_hours``
+    (#1255), see both. A tour with no seat left drops out too unless ``include_full``,
     and for visitors one the guide's Google Calendar shows them busy (#951). Six queries however
     long the range (settings, hours, days off, seats, busy times, Confirm First guides' notice #1166;
     four for staff), none when no
@@ -191,8 +193,9 @@ def open_tours(
     last_day = min(last_day, window.last_day)
     if last_day < first_day:
         return []
+    one_guide = not staff and not tour_settings.guides_share_hours
     rows_query = TourHours.objects.offered().touching_days(first_day, last_day).select_related("guide")
-    if guide is not None:
+    if guide is not None and not one_guide:
         rows_query = rows_query.filter(guide=guide)
     rows = list(rows_query)
     if not rows:
@@ -204,7 +207,7 @@ def open_tours(
     )
     busy = {} if staff else TourCalendarConnection.objects.busy_by_guide(guide_ids)
     earliest = _guide_earliest(guide_ids, moment, tour_settings) if guide_notice and not staff else {}
-    tours: list[OpenTour] = []
+    offered: list[tuple[TourHours, OpenTour]] = []
     seen: set[tuple[int, datetime]] = set()
     day = first_day
     while day <= last_day:
@@ -221,19 +224,47 @@ def open_tours(
                 if key in seen or too_soon or not _offered(window, starts_at, ends_at, busy.get(row.guide_id, [])):
                     continue
                 seen.add(key)
-                tour = OpenTour(
-                    guide=row.guide,
-                    hours_id=row.pk,
-                    starts_at=starts_at,
-                    ends_at=ends_at,
-                    seats=row.seats,
-                    seats_taken=taken.get(key, 0),
+                offered.append(
+                    (
+                        row,
+                        OpenTour(
+                            guide=row.guide,
+                            hours_id=row.pk,
+                            starts_at=starts_at,
+                            ends_at=ends_at,
+                            seats=row.seats,
+                            seats_taken=taken.get(key, 0),
+                        ),
+                    )
                 )
-                if include_full or not tour.is_full:
-                    tours.append(tour)
         day += timedelta(days=1)
+    tours = _first_posted(offered) if one_guide else [tour for _row, tour in offered]
+    tours = [
+        tour for tour in tours if (include_full or not tour.is_full) and (guide is None or tour.guide.pk == guide.pk)
+    ]
     tours.sort(key=lambda tour: (tour.starts_at, tour.guide.greeting_name.casefold()))
     return tours
+
+
+def _first_posted(offered: list[tuple[TourHours, OpenTour]]) -> list[OpenTour]:
+    """Each time to one guide (#1309): a tour overlapping another guide's tour from hours posted earlier drops out.
+
+    Hours posted since #1309 never overlap another guide's; this settles the ones posted before,
+    so visitors see one tour per time. Judged on tours actually offered, full ones included: an
+    owner who is off that day, inside their notice or busy on their calendar holds nothing, and
+    an owner who is full still holds the time.
+    """
+    kept: list[OpenTour] = []
+    by_day: dict[date, list[OpenTour]] = {}
+    for _row, tour in sorted(offered, key=lambda pair: pair[0].posted_order):
+        same_day = by_day.setdefault(timezone.localdate(tour.starts_at), [])
+        if not any(
+            other.guide.pk != tour.guide.pk and other.starts_at < tour.ends_at and tour.starts_at < other.ends_at
+            for other in same_day
+        ):
+            same_day.append(tour)
+            kept.append(tour)
+    return kept
 
 
 def open_tour_at(
@@ -249,7 +280,8 @@ def open_tour_at(
 
     None when the guide gives no tours, no hours of theirs yield that start, they are off that
     day, the start is past the horizon or inside the minimum notice, or (for visitors) their
-    Google Calendar shows them busy then (#951). A full tour comes back
+    Google Calendar shows them busy then (#951) or another guide's hours posted earlier hold that
+    time (#1309, :func:`_first_posted`). A full tour comes back
     with ``seats_left`` 0, so a booking page can say it just filled up rather than that it never
     existed.
 
@@ -295,6 +327,8 @@ def open_tour_at(
                 starts_at, ends_at, TourCalendarConnection.objects.busy_by_guide([guide.pk]).get(guide.pk, [])
             ):
                 return None
+            if not staff and not tour_settings.guides_share_hours and not _owns(guide, starts_at, moment, guide_notice):
+                return None
             return OpenTour(
                 guide=guide,
                 hours_id=row.pk,
@@ -304,3 +338,12 @@ def open_tour_at(
                 seats_taken=TourBooking.objects.seats_taken(guide, starts_at),
             )
     return None
+
+
+def _owns(guide: Member, starts_at: datetime, now: datetime, guide_notice: bool) -> bool:
+    """Whether visitors are shown this guide's tour at ``starts_at`` (#1309), not another guide's posted earlier."""
+    day = timezone.localdate(starts_at)
+    return any(
+        tour.guide.pk == guide.pk and tour.starts_at == starts_at
+        for tour in open_tours(day, day, include_full=True, now=now, guide_notice=guide_notice)
+    )

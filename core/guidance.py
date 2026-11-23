@@ -652,7 +652,7 @@ _GUIDANCE_LIST = (
             "Every Week is for hours that repeat. If your schedule changes from week to week, use Available On.",
             "Press + Add Dates, tap the days you are free, set From, To, Tour length and Seats, then press Add.",
             "Visitors can book tours on those dates. Delete a date from the list if your plans change.",
-            "Want to OK each booking first? Under Confirming Bookings pick Confirm First, then Confirm or Decline each request on Upcoming by 24 hours before the tour.",
+            "Each hour belongs to one guide, so hours another guide has are refused. A tour booked in yours is booked at once.",
         ),
     ),
     Guidance(

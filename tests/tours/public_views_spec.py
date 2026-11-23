@@ -102,7 +102,7 @@ def describe_booking_page():
         assert response.status_code == 200
         assert "4 seats left</span>" in response.content.decode()
 
-    def it_shows_one_time_when_two_guides_share_it(guide: Member, hours: Any):
+    def it_shows_one_time_when_two_guides_share_it(guide: Member, hours: Any, shared_hours: None):
         other = make_guide(full_legal_name="Olive Other")
         TourHoursFactory(guide=other, weekday=_day().weekday())
         content = _client().get(f"/?date={_day():%Y-%m-%d}").content.decode()

@@ -72,7 +72,6 @@ from tours.forms import (
     StaffTourMessageForm,
     MAX_DATED_DAYS_AHEAD,
     TourCalendarChoiceForm,
-    TourConfirmModeForm,
     TourDatesForm,
     TourDayOffForm,
     TourHoursFormSet,
@@ -85,7 +84,6 @@ from tours.models import (
     TourBookingNote,
     TourCalendarConnection,
     TourDayOff,
-    TourGuideSettings,
     TourHours,
     guide_filter,
     lock_guide_hours,
@@ -276,7 +274,6 @@ def _render_hours(
             "open_dates": dates_form.is_bound or add is not None,
             "dated_hours": dated,
             "dates_calendar": _calendar_config(target, dated, dates_form, add=add),
-            "confirm_form": TourConfirmModeForm(instance=TourGuideSettings.objects.filter(guide=target).first()),
             **_setup(request),
         },
     )
@@ -327,29 +324,6 @@ def tour_hours_save(request: HttpRequest) -> HttpResponse:
     if not saved:
         return _render_hours(request, target, formset=formset, hours_refused=True)
     messages.success(request, "Tour hours saved.")
-    return redirect(_hours_url(_viewer(request), target))
-
-
-@tour_guide_access_required
-@require_POST
-def tour_confirm_mode_save(request: HttpRequest) -> HttpResponse:
-    """Save whether the guide's bookings wait for their Confirm (#1166): the Confirming Bookings card.
-
-    The card saves itself as it is edited (#1279): an autosave post answers JSON, a refusal a 422
-    under the field. Without the script, a flash and a redirect back to the tab.
-    """
-    target = _target_guide(request, request.POST.get("guide", ""))
-    instance = TourGuideSettings.objects.filter(guide=target).first() or TourGuideSettings(guide=target)
-    form = TourConfirmModeForm(request.POST, instance=instance)
-    if not form.is_valid():
-        if wants_autosave(request):
-            return autosave_refused(form)
-        messages.error(request, str(next(iter(form.errors.values()))[0]))
-        return redirect(_hours_url(_viewer(request), target))
-    saved = form.save()
-    if wants_autosave(request):
-        return autosave_saved()
-    messages.success(request, f"Saved. {saved.summary}")
     return redirect(_hours_url(_viewer(request), target))
 
 
@@ -504,7 +478,8 @@ GIVE_TOURS_TUTORIAL = (
             "lobby.",
             "You get an email, a bell and a push for each booking, and an email and a bell when a visitor moves or "
             "cancels.",
-            "To confirm or decline each booking yourself, pick Confirm First under Confirming Bookings on My Hours.",
+            "There is nothing to confirm: a tour booked in your hours is booked, and it goes on your Google Calendar "
+            "when you connect one.",
             "Reschedule or cancel from the Upcoming tab: press the ... on the tour for Edit Guide or Time, or Cancel "
             "Tour. The visitor is emailed, with your note if you add one.",
         ),

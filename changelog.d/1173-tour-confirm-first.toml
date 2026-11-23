@@ -3,7 +3,6 @@ date = "2026-11-12"
 audience = ["admins"]
 feature = "tours.hours"
 guidance = "shots"
-target = "tours.confirm-mode"
 title = "Tour Guides can confirm each booking first"
 changes = [
   "My Hours on the Tours page has a new Confirming Bookings section: Confirm Automatically (as before) or Confirm First.",

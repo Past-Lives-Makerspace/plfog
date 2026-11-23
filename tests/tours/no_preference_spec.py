@@ -54,6 +54,11 @@ def _fresh_rate_limits() -> None:
     cache.clear()
 
 
+@pytest.fixture(autouse=True)
+def _guides_share_hours(shared_hours: None) -> None:
+    """No preference needs two guides at one time, which Tour Settings allows only with its switch on (#1309)."""
+
+
 def _visitor(party: int = 2) -> Visitor:
     return Visitor(name="Sam Rivera", email="sam@example.com", phone="", party_size=party)
 

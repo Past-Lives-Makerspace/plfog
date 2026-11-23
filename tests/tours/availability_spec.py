@@ -51,7 +51,7 @@ def describe_open_tours():
         TourHoursFactory(guide=guide, end_time=time(18, 30), tour_minutes=90)
         assert [tour.starts_at for tour in open_tours(TUESDAY, TUESDAY, now=NOW)] == [local(TUESDAY, 16)]
 
-    def it_offers_two_tours_when_two_guides_share_an_hour(guide: Member):
+    def it_offers_two_tours_when_guides_may_share_hours(guide: Member, shared_hours: None):
         other = make_guide(full_legal_name="Ana Other")
         TourHoursFactory(guide=guide)
         TourHoursFactory(guide=other)
@@ -95,10 +95,10 @@ def describe_open_tours():
         TourHoursFactory(guide=other)
         TourDayOffFactory(guide=guide, starts_on=TUESDAY, ends_on=TUESDAY + timedelta(days=7))
         tours = open_tours(TUESDAY, TUESDAY + timedelta(days=14), now=NOW)
+        # Each time is one guide's (#1309): the guide posted first, and Ana gives the tours only while they are off.
         assert {(tour.guide.pk, timezone.localdate(tour.starts_at)) for tour in tours} == {
             (other.pk, TUESDAY),
             (other.pk, TUESDAY + timedelta(days=7)),
-            (other.pk, TUESDAY + timedelta(days=14)),
             (guide.pk, TUESDAY + timedelta(days=14)),
         }
 

@@ -25,6 +25,7 @@ from django.utils import timezone
 from membership.models import AdminCapability, Member
 from tests.e2e.guidance import shoot
 from tests.membership.factories import MembershipPlanFactory
+from tests.tours.conftest import let_guides_share_hours
 from tests.tours.factories import TourHoursFactory
 from tours.models import TourBooking, TourGuideSettings
 
@@ -84,6 +85,7 @@ def _alex_and_gina() -> tuple[Member, Member, date]:
     day = timezone.localdate() + timedelta(days=4)
     TourHoursFactory(guide=alex, weekday=day.weekday(), seats=4)
     TourHoursFactory(guide=gina, weekday=day.weekday(), seats=2)
+    let_guides_share_hours()  # two guides at one time need Tour Settings' switch on (#1309)
     return alex, gina, day
 
 

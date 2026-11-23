@@ -68,6 +68,7 @@ The one Save shows only without the script (<noscript>).
     {% include "components/form_field.html" with field=form.booking_horizon_days %}
     {% include "components/form_field.html" with field=form.min_notice_hours %}
     {% include "components/form_field.html" with field=form.cancel_cutoff_hours %}
+    <div data-tour-settings-share>{% include "components/form_field.html" with field=form.guides_share_hours %}</div>
   </div>
 
   <div class="hub-card pl-tours-panel" data-tour-settings-defaults data-autosave-key="defaults">

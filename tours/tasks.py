@@ -15,3 +15,14 @@ def lapse_tour_request(booking_id: int) -> None:
     from tours.booking import lapse_request
 
     lapse_request(booking_id)
+
+
+@task
+def book_waiting_tour_requests() -> None:
+    """Book every request still waiting for its guide (#1309), once, after Confirm First was removed.
+
+    Queued by migration ``tours.0011``; safe to run twice (a request already booked is skipped).
+    """
+    from tours.booking import book_waiting_requests
+
+    book_waiting_requests()
