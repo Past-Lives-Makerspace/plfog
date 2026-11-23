@@ -315,6 +315,7 @@ def describe_no_confirm_step():
         assert not TourGuideSettings.confirms_first(amber)
         (queued,) = book_waiting_tour_requests.get_backend().results
         assert queued.task.func is book_waiting_tour_requests.func
+        assert queued.task.run_after > timezone.now() + _migration.RUN_AFTER_DEPLOY - timedelta(minutes=1)
         book_waiting_tour_requests.call()
         request_.refresh_from_db()
         assert request_.status == TourBooking.Status.BOOKED
