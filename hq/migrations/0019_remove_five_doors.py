@@ -21,13 +21,19 @@ def delete_removed_rows(apps, schema_editor) -> None:
     apps.get_model("hq", "HubGoal").objects.filter(kind__in=REMOVED_GOAL_KINDS).delete()
 
 
+def keep_removed_rows_deleted(apps, schema_editor) -> None:
+    """The reverse cannot bring the deleted cards and goals back: their rows are gone, and the CSV export taken
+    before the deploy (#1307 AC8) is the record. Going back leaves the hub with its four doors; an admin who wants
+    an old door back adds it again on Edit HQ."""
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("hq", "0018_hubcard_officers_only"),
     ]
 
     operations = [
-        migrations.RunPython(delete_removed_rows, migrations.RunPython.noop),
+        migrations.RunPython(delete_removed_rows, keep_removed_rows_deleted),
         migrations.RemoveField(
             model_name="hubflyer",
             name="hub",
