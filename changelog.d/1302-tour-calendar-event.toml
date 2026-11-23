@@ -1,0 +1,10 @@
+bump = "patch"
+date = "2026-11-22"
+audience = ["admins"]
+feature = "tours.calendar"
+guidance = "none"
+title = "Your tour calendar event reads like a run sheet"
+changes = [
+  "The event a booked tour puts on your Google Calendar is titled with the visitor and party size, like Tour: Olivia Vittitow (1).",
+  "Its description lists name, party size, phone, email and the booking number in bold labels. Tap the phone number to call, and the booking link opens that tour on the Tours page.",
+]
