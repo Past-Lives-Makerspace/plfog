@@ -184,6 +184,7 @@ def describe_confirm_first():
         page.locator("[data-tour-form]").wait_for()
         page.locator('input[name="name"]').fill("Sam Rivera")
         page.locator('input[name="email"]').fill("sam@example.com")
+        page.locator('input[name="phone"]').fill("503 555 0142")
         with page.expect_navigation():
             page.locator("[data-tour-form] button[type=submit]").click()
         page.locator("[data-tour-requested]").wait_for()

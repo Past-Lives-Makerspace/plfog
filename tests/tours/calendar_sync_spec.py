@@ -325,14 +325,17 @@ def describe_event_body():
         assert body["end"]["dateTime"] == booking.ends_at.astimezone(UTC).isoformat()
         assert "attendees" not in body
 
-    def it_shows_the_guests_answers_once_bookings_carry_them(booking: TourBooking):
-        # Bookings do not store these yet (feedback request #32); set on the instance, they slot in.
+    def it_shows_the_guests_answers_as_the_guide_reads_them_everywhere(booking: TourBooking):
+        # The booking questions (feedback request #32): the event lists booking.guest_answers, as the
+        # guide's email and the Upcoming row do, with pronouns under the name.
         booking.pronouns = "she/her"
-        booking.interests = ["Ceramics", "Woodshop"]
-        booking.found_us_through = "Instagram"
-        booking.guest_notes = "Bringing my <kid>"
+        booking.found_us_through = "Someone told me about it!"
+        booking.referred_by = "Jo Member"
+        booking.guest_notes = "I throw <pots>"
+        booking.wants_studio = True
+        booking.studio_description = "A kiln corner"
         body = calendar_sync.event_body(booking)
-        assert body["summary"] == "Tour: Sam Rivera (2) · Ceramics, Woodshop"
+        assert body["summary"] == "Tour: Sam Rivera (2)"
         labels = [line.split("</b>")[0] for line in body["description"].split("<br>")]
         assert labels == [
             "<b>Name:",
@@ -340,19 +343,21 @@ def describe_event_body():
             "<b>Party size:",
             "<b>Phone:",
             "<b>Email:",
-            "<b>Interested in:",
             "<b>Found us through:",
-            "<b>Notes from the guest:",
+            "<b>Referred by:",
+            "<b>What brings them here:",
+            "<b>Interested in a studio:",
+            "<b>Ideal studio:",
             "<b>Booking:",
         ]
-        assert "<b>Interested in:</b> Ceramics, Woodshop" in body["description"]
-        assert "<b>Notes from the guest:</b> Bringing my &lt;kid&gt;" in body["description"]
+        assert "<b>What brings them here:</b> I throw &lt;pots&gt;" in body["description"]
+        assert "<b>Referred by:</b> Jo Member" in body["description"]
 
     def it_skips_blank_answers(booking: TourBooking):
         booking.pronouns = "  "
-        booking.interests = []
         body = calendar_sync.event_body(booking)
         assert "Pronouns" not in body["description"]
+        assert "Found us through" not in body["description"]
         assert body["summary"] == "Tour: Sam Rivera (2)"
 
     def it_makes_a_stable_id_google_accepts(booking: TourBooking, settings):

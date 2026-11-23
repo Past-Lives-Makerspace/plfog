@@ -9,7 +9,8 @@ The visitor had no preference, so we also sent it to {{ shared_with }}. Whoever 
 {{ booking.visitor_name }} booked a tour for {{ people }}.{% endif %}
 
   When: {{ when }}
-  Visitor: {{ booking.visitor_email }}{% if booking.visitor_phone %}, {{ booking.visitor_phone }}{% endif %}
+  Visitor: {{ booking.visitor_email }}{% if booking.visitor_phone %}, {{ booking.visitor_phone }}{% endif %}{% for label, answer in booking.guest_answers %}
+  {{ label }}: {{ answer }}{% endfor %}
 
 {% if booking.is_request %}Confirm or decline: {{ request_url }}{% else %}Open Tours: {{ tours_page_url }}{% endif %}
 {% include "membership/emails/_footer.txt" %}{% endautoescape %}

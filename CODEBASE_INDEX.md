@@ -58,6 +58,7 @@ Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Othe
 - `Invite` — email invite with pre-created Member placeholder; accepted on signup
 - `PushSubscription` — Web Push subscription per user
 - `core/tasks.py` — the durable task queue (#1150, ADR 0003): `enqueue_on_commit` for `@task` work after a save, run by the `db_worker` process; a failed task alerts the Webmasters (`automation.failed`); `check_task_queue` watches it every 15 minutes, `prune_task_results` prunes it daily
+- `core/discord_gateway.py` — Fog Bot's live Discord reaction listener (#1270), run beside the queue by `run_worker`: a reaction on a role message enqueues `membership.discord_sync.apply_reaction`; `supervise` restarts a client that raised (5 s doubling to 5 min, an error after 10 minutes down)
 - `core/threads.py` — the shared conversation thread: abstract `ThreadMessage` / `ThreadPhoto` bases each domain builds its own tables on (`FeedbackComment`, `OrientationBookingMessage`), with one rule for who hears a message
 - `Notification` / `NotificationPreference` — per-user in-app notifications + per-trigger channel prefs (see `core/triggers.py` catalogue, `core/notifications.py` dispatch)
 - `TransactionalEmailLog` — logs every email sent via `core.email.send()` (sync; console in dev, Resend in prod)

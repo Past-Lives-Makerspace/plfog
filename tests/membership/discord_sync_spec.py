@@ -511,6 +511,85 @@ def describe_sync_roster_roles():
         assert discord_sync.sync_roster_roles() is None
 
 
+def describe_apply_reaction():
+    """The live gateway's task (#1270, part 3): one reaction gives or takes one guild's roles."""
+
+    @pytest.fixture
+    def glass(sync_config):
+        sync_config.discord_role_message_extra_ids = "msg2"
+        sync_config.save()
+        guild = GuildFactory(name="Glass", discord_role_ids=["71", "72"])
+        DiscordGuildEmojiFactory(emoji="🔥", guild=guild)
+        DiscordGuildEmojiFactory(emoji="🫧", guild=guild)
+        return guild
+
+    @respx.mock
+    def it_gives_every_role_of_the_guild_to_an_unlinked_reactor(glass):
+        put = respx.put(url__regex=_ROLE_RE).mock(return_value=httpx.Response(204))
+        discord_sync.apply_reaction.call("u9", glass.pk, True)
+        assert _put_roles(put.calls) == [("u9", "71"), ("u9", "72")]
+        assert not GuildMembership.objects.exists()
+
+    @respx.mock
+    def it_records_a_linked_reactor_and_clears_their_mark_without_email(glass):
+        member = MemberFactory(discord_user_id="u1")
+        GuildMembership.objects.record_app_join(glass, member)
+        GuildMembership.objects.filter(member=member).update(no_discord_role=True)
+        other = MemberFactory(discord_user_id="u2")
+        _mock_roles()
+        discord_sync.apply_reaction.call("u1", glass.pk, True)
+        discord_sync.apply_reaction.call("u2", glass.pk, True)
+        row = GuildMembership.objects.get(guild=glass, member=member)
+        assert (row.source, row.no_discord_role) == (GuildMembership.Source.APP, False)
+        assert GuildMembership.objects.get(guild=glass, member=other).source == GuildMembership.Source.DISCORD
+        assert mail.outbox == []
+
+    @respx.mock
+    def it_takes_the_roles_and_marks_a_portal_joiner_who_un_reacts_keeping_the_row(glass):
+        member = MemberFactory(discord_user_id="u1")
+        GuildMembership.objects.record_app_join(glass, member)
+        _mock_reactions({})
+        delete = respx.delete(url__regex=_ROLE_RE).mock(return_value=httpx.Response(204))
+        discord_sync.apply_reaction.call("u1", glass.pk, False)
+        row = GuildMembership.objects.get(guild=glass, member=member)
+        assert row.no_discord_role is True
+        assert _put_roles(delete.calls) == [("u1", "71"), ("u1", "72")]
+        assert mail.outbox == []
+
+    @respx.mock
+    def it_keeps_the_roles_while_another_emoji_of_the_guild_is_still_on(glass):
+        member = MemberFactory(discord_user_id="u1")
+        GuildMembership.objects.record_discord_join(glass, member)
+        _mock_reactions({"🫧": ["u1"]})
+        delete = respx.delete(url__regex=_ROLE_RE).mock(return_value=httpx.Response(204))
+        discord_sync.apply_reaction.call("u1", glass.pk, False)
+        assert not delete.called
+        assert GuildMembership.objects.get(member=member).no_discord_role is False
+
+    @respx.mock
+    def it_keeps_the_roles_when_a_read_of_the_other_reactions_was_truncated(glass):
+        _mock_reactions({}, flaky=("🫧",))
+        delete = respx.delete(url__regex=_ROLE_RE).mock(return_value=httpx.Response(204))
+        discord_sync.apply_reaction.call("u1", glass.pk, False)
+        assert not delete.called
+
+    @respx.mock
+    def it_does_nothing_for_a_deleted_guild_or_when_discord_is_unconfigured(glass, settings):
+        put = respx.put(url__regex=_ROLE_RE).mock(return_value=httpx.Response(204))
+        discord_sync.apply_reaction.call("u1", glass.pk + 999, True)
+        settings.DISCORD_BOT_TOKEN = ""
+        discord_sync.apply_reaction.call("u1", glass.pk, True)
+        assert not put.called
+
+    @respx.mock
+    def it_fails_the_task_when_discord_refuses_a_role_after_doing_the_rest(glass):
+        member = MemberFactory(discord_user_id="u1")
+        respx.put(url__regex=_ROLE_RE).mock(return_value=httpx.Response(403))
+        with pytest.raises(discord_sync.ReactionRoleError, match="2 Discord role PUT"):
+            discord_sync.apply_reaction.call("u1", glass.pk, True)
+        assert GuildMembership.objects.filter(guild=glass, member=member).exists()
+
+
 def describe_reconcile_nudges_unlinked_reactors():
     @respx.mock
     def it_dms_a_one_time_nudge_with_the_absolute_link_url(sync_config, settings):

@@ -6,7 +6,7 @@ ifneq (,$(wildcard .env))
     export
 endif
 
-.PHONY: help setup install db-up db-down db-pull-prod migrate server worker test lint format typecheck
+.PHONY: help setup install db-up db-down db-pull-prod migrate server worker worker-gateway test lint format typecheck
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' Makefile | sort | \
@@ -46,6 +46,9 @@ server: ## Start Django dev server
 
 worker: ## Start the task queue worker (runs queued tasks; restarts on code changes while DJANGO_DEBUG is on)
 	.venv/bin/python manage.py db_worker
+
+worker-gateway: ## Start the worker as production runs it: the queue plus the live Discord reaction listener (no reload)
+	.venv/bin/python manage.py run_worker
 
 test: ## Run tests
 	.venv/bin/pytest

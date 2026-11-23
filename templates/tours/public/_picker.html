@@ -1,22 +1,26 @@
 {% comment %}
-The date strip and the picked day's tour times (#948), shared by the booking page and the
+The days as a month calendar (Morlock, 2026-11-22: was a strip since #948) and the picked day's tour times, shared by the booking page and the
 reschedule page. Context: picker (tours.public_views.Picker), page_url (the page the links
 reload with ?date= or ?tour=), support_email. On the booking pages a time guides share is one No preference button (#1255).
 {% endcomment %}
 {% if picker.days %}
 <section class="pl-tourpub__section" aria-labelledby="tour-days-heading">
   <h2 class="pl-tourpub__heading" id="tour-days-heading">Pick a Day</h2>
-  <ul class="pl-tourpub__days">
-    {% for choice in picker.days %}
-    <li>
-      <a href="{{ page_url }}?date={{ choice.day|date:'Y-m-d' }}" class="pl-tourpub__day{% if choice.selected %} pl-tourpub__day--on{% endif %}"{% if choice.selected %} aria-current="date"{% endif %} data-tour-day="{{ choice.day|date:'Y-m-d' }}">
-        <span class="pl-tourpub__day-name">{{ choice.day|date:"D" }}</span>
-        <span class="pl-tourpub__day-num">{{ choice.day|date:"j" }}</span>
-        <span class="pl-tourpub__day-month">{{ choice.day|date:"M" }}</span>
-      </a>
-    </li>
+  {% comment %}A month calendar (Morlock, 2026-11-22): a block per month, Sunday to Saturday. The kiosk's
+  arrow keys walk the links inside .pl-tourpub__days (static/js/tours-kiosk.js), up and down by position.{% endcomment %}
+  <div class="pl-tourpub__days pl-tourpub__calendar">
+    {% for month in picker.months %}
+    <div class="pl-tourpub__month" data-tour-month="{{ month.first|date:'Y-m' }}">
+      <h3 class="pl-tourpub__month-name">{{ month.first|date:"F Y" }}</h3>
+      <div class="pl-tourpub__week pl-tourpub__weekdays" data-tour-weekdays aria-hidden="true">{% for name in picker.weekday_names %}<span>{{ name }}</span>{% endfor %}</div>
+      {% for week in month.weeks %}
+      <div class="pl-tourpub__week">
+        {% for cell in week %}{% if not cell.day %}<span class="pl-tourpub__cell" aria-hidden="true"></span>{% elif cell.choice %}<a href="{{ page_url }}?date={{ cell.day|date:'Y-m-d' }}" class="pl-tourpub__cell pl-tourpub__day{% if cell.choice.selected %} pl-tourpub__day--on{% endif %}" aria-label="{{ cell.day|date:'l, F j' }}"{% if cell.choice.selected %} aria-current="date"{% endif %} data-tour-day="{{ cell.day|date:'Y-m-d' }}">{{ cell.day|date:"j" }}</a>{% else %}<span class="pl-tourpub__cell pl-tourpub__day--closed" data-tour-closed="{{ cell.day|date:'Y-m-d' }}">{{ cell.day|date:"j" }}</span>{% endif %}{% endfor %}
+      </div>
+      {% endfor %}
+    </div>
     {% endfor %}
-  </ul>
+  </div>
 </section>
 <section class="pl-tourpub__section" aria-labelledby="tour-times-heading">
   <h2 class="pl-tourpub__heading" id="tour-times-heading">Times on {{ picker.day|date:"l, F j" }}</h2>
