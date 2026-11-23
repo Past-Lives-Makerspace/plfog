@@ -372,7 +372,7 @@ def describe_the_month_calendar_on_a_phone():
 
 
 def describe_the_booking_steps():
-    """Morlock, 2026-11-22: the step bar, an obvious Back, and what was typed kept while going back and forth."""
+    """Morlock, 2026-11-22: the step bar (Schedule, Details, Confirm) as the way back and forth, and what was typed kept."""
 
     def it_keeps_the_typing_across_back_and_forgets_it_once_booked(live_server, page, settings):
         settings.TOURS_HOSTS = [urlparse(live_server.url).hostname]
@@ -390,15 +390,21 @@ def describe_the_booking_steps():
         page.locator('input[name="email"]').fill("sam@example.com")
         page.locator('input[name="phone"]').fill("503 555 0142")
 
-        page.locator("[data-tour-back]").click()
-        page.locator('[data-tour-step="time"][aria-current="step"]').wait_for()
-        page.locator(f'[data-tour-time="{key}"]').click()
+        # The step bar is the way back and forth: Schedule back, then Details forward to the same time.
+        page.locator('a[data-tour-step="schedule"]').click()
+        page.locator('[data-tour-step="schedule"][aria-current="step"]').wait_for()
+        page.locator('a[data-tour-step="details"]').click()
         page.locator('[data-tour-step="details"][aria-current="step"]').wait_for()
         assert page.locator('input[name="name"]').input_value() == "Sam Rivera"
         assert page.locator('input[name="email"]').input_value() == "sam@example.com"
+        # And through the calendar: picking the time again finds the typing too.
+        page.locator('a[data-tour-step="schedule"]').click()
+        page.locator(f'[data-tour-time="{key}"]').click()
+        page.locator('[data-tour-step="details"][aria-current="step"]').wait_for()
+        assert page.locator('input[name="name"]').input_value() == "Sam Rivera"
 
         with page.expect_navigation():
             page.locator("[data-tour-form] button[type=submit]").click()
-        page.locator('[data-tour-step="booked"][aria-current="step"]').wait_for()
+        page.locator('[data-tour-step="confirm"][aria-current="step"]').wait_for()
         assert page.evaluate("() => sessionStorage.getItem('pl-tour-booking-draft')") is None
         assert TourBooking.objects.get().visitor_name == "Sam Rivera"

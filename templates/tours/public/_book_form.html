@@ -8,7 +8,7 @@ kiosk (#950, kiosk set: autocomplete off). Context: form, chosen (the OpenTour i
 the tour key, No preference first; empty for one guide), page_url, kiosk, chosen_guide (the kiosk's
 one guide). Alpine keeps the seats line on the picked guide and disables a guide without room for the
 party; without it the booking refuses. At the kiosk (#1273) the summary names the guide, following the
-dropdown, and the heading's Back is the way back. On the website "← Back to day & time" (Morlock,
+dropdown, and the heading's Back is the way back. On the website the step bar's Schedule (Morlock,
 2026-11-22, was a small Pick a different time link) returns to the picked day, and the form carries
 data-tour-draft so static/js/tour-booking-draft.js keeps what was typed in the tab; never at the kiosk.
 {% endcomment %}
@@ -17,7 +17,6 @@ data-tour-draft so static/js/tour-booking-draft.js keeps what was typed in the t
   <div class="pl-tourpub__chosen-when">{{ chosen.starts_at|date:"l, F j" }} at {{ chosen.starts_at|time:"g:i A" }}</div>
   <div class="pl-tourpub__chosen-meta"><span data-tour-seats{% if guides %} x-text="seats[guide] + (seats[guide] === 1 ? ' seat left' : ' seats left')"{% endif %}>{{ chosen.seats_left }} seat{{ chosen.seats_left|pluralize }} left</span>{% if kiosk %}{% include "tours/kiosk/_form_guide.html" %}{% endif %}</div>
 </div>
-{% if not kiosk %}<a href="{{ page_url }}?date={{ chosen.starts_at|date:'Y-m-d' }}" class="pl-btn pl-btn--secondary pl-tourpub__back" data-tour-back>← Back to day &amp; time</a>{% endif %}
 {% if form.non_field_errors %}<div class="reg-error-block pl-tourpub__notice">{% for err in form.non_field_errors %}{{ err }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</div>{% endif %}
 <form method="post" action="{{ page_url }}" class="reg-form pl-tourpub__form" hx-boost="false"{% if kiosk %} autocomplete="off"{% else %} data-tour-draft{% endif %} data-tour-form data-pl-busy-submit>
   {% csrf_token %}

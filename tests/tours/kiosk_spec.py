@@ -690,8 +690,11 @@ def describe_kiosk_guide_names():
         website = Client(HTTP_HOST=HOST)
         for tour in (_key_for(guide, local(day, 16)), f"any-{local(day, 16).astimezone(UTC):%Y%m%dT%H%MZ}"):
             form = website.get("/", {"tour": tour}).content.decode()
-            # Morlock, 2026-11-22: the small Pick a different time link became "← Back to day & time".
-            assert "data-tour-form" in form and "data-tour-back" in form and "Back to day &amp; time" in form
+            # Morlock, 2026-11-22: the small Pick a different time link became the step bar's Schedule.
+            assert (
+                "data-tour-form" in form
+                and 'class="pl-tourpub__step pl-tourpub__step--done" data-tour-step="schedule"' in form
+            )
             assert "data-tour-guide-name" not in form and "names:" not in form
 
     def it_names_the_guide_on_you_are_booked(kiosk_client: Client, guide: Member, day: date):

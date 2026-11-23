@@ -1,6 +1,6 @@
-"""The booking page's step bar (Morlock, 2026-11-22): Day & Time, Your Details, Booked, the current one
-highlighted, an obvious Back from the details, and what the visitor typed kept in their browser tab
-(never at the lobby kiosk, a shared screen)."""
+"""The booking page's step bar (Morlock, 2026-11-22): Schedule, Details, Confirm, the current one
+highlighted and the bar itself the way back and forth (no separate Back), and what the visitor typed
+kept in their browser tab (never at the lobby kiosk, a shared screen)."""
 
 from __future__ import annotations
 
@@ -51,36 +51,44 @@ def _current(content: str) -> str:
 
 
 def describe_the_step_bar():
-    def it_starts_on_day_and_time(guide: Member, hours: Any):
+    def it_starts_on_schedule(guide: Member, hours: Any):
         content = _page("/")
         assert "data-tour-steps" in content
-        assert 'data-tour-step="time"' in _current(content)
+        assert 'data-tour-step="schedule"' in _current(content)
         assert content.count('aria-current="step"') == 1
 
-    def it_moves_to_your_details_once_a_time_is_picked(guide: Member, hours: Any):
+    def it_moves_to_details_once_a_time_is_picked(guide: Member, hours: Any):
         content = _page(f"/?tour={_key(guide)}")
         assert 'data-tour-step="details"' in _current(content)
         # The finished step is a way back, to the same day.
         assert f'href="/?date={_day():%Y-%m-%d}" class="pl-tourpub__step pl-tourpub__step--done"' in content
 
-    def it_ends_on_booked(guide: Member):
+    def it_ends_on_confirm(guide: Member):
         booking = TourBookingFactory(guide=guide)
         content = _page(reverse("tours_public:manage", args=[booking.self_serve_token]) + "?booked=1")
-        assert 'data-tour-step="booked"' in _current(content)
+        assert 'data-tour-step="confirm"' in _current(content)
 
     def it_leaves_the_bar_off_a_booking_opened_later(guide: Member):
         booking = TourBookingFactory(guide=guide)
         assert "data-tour-steps" not in _page(reverse("tours_public:manage", args=[booking.self_serve_token]))
 
 
-def describe_the_back_button():
-    def it_goes_back_to_the_picked_day(guide: Member, hours: Any):
-        content = _page(f"/?tour={_key(guide)}")
-        assert (
-            f'href="/?date={_day():%Y-%m-%d}" class="pl-btn pl-btn--secondary pl-tourpub__back" data-tour-back'
-            in content
-        )
-        assert "Back to day &amp; time" in content
+def describe_moving_between_steps():
+    def it_has_no_separate_back_button(guide: Member, hours: Any):
+        assert "data-tour-back" not in _page(f"/?tour={_key(guide)}")
+
+    def it_names_the_steps_schedule_details_confirm(guide: Member, hours: Any):
+        content = _page("/")
+        bar = content[content.index("data-tour-steps") : content.index("</ol>", content.index("data-tour-steps"))]
+        assert [name for name in ("Schedule", "Details", "Confirm") if name in bar] == [
+            "Schedule",
+            "Details",
+            "Confirm",
+        ]
+
+    def it_leaves_details_for_the_browser_to_link_from_schedule(guide: Member, hours: Any):
+        # The server cannot know the time picked before; tour-booking-draft.js links it.
+        assert "data-tour-step-later" in _page("/")
 
 
 def describe_keeping_what_was_typed():
@@ -109,6 +117,7 @@ def describe_the_kiosk():
     def it_shows_the_steps_but_never_keeps_a_strangers_typing(kiosk_client: Client, guide: Member, hours: Any):
         content = kiosk_client.get(f"/kiosk/book/?tour={_key(guide)}").content.decode()
         assert "data-tour-steps" in content
+        assert f'href="/kiosk/book/?date={_day():%Y-%m-%d}" class="pl-tourpub__step pl-tourpub__step--done"' in content
         assert 'data-tour-step="details"' in _current(content)
         assert "data-tour-draft" not in content
         assert "tour-booking-draft.js" not in content

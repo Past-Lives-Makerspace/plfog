@@ -30,7 +30,7 @@ proposed_when, new_guide_name, proposal_key, picked.
         </div>
       </div>
       <div class="detail-body">
-        {% if just == "booked" %}{% include "tours/public/_steps.html" with step="booked" %}<span hidden data-tour-draft-clear></span>{% endif %}
+        {% if just == "booked" %}{% include "tours/public/_steps.html" with step="confirm" %}<span hidden data-tour-draft-clear></span>{% endif %}
         {% if booking.is_request and just != "cancelled" %}
         <p class="pl-tourpub__lead" data-tour-requested>{% if shared %}We sent your request to every guide giving a tour at that time. The first to confirm gives your tour, and they have until{% else %}Your guide confirms each tour before it is booked, and has until{% endif %} <strong data-tour-confirm-by>{{ confirm_by }}</strong> to do so. Your spot is held until then. We emailed {{ booking.visitor_email }}, and we email you again with a calendar invite once {% if shared %}one confirms{% else %}they confirm{% endif %}, or if they have not by then.{% if notice_hours %} Tours with this guide are booked at least {{ notice_hours }} hours ahead.{% endif %}</p>
         {% elif just == "booked" or just == "moved" %}

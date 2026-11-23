@@ -134,27 +134,12 @@ body.tours-portal {
     font-size: 11px;
 }
 
-.cp-page .pl-tourpub__back {
-    display: inline-flex;
-    margin: 0 0 1rem;
-}
-
-.cp-page .pl-tourpub__step-short {
-    display: none;
-}
-
-/* A phone has room for "Time, Details, Booked", not the full names. */
+/* A phone: smaller step names, so Schedule, Details and Confirm fit side by side. */
 @media (max-width: 480px) {
     .cp-page .pl-tourpub__step {
         font-size: 12px;
         gap: 0.3rem;
         padding: 0.45rem 0.25rem;
-    }
-    .cp-page .pl-tourpub__step-full {
-        display: none;
-    }
-    .cp-page .pl-tourpub__step-short {
-        display: inline;
     }
 }
 

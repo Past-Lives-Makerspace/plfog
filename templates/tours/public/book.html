@@ -32,7 +32,7 @@ books, or None), form, error, page_url, address, support_email.
         </div>
       </div>
       <div class="detail-body">
-        {% if form %}{% include "tours/public/_steps.html" with step="details" time_url=page_url time_day=chosen.starts_at %}{% else %}{% include "tours/public/_steps.html" with step="time" %}{% endif %}
+        {% if form %}{% include "tours/public/_steps.html" with step="details" time_url=page_url time_day=chosen.starts_at %}{% else %}{% include "tours/public/_steps.html" with step="schedule" %}{% endif %}
         {% if error %}<div class="reg-error-block pl-tourpub__notice" role="alert" data-tour-error>{{ error }}</div>{% endif %}
         {% if form %}
         {% include "tours/public/_book_form.html" %}

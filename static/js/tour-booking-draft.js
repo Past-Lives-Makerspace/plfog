@@ -9,12 +9,15 @@
 
    Never at the lobby kiosk: that screen is shared by strangers, so its form carries no
    data-tour-draft and this script is not loaded there. The You're Booked page carries
-   data-tour-draft-clear, which forgets the copy once the booking is made. The site moves between
+   data-tour-draft-clear, which forgets the copy once the booking is made. It also remembers the time
+   last opened, so the step bar's Details leads back to it from Schedule (the bar is the only Back). The site moves between
    its pages with htmx, so this also runs after every swap (htmx:afterSettle), not only on load. */
 (function () {
     "use strict";
 
     var KEY = "pl-tour-booking-draft";
+    // The time last opened, so the step bar's Details can lead back to it from Schedule.
+    var TOUR_KEY = "pl-tour-booking-tour";
     // The chosen time, the CSRF token and the honeypot are the page's, not the visitor's.
     var SKIP = { tour: true, csrfmiddlewaretoken: true, website: true };
 
@@ -67,6 +70,22 @@
         });
     }
 
+    // On Schedule, Details becomes a link to the time picked before (it renders as plain text, since
+    // the server does not know it). A time no longer open answers with the page's own refusal.
+    function linkDetails(storage) {
+        var later = document.querySelector("[data-tour-step-later]");
+        var key = storage.getItem(TOUR_KEY);
+        if (!later || !key) {
+            return;
+        }
+        var link = document.createElement("a");
+        link.href = window.location.pathname + "?tour=" + encodeURIComponent(key);
+        link.className = later.className;
+        link.setAttribute("data-tour-step", "details");
+        link.innerHTML = later.innerHTML;
+        later.replaceWith(link);
+    }
+
     function start() {
         var storage = store();
         if (!storage) {
@@ -74,14 +93,19 @@
         }
         if (document.querySelector("[data-tour-draft-clear]")) {
             storage.removeItem(KEY);
+            storage.removeItem(TOUR_KEY);
             return;
         }
+        linkDetails(storage);
         var form = document.querySelector("form[data-tour-draft]");
         // Once per form: start runs again after every htmx swap, and the same form may still be there.
         if (!form || form.hasAttribute("data-tour-draft-on")) {
             return;
         }
         form.setAttribute("data-tour-draft-on", "");
+        if (form.elements.tour && form.elements.tour.value) {
+            storage.setItem(TOUR_KEY, form.elements.tour.value);
+        }
         restore(form, storage);
         var keep = function () {
             save(form, storage);
