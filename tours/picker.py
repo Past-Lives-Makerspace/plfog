@@ -11,6 +11,7 @@ Guide dropdown (:func:`guide_choices`): No preference first, then each guide.
 
 from __future__ import annotations
 
+import calendar
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import ClassVar
@@ -89,12 +90,71 @@ class TimeChoice:
 
 
 @dataclass(frozen=True)
+class CalendarCell:
+    """One square of the month calendar: ``day`` is None outside the month, ``choice`` None on a day with no tour."""
+
+    day: date | None
+    choice: DayChoice | None = None
+
+
+@dataclass(frozen=True)
+class CalendarMonth:
+    """One month of the booking page's calendar: ``first`` is its first day, ``weeks`` its rows, Sunday first."""
+
+    first: date
+    weeks: list[list[CalendarCell]]
+
+
+#: The calendar's weekday order (Morlock: Sunday first, like a US wall calendar). ``calendar`` counts Monday as 0.
+SUNDAY_FIRST = 6
+
+
+def calendar_months(days: list[DayChoice]) -> list[CalendarMonth]:
+    """``days`` laid out as month calendars (Morlock, 2026-11-22), from the first day's month to the last's.
+
+    Every week is seven cells, Sunday to Saturday. A cell outside its month is blank, a day without a
+    tour has no choice (drawn greyed), and a day with one carries its :class:`DayChoice`.
+    """
+    if not days:
+        return []
+    by_day = {choice.day: choice for choice in days}
+    first, last = min(by_day), max(by_day)
+    grid = calendar.Calendar(firstweekday=SUNDAY_FIRST)
+    months: list[CalendarMonth] = []
+    year, month = first.year, first.month
+    while (year, month) <= (last.year, last.month):
+        weeks = [
+            [
+                CalendarCell(day=day, choice=by_day.get(day)) if day.month == month else CalendarCell(day=None)
+                for day in week
+            ]
+            for week in grid.monthdatescalendar(year, month)
+        ]
+        months.append(CalendarMonth(first=date(year, month, 1), weeks=weeks))
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    return months
+
+
+#: The calendar's column headings, in :data:`SUNDAY_FIRST` order.
+WEEKDAY_NAMES = ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+
+
+@dataclass(frozen=True)
 class Picker:
-    """The date strip and the picked day's times."""
+    """The days with tours (a month calendar on the booking pages, a strip in the staff Reschedule) and the picked day's times."""
 
     days: list[DayChoice]
     day: date | None
     times: list[TimeChoice]
+
+    @property
+    def months(self) -> list[CalendarMonth]:
+        """:attr:`days` as month calendars, for ``tours/public/_picker.html``."""
+        return calendar_months(self.days)
+
+    @property
+    def weekday_names(self) -> tuple[str, ...]:
+        return WEEKDAY_NAMES
 
 
 #: The Guide dropdown's first option (#1255).

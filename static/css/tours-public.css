@@ -75,6 +75,62 @@ body.tours-portal {
     font-weight: 800;
 }
 
+/* Pick a Day as a month calendar (Morlock, 2026-11-22): months side by side where they fit, each
+   a seven column grid, Sunday first. A day with tours is a link; one without is a greyed number. */
+.cp-page .pl-tourpub__calendar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: 1.5rem;
+    align-items: start;
+}
+
+.cp-page .pl-tourpub__month-name {
+    margin: 0 0 0.5rem;
+    font-family: var(--heading);
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--text);
+}
+
+.cp-page .pl-tourpub__week {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 0.25rem;
+    margin-bottom: 0.25rem;
+}
+
+.cp-page .pl-tourpub__weekdays span {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    text-align: center;
+    color: var(--text2);
+}
+
+.cp-page .pl-tourpub__cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1;
+    min-width: 0;
+    padding: 0;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.cp-page .pl-tourpub__calendar .pl-tourpub__day {
+    flex-direction: row;
+    min-width: 0;
+    padding: 0;
+}
+
+.cp-page .pl-tourpub__day--closed {
+    color: var(--text3);
+    font-weight: 400;
+    opacity: 0.6;
+}
+
 .cp-page .pl-tourpub__time {
     display: flex;
     flex-direction: column;
