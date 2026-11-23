@@ -55,7 +55,7 @@ from core.tasks import enqueue_on_commit
 if TYPE_CHECKING:
     from membership.models import Member
 
-LEADERSHIP_NAME = "leadership"
+LEADERSHIP_NAME = "Leadership"
 
 
 class LeadershipRoleSyncError(Exception):
