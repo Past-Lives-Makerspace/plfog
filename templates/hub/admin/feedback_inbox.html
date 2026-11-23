@@ -61,7 +61,7 @@ at 768px and below (the members table stacking).
     <tbody>
       {% for item in page.object_list %}
       <tr data-feedback-row="{{ item.pk }}">
-        <td data-label="Subject" class="pl-feedback-inbox__subject"><a href="{% url 'hub_admin_feedback_request' item.pk %}{% if inbox_query %}?{{ inbox_query }}{% endif %}">{{ item.subject }}</a>{% if item.has_member_reply %} <span class="hub-pill hub-pill--primary pl-feedback-inbox__replied" data-feedback-replied>Member replied</span>{% endif %}</td>
+        <td data-label="Subject" class="pl-feedback-inbox__subject"><a href="{% url 'hub_admin_feedback_request' item.pk %}{% if inbox_query %}?{{ inbox_query }}{% endif %}"><span class="pl-feedback-number" data-feedback-number>#{{ item.pk }}</span> {{ item.subject }}</a>{% if item.has_member_reply %} <span class="hub-pill hub-pill--primary pl-feedback-inbox__replied" data-feedback-replied>Member replied</span>{% endif %}</td>
         <td data-label="From">{{ item.sender_label }}</td>
         <td data-label="Category">{{ item.get_category_display }}</td>
         <td data-label="Status"><span class="hub-pill hub-pill--{{ item.status_tone }}" data-feedback-status="{{ item.status }}">{{ item.status_label }}</span></td>
