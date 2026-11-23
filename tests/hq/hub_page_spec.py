@@ -14,10 +14,10 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from hq.models import Countdown, EventHub, HubCard, HubGoal, WineBottle
-from hq.services import GoalRow, KindCount, WineBand, goal_rows, rsvp_count
+from hq.models import Countdown, EventHub, HubCard, HubGoal
+from hq.services import GoalRow, event_cash, goal_rows, rsvp_count
 from tests.hq.conftest import signed_in
-from tests.hq.factories import HubCardFactory, HubGoalFactory, WineBottleFactory
+from tests.hq.factories import BarSaleFactory, HubCardFactory, HubGoalFactory, LedgerEntryFactory
 from tests.membership.factories import CommunityEventFactory, EventRSVPFactory, GuildFactory, MemberFactory
 
 pytestmark = pytest.mark.django_db
@@ -181,11 +181,19 @@ def describe_goal_rows():
         assert goal_rows(open_hub)[0].current == 0
         assert rsvp_count(None) == 0
 
-    @pytest.mark.parametrize("kind", [HubGoal.Kind.BOTTLES, HubGoal.Kind.BOTTLE_VALUE])
-    def it_reads_zero_for_the_wine_wall_kinds_while_the_wall_is_empty(open_hub, kind):
-        HubGoalFactory(hub=open_hub, kind=kind, target=82)
+    def it_counts_raised_from_the_bar_sales_alone(open_hub):
+        """#1307: the event cash is the bar's sales; sponsors and wine wall tickets went with their doors, and a
+        sponsored ledger entry is the budget's, never cash."""
+        HubGoalFactory(hub=open_hub, label="Raised", kind=HubGoal.Kind.EVENT_CASH, target=10_000, is_money=True)
+        BarSaleFactory(hub=open_hub, amount_cents=60_000)
+        BarSaleFactory(hub=open_hub, amount_cents=12_550)
+        BarSaleFactory(amount_cents=99_900)  # another hub's bar
+        LedgerEntryFactory(hub=open_hub, amount_cents=500_000)
 
-        assert goal_rows(open_hub)[0].current == 0
+        (row,) = goal_rows(open_hub)
+
+        assert event_cash(open_hub).total_cents == 72_550
+        assert (row.current, row.target, row.current_display) == (725, 10_000, "$725")
 
     def it_caps_the_meter_at_full_and_reads_empty_with_no_target(open_hub):
         HubGoalFactory(hub=open_hub, kind=HubGoal.Kind.MANUAL, target=10, current_value=30, sort_order=0)
@@ -230,55 +238,14 @@ def describe_the_goal_band():
         assert "data-hq-goals-empty" in body
 
 
-def describe_bottles_by_type():
-    def it_lists_every_kind_in_lees_order_with_zeros_once_a_bottle_is_logged(open_hub):
-        HubGoalFactory(hub=open_hub, label="Wine wall bottles", kind=HubGoal.Kind.BOTTLES, target=100)
-        WineBottleFactory(hub=open_hub, kind=WineBottle.Kind.WHITE, qty=3)
-        WineBottleFactory(hub=open_hub, kind=WineBottle.Kind.CIDER)
-        WineBottleFactory(hub=open_hub, kind=WineBottle.Kind.WHITE)
-        WineBottleFactory(kind=WineBottle.Kind.BEER, qty=9)  # another hub's wall
+def describe_the_removed_wine_wall():
+    def it_shows_no_bottles_by_type_under_the_goals(open_hub):
+        HubGoalFactory(hub=open_hub, label="Raised", kind=HubGoal.Kind.EVENT_CASH, target=10_000, is_money=True)
 
         body = _visit(open_hub).content.decode()
 
-        line = body.split("data-hq-bottle-kinds>")[1].split("</p>")[0]
-        assert line.startswith("Bottles by type:")
-        chips = [chip.split(">")[1] for chip in line.split("</span>")[:-1]]
-        assert chips == ["0 Red", "4 White", "0 Champagne", "1 Cider", "0 Beer"]
-        goals = body.split('id="hq-goals-title"')[1].split("</section>")[0]
-        assert "data-hq-bottle-kinds" in goals  # under the goal band
-
-    def it_is_left_out_while_the_wall_is_empty(open_hub):
-        HubGoalFactory(hub=open_hub, kind=HubGoal.Kind.BOTTLES, target=100)
-
-        assert "data-hq-bottle-kinds" not in _visit(open_hub).content.decode()
-
-    def it_reads_the_wall_band_for_every_kind():
-        band = WineBand(
-            bottles=2, goal=0, value_cents=0, supporters=1, by_kind=[KindCount(key="beer", label="Beer", bottles=2)]
-        )
-
-        assert [(kind.key, kind.bottles) for kind in band.every_kind] == [
-            ("red", 0),
-            ("white", 0),
-            ("champagne", 0),
-            ("cider", 0),
-            ("beer", 2),
-        ]
-
-    def it_keeps_the_page_to_a_fixed_number_of_queries_as_bottles_grow(open_hub, django_assert_num_queries):
-        HubGoalFactory(hub=open_hub, kind=HubGoal.Kind.BOTTLES, target=100)
-        WineBottleFactory(hub=open_hub)
-        client = _officer()
-        client.get(_page(open_hub))  # warm the session and the site configuration
-        with CaptureQueriesContext(connection) as first:
-            client.get(_page(open_hub))
-        for kind in WineBottle.Kind:
-            WineBottleFactory.create_batch(3, hub=open_hub, kind=kind)
-
-        with django_assert_num_queries(len(first)):
-            response = client.get(_page(open_hub))
-
-        assert response.content.decode().count("data-hq-bottle-kind=") == 5
+        assert "data-hq-bottle-kinds" not in body
+        assert "Bottles by type" not in body
 
 
 def describe_the_tile_icons():
@@ -286,7 +253,8 @@ def describe_the_tile_icons():
         ("kind", "mark"),
         [
             (HubCard.Kind.VOLUNTEERS, '<circle cx="9" cy="7" r="4"/>'),
-            (HubCard.Kind.WINE_WALL, '<path d="M8 14h8"/>'),
+            (HubCard.Kind.VENDOR_TABLES, '<path d="M5 13v8h14v-8"/>'),
+            (HubCard.Kind.LEDGER, '<path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z"/>'),
         ],
     )
     def it_gives_each_kind_its_own_tile_icon(open_hub, kind, mark):
@@ -337,13 +305,13 @@ def describe_the_doors():
         assert "<a " not in door
         assert '<rect x="8" y="2" width="8" height="4"' in door  # the clipboard icon
 
-    def it_links_the_wine_wall_card_to_the_wall(open_hub):
-        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.WINE_WALL)
+    def it_links_the_vendor_tables_card_to_its_page(open_hub):
+        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.VENDOR_TABLES)
 
         body = _officer().get(_page(open_hub)).content.decode()
         door = body.split(f'data-hq-card-pk="{card.pk}"')[1].split("</div>")[0]
 
-        assert card.url == reverse("hq:wine", args=[open_hub.slug])
+        assert card.url == reverse("hq:vendors", args=[open_hub.slug])
         assert f'<a href="{card.url}" class="pl-hq-card" data-hq-card-link>' in door
         assert "data-hq-card-placeholder" not in door
 

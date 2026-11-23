@@ -1,9 +1,6 @@
-"""The HQ forms: the hub with its goals, one card with its shifts, a volunteer's Your Info step, the wine wall's Log a
-Bottle and winery logo, the Marketing Tracker's Log a Marketing Action, the Sponsorship Tracker's add form, inline
-edit and contact log line, Vendor Tables' add form, row edit and space map capacity, and the Market Check-in's report
-and hours, the flyer page's upload and links, and the PL Ledger's: the approval, budget lines, entries and receipts
-(D6a), the bar sales, drink prices and wine wall tickets (D6b), and the door clicker, launch checklist, staff time and
-guild demos (D6c)."""
+"""The HQ forms: the hub with its goals, one card with its shifts, a volunteer's Your Info step, Vendor Tables' add form,
+row edit and space map capacity, and the PL Ledger's: the approval, budget lines, entries and receipts (D6a), the bar
+sales and drink prices (D6b), and the door clicker, launch checklist, staff time and guild demos (D6c)."""
 
 from __future__ import annotations
 
@@ -34,10 +31,8 @@ from hq.models import (
     BudgetLine,
     DOOR_STEPS,
     EventHub,
-    FlyerSlot,
     GuildDemo,
     HubCard,
-    HubFlyer,
     HOURS_MAX,
     HOURS_MIN,
     HOURS_STEP,
@@ -46,17 +41,10 @@ from hq.models import (
     LedgerEntry,
     LedgerKind,
     LedgerSettings,
-    MarketingAction,
-    MarketReport,
     ShiftSignup,
-    Sponsor,
-    SponsorTier,
     StaffTime,
     VendorTable,
-    VolunteerHours,
     VolunteerShift,
-    WineBottle,
-    format_money,
 )
 from hq.services import (
     BAR_MIXED_NEEDS_TOTAL,
@@ -285,297 +273,10 @@ VolunteerShiftFormSet = inlineformset_factory(
 )
 
 
-class WineBottleForm(forms.ModelForm):
-    """Log a Bottle on the wine wall: Lee's twelve fields, with the value typed in dollars.
-
-    ``website`` is the same honeypot as :class:`VolunteerInfoForm`'s: hidden from people and
-    labelled to be left blank, so a bot that fills every field gives itself away.
-    """
-
-    value = forms.DecimalField(
-        min_value=Decimal(0),
-        max_digits=8,
-        decimal_places=2,
-        label="Value per bottle ($)",
-        help_text="What one bottle is worth, in dollars.",
-    )
-    qty = forms.IntegerField(
-        min_value=1, initial=1, label="How many", help_text="How many of this bottle came in, at least 1."
-    )
-    website = forms.CharField(
-        required=False,
-        label="Leave this blank",
-        widget=forms.TextInput(attrs={"autocomplete": "off", "tabindex": "-1"}),
-    )
-
-    class Meta:
-        model = WineBottle
-        fields = [
-            "kind",
-            "name",
-            "winery",
-            "qty",
-            "giver_name",
-            "giver_type",
-            "giver_email",
-            "listing",
-            "credited_name",
-            "photo",
-            "note",
-        ]
-        labels = {
-            "kind": "Type",
-            "name": "Bottle",
-            "winery": "Winery, cidery or brewery",
-            "giver_name": "Given by",
-            "giver_type": "Giver type",
-            "giver_email": "Giver's email",
-            "listing": "List them on the sponsor page?",
-            "credited_name": "Credited volunteer",
-            "photo": "Photo",
-            "note": "Note",
-        }
-        help_texts = {
-            "winery": "As on the label. Bottles group under it on the wall.",
-            "giver_email": "Optional. Stays private to the organisers, for the thank you note.",
-            "credited_name": "Who collected it. Starts as your name.",
-            "note": "Optional.",
-        }
-        widgets = {
-            "giver_email": forms.EmailInput(attrs={"autocomplete": "email"}),
-            "note": forms.Textarea(attrs={"rows": 2}),
-        }
-
-    def clean_photo(self) -> Any:
-        """A fresh upload must be an image we can open, under the size cap; none is fine."""
-        photo = self.cleaned_data["photo"]
-        if isinstance(photo, UploadedFile):
-            validate_image_size(photo)
-            validate_image_content(photo)
-        return photo
-
-    @property
-    def is_honeypot_hit(self) -> bool:
-        """Whether the hidden field was filled, which only a bot does."""
-        return bool(self.cleaned_data["website"])
-
-    def to_fields(self) -> dict[str, Any]:
-        """The bottle's fields for ``hq.services.log_bottle``: the cleaned data less the honeypot, the value in cents."""
-        fields = dict(self.cleaned_data)
-        del fields["website"]
-        value: Decimal = fields.pop("value")
-        fields["value_cents"] = int((value * 100).to_integral_value())
-        for key in ("name", "winery", "giver_name", "credited_name", "note"):
-            fields[key] = fields[key].strip()
-        return fields
-
-
-class WineryLogoForm(forms.Form):
-    """The organisers' logo upload: a winery already named on the wall, and its logo."""
-
-    name = forms.ChoiceField(label="Winery", help_text="A winery, cidery or brewery with a bottle on the wall.")
-    logo = forms.ImageField(label="Logo")
-
-    def __init__(self, *args: Any, names: Sequence[str], **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.fields["name"].choices = [(name, name) for name in names]  # type: ignore[attr-defined]  # a ChoiceField
-
-    def clean_logo(self) -> UploadedFile:
-        """The form's ImageField has opened it; this holds it under the size cap too."""
-        logo: UploadedFile = self.cleaned_data["logo"]
-        validate_image_size(logo)
-        return logo
-
-
-# The datalist the Who field suggests from: the guild officers.
-MARKETING_TEAM_LIST_ID = "hq-marketing-team"
-
-
-class MarketingActionForm(forms.ModelForm):
-    """Log a Marketing Action: Lee's six fields. Views or reach is optional and stored as 0 when left blank."""
-
-    reach = forms.IntegerField(
-        min_value=0,
-        required=False,
-        label="Views or reach",
-        widget=forms.NumberInput(attrs={"min": "0", "step": "1", "placeholder": "optional"}),
-    )
-
-    class Meta:
-        model = MarketingAction
-        fields = ["kind", "date", "who", "reach", "details", "link"]
-        labels = {"kind": "What", "date": "Date", "who": "Who", "details": "Details", "link": "Link"}
-        help_texts = {
-            "kind": "",
-            "date": "",
-            "who": "",
-            "details": "",
-            "link": "",
-        }
-        widgets = {
-            # The whole field opens the picker, not just its icon (FRONTEND rule 14).
-            "date": forms.DateInput(
-                format="%Y-%m-%d",
-                attrs={"type": "date", "@click": "(() => { try { $el.showPicker() } catch (e) {} })()"},
-            ),
-            "who": forms.TextInput(
-                attrs={"list": MARKETING_TEAM_LIST_ID, "placeholder": "e.g. Anjali", "autocomplete": "off"}
-            ),
-            "details": forms.TextInput(attrs={"placeholder": "e.g. Reel: Metal Guild sparks demo teaser"}),
-            "link": forms.URLInput(attrs={"placeholder": "optional"}),
-        }
-
-    def clean_reach(self) -> int:
-        reach: int | None = self.cleaned_data["reach"]
-        return 0 if reach is None else reach
-
-    def kept_for_next(self) -> dict[str, Any]:
-        """What the next entry starts with after a save: the same kind, date and who; the rest clears."""
-        return {key: self.cleaned_data[key] for key in ("kind", "date", "who")}
-
-
-# ---- Sponsorship Tracker (Track D, part 2) ----
-
-# The datalist Who's asking and the log's By suggest from: the guild officers.
-SPONSOR_TEAM_LIST_ID = "hq-sponsor-team"
+# ---- Shared field helpers ----
 
 # The whole field opens the date picker, not just its icon (FRONTEND rule 14).
 _DATE_PICKER = {"type": "date", "@click": "(() => { try { $el.showPicker() } catch (e) {} })()"}
-
-
-# The largest whole dollar amount a sponsor field takes. The cents columns are Postgres integers (at most
-# 2,147,483,647), so an unbounded figure would overflow on save as a server error rather than a form error.
-SPONSOR_MAX_DOLLARS = 1_000_000
-
-
-def _dollars(label: str) -> forms.IntegerField:
-    """A whole dollar amount up to :data:`SPONSOR_MAX_DOLLARS`, blank meaning none; the form stores it in cents."""
-    return forms.IntegerField(
-        min_value=0,
-        max_value=SPONSOR_MAX_DOLLARS,
-        required=False,
-        label=label,
-        widget=forms.NumberInput(attrs={"min": "0", "step": "1"}),
-    )
-
-
-class SponsorForm(forms.ModelForm):
-    """+ Add a Sponsor: Lee's eleven fields, the ask in whole dollars. Every new sponsor starts as a prospect."""
-
-    ask = _dollars("Ask amount ($)")
-
-    class Meta:
-        model = Sponsor
-        fields = [
-            "organization",
-            "tier",
-            "owner",
-            "contact_name",
-            "contact_role",
-            "email",
-            "phone",
-            "next_step",
-            "follow_up_by",
-            "fit_note",
-        ]
-        labels = {
-            "organization": "Business or organization",
-            "tier": "Tier",
-            "owner": "Who's asking",
-            "contact_name": "Contact name",
-            "contact_role": "Their role",
-            "email": "Email",
-            "phone": "Phone",
-            "next_step": "Next step",
-            "follow_up_by": "Follow up by",
-            "fit_note": "Why they're a fit",
-        }
-        widgets: dict[str, forms.Widget] = {
-            "organization": forms.TextInput(attrs={"placeholder": "e.g. OnPoint Community Credit Union"}),
-            "owner": forms.TextInput(
-                attrs={"list": SPONSOR_TEAM_LIST_ID, "placeholder": "e.g. Augustin", "autocomplete": "off"}
-            ),
-            "contact_role": forms.TextInput(attrs={"placeholder": "e.g. Branch manager"}),
-            "email": forms.EmailInput(attrs={"autocomplete": "off"}),
-            "phone": forms.TextInput(attrs={"type": "tel", "autocomplete": "off"}),
-            "next_step": forms.TextInput(attrs={"placeholder": "e.g. Send sponsor deck"}),
-            "follow_up_by": forms.DateInput(format="%Y-%m-%d", attrs=_DATE_PICKER),
-            "fit_note": forms.TextInput(attrs={"placeholder": "e.g. PLM and 16 guild accounts bank with them"}),
-        }
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self.fields["tier"].choices = [("", "Not set"), *SponsorTier.choices]  # type: ignore[attr-defined]  # a ChoiceField
-        for field in self.fields.values():
-            field.help_text = ""
-
-    def to_fields(self) -> dict[str, Any]:
-        """The sponsor's fields for ``hq.services``: the cleaned data with each dollar amount in cents."""
-        fields = {name: self.cleaned_data[name] for name in self._meta.fields or ()}
-        for dollars, cents in self.MONEY:
-            amount: int | None = self.cleaned_data[dollars]
-            fields[cents] = 0 if amount is None else amount * 100
-        return fields
-
-    # The dollar fields and the model fields they fill.
-    MONEY: tuple[tuple[str, str], ...] = (("ask", "ask_cents"),)
-
-
-class SponsorEditForm(SponsorForm):
-    """The inline edit on a pipeline row: the add form's fields plus the status, the money in, the thank-you,
-    what was promised, the notes and last year's gift. Built with ``initial_for(sponsor)``, never bound to the
-    row itself, so the old status is still on the row when ``hq.services.update_sponsor`` compares."""
-
-    ask = _dollars("Ask ($)")
-    amount = _dollars("Committed or received ($)")
-
-    MONEY = (("ask", "ask_cents"), ("amount", "amount_cents"))
-
-    class Meta(SponsorForm.Meta):
-        fields = [*SponsorForm.Meta.fields, "status", "thanked", "benefits", "note", "history"]
-        labels = {
-            **SponsorForm.Meta.labels,
-            "contact_role": "Role",
-            "status": "Status",
-            "thanked": "Thank-you sent",
-            "benefits": "Benefits promised",
-            "note": "Notes",
-            "history": "Last year (2025)",
-        }
-        widgets: dict[str, forms.Widget] = {
-            **SponsorForm.Meta.widgets,
-            "organization": forms.TextInput(),
-            "contact_role": forms.TextInput(),
-            "next_step": forms.TextInput(),
-            "fit_note": forms.TextInput(),
-            "benefits": forms.TextInput(attrs={"placeholder": "e.g. Logo on flyer, 4 drink tickets"}),
-            "note": forms.Textarea(attrs={"rows": 2}),
-            "history": forms.Textarea(attrs={"rows": 2, "placeholder": "What they gave in 2025, if anything"}),
-        }
-
-    @classmethod
-    def initial_for(cls, sponsor: Sponsor) -> dict[str, Any]:
-        """What the row's form starts with: the sponsor's fields, the money in whole dollars."""
-        initial: dict[str, Any] = {name: getattr(sponsor, name) for name in cls._meta.fields or ()}
-        initial["ask"] = sponsor.ask_cents // 100 or None
-        initial["amount"] = sponsor.amount_cents // 100 or None
-        return initial
-
-
-class SponsorLogForm(forms.Form):
-    """One line for a sponsor's contact log: what happened, and who."""
-
-    text = forms.CharField(
-        max_length=300,
-        label="What happened",
-        widget=forms.TextInput(attrs={"placeholder": "e.g. Called, left voicemail"}),
-    )
-    by = forms.CharField(
-        max_length=120,
-        required=False,
-        label="By",
-        widget=forms.TextInput(attrs={"list": SPONSOR_TEAM_LIST_ID, "placeholder": "By", "autocomplete": "off"}),
-    )
 
 
 # ---- Vendor Tables (Track D, part 3) ----
@@ -782,83 +483,6 @@ class VendorDiscordChannelForm(forms.Form):
         return channel_id
 
 
-# ---- Market Check-in (Track D, part 4) ----
-
-# The most a report takes. The columns are Postgres integers, so an unbounded figure would overflow on save as a
-# server error rather than a form error; these are far past any table at the market.
-REPORT_ITEMS_MAX = 100_000
-REPORT_SALES_MAX_DOLLARS = 1_000_000
-
-
-class MarketReportForm(forms.ModelForm):
-    """Artists: your market report. Lee's five fields, the sales in dollars and cents; the guild is one of the active
-    guilds or none. Bound to the member's report when they have one (Update my report), else to a new one."""
-
-    guild = forms.TypedChoiceField(required=False, coerce=int, empty_value=None, label="Your guild")
-    items_sold = forms.IntegerField(
-        min_value=0,
-        max_value=REPORT_ITEMS_MAX,
-        required=False,
-        label="Items sold",
-        widget=forms.NumberInput(
-            attrs={
-                "min": "0",
-                "max": str(REPORT_ITEMS_MAX),
-                "step": "1",
-                "inputmode": "numeric",
-                "placeholder": "After the market",
-            }
-        ),
-    )
-    sales = forms.DecimalField(
-        min_value=Decimal(0),
-        max_value=Decimal(REPORT_SALES_MAX_DOLLARS),
-        max_digits=9,
-        decimal_places=2,
-        required=False,
-        label="Total sales ($)",
-        widget=forms.NumberInput(
-            attrs={
-                "min": "0",
-                "max": str(REPORT_SALES_MAX_DOLLARS),
-                "step": "0.01",
-                "inputmode": "decimal",
-                "placeholder": "After the market",
-            }
-        ),
-    )
-
-    class Meta:
-        model = MarketReport
-        fields = ["name", "guild", "items_sold", "experience"]
-        labels = {"name": "Your name or shop name", "experience": "Your experience at the market, in a sentence"}
-        widgets = {
-            "name": forms.TextInput(attrs={"placeholder": "e.g. Riverbend Ceramics"}),
-            "experience": forms.TextInput(
-                attrs={"placeholder": "e.g. Steady crowd all night, and two people asked about classes!"}
-            ),
-        }
-
-    def __init__(self, *args: Any, guilds: Sequence[Guild], **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self._guilds = _offer_guilds(self, guilds)
-        if self.instance.pk is not None and self.instance.sales_cents:
-            self.initial.setdefault("sales", (Decimal(self.instance.sales_cents) / 100).quantize(Decimal("0.01")))
-        for field in self.fields.values():
-            field.help_text = ""
-
-    def clean_guild(self) -> Guild | None:
-        pk: int | None = self.cleaned_data["guild"]
-        return None if pk is None else self._guilds[pk]
-
-    def to_fields(self) -> dict[str, Any]:
-        """The report's fields for ``hq.services.save_report``: the cleaned data with the sales in cents."""
-        fields = {name: self.cleaned_data[name] for name in self._meta.fields or ()}
-        sales: Decimal | None = self.cleaned_data["sales"]
-        fields["sales_cents"] = 0 if sales is None else int((sales * 100).to_integral_value())
-        return fields
-
-
 # Lee's words when the hours are out of range, and when they are not in quarter hours.
 HOURS_ERROR = "Enter hours between 0.25 and 24."
 HOURS_STEP_ERROR = "Enter hours in quarter hours, like 1.25 or 2.5."
@@ -867,7 +491,7 @@ HOURS_STEP_ERROR = "Enter hours in quarter hours, like 1.25 or 2.5."
 def quarter_hours(hours: Decimal) -> Decimal:
     """``hours`` held to :data:`hq.models.HOURS_MIN` to :data:`hq.models.HOURS_MAX` in quarter hours, at two places.
 
-    The volunteer hours (D4) and the staff time (D6c) share it, so one bad figure reads as one message in Lee's words.
+    The staff time (D6c) uses it, so one bad figure reads as one message in Lee's words.
 
     Raises:
         ValidationError: :data:`HOURS_ERROR` out of range, :data:`HOURS_STEP_ERROR` off the quarter hour.
@@ -897,43 +521,8 @@ def _hours_field(placeholder: str) -> forms.DecimalField:
     )
 
 
-class VolunteerHoursForm(forms.ModelForm):
-    """Volunteers: log your hours. The date (Portland today), the hours in quarter hours, the task and a note.
-
-    The hours are held to :data:`hq.models.HOURS_MIN` to :data:`hq.models.HOURS_MAX` in ``clean_hours`` rather
-    than by the field's own validators, so one bad figure reads as one message, in Lee's words.
-    """
-
-    hours = _hours_field("e.g. 2.5")
-
-    class Meta:
-        model = VolunteerHours
-        fields = ["date", "hours", "task", "note"]
-        labels = {"date": "Date", "task": "What you worked on", "note": "Note (optional)"}
-        widgets = {
-            "date": forms.DateInput(format="%Y-%m-%d", attrs=_DATE_PICKER),
-            "note": forms.TextInput(attrs={"placeholder": "e.g. Dropped flyers on Division St"}),
-        }
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        for field in self.fields.values():
-            field.help_text = ""
-
-    def clean_hours(self) -> Decimal:
-        return quarter_hours(self.cleaned_data["hours"])
-
-    def kept_for_next(self) -> dict[str, Any]:
-        """What the next entry starts with after a save: the same date and task; the hours and note clear."""
-        return {key: self.cleaned_data[key] for key in ("date", "task")}
-
-
-# ---- Event flyer and sharing (Track D, part 5) ----
-
-FLYER_TYPE_ERROR = "That file is not a flyer we can show. Choose a JPG, PNG or WEBP image, or a PDF."
-
 # What an image upload may be, by what Pillow found in the bytes, and the extension it is stored under.
-FLYER_IMAGE_TYPES: dict[str, str] = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
+UPLOAD_IMAGE_TYPES: dict[str, str] = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}
 
 # The first bytes of every PDF.
 PDF_MAGIC = b"%PDF-"
@@ -965,72 +554,7 @@ def checked_image_type(upload: UploadedFile, types: Mapping[str, str], type_erro
     return extension
 
 
-class FlyerUploadForm(forms.Form):
-    """Upload or replace one flyer: an image (JPG, PNG, WEBP; up to ``MAX_UPLOAD_IMAGE_BYTES``) or a PDF (up to
-    ``MAX_UPLOAD_DOCUMENT_BYTES``), told apart by the bytes, never the name or the declared type. An image over
-    ``core.validators.MAX_IMAGE_PIXELS`` is refused before it is decoded (:func:`validate_image_pixels`).
-
-    The cleaned file is renamed to the type found (``.pdf``, or the image's own extension), so the model can tell a
-    PDF from an image by its name: an image is re-encoded on save, a PDF is stored as it came. ``slot`` is the
-    :class:`hq.models.FlyerSlot` the form is for; it names the field and prefixes it, so the two forms on the page
-    keep distinct ids.
-    """
-
-    file = forms.FileField()
-
-    def __init__(self, *args: Any, slot: str, **kwargs: Any) -> None:
-        kwargs["prefix"] = str(slot)
-        super().__init__(*args, **kwargs)
-        self.slot = slot
-        self.fields["file"].label = FlyerSlot(slot).label
-
-    def clean_file(self) -> UploadedFile:
-        upload: UploadedFile = self.cleaned_data["file"]
-        assert upload.size is not None  # an uploaded file always reports its size
-        upload.seek(0)
-        head = upload.read(len(PDF_MAGIC))
-        upload.seek(0)
-        stem = Path(upload.name or "").stem or "flyer"
-        if head == PDF_MAGIC:
-            if upload.size > settings.MAX_UPLOAD_DOCUMENT_BYTES:
-                raise ValidationError(f"A PDF must be {_megabytes(settings.MAX_UPLOAD_DOCUMENT_BYTES)} MB or smaller.")
-            upload.name = f"{stem}.pdf"
-            upload.content_type = "application/pdf"
-            return upload
-        if upload.size > settings.MAX_UPLOAD_IMAGE_BYTES:
-            raise ValidationError(f"An image must be {_megabytes(settings.MAX_UPLOAD_IMAGE_BYTES)} MB or smaller.")
-        upload.name = f"{stem}.{checked_image_type(upload, FLYER_IMAGE_TYPES, FLYER_TYPE_ERROR)}"
-        return upload
-
-
 _WEB_LINK = [URLValidator(schemes=["http", "https"])]
-
-
-class FlyerLinksForm(forms.ModelForm):
-    """Update this page: the website and Eventbrite links (http or https, blank leaves the link off the page) and
-    the message members copy to send friends."""
-
-    website_url = forms.URLField(
-        required=False,
-        assume_scheme="https",
-        validators=_WEB_LINK,
-        label="Website event page link",
-        widget=forms.URLInput(attrs={"placeholder": "https://pastlives.space/..."}),
-    )
-    eventbrite_url = forms.URLField(
-        required=False,
-        assume_scheme="https",
-        validators=_WEB_LINK,
-        label="Eventbrite link",
-        widget=forms.URLInput(attrs={"placeholder": "https://www.eventbrite.com/e/..."}),
-    )
-
-    class Meta:
-        model = HubFlyer
-        fields = ["website_url", "eventbrite_url", "share_message"]
-        labels = {"share_message": "Message to send friends"}
-        help_texts = {"share_message": "The share link is added after it."}
-        widgets = {"share_message": forms.Textarea(attrs={"rows": 4})}
 
 
 # ---- PL Ledger, budget (Track D, part 6a) ----
@@ -1041,8 +565,8 @@ LEDGER_MAX_DOLLARS = 1_000_000
 
 RECEIPT_TYPE_ERROR = "That file is not a receipt we can keep. Use a photo (JPG, PNG, WEBP or HEIC) or a PDF."
 
-# What a receipt photo may be: the flyer's three, and a phone's HEIC (Pillow names HEIC and HEIF alike ``image/heif``).
-RECEIPT_IMAGE_TYPES: dict[str, str] = {**FLYER_IMAGE_TYPES, "image/heif": "heic"}
+# What a receipt photo may be: the three upload images, and a phone's HEIC (Pillow names HEIC and HEIF alike ``image/heif``).
+RECEIPT_IMAGE_TYPES: dict[str, str] = {**UPLOAD_IMAGE_TYPES, "image/heif": "heic"}
 RECEIPT_NOT_TAKEN = "A sponsored or donated entry takes no receipt."
 
 
@@ -1233,11 +757,9 @@ class ReceiptForm(forms.Form):
 
 # ---- PL Ledger, money in (Track D, part 6b) ----
 
-# The highest price a drink or a wine wall ticket takes, in dollars: far above any bar's, low enough that a price times
+# The highest price a drink takes, in dollars: far above any bar's, low enough that a price times
 # the most drinks a batch takes still fits the cents column.
 PRICE_MAX_DOLLARS = 1_000
-# The most wine wall tickets of either kind the ticket form takes.
-TICKETS_MAX = 10_000
 BAR_TOTAL_TOO_BIG = "That comes to more than $1,000,000. Enter the total collected."
 
 
@@ -1297,7 +819,7 @@ class LedgerApprovalForm(_SeenFigures):
     """The board's approval: the amount and the line under it (Lee's "Drinks budget, Oct 14 meeting").
 
     It carries the approval it was rendered with, as the D6b settings forms carry theirs, so only someone else's
-    approval save makes it stale: a price or tickets save in between does not."""
+    approval save makes it stale: a price save in between does not."""
 
     FIGURES = ("approved_cents",)
     TEXT_FIGURES = ("approved_note",)
@@ -1340,44 +862,6 @@ class DrinkPricesForm(_SeenFigures):
     def to_fields(self) -> dict[str, int]:
         fields = {DRINK_PRICE_FIELDS[drink]: _cents(self.cleaned_data[drink]) for drink in PRICED_DRINKS}
         return {**fields, "last_year_bar_cents": _cents(self.cleaned_data["last_year"])}
-
-
-class TicketsForm(_SeenFigures):
-    """The wine wall's tickets sold: singles and two-ticket deals, each labelled with its price (Lee's "Single tickets
-    sold ($25)")."""
-
-    FIGURES = ("singles_sold", "pairs_sold")
-
-    singles_sold = _count("Single tickets sold", maximum=TICKETS_MAX)
-    pairs_sold = _count("2-ticket deals sold", maximum=TICKETS_MAX)
-
-    def __init__(self, *args: Any, found: LedgerSettings, **kwargs: Any) -> None:
-        super().__init__(*args, found=found, **kwargs)
-        self.fields["singles_sold"].label = f"Single tickets sold ({format_money(found.ticket_cents)})"
-        self.fields["pairs_sold"].label = f"2-ticket deals sold ({format_money(found.pair_cents)})"
-
-    @classmethod
-    def initial_for(cls, found: LedgerSettings) -> dict[str, Any]:
-        return {"singles_sold": found.singles_sold, "pairs_sold": found.pairs_sold}
-
-    def to_fields(self) -> dict[str, int]:
-        return {"singles_sold": self.cleaned_data["singles_sold"], "pairs_sold": self.cleaned_data["pairs_sold"]}
-
-
-class TicketPricesForm(_SeenFigures):
-    """The wine wall's two ticket prices (Lee's $25 a ticket or 2 for $40, until she confirms the year's)."""
-
-    FIGURES = ("ticket_cents", "pair_cents")
-
-    ticket = _money("One ticket ($)", maximum=PRICE_MAX_DOLLARS)
-    pair = _money("2-ticket deal ($)", maximum=PRICE_MAX_DOLLARS)
-
-    @classmethod
-    def initial_for(cls, found: LedgerSettings) -> dict[str, Any]:
-        return {"ticket": _dollars_initial(found.ticket_cents), "pair": _dollars_initial(found.pair_cents)}
-
-    def to_fields(self) -> dict[str, int]:
-        return {"ticket_cents": _cents(self.cleaned_data["ticket"]), "pair_cents": _cents(self.cleaned_data["pair"])}
 
 
 class BarQuickForm(forms.Form):

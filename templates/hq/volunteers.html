@@ -74,16 +74,6 @@ everyone who reaches the page runs the HQ (hq.access.hq_gate).
     {% endfor %}
   </section>
 
-  {% if wine_url %}
-  <section class="pl-hq-vol__section" aria-labelledby="hq-vol-wine-title">
-    <h2 class="pl-hq-vol__h2" id="hq-vol-wine-title">Wine Wall</h2>
-    <div class="pl-hq-vol__card pl-hq-vol__link-card">
-      <p class="pl-hq-vol__link-text">Collecting bottles too? Log each one as it comes in.</p>
-      <a href="{{ wine_url }}" class="pl-hq-vol__btn pl-hq-vol__btn--ghost" data-hq-vol-wine>Open the Wine Wall</a>
-    </div>
-  </section>
-  {% endif %}
-
   <section class="pl-hq-vol__section" aria-labelledby="hq-vol-roster-title" data-hq-vol-organizers>
     <h2 class="pl-hq-vol__h2" id="hq-vol-roster-title">Roster</h2>
     {% include "hq/partials/_roster.html" with hub=hub roster=roster roster_emails=roster_emails %}

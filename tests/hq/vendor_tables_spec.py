@@ -1092,7 +1092,7 @@ def describe_the_member_tables_goal():
 
     def it_renders_a_goal_with_no_target_without_of_or_a_meter(hub, kate_client):
         HubGoalFactory(hub=hub, label="Member tables", kind=HubGoal.Kind.MEMBER_TABLES, target=0, sort_order=0)
-        HubGoalFactory(hub=hub, label="Bottles", kind=HubGoal.Kind.BOTTLES, target=100, sort_order=1)
+        HubGoalFactory(hub=hub, label="Going", kind=HubGoal.Kind.RSVPS, target=100, sort_order=1)
         VendorTableFactory.create_batch(2, hub=hub, status=S.CONFIRMED)
 
         body = kate_client.get(hub.get_absolute_url()).content.decode()

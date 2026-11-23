@@ -1,10 +1,10 @@
 """The PL Ledger's team and tally (Track D, part 6c): the gates on every post and CSV, the running tally read live from
 each door (parity with each source, the links, Lee's countdown and cheer lines, a fixed number of queries), the Goals
 (her groups, chips and anchors, targets from the hub's goals, Change the goals), the Guilds taking part goal and its
-top-up, Attendance and vendors (check-ins plus the door clicker, Undo floored at zero, the reports, the CSV), the
-launch checklist (rows, the stale check, late on the Portland date), Staff time (the hours' bounds, raised per hour,
-the CSV), Guild demos (one per guild, Add every active guild, the stale check), the read only Volunteer hours and Event
-flyer sections, the whole board paragraph, and the page's queries as rows grow."""
+top-up, Attendance and vendors (check-ins plus the door clicker, Undo floored at zero, the CSV), the launch checklist
+(rows, the stale check, late on the Portland date), Staff time (the hours' bounds, raised per hour, the CSV), Guild
+demos (one per guild, Add every active guild, the stale check), the whole board paragraph, and the page's queries as rows
+grow. #1307 removed the Volunteer hours and Event flyer sections and every figure of the doors it took away."""
 
 from __future__ import annotations
 
@@ -36,18 +36,14 @@ from hq.models import (
     EventHub,
     GuildDemo,
     HubCard,
-    HubFlyer,
     HubGoal,
     LaunchTask,
     LedgerEntry,
-    MarketingKind,
-    MarketReport,
     StaffTime,
-    VolunteerHours,
     hours_words,
 )
 from hub.view_as import ROLE_MEMBER
-from tests.hq.conftest import committed_once_we_wait, photo_upload, signed_in
+from tests.hq.conftest import committed_once_we_wait, signed_in
 from tests.hq.factories import (
     BarSaleFactory,
     BudgetLineFactory,
@@ -58,12 +54,8 @@ from tests.hq.factories import (
     HubGoalFactory,
     LaunchTaskFactory,
     LedgerEntryFactory,
-    LedgerSettingsFactory,
-    MarketingActionFactory,
-    SponsorFactory,
     StaffTimeFactory,
     VendorTableFactory,
-    WineBottleFactory,
 )
 from tests.membership.factories import CommunityEventFactory, EventRSVPFactory, GuildFactory
 
@@ -104,17 +96,14 @@ def _goal_rows(hub: Any) -> dict[str, services.LedgerGoalRow]:
         band,
         services.door_figures(hub, band),
         launch=services.launch_totals(hub),
-        flyer_ready=bool(services.flyer_page(hub).flyer),
+        door_urls=services_door_urls(hub),
     )
     return {row.key: row for group in groups for row in group.rows}
 
 
-def _hours(hub: Any, member: Any, hours: str) -> VolunteerHours:
-    return VolunteerHours.objects.create(hub=hub, member=member, hours=Decimal(hours))
-
-
-def _report(hub: Any, member: Any, **fields: Any) -> MarketReport:
-    return MarketReport.objects.create(hub=hub, member=member, **{"name": "Riverbend Ceramics", **fields})
+def services_door_urls(hub: Any) -> dict[str, str]:
+    """The doors the ledger links, as its view reads them: a kind to its page."""
+    return {card.kind: card.url for card in hub.cards.all() if card.url}
 
 
 def _stamp(row: Any) -> str:
@@ -182,15 +171,7 @@ def lee_client(lee) -> Client:
 @pytest.fixture
 def doors(hub, lee) -> dict[str, HubCard]:
     """Every other door on the hub."""
-    kinds = (
-        HubCard.Kind.SPONSORSHIP,
-        HubCard.Kind.WINE_WALL,
-        HubCard.Kind.VENDOR_TABLES,
-        HubCard.Kind.MARKET_CHECKIN,
-        HubCard.Kind.MARKETING,
-        HubCard.Kind.FLYER,
-        HubCard.Kind.VOLUNTEERS,
-    )
+    kinds = (HubCard.Kind.VENDOR_TABLES, HubCard.Kind.VOLUNTEERS)
     return {kind: HubCardFactory(hub=hub, kind=kind, title=f"Door {kind}") for kind in kinds}
 
 
@@ -207,24 +188,13 @@ def event(hub):
 
 @pytest.fixture
 def busy(hub, event, make_member):
-    """Every door with something on it: sponsors, the bar, the wine wall and its tickets, vendors and their reports,
-    flyers, volunteer hours, check-ins and walk-ins, guild demos, staff time and launch tasks."""
+    """Every door with something on it: the bar, vendors, check-ins and walk-ins, guild demos, staff time and launch
+    tasks."""
     HubGoalFactory(hub=hub, kind=HubGoal.Kind.EVENT_CASH, label="Raised", target=10_000, is_money=True)
-    HubGoalFactory(hub=hub, kind=HubGoal.Kind.BOTTLES, label="Bottles", target=100)
     HubGoalFactory(hub=hub, kind=HubGoal.Kind.RSVPS, label="RSVPs", target=250)
-    SponsorFactory(hub=hub, status="received", amount_cents=150_000)
-    SponsorFactory(hub=hub, status="committed", amount_cents=50_000)
     BarSaleFactory(hub=hub, qty=40, amount_cents=24_000)
-    WineBottleFactory.create_batch(3, hub=hub, qty=4, value_cents=2_500)
-    LedgerSettingsFactory(hub=hub, singles_sold=3, pairs_sold=1)
     VendorTableFactory.create_batch(2, hub=hub, status="confirmed")
     VendorTableFactory(hub=hub, status="requested")
-    artist, other = make_member(), make_member()
-    _report(hub, artist, name="Riverbend Ceramics", items_sold=14, sales_cents=42_000, experience="Steady all night")
-    _report(hub, other, name="Ash and Oak", items_sold=None, sales_cents=0)
-    MarketingActionFactory.create_batch(3, hub=hub, kind=MarketingKind.FLYER)
-    _hours(hub, artist, "2.5")
-    _hours(hub, other, "3.25")
     EventRSVPFactory(event=event, party_size=3, checked_in_at=timezone.now())
     EventRSVPFactory(event=event, party_size=2)
     DoorCountFactory(hub=hub, delta=10)
@@ -247,7 +217,6 @@ def describe_who_may_use_it():
         entry = StaffTimeFactory(hub=hub, who="Spec secret staffer")
         row = GuildDemoFactory(hub=hub, lead="Spec secret lead")
         GuildFactory(name="Spec Missing Guild")
-        _report(hub, lee, experience="Spec secret experience")
 
         for client, status in ((member_client, 404), (Client(), 302)):
             for name, args, data in (
@@ -331,68 +300,43 @@ def describe_the_running_tally():
     def it_reads_every_tile_from_the_door_its_figure_lives_on(busy):
         hub = busy
         tiles = _tiles(hub)
-        found = services.ledger_settings(hub)
-        wine = services.wine_band(hub)
-        checkin = services.checkin_band(hub)
 
-        assert tiles["cash"].value == services.event_cash(hub).total_cents == 150_000 + 24_000 + 11_500
+        assert tiles["cash"].value == services.event_cash(hub).total_cents == 24_000
         assert (tiles["cash"].goal, tiles["cash"].sub) == (1_000_000, "of $10,000 goal")
-        assert tiles["bottles"].value == wine.bottles == 12
-        assert (tiles["bottles"].goal, tiles["bottles"].sub) == (100, "of 100 for the wine wall")
-        assert tiles["tickets"].value == services.ticket_totals(found, wine).revenue_cents == 11_500
-        assert tiles["tickets"].sub == "5 tickets · $25 a ticket or 2 for $40"
-        assert tiles["tickets"].goal == 100 * 2_500
         assert tiles["guilds"].value == services.guild_demo_totals(hub).demos == 1
         assert (tiles["guilds"].goal, tiles["guilds"].sub) == (3, "of 3 guilds")
         assert tiles["tables"].value == services.vendor_band(hub).confirmed == 2
-        assert tiles["sold"].value == checkin.sales_cents == 42_000
-        assert tiles["sold"].sub == "14 handmade items found new homes"
-        assert tiles["flyers"].value == services.marketing_totals(hub)[MarketingKind.FLYER] == 3
         assert tiles["people"].value == services.attendance(hub).total == 3 + 9
         assert (tiles["people"].goal, tiles["people"].sub) == (250, "of 250 hoped for")
-        assert tiles["vol"].value == 6  # 5.75 hours, rounded half up as Lee's Math.round
-        assert tiles["vol"].sub == "from 2 volunteers. Thank you!"
         assert [tile.label for tile in _tally(hub).tiles] == [
             "Cash to Past Lives",
-            "Wine bottles gifted",
-            "Wine wall ticket sales",
             "Guilds doing demos",
             "Members with tables",
-            "Members sold",
-            "Businesses with flyers",
             "Attendees",
-            "Volunteer hours",
         ]
 
     def it_says_lees_empty_lines_with_nothing_in(hub):
         tiles = _tiles(hub)
 
-        assert tiles["sold"].sub == "straight into artists' pockets"
-        assert tiles["bottles"].sub == "for the wine wall"
-        assert tiles["bottles"].goal == 0 and tiles["people"].goal == 0
+        assert tiles["people"].goal == 0
         assert tiles["people"].sub == "0 checked in · 0 at the door"
-        assert tiles["vol"].sub == "from 0 volunteers. Thank you!"
         assert tiles["cash"].value_display == "$0"
+        assert tiles["cash"].sub == "of $10,000 goal"
 
-    def it_links_each_tile_to_its_door_only_while_the_hub_has_that_door(busy, doors, lee_client):
-        doors[HubCard.Kind.MARKETING].delete()
-        doors[HubCard.Kind.VENDOR_TABLES].delete()
-        doors[HubCard.Kind.SPONSORSHIP].is_hidden = True
-        doors[HubCard.Kind.SPONSORSHIP].save(update_fields=["is_hidden"])
-
+    def it_links_each_tile_to_its_section_or_its_door_while_the_hub_has_it(busy, doors, lee_client):
         body = lee_client.get(_page(busy)).content.decode()
 
         def _tile(key: str) -> str:
             start = body.index(f'data-hq-lg-tally-tile="{key}"')
             return body[body.rindex("<", 0, start) : start]
 
-        assert f'href="{_url("sponsors", busy)}"' in _tile("cash")
-        assert f'href="{_url("wine", busy)}"' in _tile("bottles")
-        assert 'href="#hq-lg-wine"' in _tile("tickets")
+        assert 'href="#hq-lg-bar"' in _tile("cash")
         assert 'href="#hq-lg-guilds"' in _tile("guilds")
         assert 'href="#hq-lg-people"' in _tile("people")
-        assert f'href="{_url("checkin", busy)}"' in _tile("sold")
-        assert _tile("flyers").startswith("<div") and "href" not in _tile("flyers")
+        assert f'href="{_url("vendors", busy)}"' in _tile("tables")
+
+        doors[HubCard.Kind.VENDOR_TABLES].delete()
+        body = lee_client.get(_page(busy)).content.decode()
         assert _tile("tables").startswith("<div")
 
     def it_counts_in_a_fixed_number_of_queries_however_much_is_logged(busy, django_assert_num_queries):
@@ -406,23 +350,24 @@ def describe_the_running_tally():
         GuildDemoFactory.create_batch(3, hub=hub, demo=True)
         StaffTimeFactory.create_batch(3, hub=hub)
         DoorCountFactory.create_batch(3, hub=hub)
+        BarSaleFactory.create_batch(3, hub=hub)
         with django_assert_num_queries(TALLY_QUERIES):
             _tally(hub, now)
 
-    def it_renders_lees_heading_and_the_nine_tiles_on_the_page(busy, lee_client):
+    def it_renders_lees_heading_and_the_four_tiles_on_the_page(busy, lee_client):
         body = lee_client.get(_page(busy)).content.decode()
 
         assert '<p class="pl-hq-lg__tally-eyebrow">The running tally</p>' in body
         assert "Look what we&#x27;re building <em>together</em>" in body
-        assert body.count("data-hq-lg-tally-tile=") == 9
+        assert body.count("data-hq-lg-tally-tile=") == 4
         order = ["data-hq-lg-tally", "data-hq-lg-goals", "data-hq-lg-board"]
         assert [body.index(marker) for marker in order] == sorted(body.index(marker) for marker in order)
 
 
-# The running tally's queries, every door read once: the ledger settings, the band (2), the sponsors (2), the wine wall
-# (3), the bar, the marketing log, the check-in (2), the vendor tables (2), the guild demos (2), the staff time and the
-# attendance (3, with an event).
-TALLY_QUERIES = 20
+# The running tally's queries, every door read once: the ledger settings, the ledger's band, the bar, the cash goal,
+# the vendor tables, the guild demos, the staff time and the attendance (with an event). Pinned at what it counts today,
+# and the spec holds it there as rows grow.
+TALLY_QUERIES = 13
 
 
 def describe_the_countdown():
@@ -456,41 +401,27 @@ def describe_the_countdown():
 
 
 def describe_the_cheer_lines():
-    def it_says_the_cash_and_the_bottles_still_to_go_and_the_guilds_and_the_flyer_nudge(busy):
+    def it_says_the_cash_still_to_go_and_the_guilds(busy):
         GuildFactory()  # a fourth active guild with no row
 
         assert _cheer(busy, datetime(2026, 11, 20, 12, 0, tzinfo=PORTLAND)) == [
-            "$8,145 more to hit our cash goal",
-            "88 bottles to fill the wine wall",
+            "$9,760 more to hit our cash goal",
             "3 guilds still to line up a demo",
-            "Drop a flyer somewhere today. 3 businesses so far",
         ]
 
-    def it_cheers_the_goals_reached_and_drops_the_nudge_at_25_flyers(busy):
-        SponsorFactory(hub=busy, status="received", amount_cents=900_000)
-        WineBottleFactory(hub=busy, qty=88)
-        MarketingActionFactory.create_batch(22, hub=busy, kind=MarketingKind.FLYER)
+    def it_cheers_the_goal_reached(busy):
+        BarSaleFactory(hub=busy, amount_cents=980_000)
         busy.guild_demos.update(demo=True)
 
-        assert _cheer(busy, datetime(2026, 11, 20, 12, 0, tzinfo=PORTLAND)) == [
-            "Cash goal reached!",
-            "Wine wall is full!",
-        ]
+        assert _cheer(busy, datetime(2026, 11, 20, 12, 0, tzinfo=PORTLAND)) == ["Cash goal reached!"]
 
-    def it_stops_the_flyer_nudge_on_the_day_and_after(busy):
-        for moment in (datetime(2026, 12, 4, 9, 0, tzinfo=PORTLAND), datetime(2026, 12, 6, 9, 0, tzinfo=PORTLAND)):
-            assert not any(line.startswith("Drop a flyer") for line in _cheer(busy, moment))
-
-    def it_keeps_the_nudge_with_no_event_and_drops_the_lines_with_no_goal_or_guild(hub):
-        assert _cheer(hub) == [
-            "$10,000 more to hit our cash goal",
-            "Drop a flyer somewhere today. 0 businesses so far",
-        ]
+    def it_says_only_the_cash_line_with_no_event_goal_or_guild(hub):
+        assert _cheer(hub) == ["$10,000 more to hit our cash goal"]
 
     def it_bolds_the_figure_on_the_page(busy, lee_client):
         body = lee_client.get(_page(busy)).content.decode()
 
-        assert "<b>$8,145</b> more to hit our cash goal" in body
+        assert "<b>$9,760</b> more to hit our cash goal" in body
 
 
 def describe_the_goals():
@@ -501,27 +432,24 @@ def describe_the_goals():
         headings = [part.split("<", 1)[0] for part in section.split("data-hq-lg-goal-group>")[1:]]
         assert headings == ["Parts of the cash goal", "Budget", "Not part of the cash goal"]
         keys = [part.split('"', 1)[0] for part in section.split('data-hq-lg-goal="')[1:]]
-        assert keys == ["cash", "sponsors", "bar", "wine", "budget", "people", "launch", "guilds", "flyer", "vendors"]
+        assert keys == ["cash", "bar", "budget", "people", "launch", "guilds", "vendors"]
         assert "Tap a goal to jump to its section" in body
-        for anchor in ("#hq-lg-bar", "#hq-lg-wine", "#hq-lg-board", "#hq-lg-people", "#hq-lg-launch", "#hq-lg-guilds"):
+        for anchor in ("#hq-lg-bar", "#hq-lg-board", "#hq-lg-people", "#hq-lg-launch", "#hq-lg-guilds"):
             assert f'href="{anchor}"' in section, anchor
             assert f'id="{anchor[1:]}"' in body, anchor
-        assert f'href="{_url("sponsors", busy)}"' in section
+        assert f'href="{_url("vendors", busy)}"' in section
 
     def it_reads_the_figures_and_lees_chips(busy):
         rows = _goal_rows(busy)
 
-        assert (rows["cash"].figure, rows["cash"].figure_sub) == ("$1,855 of $10,000", "+ $500 committed")
-        assert rows["cash"].sub == "Sponsorships $1,500 · Drinks $240 · Wine tickets $115"
-        assert (rows["cash"].chip, rows["cash"].tone, rows["cash"].percent) == ("$8,145 to go", "", 19)
-        assert (rows["sponsors"].chip, rows["sponsors"].tone) == ("15% of goal", "info")
+        assert (rows["cash"].figure, rows["cash"].figure_sub) == ("$240 of $10,000", "Raised so far")
+        assert rows["cash"].sub == "Drinks $240"
+        assert (rows["cash"].chip, rows["cash"].tone, rows["cash"].href) == ("$9,760 to go", "", "#hq-lg-bar")
         assert (rows["bar"].figure, rows["bar"].figure_sub, rows["bar"].chip) == (
             "$240",
             "Bar cost $300",
             "In progress",
         )
-        assert (rows["wine"].figure, rows["wine"].chip, rows["wine"].tone) == ("12 / 100", "88 to go", "warn")
-        assert rows["wine"].figure_sub == "$115 in tickets"
         assert (rows["budget"].figure, rows["budget"].figure_sub) == ("$300 of $900", "$600 left")
         assert (rows["budget"].chip, rows["budget"].tone) == ("Within budget", "ok")
         assert (rows["people"].figure, rows["people"].sub) == ("12 / 250", "3 checked in · 9 at the door")
@@ -529,53 +457,39 @@ def describe_the_goals():
         assert (rows["launch"].figure, rows["launch"].chip, rows["launch"].tone) == ("1 / 2 done", "1 to go", "warn")
         assert (rows["guilds"].figure, rows["guilds"].figure_sub) == ("2 / 3 contacted", "1 demo planned")
         assert (rows["guilds"].chip, rows["guilds"].tone) == ("1 to contact", "warn")
-        assert (rows["flyer"].figure, rows["flyer"].chip, rows["flyer"].percent) == (
-            "3 locations",
-            "Flyer not uploaded",
-            None,
+        assert (rows["vendors"].name, rows["vendors"].sub) == ("Vendors", "Artists selling at the event")
+        assert (rows["vendors"].figure, rows["vendors"].figure_sub) == ("2 vendors", "Confirmed on Vendor Tables")
+        assert (rows["vendors"].chip, rows["vendors"].tone, rows["vendors"].href) == (
+            "Confirmed",
+            "ok",
+            "#hq-lg-people",
         )
-        assert (rows["vendors"].figure, rows["vendors"].figure_sub) == ("2 vendors", "$420 in sales")
-        assert (rows["vendors"].chip, rows["vendors"].tone) == ("1 reported sales", "info")
 
-    @pytest.mark.parametrize(
-        ("received", "committed", "chip", "tone"),
-        [
-            (1_000_000, 0, "Reached", "ok"),
-            (600_000, 400_000, "Covered once collected", "warn"),
-            (600_000, 399_999, "$4,000 to go", ""),
-        ],
-    )
-    def it_reads_the_event_cash_chip_by_lees_rules(hub, received, committed, chip, tone):
-        HubGoalFactory(hub=hub, kind=HubGoal.Kind.EVENT_CASH, label="Raised", target=10_000, is_money=True)
-        SponsorFactory(hub=hub, status="received", amount_cents=received)
-        SponsorFactory(hub=hub, status="committed", amount_cents=committed)
+    def it_links_the_vendors_row_to_vendor_tables_while_the_hub_has_it(busy, doors):
+        assert _goal_rows(busy)["vendors"].href == _url("vendors", busy)
 
-        row = _goal_rows(hub)["cash"]
+    def it_reads_the_event_cash_chip_from_the_bar(hub):
+        HubGoalFactory(hub=hub, kind=HubGoal.Kind.EVENT_CASH, label="Raised", target=100, is_money=True)
+        BarSaleFactory(hub=hub, amount_cents=9_999)
+        assert (_goal_rows(hub)["cash"].chip, _goal_rows(hub)["cash"].tone) == ("$0.01 to go", "")
 
-        assert (row.chip, row.tone) == (chip, tone)
+        BarSaleFactory(hub=hub, amount_cents=1)
+        assert (_goal_rows(hub)["cash"].chip, _goal_rows(hub)["cash"].tone) == ("Reached", "ok")
 
     def it_reads_the_reached_and_all_done_chips(busy):
-        SponsorFactory(hub=busy, status="received", amount_cents=900_000)
-        WineBottleFactory(hub=busy, qty=88)
         busy.launch_tasks.update(status=LaunchTask.Status.DONE)
         busy.guild_demos.update(contacted=True)
-        BarSaleFactory(hub=busy, qty=10, amount_cents=50_000)
-        HubFlyer.objects.create(hub=busy, flyer=photo_upload("flyer.jpg"))
+        BarSaleFactory(hub=busy, qty=10, amount_cents=1_000_000)
 
         rows = _goal_rows(busy)
 
-        assert (rows["cash"].chip, rows["wine"].chip, rows["launch"].chip) == ("Reached", "Reached", "All done")
-        assert (rows["guilds"].chip, rows["bar"].chip, rows["flyer"].chip) == ("All contacted", "Ahead", "Flyer ready")
+        assert (rows["cash"].chip, rows["launch"].chip) == ("Reached", "All done")
+        assert (rows["guilds"].chip, rows["bar"].chip) == ("All contacted", "Ahead")
 
     def it_reads_the_quiet_chips_before_anything_is_in(hub):
         rows = _goal_rows(hub)
 
-        assert (rows["sponsors"].chip, rows["bar"].chip, rows["people"].chip) == (
-            "Not started",
-            "Event night",
-            "Event night",
-        )
-        assert (rows["wine"].chip, rows["wine"].percent, rows["people"].percent) == ("No bottles goal", None, None)
+        assert (rows["bar"].chip, rows["people"].chip, rows["people"].percent) == ("Event night", "Event night", None)
         assert (rows["vendors"].chip, rows["launch"].figure, rows["guilds"].figure) == (
             "Add vendors",
             "0 / 0 done",
@@ -593,13 +507,11 @@ def describe_the_goals():
     def it_takes_every_target_from_the_hubs_goals_never_a_copy(busy):
         busy.goals.filter(kind=HubGoal.Kind.RSVPS).update(target=20)
         busy.goals.filter(kind=HubGoal.Kind.EVENT_CASH).update(target=2_000)
-        busy.goals.filter(kind=HubGoal.Kind.BOTTLES).update(target=12)
 
         rows = _goal_rows(busy)
 
         assert rows["people"].figure == "12 / 20"
-        assert rows["cash"].figure == "$1,855 of $2,000"
-        assert (rows["wine"].figure, rows["wine"].chip) == ("12 / 12", "Reached")
+        assert rows["cash"].figure == "$240 of $2,000"
 
     def it_links_change_the_goals_to_edit_hq_for_an_officer(busy, lee_client):
         body = lee_client.get(_page(busy)).content.decode()
@@ -763,22 +675,20 @@ def describe_attendance():
         assert "RSVPs check in on the Guest list." in body
         assert "data-hq-lg-guest-list" not in body
 
-    def it_lists_the_reports_and_the_no_double_entry_doors(busy, doors, lee_client):
+    def it_shows_the_two_figures_and_the_no_double_entry_note(busy, doors, lee_client):
         body = lee_client.get(_page(busy)).content.decode()
         section = body.split('id="hq-lg-people"', 1)[1].split("</section>", 1)[0]
 
-        assert "Riverbend Ceramics" in section and "&ldquo;Steady all night&rdquo;" in section
-        assert section.index("Ash and Oak") < section.index("Riverbend Ceramics")
         assert "No double entry: each list lives on one page" in section
         assert f'href="{_url("vendors", busy)}" class="pl-hq-lg__inline-link" data-hq-lg-vendors-link' in section
-        assert f'href="{_url("checkin", busy)}" class="pl-hq-lg__inline-link" data-hq-lg-checkin-link' in section
-        assert "<form" in section  # the door clicker only
-        assert section.count("<form") == 1
+        assert "Market Check-in" not in section and "data-hq-lg-report" not in section
+        assert section.count("<form") == 1  # the door clicker only
         stats = section.split('id="hq-lg-people-stats"', 1)[1]
-        for figure in (">12<", ">2<", ">$420<", ">$420<"):
+        assert stats.count("data-hq-lg-people-tile=") == 2
+        for figure in (">12<", ">2<"):
             assert figure in stats
 
-    def it_names_the_doors_without_links_when_they_are_closed(busy, lee_client):
+    def it_names_vendor_tables_without_a_link_when_the_hub_has_no_such_door(busy, lee_client):
         section = lee_client.get(_page(busy)).content.decode().split('id="hq-lg-people"', 1)[1]
 
         assert "data-hq-lg-vendors-link" not in section.split("</section>", 1)[0]
@@ -789,21 +699,12 @@ def describe_attendance():
 
         rows = list(csv.reader(io.StringIO(b"".join(response.streaming_content).decode())))
         assert response["Content-Disposition"].startswith(f'attachment; filename="{busy.slug}-vendors-attendance-')
-        assert rows[0] == PEOPLE_CSV_HEADERS
-        assert rows[1] == ["Ash and Oak", "Not in a guild", "", "0.00", ""]
-        assert rows[2] == ["Riverbend Ceramics", "Not in a guild", "14", "420.00", "Steady all night"]
-        assert rows[3] == []
-        assert rows[4] == ["Total", "2 vendors", "14", "420.00", ""]
-        assert rows[5] == ["Attendance", "12", "3 checked in", "9 at the door", ""]
-
-    def it_neutralises_a_formula_an_artist_typed(hub, lee_client, lee):
-        _report(hub, lee, name="=HYPERLINK(1)", experience="+cmd")
-
-        rows = list(
-            csv.reader(io.StringIO(b"".join(lee_client.get(_url("ledger_people_csv", hub)).streaming_content).decode()))
-        )
-
-        assert rows[1][0] == "'=HYPERLINK(1)" and rows[1][4] == "'+cmd"
+        assert rows == [
+            PEOPLE_CSV_HEADERS,
+            ["Vendors", "2 vendors", "", ""],
+            ["Attendance", "12", "3 checked in", "9 at the door"],
+        ]
+        assert PEOPLE_CSV_HEADERS == ["Row", "Count", "Checked in", "At the door"]
 
 
 def describe_the_launch_checklist():
@@ -1065,12 +966,13 @@ def describe_staff_time():
 
         assert totals.rate_display == rate
 
-    def it_shows_the_figures_and_reads_the_event_cash_and_the_volunteers(busy, lee_client):
+    def it_shows_the_two_figures_and_reads_the_event_cash(busy, lee_client):
         body = lee_client.get(_page(busy)).content.decode()
         section = body.split('id="hq-lg-staff"', 1)[1].split("</section>", 1)[0]
 
-        assert services.staff_totals(busy, cash_cents=services.event_cash(busy).total_cents).rate_display == "$232"
-        for tile, figure in (("hours", "8"), ("rate", "$232"), ("volunteers", "5.75")):
+        assert services.staff_totals(busy, cash_cents=services.event_cash(busy).total_cents).rate_display == "$30"
+        assert 'data-hq-lg-staff-tile="volunteers"' not in section
+        for tile, figure in (("hours", "8"), ("rate", "$30")):
             assert f'data-hq-lg-staff-tile="{tile}"' in section
             part = section.split(f'data-hq-lg-staff-tile="{tile}"', 1)[1]
             assert f"data-hq-lg-figure>{figure}</strong>" in part.split("</div>", 1)[0]
@@ -1291,64 +1193,6 @@ def describe_guild_demos():
         assert '<span class="pl-hq-lg__cat">Inactive</span>' in body
 
 
-def describe_volunteer_hours():
-    def it_reads_the_totals_and_the_top_ten_from_the_market_check_in(hub, doors, lee_client, make_member):
-        for position in range(12):
-            _hours(
-                hub,
-                make_member(preferred_name=f"Helper {position:02d}", full_legal_name=f"Helper {position:02d}"),
-                str(position + 1),
-            )
-
-        body = lee_client.get(_page(hub)).content.decode()
-        section = body.split('id="hq-lg-vol"', 1)[1].split("</section>", 1)[0]
-
-        assert section.count("data-hq-lg-vol-row") == 10
-        assert section.index("Helper 11") < section.index("Helper 02")
-        assert "Helper 01" not in section and "Helper 00" not in section
-        assert "78 hours from 12 volunteers so far" in section
-        assert (
-            f'<a href="{_url("volunteers", hub)}" class="pl-hq-lg__inline-link" data-hq-lg-signup-link>Volunteer Sign-up</a>'
-            in section
-        )
-        assert (
-            f'<a href="{_url("checkin", hub)}" class="pl-hq-lg__inline-link" data-hq-lg-vol-checkin-link>Market Check-in</a>'
-            in section
-        )
-        assert "<form" not in section
-
-    def it_says_lees_empty_line_and_names_closed_doors_without_links(hub, lee_client):
-        section = lee_client.get(_page(hub)).content.decode().split('id="hq-lg-vol"', 1)[1].split("</section>", 1)[0]
-
-        assert "No hours yet. Be the first to log some!" in section
-        assert "Sign up for shifts on Volunteer Sign-up. Log hours on Market Check-in." in section
-
-
-def describe_the_flyer_section():
-    def it_shows_the_flyer_and_the_businesses_with_it_up_linking_both_doors(hub, doors, lee_client):
-        HubFlyer.objects.create(hub=hub, flyer=photo_upload("flyer.jpg"))
-        MarketingActionFactory(hub=hub, kind=MarketingKind.FLYER)
-
-        body = lee_client.get(_page(hub)).content.decode()
-        section = body.split('id="hq-lg-flyer"', 1)[1].split("</section>", 1)[0]
-
-        assert f'src="{hub.hub_flyer.flyer.url}"' in section
-        assert "<strong>1</strong> business has the flyer up" in section
-        assert f'href="{_url("flyer", hub)}"' in section and f'href="{_url("marketing", hub)}"' in section
-        assert "<form" not in section
-
-    def it_says_a_pdf_is_ready_and_none_is_uploaded(hub, lee_client):
-        assert "No flyer uploaded yet" in lee_client.get(_page(hub)).content.decode()
-        HubFlyer.objects.create(hub=hub, flyer="hq/flyers/flyer.pdf")
-        MarketingActionFactory.create_batch(2, hub=hub, kind=MarketingKind.FLYER)
-
-        body = lee_client.get(_page(hub)).content.decode()
-
-        assert "Flyer ready (PDF)" in body
-        assert "<strong>2</strong> businesses have the flyer up" in body
-        assert "data-hq-lg-flyer-link" not in body
-
-
 def describe_the_board_summary():
     def it_reads_lees_whole_paragraph_in_her_order(busy, make_member):
         band = services.ledger_band(busy)
@@ -1359,16 +1203,11 @@ def describe_the_board_summary():
             "Holiday Bizarre drinks: the board approved $900. "
             "So far $0 in drinks and supplies has been sponsored. "
             "We have used $300 of the approval, leaving $600. "
-            "Event cash goal: $1,855 raised toward $10,000 (plus $500 committed). "
+            "Event cash goal: $240 raised toward $10,000. "
             "Drink sales: 40 drinks sold for $240, $60 short of break-even after $300 in bar costs. "
-            "Cash sponsorships: $1,500 received and $500 committed. "
             "Guild demos: 2 of 3 guilds contacted, 1 demo planned. "
-            "Flyers are up at 3 locations. "
-            "Staff time: 8 hours (Lee 6, Augustin 2), about $232 raised per staff hour. "
-            "Volunteers: 2 people gave 5.75 hours to event prep. "
-            "Attendance: 12 people. Vendors: 2 artists sold $420 in total. "
-            "Wine wall: 12 of 100 bottles donated, worth $300. "
-            "5 tickets sold (3 singles at $25 + 1 deal at $40 for 2) raised $115."
+            "Staff time: 8 hours (Lee 6, Augustin 2), about $30 raised per staff hour. "
+            "Attendance: 12 people. Vendors: 2 artists selling their work."
         )
 
     def it_writes_the_singulars_and_leaves_out_what_has_nothing_to_say(hub):
@@ -1383,7 +1222,7 @@ def describe_the_board_summary():
 
         assert "Guild demos: 1 of 1 guild contacted, 1 demo planned." in text
         assert "Staff time: 1 hour (Lee 1), about $0 raised per staff hour." in text
-        assert "Attendance: 1 person. Vendors: 1 artist sold $0 in total." in text
+        assert "Attendance: 1 person. Vendors: 1 artist selling their work." in text
 
         hub.guild_demos.update(contacted=False)
         hub.staff_time.all().delete()
@@ -1395,7 +1234,7 @@ def describe_the_board_summary():
     def it_says_the_attendance_with_no_vendors_and_the_vendors_with_no_attendance(hub):
         DoorCountFactory(hub=hub, delta=5)
 
-        assert "Attendance: 5 people. Vendors: 0 artists sold $0 in total." in services.board_summary(
+        assert "Attendance: 5 people. Vendors: 0 artists selling their work." in services.board_summary(
             services.ledger_band(hub), services.door_figures(hub)
         )
 
@@ -1426,9 +1265,8 @@ def describe_the_rows():
 
         HubCardFactory(hub=hub, kind=HubCard.Kind.RSVP, title="Going?")
         HubCardFactory(hub=hub, kind=HubCard.Kind.PLACEHOLDER, title="Soon")
-
-        doors[HubCard.Kind.MARKETING].is_hidden = True
-        doors[HubCard.Kind.MARKETING].save(update_fields=["is_hidden"])
+        doors[HubCard.Kind.VENDOR_TABLES].is_hidden = True
+        doors[HubCard.Kind.VENDOR_TABLES].save(update_fields=["is_hidden"])
 
         urls = _door_urls(hub)
 
@@ -1447,14 +1285,13 @@ def describe_the_page():
             "data-hq-lg-board",
             "data-hq-lg-bar",
             "data-hq-lg-people",
-            "data-hq-lg-wine",
             "data-hq-lg-launch",
             "data-hq-lg-staff",
             "data-hq-lg-guilds",
-            "data-hq-lg-vol",
-            "data-hq-lg-flyer",
         ]
         assert [body.index(marker) for marker in order] == sorted(body.index(marker) for marker in order)
+        for gone in ('id="hq-lg-wine"', 'id="hq-lg-vol"', 'id="hq-lg-flyer"'):
+            assert gone not in body
 
     def it_runs_a_fixed_number_of_queries_however_many_rows(busy, lee_client, make_member):
         def _count() -> int:
@@ -1468,10 +1305,8 @@ def describe_the_page():
         StaffTimeFactory.create_batch(3, hub=busy, who="Dixie")
         GuildDemoFactory.create_batch(3, hub=busy, demo=True)
         DoorCountFactory.create_batch(3, hub=busy)
-        for _ in range(3):
-            member = make_member()
-            _report(busy, member, name=f"Artist {member.pk}", guild=GuildFactory())
-            _hours(busy, member, "1")
+        VendorTableFactory.create_batch(3, hub=busy, status="confirmed")
+        BarSaleFactory.create_batch(3, hub=busy)
 
         assert _count() == few
 
@@ -1537,24 +1372,6 @@ def _prices(hub: Any, last_year: str = "650") -> dict[str, Any]:
     return {**{f"prices-{key}": value for key, value in values.items()}, **_seen("prices", found, figures)}
 
 
-def _tickets(hub: Any, singles: int = 4) -> dict[str, Any]:
-    found = services.ledger_settings(hub)
-    return {
-        "tickets-singles_sold": singles,
-        "tickets-pairs_sold": 1,
-        **_seen("tickets", found, ("singles_sold", "pairs_sold")),
-    }
-
-
-def _ticket_prices(hub: Any) -> dict[str, Any]:
-    found = services.ledger_settings(hub)
-    return {
-        "ticket-prices-ticket": "20",
-        "ticket-prices-pair": "35",
-        **_seen("ticket-prices", found, ("ticket_cents", "pair_cents")),
-    }
-
-
 def _line_post(line: BudgetLine, **fields: Any) -> dict[str, Any]:
     line.refresh_from_db()
     values: dict[str, Any] = {
@@ -1611,18 +1428,6 @@ def describe_the_figures_out_of_band():
         assert _oob_ids(body) == {"hq-lg-bar-buttons", "hq-lg-bar-tiles", "hq-lg-goals"}
         assert "Beat 2025 (about $650) and cover bar costs" in body.split('id="hq-lg-goals"', 1)[1]
 
-    @pytest.mark.parametrize("form", ["tickets", "ticket_prices"])
-    def it_sends_every_figure_with_the_tickets_and_their_prices(hub, lee_client, form):
-        LedgerSettingsFactory(hub=hub, singles_sold=1)
-        name, data = (
-            ("ledger_tickets", _tickets(hub)) if form == "tickets" else ("ledger_ticket_prices", _ticket_prices(hub))
-        )
-
-        body = lee_client.post(_url(name, hub), data, **HTMX).content.decode()
-
-        assert _oob_ids(body) == FIGURE_IDS
-        assert 'data-hq-lg-tally-tile="tickets"' in body
-
     def it_sends_the_goals_and_the_board_with_a_budget_lines_save(hub, admin_client):
         line = BudgetLineFactory(hub=hub, name="Kegs")
 
@@ -1652,9 +1457,7 @@ def describe_the_figures_out_of_band():
         assert 'id="hq-lg-staff-figures" data-hq-lg-staff-figures>' in section
         assert 'hx-swap-oob="true"' not in body
 
-    @pytest.mark.parametrize(
-        "answer", ["tap", "undo", "batch", "prices", "tickets", "ticket_prices", "line", "staff", "guild_add"]
-    )
+    @pytest.mark.parametrize("answer", ["tap", "undo", "batch", "prices", "line", "staff", "guild_add"])
     def it_answers_in_a_fixed_number_of_queries_however_many_rows(busy, lee, lee_client, answer):
         line = BudgetLine.objects.get(hub=busy, name="Kegs")
         # An officer posts every one of them, the settings included (#1307).
@@ -1668,8 +1471,6 @@ def describe_the_figures_out_of_band():
                 "undo": (_url("ledger_bar_undo", busy), {}),
                 "batch": (_url("ledger_bar_batch", busy), _batch()),
                 "prices": (_url("ledger_bar_prices", busy), _prices(busy)),
-                "tickets": (_url("ledger_tickets", busy), _tickets(busy)),
-                "ticket_prices": (_url("ledger_ticket_prices", busy), _ticket_prices(busy)),
                 "line": (_url("ledger_line_edit", busy, line.pk), _line_post(line)),
                 "staff": (_url("ledger_staff_add", busy), _staff_post()),
                 "guild_add": (_url("ledger_guild_add", busy), {"guild-add-guild": str(guild.pk)}),
@@ -1688,7 +1489,7 @@ def describe_the_figures_out_of_band():
         StaffTimeFactory.create_batch(3, hub=busy, who="Dixie")
         GuildDemoFactory.create_batch(3, hub=busy, demo=True)
         DoorCountFactory.create_batch(3, hub=busy)
-        WineBottleFactory.create_batch(3, hub=busy)
+        VendorTableFactory.create_batch(3, hub=busy, status="confirmed")
         LedgerEntryFactory.create_batch(3, hub=busy, line=line)
         LaunchTaskFactory.create_batch(3, hub=busy)
 
@@ -1707,54 +1508,28 @@ def describe_the_plurals():
         line = BudgetLineFactory(hub=hub)
         LedgerEntryFactory(hub=hub, line=line)
         BarSaleFactory(hub=hub)
-        WineBottleFactory(hub=hub, qty=1)
-        LedgerSettingsFactory(hub=hub, singles_sold=1)
 
         text = services.board_summary(services.ledger_band(hub), services.door_figures(hub))
 
         assert "Drink sales: 1 drink sold for $6." in text
-        assert "1 ticket sold (1 single at $25 + 0 deals at $40 for 2) raised $25." in text
 
-    def it_writes_the_volunteer_and_staff_hours_in_the_right_number(hub, make_member):
+    def it_writes_the_staff_hours_in_the_right_number(hub):
         line = BudgetLineFactory(hub=hub)
         LedgerEntryFactory(hub=hub, line=line)
-        _hours(hub, make_member(), "1.5")
         StaffTimeFactory(hub=hub, who="Lee", hours=Decimal("0.25"))
 
         text = services.board_summary(services.ledger_band(hub), services.door_figures(hub))
 
         assert "Staff time: 0.25 hours (Lee 0.25)" in text
-        assert "Volunteers: 1 person gave 1.5 hours to event prep." in text
 
-    def it_writes_the_singulars_on_the_tally_and_its_cheer(hub, make_member):
-        HubGoalFactory(hub=hub, kind=HubGoal.Kind.BOTTLES, label="Bottles", target=2)
-        WineBottleFactory(hub=hub, qty=1)
-        LedgerSettingsFactory(hub=hub, singles_sold=1)
-        _report(hub, make_member(), items_sold=1, sales_cents=1_000)
-        MarketingActionFactory(hub=hub, kind=MarketingKind.FLYER)
+    def it_writes_the_singular_guild_on_the_tally_and_its_cheer(hub):
         GuildDemoFactory(hub=hub)
 
-        tiles = _tiles(hub)
-        cheer = _cheer(hub)
+        assert _tiles(hub)["guilds"].sub == "of 1 guild"
+        assert "1 guild still to line up a demo" in _cheer(hub)
 
-        assert tiles["tickets"].sub.startswith("1 ticket · ")
-        assert tiles["sold"].sub == "1 handmade item found new homes"
-        assert "1 bottle to fill the wine wall" in cheer
-        assert "1 guild still to line up a demo" in cheer
-        assert "Drop a flyer somewhere today. 1 business so far" in cheer
-
-    def it_writes_the_plurals_on_the_tally_and_its_cheer(busy):
-        tiles = _tiles(busy)
-
-        assert tiles["tickets"].sub.startswith("5 tickets · ")
-        assert tiles["sold"].sub == "14 handmade items found new homes"
-        assert "88 bottles to fill the wine wall" in _cheer(busy)
-
-    def it_says_one_ticket_at_goal_in_the_singular(hub):
-        HubGoalFactory(hub=hub, kind=HubGoal.Kind.BOTTLES, label="Bottles", target=1)
-        totals = services.ticket_totals(services.ledger_settings(hub), services.wine_band(hub))
-
-        assert totals.at_goal_line == "1 ticket at $25, or 2 for $40"
+    def it_writes_the_plurals_on_the_tally(busy):
+        assert _tiles(busy)["guilds"].sub == "of 3 guilds"
 
     def it_says_one_hour_when_an_entry_is_deleted(hub, lee_client):
         entry = StaffTimeFactory(hub=hub, who="Lee", hours=Decimal("1"))
@@ -1772,7 +1547,7 @@ def describe_the_plurals():
         response = lee_client.get(_url("ledger_people_csv", hub))
         rows = list(csv.reader(io.StringIO(b"".join(response.streaming_content).decode("utf-8-sig"))))
 
-        assert ["Total", "1 vendor"] == next(row for row in rows if row and row[0] == "Total")[:2]
+        assert ["Vendors", "1 vendor"] == next(row for row in rows if row and row[0] == "Vendors")[:2]
 
 
 def describe_live_guilds():

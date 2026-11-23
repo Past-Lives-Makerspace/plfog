@@ -1,5 +1,5 @@
 """The HQ edit pages (Track C, part 1): the hub form with its goals and hero, a card's form
-with its named members and its place in the order, and the nine cards a new hub starts with."""
+with its place in the order, and the four cards a new hub starts with (#1307)."""
 
 from __future__ import annotations
 
@@ -88,7 +88,7 @@ def describe_loading_lees_hq():
         assert [card.kind for card in cards] == [door.kind for door in DEFAULT_CARDS]
         assert not any(card.is_hidden for card in cards)
         assert cards[0].title == "Going to the Bizarre?"
-        assert hub.goals.count() == 6
+        assert hub.goals.count() == 5
         assert hub.shifts.count() == 21
 
     def it_sends_an_admin_to_the_hq_once_one_exists(open_hub, admin_client):
@@ -106,8 +106,8 @@ def describe_loading_lees_hq():
 
         again = open_hub.seed_default_cards()
 
-        assert (first.created, first.kept) == (9, 0)
-        assert (again.created, again.kept, again.adopted, again.reworded) == (0, 9, [], 0)
+        assert (first.created, first.kept) == (4, 0)
+        assert (again.created, again.kept, again.adopted, again.reworded) == (0, 4, [], 0)
         assert set(open_hub.cards.values_list("pk", flat=True)) == pks
         assert open_hub.cards.get(kind=HubCard.Kind.RSVP).title == "Renamed by Lee"
 
@@ -128,7 +128,7 @@ def describe_updating_the_doors():
         placeholder = HubCardFactory(
             hub=open_hub,
             kind=HubCard.Kind.PLACEHOLDER,
-            title="Marketing Tracker",
+            title="Vendor Tables",
             bullets=DEFAULT_CARDS[-1].old_bullets,
             button_text=DEFAULT_CARDS[-1].old_button_text,
         )
@@ -139,23 +139,36 @@ def describe_updating_the_doors():
         placeholder.refresh_from_db()
         ledger.refresh_from_db()
         assert response.redirect_chain == [(open_hub.get_absolute_url(), 302)]
-        assert placeholder.kind == HubCard.Kind.MARKETING
-        assert placeholder.button_text == "Enter marketing"
+        assert placeholder.kind == HubCard.Kind.VENDOR_TABLES
+        assert placeholder.button_text == "Enter vendor tables"
         assert ledger.kind == HubCard.Kind.LEDGER
         messages = [str(message) for message in response.context["messages"]]
         assert messages == [
-            "Doors updated: opened PL Ledger, Marketing Tracker; added 7 doors; gave 1 card Lee's latest words;"
-            " added the Raised, Wine wall bottles, Volunteer spots, RSVPs, Member tables and Guilds taking part goals."
-            " New: Sponsorship Tracker, Market Check-in, Vendor Tables,"
-            " Event flyer and sharing."
-            " If an old Not shared yet card for it is still on the page, delete that one."
+            "Doors updated: opened PL Ledger, Vendor Tables; added 2 doors; gave 1 card Lee's latest words;"
+            " added the Raised, Volunteer spots, RSVPs, Member tables and Guilds taking part goals."
         ]
-        assert open_hub.cards.count() == 9
-        assert open_hub.goals.count() == 6
+        assert open_hub.cards.count() == 4
+        assert open_hub.goals.count() == 5
+
+    def it_never_brings_back_a_removed_door(open_hub, officer_client):
+        """#1307 AC5: Update the doors makes only the four doors, whatever placeholders an old seed left behind."""
+        HubCardFactory(hub=open_hub, kind=HubCard.Kind.PLACEHOLDER, title="Marketing Tracker")
+        HubCardFactory(hub=open_hub, kind=HubCard.Kind.PLACEHOLDER, title="Log a wine bottle")
+
+        for _ in range(2):
+            assert officer_client.post(_url(open_hub)).status_code == 302
+
+        assert set(open_hub.cards.exclude(kind=HubCard.Kind.PLACEHOLDER).values_list("kind", flat=True)) == {
+            HubCard.Kind.RSVP,
+            HubCard.Kind.VOLUNTEERS,
+            HubCard.Kind.LEDGER,
+            HubCard.Kind.VENDOR_TABLES,
+        }
+        assert open_hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count() == 2
 
     def it_gives_a_track_c_hub_its_member_tables_and_guilds_goals_once(open_hub, admin_client):
         open_hub.seed_default_cards()
-        for position, spec in enumerate(GOALS[:4]):
+        for position, spec in enumerate(GOALS[:3]):
             HubGoalFactory(hub=open_hub, label=spec.label, kind=spec.kind, target=spec.target, sort_order=position)
 
         first = admin_client.post(_url(open_hub), follow=True)
@@ -167,25 +180,24 @@ def describe_updating_the_doors():
         assert [str(message) for message in second.context["messages"]] == ["The doors are up to date."]
         assert list(open_hub.goals.values_list("label", "kind", "sort_order")) == [
             ("Raised", HubGoal.Kind.EVENT_CASH, 0),
-            ("Wine wall bottles", HubGoal.Kind.BOTTLES, 1),
-            ("Volunteer spots", HubGoal.Kind.VOLUNTEER_SPOTS, 2),
-            ("RSVPs", HubGoal.Kind.RSVPS, 3),
-            ("Member tables", HubGoal.Kind.MEMBER_TABLES, 4),
-            ("Guilds taking part", HubGoal.Kind.GUILDS, 5),
+            ("Volunteer spots", HubGoal.Kind.VOLUNTEER_SPOTS, 1),
+            ("RSVPs", HubGoal.Kind.RSVPS, 2),
+            ("Member tables", HubGoal.Kind.MEMBER_TABLES, 3),
+            ("Guilds taking part", HubGoal.Kind.GUILDS, 4),
         ]
 
     def it_adds_every_counted_kind_the_hub_lacks_beside_its_own(open_hub, admin_client):
         open_hub.seed_default_cards()
         HubGoalFactory(hub=open_hub, label="Money in", kind=HubGoal.Kind.MANUAL, sort_order=0)
-        HubGoalFactory(hub=open_hub, label="Bottles", kind=HubGoal.Kind.BOTTLES, sort_order=1)
+        HubGoalFactory(hub=open_hub, label="Going", kind=HubGoal.Kind.RSVPS, sort_order=1)
 
         response = admin_client.post(_url(open_hub), follow=True)
 
         assert [str(message) for message in response.context["messages"]] == [
-            "Doors updated: added the Raised, Volunteer spots, RSVPs, Member tables and Guilds taking part goals."
+            "Doors updated: added the Raised, Volunteer spots, Member tables and Guilds taking part goals."
         ]
         assert open_hub.goals.filter(kind=HubGoal.Kind.MANUAL).count() == 1
-        assert open_hub.goals.filter(kind=HubGoal.Kind.BOTTLES).get().label == "Bottles"
+        assert open_hub.goals.filter(kind=HubGoal.Kind.RSVPS).get().label == "Going"
 
     def it_offers_the_button_on_edit_hq(open_hub, admin_client):
         body = admin_client.get(_edit(open_hub)).content.decode()
@@ -255,14 +267,14 @@ def describe_editing_a_hub():
 
 def describe_goals():
     def it_adds_a_goal_from_a_new_row(open_hub, admin_client):
-        goals = [{"label": "Bottles", "kind": HubGoal.Kind.BOTTLES, "target": "100", "is_money": ""}]
+        goals = [{"label": "Going", "kind": HubGoal.Kind.RSVPS, "target": "100", "is_money": ""}]
 
         response = admin_client.post(_edit(open_hub), _hub_post(goals=goals, slug=open_hub.slug))
 
         assert response.status_code == 302
         (goal,) = open_hub.goals.all()
-        assert goal.label == "Bottles"
-        assert goal.kind == HubGoal.Kind.BOTTLES
+        assert goal.label == "Going"
+        assert goal.kind == HubGoal.Kind.RSVPS
         assert goal.target == 100
 
     def it_deletes_a_saved_goal_through_the_delete_field_and_keeps_the_rest(open_hub, admin_client):

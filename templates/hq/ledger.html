@@ -2,14 +2,12 @@
 {% load static %}
 {% comment %}
 The PL Ledger (Track D, part 6a), in the look of Lee's ledger page and in her order: the header with her title and
-line, the board summary (the approval, used, left and sponsored, the meter, her board paragraph, Copy board summary,
-the CSV and the approval form), the budget lines, Log a sponsor or expense, the ledger with its filters, and the
-receipts report, then (D6b) Drink sales and the Wine Wall's tickets. Only those who run the HQ reach it
-(hq.access.hq_gate), because this is the event's money. D6c puts the running
-tally and the goals over the board summary, Attendance and vendors between Drink sales and the Wine Wall (Lee's order),
-and after the Wine Wall the launch checklist, Staff time, Guild demos, Volunteer hours and the Event flyer. Every figure
-they show is read from the door it lives on. Over it all, Lee's section bar (← HQ, the doors open to the viewer and a
-jump to each section); at the foot, her nonprofit line.
+line, the running tally and the goals, the board summary (the approval, used, left and sponsored, the meter, her board
+paragraph, Copy board summary, the CSV and the approval form), the budget lines, Log a sponsor or expense, the ledger
+with its filters, the receipts report, Drink sales, Attendance and vendors, the launch checklist, Staff time and Guild
+demos. Only those who run the HQ reach it (hq.access.hq_gate), because this is the event's money. Every figure is read
+from the door it lives on. Over it all, Lee's section bar (← HQ, Vendor tables when the hub has that door, and a jump
+to each section); at the foot, her nonprofit line. #1307 removed the Wine Wall, Volunteer hours and Event flyer sections.
 {% endcomment %}
 {% block title %}{{ title }}{% endblock %}
 {% block extra_head %}
@@ -30,14 +28,10 @@ jump to each section); at the foot, her nonprofit line.
         <a href="#hq-lg-lines" class="pl-hq-lg__jump" data-hq-lg-jump>Budget lines</a>
         <a href="#hq-lg-entries" class="pl-hq-lg__jump" data-hq-lg-jump>Ledger</a>
         <a href="#hq-lg-bar" class="pl-hq-lg__jump" data-hq-lg-jump>Drink sales</a>
-        {% if door_urls.sponsorship %}<a href="{{ door_urls.sponsorship }}" class="pl-hq-lg__jump pl-hq-lg__jump--door" data-hq-lg-jump-door="sponsorship">Sponsors <span aria-hidden="true">&#8599;</span></a>{% endif %}
         <a href="#hq-lg-people" class="pl-hq-lg__jump" data-hq-lg-jump>Vendors</a>
-        <a href="#hq-lg-wine" class="pl-hq-lg__jump" data-hq-lg-jump>Wine wall</a>
         <a href="#hq-lg-launch" class="pl-hq-lg__jump" data-hq-lg-jump>Launch</a>
         <a href="#hq-lg-staff" class="pl-hq-lg__jump" data-hq-lg-jump>Staff time</a>
         <a href="#hq-lg-guilds" class="pl-hq-lg__jump" data-hq-lg-jump>Guild demos</a>
-        <a href="#hq-lg-vol" class="pl-hq-lg__jump" data-hq-lg-jump>Volunteers</a>
-        <a href="#hq-lg-flyer" class="pl-hq-lg__jump" data-hq-lg-jump>Flyers</a>
       </div>
     </nav>
     <div class="pl-hq-lg__heading">
@@ -71,17 +65,11 @@ jump to each section); at the foot, her nonprofit line.
 
   {% include "hq/partials/_ledger_people.html" %}
 
-  {% include "hq/partials/_ledger_wine.html" %}
-
   {% include "hq/partials/_ledger_launch.html" %}
 
   {% include "hq/partials/_ledger_staff.html" %}
 
   {% include "hq/partials/_ledger_guilds.html" %}
-
-  {% include "hq/partials/_ledger_vol.html" %}
-
-  {% include "hq/partials/_ledger_flyer.html" %}
 
   <p class="pl-hq-lg__muted pl-hq-lg__footer" data-hq-lg-footer>{{ footer }}</p>
 

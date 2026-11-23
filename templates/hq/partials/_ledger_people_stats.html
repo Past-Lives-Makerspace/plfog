@@ -1,9 +1,8 @@
 {% comment %}
-Attendance and vendors' four figures: attendees (the check-ins and the walk-ins, both shown, against the RSVPs goal),
-the vendors (Vendor Tables' confirmed tables), their sales and the average per vendor with sales (the Market
-Check-in's). Sent back out of band after every door tap.
+Attendance and vendors' two figures: attendees (the check-ins and the walk-ins, both shown, against the RSVPs goal)
+and the vendors (Vendor Tables' confirmed tables). Sent back out of band after every door tap.
 
-  attendance, people_vendors, checkin — as hq/partials/_ledger_people.html
+  attendance, people_vendors — as hq/partials/_ledger_people.html
   oob — optional, True renders the hx-swap-oob attribute
 {% endcomment %}
 <div class="pl-hq-lg__tiles" id="hq-lg-people-stats" data-hq-lg-people-stats{% if oob %} hx-swap-oob="true"{% endif %}>
@@ -16,15 +15,5 @@ Check-in's). Sent back out of band after every door tap.
     <span class="pl-hq-lg__tile-heading">Vendors</span>
     <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ people_vendors.confirmed }}</strong>
     <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>Confirmed tables, artists selling</span>
-  </div>
-  <div class="pl-hq-lg__tile" data-hq-lg-people-tile="sales">
-    <span class="pl-hq-lg__tile-heading">Vendor sales</span>
-    <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ checkin.sales_display }}</strong>
-    <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>What artists made, kept by them</span>
-  </div>
-  <div class="pl-hq-lg__tile" data-hq-lg-people-tile="average">
-    <span class="pl-hq-lg__tile-heading">Avg per vendor</span>
-    <strong class="pl-hq-lg__tile-figure" data-hq-lg-figure>{{ checkin.average_sale_display }}</strong>
-    <span class="pl-hq-lg__tile-helper" data-hq-lg-helper>{% if checkin.vendors_with_sales %}Across {{ checkin.vendors_with_sales }} artist{{ checkin.vendors_with_sales|pluralize }} with sales{% else %}Once sales are in{% endif %}</span>
   </div>
 </div>
