@@ -500,21 +500,22 @@ DEFAULT_CARDS: tuple[DoorContent, ...] = (
         bullets=(
             "Bartend, door, security\n"
             "Setup, teardown and cleanup\n"
-            "Wine wall, tour guides, guild demos\n"
+            "Tour guides and guild demos\n"
             "Flyer runs and decorating"
         ),
         button_text="Sign up to volunteer",
+        # The bullets before #1307 removed the wine wall: a card still carrying them updates.
         old_bullets=(
-            "Bartend, work the door or keep an eye on things\n"
-            "Setup, teardown and cleanup crews\n"
-            "Wine wall, tour guides and guild demos\n"
+            "Bartend, door, security\n"
+            "Setup, teardown and cleanup\n"
+            "Wine wall, tour guides, guild demos\n"
             "Flyer runs and decorating"
         ),
         old_button_text="Sign up to volunteer",
     ),
     DoorContent(
         door=HubCard.Kind.LEDGER,
-        who_for="Lee and the core team",
+        who_for="Guild officers",
         title="PL Ledger",
         bullets=(
             "Running tally and goals\n"
@@ -791,7 +792,7 @@ class VendorTable(models.Model):
         null=True, blank=True, help_text="The day the vendor asked for a table; blank when nobody recorded it."
     )
     request_source = models.CharField(
-        max_length=60, blank=True, help_text="How the request came in, e.g. Discord, Asked Lee, Kate's sign-up doc."
+        max_length=60, blank=True, help_text="How the request came in, e.g. Discord, In person, Kate's sign-up doc."
     )
     discord_handle = models.CharField(max_length=100, blank=True, help_text="Their Discord name, as they gave it.")
     created_by = models.ForeignKey(
@@ -991,7 +992,7 @@ class BudgetLine(models.Model):
         related_name="budget_lines",
         help_text="The HQ whose budget this line is on.",
     )
-    name = models.CharField(max_length=120, help_text="The line's name, e.g. Kegs or Wine wall tags.")
+    name = models.CharField(max_length=120, help_text="The line's name, e.g. Kegs or Cups and napkins.")
     category = models.CharField(
         max_length=20,
         choices=BudgetCategory.choices,
@@ -1385,7 +1386,7 @@ class StaffTime(models.Model):
         related_name="staff_time",
         help_text="The HQ whose event this time went to.",
     )
-    who = models.CharField(max_length=120, help_text="Who did the work, as typed, e.g. Lee.")
+    who = models.CharField(max_length=120, help_text="Who did the work, as typed, e.g. Kate.")
     member = models.ForeignKey(
         Member,
         null=True,
@@ -1407,7 +1408,7 @@ class StaffTime(models.Model):
         default=StaffArea.PLANNING,
         help_text="The work area, from Lee's list.",
     )
-    note = models.CharField(max_length=200, blank=True, help_text="What they did, e.g. Built the sponsor tracker.")
+    note = models.CharField(max_length=200, blank=True, help_text="What they did, e.g. Called the guild leads.")
     created_by = models.ForeignKey(
         Member,
         null=True,

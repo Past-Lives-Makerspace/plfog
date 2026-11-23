@@ -89,14 +89,14 @@ SHIFTS: tuple[ShiftContent, ...] = (
         role="Flyer runner",
         when_text="Nov 1 to Dec 1, your schedule",
         need=6,
-        description="Drop flyers at SE Portland businesses and log each one in the ledger.",
+        description="Drop flyers at SE Portland businesses.",
     ),
     ShiftContent(
         phase=ShiftPhase.BEFORE,
         role="Wine wall collector",
         when_text="November, your schedule",
         need=3,
-        description="Ask local shops for a bottle worth $25 or more (higher is great!), pick up donations, log who gave.",
+        description="Ask local shops for a bottle worth $25 or more (higher is great!) and pick up donations.",
     ),
     ShiftContent(
         phase=ShiftPhase.BEFORE,

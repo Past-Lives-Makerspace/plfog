@@ -630,7 +630,7 @@ class BudgetLineForm(forms.ModelForm):
         model = BudgetLine
         fields = ["name", "category"]
         labels = {"name": "Line name", "category": "Category"}
-        widgets = {"name": forms.TextInput(attrs={"placeholder": "e.g. Wine wall tags"})}
+        widgets = {"name": forms.TextInput(attrs={"placeholder": "e.g. Cups and napkins"})}
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)

@@ -1,4 +1,4 @@
-"""Seed Lee's Holiday Bizarre HQ from :mod:`hq.holiday_bizarre`: the hub, its nine doors, five goals and 21 shifts.
+"""Seed Lee's Holiday Bizarre HQ from :mod:`hq.holiday_bizarre`: the hub, its four doors, five goals and 21 shifts.
 
 A command, never a migration (STANDARDS §3 and §10): deploys do not run it. An admin loads the
 same content from ``/hq/new/`` (the Load Lee's HQ button, :func:`hq.views.setup`), so the command
@@ -218,7 +218,7 @@ def _seed_shifts(hub: EventHub, tally: Tally) -> None:
 
 class Command(BaseCommand):
     help = (
-        "Create the Holiday Bizarre HQ (hub, nine doors, five goals, 21 shifts), linked to a published "
+        "Create the Holiday Bizarre HQ (hub, four doors, five goals, 21 shifts), linked to a published "
         "calendar event when --event names one. Runs twice without duplicates and never touches an admin's edits; --dry-run rolls everything "
         "back and writes nothing."
     )

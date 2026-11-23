@@ -7,7 +7,7 @@ First the data: every HubCard of those kinds and every HubGoal counting the wine
 HubFlyer) and LedgerSettings' four wine wall ticket columns. The rows were exported to CSV before deploy (#1307 AC8).
 Uploaded bottle photos, winery logos and flyer files stay in storage; only their rows go. The release serving during
 the deploy may 500 on HQ pages for under a minute (the #1091 precedent). The reverse restores the empty tables and
-columns but not the deleted rows.
+columns but not the deleted rows. Four help texts that named Lee or a removed door are reworded.
 """
 
 from django.db import migrations, models
@@ -179,5 +179,30 @@ class Migration(migrations.Migration):
         ),
         migrations.DeleteModel(
             name="WineryLogo",
+        ),
+        # Help texts that named Lee or a removed door (#1307).
+        migrations.AlterField(
+            model_name="budgetline",
+            name="name",
+            field=models.CharField(help_text="The line's name, e.g. Kegs or Cups and napkins.", max_length=120),
+        ),
+        migrations.AlterField(
+            model_name="stafftime",
+            name="note",
+            field=models.CharField(blank=True, help_text="What they did, e.g. Called the guild leads.", max_length=200),
+        ),
+        migrations.AlterField(
+            model_name="stafftime",
+            name="who",
+            field=models.CharField(help_text="Who did the work, as typed, e.g. Kate.", max_length=120),
+        ),
+        migrations.AlterField(
+            model_name="vendortable",
+            name="request_source",
+            field=models.CharField(
+                blank=True,
+                help_text="How the request came in, e.g. Discord, In person, Kate's sign-up doc.",
+                max_length=60,
+            ),
         ),
     ]
