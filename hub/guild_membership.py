@@ -24,7 +24,7 @@ class GuildToggleRow:
 
     guild: Guild
     joined: bool
-    meeting_hint: str
+    blurb: str
 
 
 def build_my_guilds_rows(member: Member | None) -> list[GuildToggleRow]:
@@ -46,6 +46,6 @@ def build_my_guilds_rows(member: Member | None) -> list[GuildToggleRow]:
         return []
     joined_ids = set(member.guild_memberships.values_list("guild_id", flat=True))
     return [
-        GuildToggleRow(guild=guild, joined=guild.pk in joined_ids, meeting_hint=guild.meeting_schedule)
+        GuildToggleRow(guild=guild, joined=guild.pk in joined_ids, blurb=guild.about)
         for guild in Guild.objects.filter(is_active=True).order_by("name")
     ]

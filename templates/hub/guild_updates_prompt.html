@@ -25,8 +25,8 @@
                 <div class="pl-guild-toggle-row">
                     <div class="pl-guild-toggle-row__info">
                         <div class="pl-guild-toggle-row__name">{{ row.guild.name }}</div>
-                        {% if row.meeting_hint %}
-                        <div class="hub-text-muted pl-guild-toggle-row__hint">{{ row.meeting_hint|truncatechars:60 }}</div>
+                        {% if row.blurb %}
+                        <div class="hub-text-muted pl-guild-toggle-row__hint">{{ row.blurb|striptags|truncatewords:18 }}</div>
                         {% endif %}
                     </div>
                     <label class="pl-toggle pl-toggle--sm">

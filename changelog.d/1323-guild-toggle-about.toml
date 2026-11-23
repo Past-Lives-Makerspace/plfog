@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-11-23"
+audience = ["members"]
+title = "Guild switches say what each guild is about"
+changes = [
+  "Under each guild in Edit Your Guilds, Settings > Guild Updates and the first-login guild picker, you now see a short description of the guild instead of its meeting notes.",
+]
