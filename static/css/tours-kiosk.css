@@ -344,9 +344,9 @@ html:has(> body.tours-kiosk) .pl-tours-loading__bar {
     font-size: 16px;
 }
 
-.cp-page .pl-kiosk .pl-tourpub__day {
-    min-width: 6rem;
-    padding: 1rem;
+/* The month calendar (Morlock, 2026-11-22): bigger numbers for the lobby screen; cells stay square. */
+.cp-page .pl-kiosk .pl-tourpub__cell {
+    font-size: 22px;
 }
 
 .cp-page .pl-kiosk .pl-tourpub__day-name,

@@ -598,7 +598,7 @@ class TourBookingForm(forms.Form):
         label="Describe your ideal studio and what you'd do with it",
         widget=forms.Textarea(attrs={"rows": 3}),
     )
-    # Unticked, as on the class registration form (feedback request #7).
+    # Unticked, as on the class registration form (feedback request #35).
     wants_newsletter = forms.BooleanField(
         required=False, initial=False, label="Sign me up for the Past Lives newsletter"
     )

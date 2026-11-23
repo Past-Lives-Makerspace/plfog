@@ -423,7 +423,7 @@ def describe_row_groups():
         ),
         "group.feedback_request": (
             "Updates to your requests",
-            "Something you sent is planned, being built, live, not planned, not a bug or closed, "
+            "Something you sent is in the backlog, planned, being built, live, not planned, not a bug or closed, "
             "or Past Lives wrote on something you sent.",
             "Your requests",
         ),

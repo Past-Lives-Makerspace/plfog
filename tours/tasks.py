@@ -28,14 +28,14 @@ def book_waiting_tour_requests() -> None:
     book_waiting_requests()
 
 
-#: The Mailchimp tags a tour visitor's opt-in carries (feedback request #7).
+#: The Mailchimp tags a tour visitor's opt-in carries (feedback request #35).
 NEWSLETTER_TAG = "tour-visitor"
 STUDIO_TAG = "tour-studio-interest"
 
 
 @task
 def subscribe_tour_visitor(booking_id: int) -> None:
-    """Subscribe a tour visitor who ticked the newsletter box to the Mailchimp list (#7).
+    """Subscribe a tour visitor who ticked the newsletter box to the Mailchimp list (#35).
 
     The class registration form's list (``MailchimpClient``), tagged ``tour-visitor``, plus
     ``tour-studio-interest`` when they ticked the studio box. Mailchimp's upsert makes a second

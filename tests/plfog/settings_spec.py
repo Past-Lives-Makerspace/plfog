@@ -93,7 +93,7 @@ def describe_sentry_dsn():
 
         def it_scrubs_the_door_code_recursively_on_top_of_the_default_denylist(monkeypatch):
             # #813: the door code rides in the Change save's POST body and in Home's locals.
-            from sentry_sdk.scrubber import DEFAULT_DENYLIST
+            from sentry_sdk.scrubber import EventScrubber
 
             with patch("sentry_sdk.init") as mock_init:
                 _reload_settings(
@@ -105,7 +105,8 @@ def describe_sentry_dsn():
                 )
                 scrubber = mock_init.call_args[1]["event_scrubber"]
                 assert "door_code" in scrubber.denylist
-                assert {name.lower() for name in DEFAULT_DENYLIST} <= set(scrubber.denylist)
+                # A default scrubber's list, so the names are normalized the way sentry-sdk does it.
+                assert set(EventScrubber(send_default_pii=True).denylist) <= set(scrubber.denylist)
                 assert scrubber.recursive is True
 
                 event = {

@@ -76,10 +76,13 @@ services:
   # It is made by hand in the Render dashboard as a Background Worker: same repo, same
   # Dockerfile, deploys from main, the Docker command below in place of the CMD (it runs no
   # migrations; the web service does), and the same environment variables as the web service.
+  # run_worker is db_worker --no-reload plus Fog Bot's live Discord reaction listener on a
+  # thread (core/discord_gateway.py, #1270); a blank DISCORD_BOT_TOKEN starts the queue alone.
+  # The dashboard command moves from db_worker to run_worker only once run_worker is deployed.
   # - type: worker
   #   name: plfog-worker
   #   runtime: docker
-  #   dockerCommand: python manage.py db_worker --no-reload
+  #   dockerCommand: python manage.py run_worker
 
   # Nightly Airtable → Django sync (pulls AT changes into the database)
   # Requires env vars: DATABASE_URL, DJANGO_SECRET_KEY, AIRTABLE_API_TOKEN,

@@ -2,7 +2,7 @@
 name: respond-to-feedback
 description: >-
   Answer one member's feedback request in the Feedback Inbox the way Felix does: one sentence that says
-  where the request stands (live, building, planned, not a bug, not planned, closed) and, when it is live,
+  where the request stands (live, building, planned, backlog, not a bug, not planned, closed) and, when it is live,
   where to go to use it, plus at least one photo when something visible shipped. Sets the matching status
   and checks in production that the reply landed. Use when the user types /respond-to-feedback, names a
   feedback request number ("reply to #7"), or asks to tell a member their request is done.
@@ -38,12 +38,13 @@ ones), and its PR. Prefix every `gh` call with `GODEBUG=netdns=cgo`.
 | Live | the PR is merged **and** production serves it: its migration is applied, or the version badge on `/accounts/login/` moved past the merge. A merged PR that has not deployed is not live. | Live |
 | Building | an open PR or a branch exists for it | Building |
 | Planned | an issue exists, nothing built | Planned |
+| Backlog | Felix said he will do it eventually ("I'll do this eventually"), no issue yet | Backlog |
 | Already there | it works today with no change: point to it | Live |
 | Not a bug | it behaves as designed: say how it works | Not a bug |
 | Not planned | Felix decided against it | Not planned |
 | Closed | resolved outside the app, or a duplicate | Closed |
 
-Not planned and Not a bug are Felix's calls. Never pick them on your own reading; ask him with
+Not planned, Not a bug and Backlog are Felix's calls. Never pick them on your own reading; ask him with
 `AskUserQuestion` first. Every other verdict follows from the evidence.
 
 ## 3. Write one sentence
@@ -53,7 +54,8 @@ A greeting with their first name, then the verdict and where to go, in Felix's v
 
 - **Live:** the path by its real labels, the way the page says them. "yo Priya its live!! go to Teaching
   then My Classes and hit Email Students"
-- **Building or Planned:** what is coming in the member's words, never a date.
+- **Building or Planned:** what is coming in the member's words, never a date. **Backlog:** that it is
+  on the list for later, never a date.
 - **Not a bug or Already there:** how it works today and where. **Not planned or Closed:** the reason,
   kindly.
 

@@ -140,7 +140,7 @@ class Visitor:
 
 
 def _join_newsletter(booking: TourBooking) -> None:
-    """Subscribe the visitor in Mailchimp once the booking commits, when they ticked the box (#7).
+    """Subscribe the visitor in Mailchimp once the booking commits, when they ticked the box (#35).
 
     One booking per booking form, so a No preference request subscribes through its first row.
     """

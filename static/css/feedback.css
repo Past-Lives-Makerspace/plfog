@@ -61,6 +61,9 @@
 .pl-feedback-reply__closed { margin-top: 0.75rem; font-size: 0.85rem; color: var(--hub-text-muted); }
 .pl-feedback-inbox__table .hub-pill { white-space: nowrap; }
 
+/* A request's number before its subject (#1305): the "#23" admins and members use for it. */
+.pl-feedback-number { color: var(--hub-text-muted); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
 /* Light (Slate) legibility for the shared pills, as the other pages scope it */
 [data-theme="light"] .pl-feedback-requests .hub-pill--ok,
 [data-theme="light"] .pl-feedback-inbox .hub-pill--ok,
