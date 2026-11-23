@@ -696,10 +696,12 @@ class TourBooking(models.Model):
     )
     visitor_name = models.CharField(max_length=200, help_text="The name the visitor booked under.")
     visitor_email = models.EmailField(help_text="Where the confirmation, reminder and change emails go.")
-    visitor_phone = models.CharField(max_length=40, blank=True, default="", help_text="Optional phone number.")
+    visitor_phone = models.CharField(
+        max_length=40, blank=True, default="", help_text="Phone number; the booking form requires it since #32."
+    )
     # The booking questions SimplyBook asked (feedback request #32), each as the visitor typed or
-    # picked it and blank when skipped. The calendar event (tours.calendar_sync.GUEST_ANSWERS, #33)
-    # reads them by these names.
+    # picked it and blank when skipped. The guide sees them through guest_answers, in their email,
+    # on the Upcoming row and in the calendar event (#33).
     pronouns = models.CharField(max_length=60, blank=True, default="", help_text="The visitor's pronouns.")
     found_us_through = models.CharField(
         max_length=60,
@@ -713,7 +715,7 @@ class TourBooking(models.Model):
     )
     # One open question (Morlock, 2026-11-22: it replaced "most interested in" and "anything else"):
     # what they make and what they hope to find here. Named guest_notes because the calendar event
-    # (tours.calendar_sync.GUEST_ANSWERS, #33) already reads it.
+    # (#33) already showed it by that name.
     guest_notes = models.TextField(
         blank=True,
         default="",

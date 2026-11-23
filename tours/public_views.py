@@ -163,11 +163,11 @@ def _try_booking(request: HttpRequest, form: TourBookingForm, *, kiosk: bool) ->
     any_guide_at = parse_any_guide_key(data["tour"])
     target = guide_and_start(data["tour"])
     signed_in = request.user if request.user.is_authenticated and not kiosk else None
-    answers: dict[str, Any] = {name: data.get(name, "") for name in ANSWER_FIELDS}
+    answers: dict[str, Any] = {name: data[name] for name in ANSWER_FIELDS}
     answers.update(
-        wants_studio=bool(data.get("wants_studio")),
-        studio_description=data.get("studio_description", ""),
-        wants_newsletter=bool(data.get("wants_newsletter")),
+        wants_studio=data["wants_studio"],
+        studio_description=data["studio_description"],
+        wants_newsletter=data["wants_newsletter"],
     )
     visitor = Visitor(data["name"], data["email"], data["phone"], data["party_size"], **answers)
     source = TourBooking.Source.KIOSK if kiosk else TourBooking.Source.WEBSITE
