@@ -623,6 +623,18 @@ def describe_remove_guild_reactions():
         assert not delete.called
 
     @respx.mock
+    def it_stops_when_the_member_rejoins_partway_through(glass):
+        member = MemberFactory(discord_user_id="u1")
+
+        def rejoin_after_first(request):
+            GuildMembership.objects.record_app_join(glass, member)
+            return httpx.Response(204)
+
+        delete = respx.delete(url__regex=_REACTION_DELETE_RE).mock(side_effect=rejoin_after_first)
+        discord_sync.remove_guild_reactions.call("u1", glass.pk)
+        assert delete.call_count == 1
+
+    @respx.mock
     def it_does_nothing_when_discord_is_unconfigured(glass, settings):
         settings.DISCORD_BOT_TOKEN = ""
         delete = respx.delete(url__regex=_REACTION_DELETE_RE).mock(return_value=httpx.Response(204))

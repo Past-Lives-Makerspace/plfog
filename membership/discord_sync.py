@@ -403,8 +403,8 @@ def remove_guild_reactions(user_id: str, guild_id: int) -> None:
 
     Queued on commit by :meth:`membership.models.Member.unsubscribe_from_guild`. Without it the
     emoji stays on and :func:`reconcile_reactions` puts the member back on the roster within 15
-    minutes. Deletes the reaction of every emoji mapped to the guild on every role message. Skips
-    a user who is on the guild's roster again by the time it runs (they rejoined). The live
+    minutes. Deletes the reaction of every emoji mapped to the guild on every role message, and
+    stops as soon as the user is on the guild's roster again (they rejoined), checked before each. The live
     listener sees each removal and runs :func:`apply_reaction`, which finds nothing left to undo
     and leaves alone a membership joined after the removal.
     Safe to run twice: a reaction already gone is a 404, treated as done.
@@ -417,19 +417,19 @@ def remove_guild_reactions(user_id: str, guild_id: int) -> None:
     config = _reconcile_config()
     if config is None:
         return
-    if GuildMembership.objects.filter(guild_id=guild_id, member__discord_user_id=user_id).exists():
-        logger.info("Discord reaction removal skipped: %s is back on guild %s's roster.", user_id, guild_id)
-        return
     _server_id, channel_id, message_ids = config
+    rejoined = GuildMembership.objects.filter(guild_id=guild_id, member__discord_user_id=user_id)
     emojis = sorted(DiscordGuildEmoji.objects.filter(guild_id=guild_id).values_list("emoji", flat=True))
-    failed = [
-        (message_id, emoji)
-        for emoji in emojis
-        for message_id in message_ids
-        if not discord_reactions.remove_reaction(channel_id, message_id, emoji, user_id)
-    ]
+    failed = 0
+    for emoji in emojis:
+        for message_id in message_ids:
+            # Checked before every DELETE, so a rejoin partway through stops the rest.
+            if rejoined.exists():
+                logger.info("Discord reaction removal stopped: %s is back on guild %s's roster.", user_id, guild_id)
+                return
+            failed += not discord_reactions.remove_reaction(channel_id, message_id, emoji, user_id)
     if failed:
-        raise ReactionRemoveError(f"{len(failed)} Discord reaction removal(s) for guild {guild_id} did not land.")
+        raise ReactionRemoveError(f"{failed} Discord reaction removal(s) for guild {guild_id} did not land.")
 
 
 def _link_nudge_content() -> str:
