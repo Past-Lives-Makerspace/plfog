@@ -317,10 +317,19 @@ def describe_booking_with_no_preference():
         with patch.object(booking_service, "open_tour_at", return_value=None), pytest.raises(TourFullError):
             book_any_guide(starts_at=FOUR, visitor=_visitor(), now=NOW)
 
-    def it_links_every_row_to_a_new_account(alex: Member, gina: Member):
-        book_any_guide(starts_at=FOUR, visitor=_visitor(), create_account=True, now=NOW)
-        users = {row.user for row in TourBooking.objects.all()}
-        assert len(users) == 1 and next(iter(users)).email == "sam@example.com"
+    def it_links_every_row_to_the_account_that_claims_the_email(alex: Member, gina: Member):
+        from allauth.account.models import EmailAddress
+        from django.contrib.auth.models import User
+
+        from tours.booking import claim_tours
+
+        book_any_guide(starts_at=FOUR, visitor=_visitor(), now=NOW)
+        assert {row.user for row in TourBooking.objects.all()} == {None}
+        user = User.objects.create_user("sam", email="sam@example.com")
+        EmailAddress.objects.filter(user=user).delete()
+        EmailAddress.objects.create(user=user, email="sam@example.com", verified=True, primary=True)
+        claim_tours(user)
+        assert {row.user for row in TourBooking.objects.all()} == {user}
 
 
 def describe_the_first_guide_to_confirm():

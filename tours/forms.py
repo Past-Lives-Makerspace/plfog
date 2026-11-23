@@ -482,10 +482,6 @@ class FacilityTourSettingsForm(forms.ModelForm):
         return cleaned
 
 
-#: The account toggle's words on the booking page (#948).
-CREATE_ACCOUNT_LABEL = "Create a free Past Lives account (handy if you join later)"
-
-
 #: The booking questions on :class:`TourBookingForm`, in order (feedback request #32). They are
 #: :data:`tours.booking.ANSWER_FIELDS` too; a spec holds the two to the same names.
 QUESTION_FIELDS = ("pronouns", "found_us_through", "referred_by", "guest_notes")
@@ -500,8 +496,8 @@ class TourBookingForm(forms.Form):
     1 to ``max_party``: the tour's seats left when the form is shown. A POST passes the most a
     tour can hold instead, so a tour that filled up while the visitor typed is refused by the
     booking's own seat count under the lock ("That time just filled up") rather than by this
-    form. ``create_account`` (the optional account toggle) is offered only to a signed out
-    visitor.
+    form. It offers no account (Morlock, 2026-11-22): a tour finds its visitor's account by
+    verified email when they sign in (:func:`tours.booking.claim_tours`).
     """
 
     tour = forms.CharField(widget=forms.HiddenInput)
@@ -544,8 +540,6 @@ class TourBookingForm(forms.Form):
     wants_newsletter = forms.BooleanField(
         required=False, initial=False, label="Sign me up for the Past Lives newsletter"
     )
-    # Starts on: accounts are encouraged (Felix, #948), and the class booking form defaults its box on too.
-    create_account = forms.BooleanField(required=False, initial=True, label=CREATE_ACCOUNT_LABEL)
     #: A honeypot: off screen for a person, filled by a bot that fills every field (the guest
     #: RSVP form's ``website``). A filled one books nothing.
     website = forms.CharField(
@@ -554,7 +548,7 @@ class TourBookingForm(forms.Form):
         widget=forms.TextInput(attrs={"autocomplete": "off", "tabindex": "-1", "aria-hidden": "true"}),
     )
 
-    def __init__(self, *args: Any, max_party: int, offer_account: bool, kiosk: bool = False, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, max_party: int, kiosk: bool = False, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         top = max(1, min(max_party, MAX_SEATS))
         party = cast(forms.TypedChoiceField, self.fields["party_size"])
@@ -570,8 +564,6 @@ class TourBookingForm(forms.Form):
         if kiosk:
             for name in ("pronouns", "referred_by", "guest_notes", "studio_description"):
                 self.fields[name].widget.attrs["autocomplete"] = "off"
-        if not offer_account:
-            del self.fields["create_account"]
 
     @property
     def question_fields(self) -> list[forms.BoundField]:

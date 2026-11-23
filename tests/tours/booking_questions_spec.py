@@ -60,7 +60,7 @@ def _post(guide: Member, **values: str) -> dict[str, str]:
 def _form(**values: str) -> TourBookingForm:
     data = {"tour": "1-20300101T0000Z", "name": "Olivia", "email": "o@example.com", "phone": "5035550142"}
     data.update({"party_size": "1", **values})
-    return TourBookingForm(data, max_party=6, offer_account=False)
+    return TourBookingForm(data, max_party=6)
 
 
 @pytest.fixture

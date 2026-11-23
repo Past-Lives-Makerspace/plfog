@@ -440,7 +440,7 @@ def describe_kiosk_booking():
         tour_key = _key_for(guide, local(day, 16))
         form = kiosk_client.get(BOOK, {"tour": tour_key}).content.decode()
         assert "data-tour-form" in form and form.count('autocomplete="off"') >= 4
-        assert 'name="create_account"' in form and "checked" in form
+        assert 'name="create_account"' not in form
         response = kiosk_client.post(
             BOOK,
             {
@@ -493,7 +493,6 @@ def describe_kiosk_booking():
                 "email": "kim@example.com",
                 "phone": "503 555 0142",
                 "party_size": "1",
-                "create_account": "",
             },
         )
         assert TourBooking.objects.get().user is None
@@ -565,8 +564,8 @@ def describe_kiosk_booking():
         assert kiosk_client.get(BOOKED)["Location"] == HOME
 
     def it_keeps_the_websites_autocomplete_off_the_kiosk():
-        website = TourBookingForm(max_party=2, offer_account=True)
-        at_kiosk = TourBookingForm(max_party=2, offer_account=True, kiosk=True)
+        website = TourBookingForm(max_party=2)
+        at_kiosk = TourBookingForm(max_party=2, kiosk=True)
         assert website.fields["email"].widget.attrs["autocomplete"] == "email"
         assert {at_kiosk.fields[name].widget.attrs["autocomplete"] for name in ("name", "email", "phone")} == {"off"}
 

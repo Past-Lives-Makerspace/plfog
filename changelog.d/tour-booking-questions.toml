@@ -8,6 +8,7 @@ changes = [
   "Booking a tour asks for your name, email and phone, plus optional pronouns, how you found Past Lives, who referred you, and what brings you here: what you make, and what you're hoping to find.",
   "Tick that you're interested in a dedicated studio to tell us about your ideal studio and what you'd do with it.",
   "Tick the newsletter box to join the Past Lives newsletter. Your confirmation email has a link to join if you didn't.",
+  "Booking no longer asks you to make an account. If you join later with the same email, your tour is already on your record.",
   "The same questions are on the lobby kiosk, and guides see the answers in their new booking email and on the Upcoming tab.",
 ]
 

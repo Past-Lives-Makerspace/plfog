@@ -300,7 +300,7 @@ def describe_tours_kiosk():
         _capture(page, "schedule-picker")
         page.locator(".pl-tourpub__time").filter(has_text="4:00 PM").click()
         expect(page.locator("[data-tour-form]")).to_be_visible()
-        expect(page.locator('[data-tour-account] input[name="create_account"]')).to_be_checked()
+        expect(page.locator('input[name="create_account"]')).to_have_count(0)
         page.locator('input[name="name"]').fill("Kim Kiosk")
         page.locator('input[name="email"]').fill("kim.kiosk@example.com")
         page.locator('input[name="phone"]').fill("503 555 0142")
@@ -479,15 +479,14 @@ def describe_tours_kiosk():
             "referred_by",
             "guest_notes",
             "wants_studio",
-            "wants_newsletter",
         ):
             _focused(page, f'[name="{question}"]')
             page.keyboard.press("Tab")
-        _focused(page, 'input[name="create_account"]')
+        _focused(page, 'input[name="wants_newsletter"]')
         _capture(page, "keyboard-form")
-        # Enter flips the switch, never books: the visitor turned the account off.
+        # Enter flips the switch, never books: the visitor asked for the newsletter.
         page.keyboard.press("Enter")
-        expect(page.locator('input[name="create_account"]')).not_to_be_checked()
+        expect(page.locator('input[name="wants_newsletter"]')).to_be_checked()
         assert not TourBooking.objects.filter(visitor_email="kim.keys@example.com").exists()
         page.keyboard.press("Tab")
         _focused(page, "[data-tour-form] button[type=submit]")

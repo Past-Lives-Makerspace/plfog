@@ -200,7 +200,7 @@ def book(request: HttpRequest) -> HttpResponse:
         )
     tours = all_open_tours(kiosk=True)
     if request.method == "POST":
-        attempt = post_booking(request, tours, offer_account=True, kiosk=True)
+        attempt = post_booking(request, tours, kiosk=True)
         if attempt.booking is not None:
             request.session[BOOK_RESULT] = {"booking": attempt.booking.pk}
             return redirect("tours_kiosk:booked")
@@ -213,7 +213,7 @@ def book(request: HttpRequest) -> HttpResponse:
             tours = all_open_tours(kiosk=True)
     else:
         chosen = find_tour(tours, request.GET.get("tour", ""))
-        attempt = Attempt() if chosen is None else booking_form(request, tours, chosen, offer_account=True, kiosk=True)
+        attempt = Attempt() if chosen is None else booking_form(request, tours, chosen, kiosk=True)
     chosen = attempt.chosen if attempt.form is not None else None
     raw_day = f"{timezone.localdate(chosen.starts_at):%Y-%m-%d}" if chosen else request.GET.get("date", "")
     page_url = reverse("tours_kiosk:book")

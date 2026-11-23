@@ -1,7 +1,8 @@
 {% comment %}
 The visitor's booking form for the picked time (#948): the chosen time, name, email, phone, party
 size, the booking questions (#32, form.question_fields, all optional), the studio and newsletter
-toggles (off to start), the optional account toggle and the honeypot. Shared by the booking page and the front desk
+toggles (off to start) and the honeypot. No account is made here (Morlock, 2026-11-22): a tour finds its visitor's account by
+verified email when they sign in (tours.booking.claim_tours). Shared by the booking page and the front desk
 kiosk (#950, kiosk set: autocomplete off). Context: form, chosen (the OpenTour it books), guides
 (tours.picker.GuideChoice, #1255: where two or more guides share the time, the Guide dropdown posts
 the tour key, No preference first; empty for one guide), page_url, kiosk, chosen_guide (the kiosk's
@@ -74,11 +75,6 @@ dropdown, and the heading's Back replaces "Pick a different time"; the website i
   <div class="pl-tourpub__account" data-tour-newsletter>
     {% include "components/toggle.html" with field=form.wants_newsletter toggle_label=form.wants_newsletter.label toggle_description="Events, classes and open studios. Unsubscribe anytime." %}
   </div>
-  {% if form.create_account %}
-  <div class="pl-tourpub__account" data-tour-account>
-    {% include "components/toggle.html" with field=form.create_account toggle_label=form.create_account.label toggle_description="No password. You sign in with a code we email you." %}
-  </div>
-  {% endif %}
   {# The honeypot: off screen for people, filled by bots that fill every field; a filled one books nothing. #}
   <div class="pl-honeypot" aria-hidden="true">
     <label for="{{ form.website.id_for_label }}">{{ form.website.label }}</label>

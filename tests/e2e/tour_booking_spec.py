@@ -208,17 +208,15 @@ def describe_tour_booking():
         cancelled = _only("Your Past Lives tour on")
         assert _only("Tour cancelled", to=GUIDE_EMAIL)
 
-        # The account toggle switched off: a booking with no account made.
+        # No account switch and no account made (Morlock, 2026-11-22): a tour finds its visitor's
+        # account by verified email when they sign in.
         page.goto(f"{live_server.url}/?date={day:%Y-%m-%d}")
         page.locator(".pl-tourpub__time").filter(has_text="4:00 PM").click()
         page.locator("[data-tour-form]").wait_for()
+        assert page.locator('input[name="create_account"]').count() == 0
         page.locator('input[name="name"]').fill("Pat Noaccount")
         page.locator('input[name="email"]').fill("pat.noaccount@example.com")
         page.locator('input[name="phone"]').fill("503 555 0142")
-        toggle = page.locator('[data-tour-account] input[name="create_account"]')
-        assert toggle.is_checked()
-        page.locator("[data-tour-account] .pl-toggle").click()
-        assert not toggle.is_checked()
         with page.expect_navigation():
             page.locator("[data-tour-form] button[type=submit]").click()
         page.locator("[data-tour-confirmed]").wait_for()
