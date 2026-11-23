@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 from django.urls import reverse
 from django.utils import timezone
 
+from hub.guild_membership import build_my_guilds_rows
 from membership.models import CalendarEvent, CommunityEvent, DiscordReconnectNudge, GuildAnnouncement
 from polls.models import EmailPoll, PollCard
 from tours.models import TourBooking
@@ -150,7 +151,7 @@ def build_home_context(member: Member) -> dict[str, Any]:
 
     Returns the home blocks — ``upcoming`` (capped, soonest-first), ``announcements``
     (active guild announcements from joined guilds), ``my_guilds`` (joined, lead/staff
-    flagged), ``my_cubbies`` (the cubbies they rent, #978), and the ``onboarding`` "Get started" checklist with its ``show_onboarding``
+    flagged), ``guild_edit_rows`` (the Edit Your Guilds switches, #1318), ``my_cubbies`` (the cubbies they rent, #978), and the ``onboarding`` "Get started" checklist with its ``show_onboarding``
     gate (built ONCE here, not re-derived per property in the template), and ``home_poll``,
     the open poll's card (#925), None while no poll is open. ``needs_attention_polls`` (#1142) are
     the open polls from Email Members sent to the member that they have not answered, in one query, and
@@ -162,7 +163,8 @@ def build_home_context(member: Member) -> dict[str, Any]:
     return {
         "upcoming": _upcoming_items(member),
         "announcements": _announcements(member),
-        "my_guilds": _my_guilds(member),
+        "my_guilds": my_guild_shortcuts(member),
+        "guild_edit_rows": build_my_guilds_rows(member),
         "my_cubbies": _my_cubbies(member),
         "onboarding": member.onboarding,
         "show_onboarding": member.show_onboarding,
@@ -416,7 +418,7 @@ def _my_cubbies(member: Member) -> list[Any]:
     )
 
 
-def _my_guilds(member: Member) -> list[GuildShortcut]:
+def my_guild_shortcuts(member: Member) -> list[GuildShortcut]:
     """The member's joined guilds, each flagged when they also lead or staff it."""
     staffed_ids = set(member.staffed_guilds.values_list("pk", flat=True))
     return [GuildShortcut(guild=guild, is_staff=guild.pk in staffed_ids) for guild in member.joined_guilds]
