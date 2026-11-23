@@ -1,7 +1,7 @@
 /* event-flyer.css: one Community Event's flyer sheet (templates/hub/partials/_event_flyer_sheet.html).
    The sheet is a whole Letter page (8.5 by 11) and every size inside it is in container units of its wrapper
    (.pl-evfl), so it reads the same at any width: full size on its own page (hub/event_flyer.html, whose page and
-   print rules live in event-flyer-page.css) and scaled into the HQ's flyer frame (hq/flyer.html). 1cqi is a
+   print rules live in event-flyer-page.css) or scaled into any frame. 1cqi is a
    hundredth of the sheet's width, about 8px at full size. It is paper, so it is forced light in both themes:
    white, navy #092E4C, gold #EEB44B. */
 

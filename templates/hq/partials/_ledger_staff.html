@@ -1,13 +1,11 @@
 {% comment %}
 Staff time (Track D, part 6c), Lee's section "For the board: what the event took, and what it returned": all staff
-hours, the event cash per staff hour (a dash with none logged), the volunteer hours from the Market Check-in, each
-person's hours most first (Lee's "Lee's hours" for everyone) and the hours by work area, then Log time and every entry
-with its Delete and the CSV. The three tiles are hq/partials/_ledger_staff_figures.html, which every answer that moves
+hours, the event cash per staff hour (a dash with none logged), each person's hours most first (Lee's "Lee's hours" for everyone) and the hours by work area, then Log time and every entry
+with its Delete and the CSV. The two tiles are hq/partials/_ledger_staff_figures.html, which every answer that moves
 the event cash sends out of band. Log time swaps this section with the figures out of band.
 
   hub             — required, the EventHub
   staff           — required, a hq.services.StaffTotals
-  volunteer_hours — required, a hq.services.CheckinBand
   staff_entries   — required, the hub's staff time newest first
   staff_form      — required, a StaffTimeForm (bound when a post failed, else keeping who, date and area)
   staff_open      — required, whether Log time renders open

@@ -338,11 +338,15 @@ def describe_a_guest_account_and_the_holiday_bizarre_hq():
         from tests.hq.factories import EventHubFactory, HubCardFactory
 
         hub = EventHubFactory(is_open=True, slug="bizarre")
-        HubCardFactory(hub=hub, kind=HubCard.Kind.WINE_WALL)
+        HubCardFactory(hub=hub, kind=HubCard.Kind.VOLUNTEERS)
         return hub
 
     def it_sends_a_guest_on_the_hq_to_the_lockout_page(guest_client, open_hub):
-        for url in (reverse("hq:index"), reverse("hq:page", args=["bizarre"]), reverse("hq:wine", args=["bizarre"])):
+        for url in (
+            reverse("hq:index"),
+            reverse("hq:page", args=["bizarre"]),
+            reverse("hq:volunteers", args=["bizarre"]),
+        ):
             response = guest_client.get(url)
 
             assert response.status_code == 302, url

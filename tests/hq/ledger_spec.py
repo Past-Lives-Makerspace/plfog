@@ -10,7 +10,6 @@ import csv
 import io
 import json
 from datetime import date, timedelta
-from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -29,19 +28,15 @@ from hq import services
 from hq.exports import LEDGER_CSV_HEADERS
 from hq.forms import LEDGER_MAX_DOLLARS, RECEIPT_NOT_TAKEN, RECEIPT_TYPE_ERROR, checked_receipt
 from hq.holiday_bizarre import LEDGER_FOOTER, LEDGER_INTRO, LEDGER_RECEIPT_HINT, LEDGER_TITLE
-from hq.models import BUILT_DOORS, BudgetLine, HubCard, LedgerEntry, LedgerSettings, MarketingKind, receipt_upload_to
+from hq.models import BUILT_DOORS, BudgetLine, HubCard, LedgerEntry, LedgerSettings, receipt_upload_to
 from hub.view_as import ROLE_GUEST, ROLE_MEMBER
 from tests.hq.conftest import photo_upload, signed_in
 from tests.hq.factories import (
     BudgetLineFactory,
     EventHubFactory,
     HubCardFactory,
-    HubGoalFactory,
     LedgerEntryFactory,
     LedgerSettingsFactory,
-    MarketingActionFactory,
-    SponsorFactory,
-    WineBottleFactory,
 )
 
 pytestmark = pytest.mark.django_db
@@ -189,11 +184,15 @@ def describe_the_door():
         assert [body.index(marker) for marker in order] == sorted(body.index(marker) for marker in order)
 
     def it_turns_the_ledger_placeholder_into_the_live_door_in_place(open_hub):
+        """A placeholder still carrying the bullets from before #1307 takes the ones that name no removed door."""
         placeholder = HubCardFactory(
             hub=open_hub,
             kind=HubCard.Kind.PLACEHOLDER,
             title="PL Ledger",
-            bullets="Money in and money out for the night\nSponsorships, the wine wall and the door\nKept by the core team",
+            bullets=(
+                "Running tally and goals\n$900 drinks budget and receipts\n"
+                "Drink sales, wine wall, vendors\nGuild demos, flyers, board summary"
+            ),
             button_text="Open the ledger",
             is_hidden=True,
         )
@@ -203,7 +202,12 @@ def describe_the_door():
         door = HubCard.objects.get(pk=placeholder.pk)
         assert "PL Ledger" in result.adopted
         assert (door.kind, door.is_hidden, door.button_text) == (HubCard.Kind.LEDGER, True, "Enter the ledger")
-        assert door.bullet_lines[0] == "Running tally and goals"
+        assert door.bullet_lines == [
+            "Running tally and goals",
+            "$900 drinks budget and receipts",
+            "Drink sales, the door count, vendors",
+            "Guild demos, staff time, board summary",
+        ]
         assert door.url == _page(open_hub)
 
 
@@ -231,12 +235,9 @@ def describe_the_section_bar():
             ("#hq-lg-entries", "Ledger"),
             ("#hq-lg-bar", "Drink sales"),
             ("#hq-lg-people", "Vendors"),
-            ("#hq-lg-wine", "Wine wall"),
             ("#hq-lg-launch", "Launch"),
             ("#hq-lg-staff", "Staff time"),
             ("#hq-lg-guilds", "Guild demos"),
-            ("#hq-lg-vol", "Volunteers"),
-            ("#hq-lg-flyer", "Flyers"),
         ]
         header = body.split('<header class="pl-hq-lg__header">')[1].split("</header>")[0]
         assert '<nav class="pl-hq-lg__jumpbar" aria-label="Ledger sections" data-hq-lg-jumpbar>' in header
@@ -253,26 +254,17 @@ def describe_the_section_bar():
 
         assert ("#hq-lg-board", "$1,200 budget") in _jumps(lee_client.get(_page(hub)).content.decode())
 
-    def it_links_the_sponsors_and_vendor_tables_doors_only_while_they_are_on_the_hub(hub, lee_client):
-        sponsors_url = reverse("hq:sponsors", args=[hub.slug])
+    def it_links_the_vendor_tables_door_only_while_it_is_on_the_hub(hub, lee_client):
         vendors_url = reverse("hq:vendors", args=[hub.slug])
 
-        missing = [href for href, _ in _jumps(lee_client.get(_page(hub)).content.decode())]
-        assert sponsors_url not in missing and vendors_url not in missing
+        assert vendors_url not in [href for href, _ in _jumps(lee_client.get(_page(hub)).content.decode())]
 
-        sponsors = HubCardFactory(hub=hub, kind=HubCard.Kind.SPONSORSHIP)
-        HubCardFactory(hub=hub, kind=HubCard.Kind.VENDOR_TABLES)
+        HubCardFactory(hub=hub, kind=HubCard.Kind.VENDOR_TABLES, is_hidden=True)
         body = lee_client.get(_page(hub)).content.decode()
-        jumps = _jumps(body)
 
-        # Lee's order: Vendor tables first after the HQ link, Sponsors where her sponsor section sat, after Drink sales.
-        assert jumps[1] == (vendors_url, "Vendor tables")
-        assert jumps[jumps.index(("#hq-lg-bar", "Drink sales")) + 1] == (sponsors_url, "Sponsors")
-        assert 'data-hq-lg-jump-door="sponsorship">Sponsors <span aria-hidden="true">&#8599;</span></a>' in body
-
-        sponsors.is_hidden = True
-        sponsors.save(update_fields=["is_hidden"])
-        assert sponsors_url in [href for href, _ in _jumps(lee_client.get(_page(hub)).content.decode())]
+        assert _jumps(body)[1] == (vendors_url, "Vendor tables")
+        assert "data-hq-lg-jump-door" in body
+        assert 'data-hq-lg-jump-door="sponsorship"' not in body
 
 
 def describe_the_footer():
@@ -280,7 +272,9 @@ def describe_the_footer():
         body = lee_client.get(_page(hub)).content.decode()
 
         assert f'<p class="pl-hq-lg__muted pl-hq-lg__footer" data-hq-lg-footer>{LEDGER_FOOTER}</p>' in body
-        assert body.index("data-hq-lg-flyer") < body.index("data-hq-lg-footer")
+        assert body.index("data-hq-lg-guilds") < body.index("data-hq-lg-footer")
+        for gone in ("data-hq-lg-flyer", "data-hq-lg-wine", "data-hq-lg-vol"):
+            assert gone not in body
         assert LEDGER_FOOTER == (
             "Past Lives Makerspace is an Oregon nonprofit corporation. Gifts and sponsorships are not tax-deductible."
         )
@@ -612,13 +606,8 @@ def _doors(**overrides: Any) -> services.DoorFigures:
     hub = EventHubFactory()
     figures = services.door_figures(hub)
     values = {
-        "sponsors": figures.sponsors,
-        "flyers": 0,
-        "checkin": figures.checkin,
-        "wine": figures.wine,
         "cash": figures.cash,
         "bar": figures.bar,
-        "tickets": figures.tickets,
         "vendors": figures.vendors,
         "guilds": figures.guilds,
         "staff": figures.staff,
@@ -663,51 +652,15 @@ def describe_the_board_summary():
 
         assert "has been sponsored by 1 sponsor." in services.board_summary(services.ledger_band(hub), _doors())
 
-    def it_reads_the_other_doors_in_lees_order_each_from_its_source(hub, kegs):
+    def it_says_nothing_of_the_doors_removed_in_1307(hub, kegs):
         LedgerEntryFactory(hub=hub, line=kegs, kind=K.SPONSORED, amount_cents=500, source="Cascade")
-        SponsorFactory(hub=hub, status="received", amount_cents=150_000)
-        SponsorFactory(hub=hub, status="committed", amount_cents=50_000)
-        MarketingActionFactory.create_batch(3, hub=hub, kind=MarketingKind.FLYER)
-        HubGoalFactory(hub=hub, kind="bottles", target=100)
-        WineBottleFactory(hub=hub, qty=4, value_cents=2_500)
-
-        band = services.ledger_band(hub)
-        text = services.board_summary(band, services.door_figures(hub))
-
-        assert text.endswith(
-            "Cash sponsorships: $1,500 received and $500 committed. "
-            "Flyers are up at 3 locations. "
-            "Wine wall: 4 of 100 bottles donated, worth $100."
-        )
-
-    def it_says_the_volunteers_from_the_check_in(hub, kegs, make_member):
-        from hq.models import VolunteerHours
-
-        LedgerEntryFactory(hub=hub, line=kegs)
-        for hours in ("2.5", "3"):
-            VolunteerHours.objects.create(hub=hub, member=make_member(), hours=Decimal(hours))
 
         text = services.board_summary(services.ledger_band(hub), services.door_figures(hub))
 
-        assert text.endswith("Volunteers: 2 people gave 5.5 hours to event prep.")
-
-    def it_writes_the_singulars_and_a_wall_with_no_goal(hub, kegs, make_member):
-        from hq.models import VolunteerHours
-
-        LedgerEntryFactory(hub=hub, line=kegs)
-        MarketingActionFactory(hub=hub, kind=MarketingKind.FLYER)
-        VolunteerHours.objects.create(hub=hub, member=make_member(), hours=Decimal("1"))
-        WineBottleFactory(hub=hub, qty=1, value_cents=2_000)
-
-        text = services.board_summary(services.ledger_band(hub), services.door_figures(hub))
-
-        assert "Flyers are up at 1 location." in text
-        assert "Volunteers: 1 person gave 1 hour to event prep." in text
-        assert text.endswith("Wine wall: 1 bottle donated, worth $20.")
+        for gone in ("Cash sponsorships", "Flyers are up", "Volunteers:", "Wine wall"):
+            assert gone not in text
 
     def it_shows_lees_empty_line_until_the_ledger_has_an_entry_but_copies_the_paragraph(hub, lee_client):
-        SponsorFactory(hub=hub, status="received", amount_cents=10_000)
-
         body = lee_client.get(_page(hub)).content.decode()
 
         assert f"data-hq-lg-summary>{services.LEDGER_EMPTY_SUMMARY}</p>" in body
@@ -769,12 +722,17 @@ def describe_the_approval():
         assert "$900" not in body.split("data-hq-lg-board", 1)[1].split("data-hq-lg-receipts", 1)[0]
 
     def it_writes_only_the_approval_so_d6bs_figures_stay(hub, admin_client):
-        found = LedgerSettingsFactory(hub=hub, ipa_cents=700, singles_sold=12)
+        found = LedgerSettingsFactory(hub=hub, ipa_cents=700, last_year_bar_cents=60_000)
 
         admin_client.post(_url("ledger_approval", hub), _approval_post(found, approved="800", approved_note=""))
 
         found = LedgerSettings.objects.get(hub=hub)
-        assert (found.approved_cents, found.approved_note, found.ipa_cents, found.singles_sold) == (80_000, "", 700, 12)
+        assert (found.approved_cents, found.approved_note, found.ipa_cents, found.last_year_bar_cents) == (
+            80_000,
+            "",
+            700,
+            60_000,
+        )
 
     def it_never_writes_the_settings_on_a_get(hub, admin_client):
         admin_client.get(_page(hub))
@@ -1558,12 +1516,7 @@ def describe_the_model():
         assert str(kegs) == "Kegs"
         assert kegs.budget_display == "$600"
         assert str(found) == f"Ledger settings for {hub.title}"
-        assert (found.approval_words, found.ipa_cents, found.ticket_cents, found.last_year_bar_cents) == (
-            "$900",
-            600,
-            2_500,
-            50_000,
-        )
+        assert (found.approval_words, found.ipa_cents, found.last_year_bar_cents) == ("$900", 600, 50_000)
 
     def it_names_a_receipt_at_random_keeping_its_type():
         first = receipt_upload_to(None, "IMG_1234.JPG")  # type: ignore[arg-type]

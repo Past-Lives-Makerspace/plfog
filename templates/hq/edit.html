@@ -19,7 +19,7 @@ form so the page's Save stays last.
   <form method="post" action="{% url 'hq:doors_update' hub.slug %}" class="hub-card pl-hq-edit__card" data-hq-doors-update>
     {% csrf_token %}
     <h2 class="pl-hq-edit__title">Lee's Doors</h2>
-    <p class="hub-text-muted pl-hq-edit__lead">Bring in the doors that are ready. A greyed door whose page is built opens as that page, keeping who may open it. Words nobody has edited take Lee's latest. Nothing you edited changes.</p>
+    <p class="hub-text-muted pl-hq-edit__lead">Bring in any of the four doors the HQ is missing. Words nobody has edited take the latest defaults. Nothing you edited changes.</p>
     <button type="submit" class="pl-btn pl-btn--primary" data-hq-doors-update-submit>Update the doors</button>
   </form>
 

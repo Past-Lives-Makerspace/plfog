@@ -201,6 +201,40 @@ def describe_every_hq_url():
             assert not response.get("Location", "").startswith(LOGIN), url
 
 
+def describe_the_removed_doors():
+    """#1307 AC5: the wine wall, the Marketing and Sponsorship Trackers, the Market Check-in and the flyer page are
+    gone, so their old addresses are the themed 404 even for an officer, and the HQ shows the four doors."""
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "wine/",
+            "wine/donors/",
+            "wine/donors.csv",
+            "marketing/",
+            "sponsors/",
+            "sponsors.csv",
+            "check-in/",
+            "check-in/reports/",
+            "check-in/hours/",
+            "flyer/",
+            "flyer/flyer/download/",
+            "ledger/tickets/",
+        ],
+    )
+    def it_is_a_404_at_every_old_address(lees_hq, officer_client, path):
+        assert officer_client.get(f"{_page(lees_hq)}{path}").status_code == 404
+
+    def it_shows_the_four_doors_on_the_hq_page(lees_hq, officer_client):
+        body = officer_client.get(_page(lees_hq)).content.decode()
+
+        assert body.count("data-hq-card-pk=") == 4
+        for kind in ("rsvp", "volunteers", "ledger", "vendor_tables"):
+            assert f'data-hq-card="{kind}"' in body
+        for gone in ("wine_wall", "marketing", "sponsorship", "market_checkin", "flyer"):
+            assert f'data-hq-card="{gone}"' not in body
+
+
 def describe_a_closed_hub():
     def it_opens_to_whoever_runs_the_hq_so_it_can_be_built_first(officer_client, admin_client, member_client):
         hub = EventHubFactory(is_open=False)

@@ -1,9 +1,8 @@
 """The PL Ledger's money in (Track D, part 6b): Drink sales (the gates, +1 taps and Undo last, the batch with its
 defaults and Lee's refusals, Set drink prices with the stale save check, the tiles with the bar's cost from the Drinks
-lines and Lee's break-even, Delete and the CSV with its totals row), the Wine Wall section (read from the wall, Lee's
-ticket math and revenue at goal, the tickets and ticket prices forms), the donors' Thanked toggle and the Under $25 flag,
-the event cash Raised counts by itself (its value and query count, the adoption of a typed in Raised and the sponsor
-meter preferring it), and the pages' query counts as sales grow."""
+lines and Lee's break-even, Delete and the CSV with its totals row), the event cash Raised counts by itself (the bar's
+sales since #1307: its value and query count, the adoption of a typed in Raised and the cash goal preferring it), and the
+pages' query counts as sales grow. #1307 removed the Wine Wall section, its tickets and the donors' pages."""
 
 from __future__ import annotations
 
@@ -22,7 +21,7 @@ from django.urls import reverse
 
 from hq import services
 from hq.exports import BAR_SALES_CSV_HEADERS
-from hq.forms import BAR_TOTAL_TOO_BIG, PRICE_MAX_DOLLARS, TICKETS_MAX
+from hq.forms import BAR_TOTAL_TOO_BIG, PRICE_MAX_DOLLARS
 from hq.holiday_bizarre import HUB
 from hq.models import (
     BAR_QTY_MAX,
@@ -32,7 +31,6 @@ from hq.models import (
     HubGoal,
     LedgerEntry,
     LedgerSettings,
-    WineDonorThanks,
 )
 from hub.view_as import ROLE_MEMBER
 from tests.hq.conftest import committed_once_we_wait, signed_in
@@ -44,9 +42,6 @@ from tests.hq.factories import (
     HubGoalFactory,
     LedgerEntryFactory,
     LedgerSettingsFactory,
-    SponsorFactory,
-    WineBottleFactory,
-    WineDonorThanksFactory,
 )
 from tests.membership.factories import CommunityEventFactory
 
@@ -98,14 +93,6 @@ def _prices(found: LedgerSettings, **fields: Any) -> dict[str, Any]:
     return {**{f"prices-{key}": value for key, value in values.items()}, **_seen("prices", found, PRICE_FIGURES)}
 
 
-def _tickets(found: LedgerSettings, singles: Any = 3, pairs: Any = 2) -> dict[str, Any]:
-    return {
-        "tickets-singles_sold": singles,
-        "tickets-pairs_sold": pairs,
-        **_seen("tickets", found, ("singles_sold", "pairs_sold")),
-    }
-
-
 def _approval(found: LedgerSettings, approved: str = "950", note: str | None = None) -> dict[str, Any]:
     """The approval form as it renders for ``found``, the amount changed (and the note, when given)."""
     return {
@@ -113,14 +100,6 @@ def _approval(found: LedgerSettings, approved: str = "950", note: str | None = N
         "approved_note": found.approved_note if note is None else note,
         "seen_approved_cents": found.approved_cents,
         "seen_approved_note": found.approved_note,
-    }
-
-
-def _ticket_prices(found: LedgerSettings, ticket: Any = "20", pair: Any = "35") -> dict[str, Any]:
-    return {
-        "ticket-prices-ticket": ticket,
-        "ticket-prices-pair": pair,
-        **_seen("ticket-prices", found, ("ticket_cents", "pair_cents")),
     }
 
 
@@ -146,12 +125,6 @@ def lee_client(lee) -> Client:
 
 
 @pytest.fixture
-def wall(hub, lee) -> HubCard:
-    """The wine wall door on the same hub."""
-    return HubCardFactory(hub=hub, kind=HubCard.Kind.WINE_WALL, title="Log a wine bottle")
-
-
-@pytest.fixture
 def kegs(hub) -> BudgetLine:
     return BudgetLineFactory(hub=hub, name="Kegs", category=C.DRINKS, budget_cents=60_000)
 
@@ -161,14 +134,15 @@ def _bar_cost(hub: Any, line: BudgetLine, cents: int) -> None:
 
 
 def describe_the_sections():
-    def it_puts_drink_sales_then_the_wine_wall_after_the_receipts(hub, lee_client):
+    def it_puts_drink_sales_after_the_receipts_and_has_no_wine_wall(hub, lee_client):
         body = lee_client.get(_page(hub)).content.decode()
 
-        order = ["data-hq-lg-receipts", "data-hq-lg-bar", "data-hq-lg-wine"]
+        order = ["data-hq-lg-receipts", "data-hq-lg-bar"]
         assert [body.index(marker) for marker in order] == sorted(body.index(marker) for marker in order)
         assert '<h2 class="pl-hq-lg__h2" id="hq-lg-bar-title">Drink Sales</h2>' in body
         assert "Bar sales at the event, against what the bar cost" in body
-        assert "Separate from the $900 drinks budget · Bottles are gifts, not tax-deductible" in body
+        assert 'id="hq-lg-wine"' not in body
+        assert "data-hq-lg-tickets" not in body
         assert "No drink sales yet. Use the quick-add buttons on the night, or log a batch." in body
         assert "data-hq-lg-bar-csv" not in body  # no CSV until there is a sale
 
@@ -185,10 +159,9 @@ def describe_the_sections():
 
 
 def describe_who_may_use_it():
-    def it_refuses_every_write_and_the_csv_to_anyone_but_an_officer_and_leaks_nothing(hub, wall, member_client, kegs):
+    def it_refuses_every_write_and_the_csv_to_anyone_but_an_officer_and_leaks_nothing(hub, member_client, kegs):
         sale = BarSaleFactory(hub=hub, note="Spec secret bar note", created_by=None)
         found = _found(hub)
-        WineBottleFactory(hub=hub, giver_name="Spec Secret Giver")
 
         # A member who leads or staffs no guild gets the closed door, a 404; signed out goes through login.
         for client, status in ((member_client, 404), (Client(), 302)):
@@ -197,8 +170,6 @@ def describe_who_may_use_it():
                 ("ledger_bar_undo", {}),
                 ("ledger_bar_batch", _batch(qty="3")),
                 ("ledger_bar_prices", _prices(found)),
-                ("ledger_tickets", _tickets(found)),
-                ("ledger_ticket_prices", _ticket_prices(found)),
             ):
                 response = client.post(_url(name, hub), data)
                 assert response.status_code == status, name
@@ -208,38 +179,28 @@ def describe_who_may_use_it():
             assert response.status_code == status
             assert b"Spec secret bar note" not in response.content
             assert client.get(_page(hub)).status_code == status
-            response = client.post(_url("wine_donor_thanked", hub), {"giver": "Spec Secret Giver", "thanked": "1"})
-            assert response.status_code == status
         assert list(BarSale.objects.values_list("pk", flat=True)) == [sale.pk]
         assert not LedgerSettings.objects.exists()
-        assert not WineDonorThanks.objects.exists()
 
-    def it_lets_an_officer_set_the_drink_and_ticket_prices(hub, lee_client):
-        found = _found(hub)
-
-        assert lee_client.post(_url("ledger_bar_prices", hub), _prices(found)).status_code == 302
-        assert lee_client.post(_url("ledger_ticket_prices", hub), _ticket_prices(found)).status_code == 302
+    def it_lets_an_officer_set_the_drink_prices(hub, lee_client):
+        assert lee_client.post(_url("ledger_bar_prices", hub), _prices(_found(hub))).status_code == 302
         assert LedgerSettings.objects.filter(hub=hub).exists()
 
-    def it_is_a_404_for_another_hubs_sale_and_an_unknown_donor(hub, wall, lee_client):
+    def it_is_a_404_for_another_hubs_sale(hub, lee_client):
         other = BarSaleFactory(hub=EventHubFactory())
-        WineBottleFactory(hub=EventHubFactory(), giver_name="Elsewhere Donor")
 
         assert lee_client.post(_url("ledger_bar_delete", hub, other.pk)).status_code == 404
-        assert (
-            lee_client.post(_url("wine_donor_thanked", hub), {"giver": "Elsewhere Donor", "thanked": "1"}).status_code
-            == 404
-        )
-        assert lee_client.post(_url("wine_donor_thanked", hub), {"thanked": "1"}).status_code == 404
         assert BarSale.objects.filter(pk=other.pk).exists()
-        assert not WineDonorThanks.objects.exists()
+
+    def it_is_a_404_at_every_address_of_the_wine_wall_tickets(hub, lee_client):
+        for path in ("ledger/tickets/", "ledger/tickets/prices/", "wine/", "wine/donors/thanked/"):
+            assert lee_client.post(f"{hub.get_absolute_url()}{path}").status_code == 404, path
 
     def it_is_a_404_on_a_hub_with_no_ledger_door(admin_client):
         bare = EventHubFactory()
 
         assert admin_client.post(_url("ledger_bar_quick", bare), _quick()).status_code == 404
         assert admin_client.get(_url("ledger_bar_csv", bare)).status_code == 404
-        assert admin_client.post(_url("wine_donor_thanked", bare), {"giver": "Amy"}).status_code == 404
         assert not BarSale.objects.exists()
 
     def it_takes_posts_only(hub, lee_client):
@@ -250,9 +211,6 @@ def describe_who_may_use_it():
             _url("ledger_bar_batch", hub),
             _url("ledger_bar_prices", hub),
             _url("ledger_bar_delete", hub, sale.pk),
-            _url("ledger_tickets", hub),
-            _url("ledger_ticket_prices", hub),
-            _url("wine_donor_thanked", hub),
         ):
             assert lee_client.get(url).status_code == 405, url
 
@@ -481,7 +439,7 @@ def describe_log_a_batch():
 
 def describe_set_drink_prices():
     def it_saves_the_four_prices_and_last_year_and_sends_the_buttons_and_tiles_out_of_band(hub, admin_client):
-        LedgerSettingsFactory(hub=hub, approved_cents=120_000, singles_sold=4)
+        LedgerSettingsFactory(hub=hub, approved_cents=120_000, approved_note="Nov vote")
         found = _found(hub)
 
         response = admin_client.post(_url("ledger_bar_prices", hub), _prices(found), **HTMX)
@@ -489,7 +447,7 @@ def describe_set_drink_prices():
         found.refresh_from_db()
         assert (found.ipa_cents, found.pils_cents, found.wine_cents, found.na_cents) == (700, 650, 900, 200)
         assert found.last_year_bar_cents == 65_000
-        assert (found.approved_cents, found.singles_sold) == (120_000, 4)  # nothing else is written
+        assert (found.approved_cents, found.approved_note) == (120_000, "Nov vote")  # nothing else is written
         assert _toast(response)["message"] == "Prices saved."
         body = response.content.decode()
         assert 'aria-label="Add one IPA at $7" data-hq-lg-quick="ipa"' in body
@@ -537,17 +495,10 @@ def describe_set_drink_prices():
 
 
 def describe_the_approval_beside_d6bs_figures():
-    @pytest.mark.parametrize("saved_in_between", ["prices", "tickets", "ticket prices"])
-    def it_saves_the_approval_from_a_page_older_than_a_price_or_tickets_save(hub, admin_client, saved_in_between):
+    def it_saves_the_approval_from_a_page_older_than_a_price_save(hub, admin_client):
         LedgerSettingsFactory(hub=hub, approved_cents=90_000, approved_note="Oct 14")
         page = _found(hub)
-        posts = {
-            "prices": ("ledger_bar_prices", _prices(page)),
-            "tickets": ("ledger_tickets", _tickets(page)),
-            "ticket prices": ("ledger_ticket_prices", _ticket_prices(page)),
-        }
-        name, data = posts[saved_in_between]
-        assert admin_client.post(_url(name, hub), data, **HTMX).status_code == 200
+        assert admin_client.post(_url("ledger_bar_prices", hub), _prices(page), **HTMX).status_code == 200
 
         response = admin_client.post(_url("ledger_approval", hub), _approval(page, approved="1100"))
 
@@ -736,226 +687,29 @@ def describe_the_csv():
         assert len(rows) == 5
 
 
-def describe_the_wine_wall_section():
-    def it_reads_the_wall_and_links_to_it_and_its_donors(hub, wall, lee_client):
-        HubGoalFactory(hub=hub, kind=HubGoal.Kind.BOTTLES, target=100)
-        WineBottleFactory(hub=hub, qty=3, value_cents=2_000, giver_name="Amy")
-        WineBottleFactory(hub=hub, qty=1, value_cents=3_000, giver_name="Bo")
-        WineDonorThanksFactory(hub=hub, giver_key="amy")
-        WineDonorThanksFactory(hub=hub, giver_key="gone donor")  # no bottle names them any more
-
-        body = lee_client.get(_page(hub)).content.decode()
-
-        assert "data-hq-lg-figure>4 / 100</strong>" in body
-        assert "96 to go" in body
-        assert "data-hq-lg-figure>$90</strong>" in body and "Avg $22.50 per bottle" in body
-        assert (
-            f'href="{_url("wine_donors", hub)}" class="pl-hq-lg__chip pl-hq-lg__chip--info" data-hq-lg-thanked>1 of 2 donors thanked</a>'
-            in body
-        )
-        assert f'href="{wall.url}" class="pl-hq-lg__link" data-hq-lg-wall-link>' in body
-        assert 'aria-label="Bottles toward the goal: 4 percent"' in body
-        assert "<span>50</span><span>100 bottles</span>" in body
-        assert "data-hq-lg-tickets-form" in body
-        assert "add to wine wall" not in body.lower()  # bottles are logged on the wall's own door
-
-    def it_links_the_wall_and_its_donors_and_leaves_both_out_without_a_wall_card(hub, card, lee_client):
-        wall = HubCardFactory(hub=hub, kind=HubCard.Kind.WINE_WALL)
-
-        body = lee_client.get(_page(hub)).content.decode()
-        assert f'href="{wall.url}"' in body
-        assert (
-            f'<a href="{_url("wine_donors", hub)}" class="pl-hq-lg__chip pl-hq-lg__chip--info" data-hq-lg-thanked>'
-            "0 of 0 donors thanked</a>"
-        ) in body
-
-        wall.is_hidden = True
-        wall.save(update_fields=["is_hidden"])
-        assert f'href="{wall.url}"' in lee_client.get(_page(hub)).content.decode()
-
-        wall.delete()
-        body = lee_client.get(_page(hub)).content.decode()
-        assert "data-hq-lg-wall-link" not in body
-        assert f'href="{_url("wine_donors", hub)}"' not in body
-        assert '<span class="pl-hq-lg__chip" data-hq-lg-thanked>0 of 0 donors thanked</span>' in body
-
-    @pytest.mark.parametrize(
-        ("goal", "bottles", "line"),
-        [(0, 3, "No bottles goal yet"), (5, 5, "Goal reached"), (5, 7, "Goal reached, 2 extra"), (5, 2, "3 to go")],
-    )
-    def it_says_lees_bottles_line(goal, bottles, line):
-        band = services.WineBand(bottles=bottles, goal=goal, value_cents=0, supporters=0, by_kind=[])
-
-        assert band.goal_line == line
-
-    def it_rounds_the_average_half_up_and_says_retail_with_none():
-        assert services.WineBand(3, 0, 1_000, 1, []).average_line == "Avg $3.33 per bottle"
-        assert services.WineBand(8, 0, 2_004, 1, []).average_line == "Avg $2.51 per bottle"  # 250.5 cents rounds up
-        assert services.WineBand(0, 0, 0, 0, []).average_line == "Retail value of bottles"
-        assert services.WineBand(0, 7, 0, 0, []).half_goal == 4
-
-    def it_shows_no_meter_with_no_bottles_goal(hub, lee_client):
-        body = lee_client.get(_page(hub)).content.decode()
-
-        assert "data-hq-lg-wine-meter" not in body
-        assert "No bottles goal yet" in body
-
-
-def describe_the_ticket_math():
-    @pytest.mark.parametrize(
-        ("singles", "pairs", "ticket", "pair", "count", "revenue"),
-        [(0, 0, 2_500, 4_000, 0, 0), (3, 2, 2_500, 4_000, 7, 15_500), (1, 1, 2_000, 3_500, 3, 5_500)],
-    )
-    def it_counts_a_deal_as_two_tickets_and_prices_each_kind(singles, pairs, ticket, pair, count, revenue):
-        totals = services.TicketTotals(
-            singles=singles, pairs=pairs, ticket_cents=ticket, pair_cents=pair, goal=0, bottles=0
-        )
-
-        assert (totals.count, totals.revenue_cents) == (count, revenue)
-
-    @pytest.mark.parametrize(
-        ("goal", "bottles", "ticket", "pair", "display", "line"),
-        [
-            # Lee's renderWine: nb = max(goal, bottles); lo = floor(nb/2)*pair + (nb%2)*price; hi = nb*price.
-            (100, 0, 2_500, 4_000, "$2,000 to $2,500", "100 tickets at $25, or 2 for $40"),
-            (100, 101, 2_500, 4_000, "$2,025 to $2,525", "101 tickets at $25, or 2 for $40"),
-            (100, 40, 2_500, 5_000, "$2,500", "100 tickets at $25, or 2 for $50"),
-            (0, 0, 2_500, 4_000, "$0", "0 tickets at $25, or 2 for $40"),
-            (3, 0, 2_000, 3_500, "$55 to $60", "3 tickets at $20, or 2 for $35"),
-        ],
-    )
-    def it_ports_lees_revenue_at_goal(goal, bottles, ticket, pair, display, line):
-        totals = services.TicketTotals(
-            singles=0, pairs=0, ticket_cents=ticket, pair_cents=pair, goal=goal, bottles=bottles
-        )
-
-        assert (totals.at_goal_display, totals.at_goal_line) == (display, line)
-
-    def it_describes_the_tickets_in_lees_words():
-        one = services.TicketTotals(singles=1, pairs=1, ticket_cents=2_500, pair_cents=4_000, goal=0, bottles=0)
-        many = services.TicketTotals(singles=3, pairs=2, ticket_cents=2_500, pair_cents=4_000, goal=0, bottles=0)
-
-        assert one.description == "1 single at $25 + 1 deal at $40 for 2"
-        assert many.description == "3 singles at $25 + 2 deals at $40 for 2"
-        assert many.price_line == "$25 a ticket or 2 for $40. Each ticket wins a bottle."
-
-
-def describe_the_tickets_form():
-    def it_saves_the_tickets_and_swaps_the_section(hub, lee_client):
-        LedgerSettingsFactory(hub=hub, ipa_cents=900)
-        found = _found(hub)
-
-        response = lee_client.post(_url("ledger_tickets", hub), _tickets(found), **HTMX)
-
-        found.refresh_from_db()
-        assert (found.singles_sold, found.pairs_sold, found.ipa_cents) == (3, 2, 900)
-        assert _toast(response)["message"] == "Tickets updated."
-        body = response.content.decode()
-        assert body.lstrip().startswith('<section class="pl-hq-lg__section" id="hq-lg-wine"')
-        assert "data-hq-lg-figure>7</strong>" in body and "$155 raised" in body
-        assert 'id="hq-lg-board-figures" data-hq-lg-board-figures hx-swap-oob="true"' in body
-
-    def it_sends_the_board_paragraph_out_of_band_with_the_new_tickets(hub, kegs, lee_client):
-        LedgerEntryFactory(hub=hub, line=kegs)
-        WineBottleFactory(hub=hub)  # the tickets are said after the wine wall's bottles
-
-        body = lee_client.post(_url("ledger_tickets", hub), _tickets(_found(hub)), **HTMX).content.decode()
-
-        board = body.split('id="hq-lg-board-figures"', 1)[1]
-        assert board.count("7 tickets sold (3 singles at $25 + 2 deals at $40 for 2) raised $155.") == 2
-
-    def it_labels_the_inputs_with_the_prices_and_follows_a_price_change(hub, lee_client, admin_client):
-        body = lee_client.get(_page(hub)).content.decode()
-        assert "Single tickets sold ($25)" in body and "2-ticket deals sold ($40)" in body
-
-        response = admin_client.post(_url("ledger_ticket_prices", hub), _ticket_prices(_found(hub)), **HTMX)
-
-        found = _found(hub)
-        assert (found.ticket_cents, found.pair_cents) == (2_000, 3_500)
-        assert _toast(response)["message"] == "Ticket prices saved."
-        body = response.content.decode()
-        assert "Single tickets sold ($20)" in body and "2-ticket deals sold ($35)" in body
-        assert "$20 a ticket or 2 for $35. Each ticket wins a bottle." in body
-
-    def it_refuses_a_save_from_an_older_page(hub, lee_client, admin_client):
-        old = _found(hub)
-        LedgerSettingsFactory(hub=hub, singles_sold=9)
-
-        fragment = lee_client.post(_url("ledger_tickets", hub), _tickets(old), **HTMX)
-        plain = admin_client.post(
-            _url("ledger_ticket_prices", hub), _ticket_prices(LedgerSettings(hub=hub, ticket_cents=1))
-        )
-
-        assert LedgerSettings.objects.get(hub=hub).singles_sold == 9
-        assert services.SETTINGS_STALE_SAVE in fragment.content.decode()
-        assert 'name="tickets-singles_sold" value="9"' in fragment.content.decode()
-        assert "HX-Trigger" not in fragment
-        assert services.SETTINGS_STALE_SAVE in plain.content.decode()
-        assert "data-hq-ledger" in plain.content.decode()
-        assert LedgerSettings.objects.get(hub=hub).ticket_cents == 2_500
-
-    @pytest.mark.parametrize(
-        ("singles", "error"), [(TICKETS_MAX + 1, "less than or equal to 10000"), (-1, "greater than or equal to 0")]
-    )
-    def it_holds_the_counts_to_their_caps(hub, lee_client, singles, error):
-        fragment = lee_client.post(_url("ledger_tickets", hub), _tickets(_found(hub), singles=singles), **HTMX)
-        plain = lee_client.post(_url("ledger_tickets", hub), _tickets(_found(hub), singles=singles))
-
-        assert error in fragment.content.decode()
-        assert error in plain.content.decode() and "data-hq-ledger" in plain.content.decode()
-        assert not LedgerSettings.objects.exists()
-
-    def it_holds_the_ticket_prices_to_their_cap(hub, admin_client):
-        response = admin_client.post(
-            _url("ledger_ticket_prices", hub), _ticket_prices(_found(hub), ticket="1000.01"), **HTMX
-        )
-
-        assert "less than or equal to 1000" in response.content.decode()
-        assert "open data-hq-lg-ticket-prices>" in response.content.decode()  # open with its errors
-        assert not LedgerSettings.objects.exists()
-
-    def it_lands_a_plain_save_on_the_section(hub, lee_client):
-        response = lee_client.post(_url("ledger_tickets", hub), _tickets(_found(hub)), follow=True)
-
-        assert response.redirect_chain[-1][0] == f"{_page(hub)}#hq-lg-wine"
-        assert "Tickets updated." in [str(message) for message in response.context["messages"]]
-
-
 def describe_the_board_summary():
-    def it_says_the_event_cash_the_drink_sales_and_the_tickets_in_lees_places(hub, kegs):
+    def it_says_the_event_cash_and_the_drink_sales_in_lees_places(hub, kegs):
         HubGoalFactory(hub=hub, kind=HubGoal.Kind.EVENT_CASH, label="Raised", target=10_000, is_money=True)
-        HubGoalFactory(hub=hub, kind=HubGoal.Kind.BOTTLES, target=100)
         LedgerEntryFactory(hub=hub, line=kegs, kind=K.SPONSORED, amount_cents=500, source="Cascade")
         _bar_cost(hub, kegs, 30_000)
-        SponsorFactory(hub=hub, status="received", amount_cents=150_000)
-        SponsorFactory(hub=hub, status="committed", amount_cents=50_000)
         BarSaleFactory(hub=hub, qty=40, amount_cents=24_000)
-        WineBottleFactory(hub=hub, qty=4, value_cents=2_500)
-        LedgerSettingsFactory(hub=hub, singles_sold=3, pairs_sold=1)
 
         band = services.ledger_band(hub)
         text = services.board_summary(band, services.door_figures(hub, band))
 
-        assert (
-            "Event cash goal: $1,855 raised toward $10,000 (plus $500 committed). "
-            "Drink sales: 40 drinks sold for $240, $60 short of break-even after $300 in bar costs. "
-            "Cash sponsorships: $1,500 received and $500 committed."
-        ) in text
         assert text.endswith(
-            "Wine wall: 4 of 100 bottles donated, worth $100. "
-            "5 tickets sold (3 singles at $25 + 1 deal at $40 for 2) raised $115."
+            "Event cash goal: $240 raised toward $10,000. "
+            "Drink sales: 40 drinks sold for $240, $60 short of break-even after $300 in bar costs."
         )
 
     def it_says_a_profit_and_leaves_out_what_has_nothing_to_say(hub, kegs):
         LedgerEntryFactory(hub=hub, line=kegs)
         BarSaleFactory(hub=hub, qty=2, amount_cents=1_200)
-        WineBottleFactory(hub=hub)
 
         text = services.board_summary(services.ledger_band(hub), services.door_figures(hub))
 
         assert "Event cash goal: $12 raised toward $10,000." in text
         assert "Drink sales: 2 drinks sold for $12." in text
-        assert "tickets sold" not in text
 
         _bar_cost(hub, kegs, 1_000)
         text = services.board_summary(services.ledger_band(hub), services.door_figures(hub))
@@ -969,137 +723,30 @@ def describe_the_board_summary():
         assert "Event cash goal" not in text and "Drink sales" not in text
 
 
-def describe_the_donors_thanked():
-    @pytest.fixture
-    def givers(hub, wall):
-        WineBottleFactory(hub=hub, giver_name="Amy", value_cents=2_000)
-        WineBottleFactory(hub=hub, giver_name="AMY", value_cents=3_000, qty=2)
-        WineBottleFactory(hub=hub, giver_name="Bo", value_cents=1_500)
-
-    def it_shows_a_thanked_column_and_toggles_it_over_htmx(hub, givers, lee_client):
-        page = lee_client.get(_url("wine_donors", hub)).content.decode()
-        assert "<th>Thanked</th>" in page
-        assert 'aria-label="Thank-you sent to AMY" data-hq-donor-thanked="no">Mark thanked</button>' in page
-        assert "2 donors to thank · 0 thanked" in page
-
-        response = lee_client.post(_url("wine_donor_thanked", hub), {"giver": " amy ", "thanked": "1"}, **HTMX)
-
-        assert list(WineDonorThanks.objects.values_list("giver_key", flat=True)) == ["amy"]
-        assert _toast(response) == {"message": "AMY is marked thanked.", "type": "success"}
-        body = response.content.decode()
-        assert body.lstrip().startswith("<tr data-hq-donor-row=")
-        assert 'aria-pressed="true"' in body and "&#10003; Thanked" in body
-        assert 'name="thanked" value=""' in body  # the next click takes it off
-        assert "<template>" in body
-        assert (
-            '<p class="pl-hq-wine__donor-count" id="hq-donor-count" data-hq-donor-count hx-swap-oob="true">'
-            "2 donors to thank · 1 thanked</p>"
-        ) in body
-
-        lee_client.post(_url("wine_donor_thanked", hub), {"giver": "Amy", "thanked": "1"}, **HTMX)
-        assert WineDonorThanks.objects.count() == 1  # saying it twice changes nothing
-        response = lee_client.post(_url("wine_donor_thanked", hub), {"giver": "Amy", "thanked": ""}, **HTMX)
-        assert not WineDonorThanks.objects.exists()
-        assert _toast(response)["message"] == "AMY is back on the list to thank."
-
-    def it_lands_a_plain_post_where_it_came_from(hub, givers, lee_client):
-        donors = lee_client.post(_url("wine_donor_thanked", hub), {"giver": "Bo", "thanked": "1"}, follow=True)
-        on_wall = lee_client.post(
-            _url("wine_donor_thanked", hub), {"giver": "Bo", "thanked": "", "back": "wall"}, follow=True
-        )
-
-        assert donors.redirect_chain[-1][0] == _url("wine_donors", hub)
-        assert "Bo is marked thanked." in [str(message) for message in donors.context["messages"]]
-        assert on_wall.redirect_chain[-1][0] == _url("wine", hub)
-        assert "Bo is back on the list to thank." in [str(message) for message in on_wall.context["messages"]]
-
-    def it_carries_thanked_into_the_csv_and_the_wall_panel(hub, givers, lee_client):
-        WineDonorThanksFactory(hub=hub, giver_key="bo")
-
-        rows = b"".join(lee_client.get(_url("wine_donors_csv", hub)).streaming_content).decode().splitlines()
-        wall_page = lee_client.get(_url("wine", hub)).content.decode()
-
-        assert rows[1:] == ["AMY,Person,,Not asked,3,80.00,no,Guest,", "Bo,Person,,Not asked,1,15.00,yes,Guest,"]
-        assert '<input type="hidden" name="back" value="wall">' in wall_page
-        assert "2 donors to thank · 1 thanked" in wall_page
-
-    def it_keeps_one_thanks_per_donor_whatever_the_capitalisation(hub):
-        WineDonorThanksFactory(hub=hub, giver_key="Amy")
-
-        with pytest.raises(IntegrityError), transaction.atomic():
-            WineDonorThanks.objects.bulk_create([WineDonorThanks(hub=hub, giver_key="AMY")])
-        assert str(WineDonorThanks.objects.get()) == "Thanked amy"
-
-    def it_counts_the_ledgers_line_in_two_queries(hub, givers, django_assert_num_queries):
-        WineDonorThanksFactory(hub=hub, giver_key="bo")
-        WineDonorThanksFactory(hub=EventHubFactory(), giver_key="amy")
-
-        with django_assert_num_queries(2):
-            thanks = services.donor_thanks(hub)
-
-        assert thanks == services.DonorThanks(thanked=1, donors=2)
-        assert services.DonorThanks(thanked=0, donors=1).line == "0 of 1 donor thanked"
-
-
-def describe_the_under_ticket_price_flag():
-    def it_flags_a_donor_with_bottles_under_one_ticket_in_lees_words(hub, wall, lee_client):
-        WineBottleFactory(hub=hub, giver_name="Cheap", value_cents=1_200, qty=2)
-        WineBottleFactory(hub=hub, giver_name="Mixed", value_cents=2_499)
-        WineBottleFactory(hub=hub, giver_name="Mixed", value_cents=4_000, qty=2)
-        WineBottleFactory(hub=hub, giver_name="Fine", value_cents=2_500)
-
-        rows = {row.name: row.under_line for row in services.donor_rows(hub)}
-        body = lee_client.get(_url("wine_donors", hub)).content.decode()
-
-        assert rows == {"Cheap": "Under $25", "Mixed": "1 under $25", "Fine": ""}
-        assert body.count("data-hq-donor-under") == 2
-
-    def it_follows_the_ticket_price(hub, wall):
-        LedgerSettingsFactory(hub=hub, ticket_cents=2_000)
-        WineBottleFactory(hub=hub, giver_name="Twenty", value_cents=1_999)
-
-        assert [row.under_line for row in services.donor_rows(hub)] == ["Under $20"]
-
-    def it_flags_a_bottle_worth_less_than_one_ticket(hub, wall, lee_client):
-        cheap = WineBottleFactory(hub=hub, value_cents=1_000)
-        dear = WineBottleFactory(hub=hub, value_cents=4_000)
-
-        body = lee_client.get(_url("wine", hub)).content.decode()
-
-        assert f'data-hq-bottle="{cheap.pk}"' in body and f'data-hq-bottle="{dear.pk}"' in body
-        assert body.count('<span class="pl-hq-wine__under" data-hq-bottle-under>Under $25</span>') == 1
-
-
 def describe_the_event_cash():
-    def it_adds_sponsors_received_bar_sales_and_tickets(hub):
-        SponsorFactory(hub=hub, status="received", amount_cents=100_000)
-        SponsorFactory(hub=hub, status="committed", amount_cents=99_900)
+    def it_counts_this_hubs_bar_sales_against_the_cash_goal(hub):
+        HubGoalFactory(hub=hub, label="Raised", kind=HubGoal.Kind.EVENT_CASH, target=8_000, is_money=True)
         BarSaleFactory(hub=hub, amount_cents=12_345)
         BarSaleFactory(hub=EventHubFactory(), amount_cents=50_000)
-        LedgerSettingsFactory(hub=hub, singles_sold=2, pairs_sold=1)
 
         cash = services.event_cash(hub)
 
-        assert cash == services.EventCash(
-            sponsors_cents=100_000, committed_cents=99_900, bar_cents=12_345, tickets_cents=9_000
-        )
-        assert cash.total_cents == 121_345
+        assert cash == services.EventCash(bar_cents=12_345, goal=8_000)
+        assert (cash.total_cents, cash.goal_cents, cash.goal_display) == (12_345, 800_000, "$8,000")
 
     def it_counts_the_raised_goal_in_whole_dollars_in_a_fixed_number_of_queries(hub, django_assert_num_queries):
         HubGoalFactory(hub=hub, label="Raised", kind=HubGoal.Kind.EVENT_CASH, target=10_000, is_money=True)
         HubGoalFactory(hub=hub, label="Cash again", kind=HubGoal.Kind.EVENT_CASH, target=0, is_money=True)
-        SponsorFactory(hub=hub, status="received", amount_cents=100_050)
-        BarSaleFactory(hub=hub, amount_cents=99)
+        BarSaleFactory(hub=hub, amount_cents=100_099)
 
-        with django_assert_num_queries(5):
+        with django_assert_num_queries(3):
             raised, again = services.goal_rows(hub)
-        SponsorFactory.create_batch(3, hub=hub, status="received", amount_cents=100)
         BarSaleFactory.create_batch(4, hub=hub)
-        with django_assert_num_queries(5):
+        with django_assert_num_queries(3):
             services.goal_rows(hub)
 
-        assert (raised.current, raised.target, raised.current_display) == (1_001, 10_000, "$1,001")
-        assert again.current == 1_001
+        assert (raised.current, raised.target, raised.current_display) == (1_000, 10_000, "$1,000")
+        assert again.current == 1_000
 
     def it_shows_on_the_hq_page_counted(hub, lee_client):
         HubGoalFactory(hub=hub, label="Raised", kind=HubGoal.Kind.EVENT_CASH, target=10_000, is_money=True)
@@ -1116,7 +763,7 @@ def describe_adopting_the_typed_in_raised():
         raised = HubGoalFactory(
             hub=open_hub, label="raised", kind=HubGoal.Kind.MANUAL, target=12_000, current_value=4_000, sort_order=3
         )
-        HubGoalFactory(hub=open_hub, label="Bottles", kind=HubGoal.Kind.BOTTLES, sort_order=1)
+        HubGoalFactory(hub=open_hub, label="Bottles", kind=HubGoal.Kind.MANUAL, sort_order=1)
 
         first = admin_client.post(_url("doors_update", open_hub), follow=True)
         second = admin_client.post(_url("doors_update", open_hub), follow=True)
@@ -1135,7 +782,8 @@ def describe_adopting_the_typed_in_raised():
             True,
         )
         assert open_hub.goals.filter(kind=HubGoal.Kind.EVENT_CASH).count() == 1
-        assert not open_hub.goals.filter(kind=HubGoal.Kind.MANUAL).exists()
+        # The other typed in goal is not money, so it stays as typed.
+        assert list(open_hub.goals.filter(kind=HubGoal.Kind.MANUAL).values_list("label", flat=True)) == ["Bottles"]
 
     def it_leaves_a_typed_in_raised_beside_an_event_cash_goal(open_hub):
         HubGoalFactory(hub=open_hub, label="Cash", kind=HubGoal.Kind.EVENT_CASH, sort_order=0)
@@ -1194,54 +842,49 @@ def describe_adopting_the_typed_in_raised():
     def it_says_so_in_the_seed_command():
         event = CommunityEventFactory(community=True, title="Holiday Bizarre")
         hub = EventHubFactory(slug=HUB.slug, title="Lee's HQ", event=event)
-        for position, label in enumerate(("Raised", "Wine wall bottles")):
-            kind = HubGoal.Kind.MANUAL if label == "Raised" else HubGoal.Kind.BOTTLES
-            HubGoalFactory(hub=hub, label=label, kind=kind, target=10_000, sort_order=position)
+        HubGoalFactory(hub=hub, label="Raised", kind=HubGoal.Kind.MANUAL, target=10_000, sort_order=0)
         out = StringIO()
 
         call_command("seed_holiday_bizarre", "--event", str(event.pk), stdout=out)
 
         assert (
-            "Goals: 4 created, 2 kept as edited. Added: Volunteer spots, RSVPs, Member tables, Guilds taking part. "
+            "Goals: 4 created, 1 kept as edited. Added: Volunteer spots, RSVPs, Member tables, Guilds taking part. "
             "Raised now counts itself." in out.getvalue()
         )
         assert hub.goals.filter(kind=HubGoal.Kind.EVENT_CASH).count() == 1
-        assert hub.goals.count() == 6
+        assert hub.goals.count() == 5
 
 
-def describe_the_sponsor_meter():
+def describe_the_cash_goal():
     def it_prefers_the_event_cash_goal_then_falls_back_as_before(open_hub):
         HubGoalFactory(hub=open_hub, label="Raised", kind=HubGoal.Kind.MANUAL, target=7_000, is_money=True)
-        assert services.sponsor_goal(open_hub) == 7_000
+        assert services.cash_goal(open_hub) == 7_000
 
         HubGoalFactory(hub=open_hub, label="Money in", kind=HubGoal.Kind.EVENT_CASH, target=12_000, is_money=True)
-        assert services.sponsor_goal(open_hub) == 12_000
+        assert services.cash_goal(open_hub) == 12_000
 
         HubGoal.objects.filter(hub=open_hub, kind=HubGoal.Kind.EVENT_CASH).update(target=0)
-        assert services.sponsor_goal(open_hub) == 7_000
+        assert services.cash_goal(open_hub) == 7_000
 
     def it_falls_back_to_any_typed_in_money_goal_then_lees_default(open_hub):
-        assert services.sponsor_goal(open_hub) == services.DEFAULT_SPONSOR_GOAL
+        assert services.cash_goal(open_hub) == services.DEFAULT_CASH_GOAL
         HubGoalFactory(hub=open_hub, label="Pledges", kind=HubGoal.Kind.MANUAL, target=3_000, is_money=True)
-        assert services.sponsor_goal(open_hub) == 3_000
+        assert services.cash_goal(open_hub) == 3_000
 
 
 def describe_query_counts():
-    def it_runs_a_fixed_number_of_queries_on_the_ledger_however_many_sales(hub, wall, kegs, lee, lee_client):
+    def it_runs_a_fixed_number_of_queries_on_the_ledger_however_many_sales(hub, kegs, lee, lee_client):
         def _count() -> int:
             with CaptureQueriesContext(connection) as queries:
                 assert lee_client.get(_page(hub)).status_code == 200
             return len(queries)
 
         BarSaleFactory(hub=hub, created_by=lee)
-        WineBottleFactory(hub=hub)
         _count()  # the first request warms the session and the caches
         few = _count()
         BarSaleFactory.create_batch(20, hub=hub, created_by=lee)
         for drink in (D.PILS, D.WINE, D.NA, D.MIXED):
             BarSaleFactory(hub=hub, drink=drink, pay=P.CASH, source="batch", qty=3, amount_cents=1_500)
-        WineBottleFactory.create_batch(5, hub=hub)
-        WineDonorThanksFactory(hub=hub, giver_key="giver 1")
 
         assert _count() == few
 
@@ -1254,19 +897,5 @@ def describe_query_counts():
         _count()
         few = _count()
         BarSaleFactory.create_batch(20, hub=hub, created_by=lee)
-
-        assert _count() == few
-
-    def it_runs_a_fixed_number_of_queries_on_the_donors_page(hub, wall, lee_client):
-        def _count() -> int:
-            with CaptureQueriesContext(connection) as queries:
-                assert lee_client.get(_url("wine_donors", hub)).status_code == 200
-            return len(queries)
-
-        WineBottleFactory(hub=hub)
-        _count()
-        few = _count()
-        WineBottleFactory.create_batch(6, hub=hub)
-        WineDonorThanksFactory.create_batch(3, hub=hub)
 
         assert _count() == few

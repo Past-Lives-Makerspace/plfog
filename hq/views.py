@@ -1,21 +1,18 @@
-"""The HQ page and its edit pages (Track C, part 1), the volunteer sign-up page (part 2), the wine wall (part 3),
-the Marketing Tracker (Track D, part 1), the Sponsorship Tracker (Track D, part 2), Vendor Tables (Track D, part 3)
-the Market Check-in (Track D, part 4), the event flyer and sharing page (Track D, part 5) and the PL Ledger's budget
-(Track D, part 6a), money in (Track D, part 6b), and team and tally (Track D, part 6c).
+"""The HQ page and its edit pages (Track C, part 1), the volunteer sign-up page (part 2), Vendor Tables (Track D,
+part 3) and the PL Ledger's budget (Track D, part 6a), money in (Track D, part 6b), and team and tally (Track D, part
+6c). #1307 removed the wine wall, the Marketing and Sponsorship Trackers, the Market Check-in and the flyer page.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.contrib import messages
-from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.http import FileResponse, Http404, HttpRequest, HttpResponse, HttpResponseBadRequest, StreamingHttpResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -34,28 +31,20 @@ from hq.access import (
 )
 from hq.exports import (
     stream_bar_sales_csv,
-    stream_donors_csv,
     stream_ledger_csv,
-    stream_market_reports_csv,
     stream_people_csv,
     stream_roster_csv,
-    stream_sponsors_csv,
     stream_staff_time_csv,
     stream_vendor_tables_csv,
-    stream_volunteer_hours_csv,
 )
 from hq.forms import (
     LEDGER_TEAM_LIST_ID,
-    MARKETING_TEAM_LIST_ID,
     RECEIPT_NOT_TAKEN,
-    SPONSOR_TEAM_LIST_ID,
     BarBatchForm,
     BarQuickForm,
     BudgetLineEditForm,
     BudgetLineForm,
     DoorCountForm,
-    FlyerLinksForm,
-    FlyerUploadForm,
     GuildDemoAddForm,
     GuildDemoEditForm,
     HubCardForm,
@@ -66,77 +55,50 @@ from hq.forms import (
     LaunchTaskForm,
     LedgerApprovalForm,
     LedgerEntryForm,
-    MarketingActionForm,
-    MarketReportForm,
     ReceiptForm,
-    SponsorEditForm,
-    SponsorForm,
-    SponsorLogForm,
     StaffTimeForm,
-    TicketPricesForm,
-    TicketsForm,
     VendorFloorForm,
     VendorImportForm,
     VendorDiscordChannelForm,
     VendorTableEditForm,
     VendorTableForm,
-    VolunteerHoursForm,
     VolunteerInfoForm,
     VolunteerShiftForm,
     VolunteerShiftFormSet,
-    WineBottleForm,
-    WineryLogoForm,
 )
 from hq.holiday_bizarre import (
-    CHECKIN_FOOTER,
     DOOR_CLICKER_HINT,
     DOOR_GUEST_LIST,
-    FLYER_COMING_SOON,
-    FLYER_LAST_YEAR_NOTE,
-    FLYER_SHARE_LEDE,
-    FLYER_TABLE_ASK,
-    FLYER_TABLE_EMAIL,
-    FLYER_TABLE_TITLE,
     LEDGER_FOOTER,
     LEDGER_INTRO,
     LEDGER_RECEIPT_HINT,
     LEDGER_TITLE,
     NO_DOUBLE_ENTRY_TITLE,
-    SPONSOR_TIERS,
     TALLY_EYEBROW,
     TALLY_TITLE,
     TALLY_TITLE_GOLD,
     VENDOR_SETUP_NOTE,
-    WINE_WALL_BENEFIT,
 )
 from hq.models import (
     DOOR_STEPS,
     RECEIPT_KINDS,
     BudgetLine,
     EventHub,
-    FlyerSlot,
     GuildDemo,
     HubCard,
     LaunchTask,
     LedgerEntry,
     LedgerSettings,
-    MarketingKind,
-    MarketReport,
     ShiftSignup,
-    Sponsor,
     VendorTable,
-    VolunteerHours,
     VolunteerShift,
-    donor_key,
-    format_hours,
-    format_money,
 )
 from hq.services import VolunteerBand, VolunteerInfo, goal_rows
 from hq import vendor_discord
 from hq.vendor_import import ImportRefused
 from hub.toast import trigger_toast
 from hub.view_as import has_events_admin_access
-from membership.models import Guild, Member
+from membership.models import Guild
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -159,7 +121,6 @@ def hub_page(request: HttpRequest, slug: str) -> HttpResponse:
     """The HQ page: every door, for whoever runs the HQ, a hidden one with its Hidden chip."""
     hub = hub_or_404(slug)
     cards = list(hub.cards.all())
-    wine = services.wine_band(hub)
     return render(
         request,
         "hq/page.html",
@@ -168,8 +129,6 @@ def hub_page(request: HttpRequest, slug: str) -> HttpResponse:
             "cards": cards,
             "goals": goal_rows(hub),
             "countdown": hub.countdown_parts(timezone.now()),
-            # Lee's Bottles by type under the goals: every kind, once the wall has a bottle.
-            "bottle_kinds": wine.every_kind if wine.bottles else [],
         },
     )
 
@@ -338,7 +297,6 @@ def _volunteers_page(
             "mine": services.signed_up_shift_ids(hub, person.email) if person is not None else set(),
             "roster": roster,
             "roster_emails": services.roster_emails(roster),
-            "wine_url": _door_url(hub, HubCard.Kind.WINE_WALL),
         },
     )
 
@@ -448,436 +406,7 @@ def volunteer_roster(request: HttpRequest, *, hub: EventHub, card: HubCard) -> H
 @hq_gate(HubCard.Kind.VOLUNTEERS)
 def volunteer_roster_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
     """The roster as a CSV download, one row per person per shift."""
-    return stream_roster_csv(
-        ShiftSignup.objects.filter(shift__hub=hub), hours=services.hours_by_email(hub), filename_stem=hub.slug
-    )
-
-
-# ---- Wine wall (part 3) ----
-
-
-def _wall_url(hub: EventHub) -> str:
-    return reverse("hq:wine", args=[hub.slug])
-
-
-def _identity(request: HttpRequest, member: Member | None) -> tuple[str, str]:
-    """Who is acting, as on the volunteer sheet: the Your Info name and email this browser saved, else the
-    member's own name and primary email, else blanks. The email is what a guest's bottles are keyed on."""
-    person = services.person_for(request, member)
-    if person is None:
-        return "", ""
-    return person.name, person.email
-
-
-@hq_gate(HubCard.Kind.WINE_WALL)
-def wine(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """The wine wall: the band, Log a Bottle, All Bottles, the wineries, and the donors for organisers.
-
-    A POST logs a bottle (multipart, so the form opts out of hx-boost). A guest's post goes
-    through the honeypot and the rate limit the volunteer sign-ups share.
-    """
-    member = viewer_member(request)
-    name, email = _identity(request, member)
-    if request.method != "POST":
-        return _wine_page(request, hub, card, form=WineBottleForm(initial={"credited_name": name}))
-    form = WineBottleForm(request.POST, request.FILES)
-    if not form.is_valid():
-        return _wine_page(request, hub, card, form=form)
-    if form.is_honeypot_hit:
-        return redirect(_wall_url(hub))
-    if member is None and not _guest_within_limits(request, services.RATE_SCOPE_BOTTLE):
-        form.add_error(None, "Too many bottles from this connection for now. Try again in an hour.")
-        return _wine_page(request, hub, card, form=form)
-    bottle = services.log_bottle(hub, form.to_fields(), member=member, logger_name=name, logger_email=email)
-    messages.success(request, f"{bottle.name} is on the wall. Thank you!")
-    return redirect(_wall_url(hub))
-
-
-def _wine_page(
-    request: HttpRequest,
-    hub: EventHub,
-    card: HubCard,
-    *,
-    form: WineBottleForm,
-    logo_form: WineryLogoForm | None = None,
-) -> HttpResponse:
-    """Render the wall. ``form`` bound means Log a Bottle failed and opens with its errors.
-
-    Everyone who reaches it runs the HQ, so the donors, the logo form and every bottle's Delete show.
-    """
-    member = viewer_member(request)
-    bottles = list(hub.bottles.all())
-    rows = services.wineries(hub)
-    donors = services.donor_rows(hub)
-    # Lee's Under $25 flag on a bottle worth less than one ticket.
-    ticket_cents = services.ticket_price_cents(hub)
-    return render(
-        request,
-        "hq/wine.html",
-        {
-            "hub": hub,
-            "card": card,
-            "form": form,
-            "form_open": form.is_bound,
-            "is_guest": member is None,
-            "band": services.wine_band(hub),
-            "bottles": bottles,
-            "wineries": rows,
-            "logo_form": logo_form if logo_form is not None else WineryLogoForm(names=[row.name for row in rows]),
-            "donors": donors,
-            "donor_emails": services.donor_emails(donors),
-            "donors_thanked": sum(1 for row in donors if row.thanked),
-            "donors_back": DONORS_BACK_WALL,
-            "ticket_cents": ticket_cents,
-            "ticket_display": format_money(ticket_cents),
-            "max_upload_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
-        },
-    )
-
-
-@require_POST
-@hq_gate(HubCard.Kind.WINE_WALL)
-def bottle_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
-    """Take a bottle off the wall, with its photo; everyone who runs the HQ may take any bottle off."""
-    bottle = get_object_or_404(hub.bottles, pk=pk)
-    bottle.delete()
-    messages.success(request, f"{bottle.name} is off the wall.")
-    return redirect(_wall_url(hub))
-
-
-@require_POST
-@hq_gate(HubCard.Kind.WINE_WALL)
-def winery_logo(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """Upload a logo for a winery named on the wall, replacing the one under that name."""
-    form = WineryLogoForm(request.POST, request.FILES, names=[row.name for row in services.wineries(hub)])
-    if not form.is_valid():
-        name, _email = _identity(request, viewer_member(request))
-        return _wine_page(request, hub, card, form=WineBottleForm(initial={"credited_name": name}), logo_form=form)
-    logo = services.set_winery_logo(hub, form.cleaned_data["name"], form.cleaned_data["logo"])
-    messages.success(request, f"Logo saved for {logo.name}.")
-    return redirect(_wall_url(hub))
-
-
-# Where a donor's Thanked toggle lands after a plain post: the wall, or (by default) the donors page.
-DONORS_BACK_WALL = "wall"
-
-
-def _donors_context(hub: EventHub, donors: list[services.DonorRow]) -> dict[str, Any]:
-    return {
-        "hub": hub,
-        "donors": donors,
-        "donor_emails": services.donor_emails(donors),
-        "donors_thanked": sum(1 for row in donors if row.thanked),
-        "donors_back": "",
-    }
-
-
-@hq_gate(HubCard.Kind.WINE_WALL)
-def wine_donors(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """The donors on their own page: every giver, their type, email and listing, Thanked, Copy donor emails and the
-    CSV."""
-    return render(request, "hq/wine_donors.html", {**_donors_context(hub, services.donor_rows(hub)), "card": card})
-
-
-@hq_gate(HubCard.Kind.WINE_WALL)
-def wine_donors_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
-    """The donors table as a CSV download, one row per giver."""
-    return stream_donors_csv(services.donor_rows(hub), filename_stem=hub.slug)
-
-
-@require_POST
-@hq_gate(HubCard.Kind.WINE_WALL)
-def wine_donor_thanked(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """Mark a wine donor thanked, or take the mark off (``thanked`` "1" or not), by the actual role. Over htmx the
-    donor's row comes back with the thanked count out of band; a plain post lands back where it came from. A giver no
-    bottle names is a 404."""
-    name = request.POST.get("giver", "")
-    thanked = request.POST.get("thanked") == "1"
-    if services.donor_row(hub, donor_key(name)) is None:
-        raise Http404("No such donor.")
-    services.set_donor_thanked(hub, name, thanked=thanked)
-    donors = services.donor_rows(hub)
-    row = next(row for row in donors if row.key == donor_key(name))
-    message = f"{row.name} is marked thanked." if thanked else f"{row.name} is back on the list to thank."
-    back = DONORS_BACK_WALL if request.POST.get("back") == DONORS_BACK_WALL else ""
-    if not wants_fragment(request):
-        messages.success(request, message)
-        return redirect(_wall_url(hub) if back else reverse("hq:wine_donors", args=[hub.slug]))
-    context = {**_donors_context(hub, donors), "row": row, "donors_back": back}
-    response = render(request, "hq/partials/_donor_row_answer.html", context)
-    trigger_toast(response, message, "success")
-    return response
-
-
-# ---- Marketing Tracker (Track D, part 1) ----
-
-
-def _marketing_url(hub: EventHub) -> str:
-    return reverse("hq:marketing", args=[hub.slug])
-
-
-@hq_gate(HubCard.Kind.MARKETING)
-def marketing(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """The Marketing Tracker: the six totals, Log a Marketing Action for organisers, and the log, newest first."""
-    return render(request, "hq/marketing.html", _marketing_context(request, hub, card, MarketingActionForm()))
-
-
-def _marketing_context(request: HttpRequest, hub: EventHub, card: HubCard, form: MarketingActionForm) -> dict[str, Any]:
-    """What the page and its log fragment render: the form, the log with its Deletes, the officers suggested for Who."""
-    return {
-        "hub": hub,
-        "card": card,
-        "form": form,
-        "tiles": services.marketing_tiles(services.marketing_totals(hub)),
-        "actions": list(hub.marketing_actions.all()),
-        "team": _officer_names(),
-        "team_list_id": MARKETING_TEAM_LIST_ID,
-    }
-
-
-@require_POST
-@hq_gate(HubCard.Kind.MARKETING)
-def marketing_add(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """Add one action to the log, by the actual role. Over htmx the log comes back with a toast, keeping the
-    kind, date and who for the next entry; a plain post lands back on the page with a message."""
-    form = MarketingActionForm(request.POST)
-    fragment = wants_fragment(request)
-    template = "hq/partials/_marketing_log.html" if fragment else "hq/marketing.html"
-    if not form.is_valid():
-        return render(request, template, _marketing_context(request, hub, card, form))
-    services.log_marketing_action(hub, form.cleaned_data, member=actual_member(request))
-    if not fragment:
-        messages.success(request, "Added.")
-        return redirect(_marketing_url(hub))
-    fresh = MarketingActionForm(initial=form.kept_for_next())
-    response = render(request, template, _marketing_context(request, hub, card, fresh))
-    trigger_toast(response, "Added.", "success")
-    return response
-
-
-@require_POST
-@hq_gate(HubCard.Kind.MARKETING)
-def marketing_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
-    """Take one action off the log (organisers, by the actual role)."""
-    get_object_or_404(hub.marketing_actions, pk=pk).delete()
-    messages.success(request, "Taken off the log.")
-    return redirect(_marketing_url(hub))
-
-
-# ---- Sponsorship Tracker (Track D, part 2) ----
-
-
-def _sponsors_url(hub: EventHub, show: str = services.SPONSOR_FILTER_ALL) -> str:
-    url = reverse("hq:sponsors", args=[hub.slug])
-    return url if show == services.SPONSOR_FILTER_ALL else f"{url}?filter={show}"
-
-
-@dataclass(frozen=True)
-class SponsorRow:
-    """One row in the pipeline: the sponsor, and for an organiser its edit and log forms and whether it opens."""
-
-    sponsor: Sponsor
-    edit_form: SponsorEditForm | None
-    log_form: SponsorLogForm | None
-    is_open: bool
-
-
-def _edit_prefix(sponsor: Sponsor) -> str:
-    return f"sponsor-{sponsor.pk}"
-
-
-def _log_prefix(sponsor: Sponsor) -> str:
-    return f"log-{sponsor.pk}"
-
-
-def _sponsor_row(
-    sponsor: Sponsor,
-    *,
-    is_open: bool,
-    edit_form: SponsorEditForm | None = None,
-    log_form: SponsorLogForm | None = None,
-) -> SponsorRow:
-    """``sponsor``'s pipeline row with its edit and log forms, fresh unless refused ones are given."""
-    if edit_form is None:
-        edit_form = SponsorEditForm(initial=SponsorEditForm.initial_for(sponsor), prefix=_edit_prefix(sponsor))
-    if log_form is None:
-        log_form = SponsorLogForm(prefix=_log_prefix(sponsor))
-    return SponsorRow(sponsor=sponsor, edit_form=edit_form, log_form=log_form, is_open=is_open)
-
-
-@hq_gate(HubCard.Kind.SPONSORSHIP)
-def sponsors(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """The Sponsorship Tracker: the guidance line, the band, Follow up, + Add a Sponsor, the pipeline and the
-    tiers. ``?filter=`` picks the pipeline's group."""
-    show = services.sponsor_filter(request.GET.get("filter", ""))
-    return render(request, "hq/sponsors.html", _sponsors_context(request, hub, card, show=show))
-
-
-def _sponsors_context(
-    request: HttpRequest,
-    hub: EventHub,
-    card: HubCard,
-    *,
-    show: str,
-    add_form: SponsorForm | None = None,
-    add_open: bool = False,
-    open_pk: int | None = None,
-    edit_form: SponsorEditForm | None = None,
-    log_form: SponsorLogForm | None = None,
-) -> dict[str, Any]:
-    """What the page and its board fragment render: the band, Follow up, the contact details, the forms, the log and
-    the CSV.
-
-    ``open_pk`` is the row to render open (the one refused on a plain post), listed whatever the filter, with
-    ``edit_form`` and ``log_form`` in place of its fresh forms when they came back with errors.
-    """
-    today = timezone.localdate()
-    sponsors_qs = services.filtered_sponsors(hub, show, keep_pk=open_pk).prefetch_related("log_entries")
-    rows = []
-    for sponsor in sponsors_qs:
-        is_open = sponsor.pk == open_pk
-        rows.append(
-            _sponsor_row(
-                sponsor,
-                is_open=is_open,
-                edit_form=edit_form if is_open else None,
-                log_form=log_form if is_open else None,
-            )
-        )
-    return {
-        "hub": hub,
-        "card": card,
-        "band": services.sponsor_band(hub),
-        "follow_ups": services.follow_ups(hub, today=today),
-        "today": today,
-        "add_form": add_form if add_form is not None else SponsorForm(),
-        # A refused add comes back open with its errors; a saved one stays open for the next.
-        "add_open": add_open or add_form is not None,
-        "rows": rows,
-        "has_sponsors": bool(rows) or hub.sponsors.exists(),
-        "show": show,
-        "filters": services.SPONSOR_FILTERS,
-        "team": _officer_names(),
-        "team_list_id": SPONSOR_TEAM_LIST_ID,
-        "tiers": SPONSOR_TIERS,
-        "wine_benefit": WINE_WALL_BENEFIT,
-        "wine_url": _door_url(hub, HubCard.Kind.WINE_WALL),
-    }
-
-
-def _sponsor_board(request: HttpRequest, context: dict[str, Any], message: str = "") -> HttpResponse:
-    """+ Add a sponsor's answer: the board over htmx (with a toast when ``message`` is set), or the whole page for
-    a plain post that failed."""
-    if not wants_fragment(request):
-        return render(request, "hq/sponsors.html", context)
-    response = render(request, "hq/partials/_sponsor_board.html", context)
-    if message:
-        trigger_toast(response, message, "success")
-    return response
-
-
-def _sponsor_row_answer(
-    request: HttpRequest,
-    hub: EventHub,
-    card: HubCard,
-    sponsor: Sponsor,
-    *,
-    show: str,
-    edit_form: SponsorEditForm | None = None,
-    log_form: SponsorLogForm | None = None,
-    message: str = "",
-) -> HttpResponse:
-    """A row's Save or Add to log answer. Over htmx: that row, open, for its target, and the band and Follow up out
-    of band (with a toast when ``message`` is set), so the other rows and the add form keep what is typed in them.
-    A plain post that failed gets the whole page with the row open. Either way the row comes back even when it no
-    longer matches the filter ``show``, so a status change or a refused form stays where it was edited."""
-    if not wants_fragment(request):
-        context = _sponsors_context(
-            request, hub, card, show=show, open_pk=sponsor.pk, edit_form=edit_form, log_form=log_form
-        )
-        return render(request, "hq/sponsors.html", context)
-    today = timezone.localdate()
-    context = {
-        "hub": hub,
-        "row": _sponsor_row(sponsor, is_open=True, edit_form=edit_form, log_form=log_form),
-        "today": today,
-        "show": show,
-        "band": services.sponsor_band(hub),
-        "follow_ups": services.follow_ups(hub, today=today),
-    }
-    response = render(request, "hq/partials/_sponsor_row_answer.html", context)
-    if message:
-        trigger_toast(response, message, "success")
-    return response
-
-
-def _posted_filter(request: HttpRequest) -> str:
-    return services.sponsor_filter(request.POST.get("filter", ""))
-
-
-@require_POST
-@hq_gate(HubCard.Kind.SPONSORSHIP)
-def sponsor_add(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """+ Add a Sponsor, by the actual role. Over htmx the board comes back with the form open and empty and a
-    "Sponsor added." toast; a plain post lands back on the page with a message."""
-    show = _posted_filter(request)
-    form = SponsorForm(request.POST)
-    if not form.is_valid():
-        return _sponsor_board(request, _sponsors_context(request, hub, card, show=show, add_form=form))
-    services.add_sponsor(hub, form.to_fields(), member=actual_member(request))
-    if not wants_fragment(request):
-        messages.success(request, "Sponsor added.")
-        return redirect(_sponsors_url(hub, show))
-    context = _sponsors_context(request, hub, card, show=show, add_open=True)
-    return _sponsor_board(request, context, "Sponsor added.")
-
-
-@require_POST
-@hq_gate(HubCard.Kind.SPONSORSHIP)
-def sponsor_edit(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
-    """Save one row's inline edit, by the actual role; a new status adds its line to the contact log."""
-    sponsor = get_object_or_404(hub.sponsors, pk=pk)
-    show = _posted_filter(request)
-    form = SponsorEditForm(request.POST, prefix=_edit_prefix(sponsor))
-    if not form.is_valid():
-        return _sponsor_row_answer(request, hub, card, sponsor, show=show, edit_form=form)
-    services.update_sponsor(sponsor, form.to_fields())
-    if not wants_fragment(request):
-        messages.success(request, f"{sponsor.organization} saved.")
-        return redirect(_sponsors_url(hub, show))
-    return _sponsor_row_answer(request, hub, card, sponsor, show=show, message="Saved.")
-
-
-@require_POST
-@hq_gate(HubCard.Kind.SPONSORSHIP)
-def sponsor_log(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
-    """Add one line to a sponsor's contact log, by the actual role."""
-    sponsor = get_object_or_404(hub.sponsors, pk=pk)
-    show = _posted_filter(request)
-    form = SponsorLogForm(request.POST, prefix=_log_prefix(sponsor))
-    if not form.is_valid():
-        return _sponsor_row_answer(request, hub, card, sponsor, show=show, log_form=form)
-    services.log_contact(sponsor, text=form.cleaned_data["text"], by=form.cleaned_data["by"])
-    if not wants_fragment(request):
-        messages.success(request, "Added to the log.")
-        return redirect(_sponsors_url(hub, show))
-    return _sponsor_row_answer(request, hub, card, sponsor, show=show, message="Added to the log.")
-
-
-@require_POST
-@hq_gate(HubCard.Kind.SPONSORSHIP)
-def sponsor_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
-    """Take a sponsor and its contact log off the tracker (organisers, by the actual role)."""
-    sponsor = get_object_or_404(hub.sponsors, pk=pk)
-    sponsor.delete()
-    messages.success(request, f"{sponsor.organization} is off the tracker.")
-    return redirect(_sponsors_url(hub, _posted_filter(request)))
-
-
-@hq_gate(HubCard.Kind.SPONSORSHIP)
-def sponsors_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
-    """Every sponsor on the tracker as a CSV download, one row each, in pipeline order."""
-    return stream_sponsors_csv(hub.sponsors.all(), filename_stem=hub.slug)
+    return stream_roster_csv(ShiftSignup.objects.filter(shift__hub=hub), filename_stem=hub.slug)
 
 
 # ---- Vendor Tables (Track D, part 3) ----
@@ -1344,395 +873,6 @@ def vendors_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> Stream
     return stream_vendor_tables_csv(hub.vendor_tables.select_related("guild", "created_by"), filename_stem=hub.slug)
 
 
-# ---- Market Check-in (Track D, part 4) ----
-
-
-def _checkin_url(hub: EventHub) -> str:
-    return reverse("hq:checkin", args=[hub.slug])
-
-
-def _report_message(report: MarketReport) -> str:
-    """Lee's line beside the button once a report is saved: the sales when there are any."""
-    if report.sales_cents:
-        return f"Saved! {format_money(report.sales_cents)} in sales. Congratulations!"
-    return "Saved! Come back after the market to add your sales."
-
-
-def _hours_message(entry: VolunteerHours) -> str:
-    unit = "hour" if entry.hours == 1 else "hours"
-    return f"Logged {entry.hours_display} {unit}. Thank you!"
-
-
-def _report_context(
-    hub: EventHub, member: Member, *, form: MarketReportForm | None = None, message: str = ""
-) -> dict[str, Any]:
-    """What the report section renders for ``member``: their report (the Saved chip), the confirmed table that is
-    theirs, and the form, bound to the report, else starting from the table's name and guild or their own."""
-    report = services.report_for(hub, member)
-    table = services.confirmed_table(hub, member)
-    if form is None:
-        guilds = services.active_guilds()
-        if report is not None:
-            form = MarketReportForm(instance=report, guilds=guilds)
-        else:
-            initial = services.report_initial(member, table)
-            form = MarketReportForm(instance=MarketReport(hub=hub, member=member), initial=initial, guilds=guilds)
-    return {"hub": hub, "report": report, "vendor_table": table, "report_form": form, "report_message": message}
-
-
-def _hours_context(
-    hub: EventHub, member: Member, *, form: VolunteerHoursForm | None = None, message: str = ""
-) -> dict[str, Any]:
-    """What the hours section renders for ``member``: the form and their own entries, newest date first."""
-    entries = services.member_hours(hub, member)
-    return {
-        "hub": hub,
-        "hours_form": form if form is not None else VolunteerHoursForm(),
-        "entries": entries,
-        "my_total": format_hours(services.total_hours(entries)),
-        "hours_message": message,
-    }
-
-
-def _checkin_context(
-    request: HttpRequest,
-    hub: EventHub,
-    card: HubCard,
-    *,
-    report_form: MarketReportForm | None = None,
-    hours_form: VolunteerHoursForm | None = None,
-) -> dict[str, Any]:
-    """What the page renders: the hero, the thank-you board and the links to the reports and the hours; the report
-    and the hours forms when the viewer is a member (by the effective role, so an admin with no member record reads
-    the page and files nothing)."""
-    member = viewer_member(request)
-    context: dict[str, Any] = {
-        "hub": hub,
-        "card": card,
-        "countdown": services.checkin_countdown(hub, timezone.now()),
-        "thanks": services.checkin_thanks(hub),
-        "footer": CHECKIN_FOOTER,
-        "band": services.checkin_band(hub),
-        "board": services.thank_you_board(hub),
-        "me_pk": member.pk if member is not None else None,
-        "may_check_in": member is not None,
-        "volunteer_url": _door_url(hub, HubCard.Kind.VOLUNTEERS),
-    }
-    if member is not None:
-        context.update(_report_context(hub, member, form=report_form))
-        context.update(_hours_context(hub, member, form=hours_form))
-    return context
-
-
-def _checkin_member(request: HttpRequest) -> Member:
-    """The actual member filing a report or hours; an admin with no member record has nobody to file as (403)."""
-    member = actual_member(request)
-    if member is None:
-        raise PermissionDenied("Market reports and volunteer hours are filed by a member.")
-    return member
-
-
-def _refused_page(
-    request: HttpRequest, hub: EventHub, card: HubCard, form: MarketReportForm | VolunteerHoursForm, **forms: Any
-) -> HttpResponse:
-    """A plain post the form refused: the page again with the bound form, or, when the page would not show that
-    form (an admin previewing as Guest acts as themselves but renders as the preview), a redirect back with the
-    form's errors as a message so they are not lost."""
-    context = _checkin_context(request, hub, card, **forms)
-    if context["may_check_in"]:
-        return render(request, "hq/checkin.html", context)
-    errors = " ".join(str(error) for field_errors in form.errors.values() for error in field_errors)
-    messages.error(request, errors)
-    return redirect(_checkin_url(hub))
-
-
-@hq_gate(HubCard.Kind.MARKET_CHECKIN)
-def checkin(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """The Market Check-in: the hero, Artists: your market report and Volunteers: log your hours for a member,
-    and the volunteer thank-you board."""
-    return render(request, "hq/checkin.html", _checkin_context(request, hub, card))
-
-
-@require_POST
-@hq_gate(HubCard.Kind.MARKET_CHECKIN)
-def checkin_report(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """Save my report (or Update my report): the member's one report on the hub, by the actual member. Over htmx
-    the report section comes back with Lee's message; a plain post lands back on the page with it."""
-    member = _checkin_member(request)
-    report = services.report_for(hub, member)
-    instance = report if report is not None else MarketReport(hub=hub, member=member)
-    form = MarketReportForm(request.POST, instance=instance, guilds=services.active_guilds())
-    fragment = wants_fragment(request)
-    if not form.is_valid():
-        if not fragment:
-            return _refused_page(request, hub, card, form, report_form=form)
-        return render(request, "hq/partials/_checkin_report.html", _report_context(hub, member, form=form))
-    message = _report_message(services.save_report(hub, member, form.to_fields()))
-    if not fragment:
-        messages.success(request, message)
-        return redirect(_checkin_url(hub))
-    return render(request, "hq/partials/_checkin_report.html", _report_context(hub, member, message=message))
-
-
-@require_POST
-@hq_gate(HubCard.Kind.MARKET_CHECKIN)
-def checkin_hours_log(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """Log my hours, by the actual member. Over htmx the hours section comes back (keeping the date and task) with
-    the hero's figures and the thank-you board out of band; a plain post lands back on the page with a message."""
-    member = _checkin_member(request)
-    form = VolunteerHoursForm(request.POST)
-    fragment = wants_fragment(request)
-    if not form.is_valid():
-        if not fragment:
-            return _refused_page(request, hub, card, form, hours_form=form)
-        return render(request, "hq/partials/_checkin_hours.html", _hours_context(hub, member, form=form))
-    message = _hours_message(services.log_hours(hub, member, form.cleaned_data))
-    if not fragment:
-        messages.success(request, message)
-        return redirect(_checkin_url(hub))
-    fresh = VolunteerHoursForm(initial=form.kept_for_next())
-    context = {
-        **_hours_context(hub, member, form=fresh, message=message),
-        "countdown": services.checkin_countdown(hub, timezone.now()),
-        "band": services.checkin_band(hub),
-        "board": services.thank_you_board(hub),
-        "me_pk": member.pk,
-    }
-    return render(request, "hq/partials/_checkin_hours_answer.html", context)
-
-
-@require_POST
-@hq_gate(HubCard.Kind.MARKET_CHECKIN)
-def checkin_hours_delete(request: HttpRequest, *, hub: EventHub, card: HubCard, pk: int) -> HttpResponse:
-    """Delete any hours entry: everyone who runs the HQ may. Lands on the hours page when the delete came from
-    there, else on the check-in page."""
-    entry = get_object_or_404(hub.volunteer_hours, pk=pk)
-    entry.delete()
-    messages.success(request, f"Deleted {entry.hours_display} h on {entry.date:%b} {entry.date.day}.")
-    if request.POST.get("back") == "hours":
-        return redirect("hq:checkin_hours", slug=hub.slug)
-    return redirect(_checkin_url(hub))
-
-
-@hq_gate(HubCard.Kind.MARKET_CHECKIN)
-def checkin_reports(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """The organisers' market reports: the totals, sales by guild, and every report (Lee's "staff can see")."""
-    return render(
-        request,
-        "hq/checkin_reports.html",
-        {
-            "hub": hub,
-            "card": card,
-            "band": services.checkin_band(hub),
-            "by_guild": services.sales_by_guild(hub),
-            "reports": list(hub.market_reports.select_related("member", "guild")),
-        },
-    )
-
-
-@hq_gate(HubCard.Kind.MARKET_CHECKIN)
-def checkin_hours(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """The organisers' volunteer hours: the totals and every entry, newest date first, each with a Delete."""
-    return render(
-        request,
-        "hq/checkin_hours.html",
-        {
-            "hub": hub,
-            "card": card,
-            "band": services.checkin_band(hub),
-            "entries": list(hub.volunteer_hours.select_related("member")),
-        },
-    )
-
-
-@hq_gate(HubCard.Kind.MARKET_CHECKIN)
-def checkin_reports_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
-    """Every market report as a CSV download, one row each, by name."""
-    return stream_market_reports_csv(hub.market_reports.select_related("member", "guild"), filename_stem=hub.slug)
-
-
-@hq_gate(HubCard.Kind.MARKET_CHECKIN)
-def checkin_hours_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
-    """Every hours entry as a CSV download, newest date first."""
-    return stream_volunteer_hours_csv(hub.volunteer_hours.select_related("member"), filename_stem=hub.slug)
-
-
-# ---- Event flyer and sharing (Track D, part 5) ----
-
-
-def _flyer_url(hub: EventHub) -> str:
-    return reverse("hq:flyer", args=[hub.slug])
-
-
-@dataclass(frozen=True)
-class FlyerUpload:
-    """One of the organisers' upload forms: the slot, the file stored there now (or none) and the form."""
-
-    slot: str
-    label: str
-    current: Any
-    is_pdf: bool
-    form: FlyerUploadForm
-
-
-def _flyer_share_context(hub: EventHub, page: Any) -> dict[str, Any]:
-    """What Help spread the word and Find the event render: the link to share (the event's public page, else the
-    HQ), Facebook's share dialog for it, the message with the link, What to expect (the wine wall's prices read from
-    the ledger) and the page's two links."""
-    link = services.share_link(hub)
-    return {
-        "hub": hub,
-        "page": page,
-        "share_link": link,
-        "facebook_url": services.facebook_share_url(link),
-        "share_text": services.share_text(page.share_message, link),
-        "share_lede": FLYER_SHARE_LEDE,
-        "what_to_expect": services.what_to_expect(services.ledger_settings(hub)),
-    }
-
-
-def _flyer_context(
-    request: HttpRequest,
-    hub: EventHub,
-    card: HubCard,
-    *,
-    links_form: FlyerLinksForm | None = None,
-    upload_form: FlyerUploadForm | None = None,
-) -> dict[str, Any]:
-    """What the page renders. The RSVP figure and the businesses with flyers are read live (the event's people count,
-    the Marketing Tracker's flyer count); the Marketing Tracker link shows only when that card is on the hub and not
-    hidden from the viewer. Update this page: the two upload forms (``upload_form`` in place of its slot's fresh one
-    when it came back with errors) and the links form."""
-    page = services.flyer_page(hub)
-    event = hub.event
-    # The Marketing Tracker and Vendor Tables links, in one read of the cards.
-    door_urls = _door_urls(hub)
-    # With no 2026 flyer uploaded, the poster is the flyer the event system makes for the hub's event (hub_event_flyer),
-    # once that event is published (its QR opens the event page, which an unpublished event does not have) and until a
-    # one-off has ended, when its date would read as still to come.
-    flyer_event = event if not page.flyer and event is not None and event.is_published and not event.has_ended else None
-    context: dict[str, Any] = {
-        **_flyer_share_context(hub, page),
-        "card": card,
-        "flyer_event": flyer_event,
-        "flyer_qr_svg": flyer_event.qr_svg() if flyer_event is not None else "",
-        "coming_soon": FLYER_COMING_SOON,
-        "last_year_note": FLYER_LAST_YEAR_NOTE,
-        "rsvp_count": services.rsvp_count(event) if event is not None else None,
-        "rsvp_url": f"{reverse('hub_event_detail', args=[event.pk])}#whos-coming" if event is not None else "",
-        "flyers_out": services.marketing_totals(hub)[MarketingKind.FLYER],
-        "marketing_url": door_urls.get(HubCard.Kind.MARKETING, ""),
-        # Members: want a table to sell your work? Lee's card, linking Vendor Tables when the hub shows that door.
-        "table_title": FLYER_TABLE_TITLE,
-        "table_ask": format_html(
-            FLYER_TABLE_ASK,
-            email=format_html('<a href="mailto:{0}" class="pl-hq-fl__mail">{0}</a>', FLYER_TABLE_EMAIL),
-        ),
-        "setup_note": VENDOR_SETUP_NOTE,
-        "vendors_url": door_urls.get(HubCard.Kind.VENDOR_TABLES, ""),
-    }
-    uploads = []
-    for slot in FlyerSlot:
-        form = upload_form if upload_form is not None and upload_form.slot == slot else None
-        current = getattr(page, slot)
-        uploads.append(
-            FlyerUpload(
-                slot=slot.value,
-                label=slot.label,
-                current=current if current else None,
-                is_pdf=page.flyer_is_pdf if slot == FlyerSlot.THIS_YEAR else page.last_year_is_pdf,
-                form=form if form is not None else FlyerUploadForm(slot=slot),
-            )
-        )
-    context.update(
-        {
-            "uploads": uploads,
-            "links_form": links_form if links_form is not None else FlyerLinksForm(instance=page),
-            "max_image_bytes": settings.MAX_UPLOAD_IMAGE_BYTES,
-            "max_pdf_bytes": settings.MAX_UPLOAD_DOCUMENT_BYTES,
-        }
-    )
-    return context
-
-
-@hq_gate(HubCard.Kind.FLYER)
-def flyer(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """The event flyer and sharing page: this year's flyer to view, download and print, the share buttons, the
-    links to the event, the RSVP and flyer figures read live, last year's flyer, and Update this page."""
-    return render(request, "hq/flyer.html", _flyer_context(request, hub, card))
-
-
-def _flyer_slot(slot: str) -> FlyerSlot:
-    """The slot named in the URL; any other word is a 404."""
-    if slot not in FlyerSlot.values:
-        raise Http404("No such flyer.")
-    return FlyerSlot(slot)
-
-
-@hq_gate(HubCard.Kind.FLYER)
-def flyer_download(request: HttpRequest, *, hub: EventHub, card: HubCard, slot: str) -> FileResponse:
-    """One flyer as a download, gated like the page: whoever may open the page may save the file. It is named for
-    the hub's slug and the slot, ``holiday-bizarre-2026-flyer.jpg`` or ``holiday-bizarre-2026-last-year-flyer.pdf``
-    (the slug already carries the year); a slot with no file, or any other word, is a 404. Served from here
-    rather than linked straight to storage, because a browser ignores ``download`` on a link to another host and opens
-    the file instead."""
-    which = _flyer_slot(slot)
-    stored = getattr(services.flyer_page(hub), which)
-    if not stored:
-        raise Http404("No flyer up yet.")
-    response = FileResponse(stored.open("rb"))
-    filename = f"{hub.slug}-{which.value.replace('_', '-')}{Path(stored.name).suffix.lower()}"
-    response["Content-Disposition"] = f'attachment; filename="{filename}"'
-    return response
-
-
-@require_POST
-@hq_gate(HubCard.Kind.FLYER)
-def flyer_upload(request: HttpRequest, *, hub: EventHub, card: HubCard, slot: str) -> HttpResponse:
-    """Upload or replace one flyer, by the actual role. A plain multipart post (the form opts out of hx-boost); a
-    refused file renders the page with the form's error."""
-    which = _flyer_slot(slot)
-    form = FlyerUploadForm(request.POST, request.FILES, slot=which)
-    if not form.is_valid():
-        return render(request, "hq/flyer.html", _flyer_context(request, hub, card, upload_form=form))
-    services.set_flyer(hub, which, form.cleaned_data["file"])
-    messages.success(request, f"{which.label} uploaded.")
-    return redirect(_flyer_url(hub))
-
-
-@require_POST
-@hq_gate(HubCard.Kind.FLYER)
-def flyer_remove(request: HttpRequest, *, hub: EventHub, card: HubCard, slot: str) -> HttpResponse:
-    """Take one flyer off the page and out of storage, by the actual role."""
-    which = _flyer_slot(slot)
-    if services.remove_flyer(hub, which):
-        messages.success(request, f"{which.label} removed.")
-    else:
-        messages.info(request, f"There was no {which.label} to remove.")
-    return redirect(_flyer_url(hub))
-
-
-@require_POST
-@hq_gate(HubCard.Kind.FLYER)
-def flyer_links(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """Save the two links and the share message, by the actual role. Over htmx the form comes back with a toast,
-    and Help spread the word and Find the event out of band; a plain post lands back on the page with a message."""
-    form = FlyerLinksForm(request.POST, instance=services.flyer_page(hub))
-    fragment = wants_fragment(request)
-    if not form.is_valid():
-        if not fragment:
-            return render(request, "hq/flyer.html", _flyer_context(request, hub, card, links_form=form))
-        return render(request, "hq/partials/_flyer_links.html", {"hub": hub, "links_form": form})
-    page = services.save_flyer_links(hub, form.cleaned_data)
-    if not fragment:
-        messages.success(request, "Saved.")
-        return redirect(_flyer_url(hub))
-    context = {**_flyer_share_context(hub, page), "links_form": FlyerLinksForm(instance=page)}
-    response = render(request, "hq/partials/_flyer_links_answer.html", context)
-    trigger_toast(response, "Saved.", "success")
-    return response
-
-
 # ---- PL Ledger, budget (Track D, part 6a) ----
 
 
@@ -1870,7 +1010,6 @@ def _ledger_context(
     line_error: str = "",
     receipt_form: ReceiptForm | None = None,
     bar: dict[str, Any] | None = None,
-    wine: dict[str, Any] | None = None,
     launch: dict[str, Any] | None = None,
     staff: dict[str, Any] | None = None,
     guilds: dict[str, Any] | None = None,
@@ -1879,8 +1018,8 @@ def _ledger_context(
 
     ``keep_line`` is a line whose refused edit (``line_edit``, or ``line_error`` for a stale Save) renders open in its
     row; ``receipt_form`` a refused receipt upload shown on its entry's row; ``approval_error`` a stale approval Save,
-    shown over a fresh approval form that renders open. ``bar`` and ``wine`` carry a refused form of the Drink sales
-    or Wine Wall section into :func:`_bar_context` or :func:`_wine_ledger_context`, and ``launch``, ``staff`` and
+    shown over a fresh approval form that renders open. ``bar`` carries a refused form of the Drink sales section into
+    :func:`_bar_context`, and ``launch``, ``staff`` and
     ``guilds`` one of the launch checklist, Staff time or Guild demos (D6c) into theirs.
     """
     figures = _ledger_figures(request, hub)
@@ -1889,13 +1028,10 @@ def _ledger_context(
         **_figures_context(request, hub, figures),
         **_ledger_entries_context(hub, band, show, receipt_form=receipt_form),
         **_bar_context(hub, found, doors.bar, **(bar or {})),
-        **_wine_ledger_context(request, hub, found, doors.wine, **(wine or {})),
         **_people_context(hub, figures),
         **_launch_context(hub, totals=figures.launch, **(launch or {})),
         **_staff_context(hub, figures, **(staff or {})),
         **_guilds_context(hub, doors.guilds, **(guilds or {})),
-        **_vol_context(hub, figures),
-        **_flyer_section_context(figures),
         "team_names": _officer_names(),
         "door_hint": _door_hint(request, hub),
         "team_list_id": LEDGER_TEAM_LIST_ID,
@@ -1904,7 +1040,7 @@ def _ledger_context(
         "intro": LEDGER_INTRO,
         "receipt_hint": LEDGER_RECEIPT_HINT,
         "footer": LEDGER_FOOTER,
-        # The section bar's Sponsors and Vendor tables links: only the doors the hub shows this viewer.
+        # The section bar's Vendor tables link, when the hub has that door.
         "door_urls": figures.door_urls,
         "approval_form": approval_form
         if approval_form is not None
@@ -1934,7 +1070,7 @@ def ledger_approval(request: HttpRequest, *, hub: EventHub, card: HubCard) -> Ht
 
     The form carries the approval it was rendered with (``seen_*``, as the D6b settings forms do): a Save after someone
     else changed the approval (:class:`hq.services.StaleSave`) comes back with the form as the database holds it, with
-    :data:`APPROVAL_STALE_SAVE`. A price or tickets save in between never makes it stale.
+    :data:`APPROVAL_STALE_SAVE`. A price save in between never makes it stale.
     """
     form = LedgerApprovalForm(request.POST, found=services.ledger_settings(hub))
     if not form.is_valid():
@@ -2151,10 +1287,6 @@ def _bar_url(hub: EventHub) -> str:
     return f"{reverse('hq:ledger', args=[hub.slug])}#hq-lg-bar"
 
 
-def _wine_section_url(hub: EventHub) -> str:
-    return f"{reverse('hq:ledger', args=[hub.slug])}#hq-lg-wine"
-
-
 def _bar_totals(hub: EventHub) -> services.BarTotals:
     found = services.ledger_settings(hub)
     return services.bar_totals(hub, found, cost_cents=services.ledger_band(hub, found).bar_cost_cents)
@@ -2189,46 +1321,6 @@ def _bar_context(
         "prices_open": prices_form is not None or bool(prices_error),
         "prices_error": prices_error,
         "bar_sales": list(hub.bar_sales.all()),
-    }
-
-
-def _wine_links(request: HttpRequest, hub: EventHub) -> tuple[str, str]:
-    """Where the Wine Wall section's two links go: the wall and its donors page, or "" for both when the wall's card
-    is missing or hidden from a viewer who is no admin."""
-    wall = _door_url(hub, HubCard.Kind.WINE_WALL)
-    return wall, reverse("hq:wine_donors", args=[hub.slug]) if wall else ""
-
-
-def _wine_ledger_context(
-    request: HttpRequest,
-    hub: EventHub,
-    found: LedgerSettings,
-    wine: services.WineBand,
-    *,
-    tickets_form: TicketsForm | None = None,
-    ticket_prices_form: TicketPricesForm | None = None,
-    tickets_error: str = "",
-    ticket_prices_error: str = "",
-) -> dict[str, Any]:
-    """What the Wine Wall section renders: the wall's bottles and value read from its band, the tickets with Lee's
-    revenue at goal, the donors thanked, the two links, and the tickets and ticket prices forms."""
-    wall_url, donors_url = _wine_links(request, hub)
-    return {
-        "approval": found.approval_words,
-        "wine": wine,
-        "tickets": services.ticket_totals(found, wine),
-        "donor_thanks": services.donor_thanks(hub),
-        "wall_url": wall_url,
-        "donors_url": donors_url,
-        "tickets_form": tickets_form
-        if tickets_form is not None
-        else TicketsForm(found=found, prefix="tickets", initial=TicketsForm.initial_for(found)),
-        "tickets_error": tickets_error,
-        "ticket_prices_form": ticket_prices_form
-        if ticket_prices_form is not None
-        else TicketPricesForm(found=found, prefix="ticket-prices", initial=TicketPricesForm.initial_for(found)),
-        "ticket_prices_open": ticket_prices_form is not None or bool(ticket_prices_error),
-        "ticket_prices_error": ticket_prices_error,
     }
 
 
@@ -2391,67 +1483,6 @@ def ledger_bar_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> Str
     return stream_bar_sales_csv(sales, totals=_bar_totals(hub), filename_stem=hub.slug)
 
 
-def _wine_answer(request: HttpRequest, hub: EventHub, found: LedgerSettings, **forms: Any) -> HttpResponse:
-    """The Wine Wall section with every figure the tickets move out of band (:data:`FIGURES_ALL`): the tally's ticket
-    sales and cash, the goals, the board paragraph and Raised per staff hour."""
-    figures = _ledger_figures(request, hub)
-    context = {"hub": hub, **_wine_ledger_context(request, hub, found, figures.doors.wine, **forms)}
-    return _figures_answer(request, hub, "hq/partials/_ledger_wine_answer.html", context, figures=figures)
-
-
-def _wine_refused(request: HttpRequest, hub: EventHub, card: HubCard, refusal: dict[str, Any]) -> HttpResponse:
-    """A refused tickets or ticket prices save: the page, or over htmx the Wine Wall section, with ``refusal`` (the
-    form with its errors, or a stale save's error over the figures the database holds)."""
-    if not wants_fragment(request):
-        context = _ledger_context(request, hub, card, show=services.LEDGER_FILTER_ALL, wine=refusal)
-        return render(request, "hq/ledger.html", context)
-    return _wine_answer(request, hub, services.ledger_settings(hub), **refusal)
-
-
-def _save_wine_figures(
-    request: HttpRequest,
-    hub: EventHub,
-    card: HubCard,
-    form: TicketsForm | TicketPricesForm,
-    *,
-    key: str,
-    saved_message: str,
-) -> HttpResponse:
-    """Save the tickets or the ticket prices (``key`` names which form), refusing one from an older page. Over htmx the
-    Wine Wall section comes back whole with a toast; a plain post lands back on the section."""
-    fragment = wants_fragment(request)
-    if not form.is_valid():
-        return _wine_refused(request, hub, card, {f"{key}_form": form})
-    try:
-        saved = services.save_ledger_figures(hub, form.to_fields(), seen=form.seen())
-    except services.StaleSave:  # the figures changed since the page loaded; show what the database holds
-        return _wine_refused(request, hub, card, {f"{key}_error": services.SETTINGS_STALE_SAVE})
-    if not fragment:
-        messages.success(request, saved_message)
-        return redirect(_wine_section_url(hub))
-    response = _wine_answer(request, hub, saved)
-    trigger_toast(response, saved_message, "success")
-    return response
-
-
-@require_POST
-@hq_gate(HubCard.Kind.LEDGER)
-def ledger_tickets(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """The wine wall's tickets sold (singles and two-ticket deals), by the actual role."""
-    found = services.ledger_settings(hub)
-    form = TicketsForm(request.POST, found=found, prefix="tickets")
-    return _save_wine_figures(request, hub, card, form, key="tickets", saved_message="Tickets updated.")
-
-
-@require_POST
-@hq_gate(HubCard.Kind.LEDGER)
-def ledger_ticket_prices(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpResponse:
-    """The wine wall's two ticket prices, by the actual role; the ticket inputs' labels follow them."""
-    found = services.ledger_settings(hub)
-    form = TicketPricesForm(request.POST, found=found, prefix="ticket-prices")
-    return _save_wine_figures(request, hub, card, form, key="ticket_prices", saved_message="Ticket prices saved.")
-
-
 # ---- PL Ledger, team and tally (Track D, part 6c) ----
 
 # A row's Save whose ``updated_at`` no longer matches the database: someone else saved it since the page loaded.
@@ -2477,14 +1508,13 @@ def _officer_names() -> list[str]:
 @dataclass(frozen=True)
 class LedgerFigures:
     """Every figure the ledger's tally, goals and board paragraph read, gathered once per request: the settings, the
-    ledger's band, every other door's figures, the doors the hub shows the viewer, the launch checklist and the flyer page."""
+    ledger's band, every other door's figures, the doors the hub has and the launch checklist."""
 
     found: LedgerSettings
     band: services.LedgerBand
     doors: services.DoorFigures
     door_urls: dict[str, str]
     launch: services.LaunchTotals
-    flyer: Any
 
 
 def _ledger_figures(request: HttpRequest, hub: EventHub) -> LedgerFigures:
@@ -2496,7 +1526,6 @@ def _ledger_figures(request: HttpRequest, hub: EventHub) -> LedgerFigures:
         doors=services.door_figures(hub, band, found),
         door_urls=_door_urls(hub),
         launch=services.launch_totals(hub),
-        flyer=services.flyer_page(hub),
     )
 
 
@@ -2513,12 +1542,10 @@ def _figures_context(request: HttpRequest, hub: EventHub, figures: LedgerFigures
             figures.band,
             doors,
             launch=figures.launch,
-            flyer_ready=bool(figures.flyer.flyer),
             door_urls=figures.door_urls,
         ),
         # Staff time's figures (hq/partials/_ledger_staff_figures.html): Raised per staff hour reads the event cash.
         "staff": doors.staff,
-        "volunteer_hours": doors.checkin,
         # Change the goals is Edit HQ's goals formset.
         "edit_goals_url": f"{reverse('hq:edit', args=[hub.slug])}#hq-edit-goals",
     }
@@ -2567,16 +1594,12 @@ def _event_day(hub: EventHub) -> str:
 
 
 def _people_context(hub: EventHub, figures: LedgerFigures) -> dict[str, Any]:
-    """What Attendance and Vendors renders: the attendance and the vendors' figures, read from Vendor Tables and the
-    Market Check-in, the door clicker, Lee's No double entry note with the two doors, and the reports."""
-    urls = figures.door_urls
+    """What Attendance and Vendors renders: the attendance, the confirmed vendors from Vendor Tables, the door clicker
+    and Lee's No double entry note."""
     return {
         "attendance": figures.doors.attendance,
         "people_vendors": figures.doors.vendors,
-        "checkin": figures.doors.checkin,
-        "reports": list(hub.market_reports.select_related("guild")),
-        "vendors_url": urls.get(HubCard.Kind.VENDOR_TABLES, ""),
-        "checkin_url": urls.get(HubCard.Kind.MARKET_CHECKIN, ""),
+        "vendors_url": figures.door_urls.get(HubCard.Kind.VENDOR_TABLES, ""),
         "no_double_title": NO_DOUBLE_ENTRY_TITLE,
         "door_steps": DOOR_STEPS,
     }
@@ -2633,11 +1656,10 @@ def _launch_context(
 
 
 def _staff_context(hub: EventHub, figures: LedgerFigures, *, form: StaffTimeForm | None = None) -> dict[str, Any]:
-    """What Staff time renders: the hours by person and by area against the event cash, the volunteer hours from the
-    Market Check-in, Log time (open when refused) and every entry with its Delete."""
+    """What Staff time renders: the hours by person and by area against the event cash, Log time (open when refused)
+    and every entry with its Delete."""
     return {
         "staff": figures.doors.staff,
-        "volunteer_hours": figures.doors.checkin,
         "staff_entries": list(hub.staff_time.all()),
         "staff_form": form
         if form is not None
@@ -2689,32 +1711,6 @@ def _guilds_context(
     }
 
 
-def _vol_context(hub: EventHub, figures: LedgerFigures) -> dict[str, Any]:
-    """What Volunteer hours renders, read only from the Market Check-in: the totals, the top ten and the two doors."""
-    urls = figures.door_urls
-    return {
-        "vol_band": figures.doors.checkin,
-        "vol_board": services.thank_you_board(hub, limit=VOL_BOARD_LIMIT),
-        "signup_url": urls.get(HubCard.Kind.VOLUNTEERS, ""),
-        "checkin_url": urls.get(HubCard.Kind.MARKET_CHECKIN, ""),
-    }
-
-
-# How many volunteers the ledger's Volunteer hours shows (Lee's top ten; the Market Check-in's board shows fifteen).
-VOL_BOARD_LIMIT = 10
-
-
-def _flyer_section_context(figures: LedgerFigures) -> dict[str, Any]:
-    """What Event flyer renders, read only: the flyer page's flyer and the Marketing Tracker's businesses with it up."""
-    urls = figures.door_urls
-    return {
-        "hub_flyer": figures.flyer,
-        "flyer_count": figures.doors.flyers,
-        "flyer_url": urls.get(HubCard.Kind.FLYER, ""),
-        "marketing_url": urls.get(HubCard.Kind.MARKETING, ""),
-    }
-
-
 # The plain post's message for a door tap, by the toast's tone.
 _MESSAGE_LEVELS_ADD = {"success": messages.success, "info": messages.info}
 
@@ -2760,12 +1756,9 @@ def ledger_door(request: HttpRequest, *, hub: EventHub, card: HubCard) -> HttpRe
 
 @hq_gate(HubCard.Kind.LEDGER)
 def ledger_people_csv(request: HttpRequest, *, hub: EventHub, card: HubCard) -> StreamingHttpResponse:
-    """The vendors' reports with the totals and the attendance as a CSV download, in Lee's columns."""
-    reports = hub.market_reports.select_related("guild")
+    """The confirmed vendors and the attendance as a CSV download, in Lee's columns."""
     return stream_people_csv(
-        reports,
         vendors=services.vendor_band(hub).confirmed,
-        checkin=services.checkin_band(hub),
         attendance=services.attendance(hub),
         filename_stem=hub.slug,
     )

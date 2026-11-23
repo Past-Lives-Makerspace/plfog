@@ -451,22 +451,17 @@ def describe_the_shifts():
         assert one.is_full is True
 
 
-def describe_the_wine_wall_link():
-    def it_shows_when_the_hub_has_a_wine_wall_card(card, officer_client):
-        HubCardFactory(hub=card.hub, kind=HubCard.Kind.WINE_WALL)
+def describe_the_removed_wine_wall():
+    def it_links_no_wine_wall_and_shows_no_hours_column(card, shift, officer_client):
+        """#1307: the wine wall and the Market Check-in's hours went with their doors."""
+        ShiftSignupFactory(shift=shift, name="Amy First", email="amy@example.com")
 
         body = officer_client.get(_page(card.hub)).content.decode()
 
-        assert f'href="{reverse("hq:wine", args=[card.hub.slug])}"' in body
-        assert "data-hq-vol-wine" in body
-
-    def it_shows_a_hidden_wine_wall_card_to_an_officer_too(card, officer_client):
-        HubCardFactory(hub=card.hub, kind=HubCard.Kind.WINE_WALL, is_hidden=True)
-
-        assert "data-hq-vol-wine" in officer_client.get(_page(card.hub)).content.decode()
-
-    def it_is_absent_without_a_wine_wall_card(card, officer_client):
-        assert "data-hq-vol-wine" not in officer_client.get(_page(card.hub)).content.decode()
+        assert "data-hq-vol-wine" not in body
+        assert "Wine Wall" not in body
+        assert "Hours logged" not in body
+        assert "data-hq-roster-hours" not in body
 
 
 def describe_the_roster():
@@ -527,11 +522,10 @@ def describe_the_roster():
         assert response.status_code == 200
         assert response["Content-Disposition"].startswith(f'attachment; filename="{card.hub.slug}-volunteers-')
         rows = b"".join(response.streaming_content).decode().splitlines()
-        assert rows[0] == "Name,Email,Phone,OLCC permit,Shift,Phase,When,Note,Signed up,Hours logged"
+        assert rows[0] == "Name,Email,Phone,OLCC permit,Shift,Phase,When,Note,Signed up"
         assert rows[1].startswith("Zed Last,zed@example.com,555,yes,A,Before the event,,New,")
         assert rows[2].startswith("Amy First,amy@example.com,,no,A,Before the event,,,")
         assert rows[3].startswith("Zed Last,zed@example.com,,no,B,During the event,Late,Old note,")
-        assert {row.rsplit(",", 1)[1] for row in rows[1:]} == {"0"}
         assert member_client.get(_csv_url(card.hub)).status_code == 404
         assert Client().get(_csv_url(card.hub)).status_code == 302
 

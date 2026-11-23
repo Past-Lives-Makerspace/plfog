@@ -3,8 +3,7 @@
 {% comment %}
 The Holiday Bizarre HQ page (Track C, part 1), for whoever runs the HQ: admins and ACTIVE guild
 officers (hq.access.hq_gate). Every card, each with Edit, a hidden one with its Hidden chip, and the
-Edit HQ action. Under the goals,
-Lee's Bottles by type: every kind, zeros included, once the wine wall has a bottle.
+Edit HQ action.
 {% endcomment %}
 {% block title %}{{ hub.title }}{% endblock %}
 {% block extra_head %}
@@ -57,9 +56,6 @@ Lee's Bottles by type: every kind, zeros included, once the wine wall has a bott
       </div>
       {% endfor %}
     </div>
-    {% if bottle_kinds %}
-    <p class="pl-hq-goals__kinds" data-hq-bottle-kinds>Bottles by type:{% for kind in bottle_kinds %} <span class="pl-hq-goals__kind" data-hq-bottle-kind="{{ kind.key }}">{{ kind.bottles }} {{ kind.label }}</span>{% endfor %}</p>
-    {% endif %}
     {% else %}
     <p class="pl-hq-empty" data-hq-goals-empty>No goals yet. Add them from Edit HQ and they show here as chips.</p>
     {% endif %}

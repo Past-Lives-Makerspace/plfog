@@ -1,6 +1,6 @@
 {% comment %}
 The board panel's figures: the four tiles, the meter, Lee's board paragraph, the box Copy board summary copies, and the
-Copy and CSV buttons. Its own Alpine component, so when a +1 tap, an undo, a batch, a tickets save or a D6c write (a
+Copy and CSV buttons. Its own Alpine component, so when a +1 tap, an undo, a batch or a D6c write (a
 door tap, a launch task, a staff entry, a guild row) sends it out of band, copy() starts afresh on the new text; Copy
 finds its box by [data-hq-lg-summary-box], never an Alpine ref, so it reads the box that came back. Change the
 approval stays outside it, so a swap never resets a half typed approval. `display: contents` keeps it out of the

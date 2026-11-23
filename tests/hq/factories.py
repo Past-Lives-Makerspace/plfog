@@ -20,17 +20,11 @@ from hq.models import (
     LaunchTask,
     LedgerEntry,
     LedgerSettings,
-    MarketingAction,
     ShiftSignup,
-    Sponsor,
-    SponsorLogEntry,
     StaffTime,
     VendorFloor,
     VendorTable,
     VolunteerShift,
-    WineBottle,
-    WineDonorThanks,
-    WineryLogo,
 )
 
 
@@ -101,71 +95,6 @@ class ShiftSignupFactory(DjangoModelFactory):
     note = ""
 
 
-class WineBottleFactory(DjangoModelFactory):
-    """One $25 red from Abacela given by a person, logged by a guest (no member, no photo)."""
-
-    class Meta:
-        model = WineBottle
-
-    hub = factory.SubFactory(EventHubFactory)
-    kind = WineBottle.Kind.RED
-    name = factory.Sequence(lambda n: f"Bottle {n}")
-    winery = "Abacela"
-    value_cents = 2500
-    qty = 1
-    giver_name = factory.Sequence(lambda n: f"Giver {n}")
-    giver_type = WineBottle.GiverType.PERSON
-    giver_email = ""
-    listing = WineBottle.Listing.NOT_ASKED
-    credited_name = ""
-    logged_by = None
-    logged_by_name = ""
-
-
-class WineryLogoFactory(DjangoModelFactory):
-    """A logo for Abacela: a small generated PNG, resized to a JPEG on save."""
-
-    class Meta:
-        model = WineryLogo
-
-    hub = factory.SubFactory(EventHubFactory)
-    name = "Abacela"
-    logo = factory.django.ImageField(filename="logo.png", width=64, height=64, color="white")
-
-
-class MarketingActionFactory(DjangoModelFactory):
-    """A flyer drop-off with no reach and no link, logged by nobody."""
-
-    class Meta:
-        model = MarketingAction
-
-    hub = factory.SubFactory(EventHubFactory)
-    kind = MarketingAction.Kind.FLYER
-    details = factory.Sequence(lambda n: f"Spec action {n}")
-    who = ""
-    reach = 0
-    link = ""
-
-
-class SponsorFactory(DjangoModelFactory):
-    """A prospect with no tier, no ask and no follow-up date, added by nobody."""
-
-    class Meta:
-        model = Sponsor
-
-    hub = factory.SubFactory(EventHubFactory)
-    organization = factory.Sequence(lambda n: f"Spec Sponsor {n}")
-    status = Sponsor.Status.PROSPECT
-
-
-class SponsorLogEntryFactory(DjangoModelFactory):
-    class Meta:
-        model = SponsorLogEntry
-
-    sponsor = factory.SubFactory(SponsorFactory)
-    text = factory.Sequence(lambda n: f"Spec contact {n}")
-
-
 class VendorTableFactory(DjangoModelFactory):
     """A requested 6 ft table with no guild, no contact and no setup day, entered by nobody."""
 
@@ -231,16 +160,6 @@ class BarSaleFactory(DjangoModelFactory):
     amount_cents = 600
     pay = BarSale.Pay.CARD
     source = BarSale.Source.QUICK
-
-
-class WineDonorThanksFactory(DjangoModelFactory):
-    """A wine donor marked thanked."""
-
-    class Meta:
-        model = WineDonorThanks
-
-    hub = factory.SubFactory(EventHubFactory)
-    giver_key = factory.Sequence(lambda n: f"spec donor {n}")
 
 
 class DoorCountFactory(DjangoModelFactory):
