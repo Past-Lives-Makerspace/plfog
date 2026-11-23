@@ -1,0 +1,11 @@
+bump = "minor"
+date = "2026-11-22"
+audience = ["members"]
+guidance = "none"
+title = "Booking a tour shows a real calendar"
+changes = [
+  "Pick a Day is a month calendar now: Sunday to Saturday, a block for each month, days without tours greyed out.",
+  "A step bar across the top shows where you are: Schedule, Details, Confirm. Tap a step to go back and forth.",
+  "What you've typed stays put when you go back to change the day or time.",
+  "It fits any phone, and the lobby kiosk gets the same calendar.",
+]
