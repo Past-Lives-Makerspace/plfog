@@ -1,0 +1,21 @@
+bump = "minor"
+date = "2026-11-22"
+audience = ["members", "admins"]
+feature = "tours.calendar"
+guidance = "shots"
+target = "tours.upcoming"
+title = "Tour bookings ask what the guide needs to know"
+changes = [
+  "Booking a tour asks for your name, email and phone, then a few optional questions: your pronouns, how you learned about us, and what brings you to Past Lives.",
+  "Pick \"Someone told me about it!\" to name who told you. If they're an active member, they get a $50 referral bonus when you join.",
+  "Tick that you're interested in a dedicated studio to tell us about your ideal studio and what you'd do with it.",
+  "Tick the newsletter box to join the Past Lives newsletter. Your confirmation email has a link to join if you didn't.",
+  "Booking no longer asks you to make an account. If you join later with the same email, your tour is already on your record.",
+  "The same questions are on the lobby kiosk. Guides see the answers in their new booking email, on the Upcoming tab and in their Google Calendar event.",
+]
+
+[[shots]]
+caption = "The booking form asks for name, email and phone, then a few optional questions. Pick \"Someone told me about it!\" to name who told you, and tick the studio box to describe your ideal studio."
+
+[[shots]]
+caption = "On Upcoming, the tour's guide sees the visitor's answers under their email and phone."

@@ -28,6 +28,7 @@ from membership.models import Member
 from tours.models import (
     MAX_SEATS,
     FacilityTourSettings,
+    FoundUs,
     TourCalendarConnection,
     TourDayOff,
     TourGuideSettings,
@@ -481,28 +482,75 @@ class FacilityTourSettingsForm(forms.ModelForm):
         return cleaned
 
 
-#: The account toggle's words on the booking page (#948).
-CREATE_ACCOUNT_LABEL = "Create a free Past Lives account (handy if you join later)"
+#: The booking questions on :class:`TourBookingForm`, in order (feedback request #32). They are
+#: :data:`tours.booking.ANSWER_FIELDS` too; a spec holds the two to the same names.
+QUESTION_FIELDS = ("pronouns", "found_us_through", "referred_by", "guest_notes")
+
+
+#: The answer that asks for a name (Morlock, 2026-11-22), for the template's x-show.
+TOLD_ANSWER = FoundUs.TOLD.value
 
 
 class TourBookingForm(forms.Form):
-    """The visitor's details on tours.pastlives.space (#948): name, email, phone, party size.
+    """The visitor's details on tours.pastlives.space (#948): name, email, phone (required since
+    feedback request #32), party size, then SimplyBook's optional questions (#32): pronouns,
+    how they found us, who referred them, and what brings them here.
 
     ``tour`` is the chosen tour's :attr:`tours.availability.OpenTour.key`. The party size offers
     1 to ``max_party``: the tour's seats left when the form is shown. A POST passes the most a
     tour can hold instead, so a tour that filled up while the visitor typed is refused by the
     booking's own seat count under the lock ("That time just filled up") rather than by this
-    form. ``create_account`` (the optional account toggle) is offered only to a signed out
-    visitor.
+    form. It offers no account (Morlock, 2026-11-22): a tour finds its visitor's account by
+    verified email when they sign in (:func:`tours.booking.claim_tours`).
     """
 
     tour = forms.CharField(widget=forms.HiddenInput)
-    name = forms.CharField(max_length=200, label="Your name")
-    email = forms.EmailField(label="Email")
-    phone = forms.CharField(max_length=40, required=False, label="Phone (optional)")
+    # The required three say so; nothing else is required, so nothing says "optional" (Morlock).
+    name = forms.CharField(max_length=200, label="Your name (required)")
+    email = forms.EmailField(label="Email (required)")
+    phone = forms.CharField(max_length=40, label="Phone (required)")
     party_size = forms.TypedChoiceField(coerce=int, label="How many people")
-    # Starts on: accounts are encouraged (Felix, #948), and the class booking form defaults its box on too.
-    create_account = forms.BooleanField(required=False, initial=True, label=CREATE_ACCOUNT_LABEL)
+    # SimplyBook's questions (feedback request #32), each optional and in its order, so the guide
+    # knows who is coming and what to show them. Stairs is not asked: the freight elevator is
+    # there for anyone who wants it (Morlock).
+    pronouns = forms.CharField(max_length=60, required=False, label="Pronouns")
+    found_us_through = forms.ChoiceField(
+        required=False,
+        choices=[("", "Pick one"), *FoundUs.choices],
+        label="How did you learn about us?",
+    )
+    # Asked only once they pick "Someone told me about it!" (Morlock, 2026-11-22): _book_form.html shows it
+    # then, and clean() drops a name typed before another answer was picked. The bonus is Morlock's words.
+    referred_by = forms.CharField(
+        max_length=200,
+        required=False,
+        label="What was their name?",
+        help_text="If they're an active member here, they'll get a $50 referral bonus when you join.",
+    )
+    # One open question in place of "most interested in" and "anything else" (Morlock, 2026-11-22):
+    # what they make and what they want from us, so the guide knows where to take them.
+    guest_notes = forms.CharField(
+        max_length=1000,
+        required=False,
+        label="What brings you to Past Lives?",
+        help_text=(
+            "Tell us a little about what you make, or want to make, and what you're hoping to find here. "
+            "Your guide reads it before your tour."
+        ),
+        widget=forms.Textarea(attrs={"rows": 4}),
+    )
+    wants_studio = forms.BooleanField(required=False, initial=False, label="I'm interested in a dedicated studio space")
+    # Shown once the box above is ticked (Alpine, _book_form.html); kept only with the box.
+    studio_description = forms.CharField(
+        max_length=1000,
+        required=False,
+        label="Describe your ideal studio and what you'd do with it",
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
+    # Unticked, as on the class registration form (feedback request #7).
+    wants_newsletter = forms.BooleanField(
+        required=False, initial=False, label="Sign me up for the Past Lives newsletter"
+    )
     #: A honeypot: off screen for a person, filled by a bot that fills every field (the guest
     #: RSVP form's ``website``). A filled one books nothing.
     website = forms.CharField(
@@ -511,7 +559,7 @@ class TourBookingForm(forms.Form):
         widget=forms.TextInput(attrs={"autocomplete": "off", "tabindex": "-1", "aria-hidden": "true"}),
     )
 
-    def __init__(self, *args: Any, max_party: int, offer_account: bool, kiosk: bool = False, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, max_party: int, kiosk: bool = False, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         top = max(1, min(max_party, MAX_SEATS))
         party = cast(forms.TypedChoiceField, self.fields["party_size"])
@@ -522,8 +570,33 @@ class TourBookingForm(forms.Form):
         self.fields["name"].widget.attrs.update({"autocomplete": "off" if kiosk else "name"})
         self.fields["email"].widget.attrs.update({"autocomplete": "off" if kiosk else "email"})
         self.fields["phone"].widget = forms.TextInput(attrs={"type": "tel", "autocomplete": "off" if kiosk else "tel"})
-        if not offer_account:
-            del self.fields["create_account"]
+        # The ideal studio field follows the studio box (Morlock).
+        self.fields["wants_studio"].widget.attrs["x-model"] = "studio"
+        # The referral question follows "Someone told me about it!" (Morlock).
+        self.fields["found_us_through"].widget.attrs["x-model"] = "found"
+        if kiosk:
+            for name in ("pronouns", "referred_by", "guest_notes", "studio_description"):
+                self.fields[name].widget.attrs["autocomplete"] = "off"
+
+    @property
+    def told_answer(self) -> str:
+        """The found us answer that opens the referral question, for ``_book_form.html``."""
+        return TOLD_ANSWER
+
+    @property
+    def question_fields(self) -> list[forms.BoundField]:
+        """The booking questions (feedback request #32), in order, for the template to draw."""
+        return [self[name] for name in QUESTION_FIELDS]
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        if not cleaned.get("wants_studio"):
+            # Typed, then the box was unticked: the field was hidden, so it was not meant to send.
+            cleaned["studio_description"] = ""
+        if cleaned.get("found_us_through") != FoundUs.TOLD:
+            # The same for a name typed before another way of learning about us was picked.
+            cleaned["referred_by"] = ""
+        return cleaned
 
     @property
     def honeypot_tripped(self) -> bool:

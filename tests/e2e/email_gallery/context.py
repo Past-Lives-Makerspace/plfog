@@ -1131,7 +1131,14 @@ def tour_guide_booked_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``tours.notify.tell_guide_booked``."""
     from tours.notify import guide_context, short_when
 
-    booking = _tour_booking(data)
+    # With the booking questions answered (#32), as the guide reads them.
+    booking = _tour_booking(
+        data,
+        pronouns="he/him",
+        found_us_through="Someone told me about it!",
+        referred_by="Jo Member",
+        guest_notes="I throw pots at home and want a kiln, and other potters to learn from.",
+    )
     return {"subject": f"New tour booked: {short_when(booking.starts_at)}", "template_context": guide_context(booking)}
 
 

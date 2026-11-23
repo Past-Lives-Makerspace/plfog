@@ -266,6 +266,11 @@
 .pl-tours-row__contact [data-tour-booking-phone] {
     white-space: nowrap;
 }
+/* The booking questions' answers (#32), one per line under the contact line. */
+.pl-tours-row__answer {
+    display: block;
+    overflow-wrap: anywhere;
+}
 /* The time under the date on a wide screen; beside it in a stacked phone card. */
 @media (min-width: 769px) {
     .pl-tours-row__time {
