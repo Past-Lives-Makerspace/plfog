@@ -1416,11 +1416,21 @@ class Member(models.Model):
         orientations.send_guild_welcome(guild, self)
 
     def unsubscribe_from_guild(self, guild: Guild) -> None:
-        """Remove this member's subscription to ``guild`` (idempotent) and drop the Discord role."""
+        """Remove this member's subscription to ``guild`` (idempotent), drop the Discord role and take their emoji off.
+
+        A linked member's emoji for the guild comes off #choose-your-guild by a task queued on
+        commit (:func:`membership.discord_sync.remove_guild_reactions`), so the 15 minute reaction
+        sync cannot put them back on the roster (#1319).
+        """
         from core.events import discord_roles
+        from core.tasks import enqueue_on_commit
+        from membership.discord_sync import remove_guild_reactions
 
         GuildMembership.objects.filter(guild=guild, member=self).delete()
         discord_roles.on_membership_changed(guild, self, joined=False)
+        user_id = (self.discord_user_id or "").strip()
+        if user_id:
+            enqueue_on_commit(remove_guild_reactions, user_id, guild.pk)
 
     def answer_guild_updates_prompt(self, guilds: Iterable[Guild]) -> int:
         """Record the member's first-login guild updates answer (idempotent to re-call).
@@ -9203,6 +9213,7 @@ class GuildMembership(models.Model):
             "directions from fighting."
         ),
     )
+    # Unused since #1319: un-reacting now removes the membership itself. Kept until a later PR drops it.
     no_discord_role = models.BooleanField(
         default=False,
         help_text=(

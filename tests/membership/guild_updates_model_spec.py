@@ -129,6 +129,32 @@ def describe_unsubscribe_from_guild():
         assert GuildMembership.objects.count() == 0
         roles.assert_called_once_with(guild, member, joined=False)
 
+    def it_queues_the_removal_of_a_linked_members_emoji_on_commit(django_capture_on_commit_callbacks):
+        # #1319: without it the emoji stays on and the reaction sync puts them back on the roster.
+        member = MemberFactory(discord_user_id=" u1 ")
+        guild = GuildFactory()
+        GuildMembershipFactory(guild=guild, member=member)
+        with (
+            patch("core.events.discord_roles.on_membership_changed"),
+            patch("membership.discord_sync.remove_guild_reactions") as task,
+        ):
+            with django_capture_on_commit_callbacks(execute=False) as callbacks:
+                member.unsubscribe_from_guild(guild)
+            task.enqueue.assert_not_called()  # nothing before the commit
+            for callback in callbacks:
+                callback()
+        task.enqueue.assert_called_once_with("u1", guild.pk)
+
+    def it_queues_nothing_for_a_member_without_discord(django_capture_on_commit_callbacks):
+        member = MemberFactory(discord_user_id="")
+        guild = GuildFactory()
+        with (
+            patch("core.events.discord_roles.on_membership_changed"),
+            django_capture_on_commit_callbacks(execute=False) as callbacks,
+        ):
+            member.unsubscribe_from_guild(guild)
+        assert callbacks == []
+
 
 def describe_answer_guild_updates_prompt():
     def it_subscribes_each_pick_stamps_and_returns_the_count():

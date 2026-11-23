@@ -12,13 +12,16 @@ Three entry points:
   Discord as roles) and sends the one confirmation email. It reads every reaction on every
   role message, which ran a connect past gunicorn's 30 seconds inline (feedback request 15).
 * :func:`reconcile_reactions` — the 15-minute cron: add a ``source="discord"`` membership for
-  each linked reactor, clear the "no Discord role" mark of anyone who reacts again, and give
-  every reactor, linked or not, a mapped guild role they lack. Un-reacting never removes a
-  membership (Felix, 2026-11-20). Also DMs a one-time "you're halfway there" nudge to reactors
-  with no linked member, so a guild pick from an unlinked Discord account isn't silently ignored.
+  each linked reactor, remove the ``source="discord"`` membership of a linked member who no
+  longer reacts, and give every reactor, linked or not, a mapped guild role they lack. A guild's
+  emoji and its roster agree (Felix, 2026-11-23, #1319). Also DMs a one-time "you're halfway
+  there" nudge to reactors with no linked member, so a guild pick from an unlinked Discord
+  account isn't silently ignored.
 * :func:`sync_roster_roles` — the daily job: give every linked roster member each role of their
-  guild they lack. Add only: being off a roster never removes a role, and a membership marked
-  ``no_discord_role`` (they un-reacted) is skipped.
+  guild they lack. Add only: being off a roster never removes a role.
+* :func:`apply_reaction` and :func:`remove_guild_reactions` — the durable tasks that keep the two
+  in step as things happen: a live reaction joins or leaves the roster, and a portal leave takes
+  the member's emoji off.
 
 The whole thing no-ops when Discord is unconfigured (blank bot token / server / message
 ids). Inbound only ever writes ``source="discord"`` rows; outbound only ever writes
@@ -91,8 +94,7 @@ class ReconcileStats:
     """Counts returned by :func:`reconcile_reactions` for the cron command's stdout."""
 
     added: int = 0
-    unmarked: int = 0
-    marked: int = 0
+    left: int = 0
     taken: int = 0
     roles: RoleGrants = RoleGrants()
     nudged: int = 0
@@ -210,15 +212,14 @@ def import_member_guilds(member: Member) -> ImportResult:
 
 
 def reconcile_reactions() -> ReconcileStats:
-    """Mirror every reaction on the role messages into the app and onto Discord. Add only.
+    """Mirror every reaction on the role messages into the app and onto Discord.
 
     Runs every 15 minutes. No-ops (``ran=False``) unless Discord is fully configured. For each
-    mapped guild: a linked reactor gets a ``source="discord"`` membership (silent, no email),
-    and their membership's ``no_discord_role`` mark is cleared, since reacting again asks for
-    the role back. Then every reactor, linked or not, gets each role of the guild they reacted
-    for that they lack, read from one member list: this is the backstop for a reaction the live
-    listener missed. Un-reacting never removes a membership: a reaction row whose member no
-    longer reacts is marked ``no_discord_role`` and loses the guild's roles (:func:`_mark_unreacted`).
+    mapped guild: a linked reactor gets a ``source="discord"`` membership (silent, no email).
+    A reaction row whose linked member no longer reacts is removed and the guild's roles come
+    off (:func:`_remove_unreacted`). Then every reactor, linked or not, gets each role of the
+    guild they reacted for that they lack, read from one member list: this is the backstop for
+    a reaction the live listener missed.
     """
     from membership.models import GuildMembership, Member
 
@@ -229,62 +230,56 @@ def reconcile_reactions() -> ReconcileStats:
 
     reactions = _read_guild_reactions(channel_id, message_ids)
     added = 0
-    unmarked = 0
     wanted: dict[str, set[str]] = {}
     for pk, ids in reactions.reactors.items():
         guild = reactions.guilds[pk]
         for member in Member.objects.filter(discord_user_id__in=ids):
             _membership, created = GuildMembership.objects.record_discord_join(guild, member)
             added += created
-        unmarked += GuildMembership.objects.filter(
-            guild=guild, member__discord_user_id__in=ids, no_discord_role=True
-        ).update(no_discord_role=False)
         for user_id in ids:
             wanted.setdefault(user_id, set()).update(str(role_id) for role_id in guild.discord_role_ids or [])
 
-    marked, taken = _mark_unreacted(server_id, reactions)
+    left, taken = _remove_unreacted(server_id, reactions)
     roles = give_missing_roles(server_id, wanted)
     # The adds above silently ignore a reactor no member has linked — nudge them (once
     # ever) so their guild pick isn't a black hole. After the membership work so a DM
     # failure can't block the reconcile itself.
     nudged = _nudge_unlinked_reactors({user_id for ids in reactions.reactors.values() for user_id in ids})
 
-    return ReconcileStats(
-        added=added, unmarked=unmarked, marked=marked, taken=taken, roles=roles, nudged=nudged, ran=True
-    )
+    return ReconcileStats(added=added, left=left, taken=taken, roles=roles, nudged=nudged, ran=True)
 
 
-def _mark_unreacted(server_id: str, reactions: _GuildReactions) -> tuple[int, int]:
-    """Mark ``no_discord_role`` on each reaction row whose linked member no longer reacts, and take
-    that guild's roles off them. Returns ``(rows marked, roles taken)``.
+def _remove_unreacted(server_id: str, reactions: _GuildReactions) -> tuple[int, int]:
+    """Remove each reaction row whose linked member no longer reacts, and take that guild's roles
+    off them. Silent, no email. Returns ``(rows removed, roles taken)``.
 
     Only a ``source="discord"`` row is judged here: it exists because its member reacted, so a
-    missing reaction means they took it off. A portal join (``source="app"``) never reacted here,
-    so its un-react is the live listener's to see. A guild whose fetch was truncated is skipped,
-    since a missing reactor there may only be unread. The membership itself always stays.
+    missing reaction means they took it off. A portal join (``source="app"``) may never have
+    reacted, since a bot cannot react for them, so its un-react is the live listener's to see. A
+    guild whose fetch was truncated is skipped, since a missing reactor there may only be unread.
     """
     from membership.models import GuildMembership
 
-    marked = 0
+    left = 0
     taken = 0
     for pk, ids in reactions.reactors.items():
         if not reactions.complete[pk]:
             continue
         guild = reactions.guilds[pk]
         stale = (
-            GuildMembership.objects.filter(guild=guild, source=GuildMembership.Source.DISCORD, no_discord_role=False)
+            GuildMembership.objects.filter(guild=guild, source=GuildMembership.Source.DISCORD)
             .exclude(member__discord_user_id="")
             .exclude(member__discord_user_id__in=ids)
         )
         user_ids = sorted(set(stale.values_list("member__discord_user_id", flat=True)))
         if not user_ids:
             continue
-        marked += stale.update(no_discord_role=True)
+        left += stale.delete()[0]
         for user_id in user_ids:
             for role_id in guild.discord_role_ids or []:
                 outcome = discord_roles.role_outcome("DELETE", server_id, user_id.strip(), str(role_id), retry=True)
                 taken += outcome is RoleOutcome.DONE
-    return marked, taken
+    return left, taken
 
 
 def give_missing_roles(server_id: str, wanted: dict[str, set[str]]) -> RoleGrants:
@@ -315,8 +310,7 @@ def give_missing_roles(server_id: str, wanted: dict[str, set[str]]) -> RoleGrant
 def sync_roster_roles() -> RoleGrants | None:
     """Give every linked roster member each role of their guild they lack (the daily job). Add only.
 
-    A membership marked ``no_discord_role`` is skipped, and a deleted guild's roster too. None
-    when the bot token or the server id is blank (nothing was tried).
+    A deleted guild's roster is skipped. None when the bot token or the server id is blank (nothing was tried).
     """
     from core.models import SiteConfiguration
     from membership.models import GuildMembership
@@ -328,7 +322,7 @@ def sync_roster_roles() -> RoleGrants | None:
         return None
     wanted: dict[str, set[str]] = {}
     rows = (
-        GuildMembership.objects.filter(no_discord_role=False, guild__deleted_at__isnull=True)
+        GuildMembership.objects.filter(guild__deleted_at__isnull=True)
         .exclude(member__discord_user_id="")
         .values_list("member__discord_user_id", "guild__discord_role_ids")
     )
@@ -345,13 +339,12 @@ class ReactionRoleError(Exception):
 def apply_reaction(user_id: str, guild_id: int, added: bool) -> None:
     """Give or take one guild's Discord roles for one reaction the live gateway saw (#1270, part 3).
 
-    Queued by :func:`core.discord_gateway.dispatch`. An add PUTs every role of the guild, records
-    a linked reactor's ``source="discord"`` membership (silent, no email) and clears its
-    ``no_discord_role`` mark. A remove first checks the user's other reactions for this guild on
-    every role message (the two Glass emojis, or the same emoji on the other message) and keeps
-    the role when one is still there, or when a read was truncated and might have missed one.
-    Otherwise it DELETEs every role and marks the member's membership ``no_discord_role``, whatever
-    its source, so the daily sync does not give the role back. It never removes a membership and
+    Queued by :func:`core.discord_gateway.dispatch`. An add PUTs every role of the guild and
+    records a linked reactor's ``source="discord"`` membership (silent, no email). A remove first
+    checks the user's other reactions for this guild on every role message (the two Glass emojis,
+    or the same emoji on the other message) and keeps everything when one is still there, or when
+    a read was truncated and might have missed one. Otherwise it DELETEs every role and removes
+    the member's membership, whatever its source, so the emoji and the roster agree (#1319). It
     never emails. Safe to run twice: a PUT or DELETE Discord already treats as done is a 204.
 
     Raises:
@@ -375,14 +368,52 @@ def apply_reaction(user_id: str, guild_id: int, added: bool) -> None:
         discord_roles.role_outcome(method, server_id, user_id, str(role_id), retry=True)
         for role_id in guild.discord_role_ids or []
     ]
-    rows = GuildMembership.objects.filter(guild=guild, member__discord_user_id=user_id)
     if added:
         for member in Member.objects.filter(discord_user_id=user_id):
             GuildMembership.objects.record_discord_join(guild, member)
-    rows.update(no_discord_role=not added)
+    else:
+        GuildMembership.objects.filter(guild=guild, member__discord_user_id=user_id).delete()
     bad = [outcome for outcome in outcomes if outcome in (RoleOutcome.FAILED, RoleOutcome.REFUSED)]
     if bad:
         raise ReactionRoleError(f"{len(bad)} Discord role {method} for guild {guild} did not land ({bad[0]}).")
+
+
+class ReactionRemoveError(Exception):
+    """Taking a member's emoji off a role message failed, so the task fails and the Webmasters hear."""
+
+
+@task
+def remove_guild_reactions(user_id: str, guild_id: int) -> None:
+    """Take ``user_id``'s emoji for one guild off every role message, after they left it in the portal (#1319).
+
+    Queued on commit by :meth:`membership.models.Member.unsubscribe_from_guild`. Without it the
+    emoji stays on and :func:`reconcile_reactions` puts the member back on the roster within 15
+    minutes. Deletes the reaction of every emoji mapped to the guild on every role message. Skips
+    a user who is on the guild's roster again by the time it runs (they rejoined). The live
+    listener sees each removal and runs :func:`apply_reaction`, which finds nothing left to undo.
+    Safe to run twice: a reaction already gone is a 404, treated as done.
+
+    Raises:
+        ReactionRemoveError: Discord would not take one of the reactions off.
+    """
+    from membership.models import DiscordGuildEmoji, GuildMembership
+
+    config = _reconcile_config()
+    if config is None:
+        return
+    if GuildMembership.objects.filter(guild_id=guild_id, member__discord_user_id=user_id).exists():
+        logger.info("Discord reaction removal skipped: %s is back on guild %s's roster.", user_id, guild_id)
+        return
+    _server_id, channel_id, message_ids = config
+    emojis = sorted(DiscordGuildEmoji.objects.filter(guild_id=guild_id).values_list("emoji", flat=True))
+    failed = [
+        (message_id, emoji)
+        for emoji in emojis
+        for message_id in message_ids
+        if not discord_reactions.remove_reaction(channel_id, message_id, emoji, user_id)
+    ]
+    if failed:
+        raise ReactionRemoveError(f"{len(failed)} Discord reaction removal(s) for guild {guild_id} did not land.")
 
 
 def _link_nudge_content() -> str:

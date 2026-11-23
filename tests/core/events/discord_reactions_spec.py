@@ -121,3 +121,41 @@ def describe_fetch_reactors():
         respx.get(url__regex=_REACTIONS_RE).mock(return_value=httpx.Response(200, json=[{} for _ in range(100)]))
         page = discord_reactions.fetch_reactors("chan", "msg", "🔥")
         assert page.complete is False
+
+
+_REMOVE_URL = "https://discord.com/api/v10/channels/chan/messages/msg/reactions/%F0%9F%94%A5/u1"
+
+
+def describe_remove_reaction():
+    """The one write: a portal leave takes the member's emoji off a role message (#1319)."""
+
+    @respx.mock
+    def it_deletes_the_users_reaction_and_treats_already_gone_as_done():
+        route = respx.delete(_REMOVE_URL).mock(side_effect=[httpx.Response(204), httpx.Response(404)])
+        assert discord_reactions.remove_reaction("chan", "msg", "🔥", "u1") is True
+        assert discord_reactions.remove_reaction("chan", "msg", "🔥", "u1") is True
+        assert route.calls[0].request.headers["Authorization"] == "Bot bot-tok"
+
+    @respx.mock
+    def it_waits_out_a_429_and_gives_up_after_the_retries(monkeypatch):
+        monkeypatch.setattr(discord_reactions, "_MAX_RETRY_SLEEP_SECONDS", 0.0)
+        route = respx.delete(_REMOVE_URL).mock(
+            side_effect=[httpx.Response(429, headers={"Retry-After": "1"}), httpx.Response(204)]
+        )
+        assert discord_reactions.remove_reaction("chan", "msg", "🔥", "u1") is True
+        assert route.call_count == 2
+        route.side_effect = None
+        route.return_value = httpx.Response(429, headers={"Retry-After": "0"})
+        assert discord_reactions.remove_reaction("chan", "msg", "🔥", "u1") is False
+
+    @respx.mock
+    def it_fails_on_a_refusal_or_a_network_error():
+        route = respx.delete(_REMOVE_URL).mock(return_value=httpx.Response(403, json={"code": 50013}))
+        assert discord_reactions.remove_reaction("chan", "msg", "🔥", "u1") is False
+        route.side_effect = httpx.ConnectError("down")
+        assert discord_reactions.remove_reaction("chan", "msg", "🔥", "u1") is False
+
+    def it_does_nothing_with_a_blank_token_or_id(settings):
+        assert discord_reactions.remove_reaction("chan", "msg", "🔥", "") is True
+        settings.DISCORD_BOT_TOKEN = ""
+        assert discord_reactions.remove_reaction("chan", "msg", "🔥", "u1") is True

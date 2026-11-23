@@ -306,8 +306,8 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         key="sync_discord_guild_roles",
         name="Sync Discord guild roles",
         description=(
-            "Adds members who react in #choose-your-guild to that guild, and gives every reactor the "
-            "guild's Discord role. Never takes a role or a membership away."
+            "Adds members who react in #choose-your-guild to that guild and gives every reactor the "
+            "guild's Discord role. A member who took their reaction off leaves the guild and loses the role."
         ),
         command="sync_discord_guild_roles",
         schedule_label="Every 15 min",
