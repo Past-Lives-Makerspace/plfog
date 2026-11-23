@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -65,10 +66,18 @@ def describe_dispatch():
         return guild
 
     def it_queues_one_task_for_a_mapped_emoji_on_either_role_message(glass):
-        with patch("membership.discord_sync.apply_reaction") as task, patch("core.tasks.enqueue_on_commit") as enqueue:
+        seen = datetime(2026, 11, 23, 17, 0, tzinfo=UTC)
+        with (
+            patch("membership.discord_sync.apply_reaction") as task,
+            patch("core.tasks.enqueue_on_commit") as enqueue,
+            patch("django.utils.timezone.now", return_value=seen),
+        ):
             assert discord_gateway.dispatch(_event()) is True
             assert discord_gateway.dispatch(_event(message_id="msg2", added=False)) is True
-        assert [c.args[1:] for c in enqueue.call_args_list] == [("u1", glass.pk, True), ("u1", glass.pk, False)]
+        assert [c.args[1:] for c in enqueue.call_args_list] == [
+            ("u1", glass.pk, True, seen.isoformat()),
+            ("u1", glass.pk, False, seen.isoformat()),
+        ]
         assert enqueue.call_args.args[0] is task
 
     def it_matches_an_emoji_sent_without_its_variation_selector(glass):

@@ -24,8 +24,9 @@ Three entry points:
   the member's emoji off.
 
 The whole thing no-ops when Discord is unconfigured (blank bot token / server / message
-ids). Inbound only ever writes ``source="discord"`` rows; outbound only ever writes
-Discord roles — the two are disjoint and never fight (spec §5.6). All Discord HTTP goes
+ids). Inbound adds only ``source="discord"`` rows; a live un-react removes the row whatever
+its source (#1319), but never one joined after the reaction came off. Outbound only ever writes
+Discord roles (spec §5.6). All Discord HTTP goes
 through the best-effort readers/writers in :mod:`core.events.discord_reactions` /
 :mod:`core.events.discord_roles` (mocked with ``respx`` in tests).
 """
@@ -34,6 +35,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -336,7 +338,7 @@ class ReactionRoleError(Exception):
 
 
 @task
-def apply_reaction(user_id: str, guild_id: int, added: bool) -> None:
+def apply_reaction(user_id: str, guild_id: int, added: bool, seen_at: str = "") -> None:
     """Give or take one guild's Discord roles for one reaction the live gateway saw (#1270, part 3).
 
     Queued by :func:`core.discord_gateway.dispatch`. An add PUTs every role of the guild and
@@ -344,8 +346,17 @@ def apply_reaction(user_id: str, guild_id: int, added: bool) -> None:
     checks the user's other reactions for this guild on every role message (the two Glass emojis,
     or the same emoji on the other message) and keeps everything when one is still there, or when
     a read was truncated and might have missed one. Otherwise it DELETEs every role and removes
-    the member's membership, whatever its source, so the emoji and the roster agree (#1319). It
-    never emails. Safe to run twice: a PUT or DELETE Discord already treats as done is a 204.
+    the member's membership, whatever its source, so the emoji and the roster agree (#1319). A
+    remove never undoes a join made after the gateway saw it (``seen_at``): when the member joined
+    the guild again since, as after a portal leave whose emoji :func:`remove_guild_reactions`
+    took off, nothing changes. It never emails. Safe to run twice: a PUT or DELETE Discord already
+    treats as done is a 204.
+
+    Args:
+        user_id: The reacting Discord user's id.
+        guild_id: The guild the emoji maps to.
+        added: ``True`` for an add, ``False`` for a remove.
+        seen_at: When the gateway saw the reaction, as an ISO 8601 datetime; blank skips the check.
 
     Raises:
         ReactionRoleError: A role change still failed after its retry, or Discord refused it.
@@ -358,6 +369,10 @@ def apply_reaction(user_id: str, guild_id: int, added: bool) -> None:
         return
     server_id, channel_id, message_ids = config
     if not added:
+        rows = GuildMembership.objects.filter(guild=guild, member__discord_user_id=user_id)
+        if seen_at and rows.filter(joined_at__gt=datetime.fromisoformat(seen_at)).exists():
+            logger.info("Discord reaction remove skipped: %s joined guild %s after it.", user_id, guild)
+            return
         emojis = list(DiscordGuildEmoji.objects.filter(guild=guild).values_list("emoji", flat=True))
         pages = [discord_reactions.fetch_reactors(channel_id, m, e) for e in emojis for m in message_ids]
         if any(user_id in page.user_ids or not page.complete for page in pages):
@@ -390,7 +405,8 @@ def remove_guild_reactions(user_id: str, guild_id: int) -> None:
     emoji stays on and :func:`reconcile_reactions` puts the member back on the roster within 15
     minutes. Deletes the reaction of every emoji mapped to the guild on every role message. Skips
     a user who is on the guild's roster again by the time it runs (they rejoined). The live
-    listener sees each removal and runs :func:`apply_reaction`, which finds nothing left to undo.
+    listener sees each removal and runs :func:`apply_reaction`, which finds nothing left to undo
+    and leaves alone a membership joined after the removal.
     Safe to run twice: a reaction already gone is a 404, treated as done.
 
     Raises:

@@ -522,6 +522,25 @@ def describe_apply_reaction():
         assert mail.outbox == []
 
     @respx.mock
+    def it_never_undoes_a_join_made_after_the_reaction_came_off(glass):
+        # #1319: a portal leave takes the emoji off; a rejoin before that remove's task runs stays.
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        rejoined, earlier = MemberFactory(discord_user_id="u1"), MemberFactory(discord_user_id="u2")
+        GuildMembership.objects.record_app_join(glass, rejoined)
+        GuildMembership.objects.record_app_join(glass, earlier)
+        seen = timezone.now() - timedelta(seconds=5)
+        GuildMembership.objects.filter(member=earlier).update(joined_at=seen - timedelta(days=1))
+        _mock_reactions({})
+        delete = respx.delete(url__regex=_ROLE_RE).mock(return_value=httpx.Response(204))
+        discord_sync.apply_reaction.call("u1", glass.pk, False, seen.isoformat())
+        discord_sync.apply_reaction.call("u2", glass.pk, False, seen.isoformat())
+        assert list(GuildMembership.objects.values_list("member", flat=True)) == [rejoined.pk]
+        assert _put_roles(delete.calls) == [("u2", "71"), ("u2", "72")]
+
+    @respx.mock
     def it_keeps_the_roles_while_another_emoji_of_the_guild_is_still_on(glass):
         member = MemberFactory(discord_user_id="u1")
         GuildMembership.objects.record_discord_join(glass, member)
