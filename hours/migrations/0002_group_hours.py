@@ -9,10 +9,12 @@ set. Self-contained on purpose: a migration never imports app code that may chan
 The reverse lets go of every key and deletes the sets.
 """
 
+from django.apps.registry import Apps
 from django.db import migrations
+from django.db.backends.base.schema import BaseDatabaseSchemaEditor
 
 
-def group_hours(apps, schema_editor):
+def group_hours(apps: Apps, schema_editor: BaseDatabaseSchemaEditor | None) -> None:
     Hours = apps.get_model("hours", "Hours")
     TourHours = apps.get_model("tours", "TourHours")
     OrientationAvailability = apps.get_model("membership", "OrientationAvailability")
@@ -49,7 +51,7 @@ def group_hours(apps, schema_editor):
         OrientationAvailability.objects.filter(pk__in=orientation_pks).update(hours=hours)
 
 
-def ungroup_hours(apps, schema_editor):
+def ungroup_hours(apps: Apps, schema_editor: BaseDatabaseSchemaEditor | None) -> None:
     apps.get_model("tours", "TourHours").objects.update(hours=None)
     apps.get_model("membership", "OrientationAvailability").objects.update(hours=None)
     apps.get_model("hours", "Hours").objects.all().delete()

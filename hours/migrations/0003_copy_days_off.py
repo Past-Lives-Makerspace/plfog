@@ -6,10 +6,12 @@ date. The old rows stay where they are and nothing reads the copies yet. The rev
 copies.
 """
 
+from django.apps.registry import Apps
 from django.db import migrations
+from django.db.backends.base.schema import BaseDatabaseSchemaEditor
 
 
-def copy_days_off(apps, schema_editor):
+def copy_days_off(apps: Apps, schema_editor: BaseDatabaseSchemaEditor | None) -> None:
     DayOff = apps.get_model("hours", "DayOff")
     TourDayOff = apps.get_model("tours", "TourDayOff")
     OrientationDayOff = apps.get_model("membership", "OrientationDayOff")
@@ -30,7 +32,7 @@ def copy_days_off(apps, schema_editor):
     DayOff.objects.bulk_create(copies)
 
 
-def delete_copies(apps, schema_editor):
+def delete_copies(apps: Apps, schema_editor: BaseDatabaseSchemaEditor | None) -> None:
     apps.get_model("hours", "DayOff").objects.all().delete()
 
 
