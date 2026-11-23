@@ -102,7 +102,7 @@ def describe_confirm_first():
         # No guide can choose Confirm First since #1309; the requests the No preference pool (#1255)
         # still makes, behind Tour Settings' switch, are answered the same way, so the mode is set here.
         TourGuideSettings.objects.create(
-            guide=guide, confirm_mode=TourGuideSettings.ConfirmMode.FIRST, min_notice_hours=60
+            guide=guide, confirm_mode=TourGuideSettings.ConfirmMode.FIRST, min_notice_minutes=60 * 60
         )
 
         mail.outbox = []

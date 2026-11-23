@@ -247,6 +247,73 @@ body.tours-portal {
     color: var(--text2);
 }
 
+/* Tours people already booked (#1312): a green dot under the day's number on the calendar, a key
+   under the calendar saying what it means, and in the day's times a green edged row that says how
+   many are going. Green, never gold: gold is the picked day. On the picked (gold) day the dot is navy. */
+.cp-page .pl-tourpub__day--going {
+    position: relative;
+}
+
+.cp-page .pl-tourpub__day--going::after,
+.cp-page .pl-tourpub__key-dot {
+    content: "";
+    display: block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+}
+
+.cp-page .pl-tourpub__day--going::after {
+    position: absolute;
+    left: 50%;
+    bottom: 14%;
+    transform: translateX(-50%);
+}
+
+.cp-page .pl-tourpub__day--on.pl-tourpub__day--going::after {
+    background: var(--navy-dark);
+}
+
+.cp-page .pl-tourpub__key {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0.75rem 0 0;
+    font-size: 13px;
+    color: var(--text2);
+}
+
+.cp-page .pl-tourpub__key-dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+}
+
+.cp-page .pl-tourpub__time--going {
+    border-color: var(--green);
+    border-width: 2px;
+}
+
+/* The text in the page's own colour for contrast in both themes; the dot carries the green. */
+.cp-page .pl-tourpub__time-going {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.cp-page .pl-tourpub__time-going::before {
+    content: "";
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+}
+
 .cp-page .pl-tourpub__empty,
 .cp-page .pl-tourpub__lead {
     font-size: 14px;
@@ -353,11 +420,6 @@ body.tours-portal {
 
 .cp-page .pl-tourpub__form {
     margin-top: 0;
-}
-
-/* The Guide dropdown (#1255): a first name or "No preference", never the card's width (FRONTEND rule 28). */
-.cp-page .pl-tourpub__guide select {
-    max-width: 20rem;
 }
 
 /* The loading indicator (#1277, static/js/tours-loading.js): while a page or an htmx response

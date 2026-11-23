@@ -64,7 +64,8 @@ def _visitor(party: int = 2, email: str = "sam@example.com") -> Visitor:
 def _confirms_first(guide: Member, notice: int = 25) -> None:
     """Confirm First, with a notice short enough for NOW's Tuesday tours (31 hours off)."""
     TourGuideSettings.objects.update_or_create(
-        guide=guide, defaults={"confirm_mode": TourGuideSettings.ConfirmMode.FIRST, "min_notice_hours": notice}
+        guide=guide,
+        defaults={"confirm_mode": TourGuideSettings.ConfirmMode.FIRST, "min_notice_minutes": notice * 60},
     )
 
 
@@ -114,9 +115,7 @@ def describe_the_guides_choice():
         chosen = TourGuideSettings(guide=guide)
         assert chosen.summary == "New bookings are confirmed at once, and you are told."
         chosen.confirm_mode = TourGuideSettings.ConfirmMode.FIRST
-        assert chosen.summary == (
-            "Visitors book at least 48 hours ahead, and each booking waits for you to confirm or decline it."
-        )
+        assert chosen.summary == "Each booking waits for you to confirm or decline it."
         assert str(chosen) == f"{guide} (Confirm First)"
 
 
@@ -293,7 +292,7 @@ def describe_two_visitors_racing_for_a_confirm_first_guides_last_seats():
         TourHoursFactory(guide=guide, seats=2)
         _confirms_first(guide)
         FacilityTourSettings.load()
-        real_open_tour_at = open_tour_at
+        real_open_tour_at = booking_service.tour_at
         start = threading.Barrier(4)
         outcomes: list[str] = []
 
@@ -312,7 +311,7 @@ def describe_two_visitors_racing_for_a_confirm_first_guides_last_seats():
             finally:
                 connection.close()
 
-        with patch.object(booking_service, "open_tour_at", slow_open_tour_at):
+        with patch.object(booking_service, "tour_at", slow_open_tour_at):
             threads = [threading.Thread(target=visitor, args=(number,)) for number in range(4)]
             for thread in threads:
                 thread.start()
@@ -332,12 +331,13 @@ def describe_the_guides_own_notice():
         walk_in = book_tour(guide=first, starts_at=FOUR, visitor=_visitor(), source=TourBooking.Source.KIOSK, now=NOW)
         assert walk_in.status == TourBooking.Status.BOOKED
 
-    def it_never_goes_below_the_house_notice(first: Member):
+    def it_may_go_below_the_house_notice(first: Member):
+        """#1312: Tour Settings' notice is a default, never a floor."""
         house = FacilityTourSettings.load()
         house.min_notice_hours = 40
         house.save()
-        assert TourGuideSettings.notice_hours_by_guide([first.pk], house) == {first.pk: 40}
-        assert open_tour_at(first, FOUR, now=NOW) is None
+        assert TourGuideSettings.notice_minutes_by_guide([first.pk], house) == {first.pk: 25 * 60}
+        assert open_tour_at(first, FOUR, now=NOW) is not None
 
 
 def describe_the_confirm_by_time():

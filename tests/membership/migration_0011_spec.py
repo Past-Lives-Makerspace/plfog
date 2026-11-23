@@ -1,4 +1,4 @@
-"""Tests for migration 0012 — seed default MembershipPlan and backfill Members."""
+"""Tests for migration 0011 — seed default MembershipPlan and backfill Members."""
 
 from __future__ import annotations
 

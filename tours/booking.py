@@ -1,9 +1,10 @@
 """Booking, moving and cancelling facility tours (#948), and the staff's moves, cancels and marks (#949).
 
 The one place a :class:`~tours.models.TourBooking` is made, moved, cancelled or marked.
-Each takes the row lock :func:`tours.availability.open_tour_at` holds for the tour it lands on,
-inside ``transaction.atomic()``, before counting seats, so two visitors racing for the last seat
-cannot both get it: the second one's count includes the first one's booking and is refused.
+Each takes :func:`tours.availability.lock_bookings` (through ``lock=True``) before reading the tour
+it lands on, inside ``transaction.atomic()``, so two visitors racing for the last seat cannot both
+get it, and two booking the same time nobody has booked yet end on one guide (#1312): the second
+one reads the first one's booking, which claimed that time, and joins the same tour.
 
 What happens next (the visitor's email with its calendar invite, the guide's email, bell and
 push, and :data:`tours.signals.tour_booking_changed` for part 5's Google sync) runs only once
@@ -21,7 +22,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
-from uuid import uuid4
 
 from django.db import transaction
 from django.db.models import Q
@@ -33,7 +33,7 @@ from core.services.guest_account import find_user_for_email
 from membership.models import AdminCapability, Member
 from membership.permission_setup import SetupState
 from tours import signals
-from tours.availability import OpenTour, open_tour_at, open_tours
+from tours.availability import open_tour_at, tour_at
 from tours.models import FacilityTourSettings, TourBooking, TourBookingNote, TourGuideSettings
 
 if TYPE_CHECKING:
@@ -140,10 +140,7 @@ class Visitor:
 
 
 def _join_newsletter(booking: TourBooking) -> None:
-    """Subscribe the visitor in Mailchimp once the booking commits, when they ticked the box (#35).
-
-    One booking per booking form, so a No preference request subscribes through its first row.
-    """
+    """Subscribe the visitor in Mailchimp once the booking commits, when they ticked the box (#35)."""
     if booking.wants_newsletter:
         from core.tasks import enqueue_on_commit
         from tours.tasks import subscribe_tour_visitor
@@ -179,9 +176,12 @@ def book_tour(
     source: str = TourBooking.Source.WEBSITE,
     now: datetime | None = None,
 ) -> TourBooking:
-    """Book ``visitor`` onto the guide's tour at ``starts_at``.
+    """Book ``visitor`` onto the tour at ``starts_at``.
 
-    ``source`` records how: the tours website, or the front desk kiosk (#950), which books under
+    Visitors pick a time, never a guide (#1312): ``guide`` is whose tour the page showed, and the
+    booking lands on whoever holds that time under the lock (:func:`tours.availability.tour_at`).
+    That is the same guide unless another booking claimed the time first, in which case the
+    visitor joins that tour. ``source`` records how: the tours website, or the front desk kiosk (#950), which books under
     the same notice and horizon. On the website, a guide who confirms first (#1166) gets a request
     instead: it holds its seats like a booking until they confirm or decline it. The kiosk always
     books at once, since the visitor is standing at the front desk.
@@ -204,16 +204,16 @@ def book_tour(
     account = _account_for(user, visitor)
     with transaction.atomic():
         kiosk = source == TourBooking.Source.KIOSK
-        tour = open_tour_at(guide, starts_at, lock=True, now=now, guide_notice=not kiosk)
+        tour = tour_at(starts_at, lock=True, now=now, guide_notice=not kiosk)
         if tour is None:
             raise TourUnavailableError(GONE_MESSAGE)
-        if _is_repeat(guide, tour.starts_at, visitor, now or timezone.now()):
+        if _is_repeat(tour.guide, tour.starts_at, visitor, now or timezone.now()):
             raise TourAlreadyBookedError(ALREADY_BOOKED_MESSAGE)
         if tour.seats_left < visitor.party_size:
             raise TourFullError(tour.seats_left)
-        request = not kiosk and TourGuideSettings.confirms_first(guide)
+        request = not kiosk and TourGuideSettings.confirms_first(tour.guide)
         booking = TourBooking.objects.create(
-            guide=guide,
+            guide=tour.guide,
             starts_at=tour.starts_at,
             ends_at=tour.ends_at,
             party_size=visitor.party_size,
@@ -260,110 +260,6 @@ def claim_tours(user: User) -> int:
     for email in emails:
         matches |= Q(visitor_email__iexact=email)
     return TourBooking.objects.filter(matches, user__isnull=True).update(user=user)
-
-
-def book_any_guide(
-    *,
-    starts_at: datetime,
-    visitor: Visitor,
-    user: User | None = None,
-    source: str = TourBooking.Source.WEBSITE,
-    now: datetime | None = None,
-) -> TourBooking:
-    """The visitor picked No preference for a time several guides offer (#1255).
-
-    At the kiosk, or when any guide at that time confirms automatically and has room for the
-    party, the tour is booked at once with the first such guide listed, through :func:`book_tour`.
-    One guide with room is an ordinary booking or request with them. Otherwise every guide with
-    room gets the request (:func:`_request_every_guide`) and the first to confirm gives the tour.
-
-    Returns:
-        The booking, or the request row whose link the visitor is sent.
-
-    Raises:
-        TourUnavailableError: no guide offers a bookable tour at that start now.
-        TourFullError: no guide has room for the party.
-        TourAlreadyBookedError: this exact booking was just made (a double press of Book).
-    """
-    kiosk = source == TourBooking.Source.KIOSK
-    moment = now or timezone.now()
-    day = timezone.localdate(starts_at)
-    offered = [
-        tour
-        for tour in open_tours(day, day, include_full=True, now=moment, guide_notice=not kiosk)
-        if tour.starts_at == starts_at
-    ]
-    if not offered:
-        raise TourUnavailableError(GONE_MESSAGE)
-    with_room = [tour for tour in offered if tour.seats_left >= visitor.party_size]
-    if not with_room:
-        raise TourFullError(max(tour.seats_left for tour in offered))
-    at_once = with_room if kiosk else [tour for tour in with_room if not TourGuideSettings.confirms_first(tour.guide)]
-    confirm_first = [tour for tour in with_room if tour not in at_once]
-    picks = at_once if at_once else (with_room if len(with_room) == 1 else [])
-    for pick in picks:
-        try:
-            return book_tour(
-                guide=pick.guide,
-                starts_at=pick.starts_at,
-                visitor=visitor,
-                user=user,
-                source=source,
-                now=moment,
-            )
-        except (TourFullError, TourUnavailableError):
-            # Filled or gone under the lock since the count above: try the next guide listed, and
-            # after the last one, the guides who confirm first.
-            if pick is picks[-1] and not (at_once and confirm_first):
-                raise
-    return _request_every_guide(confirm_first if at_once else with_room, visitor, user=user, now=moment)
-
-
-def _request_every_guide(tours: list[OpenTour], visitor: Visitor, *, user: User | None, now: datetime) -> TourBooking:
-    """One pending row per guide still with room, sharing a ``request_group`` (#1255).
-
-    Each guide's hours are locked (in pk order, so two such requests never deadlock) and their seats
-    counted again under the lock, so each row holds the party's seats on its own guide's tour like
-    any request. The visitor's link is the first row's. When only one guide still has room it is an
-    ordinary request.
-    """
-    account = _account_for(user, visitor)
-    group = uuid4()
-    with transaction.atomic():
-        rows: list[TourBooking] = []
-        for offered in sorted(tours, key=lambda tour: tour.guide.pk):
-            tour = open_tour_at(offered.guide, offered.starts_at, lock=True, now=now)
-            if tour is None or tour.seats_left < visitor.party_size:
-                continue
-            rows.append(
-                TourBooking.objects.create(
-                    guide=tour.guide,
-                    starts_at=tour.starts_at,
-                    ends_at=tour.ends_at,
-                    party_size=visitor.party_size,
-                    visitor_name=visitor.name.strip(),
-                    visitor_email=visitor.email.strip(),
-                    visitor_phone=visitor.phone.strip(),
-                    **visitor.answers,
-                    user=account,
-                    status=TourBooking.Status.PENDING,
-                    request_group=group,
-                )
-            )
-        if not rows:
-            raise TourFullError(0)
-        if len(rows) == 1:
-            rows[0].request_group = None
-            rows[0].save(update_fields=["request_group"])
-        from tours.notify import guide_first_name
-        from tours.tasks import lapse_tour_request
-
-        _join_newsletter(rows[0])
-        for row in rows:
-            others = tuple(guide_first_name(other.guide) for other in rows if other.pk != row.pk)
-            _after_commit(row, signals.REQUESTED, tell_visitor=row is rows[0], shared_with=others)
-            enqueue_at_on_commit(lapse_tour_request, row.confirm_by, row.pk)
-    return rows[0]
 
 
 def _is_repeat(guide: Member, starts_at: datetime, visitor: Visitor, now: datetime) -> bool:
@@ -429,9 +325,10 @@ def _locked_for_change(booking: TourBooking, now: datetime) -> TourBooking:
 def reschedule_tour(
     booking: TourBooking, *, guide: Member, starts_at: datetime, now: datetime | None = None
 ) -> TourBooking:
-    """Move the visitor's booking to the guide's tour at ``starts_at`` (any guide's tour, same party).
+    """Move the visitor's booking to the tour at ``starts_at`` (whoever gives it, #1312; same party).
 
-    Locks the booking, then the tour it moves to, and counts that tour's seats under the lock.
+    Locks the booking, then every booking (:func:`tours.availability.lock_bookings`), and counts the
+    seats of the tour it moves to under the lock.
     The invite's SEQUENCE goes up so the visitor's calendar replaces its copy.
 
     A request (#1166) cannot move until its guide confirms it: the guide said yes to that time.
@@ -458,16 +355,24 @@ def _move(
     staff: bool,
     **extra: Any,
 ) -> TourBooking:
-    """Move a locked booking onto the guide's tour at ``starts_at``, inside the caller's transaction."""
-    tour = open_tour_at(guide, starts_at, lock=True, now=now, staff=staff)
+    """Move a locked booking onto the tour at ``starts_at``, inside the caller's transaction.
+
+    The visitor's own move lands on whoever holds that time, as a booking does (#1312); staff (an
+    accepted proposal) move it to the guide they picked, refused when another guide's booked tour
+    overlaps it.
+    """
+    if staff:
+        tour = open_tour_at(guide, starts_at, lock=True, now=now, staff=True, moving=locked)
+    else:
+        tour = tour_at(starts_at, lock=True, now=now)
     if tour is None:
         raise TourUnavailableError(GONE_MESSAGE)
-    if locked.guide_id == guide.pk and locked.starts_at == tour.starts_at:
+    if locked.guide_id == tour.guide.pk and locked.starts_at == tour.starts_at:
         raise TourUnavailableError(SAME_TIME_MESSAGE)
     if tour.seats_left < locked.party_size:
         raise TourFullError(tour.seats_left)
     previous_guide, previous_starts_at = locked.guide, locked.starts_at
-    locked.guide = guide
+    locked.guide = tour.guide
     locked.starts_at = tour.starts_at
     locked.ends_at = tour.ends_at
     locked.sequence += 1
@@ -742,6 +647,8 @@ def propose_tour_time(
     or minimum notice, room for the party now), but no seats are held: they are counted again
     when the visitor accepts (:func:`answer_tour_proposal`). Another guide's tour is a
     reassignment, which the booking's own guide or an admin may propose (#1274; the view checks).
+    One tour runs at a time (#1312): a tour another guide's booked tour overlaps is refused, the
+    booking's own seats never counting against it.
 
     Raises:
         TourLockedError: the booking is cancelled, has started, or is a request.
@@ -751,7 +658,7 @@ def propose_tour_time(
     moment = now or timezone.now()
     with transaction.atomic():
         locked = _locked_for_staff(booking, moment)
-        tour = open_tour_at(guide, starts_at, now=moment, staff=True)
+        tour = open_tour_at(guide, starts_at, now=moment, staff=True, moving=locked)
         if tour is None:
             raise TourUnavailableError(GONE_MESSAGE)
         if locked.guide_id == guide.pk and locked.starts_at == tour.starts_at:

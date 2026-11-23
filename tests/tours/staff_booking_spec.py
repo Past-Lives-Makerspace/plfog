@@ -78,7 +78,7 @@ def _to(address: str) -> list[Any]:
 def describe_the_staff_window():
     def it_drops_the_minimum_notice_but_keeps_the_horizon(guide: Member, hours: Any):
         settings = FacilityTourSettings.load()
-        assert BookingWindow.at(CLOSE, settings, staff=True).earliest_start == CLOSE
+        assert BookingWindow.at(CLOSE, settings).earliest_start == CLOSE
         assert open_tour_at(guide, FOUR, now=CLOSE) is None
         assert open_tour_at(guide, FOUR, now=CLOSE, staff=True) is not None
         assert [tour.starts_at for tour in open_tours(TUESDAY, TUESDAY, now=CLOSE, staff=True)] == [FOUR, FIVE]

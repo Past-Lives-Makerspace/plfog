@@ -1,7 +1,9 @@
 {% comment %}
 The days as a month calendar (Morlock, 2026-11-22: was a strip since #948) and the picked day's tour times, shared by the booking page and the
 reschedule page. Context: picker (tours.public_views.Picker), page_url (the page the links
-reload with ?date= or ?tour=), support_email. On the booking pages a time guides share is one No preference button (#1255).
+reload with ?date= or ?tour=), support_email. Visitors see each time once (#1312). A day with a tour people
+already booked, with room left, carries a dot (pl-tourpub__day--going, explained by the key under the
+calendar), and that day's booked tours come first, saying how many people are going, never who.
 {% endcomment %}
 {% if picker.days %}
 <section class="pl-tourpub__section" aria-labelledby="tour-days-heading">
@@ -15,20 +17,22 @@ reload with ?date= or ?tour=), support_email. On the booking pages a time guides
       <div class="pl-tourpub__week pl-tourpub__weekdays" data-tour-weekdays aria-hidden="true">{% for name in picker.weekday_names %}<span>{{ name }}</span>{% endfor %}</div>
       {% for week in month.weeks %}
       <div class="pl-tourpub__week">
-        {% for cell in week %}{% if not cell.day %}<span class="pl-tourpub__cell" aria-hidden="true"></span>{% elif cell.choice %}<a href="{{ page_url }}?date={{ cell.day|date:'Y-m-d' }}" class="pl-tourpub__cell pl-tourpub__day{% if cell.choice.selected %} pl-tourpub__day--on{% endif %}" aria-label="{{ cell.day|date:'l, F j' }}"{% if cell.choice.selected %} aria-current="date"{% endif %} data-tour-day="{{ cell.day|date:'Y-m-d' }}">{{ cell.day|date:"j" }}</a>{% else %}<span class="pl-tourpub__cell pl-tourpub__day--closed" data-tour-closed="{{ cell.day|date:'Y-m-d' }}">{{ cell.day|date:"j" }}</span>{% endif %}{% endfor %}
+        {% for cell in week %}{% if not cell.day %}<span class="pl-tourpub__cell" aria-hidden="true"></span>{% elif cell.choice %}<a href="{{ page_url }}?date={{ cell.day|date:'Y-m-d' }}" class="pl-tourpub__cell pl-tourpub__day{% if cell.choice.selected %} pl-tourpub__day--on{% endif %}{% if cell.choice.going %} pl-tourpub__day--going{% endif %}" aria-label="{{ cell.day|date:'l, F j' }}{% if cell.choice.going %}, people going{% endif %}"{% if cell.choice.selected %} aria-current="date"{% endif %} data-tour-day="{{ cell.day|date:'Y-m-d' }}"{% if cell.choice.going %} data-tour-going-day{% endif %}>{{ cell.day|date:"j" }}</a>{% else %}<span class="pl-tourpub__cell pl-tourpub__day--closed" data-tour-closed="{{ cell.day|date:'Y-m-d' }}">{{ cell.day|date:"j" }}</span>{% endif %}{% endfor %}
       </div>
       {% endfor %}
     </div>
     {% endfor %}
   </div>
+  {% if picker.any_going %}<p class="pl-tourpub__key" data-tour-going-key><span class="pl-tourpub__key-dot" aria-hidden="true"></span>People are already going. Join them.</p>{% endif %}
 </section>
 <section class="pl-tourpub__section" aria-labelledby="tour-times-heading">
   <h2 class="pl-tourpub__heading" id="tour-times-heading">Times on {{ picker.day|date:"l, F j" }}</h2>
   <ul class="pl-tourpub__times">
     {% for choice in picker.times %}
     <li>
-      <a href="{{ page_url }}?tour={{ choice.tour.key }}" class="pl-tourpub__time" data-tour-time="{{ choice.tour.key }}"{% if choice.no_preference %} data-tour-no-preference{% endif %}>
+      <a href="{{ page_url }}?tour={{ choice.tour.key }}" class="pl-tourpub__time{% if choice.going %} pl-tourpub__time--going{% endif %}" data-tour-time="{{ choice.tour.key }}">
         <span class="pl-tourpub__time-at">{{ choice.tour.starts_at|time:"g:i A" }}</span>
+        {% if choice.going %}<span class="pl-tourpub__time-going" data-tour-going="{{ choice.going }}">{{ choice.going }} {{ choice.going|pluralize:"person,people" }} going, join them</span>{% endif %}
         <span class="pl-tourpub__time-seats">{{ choice.tour.seats_left }} seat{{ choice.tour.seats_left|pluralize }} left{% if choice.guide_name %} with {{ choice.guide_name }}{% endif %}</span>
       </a>
     </li>

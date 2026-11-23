@@ -262,7 +262,7 @@ def describe_booking_a_dated_tour():
             tour = open_tour_at(guide, ELEVEN, lock=True, now=NOW)
         assert tour is not None and tour.hours_id == row.pk
         locked = [query["sql"] for query in queries if "FOR UPDATE" in query["sql"]]
-        assert len(locked) == 1 and '"tours_tourhours"."weekday" = 5' in locked[0]
+        assert len(locked) == 1 and '"tours_facilitytoursettings"' in locked[0]
 
     @pytest.mark.postgres_only
     @pytest.mark.django_db(transaction=True)
@@ -272,7 +272,7 @@ def describe_booking_a_dated_tour():
         # Made up front, as the weekly race does: a first load() inside each racing transaction
         # would serialize the visitors on the settings row, hiding whether the hours lock works.
         FacilityTourSettings.load()
-        real_open_tour_at = open_tour_at
+        real_open_tour_at = booking_service.tour_at
         start = threading.Barrier(4)
         outcomes: list[str] = []
 
@@ -291,7 +291,7 @@ def describe_booking_a_dated_tour():
             finally:
                 connection.close()
 
-        with patch.object(booking_service, "open_tour_at", slow_open_tour_at):
+        with patch.object(booking_service, "tour_at", slow_open_tour_at):
             threads = [threading.Thread(target=visitor, args=(number,)) for number in range(4)]
             for thread in threads:
                 thread.start()

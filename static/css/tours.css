@@ -69,6 +69,10 @@
 .pl-form-group select.pl-tours-input--text {
     max-width: 520px;
 }
+/* A select of a few short choices (Booking Notice, #1312): as wide as its longest choice. */
+.pl-form-group select.pl-tours-input--choice {
+    max-width: 18rem;
+}
 
 /* The hours rows: each collapsed to its summary line with Edit on the right. */
 .pl-tours-rows {

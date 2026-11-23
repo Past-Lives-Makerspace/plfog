@@ -1,16 +1,24 @@
-"""Each tour hour belongs to one guide, and no booking waits for a guide's Confirm (#1309).
+"""No booking waits for a guide's Confirm any more, and every guide sets their own notice (#1309, #1312).
 
-Adds Tour Settings' ``guides_share_hours`` switch (off), moves every guide to Confirm Automatically,
-and, when any request is still waiting for its guide, queues ``tours.tasks.book_waiting_tour_requests``
-20 minutes after the migration commits (past the deploy, so the new release's worker runs it), which books each one as its guide would have (the visitor's confirmation
-and invite, the guide's calendar event).
+Moves every guide to Confirm Automatically and, when any request is still waiting for its guide,
+queues ``tours.tasks.book_waiting_tour_requests`` 20 minutes after the migration commits (past the
+deploy, so the new release's worker runs it), which books each one as its guide would have (the
+visitor's confirmation and invite, the guide's calendar event).
 
-The reverse drops the column and leaves every guide on Confirm Automatically: nobody can pick Confirm
-First any more, so there is no earlier choice to put back, and a request the task booked stays booked.
+Adds each guide's own minimum notice in minutes (``TourGuideSettings.min_notice_minutes``, blank
+meaning Tour Settings' default) and copies every saved notice into it, hours to minutes. The hours
+column stays one release, unread, so the release still serving during the deploy keeps working.
+
+The reverse (:func:`leave_guides_automatic`) cannot tell which guides were on Confirm First, since
+the forward step kept no list, so it leaves every guide on Confirm Automatically and logs how many
+guides and booked tours it leaves as they are; a request the task booked stays booked. It copies each
+notice a guide set back into hours, rounded up, before the minutes column goes.
 """
 
+import logging
 from datetime import timedelta
 
+import django.core.validators
 from django.db import migrations, models
 
 #: How long after the migration the booking task is due: past the deploy, so the new worker runs it.
@@ -34,6 +42,36 @@ def everyone_confirms_automatically(apps, schema_editor):
         enqueue_at_on_commit(book_waiting_tour_requests, timezone.now() + RUN_AFTER_DEPLOY)
 
 
+def leave_guides_automatic(apps, schema_editor):
+    """Reverse of :func:`everyone_confirms_automatically`: undo nothing it cannot know, and say so.
+
+    Which guides were on Confirm First, and which booked tours were requests, was never recorded,
+    so no guide is moved back and no booking is turned back into a request. The log names how many
+    guides stay on Confirm Automatically, so whoever rolls back can set Confirm First again by hand.
+    """
+    guide_settings = apps.get_model("tours", "TourGuideSettings")
+    automatic = guide_settings.objects.filter(confirm_mode="automatic").count()
+    logging.getLogger(__name__).warning(
+        "tours 0012 reversed: %d guides stay on Confirm Automatically and any request it booked stays booked; "
+        "set Confirm First again by hand where a guide had it.",
+        automatic,
+    )
+
+
+def notice_into_minutes(apps, schema_editor):
+    """Every saved notice, hours to minutes (#1312)."""
+    guide_settings = apps.get_model("tours", "TourGuideSettings")
+    guide_settings.objects.update(min_notice_minutes=models.F("min_notice_hours") * 60)
+
+
+def notice_into_hours(apps, schema_editor):
+    """Each notice a guide set, back into hours, rounded up and held to 0 to 336."""
+    guide_settings = apps.get_model("tours", "TourGuideSettings")
+    for row in guide_settings.objects.filter(min_notice_minutes__isnull=False):
+        row.min_notice_hours = min(-(-row.min_notice_minutes // 60), 336)
+        row.save(update_fields=["min_notice_hours"])
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("tours", "0011_tourbooking_guest_answers"),
@@ -41,18 +79,33 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.RunPython(everyone_confirms_automatically, leave_guides_automatic),
         migrations.AddField(
-            model_name="facilitytoursettings",
-            name="guides_share_hours",
-            field=models.BooleanField(
-                db_default=False,
-                default=False,
+            model_name="tourguidesettings",
+            name="min_notice_minutes",
+            field=models.PositiveIntegerField(
+                blank=True,
+                default=None,
                 help_text=(
-                    "Off (the default, #1309): each tour hour belongs to one guide, a guide cannot post hours another "
-                    "guide already has, and visitors pick a time with no guide named. On: guides may post the same "
-                    "hours, and visitors pick a guide or No preference for a time two guides share (#1255)."
+                    "How many minutes before a tour visitors on the website can still book this guide (#1312; 0 is "
+                    "no notice). Blank: Tour Settings' default minimum notice. The kiosk and staff ignore it."
                 ),
+                null=True,
+                validators=[django.core.validators.MaxValueValidator(20160, message="At most two weeks.")],
             ),
         ),
-        migrations.RunPython(everyone_confirms_automatically, migrations.RunPython.noop),
+        migrations.RunPython(notice_into_minutes, notice_into_hours),
+        migrations.AlterField(
+            model_name="facilitytoursettings",
+            name="min_notice_hours",
+            field=models.PositiveSmallIntegerField(
+                default=24,
+                help_text=(
+                    "The default minimum notice (#1312): how many hours before a tour visitors on the website can "
+                    "still book it, for a guide who has not set their own on My Hours. Never a floor: a guide may "
+                    "pick less or more."
+                ),
+                validators=[django.core.validators.MaxValueValidator(336, "Use 0 to 336 hours.")],
+            ),
+        ),
     ]

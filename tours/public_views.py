@@ -12,7 +12,7 @@ refuse a cancelled or past tour and anything inside the cancel cutoff, on GET an
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import timedelta
 from functools import wraps
 from typing import Any
@@ -39,23 +39,14 @@ from tours.booking import (
     TourLockedError,
     Visitor,
     answer_tour_proposal,
-    book_any_guide,
     book_tour,
     cancel_tour_by_visitor,
     reschedule_tour,
 )
 from tours.forms import TourBookingForm
 from tours.models import MAX_HORIZON_DAYS, MAX_SEATS, TOUR_ADDRESS, FacilityTourSettings, TourBooking
-from tours.notify import guide_first_name, guide_notice_hours, short_when, support_email, when_label
-from tours.picker import (
-    GuideChoice,
-    build_picker,
-    find_tour,
-    guide_and_start,
-    guide_choices,
-    parse_any_guide_key,
-    party_room,
-)
+from tours.notify import guide_first_name, guide_notice, short_when, support_email, when_label
+from tours.picker import build_picker, find_tour, guide_and_start
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +86,7 @@ def all_open_tours(*, kiosk: bool = False) -> list[OpenTour]:
     keeps: no visitor page or kiosk screen ever waits on Google.
     """
     today = timezone.localdate()
-    # A Confirm First guide's own notice (#1166) binds website bookings, never a kiosk walk in.
+    # Each guide's own minimum notice (#1312) binds website bookings, never a kiosk walk in.
     return open_tours(today, today + timedelta(days=MAX_HORIZON_DAYS), guide_notice=not kiosk)
 
 
@@ -116,18 +107,14 @@ def limit_party(form: TourBookingForm, room: int) -> None:
     ]
 
 
-def booking_form(request: HttpRequest, tours: list[OpenTour], chosen: OpenTour, *, kiosk: bool = False) -> Attempt:
-    """The empty form for a picked time, with the Guide dropdown (#1255) where two or more guides share it.
-
-    The party size runs to the roomiest guide's seats there, since No preference can seat it.
-    """
-    guides = guide_choices(tours, chosen)
+def booking_form(request: HttpRequest, chosen: OpenTour, *, kiosk: bool = False) -> Attempt:
+    """The empty form for a picked time; the party size runs to the seats left on that tour."""
     form = TourBookingForm(
         initial={"tour": chosen.key, "party_size": "1", **({} if kiosk else _prefill(request))},
-        max_party=party_room(guides, chosen),
+        max_party=chosen.seats_left,
         kiosk=kiosk,
     )
-    return Attempt(form=form, chosen=chosen, guides=guides)
+    return Attempt(form=form, chosen=chosen)
 
 
 def render_page(request: HttpRequest, template: str, context: dict[str, Any], *, status: int = 200) -> HttpResponse:
@@ -150,17 +137,16 @@ class Attempt:
     error: str = ""
     form: TourBookingForm | None = None
     chosen: OpenTour | None = None
-    guides: list[GuideChoice] = field(default_factory=list)
 
 
 def _try_booking(request: HttpRequest, form: TourBookingForm, *, kiosk: bool) -> Attempt:
     """Book a valid form's tour: the booking on success, else the reason to show.
 
     At the kiosk (#950) the booking records ``kiosk`` as its source and never links to whoever
-    might be signed in on the lobby screen.
+    might be signed in on the lobby screen. The key names a time; whoever holds it when the booking
+    lands gives the tour (#1312, :func:`tours.booking.book_tour`).
     """
     data = form.cleaned_data
-    any_guide_at = parse_any_guide_key(data["tour"])
     target = guide_and_start(data["tour"])
     signed_in = request.user if request.user.is_authenticated and not kiosk else None
     answers: dict[str, Any] = {name: data[name] for name in ANSWER_FIELDS}
@@ -172,9 +158,7 @@ def _try_booking(request: HttpRequest, form: TourBookingForm, *, kiosk: bool) ->
     visitor = Visitor(data["name"], data["email"], data["phone"], data["party_size"], **answers)
     source = TourBooking.Source.KIOSK if kiosk else TourBooking.Source.WEBSITE
     try:
-        if any_guide_at is not None:
-            booking = book_any_guide(starts_at=any_guide_at, visitor=visitor, user=signed_in, source=source)
-        elif target is None:
+        if target is None:
             raise TourBookingError(GONE_MESSAGE)
         else:
             booking = book_tour(
@@ -214,9 +198,8 @@ def post_booking(request: HttpRequest, tours: list[OpenTour], *, kiosk: bool = F
     chosen = find_tour(tours, request.POST.get("tour", ""))
     if chosen is None:
         return Attempt(error=GONE_MESSAGE)
-    guides = guide_choices(tours, chosen)
-    limit_party(posted, party_room(guides, chosen))
-    return Attempt(form=posted, chosen=chosen, guides=guides)
+    limit_party(posted, chosen.seats_left)
+    return Attempt(form=posted, chosen=chosen)
 
 
 @tours_surface_only
@@ -245,16 +228,15 @@ def book(request: HttpRequest) -> HttpResponse:
             tours = all_open_tours()
     else:
         chosen = find_tour(tours, request.GET.get("tour", ""))
-        attempt = Attempt() if chosen is None else booking_form(request, tours, chosen)
+        attempt = Attempt() if chosen is None else booking_form(request, chosen)
     chosen = attempt.chosen if attempt.form is not None else None
     raw_day = f"{timezone.localdate(chosen.starts_at):%Y-%m-%d}" if chosen else request.GET.get("date", "")
     return render_page(
         request,
         "tours/public/book.html",
         {
-            "picker": build_picker(tours, raw_day, no_preference=tour_settings.guides_share_hours),
+            "picker": build_picker(tours, raw_day, join_first=True),
             "chosen": chosen,
-            "guides": attempt.guides,
             "form": attempt.form,
             "error": attempt.error,
             "page_url": request.path,
@@ -292,9 +274,7 @@ def _booking_context(booking: TourBooking) -> dict[str, Any]:
         "shared": shared,
     }
     if booking.is_request:
-        context.update(
-            confirm_by=short_when(booking.confirm_by), notice_hours=None if shared else guide_notice_hours(booking)
-        )
+        context.update(confirm_by=short_when(booking.confirm_by), notice=None if shared else guide_notice(booking))
     if booking.proposed_starts_at is not None:
         # The open proposal (#1283): its time, and the guide's name only when it hands the tour to another guide.
         new_guide = booking.proposed_guide
@@ -401,7 +381,7 @@ def reschedule(request: HttpRequest, token: str) -> HttpResponse:
         "tours/public/reschedule.html",
         {
             **_booking_context(booking),
-            "picker": build_picker(tours, raw_day),
+            "picker": build_picker(tours, raw_day, join_first=True),
             "chosen": chosen,
             "chosen_when": when_label(chosen.starts_at) if chosen else "",
             "error": error,

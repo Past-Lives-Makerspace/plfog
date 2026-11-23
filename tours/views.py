@@ -75,6 +75,7 @@ from tours.forms import (
     TourDatesForm,
     TourDayOffForm,
     TourHoursFormSet,
+    TourNoticeForm,
     TourNoteForm,
 )
 from tours.models import (
@@ -84,6 +85,7 @@ from tours.models import (
     TourBookingNote,
     TourCalendarConnection,
     TourDayOff,
+    TourGuideSettings,
     TourHours,
     guide_filter,
     lock_guide_hours,
@@ -274,6 +276,7 @@ def _render_hours(
             "open_dates": dates_form.is_bound or add is not None,
             "dated_hours": dated,
             "dates_calendar": _calendar_config(target, dated, dates_form, add=add),
+            "notice_form": TourNoticeForm(instance=TourGuideSettings.objects.filter(guide=target).first()),
             **_setup(request),
         },
     )
@@ -324,6 +327,30 @@ def tour_hours_save(request: HttpRequest) -> HttpResponse:
     if not saved:
         return _render_hours(request, target, formset=formset, hours_refused=True)
     messages.success(request, "Tour hours saved.")
+    return redirect(_hours_url(_viewer(request), target))
+
+
+@tour_guide_access_required
+@require_POST
+def tour_notice_save(request: HttpRequest) -> HttpResponse:
+    """Save how far ahead website visitors must book the guide (#1312): the Booking Notice card.
+
+    The card saves itself on change (#1279): an autosave post answers JSON, a refusal a 422 under
+    the field. Without the script, a flash and a redirect back to the tab. An admin sets anyone's
+    through the posted ``guide``.
+    """
+    target = _target_guide(request, request.POST.get("guide", ""))
+    instance = TourGuideSettings.objects.filter(guide=target).first() or TourGuideSettings(guide=target)
+    form = TourNoticeForm(request.POST, instance=instance)
+    if not form.is_valid():
+        if wants_autosave(request):
+            return autosave_refused(form)
+        messages.error(request, str(next(iter(form.errors.values()))[0]))
+        return redirect(_hours_url(_viewer(request), target))
+    form.save()
+    if wants_autosave(request):
+        return autosave_saved()
+    messages.success(request, "Booking notice saved.")
     return redirect(_hours_url(_viewer(request), target))
 
 
@@ -826,12 +853,13 @@ def _destination_guide(request: HttpRequest, booking: TourBooking, raw: str) -> 
 def _staff_tours(booking: TourBooking, guide: Member) -> list[OpenTour]:
     """The guide's open tours a staff member may move the booking to: room for the party, not its own tour.
 
-    No minimum notice (any tour that has not started), within the horizon.
+    No minimum notice (any tour that has not started), within the horizon. A tour another guide's
+    booked tour overlaps is left out (#1312: one tour at a time); the booking's own claim never counts.
     """
     today = timezone.localdate()
     return [
         tour
-        for tour in open_tours(today, today + timedelta(days=MAX_HORIZON_DAYS), guide=guide, staff=True)
+        for tour in open_tours(today, today + timedelta(days=MAX_HORIZON_DAYS), guide=guide, staff=True, moving=booking)
         if tour.seats_left >= booking.party_size
         and not (tour.guide.pk == booking.guide_id and tour.starts_at == booking.starts_at)
     ]

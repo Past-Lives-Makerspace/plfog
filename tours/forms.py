@@ -13,7 +13,6 @@ from typing import Any, cast
 
 from django import forms
 from django.db import transaction
-from django.db.models import Q
 from django.http import QueryDict
 from django.utils import timezone
 
@@ -32,10 +31,11 @@ from tours.models import (
     FoundUs,
     TourCalendarConnection,
     TourDayOff,
+    TourGuideSettings,
     TourHours,
     day_label,
+    notice_label,
 )
-from tours.notify import guide_first_name
 
 #: The longest run of days one day off may cover.
 MAX_DAY_OFF_DAYS = 366
@@ -134,8 +134,9 @@ class _TourHoursBaseFormSet(forms.BaseInlineFormSet):
     Submitted rows are compared with each other as submitted, so moving one row out of another's
     way in the same save is fine, and with every saved row of the guide's the POST did not carry
     (a stale tab that never showed it, posting ``INITIAL_FORMS=0``). A row the POST carries, kept
-    or deleted, is judged by what was posted. This keeps one guide and one start time to one row,
-    which is what booking locks (``tours.availability.open_tour_at``).
+    or deleted, is judged by what was posted. This keeps one guide and one start time to one row.
+    Other guides' hours may overlap these (#1312): one tour still runs at a time, since the first
+    booking claims the time (``tours.availability``).
 
     Every overlap is the row's own error (#1279), never the formset's, so the autosave shows it on
     the row (``hours-<i>-__all__``); two rows that overlap each get one naming the other.
@@ -180,7 +181,6 @@ class _TourHoursBaseFormSet(forms.BaseInlineFormSet):
                     _refuse_row(form, _overlap_message(other.instance))
                     _refuse_row(other, _overlap_message(form.instance))
         self._refuse_clash_with_dated(kept)
-        self._refuse_other_guides(kept)
         carried = {form.instance.pk for form in self.forms if form.instance.pk is not None}
         for saved in self.get_queryset().exclude(pk__in=carried):
             for form in kept:
@@ -192,22 +192,6 @@ class _TourHoursBaseFormSet(forms.BaseInlineFormSet):
                         f"{_meeting_time_label(saved.end_time.hour, saved.end_time.minute)} that this page "
                         "does not show. Reload the page and try again.",
                     )
-
-    def _refuse_other_guides(self, kept: list[forms.ModelForm]) -> None:
-        """Refuse a new row, or one whose day or times changed, that runs into another guide's hours (#1309).
-
-        A saved row posted again unchanged is left alone, so hours that overlapped before #1309 keep saving.
-        """
-        moved = [
-            form
-            for form in kept
-            if form.instance.pk is None or {"weekday", "start_time", "end_time"} & set(form.changed_data)
-        ]
-        others = other_guides_hours(self.instance, {form.instance.weekday for form in moved})
-        for form in moved:
-            for owner in others:
-                if form.instance.overlaps(owner):
-                    _refuse_row(form, taken_message(owner))
 
     def _refuse_clash_with_dated(self, kept: list[forms.ModelForm]) -> None:
         """Refuse a weekly row that overlaps upcoming dated hours (#1160) on its weekday, naming the date."""
@@ -225,31 +209,6 @@ class _TourHoursBaseFormSet(forms.BaseInlineFormSet):
                         f"Every {row.get_weekday_display()} {row.times_label} overlaps your hours on "
                         f"{day_label(cast(date, other.date))}, {other.times_label}.",
                     )
-
-
-def other_guides_hours(guide: Member, weekdays: set[int]) -> list[TourHours]:
-    """Every other guide's weekly and upcoming dated hours on ``weekdays``, while hours are one guide's (#1309).
-
-    Empty while Tour Settings lets guides share hours (#1255). Only guides who give tours today
-    (``TourHours.objects.offered``): a revoked guide's kept rows hold no time. One query.
-    """
-    if FacilityTourSettings.load().guides_share_hours or not weekdays:
-        return []
-    today = timezone.localdate()
-    return list(
-        TourHours.objects.offered()
-        .exclude(guide=guide)
-        .filter(weekday__in=weekdays)
-        .filter(Q(date__isnull=True) | Q(date__gte=today))
-        .select_related("guide")
-        .order_by("date", "start_time")
-    )
-
-
-def taken_message(owner: TourHours) -> str:
-    """The refusal naming whose hours a row runs into (#1309): ``Every Tuesday, 2:00 PM to 4:00 PM is Amber's.``"""
-    name = guide_first_name(owner.guide) or "another guide"
-    return f"{owner.when_label} is {name}'s. Each tour hour belongs to one guide, so pick a time nobody has."
 
 
 def _overlap_message(other: TourHours) -> str:
@@ -370,7 +329,6 @@ class TourDatesForm(forms.Form):
                 first_day, last_day
             )
         )
-        others = other_guides_hours(self.guide, {row.weekday for row in rows})
         problems: list[str] = []
         for row in rows:
             day = cast(date, row.date)
@@ -391,7 +349,6 @@ class TourDatesForm(forms.Form):
                         )
                     else:
                         problems.append(f"{label}: overlaps hours already on that date, {other.times_label}.")
-                problems.extend(f"{label}: {taken_message(owner)}" for owner in others if row.overlaps(owner))
         return problems
 
     def save(self) -> list[TourHours]:
@@ -480,7 +437,6 @@ class FacilityTourSettingsForm(forms.ModelForm):
             "booking_horizon_days",
             "min_notice_hours",
             "cancel_cutoff_hours",
-            "guides_share_hours",
             "default_tour_minutes",
             "default_seats",
         ]
@@ -488,9 +444,8 @@ class FacilityTourSettingsForm(forms.ModelForm):
             "accepting_bookings": "Accepting tour bookings",
             "closed_message": "Closed message",
             "booking_horizon_days": "Booking horizon (days)",
-            "min_notice_hours": "Minimum notice (hours)",
+            "min_notice_hours": "Default minimum notice (hours)",
             "cancel_cutoff_hours": "Cancel and reschedule cutoff (hours)",
-            "guides_share_hours": "Let guides share hours",
             "default_seats": "Default seats per tour",
         }
         widgets = {
@@ -508,14 +463,13 @@ class FacilityTourSettingsForm(forms.ModelForm):
         self.fields[
             "booking_horizon_days"
         ].help_text = "How far ahead visitors can book. 30 means up to 30 days from today."
-        self.fields["min_notice_hours"].help_text = "How close to a tour it can still be booked."
+        self.fields["min_notice_hours"].help_text = (
+            "How far ahead visitors must book a guide who has not set their own notice on My Hours. A guide may "
+            "pick less or more."
+        )
         self.fields[
             "cancel_cutoff_hours"
         ].help_text = "How close to a tour visitors can still cancel or move it from their email."
-        self.fields["guides_share_hours"].help_text = (
-            "Off, each tour hour belongs to one guide and visitors pick a time. On, two guides may post the same "
-            "hours, and visitors pick a guide or No preference."
-        )
         self.fields["default_tour_minutes"].help_text = "What a new row of tour hours starts with."
         self.fields["default_seats"].help_text = "What a new row of tour hours starts with. Use 1 to 50."
         if self.instance.pk:
@@ -615,8 +569,6 @@ class TourBookingForm(forms.Form):
         top = max(1, min(max_party, MAX_SEATS))
         party = cast(forms.TypedChoiceField, self.fields["party_size"])
         party.choices = [(str(size), str(size)) for size in range(1, top + 1)]
-        # The Guide dropdown (#1255, _book_form.html) greys out a guide without room for this party.
-        party.widget.attrs["x-model.number"] = "party"
         # At the front desk kiosk (#950) the browser must never offer the last visitor's details.
         self.fields["name"].widget.attrs.update({"autocomplete": "off" if kiosk else "name"})
         self.fields["email"].widget.attrs.update({"autocomplete": "off" if kiosk else "email"})
@@ -669,6 +621,43 @@ class StaffTourMessageForm(forms.Form):
         widget=forms.Textarea(attrs={"rows": 3}),
         help_text="Added to the email we send them.",
     )
+
+
+#: The steps a guide picks their own minimum notice from (#1312, Felix), in minutes.
+NOTICE_STEPS: tuple[int, ...] = (0, 15, 30, 60, 120, 240, 720, 1440, 2880, 7 * 1440, 14 * 1440)
+
+
+class TourNoticeForm(forms.ModelForm):
+    """My Hours' Booking Notice card (#1312): how far ahead website visitors must book this guide.
+
+    A select of :data:`NOTICE_STEPS`, from No notice to two weeks, with House default first (blank:
+    Tour Settings' minimum notice, named with its value). The house value is a default, never a floor.
+    A saved value off the steps (one migrated from hours) is kept as a choice so the page shows it.
+    """
+
+    min_notice_minutes = forms.TypedChoiceField(coerce=int, empty_value=None, required=False, label="Booking notice")
+
+    class Meta:
+        model = TourGuideSettings
+        fields = ("min_notice_minutes",)
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        house = FacilityTourSettings.load().min_notice_hours * 60
+        steps = list(NOTICE_STEPS)
+        saved = self.instance.min_notice_minutes
+        if saved is not None and saved not in steps:
+            steps = sorted([*steps, saved])
+        field = cast(forms.TypedChoiceField, self.fields["min_notice_minutes"])
+        field.choices = [
+            ("", f"House default ({notice_label(house)})"),
+            *((str(minutes), "No notice, book me now" if minutes == 0 else notice_label(minutes)) for minutes in steps),
+        ]
+        field.widget.attrs.update({"class": "pl-tours-input--choice", "data-tour-notice": ""})
+        field.help_text = (
+            "How far ahead visitors on the website must book your tours. Pick No notice or 15 minutes when you "
+            "are here and free now. The front desk kiosk and staff are never held to it."
+        )
 
 
 class StaffRescheduleForm(StaffTourMessageForm):

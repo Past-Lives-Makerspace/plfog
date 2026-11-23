@@ -241,7 +241,8 @@ def describe_google_calendar_autosave():
         assert 'data-tour-gcal-form data-autosave data-autosave-key="gcal"' in content
         assert 'data-tour-save-status="gcal"' in content
         assert "data-tour-gcal-save" not in content
-        assert content.count("data-tour-noscript-save>Save</button></noscript>") == 2
+        # Every Week, the calendar picker and Booking Notice (#1312).
+        assert content.count("data-tour-noscript-save>Save</button></noscript>") == 3
 
 
 def describe_tour_settings_autosave():
@@ -280,8 +281,9 @@ def describe_pages_carry_no_save_button():
             content.count(
                 '<noscript><button type="submit" class="pl-btn pl-btn--primary pl-btn--sm pl-btn--spaced" data-tour-noscript-save>Save</button></noscript>'
             )
-            == 1
+            == 2
         )
+        assert 'data-tour-notice-card data-autosave data-autosave-key="notice"' in content
 
     def it_applies_the_admins_guide_picker_on_change_with_show_only_without_script(admin: Member):
         make_guide()

@@ -38,6 +38,22 @@ MAX_SEATS = 50
 MAX_HORIZON_DAYS = 365
 #: The longest minimum notice or cancel cutoff, in hours (two weeks).
 MAX_NOTICE_HOURS = 336
+#: The same two weeks in minutes: the most a guide's own notice may be (#1312).
+MAX_NOTICE_MINUTES = MAX_NOTICE_HOURS * 60
+
+
+def notice_label(minutes: int) -> str:
+    """A minimum notice in words (#1312): ``No notice``, ``15 minutes``, ``1 hour``, ``48 hours``, ``1 week``."""
+    if minutes == 0:
+        return "No notice"
+    if minutes % (7 * 24 * 60) == 0:
+        weeks = minutes // (7 * 24 * 60)
+        return f"{weeks} week{'s' if weeks != 1 else ''}"
+    if minutes % 60 == 0:
+        hours = minutes // 60
+        return f"{hours} hour{'s' if hours != 1 else ''}"
+    return f"{minutes} minute{'s' if minutes != 1 else ''}"
+
 
 DEFAULT_CLOSED_MESSAGE = "We are not booking tours right now. Please check back soon."
 #: Where tours meet, on the booking pages and in every visitor email.
@@ -116,7 +132,10 @@ class FacilityTourSettings(models.Model):
     min_notice_hours = models.PositiveSmallIntegerField(
         default=24,
         validators=[MaxValueValidator(MAX_NOTICE_HOURS, "Use 0 to 336 hours.")],
-        help_text="How many hours before a tour it can still be booked.",
+        help_text=(
+            "The default minimum notice (#1312): how many hours before a tour visitors on the website can still "
+            "book it, for a guide who has not set their own on My Hours. Never a floor: a guide may pick less or more."
+        ),
     )
     cancel_cutoff_hours = models.PositiveSmallIntegerField(
         default=24,
@@ -135,15 +154,6 @@ class FacilityTourSettings(models.Model):
             MaxValueValidator(MAX_SEATS, "Use 1 to 50 seats."),
         ],
         help_text="The seats a new row of tour hours starts with.",
-    )
-    guides_share_hours = models.BooleanField(
-        default=False,
-        db_default=False,
-        help_text=(
-            "Off (the default, #1309): each tour hour belongs to one guide, a guide cannot post hours another "
-            "guide already has, and visitors pick a time with no guide named. On: guides may post the same "
-            "hours, and visitors pick a guide or No preference for a time two guides share (#1255)."
-        ),
     )
     kiosk_key = models.CharField(
         max_length=64,
@@ -229,19 +239,14 @@ class TourHoursQuerySet(models.QuerySet["TourHours"]):
 
 
 def lock_guide_hours(guide: Member) -> None:
-    """Hold every guide's hours still until the transaction ends (#1160, #1309): the Tour Settings row, then the guide's member row.
-
-    The Tour Settings row first (``FOR NO KEY UPDATE``, made by :meth:`FacilityTourSettings.load`
-    when missing): since #1309 a save is checked against every other guide's hours too, so two
-    guides saving at once must queue on one row, or each would miss the other's new hours. No
-    booking takes that row, so it orders before everything a booking locks.
+    """Hold one guide's hours still until the transaction ends (#1160): ``SELECT ... FOR NO KEY UPDATE`` on their member row.
 
     Every save of a guide's hours (the Every Week formset, Add Dates) takes this before it checks
     for overlaps and keeps the check and the write in the same transaction, so two saves at once
     (a guide and an admin, two tabs) queue here and the second sees the first's rows. The member
     row, not the hours rows: a save onto a weekday or date with no hours yet would find no hours
     row to lock, and both saves would land. NO KEY, because a booking's insert takes FOR KEY SHARE
-    on its guide's row while holding the hours rows, and a plain FOR UPDATE here would deadlock it.
+    on its guide's row while holding its own lock (``tours.availability.lock_bookings``), and a plain FOR UPDATE here would wait on every booking.
 
     Raises:
         RuntimeError: outside a transaction, where the lock would end at once.
@@ -250,8 +255,6 @@ def lock_guide_hours(guide: Member) -> None:
 
     if not transaction.get_connection().in_atomic_block:
         raise RuntimeError("lock_guide_hours must run inside transaction.atomic().")
-    FacilityTourSettings.load()
-    list(FacilityTourSettings.objects.select_for_update(no_key=True).filter(pk=1).values_list("pk", flat=True))
     list(Member.objects.select_for_update(no_key=True).filter(pk=guide.pk).values_list("pk", flat=True))
 
 
@@ -259,13 +262,14 @@ class TourHours(models.Model):
     """One window in which a guide gives tours, carved into tours of ``tour_minutes`` each.
 
     Tuesday 4:00 to 6:00 PM with 60 minute tours is two tours, at 4:00 and 5:00, each with
-    ``seats`` places. Two guides with the same hours offer two separate tours. One guide's rows
-    may not overlap (``TourHoursFormSet`` and ``TourDatesForm`` refuse it), so a guide and a start
-    time name at most one row, which is what a booking locks (:func:`tours.availability.open_tour_at`).
+    ``seats`` places. Two guides' hours may overlap, but one tour runs at a time: the first booking
+    claims the time for one guide (#1312, :mod:`tours.availability`). One guide's rows may not
+    overlap (``TourHoursFormSet`` and ``TourDatesForm`` refuse it), so a guide and a start time name
+    at most one row.
 
     A row with no ``date`` repeats every week on ``weekday``. A row with a ``date`` (#1160) is that
     one day only; its ``weekday`` is still stored, equal to the date's (a check constraint holds
-    the two together), so the booking lock's weekday query covers it unchanged.
+    the two together).
     """
 
     class Weekday(models.IntegerChoices):
@@ -366,14 +370,8 @@ class TourHours(models.Model):
 
     @property
     def posted_order(self) -> tuple[datetime, int]:
-        """Which of two guides' overlapping hours came first (#1309): the earlier posted owns the time for visitors."""
+        """Which of two guides' hours came first (#1309): breaks a tie for a time nobody has booked (#1312)."""
         return (self.created_at, self.pk)
-
-    @property
-    def when_label(self) -> str:
-        """``Every Tuesday, 2:00 PM to 4:00 PM`` or ``Sat, Nov 15, 11:00 AM to 3:00 PM``: the hours in a sentence."""
-        day = day_label(self.date) if self.date is not None else f"Every {self.get_weekday_display()}"
-        return f"{day}, {self.times_label}"
 
     def applies_on(self, day: Day) -> bool:
         """Whether this row yields tours on ``day``: its weekday for weekly hours, its date for dated ones."""
@@ -502,9 +500,9 @@ class TourGuideSettings(models.Model):
     """One guide's own tour choices (#1166): whether a visitor's booking waits for their Confirm.
 
     No guide can pick Confirm First any more (#1309): the My Hours card is gone and migration 0012
-    set every row to Confirm Automatically. The table and the request machinery stay, read by the
-    No preference pool (#1255) behind ``FacilityTourSettings.guides_share_hours``; dropping the
-    table is a follow-up.
+    set every row to Confirm Automatically. The mode and the request machinery stay, reached only
+    by a row set directly; dropping them is a follow-up. Every guide's own minimum notice lives
+    here (#1312, ``min_notice_minutes``), whatever the mode.
     """
 
     class ConfirmMode(models.TextChoices):
@@ -526,6 +524,8 @@ class TourGuideSettings(models.Model):
             "until the guide confirms or declines it. The front desk kiosk always books at once."
         ),
     )
+    # Read by nothing since #1312 (``min_notice_minutes`` replaced it); kept one release so the release
+    # still serving during the deploy reads it (STANDARDS 10), then dropped with a RemoveField.
     min_notice_hours = models.PositiveSmallIntegerField(
         default=48,
         validators=[
@@ -538,6 +538,16 @@ class TourGuideSettings(models.Model):
         help_text=(
             "Under Confirm First, how far ahead a visitor must book on the website (#1166). Never below Tour "
             "Settings' minimum notice, and over the 24 hours before a tour by which a request must be confirmed."
+        ),
+    )
+    min_notice_minutes = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        default=None,
+        validators=[MaxValueValidator(MAX_NOTICE_MINUTES, message="At most two weeks.")],
+        help_text=(
+            "How many minutes before a tour visitors on the website can still book this guide (#1312; 0 is no "
+            "notice). Blank: Tour Settings' default minimum notice. The kiosk and staff ignore it."
         ),
     )
     updated_at = models.DateTimeField(auto_now=True, help_text="When the guide last changed these choices.")
@@ -553,23 +563,22 @@ class TourGuideSettings(models.Model):
     def summary(self) -> str:
         """What the choice means for the guide's next booking, in one sentence."""
         if self.confirm_mode == self.ConfirmMode.FIRST:
-            return (
-                f"Visitors book at least {self.min_notice_hours} hours ahead, and each booking waits for you "
-                "to confirm or decline it."
-            )
+            return "Each booking waits for you to confirm or decline it."
         return "New bookings are confirmed at once, and you are told."
 
     @classmethod
-    def notice_hours_by_guide(cls, guide_ids: Iterable[int], house: FacilityTourSettings) -> dict[int, int]:
-        """The minimum notice, in hours, of each listed guide who confirms first: their own, never below the house's.
+    def notice_minutes_by_guide(cls, guide_ids: Iterable[int], house: FacilityTourSettings) -> dict[int, int]:
+        """Each listed guide's minimum notice in minutes (#1312): their own, else Tour Settings' default.
 
-        Guides who confirm automatically are left out; the house notice is theirs. One query.
+        The default is never a floor: a guide may pick less (15 minutes, or none) or more. One query.
         """
-        rows = cls.objects.filter(guide_id__in=list(guide_ids), confirm_mode=cls.ConfirmMode.FIRST)
-        return {
-            guide_id: max(hours, house.min_notice_hours)
-            for guide_id, hours in rows.values_list("guide_id", "min_notice_hours")
-        }
+        listed = list(guide_ids)
+        own = dict(
+            cls.objects.filter(guide_id__in=listed, min_notice_minutes__isnull=False).values_list(
+                "guide_id", "min_notice_minutes"
+            )
+        )
+        return {guide_id: own.get(guide_id, house.min_notice_hours * 60) for guide_id in listed}
 
     @classmethod
     def confirm_mode_for(cls, guide: Member) -> str:
