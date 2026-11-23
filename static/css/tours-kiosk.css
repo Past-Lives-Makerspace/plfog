@@ -371,6 +371,16 @@ html:has(> body.tours-kiosk) .pl-tours-loading__bar {
     font-size: 16px;
 }
 
+.cp-page .pl-kiosk .pl-tourpub__time-going,
+.cp-page .pl-kiosk .pl-tourpub__key {
+    font-size: 17px;
+}
+
+.cp-page .pl-kiosk .pl-tourpub__day--going::after {
+    width: 8px;
+    height: 8px;
+}
+
 .cp-page .pl-kiosk .pl-tourpub__chosen-when {
     font-size: 30px;
 }

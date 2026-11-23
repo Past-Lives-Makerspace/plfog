@@ -19,6 +19,7 @@ from django.utils import timezone
 from factory.django import mute_signals
 
 from billing.models import PaymentRefund
+from billing.scope import PaymentsScope
 from core.models import SiteActivity
 from membership import orientations, webhook_handlers
 from membership.models import (
@@ -818,7 +819,6 @@ def describe_finance_readers_ignore_uncharged_holds():
     def it_leaves_a_held_request_out_of_every_reader():
         from billing import payouts, stripe_fees
         from billing.payments_panel import _orientation_rows
-        from billing.scope import PaymentsScope
         from billing.reconciliation import _orientation_lines
 
         booking = _orientor_booking()
@@ -832,7 +832,6 @@ def describe_finance_readers_ignore_uncharged_holds():
     def it_counts_the_booking_once_the_hold_is_charged():
         from billing import payouts
         from billing.payments_panel import _orientation_rows
-        from billing.scope import PaymentsScope
 
         booking = _orientor_booking(status=Status.CONFIRMED, amount_paid_cents=1500, paid_at=timezone.now())
         assert payouts.has_earning(booking.oriented_by)

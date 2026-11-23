@@ -19,7 +19,7 @@ visitor in and book a tour. ``matchMedia("(any-pointer: fine)")`` is stubbed, si
 Chromium reports a mouse; ``window.__plMouse(true)`` plugs one in.
 
 The fourth (#1273) walks every Back, checks the guides' first names beside the times, in the form
-(following the Guide dropdown) and on Is This You and the pick list, and records the moment a link
+and on Is This You and the pick list, and records the moment a link
 or a button is pressed to see the whole page loading (#1277: the gold top bar and the dim, nothing
 inside the control) while a second press sends nothing; a failed validation shows nothing, and a
 page restored from the back/forward cache is cleared.
@@ -588,7 +588,9 @@ def describe_kiosk_back_names_and_busy():
         picked_day = page.locator(f'[data-tour-day="{day:%Y-%m-%d}"][aria-current="date"]')
         expect(picked_day).to_be_visible()
         expect(page.locator(".pl-tourpub__time").filter(has_text="4:00 PM")).to_contain_text("with Gina")
-        expect(page.locator(".pl-tourpub__time").filter(has_text="5:00 PM")).to_contain_text("with Gina or Olive")
+        # Both give 5:00 PM and neither has it booked: Gina, whose hours came first (#1312), is named.
+        expect(page.locator(".pl-tourpub__time").filter(has_text="5:00 PM")).to_contain_text("with Gina")
+        expect(page.locator(".pl-tourpub__time").filter(has_text="Olive")).to_have_count(0)
         _capture(page, "1273-times")
         if CAPTURE_DIR:
             # The loading screen for the PR (#1277): tours-loading.js marks the tap, then this cancels the load so it can be shot.
@@ -607,15 +609,6 @@ def describe_kiosk_back_names_and_busy():
         expect(picked_day).to_be_visible()
         expect(page.locator("[data-tour-form]")).to_have_count(0)
 
-        # A time two guides share: No preference until the dropdown picks one.
-        page.locator(".pl-tourpub__time").filter(has_text="5:00 PM").click()
-        names = page.locator("[data-tour-guide-name]")
-        expect(names).to_have_text("No preference")
-        page.locator("[data-tour-guide]").select_option(label="Olive (4 seats left)")
-        expect(names).to_have_text("with Olive")
-        page.locator("[data-tour-guide]").select_option(label="No preference")
-        expect(names).to_have_text("No preference")
-        _back_to(page, "book")
         _back_to(page, "home")
 
         # Is This You names the guide; Back goes to check in.

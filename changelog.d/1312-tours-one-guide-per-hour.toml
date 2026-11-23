@@ -1,0 +1,22 @@
+bump = "minor"
+date = "2026-11-23"
+audience = ["members", "admins"]
+feature = "tours.hours"
+guidance = "shots"
+target = "tours.notice"
+requests = [29, 30, 31]
+title = "Guides can share tour hours, one tour runs at a time, and each guide sets their own notice"
+changes = [
+  "Tour Guides can post hours that overlap another guide's. Visitors see each time once, with no guide named.",
+  "The first visitor to book a time gives that tour to one guide. Later visitors at that time join the same tour until it fills, and another guide's tour that overlaps it is no longer offered that day.",
+  "A time nobody has booked yet goes to the guide with the fewest tours coming up, so new guides get tours too.",
+  "On the tour booking page, a green dot marks days where people are already going, and those tours come first, saying how many people are going.",
+  "Each guide picks their own Booking Notice on My Hours, from No notice to 2 weeks. The minimum notice in Tour Settings is now only the default.",
+  "There is nothing to confirm any more: a tour booked in your hours is booked at once.",
+]
+
+[[shots]]
+caption = "On My Hours, pick your Booking Notice: how far ahead visitors must book your tours."
+
+[[shots]]
+caption = "On the tour booking page, a green dot marks days people are already going, and their tour comes first."

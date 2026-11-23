@@ -1,0 +1,18 @@
+{% comment %}
+The My Hours tab's Booking Notice card (#1312, tours.views.tour_notice_save): how far ahead visitors
+on the website must book this guide's tours, from No notice to two weeks, or House default (Tour
+Settings' minimum notice, a default and never a floor). The front desk kiosk and staff ignore it.
+Saves itself on change (#1279), its pill beside the title; Save shows only without the script. Must
+sit inside hours.html's plGuildAutosave root. Context: notice_form, target, is_self.
+{% endcomment %}
+<form method="post" action="{% url 'tours:notice_save' %}" class="hub-card pl-tours-panel" data-tour-notice-card data-autosave data-autosave-key="notice" data-guidance-target="tours.notice">
+  {% csrf_token %}
+  <input type="hidden" name="guide" value="{{ target.pk }}">
+  <div class="pl-tours-panel__head" data-card-head>
+    <h2 class="hub-detail-label pl-tours-panel__title">Booking Notice</h2>
+    {% include "tours/partials/_save_status.html" with key="notice" %}
+  </div>
+  <p class="hub-text-muted pl-tours-panel__intro">How close to a tour visitors can still book {% if is_self %}one of yours{% else %}one of {{ target.staff_label }}'s{% endif %} on the website.</p>
+  {% include "components/form_field.html" with field=notice_form.min_notice_minutes %}
+  <noscript><button type="submit" class="pl-btn pl-btn--primary pl-btn--sm pl-btn--spaced" data-tour-noscript-save>Save</button></noscript>
+</form>

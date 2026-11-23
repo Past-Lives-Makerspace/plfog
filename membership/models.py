@@ -4528,8 +4528,8 @@ class AdminCapability(models.Model):
             Capability.TOUR_GUIDE.label,
             DESCRIPTIONS[Capability.TOUR_GUIDE],
             "Set the hours you can give tours on Tour Hours. Visitors book inside them, and each booking "
-            "shows on Upcoming Tours. Bookings are confirmed automatically; to confirm or decline each one "
-            "yourself, pick Confirm First under Confirming Bookings on Tour Hours.",
+            "shows on Upcoming Tours. Bookings are confirmed automatically, so there is nothing to confirm. "
+            "Your hours may overlap another guide's: the first visitor to book a time gives that tour to one guide.",
             (GuidePage("Tour Hours", "tours:hours"), GuidePage("Upcoming Tours", "tours:upcoming")),
         ),
         INSTRUCTOR: PermissionGuide(

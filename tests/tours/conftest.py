@@ -48,3 +48,17 @@ def google_on(settings) -> None:
     settings.GOOGLE_OAUTH_CLIENT_ID = "client-id"
     settings.GOOGLE_OAUTH_CLIENT_SECRET = "client-secret"
     settings.MEMBER_BASE_URL = "https://members.example.org"
+
+
+def let_guides_share_hours() -> None:
+    """Tour Settings' switch (#1309) on: two guides may post the same hours, and visitors pick a guide (#1255)."""
+    from tours.models import FacilityTourSettings
+
+    tour_settings = FacilityTourSettings.load()
+    tour_settings.guides_share_hours = True
+    tour_settings.save()
+
+
+@pytest.fixture
+def shared_hours(db) -> None:
+    let_guides_share_hours()

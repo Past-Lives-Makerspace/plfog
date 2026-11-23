@@ -107,15 +107,13 @@
         next.focus();
     }
 
-    // Where the keyboard starts on Schedule a Tour (the form's first field to fill: the Guide
-    // dropdown where guides share the time (#1255), else the name; else the picked day's first
-    // time, else the picked day) and on the pick list (its first name). Home, check in and the
-    // rest autofocus in markup.
+    // Where the keyboard starts on Schedule a Tour (the form's first field to fill, the name; else
+    // the picked day's first time, else the picked day) and on the pick list (its first name).
+    // Home, check in and the rest autofocus in markup.
     function placeFocus(root) {
         var form = root.querySelector("[data-tour-form]");
         var first = form
             ? form.querySelector('[aria-invalid="true"]') ||
-              form.querySelector("[data-tour-guide]") ||
               form.querySelector('input[name="name"]')
             : root.querySelector(".pl-tourpub__time") ||
               root.querySelector('.pl-tourpub__day[aria-current="date"]') ||

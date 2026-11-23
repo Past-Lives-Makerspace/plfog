@@ -51,11 +51,12 @@ def describe_open_tours():
         TourHoursFactory(guide=guide, end_time=time(18, 30), tour_minutes=90)
         assert [tour.starts_at for tour in open_tours(TUESDAY, TUESDAY, now=NOW)] == [local(TUESDAY, 16)]
 
-    def it_offers_two_tours_when_two_guides_share_an_hour(guide: Member):
+    def it_shows_visitors_one_tour_per_time_and_staff_every_guides(guide: Member):
         other = make_guide(full_legal_name="Ana Other")
         TourHoursFactory(guide=guide)
         TourHoursFactory(guide=other)
-        assert _starts(open_tours(TUESDAY, TUESDAY, now=NOW)) == [
+        assert len(open_tours(TUESDAY, TUESDAY, now=NOW)) == 2
+        assert _starts(open_tours(TUESDAY, TUESDAY, now=NOW, staff=True)) == [
             ("Ana Other", "2030-01-08 16:00"),
             ("Gina Guide", "2030-01-08 16:00"),
             ("Ana Other", "2030-01-08 17:00"),
@@ -95,10 +96,10 @@ def describe_open_tours():
         TourHoursFactory(guide=other)
         TourDayOffFactory(guide=guide, starts_on=TUESDAY, ends_on=TUESDAY + timedelta(days=7))
         tours = open_tours(TUESDAY, TUESDAY + timedelta(days=14), now=NOW)
+        # Each time is one guide's (#1309): the guide posted first, and Ana gives the tours only while they are off.
         assert {(tour.guide.pk, timezone.localdate(tour.starts_at)) for tour in tours} == {
             (other.pk, TUESDAY),
             (other.pk, TUESDAY + timedelta(days=7)),
-            (other.pk, TUESDAY + timedelta(days=14)),
             (guide.pk, TUESDAY + timedelta(days=14)),
         }
 
@@ -111,9 +112,16 @@ def describe_open_tours():
         assert [tour.seats_left for tour in open_tours(TUESDAY, TUESDAY, now=NOW)] == [2, 3]
 
     def it_keeps_another_guides_booking_off_this_guides_tour(guide: Member):
+        other = make_guide(full_legal_name="Ana Other")
         TourHoursFactory(guide=guide)
-        TourBookingFactory(starts_at=local(TUESDAY, 16), party_size=4)
-        assert [tour.seats_left for tour in open_tours(TUESDAY, TUESDAY, now=NOW)] == [4, 4]
+        TourHoursFactory(guide=other)
+        # Both booked at 4:00 before #1312: each tour keeps its own visitors and seats.
+        TourBookingFactory(guide=other, starts_at=local(TUESDAY, 16), party_size=3)
+        TourBookingFactory(guide=guide, starts_at=local(TUESDAY, 16), party_size=1)
+        four = [
+            tour for tour in open_tours(TUESDAY, TUESDAY, now=NOW, staff=True) if tour.starts_at == local(TUESDAY, 16)
+        ]
+        assert [(tour.guide, tour.seats_left) for tour in four] == [(other, 1), (guide, 3)]
 
     def it_drops_a_full_tour_unless_asked_for_it(guide: Member):
         TourHoursFactory(guide=guide)
@@ -234,22 +242,23 @@ def describe_open_tour_at():
             open_tour_at(guide, local(TUESDAY, 16), lock=True, now=NOW)
 
     @pytest.mark.postgres_only
-    def it_takes_a_row_lock_on_the_hours_that_yield_the_tour(guide: Member):
+    def it_takes_the_one_lock_every_booking_takes_on_the_tour_settings_row(guide: Member):
         TourHoursFactory(guide=guide)
         with transaction.atomic(), CaptureQueriesContext(connection) as queries:
             open_tour_at(guide, local(TUESDAY, 16), lock=True, now=NOW)
         locked = [query["sql"] for query in queries.captured_queries if "FOR UPDATE" in query["sql"]]
         assert len(locked) == 1
-        assert '"tours_tourhours"' in locked[0]
+        assert '"tours_facilitytoursettings"' in locked[0]
 
 
 def describe_booking_window():
-    def it_runs_from_today_to_the_horizon_and_starts_after_the_notice():
+    def it_runs_from_today_to_the_horizon_and_starts_now():
+        """Notice is each guide's own since #1312 (``open_tours``), never the window's."""
         window = BookingWindow.at(NOW, FacilityTourSettings.load())
         assert (window.first_day, window.last_day, window.earliest_start) == (
             MONDAY,
             MONDAY + timedelta(days=30),
-            NOW + timedelta(hours=24),
+            NOW,
         )
         assert window.admits(local(MONDAY + timedelta(days=30), 21))
         assert not window.admits(local(MONDAY + timedelta(days=31), 9))

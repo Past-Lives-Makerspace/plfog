@@ -10,13 +10,14 @@
 The Tours page's My Hours tab (#947, tours.views.tour_hours), for Tour Guides and admins: a guide's
 Every Week hours (rows of day, from, until, tour length and seats, each cut into back to back
 tours), their Available On hours on picked dates (#1160, tours/partials/_dates.html), their days
-off, their Google Calendar (#951, tours/partials/_google_calendar.html), and whether their
-bookings wait for their Confirm (#1166, tours/partials/_confirm_mode.html). An
+off, their Google Calendar (#951, tours/partials/_google_calendar.html) and their Booking Notice
+(#1312, tours/partials/_notice.html). Confirming Bookings (#1166) is gone since #1309: every booking
+is booked at once. An
 admin picks whose hours to edit with the guide picker, which names each guide's calendar state and
 applies on change. The page opens on Upcoming (tours/bookings.html, #949); admins also get the
 Settings tab (tours/settings.html).
 
-Every Week, Google Calendar's picker and Confirming Bookings save themselves as they are edited
+Every Week, Google Calendar's picker and Booking Notice save themselves as they are edited
 (#1279): the root is the plGuildAutosave component (static/js/guild_autosave.js, the guild
 settings one), each saving form carries data-autosave and a data-autosave-key naming the pill in
 its card (tours/partials/_save_status.html). Add Dates, Day Off, Connect and Disconnect act at once.
@@ -147,7 +148,7 @@ its card (tours/partials/_save_status.html). Add Dates, Day Off, Connect and Dis
 
 {% include "tours/partials/_google_calendar.html" %}
 
-{% include "tours/partials/_confirm_mode.html" %}
+{% include "tours/partials/_notice.html" %}
 
 {% include "components/modal.html" with modal_id="tour-day-off-modal" modal_title="Add Day Off" modal_size="md" modal_body_include="tours/partials/_day_off_form.html" %}
 {% if open_day_off %}

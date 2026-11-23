@@ -3,7 +3,6 @@ date = "2026-11-18"
 audience = ["members", "admins"]
 feature = "tours.hours"
 guidance = "shots"
-target = "tours.confirm-mode"
 title = "Tour visitors pick a time, then a guide or No preference"
 changes = [
   "When two Tour Guides give a tour at the same time, the tour booking page and the front desk kiosk show that time once.",

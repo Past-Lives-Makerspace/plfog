@@ -227,8 +227,8 @@ def describe_reschedule_tour():
 
     def it_moves_to_another_guides_tour(guide: Member, booked: TourBooking):
         other = make_guide(full_legal_name="Olive Other")
-        TourHoursFactory(guide=other)
-        reschedule_tour(booked, guide=other, starts_at=FOUR, now=NOW)
+        TourHoursFactory(guide=other, weekday=TUESDAY.weekday() + 1)
+        reschedule_tour(booked, guide=other, starts_at=FOUR + timedelta(days=1), now=NOW)
         booked.refresh_from_db()
         assert booked.guide == other
 
@@ -273,16 +273,16 @@ def describe_reschedule_tour():
         guide: Member, booked: TourBooking, django_capture_on_commit_callbacks: Any
     ):
         other = make_guide(full_legal_name="Olive Other")
-        TourHoursFactory(guide=other)
+        TourHoursFactory(guide=other, weekday=TUESDAY.weekday() + 1)
         for member in (guide, other):
             signed_in(member)
             member.refresh_from_db()
         with django_capture_on_commit_callbacks(execute=True):
-            reschedule_tour(booked, guide=other, starts_at=FOUR, now=NOW)
+            reschedule_tour(booked, guide=other, starts_at=FOUR + timedelta(days=1), now=NOW)
         old = [message for message in mail.outbox if message.to == [guide.user.email]]
         new = [message for message in mail.outbox if message.to == [other.user.email]]
         assert len(old) == 1 and "to another guide's time" in old[0].body
-        assert [message.subject for message in new] == ["New tour booked: Tue, Jan 8 at 4:00 PM"]
+        assert [message.subject for message in new] == ["New tour booked: Wed, Jan 9 at 4:00 PM"]
 
 
 def describe_cancel_tour_by_visitor():
@@ -330,9 +330,9 @@ def describe_two_visitors_racing_for_the_last_seats():
         guide = make_guide(full_legal_name="Gina Guide")
         TourHoursFactory(guide=guide, seats=2)
         # Made up front: a first load() inside each racing transaction would insert the row and
-        # serialize the visitors on its primary key, hiding whether the hours lock works.
+        # serialize the visitors on its primary key, hiding whether the booking lock works.
         FacilityTourSettings.load()
-        real_open_tour_at = open_tour_at
+        real_open_tour_at = booking_service.tour_at
         start = threading.Barrier(4)
         outcomes: list[str] = []
 
@@ -353,7 +353,7 @@ def describe_two_visitors_racing_for_the_last_seats():
             finally:
                 connection.close()
 
-        with patch.object(booking_service, "open_tour_at", slow_open_tour_at):
+        with patch.object(booking_service, "tour_at", slow_open_tour_at):
             threads = [threading.Thread(target=visitor, args=(number,)) for number in range(4)]
             for thread in threads:
                 thread.start()

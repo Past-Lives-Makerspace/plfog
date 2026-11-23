@@ -1,4 +1,9 @@
-"""Confirm First (#1166): a guide's bookings wait as requests holding their seats until they confirm or decline."""
+"""Confirm First (#1166): a guide's bookings wait as requests holding their seats until they confirm or decline.
+
+No guide can choose it since #1309 (the My Hours card is gone); the request machinery stays for the
+No preference pool (#1255) behind Tour Settings' ``guides_share_hours``, so these specs set the
+mode on the row directly.
+"""
 
 from __future__ import annotations
 
@@ -59,7 +64,8 @@ def _visitor(party: int = 2, email: str = "sam@example.com") -> Visitor:
 def _confirms_first(guide: Member, notice: int = 25) -> None:
     """Confirm First, with a notice short enough for NOW's Tuesday tours (31 hours off)."""
     TourGuideSettings.objects.update_or_create(
-        guide=guide, defaults={"confirm_mode": TourGuideSettings.ConfirmMode.FIRST, "min_notice_hours": notice}
+        guide=guide,
+        defaults={"confirm_mode": TourGuideSettings.ConfirmMode.FIRST, "min_notice_minutes": notice * 60},
     )
 
 
@@ -109,9 +115,7 @@ def describe_the_guides_choice():
         chosen = TourGuideSettings(guide=guide)
         assert chosen.summary == "New bookings are confirmed at once, and you are told."
         chosen.confirm_mode = TourGuideSettings.ConfirmMode.FIRST
-        assert chosen.summary == (
-            "Visitors book at least 48 hours ahead, and each booking waits for you to confirm or decline it."
-        )
+        assert chosen.summary == "Each booking waits for you to confirm or decline it."
         assert str(chosen) == f"{guide} (Confirm First)"
 
 
@@ -119,7 +123,7 @@ def describe_the_tour_guide_permission_email():
     def it_describes_the_choice():
         # permission_grants_spec holds that the email carries this line word for word.
         how = AdminCapability.GUIDES[AdminCapability.Capability.TOUR_GUIDE].how
-        assert "confirmed automatically" in how and "Confirm First under Confirming Bookings" in how
+        assert "confirmed automatically, so there is nothing to confirm" in how and "Confirm First" not in how
 
 
 def describe_booking_a_guide_who_confirms_first():
@@ -267,52 +271,6 @@ def describe_the_tours_page():
         assert f"Confirm by {by:%a, %b} {by.day}, {by:%-I:%M %p}" in page
 
 
-def describe_the_confirming_bookings_card():
-    def it_shows_the_choice_and_saves_the_guides_own(guide: Member):
-        client = signed_in(guide)
-        page = client.get(reverse("tours:hours")).content.decode()
-        assert 'checked data-tour-confirm-choice="automatic"' in page
-        assert 'name="min_notice_hours" value="48"' in page
-        response = client.post(reverse("tours:confirm_mode_save"), {"confirm_mode": "first", "min_notice_hours": "72"})
-        assert (response.status_code, response["Location"]) == (302, reverse("tours:hours"))
-        assert _flashes(response) == [
-            "Saved. Visitors book at least 72 hours ahead, and each booking waits for you to confirm or decline it."
-        ]
-        assert TourGuideSettings.confirms_first(guide)
-        assert 'checked data-tour-confirm-choice="first"' in client.get(reverse("tours:hours")).content.decode()
-
-    def it_lets_an_admin_set_a_guides_and_refuses_a_bad_choice(admin: Member, guide: Member):
-        client = signed_in(admin)
-        url = reverse("tours:confirm_mode_save")
-        bad = client.post(url, {"guide": guide.pk, "confirm_mode": "never", "min_notice_hours": "48"})
-        assert _flashes(bad) == ["Select a valid choice. never is not one of the available choices."]
-        assert bad["Location"] == f"{reverse('tours:hours')}?guide={guide.pk}"
-        client.post(url, {"guide": guide.pk, "confirm_mode": "first", "min_notice_hours": "48"})
-        assert TourGuideSettings.confirms_first(guide)
-
-    def it_holds_the_notice_over_the_house_minimum_and_the_confirm_by_day(guide: Member):
-        client = signed_in(guide)
-        url = reverse("tours:confirm_mode_save")
-        house = FacilityTourSettings.load()
-        house.min_notice_hours = 30
-        house.save()
-        below = client.post(url, {"confirm_mode": "first", "min_notice_hours": "28"})
-        assert _flashes(below) == ["At least 30 hours: the minimum notice in Tour Settings."]
-        house.min_notice_hours = 0
-        house.save()
-        day = client.post(url, {"confirm_mode": "first", "min_notice_hours": "24"})
-        assert _flashes(day)[-1:] == ["More than 24 hours, so there is time to answer before the confirm by time."]
-        assert not TourGuideSettings.confirms_first(guide)
-
-    def it_refuses_a_guide_setting_someone_elses(guide: Member):
-        other = make_guide(full_legal_name="Olive Other")
-        response = signed_in(guide).post(
-            reverse("tours:confirm_mode_save"), {"guide": other.pk, "confirm_mode": "first"}
-        )
-        assert response.status_code == 403
-        assert not TourGuideSettings.confirms_first(other)
-
-
 def describe_the_visitors_page():
     def it_says_the_request_waits_and_offers_only_cancel(request_: TourBooking):
         client = Client(HTTP_HOST=HOST)
@@ -334,7 +292,7 @@ def describe_two_visitors_racing_for_a_confirm_first_guides_last_seats():
         TourHoursFactory(guide=guide, seats=2)
         _confirms_first(guide)
         FacilityTourSettings.load()
-        real_open_tour_at = open_tour_at
+        real_open_tour_at = booking_service.tour_at
         start = threading.Barrier(4)
         outcomes: list[str] = []
 
@@ -353,7 +311,7 @@ def describe_two_visitors_racing_for_a_confirm_first_guides_last_seats():
             finally:
                 connection.close()
 
-        with patch.object(booking_service, "open_tour_at", slow_open_tour_at):
+        with patch.object(booking_service, "tour_at", slow_open_tour_at):
             threads = [threading.Thread(target=visitor, args=(number,)) for number in range(4)]
             for thread in threads:
                 thread.start()
@@ -373,12 +331,13 @@ def describe_the_guides_own_notice():
         walk_in = book_tour(guide=first, starts_at=FOUR, visitor=_visitor(), source=TourBooking.Source.KIOSK, now=NOW)
         assert walk_in.status == TourBooking.Status.BOOKED
 
-    def it_never_goes_below_the_house_notice(first: Member):
+    def it_may_go_below_the_house_notice(first: Member):
+        """#1312: Tour Settings' notice is a default, never a floor."""
         house = FacilityTourSettings.load()
         house.min_notice_hours = 40
         house.save()
-        assert TourGuideSettings.notice_hours_by_guide([first.pk], house) == {first.pk: 40}
-        assert open_tour_at(first, FOUR, now=NOW) is None
+        assert TourGuideSettings.notice_minutes_by_guide([first.pk], house) == {first.pk: 25 * 60}
+        assert open_tour_at(first, FOUR, now=NOW) is not None
 
 
 def describe_the_confirm_by_time():

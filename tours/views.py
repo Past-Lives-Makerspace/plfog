@@ -72,10 +72,10 @@ from tours.forms import (
     StaffTourMessageForm,
     MAX_DATED_DAYS_AHEAD,
     TourCalendarChoiceForm,
-    TourConfirmModeForm,
     TourDatesForm,
     TourDayOffForm,
     TourHoursFormSet,
+    TourNoticeForm,
     TourNoteForm,
 )
 from tours.models import (
@@ -276,7 +276,7 @@ def _render_hours(
             "open_dates": dates_form.is_bound or add is not None,
             "dated_hours": dated,
             "dates_calendar": _calendar_config(target, dated, dates_form, add=add),
-            "confirm_form": TourConfirmModeForm(instance=TourGuideSettings.objects.filter(guide=target).first()),
+            "notice_form": TourNoticeForm(instance=TourGuideSettings.objects.filter(guide=target).first()),
             **_setup(request),
         },
     )
@@ -332,24 +332,25 @@ def tour_hours_save(request: HttpRequest) -> HttpResponse:
 
 @tour_guide_access_required
 @require_POST
-def tour_confirm_mode_save(request: HttpRequest) -> HttpResponse:
-    """Save whether the guide's bookings wait for their Confirm (#1166): the Confirming Bookings card.
+def tour_notice_save(request: HttpRequest) -> HttpResponse:
+    """Save how far ahead website visitors must book the guide (#1312): the Booking Notice card.
 
-    The card saves itself as it is edited (#1279): an autosave post answers JSON, a refusal a 422
-    under the field. Without the script, a flash and a redirect back to the tab.
+    The card saves itself on change (#1279): an autosave post answers JSON, a refusal a 422 under
+    the field. Without the script, a flash and a redirect back to the tab. An admin sets anyone's
+    through the posted ``guide``.
     """
     target = _target_guide(request, request.POST.get("guide", ""))
     instance = TourGuideSettings.objects.filter(guide=target).first() or TourGuideSettings(guide=target)
-    form = TourConfirmModeForm(request.POST, instance=instance)
+    form = TourNoticeForm(request.POST, instance=instance)
     if not form.is_valid():
         if wants_autosave(request):
             return autosave_refused(form)
         messages.error(request, str(next(iter(form.errors.values()))[0]))
         return redirect(_hours_url(_viewer(request), target))
-    saved = form.save()
+    form.save()
     if wants_autosave(request):
         return autosave_saved()
-    messages.success(request, f"Saved. {saved.summary}")
+    messages.success(request, "Booking notice saved.")
     return redirect(_hours_url(_viewer(request), target))
 
 
@@ -504,7 +505,8 @@ GIVE_TOURS_TUTORIAL = (
             "lobby.",
             "You get an email, a bell and a push for each booking, and an email and a bell when a visitor moves or "
             "cancels.",
-            "To confirm or decline each booking yourself, pick Confirm First under Confirming Bookings on My Hours.",
+            "There is nothing to confirm: a tour booked in your hours is booked, and it goes on your Google Calendar "
+            "when you connect one.",
             "Reschedule or cancel from the Upcoming tab: press the ... on the tour for Edit Guide or Time, or Cancel "
             "Tour. The visitor is emailed, with your note if you add one.",
         ),
@@ -851,12 +853,13 @@ def _destination_guide(request: HttpRequest, booking: TourBooking, raw: str) -> 
 def _staff_tours(booking: TourBooking, guide: Member) -> list[OpenTour]:
     """The guide's open tours a staff member may move the booking to: room for the party, not its own tour.
 
-    No minimum notice (any tour that has not started), within the horizon.
+    No minimum notice (any tour that has not started), within the horizon. A tour another guide's
+    booked tour overlaps is left out (#1312: one tour at a time); the booking's own claim never counts.
     """
     today = timezone.localdate()
     return [
         tour
-        for tour in open_tours(today, today + timedelta(days=MAX_HORIZON_DAYS), guide=guide, staff=True)
+        for tour in open_tours(today, today + timedelta(days=MAX_HORIZON_DAYS), guide=guide, staff=True, moving=booking)
         if tour.seats_left >= booking.party_size
         and not (tour.guide.pk == booking.guide_id and tour.starts_at == booking.starts_at)
     ]

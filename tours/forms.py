@@ -34,6 +34,7 @@ from tours.models import (
     TourGuideSettings,
     TourHours,
     day_label,
+    notice_label,
 )
 
 #: The longest run of days one day off may cover.
@@ -133,8 +134,9 @@ class _TourHoursBaseFormSet(forms.BaseInlineFormSet):
     Submitted rows are compared with each other as submitted, so moving one row out of another's
     way in the same save is fine, and with every saved row of the guide's the POST did not carry
     (a stale tab that never showed it, posting ``INITIAL_FORMS=0``). A row the POST carries, kept
-    or deleted, is judged by what was posted. This keeps one guide and one start time to one row,
-    which is what booking locks (``tours.availability.open_tour_at``).
+    or deleted, is judged by what was posted. This keeps one guide and one start time to one row.
+    Other guides' hours may overlap these (#1312): one tour still runs at a time, since the first
+    booking claims the time (``tours.availability``).
 
     Every overlap is the row's own error (#1279), never the formset's, so the autosave shows it on
     the row (``hours-<i>-__all__``); two rows that overlap each get one naming the other.
@@ -442,7 +444,7 @@ class FacilityTourSettingsForm(forms.ModelForm):
             "accepting_bookings": "Accepting tour bookings",
             "closed_message": "Closed message",
             "booking_horizon_days": "Booking horizon (days)",
-            "min_notice_hours": "Minimum notice (hours)",
+            "min_notice_hours": "Default minimum notice (hours)",
             "cancel_cutoff_hours": "Cancel and reschedule cutoff (hours)",
             "default_seats": "Default seats per tour",
         }
@@ -461,7 +463,10 @@ class FacilityTourSettingsForm(forms.ModelForm):
         self.fields[
             "booking_horizon_days"
         ].help_text = "How far ahead visitors can book. 30 means up to 30 days from today."
-        self.fields["min_notice_hours"].help_text = "How close to a tour it can still be booked."
+        self.fields["min_notice_hours"].help_text = (
+            "How far ahead visitors must book a guide who has not set their own notice on My Hours. A guide may "
+            "pick less or more."
+        )
         self.fields[
             "cancel_cutoff_hours"
         ].help_text = "How close to a tour visitors can still cancel or move it from their email."
@@ -564,8 +569,6 @@ class TourBookingForm(forms.Form):
         top = max(1, min(max_party, MAX_SEATS))
         party = cast(forms.TypedChoiceField, self.fields["party_size"])
         party.choices = [(str(size), str(size)) for size in range(1, top + 1)]
-        # The Guide dropdown (#1255, _book_form.html) greys out a guide without room for this party.
-        party.widget.attrs["x-model.number"] = "party"
         # At the front desk kiosk (#950) the browser must never offer the last visitor's details.
         self.fields["name"].widget.attrs.update({"autocomplete": "off" if kiosk else "name"})
         self.fields["email"].widget.attrs.update({"autocomplete": "off" if kiosk else "email"})
@@ -620,26 +623,39 @@ class StaffTourMessageForm(forms.Form):
     )
 
 
-class TourConfirmModeForm(forms.ModelForm):
-    """The My Hours tab's Confirming Bookings card (#1166): Confirm First or Confirm Automatically,
-    and under Confirm First how far ahead visitors must book."""
+#: The steps a guide picks their own minimum notice from (#1312, Felix), in minutes.
+NOTICE_STEPS: tuple[int, ...] = (0, 15, 30, 60, 120, 240, 720, 1440, 2880, 7 * 1440, 14 * 1440)
+
+
+class TourNoticeForm(forms.ModelForm):
+    """My Hours' Booking Notice card (#1312): how far ahead website visitors must book this guide.
+
+    A select of :data:`NOTICE_STEPS`, from No notice to two weeks, with House default first (blank:
+    Tour Settings' minimum notice, named with its value). The house value is a default, never a floor.
+    """
+
+    min_notice_minutes = forms.TypedChoiceField(coerce=int, empty_value=None, required=False, label="Booking notice")
 
     class Meta:
         model = TourGuideSettings
-        fields = ("confirm_mode", "min_notice_hours")
-        labels = {"min_notice_hours": "Visitors book at least (hours ahead)"}
-        widgets = {
-            "confirm_mode": forms.RadioSelect,
-            "min_notice_hours": forms.NumberInput(attrs={"class": "pl-tours-input--narrow"}),
-        }
+        fields = ("min_notice_minutes",)
 
-    def clean_min_notice_hours(self) -> int:
-        """Never below Tour Settings' minimum notice, and over the 24 hours a request has to be confirmed by."""
-        hours = int(self.cleaned_data["min_notice_hours"])
-        house = FacilityTourSettings.load().min_notice_hours
-        if hours < house:
-            raise forms.ValidationError(f"At least {house} hours: the minimum notice in Tour Settings.")
-        return hours
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        house = FacilityTourSettings.load().min_notice_hours * 60
+        field = cast(forms.TypedChoiceField, self.fields["min_notice_minutes"])
+        field.choices = [
+            ("", f"House default ({notice_label(house)})"),
+            *(
+                (str(minutes), "No notice, book me now" if minutes == 0 else notice_label(minutes))
+                for minutes in NOTICE_STEPS
+            ),
+        ]
+        field.widget.attrs.update({"class": "pl-tours-input--choice", "data-tour-notice": ""})
+        field.help_text = (
+            "How far ahead visitors on the website must book your tours. Pick No notice or 15 minutes when you "
+            "are here and free now. The front desk kiosk and staff are never held to it."
+        )
 
 
 class StaffRescheduleForm(StaffTourMessageForm):

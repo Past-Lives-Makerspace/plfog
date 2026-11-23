@@ -97,7 +97,11 @@ def describe_booking_page():
         content = _client().get(f"/?date={_day():%Y-%m-%d}").content.decode()
         assert f'aria-current="date" data-tour-day="{_day():%Y-%m-%d}"' in content
         assert f'data-tour-time="{_key(guide, 16)}"' in content
-        assert re.search(r"4:00 PM</span>\s*<span class=\"pl-tourpub__time-seats\">1 seat left</span>", content)
+        assert re.search(
+            r"4:00 PM</span>\s*<span class=\"pl-tourpub__time-going\" data-tour-going=\"3\">3 people going, join them</span>"
+            r"\s*<span class=\"pl-tourpub__time-seats\">1 seat left</span>",
+            content,
+        )
         assert re.search(r"5:00 PM</span>\s*<span class=\"pl-tourpub__time-seats\">4 seats left</span>", content)
 
     def it_names_no_guide_for_a_blank_name_when_two_share_a_time(guide: Member, hours: Any):
@@ -111,8 +115,8 @@ def describe_booking_page():
         other = make_guide(full_legal_name="Olive Other")
         TourHoursFactory(guide=other, weekday=_day().weekday())
         content = _client().get(f"/?date={_day():%Y-%m-%d}").content.decode()
-        assert content.count("data-tour-no-preference") == 2  # 4:00 and 5:00, one button each
-        assert "seats left with" not in content
+        assert content.count("data-tour-time=") == 2  # 4:00 and 5:00, one button each
+        assert "seats left with" not in content and "data-tour-guide" not in content
 
     def it_picks_the_first_day_for_an_unknown_date(guide: Member, hours: Any):
         content = _client().get("/?date=not-a-date").content.decode()

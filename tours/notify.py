@@ -46,7 +46,14 @@ from core.events.scheduler import ScheduledOccurrence
 from core.events.scheduling import DEFAULT_WINDOW
 from core.events.senders import email_shell_message, emit_with_email_shell
 from tours import signals
-from tours.models import TOUR_ADDRESS, FacilityTourSettings, TourBooking, TourBookingNote, TourGuideSettings
+from tours.models import (
+    TOUR_ADDRESS,
+    FacilityTourSettings,
+    TourBooking,
+    TourBookingNote,
+    TourGuideSettings,
+    notice_label,
+)
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -191,13 +198,15 @@ def _ics_attachment(booking: TourBooking, *, cancelled: bool = False) -> tuple[s
     )
 
 
-def guide_notice_hours(booking: TourBooking) -> int | None:
-    """How many hours ahead visitors book this request's guide (#1166), or None when it is not a request."""
+def guide_notice(booking: TourBooking) -> str | None:
+    """How far ahead visitors book this request's guide (#1166, #1312), in words; None when it is not a request
+    or the guide asks no notice."""
     if not booking.is_request or booking.guide_id is None:
         return None
-    return TourGuideSettings.notice_hours_by_guide([booking.guide_id], FacilityTourSettings.load()).get(
+    minutes = TourGuideSettings.notice_minutes_by_guide([booking.guide_id], FacilityTourSettings.load())[
         booking.guide_id
-    )
+    ]
+    return notice_label(minutes) if minutes else None
 
 
 def support_email() -> str:
@@ -228,7 +237,7 @@ def visitor_context(booking: TourBooking, **extra: Any) -> dict[str, Any]:
         "support_email": support_email(),
         "cancel_cutoff_hours": FacilityTourSettings.load().cancel_cutoff_hours,
         "confirm_by": short_when(booking.confirm_by),
-        "notice_hours": None if booking.is_shared_request else guide_notice_hours(booking),
+        "notice": None if booking.is_shared_request else guide_notice(booking),
         **visitor_links(booking),
         **extra,
     }

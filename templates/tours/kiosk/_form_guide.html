@@ -1,7 +1,6 @@
 {% comment %}
-The kiosk booking summary's guide (#1273, tours/public/_book_form.html with kiosk): "with Amber" for
-the one guide of the chosen time, or where guides share it the Guide dropdown's pick, "No preference"
-until one is chosen (Alpine's names map, kept in step with the dropdown). Nothing for a tour with no
-named guide. Context: guides, form, chosen_guide.
+The kiosk booking summary's guide (#1273, tours/public/_book_form.html with kiosk): "with Amber", the
+guide who has the chosen time's tour, or who would get it (#1312). Nothing for a tour with no named
+guide. Context: chosen_guide.
 {% endcomment %}
-{% if guides %} · <span data-tour-guide-name x-text="names[guide]">{% for g in guides %}{% if g.key == form.tour.value %}{% if g.no_preference %}{{ g.name }}{% else %}with {{ g.name }}{% endif %}{% endif %}{% endfor %}</span>{% elif chosen_guide %} · <span data-tour-guide-name>with {{ chosen_guide }}</span>{% endif %}
+{% if chosen_guide %} · <span data-tour-guide-name>with {{ chosen_guide }}</span>{% endif %}

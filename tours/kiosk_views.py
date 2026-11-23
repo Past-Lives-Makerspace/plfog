@@ -189,7 +189,7 @@ def book(request: HttpRequest) -> HttpResponse:
 
     The same notice and horizon as the website (:func:`tours.public_views.all_open_tours`); the
     optional account toggle starts on, as there. A booking lands on :func:`booked`. Every time names
-    its guide (#1273), and Back goes from the form to that day's times, from the times home.
+    its guide (#1273): the guide who has that tour, or who would get it (#1312), and Back goes from the form to that day's times, from the times home.
     """
     tour_settings = FacilityTourSettings.load()
     if not tour_settings.accepting_bookings:
@@ -213,7 +213,7 @@ def book(request: HttpRequest) -> HttpResponse:
             tours = all_open_tours(kiosk=True)
     else:
         chosen = find_tour(tours, request.GET.get("tour", ""))
-        attempt = Attempt() if chosen is None else booking_form(request, tours, chosen, kiosk=True)
+        attempt = Attempt() if chosen is None else booking_form(request, chosen, kiosk=True)
     chosen = attempt.chosen if attempt.form is not None else None
     raw_day = f"{timezone.localdate(chosen.starts_at):%Y-%m-%d}" if chosen else request.GET.get("date", "")
     page_url = reverse("tours_kiosk:book")
@@ -221,10 +221,9 @@ def book(request: HttpRequest) -> HttpResponse:
         request,
         "tours/kiosk/book.html",
         {
-            "picker": build_picker(tours, raw_day, no_preference=True, name_guides=True),
+            "picker": build_picker(tours, raw_day, name_guides=True, join_first=True),
             "chosen": chosen,
             "chosen_guide": guide_first_name(chosen.guide) if chosen else "",
-            "guides": attempt.guides,
             "form": attempt.form,
             "error": attempt.error,
             "page_url": page_url,
