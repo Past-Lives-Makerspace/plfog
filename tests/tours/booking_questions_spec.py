@@ -25,7 +25,7 @@ HOST = "tours.pastlives.space"
 
 ANSWERS = {
     "pronouns": "she/her",
-    "found_us_through": "A friend or family member",
+    "found_us_through": "Someone told me about it!",
     "guest_notes": "I throw pots at home and want a kiln and other potters.",
     "referred_by": "Jo Member",
 }
@@ -100,8 +100,7 @@ def describe_the_form():
         assert choices[1:] == [
             "Google Search",
             "Google Maps",
-            "A friend or family member",
-            "A colleague or coworker",
+            "Someone told me about it!",
             "Instagram",
             "Facebook",
             "Reddit",
@@ -153,7 +152,7 @@ def describe_booking_on_the_website():
         # One open question in place of interests and anything else (Morlock, 2026-11-22).
         assert "What brings you to Past Lives?" in content
         assert "most interested in" not in content and "Anything else you" not in content
-        assert "how you found your way to us" in content
+        assert "How did you learn about us?" in content
         assert "If someone here referred you, their name" in content
         assert "stairs" not in content.lower()
 
@@ -165,7 +164,7 @@ def describe_the_guides_email():
             Client(HTTP_HOST=HOST).post("/", _post(guide))
         email = next(message for message in mail.outbox if message.subject.startswith("New tour booked"))
         html = email.alternatives[0][0]
-        for text in ("she/her", "A friend or family member", "Jo Member", "a kiln and other potters"):
+        for text in ("she/her", "Someone told me about it!", "Jo Member", "a kiln and other potters"):
             assert text in email.body
             assert text in html
         assert "What brings them here: I throw pots at home" in email.body
@@ -330,3 +329,15 @@ def describe_the_one_open_question():
     def it_shows_the_guide_the_answer_as_what_brings_them(guide: Member):
         booking = TourBookingFactory(guide=guide, guest_notes="Furniture, mostly.")
         assert ("What brings them here", "Furniture, mostly.") in booking.guest_answers
+
+
+def describe_how_they_learned_about_us():
+    """Morlock, 2026-11-22: asked plainly, and word of mouth is one answer."""
+
+    def it_asks_how_did_you_learn_about_us():
+        assert _form().fields["found_us_through"].label == "How did you learn about us?"
+
+    def it_folds_friends_family_and_coworkers_into_someone_told_me():
+        labels = [label for _, label in _form().fields["found_us_through"].choices]
+        assert "Someone told me about it!" in labels
+        assert not any("friend" in label.lower() or "coworker" in label.lower() for label in labels)

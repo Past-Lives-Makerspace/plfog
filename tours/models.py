@@ -633,16 +633,18 @@ GUEST_ANSWER_LABELS = (
 
 
 class FoundUs(models.TextChoices):
-    """How a visitor found Past Lives (feedback request #32), stored in SimplyBook's own words.
+    """How a visitor learned about Past Lives (feedback request #32), each value its own label.
 
-    Each value is its label, so a booking reads the same in the database, the guide's email and
-    the calendar event, and stays comparable with the ~1,100 bookings SimplyBook took.
+    Each value is its label, so a booking reads the same in the database, the guide's email and the
+    calendar event. SimplyBook's words, except that its friend or family and colleague or coworker
+    are one answer, "Someone told me about it!" (Morlock, 2026-11-22): together, the ~1,100 old
+    bookings' 90 compare with it.
     """
 
     GOOGLE_SEARCH = "Google Search", "Google Search"
     GOOGLE_MAPS = "Google Maps", "Google Maps"
-    FRIEND = "A friend or family member", "A friend or family member"
-    COLLEAGUE = "A colleague or coworker", "A colleague or coworker"
+    # Morlock, 2026-11-22: friend or family and colleague or coworker are one answer, word of mouth.
+    TOLD = "Someone told me about it!", "Someone told me about it!"
     INSTAGRAM = "Instagram", "Instagram"
     FACEBOOK = "Facebook", "Facebook"
     REDDIT = "Reddit", "Reddit"

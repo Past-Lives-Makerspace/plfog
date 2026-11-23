@@ -513,7 +513,7 @@ class TourBookingForm(forms.Form):
     found_us_through = forms.ChoiceField(
         required=False,
         choices=[("", "Pick one"), *FoundUs.choices],
-        label="Past Lives grows through community. We'd love to know how you found your way to us.",
+        label="How did you learn about us?",
     )
     referred_by = forms.CharField(max_length=200, required=False, label="If someone here referred you, their name")
     # One open question in place of "most interested in" and "anything else" (Morlock, 2026-11-22):
