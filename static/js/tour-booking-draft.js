@@ -9,7 +9,8 @@
 
    Never at the lobby kiosk: that screen is shared by strangers, so its form carries no
    data-tour-draft and this script is not loaded there. The You're Booked page carries
-   data-tour-draft-clear, which forgets the copy once the booking is made. */
+   data-tour-draft-clear, which forgets the copy once the booking is made. The site moves between
+   its pages with htmx, so this also runs after every swap (htmx:afterSettle), not only on load. */
 (function () {
     "use strict";
 
@@ -76,9 +77,11 @@
             return;
         }
         var form = document.querySelector("form[data-tour-draft]");
-        if (!form) {
+        // Once per form: start runs again after every htmx swap, and the same form may still be there.
+        if (!form || form.hasAttribute("data-tour-draft-on")) {
             return;
         }
+        form.setAttribute("data-tour-draft-on", "");
         restore(form, storage);
         var keep = function () {
             save(form, storage);
@@ -92,4 +95,7 @@
     } else {
         start();
     }
+    // The tours site moves between pages with htmx (a boosted link swaps the body in place), and a
+    // swapped in page does not run this file again: picking a time after Back is exactly that move.
+    document.addEventListener("htmx:afterSettle", start);
 })();
