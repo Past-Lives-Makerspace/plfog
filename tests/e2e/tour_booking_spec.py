@@ -159,9 +159,9 @@ def describe_tour_booking():
         _capture(page, "confirmation")
         booking = TourBooking.objects.get()
         assert (booking.starts_at, booking.party_size) == (four, 2)
-        # The account toggle starts on, so the visitor now has a GUEST account, never a member one.
-        assert booking.user is not None and booking.user.email == VISITOR_EMAIL
-        assert Member.objects.get(user=booking.user).status == Member.Status.GUEST
+        # No account is made at booking (Morlock, 2026-11-22); signing in later claims it (claim_tours).
+        assert booking.user is None
+        assert not User.objects.filter(email=VISITOR_EMAIL).exists()
         tour = open_tour_at(guide, four)
         assert tour is not None and tour.seats_left == 2
         confirmed = _only("Your Past Lives tour is booked")

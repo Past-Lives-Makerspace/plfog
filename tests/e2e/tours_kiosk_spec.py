@@ -476,7 +476,7 @@ def describe_tours_kiosk():
         for question in (
             "pronouns",
             "found_us_through",
-            "referred_by",
+            # "What was their name?" (referred_by) stays hidden until "Someone told me about it!" is picked.
             "guest_notes",
             "wants_studio",
         ):
