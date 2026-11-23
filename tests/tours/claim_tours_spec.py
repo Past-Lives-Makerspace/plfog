@@ -119,3 +119,15 @@ def describe_the_booking_form():
         assert Client(HTTP_HOST="tours.pastlives.space").post("/", data).status_code == 302
         assert TourBooking.objects.get().user is None
         assert User.objects.count() == users
+
+
+def describe_the_receivers_with_nothing_to_claim():
+    def it_ignores_a_sign_in_without_a_user():
+        from tours import claims
+
+        claims.on_sign_in(sender=User, request=None, user=None)
+
+    def it_ignores_a_confirmation_without_an_address():
+        from tours import claims
+
+        claims.on_email_confirmed(sender=EmailAddress, request=None, email_address=None)

@@ -363,3 +363,27 @@ def describe_who_told_them():
     def it_drops_a_name_typed_before_another_answer_was_picked(guide: Member, hours: Any):
         Client(HTTP_HOST=HOST).post("/", _post(guide, found_us_through="Instagram"))
         assert TourBooking.objects.get().referred_by == ""
+
+
+def describe_the_newsletter_task_on_its_own():
+    """``subscribe_tour_visitor`` runs later, on the task queue: the booking may be gone, Mailchimp may be off."""
+
+    def it_does_nothing_for_a_booking_since_deleted():
+        from unittest.mock import patch
+
+        from tours.tasks import subscribe_tour_visitor
+
+        with patch("core.integrations.mailchimp.MailchimpClient.from_site_config") as client:
+            subscribe_tour_visitor.call(999_999)
+        client.assert_not_called()
+
+    def it_does_nothing_while_mailchimp_is_not_set_up(guide: Member):
+        from unittest.mock import MagicMock, patch
+
+        from tours.tasks import subscribe_tour_visitor
+
+        booking = TourBookingFactory(guide=guide, wants_newsletter=True)
+        off = MagicMock(enabled=False)
+        with patch("core.integrations.mailchimp.MailchimpClient.from_site_config", return_value=off):
+            subscribe_tour_visitor.call(booking.pk)
+        off.subscribe.assert_not_called()
