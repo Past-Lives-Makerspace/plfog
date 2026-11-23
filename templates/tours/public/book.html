@@ -10,6 +10,8 @@ books, or None), form, error, page_url, address, support_email.
 {% block canonical %}<link rel="canonical" href="{% canonical_url "/" %}">{% endblock %}
 {% block robots %}{% if request.GET %}<meta name="robots" content="noindex">{% endif %}{% endblock %}
 {% block classes_extra_head %}
+{# Keeps what the visitor typed in this tab while they go back and forth (never the kiosk's base). #}
+<script src="{% static 'js/tour-booking-draft.js' %}" defer></script>
 {% static 'img/favicon.png' as fallback_logo %}
 <meta property="og:type" content="website">
 <meta property="og:title" content="Book a Tour | Past Lives Makerspace">
@@ -30,6 +32,7 @@ books, or None), form, error, page_url, address, support_email.
         </div>
       </div>
       <div class="detail-body">
+        {% if form %}{% include "tours/public/_steps.html" with step="details" time_url=page_url time_day=chosen.starts_at %}{% else %}{% include "tours/public/_steps.html" with step="time" %}{% endif %}
         {% if error %}<div class="reg-error-block pl-tourpub__notice" role="alert" data-tour-error>{{ error }}</div>{% endif %}
         {% if form %}
         {% include "tours/public/_book_form.html" %}

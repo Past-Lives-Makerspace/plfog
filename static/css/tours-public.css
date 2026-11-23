@@ -75,6 +75,78 @@ body.tours-portal {
     font-weight: 800;
 }
 
+/* Where the visitor is in booking (Morlock, 2026-11-22): Day & Time, Your Details, Booked. The current
+   step is gold like the picked day; a finished one is checked and, from the details, a link back. */
+.cp-page .pl-tourpub__steps {
+    list-style: none;
+    margin: 0 0 1.25rem;
+    padding: 0;
+    display: flex;
+    gap: 0.5rem;
+}
+
+.cp-page .pl-tourpub__steps li {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.cp-page .pl-tourpub__step {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.4rem;
+    border: 1px solid var(--border2);
+    border-radius: var(--r);
+    background: var(--bg3);
+    color: var(--text2);
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cp-page a.pl-tourpub__step:hover {
+    border-color: var(--gold-text);
+    text-decoration: none;
+}
+
+.cp-page .pl-tourpub__step--on {
+    background: var(--gold);
+    border-color: var(--gold);
+    color: var(--navy-dark);
+}
+
+.cp-page .pl-tourpub__step--done {
+    color: var(--text);
+}
+
+.cp-page .pl-tourpub__step-n {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 50%;
+    border: 1px solid currentColor;
+    font-size: 11px;
+}
+
+.cp-page .pl-tourpub__back {
+    display: inline-flex;
+    margin: 0 0 1rem;
+}
+
+@media (max-width: 480px) {
+    .cp-page .pl-tourpub__step {
+        font-size: 11px;
+        gap: 0.25rem;
+        padding: 0.45rem 0.25rem;
+    }
+}
+
 /* Pick a Day as a month calendar (Morlock, 2026-11-22): months side by side where they fit, each
    a seven column grid, Sunday first. A day with tours is a link; one without is a greyed number. */
 .cp-page .pl-tourpub__calendar {

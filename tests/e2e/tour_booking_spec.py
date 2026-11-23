@@ -369,3 +369,36 @@ def describe_the_month_calendar_on_a_phone():
             if width >= 375:
                 # Apple's guide is 44pt; 40 is the floor a thumb hits reliably on a seven column grid.
                 assert page.evaluate(_DAY) >= 40, f"days are {page.evaluate(_DAY)}px wide at {width}px"
+
+
+def describe_the_booking_steps():
+    """Morlock, 2026-11-22: the step bar, an obvious Back, and what was typed kept while going back and forth."""
+
+    def it_keeps_the_typing_across_back_and_forgets_it_once_booked(live_server, page, settings):
+        settings.TOURS_HOSTS = [urlparse(live_server.url).hostname]
+        settings.TOURS_BASE_URL = live_server.url
+        guide = _make_guide()
+        day = timezone.localdate() + timedelta(days=4)
+        TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
+        four = local(day, 16)
+        key = f"{guide.pk}-{four.astimezone(UTC):%Y%m%dT%H%MZ}"
+        page.set_viewport_size(DESKTOP)
+
+        page.goto(f"{live_server.url}/?tour={key}")
+        page.locator('[data-tour-step="details"][aria-current="step"]').wait_for()
+        page.locator('input[name="name"]').fill("Sam Rivera")
+        page.locator('input[name="email"]').fill("sam@example.com")
+        page.locator('input[name="phone"]').fill("503 555 0142")
+
+        page.locator("[data-tour-back]").click()
+        page.locator('[data-tour-step="time"][aria-current="step"]').wait_for()
+        page.locator(f'[data-tour-time="{key}"]').click()
+        page.locator('[data-tour-step="details"][aria-current="step"]').wait_for()
+        assert page.locator('input[name="name"]').input_value() == "Sam Rivera"
+        assert page.locator('input[name="email"]').input_value() == "sam@example.com"
+
+        with page.expect_navigation():
+            page.locator("[data-tour-form] button[type=submit]").click()
+        page.locator('[data-tour-step="booked"][aria-current="step"]').wait_for()
+        assert page.evaluate("() => sessionStorage.getItem('pl-tour-booking-draft')") is None
+        assert TourBooking.objects.get().visitor_name == "Sam Rivera"

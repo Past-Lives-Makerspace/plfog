@@ -683,14 +683,15 @@ def describe_kiosk_guide_names():
         again = kiosk_client.post(BOOK, data).content.decode()
         assert 'x-text="names[guide]">with Olive</span>' in again
 
-    def it_keeps_pick_a_different_time_on_the_website(guide: Member, day: date):
+    def it_keeps_a_way_back_to_the_times_on_the_website(guide: Member, day: date):
         other = make_guide(full_legal_name="Olive Other")
         for member in (guide, other):
             TourHoursFactory(guide=member, weekday=day.weekday(), seats=4)
         website = Client(HTTP_HOST=HOST)
         for tour in (_key_for(guide, local(day, 16)), f"any-{local(day, 16).astimezone(UTC):%Y%m%dT%H%MZ}"):
             form = website.get("/", {"tour": tour}).content.decode()
-            assert "data-tour-form" in form and "Pick a different time" in form
+            # Morlock, 2026-11-22: the small Pick a different time link became "← Back to day & time".
+            assert "data-tour-form" in form and "data-tour-back" in form and "Back to day &amp; time" in form
             assert "data-tour-guide-name" not in form and "names:" not in form
 
     def it_names_the_guide_on_you_are_booked(kiosk_client: Client, guide: Member, day: date):
