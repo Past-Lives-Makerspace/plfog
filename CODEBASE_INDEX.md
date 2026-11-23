@@ -14,9 +14,10 @@
 | `polls/` | Polls (#708, back in #925): one site-wide poll on Home while open, one per guild on its page's Polls tab, Past Polls at `/polls/`, Admin Tools > Polls at `/polls/manage/`; never in the Spotlight. See `polls/AGENTS.md` |
 | `hq/` | The Holiday Bizarre HQ (Track C): one hub page per event with a hero band, goal chips and four door cards (RSVP, Volunteer Sign-up, Vendor Tables, the PL Ledger), for admins and guild officers only (#1307); `manage.py seed_holiday_bizarre --event <pk>` writes Lee's hub, doors, goals and shifts from `hq/holiday_bizarre.py`; see `hq/AGENTS.md` |
 | `tours/` | Facility tours (#947; not the in-app guided tours in `core/tours.py`): Tour Settings, each Tour Guide's weekly tour hours and days off, bookings, and open tour times computed live (`tours/availability.py`); the visitor booking site on tours.pastlives.space with its emails and reminder (#948, `tours/booking.py`, `tours/notify.py`); the staff's Upcoming and Past tabs with reschedule, cancel and attendance (#949); the front desk kiosk on cairn, check in or schedule a tour (#950, `tours/kiosk.py`, `tours/kiosk_views.py`); each guide's Google Calendar, tours written to it and busy times hiding tour times (#951, `tours/google.py`, `tours/calendar_sync.py`, the `sync_tour_calendars` job); see `tours/AGENTS.md` |
+| `hours/` | One set of hours per person for every kind they give (#1300): `Hours` (the time, once) ticked by `tours.TourHours` and personal `OrientationAvailability` rows through their `hours` key, and `DayOff` for every kind. Part 1 builds them underneath, kept in step by the old editors' saves; nothing reads them yet. See `hours/AGENTS.md` |
 | `plfog/` | Django project: settings, urls, wsgi, auto_admin, adapters |
 
-Those ten plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Other top-level directories are not Django apps:
+Those eleven plus `plfog/` are the whole of `INSTALLED_APPS` for this project. Other top-level directories are not Django apps:
 
 | Directory | What it is |
 |-----------|-----------|

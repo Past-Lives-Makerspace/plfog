@@ -65,6 +65,7 @@ from core.models import (
     StaffRequestMixin,
 )
 from core.threads import ThreadMessage, ThreadPhoto
+from hours.follow import FollowsDaysOff, FollowsHours
 from core.urls_util import member_absolute_url
 from core.phone import phone_tel_number
 from core.validators import (
@@ -15586,7 +15587,7 @@ class OrientationAvailabilityQuerySet(models.QuerySet):
         return self.filter(orientation_type__equipment=equipment)
 
 
-class OrientationAvailability(models.Model):
+class OrientationAvailability(FollowsHours, models.Model):
     """A recurring window (every week, every few weeks or months) in which a guild or a piece of equipment offers orientations.
 
     The slot-generation job materializes concrete ``OrientationSlot`` rows from
@@ -15687,6 +15688,17 @@ class OrientationAvailability(models.Model):
             "Empty means any orientor (legacy guild hours)."
         ),
     )
+    hours = models.ForeignKey(
+        "hours.Hours",
+        null=True,
+        blank=True,
+        on_delete=models.RESTRICT,
+        related_name="orientation_rules",
+        help_text=(
+            "The set of the orientor's hours this row offers orientations in (#1300). Kept in step by every save; "
+            "blank on a shared row with no orientor."
+        ),
+    )
     booking_style = models.CharField(
         max_length=8,
         choices=BookingStyle.choices,
@@ -15740,6 +15752,8 @@ class OrientationAvailability(models.Model):
     )
     is_active = models.BooleanField(default=True, help_text="Generate slots from this rule.")
     created_at = models.DateTimeField(auto_now_add=True)
+
+    hours_person: ClassVar[str] = "orienter"
 
     objects = OrientationAvailabilityQuerySet.as_manager()
 
@@ -16026,7 +16040,7 @@ class OrientationDayOffQuerySet(models.QuerySet):
         return self.filter(date__gte=start, date__lt=end)
 
 
-class OrientationDayOff(models.Model):
+class OrientationDayOff(FollowsDaysOff, models.Model):
     """A day an orientor is away (#767): none of their orientation times that day can be booked.
 
     A day off belongs to the person, not a guild: one person, one calendar, so it covers
@@ -16053,6 +16067,8 @@ class OrientationDayOff(models.Model):
         help_text="Optional: a word on why, for the person and their leads. Members never see it.",
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the day off was saved.")
+
+    days_off_person: ClassVar[str] = "orienter"
 
     objects = OrientationDayOffQuerySet.as_manager()
 

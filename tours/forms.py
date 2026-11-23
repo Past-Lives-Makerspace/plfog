@@ -355,10 +355,15 @@ class TourDatesForm(forms.Form):
         """Write every picked date's hours at once: all of them or, on any failure, none.
 
         The view validates and saves under :func:`tours.models.lock_guide_hours`, in one
-        transaction, so the overlap check still holds when the rows are written.
+        transaction, so the overlap check still holds when the rows are written. A bulk create skips
+        ``save()``, so the guide's sets of hours are regrouped here (#1300).
         """
+        from hours.models import Hours
+
         with transaction.atomic():
-            return TourHours.objects.bulk_create(self.rows)
+            created = TourHours.objects.bulk_create(self.rows)
+            Hours.objects.regroup(self.guide.pk)
+            return created
 
 
 class TourDayOffForm(forms.ModelForm):
