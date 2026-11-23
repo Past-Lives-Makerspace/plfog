@@ -1,0 +1,12 @@
+bump = "patch"
+date = "2026-11-23"
+audience = "members"
+feature = "account.discord"
+guidance = "none"
+title = "Your guild emoji in #choose-your-guild and your guilds in the portal now match"
+changes = [
+  "Take a guild's emoji off in #choose-your-guild and you leave that guild in the portal too, along with its Discord role. No email is sent, the same as joining by emoji.",
+  "If you react with two emojis for the same guild, you stay in it until both are off.",
+  "Leave a guild in the portal and your emoji for it comes off in #choose-your-guild, so you are not added back.",
+  "Joining a guild in the portal still gives you its Discord role. Discord does not let us add the emoji for you.",
+]
