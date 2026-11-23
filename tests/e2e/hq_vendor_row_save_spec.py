@@ -46,7 +46,7 @@ def _settle_before_the_database_is_truncated(page, live_server, transactional_db
 @pytest.fixture
 def hub(transactional_db) -> EventHub:
     hub = EventHubFactory(is_open=True, slug="holiday-bizarre", title="Holiday Bizarre HQ")
-    HubCardFactory(hub=hub, kind=HubCard.Kind.VENDOR_TABLES, title="Vendor Tables", audience=HubCard.Audience.ADMINS)
+    HubCardFactory(hub=hub, kind=HubCard.Kind.VENDOR_TABLES, title="Vendor Tables")
     HubGoal.objects.create(hub=hub, label="Member tables", kind=HubGoal.Kind.MEMBER_TABLES)
     return hub
 

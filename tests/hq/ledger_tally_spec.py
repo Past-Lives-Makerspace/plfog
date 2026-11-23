@@ -30,7 +30,6 @@ from hq.exports import PEOPLE_CSV_HEADERS, STAFF_TIME_CSV_HEADERS
 from hq.forms import HOURS_ERROR, HOURS_STEP_ERROR
 from hq.holiday_bizarre import GOALS
 from hq.models import (
-    TEAM_ONLY_KINDS,
     BarSale,
     BudgetLine,
     DoorCount,
@@ -157,16 +156,17 @@ def _staff_post(**fields: Any) -> dict[str, Any]:
 
 
 @pytest.fixture
-def lee(make_member):
-    return make_member(preferred_name="Lee Ashworth", full_legal_name="Lee Ashworth")
+def lee(make_officer):
+    """Lee runs the HQ as a guild officer. Her guild is inactive, so it never counts among the guilds to line up."""
+    lee = make_officer(preferred_name="Lee Ashworth", full_legal_name="Lee Ashworth")
+    lee.led_guilds.update(is_active=False)
+    return lee
 
 
 @pytest.fixture
 def card(open_hub, lee) -> HubCard:
-    """The ledger door with Lee on its Team. A Team-only door (HQ card sharing): Admins only is its one audience."""
-    return HubCardFactory(
-        hub=open_hub, kind=HubCard.Kind.LEDGER, title="PL Ledger", audience=HubCard.Audience.ADMINS, team=[lee]
-    )
+    """The ledger door on the open hub. Lee is a guild officer, so she runs it (#1307)."""
+    return HubCardFactory(hub=open_hub, kind=HubCard.Kind.LEDGER, title="PL Ledger")
 
 
 @pytest.fixture
@@ -181,7 +181,7 @@ def lee_client(lee) -> Client:
 
 @pytest.fixture
 def doors(hub, lee) -> dict[str, HubCard]:
-    """Every other door on the hub, open to everyone; Vendor Tables, a Team-only door, opens to Lee by its Team."""
+    """Every other door on the hub."""
     kinds = (
         HubCard.Kind.SPONSORSHIP,
         HubCard.Kind.WINE_WALL,
@@ -191,16 +191,7 @@ def doors(hub, lee) -> dict[str, HubCard]:
         HubCard.Kind.FLYER,
         HubCard.Kind.VOLUNTEERS,
     )
-    return {
-        kind: HubCardFactory(
-            hub=hub,
-            kind=kind,
-            title=f"Door {kind}",
-            audience=HubCard.Audience.ADMINS if kind in TEAM_ONLY_KINDS else HubCard.Audience.PUBLIC,
-            team=[lee] if kind in TEAM_ONLY_KINDS else [],
-        )
-        for kind in kinds
-    }
+    return {kind: HubCardFactory(hub=hub, kind=kind, title=f"Door {kind}") for kind in kinds}
 
 
 @pytest.fixture
@@ -251,14 +242,14 @@ def busy(hub, event, make_member):
 
 
 def describe_who_may_use_it():
-    def it_refuses_every_write_and_csv_to_anyone_but_an_organiser_and_leaks_nothing(hub, member_client, lee):
+    def it_refuses_every_write_and_csv_to_anyone_but_an_officer_and_leaks_nothing(hub, member_client, lee):
         task = LaunchTaskFactory(hub=hub, task="Spec secret task")
         entry = StaffTimeFactory(hub=hub, who="Spec secret staffer")
         row = GuildDemoFactory(hub=hub, lead="Spec secret lead")
         GuildFactory(name="Spec Missing Guild")
         _report(hub, lee, experience="Spec secret experience")
 
-        for client in (member_client, Client()):
+        for client, status in ((member_client, 404), (Client(), 302)):
             for name, args, data in (
                 ("ledger_door", (), {"delta": "1"}),
                 ("ledger_launch_add", (), {"launch-task": "New"}),
@@ -272,12 +263,12 @@ def describe_who_may_use_it():
                 ("ledger_guild_delete", (row.pk,), {}),
             ):
                 response = client.post(_url(name, hub, *args), data, **HTMX)
-                assert response.status_code == 403, name
+                assert response.status_code == status, name
                 body = response.content.decode()
                 assert "Spec secret" not in body, name
             for name in ("ledger_people_csv", "ledger_staff_csv"):
                 response = client.get(_url(name, hub))
-                assert response.status_code == 403, name
+                assert response.status_code == status, name
                 assert b"Spec secret" not in response.content
         assert not DoorCount.objects.exists()
         assert list(LaunchTask.objects.values_list("task", flat=True)) == ["Spec secret task"]
@@ -383,9 +374,9 @@ def describe_the_running_tally():
         assert tiles["vol"].sub == "from 0 volunteers. Thank you!"
         assert tiles["cash"].value_display == "$0"
 
-    def it_links_each_tile_to_its_door_only_while_that_door_is_open_to_the_viewer(busy, doors, lee_client):
-        doors[HubCard.Kind.MARKETING].audience = HubCard.Audience.ADMINS
-        doors[HubCard.Kind.MARKETING].save(update_fields=["audience"])
+    def it_links_each_tile_to_its_door_only_while_that_door_is_shown_to_the_viewer(busy, doors, lee_client):
+        doors[HubCard.Kind.MARKETING].is_hidden = True
+        doors[HubCard.Kind.MARKETING].save(update_fields=["is_hidden"])
         doors[HubCard.Kind.VENDOR_TABLES].is_hidden = True
         doors[HubCard.Kind.VENDOR_TABLES].save(update_fields=["is_hidden"])
 
@@ -610,13 +601,11 @@ def describe_the_goals():
         assert rows["cash"].figure == "$1,855 of $2,000"
         assert (rows["wine"].figure, rows["wine"].chip) == ("12 / 12", "Reached")
 
-    def it_links_change_the_goals_to_edit_hq_for_an_admin_only(busy, lee_client, admin_client, admin):
-        assert "data-hq-lg-change-goals" not in lee_client.get(_page(busy)).content.decode()
-
-        body = admin_client.get(_page(busy)).content.decode()
+    def it_links_change_the_goals_to_edit_hq_for_an_officer(busy, lee_client):
+        body = lee_client.get(_page(busy)).content.decode()
 
         assert f'href="{_url("edit", busy)}#hq-edit-goals"' in body
-        assert 'id="hq-edit-goals"' in admin_client.get(_url("edit", busy)).content.decode()
+        assert 'id="hq-edit-goals"' in lee_client.get(_url("edit", busy)).content.decode()
 
 
 def describe_the_guilds_goal():
@@ -1432,13 +1421,13 @@ def describe_the_rows():
         )
         assert str(GuildDemoFactory(hub=hub, guild=guild)) == "Glass Guild (Spec HQ)"
 
-    def it_links_only_the_doors_with_a_page(hub, doors, lee):
+    def it_links_only_the_doors_with_a_page(hub, doors):
         from hq.views import _door_urls
 
-        HubCardFactory(hub=hub, kind=HubCard.Kind.RSVP, title="Going?", audience=HubCard.Audience.PUBLIC)
-        HubCardFactory(hub=hub, kind=HubCard.Kind.PLACEHOLDER, title="Soon", audience=HubCard.Audience.PUBLIC)
+        HubCardFactory(hub=hub, kind=HubCard.Kind.RSVP, title="Going?")
+        HubCardFactory(hub=hub, kind=HubCard.Kind.PLACEHOLDER, title="Soon")
 
-        urls = _door_urls(hub, lee, False)
+        urls = _door_urls(hub, is_admin=False)
 
         assert HubCard.Kind.RSVP not in urls  # no event, so the RSVP door has no page
         assert urls[HubCard.Kind.LEDGER] == _page(hub)
@@ -1620,15 +1609,13 @@ def describe_the_figures_out_of_band():
         assert "Beat 2025 (about $650) and cover bar costs" in body.split('id="hq-lg-goals"', 1)[1]
 
     @pytest.mark.parametrize("form", ["tickets", "ticket_prices"])
-    def it_sends_every_figure_with_the_tickets_and_their_prices(hub, lee_client, admin_client, form):
+    def it_sends_every_figure_with_the_tickets_and_their_prices(hub, lee_client, form):
         LedgerSettingsFactory(hub=hub, singles_sold=1)
         name, data = (
             ("ledger_tickets", _tickets(hub)) if form == "tickets" else ("ledger_ticket_prices", _ticket_prices(hub))
         )
 
-        # Ticket prices are a setting, the admins'; the tickets sold are the Team's.
-        client = lee_client if form == "tickets" else admin_client
-        body = client.post(_url(name, hub), data, **HTMX).content.decode()
+        body = lee_client.post(_url(name, hub), data, **HTMX).content.decode()
 
         assert _oob_ids(body) == FIGURE_IDS
         assert 'data-hq-lg-tally-tile="tickets"' in body
@@ -1665,10 +1652,10 @@ def describe_the_figures_out_of_band():
     @pytest.mark.parametrize(
         "answer", ["tap", "undo", "batch", "prices", "tickets", "ticket_prices", "line", "staff", "guild_add"]
     )
-    def it_answers_in_a_fixed_number_of_queries_however_many_rows(busy, lee, lee_client, admin_client, answer):
+    def it_answers_in_a_fixed_number_of_queries_however_many_rows(busy, lee, lee_client, answer):
         line = BudgetLine.objects.get(hub=busy, name="Kegs")
-        # The settings (prices, ticket prices, a budget line) are the admins'; the rest is the Team's.
-        client = admin_client if answer in {"prices", "ticket_prices", "line"} else lee_client
+        # An officer posts every one of them, the settings included (#1307).
+        client = lee_client
 
         def _post() -> tuple[str, dict[str, Any]]:
             BarSaleFactory(hub=busy, created_by=lee)  # Undo last always has a tap of Lee's to take back

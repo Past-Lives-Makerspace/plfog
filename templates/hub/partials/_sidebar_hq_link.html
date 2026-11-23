@@ -1,7 +1,7 @@
 {% comment %}
 The Holiday Bizarre entry in the sidebar's main group and in the guest accounts' kiln menu. No feature
-switch decides it: hq_nav (hub.context_processors) is true for an admin, by the effective role, whenever an HQ
-exists, and for anyone else once a card on the open HQ is opened to them. The HQ and its pages share the /hq/
+switch decides it: hq_nav (hub.context_processors) is true whenever an HQ exists, for an admin or an ACTIVE
+guild officer by the effective role (hq.access.can_run_hq), so a guest account never sees it. The HQ and its pages share the /hq/
 prefix, so the entry lights by path (the Kiln idiom).
 {% endcomment %}
 {% load hub_tags %}

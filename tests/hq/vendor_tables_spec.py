@@ -1,4 +1,4 @@
-"""Vendor Tables (Track D, part 3): the door, its organisers-only gate, the band in two queries, + Add a Table
+"""Vendor Tables (Track D, part 3): the door, its officers-only gate, the band in two queries, + Add a Table
 Request with the waitlist when the map is full, the list's order and filters, the one Save per row that swaps only
 that row, Delete, the space map's capacity, the CSV, the Member tables goal with its plain count, and the seed's
 adoption of the placeholder."""
@@ -118,21 +118,14 @@ def _private_table(hub: Any, creator: Any) -> VendorTable:
 
 
 @pytest.fixture
-def kate(make_member):
-    return make_member(preferred_name="Kate Lindqvist", full_legal_name="Kate Lindqvist")
+def kate(make_officer):
+    return make_officer(preferred_name="Kate Lindqvist", full_legal_name="Kate Lindqvist")
 
 
 @pytest.fixture
 def card(open_hub, kate) -> HubCard:
-    """The Vendor Tables door on the open hub with Kate on its Team. A Team-only door (HQ card sharing): Admins only
-    is its one audience, and nobody off the Team opens it whatever the database says."""
-    return HubCardFactory(
-        hub=open_hub,
-        kind=HubCard.Kind.VENDOR_TABLES,
-        title="Vendor Tables",
-        audience=HubCard.Audience.ADMINS,
-        team=[kate],
-    )
+    """The Vendor Tables door on the open hub. Kate, a guild officer, runs it as every officer does (#1307)."""
+    return HubCardFactory(hub=open_hub, kind=HubCard.Kind.VENDOR_TABLES, title="Vendor Tables")
 
 
 @pytest.fixture
@@ -154,90 +147,65 @@ def describe_the_door():
         assert f'href="{_page(card.hub)}" class="pl-hq-card" data-hq-card-link' in body
         assert "M3 9h18v2a3 3 0 0 1-6 0" in body  # the market stall icon
 
-    def it_carries_lees_header_with_the_date_and_who_manages_it(hub, kate_client):
+    def it_carries_lees_header_with_the_date(hub, kate_client):
         hub.event = CommunityEventFactory(community=True, title="Holiday Bizarre", location="Past Lives")
         hub.save(update_fields=["event"])
 
         body = kate_client.get(_page(hub)).content.decode()
 
         assert "Vendor Tables</h1>" in body
-        assert f"data-hq-vt-subline>{hub.title} · {hub.date_line} · Managed by Kate Lindqvist</p>" in body
+        assert f"data-hq-vt-subline>{hub.title} · {hub.date_line}</p>" in body
+        assert "Managed by" not in body
         assert f'href="{hub.get_absolute_url()}" class="pl-hq-vt__back" data-hq-vt-back>&larr; HQ</a>' in body
-        assert "data-hq-vt-helper>Waiting on Kate</span>" in body
+        assert "data-hq-vt-helper>Waiting on the vendor team</span>" in body
 
-    def it_leaves_out_the_date_and_the_manager_it_does_not_have(card, admin_client):
-        card.team.clear()
-
+    def it_leaves_out_the_date_it_does_not_have(card, admin_client):
         body = admin_client.get(_page(card.hub)).content.decode()
 
         assert f"data-hq-vt-subline>{card.hub.title}</p>" in body
-        assert "data-hq-vt-helper>Waiting on the vendor team</span>" in body
-
-    def it_reads_the_first_named_member_by_pk_and_falls_back_on_a_blank_name(card, kate, make_member):
-        blank = make_member(preferred_name="   ", full_legal_name="   ")
-        card.team.add(blank)
-        later = make_member(preferred_name="Zed Ames", full_legal_name="Zed Ames")
-        card.team.add(later)
-        assert kate.pk < blank.pk < later.pk
-
-        card.team.remove(kate)
-        body = signed_in(blank).get(_page(card.hub)).content.decode()
-
-        assert f"data-hq-vt-subline>{card.hub.title}</p>" in body
-        assert "data-hq-vt-helper>Waiting on the vendor team</span>" in body
 
 
 def describe_who_may_open_it():
-    def it_is_a_404_for_anyone_off_the_team_and_leaks_nothing(hub, member_client, kate):
+    def it_is_a_404_for_a_member_who_is_no_officer_and_leaks_nothing(hub, member_client, kate):
         _private_table(hub, kate)
         VendorFloorFactory(hub=hub, map_note="Spec secret map note")
 
-        for client in (member_client, Client()):
-            response = client.get(_page(hub))
+        response = member_client.get(_page(hub))
 
-            # The themed 404 draws the sidebar, whose Guilds list names every active guild; the page is what must
-            # not leak, so the check reads the main content.
-            body = response.content.decode().split('id="main-content"')[-1]
-            assert response.status_code == 404
-            for private in (
-                "Spec Secret Studio",
-                "Spec Secret Guild",
-                "Spec secret wares",
-                "secret@vendor.example",
-                "503-555-0199",
-                "Spec secret needs",
-                "Q7",
-                "Kate Lindqvist",
-                "Spec secret map note",
-                "data-hq-vt-band",
-            ):
-                assert private not in body, private
+        # The themed 404 draws the sidebar, whose Guilds list names every active guild; the page is what must
+        # not leak, so the check reads the main content.
+        body = response.content.decode().split('id="main-content"')[-1]
+        assert response.status_code == 404
+        for private in (
+            "Spec Secret Studio",
+            "Spec Secret Guild",
+            "Spec secret wares",
+            "secret@vendor.example",
+            "503-555-0199",
+            "Spec secret needs",
+            "Q7",
+            "Kate Lindqvist",
+            "Spec secret map note",
+            "data-hq-vt-band",
+        ):
+            assert private not in body, private
 
-    def it_gives_the_page_to_a_named_member_on_an_admins_card(card, kate, kate_client):
-        card.audience = HubCard.Audience.ADMINS
-        card.save(update_fields=["audience"])
-        _private_table(card.hub, kate)
+    def it_sends_a_signed_out_visitor_through_login(hub):
+        response = Client().get(_page(hub))
 
-        body = kate_client.get(_page(card.hub)).content.decode()
+        assert response.status_code == 302
+        assert "/accounts/login/" in response["Location"]
+
+    @pytest.mark.parametrize("staff", [False, True])
+    def it_gives_every_guild_officer_the_whole_page(hub, make_officer, staff):
+        _private_table(hub, make_officer())
+
+        body = signed_in(make_officer(staff=staff)).get(_page(hub)).content.decode()
 
         assert "data-hq-vt-add-form" in body
         assert 'value="secret@vendor.example"' in body
         assert "data-hq-vt-csv" in body
-
-    def it_is_a_404_for_a_member_on_an_admins_card(card, member_client):
-        card.audience = HubCard.Audience.ADMINS
-        card.save(update_fields=["audience"])
-
-        assert member_client.get(_page(card.hub)).status_code == 404
-
-    def it_sends_a_signed_out_visitor_through_login_on_a_members_card(card):
-        card.audience = HubCard.Audience.MEMBERS
-        card.save(update_fields=["audience"])
-
-        response = Client().get(_page(card.hub))
-
-        assert response.status_code == 302
-        assert "/accounts/login/" in response["Location"]
+        assert "data-hq-vt-floor" in body
 
     def it_is_a_404_when_hidden_for_all_but_admins(card, member_client, kate_client, admin_client):
         card.is_hidden = True
@@ -250,19 +218,25 @@ def describe_who_may_open_it():
     def it_is_a_404_on_a_hub_with_no_vendor_door(open_hub, admin_client):
         assert admin_client.get(_page(open_hub)).status_code == 404
 
-    def it_refuses_every_write_and_the_csv_to_anyone_but_an_organiser(hub, member_client):
+    def it_refuses_every_write_and_the_csv_to_anyone_but_an_officer(hub, member_client):
         table = VendorTableFactory(hub=hub)
 
-        for client in (member_client, Client()):
-            assert client.post(_add(hub), _add_post()).status_code == 403
-            assert client.post(_edit(table), _row_post(table, status=S.CONFIRMED)).status_code == 403
-            assert client.post(_delete(table)).status_code == 403
-            assert client.post(_floor(hub), {"capacity": "10"}).status_code == 403
-            assert client.get(_csv(hub)).status_code == 403
+        for client, status in ((member_client, 404), (Client(), 302)):
+            assert client.post(_add(hub), _add_post()).status_code == status
+            assert client.post(_edit(table), _row_post(table, status=S.CONFIRMED)).status_code == status
+            assert client.post(_delete(table)).status_code == status
+            assert client.post(_floor(hub), {"capacity": "10"}).status_code == status
+            assert client.get(_csv(hub)).status_code == status
         table.refresh_from_db()
         assert table.status == S.REQUESTED
         assert VendorTable.objects.count() == 1
         assert not VendorFloor.objects.exists()
+
+    def it_lets_an_officer_set_the_space_map_capacity(hub, kate_client):
+        response = kate_client.post(_floor(hub), {"capacity": "12"})
+
+        assert response.status_code == 302
+        assert VendorFloor.objects.get(hub=hub).capacity == 12
 
     @pytest.mark.parametrize("role", [ROLE_MEMBER, ROLE_GUEST])
     def it_shows_a_previewing_admin_the_404_that_viewer_gets_but_lets_them_act(hub, admin_client, role):
@@ -271,8 +245,9 @@ def describe_who_may_open_it():
         session.save()
 
         assert admin_client.get(_page(hub)).status_code == 404
+        # The CSV is a GET, so it renders by the preview too; a POST acts by the actual role.
+        assert admin_client.get(_csv(hub)).status_code == 404
         assert admin_client.post(_add(hub), _add_post()).status_code == 302
-        assert admin_client.get(_csv(hub)).status_code == 200
         assert VendorTable.objects.count() == 1
 
     def it_takes_posts_only(hub, admin_client):
@@ -477,7 +452,9 @@ def describe_adding_a_request():
         assert "data-hq-vt-subline" in response.content.decode()
         assert not VendorTable.objects.exists()
 
-    def it_offers_only_the_active_guilds_and_not_in_a_guild(hub, kate_client):
+    def it_offers_only_the_active_guilds_and_not_in_a_guild(hub, kate, kate_client):
+        # Kate's own guild, which makes her an officer, is put to sleep so the list holds only the two below.
+        Guild.objects.filter(guild_lead=kate).update(is_active=False)
         GuildFactory(name="Woodshop Guild")
         GuildFactory(name="Ceramics Guild")
         inactive = GuildFactory(name="Spec Sleeping Guild", is_active=False)
@@ -1165,28 +1142,21 @@ def describe_the_member_tables_goal():
 
 
 def describe_adopting_the_placeholder():
-    def it_turns_the_vendor_tables_placeholder_into_the_live_door_in_place(open_hub, member):
+    def it_turns_the_vendor_tables_placeholder_into_the_live_door_in_place(open_hub):
         placeholder = HubCardFactory(
             hub=open_hub,
             kind=HubCard.Kind.PLACEHOLDER,
             title="Vendor Tables",
             bullets="Every table and who is at it\nLoad in times and what each vendor needs\nA map of the floor",
             button_text="See the tables",
-            audience=HubCard.Audience.MEMBERS,
-            team=[member],
         )
 
         result = open_hub.seed_default_cards()
 
         card = HubCard.objects.get(pk=placeholder.pk)
         assert "Vendor Tables" in result.adopted
-        assert (card.kind, card.audience, card.button_text) == (
-            HubCard.Kind.VENDOR_TABLES,
-            HubCard.Audience.MEMBERS,
-            "Enter vendor tables",
-        )
+        assert (card.kind, card.button_text) == (HubCard.Kind.VENDOR_TABLES, "Enter vendor tables")
         assert card.bullet_lines[0] == "Every table request in one place"
-        assert list(card.team.all()) == [member]
         assert card.url == _page(open_hub)
 
 

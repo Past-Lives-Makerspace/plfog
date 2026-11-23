@@ -7,9 +7,8 @@ and the Marketing Tracker's businesses with flyers, linked to the tracker when t
 This year's flyer (the upload, else the flyer the event system makes for the hub's published event, else Coming soon)
 with View full size, Download and Print beside Help spread the word (with What to expect), Find the
 event, Lee's Members: want a table to sell your work? (a Vendor Tables link when that door is open to the viewer), Last
-year: 2025 with her line always and the flyer when one is up, and Update this page for organisers (by the effective
-role). No login gate of its
-own: card_view decides who may open the page.
+year: 2025 with her line always and the flyer when one is up, and Update this page. Only those who run the HQ
+reach it (hq.access.hq_gate).
 {% endcomment %}
 {% block title %}{{ card.title }}{% endblock %}
 {% block extra_head %}
@@ -81,7 +80,7 @@ own: card_view decides who may open the page.
         <a href="{{ event_flyer_url }}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" target="_blank" data-pl-new-window rel="noopener" data-hq-fl-view>View full size</a>
         <button type="button" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" @click="window.print()" data-hq-fl-print>Print</button>
       </div>
-      {% if can_configure %}<p class="pl-hq-fl__muted pl-hq-fl__generated-note" data-hq-fl-generated-note>Made from the event on the calendar, so it changes when the event does. Upload a 2026 flyer below to show yours instead.</p>{% endif %}
+      <p class="pl-hq-fl__muted pl-hq-fl__generated-note" data-hq-fl-generated-note>Made from the event on the calendar, so it changes when the event does. Upload a 2026 flyer below to show yours instead.</p>
       {% else %}
       <div class="pl-hq-fl__poster pl-hq-fl__poster--soon" data-hq-fl-soon>
         <span class="pl-hq-fl__soon-title">Coming soon</span>
@@ -122,10 +121,8 @@ own: card_view decides who may open the page.
     </div>
   </section>
 
-  {% if can_configure %}
   <section class="pl-hq-fl__card pl-hq-fl__admin" aria-labelledby="hq-fl-admin-title" data-hq-fl-organizers>
     <h2 class="pl-hq-fl__h2" id="hq-fl-admin-title">Update This Page</h2>
-    <p class="pl-hq-fl__muted">Only admins see this box.</p>
     <div class="pl-hq-fl__uploads">
       {% for upload in uploads %}
       {% include "hq/partials/_flyer_upload.html" with upload=upload %}
@@ -140,6 +137,5 @@ own: card_view decides who may open the page.
   {% endif %}
   {% endfor %}
   {% include "hq/partials/_flyer_zone_script.html" %}
-  {% endif %}
 </div>
 {% endblock %}

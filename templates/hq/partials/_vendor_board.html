@@ -19,7 +19,7 @@ view. Delete is a plain post through the confirm modal.
   import_answer — optional, the last import's answer for this hub (summary, refused, problems, more), on the
                  one page load after it; the Import CSV modal itself is on hq/vendors.html
   discord_channel_id — required, the channel Check Discord reads; blank hides the button
-  discord_form  — required, a VendorDiscordChannelForm (bound when an id was refused), for admins only
+  discord_form  — required, a VendorDiscordChannelForm (bound when an id was refused)
   discord       — optional, Check Discord's panel (a hq.views.DiscordPanel) once pressed; with a channel set and
                  none yet, an empty #hq-vt-discord slot it loads into
 {% endcomment %}
@@ -113,9 +113,6 @@ view. Delete is a plain post through the confirm modal.
     </div>
   </section>
 
-  {# The space map capacity and the Discord channel are settings: admins only by the effective role, never the Team (admin_required). #}
-  {% if request.view_as.is_admin %}
   {% include "hq/partials/_vendor_floor.html" %}
   {% include "hq/partials/_vendor_discord_channel.html" %}
-  {% endif %}
 </div>

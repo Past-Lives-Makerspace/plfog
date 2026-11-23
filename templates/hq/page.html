@@ -1,12 +1,9 @@
 {% extends "hub/base.html" %}
 {% load static %}
 {% comment %}
-The Holiday Bizarre HQ page (Track C, part 1). Extends hub/base.html, which auto-degrades for
-a signed-out visitor (public topbar, no sidebar) and shows the hub chrome for a member; the
-view has no login gate, so the public doors open for anyone with the link. The view already
-filtered the cards by the viewer's effective role: an admin gets every card, hidden ones
-included, with who can open it, Share and Edit, and the Edit HQ action; everyone else gets only
-the doors open to them (and a 404 with none). Under the goals,
+The Holiday Bizarre HQ page (Track C, part 1), for whoever runs the HQ: admins and ACTIVE guild
+officers (hq.access.hq_gate). Every card, each with Edit, and the Edit HQ action; hidden cards
+reach admins alone, with their chip (the view filters them by the effective role). Under the goals,
 Lee's Bottles by type: every kind, zeros included, once the wine wall has a bottle.
 {% endcomment %}
 {% block title %}{{ hub.title }}{% endblock %}
@@ -16,12 +13,10 @@ Lee's Bottles by type: every kind, zeros included, once the wine wall has a bott
 {% endblock %}
 {% block content %}
 <div class="pl-hq" data-hq-page>
-  {% if can_edit %}
   <div class="pl-hq-adminbar" data-hq-adminbar>
-    <span class="pl-hq-adminbar__text">{% if hub.is_open %}This HQ is open: members reach it from the sidebar.{% else %}This HQ is closed: only admins can see it.{% endif %}</span>
+    <span class="pl-hq-adminbar__text">{% if hub.is_open %}This HQ is open: guild officers reach it from the sidebar.{% else %}This HQ is closed: the sidebar does not land here.{% endif %}</span>
     <a href="{% url 'hq:edit' hub.slug %}" class="hub-btn hub-btn--sm" data-hq-edit>Edit HQ</a>
   </div>
-  {% endif %}
 
   <section class="pl-hq-hero{% if hub.hero_image %} pl-hq-hero--photo{% endif %}" data-hq-hero>
     {% if hub.hero_image %}
@@ -45,7 +40,6 @@ Lee's Bottles by type: every kind, zeros included, once the wine wall has a bott
   <div class="pl-hq-intro">{{ hub.intro|linebreaks }}</div>
   {% endif %}
 
-  {% if goals or can_edit %}
   <section class="pl-hq-goals" aria-labelledby="hq-goals-title">
     <h2 class="pl-hq-goals__title" id="hq-goals-title">Goal Tracker</h2>
     {% if goals %}
@@ -67,19 +61,16 @@ Lee's Bottles by type: every kind, zeros included, once the wine wall has a bott
     <p class="pl-hq-goals__kinds" data-hq-bottle-kinds>Bottles by type:{% for kind in bottle_kinds %} <span class="pl-hq-goals__kind" data-hq-bottle-kind="{{ kind.key }}">{{ kind.bottles }} {{ kind.label }}</span>{% endfor %}</p>
     {% endif %}
     {% else %}
-    {# Admins alone reach this branch: the section is skipped for everyone else while there are no goals. #}
     <p class="pl-hq-empty" data-hq-goals-empty>No goals yet. Add them from Edit HQ and they show here as chips.</p>
     {% endif %}
   </section>
-  {% endif %}
 
   <section class="pl-hq-doors" aria-labelledby="hq-doors-title">
     <h2 class="pl-hq-section__title" id="hq-doors-title">Pick a Door</h2>
     <div class="pl-hq-grid">
       {% for card in cards %}
-      {% include "hq/partials/_card.html" with card=card hub=hub can_edit=can_edit %}
+      {% include "hq/partials/_card.html" with card=card hub=hub %}
       {% empty %}
-      {# Admins alone reach this: anyone else with no door open to them gets the 404 (hq.views.hub_page). #}
       <p class="pl-hq-empty" data-hq-doors-empty>No doors on this HQ yet. Update the doors from Edit HQ.</p>
       {% endfor %}
     </div>

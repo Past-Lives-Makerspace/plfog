@@ -2,9 +2,9 @@
 {% load static %}
 {% comment %}
 Vendor Tables (Track D, part 3), in the look of Lee's page: a header with the hub's name, its date
-and who manages the door, then the board (hq/partials/_vendor_board.html: the band, + Add a table
-request, the table requests and the space map's capacity). Organisers only: the view's gate is the
-card's audience and then a 403 for anyone who does not organise it, because every row is a contact. The
+line, then the board (hq/partials/_vendor_board.html: the band, + Add a table
+request, the table requests and the space map's capacity). Only those who run the HQ reach it
+(hq.access.hq_gate), because every row is a contact. The
 Import CSV modal (hq/partials/_vendor_import.html) sits after the board, which only opens it.
 {% endcomment %}
 {% block title %}{{ card.title }}{% endblock %}
@@ -17,7 +17,7 @@ Import CSV modal (hq/partials/_vendor_import.html) sits after the board, which o
   <header class="pl-hq-vt__header">
     <div class="pl-hq-vt__heading">
       <h1 class="pl-hq-vt__title">Vendor Tables</h1>
-      <p class="pl-hq-vt__subline" data-hq-vt-subline>{{ hub.title }}{% if hub.date_line %} · {{ hub.date_line }}{% endif %}{% if managed_by %} · Managed by {{ managed_by }}{% endif %}</p>
+      <p class="pl-hq-vt__subline" data-hq-vt-subline>{{ hub.title }}{% if hub.date_line %} · {{ hub.date_line }}{% endif %}</p>
     </div>
     <a href="{% url 'hq:page' hub.slug %}" class="pl-hq-vt__back" data-hq-vt-back>&larr; HQ</a>
   </header>

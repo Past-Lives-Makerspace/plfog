@@ -8,7 +8,6 @@ and in the add form survives. Each form carries the filter, so a plain post land
 group. Delete is a plain post through the confirm modal.
 
   hub          — required, the EventHub
-  can_organize — required, the effective role's organiser bit: contact details, the forms, the log, the CSV
   band         — required, a hq.services.SponsorBand
   follow_ups   — required, a hq.services.FollowUps
   today        — required, the Portland date, for the pipeline's due highlight
@@ -18,7 +17,7 @@ group. Delete is a plain post through the confirm modal.
   has_sponsors — required, whether the hub has any sponsor at all (picks the empty text)
   show         — required, the filter in view
   filters      — required, the (value, label) filter buttons this viewer gets
-  team         — required, the card Team's display names, for Who's asking and By
+  team         — required, the guild officers' display names, for Who's asking and By
   team_list_id — required, the datalist's id
 {% endcomment %}
 {% url 'hq:sponsors' hub.slug as page_url %}
@@ -27,7 +26,6 @@ group. Delete is a plain post through the confirm modal.
 
   {% include "hq/partials/_sponsor_follow_up.html" %}
 
-  {% if can_organize %}
   <datalist id="{{ team_list_id }}" data-hq-sp-team>{% for name in team %}<option value="{{ name }}"></option>{% endfor %}</datalist>
   <details class="pl-disclosure pl-hq-sp__disclosure" {% if add_open %}open{% endif %} data-hq-sp-add>
     <summary class="pl-disclosure__summary">
@@ -60,12 +58,11 @@ group. Delete is a plain post through the confirm modal.
       </div>
     </form>
   </details>
-  {% endif %}
 
   <section class="pl-hq-sp__section" aria-labelledby="hq-sp-pipe-title" data-hq-sp-pipeline>
     <div class="pl-hq-sp__pipe-head">
       <h2 class="pl-hq-sp__h2" id="hq-sp-pipe-title">Pipeline</h2>
-      {% if can_organize %}<a href="{% url 'hq:sponsors_csv' hub.slug %}" class="pl-hq-sp__csv" hx-boost="false" data-pl-download data-hq-sp-csv>Download CSV</a>{% endif %}
+      <a href="{% url 'hq:sponsors_csv' hub.slug %}" class="pl-hq-sp__csv" hx-boost="false" data-pl-download data-hq-sp-csv>Download CSV</a>
     </div>
     <nav class="pl-hq-sp__filters" aria-label="Filter the pipeline" data-hq-sp-filters>
       {% for value, label in filters %}
@@ -76,7 +73,7 @@ group. Delete is a plain post through the confirm modal.
       {% for row in rows %}
       {% include "hq/partials/_sponsor_row.html" %}
       {% empty %}
-      <p class="pl-hq-sp__empty" data-hq-sp-empty>{% if has_sponsors %}No sponsors in this group.{% elif can_organize %}No sponsors yet. Add your first one above.{% else %}No sponsors yet.{% endif %}</p>
+      <p class="pl-hq-sp__empty" data-hq-sp-empty>{% if has_sponsors %}No sponsors in this group.{% else %}No sponsors yet. Add your first one above.{% endif %}</p>
       {% endfor %}
     </div>
   </section>

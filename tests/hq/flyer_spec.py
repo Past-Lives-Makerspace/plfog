@@ -42,7 +42,7 @@ from hq.models import (
     LedgerSettings,
     MarketingAction,
 )
-from hub.view_as import ROLE_MEMBER
+from hub.view_as import ROLE_GUEST, ROLE_MEMBER
 from membership.models import Member
 from tests.hq.conftest import signed_in
 from tests.hq.factories import EventHubFactory, HubCardFactory, MarketingActionFactory
@@ -60,8 +60,9 @@ LAST_YEAR = FlyerSlot.LAST_YEAR.value
 # 34 with the Spotlight's second query, its live announcements (#890). 33 with Guild Tools
 # (#921): the sidebar's tools entry asks about guild leads and staff in one EXISTS, not two. 31 since #935: the
 # sidebar's Spotlight is a static version card, so neither of its two queries runs. 32 with the usage log (#1078):
-# its one insert per page view.
-QUERIES_PER_PAGE = 32
+# its one insert per page view. 28 since #1307: the viewer is an officer and the card has no people lists, so the
+# sharing reads are gone and the gate's one officer EXISTS takes their place.
+QUERIES_PER_PAGE = 28
 
 
 def _page(hub: Any) -> str:
@@ -116,20 +117,14 @@ def _preview(client: Client, role: str) -> None:
 
 
 @pytest.fixture
-def lee(make_member) -> Member:
-    return make_member(preferred_name="Lee Organiser")
+def lee(make_officer) -> Member:
+    return make_officer(preferred_name="Lee Organiser")
 
 
 @pytest.fixture
-def card(open_hub, lee) -> HubCard:
-    """The flyer door on the open hub, opened to members by a card edit (it is seeded admins only), with Lee named on it."""
-    return HubCardFactory(
-        hub=open_hub,
-        kind=HubCard.Kind.FLYER,
-        title="Event flyer and sharing",
-        audience=HubCard.Audience.MEMBERS,
-        team=[lee],
-    )
+def card(open_hub) -> HubCard:
+    """The flyer door on the open hub."""
+    return HubCardFactory(hub=open_hub, kind=HubCard.Kind.FLYER, title="Event flyer and sharing")
 
 
 @pytest.fixture
@@ -155,93 +150,96 @@ def _with_flyer(hub: EventHub, slot: str = THIS_YEAR, upload: SimpleUploadedFile
 
 
 def describe_the_door():
-    def it_is_a_built_door_that_opens_the_page_from_the_hq_page(card, member_client):
-        body = member_client.get(card.hub.get_absolute_url()).content.decode()
+    def it_is_a_built_door_that_opens_the_page_from_the_hq_page(card, officer_client):
+        body = officer_client.get(card.hub.get_absolute_url()).content.decode()
 
         assert HubCard.Kind.FLYER in BUILT_DOORS
         assert card.url == _page(card.hub) == f"/hq/{card.hub.slug}/flyer/"
         assert f'href="{_page(card.hub)}" class="pl-hq-card" data-hq-card-link' in body
         assert "M21 15l-5-5L5 21" in body  # the picture icon
 
-    def it_carries_the_header_with_the_hubs_title_and_date_line_and_a_way_back(hub, event, member_client):
-        body = member_client.get(_page(hub)).content.decode()
+    def it_carries_the_header_with_the_hubs_title_and_date_line_and_a_way_back(hub, event, officer_client):
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert '<h1 class="pl-hq-fl__title">Event flyer and sharing</h1>' in body
         assert f"data-hq-fl-subline>{hub.title} · {hub.date_line}</p>" in body
         assert f'href="{hub.get_absolute_url()}" class="pl-hq-fl__back" data-hq-fl-back>&larr; HQ</a>' in body
 
-    def it_leaves_the_date_line_out_without_an_event(hub, member_client):
-        body = member_client.get(_page(hub)).content.decode()
+    def it_leaves_the_date_line_out_without_an_event(hub, officer_client):
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert f"data-hq-fl-subline>{hub.title}</p>" in body
 
 
 def describe_who_may_open_it():
-    def it_sends_a_signed_out_visitor_through_login_once_opened_to_members(hub):
-        response = Client().get(_page(hub))
+    def it_sends_a_signed_out_visitor_through_login_on_the_page_and_every_post(hub):
+        _with_flyer(hub)
+        for response in (
+            Client().get(_page(hub)),
+            Client().get(_download(hub)),
+            Client().post(_upload(hub), _file_post(THIS_YEAR, _image())),
+            Client().post(_remove(hub)),
+            Client().post(_links(hub), _links_post()),
+        ):
+            assert response.status_code == 302
+            assert response["Location"].startswith("/accounts/login/")
+        page = HubFlyer.objects.get(hub=hub)
+        assert page.flyer
+        assert page.share_message == FLYER_SHARE_MESSAGE
 
-        assert response.status_code == 302
-        assert response["Location"].startswith("/accounts/login/")
+    @pytest.mark.parametrize("status", [Member.Status.ACTIVE, Member.Status.INVITED])
+    def it_is_a_404_on_the_page_and_every_post_for_anyone_who_runs_no_guild(hub, make_member, status):
+        _with_flyer(hub)
+        client = signed_in(make_member(status=status))
 
-    def it_opens_to_an_active_member_without_the_organisers_box(hub, member_client):
-        response = member_client.get(_page(hub))
+        assert client.get(_page(hub)).status_code == 404
+        assert client.get(_download(hub)).status_code == 404
+        assert client.post(_upload(hub), _file_post(THIS_YEAR, _image())).status_code == 404
+        assert client.post(_remove(hub)).status_code == 404
+        assert client.post(_links(hub), _links_post()).status_code == 404
+        page = HubFlyer.objects.get(hub=hub)
+        assert page.flyer
+        assert page.share_message == FLYER_SHARE_MESSAGE
 
-        body = response.content.decode()
-        assert response.status_code == 200
-        assert "data-hq-fl-organizers" not in body
-        assert _upload(hub) not in body and _links(hub) not in body and _remove(hub) not in body
-
-    @pytest.mark.parametrize("status", [Member.Status.GUEST, Member.Status.INVITED])
-    def it_is_a_404_for_an_account_that_is_not_active(hub, make_member, status):
-        assert signed_in(make_member(status=status)).get(_page(hub)).status_code == 404
-
-    def it_opens_to_everyone_when_public(card):
-        card.audience = HubCard.Audience.PUBLIC
-        card.save(update_fields=["audience"])
-
-        assert Client().get(_page(card.hub)).status_code == 200
-
-    def it_is_a_404_when_hidden_for_all_but_admins(card, member_client, lee_client, admin_client):
+    def it_is_a_404_when_hidden_for_all_but_admins(card, lee_client, admin_client):
+        _with_flyer(card.hub)
         card.is_hidden = True
         card.save(update_fields=["is_hidden"])
 
-        assert member_client.get(_page(card.hub)).status_code == 404
         assert lee_client.get(_page(card.hub)).status_code == 404
+        assert lee_client.get(_download(card.hub)).status_code == 404
         assert admin_client.get(_page(card.hub)).status_code == 200
+        assert admin_client.get(_download(card.hub)).status_code == 200
 
-    def it_gives_update_this_page_to_admins_and_never_the_team(hub, lee_client, admin_client):
-        """The flyers and links are settings and uploads: admins only, whatever the card's Team (HQ card sharing)."""
-        body = admin_client.get(_page(hub)).content.decode()
+    def it_gives_update_this_page_and_its_posts_to_an_officer(hub, lee_client):
+        """The flyers and links were admins only; every guild officer now runs them (#1307)."""
+        body = lee_client.get(_page(hub)).content.decode()
         assert "data-hq-fl-organizers" in body
+        assert "Only admins see this box." not in body
         assert f'action="{_upload(hub, THIS_YEAR)}"' in body
         assert f'action="{_upload(hub, LAST_YEAR)}"' in body
         assert f'hx-post="{_links(hub)}"' in body
 
-        team_body = lee_client.get(_page(hub)).content.decode()
-        assert "data-hq-fl-organizers" not in team_body
-        assert _upload(hub, THIS_YEAR) not in team_body
-        assert lee_client.post(_upload(hub), _file_post(THIS_YEAR, _image())).status_code == 403
-        assert lee_client.post(_links(hub), _links_post()).status_code == 403
+        assert lee_client.post(_upload(hub), _file_post(THIS_YEAR, _image())).status_code == 302
+        assert lee_client.post(_links(hub), _links_post()).status_code == 302
+        page = HubFlyer.objects.get(hub=hub)
+        assert page.flyer
+        assert page.share_message == "Come to the Bizarre!"
+        assert lee_client.post(_remove(hub)).status_code == 302
+        page.refresh_from_db()
+        assert not page.flyer
 
-    def it_renders_a_previewing_admin_as_the_member_but_lets_them_act(hub, admin_client):
-        _preview(admin_client, ROLE_MEMBER)
+    def it_gives_update_this_page_to_a_guild_staff_member(hub, make_officer):
+        assert "data-hq-fl-organizers" in signed_in(make_officer(staff=True)).get(_page(hub)).content.decode()
 
-        body = admin_client.get(_page(hub)).content.decode()
+    @pytest.mark.parametrize("role", [ROLE_MEMBER, ROLE_GUEST])
+    def it_shows_a_previewing_admin_the_viewers_404_but_lets_them_act(hub, admin_client, role):
+        _preview(admin_client, role)
 
-        assert "data-hq-fl-organizers" not in body
+        assert admin_client.get(_page(hub)).status_code == 404
         assert admin_client.post(_links(hub), _links_post()).status_code == 302
         assert admin_client.post(_upload(hub), _file_post(THIS_YEAR, _image())).status_code == 302
         assert HubFlyer.objects.get(hub=hub).share_message == "Come to the Bizarre!"
-
-    def it_answers_every_post_with_a_403_for_anyone_who_does_not_organise_it(hub, member_client):
-        _with_flyer(hub)
-        for client in (Client(), member_client):
-            assert client.post(_upload(hub), _file_post(THIS_YEAR, _image())).status_code == 403
-            assert client.post(_remove(hub)).status_code == 403
-            assert client.post(_links(hub), _links_post()).status_code == 403
-        page = HubFlyer.objects.get(hub=hub)
-        assert page.flyer
-        assert page.share_message == FLYER_SHARE_MESSAGE
 
     def it_takes_posts_only(hub, lee_client):
         for url in (_upload(hub), _remove(hub), _links(hub)):
@@ -251,24 +249,12 @@ def describe_who_may_open_it():
         other = EventHubFactory(is_open=False)
         HubCardFactory(hub=other, kind=HubCard.Kind.MARKETING)
 
-        assert admin_client.get(_page(other)).status_code == 404
-        assert admin_client.post(_upload(other), _file_post(THIS_YEAR, _image())).status_code == 404
-        assert admin_client.post(_links(other), _links_post()).status_code == 404
-        assert admin_client.post(_upload(hub, "poster"), {"poster-file": _image()}).status_code == 404
-        assert admin_client.post(_remove(hub, "poster")).status_code == 404
-        assert not HubFlyer.objects.exists()
-
-    def it_never_lets_one_hubs_organiser_change_another_hub(hub, lee_client):
-        elsewhere = EventHubFactory()
-        HubCardFactory(hub=elsewhere, kind=HubCard.Kind.FLYER, audience=HubCard.Audience.PUBLIC)
-
-        assert lee_client.post(_upload(elsewhere), _file_post(THIS_YEAR, _image())).status_code == 404
-        assert lee_client.post(_links(elsewhere), _links_post()).status_code == 404
-        elsewhere.is_open, hub.is_open = True, False
-        hub.save(update_fields=["is_open"])
-        elsewhere.save(update_fields=["is_open"])
-        assert lee_client.post(_upload(elsewhere), _file_post(THIS_YEAR, _image())).status_code == 403
-        assert lee_client.post(_links(elsewhere), _links_post()).status_code == 403
+        for client in (admin_client, lee_client):
+            assert client.get(_page(other)).status_code == 404
+            assert client.post(_upload(other), _file_post(THIS_YEAR, _image())).status_code == 404
+            assert client.post(_links(other), _links_post()).status_code == 404
+            assert client.post(_upload(hub, "poster"), {"poster-file": _image()}).status_code == 404
+            assert client.post(_remove(hub, "poster")).status_code == 404
         assert not HubFlyer.objects.exists()
 
 
@@ -280,43 +266,43 @@ def describe_the_page_cost():
         # is emptied here to keep QUERIES_PER_PAGE the flyer page's own.
         monkeypatch.setattr("plfog.version.CHANGELOG", [])
 
-    def it_renders_for_a_member_in_a_fixed_number_of_queries(hub, event, member_client, django_assert_num_queries):
+    def it_renders_for_an_officer_in_a_fixed_number_of_queries(hub, event, officer_client, django_assert_num_queries):
         _with_flyer(hub)
         _with_flyer(hub, LAST_YEAR, _pdf())
         MarketingActionFactory(hub=hub, kind=MarketingAction.Kind.FLYER)
-        member_client.get(_page(hub))  # warm the session and the site configuration
+        officer_client.get(_page(hub))  # warm the session and the site configuration
 
         with django_assert_num_queries(QUERIES_PER_PAGE):
-            response = member_client.get(_page(hub))
+            response = officer_client.get(_page(hub))
 
         assert response.status_code == 200
 
-    def it_costs_the_same_with_more_rsvps_and_flyer_drop_offs(hub, event, member_client, django_assert_num_queries):
+    def it_costs_the_same_with_more_rsvps_and_flyer_drop_offs(hub, event, officer_client, django_assert_num_queries):
         _with_flyer(hub)
         for _ in range(3):
             EventRSVPFactory(event=event)
             MarketingActionFactory(hub=hub, kind=MarketingAction.Kind.FLYER)
-        member_client.get(_page(hub))
+        officer_client.get(_page(hub))
 
         with django_assert_num_queries(QUERIES_PER_PAGE):
-            member_client.get(_page(hub))
+            officer_client.get(_page(hub))
 
-    def it_costs_the_same_showing_the_flyer_the_event_makes(hub, event, member_client, django_assert_num_queries):
+    def it_costs_the_same_showing_the_flyer_the_event_makes(hub, event, officer_client, django_assert_num_queries):
         # No upload: the poster is the event's own flyer. Its sheet reads the event and its area, which come with the
         # hub (select_related), and draws the QR in Python, so the page costs what it does with an upload.
         event.area = LocationFactory()
         event.save(update_fields=["area"])
-        member_client.get(_page(hub))
+        officer_client.get(_page(hub))
 
         with django_assert_num_queries(QUERIES_PER_PAGE):
-            response = member_client.get(_page(hub))
+            response = officer_client.get(_page(hub))
 
         assert "data-hq-fl-generated" in response.content.decode()
 
 
 def describe_this_years_flyer():
-    def it_says_coming_soon_with_no_flyer_and_offers_no_download(hub, member_client):
-        body = member_client.get(_page(hub)).content.decode()
+    def it_says_coming_soon_with_no_flyer_and_offers_no_download(hub, officer_client):
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert "data-hq-fl-soon" in body
         assert ">Coming soon</span>" in body
@@ -324,10 +310,10 @@ def describe_this_years_flyer():
         assert "data-hq-fl-flyer-actions" not in body
         assert "data-hq-fl-share-download" not in body
 
-    def it_shows_an_image_large_with_view_download_and_print(hub, member_client):
+    def it_shows_an_image_large_with_view_download_and_print(hub, officer_client):
         page = _with_flyer(hub)
 
-        body = member_client.get(_page(hub)).content.decode()
+        body = officer_client.get(_page(hub)).content.decode()
 
         url = page.flyer.url
         assert f'<img src="{url}" alt="{hub.title} flyer" data-hq-fl-image>' in body
@@ -344,10 +330,10 @@ def describe_this_years_flyer():
         assert f'href="{url}" download' not in body
         assert "data-hq-fl-soon" not in body and "data-hq-fl-pdf" not in body
 
-    def it_shows_a_pdf_as_a_card_that_opens_it(hub, member_client):
+    def it_shows_a_pdf_as_a_card_that_opens_it(hub, officer_client):
         page = _with_flyer(hub, upload=_pdf())
 
-        body = member_client.get(_page(hub)).content.decode()
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert page.flyer.name.endswith(".pdf")
         assert page.flyer_is_pdf
@@ -365,10 +351,10 @@ def describe_downloading():
         card.hub.save(update_fields=["slug"])
         return card.hub
 
-    def it_sends_this_years_flyer_as_an_attachment_named_for_the_hub_once(hub, member_client):
+    def it_sends_this_years_flyer_as_an_attachment_named_for_the_hub_once(hub, officer_client):
         page = _with_flyer(hub)
 
-        response = member_client.get(_download(hub))
+        response = officer_client.get(_download(hub))
 
         assert response.status_code == 200
         assert response["Content-Disposition"] == 'attachment; filename="holiday-bizarre-2026-flyer.jpg"'
@@ -376,37 +362,33 @@ def describe_downloading():
         with open(page.flyer.path, "rb") as stored:
             assert b"".join(response.streaming_content) == stored.read()
 
-    def it_sends_last_years_pdf_with_its_own_name(hub, member_client):
+    def it_sends_last_years_pdf_with_its_own_name(hub, officer_client):
         _with_flyer(hub, LAST_YEAR, _pdf())
 
-        response = member_client.get(_download(hub, LAST_YEAR))
+        response = officer_client.get(_download(hub, LAST_YEAR))
 
         assert response["Content-Disposition"] == 'attachment; filename="holiday-bizarre-2026-last-year-flyer.pdf"'
         assert response["Content-Type"] == "application/pdf"
 
-    def it_is_a_404_with_no_flyer_up_or_an_unknown_slot(hub, member_client):
-        assert member_client.get(_download(hub)).status_code == 404
+    def it_is_a_404_with_no_flyer_up_or_an_unknown_slot(hub, officer_client):
+        assert officer_client.get(_download(hub)).status_code == 404
         _with_flyer(hub)
-        assert member_client.get(_download(hub, LAST_YEAR)).status_code == 404
-        assert member_client.get(_download(hub, "poster")).status_code == 404
+        assert officer_client.get(_download(hub, LAST_YEAR)).status_code == 404
+        assert officer_client.get(_download(hub, "poster")).status_code == 404
 
-    def it_is_gated_like_the_page(card, member_client, admin_client):
+    def it_is_gated_like_the_page(card, officer_client, member_client, admin_client):
         hub = card.hub
         _with_flyer(hub)
 
         signed_out = Client().get(_download(hub))
         assert signed_out.status_code == 302
         assert signed_out["Location"].startswith("/accounts/login/")
-
-        card.audience = HubCard.Audience.ADMINS
-        card.save(update_fields=["audience"])
         assert member_client.get(_download(hub)).status_code == 404
+
+        card.is_hidden = True
+        card.save(update_fields=["is_hidden"])
+        assert officer_client.get(_download(hub)).status_code == 404
         assert admin_client.get(_download(hub)).status_code == 200
-
-        card.audience, card.is_hidden = HubCard.Audience.PUBLIC, True
-        card.save(update_fields=["audience", "is_hidden"])
-        assert Client().get(_download(hub)).status_code == 404
-        assert member_client.get(_download(hub)).status_code == 404
 
 
 def describe_uploading():
@@ -656,8 +638,8 @@ def describe_removing():
 
 
 def describe_help_spread_the_word():
-    def it_shares_the_events_public_page(hub, event, member_client):
-        body = member_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
+    def it_shares_the_events_public_page(hub, event, officer_client):
+        body = officer_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
 
         link = event.public_url
         assert f'aria-label="The event link">{link}</textarea>' in body
@@ -665,15 +647,15 @@ def describe_help_spread_the_word():
         assert FLYER_SHARE_LEDE in body
         assert "Link copied. Paste it anywhere!" in body
 
-    def it_shares_the_hq_page_with_no_event(hub, member_client, settings):
+    def it_shares_the_hq_page_with_no_event(hub, officer_client, settings):
         settings.MEMBER_BASE_URL = "https://members.example.test"
 
-        body = member_client.get(_page(hub)).content.decode()
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert f'aria-label="The event link">https://members.example.test{hub.get_absolute_url()}</textarea>' in body
 
-    def it_encodes_the_whole_link_into_facebooks_share_dialog(hub, event, member_client):
-        body = member_client.get(_page(hub)).content.decode()
+    def it_encodes_the_whole_link_into_facebooks_share_dialog(hub, event, officer_client):
+        body = officer_client.get(_page(hub)).content.decode()
 
         encoded = quote(event.public_url, safe="")
         assert "%3A%2F%2F" in encoded and "/" not in encoded
@@ -693,8 +675,8 @@ def describe_help_spread_the_word():
 
 
 def describe_what_to_expect():
-    def it_lists_lees_bullets_under_the_message(hub, member_client):
-        body = member_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
+    def it_lists_lees_bullets_under_the_message(hub, officer_client):
+        body = officer_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
 
         share = body.split("data-hq-fl-share")[1].split("</section>")[0]
         expect = share.split("data-hq-fl-expect>")[1]
@@ -707,10 +689,10 @@ def describe_what_to_expect():
             "Drinks, music, the Sasquatch and surprises",
         ]
 
-    def it_reads_the_wine_walls_prices_from_the_ledger(hub, member_client):
+    def it_reads_the_wine_walls_prices_from_the_ledger(hub, officer_client):
         LedgerSettings.objects.create(hub=hub, ticket_cents=2_000)
 
-        body = member_client.get(_page(hub)).content.decode()
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert "<li>The wine wall: $20 a ticket, every bottle worth $20 or more</li>" in body
         assert "$25" not in body.split("data-hq-fl-expect>")[1].split("</ul>")[0]
@@ -731,8 +713,8 @@ def describe_what_to_expect():
 
 
 def describe_the_members_table_card():
-    def it_asks_members_to_email_kate_with_the_setup_windows_after_find_the_event(hub, member_client):
-        body = member_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
+    def it_asks_members_to_email_kate_with_the_setup_windows_after_find_the_event(hub, officer_client):
+        body = officer_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
 
         table = body.split("data-hq-fl-table>")[1].split("</section>")[0]
         assert f'id="hq-fl-table-title">{FLYER_TABLE_TITLE}</h2>' in table
@@ -746,47 +728,42 @@ def describe_the_members_table_card():
         assert f"data-hq-fl-table-setup>{VENDOR_SETUP_NOTE}</p>" in table
         assert body.index("data-hq-fl-find") < body.index("data-hq-fl-table>") < body.index("data-hq-fl-last-year")
 
-    def it_links_vendor_tables_only_when_that_door_is_open_to_the_viewer(hub, member, member_client, admin_client):
-        vendors = HubCardFactory(hub=hub, kind=HubCard.Kind.VENDOR_TABLES, audience=HubCard.Audience.ADMINS)
+    def it_links_vendor_tables_while_that_door_is_not_hidden_from_the_viewer(hub, officer_client, admin_client):
         url = reverse("hq:vendors", args=[hub.slug])
         link = f'<a href="{url}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" data-hq-fl-vendors>Open Vendor Tables</a>'
 
-        assert "data-hq-fl-vendors" not in member_client.get(_page(hub)).content.decode()
-        assert link in admin_client.get(_page(hub)).content.decode()
-        # A Team-only door: it opens to the member by their place on its Team, never by an audience.
-        vendors.audience = HubCard.Audience.MEMBERS
-        vendors.save(update_fields=["audience"])
-        assert "data-hq-fl-vendors" not in member_client.get(_page(hub)).content.decode()
-        vendors.team.add(member)
-        assert link in member_client.get(_page(hub)).content.decode()
+        assert "data-hq-fl-vendors" not in officer_client.get(_page(hub)).content.decode()
+        vendors = HubCardFactory(hub=hub, kind=HubCard.Kind.VENDOR_TABLES)
+        assert link in officer_client.get(_page(hub)).content.decode()
         vendors.is_hidden = True
         vendors.save(update_fields=["is_hidden"])
-        assert "data-hq-fl-vendors" not in member_client.get(_page(hub)).content.decode()
+        assert "data-hq-fl-vendors" not in officer_client.get(_page(hub)).content.decode()
+        assert link in admin_client.get(_page(hub)).content.decode()
 
 
 def describe_find_the_event():
-    def it_leaves_out_a_blank_link_and_always_offers_the_member_portal(hub, event, member_client):
-        body = member_client.get(_page(hub)).content.decode()
+    def it_leaves_out_a_blank_link_and_always_offers_the_member_portal(hub, event, officer_client):
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert "data-hq-fl-website" not in body and "data-hq-fl-eventbrite" not in body
         assert f'href="{event.public_url}" class="pl-hq-fl__link" data-hq-fl-portal' in body
 
-    def it_shows_the_links_that_are_set(hub, member_client):
+    def it_shows_the_links_that_are_set(hub, officer_client):
         HubFlyer.objects.create(
             hub=hub, website_url="https://www.pastlives.space/bizarre", eventbrite_url="https://www.eventbrite.com/e/1"
         )
 
-        body = member_client.get(_page(hub)).content.decode()
+        body = officer_client.get(_page(hub)).content.decode()
 
         website = body.split("data-hq-fl-website>")[1].split("</a>")[0]
         assert "<b>pastlives.space</b><span>See the event page</span>" in website
         assert 'href="https://www.eventbrite.com/e/1" class="pl-hq-fl__link"' in body
         assert "<b>Eventbrite</b><span>RSVP on Eventbrite</span>" in body
 
-    def it_shows_only_the_eventbrite_link_when_the_website_is_blank(hub, member_client):
+    def it_shows_only_the_eventbrite_link_when_the_website_is_blank(hub, officer_client):
         HubFlyer.objects.create(hub=hub, eventbrite_url="https://www.eventbrite.com/e/1")
 
-        body = member_client.get(_page(hub)).content.decode()
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert "data-hq-fl-eventbrite" in body and "data-hq-fl-website" not in body
 
@@ -797,11 +774,11 @@ def describe_find_the_event():
 
 
 def describe_the_figures():
-    def it_reads_the_rsvps_from_the_event_and_links_to_whos_coming(hub, event, member_client):
+    def it_reads_the_rsvps_from_the_event_and_links_to_whos_coming(hub, event, officer_client):
         EventRSVPFactory(event=event, party_size=3)
         EventRSVPFactory(event=event, guest=True)
 
-        body = member_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
+        body = officer_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
 
         rsvp = body.split("data-hq-fl-rsvp>")[1].split("</a>")[0]
         assert f'href="{reverse("hub_event_detail", args=[event.pk])}#whos-coming"' in body
@@ -809,20 +786,20 @@ def describe_the_figures():
         assert "people have RSVP'd so far" in rsvp
         assert "See who's coming" in rsvp
 
-    def it_says_person_for_one_rsvp(hub, event, member_client):
+    def it_says_person_for_one_rsvp(hub, event, officer_client):
         EventRSVPFactory(event=event)
 
-        body = member_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
+        body = officer_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
 
         rsvp = body.split("data-hq-fl-rsvp>")[1].split("</a>")[0]
         assert "data-hq-fl-figure>1</strong>" in rsvp
         assert ">person has RSVP'd so far</span>" in rsvp
 
-    def it_hides_the_rsvp_figure_with_no_event(hub, member_client):
-        assert "data-hq-fl-rsvp" not in member_client.get(_page(hub)).content.decode()
+    def it_hides_the_rsvp_figure_with_no_event(hub, officer_client):
+        assert "data-hq-fl-rsvp" not in officer_client.get(_page(hub)).content.decode()
 
-    def it_puts_the_whos_coming_anchor_on_the_event_page(event, member_client):
-        body = member_client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
+    def it_puts_the_whos_coming_anchor_on_the_event_page(event, officer_client):
+        body = officer_client.get(reverse("hub_event_detail", args=[event.pk])).content.decode()
 
         assert 'id="whos-coming" data-event-rsvps' in body
         assert body.count('id="whos-coming"') == 1
@@ -834,43 +811,39 @@ def describe_the_figures():
         assert body.count('id="whos-coming"') == 1
         assert "data-event-rsvps" not in body
 
-    def it_counts_the_marketing_trackers_flyer_drop_offs_on_this_hub(hub, member_client):
+    def it_counts_the_marketing_trackers_flyer_drop_offs_on_this_hub(hub, officer_client):
         MarketingActionFactory.create_batch(3, hub=hub)
         MarketingActionFactory(hub=hub, kind=MarketingAction.Kind.REEL)
         MarketingActionFactory(hub=EventHubFactory())
 
-        body = member_client.get(_page(hub)).content.decode()
+        body = officer_client.get(_page(hub)).content.decode()
 
         flyers = body.split("data-hq-fl-flyers>")[1].split("</div>")[0]
         assert "data-hq-fl-figure>3</strong>" in flyers
         assert "businesses have the flyer up" in flyers
         assert services.marketing_totals(hub)["flyer"] == 3
 
-    def it_says_business_for_one(hub, member_client):
+    def it_says_business_for_one(hub, officer_client):
         MarketingActionFactory(hub=hub)
 
-        body = member_client.get(_page(hub)).content.decode()
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert "business has the flyer up" in body
 
-    def it_links_the_figure_to_the_marketing_tracker_only_when_that_card_is_open(hub, member_client, admin_client):
-        marketing = HubCardFactory(hub=hub, kind=HubCard.Kind.MARKETING, audience=HubCard.Audience.ADMINS)
+    def it_links_the_figure_to_the_marketing_tracker_while_that_card_is_not_hidden(hub, officer_client, admin_client):
         tracker = reverse("hq:marketing", args=[hub.slug])
+        assert '<div class="pl-hq-fl__figure" data-hq-fl-flyers>' in officer_client.get(_page(hub)).content.decode()
 
-        member_body = member_client.get(_page(hub)).content.decode()
-        admin_body = admin_client.get(_page(hub)).content.decode()
-
-        assert '<div class="pl-hq-fl__figure" data-hq-fl-flyers>' in member_body
-        assert tracker not in member_body
-        assert f'<a href="{tracker}" class="pl-hq-fl__figure" data-hq-fl-flyers>' in admin_body
-        marketing.audience = HubCard.Audience.MEMBERS
-        marketing.save(update_fields=["audience"])
+        marketing = HubCardFactory(hub=hub, kind=HubCard.Kind.MARKETING)
         assert f'<a href="{tracker}" class="pl-hq-fl__figure" data-hq-fl-flyers>' in (
-            member_client.get(_page(hub)).content.decode()
+            officer_client.get(_page(hub)).content.decode()
         )
         marketing.is_hidden = True
         marketing.save(update_fields=["is_hidden"])
-        assert tracker not in member_client.get(_page(hub)).content.decode()
+        assert tracker not in officer_client.get(_page(hub)).content.decode()
+        assert f'<a href="{tracker}" class="pl-hq-fl__figure" data-hq-fl-flyers>' in (
+            admin_client.get(_page(hub)).content.decode()
+        )
 
     def it_never_stores_either_figure(hub):
         assert {f.name for f in HubFlyer._meta.get_fields()} == {
@@ -886,28 +859,28 @@ def describe_the_figures():
 
 
 def describe_last_year():
-    def it_shows_lees_line_before_any_2025_flyer_is_up(hub, member_client):
-        body = member_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
+    def it_shows_lees_line_before_any_2025_flyer_is_up(hub, officer_client):
+        body = officer_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
 
         last = body.split("data-hq-fl-last-year>")[1].split("</section>")[0]
         assert 'id="hq-fl-last-title">Last Year: 2025</h2>' in last
         assert f"data-hq-fl-last-note>{FLYER_LAST_YEAR_NOTE}</p>" in last
         assert "data-hq-fl-last-image" not in last and "data-hq-fl-last-pdf" not in last
 
-    def it_shows_last_years_image_with_lees_line(hub, member_client):
+    def it_shows_last_years_image_with_lees_line(hub, officer_client):
         page = _with_flyer(hub, LAST_YEAR)
 
-        body = member_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
+        body = officer_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
 
         assert 'id="hq-fl-last-title">Last Year: 2025</h2>' in body
         assert f'<img src="{page.last_year_flyer.url}" alt="2025 Holiday Bizarre flyer"' in body
         assert f"data-hq-fl-last-note>{FLYER_LAST_YEAR_NOTE}</p>" in body
         assert "data-hq-fl-soon" in body  # this year's is still coming
 
-    def it_shows_last_years_pdf_as_a_link(hub, member_client):
+    def it_shows_last_years_pdf_as_a_link(hub, officer_client):
         page = _with_flyer(hub, LAST_YEAR, _pdf())
 
-        body = member_client.get(_page(hub)).content.decode()
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert f'href="{page.last_year_flyer.url}" class="pl-hq-fl__thumb pl-hq-fl__thumb--pdf"' in body
         assert page.last_year_is_pdf
@@ -1018,14 +991,13 @@ def describe_the_services():
 
 
 def describe_the_seed():
-    def it_seeds_a_new_flyer_door_admins_only_like_every_door():
+    def it_seeds_a_new_flyer_door_with_its_words_alone():
         door = next(door for door in DEFAULT_CARDS if door.door == HubCard.Kind.FLYER)
 
-        assert "audience" not in door.fields()
+        assert set(door.fields()) == {"kind", "who_for", "title", "bullets", "button_text"}
         assert door.kind == HubCard.Kind.FLYER
-        assert HubCard(**door.fields()).audience == HubCard.Audience.ADMINS
 
-    def it_turns_the_flyer_placeholder_into_the_live_door_in_place(open_hub, member):
+    def it_turns_the_flyer_placeholder_into_the_live_door_in_place(open_hub):
         placeholder = HubCardFactory(
             hub=open_hub,
             kind=HubCard.Kind.PLACEHOLDER,
@@ -1035,8 +1007,7 @@ def describe_the_seed():
                 "Where to drop flyers around town"
             ),
             button_text="Get the flyer",
-            audience=HubCard.Audience.ADMINS,
-            team=[member],
+            is_hidden=True,
         )
 
         result = open_hub.seed_default_cards()
@@ -1044,33 +1015,28 @@ def describe_the_seed():
         card = HubCard.objects.get(pk=placeholder.pk)
         assert "Event flyer and sharing" in result.adopted
         assert "Event flyer and sharing" not in result.added_beside
-        assert (card.kind, card.audience, card.button_text) == (
-            HubCard.Kind.FLYER,
-            HubCard.Audience.ADMINS,
-            "See the flyer",
-        )
+        assert (card.kind, card.is_hidden, card.button_text) == (HubCard.Kind.FLYER, True, "See the flyer")
         assert card.bullet_lines[0] == "This year's flyer to view, download and print"
-        assert list(card.team.all()) == [member]
         assert card.url == _page(open_hub)
 
-    def it_makes_the_flyer_door_admins_only_beside_other_cards_and_says_so(open_hub):
+    def it_makes_the_flyer_door_beside_other_cards_and_says_so(open_hub):
         HubCardFactory(hub=open_hub, kind=HubCard.Kind.PLACEHOLDER, title="Something else")
 
         result = open_hub.seed_default_cards()
 
         card = open_hub.cards.get(kind=HubCard.Kind.FLYER)
-        assert card.audience == HubCard.Audience.ADMINS
+        assert not card.is_hidden
         assert "Event flyer and sharing" in result.added_beside
-        admins_only = result.summary.split(" New and admins only until you open it: ")[1].split(".")[0]
-        assert "Event flyer and sharing" in admins_only.split(", ")
-        assert "open to members" not in result.summary
+        added = result.summary.split(" New: ")[1].split(".")[0]
+        assert "Event flyer and sharing" in added.split(", ")
+        assert "admins only" not in result.summary
 
 
 def describe_the_flyer_the_event_makes():
     """With no 2026 flyer uploaded, the poster is the flyer the event system makes for the hub's published event."""
 
-    def it_shows_the_events_flyer_in_place_of_coming_soon(hub, event, member_client):
-        body = member_client.get(_page(hub)).content.decode()
+    def it_shows_the_events_flyer_in_place_of_coming_soon(hub, event, officer_client):
+        body = officer_client.get(_page(hub)).content.decode()
 
         flyer_url = reverse("hub_event_flyer", args=[event.pk])
         assert (
@@ -1082,8 +1048,8 @@ def describe_the_flyer_the_event_makes():
         assert '<div class="pl-evfl__qr"><svg' in body
         assert "data-hq-fl-soon" not in body
 
-    def it_offers_view_full_size_and_print_but_no_download(hub, event, member_client):
-        body = member_client.get(_page(hub)).content.decode()
+    def it_offers_view_full_size_and_print_but_no_download(hub, event, officer_client):
+        body = officer_client.get(_page(hub)).content.decode()
 
         flyer_url = reverse("hub_event_flyer", args=[event.pk])
         assert (
@@ -1095,48 +1061,48 @@ def describe_the_flyer_the_event_makes():
         assert "data-hq-fl-share-download" not in body
         assert "data-hq-fl-copy-link" in body and "data-hq-fl-copy-message" in body  # the share buttons as today
 
-    def it_tells_an_admin_an_upload_replaces_it(hub, event, admin_client, member_client):
+    def it_tells_everyone_who_runs_the_hq_an_upload_replaces_it(hub, event, admin_client, officer_client):
         assert "data-hq-fl-generated-note" in admin_client.get(_page(hub)).content.decode()
-        assert "data-hq-fl-generated-note" not in member_client.get(_page(hub)).content.decode()
+        assert "data-hq-fl-generated-note" in officer_client.get(_page(hub)).content.decode()
 
-    def it_gives_way_to_an_uploaded_flyer(hub, event, member_client):
+    def it_gives_way_to_an_uploaded_flyer(hub, event, officer_client):
         page = _with_flyer(hub)
 
-        body = member_client.get(_page(hub)).content.decode()
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert f'<img src="{page.flyer.url}" alt="{hub.title} flyer" data-hq-fl-image>' in body
         assert "data-hq-fl-generated" not in body
         assert "data-event-flyer" not in body
 
-    def it_gives_way_to_an_uploaded_pdf(hub, event, member_client):
+    def it_gives_way_to_an_uploaded_pdf(hub, event, officer_client):
         _with_flyer(hub, upload=_pdf())
 
-        body = member_client.get(_page(hub)).content.decode()
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert "data-hq-fl-pdf" in body
         assert "data-hq-fl-generated" not in body
 
-    def it_keeps_coming_soon_with_no_event(hub, member_client):
-        body = member_client.get(_page(hub)).content.decode()
+    def it_keeps_coming_soon_with_no_event(hub, officer_client):
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert "data-hq-fl-soon" in body
         assert "data-hq-fl-generated" not in body
 
-    def it_keeps_coming_soon_while_the_event_is_unpublished(hub, event, member_client):
+    def it_keeps_coming_soon_while_the_event_is_unpublished(hub, event, officer_client):
         event.moderation_state = event.ModerationState.DRAFT
         event.save(update_fields=["moderation_state"])
 
-        body = member_client.get(_page(hub)).content.decode()
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert "data-hq-fl-soon" in body
         assert "data-hq-fl-generated" not in body
 
-    def it_keeps_coming_soon_once_a_one_off_event_has_ended(hub, event, member_client):
+    def it_keeps_coming_soon_once_a_one_off_event_has_ended(hub, event, officer_client):
         event.starts_at = timezone.now() - timedelta(days=2)
         event.ends_at = event.starts_at + timedelta(hours=3)
         event.save(update_fields=["starts_at", "ends_at"])
 
-        body = member_client.get(_page(hub)).content.decode()
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert "data-hq-fl-soon" in body
         assert "data-hq-fl-generated" not in body

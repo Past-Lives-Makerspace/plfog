@@ -1,9 +1,9 @@
-"""The Holiday Bizarre sidebar entry: no feature switch, just who has a door (HQ card sharing).
+"""The Holiday Bizarre sidebar entry: no feature switch, just who runs the HQ (#1307).
 
-An admin, by the effective role, sees it whenever any HQ exists; anyone else once a card on the open HQ is opened to
-them (``hub.context_processors._hq_nav``). The sidebar is written three times in ``hub/base.html`` (the admin block,
-the member block and the guest accounts' kiln menu), so each case reads the block it renders in. The entry costs one
-query on every hub page, however many cards and people there are.
+Whenever any HQ exists, admins and ACTIVE guild officers see it, by the effective role
+(``hub.context_processors._hq_nav``, the rule of ``hq.access.can_run_hq``); nobody else does. The sidebar is written
+three times in ``hub/base.html`` (the admin block, the member block and the guest accounts' kiln menu), so each case
+reads the block it renders in. The entry costs at most two queries on every hub page, however many guilds and HQs.
 """
 
 from __future__ import annotations
@@ -17,14 +17,13 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 
 from core.models import SiteConfiguration
-from hq.models import HubCard
 from hub.view_as import ROLE_MEMBER
 from membership.models import Member
 from tests.hq.conftest import signed_in
-from tests.hq.factories import EventHubFactory, HubCardFactory
+from tests.hq.factories import EventHubFactory
+from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 
 ENTRY = 'data-nav="hq"'
-Kind = HubCard.Kind
 
 
 def _sidebar(client: Client, url: str | None = None) -> str:
@@ -62,52 +61,38 @@ def describe_the_admin_block():
 
 
 def describe_the_member_block():
-    @pytest.fixture
-    def hub(open_hub):
-        return open_hub
-
-    def it_shows_a_member_with_a_shared_card(hub, make_member):
-        listed = make_member()
-        HubCardFactory(hub=hub, kind=Kind.WINE_WALL, can_open=[listed])
-
-        nav = _sidebar(signed_in(listed))
+    def it_shows_a_guild_lead_the_entry(open_hub, officer_client):
+        nav = _sidebar(officer_client)
 
         assert _block(nav) == "member"
         assert ENTRY in nav
 
-    def it_shows_a_member_on_a_cards_team(hub, make_member):
-        team = make_member()
-        HubCardFactory(hub=hub, kind=Kind.LEDGER, team=[team])
+    def it_shows_a_guild_staff_member_the_entry_for_a_closed_hq_too(make_officer):
+        EventHubFactory(is_open=False)
 
-        assert ENTRY in _sidebar(signed_in(team))
+        assert ENTRY in _sidebar(signed_in(make_officer(staff=True)))
 
-    def it_hides_from_a_member_with_no_card(hub, member_client):
-        HubCardFactory(hub=hub, kind=Kind.WINE_WALL)
+    def it_hides_from_an_officer_while_no_hq_exists(officer_client):
+        assert ENTRY not in _sidebar(officer_client)
 
+    def it_hides_from_a_member_who_leads_or_staffs_no_guild(open_hub, member_client):
         nav = _sidebar(member_client)
 
         assert _block(nav) == "member"
         assert ENTRY not in nav
 
-    def it_shows_every_active_member_when_a_members_card_exists(hub, member_client):
-        HubCardFactory(hub=hub, kind=Kind.VOLUNTEERS, audience=HubCard.Audience.MEMBERS)
+    def it_goes_on_the_next_request_once_they_stop_leading(open_hub, officer, officer_client):
+        assert ENTRY in _sidebar(officer_client)
 
-        assert ENTRY in _sidebar(member_client)
+        officer.led_guilds.update(guild_lead=None)
 
-    def it_ignores_a_hidden_card_a_closed_hub_and_a_team_only_door_opened_wider(make_member, member_client):
-        closed = EventHubFactory(is_open=False)
-        HubCardFactory(hub=closed, kind=Kind.VOLUNTEERS, audience=HubCard.Audience.MEMBERS)
-        hub = EventHubFactory(is_open=True)
-        HubCardFactory(hub=hub, kind=Kind.WINE_WALL, audience=HubCard.Audience.MEMBERS, is_hidden=True)
-        HubCardFactory(hub=hub, kind=Kind.LEDGER, audience=HubCard.Audience.MEMBERS)
+        assert ENTRY not in _sidebar(officer_client)
 
-        assert ENTRY not in _sidebar(member_client)
-
-    def it_follows_the_members_rule_for_an_admin_previewing_as_a_member(hub, admin, admin_client):
+    def it_follows_the_officer_rule_for_an_admin_previewing_as_a_member(open_hub, admin, admin_client):
         _preview_as_member(admin_client)
         assert ENTRY not in _sidebar(admin_client)
 
-        HubCardFactory(hub=hub, kind=Kind.MARKETING, team=[admin])
+        GuildFactory(guild_lead=admin)
         nav = _sidebar(admin_client)
 
         assert _block(nav) == "member"
@@ -121,18 +106,8 @@ def describe_the_guest_block():
         config.kiln_tickets_open = True
         config.save(update_fields=["kiln_tickets_open"])
 
-    def it_shows_a_guest_account_a_card_opened_to_them(open_hub, make_member):
-        guest = make_member(status=Member.Status.GUEST)
-        HubCardFactory(hub=open_hub, kind=Kind.WINE_WALL, can_open=[guest])
-
-        nav = _sidebar(signed_in(guest), reverse("kiln:mine"))
-
-        assert _block(nav) == "guest"
-        assert ENTRY in nav
-
-    def it_hides_from_a_guest_account_with_none_and_a_members_card_is_not_theirs(open_hub, make_member):
-        guest = make_member(status=Member.Status.GUEST)
-        HubCardFactory(hub=open_hub, kind=Kind.VOLUNTEERS, audience=HubCard.Audience.MEMBERS)
+    def it_never_shows_a_guest_account_the_entry_even_one_named_as_a_guild_lead(open_hub, make_officer):
+        guest = make_officer(status=Member.Status.GUEST)
 
         nav = _sidebar(signed_in(guest), reverse("kiln:mine"))
 
@@ -140,18 +115,8 @@ def describe_the_guest_block():
         assert ENTRY not in nav
 
 
-def describe_signed_out():
-    def it_draws_no_sidebar_on_the_public_hq(open_hub):
-        HubCardFactory(hub=open_hub, kind=Kind.WINE_WALL, audience=HubCard.Audience.PUBLIC)
-
-        body = Client().get(reverse("hq:page", args=[open_hub.slug])).content.decode()
-
-        assert 'class="hub-sidebar__nav"' not in body
-        assert ENTRY not in body
-
-
 def describe_the_query_cost():
-    """One query on every hub page, whoever is looking and however many doors and people the HQ holds."""
+    """At most two queries on every hub page (is this member an officer, does an HQ exist), however many there are."""
 
     def _queries(client: Client) -> list[str]:
         with CaptureQueriesContext(connection) as captured:
@@ -161,19 +126,23 @@ def describe_the_query_cost():
     def _hq(queries: list[str]) -> list[str]:
         return [sql for sql in queries if '"hq_' in sql]
 
-    def it_costs_a_member_one_query_that_stays_flat(open_hub, make_member):
-        listed = make_member()
-        HubCardFactory(hub=open_hub, kind=Kind.WINE_WALL, can_open=[listed])
-        client = signed_in(listed)
-        client.get(reverse("hub_home"))  # warm the per-session reads
+    def it_costs_an_officer_the_same_queries_however_many_guilds_and_hqs(open_hub, officer, officer_client):
+        officer_client.get(reverse("hub_home"))  # warm the per-session reads
 
-        before = _queries(client)
-        for kind in [Kind.MARKETING, Kind.SPONSORSHIP, Kind.LEDGER]:
-            HubCardFactory(hub=open_hub, kind=kind, can_open=[make_member()], team=[make_member(), listed])
-        after = _queries(client)
+        before = _queries(officer_client)
+        for _ in range(3):
+            GuildFactory(guild_lead=officer)
+            GuildStaffMembershipFactory(member=officer)
+            EventHubFactory(is_open=False)
+        after = _queries(officer_client)
 
         assert len(_hq(before)) == 1
         assert len(after) == len(before)
+
+    def it_costs_a_member_who_is_no_officer_no_hq_query(open_hub, member_client):
+        member_client.get(reverse("hub_home"))
+
+        assert _hq(_queries(member_client)) == []
 
     def it_costs_an_admin_one_query(open_hub, admin_client):
         admin_client.get(reverse("hub_home"))

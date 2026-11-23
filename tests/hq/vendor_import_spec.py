@@ -91,19 +91,13 @@ def _snapshot(hub: Any) -> list[dict[str, Any]]:
 
 
 @pytest.fixture
-def kate(make_member):
-    return make_member(preferred_name="Kate Lindqvist")
+def kate(make_officer):
+    return make_officer(preferred_name="Kate Lindqvist")
 
 
 @pytest.fixture
 def card(open_hub, kate) -> HubCard:
-    return HubCardFactory(
-        hub=open_hub,
-        kind=HubCard.Kind.VENDOR_TABLES,
-        title="Vendor Tables",
-        audience=HubCard.Audience.ADMINS,
-        team=[kate],
-    )
+    return HubCardFactory(hub=open_hub, kind=HubCard.Kind.VENDOR_TABLES, title="Vendor Tables")
 
 
 @pytest.fixture
@@ -746,9 +740,9 @@ def describe_refusing_a_file():
 
 
 def describe_who_may_import():
-    def it_is_the_teams_alone(hub, member_client):
-        for client in (member_client, Client()):
-            assert client.post(_import(hub), {"file": _upload("Name\nWren\n")}).status_code == 403
+    def it_is_the_officers_alone(hub, member_client):
+        for client, status in ((member_client, 404), (Client(), 302)):
+            assert client.post(_import(hub), {"file": _upload("Name\nWren\n")}).status_code == status
         assert not hub.vendor_tables.exists()
 
     def it_takes_posts_only(hub, kate_client):
@@ -793,8 +787,8 @@ def describe_the_answer_on_the_page():
         assert "data-hq-vt-import-problems" not in first
         assert "data-hq-vt-import-answer" not in second
 
-    def it_keeps_each_hubs_answer_to_that_hub(hub, kate, kate_client):
-        other = HubCardFactory(kind=HubCard.Kind.VENDOR_TABLES, audience=HubCard.Audience.ADMINS, team=[kate]).hub
+    def it_keeps_each_hubs_answer_to_that_hub(hub, kate_client):
+        other = HubCardFactory(kind=HubCard.Kind.VENDOR_TABLES).hub
         kate_client.post(_import(hub), {"file": _upload("Name\nWren\n")})
 
         assert "data-hq-vt-import-answer" not in kate_client.get(_page(other)).content.decode()

@@ -125,17 +125,14 @@ def _line_post(line: BudgetLine, **fields: Any) -> dict[str, Any]:
 
 
 @pytest.fixture
-def lee(make_member):
-    return make_member(preferred_name="Lee Ashworth")
+def lee(make_officer):
+    return make_officer(preferred_name="Lee Ashworth")
 
 
 @pytest.fixture
 def card(open_hub, lee) -> HubCard:
-    """The ledger door on the open hub with Lee on its Team. A Team-only door (HQ card sharing): Admins only is its
-    one audience, and nobody off the Team opens it whatever the database says."""
-    return HubCardFactory(
-        hub=open_hub, kind=HubCard.Kind.LEDGER, title="PL Ledger", audience=HubCard.Audience.ADMINS, team=[lee]
-    )
+    """The ledger door on the open hub. Lee is a guild officer, so she runs it (#1307)."""
+    return HubCardFactory(hub=open_hub, kind=HubCard.Kind.LEDGER, title="PL Ledger")
 
 
 @pytest.fixture
@@ -191,28 +188,22 @@ def describe_the_door():
         order = ["data-hq-lg-board", "data-hq-lg-lines", "data-hq-lg-log", "data-hq-lg-entries", "data-hq-lg-receipts"]
         assert [body.index(marker) for marker in order] == sorted(body.index(marker) for marker in order)
 
-    def it_turns_the_ledger_placeholder_into_the_live_door_in_place(open_hub, member):
+    def it_turns_the_ledger_placeholder_into_the_live_door_in_place(open_hub):
         placeholder = HubCardFactory(
             hub=open_hub,
             kind=HubCard.Kind.PLACEHOLDER,
             title="PL Ledger",
             bullets="Money in and money out for the night\nSponsorships, the wine wall and the door\nKept by the core team",
             button_text="Open the ledger",
-            audience=HubCard.Audience.MEMBERS,
-            team=[member],
+            is_hidden=True,
         )
 
         result = open_hub.seed_default_cards()
 
         door = HubCard.objects.get(pk=placeholder.pk)
         assert "PL Ledger" in result.adopted
-        assert (door.kind, door.audience, door.button_text) == (
-            HubCard.Kind.LEDGER,
-            HubCard.Audience.MEMBERS,
-            "Enter the ledger",
-        )
+        assert (door.kind, door.is_hidden, door.button_text) == (HubCard.Kind.LEDGER, True, "Enter the ledger")
         assert door.bullet_lines[0] == "Running tally and goals"
-        assert list(door.team.all()) == [member]
         assert door.url == _page(open_hub)
 
 
@@ -262,19 +253,15 @@ def describe_the_section_bar():
 
         assert ("#hq-lg-board", "$1,200 budget") in _jumps(lee_client.get(_page(hub)).content.decode())
 
-    def it_links_the_sponsors_and_vendor_tables_doors_only_when_open_to_the_viewer(hub, lee, lee_client):
-        sponsors = HubCardFactory(hub=hub, kind=HubCard.Kind.SPONSORSHIP, audience=HubCard.Audience.ADMINS)
-        vendors = HubCardFactory(hub=hub, kind=HubCard.Kind.VENDOR_TABLES, audience=HubCard.Audience.ADMINS)
+    def it_links_the_sponsors_and_vendor_tables_doors_only_while_they_are_on_the_hub_and_shown(hub, lee_client):
         sponsors_url = reverse("hq:sponsors", args=[hub.slug])
         vendors_url = reverse("hq:vendors", args=[hub.slug])
 
-        closed = [href for href, _ in _jumps(lee_client.get(_page(hub)).content.decode())]
-        assert sponsors_url not in closed and vendors_url not in closed
+        missing = [href for href, _ in _jumps(lee_client.get(_page(hub)).content.decode())]
+        assert sponsors_url not in missing and vendors_url not in missing
 
-        sponsors.audience = HubCard.Audience.MEMBERS
-        sponsors.save(update_fields=["audience"])
-        # Vendor Tables is Team-only: it opens to Lee by her place on its Team, never by an audience.
-        vendors.team.add(lee)
+        sponsors = HubCardFactory(hub=hub, kind=HubCard.Kind.SPONSORSHIP)
+        HubCardFactory(hub=hub, kind=HubCard.Kind.VENDOR_TABLES)
         body = lee_client.get(_page(hub)).content.decode()
         jumps = _jumps(body)
 
@@ -300,54 +287,42 @@ def describe_the_footer():
 
 
 def describe_who_may_open_it():
-    def it_is_a_404_for_anyone_off_the_team_and_leaks_nothing(hub, member_client):
+    def it_is_a_404_for_a_member_who_leads_or_staffs_no_guild_and_leaks_nothing(hub, member_client):
         _private_ledger(hub)
         LedgerSettingsFactory(hub=hub, approved_note="Spec secret approval note")
 
-        for client in (member_client, Client()):
-            for url, status in ((_page(hub), 404), (_url("ledger_receipts", hub), 404), (_url("ledger_csv", hub), 403)):
-                response = client.get(url)
+        for url in (_page(hub), _url("ledger_receipts", hub), _url("ledger_csv", hub)):
+            response = member_client.get(url)
 
-                assert response.status_code == status, url
-                body = b"".join(response.streaming_content) if response.streaming else response.content
-                text = body.decode()
-                for private in (
-                    "Spec Secret Line",
-                    "Spec Secret Vendor",
-                    "Spec secret note",
-                    "spec-secret",
-                    "$987.65",
-                    "$123.45",
-                    "Spec secret approval note",
-                    "data-hq-lg-board",
-                ):
-                    assert private not in text, (url, private)
+            assert response.status_code == 404, url
+            text = response.content.decode()
+            for private in (
+                "Spec Secret Line",
+                "Spec Secret Vendor",
+                "Spec secret note",
+                "spec-secret",
+                "$987.65",
+                "$123.45",
+                "Spec secret approval note",
+                "data-hq-lg-board",
+            ):
+                assert private not in text, (url, private)
 
-    def it_gives_the_page_to_a_named_member_on_an_admins_card(card, lee_client):
-        card.audience = HubCard.Audience.ADMINS
-        card.save(update_fields=["audience"])
-        _private_ledger(card.hub)
+    def it_sends_a_signed_out_visitor_through_login(hub):
+        for url in (_page(hub), _url("ledger_receipts", hub), _url("ledger_csv", hub)):
+            response = Client().get(url)
 
-        body = lee_client.get(_page(card.hub)).content.decode()
+            assert response.status_code == 302, url
+            assert "/accounts/login/" in response["Location"]
+
+    @pytest.mark.parametrize("staff", [False, True])
+    def it_gives_the_page_to_a_guild_lead_or_staff_member(hub, make_officer, staff):
+        _private_ledger(hub)
+
+        body = signed_in(make_officer(staff=staff)).get(_page(hub)).content.decode()
 
         assert "Spec Secret Vendor" in body
         assert "data-hq-lg-log-form" in body
-
-    def it_is_a_404_for_a_member_on_an_admins_card(card, member_client):
-        card.audience = HubCard.Audience.ADMINS
-        card.save(update_fields=["audience"])
-
-        assert member_client.get(_page(card.hub)).status_code == 404
-        assert member_client.get(_url("ledger_receipts", card.hub)).status_code == 404
-
-    def it_sends_a_signed_out_visitor_through_login_on_a_members_card(card):
-        card.audience = HubCard.Audience.MEMBERS
-        card.save(update_fields=["audience"])
-
-        response = Client().get(_page(card.hub))
-
-        assert response.status_code == 302
-        assert "/accounts/login/" in response["Location"]
 
     def it_is_a_404_when_hidden_for_all_but_admins(card, member_client, lee_client, admin_client):
         card.is_hidden = True
@@ -361,30 +336,58 @@ def describe_who_may_open_it():
         assert admin_client.get(_page(open_hub)).status_code == 404
         assert admin_client.get(_url("ledger_csv", open_hub)).status_code == 404
 
-    def it_refuses_every_write_to_anyone_but_an_organiser(hub, kegs, member_client):
+    def it_refuses_every_write_to_anyone_but_an_officer(hub, kegs, member_client):
         entry = LedgerEntryFactory(hub=hub, line=kegs, kind=K.PAID_APPROVAL, amount_cents=1_000)
         empty = BudgetLineFactory(hub=hub, name="Empty")
 
-        for client in (member_client, Client()):
-            assert client.post(_url("ledger_approval", hub), {"approved": "5", "approved_note": "x"}).status_code == 403
+        for client, status in ((member_client, 404), (Client(), 302)):
+            assert (
+                client.post(_url("ledger_approval", hub), {"approved": "5", "approved_note": "x"}).status_code == status
+            )
             assert (
                 client.post(_url("ledger_line_add", hub), {"name": "X", "category": C.DECOR, "budget": "1"}).status_code
-                == 403
+                == status
             )
             assert (
-                client.post(_url("ledger_line_edit", hub, kegs.pk), _line_post(kegs, name="Hacked")).status_code == 403
+                client.post(_url("ledger_line_edit", hub, kegs.pk), _line_post(kegs, name="Hacked")).status_code
+                == status
             )
-            assert client.post(_url("ledger_line_delete", hub, empty.pk)).status_code == 403
-            assert client.post(_url("ledger_entry_add", hub), _entry_post(kegs)).status_code == 403
+            assert client.post(_url("ledger_line_delete", hub, empty.pk)).status_code == status
+            assert client.post(_url("ledger_entry_add", hub), _entry_post(kegs)).status_code == status
             receipt = {f"receipt-{entry.pk}-receipt": _pdf()}
-            assert client.post(_url("ledger_receipt", hub, entry.pk), receipt).status_code == 403
-            assert client.post(_url("ledger_entry_delete", hub, entry.pk)).status_code == 403
+            assert client.post(_url("ledger_receipt", hub, entry.pk), receipt).status_code == status
+            assert client.post(_url("ledger_entry_delete", hub, entry.pk)).status_code == status
         kegs.refresh_from_db()
         entry.refresh_from_db()
         assert kegs.name == "Kegs"
         assert not entry.receipt
         assert (BudgetLine.objects.count(), LedgerEntry.objects.count()) == (2, 1)
         assert not LedgerSettings.objects.exists()
+
+    def it_lets_an_officer_set_the_approval_and_the_budget_lines(hub, kegs, lee_client):
+        empty = BudgetLineFactory(hub=hub, name="Empty")
+
+        assert (
+            lee_client.post(
+                _url("ledger_approval", hub), _approval_post(services.ledger_settings(hub), approved="500")
+            ).status_code
+            == 302
+        )
+        assert (
+            lee_client.post(
+                _url("ledger_line_add", hub), {"name": "Ice", "category": C.DRINKS, "budget": "40"}
+            ).status_code
+            == 302
+        )
+        assert (
+            lee_client.post(_url("ledger_line_edit", hub, kegs.pk), _line_post(kegs, name="Kegs Two")).status_code
+            == 302
+        )
+        assert lee_client.post(_url("ledger_line_delete", hub, empty.pk)).status_code == 302
+        kegs.refresh_from_db()
+        assert kegs.name == "Kegs Two"
+        assert set(BudgetLine.objects.values_list("name", flat=True)) == {"Kegs Two", "Ice"}
+        assert LedgerSettings.objects.filter(hub=hub).exists()
 
     @pytest.mark.parametrize("role", [ROLE_MEMBER, ROLE_GUEST])
     def it_shows_a_previewing_admin_the_404_that_viewer_gets_but_lets_them_act(hub, admin_client, role):
@@ -400,7 +403,8 @@ def describe_who_may_open_it():
             ).status_code
             == 302
         )
-        assert admin_client.get(_url("ledger_csv", hub)).status_code == 200
+        # A download only renders, so it reads the preview too.
+        assert admin_client.get(_url("ledger_csv", hub)).status_code == 404
         assert BudgetLine.objects.filter(name="Ice").exists()
 
     def it_takes_posts_only(hub, kegs, admin_client):

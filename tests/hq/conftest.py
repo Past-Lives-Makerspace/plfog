@@ -18,7 +18,7 @@ from hq.models import EventHub
 from membership.models import Member
 from membership.services.provisioning import provision_user_for_member
 from tests.hq.factories import EventHubFactory
-from tests.membership.factories import MemberFactory
+from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory, MemberFactory
 
 
 def signed_in(member: Member) -> Client:
@@ -45,6 +45,32 @@ def make_member(db) -> Callable[..., Member]:
         return member
 
     return _make
+
+
+@pytest.fixture
+def make_officer(make_member) -> Callable[..., Member]:
+    """A guild officer with a login (ADR 0004): an ACTIVE member who leads a guild, or with ``staff=True`` holds a
+    staff role on one. Everyone who runs the HQ besides the admins (#1307)."""
+
+    def _make(*, staff: bool = False, **kwargs: object) -> Member:
+        officer = make_member(**kwargs)
+        if staff:
+            GuildStaffMembershipFactory(member=officer)
+        else:
+            GuildFactory(guild_lead=officer)
+        return officer
+
+    return _make
+
+
+@pytest.fixture
+def officer(make_officer) -> Member:
+    return make_officer(preferred_name="Kate Reed")
+
+
+@pytest.fixture
+def officer_client(officer) -> Client:
+    return signed_in(officer)
 
 
 @pytest.fixture

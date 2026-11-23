@@ -48,7 +48,7 @@ def _settle_before_the_database_is_truncated(page, live_server, transactional_db
 def _vendors_page(page, live_server, login_via_code) -> str:
     """The open HQ's Vendor Tables door, an admin signed in; the page's URL."""
     hub = EventHubFactory(is_open=True, slug="holiday-bizarre", title="Holiday Bizarre HQ")
-    HubCardFactory(hub=hub, kind=HubCard.Kind.VENDOR_TABLES, title="Vendor Tables", audience=HubCard.Audience.ADMINS)
+    HubCardFactory(hub=hub, kind=HubCard.Kind.VENDOR_TABLES, title="Vendor Tables")
     GuildFactory(name="Woodworking Guild")
     MembershipPlanFactory()
     login_via_code(ADMIN_EMAIL)

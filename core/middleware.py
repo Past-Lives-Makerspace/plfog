@@ -294,7 +294,7 @@ class ToastFlashMiddleware:
         return response
 
 
-#: The public event pages a guest account is served on the members surface (the HQ links to them): one event's page,
+#: The public event pages a guest account is served on the members surface: one event's page,
 #: its printable flyer, its Add to calendar file and the guest RSVP post, as a signed-out visitor has them (the page
 #: renders for a guest as for a signed-out visitor). The members' one tap RSVP (``hub_event_rsvp``) stays members only,
 #: and so does everything else under /events/ (its editor, Manage Events, the review queue, the photo endpoints).
@@ -333,15 +333,14 @@ class MemberLockoutMiddleware:
       ``settings.LOCKED_OUT_BOOK_BLOCKED_PREFIXES`` (registration management); anything else
       goes to the lockout page on book (``/accounts/`` is on that list, so it cannot loop).
     - Guilds and signage surfaces are guest surfaces with their own allowlists: untouched.
-    - Two exceptions for a guest account on the members surface. The Holiday Bizarre HQ
-      (``/hq/``) is served to a guest always: its volunteer and wine wall doors are for people
-      with or without an account, and each card's own audience decides what a guest may open; so are
-      the public event pages it links to (``GUEST_EVENT_URL_NAMES``: one event's page, its flyer, its
-      calendar file and the guest RSVP post), which a signed-out visitor already opens.
-      And (#691) while ``SiteConfiguration.kiln_tickets_open`` is on, a guest is served the
-      kiln ticket pages (``/kiln/``), and every other gated members path sends them there
-      instead of to the lockout page. While it is off, a guest off ``/hq/`` is handled as
-      above. Former and suspended members always are.
+    - Two exceptions for a guest account on the members surface. The public event pages
+      (``GUEST_EVENT_URL_NAMES``: one event's page, its flyer, its calendar file and the guest RSVP
+      post) are served to a guest always, since a signed-out visitor already opens them. And (#691)
+      while ``SiteConfiguration.kiln_tickets_open`` is on, a guest is served the kiln ticket pages
+      (``/kiln/``), and every other gated members path sends them there instead of to the lockout
+      page. While it is off, a guest is handled as above. Former and suspended members always are.
+      The Holiday Bizarre HQ (``/hq/``) is for admins and guild officers only (#1307), so a guest
+      is kept off it like any other members page.
 
     Runs after AuthenticationMiddleware and before MemberAgreementMiddleware, so a locked-out
     member is never bounced to the agreement. Cost: one Member lookup per authenticated
@@ -371,11 +370,7 @@ class MemberLockoutMiddleware:
 
         locked_url = f"{reverse('account_locked')}?reason={reason}"
         if reason == Member.Status.GUEST and getattr(request, "surface", None) == "members":
-            # A guest may open the Holiday Bizarre HQ: its doors are for people with or
-            # without an account, and the card's audience decides the rest (hq.access).
-            if request.path.startswith(reverse("hq:index")):
-                return self.get_response(request)
-            # The event pages the HQ links to (its RSVP card, the flyer), which anyone signed out may open too.
+            # The public event pages (one event, its flyer), which anyone signed out may open too.
             if _is_public_event_page(request):
                 return self.get_response(request)
             if _kiln_is_open():

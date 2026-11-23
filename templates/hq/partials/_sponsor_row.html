@@ -1,17 +1,14 @@
 {% comment %}
-One pipeline row. An organiser gets a <details> that opens to its edit form, the 2025 box, the
-contact log and its add form, and Delete through the confirm modal; everyone else the name, tier
-and status. Save and Add to log post over htmx and swap this row only (the answer is
+One pipeline row: a <details> that opens to its edit form, the 2025 box, the contact log and its
+add form, and Delete through the confirm modal. Save and Add to log post over htmx and swap this row only (the answer is
 _sponsor_row_answer.html), so unsaved typing in other open rows and in + Add a sponsor survives.
 
   row          — required, a hq.views.SponsorRow
   hub          — required, the EventHub
-  can_organize — required, the effective role's organiser bit
   today        — required, the Portland date, for the due highlight
   show         — required, the filter in view, carried in each form so a plain post lands back on it
 {% endcomment %}
 {% with sponsor=row.sponsor %}
-{% if can_organize %}
 <details class="pl-hq-sp__row" data-hq-sp-row="{{ sponsor.pk }}"{% if row.is_open %} open{% endif %}>
   <summary class="pl-hq-sp__summary">
     <span class="pl-hq-sp__name">{{ sponsor.organization }}{% if sponsor.history %} <span class="pl-hq-sp__chip pl-hq-sp__chip--asked" data-hq-sp-donor>2025 donor</span>{% endif %}{% if sponsor.organiser_line %}<small data-hq-sp-line>{{ sponsor.organiser_line }}</small>{% endif %}</span>
@@ -83,10 +80,4 @@ _sponsor_row_answer.html), so unsaved typing in other open rows and in + Add a s
     </div>
   </div>
 </details>
-{% else %}
-<div class="pl-hq-sp__row pl-hq-sp__row--plain" data-hq-sp-row="{{ sponsor.pk }}">
-  <span class="pl-hq-sp__name">{{ sponsor.organization }}{% if sponsor.tier %}<small>{{ sponsor.get_tier_display }}</small>{% endif %}</span>
-  <span class="pl-hq-sp__chip pl-hq-sp__chip--{{ sponsor.status }}" data-hq-sp-status="{{ sponsor.status }}">{{ sponsor.get_status_display }}</span>
-</div>
-{% endif %}
 {% endwith %}

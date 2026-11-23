@@ -323,10 +323,8 @@ def describe_a_live_session():
 
 
 def describe_a_guest_account_and_the_holiday_bizarre_hq():
-    """A guest (#654) is served /hq/ on the members surface whatever the kiln switch says: the
-    HQ's volunteer and wine wall doors are for people with or without an account, and each
-    card's own audience decides what a guest may open (hq.access). Every other members page
-    still sends a guest to the lockout page, or to the kiln while that switch is on (#691)."""
+    """The Holiday Bizarre HQ is for admins and guild officers only (#1307), so a guest (#654) is kept off /hq/ like
+    any other members page: the lockout page, or the kiln while that switch is on (#691)."""
 
     @pytest.fixture
     def guest_client(client):
@@ -340,27 +338,22 @@ def describe_a_guest_account_and_the_holiday_bizarre_hq():
         from tests.hq.factories import EventHubFactory, HubCardFactory
 
         hub = EventHubFactory(is_open=True, slug="bizarre")
-        # A door open to everyone: with none open to a viewer, the HQ page is a 404 (HQ card sharing).
-        HubCardFactory(hub=hub, kind=HubCard.Kind.WINE_WALL, audience=HubCard.Audience.PUBLIC)
+        HubCardFactory(hub=hub, kind=HubCard.Kind.WINE_WALL)
         return hub
 
-    def it_serves_the_hq_pages_to_a_guest(guest_client, open_hub):
-        assert guest_client.get(reverse("hq:index"))["Location"] == reverse("hq:page", args=["bizarre"])
-        assert guest_client.get(reverse("hq:page", args=["bizarre"])).status_code == 200
+    def it_sends_a_guest_on_the_hq_to_the_lockout_page(guest_client, open_hub):
+        for url in (reverse("hq:index"), reverse("hq:page", args=["bizarre"]), reverse("hq:wine", args=["bizarre"])):
+            response = guest_client.get(url)
 
-    def it_still_locks_a_guest_out_of_every_other_members_page(guest_client, open_hub):
-        response = guest_client.get(reverse("hub_home"))
+            assert response.status_code == 302, url
+            assert response["Location"] == _locked_url("guest"), url
 
-        assert response.status_code == 302
-        assert response["Location"] == _locked_url("guest")
-
-    def it_keeps_serving_the_hq_while_the_kiln_switch_is_on(guest_client, open_hub):
+    def it_sends_a_guest_to_the_kiln_instead_while_the_kiln_switch_is_on(guest_client, open_hub):
         config = SiteConfiguration.load()
         config.kiln_tickets_open = True
         config.save(update_fields=["kiln_tickets_open"])
 
-        assert guest_client.get(reverse("hq:page", args=["bizarre"])).status_code == 200
-        assert guest_client.get(reverse("hub_home"))["Location"] == reverse("kiln:mine")
+        assert guest_client.get(reverse("hq:page", args=["bizarre"]))["Location"] == reverse("kiln:mine")
 
     def it_leaves_a_former_member_locked_out_of_the_hq(client, open_hub):
         client.force_login(_user_with_status("hq_former", Member.Status.FORMER))
@@ -369,9 +362,9 @@ def describe_a_guest_account_and_the_holiday_bizarre_hq():
 
 
 def describe_a_guest_account_and_the_public_event_pages():
-    """The HQ links a guest to an event's public page (the RSVP card) and its flyer, which a signed-out visitor already
-    opens, so a guest is served those, the calendar file and the guest RSVP post (core.middleware.GUEST_EVENT_URL_NAMES),
-    and nothing else under /events/: the members' one tap RSVP stays members only."""
+    """An event's public page, its flyer, its calendar file and the guest RSVP post, which a signed-out visitor already
+    opens, are served to a guest too (core.middleware.GUEST_EVENT_URL_NAMES), and nothing else under /events/: the
+    members' one tap RSVP stays members only."""
 
     @pytest.fixture
     def guest_client(client):

@@ -1,5 +1,5 @@
-"""Market Check-in (Track D, part 4): the door, its members-only gate, the hero with Lee's words and figures, the
-artist's market report (one per member, private), the volunteer hours log with own-entry delete, the thank-you
+"""Market Check-in (Track D, part 4): the door, its officers-only gate (#1307), the hero with Lee's words and figures, the
+artist's market report (one per member, private), the volunteer hours log with its delete, the thank-you
 board, the organisers' reports and hours pages with their CSVs, the confirmed vendor table beside a report, the
 roster's Hours logged column, and the seed's adoption of the placeholder."""
 
@@ -32,7 +32,7 @@ from hq.holiday_bizarre import (
     CHECKIN_TODAY_LINE,
 )
 from hq.models import BUILT_DOORS, HubCard, MarketReport, VendorTable, VolunteerHours, format_hours
-from hub.view_as import ROLE_GUEST, ROLE_MEMBER
+from hub.view_as import ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER
 from membership.models import Member
 from tests.hq.conftest import signed_in
 from tests.hq.factories import HubCardFactory, ShiftSignupFactory, VendorTableFactory, VolunteerShiftFactory
@@ -103,21 +103,23 @@ def _preview(client: Client, role: str) -> None:
     session.save()
 
 
+def _officer(make_member: Any, **kwargs: Any) -> Member:
+    """A guild officer who runs the HQ (#1307), leading a guild that is not active, so the report's guild select and
+    the prefilled guild never see it."""
+    member = make_member(**kwargs)
+    GuildFactory(guild_lead=member, is_active=False)
+    return member
+
+
 @pytest.fixture
 def lee(make_member) -> Member:
-    return make_member(preferred_name="Lee Organiser", full_legal_name="Lee Organiser")
+    return _officer(make_member, preferred_name="Lee Organiser", full_legal_name="Lee Organiser")
 
 
 @pytest.fixture
-def card(open_hub, lee) -> HubCard:
-    """The Market Check-in door on the open hub, open to everyone, with Lee named on it."""
-    return HubCardFactory(
-        hub=open_hub,
-        kind=HubCard.Kind.MARKET_CHECKIN,
-        title="Market Check-in",
-        audience=HubCard.Audience.PUBLIC,
-        team=[lee],
-    )
+def card(open_hub) -> HubCard:
+    """The Market Check-in door on the open hub."""
+    return HubCardFactory(hub=open_hub, kind=HubCard.Kind.MARKET_CHECKIN, title="Market Check-in")
 
 
 @pytest.fixture
@@ -132,8 +134,9 @@ def lee_client(lee) -> Client:
 
 @pytest.fixture
 def artist(make_member) -> Member:
-    return make_member(
-        preferred_name="Rae Artist", full_legal_name="Rae Artist", _pre_signup_email="rae@studio.example"
+    """An artist who is also a guild officer, since only officers and admins reach the HQ."""
+    return _officer(
+        make_member, preferred_name="Rae Artist", full_legal_name="Rae Artist", _pre_signup_email="rae@studio.example"
     )
 
 
@@ -143,15 +146,15 @@ def artist_client(artist) -> Client:
 
 
 def describe_the_door():
-    def it_is_a_built_door_that_opens_the_page_from_the_hq_page(card):
-        body = Client().get(card.hub.get_absolute_url()).content.decode()
+    def it_is_a_built_door_that_opens_the_page_from_the_hq_page(card, lee_client):
+        body = lee_client.get(card.hub.get_absolute_url()).content.decode()
 
         assert HubCard.Kind.MARKET_CHECKIN in BUILT_DOORS
         assert card.url == _page(card.hub) == f"/hq/{card.hub.slug}/check-in/"
         assert f'href="{_page(card.hub)}" class="pl-hq-card" data-hq-card-link' in body
         assert "M8 9l1.5 1.5L12 8" in body  # the checked list icon
 
-    def it_carries_lees_hero_with_the_events_day_and_the_figures(hub, artist, lee):
+    def it_carries_lees_hero_with_the_events_day_and_the_figures(hub, artist, lee, lee_client):
         starts = timezone.now() + timedelta(days=12)
         hub.event = CommunityEventFactory(community=True, starts_at=starts, ends_at=starts + timedelta(hours=5))
         hub.save(update_fields=["event"])
@@ -160,7 +163,7 @@ def describe_the_door():
         _hours(hub, lee, "0.25")
         day = timezone.localdate(starts)
 
-        body = Client().get(_page(hub)).content.decode().replace("&#x27;", "'")
+        body = lee_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
 
         assert f"data-hq-ci-eyebrow>Past Lives Makerspace · {hub.title}</p>" in body
         assert 'id="hq-ci-title">Market Check-in</h1>' in body
@@ -180,8 +183,8 @@ def describe_the_door():
         assert CHECKIN_FOOTER == "Questions? Email Lee at lee@pastlives.space."
         assert f'href="{hub.get_absolute_url()}" class="pl-hq-ci__back" data-hq-ci-back>&larr; HQ</a>' in body
 
-    def it_leaves_out_the_day_and_the_countdown_without_an_event(hub):
-        body = Client().get(_page(hub)).content.decode().replace("&#x27;", "'")
+    def it_leaves_out_the_day_and_the_countdown_without_an_event(hub, lee_client):
+        body = lee_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
 
         assert f"data-hq-ci-thanks>{CHECKIN_THANKS.format(on_date='')}</p>" in body
         assert "2nd Annual Holiday Bizarre. Artists" in body
@@ -190,89 +193,89 @@ def describe_the_door():
 
 
 def describe_who_may_check_in():
-    def it_shows_a_signed_out_visitor_the_hero_and_board_with_a_sign_in_link(hub, artist):
-        _hours(hub, artist, "3")
+    def it_sends_a_signed_out_visitor_through_login_on_every_page_and_post(hub, artist):
+        entry = _hours(hub, artist)
 
-        body = Client().get(_page(hub)).content.decode()
+        for url in (_page(hub), _reports_page(hub), _hours_page(hub), _reports_csv(hub), _hours_csv(hub)):
+            response = Client().get(url)
+            assert response.status_code == 302, url
+            assert response["Location"].startswith("/accounts/login/"), url
+        for url, data in ((_report(hub), _report_post()), (_log(hub), _hours_post()), (_delete(entry), {})):
+            response = Client().post(url, data)
+            assert response.status_code == 302 and response["Location"].startswith("/accounts/login/"), url
+        assert not MarketReport.objects.exists()
+        assert list(VolunteerHours.objects.all()) == [entry]
 
-        assert "data-hq-ci-hero" in body and "data-hq-ci-board" in body
-        assert "Rae Artist" in body
-        assert f'href="/accounts/login/?next=%2Fhq%2F{hub.slug}%2Fcheck-in%2F"' in body
-        assert ">Sign in to add your report or log hours</a>" in body
-        assert "data-hq-ci-report-form" not in body
-        assert "data-hq-ci-hours-form" not in body
-        assert "data-hq-ci-members-only" not in body
+    def it_is_a_404_on_every_page_and_post_for_a_member_who_runs_no_guild(hub, artist, member_client):
+        entry = _hours(hub, artist)
 
-    # A FORMER or SUSPENDED account never reaches the page: the lockout middleware turns it away first.
-    @pytest.mark.parametrize("status", [Member.Status.GUEST, Member.Status.INVITED])
-    def it_shows_a_signed_in_account_that_is_not_active_the_page_without_the_forms(hub, make_member, status):
-        client = signed_in(make_member(status=status))
+        for url in (_page(hub), _reports_page(hub), _hours_page(hub), _reports_csv(hub), _hours_csv(hub)):
+            assert member_client.get(url).status_code == 404, url
+        assert member_client.post(_report(hub), _report_post()).status_code == 404
+        assert member_client.post(_log(hub), _hours_post()).status_code == 404
+        assert member_client.post(_delete(entry)).status_code == 404
+        assert not MarketReport.objects.exists()
+        assert list(VolunteerHours.objects.all()) == [entry]
 
-        response = client.get(_page(hub))
-
-        body = response.content.decode()
-        assert response.status_code == 200
-        assert "data-hq-ci-members-only>Market reports and volunteer hours are for Past Lives members.</p>" in body
-        assert "data-hq-ci-sign-in" not in body
-        assert "data-hq-ci-report-form" not in body and "data-hq-ci-hours-form" not in body
-
-    def it_gives_an_active_member_both_forms(hub, artist_client):
+    def it_gives_an_officer_both_forms_and_the_organisers_links(hub, artist_client):
         body = artist_client.get(_page(hub)).content.decode()
 
         assert "data-hq-ci-report-form" in body and "data-hq-ci-hours-form" in body
-        assert "data-hq-ci-sign-in" not in body and "data-hq-ci-members-only" not in body
-        assert "data-hq-ci-staff" not in body
+        assert "data-hq-ci-members-only" not in body
+        assert f'href="{_reports_page(hub)}"' in body and f'href="{_hours_page(hub)}"' in body
 
-    def it_gives_a_named_member_who_is_not_active_the_forms_and_the_organisers_links(card, make_member):
-        named = make_member(status=Member.Status.INVITED)
-        card.team.add(named)
+    def it_gives_a_guild_staff_member_the_forms(hub, make_officer):
+        body = signed_in(make_officer(staff=True)).get(_page(hub)).content.decode()
 
-        body = signed_in(named).get(_page(card.hub)).content.decode()
+        assert "data-hq-ci-report-form" in body and "data-hq-ci-hours-form" in body
 
-        assert "data-hq-ci-report-form" in body
-        assert f'href="{_reports_page(card.hub)}"' in body and f'href="{_hours_page(card.hub)}"' in body
+    def it_tells_an_admin_with_no_member_record_the_forms_are_for_members_and_refuses_their_posts(hub):
+        superuser = get_user_model().objects.create_superuser("spec-root", "root@spec.example", "x")
+        # A new user gets a Member by signal; detach it, so this is an admin with no member record.
+        Member.objects.filter(user=superuser).update(user=None)
+        superuser = get_user_model().objects.get(pk=superuser.pk)
+        client = Client()
+        client.force_login(superuser)
 
-    def it_renders_a_previewing_admin_as_the_viewer_but_lets_them_act(hub, admin, admin_client):
-        _preview(admin_client, ROLE_GUEST)
+        response = client.get(_page(hub))
+        body = response.content.decode()
 
-        body = admin_client.get(_page(hub)).content.decode()
+        assert response.status_code == 200, response.status_code
+        assert "data-hq-ci-members-only>Market reports and volunteer hours are for Past Lives members.</p>" in body
+        assert "data-hq-ci-report-form" not in body and "data-hq-ci-staff" in body
+        assert client.post(_report(hub), _report_post()).status_code == 403
+        assert client.post(_log(hub), _hours_post()).status_code == 403
+        assert not MarketReport.objects.exists() and not VolunteerHours.objects.exists()
 
-        assert "data-hq-ci-members-only" in body
-        assert "data-hq-ci-report-form" not in body and "data-hq-ci-staff" not in body
+    def it_shows_a_previewing_admin_the_viewers_404_but_lets_them_act(hub, admin, admin_client):
+        for role in (ROLE_GUEST, ROLE_MEMBER):
+            _preview(admin_client, role)
+            assert admin_client.get(_page(hub)).status_code == 404, role
+
         assert admin_client.post(_report(hub), _report_post()).status_code == 302
         assert admin_client.post(_log(hub), _hours_post()).status_code == 302
         assert MarketReport.objects.get().member == admin
         assert VolunteerHours.objects.get().member == admin
-        _preview(admin_client, ROLE_MEMBER)
-        body = admin_client.get(_page(hub)).content.decode()
-        assert "data-hq-ci-report-form" in body and "data-hq-ci-staff" not in body
 
     def it_keeps_a_previewing_admins_errors_on_a_refused_plain_post(hub, admin_client):
         _preview(admin_client, ROLE_GUEST)
 
-        hours = admin_client.post(_log(hub), _hours_post(hours="1.3"), follow=True)
-        report = admin_client.post(_report(hub), _report_post(name=""), follow=True)
+        hours = admin_client.post(_log(hub), _hours_post(hours="1.3"))
+        report = admin_client.post(_report(hub), _report_post(name=""))
 
-        assert hours.redirect_chain == [(_page(hub), 302)]
-        assert HOURS_STEP_ERROR in _messages(hours)
-        assert report.redirect_chain == [(_page(hub), 302)]
-        assert "This field is required." in _messages(report)
+        assert hours.status_code == 302 and hours["Location"] == _page(hub)
+        assert report.status_code == 302 and report["Location"] == _page(hub)
+        _preview(admin_client, ROLE_ADMIN)
+        shown = _messages(admin_client.get(_page(hub)))
+        assert HOURS_STEP_ERROR in shown
+        assert "This field is required." in shown
         assert not VolunteerHours.objects.exists() and not MarketReport.objects.exists()
 
-    def it_renders_a_members_refused_plain_post_on_the_page_with_its_form(hub, artist_client):
+    def it_renders_a_refused_plain_post_on_the_page_with_its_form(hub, artist_client):
         response = artist_client.post(_log(hub), _hours_post(hours="1.3"))
 
         assert response.status_code == 200
         assert HOURS_STEP_ERROR in response.content.decode()
-
-    def it_sends_a_signed_out_visitor_through_login_on_a_members_card(card):
-        card.audience = HubCard.Audience.MEMBERS
-        card.save(update_fields=["audience"])
-
-        response = Client().get(_page(card.hub))
-
-        assert response.status_code == 302
-        assert "/accounts/login/" in response["Location"]
 
     def it_is_a_404_when_hidden_for_all_but_admins_and_refuses_their_posts(card, artist, artist_client, admin_client):
         entry = _hours(card.hub, artist)
@@ -280,29 +283,13 @@ def describe_who_may_check_in():
         card.save(update_fields=["is_hidden"])
 
         assert artist_client.get(_page(card.hub)).status_code == 404
+        assert artist_client.get(_reports_page(card.hub)).status_code == 404
         assert artist_client.post(_report(card.hub), _report_post()).status_code == 404
         assert artist_client.post(_log(card.hub), _hours_post()).status_code == 404
         assert artist_client.post(_delete(entry)).status_code == 404
         assert admin_client.get(_page(card.hub)).status_code == 200
         assert not MarketReport.objects.exists()
         assert VolunteerHours.objects.count() == 1
-
-    def it_refuses_an_active_member_on_an_admins_card_but_admits_a_named_one(card, artist_client, lee_client):
-        card.audience = HubCard.Audience.ADMINS
-        card.save(update_fields=["audience"])
-
-        assert artist_client.get(_page(card.hub)).status_code == 404
-        assert artist_client.post(_report(card.hub), _report_post()).status_code == 403
-        assert lee_client.post(_report(card.hub), _report_post()).status_code == 302
-
-    def it_answers_every_post_with_a_403_for_anyone_who_may_not_check_in(hub, artist, make_member):
-        entry = _hours(hub, artist)
-        for client in (Client(), signed_in(make_member(status=Member.Status.GUEST))):
-            assert client.post(_report(hub), _report_post()).status_code == 403
-            assert client.post(_log(hub), _hours_post()).status_code == 403
-            assert client.post(_delete(entry)).status_code == 403
-        assert not MarketReport.objects.exists()
-        assert list(VolunteerHours.objects.all()) == [entry]
 
     def it_takes_posts_only(hub, artist, artist_client):
         entry = _hours(hub, artist)
@@ -311,9 +298,7 @@ def describe_who_may_check_in():
             assert artist_client.get(url).status_code == 405, url
 
     def it_is_a_404_for_another_hubs_entry_and_a_hub_with_no_check_in_door(hub, artist, artist_client):
-        elsewhere = _hours(
-            HubCardFactory(kind=HubCard.Kind.MARKET_CHECKIN, audience=HubCard.Audience.PUBLIC).hub, artist
-        )
+        elsewhere = _hours(HubCardFactory(kind=HubCard.Kind.MARKET_CHECKIN).hub, artist)
 
         assert artist_client.post(reverse("hq:checkin_hours_delete", args=[hub.slug, elsewhere.pk])).status_code == 404
         assert VolunteerHours.objects.filter(pk=elsewhere.pk).exists()
@@ -465,7 +450,7 @@ def describe_the_market_report():
         assert "data-hq-ci-hero" in body and 'class="pl-field-errors"' in body
         assert not MarketReport.objects.exists()
 
-    def it_never_shows_one_members_report_to_another(hub, artist, artist_client, make_member):
+    def it_never_shows_one_members_report_to_another(hub, artist, artist_client, lee_client, make_member):
         other = make_member(preferred_name="Spec Other Maker", full_legal_name="Spec Other Maker")
         MarketReport.objects.create(
             hub=hub,
@@ -479,7 +464,7 @@ def describe_the_market_report():
         )
         MarketReport.objects.create(hub=hub, member=artist, name="Rae Mine")
 
-        bodies = [artist_client.get(_page(hub)).content.decode(), Client().get(_page(hub)).content.decode()]
+        bodies = [artist_client.get(_page(hub)).content.decode(), lee_client.get(_page(hub)).content.decode()]
 
         for body in bodies:
             for private in (
@@ -703,11 +688,13 @@ def describe_deleting_hours():
         assert _messages(response) == ["Deleted 2.5 h on Nov 3."]
         assert not VolunteerHours.objects.exists()
 
-    def it_refuses_another_members_entry(hub, artist_client, make_member):
+    def it_lets_an_officer_delete_another_members_entry(hub, artist_client, make_member):
         entry = _hours(hub, make_member(), "4")
 
-        assert artist_client.post(_delete(entry), {"back": "hours"}).status_code == 403
-        assert VolunteerHours.objects.filter(pk=entry.pk).exists()
+        response = artist_client.post(_delete(entry))
+
+        assert response.status_code == 302 and response["Location"] == _page(hub)
+        assert not VolunteerHours.objects.exists()
 
     def it_lets_an_organiser_delete_anyones_and_land_back_on_the_hours_page(hub, artist, lee_client, admin_client):
         first = _hours(hub, artist, "1")
@@ -718,13 +705,6 @@ def describe_deleting_hours():
         response = admin_client.post(_delete(second))
         assert response.status_code == 302 and response["Location"] == _page(hub)
         assert not VolunteerHours.objects.exists()
-
-    def it_sends_a_member_back_to_the_page_whatever_they_post(hub, artist, artist_client):
-        entry = _hours(hub, artist)
-
-        response = artist_client.post(_delete(entry), {"back": "hours"})
-
-        assert response["Location"] == _page(hub)
 
     def it_asks_first_with_a_label_that_names_the_entry(hub, artist, artist_client):
         entry = _hours(hub, artist, "2.5", date=date(2026, 10, 3))
@@ -784,19 +764,19 @@ def describe_the_hero_countdown():
         assert (hub.countdown_parts(now).big, hub.countdown_parts(now).small) == ("Thank you", "")
         assert services.checkin_countdown(hub, now).big == CHECKIN_DONE
 
-    def it_says_its_market_day_on_the_page_on_the_day(hub):
+    def it_says_its_market_day_on_the_page_on_the_day(hub, lee_client):
         _event_in(hub, 0)
 
-        body = Client().get(_page(hub)).content.decode().replace("&#x27;", "'")
+        body = lee_client.get(_page(hub)).content.decode().replace("&#x27;", "'")
 
         countdown = body.split('data-hq-ci-stat="countdown"')[1].split("</div>")[0]
         assert ">Today</strong>" in countdown
         assert ">It's market day!</span>" in countdown
 
-    def it_says_done_and_thank_you_once_the_market_is_over(hub):
+    def it_says_done_and_thank_you_once_the_market_is_over(hub, lee_client):
         _event_in(hub, -2)
 
-        body = Client().get(_page(hub)).content.decode()
+        body = lee_client.get(_page(hub)).content.decode()
 
         countdown = body.split('data-hq-ci-stat="countdown"')[1].split("</div>")[0]
         assert ">Done</strong>" in countdown and ">Thank you!</span>" in countdown
@@ -898,8 +878,8 @@ def describe_the_thank_you_board():
         assert 'max="96.00" value="3.84"' in second
         assert "data-hq-ci-leader-hours>0.25 h</span>" in second
 
-    def it_says_so_when_nobody_has_logged_hours(hub):
-        body = Client().get(_page(hub)).content.decode()
+    def it_says_so_when_nobody_has_logged_hours(hub, lee_client):
+        body = lee_client.get(_page(hub)).content.decode()
 
         assert "data-hq-ci-board-empty>No hours yet. Be the first!</p>" in body
         assert services.thank_you_board(hub).top == "1"
@@ -985,37 +965,35 @@ def describe_the_organiser_pages():
         assert 'name="back" value="hours"' in body
         assert f'href="{_hours_csv(hub)}" class="pl-hq-ci__csv" hx-boost="false" data-pl-download' in body
 
-    def it_links_both_pages_from_the_check_in_for_organisers_only(hub, lee_client, artist_client, admin, admin_client):
+    def it_links_both_pages_from_the_check_in_for_officers_and_admins(hub, lee_client, admin_client):
         body = lee_client.get(_page(hub)).content.decode()
 
         assert f'href="{_reports_page(hub)}" class="pl-hq-ci__staff-link"' in body
         assert f'href="{_hours_page(hub)}" class="pl-hq-ci__staff-link"' in body
         assert "data-hq-ci-staff" in admin_client.get(_page(hub)).content.decode()
-        assert "data-hq-ci-staff" not in artist_client.get(_page(hub)).content.decode()
 
     def it_says_so_when_there_is_nothing_yet(hub, lee_client):
         assert "data-hq-ci-reports-empty" in lee_client.get(_reports_page(hub)).content.decode()
         assert "data-hq-ci-hours-empty" in lee_client.get(_hours_page(hub)).content.decode()
 
-    def it_refuses_both_pages_and_both_csvs_to_anyone_but_an_organiser(hub, filed, artist_client, make_member):
-        guest = signed_in(make_member(status=Member.Status.GUEST))
-        for client in (artist_client, guest, Client()):
-            for url in (_reports_page(hub), _hours_page(hub), _reports_csv(hub), _hours_csv(hub)):
-                response = client.get(url)
-                body = response.content.decode()
-                assert response.status_code == 403, url
-                for private in ("Spec Riverbend", "Spec Jewelry Guild", "Spec busy night", "spec cmd"):
-                    assert private not in body, (url, private)
+    @pytest.mark.parametrize("status", [Member.Status.ACTIVE, Member.Status.INVITED])
+    def it_is_a_404_on_both_pages_and_both_csvs_for_anyone_who_runs_no_guild(hub, filed, make_member, status):
+        client = signed_in(make_member(status=status))
+        for url in (_reports_page(hub), _hours_page(hub), _reports_csv(hub), _hours_csv(hub)):
+            response = client.get(url)
+            body = response.content.decode()
+            assert response.status_code == 404, url
+            # The guild's name is public (the sidebar lists it); the reports' own words are not.
+            for private in ("Spec Riverbend", "Spec busy night", "spec cmd"):
+                assert private not in body, (url, private)
 
-    def it_shows_a_previewing_admin_the_403_but_keeps_the_csvs(hub, admin_client):
+    def it_shows_a_previewing_admin_the_members_404_on_both_pages_and_both_csvs(hub, admin_client):
         _preview(admin_client, ROLE_MEMBER)
 
-        assert admin_client.get(_reports_page(hub)).status_code == 403
-        assert admin_client.get(_hours_page(hub)).status_code == 403
-        assert admin_client.get(_reports_csv(hub)).status_code == 200
-        assert admin_client.get(_hours_csv(hub)).status_code == 200
+        for url in (_reports_page(hub), _hours_page(hub), _reports_csv(hub), _hours_csv(hub)):
+            assert admin_client.get(url).status_code == 404, url
 
-    def it_is_a_404_when_the_card_is_hidden_from_a_named_member(card, lee_client):
+    def it_is_a_404_when_the_card_is_hidden_from_an_officer(card, lee_client):
         card.is_hidden = True
         card.save(update_fields=["is_hidden"])
 
@@ -1053,24 +1031,25 @@ def describe_the_organiser_pages():
 
 
 def describe_the_volunteer_link():
-    def it_shows_when_the_volunteer_card_is_open_to_the_viewer(hub, artist_client):
-        volunteers = HubCardFactory(hub=hub, kind=HubCard.Kind.VOLUNTEERS, audience=HubCard.Audience.PUBLIC)
+    def it_shows_while_the_volunteer_card_is_not_hidden_from_the_viewer(hub, artist_client, admin_client):
+        volunteers = HubCardFactory(hub=hub, kind=HubCard.Kind.VOLUNTEERS)
 
-        body = Client().get(_page(hub)).content.decode()
+        body = artist_client.get(_page(hub)).content.decode()
 
         assert f'href="{volunteers.url}" class="pl-hq-ci__btn pl-hq-ci__btn--ghost" data-hq-ci-volunteer-link' in body
-        volunteers.audience = HubCard.Audience.ADMINS
-        volunteers.save(update_fields=["audience"])
+        volunteers.is_hidden = True
+        volunteers.save(update_fields=["is_hidden"])
         assert "data-hq-ci-volunteer" not in artist_client.get(_page(hub)).content.decode()
+        assert "data-hq-ci-volunteer-link" in admin_client.get(_page(hub)).content.decode()
 
-    def it_is_absent_without_a_volunteer_card(hub):
-        assert "data-hq-ci-volunteer" not in Client().get(_page(hub)).content.decode()
+    def it_is_absent_without_a_volunteer_card(hub, artist_client):
+        assert "data-hq-ci-volunteer" not in artist_client.get(_page(hub)).content.decode()
 
 
 def describe_the_roster_hours():
     @pytest.fixture
     def roster_card(hub):
-        return HubCardFactory(hub=hub, kind=HubCard.Kind.VOLUNTEERS, audience=HubCard.Audience.PUBLIC)
+        return HubCardFactory(hub=hub, kind=HubCard.Kind.VOLUNTEERS)
 
     def it_puts_the_members_hours_beside_the_sign_up_with_their_primary_email(hub, roster_card, artist, make_member):
         shift = VolunteerShiftFactory(hub=hub, role="Setup crew")
@@ -1188,32 +1167,26 @@ def describe_the_page_queries():
 
 
 def describe_adopting_the_placeholder():
-    def it_turns_the_market_check_in_placeholder_into_the_live_door_in_place(open_hub, member):
+    def it_turns_the_market_check_in_placeholder_into_the_live_door_in_place(open_hub):
         placeholder = HubCardFactory(
             hub=open_hub,
             kind=HubCard.Kind.PLACEHOLDER,
             title="Market Check-in",
             bullets="Artists and vendors checking in on the day\nTable numbers and who has arrived\nVolunteers check in here too",
             button_text="Check in",
-            audience=HubCard.Audience.MEMBERS,
-            team=[member],
+            is_hidden=True,
         )
 
         result = open_hub.seed_default_cards()
 
         card = HubCard.objects.get(pk=placeholder.pk)
         assert "Market Check-in" in result.adopted
-        assert (card.kind, card.audience, card.button_text) == (
-            HubCard.Kind.MARKET_CHECKIN,
-            HubCard.Audience.MEMBERS,
-            "Enter check-in",
-        )
+        assert (card.kind, card.is_hidden, card.button_text) == (HubCard.Kind.MARKET_CHECKIN, True, "Enter check-in")
         assert card.bullet_lines == [
             "Artists: your market report",
             "Volunteers: log your prep hours",
             "Volunteer thank-you board",
         ]
-        assert list(card.team.all()) == [member]
         assert card.url == _page(open_hub)
 
 
