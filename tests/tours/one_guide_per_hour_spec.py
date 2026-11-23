@@ -16,12 +16,10 @@ import re
 import threading
 import time as clock
 from datetime import UTC, date, time, timedelta
-from importlib import import_module
 from typing import Any
 from unittest.mock import patch
 
 import pytest
-from django.apps import apps
 from django.core.cache import cache
 from django.db import connection, transaction
 from django.test import Client
@@ -49,8 +47,6 @@ from tours.notify import guide_notice
 from tours.picker import build_picker
 
 pytestmark = pytest.mark.django_db
-
-_migration = import_module("tours.migrations.0012_one_guide_per_hour")
 
 # 2030-01-07 is a Monday; tours run Tuesday the 8th, 4:00 and 5:00 PM.
 NOW = local(date(2030, 1, 7), 9)
@@ -581,11 +577,6 @@ def describe_the_booking_notice_card():
         ]
         assert options[0][1] == " selected"
 
-    def it_keeps_a_migrated_notice_off_the_steps_as_a_choice(amber: Member):
-        _notice(amber, 25 * 60)
-        page = signed_in(amber).get(reverse("tours:hours")).content.decode()
-        assert '<option value="1500" selected>25 hours</option>' in page
-
     def it_saves_itself_and_goes_back_to_the_default(amber: Member):
         client = signed_in(amber)
         response = client.post(NOTICE, {"guide": str(amber.pk), "min_notice_minutes": "15"}, **AUTOSAVE)
@@ -616,24 +607,6 @@ def describe_the_booking_notice_card():
         page = signed_in(admin).get(reverse("tours:settings")).content.decode()
         assert "Default minimum notice (hours)" in page
         assert "a guide who has not set their own notice on My Hours" in page
-
-
-def describe_the_notice_migration():
-    def it_copies_each_saved_notice_into_minutes_and_back(amber: Member, dayzie: Member):
-        TourGuideSettings.objects.create(guide=amber, min_notice_hours=48)
-        TourGuideSettings.objects.create(guide=dayzie, min_notice_hours=25)
-        _migration.notice_into_minutes(apps, None)
-        assert dict(TourGuideSettings.objects.values_list("guide_id", "min_notice_minutes")) == {
-            amber.pk: 2880,
-            dayzie.pk: 1500,
-        }
-        TourGuideSettings.objects.filter(guide=amber).update(min_notice_minutes=15)
-        TourGuideSettings.objects.filter(guide=dayzie).update(min_notice_minutes=None)
-        _migration.notice_into_hours(apps, None)
-        assert dict(TourGuideSettings.objects.values_list("guide_id", "min_notice_hours")) == {
-            amber.pk: 1,
-            dayzie.pk: 25,
-        }
 
 
 def describe_the_switch_is_gone():

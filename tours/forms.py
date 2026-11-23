@@ -632,7 +632,6 @@ class TourNoticeForm(forms.ModelForm):
 
     A select of :data:`NOTICE_STEPS`, from No notice to two weeks, with House default first (blank:
     Tour Settings' minimum notice, named with its value). The house value is a default, never a floor.
-    A saved value off the steps (one migrated from hours) is kept as a choice so the page shows it.
     """
 
     min_notice_minutes = forms.TypedChoiceField(coerce=int, empty_value=None, required=False, label="Booking notice")
@@ -644,14 +643,13 @@ class TourNoticeForm(forms.ModelForm):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         house = FacilityTourSettings.load().min_notice_hours * 60
-        steps = list(NOTICE_STEPS)
-        saved = self.instance.min_notice_minutes
-        if saved is not None and saved not in steps:
-            steps = sorted([*steps, saved])
         field = cast(forms.TypedChoiceField, self.fields["min_notice_minutes"])
         field.choices = [
             ("", f"House default ({notice_label(house)})"),
-            *((str(minutes), "No notice, book me now" if minutes == 0 else notice_label(minutes)) for minutes in steps),
+            *(
+                (str(minutes), "No notice, book me now" if minutes == 0 else notice_label(minutes))
+                for minutes in NOTICE_STEPS
+            ),
         ]
         field.widget.attrs.update({"class": "pl-tours-input--choice", "data-tour-notice": ""})
         field.help_text = (
