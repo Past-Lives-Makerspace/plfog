@@ -421,7 +421,7 @@ def describe_kiosk_booking():
         form = kiosk_client.get(BOOK, {"tour": anyone}).content.decode()
         assert "data-tour-guide" in form and "Olive (4 seats left)" in form
         data = {"tour": _key_for(other, local(day, 16)), "name": "Kim Kiosk", "email": "kim@example.com"}
-        assert kiosk_client.post(BOOK, {**data, "phone": "", "party_size": "2"})["Location"] == BOOKED
+        assert kiosk_client.post(BOOK, {**data, "phone": "503 555 0142", "party_size": "2"})["Location"] == BOOKED
         booking = TourBooking.objects.get()
         assert (booking.guide, booking.status) == (other, TourBooking.Status.BOOKED)
 
@@ -440,10 +440,16 @@ def describe_kiosk_booking():
         tour_key = _key_for(guide, local(day, 16))
         form = kiosk_client.get(BOOK, {"tour": tour_key}).content.decode()
         assert "data-tour-form" in form and form.count('autocomplete="off"') >= 4
-        assert 'name="create_account"' in form and "checked" in form
+        assert 'name="create_account"' not in form
         response = kiosk_client.post(
             BOOK,
-            {"tour": tour_key, "name": "Kim Kiosk", "email": "kim@example.com", "phone": "", "party_size": "2"},
+            {
+                "tour": tour_key,
+                "name": "Kim Kiosk",
+                "email": "kim@example.com",
+                "phone": "503 555 0142",
+                "party_size": "2",
+            },
         )
         assert response["Location"] == BOOKED
         booking = TourBooking.objects.get()
@@ -457,7 +463,13 @@ def describe_kiosk_booking():
         kiosk_client: Client, guide: Member, day: date, monkeypatch: pytest.MonkeyPatch
     ):
         TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
-        data = {"tour": _key_for(guide, local(day, 16)), "name": "Kim K", "email": "k@example.com", "party_size": "1"}
+        data = {
+            "tour": _key_for(guide, local(day, 16)),
+            "name": "Kim K",
+            "email": "k@example.com",
+            "phone": "503 555 0142",
+            "party_size": "1",
+        }
         # The website's allowance is spent (every phone on the makerspace Wi-Fi): the kiosk still books.
         monkeypatch.setattr("tours.public_views.BOOKING_HOURLY_LIMIT", 0)
         assert kiosk_client.post(BOOK, data)["Location"] == BOOKED
@@ -479,16 +491,21 @@ def describe_kiosk_booking():
                 "tour": _key_for(guide, local(day, 16)),
                 "name": "Kim Kiosk",
                 "email": "kim@example.com",
-                "phone": "",
+                "phone": "503 555 0142",
                 "party_size": "1",
-                "create_account": "",
             },
         )
         assert TourBooking.objects.get().user is None
 
     def it_says_already_booked_on_a_second_press(kiosk_client: Client, guide: Member, day: date):
         TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
-        data = {"tour": _key_for(guide, local(day, 16)), "name": "Kim K", "email": "k@example.com", "party_size": "1"}
+        data = {
+            "tour": _key_for(guide, local(day, 16)),
+            "name": "Kim K",
+            "email": "k@example.com",
+            "phone": "503 555 0142",
+            "party_size": "1",
+        }
         kiosk_client.post(BOOK, data)
         kiosk_client.get(BOOKED)
         assert kiosk_client.post(BOOK, data)["Location"] == BOOKED
@@ -497,7 +514,13 @@ def describe_kiosk_booking():
 
     def it_shows_the_times_again_with_why_when_the_time_is_gone(kiosk_client: Client, guide: Member, day: date):
         TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
-        data = {"tour": f"{guide.pk}-20000101T0000Z", "name": "Kim K", "email": "k@example.com", "party_size": "1"}
+        data = {
+            "tour": f"{guide.pk}-20000101T0000Z",
+            "name": "Kim K",
+            "email": "k@example.com",
+            "phone": "503 555 0142",
+            "party_size": "1",
+        }
         content = kiosk_client.post(BOOK, data).content.decode()
         assert "data-tour-error" in content and 'data-kiosk-screen="book"' in content
 
@@ -529,14 +552,20 @@ def describe_kiosk_booking():
 
     def it_goes_home_when_the_booked_tour_is_gone(kiosk_client: Client, guide: Member, day: date):
         TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
-        data = {"tour": _key_for(guide, local(day, 16)), "name": "Kim K", "email": "k@example.com", "party_size": "1"}
+        data = {
+            "tour": _key_for(guide, local(day, 16)),
+            "name": "Kim K",
+            "email": "k@example.com",
+            "phone": "503 555 0142",
+            "party_size": "1",
+        }
         kiosk_client.post(BOOK, data)
         TourBooking.objects.all().delete()
         assert kiosk_client.get(BOOKED)["Location"] == HOME
 
     def it_keeps_the_websites_autocomplete_off_the_kiosk():
-        website = TourBookingForm(max_party=2, offer_account=True)
-        at_kiosk = TourBookingForm(max_party=2, offer_account=True, kiosk=True)
+        website = TourBookingForm(max_party=2)
+        at_kiosk = TourBookingForm(max_party=2, kiosk=True)
         assert website.fields["email"].widget.attrs["autocomplete"] == "email"
         assert {at_kiosk.fields[name].widget.attrs["autocomplete"] for name in ("name", "email", "phone")} == {"off"}
 
@@ -668,7 +697,13 @@ def describe_kiosk_guide_names():
 
     def it_names_the_guide_on_you_are_booked(kiosk_client: Client, guide: Member, day: date):
         TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
-        data = {"tour": _key_for(guide, local(day, 16)), "name": "Kim K", "email": "k@example.com", "party_size": "1"}
+        data = {
+            "tour": _key_for(guide, local(day, 16)),
+            "name": "Kim K",
+            "email": "k@example.com",
+            "phone": "503 555 0142",
+            "party_size": "1",
+        }
         kiosk_client.post(BOOK, data)
         booked = kiosk_client.get(BOOKED).content.decode()
         assert '<p class="pl-kiosk__lead" data-kiosk-booked-guide>Your guide is Gina.</p>' in booked
@@ -677,7 +712,13 @@ def describe_kiosk_guide_names():
         kiosk_client: Client, guide: Member, day: date
     ):
         TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
-        data = {"tour": _key_for(guide, local(day, 16)), "name": "Kim K", "email": "k@example.com", "party_size": "1"}
+        data = {
+            "tour": _key_for(guide, local(day, 16)),
+            "name": "Kim K",
+            "email": "k@example.com",
+            "phone": "503 555 0142",
+            "party_size": "1",
+        }
         kiosk_client.post(BOOK, data)
         TourBooking.objects.update(guide=None)
         booked = kiosk_client.get(BOOKED).content.decode()
@@ -752,7 +793,13 @@ def describe_kiosk_back():
 
     def it_goes_home_from_the_times_shown_again_after_a_gone_time(kiosk_client: Client, guide: Member, day: date):
         TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
-        data = {"tour": f"{guide.pk}-20000101T0000Z", "name": "Kim K", "email": "k@example.com", "party_size": "1"}
+        data = {
+            "tour": f"{guide.pk}-20000101T0000Z",
+            "name": "Kim K",
+            "email": "k@example.com",
+            "phone": "503 555 0142",
+            "party_size": "1",
+        }
         assert _back(kiosk_client.post(BOOK, data).content.decode()) == HOME
 
     def it_goes_to_check_in_from_is_this_you_the_pick_list_and_no_match(kiosk_client: Client, guide: Member):
@@ -777,7 +824,13 @@ def describe_kiosk_back():
         kiosk_client.post(CHECK_IN, {"booking": str(booking.pk)})
         assert _back(kiosk_client.get(RESULT).content.decode()) is None
         TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
-        data = {"tour": _key_for(guide, local(day, 16)), "name": "Kim K", "email": "k@example.com", "party_size": "1"}
+        data = {
+            "tour": _key_for(guide, local(day, 16)),
+            "name": "Kim K",
+            "email": "k@example.com",
+            "phone": "503 555 0142",
+            "party_size": "1",
+        }
         kiosk_client.post(BOOK, data)
         assert _back(kiosk_client.get(BOOKED).content.decode()) is None
 

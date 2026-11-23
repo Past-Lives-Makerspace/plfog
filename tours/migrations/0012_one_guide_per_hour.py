@@ -36,7 +36,7 @@ def everyone_confirms_automatically(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("tours", "0010_tourbooking_proposal"),
+        ("tours", "0011_tourbooking_guest_answers"),
         ("django_tasks_database", "0021_conditional_partial_index_ordering"),
     ]
 

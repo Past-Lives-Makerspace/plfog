@@ -18,3 +18,12 @@ class ToursConfig(AppConfig):
         pre_delete.connect(
             calendar_sync.forget_deleted_booking, sender=TourBooking, dispatch_uid="tours.calendar_sync.deleted"
         )
+        # Tours find their visitor's account by verified email (Morlock, 2026-11-22), in place of making
+        # one at booking: at sign in, signup and an email's confirmation.
+        from allauth.account.signals import email_confirmed, user_logged_in, user_signed_up
+
+        from tours import claims
+
+        user_logged_in.connect(claims.on_sign_in, dispatch_uid="tours.claims.sign_in")
+        user_signed_up.connect(claims.on_sign_in, dispatch_uid="tours.claims.sign_up")
+        email_confirmed.connect(claims.on_email_confirmed, dispatch_uid="tours.claims.email_confirmed")

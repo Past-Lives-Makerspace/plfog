@@ -32,7 +32,7 @@ from tours.tasks import book_waiting_tour_requests
 
 pytestmark = pytest.mark.django_db
 
-_migration = import_module("tours.migrations.0011_one_guide_per_hour")
+_migration = import_module("tours.migrations.0012_one_guide_per_hour")
 
 # 2030-01-07 is a Monday; tours run Tuesday the 8th, 4:00 and 5:00 PM.
 NOW = local(date(2030, 1, 7), 9)

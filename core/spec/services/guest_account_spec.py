@@ -322,25 +322,24 @@ def describe_the_member_a_guest_booking_makes():
         assert not User.objects.filter(email="inviteonly@example.com").exists()
 
 
-def describe_guest_account_outside_a_registration():
-    """The facility tour toggle's path (#948): find or make the account for an address."""
+def describe_finding_the_account_for_an_address():
+    """The tour booking's lookup (#948): the account an address already belongs to. Tours make no
+    account any more (Morlock, 2026-11-22); one is claimed at sign in (tours.booking.claim_tours)."""
 
     @pytest.mark.django_db
     def it_finds_nobody_for_a_blank_address():
-        from core.services.guest_account import ensure_guest_account, find_user_for_email
+        from core.services.guest_account import find_user_for_email
 
         assert find_user_for_email("   ") is None
-        assert ensure_guest_account("  ", first_name="A", last_name="B") is None
 
     @pytest.mark.django_db
     def it_links_an_existing_account_and_keeps_its_status():
         from django.contrib.auth.models import User
 
-        from core.services.guest_account import ensure_guest_account, find_user_for_email
+        from core.services.guest_account import find_user_for_email
         from membership.models import Member
 
         user = User.objects.create_user("known", email="known@example.com")
         status = Member.objects.get(user=user).status
         assert find_user_for_email(" Known@example.com ") == user
-        assert ensure_guest_account("known@example.com", first_name="K", last_name="N") == user
         assert Member.objects.get(user=user).status == status

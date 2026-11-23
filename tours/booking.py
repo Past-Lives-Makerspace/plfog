@@ -24,11 +24,12 @@ from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from core.models import UserProfile
 from core.tasks import enqueue_at_on_commit
-from core.services.guest_account import ensure_guest_account, find_user_for_email
+from core.services.guest_account import find_user_for_email
 from membership.models import AdminCapability, Member
 from membership.permission_setup import SetupState
 from tours import signals
@@ -103,6 +104,10 @@ STAFF_LOCKED_MESSAGES: dict[str, str] = {
 }
 
 
+#: The booking questions a :class:`Visitor` carries onto its booking (feedback request #32).
+ANSWER_FIELDS = ("pronouns", "found_us_through", "referred_by", "guest_notes")
+
+
 @dataclass(frozen=True)
 class Visitor:
     """Who is booking, as the form took it."""
@@ -111,12 +116,39 @@ class Visitor:
     email: str
     phone: str
     party_size: int
+    # The optional booking questions (feedback request #32), blank when skipped.
+    pronouns: str = ""
+    found_us_through: str = ""
+    referred_by: str = ""
+    guest_notes: str = ""
+    wants_studio: bool = False
+    studio_description: str = ""
+    wants_newsletter: bool = False
+
+    @property
+    def answers(self) -> dict[str, Any]:
+        """The booking questions' answers, trimmed, and the two boxes, as the booking's fields."""
+        answers: dict[str, Any] = {name: getattr(self, name).strip() for name in ANSWER_FIELDS}
+        boxes = {"wants_studio": self.wants_studio, "wants_newsletter": self.wants_newsletter}
+        return {**answers, **boxes, "studio_description": self.studio_description.strip()}
 
     @property
     def first_and_last(self) -> tuple[str, str]:
         """The name split at its first space, for a new account's first and last name."""
         first, _, last = self.name.strip().partition(" ")
         return first, last.strip()
+
+
+def _join_newsletter(booking: TourBooking) -> None:
+    """Subscribe the visitor in Mailchimp once the booking commits, when they ticked the box (#7).
+
+    One booking per booking form, so a No preference request subscribes through its first row.
+    """
+    if booking.wants_newsletter:
+        from core.tasks import enqueue_on_commit
+        from tours.tasks import subscribe_tour_visitor
+
+        enqueue_on_commit(subscribe_tour_visitor, booking.pk)
 
 
 def _after_commit(booking: TourBooking, change: str, **extra: Any) -> None:
@@ -144,7 +176,6 @@ def book_tour(
     starts_at: datetime,
     visitor: Visitor,
     user: User | None = None,
-    create_account: bool = False,
     source: str = TourBooking.Source.WEBSITE,
     now: datetime | None = None,
 ) -> TourBooking:
@@ -156,12 +187,10 @@ def book_tour(
     books at once, since the visitor is standing at the front desk.
 
     The booking links to ``user`` when the visitor is signed in, else to the account the email
-    already belongs to (the account itself is left as it is). With neither and
-    ``create_account``, a GUEST account is made through
-    :func:`core.services.guest_account.ensure_guest_account` after the booking stands; without
-    it, nothing is created. Nor is anything created when the email is a member's who has no
-    account: some members are kept without one on purpose (Member 529, Member 733), so the
-    booking stands with no account.
+    already belongs to (the account itself is left as it is). With neither it stands with no
+    account, and none is made (Morlock, 2026-11-22: the form's "Create a free Past Lives account"
+    switch is gone): whoever later signs in with that email, verified, claims it
+    (:func:`claim_tours`).
 
     The same visitor pressing Book twice (:func:`_is_repeat`) books once: the second press raises
     :class:`TourAlreadyBookedError` and sends nothing. It never hands back the first booking, whose
@@ -191,16 +220,17 @@ def book_tour(
             visitor_name=visitor.name.strip(),
             visitor_email=visitor.email.strip(),
             visitor_phone=visitor.phone.strip(),
+            **visitor.answers,
             user=account,
             source=source,
             status=TourBooking.Status.PENDING if request else TourBooking.Status.BOOKED,
         )
         _after_commit(booking, signals.REQUESTED if request else signals.BOOKED)
+        _join_newsletter(booking)
         if request:
             from tours.tasks import lapse_tour_request
 
             enqueue_at_on_commit(lapse_tour_request, booking.confirm_by, booking.pk)
-    _link_new_account(visitor, [booking], account=account, create_account=create_account)
     return booking
 
 
@@ -209,24 +239,27 @@ def _account_for(user: User | None, visitor: Visitor) -> User | None:
     return user if user is not None and user.is_authenticated else find_user_for_email(visitor.email)
 
 
-def _link_new_account(
-    visitor: Visitor, bookings: list[TourBooking], *, account: User | None, create_account: bool
-) -> None:
-    """Make a GUEST account for a visitor with none when they asked for one, and link ``bookings`` to it.
+def claim_tours(user: User) -> int:
+    """Link the tours booked under any of ``user``'s verified emails, and no account yet, to ``user``.
 
-    Never for an email that is a member's with no account: some are kept userless on purpose.
+    Morlock, 2026-11-22: in place of asking a visitor to make an account at booking, a tour finds
+    its visitor whenever they later sign in or sign up, however long after (tours.apps connects it
+    to sign in, signup and an email's confirmation). Only a verified email counts, since signing in
+    by emailed code proves the inbox is theirs; a typed one would let anyone claim another's tours.
+    A tour already linked to an account is never moved. Returns how many it linked.
     """
-    if account is not None or not create_account:
-        return
-    if Member.objects.unlinked_with_email(visitor.email.strip()).exists():
-        return
-    first, last = visitor.first_and_last
-    made = ensure_guest_account(visitor.email, first_name=first, last_name=last)
-    if made is None:
-        return
-    TourBooking.objects.filter(pk__in=[booking.pk for booking in bookings]).update(user=made)
-    for booking in bookings:
-        booking.user = made
+    from allauth.account.models import EmailAddress
+
+    emails = [
+        email.strip().lower()
+        for email in EmailAddress.objects.filter(user=user, verified=True).values_list("email", flat=True)
+    ]
+    if not emails:
+        return 0
+    matches = Q()
+    for email in emails:
+        matches |= Q(visitor_email__iexact=email)
+    return TourBooking.objects.filter(matches, user__isnull=True).update(user=user)
 
 
 def book_any_guide(
@@ -234,7 +267,6 @@ def book_any_guide(
     starts_at: datetime,
     visitor: Visitor,
     user: User | None = None,
-    create_account: bool = False,
     source: str = TourBooking.Source.WEBSITE,
     now: datetime | None = None,
 ) -> TourBooking:
@@ -276,7 +308,6 @@ def book_any_guide(
                 starts_at=pick.starts_at,
                 visitor=visitor,
                 user=user,
-                create_account=create_account,
                 source=source,
                 now=moment,
             )
@@ -285,14 +316,10 @@ def book_any_guide(
             # after the last one, the guides who confirm first.
             if pick is picks[-1] and not (at_once and confirm_first):
                 raise
-    return _request_every_guide(
-        confirm_first if at_once else with_room, visitor, user=user, create_account=create_account, now=moment
-    )
+    return _request_every_guide(confirm_first if at_once else with_room, visitor, user=user, now=moment)
 
 
-def _request_every_guide(
-    tours: list[OpenTour], visitor: Visitor, *, user: User | None, create_account: bool, now: datetime
-) -> TourBooking:
+def _request_every_guide(tours: list[OpenTour], visitor: Visitor, *, user: User | None, now: datetime) -> TourBooking:
     """One pending row per guide still with room, sharing a ``request_group`` (#1255).
 
     Each guide's hours are locked (in pk order, so two such requests never deadlock) and their seats
@@ -317,6 +344,7 @@ def _request_every_guide(
                     visitor_name=visitor.name.strip(),
                     visitor_email=visitor.email.strip(),
                     visitor_phone=visitor.phone.strip(),
+                    **visitor.answers,
                     user=account,
                     status=TourBooking.Status.PENDING,
                     request_group=group,
@@ -330,11 +358,11 @@ def _request_every_guide(
         from tours.notify import guide_first_name
         from tours.tasks import lapse_tour_request
 
+        _join_newsletter(rows[0])
         for row in rows:
             others = tuple(guide_first_name(other.guide) for other in rows if other.pk != row.pk)
             _after_commit(row, signals.REQUESTED, tell_visitor=row is rows[0], shared_with=others)
             enqueue_at_on_commit(lapse_tour_request, row.confirm_by, row.pk)
-    _link_new_account(visitor, rows, account=account, create_account=create_account)
     return rows[0]
 
 
@@ -624,7 +652,7 @@ def confirm_tour_request(booking: TourBooking, *, actor: User, now: datetime | N
 def book_waiting_requests(*, now: datetime | None = None) -> list[TourBooking]:
     """Book every request still waiting for its guide (#1309): Confirm First is gone, so none may be left hanging.
 
-    Queued once by migration 0011 when it moves every guide to Confirm Automatically. Each request
+    Queued once by migration 0012 when it moves every guide to Confirm Automatically. Each request
     is confirmed as its guide would have (:func:`confirm_tour_request`): the visitor gets the
     confirmation with the calendar invite, the guide's Google Calendar the event. A No preference
     request (#1255) books its first row and tells the other guides it was taken. A request whose

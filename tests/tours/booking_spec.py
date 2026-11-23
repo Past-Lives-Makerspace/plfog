@@ -9,12 +9,11 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from allauth.account.models import EmailAddress
 from django.contrib.auth.models import User
 from django.core import mail
 from django.db import connection
 
-from core.models import Notification, SiteConfiguration
+from core.models import Notification
 from membership.models import Member
 from tests.membership.factories import MemberFactory
 from tests.tours.conftest import make_guide, signed_in
@@ -141,60 +140,25 @@ def describe_book_tour():
     def it_links_the_account_an_email_already_belongs_to_and_creates_nothing(guide: Member, hours: Any):
         user = User.objects.create_user("known", email="known@example.com")
         users = User.objects.count()
-        booking = book_tour(
-            guide=guide, starts_at=FOUR, visitor=_visitor(email="Known@Example.com"), create_account=True, now=NOW
-        )
+        booking = book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(email="Known@Example.com"), now=NOW)
         assert booking.user == user
         assert User.objects.count() == users
 
-    def it_creates_nothing_with_the_account_toggle_off(guide: Member, hours: Any):
+    def it_makes_no_account_for_a_new_email(guide: Member, hours: Any):
+        # Morlock, 2026-11-22: no account at booking; the visitor's sign in claims it (claim_tours).
         users = User.objects.count()
         booking = book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(email="new@example.com"), now=NOW)
         assert booking.user is None
         assert User.objects.count() == users
 
-    def it_makes_a_guest_account_with_the_toggle_on(guide: Member, hours: Any):
-        booking = book_tour(
-            guide=guide,
-            starts_at=FOUR,
-            visitor=_visitor(email="fresh@example.com", name="Sam Q Rivera"),
-            create_account=True,
-            now=NOW,
-        )
-        user = User.objects.get(email="fresh@example.com")
-        assert booking.user == user
-        assert TourBooking.objects.get(pk=booking.pk).user == user
-        assert (user.first_name, user.last_name) == ("Sam", "Q Rivera")
-        assert Member.objects.get(user=user).status == Member.Status.GUEST
-        assert EmailAddress.objects.filter(user=user, email="fresh@example.com").exists()
-
-    def it_makes_a_guest_account_under_invite_only_too(guide: Member, hours: Any):
-        config = SiteConfiguration.load()
-        config.registration_mode = SiteConfiguration.RegistrationMode.INVITE_ONLY
-        config.save()
-        booking = book_tour(
-            guide=guide, starts_at=FOUR, visitor=_visitor(email="fresh@example.com"), create_account=True, now=NOW
-        )
-        assert booking.user is not None
-        assert Member.objects.get(user=booking.user).status == Member.Status.GUEST
-
     def it_makes_no_account_for_a_member_kept_without_one(guide: Member, hours: Any):
         userless = MemberFactory(full_legal_name="Mira Userless", _pre_signup_email="mira@example.com")
         users = User.objects.count()
-        booking = book_tour(
-            guide=guide, starts_at=FOUR, visitor=_visitor(email="Mira@example.com"), create_account=True, now=NOW
-        )
+        booking = book_tour(guide=guide, starts_at=FOUR, visitor=_visitor(email="Mira@example.com"), now=NOW)
         assert booking.user is None
         assert User.objects.count() == users
         userless.refresh_from_db()
         assert userless.user is None
-
-    def it_keeps_the_booking_when_the_account_cannot_be_made(guide: Member, hours: Any):
-        with patch("core.services.guest_account._find_or_create_user", side_effect=RuntimeError("boom")):
-            booking = book_tour(
-                guide=guide, starts_at=FOUR, visitor=_visitor(email="fresh@example.com"), create_account=True, now=NOW
-            )
-        assert TourBooking.objects.get(pk=booking.pk).user is None
 
 
 def describe_what_booking_sends():

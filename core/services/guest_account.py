@@ -154,30 +154,6 @@ def find_user_for_email(email: str) -> User | None:
     return _find_user_for_email(email.strip()) if email.strip() else None
 
 
-def ensure_guest_account(email: str, *, first_name: str, last_name: str) -> User | None:
-    """Find or make the account for a visitor who asked for one outside a class registration.
-
-    The facility tour booking page's "Create a free Past Lives account" toggle (#948) takes the
-    same path a registration's opt-in does: an address that already has an account links to it
-    and keeps its status; otherwise a passwordless user is created and its fresh Member is a
-    GUEST (#654), never an active member. Made under invite-only mode too, as the Eventbrite
-    finish page's account is (``despite_invite_only``): the visitor asked for it, and a guest
-    account opens nothing on the members site. Never raises: a booking must stand whatever
-    happens here.
-
-    Returns:
-        The account, or None when none was made (a blank address, or a failure).
-    """
-    address = (email or "").strip()
-    if not address:
-        return None
-    try:
-        return _find_or_create_user(address, first_name=first_name, last_name=last_name)
-    except Exception:  # noqa: BLE001 - account creation must never block a booking
-        logger.exception("Guest account creation failed for %s; the booking stands.", address)
-        return None
-
-
 def _make_guest(user) -> None:  # noqa: ANN001 - User model
     """Turn the Member the signal just minted for ``user`` into a guest (#654).
 

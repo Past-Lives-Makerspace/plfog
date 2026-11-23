@@ -144,6 +144,7 @@ def describe_tour_booking():
         page.locator("[data-tour-form]").wait_for()
         page.locator('input[name="name"]').fill("Sam Rivera")
         page.locator('input[name="email"]').fill(VISITOR_EMAIL)
+        page.locator('input[name="phone"]').fill("503 555 0142")
         page.locator('select[name="party_size"]').select_option("2")
         _capture(page, "form")
         _no_sideways_scroll(page)
@@ -158,9 +159,9 @@ def describe_tour_booking():
         _capture(page, "confirmation")
         booking = TourBooking.objects.get()
         assert (booking.starts_at, booking.party_size) == (four, 2)
-        # The account toggle starts on, so the visitor now has a GUEST account, never a member one.
-        assert booking.user is not None and booking.user.email == VISITOR_EMAIL
-        assert Member.objects.get(user=booking.user).status == Member.Status.GUEST
+        # No account is made at booking (Morlock, 2026-11-22); signing in later claims it (claim_tours).
+        assert booking.user is None
+        assert not User.objects.filter(email=VISITOR_EMAIL).exists()
         tour = open_tour_at(guide, four)
         assert tour is not None and tour.seats_left == 2
         confirmed = _only("Your Past Lives tour is booked")
@@ -207,16 +208,15 @@ def describe_tour_booking():
         cancelled = _only("Your Past Lives tour on")
         assert _only("Tour cancelled", to=GUIDE_EMAIL)
 
-        # The account toggle switched off: a booking with no account made.
+        # No account switch and no account made (Morlock, 2026-11-22): a tour finds its visitor's
+        # account by verified email when they sign in.
         page.goto(f"{live_server.url}/?date={day:%Y-%m-%d}")
         page.locator(".pl-tourpub__time").filter(has_text="4:00 PM").click()
         page.locator("[data-tour-form]").wait_for()
+        assert page.locator('input[name="create_account"]').count() == 0
         page.locator('input[name="name"]').fill("Pat Noaccount")
         page.locator('input[name="email"]').fill("pat.noaccount@example.com")
-        toggle = page.locator('[data-tour-account] input[name="create_account"]')
-        assert toggle.is_checked()
-        page.locator("[data-tour-account] .pl-toggle").click()
-        assert not toggle.is_checked()
+        page.locator('input[name="phone"]').fill("503 555 0142")
         with page.expect_navigation():
             page.locator("[data-tour-form] button[type=submit]").click()
         page.locator("[data-tour-confirmed]").wait_for()

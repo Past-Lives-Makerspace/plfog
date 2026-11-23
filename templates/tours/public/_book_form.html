@@ -1,6 +1,8 @@
 {% comment %}
 The visitor's booking form for the picked time (#948): the chosen time, name, email, phone, party
-size, the optional account toggle and the honeypot. Shared by the booking page and the front desk
+size, the booking questions (#32, form.question_fields, all optional), the studio and newsletter
+toggles (off to start) and the honeypot. No account is made here (Morlock, 2026-11-22): a tour finds its visitor's account by
+verified email when they sign in (tours.booking.claim_tours). Shared by the booking page and the front desk
 kiosk (#950, kiosk set: autocomplete off). Context: form, chosen (the OpenTour it books), guides
 (tours.picker.GuideChoice, #1255: where two or more guides share the time, the Guide dropdown posts
 the tour key, No preference first; empty for one guide), page_url, kiosk, chosen_guide (the kiosk's
@@ -8,7 +10,7 @@ one guide). Alpine keeps the seats line on the picked guide and disables a guide
 party; without it the booking refuses. At the kiosk (#1273) the summary names the guide, following the
 dropdown, and the heading's Back replaces "Pick a different time"; the website is unchanged.
 {% endcomment %}
-<div class="pl-tourpub__booking" x-data="{ party: Number('{{ form.party_size.value|default:1|escapejs }}') || 1, guide: '{{ form.tour.value|escapejs }}', anyone: '{{ guides.0.key|escapejs }}', seats: { {% for g in guides %}'{{ g.key|escapejs }}': {{ g.seats_left }}{% if not forloop.last %}, {% endif %}{% endfor %} },{% if kiosk %} names: { {% for g in guides %}'{{ g.key|escapejs }}': '{% if g.no_preference %}{{ g.name|escapejs }}{% else %}with {{ g.name|escapejs }}{% endif %}'{% if not forloop.last %}, {% endif %}{% endfor %} },{% endif %} fit() { if (this.anyone && this.seats[this.guide] < this.party) { this.guide = this.anyone } } }" x-effect="fit()">
+<div class="pl-tourpub__booking" x-data="{ studio: {{ form.wants_studio.value|yesno:'true,false' }}, found: '{{ form.found_us_through.value|default:''|escapejs }}', party: Number('{{ form.party_size.value|default:1|escapejs }}') || 1, guide: '{{ form.tour.value|escapejs }}', anyone: '{{ guides.0.key|escapejs }}', seats: { {% for g in guides %}'{{ g.key|escapejs }}': {{ g.seats_left }}{% if not forloop.last %}, {% endif %}{% endfor %} },{% if kiosk %} names: { {% for g in guides %}'{{ g.key|escapejs }}': '{% if g.no_preference %}{{ g.name|escapejs }}{% else %}with {{ g.name|escapejs }}{% endif %}'{% if not forloop.last %}, {% endif %}{% endfor %} },{% endif %} fit() { if (this.anyone && this.seats[this.guide] < this.party) { this.guide = this.anyone } } }" x-effect="fit()">
 <div class="reg-summary pl-tourpub__chosen" data-tour-chosen="{{ chosen.key }}">
   <div class="pl-tourpub__chosen-when">{{ chosen.starts_at|date:"l, F j" }} at {{ chosen.starts_at|time:"g:i A" }}</div>
   <div class="pl-tourpub__chosen-meta"><span data-tour-seats{% if guides %} x-text="seats[guide] + (seats[guide] === 1 ? ' seat left' : ' seats left')"{% endif %}>{{ chosen.seats_left }} seat{{ chosen.seats_left|pluralize }} left</span>{% if kiosk %}{% include "tours/kiosk/_form_guide.html" %}{% else %} · <a href="{{ page_url }}?date={{ chosen.starts_at|date:'Y-m-d' }}" data-tour-change>Pick a different time</a>{% endif %}</div>
@@ -52,11 +54,27 @@ dropdown, and the heading's Back replaces "Pick a different time"; the website i
       {% if form.party_size.errors %}<ul class="reg-errors">{% for e in form.party_size.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
     </div>
   </div>
-  {% if form.create_account %}
-  <div class="pl-tourpub__account" data-tour-account>
-    {% include "components/toggle.html" with field=form.create_account toggle_label=form.create_account.label toggle_description="No password. You sign in with a code we email you." %}
+  {# SimplyBook's questions (feedback request #32), all optional, in its order. #}
+  {% for field in form.question_fields %}
+  <div class="reg-field" data-tour-question="{{ field.name }}"{% if field.name == "referred_by" %} x-show="found === '{{ form.told_answer|escapejs }}'" x-cloak{% endif %}>
+    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+    {% if field.help_text %}<p class="pl-tourpub__hint" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}
+    {{ field }}
+    {% if field.errors %}<ul class="reg-errors">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
   </div>
-  {% endif %}
+  {% endfor %}
+  {# Two boxes, both off to start (#32 review, #7): studio interest for the guide, and the newsletter. #}
+  <div class="pl-tourpub__account" data-tour-studio>
+    {% include "components/toggle.html" with field=form.wants_studio toggle_label=form.wants_studio.label toggle_description="Your guide will make sure you see the studios." %}
+  </div>
+  <div class="reg-field" data-tour-studio-description x-show="studio" x-cloak>
+    <label for="{{ form.studio_description.id_for_label }}">{{ form.studio_description.label }}</label>
+    {{ form.studio_description }}
+    {% if form.studio_description.errors %}<ul class="reg-errors">{% for e in form.studio_description.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+  </div>
+  <div class="pl-tourpub__account" data-tour-newsletter>
+    {% include "components/toggle.html" with field=form.wants_newsletter toggle_label=form.wants_newsletter.label toggle_description="Events, classes and open studios. Unsubscribe anytime." %}
+  </div>
   {# The honeypot: off screen for people, filled by bots that fill every field; a filled one books nothing. #}
   <div class="pl-honeypot" aria-hidden="true">
     <label for="{{ form.website.id_for_label }}">{{ form.website.label }}</label>

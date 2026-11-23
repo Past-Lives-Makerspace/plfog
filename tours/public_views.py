@@ -30,6 +30,7 @@ from tours.availability import OpenTour, open_tours
 from tours.booking import (
     ACCEPTED,
     ALREADY_BOOKED_MESSAGE,
+    ANSWER_FIELDS,
     KEPT,
     UNAVAILABLE,
     TourAlreadyBookedError,
@@ -98,11 +99,6 @@ def all_open_tours(*, kiosk: bool = False) -> list[OpenTour]:
     return open_tours(today, today + timedelta(days=MAX_HORIZON_DAYS), guide_notice=not kiosk)
 
 
-def _offers_account(request: HttpRequest) -> bool:
-    """The account toggle shows to a signed out visitor; a signed in one already has an account."""
-    return not request.user.is_authenticated
-
-
 def _prefill(request: HttpRequest) -> dict[str, str]:
     """A signed in visitor's name and email."""
     user = request.user
@@ -120,9 +116,7 @@ def limit_party(form: TourBookingForm, room: int) -> None:
     ]
 
 
-def booking_form(
-    request: HttpRequest, tours: list[OpenTour], chosen: OpenTour, *, offer_account: bool, kiosk: bool = False
-) -> Attempt:
+def booking_form(request: HttpRequest, tours: list[OpenTour], chosen: OpenTour, *, kiosk: bool = False) -> Attempt:
     """The empty form for a picked time, with the Guide dropdown (#1255) where two or more guides share it.
 
     The party size runs to the roomiest guide's seats there, since No preference can seat it.
@@ -131,7 +125,6 @@ def booking_form(
     form = TourBookingForm(
         initial={"tour": chosen.key, "party_size": "1", **({} if kiosk else _prefill(request))},
         max_party=party_room(guides, chosen),
-        offer_account=offer_account,
         kiosk=kiosk,
     )
     return Attempt(form=form, chosen=chosen, guides=guides)
@@ -170,14 +163,17 @@ def _try_booking(request: HttpRequest, form: TourBookingForm, *, kiosk: bool) ->
     any_guide_at = parse_any_guide_key(data["tour"])
     target = guide_and_start(data["tour"])
     signed_in = request.user if request.user.is_authenticated and not kiosk else None
-    visitor = Visitor(data["name"], data["email"], data["phone"], data["party_size"])
+    answers: dict[str, Any] = {name: data[name] for name in ANSWER_FIELDS}
+    answers.update(
+        wants_studio=data["wants_studio"],
+        studio_description=data["studio_description"],
+        wants_newsletter=data["wants_newsletter"],
+    )
+    visitor = Visitor(data["name"], data["email"], data["phone"], data["party_size"], **answers)
     source = TourBooking.Source.KIOSK if kiosk else TourBooking.Source.WEBSITE
-    create_account = bool(data.get("create_account"))
     try:
         if any_guide_at is not None:
-            booking = book_any_guide(
-                starts_at=any_guide_at, visitor=visitor, user=signed_in, create_account=create_account, source=source
-            )
+            booking = book_any_guide(starts_at=any_guide_at, visitor=visitor, user=signed_in, source=source)
         elif target is None:
             raise TourBookingError(GONE_MESSAGE)
         else:
@@ -186,7 +182,6 @@ def _try_booking(request: HttpRequest, form: TourBookingForm, *, kiosk: bool) ->
                 starts_at=target[1],
                 visitor=visitor,
                 user=signed_in,
-                create_account=create_account,
                 source=source,
             )
     except TourAlreadyBookedError:
@@ -196,7 +191,7 @@ def _try_booking(request: HttpRequest, form: TourBookingForm, *, kiosk: bool) ->
     return Attempt(booking=booking)
 
 
-def post_booking(request: HttpRequest, tours: list[OpenTour], offer_account: bool, *, kiosk: bool = False) -> Attempt:
+def post_booking(request: HttpRequest, tours: list[OpenTour], *, kiosk: bool = False) -> Attempt:
     """A booking POST, cheapest refusal first: the rate limit (one attempt per POST), the honeypot
     (a filled one is sent back to the page and books nothing), the form, then the booking.
 
@@ -211,7 +206,7 @@ def post_booking(request: HttpRequest, tours: list[OpenTour], offer_account: boo
     if not allowed:
         logger.warning("Tour booking rate limited (%s)", reason)
         return Attempt(error=RATE_LIMITED_MESSAGE)
-    posted = TourBookingForm(request.POST, max_party=MAX_SEATS, offer_account=offer_account, kiosk=kiosk)
+    posted = TourBookingForm(request.POST, max_party=MAX_SEATS, kiosk=kiosk)
     if posted.honeypot_tripped:
         return Attempt(redirect_to=request.path)
     if posted.is_valid():
@@ -237,9 +232,8 @@ def book(request: HttpRequest) -> HttpResponse:
     if not tour_settings.accepting_bookings:
         return render_page(request, "tours/public/closed.html", {"closed_message": tour_settings.closed_message})
     tours = all_open_tours()
-    offer_account = _offers_account(request)
     if request.method == "POST":
-        attempt = post_booking(request, tours, offer_account)
+        attempt = post_booking(request, tours)
         if attempt.booking is not None:
             return redirect(f"{reverse('tours_public:manage', args=[attempt.booking.self_serve_token])}?booked=1")
         if attempt.redirect_to:
@@ -251,7 +245,7 @@ def book(request: HttpRequest) -> HttpResponse:
             tours = all_open_tours()
     else:
         chosen = find_tour(tours, request.GET.get("tour", ""))
-        attempt = Attempt() if chosen is None else booking_form(request, tours, chosen, offer_account=offer_account)
+        attempt = Attempt() if chosen is None else booking_form(request, tours, chosen)
     chosen = attempt.chosen if attempt.form is not None else None
     raw_day = f"{timezone.localdate(chosen.starts_at):%Y-%m-%d}" if chosen else request.GET.get("date", "")
     return render_page(
