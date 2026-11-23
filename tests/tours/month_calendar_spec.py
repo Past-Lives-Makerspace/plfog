@@ -89,3 +89,10 @@ def describe_the_booking_page():
         content = Client(HTTP_HOST=HOST).get("/").content.decode()
         # static/js/tours-kiosk.js walks the links inside .pl-tourpub__days with the arrow keys.
         assert 'class="pl-tourpub__days pl-tourpub__calendar"' in content
+
+    def it_shows_no_template_comment_as_text(guide: Member):
+        # A {# #} comment only works on one line; split over two, Django printed it on the page.
+        soon = timezone.localdate() + timedelta(days=4)
+        TourHoursFactory(guide=guide, weekday=soon.weekday(), seats=4)
+        content = Client(HTTP_HOST=HOST).get("/").content.decode()
+        assert "{#" not in content and "#}" not in content

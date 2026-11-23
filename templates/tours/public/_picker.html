@@ -6,8 +6,8 @@ reload with ?date= or ?tour=), support_email. On the booking pages a time guides
 {% if picker.days %}
 <section class="pl-tourpub__section" aria-labelledby="tour-days-heading">
   <h2 class="pl-tourpub__heading" id="tour-days-heading">Pick a Day</h2>
-  {# A month calendar (Morlock, 2026-11-22): a block per month, Sunday to Saturday. The kiosk's arrow
-     keys walk the links inside .pl-tourpub__days (static/js/tours-kiosk.js), up and down by position. #}
+  {% comment %}A month calendar (Morlock, 2026-11-22): a block per month, Sunday to Saturday. The kiosk's
+  arrow keys walk the links inside .pl-tourpub__days (static/js/tours-kiosk.js), up and down by position.{% endcomment %}
   <div class="pl-tourpub__days pl-tourpub__calendar">
     {% for month in picker.months %}
     <div class="pl-tourpub__month" data-tour-month="{{ month.first|date:'Y-m' }}">
