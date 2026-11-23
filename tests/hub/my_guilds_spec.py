@@ -81,10 +81,10 @@ def describe_build_my_guilds_rows():
         by_name = {row.guild.name: row.joined for row in build_my_guilds_rows(member)}
         assert by_name == {"Joined": True, "NotJoined": False}
 
-    def it_uses_the_meeting_schedule_as_the_hint():
+    def it_uses_the_guild_about_as_the_blurb():
         member = MemberFactory()
-        GuildFactory(name="Woodshop", meeting_schedule="Tuesdays 6pm, Studio B")
-        assert build_my_guilds_rows(member)[0].meeting_hint == "Tuesdays 6pm, Studio B"
+        GuildFactory(name="Woodshop", about="A shop for woodworkers.", meeting_schedule="Tuesdays 6pm")
+        assert build_my_guilds_rows(member)[0].blurb == "A shop for woodworkers."
 
     def it_returns_empty_for_an_unlinked_member():
         GuildFactory()
@@ -100,7 +100,7 @@ def describe_build_my_guilds_rows():
         # loaded rows adds none.
         with django_assert_num_queries(2):
             rows = build_my_guilds_rows(member)
-            [(row.guild.name, row.joined, row.meeting_hint) for row in rows]
+            [(row.guild.name, row.joined, row.blurb) for row in rows]
 
 
 def describe_guild_membership_set():
@@ -288,6 +288,13 @@ def describe_guilds_tab_template():
         tag = _toggle_input(html, guild.pk)
         assert 'hx-trigger="change"' in tag
         assert 'hx-disabled-elt="this"' in tag
+
+    def it_shows_each_guild_about_under_its_name_not_its_meeting_schedule(client: Client):
+        _linked_user(client)
+        GuildFactory(name="Ceramics", about="<p>A studio for potters.</p>", meeting_schedule="Monthly meeting!")
+        html = client.get(reverse("hub_user_settings") + "?tab=guilds").content.decode()
+        assert '<div class="hub-text-muted pl-guild-toggle-row__hint">A studio for potters.</div>' in html
+        assert "Monthly meeting!" not in html
 
     def it_renders_the_guild_updates_heading_explainer_and_notifications_cross_link(client: Client):
         _linked_user(client)

@@ -21,7 +21,14 @@ from tests.e2e.guidance import FRAMES, shoot
 from tests.membership.factories import GuildFactory, GuildMembershipFactory, MembershipPlanFactory
 
 MEMBER_EMAIL = "home-guilds-edit-member@example.com"
-GUILD_NAMES = ("Ceramics Guild", "Glass Guild", "Jewelry Guild", "Metal Guild", "Textiles Guild", "Wood Guild")
+GUILD_ABOUTS = {
+    "Ceramics Guild": "A studio for potters of every level, with wheels, glazes and kilns for throwing and handbuilding.",
+    "Glass Guild": "Stained glass, torchworking and fused glass, with a cold room and a kiln.",
+    "Jewelry Guild": "Benches, torches and polishing for jewelry makers, lapidary and fine metalsmithing.",
+    "Metal Guild": "Forging, fabrication and welding, with tools for nearly any kind of metal work.",
+    "Textiles Guild": "Sewing, quilting, weaving and fiber arts, with machines and space to spread out.",
+    "Wood Guild": "A full wood shop for carpenters, furniture makers and hobbyists.",
+}
 
 
 def describe_edit_your_guilds_on_home():
@@ -33,7 +40,9 @@ def describe_edit_your_guilds_on_home():
         member.status = Member.Status.ACTIVE
         member.full_legal_name = "Linnea Brackenford"
         member.save(update_fields=["status", "full_legal_name"])
-        guilds = {name: GuildFactory(name=name, meeting_schedule="") for name in GUILD_NAMES}
+        guilds = {
+            name: GuildFactory(name=name, about=about, meeting_schedule="") for name, about in GUILD_ABOUTS.items()
+        }
         for name in ("Ceramics Guild", "Wood Guild"):
             GuildMembershipFactory(guild=guilds[name], member=member)
         home = f"{live_server.url}{reverse('hub_home')}"
