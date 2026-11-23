@@ -29,6 +29,7 @@ from urllib.parse import urlparse
 from django.contrib.auth.models import User
 from django.core import mail
 from django.utils import timezone
+from playwright.sync_api import expect
 
 from core.models import SiteConfiguration
 from membership.models import AdminCapability, Member
@@ -395,13 +396,13 @@ def describe_the_booking_steps():
         page.locator('[data-tour-step="schedule"][aria-current="step"]').wait_for()
         page.locator('a[data-tour-step="details"]').click()
         page.locator('[data-tour-step="details"][aria-current="step"]').wait_for()
-        assert page.locator('input[name="name"]').input_value() == "Sam Rivera"
-        assert page.locator('input[name="email"]').input_value() == "sam@example.com"
+        expect(page.locator('input[name="name"]')).to_have_value("Sam Rivera")
+        expect(page.locator('input[name="email"]')).to_have_value("sam@example.com")
         # And through the calendar: picking the time again finds the typing too.
         page.locator('a[data-tour-step="schedule"]').click()
         page.locator(f'[data-tour-time="{key}"]').click()
         page.locator('[data-tour-step="details"][aria-current="step"]').wait_for()
-        assert page.locator('input[name="name"]').input_value() == "Sam Rivera"
+        expect(page.locator('input[name="name"]')).to_have_value("Sam Rivera")
 
         with page.expect_navigation():
             page.locator("[data-tour-form] button[type=submit]").click()
