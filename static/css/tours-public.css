@@ -79,7 +79,8 @@ body.tours-portal {
    a seven column grid, Sunday first. A day with tours is a link; one without is a greyed number. */
 .cp-page .pl-tourpub__calendar {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    /* min(): a month never asks for more than the card has, so a 320px phone gets it whole. */
+    grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
     gap: 1.5rem;
     align-items: start;
 }
@@ -123,6 +124,24 @@ body.tours-portal {
     flex-direction: row;
     min-width: 0;
     padding: 0;
+}
+
+/* On a phone the page's three paddings (page, container, card) ate 128px of a 320px screen, leaving
+   days of 33px. Trim them on the booking page only, so a 375 to 390px phone gets days of 40px or more. */
+@media (max-width: 480px) {
+    .hub-content:has(.pl-tourpub__calendar),
+    .cp-container:has(.pl-tourpub__calendar) {
+        padding-left: 8px;
+        padding-right: 8px;
+    }
+    .cp-page .pl-tourpub .detail-body:has(.pl-tourpub__calendar) {
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+    .cp-page .pl-tourpub__week {
+        gap: 3px;
+        margin-bottom: 3px;
+    }
 }
 
 .cp-page .pl-tourpub__day--closed {

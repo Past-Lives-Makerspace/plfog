@@ -338,3 +338,34 @@ def describe_tours_loading_indicator():
         page.locator("[data-tour-form] button[type=submit]").click()
         assert page.evaluate(LOADING_STATE) == IDLE
         assert page.locator("[data-tour-form] button[type=submit]").text_content() == "Book My Tour"
+
+
+def describe_the_month_calendar_on_a_phone():
+    """The month calendar (Morlock, 2026-11-22: "Is it going to work well on mobile?"): it fits its card
+    on the narrowest phone, and its days are big enough to tap on a common one."""
+
+    _FITS = """() => {
+        const card = document.querySelector('.pl-tourpub').getBoundingClientRect();
+        const months = Array.from(document.querySelectorAll('.pl-tourpub__month'));
+        return months.every((month) => {
+            const box = month.getBoundingClientRect();
+            return box.left >= card.left && box.right <= card.right;
+        });
+    }"""
+    _DAY = "() => document.querySelector('[data-tour-day]').getBoundingClientRect().width"
+
+    def it_fits_and_taps_well(live_server, page, settings):
+        settings.TOURS_HOSTS = [urlparse(live_server.url).hostname]
+        settings.TOURS_BASE_URL = live_server.url
+        guide = _make_guide()
+        day = timezone.localdate() + timedelta(days=4)
+        TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
+        for width in (320, 375, 390):
+            page.set_viewport_size({"width": width, "height": 800})
+            page.goto(f"{live_server.url}/?date={day:%Y-%m-%d}")
+            page.locator(f'[data-tour-day="{day:%Y-%m-%d}"]').wait_for()
+            assert page.evaluate(_FITS), f"the calendar spills out of its card at {width}px"
+            assert page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth"), width
+            if width >= 375:
+                # Apple's guide is 44pt; 40 is the floor a thumb hits reliably on a seven column grid.
+                assert page.evaluate(_DAY) >= 40, f"days are {page.evaluate(_DAY)}px wide at {width}px"
