@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("membership", "0290_remove_unreacted_guild_memberships"),
+        ("membership", "0289_guildmembership_no_discord_role"),
     ]
 
     operations = [

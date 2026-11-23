@@ -9224,7 +9224,7 @@ class GuildMembership(models.Model):
             "always treated as reacted (#1320)."
         ),
     )
-    # Unused since #1319: un-reacting removes the membership itself (0290 removed the marked rows). Dropped later.
+    # Unused since #1319: un-reacting removes the membership itself (0291 marked its rows reacted). Dropped later.
     no_discord_role = models.BooleanField(
         default=False,
         help_text=(
