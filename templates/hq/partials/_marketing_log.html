@@ -1,6 +1,6 @@
 {% comment %}
 The Marketing Tracker's body, and the htmx answer to Add to the Log: the six totals, the
-organisers' Log a Marketing Action form, and the log as a table that stacks on a phone. The
+Log a Marketing Action form, and the log as a table that stacks on a phone. The
 form posts over htmx and this whole block is swapped for the answer, so the tiles move with the
 list; the answer keeps the kind, date and who for the next entry. Delete is a plain post
 through the confirm modal.
@@ -8,10 +8,9 @@ through the confirm modal.
   hub          — required, the EventHub
   card         — required, the marketing HubCard
   form         — required, a MarketingActionForm (bound when a save failed)
-  can_organize — required, the effective role's organiser bit: the form and Delete show for it
   tiles        — required, hq.services.marketing_tiles(...)
   actions      — required, the hub's MarketingAction rows, newest first
-  team         — required, the card Team's display names, for the Who suggestions
+  team         — required, the guild officers' display names, for the Who suggestions
   team_list_id — required, the datalist's id, which the Who field's list attribute names
 {% endcomment %}
 <div class="pl-hq-mk__body" data-hq-mk-log>
@@ -28,7 +27,6 @@ through the confirm modal.
     </div>
   </section>
 
-  {% if can_organize %}
   <section class="pl-hq-mk__section" aria-labelledby="hq-mk-form-title">
     <form method="post" action="{% url 'hq:marketing_add' hub.slug %}" hx-post="{% url 'hq:marketing_add' hub.slug %}" hx-target="closest [data-hq-mk-log]" hx-swap="outerHTML" class="pl-hq-mk__card pl-hq-mk__form" data-hq-mk-form>
       {% csrf_token %}
@@ -50,7 +48,6 @@ through the confirm modal.
       </div>
     </form>
   </section>
-  {% endif %}
 
   <section class="pl-hq-mk__section" aria-labelledby="hq-mk-list-title" data-hq-mk-list>
     <h2 class="pl-hq-mk__h2" id="hq-mk-list-title">The Log</h2>
@@ -58,7 +55,7 @@ through the confirm modal.
       {% if actions %}
       <table class="pl-members-table pl-hq-mk__table">
         <thead>
-          <tr><th>Date</th><th>What</th><th>Details</th><th>Who</th><th class="pl-hq-mk__num">Reach</th>{% if can_organize %}<th><span class="sr-only">Delete</span></th>{% endif %}</tr>
+          <tr><th>Date</th><th>What</th><th>Details</th><th>Who</th><th class="pl-hq-mk__num">Reach</th><th><span class="sr-only">Delete</span></th></tr>
         </thead>
         <tbody>
           {% for action in actions %}
@@ -68,7 +65,6 @@ through the confirm modal.
             <td data-label="Details" data-hq-mk-details>{% if action.href %}<a href="{{ action.href }}" target="_blank" rel="noopener" data-hq-mk-link>{{ action.details }}</a>{% else %}{{ action.details }}{% endif %}</td>
             <td data-label="Who">{{ action.who }}</td>
             <td data-label="Reach" class="pl-hq-mk__num" data-hq-mk-reach>{{ action.reach_display }}</td>
-            {% if can_organize %}
             <td data-label="" class="pl-hq-mk__row-action">
               <button type="button" class="pl-btn pl-btn--danger pl-btn--sm" @click="$dispatch('open-confirm', 'delete-marketing-{{ action.pk }}')" data-hq-mk-delete>Delete</button>
               {% url 'hq:marketing_delete' hub.slug action.pk as delete_url %}
@@ -76,7 +72,6 @@ through the confirm modal.
               {% include "components/confirm_modal.html" with confirm_id="delete-marketing-"|add:pk_text confirm_title="Take this off the log?" confirm_message="The action is removed and the totals go down. This cannot be undone." confirm_action_url=delete_url confirm_button_text="Delete" %}
               {% endwith %}
             </td>
-            {% endif %}
           </tr>
           {% endfor %}
         </tbody>

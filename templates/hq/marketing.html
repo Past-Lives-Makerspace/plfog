@@ -3,8 +3,8 @@
 {% comment %}
 The Marketing Tracker (Track D, part 1), in the look of Lee's tracker: a header with the hub's
 name, its date line and her tagline, then the log (hq/partials/_marketing_log.html: the six
-totals, Log a Marketing Action for organisers, and every action newest first). No login gate of
-its own: card_view decides who may open the page; who may add or delete is the card's organisers.
+totals, Log a Marketing Action, and every action newest first). Only those who run the HQ reach it
+(hq.access.hq_gate).
 {% endcomment %}
 {% block title %}{{ card.title }}{% endblock %}
 {% block extra_head %}

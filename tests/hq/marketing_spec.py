@@ -1,4 +1,4 @@
-"""The Marketing Tracker (Track D, part 1): the door, its gates, the six totals in one query, the organisers'
+"""The Marketing Tracker (Track D, part 1): the door, its gate, the six totals in one query, the
 Log a Marketing Action form over htmx and plain posts, the log newest first, and Delete."""
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from hq import services
 from hq.forms import MarketingActionForm
 from hq.models import HubCard, MarketingAction
 from hub.view_as import ROLE_GUEST
-from tests.hq.conftest import signed_in
 from tests.hq.factories import HubCardFactory, MarketingActionFactory
 
 pytestmark = pytest.mark.django_db
@@ -51,31 +50,29 @@ def _post(**fields: Any) -> dict[str, Any]:
 
 @pytest.fixture
 def card(open_hub) -> HubCard:
-    """The Marketing Tracker door on the open hub, open to everyone."""
-    return HubCardFactory(
-        hub=open_hub, kind=HubCard.Kind.MARKETING, title="Marketing Tracker", audience=HubCard.Audience.PUBLIC
-    )
+    """The Marketing Tracker door on the open hub."""
+    return HubCardFactory(hub=open_hub, kind=HubCard.Kind.MARKETING, title="Marketing Tracker")
 
 
 def describe_the_door():
-    def it_opens_the_tracker_from_the_hq_page(card):
-        body = Client().get(card.hub.get_absolute_url()).content.decode()
+    def it_opens_the_tracker_from_the_hq_page(card, officer_client):
+        body = officer_client.get(card.hub.get_absolute_url()).content.decode()
 
         assert card.url == _page(card.hub)
         assert f'href="{_page(card.hub)}" class="pl-hq-card" data-hq-card-link' in body
 
-    def it_carries_a_way_back_to_the_hq_in_its_header(card):
-        body = Client().get(_page(card.hub)).content.decode()
+    def it_carries_a_way_back_to_the_hq_in_its_header(card, officer_client):
+        body = officer_client.get(_page(card.hub)).content.decode()
         header = body.split('<header class="pl-hq-mk__header">')[1].split("</header>")[0]
 
         assert f'<a href="{card.hub.get_absolute_url()}" class="pl-hq-mk__back" data-hq-mk-back>&larr; HQ</a>' in header
         assert card.hub.get_absolute_url() == reverse("hq:page", args=[card.hub.slug])
 
-    def it_shows_a_door_with_no_page_as_not_shared(open_hub):
+    def it_shows_a_door_with_no_page_as_not_shared(open_hub, officer_client):
         """Every Track D door has its page now (D6a built the last); a placeholder still opens nothing."""
-        HubCardFactory(hub=open_hub, kind=HubCard.Kind.PLACEHOLDER, audience=HubCard.Audience.PUBLIC)
+        HubCardFactory(hub=open_hub, kind=HubCard.Kind.PLACEHOLDER)
 
-        body = Client().get(open_hub.get_absolute_url()).content.decode()
+        body = officer_client.get(open_hub.get_absolute_url()).content.decode()
 
         assert open_hub.cards.get().url == ""
         assert f'data-hq-card="{HubCard.Kind.PLACEHOLDER}"' in body
@@ -84,68 +81,53 @@ def describe_the_door():
 
 
 def describe_who_may_open_it():
-    def it_is_open_to_a_signed_out_visitor_when_public_and_read_only(card):
-        response = Client().get(_page(card.hub))
+    def it_gives_a_guild_officer_the_form_and_every_delete(card, officer_client):
+        MarketingActionFactory(hub=card.hub)
+
+        response = officer_client.get(_page(card.hub))
 
         body = response.content.decode()
         assert response.status_code == 200
-        assert "data-hq-mk-totals" in body
-        assert "data-hq-mk-form" not in body
+        assert "data-hq-mk-form" in body
+        assert "data-hq-mk-delete" in body
 
-    def it_is_a_404_for_a_member_on_an_admins_card(card, member_client):
-        card.audience = HubCard.Audience.ADMINS
-        card.save(update_fields=["audience"])
-
+    def it_is_a_404_for_a_member_who_runs_no_guild(card, member_client):
         assert member_client.get(_page(card.hub)).status_code == 404
 
-    def it_sends_a_signed_out_visitor_through_login_on_a_members_card(card):
-        card.audience = HubCard.Audience.MEMBERS
-        card.save(update_fields=["audience"])
-
+    def it_sends_a_signed_out_visitor_through_login(card):
         response = Client().get(_page(card.hub))
 
         assert response.status_code == 302
         assert "/accounts/login/" in response["Location"]
 
-    def it_is_a_404_when_hidden_for_all_but_admins(card, member_client, admin_client):
+    def it_opens_to_an_officer_while_hidden(card, officer_client, admin_client):
         card.is_hidden = True
         card.save(update_fields=["is_hidden"])
 
-        assert member_client.get(_page(card.hub)).status_code == 404
+        assert officer_client.get(_page(card.hub)).status_code == 200
         assert admin_client.get(_page(card.hub)).status_code == 200
 
     def it_is_a_404_on_a_hub_with_no_marketing_door(open_hub, admin_client):
         assert admin_client.get(_page(open_hub)).status_code == 404
 
-    def it_gives_the_form_to_a_named_member_on_an_admins_card(card, member):
-        card.audience = HubCard.Audience.ADMINS
-        card.save(update_fields=["audience"])
-        card.team.set([member])
-
-        body = signed_in(member).get(_page(card.hub)).content.decode()
-
-        assert "data-hq-mk-form" in body
-
-    def it_refuses_a_post_from_anyone_but_an_organiser(card, member_client):
+    def it_refuses_a_post_from_anyone_who_does_not_run_the_hq(card, member_client):
         action = MarketingActionFactory(hub=card.hub)
 
-        assert member_client.post(_add(card.hub), _post()).status_code == 403
-        assert Client().post(_add(card.hub), _post()).status_code == 403
-        assert member_client.post(_delete(action)).status_code == 403
+        assert member_client.post(_add(card.hub), _post()).status_code == 404
+        signed_out = Client().post(_add(card.hub), _post())
+        assert signed_out.status_code == 302
+        assert "/accounts/login/" in signed_out["Location"]
+        assert member_client.post(_delete(action)).status_code == 404
         assert MarketingAction.objects.count() == 1
 
-    def it_renders_a_previewing_admin_read_only_but_lets_them_act(card, admin_client):
+    def it_shows_a_previewing_admin_the_404_but_lets_them_act(card, admin_client):
         session = admin_client.session
         session["view_as_role"] = ROLE_GUEST
         session.save()
-        MarketingActionFactory(hub=card.hub)
 
-        body = admin_client.get(_page(card.hub)).content.decode()
-
-        assert "data-hq-mk-form" not in body
-        assert "data-hq-mk-delete" not in body
+        assert admin_client.get(_page(card.hub)).status_code == 404
         assert admin_client.post(_add(card.hub), _post()).status_code == 302
-        assert MarketingAction.objects.count() == 2
+        assert MarketingAction.objects.count() == 1
 
     def it_takes_posts_only(card, admin_client):
         action = MarketingActionFactory(hub=card.hub)
@@ -191,10 +173,10 @@ def describe_the_totals():
             ("all", "Total actions", 1, "Reach so far: 2,500"),
         ]
 
-    def it_renders_the_tiles_on_the_page(card):
+    def it_renders_the_tiles_on_the_page(card, officer_client):
         MarketingActionFactory(hub=card.hub, kind=MarketingAction.Kind.FLYER)
 
-        body = Client().get(_page(card.hub)).content.decode()
+        body = officer_client.get(_page(card.hub)).content.decode()
 
         assert body.count("data-hq-mk-tile=") == 6
         assert 'data-hq-mk-tile="flyer"' in body
@@ -255,8 +237,10 @@ def describe_logging_an_action():
         action = MarketingAction.objects.get()
         assert (action.reach, action.who, action.details, action.link) == (0, "Kate", "Flyer at Rocking Frog", "")
 
-    def it_starts_on_a_flyer_today_and_suggests_the_cards_team(card, admin_client, make_member):
-        card.team.set([make_member(preferred_name="Anjali"), make_member(preferred_name="Kate")])
+    def it_starts_on_a_flyer_today_and_suggests_the_guild_officers(card, admin_client, make_officer, make_member):
+        make_officer(preferred_name="Kate")
+        make_officer(preferred_name="Anjali", staff=True)
+        make_member(preferred_name="Not An Officer")
 
         body = admin_client.get(_page(card.hub)).content.decode()
 
@@ -280,21 +264,21 @@ def describe_logging_an_action():
 
 
 def describe_the_log():
-    def it_lists_newest_first_by_date_then_by_when_logged(card):
+    def it_lists_newest_first_by_date_then_by_when_logged(card, officer_client):
         today = timezone.localdate()
         old = MarketingActionFactory(hub=card.hub, date=today - timedelta(days=3), details="Old one")
         first = MarketingActionFactory(hub=card.hub, date=today, details="Earlier today")
         second = MarketingActionFactory(hub=card.hub, date=today, details="Later today")
 
         assert list(card.hub.marketing_actions.all()) == [second, first, old]
-        body = Client().get(_page(card.hub)).content.decode()
+        body = officer_client.get(_page(card.hub)).content.decode()
         assert body.index("Later today") < body.index("Earlier today") < body.index("Old one")
 
-    def it_links_details_only_to_a_web_address_and_dashes_an_unknown_reach(card):
+    def it_links_details_only_to_a_web_address_and_dashes_an_unknown_reach(card, officer_client):
         MarketingActionFactory(hub=card.hub, details="Linked post", link="https://example.com/post", reach=12345)
         MarketingActionFactory(hub=card.hub, details="FTP thing", link="ftp://example.com/file")
 
-        body = Client().get(_page(card.hub)).content.decode()
+        body = officer_client.get(_page(card.hub)).content.decode()
 
         assert (
             '<a href="https://example.com/post" target="_blank" rel="noopener" data-hq-mk-link>Linked post</a>' in body
@@ -303,36 +287,33 @@ def describe_the_log():
         assert "12,345" in body
         assert "data-hq-mk-reach>–<" in body
 
-    def it_names_each_kind_on_its_chip(card):
+    def it_names_each_kind_on_its_chip(card, officer_client):
         MarketingActionFactory(hub=card.hub, kind=MarketingAction.Kind.LISTING)
 
-        body = Client().get(_page(card.hub)).content.decode()
+        body = officer_client.get(_page(card.hub)).content.decode()
 
         assert 'data-hq-mk-kind="listing">Event listing (Eventbrite, calendars)</span>' in body
 
-    def it_says_so_when_nothing_is_logged(card):
-        body = Client().get(_page(card.hub)).content.decode()
+    def it_says_so_when_nothing_is_logged(card, officer_client):
+        body = officer_client.get(_page(card.hub)).content.decode()
 
         assert "data-hq-mk-empty" in body
         assert "No marketing logged yet. Add the first action above." in body
 
-    def it_gives_organisers_a_delete_on_each_row(card, admin_client):
+    def it_gives_a_delete_on_each_row(card, officer_client):
         actions = MarketingActionFactory.create_batch(2, hub=card.hub)
 
-        admin_body = admin_client.get(_page(card.hub)).content.decode()
-        guest_body = Client().get(_page(card.hub)).content.decode()
+        body = officer_client.get(_page(card.hub)).content.decode()
 
-        assert admin_body.count("data-hq-mk-delete") == 2
-        assert f'action="{_delete(actions[0])}"' in admin_body
-        assert "data-hq-mk-delete" not in guest_body
+        assert body.count("data-hq-mk-delete") == 2
+        assert f'action="{_delete(actions[0])}"' in body
 
 
 def describe_deleting_an_action():
-    def it_takes_the_row_off_the_log_for_an_organiser(card, member):
-        card.team.set([member])
+    def it_takes_the_row_off_the_log_for_a_guild_officer(card, officer_client):
         action = MarketingActionFactory(hub=card.hub)
 
-        response = signed_in(member).post(_delete(action), follow=True)
+        response = officer_client.post(_delete(action), follow=True)
 
         assert response.redirect_chain == [(_page(card.hub), 302)]
         assert "Taken off the log." in [str(message) for message in response.context["messages"]]

@@ -39,7 +39,6 @@ HEAD_ORDER = (
     "js/orientation_hours_recurrence.js",
     "js/equipment_ways.js",
     "js/inquiry_member_picker.js",
-    "js/hq_people_picker.js",
     "js/tab_picker.js",
     "js/guidance.js",
     "js/pl-rotator.js",

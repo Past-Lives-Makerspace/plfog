@@ -1,4 +1,4 @@
-"""The Sponsorship Tracker (Track D, part 2): the door, its gates, the band in two queries, Follow up by the Portland
+"""The Sponsorship Tracker (Track D, part 2): the door, its gate, the band in two queries, Follow up by the Portland
 date, + Add a Sponsor, the pipeline's order and filters, the inline edit with its status lines, the contact log,
 Delete, the CSV, the tiers and the seed's adoption of the placeholder."""
 
@@ -23,7 +23,6 @@ from hq.forms import SponsorEditForm, SponsorForm
 from hq.holiday_bizarre import SPONSOR_TIERS, WINE_WALL_BENEFIT
 from hq.models import BUILT_DOORS, HubCard, HubGoal, Sponsor, SponsorLogEntry
 from hub.view_as import ROLE_GUEST
-from tests.hq.conftest import signed_in
 from tests.hq.factories import HubCardFactory, HubGoalFactory, SponsorFactory, SponsorLogEntryFactory
 
 pytestmark = pytest.mark.django_db
@@ -91,10 +90,8 @@ def _toast(response: Any) -> str:
 
 @pytest.fixture
 def card(open_hub) -> HubCard:
-    """The Sponsorship Tracker door on the open hub, open to everyone so the read-only view can be seen."""
-    return HubCardFactory(
-        hub=open_hub, kind=HubCard.Kind.SPONSORSHIP, title="Sponsorship Tracker", audience=HubCard.Audience.PUBLIC
-    )
+    """The Sponsorship Tracker door on the open hub."""
+    return HubCardFactory(hub=open_hub, kind=HubCard.Kind.SPONSORSHIP, title="Sponsorship Tracker")
 
 
 @pytest.fixture
@@ -103,15 +100,15 @@ def hub(card):
 
 
 def describe_the_door():
-    def it_is_a_built_door_that_opens_the_tracker_from_the_hq_page(card):
-        body = Client().get(card.hub.get_absolute_url()).content.decode()
+    def it_is_a_built_door_that_opens_the_tracker_from_the_hq_page(card, officer_client):
+        body = officer_client.get(card.hub.get_absolute_url()).content.decode()
 
         assert HubCard.Kind.SPONSORSHIP in BUILT_DOORS
         assert card.url == _page(card.hub) == f"/hq/{card.hub.slug}/sponsors/"
         assert f'href="{_page(card.hub)}" class="pl-hq-card" data-hq-card-link' in body
 
-    def it_carries_lees_header_and_guidance_line(hub):
-        body = Client().get(_page(hub)).content.decode()
+    def it_carries_lees_header_and_guidance_line(hub, officer_client):
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert "Sponsorship Tracker</h1>" in body
         assert f"data-hq-sp-subline>{hub.title} · Cash sponsors · Team only</p>" in body
@@ -123,141 +120,86 @@ def describe_the_door():
 
 
 def describe_who_may_open_it():
-    def it_shows_a_signed_out_visitor_the_band_names_tiers_and_statuses_only(hub):
+    def it_gives_a_guild_officer_the_contact_details_the_forms_the_log_and_the_csv(hub, officer_client):
         sponsor = SponsorFactory(
             hub=hub,
             organization="Rocking Frog Cafe",
-            tier=Sponsor.Tier.SILVER,
             status=S.ASKED,
-            amount_cents=123_400,
-            fit_note="Spec fit note",
-            benefits="Spec benefits promised",
-            owner="Spec Asker",
-            contact_name="Pat Contact",
-            contact_role="Spec Role",
             email="pat@frog.example",
-            phone="503-555-0199",
-            note="Spec private note",
-            next_step="Spec next step",
             history="Spec gave a raffle prize",
             follow_up_by=timezone.localdate(),
         )
         SponsorLogEntryFactory(sponsor=sponsor, text="Spec log line", by="Spec Logger")
 
-        response = Client().get(_page(hub))
+        response = officer_client.get(_page(hub))
 
         body = response.content.decode()
         assert response.status_code == 200
-        assert "data-hq-sp-band" in body
-        assert "Rocking Frog Cafe" in body
-        assert "Silver ($1,000)" in body
-        assert 'data-hq-sp-status="asked">Asked<' in body
-        assert "data-hq-sp-due-count>1 follow-up scheduled with the team.</p>" in body
-        for private in (
-            "$1,234",
-            "data-hq-sp-amount",
-            "Spec fit note",
-            "Spec benefits promised",
-            "Spec Asker",
-            "Pat Contact",
-            "Spec Role",
+        for shown in (
             "pat@frog.example",
-            "503-555-0199",
-            "Spec private note",
-            "Spec next step",
             "Spec gave a raffle prize",
             "Spec log line",
-            "Spec Logger",
-            "data-hq-sp-add",
+            "data-hq-sp-add-form",
             "data-hq-sp-edit-form",
-            "data-hq-sp-log",
             "data-hq-sp-csv",
-            "data-hq-sp-follow-up=",
+            f'data-hq-sp-follow-up="{sponsor.pk}"',
             'data-hq-sp-filter="donor2025"',
         ):
-            assert private not in body, private
+            assert shown in body, shown
+        assert "data-hq-sp-due-count" not in body
 
-    def it_says_nothing_is_scheduled_to_a_visitor_with_no_follow_ups(hub):
-        body = Client().get(_page(hub)).content.decode()
-
-        assert "data-hq-sp-due-empty>Nothing scheduled.</p>" in body
-        assert "data-hq-sp-empty>No sponsors yet.</p>" in body
-
-    def it_ignores_the_2025_donors_filter_for_a_non_organiser(hub):
+    def it_keeps_the_2025_donors_filter(hub, officer_client):
         SponsorFactory(hub=hub, organization="Spec Gave Before", history="A gift card")
         SponsorFactory(hub=hub, organization="Spec New Friend")
 
-        body = Client().get(f"{_page(hub)}?filter=donor2025").content.decode()
+        body = officer_client.get(f"{_page(hub)}?filter=donor2025").content.decode()
 
         assert "Spec Gave Before" in body
-        assert "Spec New Friend" in body
-        assert 'data-hq-sp-filter="all" aria-current="true"' in body
+        assert "Spec New Friend" not in body
+        assert 'data-hq-sp-filter="donor2025" aria-current="true"' in body
 
-    def it_is_a_404_for_a_member_on_an_admins_card(card, member_client):
-        card.audience = HubCard.Audience.ADMINS
-        card.save(update_fields=["audience"])
-
+    def it_is_a_404_for_a_member_who_runs_no_guild(card, member_client):
         assert member_client.get(_page(card.hub)).status_code == 404
 
-    def it_sends_a_signed_out_visitor_through_login_on_a_members_card(card):
-        card.audience = HubCard.Audience.MEMBERS
-        card.save(update_fields=["audience"])
-
+    def it_sends_a_signed_out_visitor_through_login(card):
         response = Client().get(_page(card.hub))
 
         assert response.status_code == 302
         assert "/accounts/login/" in response["Location"]
 
-    def it_is_a_404_when_hidden_for_all_but_admins(card, member_client, admin_client):
+    def it_opens_to_an_officer_while_hidden(card, officer_client, admin_client):
         card.is_hidden = True
         card.save(update_fields=["is_hidden"])
 
-        assert member_client.get(_page(card.hub)).status_code == 404
+        assert officer_client.get(_page(card.hub)).status_code == 200
         assert admin_client.get(_page(card.hub)).status_code == 200
 
     def it_is_a_404_on_a_hub_with_no_sponsorship_door(open_hub, admin_client):
         assert admin_client.get(_page(open_hub)).status_code == 404
 
-    def it_gives_the_forms_and_details_to_a_named_member_on_an_admins_card(card, member):
-        card.audience = HubCard.Audience.ADMINS
-        card.save(update_fields=["audience"])
-        card.team.set([member])
-        SponsorFactory(hub=card.hub, email="pat@frog.example")
-
-        body = signed_in(member).get(_page(card.hub)).content.decode()
-
-        assert "data-hq-sp-add-form" in body
-        assert "data-hq-sp-edit-form" in body
-        assert "pat@frog.example" in body
-        assert "data-hq-sp-csv" in body
-
-    def it_refuses_every_write_and_the_csv_to_anyone_but_an_organiser(hub, member_client):
+    def it_refuses_every_write_and_the_csv_to_anyone_who_does_not_run_the_hq(hub, member_client):
         sponsor = SponsorFactory(hub=hub)
 
-        for client in (member_client, Client()):
-            assert client.post(_add(hub), _add_post()).status_code == 403
-            assert client.post(_edit(sponsor), _edit_post(sponsor, status=S.RECEIVED)).status_code == 403
-            assert client.post(_log(sponsor), {f"log-{sponsor.pk}-text": "Called"}).status_code == 403
-            assert client.post(_delete(sponsor)).status_code == 403
-            assert client.get(_csv(hub)).status_code == 403
+        for client, status in ((member_client, 404), (Client(), 302)):
+            assert client.post(_add(hub), _add_post()).status_code == status
+            assert client.post(_edit(sponsor), _edit_post(sponsor, status=S.RECEIVED)).status_code == status
+            assert client.post(_log(sponsor), {f"log-{sponsor.pk}-text": "Called"}).status_code == status
+            assert client.post(_delete(sponsor)).status_code == status
+            assert client.get(_csv(hub)).status_code == status
         sponsor.refresh_from_db()
         assert sponsor.status == S.PROSPECT
         assert Sponsor.objects.count() == 1
         assert not SponsorLogEntry.objects.exists()
 
-    def it_renders_a_previewing_admin_read_only_but_lets_them_act(hub, admin_client):
+    def it_shows_a_previewing_admin_the_404_but_lets_them_act(hub, admin_client):
         session = admin_client.session
         session["view_as_role"] = ROLE_GUEST
         session.save()
-        SponsorFactory(hub=hub, email="pat@frog.example")
 
-        body = admin_client.get(_page(hub)).content.decode()
-
-        assert "data-hq-sp-add-form" not in body
-        assert "pat@frog.example" not in body
+        assert admin_client.get(_page(hub)).status_code == 404
+        assert admin_client.get(_csv(hub)).status_code == 404
         assert admin_client.post(_add(hub), _add_post()).status_code == 302
-        assert admin_client.get(_csv(hub)).status_code == 200
-        assert Sponsor.objects.count() == 2
+        assert Sponsor.objects.count() == 1
 
     def it_takes_posts_only(hub, admin_client):
         sponsor = SponsorFactory(hub=hub)
@@ -330,13 +272,13 @@ def describe_the_band():
         HubGoalFactory(hub=hub, label="RAISED", kind=HubGoal.Kind.MANUAL, target=12_000, sort_order=5)
         assert services.sponsor_goal(hub) == 12_000
 
-    def it_renders_lees_four_tiles_the_meter_and_the_legend(hub):
+    def it_renders_lees_four_tiles_the_meter_and_the_legend(hub, officer_client):
         HubGoalFactory(hub=hub, label="Raised", is_money=True, target=10_000)
         SponsorFactory(hub=hub, status=S.RECEIVED, amount_cents=150_000)
         SponsorFactory(hub=hub, status=S.COMMITTED, amount_cents=50_000)
         SponsorFactory(hub=hub, status=S.ASKED, ask_cents=90_000)
 
-        body = Client().get(_page(hub)).content.decode()
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert "data-hq-sp-figure>$1,500</strong>" in body
         assert "data-hq-sp-helper>$2,000 secured with commitments</span>" in body
@@ -348,10 +290,10 @@ def describe_the_band():
         assert 'max="1000000" value="150000" aria-label=' in body
         assert "data-hq-sp-goal>Toward the $10,000 event goal</span>" in body
 
-    def it_counts_open_asks_in_the_plural(hub):
+    def it_counts_open_asks_in_the_plural(hub, officer_client):
         SponsorFactory.create_batch(2, hub=hub, status=S.ASKED)
 
-        body = Client().get(_page(hub)).content.decode()
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert "data-hq-sp-helper>2 open asks</span>" in body
 
@@ -503,8 +445,10 @@ def describe_adding_a_sponsor():
         assert "data-hq-sp-subline" in response.content.decode()
         assert not Sponsor.objects.exists()
 
-    def it_offers_one_tier_list_and_suggests_the_cards_team(card, admin_client, make_member):
-        card.team.set([make_member(preferred_name="Dixie"), make_member(preferred_name="Augustin")])
+    def it_offers_one_tier_list_and_suggests_the_guild_officers(card, admin_client, make_officer, make_member):
+        make_officer(preferred_name="Dixie")
+        make_officer(preferred_name="Augustin", staff=True)
+        make_member(preferred_name="Not An Officer")
 
         body = admin_client.get(_page(card.hub)).content.decode()
 
@@ -861,12 +805,11 @@ def describe_the_contact_log():
 
 
 def describe_deleting_a_sponsor():
-    def it_takes_the_sponsor_and_its_log_off_for_an_organiser(card, member):
-        card.team.set([member])
+    def it_takes_the_sponsor_and_its_log_off_for_a_guild_officer(card, officer_client):
         sponsor = SponsorFactory(hub=card.hub, organization="Spec Bank")
         SponsorLogEntryFactory(sponsor=sponsor)
 
-        response = signed_in(member).post(_delete(sponsor), {"filter": "asked"}, follow=True)
+        response = officer_client.post(_delete(sponsor), {"filter": "asked"}, follow=True)
 
         assert response.redirect_chain == [(f"{_page(card.hub)}?filter=asked", 302)]
         assert "Spec Bank is off the tracker." in [str(message) for message in response.context["messages"]]
@@ -937,8 +880,8 @@ def describe_the_csv():
 
 
 def describe_the_tiers():
-    def it_shows_lees_six_draft_tiers_to_everyone_the_card_is_open_to(hub):
-        body = Client().get(_page(hub)).content.decode()
+    def it_shows_lees_six_draft_tiers(hub, officer_client):
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert [tier.name for tier in SPONSOR_TIERS] == [
             "Presenting",
@@ -961,40 +904,30 @@ def describe_the_tiers():
             in body
         )
 
-    def it_links_the_wine_line_to_the_wine_wall_when_that_door_is_open_to_the_viewer(hub):
-        wine = HubCardFactory(hub=hub, kind=HubCard.Kind.WINE_WALL, audience=HubCard.Audience.ADMINS)
-
-        assert "data-hq-sp-wine-link" not in Client().get(_page(hub)).content.decode()
-
-        wine.audience = HubCard.Audience.PUBLIC
-        wine.save(update_fields=["audience"])
-        body = Client().get(_page(hub)).content.decode()
+    def it_links_the_wine_line_to_the_wine_wall_once_the_hub_has_that_door(hub, officer_client):
+        assert "data-hq-sp-wine-link" not in officer_client.get(_page(hub)).content.decode()
+        wine = HubCardFactory(hub=hub, kind=HubCard.Kind.WINE_WALL, is_hidden=True)
+        body = officer_client.get(_page(hub)).content.decode()
 
         assert f'<a href="{wine.url}" data-hq-sp-wine-link>{WINE_WALL_BENEFIT}</a>' in body
 
 
 def describe_adopting_the_placeholder():
-    def it_turns_the_sponsorship_placeholder_into_the_live_door_in_place(open_hub, member):
+    def it_turns_the_sponsorship_placeholder_into_the_live_door_in_place(open_hub):
         placeholder = HubCardFactory(
             hub=open_hub,
             kind=HubCard.Kind.PLACEHOLDER,
             title="Sponsorship Tracker",
             bullets="Who we asked and where it stands\nLevels and what each sponsor gets\nLogos for the flyer and the wall",
             button_text="Track sponsors",
-            audience=HubCard.Audience.MEMBERS,
-            team=[member],
+            is_hidden=True,
         )
 
         result = open_hub.seed_default_cards()
 
         card = HubCard.objects.get(pk=placeholder.pk)
         assert "Sponsorship Tracker" in result.adopted
-        assert (card.kind, card.audience, card.button_text) == (
-            HubCard.Kind.SPONSORSHIP,
-            HubCard.Audience.MEMBERS,
-            "Enter sponsorships",
-        )
-        assert list(card.team.all()) == [member]
+        assert (card.kind, card.is_hidden, card.button_text) == (HubCard.Kind.SPONSORSHIP, True, "Enter sponsorships")
         assert card.url == _page(open_hub)
 
 

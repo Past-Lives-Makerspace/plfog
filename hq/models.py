@@ -3,8 +3,8 @@
 An :class:`EventHub` is the page Lee's organising hub became: a hero band for the event, a row
 of goals, and nine door cards that each open one part of the event (RSVP, volunteer shifts,
 the wine wall, and six placeholders that are not shared yet). The cards are rows, not code,
-so an admin can retitle them, hide them, reorder them and open each one to the public, to
-members, or to the people on its Can open and Team lists from the share panel. The event itself stays a
+so whoever runs the HQ (admins and guild officers, ``hq.access``) can retitle, hide and reorder
+them; every card opens to all of them. The event itself stays a
 ``CommunityEvent``: the hub only points at it for the date, the location and the RSVP door.
 
 Part 1 of Track C builds the hub, the cards and the goals. Part 2 adds the volunteer shifts
@@ -44,7 +44,6 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.db.models import Case, Count, IntegerField, Q, Value, When
@@ -200,7 +199,7 @@ class EventHub(models.Model):
 
         A live door is found by kind (unique on a hub, so a renamed one is still found). A door whose page is
         built (:data:`BUILT_DOORS`) that the hub still holds as a placeholder with the door's title is turned
-        into the live kind in place, so its pk, audience, people lists, hidden flag and order stay; it is made
+        into the live kind in place, so its pk, hidden flag and order stay; it is made
         only when neither the kind nor that placeholder exists. A placeholder has no stable key, so
         placeholders are made only on a hub with no cards at all. On every card found, a field still carrying the
         door's previous default words takes Lee's current ones; a field an admin edited is kept.
@@ -249,7 +248,7 @@ class CardSeed:
     adopted: list[str] = field(default_factory=list)
     reworded: int = 0
     placeholders_skipped: bool = False
-    # Live doors made on a hub that already had cards: admins only, and a renamed placeholder may sit beside them.
+    # Live doors made on a hub that already had cards: a renamed placeholder may sit beside them.
     added_beside: list[str] = field(default_factory=list)
     # The labels of Lee's goals the same press added (``hq.services.seed_goals``), in the order they were added.
     goals_added: list[str] = field(default_factory=list)
@@ -276,7 +275,7 @@ class CardSeed:
         sentence = f"Doors updated: {'; '.join(parts)}."
         if self.added_beside:
             sentence += (
-                f" New and admins only until you open it: {', '.join(self.added_beside)}."
+                f" New: {', '.join(self.added_beside)}."
                 " If an old Not shared yet card for it is still on the page, delete that one."
             )
         return sentence
@@ -289,35 +288,11 @@ def _goals_phrase(labels: list[str]) -> str:
     return f"added the {', '.join(labels[:-1])} and {labels[-1]} goals"
 
 
-class HubCardQuerySet(models.QuerySet["HubCard"]):
-    def open_to(self, member: Member | None) -> HubCardQuerySet:
-        """The cards ``member`` may open as a non-admin, hidden ones left out: the rule of
-        :meth:`HubCard.is_open_to` as one query, for the sidebar entry (``hub.context_processors``).
-
-        The lists are read through subqueries rather than joins, so the answer stays one query
-        and one row per card however long the lists grow.
-        """
-        through_team = HubCard.team.through.objects
-        through_open = HubCard.can_open.through.objects
-        rule = Q(audience=HubCard.Audience.PUBLIC)
-        if member is not None:
-            rule |= Q(pk__in=through_open.filter(member_id=member.pk).values("hubcard_id"))
-            if member.status == Member.Status.ACTIVE:
-                rule |= Q(audience=HubCard.Audience.MEMBERS)
-        # The Team-only doors open by the Team alone, whatever their audience or Can open list say.
-        rule = rule & ~Q(kind__in=TEAM_ONLY_KINDS)
-        if member is not None:
-            rule |= Q(pk__in=through_team.filter(member_id=member.pk).values("hubcard_id"))
-        return self.filter(rule, is_hidden=False)
-
-
 class HubCard(models.Model):
-    """One door on the HQ page: who it is for, what is behind it, and who may open it.
+    """One door on the HQ page: who it is for and what is behind it.
 
-    Who may open it is three things: the ``audience`` (Admins only, Members, Everyone), the
-    ``can_open`` people, who use the door as a member would, and the ``team``, who also do the
-    organiser work behind it (add and edit rows, read rosters and reports, download the CSVs).
-    Settings and uploads stay with admins whatever the lists say (``hq.access.admin_required``).
+    Every card opens to whoever runs the HQ (admins and ACTIVE guild officers, ``hq.access.can_run_hq``); a hidden
+    one to admins alone.
     """
 
     class Kind(models.TextChoices):
@@ -332,29 +307,12 @@ class HubCard(models.Model):
         LEDGER = "ledger", "PL Ledger"
         PLACEHOLDER = "placeholder", "Not shared yet"
 
-    class Audience(models.TextChoices):
-        ADMINS = "admins", "Admins only"
-        MEMBERS = "members", "Members"
-        PUBLIC = "public", "Everyone, signed in or not"
-
     class Direction(models.TextChoices):
         UP = "up", "Up"
         DOWN = "down", "Down"
 
     # How many bullets a card shows; the edit form refuses more.
     MAX_BULLETS = 4
-
-    # The chip on the HQ page and the share panel's three choices, in plain words.
-    AUDIENCE_CHIPS: dict[str, str] = {
-        Audience.ADMINS: "Admins only",
-        Audience.MEMBERS: "Members",
-        Audience.PUBLIC: "Everyone",
-    }
-    AUDIENCE_LINES: dict[str, str] = {
-        Audience.ADMINS: "Only admins, plus the people you add below.",
-        Audience.MEMBERS: "Every active member, plus the people you add below.",
-        Audience.PUBLIC: "Anyone with the link, signed in or not.",
-    }
 
     hub = models.ForeignKey(
         EventHub, on_delete=models.CASCADE, related_name="cards", help_text="The HQ this card is on."
@@ -372,31 +330,10 @@ class HubCard(models.Model):
     bullets = models.TextField(blank=True, help_text="What is behind the door, one line per bullet, up to four.")
     button_text = models.CharField(max_length=60, default="Enter", help_text="The button at the foot of a live card.")
     sort_order = models.PositiveIntegerField(default=0, help_text="Position on the page; lower comes first.")
-    audience = models.CharField(
-        max_length=20,
-        choices=Audience.choices,
-        default=Audience.ADMINS,
-        help_text="Who may see and open the card. Admins, the Can open people and the Team always can.",
+    is_hidden = models.BooleanField(
+        default=False,
+        help_text="Marks a card still being set up: it shows with a Hidden chip to everyone who runs the HQ.",
     )
-    can_open = models.ManyToManyField(
-        Member,
-        blank=True,
-        related_name="hq_open_cards",
-        help_text="People who may open this card and use it as a member would, whatever its audience.",
-    )
-    # The named members became the Team (hq migration 0013) by a rename that keeps their table, so
-    # nobody lost access and the release still serving during the deploy reads the same rows.
-    team = models.ManyToManyField(
-        Member,
-        blank=True,
-        related_name="hq_team_cards",
-        db_table="hq_hubcard_named_members",
-        help_text="People who may open this card and do its organiser work: add and edit rows, read reports, "
-        "download the CSVs. Settings and uploads stay with admins.",
-    )
-    is_hidden = models.BooleanField(default=False, help_text="Hidden cards show to admins only, with a Hidden chip.")
-
-    objects = HubCardQuerySet.as_manager()
 
     class Meta:
         ordering = ["sort_order", "pk"]
@@ -411,68 +348,10 @@ class HubCard(models.Model):
     def __str__(self) -> str:
         return self.title
 
-    def clean(self) -> None:
-        """A Team-only door (:data:`TEAM_ONLY_KINDS`) takes no audience but Admins only: its page answers anyone
-        but the Team with a 403, so a wider audience would put a broken door on their HQ."""
-        super().clean()
-        if self.is_team_only and self.audience != self.Audience.ADMINS:
-            raise ValidationError({"audience": self.team_only_reason})
-
     @property
     def bullet_lines(self) -> list[str]:
         """The bullets as a list, blank lines dropped."""
         return [line.strip() for line in self.bullets.splitlines() if line.strip()]
-
-    @property
-    def is_team_only(self) -> bool:
-        """Whether only the Team (and admins) may open this door: its page holds contacts or money."""
-        return self.kind in TEAM_ONLY_KINDS
-
-    @property
-    def team_only_reason(self) -> str:
-        """Why a Team-only door offers no wider audience, in the share panel's words."""
-        return f"{self.get_kind_display()} is for the Team only: everything on it is contacts or money."
-
-    @property
-    def audience_chip(self) -> str:
-        """The audience in the chip's plain words: Admins only, Members or Everyone."""
-        return self.AUDIENCE_CHIPS[self.audience]
-
-    @property
-    def people_count(self) -> int:
-        """How many people the two lists name, each counted once (reads the prefetches when the page made them)."""
-        return len({member.pk for member in self.team.all()} | {member.pk for member in self.can_open.all()})
-
-    def is_team(self, member: Member | None) -> bool:
-        """Whether ``member`` is on the card's Team (reads a prefetch when the page made one)."""
-        return member is not None and any(person.pk == member.pk for person in self.team.all())
-
-    def is_can_open(self, member: Member | None) -> bool:
-        """Whether ``member`` is on the card's Can open list (reads a prefetch when the page made one)."""
-        return member is not None and any(person.pk == member.pk for person in self.can_open.all())
-
-    def is_open_to(self, member: Member | None, *, is_admin: bool) -> bool:
-        """The one gate on a card: admins and the Team always; on any door but a Team-only one, the Can open
-        people, ``public`` everyone and ``members`` an ACTIVE member. ``is_admin`` is the viewer's effective role,
-        so a preview sees what the role would. Hidden is separate (the page and :func:`hq.access.card_or_404`
-        keep hidden cards to admins). :meth:`HubCardQuerySet.open_to` is the same rule as one query."""
-        if is_admin or self.is_team(member):
-            return True
-        if self.is_team_only:
-            # Whatever the database says: the page behind it would answer anyone else with a 403.
-            return False
-        if self.is_can_open(member):
-            return True
-        if self.audience == self.Audience.PUBLIC:
-            return True
-        if self.audience == self.Audience.MEMBERS:
-            return member is not None and member.status == Member.Status.ACTIVE
-        return False
-
-    def can_organize(self, member: Member | None, *, is_admin: bool) -> bool:
-        """Who runs what is behind the door: admins and the Team. ``is_admin`` is the role being checked: the
-        effective one to render, the actual one to act."""
-        return is_admin or self.is_team(member)
 
     @property
     def url(self) -> str:
@@ -579,11 +458,6 @@ BUILT_DOORS: frozenset[str] = frozenset(
     }
 )
 
-# The doors only the Team (and admins) may open: their pages are contacts or money, so the share panel offers them
-# no audience but Admins only and no Can open list, and :meth:`HubCard.is_open_to` refuses anyone else whatever the
-# database says. Every other door's page is a ``card_view`` a member can use (see hq/AGENTS.md, Who).
-TEAM_ONLY_KINDS: frozenset[str] = frozenset({HubCard.Kind.VENDOR_TABLES, HubCard.Kind.LEDGER})
-
 # The three doors that were live from the start of Track C.
 _FIRST_DOORS: frozenset[str] = frozenset({HubCard.Kind.RSVP, HubCard.Kind.VOLUNTEERS, HubCard.Kind.WINE_WALL})
 
@@ -615,7 +489,7 @@ class DoorContent:
         return self.door if self.is_live else HubCard.Kind.PLACEHOLDER
 
     def fields(self) -> dict[str, str]:
-        """The card's fields for a new row (admins only, the model's default audience)."""
+        """The card's fields for a new row."""
         return {
             "kind": self.kind,
             "who_for": self.who_for,
@@ -2318,7 +2192,7 @@ class StaffTime(models.Model):
     """One stretch of staff time the event took: who, when, how long, the work area and what they did.
 
     For the board's "what the event took, and what it returned" (:func:`hq.services.staff_totals`). ``who`` is as typed;
-    ``member`` is set when it names one of the ledger card's Team, and is cleared, not the row, if that
+    ``member`` is set when it names one of the guild officers (``hq.access.officers``), and is cleared, not the row, if that
     member's record goes. The hours are held to the volunteer hours' bounds, in quarter hours.
     """
 

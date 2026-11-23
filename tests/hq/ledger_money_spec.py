@@ -125,16 +125,14 @@ def _ticket_prices(found: LedgerSettings, ticket: Any = "20", pair: Any = "35") 
 
 
 @pytest.fixture
-def lee(make_member):
-    return make_member(preferred_name="Lee Ashworth")
+def lee(make_officer):
+    return make_officer(preferred_name="Lee Ashworth")
 
 
 @pytest.fixture
 def card(open_hub, lee) -> HubCard:
-    """The ledger door with Lee on its Team. A Team-only door (HQ card sharing): Admins only is its one audience."""
-    return HubCardFactory(
-        hub=open_hub, kind=HubCard.Kind.LEDGER, title="PL Ledger", audience=HubCard.Audience.ADMINS, team=[lee]
-    )
+    """The ledger door on the open hub. Lee is a guild officer, so she runs it (#1307)."""
+    return HubCardFactory(hub=open_hub, kind=HubCard.Kind.LEDGER, title="PL Ledger")
 
 
 @pytest.fixture
@@ -149,10 +147,8 @@ def lee_client(lee) -> Client:
 
 @pytest.fixture
 def wall(hub, lee) -> HubCard:
-    """The wine wall door on the same hub, open to everyone, Lee organising it."""
-    return HubCardFactory(
-        hub=hub, kind=HubCard.Kind.WINE_WALL, title="Log a wine bottle", audience=HubCard.Audience.PUBLIC, team=[lee]
-    )
+    """The wine wall door on the same hub."""
+    return HubCardFactory(hub=hub, kind=HubCard.Kind.WINE_WALL, title="Log a wine bottle")
 
 
 @pytest.fixture
@@ -189,12 +185,13 @@ def describe_the_sections():
 
 
 def describe_who_may_use_it():
-    def it_refuses_every_write_and_the_csv_to_anyone_but_an_organiser_and_leaks_nothing(hub, wall, member_client, kegs):
+    def it_refuses_every_write_and_the_csv_to_anyone_but_an_officer_and_leaks_nothing(hub, wall, member_client, kegs):
         sale = BarSaleFactory(hub=hub, note="Spec secret bar note", created_by=None)
         found = _found(hub)
         WineBottleFactory(hub=hub, giver_name="Spec Secret Giver")
 
-        for client in (member_client, Client()):
+        # A member who leads or staffs no guild gets the closed door, a 404; signed out goes through login.
+        for client, status in ((member_client, 404), (Client(), 302)):
             for name, data in (
                 ("ledger_bar_quick", _quick()),
                 ("ledger_bar_undo", {}),
@@ -204,24 +201,25 @@ def describe_who_may_use_it():
                 ("ledger_ticket_prices", _ticket_prices(found)),
             ):
                 response = client.post(_url(name, hub), data)
-                assert response.status_code == 403, name
+                assert response.status_code == status, name
                 assert "Spec secret bar note" not in response.content.decode(), name
-            assert client.post(_url("ledger_bar_delete", hub, sale.pk)).status_code == 403
+            assert client.post(_url("ledger_bar_delete", hub, sale.pk)).status_code == status
             response = client.get(_url("ledger_bar_csv", hub))
-            assert response.status_code == 403
+            assert response.status_code == status
             assert b"Spec secret bar note" not in response.content
-            # A Team-only door: off its Team the page is a closed door, a 404.
-            assert client.get(_page(hub)).status_code == 404
-        # The donors' toggle is the wall's organisers' (Lee), not the ledger's.
-        assert (
-            member_client.post(
-                _url("wine_donor_thanked", hub), {"giver": "Spec Secret Giver", "thanked": "1"}
-            ).status_code
-            == 403
-        )
+            assert client.get(_page(hub)).status_code == status
+            response = client.post(_url("wine_donor_thanked", hub), {"giver": "Spec Secret Giver", "thanked": "1"})
+            assert response.status_code == status
         assert list(BarSale.objects.values_list("pk", flat=True)) == [sale.pk]
         assert not LedgerSettings.objects.exists()
         assert not WineDonorThanks.objects.exists()
+
+    def it_lets_an_officer_set_the_drink_and_ticket_prices(hub, lee_client):
+        found = _found(hub)
+
+        assert lee_client.post(_url("ledger_bar_prices", hub), _prices(found)).status_code == 302
+        assert lee_client.post(_url("ledger_ticket_prices", hub), _ticket_prices(found)).status_code == 302
+        assert LedgerSettings.objects.filter(hub=hub).exists()
 
     def it_is_a_404_for_another_hubs_sale_and_an_unknown_donor(hub, wall, lee_client):
         other = BarSaleFactory(hub=EventHubFactory())
@@ -761,20 +759,25 @@ def describe_the_wine_wall_section():
         assert "data-hq-lg-tickets-form" in body
         assert "add to wine wall" not in body.lower()  # bottles are logged on the wall's own door
 
-    def it_leaves_out_links_the_viewer_may_not_open(hub, card, make_member):
-        kate = make_member(preferred_name="Kate")
-        card.team.add(kate)
-        wall = HubCardFactory(hub=hub, kind=HubCard.Kind.WINE_WALL, audience=HubCard.Audience.MEMBERS)
-        client = signed_in(kate)
+    def it_links_the_wall_and_its_donors_and_leaves_both_out_without_a_wall_card(hub, card, lee_client):
+        wall = HubCardFactory(hub=hub, kind=HubCard.Kind.WINE_WALL)
 
-        body = client.get(_page(hub)).content.decode()
-        assert f'href="{wall.url}"' in body  # open to members, but Kate does not organise it
-        assert f'href="{_url("wine_donors", hub)}"' not in body
-        assert '<span class="pl-hq-lg__chip" data-hq-lg-thanked>0 of 0 donors thanked</span>' in body
+        body = lee_client.get(_page(hub)).content.decode()
+        assert f'href="{wall.url}"' in body
+        assert (
+            f'<a href="{_url("wine_donors", hub)}" class="pl-hq-lg__chip pl-hq-lg__chip--info" data-hq-lg-thanked>'
+            "0 of 0 donors thanked</a>"
+        ) in body
 
         wall.is_hidden = True
         wall.save(update_fields=["is_hidden"])
-        assert "data-hq-lg-wall-link" not in client.get(_page(hub)).content.decode()
+        assert f'href="{wall.url}"' in lee_client.get(_page(hub)).content.decode()
+
+        wall.delete()
+        body = lee_client.get(_page(hub)).content.decode()
+        assert "data-hq-lg-wall-link" not in body
+        assert f'href="{_url("wine_donors", hub)}"' not in body
+        assert '<span class="pl-hq-lg__chip" data-hq-lg-thanked>0 of 0 donors thanked</span>' in body
 
     @pytest.mark.parametrize(
         ("goal", "bottles", "line"),
@@ -1057,17 +1060,14 @@ def describe_the_under_ticket_price_flag():
 
         assert [row.under_line for row in services.donor_rows(hub)] == ["Under $20"]
 
-    def it_flags_the_walls_bottles_for_organisers_only(hub, wall, lee_client, member_client):
+    def it_flags_a_bottle_worth_less_than_one_ticket(hub, wall, lee_client):
         cheap = WineBottleFactory(hub=hub, value_cents=1_000)
+        dear = WineBottleFactory(hub=hub, value_cents=4_000)
 
-        organiser = lee_client.get(_url("wine", hub)).content.decode()
-        member = member_client.get(_url("wine", hub)).content.decode()
-        visitor = Client().get(_url("wine", hub)).content.decode()
+        body = lee_client.get(_url("wine", hub)).content.decode()
 
-        assert f'data-hq-bottle="{cheap.pk}"' in member
-        assert '<span class="pl-hq-wine__under" data-hq-bottle-under>Under $25</span>' in organiser
-        assert "data-hq-bottle-under" not in member and "data-hq-bottle-under" not in visitor
-        assert "data-hq-donor-thanked" not in member
+        assert f'data-hq-bottle="{cheap.pk}"' in body and f'data-hq-bottle="{dear.pk}"' in body
+        assert body.count('<span class="pl-hq-wine__under" data-hq-bottle-under>Under $25</span>') == 1
 
 
 def describe_the_event_cash():

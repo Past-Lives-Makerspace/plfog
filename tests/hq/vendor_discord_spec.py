@@ -1,11 +1,11 @@
-"""Check Discord (#1014): the Team reads the Holiday Bizarre channel on demand and adds or skips each new poster.
+"""Check Discord (#1014): an officer reads the Holiday Bizarre channel on demand and adds or skips each new poster.
 
 Covers the one read (``hq.vendor_discord.read_channel``, through respx, never the network) with its deadline, its
 fallback when the member list is refused and why a read fails; the pure rule (bots, webhooks and joins left out,
 people already on the list left out by username, display name or server nickname against a table's name or Discord
 handle, people once added left out by their Discord id, grouping and order, mentions, the note and the date); Add as
 Request and Skip, which act on the read the check kept and never read Discord again, with the double press guard;
-the page and the panel; and the gates (an admin sets the channel; the Team checks, adds and skips). Every other spec
+the page and the panel; and the gates (an officer or admin sets the channel, checks, adds and skips). Every other spec
 replaces ``read_channel``. Every name, id and post is made up (this repo is public)."""
 
 from __future__ import annotations
@@ -113,19 +113,13 @@ def _fresh_cache() -> Iterator[None]:
 
 
 @pytest.fixture
-def kate(make_member):
-    return make_member(preferred_name="Kate Lindqvist")
+def kate(make_officer):
+    return make_officer(preferred_name="Kate Lindqvist")
 
 
 @pytest.fixture
 def card(open_hub, kate) -> HubCard:
-    return HubCardFactory(
-        hub=open_hub,
-        kind=HubCard.Kind.VENDOR_TABLES,
-        title="Vendor Tables",
-        audience=HubCard.Audience.ADMINS,
-        team=[kate],
-    )
+    return HubCardFactory(hub=open_hub, kind=HubCard.Kind.VENDOR_TABLES, title="Vendor Tables")
 
 
 @pytest.fixture
@@ -478,10 +472,10 @@ def describe_the_page():
         assert '<div id="hq-vt-discord" hidden></div>' in body
         assert discord.reads == []
 
-    def it_shows_the_channel_field_to_admins_only(hub, channel, kate_client, admin_client):
-        assert "data-hq-vt-discord-channel-form" not in kate_client.get(_page(hub)).content.decode()
+    def it_shows_the_channel_field_to_an_officer(hub, channel, kate_client):
+        body = kate_client.get(_page(hub)).content.decode()
 
-        body = admin_client.get(_page(hub)).content.decode()
+        assert "data-hq-vt-discord-channel-form" in body
 
         assert f'action="{_channel_url(hub)}"' in body
         assert f'value="{CHANNEL}"' in body
@@ -559,10 +553,10 @@ def describe_check_discord():
         assert 'data-hq-vt-poster="7001"' in body
         assert '<div id="hq-vt-discord" hidden></div>' not in body
 
-    def it_is_the_teams_only(hub, channel, make_member, discord):
+    def it_is_the_officers_only(hub, channel, make_member, discord):
         stranger = signed_in(make_member())
 
-        assert stranger.get(_check_url(hub)).status_code == 403
+        assert stranger.get(_check_url(hub)).status_code == 404
         assert discord.reads == []
 
     def it_reads_only(hub, channel, kate_client, discord):
@@ -713,12 +707,12 @@ def describe_add_as_request():
         assert 'data-hq-vt-poster="7002"' in response.content.decode()
         assert discord.reads == [CHANNEL]
 
-    def it_is_the_teams_only(hub, channel, make_member, kate_client, discord):
+    def it_is_the_officers_only(hub, channel, make_member, kate_client, discord):
         discord.messages = [_message(10, MOSS, "Table please")]
         _check(kate_client, hub)
         stranger = signed_in(make_member())
 
-        assert stranger.post(_add_url(hub), _choice(MOSS, 10)).status_code == 403
+        assert stranger.post(_add_url(hub), _choice(MOSS, 10)).status_code == 404
         assert VendorTable.objects.count() == 0
 
     def it_is_a_post(hub, channel, kate_client):
@@ -782,12 +776,12 @@ def describe_skip():
         assert _messages(response) == [("success", "Skipped Moss Studio.")]
         assert "data-hq-vt-discord-empty" in response.content.decode()
 
-    def it_is_the_teams_only(hub, channel, make_member, kate_client, discord):
+    def it_is_the_officers_only(hub, channel, make_member, kate_client, discord):
         discord.messages = [_message(10, MOSS, "Hi")]
         _check(kate_client, hub)
         stranger = signed_in(make_member())
 
-        assert stranger.post(_skip_url(hub), _choice(MOSS, 10)).status_code == 403
+        assert stranger.post(_skip_url(hub), _choice(MOSS, 10)).status_code == 404
         assert VendorDiscordDecision.objects.count() == 0
 
     def it_is_a_post(hub, channel, kate_client):
@@ -825,8 +819,12 @@ def describe_setting_the_channel():
 
         assert admin_client.post(_channel_url(hub), {"discord_channel_id": CHANNEL}).status_code == 302
 
-    def it_is_admins_only_never_the_team(hub, kate_client):
-        assert kate_client.post(_channel_url(hub), {"discord_channel_id": CHANNEL}).status_code == 403
+    def it_lets_an_officer_set_it(hub, kate_client):
+        assert kate_client.post(_channel_url(hub), {"discord_channel_id": CHANNEL}).status_code == 302
+        assert VendorFloor.objects.get(hub=hub).discord_channel_id == CHANNEL
+
+    def it_is_a_404_for_a_member_who_is_no_officer(hub, member_client):
+        assert member_client.post(_channel_url(hub), {"discord_channel_id": CHANNEL}).status_code == 404
         assert not VendorFloor.objects.filter(hub=hub).exists()
 
     def it_is_a_post(hub, admin_client):

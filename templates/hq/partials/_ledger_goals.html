@@ -3,10 +3,10 @@ The ledger's Goals (Track D, part 6c), Lee's list: the event cash first, then he
 Budget, Not part of the cash goal). Each row names the goal and its line, the figure and its line, a meter when it has
 a target, and her chip (Reached, Covered once collected, what is left to go), and jumps to its section of the ledger or
 to the door its figure lives on. Every target is the hub's own goal, the approval or the active guilds, never a copy;
-Change the goals is Edit HQ's goals form, for admins. Sent back out of band with the tally.
+Change the goals is Edit HQ's goals form. Sent back out of band with the tally.
 
   goal_groups    — required, the hq.services.LedgerGoalGroup list
-  edit_goals_url — required, Edit HQ's goals ("" for anyone but an admin)
+  edit_goals_url — required, Edit HQ's goals
   oob            — optional, True renders the hx-swap-oob attribute
 {% endcomment %}
 <section class="pl-hq-lg__section" id="hq-lg-goals" aria-labelledby="hq-lg-goals-title" data-hq-lg-goals{% if oob %} hx-swap-oob="true"{% endif %}>
@@ -30,10 +30,8 @@ Change the goals is Edit HQ's goals form, for admins. Sent back out of band with
     {% endfor %}
     {% endfor %}
   </div>
-  {% if edit_goals_url %}
   <div class="pl-hq-lg__actions">
     <a href="{{ edit_goals_url }}" class="pl-hq-lg__link pl-hq-lg__link--plain" data-hq-lg-change-goals>Change the goals</a>
     <span class="pl-hq-lg__muted pl-hq-lg__helper">The targets are the HQ's goals, set on Edit HQ.</span>
   </div>
-  {% endif %}
 </section>

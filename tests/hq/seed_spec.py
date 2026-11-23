@@ -175,7 +175,7 @@ def describe_seeding():
         assert [card.kind for card in cards] == [door.kind for door in CARDS]
         assert [card.title for card in cards] == [door.title for door in CARDS]
         assert [card.sort_order for card in cards] == list(range(9))
-        assert {card.audience for card in cards} == {HubCard.Audience.ADMINS}
+        assert not any(card.is_hidden for card in cards)
         goals = list(hub.goals.all())
         assert [(goal.label, goal.kind, goal.target, goal.is_money, goal.current_value) for goal in goals] == [
             ("Raised", HubGoal.Kind.EVENT_CASH, 10_000, True, 0),
@@ -227,8 +227,7 @@ def describe_seeding():
         hub.save(update_fields=["title", "intro", "is_open"])
         rsvp = hub.cards.get(kind=HubCard.Kind.RSVP)
         rsvp.title = "Renamed by Lee"
-        rsvp.audience = HubCard.Audience.PUBLIC
-        rsvp.save(update_fields=["title", "audience"])
+        rsvp.save(update_fields=["title"])
         ledger = hub.cards.get(title="PL Ledger")
         ledger.title = "The Ledger"
         ledger.save(update_fields=["title"])
@@ -261,7 +260,7 @@ def describe_seeding():
             set(hub.shifts.values_list("pk", flat=True)),
         ) == (before[0], before[1], before[2] - {photo_pk})
         rsvp.refresh_from_db()
-        assert (rsvp.title, rsvp.audience) == ("Renamed by Lee", HubCard.Audience.PUBLIC)
+        assert rsvp.title == "Renamed by Lee"
         assert not hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).exists()
         assert hub.cards.get(kind=HubCard.Kind.LEDGER).title == "The Ledger"
         assert not hub.cards.filter(title="PL Ledger").exists()
@@ -429,26 +428,18 @@ def _track_c_hub(event: CommunityEvent) -> EventHub:
 
 
 def describe_adopting_a_built_door():
-    def it_turns_the_marketing_placeholder_into_the_live_door_in_place(event, member):
+    def it_turns_the_marketing_placeholder_into_the_live_door_in_place(event):
         hub = _track_c_hub(event)
         placeholder = hub.cards.get(title="Marketing Tracker")
-        placeholder.audience = HubCard.Audience.MEMBERS
         placeholder.is_hidden = True
         placeholder.sort_order = 2
-        placeholder.save(update_fields=["audience", "is_hidden", "sort_order"])
-        placeholder.team.set([member])
+        placeholder.save(update_fields=["is_hidden", "sort_order"])
 
         out = _run("--event", str(event.pk))
 
         card = HubCard.objects.get(pk=placeholder.pk)
         assert card.kind == HubCard.Kind.MARKETING
-        assert (card.title, card.audience, card.is_hidden, card.sort_order) == (
-            "Marketing Tracker",
-            HubCard.Audience.MEMBERS,
-            True,
-            2,
-        )
-        assert list(card.team.all()) == [member]
+        assert (card.title, card.is_hidden, card.sort_order) == ("Marketing Tracker", True, 2)
         assert hub.cards.count() == 9
         assert not hub.cards.filter(kind=HubCard.Kind.PLACEHOLDER).exists()
         assert (
@@ -524,10 +515,10 @@ def describe_adopting_a_built_door():
         out = _run("--event", str(event.pk))
 
         card = hub.cards.get(kind=HubCard.Kind.MARKETING)
-        assert (card.title, card.bullets, card.audience, card.sort_order) == (
+        assert (card.title, card.bullets, card.is_hidden, card.sort_order) == (
             "Marketing Tracker",
             CARDS[-1].bullets,
-            HubCard.Audience.ADMINS,
+            False,
             8,
         )
         assert hub.cards.count() == 9
@@ -565,8 +556,7 @@ def describe_adopting_a_built_door():
 
         assert "added 1 door;" in summary
         assert summary.endswith(
-            "New and admins only until you open it: Marketing Tracker."
-            " If an old Not shared yet card for it is still on the page, delete that one."
+            "New: Marketing Tracker. If an old Not shared yet card for it is still on the page, delete that one."
         )
 
     def it_leaves_a_live_door_alone_when_a_placeholder_shares_its_title(event):

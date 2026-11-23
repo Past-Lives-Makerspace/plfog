@@ -38,10 +38,10 @@ def event() -> CommunityEvent:
 
 @pytest.fixture
 def hub(open_hub, event) -> EventHub:
-    """The open hub, linked to the event, with its RSVP card open to everyone."""
+    """The open hub, linked to the event, with its RSVP card."""
     open_hub.event = event
     open_hub.save()
-    HubCardFactory(hub=open_hub, kind=HubCard.Kind.RSVP, audience=HubCard.Audience.PUBLIC)
+    HubCardFactory(hub=open_hub, kind=HubCard.Kind.RSVP)
     return open_hub
 
 
@@ -49,8 +49,8 @@ def describe_the_rsvp_card():
     def it_marks_its_link_as_from_the_hq(hub, event):
         assert hub.cards.get(kind=HubCard.Kind.RSVP).url == _page(event, "?from=hq")
 
-    def it_carries_the_marker_on_the_hq_page_button(hub, event):
-        body = Client().get(hub.get_absolute_url()).content.decode()
+    def it_carries_the_marker_on_the_hq_page_button(hub, event, officer_client):
+        body = officer_client.get(hub.get_absolute_url()).content.decode()
 
         assert f'<a href="{_page(event, "?from=hq")}" class="pl-hq-card" data-hq-card-link>' in body
 

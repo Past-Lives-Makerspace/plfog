@@ -3024,7 +3024,7 @@ def log_staff_time(
 ) -> StaffTime:
     """Log a stretch of staff time on ``hub`` from the form's fields, stamped with the organiser who logged it.
 
-    When Who names one of ``team`` (the ledger card's Team) by their staff label ("Wren (Quinn Ashdown)"), their
+    When Who names one of ``team`` (the guild officers, ``hq.access.officers``) by their staff label ("Wren (Quinn Ashdown)"), their
     preferred name or their legal name, whatever the capitalisation, the row is linked to that member too.
     """
     who = fields["who"].strip().casefold()
@@ -3374,7 +3374,7 @@ def _cheer(doors: DoorFigures, *, before: bool) -> list[CheerLine]:
 @dataclass(frozen=True)
 class LedgerGoalRow:
     """One of Lee's goal rows: the name and its line, the figure and its line, the meter (None for none), the chip and
-    its tone, and where the row jumps to (``href``: a section of the ledger, or a door open to the viewer)."""
+    its tone, and where the row jumps to (``href``: a section of the ledger, or a door the hub shows the viewer)."""
 
     key: str
     name: str

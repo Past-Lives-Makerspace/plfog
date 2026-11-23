@@ -245,21 +245,19 @@ def _sidebar_main_nav(
 
 
 def _hq_nav(request: HttpRequest, member: Member | None) -> bool:
-    """Whether the sidebar shows the Holiday Bizarre entry, in one query.
+    """Whether the sidebar shows the Holiday Bizarre entry: whenever any HQ exists, to whoever runs it.
 
-    An admin, by the effective role, sees it whenever any HQ exists (a closed one included, which only admins
-    reach). Anyone else sees it only when the open HQ has a card they may open (``HubCardQuerySet.open_to``, the
-    rule of ``HubCard.is_open_to``), so a member never gets an entry that lands on a 404. An admin previewing as a
-    Guest is nobody, as ``hq.access.viewer_member`` has it. The same rule in every block of the sidebar, the guest
-    accounts' included.
+    That is an admin or an ACTIVE guild officer by the effective role (``hq.access.can_run_hq``), so an admin
+    previewing as a member sees that member's sidebar and as a Guest none. At most two queries, run only when the
+    sidebar renders it. The same rule in every block of the sidebar.
     """
-    from hq.models import EventHub, HubCard
+    from hq.access import can_run_hq
+    from hq.models import EventHub
 
     view_as = getattr(request, "view_as", None)
-    if view_as is not None and view_as.is_admin:
-        return EventHub.objects.exists()
+    is_admin = view_as is not None and view_as.is_admin
     viewer = None if view_as is not None and view_as.is_previewing and view_as.is_guest else member
-    return HubCard.objects.filter(hub__is_open=True).open_to(viewer).exists()
+    return can_run_hq(viewer, is_admin=is_admin) and EventHub.objects.exists()
 
 
 def _classes_admin_nav_active(request: HttpRequest) -> bool:

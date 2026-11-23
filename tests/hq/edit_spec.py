@@ -13,7 +13,7 @@ from PIL import Image
 
 from hq.holiday_bizarre import GOALS
 from hq.models import DEFAULT_CARDS, EventHub, HubCard, HubGoal
-from membership.models import CommunityEvent, Member
+from membership.models import CommunityEvent
 from tests.hq.conftest import photo_upload
 from tests.hq.factories import EventHubFactory, HubCardFactory, HubGoalFactory
 from tests.membership.factories import CommunityEventFactory
@@ -56,12 +56,17 @@ def _hub_post(goals: list[dict[str, Any]] | None = None, initial: int = 0, **fie
 
 
 def describe_loading_lees_hq():
-    def it_is_for_admins(member_client, admin_client):
+    def it_is_for_whoever_runs_the_hq(member_client, officer_client):
         assert Client().get(SETUP).status_code == 302
         assert "/accounts/login/" in Client().get(SETUP)["Location"]
-        assert member_client.get(SETUP).status_code == 403
-        assert member_client.post(SETUP).status_code == 403
+        assert member_client.get(SETUP).status_code == 404
+        assert member_client.post(SETUP).status_code == 404
         assert not EventHub.objects.exists()
+        assert officer_client.get(SETUP).status_code == 200
+
+    def it_lets_a_guild_officer_load_it(officer_client):
+        assert officer_client.post(SETUP).status_code == 302
+        assert EventHub.objects.filter(slug="holiday-bizarre-2026").exists()
 
     def it_offers_one_button_and_no_form_fields(admin_client):
         body = admin_client.get(SETUP).content.decode()
@@ -81,7 +86,7 @@ def describe_loading_lees_hq():
         assert hub.event is None
         cards = list(hub.cards.all())
         assert [card.kind for card in cards] == [door.kind for door in DEFAULT_CARDS]
-        assert {card.audience for card in cards} == {HubCard.Audience.ADMINS}
+        assert not any(card.is_hidden for card in cards)
         assert cards[0].title == "Going to the Bizarre?"
         assert hub.goals.count() == 6
         assert hub.shifts.count() == 21
@@ -111,10 +116,13 @@ def describe_updating_the_doors():
     def _url(hub: EventHub) -> str:
         return reverse("hq:doors_update", args=[hub.slug])
 
-    def it_is_an_admins_post(open_hub, member_client, admin_client):
-        assert member_client.post(_url(open_hub)).status_code == 403
+    def it_is_a_post_for_whoever_runs_the_hq(open_hub, member_client, admin_client, officer_client):
+        assert member_client.post(_url(open_hub)).status_code == 404
         assert admin_client.get(_url(open_hub)).status_code == 405
         assert not open_hub.cards.exists()
+
+        assert officer_client.post(_url(open_hub)).status_code == 302
+        assert open_hub.cards.count() == len(DEFAULT_CARDS)
 
     def it_adopts_the_built_door_and_says_what_changed(open_hub, admin_client):
         placeholder = HubCardFactory(
@@ -138,7 +146,7 @@ def describe_updating_the_doors():
         assert messages == [
             "Doors updated: opened PL Ledger, Marketing Tracker; added 7 doors; gave 1 card Lee's latest words;"
             " added the Raised, Wine wall bottles, Volunteer spots, RSVPs, Member tables and Guilds taking part goals."
-            " New and admins only until you open it: Sponsorship Tracker, Market Check-in, Vendor Tables,"
+            " New: Sponsorship Tracker, Market Check-in, Vendor Tables,"
             " Event flyer and sharing."
             " If an old Not shared yet card for it is still on the page, delete that one."
         ]
@@ -187,9 +195,17 @@ def describe_updating_the_doors():
 
 
 def describe_editing_a_hub():
-    def it_is_for_admins(open_hub, member_client):
-        assert member_client.get(_edit(open_hub)).status_code == 403
-        assert member_client.post(_edit(open_hub), _hub_post()).status_code == 403
+    def it_is_for_whoever_runs_the_hq(open_hub, member_client, officer_client):
+        assert member_client.get(_edit(open_hub)).status_code == 404
+        assert member_client.post(_edit(open_hub), _hub_post()).status_code == 404
+        assert officer_client.get(_edit(open_hub)).status_code == 200
+
+    def it_lets_a_guild_officer_save_the_hub(open_hub, officer_client):
+        response = officer_client.post(_edit(open_hub), _hub_post(title="Kate's Bizarre"))
+
+        assert response.status_code == 302
+        open_hub.refresh_from_db()
+        assert open_hub.title == "Kate's Bizarre"
 
     def it_saves_the_words_and_lands_on_the_page(open_hub, admin_client):
         response = admin_client.post(
@@ -351,11 +367,12 @@ def describe_the_hero_image():
 
         assert not os.path.exists(path)
 
-    def it_is_a_post_for_admins(open_hub, admin_client, member_client):
+    def it_is_a_post_for_whoever_runs_the_hq(open_hub, admin_client, member_client, officer_client):
         url = reverse("hq:hero_delete", args=[open_hub.slug])
 
         assert admin_client.get(url).status_code == 405
-        assert member_client.post(url).status_code == 403
+        assert member_client.post(url).status_code == 404
+        assert officer_client.post(url).status_code == 302
 
     def it_does_nothing_without_an_image(open_hub):
         open_hub.remove_hero()
@@ -369,32 +386,27 @@ def _card_post(**fields: Any) -> dict[str, Any]:
         "who_for": "Volunteers",
         "bullets": "One\nTwo",
         "button_text": "Sign up",
-        "audience": HubCard.Audience.MEMBERS,
     }
     data.update(fields)
     return data
 
 
 def describe_editing_a_card():
-    def it_is_for_admins(open_hub, member_client):
+    def it_is_for_whoever_runs_the_hq(open_hub, member_client):
         card = HubCardFactory(hub=open_hub)
 
-        assert member_client.get(_card_edit(card)).status_code == 403
-        assert member_client.post(_card_edit(card), _card_post()).status_code == 403
+        assert member_client.get(_card_edit(card)).status_code == 404
+        assert member_client.post(_card_edit(card), _card_post()).status_code == 404
 
     def it_404s_a_card_on_another_hub(open_hub, admin_client):
         card = HubCardFactory()
 
         assert admin_client.get(reverse("hq:card_edit", args=[open_hub.slug, card.pk])).status_code == 404
 
-    def it_saves_the_words_audience_hidden_and_both_lists(open_hub, admin_client, make_member):
+    def it_lets_a_guild_officer_save_the_words_and_hidden(open_hub, officer_client):
         card = HubCardFactory(hub=open_hub)
-        one, two = make_member(), make_member()
 
-        response = admin_client.post(
-            _card_edit(card),
-            _card_post(audience=HubCard.Audience.PUBLIC, is_hidden="on", team=[str(one.pk)], can_open=[str(two.pk)]),
-        )
+        response = officer_client.post(_card_edit(card), _card_post(is_hidden="on"))
 
         assert response.status_code == 302
         assert response["Location"] == open_hub.get_absolute_url()
@@ -402,10 +414,18 @@ def describe_editing_a_card():
         assert card.title == "Volunteer Sign-up"
         assert card.who_for == "Volunteers"
         assert card.button_text == "Sign up"
-        assert card.audience == HubCard.Audience.PUBLIC
         assert card.is_hidden is True
-        assert list(card.team.all()) == [one]
-        assert list(card.can_open.all()) == [two]
+
+    def it_has_no_audience_or_people_lists(open_hub, officer_client):
+        card = HubCardFactory(hub=open_hub)
+
+        body = officer_client.get(_card_edit(card)).content.decode()
+
+        assert 'name="audience"' not in body
+        assert 'data-hq-people="' not in body
+        assert 'name="team"' not in body
+        assert 'name="can_open"' not in body
+        assert 'name="is_hidden"' in body
 
     def it_caps_the_bullets_at_four_and_tidies_them(open_hub, admin_client):
         card = HubCardFactory(hub=open_hub)
@@ -418,74 +438,6 @@ def describe_editing_a_card():
         assert accepted.status_code == 302
         card.refresh_from_db()
         assert card.bullets == "1\n2\n3\n4"
-
-    def it_refuses_adding_someone_who_is_not_active(open_hub, admin_client, make_member):
-        card = HubCardFactory(hub=open_hub)
-        former = make_member(status=Member.Status.FORMER)
-
-        response = admin_client.post(_card_edit(card), _card_post(team=[str(former.pk)]))
-
-        assert response.status_code == 200
-        assert card.team.count() == 0
-        assert "Select a valid choice" in response.content.decode()
-
-    def it_keeps_someone_already_on_a_list_who_is_no_longer_active(open_hub, admin_client, make_member):
-        gone = make_member(preferred_name="Gone Former")
-        card = HubCardFactory(hub=open_hub, team=[gone])
-        Member.objects.filter(pk=gone.pk).update(status=Member.Status.FORMER)
-
-        body = admin_client.get(_card_edit(card)).content.decode()
-        response = admin_client.post(_card_edit(card), _card_post(team=[str(gone.pk)]))
-
-        # Shown as a chip so they can be removed, and kept by a Save that leaves them on.
-        assert f'data-hq-person="{gone.pk}"' in body
-        assert response.status_code == 302
-        assert list(card.team.all()) == [gone]
-
-    def it_shows_both_pickers_with_the_chosen_as_chips_and_offers_active_members(open_hub, admin_client, make_member):
-        on_team = make_member(preferred_name="Lee")
-        other = make_member(preferred_name="Other Person")
-        make_member(status=Member.Status.FORMER, preferred_name="Gone Former")
-        card = HubCardFactory(hub=open_hub, team=[on_team])
-
-        body = admin_client.get(_card_edit(card)).content.decode()
-
-        assert 'data-hq-people="can_open"' in body
-        assert 'data-hq-people="team"' in body
-        assert f'<input type="hidden" name="team" value="{on_team.pk}" data-hq-person-input>' in body
-        assert on_team.primary_email in body
-        assert f'data-hq-person-option="{other.pk}"' in body
-        assert "Gone Former" not in body
-        # The 300 row checkbox list is gone: one way to share.
-        assert 'type="checkbox" name="team"' not in body
-
-    def it_offers_only_admins_only_and_the_team_on_a_team_only_door(open_hub, admin_client, make_member):
-        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.LEDGER, title="PL Ledger")
-        member = make_member()
-
-        body = admin_client.get(_card_edit(card)).content.decode()
-        widened = admin_client.post(_card_edit(card), _card_post(audience=HubCard.Audience.MEMBERS))
-        shared = admin_client.post(
-            _card_edit(card), _card_post(audience=HubCard.Audience.ADMINS, can_open=[str(member.pk)])
-        )
-
-        assert 'value="members"' not in body
-        assert 'data-hq-people="can_open"' not in body
-        assert "PL Ledger is for the Team only" in body
-        assert widened.status_code == 200
-        assert shared.status_code == 200
-        card.refresh_from_db()
-        assert card.audience == HubCard.Audience.ADMINS
-        assert card.can_open.count() == 0
-
-    def it_ticks_admins_only_on_a_team_only_door_stored_with_a_wider_audience(open_hub, admin_client):
-        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.VENDOR_TABLES, title="Vendor Tables")
-        HubCard.objects.filter(pk=card.pk).update(audience=HubCard.Audience.PUBLIC)
-
-        body = admin_client.get(_card_edit(card)).content.decode()
-
-        admins = body.split('value="admins"', 1)[1].split(">", 1)[0]
-        assert "checked" in admins
 
     def it_offers_move_up_and_move_down(open_hub, admin_client):
         card = HubCardFactory(hub=open_hub)
@@ -542,11 +494,12 @@ def describe_moving_a_card():
         with pytest.raises(ValueError):
             three[0].move("sideways")
 
-    def it_is_a_post_for_admins(open_hub, admin_client, member_client, three):
+    def it_is_a_post_for_whoever_runs_the_hq(open_hub, admin_client, member_client, officer_client, three):
         url = reverse("hq:card_move", args=[open_hub.slug, three[0].pk])
 
         assert admin_client.get(url).status_code == 405
-        assert member_client.post(url, {"dir": "up"}).status_code == 403
+        assert member_client.post(url, {"dir": "up"}).status_code == 404
+        assert officer_client.post(url, {"dir": "down"}).status_code == 302
 
 
 def describe_the_card_url():

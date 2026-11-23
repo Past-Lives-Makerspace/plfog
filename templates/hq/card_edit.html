@@ -2,10 +2,7 @@
 {% load static %}
 {% comment %}
 One door card's edit page: its place in the order (Move up and Move down post to card_move
-and land back here), its words, who can open it (the audience and the Can open and Team
-pickers, the same as the HQ page's Share panel, so there is one way to share; each picker is
-its chosen people as chips with a search box, and its list shows only while typing), Hidden,
-and one plain Save last.
+and land back here), its words, Hidden, and one plain Save last.
 {% endcomment %}
 {% block title %}Edit Card{% endblock %}
 {% block extra_head %}
@@ -14,7 +11,7 @@ and one plain Save last.
 {% block content %}
 <div class="pl-hq-edit" data-hq-card-edit-page>
   {% url 'hq:page' hub.slug as back_url %}
-  {% include "components/page_header.html" with title="Edit Card" description="What the door says and who can open it. Admins and the Team always can." action_url=back_url action_label="Back to the HQ" %}
+  {% include "components/page_header.html" with title="Edit Card" description="What the door says. Everyone who runs the HQ opens every door." action_url=back_url action_label="Back to the HQ" %}
 
   <div class="hub-card pl-hq-edit__card">
     <h2 class="pl-hq-edit__title">Place on the Page</h2>
@@ -43,14 +40,6 @@ and one plain Save last.
       {% include "components/form_field.html" with field=form.who_for %}
       {% include "components/form_field.html" with field=form.bullets %}
       {% include "components/form_field.html" with field=form.button_text %}
-    </div>
-
-    <div class="hub-card pl-hq-edit__card" data-hq-card-sharing>
-      <h2 class="pl-hq-edit__title">Who Can Open It</h2>
-      {% include "components/radio_group.html" with field=form.audience choice_hints=form.audience_lines %}
-      {% for picker in form.pickers %}
-      {% include "hq/partials/_people_picker.html" with picker=picker %}
-      {% endfor %}
       {% include "components/form_field.html" with field=form.is_hidden %}
     </div>
 

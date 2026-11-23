@@ -1,6 +1,9 @@
 """Volunteer shifts (Track C, part 2): the Your Info step, signing up and removing, the band,
-the shifts by phase, the organisers' roster and CSV, the shifts editor on the card's edit
-page, and the volunteers card now linking to its page."""
+the shifts by phase, the roster and CSV, the shifts editor on the card's edit page, and the
+volunteers card linking to its page.
+
+Only admins and guild officers reach the page (#1307). Every account has a member record, so the
+Your Info step is an officer signing up under other details (``_with_info``)."""
 
 from __future__ import annotations
 
@@ -20,11 +23,11 @@ from hq.models import HubCard, HubGoal, ShiftSignup, VolunteerShift
 from hq.services import VolunteerBand, VolunteerInfo, goal_rows, roster_rows
 from hub.view_as import ROLE_GUEST
 from tests.hq.conftest import signed_in
+from tests.membership.factories import GuildFactory, MemberFactory
 from tests.hq.factories import HubCardFactory, HubGoalFactory, ShiftSignupFactory, VolunteerShiftFactory
 
 pytestmark = pytest.mark.django_db
 
-PUBLIC = HubCard.Audience.PUBLIC
 HTMX = {"HTTP_HX_REQUEST": "true"}
 GUEST = {"name": "Pat Guest", "email": "pat@example.com", "phone": "503 555 0100", "note": "Evenings only"}
 
@@ -58,9 +61,16 @@ def _toast(response: Any) -> dict[str, str]:
     return toast
 
 
-def _guest_with_info(hub: Any, **over: str) -> Client:
-    """A signed out browser that has saved the Your Info step."""
-    client = Client()
+def _officer() -> Client:
+    """A browser signed in as a fresh guild lead, who runs the HQ."""
+    member = MemberFactory()
+    GuildFactory(guild_lead=member)
+    return signed_in(member)
+
+
+def _with_info(hub: Any, **over: str) -> Client:
+    """A guild officer's browser that has saved the Your Info step."""
+    client = _officer()
     response = client.post(_info_url(hub), {**GUEST, **over})
     assert response.status_code == 302
     return client
@@ -68,7 +78,7 @@ def _guest_with_info(hub: Any, **over: str) -> Client:
 
 @pytest.fixture
 def card(open_hub):
-    return HubCardFactory(hub=open_hub, kind=HubCard.Kind.VOLUNTEERS, audience=PUBLIC, title="Volunteer Sign-up")
+    return HubCardFactory(hub=open_hub, kind=HubCard.Kind.VOLUNTEERS, title="Volunteer Sign-up")
 
 
 @pytest.fixture
@@ -77,8 +87,8 @@ def shift(card):
 
 
 def describe_your_info():
-    def it_saves_a_guests_info_in_the_session_and_lands_back_on_the_page(card, shift):
-        client = Client()
+    def it_saves_the_info_in_the_session_and_lands_back_on_the_page(card, shift):
+        client = _officer()
 
         response = client.post(_info_url(card.hub), GUEST)
 
@@ -90,17 +100,8 @@ def describe_your_info():
         assert 'value="Pat Guest"' in body
         assert f'action="{_signup_url(shift)}"' in body
 
-    def it_shows_the_empty_state_and_disabled_buttons_to_a_guest_who_saved_nothing(card, shift):
-        body = Client().get(_page(card.hub)).content.decode()
-
-        assert "data-hq-vol-empty" in body
-        assert "data-hq-vol-need-info" in body
-        assert "disabled data-hq-shift-signup" in body
-        assert "data-hq-shift-hint" in body
-        assert _signup_url(shift) not in body
-
-    def it_prefills_a_members_name_email_and_phone(card, shift, make_member):
-        member = make_member(preferred_name="Lee", phone="503 555 0199")
+    def it_prefills_a_members_name_email_and_phone(card, shift, make_officer):
+        member = make_officer(preferred_name="Lee", phone="503 555 0199")
 
         body = signed_in(member).get(_page(card.hub)).content.decode()
 
@@ -111,8 +112,8 @@ def describe_your_info():
         assert f'action="{_signup_url(shift)}"' in body
         assert 'name="website"' not in body
 
-    def it_prefers_what_a_member_saved_over_their_record(card, make_member):
-        member = make_member(preferred_name="Lee")
+    def it_prefers_what_a_member_saved_over_their_record(card, make_officer):
+        member = make_officer(preferred_name="Lee")
         client = signed_in(member)
         client.post(_info_url(card.hub), {**GUEST, "name": "Lee on the Night", "has_olcc": "on"})
 
@@ -125,7 +126,7 @@ def describe_your_info():
         )
 
     def it_refuses_a_missing_email_and_renders_the_page_with_the_error(card):
-        client = Client()
+        client = _officer()
 
         response = client.post(_info_url(card.hub), {**GUEST, "email": ""})
 
@@ -136,13 +137,13 @@ def describe_your_info():
         assert services.SESSION_KEY not in client.session
 
     def it_lowercases_and_trims_the_email_and_the_words(card):
-        client = _guest_with_info(card.hub, email="  Pat@Example.COM ", name=" Pat ")
+        client = _with_info(card.hub, email="  Pat@Example.COM ", name=" Pat ")
 
         assert client.session[services.SESSION_KEY]["email"] == "pat@example.com"
         assert client.session[services.SESSION_KEY]["name"] == "Pat"
 
     def it_writes_nothing_when_the_honeypot_is_filled(card):
-        client = Client()
+        client = _officer()
 
         response = client.post(_info_url(card.hub), {**GUEST, "website": "https://spam.example"})
 
@@ -151,7 +152,7 @@ def describe_your_info():
         assert services.SESSION_KEY not in client.session
 
     def it_caps_the_note_at_500_characters(card):
-        client = Client()
+        client = _officer()
 
         refused = client.post(_info_url(card.hub), {**GUEST, "note": "x" * 501})
         accepted = client.post(_info_url(card.hub), {**GUEST, "note": "x" * 500})
@@ -162,23 +163,10 @@ def describe_your_info():
         assert len(client.session[services.SESSION_KEY]["note"]) == 500
         assert ShiftSignup._meta.get_field("note").max_length == ShiftSignup.MAX_NOTE_LENGTH == 500
 
-    def it_renders_the_honeypot_for_guests_only(card, member_client):
-        assert 'name="website"' in Client().get(_page(card.hub)).content.decode()
-        assert 'name="website"' not in member_client.get(_page(card.hub)).content.decode()
-
-    def it_is_nobody_for_an_admin_previewing_as_guest(card, admin_client):
-        session = admin_client.session
-        session["view_as_role"] = ROLE_GUEST
-        session.save()
-
-        body = admin_client.get(_page(card.hub)).content.decode()
-
-        assert "data-hq-vol-empty" in body
-
 
 def describe_signing_up():
-    def it_puts_a_guest_on_a_shift_and_shows_remove_me(card, shift):
-        client = _guest_with_info(card.hub)
+    def it_puts_the_saved_details_on_a_shift_and_shows_remove_me(card, shift):
+        client = _with_info(card.hub)
 
         response = client.post(_signup_url(shift))
 
@@ -186,7 +174,7 @@ def describe_signing_up():
         assert response["Location"] == _page(card.hub)
         signup = ShiftSignup.objects.get()
         assert signup.shift == shift
-        assert signup.member is None
+        assert signup.member is not None
         assert signup.name == "Pat Guest"
         assert signup.email == "pat@example.com"
         assert signup.phone == "503 555 0100"
@@ -197,7 +185,8 @@ def describe_signing_up():
         assert "data-hq-band-filled>1 / 2<" in body
         assert "pl-hq-vol__shift--mine" in body
 
-    def it_records_the_member_on_a_members_sign_up(card, shift, member):
+    def it_records_the_member_on_a_members_sign_up(card, shift, officer):
+        member = officer
         response = signed_in(member).post(_signup_url(shift))
 
         assert response.status_code == 302
@@ -207,7 +196,7 @@ def describe_signing_up():
         assert signup.email == member.primary_email
 
     def it_refuses_a_duplicate_email_on_one_shift(card, shift):
-        client = _guest_with_info(card.hub)
+        client = _with_info(card.hub)
         client.post(_signup_url(shift))
 
         response = client.post(_signup_url(shift), **HTMX)
@@ -221,7 +210,7 @@ def describe_signing_up():
     def it_refuses_a_full_shift(card):
         full = VolunteerShiftFactory(hub=card.hub, need=1)
         ShiftSignupFactory(shift=full)
-        client = _guest_with_info(card.hub)
+        client = _with_info(card.hub)
 
         response = client.post(_signup_url(full), **HTMX)
 
@@ -237,7 +226,7 @@ def describe_signing_up():
     def it_keeps_remove_me_for_a_person_on_a_full_shift(card):
         full = VolunteerShiftFactory(hub=card.hub, need=1)
         ShiftSignupFactory(shift=full, email="pat@example.com")
-        client = _guest_with_info(card.hub)
+        client = _with_info(card.hub)
 
         body = client.get(_page(card.hub)).content.decode()
 
@@ -245,7 +234,7 @@ def describe_signing_up():
         assert f'action="{_remove_url(full)}"' in body
 
     def it_answers_an_htmx_post_with_the_row_the_band_and_a_toast(card, shift):
-        client = _guest_with_info(card.hub)
+        client = _with_info(card.hub)
 
         response = client.post(_signup_url(shift), **HTMX)
 
@@ -258,31 +247,8 @@ def describe_signing_up():
         assert "data-hq-band-people>1<" in body
         assert _toast(response) == {"message": "You are on Flyer runner. Thank you!", "type": "success"}
 
-    def it_tells_a_guest_with_no_info_to_save_it_first(card, shift):
-        plain = Client().post(_signup_url(shift))
-        htmx = Client().post(_signup_url(shift), **HTMX)
-
-        assert plain.status_code == 302
-        assert _toast(htmx)["type"] == "error"
-        assert not ShiftSignup.objects.exists()
-
-    def it_counts_guest_sign_ups_against_the_address_and_refuses_past_the_cap(card, settings):
-        cache.clear()
-        shifts = [VolunteerShiftFactory(hub=card.hub) for _ in range(3)]
-        client = _guest_with_info(card.hub)
-
-        with patch("hq.services.RATE_HOURLY_LIMIT", 2):
-            first = client.post(_signup_url(shifts[0]), **HTMX)
-            second = client.post(_signup_url(shifts[1]), **HTMX)
-            third = client.post(_signup_url(shifts[2]), **HTMX)
-
-        assert _toast(first)["type"] == "success"
-        assert _toast(second)["type"] == "success"
-        assert _toast(third)["type"] == "error"
-        assert ShiftSignup.objects.count() == 2
-        assert not shifts[2].signups.exists()
-
-    def it_never_counts_a_member(card, shift, member):
+    def it_never_counts_a_member(card, shift, officer):
+        member = officer
         cache.clear()
 
         with patch("hq.services.RATE_HOURLY_LIMIT", 0):
@@ -293,7 +259,7 @@ def describe_signing_up():
 
     def it_is_a_post_on_a_shift_of_this_hub(card, shift):
         other = VolunteerShiftFactory()
-        client = _guest_with_info(card.hub)
+        client = _with_info(card.hub)
 
         assert client.get(_signup_url(shift)).status_code == 405
         assert client.post(reverse("hq:shift_signup", args=[card.hub.slug, other.pk])).status_code == 404
@@ -301,7 +267,7 @@ def describe_signing_up():
     def it_acts_on_whatever_email_was_saved_even_someone_elses(card, shift):
         """Identity on the sheet is the email in Your Info: that address's sign-ups are this visitor's."""
         ShiftSignupFactory(shift=shift, name="Someone Else", email="pat@example.com")
-        client = _guest_with_info(card.hub)
+        client = _with_info(card.hub)
 
         body = client.get(_page(card.hub)).content.decode()
         response = client.post(_remove_url(shift))
@@ -310,7 +276,8 @@ def describe_signing_up():
         assert response.status_code == 302
         assert not shift.signups.exists()
 
-    def it_matches_a_member_by_the_email_they_typed_not_their_record(card, shift, member):
+    def it_matches_a_member_by_the_email_they_typed_not_their_record(card, shift, officer):
+        member = officer
         client = signed_in(member)
         client.post(_signup_url(shift))
         client.post(_info_url(card.hub), {**GUEST, "email": "other@example.com"})
@@ -344,7 +311,7 @@ def describe_rate_key():
 def describe_removing():
     def it_takes_the_person_off_the_shift(card, shift):
         ShiftSignupFactory(shift=shift, email="pat@example.com")
-        client = _guest_with_info(card.hub)
+        client = _with_info(card.hub)
 
         response = client.post(_remove_url(shift))
 
@@ -352,7 +319,7 @@ def describe_removing():
         assert not shift.signups.exists()
 
     def it_tells_a_person_who_was_not_on_it(card, shift):
-        client = _guest_with_info(card.hub)
+        client = _with_info(card.hub)
 
         response = client.post(_remove_url(shift), **HTMX)
 
@@ -362,7 +329,7 @@ def describe_removing():
 
     def it_answers_htmx_with_sign_me_up_back_on_the_row(card, shift):
         ShiftSignupFactory(shift=shift, email="pat@example.com")
-        client = _guest_with_info(card.hub)
+        client = _with_info(card.hub)
 
         response = client.post(_remove_url(shift), **HTMX)
 
@@ -370,14 +337,6 @@ def describe_removing():
         assert _toast(response)["type"] == "success"
         assert "data-hq-shift-signup" in body
         assert "data-hq-band-filled>0 / 2<" in body
-
-    def it_needs_the_info_step(card, shift):
-        ShiftSignupFactory(shift=shift, email="pat@example.com")
-
-        response = Client().post(_remove_url(shift), **HTMX)
-
-        assert _toast(response)["type"] == "error"
-        assert shift.signups.count() == 1
 
 
 def describe_the_band():
@@ -420,28 +379,28 @@ def describe_the_band():
         assert row.current == 3
         assert row.target == 82
 
-    def it_renders_on_the_page(card, sheet):
-        body = Client().get(_page(card.hub)).content.decode()
+    def it_renders_on_the_page(card, sheet, officer_client):
+        body = officer_client.get(_page(card.hub)).content.decode()
 
         assert "data-hq-band-people>2<" in body
         assert "data-hq-band-filled>3 / 6<" in body
         assert "Most needed: B (2 open)" in body
         assert 'max="6" value="3"' in body
 
-    def it_says_every_shift_is_covered_with_no_gap(card):
-        body = Client().get(_page(card.hub)).content.decode()
+    def it_says_every_shift_is_covered_with_no_gap(card, officer_client):
+        body = officer_client.get(_page(card.hub)).content.decode()
 
         assert "data-hq-band-most-needed>Every shift is covered" in body
         assert 'max="1" value="0"' in body
 
 
 def describe_the_shifts():
-    def it_groups_by_phase_in_order_and_skips_an_empty_phase(card):
+    def it_groups_by_phase_in_order_and_skips_an_empty_phase(card, officer_client):
         VolunteerShiftFactory(hub=card.hub, phase=VolunteerShift.Phase.AFTER, role="Teardown")
         VolunteerShiftFactory(hub=card.hub, phase=VolunteerShift.Phase.BEFORE, role="Flyers")
         VolunteerShiftFactory(hub=card.hub, phase=VolunteerShift.Phase.DURING, role="Door", requires_olcc=True)
 
-        body = Client().get(_page(card.hub)).content.decode()
+        body = officer_client.get(_page(card.hub)).content.decode()
 
         assert (
             body.index('data-hq-phase="before"')
@@ -465,8 +424,8 @@ def describe_the_shifts():
             "during",
         ]
 
-    def it_shows_the_empty_state_with_no_shifts(card):
-        assert "data-hq-vol-no-shifts" in Client().get(_page(card.hub)).content.decode()
+    def it_shows_the_empty_state_with_no_shifts(card, officer_client):
+        assert "data-hq-vol-no-shifts" in officer_client.get(_page(card.hub)).content.decode()
 
     def it_counts_through_the_annotation_or_a_query(shift):
         ShiftSignupFactory(shift=shift)
@@ -493,27 +452,21 @@ def describe_the_shifts():
 
 
 def describe_the_wine_wall_link():
-    def it_shows_when_the_wine_wall_card_is_open_to_the_viewer(card):
-        HubCardFactory(hub=card.hub, kind=HubCard.Kind.WINE_WALL, audience=PUBLIC)
+    def it_shows_when_the_hub_has_a_wine_wall_card(card, officer_client):
+        HubCardFactory(hub=card.hub, kind=HubCard.Kind.WINE_WALL)
 
-        body = Client().get(_page(card.hub)).content.decode()
+        body = officer_client.get(_page(card.hub)).content.decode()
 
         assert f'href="{reverse("hq:wine", args=[card.hub.slug])}"' in body
         assert "data-hq-vol-wine" in body
 
-    def it_is_absent_for_a_closed_or_hidden_card(card, member_client, admin_client):
-        wine = HubCardFactory(hub=card.hub, kind=HubCard.Kind.WINE_WALL, audience=HubCard.Audience.ADMINS)
+    def it_shows_a_hidden_wine_wall_card_to_an_officer_too(card, officer_client):
+        HubCardFactory(hub=card.hub, kind=HubCard.Kind.WINE_WALL, is_hidden=True)
 
-        assert "data-hq-vol-wine" not in member_client.get(_page(card.hub)).content.decode()
-        assert "data-hq-vol-wine" in admin_client.get(_page(card.hub)).content.decode()
-        wine.audience = PUBLIC
-        wine.is_hidden = True
-        wine.save()
-        assert "data-hq-vol-wine" not in member_client.get(_page(card.hub)).content.decode()
-        assert "data-hq-vol-wine" in admin_client.get(_page(card.hub)).content.decode()
+        assert "data-hq-vol-wine" in officer_client.get(_page(card.hub)).content.decode()
 
-    def it_is_absent_without_a_wine_wall_card(card):
-        assert "data-hq-vol-wine" not in Client().get(_page(card.hub)).content.decode()
+    def it_is_absent_without_a_wine_wall_card(card, officer_client):
+        assert "data-hq-vol-wine" not in officer_client.get(_page(card.hub)).content.decode()
 
 
 def describe_the_roster():
@@ -540,47 +493,36 @@ def describe_the_roster():
         assert zed.shifts == ["B", "A"]
         assert services.roster_emails([amy, zed]) == "amy@example.com, zed@example.com"
 
-    def it_is_on_the_page_for_admins_and_the_team_only(card, people, admin_client, member_client, make_member):
-        named = make_member()
-        card.team.add(named)
+    def it_is_on_the_page_for_everyone_who_runs_the_hq(card, people, admin_client, officer_client):
+        for client in (admin_client, officer_client):
+            body = client.get(_page(card.hub)).content.decode()
 
-        admin_body = admin_client.get(_page(card.hub)).content.decode()
-        named_body = signed_in(named).get(_page(card.hub)).content.decode()
-        member_body = member_client.get(_page(card.hub)).content.decode()
-
-        for body in (admin_body, named_body):
             assert "data-hq-vol-organizers" in body
             assert body.count("data-hq-roster-row") == 2
             assert "amy@example.com, zed@example.com" in body
             assert 'hx-boost="false" data-pl-download data-hq-roster-csv' in body
-        assert "data-hq-vol-organizers" not in member_body
-        assert "data-hq-roster-csv" not in member_body
 
-    def it_hides_the_on_page_roster_while_an_admin_previews_but_keeps_the_roster_page(card, people, admin_client):
-        """Rendering reads the effective role; the roster page and the CSV read the actual one."""
+    def it_shows_an_admin_previewing_as_a_guest_the_404(card, people, admin_client):
+        """Rendering reads the effective role, the CSV and the roster page too: they are GETs."""
         session = admin_client.session
         session["view_as_role"] = ROLE_GUEST
         session.save()
 
-        assert "data-hq-vol-organizers" not in admin_client.get(_page(card.hub)).content.decode()
-        assert admin_client.get(_roster_url(card.hub)).status_code == 200
-        assert admin_client.get(_csv_url(card.hub)).status_code == 200
+        for url in (_page(card.hub), _roster_url(card.hub), _csv_url(card.hub)):
+            assert admin_client.get(url).status_code == 404, url
 
-    def it_has_its_own_page_for_organisers_and_refuses_everyone_else(
-        card, people, admin_client, member_client, make_member
+    def it_has_its_own_page_and_refuses_everyone_who_does_not_run_the_hq(
+        card, people, admin_client, officer_client, member_client
     ):
-        named = make_member()
-        card.team.add(named)
-
         assert admin_client.get(_roster_url(card.hub)).status_code == 200
-        named_body = signed_in(named).get(_roster_url(card.hub)).content.decode()
-        assert "data-hq-roster-page" in named_body
-        assert named_body.count("data-hq-roster-row") == 2
-        assert member_client.get(_roster_url(card.hub)).status_code == 403
-        assert Client().get(_roster_url(card.hub)).status_code == 403
+        body = officer_client.get(_roster_url(card.hub)).content.decode()
+        assert "data-hq-roster-page" in body
+        assert body.count("data-hq-roster-row") == 2
+        assert member_client.get(_roster_url(card.hub)).status_code == 404
+        assert Client().get(_roster_url(card.hub)).status_code == 302
 
-    def it_streams_the_csv_for_organisers_only(card, people, admin_client, member_client):
-        response = admin_client.get(_csv_url(card.hub))
+    def it_streams_the_csv_to_whoever_runs_the_hq(card, people, officer_client, member_client):
+        response = officer_client.get(_csv_url(card.hub))
 
         assert response.status_code == 200
         assert response["Content-Disposition"].startswith(f'attachment; filename="{card.hub.slug}-volunteers-')
@@ -590,8 +532,8 @@ def describe_the_roster():
         assert rows[2].startswith("Amy First,amy@example.com,,no,A,Before the event,,,")
         assert rows[3].startswith("Zed Last,zed@example.com,,no,B,During the event,Late,Old note,")
         assert {row.rsplit(",", 1)[1] for row in rows[1:]} == {"0"}
-        assert member_client.get(_csv_url(card.hub)).status_code == 403
-        assert Client().get(_csv_url(card.hub)).status_code == 403
+        assert member_client.get(_csv_url(card.hub)).status_code == 404
+        assert Client().get(_csv_url(card.hub)).status_code == 302
 
     def it_neutralises_a_formula_in_what_someone_typed(card, shift, admin_client):
         ShiftSignupFactory(shift=shift, name="=HYPERLINK(1)", note="+1")
@@ -618,7 +560,6 @@ def describe_the_shifts_editor():
             "who_for": "Volunteers",
             "bullets": "One",
             "button_text": "Sign up",
-            "audience": PUBLIC,
             "shifts-TOTAL_FORMS": str(len(shifts)),
             "shifts-INITIAL_FORMS": str(initial),
             "shifts-MIN_NUM_FORMS": "0",
@@ -757,27 +698,65 @@ def describe_the_shifts_editor():
 
 
 def describe_the_card_url():
-    def it_links_the_volunteers_card_to_its_page(card):
+    def it_links_the_volunteers_card_to_its_page(card, officer_client):
         assert card.url == _page(card.hub)
-        body = Client().get(reverse("hq:page", args=[card.hub.slug])).content.decode()
+        body = officer_client.get(reverse("hq:page", args=[card.hub.slug])).content.decode()
         assert f'<a href="{_page(card.hub)}" class="pl-hq-card" data-hq-card-link>' in body
 
 
 def describe_access():
-    def it_follows_the_cards_audience(open_hub, member_client):
-        members_only = HubCardFactory(hub=open_hub, kind=HubCard.Kind.VOLUNTEERS, audience=HubCard.Audience.MEMBERS)
+    def it_opens_to_a_guild_lead_and_a_guild_staff_member(card, make_officer):
+        for officer in (make_officer(), make_officer(staff=True)):
+            assert signed_in(officer).get(_page(card.hub)).status_code == 200
 
-        anonymous = Client().get(_page(open_hub))
+    def it_is_a_404_for_a_member_who_runs_no_guild_on_every_url(card, shift, member_client):
+        assert member_client.get(_page(card.hub)).status_code == 404
+        assert member_client.post(_info_url(card.hub), GUEST).status_code == 404
+        assert member_client.post(_signup_url(shift)).status_code == 404
+        assert member_client.post(_remove_url(shift)).status_code == 404
+        assert not ShiftSignup.objects.exists()
+
+    def it_sends_a_signed_out_visitor_through_login(card, shift):
+        anonymous = Client().get(_page(card.hub))
+        posted = Client().post(_signup_url(shift))
+
         assert anonymous.status_code == 302
-        assert anonymous["Location"] == f"/accounts/login/?next={_page(open_hub)}"
-        assert member_client.get(_page(open_hub)).status_code == 200
-        members_only.audience = HubCard.Audience.ADMINS
-        members_only.save()
-        assert member_client.get(_page(open_hub)).status_code == 404
-        assert member_client.post(_info_url(open_hub), GUEST).status_code == 404
+        assert anonymous["Location"] == f"/accounts/login/?next={_page(card.hub)}"
+        assert posted.status_code == 302
+        assert "/accounts/login/" in posted["Location"]
+        assert not ShiftSignup.objects.exists()
 
     def it_404s_without_a_volunteers_card(open_hub, admin_client):
         assert admin_client.get(_page(open_hub)).status_code == 404
+
+
+def describe_an_admin_previewing_as_guest_acting():
+    """A preview renders as the Guest (a 404) but a post acts as the admin with nobody behind it, so it goes through
+    the no-member path: the Your Info step from the session and the rate limit on the connection."""
+
+    @pytest.fixture
+    def previewing(admin_client) -> Client:
+        session = admin_client.session
+        session["view_as_role"] = ROLE_GUEST
+        session.save()
+        return admin_client
+
+    def it_tells_them_to_save_their_info_first(card, shift, previewing):
+        assert _toast(previewing.post(_signup_url(shift), **HTMX))["type"] == "error"
+        assert _toast(previewing.post(_remove_url(shift), **HTMX))["type"] == "error"
+        assert not ShiftSignup.objects.exists()
+
+    def it_counts_sign_ups_against_the_address_and_refuses_past_the_cap(card, previewing):
+        cache.clear()
+        shifts = [VolunteerShiftFactory(hub=card.hub) for _ in range(3)]
+        assert previewing.post(_info_url(card.hub), GUEST).status_code == 302
+
+        with patch("hq.services.RATE_HOURLY_LIMIT", 2):
+            answers = [previewing.post(_signup_url(shift), **HTMX) for shift in shifts]
+
+        assert [_toast(answer)["type"] for answer in answers] == ["success", "success", "error"]
+        assert ShiftSignup.objects.count() == 2
+        assert ShiftSignup.objects.filter(member__isnull=True).count() == 2
 
 
 def describe_queries():
@@ -794,20 +773,5 @@ def describe_queries():
             busy = VolunteerShiftFactory(hub=card.hub)
             ShiftSignupFactory(shift=busy)
             ShiftSignupFactory(shift=busy)
-
-        assert render() == few
-
-    def it_keeps_a_guests_page_flat_too(card):
-        client = _guest_with_info(card.hub)
-
-        def render() -> int:
-            with CaptureQueriesContext(connection) as queries:
-                assert client.get(_page(card.hub)).status_code == 200
-            return len(queries)
-
-        ShiftSignupFactory(shift=VolunteerShiftFactory(hub=card.hub), email="pat@example.com")
-        few = render()
-        for _ in range(3):
-            ShiftSignupFactory(shift=VolunteerShiftFactory(hub=card.hub), email="pat@example.com")
 
         assert render() == few

@@ -1,4 +1,5 @@
-"""The HQ page (Track C, part 1): the hero band, the countdown, the goal band, the doors."""
+"""The HQ page (Track C, part 1): the hero band, the countdown, the goal band, the doors, as a guild officer sees
+them (#1307: admins and ACTIVE guild officers run the HQ; tests/hq/access_spec.py holds who else is turned away)."""
 
 from __future__ import annotations
 
@@ -15,8 +16,9 @@ from django.utils import timezone
 
 from hq.models import Countdown, EventHub, HubCard, HubGoal, WineBottle
 from hq.services import GoalRow, KindCount, WineBand, goal_rows, rsvp_count
+from tests.hq.conftest import signed_in
 from tests.hq.factories import HubCardFactory, HubGoalFactory, WineBottleFactory
-from tests.membership.factories import CommunityEventFactory, EventRSVPFactory
+from tests.membership.factories import CommunityEventFactory, EventRSVPFactory, GuildFactory, MemberFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -25,15 +27,16 @@ def _page(hub: EventHub) -> str:
     return reverse("hq:page", args=[hub.slug])
 
 
-def _everyone_door(hub: EventHub) -> HubCard:
-    """A door open to everyone: without one the HQ page is a 404 for a signed-out visitor (HQ card sharing)."""
-    return HubCardFactory(hub=hub, title="Spec Everyone Door", audience=HubCard.Audience.PUBLIC)
+def _officer() -> Client:
+    """A browser signed in as a fresh guild lead, who runs the HQ."""
+    lead = MemberFactory()
+    GuildFactory(guild_lead=lead)
+    return signed_in(lead)
 
 
 def _visit(hub: EventHub) -> HttpResponse:
-    """The HQ page as a signed-out visitor sees it, with a door open to them."""
-    _everyone_door(hub)
-    return Client().get(_page(hub))
+    """The HQ page as a guild officer sees it."""
+    return _officer().get(_page(hub))
 
 
 def _noon() -> datetime:
@@ -220,12 +223,11 @@ def describe_the_goal_band():
         assert '<progress class="pl-hq-meter" max="100" value="40"' in body
         assert "Bottles" in body
 
-    def it_shows_the_empty_state_to_admins_and_nothing_to_anyone_else(open_hub, admin_client, member_client):
-        HubCardFactory(hub=open_hub, audience=HubCard.Audience.MEMBERS)
-        assert "data-hq-goals-empty" in admin_client.get(_page(open_hub)).content.decode()
-        member_body = member_client.get(_page(open_hub)).content.decode()
-        assert "data-hq-goals-empty" not in member_body
-        assert 'id="hq-goals-title"' not in member_body
+    def it_shows_the_empty_state_with_no_goals(open_hub):
+        body = _visit(open_hub).content.decode()
+
+        assert 'id="hq-goals-title"' in body
+        assert "data-hq-goals-empty" in body
 
 
 def describe_bottles_by_type():
@@ -266,8 +268,7 @@ def describe_bottles_by_type():
     def it_keeps_the_page_to_a_fixed_number_of_queries_as_bottles_grow(open_hub, django_assert_num_queries):
         HubGoalFactory(hub=open_hub, kind=HubGoal.Kind.BOTTLES, target=100)
         WineBottleFactory(hub=open_hub)
-        _everyone_door(open_hub)
-        client = Client()
+        client = _officer()
         client.get(_page(open_hub))  # warm the session and the site configuration
         with CaptureQueriesContext(connection) as first:
             client.get(_page(open_hub))
@@ -289,9 +290,9 @@ def describe_the_tile_icons():
         ],
     )
     def it_gives_each_kind_its_own_tile_icon(open_hub, kind, mark):
-        card = HubCardFactory(hub=open_hub, kind=kind, audience=HubCard.Audience.PUBLIC)
+        card = HubCardFactory(hub=open_hub, kind=kind)
 
-        body = Client().get(_page(open_hub)).content.decode()
+        body = _officer().get(_page(open_hub)).content.decode()
         door = body.split(f'data-hq-card-pk="{card.pk}"')[1].split("</div>")[0]
 
         assert 'class="pl-hq-card__tile"' in door
@@ -306,14 +307,13 @@ def describe_the_doors():
         card = HubCardFactory(
             hub=open_hub,
             kind=HubCard.Kind.RSVP,
-            audience=HubCard.Audience.PUBLIC,
             who_for="Members and guests",
             title="Going to the Bizarre?",
             bullets="Tell us you're coming\n\nGet email updates\n",
             button_text="I'm going",
         )
 
-        body = Client().get(_page(open_hub)).content.decode()
+        body = _officer().get(_page(open_hub)).content.decode()
         door = body.split(f'data-hq-card-pk="{card.pk}"')[1].split("</a>")[0]
 
         assert card.url == f"{reverse('hub_event_detail', args=[event.pk])}?from=hq"
@@ -326,9 +326,9 @@ def describe_the_doors():
         assert 'class="pl-hq-card__button">I&#x27;m going</span>' in door
 
     def it_renders_a_placeholder_as_a_tile_that_links_nowhere(open_hub):
-        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.PLACEHOLDER, audience=HubCard.Audience.PUBLIC)
+        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.PLACEHOLDER)
 
-        body = Client().get(_page(open_hub)).content.decode()
+        body = _officer().get(_page(open_hub)).content.decode()
         door = body.split(f'data-hq-card-pk="{card.pk}"')[1].split("</div>")[0]
 
         assert card.url == ""
@@ -338,9 +338,9 @@ def describe_the_doors():
         assert '<rect x="8" y="2" width="8" height="4"' in door  # the clipboard icon
 
     def it_links_the_wine_wall_card_to_the_wall(open_hub):
-        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.WINE_WALL, audience=HubCard.Audience.PUBLIC)
+        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.WINE_WALL)
 
-        body = Client().get(_page(open_hub)).content.decode()
+        body = _officer().get(_page(open_hub)).content.decode()
         door = body.split(f'data-hq-card-pk="{card.pk}"')[1].split("</div>")[0]
 
         assert card.url == reverse("hq:wine", args=[open_hub.slug])
@@ -348,42 +348,36 @@ def describe_the_doors():
         assert "data-hq-card-placeholder" not in door
 
     def it_renders_the_rsvp_card_as_a_tile_while_the_hub_has_no_event(open_hub):
-        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.RSVP, audience=HubCard.Audience.PUBLIC)
+        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.RSVP)
 
-        body = Client().get(_page(open_hub)).content.decode()
+        body = _officer().get(_page(open_hub)).content.decode()
 
         assert card.url == ""
         assert "data-hq-card-placeholder" in body
         assert "data-hq-card-link" not in body
 
-    def it_shows_who_can_open_each_card_to_an_admin(open_hub, admin_client, member):
-        HubCardFactory(hub=open_hub, audience=HubCard.Audience.MEMBERS, team=[member])
+    def it_gives_every_card_an_edit_link_and_no_share_link(open_hub):
+        card = HubCardFactory(hub=open_hub)
 
-        body = admin_client.get(_page(open_hub)).content.decode()
+        body = _visit(open_hub).content.decode()
 
-        assert "Members · 1 person</span>" in body
+        assert reverse("hq:card_edit", args=[open_hub.slug, card.pk]) in body
+        assert "data-hq-card-share" not in body
+        assert "pl-hq-door__audience" not in body
 
-    def it_is_a_404_for_a_visitor_or_member_with_no_open_door(open_hub, member_client, admin_client):
-        HubCardFactory(hub=open_hub, audience=HubCard.Audience.ADMINS)
+    def it_says_when_the_hq_has_no_doors(open_hub):
+        assert "data-hq-doors-empty" in _visit(open_hub).content.decode()
 
-        assert Client().get(_page(open_hub)).status_code == 404
-        assert member_client.get(_page(open_hub)).status_code == 404
-        assert admin_client.get(_page(open_hub)).status_code == 200
-
-    def it_tells_an_admin_when_the_hq_has_no_doors(open_hub, admin_client):
-        assert "data-hq-doors-empty" in admin_client.get(_page(open_hub)).content.decode()
-
-    def it_keeps_its_queries_flat_however_many_doors_and_people(open_hub, admin_client, make_member):
+    def it_keeps_its_queries_flat_however_many_doors(open_hub, officer_client):
         def render() -> int:
             with CaptureQueriesContext(connection) as queries:
-                assert admin_client.get(_page(open_hub)).status_code == 200
+                assert officer_client.get(_page(open_hub)).status_code == 200
             return len(queries)
 
-        HubCardFactory(hub=open_hub, team=[make_member()])
+        HubCardFactory(hub=open_hub)
         render()  # the first visit pays for session and sign in bookkeeping; measure the second
         few = render()
-        for _ in range(4):
-            HubCardFactory(hub=open_hub, team=[make_member(), make_member()])
+        HubCardFactory.create_batch(4, hub=open_hub)
 
         assert render() == few
 

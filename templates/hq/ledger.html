@@ -4,8 +4,8 @@
 The PL Ledger (Track D, part 6a), in the look of Lee's ledger page and in her order: the header with her title and
 line, the board summary (the approval, used, left and sponsored, the meter, her board paragraph, Copy board summary,
 the CSV and the approval form), the budget lines, Log a sponsor or expense, the ledger with its filters, and the
-receipts report, then (D6b) Drink sales and the Wine Wall's tickets. Organisers only: the view's gate is the card's
-audience and then a 403 for anyone who does not organise it, because this is the event's money. D6c puts the running
+receipts report, then (D6b) Drink sales and the Wine Wall's tickets. Only those who run the HQ reach it
+(hq.access.hq_gate), because this is the event's money. D6c puts the running
 tally and the goals over the board summary, Attendance and vendors between Drink sales and the Wine Wall (Lee's order),
 and after the Wine Wall the launch checklist, Staff time, Guild demos, Volunteer hours and the Event flyer. Every figure
 they show is read from the door it lives on. Over it all, Lee's section bar (← HQ, the doors open to the viewer and a
@@ -85,7 +85,7 @@ jump to each section); at the foot, her nonprofit line.
 
   <p class="pl-hq-lg__muted pl-hq-lg__footer" data-hq-lg-footer>{{ footer }}</p>
 
-  {# The team the Owner, Who and Contacted by boxes suggest: the ledger card's Team. #}
+  {# The names the Owner, Who and Contacted by boxes suggest: the guild officers. #}
   <datalist id="{{ team_list_id }}" data-hq-lg-team>{% for name in team_names %}<option value="{{ name }}"></option>{% endfor %}</datalist>
 </div>
 {% endblock %}

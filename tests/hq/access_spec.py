@@ -1,5 +1,8 @@
-"""Who may open the HQ and its cards (Track C, part 1): the audience matrix, hidden cards,
-a closed hub, the login redirect, the organiser gate and where /hq/ sends each viewer."""
+"""Who may open the HQ (#1307): admins and every ACTIVE guild officer run all of it; nobody else reaches any of it.
+
+The rule (``hq.access.can_run_hq``), the one gate on every HQ URL (``hq_gate``), hidden cards, a closed hub, where
+/hq/ sends each viewer, and the effective role for rendering against the actual role for acting.
+"""
 
 from __future__ import annotations
 
@@ -7,25 +10,23 @@ from typing import Any
 
 import pytest
 from django.contrib.auth.models import AnonymousUser
-from django.core.exceptions import PermissionDenied
 from django.http import Http404, HttpRequest, HttpResponse
 from django.test import Client, RequestFactory
-from django.urls import reverse
+from django.urls import URLPattern, reverse
 
 from hq import access
-from hq.access import SignInRequired, card_or_404, card_view, hub_or_404, organizer_required
-from hq.models import HubCard
+from hq import urls as hq_urls
+from hq.access import can_run_hq, hq_gate, officers
+from hq.models import EventHub, HubCard
 from hub.view_as import ROLE_GUEST, ROLE_MEMBER, ViewAs
 from membership.models import Member
 from tests.hq.conftest import signed_in
 from tests.hq.factories import EventHubFactory, HubCardFactory
+from tests.membership.factories import GuildFactory, GuildStaffMembershipFactory
 
 pytestmark = pytest.mark.django_db
 
-PUBLIC = HubCard.Audience.PUBLIC
-MEMBERS = HubCard.Audience.MEMBERS
-ADMINS = HubCard.Audience.ADMINS
-GUEST = Member.Status.GUEST
+LOGIN = "/accounts/login/"
 
 
 def _page(hub: Any) -> str:
@@ -36,285 +37,237 @@ def _marker(card: Any) -> str:
     return f'data-hq-card-pk="{card.pk}"'
 
 
-def _request(user: Any, path: str = "/hq/", picked: str | None = None) -> HttpRequest:
+def _request(user: Any, method: str = "get", picked: str | None = None) -> HttpRequest:
     """A request with ``view_as`` set the way ViewAsMiddleware does, optionally previewing ``picked``."""
-    request = RequestFactory().get(path)
+    request = getattr(RequestFactory(), method)("/hq/spec/")
     request.user = user
     actual = ViewAs.for_request(request).actual
     request.view_as = ViewAs(actual=actual, picked=picked)  # type: ignore[attr-defined]
     return request
 
 
+def _preview(client: Client, role: str) -> None:
+    session = client.session
+    session["view_as_role"] = role
+    session.save()
+
+
+def _every_hq_url(hub: EventHub) -> list[str]:
+    """Every URL the hq app serves, for ``hub``: a missing pk is 1 and the flyer slot is this year's."""
+    values = {"slug": hub.slug, "pk": 1, "shift_pk": 1, "slot": "flyer"}
+    found = []
+    for pattern in hq_urls.urlpatterns:
+        assert isinstance(pattern, URLPattern)
+        names = pattern.pattern.regex.groupindex
+        found.append(reverse(f"hq:{pattern.name}", kwargs={name: values[name] for name in names}))
+    return found
+
+
 @pytest.fixture
-def doors(open_hub):
-    """One door per audience, plus a hidden public one."""
-    return {
-        "public": HubCardFactory(hub=open_hub, audience=PUBLIC),
-        "members": HubCardFactory(hub=open_hub, audience=MEMBERS),
-        "admins": HubCardFactory(hub=open_hub, audience=ADMINS),
-        "hidden": HubCardFactory(hub=open_hub, audience=PUBLIC, is_hidden=True),
-    }
+def lees_hq() -> EventHub:
+    """The open hub with all of Lee's doors on it, the way prod holds them."""
+    hub = EventHubFactory(is_open=True, slug="holiday-bizarre-2026", title="Holiday Bizarre HQ")
+    hub.seed_default_cards()
+    return hub
+
+
+def describe_can_run_hq():
+    def it_admits_an_admin_with_or_without_a_member_record():
+        assert can_run_hq(None, is_admin=True)
+
+    def it_admits_an_active_guild_lead_and_an_active_guild_staff_member(make_officer):
+        assert can_run_hq(make_officer(), is_admin=False)
+        assert can_run_hq(make_officer(staff=True), is_admin=False)
+
+    def it_refuses_a_member_who_leads_or_staffs_no_guild(member):
+        assert not can_run_hq(member, is_admin=False)
+
+    def it_refuses_signed_out(db):
+        assert not can_run_hq(None, is_admin=False)
+
+    @pytest.mark.parametrize(
+        "status", [Member.Status.GUEST, Member.Status.INVITED, Member.Status.FORMER, Member.Status.SUSPENDED]
+    )
+    def it_refuses_a_guild_officer_who_is_not_active(make_officer, status):
+        assert not can_run_hq(make_officer(status=status), is_admin=False)
+
+
+def describe_officers():
+    def it_lists_every_active_lead_and_staff_member_once(make_officer, make_member, member):
+        lead = make_officer(preferred_name="Kate")
+        staff = make_officer(staff=True, preferred_name="Sam")
+        GuildFactory(guild_lead=lead)  # leads two guilds, still listed once
+        GuildStaffMembershipFactory(member=lead)
+        make_officer(status=Member.Status.FORMER)
+
+        assert list(officers()) == [lead, staff]
 
 
 def describe_the_hq_page():
-    @pytest.mark.parametrize(
-        ("viewer", "sees"),
-        [
-            ("anonymous", {"public"}),
-            ("guest", {"public"}),
-            ("member", {"public", "members"}),
-            ("named", {"public", "members", "admins"}),
-            ("admin", {"public", "members", "admins", "hidden"}),
-        ],
-    )
-    def it_shows_each_door_to_exactly_who_its_audience_names(make_member, open_hub, doors, viewer, sees):
-        clients = {
-            "anonymous": Client(),
-            "guest": signed_in(make_member(status=GUEST)),
-            "member": signed_in(make_member()),
-            "admin": signed_in(make_member(fog_role=Member.FogRole.ADMIN)),
-        }
-        named = make_member()
-        doors["admins"].team.add(named)
-        clients["named"] = signed_in(named)
+    def it_gives_a_guild_lead_every_card_with_edit_and_edit_hq(lees_hq, officer_client):
+        response = officer_client.get(_page(lees_hq))
 
-        body = clients[viewer].get(_page(open_hub)).content.decode()
+        assert response.status_code == 200
+        body = response.content.decode()
+        for card in lees_hq.cards.all():
+            assert _marker(card) in body
+            assert reverse("hq:card_edit", args=[lees_hq.slug, card.pk]) in body
+        assert "data-hq-edit" in body
+        assert "data-hq-card-share" not in body
+        assert "Admins only" not in body
 
-        for key, card in doors.items():
-            assert (_marker(card) in body) is (key in sees), (viewer, key)
+    def it_opens_every_door_the_hq_page_links_for_a_guild_lead(lees_hq, officer_client):
+        urls = [card.url for card in lees_hq.cards.all() if card.url]
 
-    def it_marks_a_hidden_door_for_an_admin_and_never_links_it_for_anyone_else(admin_client, member_client, doors):
-        admin_body = admin_client.get(_page(doors["hidden"].hub)).content.decode()
-        member_body = member_client.get(_page(doors["hidden"].hub)).content.decode()
+        assert len(urls) == lees_hq.cards.count() - 1  # the RSVP door is blank with no event linked
+        for url in urls:
+            assert officer_client.get(url).status_code == 200, url
 
-        assert "data-hq-hidden-chip" in admin_body
-        assert _marker(doors["hidden"]) not in member_body
-        assert "data-hq-hidden-chip" not in member_body
+    def it_gives_a_guild_staff_member_the_same_page(lees_hq, make_officer):
+        assert signed_in(make_officer(staff=True)).get(_page(lees_hq)).status_code == 200
 
-    def it_gives_edit_links_and_the_edit_action_to_admins_only(admin_client, member_client, doors):
-        hub = doors["public"].hub
+    def it_is_a_404_for_a_member_who_leads_or_staffs_no_guild(lees_hq, member_client):
+        assert member_client.get(_page(lees_hq)).status_code == 404
 
-        admin_body = admin_client.get(_page(hub)).content.decode()
-        member_body = member_client.get(_page(hub)).content.decode()
+    def it_sends_a_signed_out_visitor_through_login_and_back(lees_hq):
+        response = Client().get(_page(lees_hq))
 
-        assert "data-hq-edit" in admin_body
-        assert reverse("hq:card_edit", args=[hub.slug, doors["public"].pk]) in admin_body
-        assert "data-hq-edit" not in member_body
-        assert "data-hq-card-edit" not in member_body
+        assert response.status_code == 302
+        assert response["Location"].startswith(LOGIN)
+        assert _page(lees_hq) in response["Location"]
 
-    def it_renders_what_a_previewed_role_would_see(admin_client, doors):
-        """An admin previewing as Guest sees the public doors and no Edit; the actual role is untouched."""
-        session = admin_client.session
-        session["view_as_role"] = ROLE_GUEST
-        session.save()
+    def it_takes_the_hq_away_on_the_next_request_once_they_stop_leading(lees_hq, officer, officer_client):
+        assert officer_client.get(_page(lees_hq)).status_code == 200
 
-        body = admin_client.get(_page(doors["public"].hub)).content.decode()
+        officer.led_guilds.update(guild_lead=None)
 
-        assert _marker(doors["public"]) in body
-        assert _marker(doors["members"]) not in body
-        assert _marker(doors["admins"]) not in body
-        assert "data-hq-edit" not in body
+        assert officer_client.get(_page(lees_hq)).status_code == 404
 
-    def it_keeps_a_members_door_from_an_admin_previewing_as_a_member_who_is_one(admin_client, doors):
-        session = admin_client.session
-        session["view_as_role"] = ROLE_MEMBER
-        session.save()
+    def it_lets_an_officer_hide_a_card_and_still_see_open_and_unhide_it(lees_hq, officer_client, admin_client):
+        card = lees_hq.cards.get(kind=HubCard.Kind.LEDGER)
+        edit = reverse("hq:card_edit", args=[lees_hq.slug, card.pk])
+        words = {"title": card.title, "who_for": card.who_for, "bullets": card.bullets, "button_text": card.button_text}
 
-        body = admin_client.get(_page(doors["members"].hub)).content.decode()
+        assert officer_client.post(edit, {**words, "is_hidden": "on"}).status_code == 302
+        card.refresh_from_db()
+        assert card.is_hidden
 
-        assert _marker(doors["members"]) in body
-        assert _marker(doors["admins"]) not in body
+        for client in (officer_client, admin_client):
+            body = client.get(_page(lees_hq)).content.decode()
+            door = body.split(_marker(card))[1].split("data-hq-card-pk=")[0]
+            assert "data-hq-hidden-chip" in door
+            assert client.get(card.url).status_code == 200
+            assert client.get(edit).status_code == 200
+
+        assert officer_client.post(edit, words).status_code == 302
+        card.refresh_from_db()
+        assert not card.is_hidden
+
+    @pytest.mark.parametrize("role", [ROLE_MEMBER, ROLE_GUEST])
+    def it_shows_an_admin_previewing_below_admin_the_404_that_viewer_gets(lees_hq, admin_client, role):
+        _preview(admin_client, role)
+
+        assert admin_client.get(_page(lees_hq)).status_code == 404
+
+    def it_lets_an_admin_who_is_also_an_officer_preview_as_a_member(lees_hq, make_officer):
+        client = signed_in(make_officer(fog_role=Member.FogRole.ADMIN))
+        _preview(client, ROLE_MEMBER)
+
+        assert client.get(_page(lees_hq)).status_code == 200
+
+
+def describe_every_hq_url():
+    def it_is_a_404_for_a_member_who_is_no_officer_on_get_and_post(lees_hq, member_client):
+        for url in _every_hq_url(lees_hq):
+            assert member_client.get(url).status_code in {404, 405}, url
+            assert member_client.post(url).status_code in {404, 405}, url
+
+    def it_sends_a_signed_out_visitor_to_login_on_get_and_post(lees_hq):
+        client = Client()
+        for url in _every_hq_url(lees_hq):
+            for response in (client.get(url), client.post(url)):
+                if response.status_code == 405:
+                    continue
+                assert response.status_code == 302, url
+                assert response["Location"].startswith(LOGIN), url
+
+    def it_never_turns_an_officer_away(lees_hq, officer_client):
+        for url in _every_hq_url(lees_hq):
+            if "/1/" in url or "/download/" in url or "vendors/discord/" in url:
+                continue  # rows and files that do not exist are a 404 for anyone; Check Discord reads Discord
+            response = officer_client.get(url)
+
+            assert response.status_code in {200, 302, 405}, url
+            assert not response.get("Location", "").startswith(LOGIN), url
 
 
 def describe_a_closed_hub():
-    def it_is_a_404_for_everyone_but_an_admin(make_member, admin_client, member_client):
+    def it_opens_to_whoever_runs_the_hq_so_it_can_be_built_first(officer_client, admin_client, member_client):
         hub = EventHubFactory(is_open=False)
 
-        assert Client().get(_page(hub)).status_code == 404
-        assert member_client.get(_page(hub)).status_code == 404
-        assert signed_in(make_member(status=GUEST)).get(_page(hub)).status_code == 404
+        assert officer_client.get(_page(hub)).status_code == 200
         assert admin_client.get(_page(hub)).status_code == 200
+        assert member_client.get(_page(hub)).status_code == 404
 
-    def it_is_a_404_for_an_admin_previewing_below_admin(admin_client):
-        hub = EventHubFactory(is_open=False)
-        session = admin_client.session
-        session["view_as_role"] = ROLE_MEMBER
-        session.save()
-
-        assert admin_client.get(_page(hub)).status_code == 404
-
-    def it_404s_an_unknown_slug(admin_client):
-        assert admin_client.get(reverse("hq:page", args=["nowhere"])).status_code == 404
-
-    def it_resolves_through_hub_or_404(admin, member):
-        hub = EventHubFactory(is_open=False)
-
-        assert hub_or_404(hub.slug, _request(admin.user)) == hub
-        with pytest.raises(Http404):
-            hub_or_404(hub.slug, _request(member.user))
-        with pytest.raises(Http404):
-            hub_or_404("nowhere", _request(admin.user))
+    def it_404s_an_unknown_slug(officer_client):
+        assert officer_client.get(reverse("hq:page", args=["no-such-hq"])).status_code == 404
 
 
 def describe_index():
-    def it_sends_everyone_to_the_open_hub(open_hub, admin_client, member_client):
-        for client in (Client(), member_client, admin_client):
+    def it_sends_whoever_runs_the_hq_to_the_open_hub(open_hub, officer_client, admin_client):
+        for client in (officer_client, admin_client):
             response = client.get(reverse("hq:index"))
+
             assert response.status_code == 302
-            assert response["Location"] == _page(open_hub)
+            assert response["Location"] == open_hub.get_absolute_url()
 
-    def it_sends_an_admin_to_the_closed_hub_when_none_is_open(admin_client):
-        closed = EventHubFactory(is_open=False)
+    def it_sends_them_to_the_newest_closed_hub_when_none_is_open(officer_client):
+        EventHubFactory(is_open=False, slug="older")
+        newest = EventHubFactory(is_open=False, slug="newer")
 
-        response = admin_client.get(reverse("hq:index"))
+        assert officer_client.get(reverse("hq:index"))["Location"] == newest.get_absolute_url()
 
-        assert response.status_code == 302
-        assert response["Location"] == _page(closed)
+    def it_sends_them_to_load_lees_hq_when_there_is_none(officer_client):
+        assert officer_client.get(reverse("hq:index"))["Location"] == reverse("hq:setup")
 
-    def it_sends_an_admin_to_load_lees_hq_when_there_is_none(admin_client):
-        response = admin_client.get(reverse("hq:index"))
-
-        assert response.status_code == 302
-        assert response["Location"] == reverse("hq:setup")
-
-    def it_404s_everyone_else_when_none_is_open(member_client, make_member):
-        EventHubFactory(is_open=False)
-
-        assert Client().get(reverse("hq:index")).status_code == 404
+    def it_is_a_404_for_anyone_else(open_hub, member_client):
         assert member_client.get(reverse("hq:index")).status_code == 404
-        assert signed_in(make_member(status=GUEST)).get(reverse("hq:index")).status_code == 404
-
-    def it_404s_an_admin_previewing_as_a_member_when_none_is_open(admin_client):
-        session = admin_client.session
-        session["view_as_role"] = ROLE_MEMBER
-        session.save()
-
-        assert admin_client.get(reverse("hq:index")).status_code == 404
 
 
-def describe_card_or_404():
-    def it_returns_a_public_card_to_a_signed_out_visitor(doors):
-        card = card_or_404(doors["public"].hub, HubCard.Kind.PLACEHOLDER, _request(AnonymousUser()))
-
-        assert card == doors["public"]
-
-    def it_sends_a_signed_out_visitor_through_login_for_a_members_card(open_hub):
-        HubCardFactory(hub=open_hub, kind=HubCard.Kind.VOLUNTEERS, audience=MEMBERS)
-
-        with pytest.raises(SignInRequired):
-            card_or_404(open_hub, HubCard.Kind.VOLUNTEERS, _request(AnonymousUser()))
-
-    def it_404s_a_members_card_for_a_guest_account(open_hub, make_member):
-        HubCardFactory(hub=open_hub, kind=HubCard.Kind.VOLUNTEERS, audience=MEMBERS)
-
-        with pytest.raises(Http404):
-            card_or_404(open_hub, HubCard.Kind.VOLUNTEERS, _request(make_member(status=GUEST).user))
-
-    def it_returns_a_members_card_to_a_member(open_hub, member):
-        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.VOLUNTEERS, audience=MEMBERS)
-
-        assert card_or_404(open_hub, HubCard.Kind.VOLUNTEERS, _request(member.user)) == card
-
-    def it_404s_an_admins_card_for_a_member_but_not_for_a_named_member(open_hub, member, make_member):
-        named = make_member()
-        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.WINE_WALL, audience=ADMINS, team=[named])
-
-        with pytest.raises(Http404):
-            card_or_404(open_hub, HubCard.Kind.WINE_WALL, _request(member.user))
-        assert card_or_404(open_hub, HubCard.Kind.WINE_WALL, _request(named.user)) == card
-
-    def it_404s_a_hidden_card_for_anyone_but_an_admin(open_hub, member, admin):
-        card = HubCardFactory(hub=open_hub, kind=HubCard.Kind.VOLUNTEERS, audience=PUBLIC, is_hidden=True)
-
-        with pytest.raises(Http404):
-            card_or_404(open_hub, HubCard.Kind.VOLUNTEERS, _request(member.user))
-        with pytest.raises(Http404):
-            card_or_404(open_hub, HubCard.Kind.VOLUNTEERS, _request(AnonymousUser()))
-        assert card_or_404(open_hub, HubCard.Kind.VOLUNTEERS, _request(admin.user)) == card
-
-    def it_404s_a_kind_the_hub_does_not_have(open_hub, admin):
-        with pytest.raises(Http404):
-            card_or_404(open_hub, HubCard.Kind.WINE_WALL, _request(admin.user))
-
-    def it_hands_an_admin_previewing_as_guest_what_a_guest_account_gets(open_hub, admin):
-        """The preview is still a signed in request, so a members card is the guest account's 404, not the login page."""
-        HubCardFactory(hub=open_hub, kind=HubCard.Kind.VOLUNTEERS, audience=MEMBERS)
-
-        with pytest.raises(Http404):
-            card_or_404(open_hub, HubCard.Kind.VOLUNTEERS, _request(admin.user, picked=ROLE_GUEST))
+def _echo(request: HttpRequest, *, hub: Any, card: Any) -> HttpResponse:
+    return HttpResponse(f"{hub.slug}:{card.kind}")
 
 
-def describe_card_view():
-    def _view(request: HttpRequest, *, hub: Any, card: Any) -> HttpResponse:
-        return HttpResponse(f"{hub.slug}:{card.kind}")
+def describe_hq_gate():
+    def it_hands_the_hub_and_its_card_to_the_view(open_hub, officer):
+        HubCardFactory(hub=open_hub, kind=HubCard.Kind.LEDGER)
+        view = hq_gate(HubCard.Kind.LEDGER)(_echo)
 
-    def it_hands_the_hub_and_card_to_the_view(open_hub, member):
-        HubCardFactory(hub=open_hub, kind=HubCard.Kind.VOLUNTEERS, audience=MEMBERS)
-        wrapped = card_view(HubCard.Kind.VOLUNTEERS)(_view)
+        response = view(_request(officer.user), slug=open_hub.slug)
 
-        response = wrapped(_request(member.user), slug=open_hub.slug)
-
-        assert response.content == f"{open_hub.slug}:volunteers".encode()
-
-    def it_sends_a_signed_out_visitor_to_login_and_back(open_hub):
-        HubCardFactory(hub=open_hub, kind=HubCard.Kind.VOLUNTEERS, audience=MEMBERS)
-        wrapped = card_view(HubCard.Kind.VOLUNTEERS)(_view)
-        path = f"/hq/{open_hub.slug}/volunteers/"
-
-        response = wrapped(_request(AnonymousUser(), path=path), slug=open_hub.slug)
-
-        assert response.status_code == 302
-        assert response["Location"] == f"/accounts/login/?next={path}"
-
-
-def describe_organizer_required():
-    def _view(request: HttpRequest, *, hub: Any, card: Any) -> HttpResponse:
-        return HttpResponse("ok")
-
-    def it_admits_an_admin_by_actual_role_even_while_previewing(open_hub, admin):
-        HubCardFactory(hub=open_hub, kind=HubCard.Kind.WINE_WALL)
-        wrapped = organizer_required(HubCard.Kind.WINE_WALL)(_view)
-
-        assert wrapped(_request(admin.user, picked=ROLE_MEMBER), slug=open_hub.slug).status_code == 200
-
-    def it_admits_an_actual_admin_to_a_closed_hub_while_previewing_as_a_member(admin):
-        """Actions read the actual role, so a preview never hides an HQ an admin is still building."""
-        closed = EventHubFactory(is_open=False)
-        HubCardFactory(hub=closed, kind=HubCard.Kind.WINE_WALL)
-        wrapped = organizer_required(HubCard.Kind.WINE_WALL)(_view)
-
-        assert wrapped(_request(admin.user, picked=ROLE_MEMBER), slug=closed.slug).status_code == 200
-
-    def it_keeps_a_closed_hub_from_a_named_member(make_member):
-        named = make_member()
-        closed = EventHubFactory(is_open=False)
-        HubCardFactory(hub=closed, kind=HubCard.Kind.WINE_WALL, team=[named])
-        wrapped = organizer_required(HubCard.Kind.WINE_WALL)(_view)
-
-        with pytest.raises(Http404):
-            wrapped(_request(named.user), slug=closed.slug)
-
-    def it_admits_a_named_member(open_hub, make_member):
-        named = make_member()
-        HubCardFactory(hub=open_hub, kind=HubCard.Kind.WINE_WALL, team=[named])
-        wrapped = organizer_required(HubCard.Kind.WINE_WALL)(_view)
-
-        assert wrapped(_request(named.user), slug=open_hub.slug).status_code == 200
-
-    def it_refuses_anyone_else_with_a_403(open_hub, member):
-        HubCardFactory(hub=open_hub, kind=HubCard.Kind.WINE_WALL, audience=PUBLIC)
-        wrapped = organizer_required(HubCard.Kind.WINE_WALL)(_view)
-
-        with pytest.raises(PermissionDenied):
-            wrapped(_request(member.user), slug=open_hub.slug)
-        with pytest.raises(PermissionDenied):
-            wrapped(_request(AnonymousUser()), slug=open_hub.slug)
+        assert response.content == f"{open_hub.slug}:ledger".encode()
 
     def it_404s_a_card_the_hub_does_not_have(open_hub, admin):
-        wrapped = organizer_required(HubCard.Kind.WINE_WALL)(_view)
+        view = hq_gate(HubCard.Kind.LEDGER)(lambda request, **kwargs: HttpResponse("ok"))
 
         with pytest.raises(Http404):
-            wrapped(_request(admin.user), slug=open_hub.slug)
+            view(_request(admin.user), slug=open_hub.slug)
+
+    def it_reads_the_actual_role_to_act_and_the_effective_role_to_render(open_hub, admin):
+        view = hq_gate()(lambda request, **kwargs: HttpResponse("ok"))
+
+        assert view(_request(admin.user, method="post", picked=ROLE_GUEST)).status_code == 200
+        with pytest.raises(Http404):
+            view(_request(admin.user, picked=ROLE_GUEST))
+
+    def it_hands_a_hidden_card_to_an_officer_on_get_and_post(open_hub, officer):
+        HubCardFactory(hub=open_hub, kind=HubCard.Kind.LEDGER, is_hidden=True)
+        view = hq_gate(HubCard.Kind.LEDGER)(_echo)
+
+        for method in ("get", "post"):
+            response = view(_request(officer.user, method=method), slug=open_hub.slug)
+
+            assert response.content == f"{open_hub.slug}:ledger".encode()
 
 
 def describe_viewer_member():
@@ -326,7 +279,5 @@ def describe_viewer_member():
         assert access.viewer_member(_request(admin.user, picked=ROLE_GUEST)) is None
         assert access.viewer_member(_request(admin.user, picked=ROLE_MEMBER)) == admin
 
-    def it_is_the_guest_account_itself_for_a_real_guest(make_member):
-        guest = make_member(status=GUEST)
-
-        assert access.viewer_member(_request(guest.user)) == guest
+    def it_is_nobody_acting_while_signed_out(db):
+        assert access.actual_member(_request(AnonymousUser())) is None

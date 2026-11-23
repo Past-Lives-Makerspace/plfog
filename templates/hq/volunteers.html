@@ -5,9 +5,8 @@ The volunteer sign-up page (Track C, part 2), in the look of Lee's sheet: a head
 hub's name and date line, a navy band with the people count, the spots meter and the most
 needed shift, then 1. Your Info (kept in the session, prefilled for a member) and 2. Pick Your
 Shifts by phase. Sign Me Up and Remove Me post over htmx and get the refreshed row and band
-back with a toast; a plain post lands back here with a message. Organisers (admins and the
-card's Team) get the roster at the foot. No login gate of its own: card_view decides
-who may open the page.
+back with a toast; a plain post lands back here with a message. The roster sits at the foot:
+everyone who reaches the page runs the HQ (hq.access.hq_gate).
 {% endcomment %}
 {% block title %}{{ card.title }}{% endblock %}
 {% block extra_head %}
@@ -85,11 +84,9 @@ who may open the page.
   </section>
   {% endif %}
 
-  {% if can_organize %}
   <section class="pl-hq-vol__section" aria-labelledby="hq-vol-roster-title" data-hq-vol-organizers>
     <h2 class="pl-hq-vol__h2" id="hq-vol-roster-title">Roster</h2>
     {% include "hq/partials/_roster.html" with hub=hub roster=roster roster_emails=roster_emails %}
   </section>
-  {% endif %}
 </div>
 {% endblock %}

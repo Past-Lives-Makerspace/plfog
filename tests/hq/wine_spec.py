@@ -1,7 +1,9 @@
-"""The wine wall (Track C, part 3): logging a bottle with or without a photo, the guests'
-honeypot and rate limit, deleting by the logger or an organiser, the band and the goals it
-feeds, the wineries with their logos, the organisers' donors table and CSV, and the wine
-wall card now linking to its page."""
+"""The wine wall (Track C, part 3): logging a bottle with or without a photo, the honeypot and
+rate limit for someone with no member record, deleting, the band and the goals it feeds, the
+wineries with their logos, the donors table and CSV, and the wine wall card linking to its page.
+
+Only admins and guild officers reach the wall (#1307), and every one of them may take any bottle
+off. Every account has a member record, so a bottle is always logged by a member."""
 
 from __future__ import annotations
 
@@ -20,18 +22,17 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from PIL import Image
 
-from core.abuse_limits import keyed_within_limits
 from hq import services
 from hq.forms import WineBottleForm
 from hq.models import HubCard, HubGoal, WineBottle, WineryLogo, format_money
 from hq.services import KindCount, goal_rows
 from hub.view_as import ROLE_GUEST
 from tests.hq.conftest import photo_upload, signed_in
+from tests.membership.factories import GuildFactory, MemberFactory
 from tests.hq.factories import HubCardFactory, HubGoalFactory, WineBottleFactory, WineryLogoFactory
 
 pytestmark = pytest.mark.django_db
 
-PUBLIC = HubCard.Audience.PUBLIC
 BOTTLE = {
     "kind": "red",
     "name": "2021 Pinot Noir",
@@ -69,22 +70,19 @@ def _csv_url(hub: Any) -> str:
 
 @pytest.fixture
 def card(open_hub):
-    return HubCardFactory(hub=open_hub, kind=HubCard.Kind.WINE_WALL, audience=PUBLIC, title="Log a wine bottle")
+    return HubCardFactory(hub=open_hub, kind=HubCard.Kind.WINE_WALL, title="Log a wine bottle")
 
 
-def _guest_with_info(hub: Any, email: str = "pat@example.com", name: str = "Pat Guest") -> Client:
-    """A signed out browser that saved the Your Info step on the volunteer page (made public if needed)."""
-    if not hub.cards.filter(kind=HubCard.Kind.VOLUNTEERS).exists():
-        HubCardFactory(hub=hub, kind=HubCard.Kind.VOLUNTEERS, audience=PUBLIC)
-    client = Client()
-    response = client.post(reverse("hq:volunteer_info", args=[hub.slug]), {"name": name, "email": email})
-    assert response.status_code == 302
-    return client
+def _officer() -> Client:
+    """A browser signed in as a fresh guild lead, who runs the HQ."""
+    member = MemberFactory()
+    GuildFactory(guild_lead=member)
+    return signed_in(member)
 
 
 def describe_logging_a_bottle():
-    def it_logs_a_members_bottle_with_a_photo_resized_under_the_media_root(card, member, settings):
-        client = signed_in(member)
+    def it_logs_a_members_bottle_with_a_photo_resized_under_the_media_root(card, officer, settings):
+        client = signed_in(officer)
 
         response = client.post(_wall(card.hub), {**BOTTLE, "photo": photo_upload("bottle.jpg", size=(3200, 2400))})
 
@@ -95,9 +93,9 @@ def describe_logging_a_bottle():
         assert (bottle.value_cents, bottle.qty, bottle.value_total_cents) == (2500, 1, 2500)
         assert (bottle.giver_name, bottle.giver_type, bottle.giver_email) == ("Pat Giver", "person", "pat@example.com")
         assert (bottle.listing, bottle.credited_name, bottle.note) == ("yes", "Lee", "")
-        assert bottle.logged_by == member
-        assert bottle.logged_by_name == member.display_name
-        assert bottle.logged_by_email == member.primary_email
+        assert bottle.logged_by == officer
+        assert bottle.logged_by_name == officer.display_name
+        assert bottle.logged_by_email == officer.primary_email
         assert bottle.photo.name.startswith("hq/bottles/")
         assert bottle.photo.path.startswith(settings.MEDIA_ROOT)
         with Image.open(bottle.photo.path) as image:
@@ -107,51 +105,21 @@ def describe_logging_a_bottle():
         assert f'src="{bottle.photo.url}" alt="" loading="lazy" data-hq-bottle-photo' in body
         assert str(bottle) == "2021 Pinot Noir (Abacela)"
 
-    def it_logs_a_guests_bottle_without_a_photo(card):
-        client = Client()
+    def it_prefills_the_credited_volunteer_with_the_members_name(card, make_officer):
+        officer = make_officer(preferred_name="Lee")
 
-        response = client.post(_wall(card.hub), BOTTLE)
-
-        assert response.status_code == 302
-        bottle = WineBottle.objects.get()
-        assert not bottle.photo
-        assert bottle.logged_by is None
-        assert (bottle.logged_by_name, bottle.logged_by_email) == ("", "")
-        body = client.get(_wall(card.hub)).content.decode()
-        assert "data-hq-bottle-no-photo" in body
-        assert "data-hq-bottle-photo" not in body
-        assert "data-hq-wine-no-bottles" not in body
-
-    def it_prefills_the_credited_volunteer_with_the_members_name(card, make_member):
-        member = make_member(preferred_name="Lee")
-
-        body = signed_in(member).get(_wall(card.hub)).content.decode()
+        body = signed_in(officer).get(_wall(card.hub)).content.decode()
 
         assert 'name="credited_name" value="Lee"' in body
         assert 'name="website"' not in body
 
-    def it_prefills_a_guest_from_their_saved_your_info_step_and_keys_the_bottle_on_its_email(card):
-        client = _guest_with_info(card.hub)
-
-        body = client.get(_wall(card.hub)).content.decode()
-        client.post(_wall(card.hub), {**BOTTLE, "credited_name": ""})
-
-        assert 'name="credited_name" value="Pat Guest"' in body
-        assert 'name="website"' in body
-        bottle = WineBottle.objects.get()
-        assert (bottle.logged_by, bottle.logged_by_name, bottle.logged_by_email) == (
-            None,
-            "Pat Guest",
-            "pat@example.com",
-        )
-
     def it_refuses_a_quantity_below_one(card):
-        response = Client().post(_wall(card.hub), {**BOTTLE, "qty": "0"})
+        response = _officer().post(_wall(card.hub), {**BOTTLE, "qty": "0"})
 
         assert response.status_code == 200
         assert "pl-field-error" in response.content.decode()
         assert not WineBottle.objects.exists()
-        assert 'name="qty" value="1" min="1"' in Client().get(_wall(card.hub)).content.decode()
+        assert 'name="qty" value="1" min="1"' in _officer().get(_wall(card.hub)).content.decode()
         with pytest.raises(ValidationError, match="qty"):
             WineBottleFactory.build(hub=card.hub, qty=0).full_clean()
 
@@ -167,7 +135,7 @@ def describe_logging_a_bottle():
         assert isinstance(Decimal(form.cleaned_data["value"]), Decimal)
 
     def it_refuses_a_missing_name_and_reopens_the_form_with_the_error(card):
-        response = Client().post(_wall(card.hub), {**BOTTLE, "name": ""})
+        response = _officer().post(_wall(card.hub), {**BOTTLE, "name": ""})
 
         assert response.status_code == 200
         body = response.content.decode()
@@ -176,7 +144,7 @@ def describe_logging_a_bottle():
         assert not WineBottle.objects.exists()
 
     def it_starts_with_the_form_closed_behind_its_button(card):
-        body = Client().get(_wall(card.hub)).content.decode()
+        body = _officer().get(_wall(card.hub)).content.decode()
 
         assert 'x-data="{ open: false }"' in body
         assert 'x-show="open" x-cloak data-hq-wine-form' in body
@@ -186,7 +154,7 @@ def describe_logging_a_bottle():
     def it_refuses_a_file_that_is_not_an_image(card):
         bogus = SimpleUploadedFile("bottle.jpg", b"not a picture", content_type="image/jpeg")
 
-        response = Client().post(_wall(card.hub), {**BOTTLE, "photo": bogus})
+        response = _officer().post(_wall(card.hub), {**BOTTLE, "photo": bogus})
 
         assert response.status_code == 200
         assert "pl-field-error" in response.content.decode()
@@ -195,42 +163,24 @@ def describe_logging_a_bottle():
     def it_refuses_a_photo_over_the_cap(card, settings):
         settings.MAX_UPLOAD_IMAGE_BYTES = 10
 
-        response = Client().post(_wall(card.hub), {**BOTTLE, "photo": photo_upload("bottle.jpg")})
+        response = _officer().post(_wall(card.hub), {**BOTTLE, "photo": photo_upload("bottle.jpg")})
 
         assert response.status_code == 200
         assert "MB or smaller" in response.content.decode()
         assert not WineBottle.objects.exists()
 
     def it_writes_nothing_when_the_honeypot_is_filled(card):
-        response = Client().post(_wall(card.hub), {**BOTTLE, "website": "https://spam.example"})
+        response = _officer().post(_wall(card.hub), {**BOTTLE, "website": "https://spam.example"})
 
         assert response.status_code == 302
         assert response["Location"] == _wall(card.hub)
         assert not WineBottle.objects.exists()
 
-    def it_counts_guest_bottles_under_their_own_scope_and_refuses_past_the_cap(card):
-        cache.clear()
-        client = Client()
-
-        with patch("hq.services.RATE_HOURLY_LIMIT", 2):
-            first = client.post(_wall(card.hub), BOTTLE)
-            second = client.post(_wall(card.hub), BOTTLE)
-            third = client.post(_wall(card.hub), BOTTLE)
-
-        assert (first.status_code, second.status_code, third.status_code) == (302, 302, 200)
-        refused = third.content.decode()
-        assert "data-hq-wine-error" in refused
-        assert "Too many bottles from this connection" in refused
-        assert WineBottle.objects.count() == 2
-        assert services.RATE_SCOPE_BOTTLE == "hq_bottle"
-        assert not keyed_within_limits(services.RATE_SCOPE_BOTTLE, "127.0.0.1", hourly_limit=2, daily_limit=100)
-        assert keyed_within_limits(services.RATE_SCOPE, "127.0.0.1", hourly_limit=2, daily_limit=100)
-
-    def it_never_counts_a_member(card, member):
+    def it_never_counts_a_member(card, officer):
         cache.clear()
 
         with patch("hq.services.RATE_HOURLY_LIMIT", 0):
-            response = signed_in(member).post(_wall(card.hub), BOTTLE)
+            response = signed_in(officer).post(_wall(card.hub), BOTTLE)
 
         assert response.status_code == 302
         assert WineBottle.objects.count() == 1
@@ -240,34 +190,35 @@ def describe_logging_a_bottle():
 
         assert (bottle.giver_email, bottle.logged_by_email) == ("pat@example.com", "lee@example.com")
 
-    def it_renders_what_a_guest_sees_for_an_admin_previewing_as_guest(card, admin_client):
-        """Rendering reads the effective role; the donors page and the CSV keep the actual one."""
-        WineBottleFactory(hub=card.hub)
+    def it_shows_an_admin_previewing_as_a_guest_the_404(card, admin_client):
+        """Rendering reads the effective role, the donors page and the CSV too: they are GETs."""
         session = admin_client.session
         session["view_as_role"] = ROLE_GUEST
         session.save()
 
-        body = admin_client.get(_wall(card.hub)).content.decode()
+        for url in (_wall(card.hub), _donors_url(card.hub), _csv_url(card.hub)):
+            assert admin_client.get(url).status_code == 404, url
 
-        assert 'name="website"' in body
-        assert "data-hq-wine-organizers" not in body
-        assert "data-hq-logo-form" not in body
-        assert "data-hq-bottle-delete" not in body
-        assert admin_client.get(_donors_url(card.hub)).status_code == 200
-        assert admin_client.get(_csv_url(card.hub)).status_code == 200
+    def it_counts_bottles_posted_with_nobody_behind_them_and_refuses_past_the_cap(card, admin_client):
+        """A preview renders as the Guest but a post acts as the admin with no member behind it: the no-member path,
+        keyed on the connection."""
+        session = admin_client.session
+        session["view_as_role"] = ROLE_GUEST
+        session.save()
+        cache.clear()
 
-    def it_shows_a_bottles_note_to_organisers_and_the_logger_only(card, admin_client, member_client, make_member):
-        logger = make_member()
-        WineBottleFactory(hub=card.hub, logged_by=logger, note="Knows the giver personally")
-        named = make_member()
-        card.team.add(named)
+        with patch("hq.services.RATE_HOURLY_LIMIT", 2):
+            answers = [admin_client.post(_wall(card.hub), BOTTLE) for _ in range(3)]
 
-        for client in (signed_in(logger), admin_client, signed_in(named)):
-            assert "data-hq-bottle-note" in client.get(_wall(card.hub)).content.decode()
-        for client in (Client(), member_client):
-            body = client.get(_wall(card.hub)).content.decode()
-            assert "data-hq-bottle-note" not in body
-            assert "Knows the giver personally" not in body
+        assert [answer.status_code for answer in answers] == [302, 302, 200]
+        assert "Too many bottles from this connection" in answers[2].content.decode()
+        assert WineBottle.objects.filter(logged_by__isnull=True).count() == 2
+
+    def it_shows_every_bottles_note_to_whoever_runs_the_hq(card, admin_client, officer_client, make_member):
+        WineBottleFactory(hub=card.hub, logged_by=make_member(), note="Knows the giver personally")
+
+        for client in (admin_client, officer_client):
+            assert "data-hq-bottle-note>Knows the giver personally<" in client.get(_wall(card.hub)).content.decode()
         assert (
             "data-hq-donor-notes>Knows the giver personally<"
             in admin_client.get(_donors_url(card.hub)).content.decode()
@@ -305,7 +256,7 @@ def _browser_post(client: Client, url: str, photo_parts: list[tuple[str, bytes]]
 
 def describe_the_photo_field():
     def it_offers_take_a_photo_with_the_rear_camera_and_choose_a_photo(card):
-        body = Client().get(_wall(card.hub)).content.decode()
+        body = _officer().get(_wall(card.hub)).content.decode()
         form = body.split("data-hq-wine-form>")[1].split("</form>")[0]
 
         camera = form.split("data-image-field-take>")[1].split("</label>")[0]
@@ -323,7 +274,7 @@ def describe_the_photo_field():
         assert form.index("data-image-field-take") < form.index("image-upload-zone-id_photo")
 
     def it_keeps_one_preview_and_the_10_mb_check_for_both_inputs(card, settings):
-        body = Client().get(_wall(card.hub)).content.decode()
+        body = _officer().get(_wall(card.hub)).content.decode()
         form = body.split("data-hq-wine-form>")[1].split("</form>")[0]
 
         assert form.count('id="image-preview-id_photo"') == 1
@@ -344,8 +295,8 @@ def describe_the_photo_field():
         assert 'id="id_logo" accept="image/*" style="display:none;">' in logo_form  # the non-capture path is unchanged
         assert "preview.innerHTML = firstPreview" not in logo_form
 
-    def it_saves_a_photo_taken_with_the_camera(card, member):
-        response = _browser_post(signed_in(member), _wall(card.hub), [("camera.jpg", _jpeg()), ("", b"")])
+    def it_saves_a_photo_taken_with_the_camera(card, officer):
+        response = _browser_post(signed_in(officer), _wall(card.hub), [("camera.jpg", _jpeg()), ("", b"")])
 
         assert response.status_code == 302
         bottle = WineBottle.objects.get()
@@ -353,8 +304,8 @@ def describe_the_photo_field():
         with Image.open(bottle.photo.path) as image:
             assert image.size == (1600, 1200)
 
-    def it_saves_a_photo_chosen_from_the_phone(card, member):
-        response = _browser_post(signed_in(member), _wall(card.hub), [("", b""), ("chosen.jpg", _jpeg())])
+    def it_saves_a_photo_chosen_from_the_phone(card, officer):
+        response = _browser_post(signed_in(officer), _wall(card.hub), [("", b""), ("chosen.jpg", _jpeg())])
 
         assert response.status_code == 302
         bottle = WineBottle.objects.get()
@@ -362,16 +313,16 @@ def describe_the_photo_field():
         with Image.open(bottle.photo.path) as image:
             assert image.size == (1600, 1200)
 
-    def it_logs_a_bottle_with_neither_input_filled(card, member):
-        response = _browser_post(signed_in(member), _wall(card.hub), [("", b""), ("", b"")])
+    def it_logs_a_bottle_with_neither_input_filled(card, officer):
+        response = _browser_post(signed_in(officer), _wall(card.hub), [("", b""), ("", b"")])
 
         assert response.status_code == 302
         assert not WineBottle.objects.get().photo
 
-    def it_still_refuses_a_camera_photo_over_the_cap(card, member, settings):
+    def it_still_refuses_a_camera_photo_over_the_cap(card, officer, settings):
         settings.MAX_UPLOAD_IMAGE_BYTES = 100
 
-        response = _browser_post(signed_in(member), _wall(card.hub), [("camera.jpg", _jpeg()), ("", b"")])
+        response = _browser_post(signed_in(officer), _wall(card.hub), [("camera.jpg", _jpeg()), ("", b"")])
 
         assert response.status_code == 200
         assert not WineBottle.objects.exists()
@@ -382,64 +333,44 @@ def _jpeg() -> bytes:
 
 
 def describe_deleting():
-    def it_lets_the_logger_take_their_own_bottle_off_with_its_photo(card, member):
-        bottle = WineBottleFactory(hub=card.hub, logged_by=member, photo=photo_upload("bottle.jpg"))
+    def it_lets_the_logger_take_their_own_bottle_off_with_its_photo(card, officer):
+        bottle = WineBottleFactory(hub=card.hub, logged_by=officer, photo=photo_upload("bottle.jpg"))
         path = bottle.photo.path
         assert os.path.exists(path)
 
-        response = signed_in(member).post(_delete_url(bottle))
+        response = signed_in(officer).post(_delete_url(bottle))
 
         assert response.status_code == 302
         assert response["Location"] == _wall(card.hub)
         assert not WineBottle.objects.exists()
         assert not os.path.exists(path)
 
-    def it_lets_an_organiser_delete_any_bottle(card, admin_client, make_member):
-        named = make_member()
-        card.team.add(named)
+    def it_lets_whoever_runs_the_hq_delete_any_bottle(card, admin_client, officer_client, make_member):
         by_guest = WineBottleFactory(hub=card.hub)
         by_other = WineBottleFactory(hub=card.hub, logged_by=make_member())
 
         assert admin_client.post(_delete_url(by_guest)).status_code == 302
-        assert signed_in(named).post(_delete_url(by_other)).status_code == 302
+        assert officer_client.post(_delete_url(by_other)).status_code == 302
         assert not WineBottle.objects.exists()
 
-    def it_refuses_another_member_and_a_guest_with_a_403(card, member_client, make_member):
-        bottle = WineBottleFactory(hub=card.hub, logged_by=make_member())
-        by_guest = WineBottleFactory(hub=card.hub)
+    def it_refuses_a_member_who_runs_no_guild_and_a_signed_out_visitor(card, member_client):
+        bottle = WineBottleFactory(hub=card.hub)
 
-        assert member_client.post(_delete_url(bottle)).status_code == 403
-        assert Client().post(_delete_url(by_guest)).status_code == 403
-        assert WineBottle.objects.count() == 2
-        with pytest.raises(services.NotYourBottle):
-            services.delete_bottle(bottle, member=None, email="", is_organizer=False)
+        assert member_client.post(_delete_url(bottle)).status_code == 404
+        signed_out = Client().post(_delete_url(bottle))
+        assert signed_out.status_code == 302
+        assert "/accounts/login/" in signed_out["Location"]
+        assert WineBottle.objects.count() == 1
 
-    def it_lets_a_guest_delete_their_own_bottle_by_the_email_they_saved_and_nobody_elses(card):
-        pat = _guest_with_info(card.hub)
-        pat.post(_wall(card.hub), BOTTLE)
-        bottle = WineBottle.objects.get()
-        other = _guest_with_info(card.hub, email="other@example.com", name="Other Guest")
-
-        assert f"delete-bottle-{bottle.pk}" in pat.get(_wall(card.hub)).content.decode()
-        assert f"delete-bottle-{bottle.pk}" not in other.get(_wall(card.hub)).content.decode()
-        assert other.post(_delete_url(bottle)).status_code == 403
-        assert Client().post(_delete_url(bottle)).status_code == 403
-        assert WineBottle.objects.filter(pk=bottle.pk).exists()
-        assert pat.post(_delete_url(bottle)).status_code == 302
-        assert not WineBottle.objects.exists()
-
-    def it_offers_delete_to_the_logger_and_organisers_only(card, member, admin_client, make_member):
-        mine = WineBottleFactory(hub=card.hub, logged_by=member)
+    def it_offers_delete_on_every_bottle(card, officer_client, make_member):
+        mine = WineBottleFactory(hub=card.hub)
         theirs = WineBottleFactory(hub=card.hub, logged_by=make_member())
 
-        member_body = signed_in(member).get(_wall(card.hub)).content.decode()
-        admin_body = admin_client.get(_wall(card.hub)).content.decode()
+        body = officer_client.get(_wall(card.hub)).content.decode()
 
-        assert member_body.count("data-hq-bottle-delete") == 1
-        assert f"delete-bottle-{mine.pk}" in member_body
-        assert f"delete-bottle-{theirs.pk}" not in member_body
-        assert f'action="{_delete_url(mine)}"' in member_body
-        assert admin_body.count("data-hq-bottle-delete") == 2
+        assert body.count("data-hq-bottle-delete") == 2
+        assert f"delete-bottle-{theirs.pk}" in body
+        assert f'action="{_delete_url(mine)}"' in body
 
     def it_reads_the_actual_role_while_an_admin_previews(card, admin_client):
         bottle = WineBottleFactory(hub=card.hub)
@@ -457,36 +388,19 @@ def describe_deleting():
         assert admin_client.get(_delete_url(bottle)).status_code == 405
         assert admin_client.post(reverse("hq:bottle_delete", args=[card.hub.slug, elsewhere.pk])).status_code == 404
 
-    def it_can_be_deleted_by_the_logger_by_member_or_email_or_an_organiser(member, make_member):
-        bottle = WineBottleFactory(logged_by=member, logged_by_email="lee@example.com")
+    def it_can_be_deleted_by_the_logger_by_member_or_email_or_an_organiser(officer, make_member):
+        bottle = WineBottleFactory(logged_by=officer, logged_by_email="lee@example.com")
         guests = WineBottleFactory(logged_by_email="pat@example.com")
         nobodys = WineBottleFactory()
 
-        assert bottle.can_be_deleted_by(member, email="", is_organizer=False) is True
+        assert bottle.can_be_deleted_by(officer, email="", is_organizer=False) is True
         assert bottle.can_be_deleted_by(make_member(), email="", is_organizer=False) is False
         assert bottle.can_be_deleted_by(None, email=" LEE@example.com ", is_organizer=False) is False
         assert bottle.can_be_deleted_by(make_member(), email="lee@example.com", is_organizer=False) is False
         assert bottle.can_be_deleted_by(None, email="", is_organizer=True) is True
-        assert guests.can_be_deleted_by(member, email="other@example.com", is_organizer=False) is False
+        assert guests.can_be_deleted_by(officer, email="other@example.com", is_organizer=False) is False
         assert guests.can_be_deleted_by(None, email=" PAT@example.com ", is_organizer=False) is True
         assert nobodys.can_be_deleted_by(None, email="", is_organizer=False) is False
-
-    def it_never_hands_a_members_bottle_to_a_visitor_who_typed_their_email(card, member):
-        """A member's bottle is theirs or an organiser's; the email match is for guests' bottles only."""
-        signed_in(member).post(_wall(card.hub), BOTTLE)
-        members_bottle = WineBottle.objects.get()
-        impostor = _guest_with_info(card.hub, email=member.primary_email, name="Not Them")
-        impostor.post(_wall(card.hub), {**BOTTLE, "name": "Own bottle"})
-        own = WineBottle.objects.get(name="Own bottle")
-
-        assert members_bottle.logged_by_email == own.logged_by_email == member.primary_email
-        assert f"delete-bottle-{members_bottle.pk}" not in impostor.get(_wall(card.hub)).content.decode()
-        assert impostor.post(_delete_url(members_bottle)).status_code == 403
-        assert WineBottle.objects.filter(pk=members_bottle.pk).exists()
-        assert impostor.post(_delete_url(own)).status_code == 302
-        assert not WineBottle.objects.filter(pk=own.pk).exists()
-        assert signed_in(member).post(_delete_url(members_bottle)).status_code == 302
-        assert not WineBottle.objects.exists()
 
     def it_removes_a_winerys_logo_with_its_last_bottle(card):
         first = WineBottleFactory(hub=card.hub, winery="Abacela")
@@ -547,9 +461,9 @@ def describe_the_band():
         assert services.wine_band(card.hub).percent == 100
 
     def it_renders_on_the_page_with_the_meter_only_while_there_is_a_goal(card, wall):
-        before = Client().get(_wall(card.hub)).content.decode()
+        before = _officer().get(_wall(card.hub)).content.decode()
         HubGoalFactory(hub=card.hub, kind=HubGoal.Kind.BOTTLES, target=100)
-        after = Client().get(_wall(card.hub)).content.decode()
+        after = _officer().get(_wall(card.hub)).content.decode()
 
         assert "data-hq-wine-bottles>6<" in before
         assert "data-hq-wine-value>$114<" in before
@@ -563,7 +477,7 @@ def describe_the_band():
         assert "data-hq-wine-goal>of a 100 bottle goal<" in after
 
     def it_hides_the_kind_row_with_no_bottles(card):
-        assert "data-hq-wine-kinds" not in Client().get(_wall(card.hub)).content.decode()
+        assert "data-hq-wine-kinds" not in _officer().get(_wall(card.hub)).content.decode()
 
     def it_feeds_the_bottles_and_value_goals_from_one_band(card, wall):
         HubGoalFactory(hub=card.hub, kind=HubGoal.Kind.BOTTLES, target=100, sort_order=0)
@@ -596,7 +510,7 @@ def describe_the_wineries():
 
         assert (abacela.name, abacela.bottles, abacela.logo) == ("Abacela", 3, logo)
         assert (bee.name, bee.bottles, bee.logo) == ("Bee Cider", 1, None)
-        body = Client().get(_wall(card.hub)).content.decode()
+        body = _officer().get(_wall(card.hub)).content.decode()
         assert 'data-hq-winery="Abacela"' in body
         assert 'data-hq-winery="Bee Cider"' in body
         assert body.count("data-hq-winery-logo") == 1
@@ -607,7 +521,7 @@ def describe_the_wineries():
         assert str(logo) == "ABACELA"
 
     def it_shows_the_empty_state_with_no_bottles(card):
-        assert "data-hq-wine-no-wineries" in Client().get(_wall(card.hub)).content.decode()
+        assert "data-hq-wine-no-wineries" in _officer().get(_wall(card.hub)).content.decode()
 
     def it_resizes_a_logo_and_holds_one_name_per_hub(card):
         logo = WineryLogoFactory(hub=card.hub, name="Abacela", logo=photo_upload("logo.png", size=(2400, 600)))
@@ -669,23 +583,20 @@ def describe_the_wineries():
         assert response.status_code == 200
         assert "MB or smaller" in response.content.decode()
 
-    def it_keeps_the_logo_form_and_its_endpoint_to_admins(card, member_client, admin_client, make_member):
-        """A winery logo is an upload: admins only, never the wall's Team (HQ card sharing)."""
+    def it_gives_the_logo_form_and_its_endpoint_to_a_guild_officer(card, officer_client, member_client):
+        """A winery logo is an upload, and an officer does everything an admin does (#1307)."""
         WineBottleFactory(hub=card.hub, winery="Abacela")
-        team = make_member()
-        card.team.add(team)
 
         def upload() -> dict[str, Any]:
             return {"name": "Abacela", "logo": photo_upload("one.png")}
 
-        assert "data-hq-logo-form" not in member_client.get(_wall(card.hub)).content.decode()
-        assert member_client.post(_logo_url(card.hub), upload()).status_code == 403
-        assert Client().post(_logo_url(card.hub), upload()).status_code == 403
-        assert "data-hq-logo-form" not in signed_in(team).get(_wall(card.hub)).content.decode()
-        assert signed_in(team).post(_logo_url(card.hub), upload()).status_code == 403
-        assert "data-hq-logo-form" in admin_client.get(_wall(card.hub)).content.decode()
-        assert admin_client.post(_logo_url(card.hub), upload()).status_code == 302
-        assert not WineryLogo.objects.exclude(hub=card.hub).exists()
+        assert member_client.post(_logo_url(card.hub), upload()).status_code == 404
+        assert Client().post(_logo_url(card.hub), upload()).status_code == 302
+        assert not WineryLogo.objects.exists()
+        body = officer_client.get(_wall(card.hub)).content.decode()
+        assert "data-hq-logo-form" in body
+        assert "Admins only." not in body
+        assert officer_client.post(_logo_url(card.hub), upload()).status_code == 302
         assert WineryLogo.objects.count() == 1
 
     def it_disables_add_logo_while_no_winery_is_named(card, admin_client):
@@ -694,7 +605,7 @@ def describe_the_wineries():
 
 def describe_the_donors():
     @pytest.fixture
-    def givers(card, member):
+    def givers(card, officer):
         """Zed Shop twice (the newest spelling, type and listing win; the blank email does not), then Amy."""
         WineBottleFactory(
             hub=card.hub,
@@ -714,14 +625,14 @@ def describe_the_donors():
             listing="yes",
             qty=1,
             value_cents=500,
-            logged_by=member,
-            logged_by_name=member.display_name,
+            logged_by=officer,
+            logged_by_name=officer.display_name,
         )
         WineBottleFactory(
             hub=card.hub, giver_name="Amy", giver_email="amy@example.com", logged_by_name="Lee", note="Drop off Friday"
         )
 
-    def it_groups_a_giver_across_bottles_with_their_newest_details(card, givers, member):
+    def it_groups_a_giver_across_bottles_with_their_newest_details(card, givers, officer):
         amy, zed = services.donor_rows(card.hub)
 
         assert (amy.name, amy.giver_type, amy.email, amy.listing, amy.bottles) == (
@@ -738,7 +649,7 @@ def describe_the_donors():
             "Yes",
         )
         assert (zed.bottles, zed.value_cents, zed.value_display) == (3, 2500, "$25")
-        assert zed.logged_by == ["Lee", member.display_name]
+        assert zed.logged_by == ["Lee", officer.display_name]
         assert amy.logged_by == ["Lee"]
         assert (amy.notes, zed.notes) == (["Drop off Friday"], [])
         assert services.donor_emails([amy, zed, amy]) == "amy@example.com, zed@example.com"
@@ -752,48 +663,37 @@ def describe_the_donors():
         assert amy.logged_by == ["Guest"]
         assert services.donor_emails([amy]) == ""
 
-    def it_is_on_the_page_for_admins_and_the_team_only(card, givers, admin_client, member_client, make_member):
-        named = make_member()
-        card.team.add(named)
+    def it_is_on_the_page_for_everyone_who_runs_the_hq(card, givers, admin_client, officer_client):
+        for client in (admin_client, officer_client):
+            body = client.get(_wall(card.hub)).content.decode()
 
-        admin_body = admin_client.get(_wall(card.hub)).content.decode()
-        named_body = signed_in(named).get(_wall(card.hub)).content.decode()
-        member_body = member_client.get(_wall(card.hub)).content.decode()
-
-        for body in (admin_body, named_body):
             assert "data-hq-wine-organizers" in body
             assert body.count("data-hq-donor-row") == 2
             assert "amy@example.com, zed@example.com" in body
             assert 'hx-boost="false" data-pl-download data-hq-donors-csv' in body
             assert "data-hq-donors-private" in body
-        assert "data-hq-wine-organizers" not in member_body
-        assert "data-hq-donors-csv" not in member_body
-        assert "zed@example.com" not in member_body
 
-    def it_has_its_own_page_for_organisers_and_refuses_everyone_else(
-        card, givers, admin_client, member_client, make_member
+    def it_has_its_own_page_and_refuses_everyone_who_does_not_run_the_hq(
+        card, givers, admin_client, officer_client, member_client
     ):
-        named = make_member()
-        card.team.add(named)
-
         assert admin_client.get(_donors_url(card.hub)).status_code == 200
-        named_body = signed_in(named).get(_donors_url(card.hub)).content.decode()
-        assert "data-hq-donors-page" in named_body
-        assert named_body.count("data-hq-donor-row") == 2
-        assert member_client.get(_donors_url(card.hub)).status_code == 403
-        assert Client().get(_donors_url(card.hub)).status_code == 403
+        body = officer_client.get(_donors_url(card.hub)).content.decode()
+        assert "data-hq-donors-page" in body
+        assert body.count("data-hq-donor-row") == 2
+        assert member_client.get(_donors_url(card.hub)).status_code == 404
+        assert Client().get(_donors_url(card.hub)).status_code == 302
 
-    def it_streams_the_csv_for_organisers_only(card, givers, admin_client, member_client, member):
-        response = admin_client.get(_csv_url(card.hub))
+    def it_streams_the_csv_to_whoever_runs_the_hq(card, givers, officer_client, member_client, officer):
+        response = officer_client.get(_csv_url(card.hub))
 
         assert response.status_code == 200
         assert response["Content-Disposition"].startswith(f'attachment; filename="{card.hub.slug}-wine-donors-')
         rows = b"".join(response.streaming_content).decode().splitlines()
         assert rows[0] == "Giver,Type,Email,Sponsor listing,Bottles,Value,Thanked,Logged by,Notes"
         assert rows[1] == "Amy,Person,amy@example.com,Not asked,1,25.00,no,Lee,Drop off Friday"
-        assert rows[2] == f"zed shop,Restaurant,zed@example.com,Yes,3,25.00,no,Lee; {member.display_name},"
-        assert member_client.get(_csv_url(card.hub)).status_code == 403
-        assert Client().get(_csv_url(card.hub)).status_code == 403
+        assert rows[2] == f"zed shop,Restaurant,zed@example.com,Yes,3,25.00,no,Lee; {officer.display_name},"
+        assert member_client.get(_csv_url(card.hub)).status_code == 404
+        assert Client().get(_csv_url(card.hub)).status_code == 302
 
     def it_neutralises_a_formula_in_what_someone_typed(card, admin_client):
         WineBottleFactory(hub=card.hub, giver_name="=HYPERLINK(1)", giver_email="+1@example.com")
@@ -813,7 +713,7 @@ def describe_the_card():
     def it_links_the_wine_wall_card_to_its_page_with_the_bottle_icon(card):
         assert card.url == _wall(card.hub)
 
-        body = Client().get(reverse("hq:page", args=[card.hub.slug])).content.decode()
+        body = _officer().get(reverse("hq:page", args=[card.hub.slug])).content.decode()
         door = body.split(f'data-hq-card-pk="{card.pk}"')[1].split("</div>")[0]
 
         assert f'<a href="{_wall(card.hub)}" class="pl-hq-card" data-hq-card-link>' in door
@@ -821,17 +721,21 @@ def describe_the_card():
 
 
 def describe_access():
-    def it_follows_the_cards_audience(open_hub, member_client):
-        members_only = HubCardFactory(hub=open_hub, kind=HubCard.Kind.WINE_WALL, audience=HubCard.Audience.MEMBERS)
+    def it_opens_to_a_guild_lead_and_a_guild_staff_member(card, make_officer):
+        for officer in (make_officer(), make_officer(staff=True)):
+            assert signed_in(officer).get(_wall(card.hub)).status_code == 200
 
-        anonymous = Client().get(_wall(open_hub))
+    def it_is_a_404_for_a_member_who_runs_no_guild(card, member_client):
+        assert member_client.get(_wall(card.hub)).status_code == 404
+        assert member_client.post(_wall(card.hub), BOTTLE).status_code == 404
+        assert not WineBottle.objects.exists()
+
+    def it_sends_a_signed_out_visitor_through_login(card):
+        anonymous = Client().get(_wall(card.hub))
+
         assert anonymous.status_code == 302
-        assert anonymous["Location"] == f"/accounts/login/?next={_wall(open_hub)}"
-        assert member_client.get(_wall(open_hub)).status_code == 200
-        members_only.audience = HubCard.Audience.ADMINS
-        members_only.save()
-        assert member_client.get(_wall(open_hub)).status_code == 404
-        assert member_client.post(_wall(open_hub), BOTTLE).status_code == 404
+        assert anonymous["Location"] == f"/accounts/login/?next={_wall(card.hub)}"
+        assert Client().post(_wall(card.hub), BOTTLE).status_code == 302
         assert not WineBottle.objects.exists()
 
     def it_404s_without_a_wine_wall_card(open_hub, admin_client):
@@ -852,20 +756,5 @@ def describe_queries():
         for index in range(4):
             WineBottleFactory(hub=card.hub, winery=f"Winery {index}", logged_by=make_member(), photo=photo_upload())
             WineryLogoFactory(hub=card.hub, name=f"Winery {index}")
-
-        assert render() == few
-
-    def it_keeps_a_guests_page_flat_too(card):
-        client = Client()
-
-        def render() -> int:
-            with CaptureQueriesContext(connection) as queries:
-                assert client.get(_wall(card.hub)).status_code == 200
-            return len(queries)
-
-        WineBottleFactory(hub=card.hub)
-        few = render()
-        for _ in range(3):
-            WineBottleFactory(hub=card.hub, winery="Other")
 
         assert render() == few

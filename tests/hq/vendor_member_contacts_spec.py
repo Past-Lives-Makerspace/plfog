@@ -29,19 +29,13 @@ HTMX = {"HTTP_HX_REQUEST": "true"}
 
 
 @pytest.fixture
-def kate(make_member):
-    return make_member(preferred_name="Spec Organiser")
+def kate(make_officer):
+    return make_officer(preferred_name="Spec Organiser")
 
 
 @pytest.fixture
 def card(open_hub, kate) -> HubCard:
-    return HubCardFactory(
-        hub=open_hub,
-        kind=HubCard.Kind.VENDOR_TABLES,
-        title="Vendor Tables",
-        audience=HubCard.Audience.ADMINS,
-        team=[kate],
-    )
+    return HubCardFactory(hub=open_hub, kind=HubCard.Kind.VENDOR_TABLES, title="Vendor Tables")
 
 
 @pytest.fixture

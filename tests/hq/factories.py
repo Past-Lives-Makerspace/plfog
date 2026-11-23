@@ -47,30 +47,17 @@ class EventHubFactory(DjangoModelFactory):
 
 
 class HubCardFactory(DjangoModelFactory):
-    """A placeholder door, admins only. ``team=[member, ...]`` puts people on its Team, ``can_open=[...]`` on its
-    Can open list."""
+    """A placeholder door."""
 
     class Meta:
         model = HubCard
-        skip_postgeneration_save = True
 
     hub = factory.SubFactory(EventHubFactory)
     kind = HubCard.Kind.PLACEHOLDER
     title = factory.Sequence(lambda n: f"Spec Door {n}")
     who_for = "The spec team"
     bullets = "First thing\nSecond thing"
-    audience = HubCard.Audience.ADMINS
     sort_order = factory.Sequence(lambda n: n)
-
-    @factory.post_generation
-    def team(obj, create, extracted, **kwargs):  # noqa: N805  # factory-boy hook, obj is the instance
-        if create and extracted:
-            obj.team.set(extracted)
-
-    @factory.post_generation
-    def can_open(obj, create, extracted, **kwargs):  # noqa: N805  # factory-boy hook, obj is the instance
-        if create and extracted:
-            obj.can_open.set(extracted)
 
 
 class HubGoalFactory(DjangoModelFactory):
