@@ -1,7 +1,9 @@
 bump = "minor"
 date = "2026-11-22"
-audience = ["members"]
-guidance = "none"
+audience = ["members", "admins"]
+feature = "tours.hours"
+guidance = "shots"
+target = "tours.available-on"
 title = "Booking a tour shows a real calendar"
 changes = [
   "Pick a Day is a month calendar now: Sunday to Saturday, a block for each month, days without tours greyed out.",
@@ -9,3 +11,9 @@ changes = [
   "What you've typed stays put when you go back to change the day or time.",
   "It fits any phone, and the lobby kiosk gets the same calendar.",
 ]
+
+[[shots]]
+caption = "Pick a Day is a month calendar, Sunday to Saturday. Days with tours are buttons; the rest are greyed out."
+
+[[shots]]
+caption = "The step bar shows Schedule, Details and Confirm. Tap Schedule to change the day; what you typed stays."
