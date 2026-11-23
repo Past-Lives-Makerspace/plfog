@@ -212,7 +212,7 @@ class EventHub(models.Model):
                 result.kept += 1
             if changed:
                 card.save(update_fields=changed)
-                result.reworded += "bullets" in changed or "button_text" in changed
+                result.reworded += bool({"bullets", "button_text", "who_for"} & set(changed))
         if not fresh:
             # Every placeholder the hub held and still holds, renamed ones too (an adopted one counts as adopted).
             result.kept += self.cards.filter(kind=HubCard.Kind.PLACEHOLDER).count()
@@ -425,7 +425,9 @@ class DoorContent:
 
     ``door`` is the kind the card is once its page is built; until then it is seeded as a placeholder
     with the same words. ``old_bullets`` and ``old_button_text`` are the words the card was seeded with
-    before Lee's update: a card still carrying them takes the current ones.
+    before Lee's update: a card still carrying them takes the current ones. ``old_who_for`` is the same for the who
+    line, when the default changed (#1307 moved the Ledger from "Lee and the core team" to "Guild officers"); blank
+    means the who line never changed, so a card whose who line an officer cleared stays clear.
     """
 
     door: str
@@ -435,6 +437,7 @@ class DoorContent:
     button_text: str
     old_bullets: str
     old_button_text: str
+    old_who_for: str = ""
 
     @property
     def is_live(self) -> bool:
@@ -456,8 +459,12 @@ class DoorContent:
         }
 
     def refresh_words(self, card: HubCard) -> list[str]:
-        """Give ``card`` the current bullets and button where it still carries the old defaults; the fields changed."""
+        """Give ``card`` the current bullets, button and who line where it still carries the old defaults; the fields
+        changed."""
         changed: list[str] = []
+        if self.old_who_for and card.who_for == self.old_who_for and card.who_for != self.who_for:
+            card.who_for = self.who_for
+            changed.append("who_for")
         if card.bullet_lines == _lines(self.old_bullets) and card.bullet_lines != _lines(self.bullets):
             card.bullets = self.bullets
             changed.append("bullets")
@@ -516,6 +523,7 @@ DEFAULT_CARDS: tuple[DoorContent, ...] = (
     DoorContent(
         door=HubCard.Kind.LEDGER,
         who_for="Guild officers",
+        old_who_for="Lee and the core team",
         title="PL Ledger",
         bullets=(
             "Running tally and goals\n"
@@ -1110,8 +1118,8 @@ class LedgerEntry(models.Model):
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Normalise a fresh photo, store the row and its new file, and only then delete the file it replaced.
 
-        The old name is read before the save and deleted once the transaction commits (``HubFlyer.save``'s order), so a
-        storage write or a database error that fails the save leaves the old receipt in place.
+        The old name is read before the save and deleted once the transaction commits, so a storage write or a database
+        error that fails the save leaves the old receipt in place.
         """
         old = LedgerEntry.objects.filter(pk=self.pk).values_list("receipt", flat=True).first() if self.pk else None
         if not is_pdf_name(self.receipt.name or ""):

@@ -458,6 +458,37 @@ def describe_adopting_a_built_door():
         assert (ledger.bullets, ledger.button_text) == (CARDS[2].bullets, "Open it")
         assert (rsvp.title, rsvp.bullets) == ("Coming?", CARDS[0].bullets)
 
+    def it_moves_the_ledgers_who_line_from_lee_to_guild_officers_unless_an_officer_edited_it(event):
+        hub = _track_c_hub(event)
+        ledger = hub.cards.get(title="PL Ledger")
+        ledger.who_for = "Lee and the core team"
+        ledger.save(update_fields=["who_for"])
+        vendors = hub.cards.get(title="Vendor Tables")
+        vendors.who_for = "Kate's crew"
+        vendors.save(update_fields=["who_for"])
+
+        first = hub.seed_default_cards()
+        again = hub.seed_default_cards()
+
+        ledger.refresh_from_db()
+        vendors.refresh_from_db()
+        assert (CARDS[2].who_for, CARDS[2].old_who_for) == ("Guild officers", "Lee and the core team")
+        assert ledger.who_for == "Guild officers"
+        assert vendors.who_for == "Kate's crew"
+        assert first.reworded >= 1
+        assert again.reworded == 0
+
+    def it_never_fills_a_who_line_an_officer_cleared(event):
+        hub = _track_c_hub(event)
+        rsvp = hub.cards.get(kind=HubCard.Kind.RSVP)
+        rsvp.who_for = ""
+        rsvp.save(update_fields=["who_for"])
+
+        hub.seed_default_cards()
+
+        rsvp.refresh_from_db()
+        assert rsvp.who_for == ""
+
     def it_matches_old_words_whatever_the_spacing_of_the_lines(event):
         hub = _track_c_hub(event)
         ledger = hub.cards.get(title="PL Ledger")
