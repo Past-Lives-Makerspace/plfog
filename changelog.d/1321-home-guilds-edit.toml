@@ -1,0 +1,17 @@
+bump = "minor"
+date = "2026-11-23"
+audience = ["members"]
+title = "Join and leave guilds right from Home"
+changes = [
+  "Your Guilds on Home has an Edit button. It lists every guild with a switch: on to join, off to leave.",
+  "Each change saves right away, and Your Guilds updates behind it. Joining puts you on the guild's roster and gives you its Discord role.",
+]
+feature = "home.your-guilds"
+guidance = "shots"
+target = "home.guilds-edit"
+
+[[shots]]
+caption = "On Home, press Edit beside Your Guilds."
+
+[[shots]]
+caption = "Switch a guild on to join it, or off to leave. Press Done when you're finished."
