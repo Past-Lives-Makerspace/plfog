@@ -30,6 +30,7 @@ from tours.availability import OpenTour, open_tours
 from tours.booking import (
     ACCEPTED,
     ALREADY_BOOKED_MESSAGE,
+    ANSWER_FIELDS,
     KEPT,
     UNAVAILABLE,
     TourAlreadyBookedError,
@@ -170,7 +171,8 @@ def _try_booking(request: HttpRequest, form: TourBookingForm, *, kiosk: bool) ->
     any_guide_at = parse_any_guide_key(data["tour"])
     target = guide_and_start(data["tour"])
     signed_in = request.user if request.user.is_authenticated and not kiosk else None
-    visitor = Visitor(data["name"], data["email"], data["phone"], data["party_size"])
+    answers = {name: data.get(name, "") for name in ANSWER_FIELDS}
+    visitor = Visitor(data["name"], data["email"], data["phone"], data["party_size"], **answers)
     source = TourBooking.Source.KIOSK if kiosk else TourBooking.Source.WEBSITE
     create_account = bool(data.get("create_account"))
     try:

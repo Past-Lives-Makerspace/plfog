@@ -1,6 +1,7 @@
 {% comment %}
 The visitor's booking form for the picked time (#948): the chosen time, name, email, phone, party
-size, the optional account toggle and the honeypot. Shared by the booking page and the front desk
+size, the booking questions (#32, form.question_fields, all optional), the optional account toggle and
+the honeypot. Shared by the booking page and the front desk
 kiosk (#950, kiosk set: autocomplete off). Context: form, chosen (the OpenTour it books), guides
 (tours.picker.GuideChoice, #1255: where two or more guides share the time, the Guide dropdown posts
 the tour key, No preference first; empty for one guide), page_url, kiosk, chosen_guide (the kiosk's
@@ -52,6 +53,14 @@ dropdown, and the heading's Back replaces "Pick a different time"; the website i
       {% if form.party_size.errors %}<ul class="reg-errors">{% for e in form.party_size.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
     </div>
   </div>
+  {# SimplyBook's questions (feedback request #32), all optional, in its order. #}
+  {% for field in form.question_fields %}
+  <div class="reg-field" data-tour-question="{{ field.name }}">
+    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+    {{ field }}
+    {% if field.errors %}<ul class="reg-errors">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
+  </div>
+  {% endfor %}
   {% if form.create_account %}
   <div class="pl-tourpub__account" data-tour-account>
     {% include "components/toggle.html" with field=form.create_account toggle_label=form.create_account.label toggle_description="No password. You sign in with a code we email you." %}

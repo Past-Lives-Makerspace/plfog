@@ -53,7 +53,13 @@ def hours(guide: Member) -> Any:
 
 
 def _post(guide: Member, hour: int = 16, **values: str) -> dict[str, str]:
-    data = {"tour": _key(guide, hour), "name": "Sam Rivera", "email": "sam@example.com", "phone": "", "party_size": "2"}
+    data = {
+        "tour": _key(guide, hour),
+        "name": "Sam Rivera",
+        "email": "sam@example.com",
+        "phone": "503 555 0142",
+        "party_size": "2",
+    }
     data.update(values)
     return data
 

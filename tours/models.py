@@ -623,6 +623,36 @@ class TourBookingQuerySet(models.QuerySet["TourBooking"]):
         )
 
 
+#: How the guide reads each booking question (feedback request #32): ``(label, TourBooking field)``.
+GUEST_ANSWER_LABELS = (
+    ("Pronouns", "pronouns"),
+    ("Interested in", "interests"),
+    ("Found us through", "found_us_through"),
+    ("Referred by", "referred_by"),
+    ("Notes from the guest", "guest_notes"),
+)
+
+
+class FoundUs(models.TextChoices):
+    """How a visitor found Past Lives (feedback request #32), stored in SimplyBook's own words.
+
+    Each value is its label, so a booking reads the same in the database, the guide's email and
+    the calendar event, and stays comparable with the ~1,100 bookings SimplyBook took.
+    """
+
+    GOOGLE_SEARCH = "Google Search", "Google Search"
+    GOOGLE_MAPS = "Google Maps", "Google Maps"
+    FRIEND = "A friend or family member", "A friend or family member"
+    COLLEAGUE = "A colleague or coworker", "A colleague or coworker"
+    INSTAGRAM = "Instagram", "Instagram"
+    FACEBOOK = "Facebook", "Facebook"
+    REDDIT = "Reddit", "Reddit"
+    ORG = "Another makerspace or community org", "Another makerspace or community org"
+    PASSED_BY = "Walked or drove by", "Walked or drove by"
+    EVENT = "Attended an event here", "Attended an event here"
+    OTHER = "Other", "Other"
+
+
 class TourBooking(models.Model):
     """One party booked on one guide's tour.
 
@@ -666,6 +696,24 @@ class TourBooking(models.Model):
     visitor_name = models.CharField(max_length=200, help_text="The name the visitor booked under.")
     visitor_email = models.EmailField(help_text="Where the confirmation, reminder and change emails go.")
     visitor_phone = models.CharField(max_length=40, blank=True, default="", help_text="Optional phone number.")
+    # The booking questions SimplyBook asked (feedback request #32), each as the visitor typed or
+    # picked it and blank when skipped. The calendar event (tours.calendar_sync.GUEST_ANSWERS, #33)
+    # reads them by these names.
+    pronouns = models.CharField(max_length=60, blank=True, default="", help_text="The visitor's pronouns.")
+    interests = models.CharField(
+        max_length=300, blank=True, default="", help_text="The areas or disciplines they are most interested in."
+    )
+    found_us_through = models.CharField(
+        max_length=60,
+        blank=True,
+        default="",
+        choices=FoundUs.choices,
+        help_text="How they found Past Lives, in SimplyBook's words so the old bookings compare.",
+    )
+    referred_by = models.CharField(
+        max_length=200, blank=True, default="", help_text="Who here referred them, as they typed it."
+    )
+    guest_notes = models.TextField(blank=True, default="", help_text="Anything they wanted us to know before the tour.")
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
@@ -846,6 +894,13 @@ class TourBooking(models.Model):
     def party_label(self) -> str:
         """``1 person`` or ``3 people``."""
         return "1 person" if self.party_size == 1 else f"{self.party_size} people"
+
+    @property
+    def guest_answers(self) -> list[tuple[str, str]]:
+        """The booking questions answered (feedback request #32), as ``(label, answer)`` in order,
+        for the guide's email and the Upcoming row; a skipped question is left out."""
+        answers = [(label, str(getattr(self, name)).strip()) for label, name in GUEST_ANSWER_LABELS]
+        return [(label, answer) for label, answer in answers if answer]
 
     @property
     def visitor_phone_href(self) -> str:

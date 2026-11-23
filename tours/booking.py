@@ -103,6 +103,10 @@ STAFF_LOCKED_MESSAGES: dict[str, str] = {
 }
 
 
+#: The booking questions a :class:`Visitor` carries onto its booking (feedback request #32).
+ANSWER_FIELDS = ("pronouns", "interests", "found_us_through", "referred_by", "guest_notes")
+
+
 @dataclass(frozen=True)
 class Visitor:
     """Who is booking, as the form took it."""
@@ -111,6 +115,17 @@ class Visitor:
     email: str
     phone: str
     party_size: int
+    # The optional booking questions (feedback request #32), blank when skipped.
+    pronouns: str = ""
+    interests: str = ""
+    found_us_through: str = ""
+    referred_by: str = ""
+    guest_notes: str = ""
+
+    @property
+    def answers(self) -> dict[str, str]:
+        """The booking questions' answers, trimmed, as the booking's fields of the same names."""
+        return {name: getattr(self, name).strip() for name in ANSWER_FIELDS}
 
     @property
     def first_and_last(self) -> tuple[str, str]:
@@ -191,6 +206,7 @@ def book_tour(
             visitor_name=visitor.name.strip(),
             visitor_email=visitor.email.strip(),
             visitor_phone=visitor.phone.strip(),
+            **visitor.answers,
             user=account,
             source=source,
             status=TourBooking.Status.PENDING if request else TourBooking.Status.BOOKED,
@@ -317,6 +333,7 @@ def _request_every_guide(
                     visitor_name=visitor.name.strip(),
                     visitor_email=visitor.email.strip(),
                     visitor_phone=visitor.phone.strip(),
+                    **visitor.answers,
                     user=account,
                     status=TourBooking.Status.PENDING,
                     request_group=group,

@@ -185,7 +185,13 @@ def describe_the_picker():
 
     def it_keeps_the_dropdown_and_the_pick_on_a_form_sent_back(alex: Member, gina: Member):
         _, _, at_gina = _soon_pair(alex, gina, gina_seats=2)
-        data = {"tour": at_gina, "name": "Sam Rivera", "email": "not an email", "phone": "", "party_size": "1"}
+        data = {
+            "tour": at_gina,
+            "name": "Sam Rivera",
+            "email": "not an email",
+            "phone": "503 555 0142",
+            "party_size": "1",
+        }
         page = Client(HTTP_HOST=HOST).post("/", data).content.decode()
         assert [selected for _, selected, _ in _options(page)] == [False, False, True]
         assert '<option value="4">4</option>' in page and not TourBooking.objects.exists()
@@ -193,7 +199,13 @@ def describe_the_picker():
 
 def describe_booking_from_the_guide_dropdown():
     def _post(key: str, party: int = 2) -> Any:
-        data = {"tour": key, "name": "Sam Rivera", "email": "sam@example.com", "phone": "", "party_size": str(party)}
+        data = {
+            "tour": key,
+            "name": "Sam Rivera",
+            "email": "sam@example.com",
+            "phone": "503 555 0142",
+            "party_size": str(party),
+        }
         return Client(HTTP_HOST=HOST).post("/", data)
 
     def it_books_the_guide_picked_as_their_own_button_did(alex: Member):
@@ -418,7 +430,13 @@ def describe_the_pages():
             TourHoursFactory(guide=member, weekday=day.weekday(), seats=4)
         FacilityTourSettings.load()
         key = f"any-{local(day, 16).astimezone(UTC):%Y%m%dT%H%MZ}"
-        data = {"tour": key, "name": "Sam Rivera", "email": "sam@example.com", "phone": "", "party_size": "2"}
+        data = {
+            "tour": key,
+            "name": "Sam Rivera",
+            "email": "sam@example.com",
+            "phone": "503 555 0142",
+            "party_size": "2",
+        }
         response = Client(HTTP_HOST=HOST).post("/", data)
         assert response.status_code == 302
         return list(TourBooking.objects.order_by("pk"))

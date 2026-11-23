@@ -1,0 +1,17 @@
+bump = "minor"
+date = "2026-11-22"
+audience = ["members", "admins"]
+feature = "tours.calendar"
+guidance = "shots"
+title = "Tour bookings ask what the guide needs to know"
+changes = [
+  "Booking a tour now asks for a phone number, plus optional pronouns, what you're most interested in, how you found Past Lives, who referred you, and anything else we should know.",
+  "The same questions are on the lobby kiosk.",
+  "Guides see the answers in their new booking email and under the visitor on the Upcoming tab.",
+]
+
+[[shots]]
+caption = "The booking form asks a few questions after your name, email, phone and party size. Only the phone is required."
+
+[[shots]]
+caption = "On Upcoming, the tour's guide sees the visitor's answers under their email and phone."

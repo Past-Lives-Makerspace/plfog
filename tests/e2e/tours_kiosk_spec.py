@@ -303,6 +303,7 @@ def describe_tours_kiosk():
         expect(page.locator('[data-tour-account] input[name="create_account"]')).to_be_checked()
         page.locator('input[name="name"]').fill("Kim Kiosk")
         page.locator('input[name="email"]').fill("kim.kiosk@example.com")
+        page.locator('input[name="phone"]').fill("503 555 0142")
         page.locator('select[name="party_size"]').select_option("2")
         _capture(page, "form")
         page.locator("[data-tour-form] button[type=submit]").click()
@@ -465,10 +466,15 @@ def describe_tours_kiosk():
         page.keyboard.press("Tab")
         page.keyboard.type("kim.keys@example.com")
         page.keyboard.press("Tab")
+        page.keyboard.type("503 555 0142")  # phone is required (#32)
         page.keyboard.press("Tab")
         _focused(page, 'select[name="party_size"]')
         page.keyboard.type("2")
         page.keyboard.press("Tab")
+        # The booking questions (#32), all optional: Tab past each.
+        for question in ("pronouns", "interests", "found_us_through", "referred_by", "guest_notes"):
+            _focused(page, f'[name="{question}"]')
+            page.keyboard.press("Tab")
         _focused(page, 'input[name="create_account"]')
         _capture(page, "keyboard-form")
         # Enter flips the switch, never books: the visitor turned the account off.

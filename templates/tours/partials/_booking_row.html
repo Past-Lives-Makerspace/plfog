@@ -8,7 +8,9 @@ Calendar tab link to. A reschedule waiting on the visitor (#1283) shows Waiting 
 and the proposed time in the status cell. Past rows come back from tours.views.tour_booking_mark over htmx in their new state.
 
 The visitor's email and phone go only to the tour's own guide and admins (Felix, #1274:
-booking.can_see_contact); any other Tour Guide gets the row without them.
+booking.can_see_contact); any other Tour Guide gets the row without them. The booking questions'
+answers (#32, booking.guest_answers: pronouns, interests, how they found us, referral, notes) follow
+the same rule, under the contact line.
 
 Context: booking (stamped can_act, can_answer and can_see_contact by tours.views._with_row_rights, note_count annotated),
 tab ("upcoming" or "past"), is_admin, viewer_pk (the viewer's member pk).
@@ -19,6 +21,7 @@ tab ("upcoming" or "past"), is_admin, viewer_pk (the viewer's member pk).
     <span class="pl-bookings-table__name">{{ booking.visitor_name }}</span>
     <span class="pl-bookings-table__owner">{{ booking.party_label }}</span>
     {% if booking.can_see_contact %}<span class="pl-bookings-table__owner pl-tours-row__contact"><a href="mailto:{{ booking.visitor_email }}" data-tour-booking-email>{{ booking.visitor_email }}</a>{% if booking.visitor_phone %}<span aria-hidden="true"> · </span><a href="tel:{{ booking.visitor_phone_href }}" data-tour-booking-phone>{{ booking.visitor_phone }}</a>{% endif %}</span>{% endif %}
+    {% if booking.can_see_contact and booking.guest_answers %}<span class="pl-bookings-table__owner pl-tours-row__answers" data-tour-booking-answers>{% for label, answer in booking.guest_answers %}<span class="pl-tours-row__answer"><strong>{{ label }}:</strong> {{ answer }}</span>{% endfor %}</span>{% endif %}
   </td>
   <td data-label="Guide">
     <span class="pl-bookings-table__name" data-tour-booking-guide>{% if not booking.guide %}No guide{% elif booking.guide_id == viewer_pk %}You{% else %}{{ booking.guide.staff_label }}{% endif %}</span>
