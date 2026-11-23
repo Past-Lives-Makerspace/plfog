@@ -75,6 +75,149 @@ body.tours-portal {
     font-weight: 800;
 }
 
+/* Where the visitor is in booking (Morlock, 2026-11-22): Day & Time, Your Details, Booked. The current
+   step is gold like the picked day; a finished one is checked and, from the details, a link back. */
+.cp-page .pl-tourpub__steps {
+    list-style: none;
+    margin: 0 0 1.25rem;
+    padding: 0;
+    display: flex;
+    gap: 0.5rem;
+}
+
+.cp-page .pl-tourpub__steps li {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.cp-page .pl-tourpub__step {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.4rem;
+    border: 1px solid var(--border2);
+    border-radius: var(--r);
+    background: var(--bg3);
+    color: var(--text2);
+    font-size: 13px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cp-page a.pl-tourpub__step:hover {
+    border-color: var(--gold-text);
+    text-decoration: none;
+}
+
+.cp-page .pl-tourpub__step--on {
+    background: var(--gold);
+    border-color: var(--gold);
+    color: var(--navy-dark);
+}
+
+.cp-page .pl-tourpub__step--done {
+    color: var(--text);
+}
+
+.cp-page .pl-tourpub__step-n {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.4rem;
+    height: 1.4rem;
+    border-radius: 50%;
+    border: 1px solid currentColor;
+    font-size: 11px;
+}
+
+/* A phone: smaller step names, so Schedule, Details and Confirm fit side by side. */
+@media (max-width: 480px) {
+    .cp-page .pl-tourpub__step {
+        font-size: 12px;
+        gap: 0.3rem;
+        padding: 0.45rem 0.25rem;
+    }
+}
+
+/* Pick a Day as a month calendar (Morlock, 2026-11-22): months side by side where they fit, each
+   a seven column grid, Sunday first. A day with tours is a link; one without is a greyed number. */
+.cp-page .pl-tourpub__calendar {
+    display: grid;
+    /* min(): a month never asks for more than the card has, so a 320px phone gets it whole. */
+    grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+    gap: 1.5rem;
+    align-items: start;
+}
+
+.cp-page .pl-tourpub__month-name {
+    margin: 0 0 0.5rem;
+    font-family: var(--heading);
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--text);
+}
+
+.cp-page .pl-tourpub__week {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 0.25rem;
+    margin-bottom: 0.25rem;
+}
+
+.cp-page .pl-tourpub__weekdays span {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    text-align: center;
+    color: var(--text2);
+}
+
+.cp-page .pl-tourpub__cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1;
+    min-width: 0;
+    padding: 0;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.cp-page .pl-tourpub__calendar .pl-tourpub__day {
+    flex-direction: row;
+    min-width: 0;
+    padding: 0;
+}
+
+/* On a phone the page's three paddings (page, container, card) ate 128px of a 320px screen, leaving
+   days of 33px. Trim them on the booking page only, so a 375 to 390px phone gets days of 40px or more. */
+@media (max-width: 480px) {
+    .hub-content:has(.pl-tourpub__steps),
+    .cp-container:has(.pl-tourpub__steps) {
+        padding-left: 8px;
+        padding-right: 8px;
+    }
+    .cp-page .pl-tourpub .detail-body:has(.pl-tourpub__steps) {
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+    .cp-page .pl-tourpub__week {
+        gap: 3px;
+        margin-bottom: 3px;
+    }
+}
+
+.cp-page .pl-tourpub__day--closed {
+    color: var(--text3);
+    font-weight: 400;
+    opacity: 0.6;
+}
+
 .cp-page .pl-tourpub__time {
     display: flex;
     flex-direction: column;
