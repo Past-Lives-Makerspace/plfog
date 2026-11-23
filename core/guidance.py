@@ -194,6 +194,17 @@ _GUIDANCE_LIST = (
         ),
     ),
     Guidance(
+        key="home.your-guilds",
+        title="Your Guilds",
+        url_name="hub_home",
+        target="home.guilds-edit",
+        steps=(
+            "On Home, press Edit beside Your Guilds.",
+            "Switch a guild on to join it, or off to leave. Each change saves right away.",
+            "Press Done. Your Guilds shows the guilds you are in.",
+        ),
+    ),
+    Guidance(
         key="home.tour",
         title="Take the Tour",
         url_name="hub_home",

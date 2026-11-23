@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="{% static 'css/home-featured.css' %}">
 <link rel="stylesheet" href="{% static 'css/home-announcements.css' %}">
 <link rel="stylesheet" href="{% static 'css/polls.css' %}">
+<link rel="stylesheet" href="{% static 'css/home-guilds.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -245,29 +246,13 @@
     {% endif %}
 </div>
 
-{# --- Your guilds --- #}
+{# --- Your guilds: chips, and Edit opens the join switches (#1318) --- #}
 <div class="hub-card pl-home-block">
-    <h2 class="pl-home-heading">Your Guilds</h2>
-    {% if my_guilds %}
-    <div class="pl-guild-chips">
-        {% for entry in my_guilds %}
-        <a href="{% url 'hub_guild_detail' entry.guild.slug %}" class="pl-guild-chip">
-            {% if entry.guild.logo_prefix %}
-            <img src="{% static 'img/guild_logos/'|add:entry.guild.logo_prefix|add:'_color.svg' %}" width="18" height="18" alt="" class="pl-guild-chip__logo">
-            {% else %}
-            <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" class="pl-guild-chip__logo"><circle cx="7" cy="7" r="5"/></svg>
-            {% endif %}
-            <span class="pl-guild-chip__name">{{ entry.guild.name }}</span>
-            {% if entry.is_staff %}<span class="pl-guild-chip__badge">Lead/Staff</span>{% endif %}
-        </a>
-        {% endfor %}
+    <div class="pl-home-guilds__head">
+        <h2 class="pl-home-heading">Your Guilds</h2>
+        <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" data-guidance-target="home.guilds-edit" @click="$dispatch('open-modal', 'home-guilds-edit')">Edit</button>
     </div>
-    {% else %}
-    <p class="pl-home-empty">
-        You aren't following any guilds yet. <a href="{% url 'hub_user_settings' %}?tab=guilds">Choose your guild updates</a>
-        in Settings, or <a href="{% url 'hub_community_calendar' %}">see what's happening</a> first.
-    </p>
-    {% endif %}
+    {% include "hub/partials/_home_my_guilds_list.html" %}
     {% if my_cubbies %}
     <ul class="pl-home-cubbies" data-home-cubbies>
         {% for rental in my_cubbies %}
@@ -276,6 +261,7 @@
     </ul>
     {% endif %}
 </div>
+{% include "components/modal.html" with modal_id="home-guilds-edit" modal_title="Edit Your Guilds" modal_body_include="hub/partials/_home_guilds_edit.html" %}
 
 {# --- Poll (#925), last above Get the app (#936): only while a poll is open; with none, no card, heading or empty state. Hide folds it to one line, kept per poll in this browser (#936); a poll the member has answered starts folded. --- #}
 {% if home_poll %}

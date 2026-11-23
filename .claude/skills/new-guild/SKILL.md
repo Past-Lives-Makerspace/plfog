@@ -21,9 +21,8 @@ is the failure this list exists to stop.
 **Private** means `is_active=False` (Hidden). Since the hidden-guild sidebar change, admins and the
 guild's lead and staff see it in the sidebar and can open its page; everyone else gets a 404. Making
 it public is the Visible switch on the guild editor's Basic tab (admins only). In Discord, @everyone
-is denied and only admins (Administrator), the shared Guild Leads role and the guild's own role see
-the channel. There is no per guild lead role (#1270): the portal gives Guild Leads to every lead and
-Co-Lead once its id is in Site Settings.
+is denied and only admins (Administrator), Guild Officers and the guild's own role see the channel.
+There is no lead role (#1270): the portal gives Guild Officers to every lead, Co-Lead and staff member.
 
 Production writes in steps 3 and 5 run over SSH on the Render web instance. The auto mode classifier
 denies them (Remote Shell Writes), so prepare everything first and ask Felix once to switch auto mode
@@ -46,7 +45,7 @@ Write a spec to the scratchpad, a list of `{"name", "channel", "topic", "about"}
 It makes the guild's role (named as the guild), the private channel in Guilds and its webhook
 (reusing any that exist by name) and writes `out/create_guilds.py`, whose rows carry the role id as
 `discord_role_ids`, so joining the guild in the portal gives it. It stops before creating anything
-when the server has no `Guild Leads` role. Read the channels back: @everyone denies 3072, Guild Leads,
+when the server has no `Guild Officers` role. Read the channels back: @everyone denies 3072, Guild Officers,
 the guild role and the bot are the only allows.
 
 ## 3. Production row
@@ -97,10 +96,10 @@ Check each printed URL answers 200 with `image/jpeg`.
 `prod-read` the rows: `is_active` False, Discord fields and `banner_image` set. Confirm the guild is
 in the sidebar for an admin (after the logo PR merges, with its logo). Report in two sentences: the
 guild pages (`https://members.pastlives.space/guilds/<slug>/`), the channels, the open logo PR, and
-that the lead gets in through Guild Leads once named, and members through the guild role.
+that the lead gets in through Guild Officers once named, and members through the guild role.
 
 ## Later, not now
 
 When Felix names a lead: `manage.py set_guild_lead --guild <pk> --member <email>`; the portal gives
-them Guild Leads. When the guild goes public: flip Visible on the Basic tab and add a `Member` allow
+them Guild Officers. When the guild goes public: flip Visible on the Basic tab and add a `Member` allow
 on the channel if everyone should read it.
