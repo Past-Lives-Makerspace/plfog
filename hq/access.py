@@ -11,7 +11,8 @@
 - A signed-out visitor goes through login and back; anyone else signed in gets the themed 404, so the HQ never
   reveals itself. A guest account is never ACTIVE, and ``core.middleware.MemberLockoutMiddleware`` keeps it off
   ``/hq/`` before it gets here.
-- A hidden card is admins only staging: off the HQ page and a 404 at its URL for anyone but an admin.
+- A hidden card is a staging marker, not a gate: everyone who runs the HQ sees it with its Hidden chip, opens it and
+  can unhide it, since an officer may do everything an admin may.
 """
 
 from __future__ import annotations
@@ -90,21 +91,16 @@ def runs_hq(request: HttpRequest) -> bool:
     return can_run_hq(viewer_member(request), is_admin=renders_as_admin(request))
 
 
-def _admin_for(request: HttpRequest) -> bool:
-    """The admin bit this request is judged by: the effective one to render, the actual one to act."""
-    return renders_as_admin(request) if request.method in SAFE_METHODS else is_actual_admin(request)
-
-
 def _may_run(request: HttpRequest) -> bool:
     if request.method in SAFE_METHODS:
         return runs_hq(request)
     return can_run_hq(actual_member(request), is_admin=is_actual_admin(request))
 
 
-def card_or_404(hub: EventHub, kind: str, *, is_admin: bool) -> HubCard:
-    """The ``kind`` card on ``hub``; a 404 when the hub has none, or for anyone but an admin when it is hidden."""
+def card_or_404(hub: EventHub, kind: str) -> HubCard:
+    """The ``kind`` card on ``hub``, hidden or not; a 404 when the hub has none."""
     card = hub.cards.filter(kind=kind).first()
-    if card is None or (card.is_hidden and not is_admin):
+    if card is None:
         raise Http404("No such card.")
     return card
 
@@ -114,7 +110,7 @@ def hq_gate(kind: str | None = None) -> Callable[[Callable[..., HttpResponseBase
 
     Signed out is sent through login and back; anyone else who may not run the HQ gets the themed 404. With
     ``kind`` the view is called as ``view(request, hub=hub, card=card, **rest)`` for the hub at ``slug`` and its
-    ``kind`` card (a 404 when it has none, or it is hidden and the viewer is no admin); without, the view gets its
+    ``kind`` card (a 404 when it has none); without, the view gets its
     arguments as they came.
     """
 
@@ -128,7 +124,7 @@ def hq_gate(kind: str | None = None) -> Callable[[Callable[..., HttpResponseBase
             if kind is None:
                 return view(request, *args, **kwargs)
             hub = hub_or_404(kwargs.pop("slug"))
-            card = card_or_404(hub, kind, is_admin=_admin_for(request))
+            card = card_or_404(hub, kind)
             return view(request, *args, hub=hub, card=card, **kwargs)
 
         return wrapped

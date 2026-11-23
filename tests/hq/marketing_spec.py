@@ -100,11 +100,11 @@ def describe_who_may_open_it():
         assert response.status_code == 302
         assert "/accounts/login/" in response["Location"]
 
-    def it_is_a_404_when_hidden_for_all_but_admins(card, officer_client, admin_client):
+    def it_opens_to_an_officer_while_hidden(card, officer_client, admin_client):
         card.is_hidden = True
         card.save(update_fields=["is_hidden"])
 
-        assert officer_client.get(_page(card.hub)).status_code == 404
+        assert officer_client.get(_page(card.hub)).status_code == 200
         assert admin_client.get(_page(card.hub)).status_code == 200
 
     def it_is_a_404_on_a_hub_with_no_marketing_door(open_hub, admin_client):

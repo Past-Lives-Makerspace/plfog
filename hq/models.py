@@ -330,7 +330,10 @@ class HubCard(models.Model):
     bullets = models.TextField(blank=True, help_text="What is behind the door, one line per bullet, up to four.")
     button_text = models.CharField(max_length=60, default="Enter", help_text="The button at the foot of a live card.")
     sort_order = models.PositiveIntegerField(default=0, help_text="Position on the page; lower comes first.")
-    is_hidden = models.BooleanField(default=False, help_text="Hidden cards show to admins only, with a Hidden chip.")
+    is_hidden = models.BooleanField(
+        default=False,
+        help_text="Marks a card still being set up: it shows with a Hidden chip to everyone who runs the HQ.",
+    )
 
     class Meta:
         ordering = ["sort_order", "pk"]

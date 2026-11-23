@@ -30,7 +30,6 @@ from hq.access import (
     hq_gate,
     hub_or_404,
     officers,
-    renders_as_admin,
     viewer_member,
 )
 from hq.exports import (
@@ -157,10 +156,9 @@ def index(request: HttpRequest) -> HttpResponse:
 
 @hq_gate()
 def hub_page(request: HttpRequest, slug: str) -> HttpResponse:
-    """The HQ page: every door, for whoever runs the HQ. A hidden card shows to admins alone, with its chip."""
+    """The HQ page: every door, for whoever runs the HQ, a hidden one with its Hidden chip."""
     hub = hub_or_404(slug)
-    is_admin = renders_as_admin(request)
-    cards = [card for card in hub.cards.all() if is_admin or not card.is_hidden]
+    cards = list(hub.cards.all())
     wine = services.wine_band(hub)
     return render(
         request,
@@ -340,18 +338,15 @@ def _volunteers_page(
             "mine": services.signed_up_shift_ids(hub, person.email) if person is not None else set(),
             "roster": roster,
             "roster_emails": services.roster_emails(roster),
-            "wine_url": _door_url(hub, HubCard.Kind.WINE_WALL, is_admin=renders_as_admin(request)),
+            "wine_url": _door_url(hub, HubCard.Kind.WINE_WALL),
         },
     )
 
 
-def _door_url(hub: EventHub, kind: str, *, is_admin: bool) -> str:
-    """Where a link to the ``kind`` door goes, or "" when that card is missing, or hidden from a viewer who is no
-    admin (or has no page yet)."""
+def _door_url(hub: EventHub, kind: str) -> str:
+    """Where a link to the ``kind`` door goes, or "" when the hub has no such card (or its page is not built)."""
     card = hub.cards.filter(kind=kind).first()
-    if card is None or (card.is_hidden and not is_admin):
-        return ""
-    return card.url
+    return card.url if card is not None else ""
 
 
 @require_POST
@@ -766,7 +761,7 @@ def _sponsors_context(
         "team_list_id": SPONSOR_TEAM_LIST_ID,
         "tiers": SPONSOR_TIERS,
         "wine_benefit": WINE_WALL_BENEFIT,
-        "wine_url": _door_url(hub, HubCard.Kind.WINE_WALL, is_admin=renders_as_admin(request)),
+        "wine_url": _door_url(hub, HubCard.Kind.WINE_WALL),
     }
 
 
@@ -1421,7 +1416,7 @@ def _checkin_context(
         "board": services.thank_you_board(hub),
         "me_pk": member.pk if member is not None else None,
         "may_check_in": member is not None,
-        "volunteer_url": _door_url(hub, HubCard.Kind.VOLUNTEERS, is_admin=renders_as_admin(request)),
+        "volunteer_url": _door_url(hub, HubCard.Kind.VOLUNTEERS),
     }
     if member is not None:
         context.update(_report_context(hub, member, form=report_form))
@@ -1611,7 +1606,7 @@ def _flyer_context(
     page = services.flyer_page(hub)
     event = hub.event
     # The Marketing Tracker and Vendor Tables links, in one read of the cards.
-    door_urls = _door_urls(hub, is_admin=renders_as_admin(request))
+    door_urls = _door_urls(hub)
     # With no 2026 flyer uploaded, the poster is the flyer the event system makes for the hub's event (hub_event_flyer),
     # once that event is published (its QR opens the event page, which an unpublished event does not have) and until a
     # one-off has ended, when its date would read as still to come.
@@ -2200,7 +2195,7 @@ def _bar_context(
 def _wine_links(request: HttpRequest, hub: EventHub) -> tuple[str, str]:
     """Where the Wine Wall section's two links go: the wall and its donors page, or "" for both when the wall's card
     is missing or hidden from a viewer who is no admin."""
-    wall = _door_url(hub, HubCard.Kind.WINE_WALL, is_admin=renders_as_admin(request))
+    wall = _door_url(hub, HubCard.Kind.WINE_WALL)
     return wall, reverse("hq:wine_donors", args=[hub.slug]) if wall else ""
 
 
@@ -2468,14 +2463,10 @@ def _ledger_section_url(hub: EventHub, anchor: str) -> str:
     return f"{reverse('hq:ledger', args=[hub.slug])}#{anchor}"
 
 
-def _door_urls(hub: EventHub, *, is_admin: bool) -> dict[str, str]:
+def _door_urls(hub: EventHub) -> dict[str, str]:
     """Where each door's page is, in one read of the cards: a ``HubCard.Kind`` to its page, for every live door with a
-    page that is not hidden from a viewer who is no admin (:func:`_door_url`'s rule for all of them at once)."""
-    return {
-        card.kind: card.url
-        for card in hub.cards.exclude(kind=HubCard.Kind.PLACEHOLDER)
-        if card.url and (is_admin or not card.is_hidden)
-    }
+    page (:func:`_door_url`'s rule for all of them at once)."""
+    return {card.kind: card.url for card in hub.cards.exclude(kind=HubCard.Kind.PLACEHOLDER) if card.url}
 
 
 def _officer_names() -> list[str]:
@@ -2503,7 +2494,7 @@ def _ledger_figures(request: HttpRequest, hub: EventHub) -> LedgerFigures:
         found=found,
         band=band,
         doors=services.door_figures(hub, band, found),
-        door_urls=_door_urls(hub, is_admin=renders_as_admin(request)),
+        door_urls=_door_urls(hub),
         launch=services.launch_totals(hub),
         flyer=services.flyer_page(hub),
     )

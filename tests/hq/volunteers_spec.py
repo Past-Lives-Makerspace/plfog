@@ -460,11 +460,10 @@ def describe_the_wine_wall_link():
         assert f'href="{reverse("hq:wine", args=[card.hub.slug])}"' in body
         assert "data-hq-vol-wine" in body
 
-    def it_is_absent_for_a_hidden_card_except_to_an_admin(card, officer_client, admin_client):
+    def it_shows_a_hidden_wine_wall_card_to_an_officer_too(card, officer_client):
         HubCardFactory(hub=card.hub, kind=HubCard.Kind.WINE_WALL, is_hidden=True)
 
-        assert "data-hq-vol-wine" not in officer_client.get(_page(card.hub)).content.decode()
-        assert "data-hq-vol-wine" in admin_client.get(_page(card.hub)).content.decode()
+        assert "data-hq-vol-wine" in officer_client.get(_page(card.hub)).content.decode()
 
     def it_is_absent_without_a_wine_wall_card(card, officer_client):
         assert "data-hq-vol-wine" not in officer_client.get(_page(card.hub)).content.decode()

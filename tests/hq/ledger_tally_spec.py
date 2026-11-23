@@ -374,11 +374,11 @@ def describe_the_running_tally():
         assert tiles["vol"].sub == "from 0 volunteers. Thank you!"
         assert tiles["cash"].value_display == "$0"
 
-    def it_links_each_tile_to_its_door_only_while_that_door_is_shown_to_the_viewer(busy, doors, lee_client):
-        doors[HubCard.Kind.MARKETING].is_hidden = True
-        doors[HubCard.Kind.MARKETING].save(update_fields=["is_hidden"])
-        doors[HubCard.Kind.VENDOR_TABLES].is_hidden = True
-        doors[HubCard.Kind.VENDOR_TABLES].save(update_fields=["is_hidden"])
+    def it_links_each_tile_to_its_door_only_while_the_hub_has_that_door(busy, doors, lee_client):
+        doors[HubCard.Kind.MARKETING].delete()
+        doors[HubCard.Kind.VENDOR_TABLES].delete()
+        doors[HubCard.Kind.SPONSORSHIP].is_hidden = True
+        doors[HubCard.Kind.SPONSORSHIP].save(update_fields=["is_hidden"])
 
         body = lee_client.get(_page(busy)).content.decode()
 
@@ -1427,7 +1427,10 @@ def describe_the_rows():
         HubCardFactory(hub=hub, kind=HubCard.Kind.RSVP, title="Going?")
         HubCardFactory(hub=hub, kind=HubCard.Kind.PLACEHOLDER, title="Soon")
 
-        urls = _door_urls(hub, is_admin=False)
+        doors[HubCard.Kind.MARKETING].is_hidden = True
+        doors[HubCard.Kind.MARKETING].save(update_fields=["is_hidden"])
+
+        urls = _door_urls(hub)
 
         assert HubCard.Kind.RSVP not in urls  # no event, so the RSVP door has no page
         assert urls[HubCard.Kind.LEDGER] == _page(hub)

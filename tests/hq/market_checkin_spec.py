@@ -277,19 +277,14 @@ def describe_who_may_check_in():
         assert response.status_code == 200
         assert HOURS_STEP_ERROR in response.content.decode()
 
-    def it_is_a_404_when_hidden_for_all_but_admins_and_refuses_their_posts(card, artist, artist_client, admin_client):
-        entry = _hours(card.hub, artist)
+    def it_opens_to_an_officer_while_hidden_and_takes_their_posts(card, artist, artist_client):
         card.is_hidden = True
         card.save(update_fields=["is_hidden"])
 
-        assert artist_client.get(_page(card.hub)).status_code == 404
-        assert artist_client.get(_reports_page(card.hub)).status_code == 404
-        assert artist_client.post(_report(card.hub), _report_post()).status_code == 404
-        assert artist_client.post(_log(card.hub), _hours_post()).status_code == 404
-        assert artist_client.post(_delete(entry)).status_code == 404
-        assert admin_client.get(_page(card.hub)).status_code == 200
-        assert not MarketReport.objects.exists()
-        assert VolunteerHours.objects.count() == 1
+        assert artist_client.get(_page(card.hub)).status_code == 200
+        assert artist_client.get(_reports_page(card.hub)).status_code == 200
+        assert artist_client.post(_report(card.hub), _report_post()).status_code == 302
+        assert MarketReport.objects.filter(member=artist).exists()
 
     def it_takes_posts_only(hub, artist, artist_client):
         entry = _hours(hub, artist)
@@ -993,11 +988,11 @@ def describe_the_organiser_pages():
         for url in (_reports_page(hub), _hours_page(hub), _reports_csv(hub), _hours_csv(hub)):
             assert admin_client.get(url).status_code == 404, url
 
-    def it_is_a_404_when_the_card_is_hidden_from_an_officer(card, lee_client):
+    def it_opens_to_an_officer_while_hidden(card, lee_client):
         card.is_hidden = True
         card.save(update_fields=["is_hidden"])
 
-        assert lee_client.get(_reports_page(card.hub)).status_code == 404
+        assert lee_client.get(_reports_page(card.hub)).status_code == 200
 
     def it_streams_the_reports_as_csv(hub, filed, lee_client):
         response = lee_client.get(_reports_csv(hub))
@@ -1031,16 +1026,13 @@ def describe_the_organiser_pages():
 
 
 def describe_the_volunteer_link():
-    def it_shows_while_the_volunteer_card_is_not_hidden_from_the_viewer(hub, artist_client, admin_client):
-        volunteers = HubCardFactory(hub=hub, kind=HubCard.Kind.VOLUNTEERS)
+    def it_shows_once_the_hub_has_a_volunteer_card(hub, artist_client):
+        assert "data-hq-ci-volunteer" not in artist_client.get(_page(hub)).content.decode()
+        volunteers = HubCardFactory(hub=hub, kind=HubCard.Kind.VOLUNTEERS, is_hidden=True)
 
         body = artist_client.get(_page(hub)).content.decode()
 
         assert f'href="{volunteers.url}" class="pl-hq-ci__btn pl-hq-ci__btn--ghost" data-hq-ci-volunteer-link' in body
-        volunteers.is_hidden = True
-        volunteers.save(update_fields=["is_hidden"])
-        assert "data-hq-ci-volunteer" not in artist_client.get(_page(hub)).content.decode()
-        assert "data-hq-ci-volunteer-link" in admin_client.get(_page(hub)).content.decode()
 
     def it_is_absent_without_a_volunteer_card(hub, artist_client):
         assert "data-hq-ci-volunteer" not in artist_client.get(_page(hub)).content.decode()

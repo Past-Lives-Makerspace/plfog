@@ -759,7 +759,7 @@ def describe_the_wine_wall_section():
         assert "data-hq-lg-tickets-form" in body
         assert "add to wine wall" not in body.lower()  # bottles are logged on the wall's own door
 
-    def it_links_the_wall_and_its_donors_and_leaves_both_out_while_the_wall_is_hidden(hub, card, lee_client):
+    def it_links_the_wall_and_its_donors_and_leaves_both_out_without_a_wall_card(hub, card, lee_client):
         wall = HubCardFactory(hub=hub, kind=HubCard.Kind.WINE_WALL)
 
         body = lee_client.get(_page(hub)).content.decode()
@@ -771,6 +771,9 @@ def describe_the_wine_wall_section():
 
         wall.is_hidden = True
         wall.save(update_fields=["is_hidden"])
+        assert f'href="{wall.url}"' in lee_client.get(_page(hub)).content.decode()
+
+        wall.delete()
         body = lee_client.get(_page(hub)).content.decode()
         assert "data-hq-lg-wall-link" not in body
         assert f'href="{_url("wine_donors", hub)}"' not in body

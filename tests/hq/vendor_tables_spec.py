@@ -207,12 +207,12 @@ def describe_who_may_open_it():
         assert "data-hq-vt-csv" in body
         assert "data-hq-vt-floor" in body
 
-    def it_is_a_404_when_hidden_for_all_but_admins(card, member_client, kate_client, admin_client):
+    def it_opens_to_an_officer_while_hidden(card, member_client, kate_client, admin_client):
         card.is_hidden = True
         card.save(update_fields=["is_hidden"])
 
         assert member_client.get(_page(card.hub)).status_code == 404
-        assert kate_client.get(_page(card.hub)).status_code == 404
+        assert kate_client.get(_page(card.hub)).status_code == 200
         assert admin_client.get(_page(card.hub)).status_code == 200
 
     def it_is_a_404_on_a_hub_with_no_vendor_door(open_hub, admin_client):

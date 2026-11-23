@@ -201,15 +201,13 @@ def describe_who_may_open_it():
         assert page.flyer
         assert page.share_message == FLYER_SHARE_MESSAGE
 
-    def it_is_a_404_when_hidden_for_all_but_admins(card, lee_client, admin_client):
+    def it_opens_to_an_officer_while_hidden(card, lee_client):
         _with_flyer(card.hub)
         card.is_hidden = True
         card.save(update_fields=["is_hidden"])
 
-        assert lee_client.get(_page(card.hub)).status_code == 404
-        assert lee_client.get(_download(card.hub)).status_code == 404
-        assert admin_client.get(_page(card.hub)).status_code == 200
-        assert admin_client.get(_download(card.hub)).status_code == 200
+        assert lee_client.get(_page(card.hub)).status_code == 200
+        assert lee_client.get(_download(card.hub)).status_code == 200
 
     def it_gives_update_this_page_and_its_posts_to_an_officer(hub, lee_client):
         """The flyers and links were admins only; every guild officer now runs them (#1307)."""
@@ -387,7 +385,7 @@ def describe_downloading():
 
         card.is_hidden = True
         card.save(update_fields=["is_hidden"])
-        assert officer_client.get(_download(hub)).status_code == 404
+        assert officer_client.get(_download(hub)).status_code == 200
         assert admin_client.get(_download(hub)).status_code == 200
 
 
@@ -728,7 +726,7 @@ def describe_the_members_table_card():
         assert f"data-hq-fl-table-setup>{VENDOR_SETUP_NOTE}</p>" in table
         assert body.index("data-hq-fl-find") < body.index("data-hq-fl-table>") < body.index("data-hq-fl-last-year")
 
-    def it_links_vendor_tables_while_that_door_is_not_hidden_from_the_viewer(hub, officer_client, admin_client):
+    def it_links_vendor_tables_once_the_hub_has_that_door_hidden_or_not(hub, officer_client):
         url = reverse("hq:vendors", args=[hub.slug])
         link = f'<a href="{url}" class="pl-hq-fl__btn pl-hq-fl__btn--ghost" data-hq-fl-vendors>Open Vendor Tables</a>'
 
@@ -737,8 +735,7 @@ def describe_the_members_table_card():
         assert link in officer_client.get(_page(hub)).content.decode()
         vendors.is_hidden = True
         vendors.save(update_fields=["is_hidden"])
-        assert "data-hq-fl-vendors" not in officer_client.get(_page(hub)).content.decode()
-        assert link in admin_client.get(_page(hub)).content.decode()
+        assert link in officer_client.get(_page(hub)).content.decode()
 
 
 def describe_find_the_event():
@@ -830,7 +827,7 @@ def describe_the_figures():
 
         assert "business has the flyer up" in body
 
-    def it_links_the_figure_to_the_marketing_tracker_while_that_card_is_not_hidden(hub, officer_client, admin_client):
+    def it_links_the_figure_to_the_marketing_tracker_once_the_hub_has_that_card(hub, officer_client):
         tracker = reverse("hq:marketing", args=[hub.slug])
         assert '<div class="pl-hq-fl__figure" data-hq-fl-flyers>' in officer_client.get(_page(hub)).content.decode()
 
@@ -840,9 +837,8 @@ def describe_the_figures():
         )
         marketing.is_hidden = True
         marketing.save(update_fields=["is_hidden"])
-        assert tracker not in officer_client.get(_page(hub)).content.decode()
         assert f'<a href="{tracker}" class="pl-hq-fl__figure" data-hq-fl-flyers>' in (
-            admin_client.get(_page(hub)).content.decode()
+            officer_client.get(_page(hub)).content.decode()
         )
 
     def it_never_stores_either_figure(hub):

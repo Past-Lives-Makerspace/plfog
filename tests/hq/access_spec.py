@@ -143,18 +143,25 @@ def describe_the_hq_page():
 
         assert officer_client.get(_page(lees_hq)).status_code == 404
 
-    def it_shows_a_hidden_card_to_an_admin_with_its_chip_and_to_nobody_else(lees_hq, admin_client, officer_client):
+    def it_lets_an_officer_hide_a_card_and_still_see_open_and_unhide_it(lees_hq, officer_client, admin_client):
         card = lees_hq.cards.get(kind=HubCard.Kind.LEDGER)
-        card.is_hidden = True
-        card.save(update_fields=["is_hidden"])
+        edit = reverse("hq:card_edit", args=[lees_hq.slug, card.pk])
+        words = {"title": card.title, "who_for": card.who_for, "bullets": card.bullets, "button_text": card.button_text}
 
-        admin_body = admin_client.get(_page(lees_hq)).content.decode()
-        officer_body = officer_client.get(_page(lees_hq)).content.decode()
+        assert officer_client.post(edit, {**words, "is_hidden": "on"}).status_code == 302
+        card.refresh_from_db()
+        assert card.is_hidden
 
-        assert _marker(card) in admin_body and "data-hq-hidden-chip" in admin_body
-        assert _marker(card) not in officer_body
-        assert officer_client.get(card.url).status_code == 404
-        assert admin_client.get(card.url).status_code == 200
+        for client in (officer_client, admin_client):
+            body = client.get(_page(lees_hq)).content.decode()
+            door = body.split(_marker(card))[1].split("data-hq-card-pk=")[0]
+            assert "data-hq-hidden-chip" in door
+            assert client.get(card.url).status_code == 200
+            assert client.get(edit).status_code == 200
+
+        assert officer_client.post(edit, words).status_code == 302
+        card.refresh_from_db()
+        assert not card.is_hidden
 
     @pytest.mark.parametrize("role", [ROLE_MEMBER, ROLE_GUEST])
     def it_shows_an_admin_previewing_below_admin_the_404_that_viewer_gets(lees_hq, admin_client, role):
@@ -253,13 +260,14 @@ def describe_hq_gate():
         with pytest.raises(Http404):
             view(_request(admin.user, picked=ROLE_GUEST))
 
-    def it_keeps_a_hidden_card_from_an_officer_but_not_from_an_admin_acting_in_a_preview(open_hub, officer, admin):
+    def it_hands_a_hidden_card_to_an_officer_on_get_and_post(open_hub, officer):
         HubCardFactory(hub=open_hub, kind=HubCard.Kind.LEDGER, is_hidden=True)
-        view = hq_gate(HubCard.Kind.LEDGER)(lambda request, **kwargs: HttpResponse("ok"))
+        view = hq_gate(HubCard.Kind.LEDGER)(_echo)
 
-        with pytest.raises(Http404):
-            view(_request(officer.user, method="post"), slug=open_hub.slug)
-        assert view(_request(admin.user, method="post", picked=ROLE_MEMBER), slug=open_hub.slug).status_code == 200
+        for method in ("get", "post"):
+            response = view(_request(officer.user, method=method), slug=open_hub.slug)
+
+            assert response.content == f"{open_hub.slug}:ledger".encode()
 
 
 def describe_viewer_member():

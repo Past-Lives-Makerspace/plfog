@@ -253,7 +253,7 @@ def describe_the_section_bar():
 
         assert ("#hq-lg-board", "$1,200 budget") in _jumps(lee_client.get(_page(hub)).content.decode())
 
-    def it_links_the_sponsors_and_vendor_tables_doors_only_while_they_are_on_the_hub_and_shown(hub, lee_client):
+    def it_links_the_sponsors_and_vendor_tables_doors_only_while_they_are_on_the_hub(hub, lee_client):
         sponsors_url = reverse("hq:sponsors", args=[hub.slug])
         vendors_url = reverse("hq:vendors", args=[hub.slug])
 
@@ -272,7 +272,7 @@ def describe_the_section_bar():
 
         sponsors.is_hidden = True
         sponsors.save(update_fields=["is_hidden"])
-        assert sponsors_url not in [href for href, _ in _jumps(lee_client.get(_page(hub)).content.decode())]
+        assert sponsors_url in [href for href, _ in _jumps(lee_client.get(_page(hub)).content.decode())]
 
 
 def describe_the_footer():
@@ -324,12 +324,12 @@ def describe_who_may_open_it():
         assert "Spec Secret Vendor" in body
         assert "data-hq-lg-log-form" in body
 
-    def it_is_a_404_when_hidden_for_all_but_admins(card, member_client, lee_client, admin_client):
+    def it_opens_to_an_officer_while_hidden(card, member_client, lee_client, admin_client):
         card.is_hidden = True
         card.save(update_fields=["is_hidden"])
 
         assert member_client.get(_page(card.hub)).status_code == 404
-        assert lee_client.get(_page(card.hub)).status_code == 404
+        assert lee_client.get(_page(card.hub)).status_code == 200
         assert admin_client.get(_page(card.hub)).status_code == 200
 
     def it_is_a_404_on_a_hub_with_no_ledger_door(open_hub, admin_client):

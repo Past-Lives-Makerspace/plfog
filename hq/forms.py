@@ -182,7 +182,7 @@ class HubCardForm(forms.ModelForm):
         }
         help_texts = {
             "bullets": "One per line, up to 4.",
-            "is_hidden": "A hidden card shows to admins only, with a Hidden chip.",
+            "is_hidden": "Marks a card still being set up: it shows with a Hidden chip.",
         }
         widgets: dict[str, Any] = {"bullets": forms.Textarea(attrs={"rows": 5})}
 
