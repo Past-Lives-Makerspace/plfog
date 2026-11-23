@@ -18,7 +18,6 @@ from membership.models import Member
 from tests.tours.conftest import make_guide, signed_in
 from tests.tours.factories import TourBookingFactory, TourHoursFactory, local
 from tours.availability import open_tour_at
-from tours.forms import CREATE_ACCOUNT_LABEL
 from tours.models import FacilityTourSettings, TourBooking
 
 pytestmark = pytest.mark.django_db
@@ -53,7 +52,13 @@ def hours(guide: Member) -> Any:
 
 
 def _post(guide: Member, hour: int = 16, **values: str) -> dict[str, str]:
-    data = {"tour": _key(guide, hour), "name": "Sam Rivera", "email": "sam@example.com", "phone": "", "party_size": "2"}
+    data = {
+        "tour": _key(guide, hour),
+        "name": "Sam Rivera",
+        "email": "sam@example.com",
+        "phone": "503 555 0142",
+        "party_size": "2",
+    }
     data.update(values)
     return data
 
@@ -131,11 +136,8 @@ def describe_booking_page():
         assert f'data-tour-chosen="{_key(guide, 16)}"' in content
         assert '<option value="3">3</option>' in content
         assert '<option value="4">' not in content
-        assert CREATE_ACCOUNT_LABEL in content
-
-    def it_starts_the_account_toggle_on(guide: Member, hours: Any):
-        content = _client().get(f"/?tour={_key(guide, 16)}").content.decode()
-        assert re.search(r'<input[^>]*name="create_account"[^>]*checked', content)
+        # Morlock, 2026-11-22: no account switch; tours find their account by email at sign in.
+        assert 'name="create_account"' not in content
 
     def it_fills_in_a_signed_in_visitors_name_and_email_and_offers_no_account(guide: Member, hours: Any):
         member = make_guide(full_legal_name="Lee Member")
@@ -146,7 +148,7 @@ def describe_booking_page():
         content = client.get(f"/?tour={_key(guide, 16)}", HTTP_HOST=HOST).content.decode()
         assert 'value="Lee Member"' in content
         assert f'value="{member.user.email}"' in content
-        assert CREATE_ACCOUNT_LABEL not in content
+        assert 'name="create_account"' not in content
 
     def it_falls_back_to_the_members_name_for_a_user_without_one(guide: Member, hours: Any):
         member = make_guide(full_legal_name="Nina Noname")
@@ -179,13 +181,7 @@ def describe_booking():
         assert "data-tour-reschedule>Reschedule</a>" in content
         assert "data-tour-cancel>Cancel My Tour</a>" in content
 
-    def it_makes_a_guest_account_when_asked(guide: Member, hours: Any):
-        _client().post("/", _post(guide, email="fresh@example.com", create_account="on"))
-        booking = TourBooking.objects.get()
-        assert booking.user is not None
-        assert Member.objects.get(user=booking.user).status == Member.Status.GUEST
-
-    def it_creates_no_account_with_the_toggle_off(guide: Member, hours: Any):
+    def it_creates_no_account(guide: Member, hours: Any):
         users = User.objects.count()
         _client().post("/", _post(guide, email="fresh@example.com"))
         assert User.objects.count() == users
@@ -194,7 +190,7 @@ def describe_booking():
         member = make_guide(full_legal_name="Lee Member")
         client = signed_in(member)
         member.refresh_from_db()
-        client.post("/", _post(guide, email="whatever@example.com", create_account="on"), HTTP_HOST=HOST)
+        client.post("/", _post(guide, email="whatever@example.com"), HTTP_HOST=HOST)
         assert TourBooking.objects.get().user == member.user
 
     def it_says_the_time_filled_up_instead_of_overbooking(guide: Member, hours: Any):
@@ -259,7 +255,8 @@ def describe_booking():
         assert 'data-pl-busy="hold">Book My Tour</button>' in content
         assert "js/tours-loading" in content
         assert "window.plBusySubmitBound" in content
-        assert "No password. You sign in with a code we email you." in content
+        # The account switch and its "No password" note are gone (Morlock, 2026-11-22).
+        assert "No password. You sign in with a code we email you." not in content
         assert "shows up in your account" not in content
 
     def it_refuses_a_tour_key_for_nobody(guide: Member, hours: Any):

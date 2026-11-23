@@ -1,0 +1,10 @@
+bump = "patch"
+date = "2026-11-22"
+audience = "members"
+feature = "account.discord"
+guidance = "none"
+title = "Guild roles in #choose-your-guild now change within seconds"
+changes = [
+  "React with a guild's emoji in #choose-your-guild and you get that guild's Discord role within seconds.",
+  "Take your reaction off and the role goes away, unless you still react with another emoji for the same guild. You stay in the guild in the portal either way.",
+]

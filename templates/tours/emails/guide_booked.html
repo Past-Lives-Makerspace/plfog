@@ -11,6 +11,9 @@
     <span style="font-size: 14px; color: #33424f;">{{ when }}</span><br><br>
     <span style="font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">Visitor</span><br>
     <span style="font-size: 14px; color: #33424f;"><a href="mailto:{{ booking.visitor_email }}" style="color: #0d4876;">{{ booking.visitor_email }}</a>{% if booking.visitor_phone %}<br>{{ booking.visitor_phone }}{% endif %}</span>
+{% for label, answer in booking.guest_answers %}<br><br>
+    <span style="font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">{{ label }}</span><br>
+    <span style="font-size: 14px; color: #33424f;">{{ answer|linebreaksbr }}</span>{% endfor %}
 </td>
 </tr>
 </table>

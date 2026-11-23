@@ -144,6 +144,7 @@ def describe_tour_booking():
         page.locator("[data-tour-form]").wait_for()
         page.locator('input[name="name"]').fill("Sam Rivera")
         page.locator('input[name="email"]').fill(VISITOR_EMAIL)
+        page.locator('input[name="phone"]').fill("503 555 0142")
         page.locator('select[name="party_size"]').select_option("2")
         _capture(page, "form")
         _no_sideways_scroll(page)
@@ -158,9 +159,9 @@ def describe_tour_booking():
         _capture(page, "confirmation")
         booking = TourBooking.objects.get()
         assert (booking.starts_at, booking.party_size) == (four, 2)
-        # The account toggle starts on, so the visitor now has a GUEST account, never a member one.
-        assert booking.user is not None and booking.user.email == VISITOR_EMAIL
-        assert Member.objects.get(user=booking.user).status == Member.Status.GUEST
+        # No account is made at booking (Morlock, 2026-11-22); signing in later claims it (claim_tours).
+        assert booking.user is None
+        assert not User.objects.filter(email=VISITOR_EMAIL).exists()
         tour = open_tour_at(guide, four)
         assert tour is not None and tour.seats_left == 2
         confirmed = _only("Your Past Lives tour is booked")
@@ -207,16 +208,15 @@ def describe_tour_booking():
         cancelled = _only("Your Past Lives tour on")
         assert _only("Tour cancelled", to=GUIDE_EMAIL)
 
-        # The account toggle switched off: a booking with no account made.
+        # No account switch and no account made (Morlock, 2026-11-22): a tour finds its visitor's
+        # account by verified email when they sign in.
         page.goto(f"{live_server.url}/?date={day:%Y-%m-%d}")
         page.locator(".pl-tourpub__time").filter(has_text="4:00 PM").click()
         page.locator("[data-tour-form]").wait_for()
+        assert page.locator('input[name="create_account"]').count() == 0
         page.locator('input[name="name"]').fill("Pat Noaccount")
         page.locator('input[name="email"]').fill("pat.noaccount@example.com")
-        toggle = page.locator('[data-tour-account] input[name="create_account"]')
-        assert toggle.is_checked()
-        page.locator("[data-tour-account] .pl-toggle").click()
-        assert not toggle.is_checked()
+        page.locator('input[name="phone"]').fill("503 555 0142")
         with page.expect_navigation():
             page.locator("[data-tour-form] button[type=submit]").click()
         page.locator("[data-tour-confirmed]").wait_for()
@@ -338,3 +338,73 @@ def describe_tours_loading_indicator():
         page.locator("[data-tour-form] button[type=submit]").click()
         assert page.evaluate(LOADING_STATE) == IDLE
         assert page.locator("[data-tour-form] button[type=submit]").text_content() == "Book My Tour"
+
+
+def describe_the_month_calendar_on_a_phone():
+    """The month calendar (Morlock, 2026-11-22: "Is it going to work well on mobile?"): it fits its card
+    on the narrowest phone, and its days are big enough to tap on a common one."""
+
+    _FITS = """() => {
+        const card = document.querySelector('.pl-tourpub').getBoundingClientRect();
+        const months = Array.from(document.querySelectorAll('.pl-tourpub__month'));
+        return months.every((month) => {
+            const box = month.getBoundingClientRect();
+            return box.left >= card.left && box.right <= card.right;
+        });
+    }"""
+    _DAY = "() => document.querySelector('[data-tour-day]').getBoundingClientRect().width"
+
+    def it_fits_and_taps_well(live_server, page, settings):
+        settings.TOURS_HOSTS = [urlparse(live_server.url).hostname]
+        settings.TOURS_BASE_URL = live_server.url
+        guide = _make_guide()
+        day = timezone.localdate() + timedelta(days=4)
+        TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
+        for width in (320, 375, 390):
+            page.set_viewport_size({"width": width, "height": 800})
+            page.goto(f"{live_server.url}/?date={day:%Y-%m-%d}")
+            page.locator(f'[data-tour-day="{day:%Y-%m-%d}"]').wait_for()
+            assert page.evaluate(_FITS), f"the calendar spills out of its card at {width}px"
+            assert page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth"), width
+            if width >= 375:
+                # Apple's guide is 44pt; 40 is the floor a thumb hits reliably on a seven column grid.
+                assert page.evaluate(_DAY) >= 40, f"days are {page.evaluate(_DAY)}px wide at {width}px"
+
+
+def describe_the_booking_steps():
+    """Morlock, 2026-11-22: the step bar (Schedule, Details, Confirm) as the way back and forth, and what was typed kept."""
+
+    def it_keeps_the_typing_across_back_and_forgets_it_once_booked(live_server, page, settings):
+        settings.TOURS_HOSTS = [urlparse(live_server.url).hostname]
+        settings.TOURS_BASE_URL = live_server.url
+        guide = _make_guide()
+        day = timezone.localdate() + timedelta(days=4)
+        TourHoursFactory(guide=guide, weekday=day.weekday(), seats=4)
+        four = local(day, 16)
+        key = f"{guide.pk}-{four.astimezone(UTC):%Y%m%dT%H%MZ}"
+        page.set_viewport_size(DESKTOP)
+
+        page.goto(f"{live_server.url}/?tour={key}")
+        page.locator('[data-tour-step="details"][aria-current="step"]').wait_for()
+        page.locator('input[name="name"]').fill("Sam Rivera")
+        page.locator('input[name="email"]').fill("sam@example.com")
+        page.locator('input[name="phone"]').fill("503 555 0142")
+
+        # The step bar is the way back and forth: Schedule back, then Details forward to the same time.
+        page.locator('a[data-tour-step="schedule"]').click()
+        page.locator('[data-tour-step="schedule"][aria-current="step"]').wait_for()
+        page.locator('a[data-tour-step="details"]').click()
+        page.locator('[data-tour-step="details"][aria-current="step"]').wait_for()
+        assert page.locator('input[name="name"]').input_value() == "Sam Rivera"
+        assert page.locator('input[name="email"]').input_value() == "sam@example.com"
+        # And through the calendar: picking the time again finds the typing too.
+        page.locator('a[data-tour-step="schedule"]').click()
+        page.locator(f'[data-tour-time="{key}"]').click()
+        page.locator('[data-tour-step="details"][aria-current="step"]').wait_for()
+        assert page.locator('input[name="name"]').input_value() == "Sam Rivera"
+
+        with page.expect_navigation():
+            page.locator("[data-tour-form] button[type=submit]").click()
+        page.locator('[data-tour-step="confirm"][aria-current="step"]').wait_for()
+        assert page.evaluate("() => sessionStorage.getItem('pl-tour-booking-draft')") is None
+        assert TourBooking.objects.get().visitor_name == "Sam Rivera"

@@ -430,28 +430,6 @@ def event_id_for(booking: TourBooking) -> str:
     return f"pltour{booking.pk}s{site}"
 
 
-#: The guest's answers from the booking form, each ``(label, TourBooking attribute)``, in the order
-#: the guide reads them. Bookings do not store these yet (feedback request #32): a line shows only
-#: once the booking carries the attribute with a value, so adding the fields with these names is all
-#: it takes. ``pronouns`` sits under Name; the rest follow Email.
-GUEST_ANSWERS: tuple[tuple[str, str], ...] = (
-    ("Interested in", "interests"),
-    ("Found us through", "found_us_through"),
-    ("Notes from the guest", "guest_notes"),
-)
-
-
-def _answer(booking: TourBooking, attribute: str) -> str:
-    """One of the guest's answers as text, "" when the booking has no such field or it is blank.
-
-    A list (interests ticked from several) reads as ``Ceramics, Woodshop``.
-    """
-    value = getattr(booking, attribute, None)
-    if isinstance(value, list | tuple):
-        value = ", ".join(str(item).strip() for item in value if str(item).strip())
-    return str(value or "").strip()
-
-
 def _line(label: str, value_html: str) -> str:
     """``<b>Label:</b> value``; the caller escapes the value."""
     return format_html("<b>{}:</b> {}", label, value_html)
@@ -460,9 +438,10 @@ def _line(label: str, value_html: str) -> str:
 def event_body(booking: TourBooking) -> dict[str, Any]:
     """The Google event for a booking, laid out so the guide can run the tour from it (feedback #33).
 
-    Title ``Tour: <visitor> (<party size>)``, then `` · <interests>`` once bookings carry them. The
+    Title ``Tour: <visitor> (<party size>)``. The
     description is HTML, which Google Calendar renders (bold labels, links), one line per ``<br>``:
-    Name, Pronouns, Party size, Phone (a ``tel:`` link to tap), Email, the guest's answers (:data:`GUEST_ANSWERS`), and the
+    Name, Pronouns, Party size, Phone (a ``tel:`` link to tap), Email, the rest of the guest's answers to the
+    booking questions as the guide's email and the Upcoming row show them (``booking.guest_answers``, #32), and the
     booking's number with a link to its row on the Tours page. Every value the visitor typed is
     escaped. The link is the guide's own view, never the visitor's self serve one: a guide's calendar
     may be shared, and that link cancels the tour. The guest is never an attendee, so Google never
@@ -470,13 +449,10 @@ def event_body(booking: TourBooking) -> dict[str, Any]:
     """
     from tours.notify import request_url
 
-    interests = _answer(booking, "interests")
     summary = f"Tour: {booking.visitor_name} ({booking.party_size})"
-    if interests:
-        summary += f" · {interests}"
 
     lines = [_line("Name", escape(booking.visitor_name))]
-    if pronouns := _answer(booking, "pronouns"):
+    if pronouns := booking.pronouns.strip():
         lines.append(_line("Pronouns", escape(pronouns)))
     lines.append(_line("Party size", escape(booking.party_label)))
     if booking.visitor_phone:
@@ -484,8 +460,8 @@ def event_body(booking: TourBooking) -> dict[str, Any]:
         lines.append(_line("Phone", phone))
     email = format_html('<a href="mailto:{0}">{0}</a>', booking.visitor_email)
     lines.append(_line("Email", email))
-    for label, attribute in GUEST_ANSWERS:
-        if answer := _answer(booking, attribute):
+    for label, answer in booking.guest_answers:
+        if label != "Pronouns":  # shown under the name
             lines.append(_line(label, escape(answer)))
     manage = format_html('#{} · <a href="{}">Open on the Tours page</a>', booking.pk, request_url(booking))
     lines.append(_line("Booking", manage))

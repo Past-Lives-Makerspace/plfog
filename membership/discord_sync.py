@@ -337,6 +337,54 @@ def sync_roster_roles() -> RoleGrants | None:
     return give_missing_roles(server_id, wanted)
 
 
+class ReactionRoleError(Exception):
+    """A role change for one live reaction failed or was refused, so the task fails and the Webmasters hear."""
+
+
+@task
+def apply_reaction(user_id: str, guild_id: int, added: bool) -> None:
+    """Give or take one guild's Discord roles for one reaction the live gateway saw (#1270, part 3).
+
+    Queued by :func:`core.discord_gateway.dispatch`. An add PUTs every role of the guild, records
+    a linked reactor's ``source="discord"`` membership (silent, no email) and clears its
+    ``no_discord_role`` mark. A remove first checks the user's other reactions for this guild on
+    every role message (the two Glass emojis, or the same emoji on the other message) and keeps
+    the role when one is still there, or when a read was truncated and might have missed one.
+    Otherwise it DELETEs every role and marks the member's membership ``no_discord_role``, whatever
+    its source, so the daily sync does not give the role back. It never removes a membership and
+    never emails. Safe to run twice: a PUT or DELETE Discord already treats as done is a 204.
+
+    Raises:
+        ReactionRoleError: A role change still failed after its retry, or Discord refused it.
+    """
+    from membership.models import DiscordGuildEmoji, Guild, GuildMembership, Member
+
+    config = _reconcile_config()
+    guild = Guild.objects.filter(pk=guild_id, deleted_at__isnull=True).first()
+    if config is None or guild is None:
+        return
+    server_id, channel_id, message_ids = config
+    if not added:
+        emojis = list(DiscordGuildEmoji.objects.filter(guild=guild).values_list("emoji", flat=True))
+        pages = [discord_reactions.fetch_reactors(channel_id, m, e) for e in emojis for m in message_ids]
+        if any(user_id in page.user_ids or not page.complete for page in pages):
+            logger.info("Discord reaction remove kept guild %s's roles: another reaction remains or was unread.", guild)
+            return
+    method = "PUT" if added else "DELETE"
+    outcomes = [
+        discord_roles.role_outcome(method, server_id, user_id, str(role_id), retry=True)
+        for role_id in guild.discord_role_ids or []
+    ]
+    rows = GuildMembership.objects.filter(guild=guild, member__discord_user_id=user_id)
+    if added:
+        for member in Member.objects.filter(discord_user_id=user_id):
+            GuildMembership.objects.record_discord_join(guild, member)
+    rows.update(no_discord_role=not added)
+    bad = [outcome for outcome in outcomes if outcome in (RoleOutcome.FAILED, RoleOutcome.REFUSED)]
+    if bad:
+        raise ReactionRoleError(f"{len(bad)} Discord role {method} for guild {guild} did not land ({bad[0]}).")
+
+
 def _link_nudge_content() -> str:
     """The one-time "you're halfway there" DM body, with the absolute link URL.
 

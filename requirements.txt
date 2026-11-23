@@ -35,3 +35,5 @@ PyNaCl>=1.5
 djangorestframework>=3.15
 # The ORM backend for django.tasks: tasks wait in Postgres for the db_worker process (core/tasks.py).
 django-tasks-db>=0.13,<0.14
+# Fog Bot's live reaction listener in plfog-worker (core/discord_gateway.py, #1270).
+discord.py>=2.6,<3

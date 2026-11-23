@@ -1,4 +1,5 @@
 {% extends "tours/public/base.html" %}
+{% load static %}
 {% comment %}
 The visitor's booking (#948, tours.public_views.manage), opened from the email or right after
 booking (just = "booked"), moving ("moved") or cancelling ("cancelled"). Reschedule and Cancel
@@ -13,6 +14,11 @@ proposed_when, new_guide_name, proposal_key, picked.
 {% endcomment %}
 {% block title %}Your Tour | Past Lives Makerspace{% endblock %}
 
+{% block classes_extra_head %}
+{# Clears the booking form's kept typing once the booking is made (data-tour-draft-clear). #}
+<script src="{% static 'js/tour-booking-draft.js' %}" defer></script>
+{% endblock %}
+
 {% block tours_content %}
 <div class="view">
   <div class="cp-container">
@@ -24,6 +30,7 @@ proposed_when, new_guide_name, proposal_key, picked.
         </div>
       </div>
       <div class="detail-body">
+        {% if just == "booked" %}{% include "tours/public/_steps.html" with step="confirm" %}<span hidden data-tour-draft-clear></span>{% endif %}
         {% if booking.is_request and just != "cancelled" %}
         <p class="pl-tourpub__lead" data-tour-requested>{% if shared %}We sent your request to every guide giving a tour at that time. The first to confirm gives your tour, and they have until{% else %}Your guide confirms each tour before it is booked, and has until{% endif %} <strong data-tour-confirm-by>{{ confirm_by }}</strong> to do so. Your spot is held until then. We emailed {{ booking.visitor_email }}, and we email you again with a calendar invite once {% if shared %}one confirms{% else %}they confirm{% endif %}, or if they have not by then.{% if notice_hours %} Tours with this guide are booked at least {{ notice_hours }} hours ahead.{% endif %}</p>
         {% elif just == "booked" or just == "moved" %}
