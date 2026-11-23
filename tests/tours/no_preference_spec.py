@@ -1,8 +1,8 @@
 """A No preference request shared between guides (#1255): the first to confirm gets it.
 
 Visitors can no longer send one (#1312 removed the pool: hours may overlap and the first booking
-claims the time), but a request sent before stays answerable until migration 0012's task books it,
-so the answering machinery stays and these specs build the shared rows directly.
+claims the time). The answering machinery stays until the Confirm First follow-up drops it, so these
+specs build the shared rows directly.
 """
 
 from __future__ import annotations

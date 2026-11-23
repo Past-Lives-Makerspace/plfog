@@ -22,7 +22,6 @@ from unittest.mock import patch
 
 import pytest
 from django.apps import apps
-from django.core import mail
 from django.core.cache import cache
 from django.db import connection, transaction
 from django.test import Client
@@ -41,7 +40,6 @@ from tours.booking import (
     Visitor,
     answer_tour_proposal,
     book_tour,
-    book_waiting_requests,
     cancel_tour_by_visitor,
     propose_tour_time,
     reschedule_tour,
@@ -49,7 +47,6 @@ from tours.booking import (
 from tours.models import FacilityTourSettings, TourBooking, TourGuideSettings, TourHours, notice_label
 from tours.notify import guide_notice
 from tours.picker import build_picker
-from tours.tasks import book_waiting_tour_requests
 
 pytestmark = pytest.mark.django_db
 
@@ -429,6 +426,19 @@ def describe_moving_a_tour():
         with pytest.raises(TourUnavailableError):
             reschedule_tour(wednesday_tour, guide=dayzie, starts_at=local(TUESDAY, 16, 30), now=NOW)
 
+    def it_lets_a_visitor_move_off_their_own_tour_onto_one_it_overlapped(amber: Member, dayzie: Member):
+        TourHoursFactory(guide=dayzie, start_time=time(16, 30), end_time=time(18, 30))
+        booked = book_tour(guide=amber, starts_at=FOUR, visitor=_visitor(), now=NOW)
+        # Their own 4:00 booking is the only thing blocking Dayzie's 4:30; it never blocks their own move.
+        moved = reschedule_tour(booked, guide=dayzie, starts_at=local(TUESDAY, 16, 30), now=NOW)
+        assert (moved.guide, moved.starts_at) == (dayzie, local(TUESDAY, 16, 30))
+
+    def it_never_hands_a_visitor_their_own_start_with_another_guide(both: tuple[Member, Member]):
+        amber, _dayzie = both
+        booked = book_tour(guide=amber, starts_at=FOUR, visitor=_visitor(), now=NOW)
+        with pytest.raises(TourUnavailableError, match="already your tour time"):
+            reschedule_tour(booked, guide=amber, starts_at=FOUR, now=NOW)
+
     def it_refuses_staff_asking_to_move_onto_a_blocked_tour(amber: Member, dayzie: Member, wednesday_tour: TourBooking):
         TourHoursFactory(guide=dayzie, start_time=time(16, 30), end_time=time(18, 30))
         book_tour(guide=amber, starts_at=FOUR, visitor=_visitor(1, "kim@example.com"), now=NOW)
@@ -634,88 +644,6 @@ def describe_the_switch_is_gone():
 
 
 def describe_no_confirm_step():
-    @pytest.fixture
-    def request_(amber: Member) -> TourBooking:
-        """A request Amber never answered, from when she was on Confirm First."""
-        signed_in(amber)
-        amber.refresh_from_db()
-        starts = local(_next(1) + timedelta(days=7), 16)
-        return TourBookingFactory(
-            guide=amber,
-            starts_at=starts,
-            visitor_email="sam@example.com",
-            status=TourBooking.Status.PENDING,
-        )
-
-    def it_books_a_waiting_request_with_the_confirmation_and_invite(
-        request_: TourBooking, django_capture_on_commit_callbacks: Any
-    ):
-        with django_capture_on_commit_callbacks(execute=True):
-            assert book_waiting_requests() == [request_]
-        request_.refresh_from_db()
-        assert request_.status == TourBooking.Status.BOOKED
-        sent = [message for message in mail.outbox if message.to == ["sam@example.com"]]
-        assert len(sent) == 1 and "is confirmed" in sent[0].subject
-        assert "METHOD:REQUEST" in sent[0].attachments[0].get_content()
-
-    def it_is_safe_to_run_twice(request_: TourBooking):
-        book_waiting_requests()
-        assert book_waiting_requests() == []
-
-    def it_leaves_a_started_request_and_one_whose_guide_has_no_account(amber: Member):
-        started = TourBookingFactory(
-            guide=amber, starts_at=timezone.now() - timedelta(hours=1), status=TourBooking.Status.PENDING
-        )
-        nobody = make_guide(full_legal_name="No Account")
-        waiting = TourBookingFactory(guide=nobody, status=TourBooking.Status.PENDING)
-        assert book_waiting_requests() == []
-        assert {row.status for row in TourBooking.objects.filter(pk__in=[started.pk, waiting.pk])} == {
-            TourBooking.Status.PENDING
-        }
-
-    def it_books_a_shared_request_once_and_tells_the_other_guide_it_was_taken(amber: Member, dayzie: Member):
-        signed_in(amber)
-        signed_in(dayzie)
-        group = "8f9c2a5e-3d0c-4f7a-9a65-6d1f0c3b2a10"
-        starts = local(_next(1) + timedelta(days=7), 16)
-        first = TourBookingFactory(
-            guide=amber, starts_at=starts, status=TourBooking.Status.PENDING, request_group=group
-        )
-        second = TourBookingFactory(
-            guide=dayzie, starts_at=starts, status=TourBooking.Status.PENDING, request_group=group
-        )
-        assert book_waiting_requests() == [first]
-        second.refresh_from_db()
-        assert second.status == TourBooking.Status.CANCELLED and second.was_taken_by_another_guide()
-
-    def it_moves_every_guide_to_automatic_and_queues_the_booking(
-        request_: TourBooking, amber: Member, settings: Any, django_capture_on_commit_callbacks: Any
-    ):
-        settings.TASKS = {"default": {"BACKEND": "django.tasks.backends.dummy.DummyBackend"}}
-        book_waiting_tour_requests.get_backend().clear()
-        TourGuideSettings.objects.create(guide=amber, confirm_mode=TourGuideSettings.ConfirmMode.FIRST)
-        with django_capture_on_commit_callbacks(execute=True):
-            _migration.everyone_confirms_automatically(apps, None)
-        assert not TourGuideSettings.confirms_first(amber)
-        (queued,) = book_waiting_tour_requests.get_backend().results
-        assert queued.task.func is book_waiting_tour_requests.func
-        assert queued.task.run_after > timezone.now() + _migration.RUN_AFTER_DEPLOY - timedelta(minutes=1)
-        book_waiting_tour_requests.call()
-        request_.refresh_from_db()
-        assert request_.status == TourBooking.Status.BOOKED
-
-    def it_leaves_every_guide_automatic_on_the_way_back_and_logs_it(amber: Member, caplog: Any):
-        TourGuideSettings.objects.create(guide=amber)
-        with caplog.at_level("WARNING"):
-            _migration.leave_guides_automatic(apps, None)
-        assert TourGuideSettings.confirm_mode_for(amber) == TourGuideSettings.ConfirmMode.AUTOMATIC
-        assert "1 guides stay on Confirm Automatically" in caplog.text
-
-    def it_queues_nothing_with_no_request_waiting(amber: Member, django_capture_on_commit_callbacks: Any):
-        with django_capture_on_commit_callbacks(execute=False) as callbacks:
-            _migration.everyone_confirms_automatically(apps, None)
-        assert callbacks == []
-
     def it_books_a_website_visitor_at_once(amber: Member):
         booking = book_tour(guide=amber, starts_at=FOUR, visitor=_visitor(), now=NOW)
         assert booking.status == TourBooking.Status.BOOKED

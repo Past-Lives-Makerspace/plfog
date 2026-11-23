@@ -364,10 +364,11 @@ def _move(
     if staff:
         tour = open_tour_at(guide, starts_at, lock=True, now=now, staff=True, moving=locked)
     else:
-        tour = tour_at(starts_at, lock=True, now=now)
+        tour = tour_at(starts_at, lock=True, now=now, moving=locked)
     if tour is None:
         raise TourUnavailableError(GONE_MESSAGE)
-    if locked.guide_id == tour.guide.pk and locked.starts_at == tour.starts_at:
+    # A visitor moving to their own start would only hand it to another guide; staff may (a hand off).
+    if locked.starts_at == tour.starts_at and (not staff or locked.guide_id == tour.guide.pk):
         raise TourUnavailableError(SAME_TIME_MESSAGE)
     if tour.seats_left < locked.party_size:
         raise TourFullError(tour.seats_left)
@@ -552,34 +553,6 @@ def confirm_tour_request(booking: TourBooking, *, actor: User, now: datetime | N
         locked.save(update_fields=["status", "request_group"])
         _after_commit(locked, signals.CONFIRMED, actor=actor)
     return locked
-
-
-def book_waiting_requests(*, now: datetime | None = None) -> list[TourBooking]:
-    """Book every request still waiting for its guide (#1309): Confirm First is gone, so none may be left hanging.
-
-    Queued once by migration 0012 when it moves every guide to Confirm Automatically. Each request
-    is confirmed as its guide would have (:func:`confirm_tour_request`): the visitor gets the
-    confirmation with the calendar invite, the guide's Google Calendar the event. A No preference
-    request (#1255) books its first row and tells the other guides it was taken. A request whose
-    tour has started or whose confirm by time has passed is left to the lapse it was queued with;
-    one whose guide has no account (nobody to confirm as) is left too. Safe to run twice.
-
-    Returns:
-        The bookings it booked.
-    """
-    moment = now or timezone.now()
-    booked: list[TourBooking] = []
-    waiting = TourBooking.objects.filter(status=TourBooking.Status.PENDING, starts_at__gt=moment)
-    for request in waiting.select_related("guide__user").order_by("pk"):
-        guide_user = request.guide.user if request.guide is not None else None
-        if guide_user is None:
-            continue
-        try:
-            booked.append(confirm_tour_request(request, actor=guide_user, now=moment))
-        except TourLockedError:
-            # Taken by an earlier row of its own No preference request, or past its confirm by time.
-            continue
-    return booked
 
 
 def _take_shared_request(locked: TourBooking, others: list[TourBooking], *, actor: User, now: datetime) -> None:

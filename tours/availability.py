@@ -411,13 +411,19 @@ def open_tour_at(
 
 
 def tour_at(
-    starts_at: datetime, *, lock: bool = False, now: datetime | None = None, guide_notice: bool = True
+    starts_at: datetime,
+    *,
+    lock: bool = False,
+    now: datetime | None = None,
+    guide_notice: bool = True,
+    moving: TourBooking | None = None,
 ) -> OpenTour | None:
     """The tour visitors get at ``starts_at``, whoever gives it, full or not; None when nobody can (#1312).
 
     Visitors pick a time, never a guide: the booked tour there, or for a time nobody has booked the
     guide :func:`_one_per_time` picks among those whose own notice allows it. Once the time is
-    booked, its guide's notice is the one later visitors meet. Booking calls it with ``lock``
+    booked, its guide's notice is the one later visitors meet. ``moving`` (a visitor's own booking
+    being moved) never blocks or claims anything. Booking calls it with ``lock``
     (:func:`lock_bookings`), so
     the first booking claims the time for one guide and every later one joins that tour.
 
@@ -428,5 +434,5 @@ def tour_at(
         lock_bookings()
     starts_at = starts_at.astimezone(UTC)
     day = timezone.localdate(starts_at)
-    tours = open_tours(day, day, include_full=True, now=now, guide_notice=guide_notice)
+    tours = open_tours(day, day, include_full=True, now=now, guide_notice=guide_notice, moving=moving)
     return next((tour for tour in tours if tour.starts_at == starts_at), None)

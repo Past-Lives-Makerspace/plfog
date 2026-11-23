@@ -499,8 +499,8 @@ CONFIRM_BEFORE_HOURS = 24
 class TourGuideSettings(models.Model):
     """One guide's own tour choices (#1166): whether a visitor's booking waits for their Confirm.
 
-    No guide can pick Confirm First any more (#1309): the My Hours card is gone and migration 0012
-    set every row to Confirm Automatically. The mode and the request machinery stay, reached only
+    No guide can pick Confirm First any more (#1309): the My Hours card is gone, and every guide
+    was already on Confirm Automatically in production. The mode and the request machinery stay, reached only
     by a row set directly; dropping them is a follow-up. Every guide's own minimum notice lives
     here (#1312, ``min_notice_minutes``), whatever the mode.
     """

@@ -79,7 +79,7 @@ def tours_surface_only(view: View) -> View:
     return wrapped
 
 
-def all_open_tours(*, kiosk: bool = False) -> list[OpenTour]:
+def all_open_tours(*, kiosk: bool = False, moving: TourBooking | None = None) -> list[OpenTour]:
     """Every tour visitors can book now (``open_tours`` clamps the range to the horizon and notice).
 
     A guide's Google Calendar busy times (#951) come from the cache the ``sync_tour_calendars`` job
@@ -87,7 +87,7 @@ def all_open_tours(*, kiosk: bool = False) -> list[OpenTour]:
     """
     today = timezone.localdate()
     # Each guide's own minimum notice (#1312) binds website bookings, never a kiosk walk in.
-    return open_tours(today, today + timedelta(days=MAX_HORIZON_DAYS), guide_notice=not kiosk)
+    return open_tours(today, today + timedelta(days=MAX_HORIZON_DAYS), guide_notice=not kiosk, moving=moving)
 
 
 def _prefill(request: HttpRequest) -> dict[str, str]:
@@ -370,9 +370,9 @@ def reschedule(request: HttpRequest, token: str) -> HttpResponse:
             return redirect(f"{reverse('tours_public:manage', args=[token])}?moved=1")
     tours = [
         tour
-        for tour in all_open_tours()
-        if tour.seats_left >= booking.party_size
-        and not (tour.guide.pk == booking.guide_id and tour.starts_at == booking.starts_at)
+        # Their own booking claims nothing here (#1312), and their own start is never offered back.
+        for tour in all_open_tours(moving=booking)
+        if tour.seats_left >= booking.party_size and tour.starts_at != booking.starts_at
     ]
     chosen = None if error else find_tour(tours, request.GET.get("tour", ""))
     raw_day = f"{timezone.localdate(chosen.starts_at):%Y-%m-%d}" if chosen else request.GET.get("date", "")

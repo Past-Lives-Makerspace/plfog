@@ -17,17 +17,6 @@ def lapse_tour_request(booking_id: int) -> None:
     lapse_request(booking_id)
 
 
-@task
-def book_waiting_tour_requests() -> None:
-    """Book every request still waiting for its guide (#1309), once, after Confirm First was removed.
-
-    Queued by migration ``tours.0012``; safe to run twice (a request already booked is skipped).
-    """
-    from tours.booking import book_waiting_requests
-
-    book_waiting_requests()
-
-
 #: The Mailchimp tags a tour visitor's opt-in carries (feedback request #35).
 NEWSLETTER_TAG = "tour-visitor"
 STUDIO_TAG = "tour-studio-interest"
