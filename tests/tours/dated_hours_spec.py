@@ -579,7 +579,9 @@ def describe_saving_under_the_guide_lock():
         with CaptureQueriesContext(connection) as queries:
             assert client.post(DATES_SAVE, _post(guide, _ahead(2))).status_code == 302
         sql = [query["sql"] for query in queries.captured_queries]
-        lock = next(index for index, text in enumerate(sql) if "FOR NO KEY UPDATE" in text)
+        lock = next(
+            index for index, text in enumerate(sql) if "FOR NO KEY UPDATE" in text and "membership_member" in text
+        )
         assert '"membership_member"' in sql[lock] and str(guide.pk) in sql[lock]
         insert = next(index for index, text in enumerate(sql) if text.startswith('INSERT INTO "tours_tourhours"'))
         check = next(index for index, text in enumerate(sql) if '"tours_tourdayoff"' in text)
@@ -591,7 +593,9 @@ def describe_saving_under_the_guide_lock():
         with CaptureQueriesContext(connection) as queries:
             assert client.post(SAVE, _weekly_post(guide)).status_code == 302
         sql = [query["sql"] for query in queries.captured_queries]
-        lock = next(index for index, text in enumerate(sql) if "FOR NO KEY UPDATE" in text)
+        lock = next(
+            index for index, text in enumerate(sql) if "FOR NO KEY UPDATE" in text and "membership_member" in text
+        )
         assert '"membership_member"' in sql[lock]
         insert = next(index for index, text in enumerate(sql) if text.startswith('INSERT INTO "tours_tourhours"'))
         assert lock < insert

@@ -142,7 +142,9 @@ def describe_every_week_autosave():
             response = signed_in(guide).post(SAVE, _hours_post(guide, {}), **AUTOSAVE)
         assert response.status_code == 200
         sql = [query["sql"] for query in queries.captured_queries]
-        lock = next(index for index, text in enumerate(sql) if "FOR NO KEY UPDATE" in text)
+        lock = next(
+            index for index, text in enumerate(sql) if "FOR NO KEY UPDATE" in text and "membership_member" in text
+        )
         assert '"membership_member"' in sql[lock] and str(guide.pk) in sql[lock]
         insert = next(index for index, text in enumerate(sql) if text.startswith('INSERT INTO "tours_tourhours"'))
         assert lock < insert
