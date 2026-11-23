@@ -475,7 +475,6 @@ def describe_tours_kiosk():
         # Then the studio and newsletter toggles; the ideal studio field stays hidden while unticked.
         for question in (
             "pronouns",
-            "interests",
             "found_us_through",
             "referred_by",
             "guest_notes",

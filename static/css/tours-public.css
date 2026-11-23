@@ -352,3 +352,11 @@ html[data-tours-loading="done"] .pl-tours-loading__bar {
 
 /* Hidden until Alpine starts, so a field that follows a toggle (the ideal studio, #32) never flashes. */
 [x-cloak] { display: none !important; }
+
+/* A booking question's hint, under its label (the open question, #32). */
+.cp-page .pl-tourpub__hint {
+    margin: 0 0 0.4rem;
+    font-size: 13px;
+    color: var(--text2);
+    line-height: 1.5;
+}

@@ -5,7 +5,7 @@ feature = "tours.calendar"
 guidance = "shots"
 title = "Tour bookings ask what the guide needs to know"
 changes = [
-  "Booking a tour asks for your name, email and phone, plus optional pronouns, what you're most interested in, how you found Past Lives, who referred you, and anything else we should know.",
+  "Booking a tour asks for your name, email and phone, plus optional pronouns, how you found Past Lives, who referred you, and what brings you here: what you make, and what you're hoping to find.",
   "Tick that you're interested in a dedicated studio to tell us about your ideal studio and what you'd do with it.",
   "Tick the newsletter box to join the Past Lives newsletter. Your confirmation email has a link to join if you didn't.",
   "The same questions are on the lobby kiosk, and guides see the answers in their new booking email and on the Upcoming tab.",

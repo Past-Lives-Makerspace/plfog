@@ -104,7 +104,7 @@ STAFF_LOCKED_MESSAGES: dict[str, str] = {
 
 
 #: The booking questions a :class:`Visitor` carries onto its booking (feedback request #32).
-ANSWER_FIELDS = ("pronouns", "interests", "found_us_through", "referred_by", "guest_notes")
+ANSWER_FIELDS = ("pronouns", "found_us_through", "referred_by", "guest_notes")
 
 
 @dataclass(frozen=True)
@@ -117,7 +117,6 @@ class Visitor:
     party_size: int
     # The optional booking questions (feedback request #32), blank when skipped.
     pronouns: str = ""
-    interests: str = ""
     found_us_through: str = ""
     referred_by: str = ""
     guest_notes: str = ""

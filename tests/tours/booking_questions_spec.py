@@ -25,9 +25,8 @@ HOST = "tours.pastlives.space"
 
 ANSWERS = {
     "pronouns": "she/her",
-    "interests": "Ceramics and Writing",
     "found_us_through": "A friend or family member",
-    "guest_notes": "Bringing my kid",
+    "guest_notes": "I throw pots at home and want a kiln and other potters.",
     "referred_by": "Jo Member",
 }
 
@@ -78,7 +77,6 @@ def describe_the_form():
             "phone",
             "party_size",
             "pronouns",
-            "interests",
             "found_us_through",
             "referred_by",
             "guest_notes",
@@ -152,10 +150,11 @@ def describe_booking_on_the_website():
     def it_shows_the_questions_on_the_page(guide: Member, hours: Any):
         content = _client().get("/", {"tour": _key(guide)}).content.decode()
         assert 'name="pronouns"' in content
-        assert "What areas or disciplines are you most interested in?" in content
+        # One open question in place of interests and anything else (Morlock, 2026-11-22).
+        assert "What brings you to Past Lives?" in content
+        assert "most interested in" not in content and "Anything else you" not in content
         assert "how you found your way to us" in content
         assert "If someone here referred you, their name" in content
-        assert "Anything else you&#x27;d like us to know before your tour?" in content
         assert "stairs" not in content.lower()
 
 
@@ -166,10 +165,10 @@ def describe_the_guides_email():
             Client(HTTP_HOST=HOST).post("/", _post(guide))
         email = next(message for message in mail.outbox if message.subject.startswith("New tour booked"))
         html = email.alternatives[0][0]
-        for text in ("she/her", "Ceramics and Writing", "A friend or family member", "Jo Member", "Bringing my kid"):
+        for text in ("she/her", "A friend or family member", "Jo Member", "a kiln and other potters"):
             assert text in email.body
             assert text in html
-        assert "Interested in: Ceramics and Writing" in email.body
+        assert "What brings them here: I throw pots at home" in email.body
         assert "Referred by: Jo Member" in email.body
 
     def it_leaves_out_unanswered_questions(guide: Member, hours: Any, django_capture_on_commit_callbacks: Any):
@@ -178,7 +177,7 @@ def describe_the_guides_email():
         with django_capture_on_commit_callbacks(execute=True):
             Client(HTTP_HOST=HOST).post("/", _post(guide, **blanks))
         email = next(message for message in mail.outbox if message.subject.startswith("New tour booked"))
-        for label in ("Pronouns", "Interested in", "Found us through", "Referred by", "Notes from the guest"):
+        for label in ("Pronouns", "Found us through", "Referred by", "What brings them here"):
             assert label not in email.body
             assert label not in email.alternatives[0][0]
 
@@ -315,3 +314,19 @@ def describe_the_ideal_studio_question():
     def it_drops_a_description_typed_before_the_box_was_unticked(guide: Member, hours: Any):
         Client(HTTP_HOST=HOST).post("/", _post(guide, studio_description="A kiln corner"))
         assert TourBooking.objects.get().studio_description == ""
+
+
+def describe_the_one_open_question():
+    """Morlock, 2026-11-22: interests and "anything else" become one warm question about their work and why they came."""
+
+    def it_asks_what_brings_them_and_what_they_make():
+        field = _form().fields["guest_notes"]
+        assert field.label == "What brings you to Past Lives?"
+        assert "what you make" in field.help_text and "hoping to find" in field.help_text
+
+    def it_no_longer_asks_for_interests_separately():
+        assert "interests" not in _form().fields
+
+    def it_shows_the_guide_the_answer_as_what_brings_them(guide: Member):
+        booking = TourBookingFactory(guide=guide, guest_notes="Furniture, mostly.")
+        assert ("What brings them here", "Furniture, mostly.") in booking.guest_answers

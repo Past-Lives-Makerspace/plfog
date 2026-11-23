@@ -1135,10 +1135,9 @@ def tour_guide_booked_context(data: SampleData) -> dict[str, Any]:
     booking = _tour_booking(
         data,
         pronouns="he/him",
-        interests="Ceramics and woodworking",
         found_us_through="A friend or family member",
         referred_by="Jo Member",
-        guest_notes="Bringing my partner, who also throws.",
+        guest_notes="I throw pots at home and want a kiln, and other potters to learn from.",
     )
     return {"subject": f"New tour booked: {short_when(booking.starts_at)}", "template_context": guide_context(booking)}
 

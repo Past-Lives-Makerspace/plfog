@@ -488,13 +488,13 @@ CREATE_ACCOUNT_LABEL = "Create a free Past Lives account (handy if you join late
 
 #: The booking questions on :class:`TourBookingForm`, in order (feedback request #32). They are
 #: :data:`tours.booking.ANSWER_FIELDS` too; a spec holds the two to the same names.
-QUESTION_FIELDS = ("pronouns", "interests", "found_us_through", "referred_by", "guest_notes")
+QUESTION_FIELDS = ("pronouns", "found_us_through", "referred_by", "guest_notes")
 
 
 class TourBookingForm(forms.Form):
     """The visitor's details on tours.pastlives.space (#948): name, email, phone (required since
     feedback request #32), party size, then SimplyBook's optional questions (#32): pronouns,
-    interests, how they found us, who referred them and anything else to know.
+    how they found us, who referred them, and what brings them here.
 
     ``tour`` is the chosen tour's :attr:`tours.availability.OpenTour.key`. The party size offers
     1 to ``max_party``: the tour's seats left when the form is shown. A POST passes the most a
@@ -514,20 +514,23 @@ class TourBookingForm(forms.Form):
     # knows who is coming and what to show them. Stairs is not asked: the freight elevator is
     # there for anyone who wants it (Morlock).
     pronouns = forms.CharField(max_length=60, required=False, label="Pronouns")
-    interests = forms.CharField(
-        max_length=300, required=False, label="What areas or disciplines are you most interested in?"
-    )
     found_us_through = forms.ChoiceField(
         required=False,
         choices=[("", "Pick one"), *FoundUs.choices],
         label="Past Lives grows through community. We'd love to know how you found your way to us.",
     )
     referred_by = forms.CharField(max_length=200, required=False, label="If someone here referred you, their name")
+    # One open question in place of "most interested in" and "anything else" (Morlock, 2026-11-22):
+    # what they make and what they want from us, so the guide knows where to take them.
     guest_notes = forms.CharField(
         max_length=1000,
         required=False,
-        label="Anything else you'd like us to know before your tour?",
-        widget=forms.Textarea(attrs={"rows": 3}),
+        label="What brings you to Past Lives?",
+        help_text=(
+            "Tell us a little about what you make, or want to make, and what you're hoping to find here. "
+            "Your guide reads it before your tour."
+        ),
+        widget=forms.Textarea(attrs={"rows": 4}),
     )
     wants_studio = forms.BooleanField(required=False, initial=False, label="I'm interested in a dedicated studio space")
     # Shown once the box above is ticked (Alpine, _book_form.html); kept only with the box.
@@ -565,7 +568,7 @@ class TourBookingForm(forms.Form):
         # The ideal studio field follows the studio box (Morlock).
         self.fields["wants_studio"].widget.attrs["x-model"] = "studio"
         if kiosk:
-            for name in ("pronouns", "interests", "referred_by", "guest_notes", "studio_description"):
+            for name in ("pronouns", "referred_by", "guest_notes", "studio_description"):
                 self.fields[name].widget.attrs["autocomplete"] = "off"
         if not offer_account:
             del self.fields["create_account"]

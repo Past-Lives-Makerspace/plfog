@@ -57,6 +57,7 @@ dropdown, and the heading's Back replaces "Pick a different time"; the website i
   {% for field in form.question_fields %}
   <div class="reg-field" data-tour-question="{{ field.name }}">
     <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+    {% if field.help_text %}<p class="pl-tourpub__hint" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}
     {{ field }}
     {% if field.errors %}<ul class="reg-errors">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>{% endif %}
   </div>

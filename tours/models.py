@@ -626,10 +626,9 @@ class TourBookingQuerySet(models.QuerySet["TourBooking"]):
 #: How the guide reads each booking question (feedback request #32): ``(label, TourBooking field)``.
 GUEST_ANSWER_LABELS = (
     ("Pronouns", "pronouns"),
-    ("Interested in", "interests"),
     ("Found us through", "found_us_through"),
     ("Referred by", "referred_by"),
-    ("Notes from the guest", "guest_notes"),
+    ("What brings them here", "guest_notes"),
 )
 
 
@@ -700,9 +699,6 @@ class TourBooking(models.Model):
     # picked it and blank when skipped. The calendar event (tours.calendar_sync.GUEST_ANSWERS, #33)
     # reads them by these names.
     pronouns = models.CharField(max_length=60, blank=True, default="", help_text="The visitor's pronouns.")
-    interests = models.CharField(
-        max_length=300, blank=True, default="", help_text="The areas or disciplines they are most interested in."
-    )
     found_us_through = models.CharField(
         max_length=60,
         blank=True,
@@ -713,7 +709,14 @@ class TourBooking(models.Model):
     referred_by = models.CharField(
         max_length=200, blank=True, default="", help_text="Who here referred them, as they typed it."
     )
-    guest_notes = models.TextField(blank=True, default="", help_text="Anything they wanted us to know before the tour.")
+    # One open question (Morlock, 2026-11-22: it replaced "most interested in" and "anything else"):
+    # what they make and what they hope to find here. Named guest_notes because the calendar event
+    # (tours.calendar_sync.GUEST_ANSWERS, #33) already reads it.
+    guest_notes = models.TextField(
+        blank=True,
+        default="",
+        help_text="What brings them to Past Lives: what they make, and what they hope to find here.",
+    )
     # Two boxes on the booking form, both unticked to start (Morlock, reviewing #32): a studio
     # lead for the guide, and a newsletter opt-in (feedback request #7) that subscribes the
     # visitor in Mailchimp (tours.tasks.subscribe_tour_visitor). The opt-in is kept as the record
