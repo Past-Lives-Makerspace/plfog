@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
 import pytest
+from django.conf import settings as django_settings
 from django.contrib.auth.models import User
 from django.core import mail, signing
 from django.urls import reverse
 from django.utils import timezone
 
+from core.events import discord as discord_module
+from core.events.discord import build_embed_payload
 from core.models import EventDelivery, Notification, SiteActivity
 from membership import orientations
 from membership.models import GuildStaffMembership, OrientationBooking, OrientationError, OrientationSlot
@@ -432,9 +437,9 @@ def describe_complete_orientation():
         guild_calls = [call for call in mock_post.call_args_list if call.args[0] == _GUILD_HOOK]
         assert len(guild_calls) == 1
         message = guild_calls[0].args[1]
-        assert "Robin Newcomer" in message.title
-        assert "Robin Newcomer" in message.body
-        assert "Metal Guild" in message.body
+        assert message.title == "Welcome to the Metal Guild, Robin!"
+        assert message.body.startswith("Robin finished their Metal Guild orientation today.")
+        assert message.discord_author_name == "Robin Newcomer"
         assert not Notification.objects.filter(trigger="orientation.completed").exists()
 
     def it_logs_exactly_one_completion_activity():
@@ -490,6 +495,110 @@ def describe_complete_orientation():
             assert [call for call in mock_post.call_args_list if call.args[0] == _GUILD_HOOK] == []
             booking.refresh_from_db()
             assert booking.is_completed is True
+
+
+def describe_guild_welcome_discord_message():
+    """The finished-orientation Discord card, dressed as the guild's own (#1326)."""
+
+    def _welcome(booking: OrientationBooking) -> object:
+        with patch("core.events.discord.post_embed", return_value=True) as mock_post:
+            orientations.complete_orientation(booking)
+        guild_calls = [call for call in mock_post.call_args_list if call.args[0] == _GUILD_HOOK]
+        assert len(guild_calls) == 1
+        return guild_calls[0].args[1]
+
+    def _metal_booking(**member_kwargs: object) -> OrientationBooking:
+        guild = GuildFactory(
+            name="Metalworkers Guild",
+            calendar_color="#E4572E",
+            discord_webhook_url=_GUILD_HOOK,
+            discord_post_enabled=True,
+        )
+        member = MemberFactory(**{"full_legal_name": "Jay Gifford", **member_kwargs})
+        return OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild), member=member)
+
+    def it_posts_the_approved_card():
+        booking = _metal_booking()
+        guild_url = _guild_url(booking.guild)
+
+        payload = build_embed_payload(_welcome(booking))
+
+        embed = payload["embeds"][0]
+        assert embed["color"] == 0xE4572E
+        assert embed["title"] == "Welcome to the Metalworkers Guild, Jay!"
+        assert embed["description"] == (
+            "Jay finished their Metalworkers Guild orientation today. "
+            "Say hi next time you see them around the space! 👋\n\n"
+            f"[Visit the Metalworkers Guild →]({guild_url})"
+        )
+        assert embed["author"] == {"name": "Jay Gifford"}
+        assert embed["footer"]["text"] == "Metalworkers Guild · New member"
+        # The title is plain text, as in the mockup: the named link carries the guild page.
+        assert "url" not in embed
+
+    def it_shows_the_guild_color_logo_as_an_absolute_png():
+        embed = build_embed_payload(_welcome(_metal_booking()))["embeds"][0]
+
+        logo = embed["thumbnail"]["url"]
+        assert urlsplit(logo).netloc
+        assert "/img/guild_logos/png/metalworking_color" in logo
+        assert logo.endswith(".png")
+        assert embed["footer"]["icon_url"] == logo
+
+    def it_greets_by_the_first_word_of_the_preferred_name_and_authors_as_the_display_name():
+        booking = _metal_booking(preferred_name="Wren Lee", full_legal_name="Quinn Ashdown")
+
+        message = _welcome(booking)
+
+        assert message.title == "Welcome to the Metalworkers Guild, Wren!"
+        assert message.discord_author_name == booking.member.display_name
+
+    def it_puts_the_profile_photo_beside_the_name_as_an_absolute_url():
+        booking = _metal_booking()
+        booking.member.profile_photo.name = "members/profile/jay.png"
+
+        message = _welcome(booking)
+
+        assert urlsplit(message.discord_author_icon_url).netloc
+        assert message.discord_author_icon_url.endswith("members/profile/jay.png")
+
+    def it_keeps_the_default_color_for_a_malformed_guild_color():
+        booking = _metal_booking()
+        booking.guild.calendar_color = "orange"
+
+        assert build_embed_payload(_welcome(booking))["embeds"][0]["color"] == discord_module._EMBED_COLOR
+
+    def it_shows_no_logo_for_a_guild_without_one():
+        guild = GuildFactory(name="Cartographers Guild", discord_webhook_url=_GUILD_HOOK, discord_post_enabled=True)
+        booking = OrientationBookingFactory(slot=OrientationSlotFactory(guild=guild))
+
+        embed = build_embed_payload(_welcome(booking))["embeds"][0]
+
+        assert "thumbnail" not in embed
+        assert embed["footer"] == {"text": "Cartographers Guild · New member"}
+
+    def it_keeps_the_default_color_and_no_logo_for_an_equipment_owned_booking():
+        from tests.membership.factories import EquipmentFactory
+
+        orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=EquipmentFactory(name="CNC Router"))
+        booking = OrientationBookingFactory(
+            slot=OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type)
+        )
+        context = {"first_name": "Jay", "guild_name": "CNC Router", "guild_url": "https://x.test/"}
+
+        message = orientations.guild_welcome_discord_message(booking, context)
+
+        assert booking.guild is None
+        assert message.discord_color is None
+        assert message.discord_thumbnail_url == ""
+        assert build_embed_payload(message)["embeds"][0]["color"] == discord_module._EMBED_COLOR
+
+    def it_ships_a_png_for_every_color_logo():
+        # Discord cannot render SVG, so each color logo carries a committed PNG twin.
+        logos = Path(django_settings.BASE_DIR) / "static" / "img" / "guild_logos"
+        svgs = sorted(svg.stem for svg in logos.glob("*_color.svg"))
+        assert svgs
+        assert sorted(png.stem for png in (logos / "png").glob("*_color.png")) == svgs
 
 
 def describe_auto_complete():

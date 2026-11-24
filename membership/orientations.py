@@ -8,6 +8,7 @@ transition logs ``SiteActivity`` and fires an in-app notification.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
@@ -20,13 +21,18 @@ from django.conf import settings
 from django.core import signing
 from django.db import transaction
 from django.db.models import Q
+from django.templatetags.static import static
 from django.urls import reverse
 from django.utils import dateformat, timezone
 
 from core.email import add_invite_parties, invite_mimetype
+from core.events.discord import embed_color_from_hex
 from core.events.emit import emit
+from core.events.registry import Channel
 from core.events.senders import emit_with_email_shell
+from core.events.templates import rendered_message
 from core.models import SiteActivity
+from core.urls_util import member_absolute_url
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Sequence
@@ -35,6 +41,7 @@ if TYPE_CHECKING:
     from django.db.models import QuerySet
 
     from billing.models import LateCancellationFee
+    from core.events.channels import Message
 
     from membership.models import (
         Equipment,
@@ -2233,24 +2240,63 @@ def complete_orientation(booking: OrientationBooking) -> None:
         )
     # Warm welcome to the guild's members — always fires (no opt-out), Discord only (no bell,
     # no email). A guild-scoped Discord event dual-routes: the central notify webhook AND the
-    # guild's own. Copy-mode: no title/body, rendered from the seeded catalogue copy.
-    owner_url = booking.orientation_type.owner_page_url()
+    # guild's own; both post the one welcome embed built here.
+    context: dict[str, Any] = {
+        # resolver key (guild_members) + _guild_broadcast destination; None for an
+        # equipment-owned booking, which resolves to nobody and skips the guild webhook —
+        # the central one still posts (the guild-welcome moment has no equipment
+        # equivalent in v1).
+        "guild": booking.guild,
+        "member_name": booking.member.display_name,
+        "first_name": booking.member.greeting_name.split(" ")[0],
+        "guild_name": booking.orientation_type.owner_name,
+        "guild_url": booking.orientation_type.owner_page_url(),
+    }
     emit(
         "orientation.completed",
         actor=None,  # system event; the member is the subject, not the actor
         target=booking,
-        context={
-            # resolver key (guild_members) + _guild_broadcast destination; None for an
-            # equipment-owned booking, which resolves to nobody and skips the guild webhook —
-            # the central one still posts (the guild-welcome moment has no equipment
-            # equivalent in v1).
-            "guild": booking.guild,
-            "member_name": booking.member.display_name,
-            "guild_name": booking.orientation_type.owner_name,
-            "guild_url": owner_url,
-        },
-        url=owner_url,  # the Discord embed's title link
+        context=context,
+        messages={Channel.DISCORD: guild_welcome_discord_message(booking, context)},
         period=f"booking:{booking.pk}:completed",
+    )
+
+
+def guild_welcome_discord_message(booking: OrientationBooking, context: dict[str, Any]) -> Message:
+    """The Discord welcome for a finished orientation, dressed as the guild's own card (#1326).
+
+    The words come from the catalogue copy (``orientation.completed``, so an admin edit still
+    wins); the embed adds the guild's calendar color, its color logo as the thumbnail and footer
+    icon, and the newcomer's display name and profile photo as the author. An equipment-owned
+    booking has no guild, so it keeps the default color and shows no logo; a guild with no logo,
+    or a blank or malformed color, does the same for that part. The title is plain text: the
+    guild link is the named link at the end of the description.
+
+    Args:
+        booking: The booking just completed.
+        context: The welcome's copy context (``first_name``, ``guild_name``, ``guild_url``…).
+
+    Returns:
+        The DISCORD-channel :class:`Message` for :func:`core.events.emit.emit`'s ``messages``.
+    """
+    guild = booking.guild
+    member = booking.member
+    logo_url = ""
+    color = None
+    if guild is not None:
+        color = embed_color_from_hex(guild.calendar_color)
+        prefix = guild.logo_prefix
+        if prefix is not None:
+            logo_url = member_absolute_url(static(f"img/guild_logos/png/{prefix}_color.png"))
+    photo_url = member_absolute_url(member.profile_photo.url) if member.profile_photo else ""
+    return dataclasses.replace(
+        rendered_message("orientation.completed", Channel.DISCORD, context),
+        discord_color=color,
+        discord_thumbnail_url=logo_url,
+        discord_author_name=member.display_name,
+        discord_author_icon_url=photo_url,
+        discord_footer_text=f"{booking.orientation_type.owner_name} · New member",
+        discord_footer_icon_url=logo_url,
     )
 
 

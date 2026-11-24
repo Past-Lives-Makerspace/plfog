@@ -47,6 +47,9 @@ logger = logging.getLogger(__name__)
 _EMBED_COLOR = 0x5865F2
 _DEFAULT_TIMEOUT_SECONDS = 5.0
 
+# A CSS hex color as a guild stores it (``#E4572E``): the leading ``#`` and six hex digits.
+_HEX_COLOR_RE = re.compile(r"#([0-9A-Fa-f]{6})")
+
 # A role ping literal is ``<@&{role_id}>``; capturing the numeric id lets us build the
 # ``allowed_mentions`` gate that actually authorizes the role ping (see _allowed_mentions_for).
 _ROLE_MENTION_RE = re.compile(r"<@&(\d+)>")
@@ -189,6 +192,29 @@ def _allowed_mentions_for(mention: str) -> dict[str, object]:
     return {"parse": ["everyone"]}
 
 
+def embed_color_from_hex(value: str) -> int | None:
+    """The Discord embed color for a CSS hex string like ``#E4572E``, or ``None`` for anything else.
+
+    ``None`` (a blank or malformed value) keeps the default blurple, so a bad color typed into a
+    guild's settings never breaks or recolors the post.
+
+    Args:
+        value: A guild's stored color, as typed.
+
+    Returns:
+        The color as the integer Discord expects, or ``None``.
+    """
+    match = _HEX_COLOR_RE.fullmatch(value.strip())
+    if match is None:
+        return None
+    return int(match.group(1), 16)
+
+
+def _with_icon(part: dict[str, str], icon_url: str) -> dict[str, str]:
+    """An embed author or footer, with ``icon_url`` added only when there is one."""
+    return {**part, "icon_url": icon_url} if icon_url else part
+
+
 def build_embed_payload(message: Message) -> dict[str, object]:
     """Build the Discord webhook JSON payload from a rendered message.
 
@@ -210,6 +236,12 @@ def build_embed_payload(message: Message) -> dict[str, object]:
     ``message.discord_image_url`` becomes the embed's ``image`` (an announcement's picture, #1064),
     added only when set, so a message without one posts the embed it always did.
 
+    The guild welcome's dressing (#1326) follows the same rule, each part added only when set:
+    ``message.discord_color`` replaces the blurple, ``discord_thumbnail_url`` becomes the
+    ``thumbnail``, ``discord_author_name`` (with ``discord_author_icon_url``) the ``author``, and
+    ``discord_footer_text`` (with ``discord_footer_icon_url``) the ``footer``. An icon without its
+    name or text is dropped, since Discord rejects an author or footer with no name or text.
+
     Args:
         message: The rendered :class:`core.events.channels.Message`.
 
@@ -219,12 +251,18 @@ def build_embed_payload(message: Message) -> dict[str, object]:
     embed: dict[str, object] = {
         "title": message.title,
         "description": message.body,
-        "color": _EMBED_COLOR,
+        "color": _EMBED_COLOR if message.discord_color is None else message.discord_color,
     }
     if message.url:
         embed["url"] = message.url
     if message.discord_image_url:
         embed["image"] = {"url": message.discord_image_url}
+    if message.discord_thumbnail_url:
+        embed["thumbnail"] = {"url": message.discord_thumbnail_url}
+    if message.discord_author_name:
+        embed["author"] = _with_icon({"name": message.discord_author_name}, message.discord_author_icon_url)
+    if message.discord_footer_text:
+        embed["footer"] = _with_icon({"text": message.discord_footer_text}, message.discord_footer_icon_url)
     payload: dict[str, object] = {"embeds": [embed]}
     if message.discord_mention:
         payload["content"] = message.discord_mention

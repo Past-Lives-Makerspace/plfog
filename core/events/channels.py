@@ -92,6 +92,12 @@ class Message:
 
     ``discord_image_url`` is an absolute picture URL the Discord embed shows (an announcement's
     image, #1064); blank leaves the embed as it was, and every other channel ignores it.
+
+    ``discord_color`` / ``discord_thumbnail_url`` / ``discord_author_name`` /
+    ``discord_author_icon_url`` / ``discord_footer_text`` / ``discord_footer_icon_url`` dress the
+    Discord embed (the guild welcome's color, logo, newcomer and footer, #1326). Each is added to
+    the embed only when set (``discord_color`` when not ``None``), so a message without them posts
+    the embed it always did, and every other channel ignores them.
     """
 
     title: str
@@ -104,6 +110,12 @@ class Message:
     discord_avatar_url: str = ""
     stop_link: StopLink | None = None
     discord_image_url: str = ""
+    discord_color: int | None = None
+    discord_thumbnail_url: str = ""
+    discord_author_name: str = ""
+    discord_author_icon_url: str = ""
+    discord_footer_text: str = ""
+    discord_footer_icon_url: str = ""
     #: The emit's ``period`` (one message's own key, e.g. ``feedback-comment-12``), set by the
     #: fan out on the in-app message only, so the bell row can be found again by what it is about
     #: (``core.models.Notification.period``, #1140).
