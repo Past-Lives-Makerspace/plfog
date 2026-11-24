@@ -139,7 +139,7 @@ def describe_role_id_clashes():
             ),
         )
         assert resp.status_code == 200
-        assert "This is already the leadership role id." in resp.content.decode()
+        assert "This is already the Leadership role id." in resp.content.decode()
         assert "Fix the highlighted field on the Discord tab." in resp.content.decode()
         config = SiteConfiguration.load()
         assert config.discord_leadership_role_id == ""
