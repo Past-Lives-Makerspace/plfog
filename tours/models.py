@@ -25,6 +25,7 @@ from django.utils import timezone
 
 from billing.fields import EncryptedCharField
 from core.threads import ThreadMessage, ThreadPhoto
+from hours.follow import FollowsDaysOff, FollowsHours, lock_person
 from membership.models import AdminCapability, Member
 
 if TYPE_CHECKING:
@@ -255,10 +256,11 @@ def lock_guide_hours(guide: Member) -> None:
 
     if not transaction.get_connection().in_atomic_block:
         raise RuntimeError("lock_guide_hours must run inside transaction.atomic().")
-    list(Member.objects.select_for_update(no_key=True).filter(pk=guide.pk).values_list("pk", flat=True))
+    # The lock the guide's sets of hours take too (#1300), taken once per transaction.
+    lock_person(guide.pk)
 
 
-class TourHours(models.Model):
+class TourHours(FollowsHours, models.Model):
     """One window in which a guide gives tours, carved into tours of ``tour_minutes`` each.
 
     Tuesday 4:00 to 6:00 PM with 60 minute tours is two tours, at 4:00 and 5:00, each with
@@ -287,6 +289,17 @@ class TourHours(models.Model):
         related_name="tour_hours",
         help_text="The person who gives the tours in this window.",
     )
+    hours = models.ForeignKey(
+        "hours.Hours",
+        null=True,
+        blank=True,
+        on_delete=models.RESTRICT,
+        related_name="tour_hours",
+        help_text=(
+            "The set of the guide's hours this row offers tours in (#1300). Kept in step by every save; "
+            "blank only on a row written before it existed."
+        ),
+    )
     weekday = models.PositiveSmallIntegerField(
         choices=Weekday.choices,
         help_text="The day of the week these hours recur on (0 is Monday); for dated hours, the date's weekday.",
@@ -310,6 +323,8 @@ class TourHours(models.Model):
         help_text="How many people fit on each tour in this window.",
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the row was added.")
+
+    hours_person: ClassVar[str] = "guide"
 
     objects = TourHoursQuerySet.as_manager()
 
@@ -441,7 +456,7 @@ class TourDayOffQuerySet(models.QuerySet["TourDayOff"]):
         return sorted(days)
 
 
-class TourDayOff(models.Model):
+class TourDayOff(FollowsDaysOff, models.Model):
     """A day, or a run of days, a guide is away: their hours offer no tours on any of them.
 
     Tours already booked on those days stay booked; a guide or an admin moves or cancels them
@@ -463,6 +478,8 @@ class TourDayOff(models.Model):
         help_text="Optional: a word on why, for the guide and the admins. Visitors never see it.",
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the day off was saved.")
+
+    days_off_person: ClassVar[str] = "guide"
 
     objects = TourDayOffQuerySet.as_manager()
 
