@@ -79,9 +79,9 @@ def describe_dry_run():
     def it_lists_each_differing_member_by_name_and_changes_nothing(drift):
         writes = respx.route(method__in=["PUT", "DELETE"]).mock(return_value=httpx.Response(204))
         out = _run()
-        assert "Amber Capwell (10): add leadership, Guild Officers, Guild Leads" in out
+        assert "Amber Capwell (10): add Leadership, Guild Officers, Guild Leads" in out
         assert "Amber Terlouw (20): remove Guild Leads" in out
-        assert "Lee Admin (30): remove leadership" in out
+        assert "Lee Admin (30): remove Leadership" in out
         assert "Sam Settled" not in out
         assert "Should hold a role but have not linked Discord:\n  Una Unlinked" in out
         assert "Dry run: 3 members differ" in out
@@ -212,7 +212,7 @@ def describe_unlinked_holders():
     @respx.mock
     def it_lists_each_with_their_username_and_marks_a_handle_match(strangers):
         out = _run()
-        assert "Discord account ghost (66), no linked member: remove leadership" in out
+        assert "Discord account ghost (66), no linked member: remove Leadership" in out
         assert "Discord account pat.lead (77), no linked member (matches unlinked app member Pat Pending): " in out
 
     @respx.mock
