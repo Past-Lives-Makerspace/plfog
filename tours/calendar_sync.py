@@ -54,6 +54,7 @@ from django.utils.html import escape, format_html
 from tours import google
 from tours.models import (
     TOUR_ADDRESS,
+    CalendarBusySpan,
     FacilityTourSettings,
     TourBooking,
     TourCalendarCleanup,
@@ -999,7 +1000,14 @@ def read_busy(
     merged = merge_spans(spans)
     connection.busy_spans = [[span_start.isoformat(), span_end.isoformat()] for span_start, span_end in merged]
     connection.busy_checked_at = now
-    connection.save(update_fields=["busy_spans", "busy_checked_at", "updated_at"])
+    with transaction.atomic():
+        connection.save(update_fields=["busy_spans", "busy_checked_at", "updated_at"])
+        # The same busy times as rows, for the slot queries that test busy time in SQL (#1300).
+        connection.busy_rows.all().delete()
+        CalendarBusySpan.objects.bulk_create(
+            CalendarBusySpan(connection=connection, starts_at=span_start, ends_at=span_end)
+            for span_start, span_end in merged
+        )
     return merged
 
 

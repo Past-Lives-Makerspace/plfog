@@ -260,8 +260,8 @@ def describe_who_gets_a_time_nobody_has_booked():
         both: tuple[Member, Member], django_assert_num_queries: Any
     ):
         FacilityTourSettings.load()
-        # Settings, hours, days off, bookings, Confirm First notice, then the guides' upcoming tours.
-        with django_assert_num_queries(6):
+        # Settings, hours, bookings, busy time (three), the guides' notice, then their upcoming tours.
+        with django_assert_num_queries(8):
             open_tours(TUESDAY, TUESDAY, now=NOW)
 
     def it_is_who_the_kiosk_names(both: tuple[Member, Member]):

@@ -1164,20 +1164,6 @@ class TourCalendarConnectionQuerySet(models.QuerySet["TourCalendarConnection"]):
         """Connections Google still answers for: the only ones whose busy times hide tours."""
         return self.filter(status=TourCalendarConnection.Status.CONNECTED)
 
-    def busy_by_guide(self, guide_ids: Iterable[int]) -> dict[int, list[tuple[datetime, datetime]]]:
-        """Each listed guide's cached busy spans (UTC), for those whose calendar hides tour times now.
-
-        Empty while Google sign in is not set up (:func:`tours.google.is_configured`): a guide whose
-        connection is broken, or whose busy times were never read, offers their hours as if
-        unconnected. One query.
-        """
-        from tours import google
-
-        if not google.is_configured():
-            return {}
-        rows = self.healthy().filter(guide_id__in=list(guide_ids), busy_checked_at__isnull=False)
-        return {row.guide_id: row.busy_intervals() for row in rows.only("guide_id", "busy_spans")}
-
 
 class TourCalendarConnection(models.Model):
     """A Tour Guide's Google Calendar (#951): tours they give are written to it, and the times it shows
@@ -1282,6 +1268,37 @@ class TourCalendarConnection(models.Model):
     def busy_intervals(self) -> list[tuple[datetime, datetime]]:
         """The cached busy spans as aware UTC pairs, in order."""
         return [(datetime.fromisoformat(start), datetime.fromisoformat(end)) for start, end in self.busy_spans]
+
+
+class CalendarBusySpan(models.Model):
+    """One time a person's Google Calendar shows them busy (#1300): the ``busy_spans`` cache as rows.
+
+    Written beside the JSON cache by every busy read (:func:`tours.calendar_sync.read_busy`), which
+    replaces the connection's rows, so a slot query can test busy time in SQL
+    (:func:`hours.busy.busy_q`). Read only while the connection is connected and its busy times
+    were read since it was connected or a calendar was picked.
+    """
+
+    connection = models.ForeignKey(
+        TourCalendarConnection,
+        on_delete=models.CASCADE,
+        related_name="busy_rows",
+        help_text="The Google Calendar connection that shows this busy time.",
+    )
+    starts_at = models.DateTimeField(help_text="When the busy time starts.")
+    ends_at = models.DateTimeField(help_text="When the busy time ends.")
+
+    class Meta:
+        ordering: ClassVar[list[str]] = ["starts_at"]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(condition=Q(ends_at__gt=models.F("starts_at")), name="ck_busyspan_ends_after_start"),
+        ]
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["connection", "starts_at"], name="ix_busyspan_conn_start"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.connection.guide} busy {self.starts_at:%Y-%m-%d %H:%M} to {self.ends_at:%H:%M}"
 
 
 class TourCalendarSync(models.Model):

@@ -819,6 +819,7 @@ def describe_read_busy():
         a = now + timedelta(days=1)
         connection.calendar_id = TOURS_CAL
         connection.save()
+        stale = connection.busy_rows.create(starts_at=now, ends_at=now + timedelta(minutes=5))
         primary = respx.get(PRIMARY).mock(
             return_value=httpx.Response(
                 200,
@@ -846,6 +847,9 @@ def describe_read_busy():
         connection.refresh_from_db()
         assert connection.busy_checked_at == now
         assert connection.busy_intervals() == spans
+        # The same busy times as rows, replacing the last read's (#1300).
+        assert list(connection.busy_rows.values_list("starts_at", "ends_at")) == spans
+        assert not connection.busy_rows.filter(pk=stale.pk).exists()
         assert connection.google_email == "gina.new@example.com"
         horizon_end = datetime.fromisoformat(primary.calls.last.request.url.params["timeMax"])
         assert timezone.localtime(horizon_end).date() == timezone.localdate(now) + timedelta(days=31)
@@ -1109,19 +1113,6 @@ def describe_connection_model():
         assert connection.calendar_label == "other@group"
         assert "Connected" in str(connection)
         assert str(TourCalendarSync(booking=TourBookingFactory(), due=True)).endswith("no event (due)")
-
-    def it_offers_busy_times_only_from_healthy_read_calendars(connection: TourCalendarConnection, settings):
-        connection.busy_spans = [["2030-01-08T18:00:00+00:00", "2030-01-08T19:00:00+00:00"]]
-        connection.save()
-        guide_ids = [connection.guide_id]
-        assert TourCalendarConnection.objects.busy_by_guide(guide_ids) == {}
-        connection.busy_checked_at = timezone.now()
-        connection.save()
-        assert TourCalendarConnection.objects.busy_by_guide(guide_ids) == {
-            connection.guide_id: [(datetime(2030, 1, 8, 18, tzinfo=UTC), datetime(2030, 1, 8, 19, tzinfo=UTC))]
-        }
-        settings.GOOGLE_OAUTH_CLIENT_ID = ""
-        assert TourCalendarConnection.objects.busy_by_guide(guide_ids) == {}
 
 
 def describe_the_runs_limits():

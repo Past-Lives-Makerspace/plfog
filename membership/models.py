@@ -14798,6 +14798,10 @@ class OrientationError(Exception):
     """Raised when an orientation booking can't be made or transitioned."""
 
 
+#: Refusing a time whose orientor is already taken then (#1300): a tour, another orientation, a class, a day off.
+BUSY_MESSAGE = "That time is no longer free. Please pick another time."
+
+
 class HoldCaptureFailed(OrientationError):
     """Stripe answered that a booking's card hold cannot be charged (#1128): it expired or the card declined.
 
@@ -16045,10 +16049,11 @@ class OrientationDayOff(FollowsDaysOff, models.Model):
 
     A day off belongs to the person, not a guild: one person, one calendar, so it covers
     their hours in every guild and on every piece of equipment. Generation skips the day
-    for every rule of theirs (``orientations._horizon_spans``), and saving one cancels the
-    day's upcoming times they already had (``orientations.cancel_day_off``). A shared rule
-    with no orientor is never affected. Deleting the row lets the next generation run offer
-    the day's unbooked generated times again; a time that emailed members stays cancelled.
+    for every rule of theirs (``orientations._horizon_spans``), and since #1300 the times they
+    already had that day hide while nobody booked them (``hours.busy``, reading the
+    ``hours.DayOff`` copy every save makes); booked ones stay booked, and nothing is cancelled
+    or emailed. A shared rule with no orientor is never affected. Deleting the row lets the
+    next generation run offer the day's generated times again.
     """
 
     orienter = models.ForeignKey(
@@ -16206,12 +16211,14 @@ class OrientationAvailabilityBlock(models.Model):
         hold) frees its segment, as does a cancelled slot; orphan bookingless slots
         are deleted by the failure paths.
 
-        One person, one calendar (issue #532): the orientor's seat holding slots
-        anywhere else over this span, a fixed slot, a one off or another window's
-        segment, in any guild, occupy this window too, so two members can never book
-        the same person at once. An empty fixed slot does not: nobody is committed to it
-        yet, and the hours editor refuses the recurring overlap at save time.
+        One person, one calendar (issue #532, #1300): everything else holding the orientor's
+        time over this span occupies this window too (:func:`hours.busy.busy_spans`: a seat
+        holding slot anywhere else, a booked tour, a class they teach, their Google Calendar, a
+        day off), so a member can never book a person who is already taken. An empty fixed slot
+        does not: nobody is committed to it yet.
         """
+        from hours.busy import busy_spans
+
         seat_holding = [
             OrientationBooking.Status.PENDING_PAYMENT,
             OrientationBooking.Status.REQUESTED,
@@ -16226,12 +16233,7 @@ class OrientationAvailabilityBlock(models.Model):
             .filter(Q(holder_count__gt=0) | Q(booking_count=0))
             .values_list("starts_at", "ends_at")
         )
-        elsewhere = (
-            OrientationSlot.objects.holding_seats()
-            .filter(orienter_id=self.orienter_id, starts_at__lt=self.ends_at, ends_at__gt=self.starts_at)
-            .exclude(block_id=self.pk)
-            .values_list("starts_at", "ends_at")
-        )
+        elsewhere = busy_spans([self.orienter_id], self.starts_at, self.ends_at)[self.orienter_id]
         return self._merge_spans([*occupied, *elsewhere])
 
     @staticmethod
@@ -16251,13 +16253,15 @@ class OrientationAvailabilityBlock(models.Model):
     def free_intervals_by_block(
         cls, blocks: list[OrientationAvailabilityBlock]
     ) -> dict[int, list[tuple[datetime_type, datetime_type]]]:
-        """:meth:`free_intervals` for many windows in two queries, however many windows there are.
+        """:meth:`free_intervals` for many windows in five queries, however many windows there are.
 
         The same occupancy rule as :meth:`_busy_spans` (each window's own live carved slots,
-        plus its orientor's seat holding slots anywhere else over its span), read for every
+        plus everything else holding its orientor's time over its span), read for every
         window at once and split up in Python. Pages that list many windows (the
         Orientations page, #502) use it so their query count does not grow with the list.
         """
+        from hours.busy import busy_spans
+
         if not blocks:
             return {}
         seat_holding = [
@@ -16277,24 +16281,17 @@ class OrientationAvailabilityBlock(models.Model):
         occupied: dict[int, list[tuple[datetime_type, datetime_type]]] = {}
         for block_id, starts_at, ends_at in occupied_rows:
             occupied.setdefault(block_id, []).append((starts_at, ends_at))
-        elsewhere_rows = list(
-            OrientationSlot.objects.holding_seats()
-            .filter(
-                orienter_id__in={block.orienter_id for block in blocks},
-                starts_at__lt=max(block.ends_at for block in blocks),
-                ends_at__gt=min(block.starts_at for block in blocks),
-            )
-            .values_list("orienter_id", "block_id", "starts_at", "ends_at")
+        busy_by_orientor = busy_spans(
+            {block.orienter_id for block in blocks},
+            min(block.starts_at for block in blocks),
+            max(block.ends_at for block in blocks),
         )
         free_by_block: dict[int, list[tuple[datetime_type, datetime_type]]] = {}
         for block in blocks:
             elsewhere = [
                 (starts_at, ends_at)
-                for orienter_id, block_id, starts_at, ends_at in elsewhere_rows
-                if orienter_id == block.orienter_id
-                and block_id != block.pk
-                and starts_at < block.ends_at
-                and ends_at > block.starts_at
+                for starts_at, ends_at in busy_by_orientor[block.orienter_id]
+                if starts_at < block.ends_at and ends_at > block.starts_at
             ]
             busy = cls._merge_spans([*occupied.get(block.pk, []), *elsewhere])
             free_by_block[block.pk] = block.free_intervals(busy=busy)
@@ -16571,8 +16568,12 @@ class OrientationSlotQuerySet(models.QuerySet):
         for a shared slot). For both owners a confirmed reservation or block over the
         span on any item the type uses hides the slot (a reserved machine cannot host
         an orientation, #665), and a slot generated from a paused rule stops taking NEW
-        bookings; a one time slot has no rule and is unaffected.
+        bookings; a one time slot has no rule and is unaffected. A slot whose orientor's time is
+        busy (#1300, :func:`hours.busy.busy_q`: a tour, another orientation, a class they teach,
+        their Google Calendar or a day off) is hidden too; the slot's own seats never hide it.
         """
+        from hours.busy import busy_q
+
         guild_gate = Q(
             orientation_type__guild__isnull=False,
             guild__orientation_settings__is_enabled=True,
@@ -16599,6 +16600,7 @@ class OrientationSlotQuerySet(models.QuerySet):
             .with_current_orientor()
             .filter(rule_gate)
             .filter(~Exists(reserved_over_span))
+            .filter(~busy_q("orienter_id", "starts_at", "ends_at", except_slot="pk"))
         )
 
 
@@ -16807,10 +16809,16 @@ class OrientationSlot(models.Model):
         a member may hold one live booking per type, so being booked for Shop Basics
         never blocks a Lathe request at the same guild.
 
+        A slot whose orientor's time is otherwise busy (#1300, :func:`hours.busy.is_busy`) is
+        refused for everyone, staff too: one person is never booked twice at once. Callers take
+        the orientor's person lock first (:func:`hours.follow.lock_person`).
+
         Raises:
             OrientationError: If the slot can't be booked, or the member is already
                 oriented for, mid-checkout on, or actively booked on this orientation type.
         """
+        from hours.busy import is_busy
+
         # The seat cap must read live on the write path: a picker-annotated instance
         # carries a ``seat_holding_count`` snapshot that would let a second book() on
         # the same object overbook the last seat. Drop the snapshot before the check.
@@ -16822,6 +16830,10 @@ class OrientationSlot(models.Model):
                     "It frees up within an hour if they don't complete payment."
                 )
             raise OrientationError("This orientation slot is not available to book.")
+        if self.orienter_id is not None and is_busy(
+            self.orienter_id, self.starts_at, self.ends_at, except_slot=self.pk
+        ):
+            raise OrientationError(BUSY_MESSAGE)
         # The Booking notice (#766): a member books at least N hours ahead. A staffer seating
         # someone by hand is the lead's own call on their own time, so it stands aside.
         if not by_staff:

@@ -1,4 +1,5 @@
-"""Data-migration spec for hours 0002 (sets of hours) and 0003 (days off) (#1300, part 1).
+"""Data-migration spec for hours 0002 (sets of hours), 0003 (days off), 0004 (both again, part 2) and
+tours 0014 (Google busy rows) (#1300).
 
 Both migrations touch only fields that exist at head, so their functions run here against the
 current app registry instead of rewinding the schema with ``MigrationExecutor``. Every row is
@@ -86,3 +87,52 @@ def describe_migration_0003_copy_days_off():
 
         _days_off.delete_copies(apps, None)
         assert not DayOff.objects.exists()
+
+
+_regroup = import_module("hours.migrations.0004_regroup_everyone")
+_busy_rows = import_module("tours.migrations.0014_calendar_busy_span")
+
+
+@pytest.mark.django_db
+def describe_migration_0004_regroup_everyone():
+    def it_groups_and_copies_what_the_deploy_gap_left_out_both_ways():
+        person = MemberFactory()
+        weekly = TourHoursFactory(guide=person)
+        same = OrientationAvailabilityFactory(orienter=person, start_time=time(16), end_time=time(18))
+        TourDayOffFactory(guide=person, starts_on=SATURDAY, ends_on=SATURDAY)
+        # Written by the old release during the deploy: no set of hours, no copy.
+        TourHours.objects.filter(pk=weekly.pk).update(hours=None)
+        OrientationDayOff.objects.bulk_create([OrientationDayOff(orienter=person, date=date(2030, 1, 20))])
+
+        # Forwards, then backwards: the reverse is the same function, and leaves the same state.
+        for _run in range(2):
+            _regroup.regroup_everyone(apps, None)
+            weekly.refresh_from_db()
+            same.refresh_from_db()
+            assert weekly.hours is not None and weekly.hours == same.hours
+            assert Hours.objects.filter(member=person).count() == 1
+            assert sorted(DayOff.objects.filter(member=person).values_list("starts_on", "ends_on")) == [
+                (SATURDAY, SATURDAY),
+                (date(2030, 1, 20), date(2030, 1, 20)),
+            ]
+
+
+@pytest.mark.django_db
+def describe_migration_tours_0014_calendar_busy_span():
+    def it_copies_each_cached_busy_time_into_rows_and_reverses():
+        from tests.tours.factories import TourCalendarConnectionFactory
+        from tours.models import CalendarBusySpan
+
+        connection = TourCalendarConnectionFactory(
+            busy_spans=[["2030-01-08T18:00:00+00:00", "2030-01-08T19:00:00+00:00"]]
+        )
+        _busy_rows.delete_copies(apps, None)
+        assert not CalendarBusySpan.objects.exists()
+
+        _busy_rows.copy_busy(apps, None)
+
+        assert [(row.connection_id, row.starts_at.isoformat()) for row in CalendarBusySpan.objects.all()] == [
+            (connection.pk, "2030-01-08T18:00:00+00:00")
+        ]
+        _busy_rows.delete_copies(apps, None)
+        assert not CalendarBusySpan.objects.exists()
