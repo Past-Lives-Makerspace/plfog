@@ -6,11 +6,13 @@ from datetime import date, time, timedelta
 from typing import Any
 
 import pytest
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import RestrictedError
 from django.urls import reverse
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from hours.follow import lock_person
 from hours.models import DayOff, Hours, TimeKey
 from membership.models import Member, OrientationAvailability, OrientationDayOff
 from tests.membership.factories import MemberFactory, OrientationAvailabilityFactory
@@ -263,3 +265,38 @@ def describe_copying_days_off():
         run = DayOff.objects.create(member=person, starts_on=SATURDAY, ends_on=SATURDAY + timedelta(days=2))
         assert str(one) == f"{person} off 2030-01-12"
         assert str(run) == f"{person} off 2030-01-12 to 2030-01-14"
+
+
+def describe_locking_a_person():
+    def _locks(run: Any) -> int:
+        with CaptureQueriesContext(connection) as queries:
+            run()
+        return sum('"membership_member"' in query["sql"] for query in queries.captured_queries)
+
+    @pytest.mark.django_db(transaction=True)
+    def it_refuses_outside_a_transaction_and_locks_afresh_in_the_next_one():
+        person = MemberFactory()
+        with pytest.raises(RuntimeError):
+            lock_person(person.pk)
+        with transaction.atomic():
+            lock_person(person.pk)
+        with transaction.atomic():
+            assert _locks(lambda: lock_person(person.pk)) == 1
+
+    def it_locks_each_person_once_per_transaction():
+        person, other = MemberFactory(), MemberFactory()
+        with transaction.atomic():
+            assert _locks(lambda: lock_person(person.pk)) == 1
+            assert _locks(lambda: lock_person(person.pk)) == 0
+            assert _locks(lambda: lock_person(other.pk)) == 1
+
+    def it_locks_again_after_a_rollback_to_before_the_lock():
+        person = MemberFactory()
+        with transaction.atomic():
+            try:
+                with transaction.atomic():
+                    lock_person(person.pk)
+                    raise ValueError
+            except ValueError:
+                pass
+            assert _locks(lambda: lock_person(person.pk)) == 1

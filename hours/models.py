@@ -21,6 +21,7 @@ from typing import Any, ClassVar, NamedTuple
 from django.db import models, transaction
 from django.db.models import Q
 
+from hours.follow import lock_person
 from membership.models import Member, OrientationAvailability
 
 
@@ -34,15 +35,6 @@ class TimeKey(NamedTuple):
     last_of_month: bool
     start_time: dt.time
     end_time: dt.time
-
-
-def _lock(member_id: int) -> None:
-    """Hold one person's hours still until the transaction ends: ``FOR NO KEY UPDATE`` on their member row.
-
-    The same lock ``tours.models.lock_guide_hours`` takes, so a regroup inside a tour hours save
-    re-enters it, and two regroups of one person queue rather than both making a set of hours.
-    """
-    list(Member.objects.select_for_update(no_key=True).filter(pk=member_id).values_list("pk", flat=True))
 
 
 def _kind_rows() -> list[tuple[Any, str]]:
@@ -65,7 +57,7 @@ class HoursManager(models.Manager["Hours"]):
         ``update()``, so no save side effect runs.
         """
         with transaction.atomic():
-            _lock(member_id)
+            lock_person(member_id)
             groups: dict[TimeKey, list[tuple[Any, int, int | None]]] = defaultdict(list)
             for model, person in _kind_rows():
                 model.objects.filter(hours__member_id=member_id).exclude(**{person: member_id}).update(hours=None)
@@ -204,7 +196,7 @@ class DayOffManager(models.Manager["DayOff"]):
         from tours.models import TourDayOff
 
         with transaction.atomic():
-            _lock(member_id)
+            lock_person(member_id)
             ranges = list(TourDayOff.objects.filter(guide_id=member_id).values_list("starts_on", "ends_on", "note"))
             wanted = list(ranges)
             for day, note in OrientationDayOff.objects.filter(orienter_id=member_id).values_list("date", "note"):

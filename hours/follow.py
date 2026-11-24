@@ -20,6 +20,43 @@ else:
     _Base = object
 
 
+class _HeldLock:
+    """Marks one person's member row as locked in the running transaction (an ``on_commit`` entry that does nothing).
+
+    Django drops an ``on_commit`` entry exactly when PostgreSQL releases a row lock taken at the
+    same point: at commit, at rollback, and at a rollback to a savepoint taken before it. So the
+    entry is there while the lock is, with no extra query to ask.
+    """
+
+    def __init__(self, member_id: int) -> None:
+        self.member_id = member_id
+
+    def __call__(self) -> None:
+        return None
+
+
+def lock_person(member_id: int) -> None:
+    """Hold one person's hours still until the transaction ends: ``SELECT ... FOR NO KEY UPDATE`` on their member row.
+
+    Taken once per transaction: a second call for the same person (a tour hours save, then the
+    regroup its rows' saves run) finds the lock already held and sends nothing, so a save still
+    issues one lock query. NO KEY, so a booking's insert (FOR KEY SHARE on that row) never waits on it.
+
+    Raises:
+        RuntimeError: outside a transaction, where the lock would end at once.
+    """
+    from django.db import connection, transaction
+
+    from membership.models import Member
+
+    if not connection.in_atomic_block:
+        raise RuntimeError("lock_person must run inside transaction.atomic().")
+    if any(isinstance(entry[1], _HeldLock) and entry[1].member_id == member_id for entry in connection.run_on_commit):
+        return
+    list(Member.objects.select_for_update(no_key=True).filter(pk=member_id).values_list("pk", flat=True))
+    transaction.on_commit(_HeldLock(member_id))
+
+
 class FollowsHours(_Base):
     """A kind row ticking one set of a person's hours through its ``hours`` key.
 

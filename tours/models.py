@@ -25,7 +25,7 @@ from django.utils import timezone
 
 from billing.fields import EncryptedCharField
 from core.threads import ThreadMessage, ThreadPhoto
-from hours.follow import FollowsDaysOff, FollowsHours
+from hours.follow import FollowsDaysOff, FollowsHours, lock_person
 from membership.models import AdminCapability, Member
 
 if TYPE_CHECKING:
@@ -256,7 +256,8 @@ def lock_guide_hours(guide: Member) -> None:
 
     if not transaction.get_connection().in_atomic_block:
         raise RuntimeError("lock_guide_hours must run inside transaction.atomic().")
-    list(Member.objects.select_for_update(no_key=True).filter(pk=guide.pk).values_list("pk", flat=True))
+    # The lock the guide's sets of hours take too (#1300), taken once per transaction.
+    lock_person(guide.pk)
 
 
 class TourHours(FollowsHours, models.Model):
