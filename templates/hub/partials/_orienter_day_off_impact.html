@@ -1,16 +1,15 @@
 {% comment %}
 The Days Off form's tail (#767): the count line for the chosen date and the actions, swapped as
-one by the date input's hx-get so the line and the Save label follow the date together. The Save
-label names the email while booked members would get one (FRONTEND rule 21's exception), from the
-same numbers the save acts on. Context: times (orientations.DayOffTimes, or None while no valid
-date is chosen).
+one by the date input's hx-get so the line follows the date. A day off cancels nothing (#1300):
+the line says how many members stay booked that day. Context: booked (an int from
+orientations.booked_on_day_off, or None while no valid date is chosen).
 {% endcomment %}
 <div id="day-off-impact">
-  {% if times is not None %}
-  <p class="pl-hours-row__hint" data-day-off-impact>{{ times.count }} time{{ times.count|pluralize }} that day will be cancelled.</p>
+  {% if booked is not None %}
+  <p class="pl-hours-row__hint" data-day-off-impact>{% if booked %}{{ booked }} member{{ booked|pluralize:" is,s are" }} booked that day and stay{{ booked|pluralize:"s," }} booked.{% else %}Nobody is booked that day.{% endif %}</p>
   {% endif %}
   <div class="pl-oneoff__actions">
     <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('close-modal', 'days-off-modal')">Cancel</button>
-    <button type="submit" class="pl-btn pl-btn--primary" hx-disabled-elt="this" data-day-off-save>{% if times is not None and times.emailed %}Save and email {{ times.emailed }} member{{ times.emailed|pluralize }}{% else %}Save{% endif %}</button>
+    <button type="submit" class="pl-btn pl-btn--primary" hx-disabled-elt="this" data-day-off-save>Save</button>
   </div>
 </div>

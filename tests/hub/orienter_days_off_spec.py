@@ -1,6 +1,6 @@
 """BDD specs for the Days Off modal (#767) on both owners' Orientation Schedule cards: the modal body
-and its rows, the impact preview (the count line and the Save label following the date), saving (the
-cancel, the toast, the redirect, the two refusals), deleting, who reaches whose (own only for a plain
+and its rows, the impact preview (the count of who stays booked following the date), saving (nothing
+cancelled since #1300, the toast, the redirect, the two refusals), deleting, who reaches whose (own only for a plain
 orientor or manager, anyone for a lead or an admin, a crafted POST refused), and the "Off Nov 26,
 Dec 25." line under each person's hours on each card."""
 
@@ -15,6 +15,7 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
+from hub.day_off_views import SAVED_MESSAGE
 from membership.models import (
     Equipment,
     GuildStaffMembership,
@@ -164,7 +165,7 @@ def describe_the_modal_body():
 
 
 def describe_the_impact_preview():
-    def it_counts_that_days_times_and_names_the_email(client: Client):
+    def it_counts_who_stays_booked_that_day(client: Client):
         guild, _lead, bob, _alice = _guild_setup()
         day = _day(4)
         booked, _empty = _slot(guild, bob.member, day, 10), _slot(guild, bob.member, day, 12)
@@ -172,18 +173,19 @@ def describe_the_impact_preview():
         _login(client, bob)
         content = client.get(_preview_url(guild, bob.member, day), HTTP_HX_REQUEST="true").content.decode()
         assert 'id="day-off-impact"' in content
-        assert "2 times that day will be cancelled." in content
-        assert "Save and email 1 member</button>" in content
+        assert "1 member is booked that day and stays booked." in content
+        assert "data-day-off-save>Save</button>" in content
+        OrientationBookingFactory(slot=_empty, status=OrientationBooking.Status.REQUESTED)
+        content = client.get(_preview_url(guild, bob.member, day), HTTP_HX_REQUEST="true").content.decode()
+        assert "2 members are booked that day and stay booked." in content
 
-    def it_says_save_alone_when_nobody_is_booked(client: Client):
+    def it_says_nobody_is_booked_when_nobody_is(client: Client):
         guild, _lead, bob, _alice = _guild_setup()
         day = _day(4)
         _slot(guild, bob.member, day, 10)
         _login(client, bob)
         content = client.get(_preview_url(guild, bob.member, day), HTTP_HX_REQUEST="true").content.decode()
-        assert "1 time that day will be cancelled." in content
-        assert "data-day-off-save>Save</button>" in content
-        assert "Save and email" not in content
+        assert "Nobody is booked that day." in content
 
     def it_shows_no_line_for_a_date_it_would_refuse(client: Client):
         guild, _lead, bob, _alice = _guild_setup()
@@ -199,7 +201,7 @@ def describe_the_impact_preview():
 
 
 def describe_saving():
-    def it_saves_the_day_cancels_its_times_and_redirects_over_htmx(client: Client):
+    def it_saves_the_day_cancels_nothing_and_redirects_over_htmx(client: Client):
         guild, _lead, bob, _alice = _guild_setup()
         day = _day(4)
         booked, empty = _slot(guild, bob.member, day, 10), _slot(guild, bob.member, day, 12)
@@ -216,10 +218,10 @@ def describe_saving():
         assert day_off.note == "Portland Open Studios"
         for slot in (booked, empty):
             slot.refresh_from_db()
-            assert slot.is_cancelled is True
+            assert slot.is_cancelled is False
         booking.refresh_from_db()
-        assert booking.status == OrientationBooking.Status.CANCELLED
-        assert _messages(response) == ["Day off saved. 2 times cancelled."]
+        assert booking.status == OrientationBooking.Status.CONFIRMED
+        assert _messages(response) == [SAVED_MESSAGE]
 
     def it_redirects_on_a_plain_post(client: Client):
         guild, _lead, bob, _alice = _guild_setup()
@@ -228,7 +230,7 @@ def describe_saving():
         assert response.status_code == 302
         assert response["Location"] == _page_url(guild)
         assert OrientationDayOff.objects.filter(orienter=bob.member, date=_day(4)).exists()
-        assert _messages(response) == ["Day off saved. 0 times cancelled."]
+        assert _messages(response) == [SAVED_MESSAGE]
 
     def it_refuses_a_past_date(client: Client):
         guild, _lead, bob, _alice = _guild_setup()
@@ -411,7 +413,7 @@ def describe_on_equipment():
         content = client.get(
             f"{preview}?orienter={dana.member.pk}&day_off-date={day.isoformat()}", HTTP_HX_REQUEST="true"
         ).content.decode()
-        assert "1 time that day will be cancelled." in content
+        assert "Nobody is booked that day." in content
         response = client.post(
             reverse("hub_equipment_orientation_day_off_save", args=[equipment.slug]),
             {"orienter": str(dana.member.pk), "day_off-date": day.isoformat()},
@@ -420,7 +422,7 @@ def describe_on_equipment():
         assert response.status_code == 204
         assert response["HX-Redirect"] == _tab_url(equipment)
         slot.refresh_from_db()
-        assert slot.is_cancelled is True
+        assert slot.is_cancelled is False
         assert OrientationDayOff.objects.filter(orienter=dana.member, date=day).exists()
 
     def it_refuses_a_crafted_post_for_another_manager(client: Client):

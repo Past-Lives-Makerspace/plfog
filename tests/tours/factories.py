@@ -8,7 +8,7 @@ import factory
 from django.utils import timezone
 
 from tests.membership.factories import MemberFactory
-from tours.models import TourBooking, TourCalendarConnection, TourDayOff, TourHours
+from tours.models import CalendarBusySpan, TourBooking, TourCalendarConnection, TourDayOff, TourHours
 
 
 class TourHoursFactory(factory.django.DjangoModelFactory):
@@ -71,3 +71,11 @@ class TourCalendarConnectionFactory(factory.django.DjangoModelFactory):
     access_token_expires_at = factory.LazyFunction(lambda: timezone.now() + timedelta(hours=1))
     calendar_id = "primary"
     calendars = factory.LazyFunction(lambda: [dict(calendar) for calendar in GUIDE_CALENDARS])
+
+    @factory.post_generation
+    def busy_rows(obj: TourCalendarConnection, create: bool, extracted: object, **kwargs: object) -> None:
+        """The busy cache as rows too, as every busy read writes them (#1300)."""
+        if create:
+            CalendarBusySpan.objects.bulk_create(
+                CalendarBusySpan(connection=obj, starts_at=start, ends_at=end) for start, end in obj.busy_intervals()
+            )

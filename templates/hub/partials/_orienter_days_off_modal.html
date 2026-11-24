@@ -4,13 +4,13 @@ from their row on the Orientation Schedule card. The guild's Orientations page a
 manage page's Orientation tab share it; hub/day_off_views.py renders it for both.
 
 Context: target (the Member), form (an OrientationDayOffForm, bound on an invalid POST so its
-errors show inside the open modal), times (orientations.DayOffTimes for the chosen date, or
-None), days_off (the person's upcoming rows), save_url, delete_url_name and owner_key (the
+errors show inside the open modal), booked (orientations.booked_on_day_off for the chosen date,
+or None), days_off (the person's upcoming rows), save_url, delete_url_name and owner_key (the
 owner's delete route and its URL argument). The form's tail is _orienter_day_off_impact.html,
-which the date input swaps on every change so the count line and the Save label follow the date.
+which the date input swaps on every change so the count line follows the date.
 {% endcomment %}
 <h2 class="hub-detail-label">{{ target.staff_label }}'s Days Off</h2>
-<p class="pl-hours-row__hint">A day off cancels every orientation time of {{ target.staff_label }}'s that day, in every guild and on every piece of equipment, and none is generated for it however far ahead. Anyone booked is emailed.</p>
+<p class="pl-hours-row__hint">A day off hides every time of {{ target.staff_label }}'s that day that nobody has booked, in every guild, on every piece of equipment and for tours. Anything already booked stays booked: move or cancel it if they can't make it.</p>
 <form id="days-off-modal-form" class="hub-form" hx-post="{{ save_url }}" hx-target="#days-off-modal-body" hx-swap="innerHTML">
   {% csrf_token %}
   <input type="hidden" name="orienter" value="{{ target.pk }}">

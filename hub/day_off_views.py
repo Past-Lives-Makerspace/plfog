@@ -8,22 +8,22 @@ for equipment, both reused as they are), the page a save lands back on, and its 
 each a line or two over the shared handlers.
 
 The modal body is loaded over HTMX per person, like Edit Hours. The date input asks the preview
-endpoint for the day's count line and Save label on every change. A valid save cancels the
-day's times outside any transaction (``orientations.cancel_day_off``), queues the toast as a
-flash and answers 204 + ``HX-Redirect`` to the owner page, where the card's "Off ..." line and
-Upcoming Times are fresh; an invalid save re-renders the body with its errors inside the open
-modal. Delete is a plain POST from a confirm modal, back to the page the same way.
+endpoint for the day's count line on every change. A valid save hides the day's unbooked times and
+cancels nothing (#1300: anything booked stays booked, counted by
+``orientations.booked_on_day_off``), queues the toast as a flash and answers 204 + ``HX-Redirect``
+to the owner page, where the card's "Off ..." line is fresh; an invalid save re-renders the body
+with its errors inside the open modal. Delete is a plain POST from a confirm modal, back to the
+page the same way.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.models import User
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -33,6 +33,9 @@ from hub.forms import OrientationDayOffForm
 from membership import orientations
 from membership.models import Equipment, Guild, Member, OrientationDayOff
 from membership.permissions import can_edit_equipment_orienter_hours, can_edit_orienter_hours, is_effective_staff
+
+
+SAVED_MESSAGE = "Day off saved. Anything already booked that day stays booked."
 
 
 @dataclass(frozen=True)
@@ -51,8 +54,8 @@ def _reaches(request: HttpRequest, orienter: Member, roster: list[Member]) -> bo
     """Whether this request may touch ``orienter``'s days off from a card whose people are ``roster``.
 
     Edit Hours lets a lead edit any member's rows in that guild, and those rows only ever
-    touch that guild. A day off cancels and emails across every guild and tool the person
-    orients on, so anyone short of an admin reaches only the people
+    touch that guild. A day off hides the person's times across every guild and tool they
+    orient on, and their tours, so anyone short of an admin reaches only the people
     on the card they opened: the guild's leadership, or the equipment's orientors. One's own
     day off is unchanged, since the hours gate's self scope already requires being on it.
     """
@@ -131,7 +134,7 @@ def _modal(request: HttpRequest, owner: _Owner, target: Member, form: Orientatio
         {
             "target": target,
             "form": form,
-            "times": orientations.times_on_day_off(target, day) if day is not None else None,
+            "booked": orientations.booked_on_day_off(target, day) if day is not None else None,
             "days_off": list(OrientationDayOff.objects.upcoming().filter(orienter=target)),
             "save_url": owner.save_url,
             "delete_url_name": owner.delete_url_name,
@@ -149,7 +152,7 @@ def _days_off_modal(request: HttpRequest, owner: _Owner) -> HttpResponse:
 
 
 def _day_off_preview(request: HttpRequest, owner: _Owner) -> HttpResponse:
-    """GET ``?orienter=<pk>&date=``: the count line and Save label for that date, swapped into the open form."""
+    """GET ``?orienter=<pk>&date=``: the count line for that date, swapped into the open form."""
     target = _target(request.GET.get("orienter", ""))
     if not owner.gate(request, target):
         return HttpResponse("Forbidden", status=403)
@@ -157,17 +160,12 @@ def _day_off_preview(request: HttpRequest, owner: _Owner) -> HttpResponse:
     return render(
         request,
         "hub/partials/_orienter_day_off_impact.html",
-        {"times": orientations.times_on_day_off(target, day) if day is not None else None},
+        {"booked": orientations.booked_on_day_off(target, day) if day is not None else None},
     )
 
 
-def _saved_message(cancelled: int) -> str:
-    """The toast after a save: the day is off, and how many of its times went with it."""
-    return f"Day off saved. {cancelled} time{'' if cancelled == 1 else 's'} cancelled."
-
-
 def _day_off_save(request: HttpRequest, owner: _Owner) -> HttpResponse:
-    """POST ``orienter``, ``date``, ``note``: save the day off and cancel the day's times.
+    """POST ``orienter``, ``date``, ``note``: save the day off; its unbooked times hide, its bookings stay.
 
     A valid HTMX save answers 204 + ``HX-Redirect`` to the owner page with the toast queued as a
     flash; an invalid one re-renders the modal body with its errors. A plain POST redirects.
@@ -178,10 +176,8 @@ def _day_off_save(request: HttpRequest, owner: _Owner) -> HttpResponse:
     form = _form(owner, target, request.POST)
     if not form.is_valid():
         return _modal(request, owner, target, form)
-    day_off = form.save()
-    # Outside any transaction: cancel_slot talks to Stripe for held checkouts.
-    cancelled, _emailed = orientations.cancel_day_off(target, day_off.date, actor=cast(User, request.user))
-    messages.success(request, _saved_message(cancelled))
+    form.save()
+    messages.success(request, SAVED_MESSAGE)
     if request.headers.get("HX-Request") == "true":
         response = HttpResponse(status=204)
         response["HX-Redirect"] = owner.return_url
@@ -214,7 +210,7 @@ def guild_orientation_day_off_preview(request: HttpRequest, pk: int) -> HttpResp
 @login_required
 @require_POST
 def guild_orientation_day_off_save(request: HttpRequest, pk: int) -> HttpResponse:
-    """Save a day off from the guild's page and cancel that day's times."""
+    """Save a day off from the guild's page."""
     return _day_off_save(request, _guild_owner(pk))
 
 
@@ -240,7 +236,7 @@ def hub_equipment_orientation_day_off_preview(request: HttpRequest, slug: str) -
 @login_required
 @require_POST
 def hub_equipment_orientation_day_off_save(request: HttpRequest, slug: str) -> HttpResponse:
-    """Save a day off from the equipment manage page and cancel that day's times."""
+    """Save a day off from the equipment manage page."""
     return _day_off_save(request, _equipment_owner(slug))
 
 

@@ -25,6 +25,7 @@ from django.utils import timezone
 
 from billing.fields import EncryptedCharField
 from core.threads import ThreadMessage, ThreadPhoto
+from hours.follow import FollowsDaysOff, FollowsHours, lock_person
 from membership.models import AdminCapability, Member
 
 if TYPE_CHECKING:
@@ -255,10 +256,11 @@ def lock_guide_hours(guide: Member) -> None:
 
     if not transaction.get_connection().in_atomic_block:
         raise RuntimeError("lock_guide_hours must run inside transaction.atomic().")
-    list(Member.objects.select_for_update(no_key=True).filter(pk=guide.pk).values_list("pk", flat=True))
+    # The lock the guide's sets of hours take too (#1300), taken once per transaction.
+    lock_person(guide.pk)
 
 
-class TourHours(models.Model):
+class TourHours(FollowsHours, models.Model):
     """One window in which a guide gives tours, carved into tours of ``tour_minutes`` each.
 
     Tuesday 4:00 to 6:00 PM with 60 minute tours is two tours, at 4:00 and 5:00, each with
@@ -287,6 +289,17 @@ class TourHours(models.Model):
         related_name="tour_hours",
         help_text="The person who gives the tours in this window.",
     )
+    hours = models.ForeignKey(
+        "hours.Hours",
+        null=True,
+        blank=True,
+        on_delete=models.RESTRICT,
+        related_name="tour_hours",
+        help_text=(
+            "The set of the guide's hours this row offers tours in (#1300). Kept in step by every save; "
+            "blank only on a row written before it existed."
+        ),
+    )
     weekday = models.PositiveSmallIntegerField(
         choices=Weekday.choices,
         help_text="The day of the week these hours recur on (0 is Monday); for dated hours, the date's weekday.",
@@ -310,6 +323,8 @@ class TourHours(models.Model):
         help_text="How many people fit on each tour in this window.",
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the row was added.")
+
+    hours_person: ClassVar[str] = "guide"
 
     objects = TourHoursQuerySet.as_manager()
 
@@ -441,7 +456,7 @@ class TourDayOffQuerySet(models.QuerySet["TourDayOff"]):
         return sorted(days)
 
 
-class TourDayOff(models.Model):
+class TourDayOff(FollowsDaysOff, models.Model):
     """A day, or a run of days, a guide is away: their hours offer no tours on any of them.
 
     Tours already booked on those days stay booked; a guide or an admin moves or cancels them
@@ -463,6 +478,8 @@ class TourDayOff(models.Model):
         help_text="Optional: a word on why, for the guide and the admins. Visitors never see it.",
     )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When the day off was saved.")
+
+    days_off_person: ClassVar[str] = "guide"
 
     objects = TourDayOffQuerySet.as_manager()
 
@@ -1147,20 +1164,6 @@ class TourCalendarConnectionQuerySet(models.QuerySet["TourCalendarConnection"]):
         """Connections Google still answers for: the only ones whose busy times hide tours."""
         return self.filter(status=TourCalendarConnection.Status.CONNECTED)
 
-    def busy_by_guide(self, guide_ids: Iterable[int]) -> dict[int, list[tuple[datetime, datetime]]]:
-        """Each listed guide's cached busy spans (UTC), for those whose calendar hides tour times now.
-
-        Empty while Google sign in is not set up (:func:`tours.google.is_configured`): a guide whose
-        connection is broken, or whose busy times were never read, offers their hours as if
-        unconnected. One query.
-        """
-        from tours import google
-
-        if not google.is_configured():
-            return {}
-        rows = self.healthy().filter(guide_id__in=list(guide_ids), busy_checked_at__isnull=False)
-        return {row.guide_id: row.busy_intervals() for row in rows.only("guide_id", "busy_spans")}
-
 
 class TourCalendarConnection(models.Model):
     """A Tour Guide's Google Calendar (#951): tours they give are written to it, and the times it shows
@@ -1265,6 +1268,37 @@ class TourCalendarConnection(models.Model):
     def busy_intervals(self) -> list[tuple[datetime, datetime]]:
         """The cached busy spans as aware UTC pairs, in order."""
         return [(datetime.fromisoformat(start), datetime.fromisoformat(end)) for start, end in self.busy_spans]
+
+
+class CalendarBusySpan(models.Model):
+    """One time a person's Google Calendar shows them busy (#1300): the ``busy_spans`` cache as rows.
+
+    Written beside the JSON cache by every busy read (:func:`tours.calendar_sync.read_busy`), which
+    replaces the connection's rows, so a slot query can test busy time in SQL
+    (:func:`hours.busy.busy_q`). Read only while the connection is connected and its busy times
+    were read since it was connected or a calendar was picked.
+    """
+
+    connection = models.ForeignKey(
+        TourCalendarConnection,
+        on_delete=models.CASCADE,
+        related_name="busy_rows",
+        help_text="The Google Calendar connection that shows this busy time.",
+    )
+    starts_at = models.DateTimeField(help_text="When the busy time starts.")
+    ends_at = models.DateTimeField(help_text="When the busy time ends.")
+
+    class Meta:
+        ordering: ClassVar[list[str]] = ["starts_at"]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(condition=Q(ends_at__gt=models.F("starts_at")), name="ck_busyspan_ends_after_start"),
+        ]
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(fields=["connection", "starts_at"], name="ix_busyspan_conn_start"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.connection.guide} busy {self.starts_at:%Y-%m-%d %H:%M} to {self.ends_at:%H:%M}"
 
 
 class TourCalendarSync(models.Model):

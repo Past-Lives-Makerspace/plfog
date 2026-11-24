@@ -39,7 +39,20 @@ from typing import Protocol
 
 #: The Django apps with specs of their own. ``api`` is not an installed app but has its own
 #: ``tests/api/``, so it maps the same way.
-APPS = ("airtable_sync", "api", "billing", "classes", "core", "hq", "hub", "kiln", "membership", "polls", "tours")
+APPS = (
+    "airtable_sync",
+    "api",
+    "billing",
+    "classes",
+    "core",
+    "hours",
+    "hq",
+    "hub",
+    "kiln",
+    "membership",
+    "polls",
+    "tours",
+)
 
 #: What pytest is given for the whole suite.
 FULL = "."

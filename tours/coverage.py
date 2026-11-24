@@ -23,7 +23,8 @@ from django.utils import timezone
 
 from hub.calendar_entries import CalendarEntry
 from hub.calendar_pages import ITEM_LEGEND_COLORS, LegendChip, entries_calendar_context
-from tours.models import FacilityTourSettings, TourBooking, TourDayOff, TourHours
+from hours.models import DayOff
+from tours.models import FacilityTourSettings, TourBooking, TourHours
 from tours.notify import short_when
 
 if TYPE_CHECKING:
@@ -63,8 +64,9 @@ def _hours_by_day(first: date, last: date) -> dict[date, list[TourHours]]:
         TourHours.objects.offered().touching_days(first, last).select_related("guide").order_by("start_time", "pk")
     )
     off: dict[int, set[date]] = {}
-    for day_off in TourDayOff.objects.touching(first, last):
-        covered = off.setdefault(day_off.guide_id, set())
+    # One Days Off for every kind (#1300): an orientation day off is a day with no tours too.
+    for day_off in DayOff.objects.filter(starts_on__lte=last, ends_on__gte=first):
+        covered = off.setdefault(day_off.member_id, set())
         covered.update(day for day in _days(max(day_off.starts_on, first), min(day_off.ends_on, last)))
     return {
         day: [row for row in rows if row.applies_on(day) and day not in off.get(row.guide_id, set())]

@@ -33,6 +33,7 @@ from core.events.senders import emit_with_email_shell
 from core.events.templates import rendered_message
 from core.models import SiteActivity
 from core.urls_util import member_absolute_url
+from hours.follow import lock_person
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Sequence
@@ -380,6 +381,18 @@ def _fan_out_request(booking: OrientationBooking, *, actor: User | None = None) 
     _emit_lead_request(booking)
 
 
+def _lock_orientor(member_id: int | None) -> None:
+    """Take the orientor's person lock (#1300, :func:`hours.follow.lock_person`) before a booking checks their time.
+
+    The lock every tour booking of theirs and every save of their hours takes too, so an
+    orientation and a tour racing for one person queue and the second sees the first. Taken
+    before the equipment and window locks, in the order every path takes them. A shared slot
+    has no orientor and locks nothing. Must run inside ``transaction.atomic()``.
+    """
+    if member_id is not None:
+        lock_person(member_id)
+
+
 def _lock_used_equipment(orientation_type: OrientationType) -> None:
     """Take the Equipment row lock on every item ``orientation_type`` uses, in pk order (#665).
 
@@ -412,6 +425,7 @@ def request_orientation(
         OrientationError: Propagated from ``slot.book`` when the slot can't be booked.
     """
     with transaction.atomic():
+        _lock_orientor(slot.orienter_id)
         _lock_used_equipment(slot.orientation_type)
         booking = slot.book(member, note=note, by_staff=by_staff)
     _fan_out_request(booking, actor=actor)
@@ -570,6 +584,7 @@ def request_block_orientation(
             A guard failure rolls the carved slot back — no dangling slot.
     """
     with transaction.atomic():
+        _lock_orientor(block.orienter_id)
         slot = _carve_block_slot(block, orientation_type, starts_at)
         booking = slot.book(member, note=note)
     _fan_out_request(booking)
@@ -600,6 +615,7 @@ def start_block_orientation_checkout(
         OrientationError: Propagated from the interval recheck or the booking guards.
     """
     with transaction.atomic():
+        _lock_orientor(block.orienter_id)
         slot = _carve_block_slot(block, orientation_type, starts_at)
         return start_orientation_checkout(slot, member, note=note, amount_cents=amount_cents)
 
@@ -708,6 +724,7 @@ def start_orientation_checkout(
     # before the Stripe round trip below, never held across it (a lock held over
     # a network call would stall every reservation on the tool).
     with transaction.atomic():
+        _lock_orientor(slot.orienter_id)
         _lock_used_equipment(orientation_type)
         booking = create_hold()
     token = make_checkout_token(booking)
@@ -1727,21 +1744,26 @@ def _when(moment: datetime) -> str:
     return f"{dateformat.format(local, 'l, F j')} at {dateformat.time_format(local, 'g:i A')}"
 
 
-def _ensure_move_target(orientation_type: OrientationType, starts_at: datetime) -> None:
-    """Raise :class:`OrientationError` unless a booking may move to ``starts_at``.
+def _ensure_move_target(orientation_type: OrientationType, starts_at: datetime, *, leaving: OrientationSlot) -> None:
+    """Raise :class:`OrientationError` unless a booking may move from ``leaving`` to ``starts_at``.
 
     The time must be ahead of now, and no reservation or block may hold any item the type
     uses across the orientation's length there (the same rule that hides a reserved slot,
-    #665). The leader's own call stands in for the Booking notice and the owner's switches.
-    Runs under :func:`_lock_used_equipment` so a reservation landing at the same moment waits.
+    #665), and the orientor it keeps must be free then (#1300, :func:`hours.busy.is_busy`; the
+    slot it leaves never counts). The leader's own call stands in for the Booking notice and
+    the owner's switches. Runs under :func:`_lock_orientor` and :func:`_lock_used_equipment`, so a
+    booking or reservation landing at the same moment waits.
     """
-    from membership.models import EquipmentReservation, OrientationError
+    from hours.busy import is_busy
+    from membership.models import BUSY_MESSAGE, EquipmentReservation, OrientationError
 
     if starts_at <= timezone.now():
         raise OrientationError("That time has already passed. Pick a future date and time.")
     ends_at = starts_at + timedelta(minutes=orientation_type.duration_minutes)
     if EquipmentReservation.objects.over_orientation(orientation_type, starts_at, ends_at).exists():
         raise OrientationError("The equipment this orientation uses is reserved then. Pick another time.")
+    if leaving.orienter_id is not None and is_busy(leaving.orienter_id, starts_at, ends_at, except_slot=leaving.pk):
+        raise OrientationError(BUSY_MESSAGE)
 
 
 def _locked_booking(booking: OrientationBooking) -> OrientationBooking:
@@ -1771,7 +1793,8 @@ def _move_locked(
     the savepoint, since the move confirms it: a charge that fails undoes the move.
 
     Raises:
-        OrientationError: The booking cannot move, the time is past or the equipment is reserved.
+        OrientationError: The booking cannot move, the time is past, the equipment is reserved
+            or the orientor is busy then.
         HoldCaptureFailed: The request's card would not charge; nothing moved.
         HoldCaptureUnavailable: Stripe could not be reached; nothing moved.
     """
@@ -1782,8 +1805,9 @@ def _move_locked(
     was_request = locked.status == OrientationBooking.Status.REQUESTED
     orientation_type = locked.orientation_type
     with transaction.atomic():
+        _lock_orientor(old_slot.orienter_id)
         _lock_used_equipment(orientation_type)
-        _ensure_move_target(orientation_type, starts_at)
+        _ensure_move_target(orientation_type, starts_at, leaving=old_slot)
         slot = _create_custom_slot(orientation_type, starts_at, orienter=old_slot.orienter, location=old_slot.location)
         locked.move_to(slot, oriented_by=oriented_by)
         _tidy_left_slot(old_slot)
@@ -1880,13 +1904,14 @@ def propose_orientation_time(
         The booking with its proposal, as saved.
 
     Raises:
-        OrientationError: The booking cannot move, the time is past or the equipment is reserved.
+        OrientationError: The booking cannot move, the time is past, the equipment is reserved
+            or the orientor is busy then.
     """
     with transaction.atomic():
         locked = _locked_booking(booking)
         locked.ensure_movable()
         _lock_used_equipment(locked.orientation_type)
-        _ensure_move_target(locked.orientation_type, starts_at)
+        _ensure_move_target(locked.orientation_type, starts_at, leaving=locked.slot)
         locked.propose_time(starts_at, proposed_by=actor)
         written = locked.write_message(author=_user_of(actor), body=message)
     member = locked.member
@@ -2083,9 +2108,6 @@ def cancel_times(
     return len(slots) + len(windows), emailed
 
 
-_DAY_OFF_REASON = "Day off"
-
-
 def _local_day_span(day: date) -> tuple[datetime, datetime]:
     """The aware ``[start, end)`` of one local calendar day, each bound made aware on its own (DST safe)."""
     start = timezone.make_aware(datetime.combine(day, time.min))
@@ -2093,112 +2115,21 @@ def _local_day_span(day: date) -> tuple[datetime, datetime]:
     return start, end
 
 
-@dataclass(frozen=True)
-class DayOffTimes:
-    """What a day off takes from one person on one local date (#767).
+def booked_on_day_off(member: Member, day: date) -> int:
+    """How many members are booked with ``member`` on local ``day``: what a day off there leaves standing (#1300).
 
-    ``slots`` are their upcoming fixed slots that day and ``windows`` their open windows still
-    ahead; ``segments`` are the windows' live booked segments, which go with their window.
-    The slots and segments carry ``active_booking_count``.
+    A day off hides only the times nobody booked (:func:`hours.busy.busy_spans`); every live
+    booking that day, on a fixed slot, a one off or a window's segment, in any guild or on any
+    equipment, stays booked for the person to move or cancel. Checkout holds are not counted.
     """
-
-    slots: list[OrientationSlot]
-    windows: list[OrientationAvailabilityBlock]
-    segments: list[OrientationSlot]
-
-    @property
-    def count(self) -> int:
-        """How many times the day off cancels: the slots and the windows (a segment is inside its window)."""
-        return len(self.slots) + len(self.windows)
-
-    @property
-    def emailed(self) -> int:
-        """How many booked members the cancel emails: every active booking on the slots and the segments."""
-        return sum(slot.active_booking_count for slot in self.slots) + sum(
-            segment.active_booking_count for segment in self.segments
-        )
-
-
-def times_on_day_off(member: Member, day: date) -> DayOffTimes:
-    """The upcoming times of ``member`` on local ``day`` that a day off cancels, in any guild or on any equipment.
-
-    Fixed slots that have not started, except one carved out of a live window (that is the
-    window's booked segment, not a time of its own, as on the Upcoming Times card), and
-    open windows with time still ahead. A time with no orientor is never one of theirs.
-    The day is a Pacific calendar day: both bounds are made aware on local wall clock time,
-    so a late evening slot stays on its own day.
-    """
-    from membership.models import OrientationAvailabilityBlock, OrientationBooking, OrientationSlot
+    from membership.models import OrientationBooking
 
     start, end = _local_day_span(day)
-    slots = list(
-        OrientationSlot.objects.upcoming()
-        .filter(orienter=member, starts_at__gte=start, starts_at__lt=end)
-        .exclude(source=OrientationSlot.Source.FROM_BLOCK, block__is_cancelled=False)
-        .with_active_booking_count()
-        .order_by("starts_at")
+    return (
+        OrientationBooking.objects.active()
+        .filter(slot__orienter=member, slot__is_cancelled=False, slot__starts_at__gte=start, slot__starts_at__lt=end)
+        .count()
     )
-    windows = list(
-        OrientationAvailabilityBlock.objects.upcoming()
-        .filter(orienter=member, starts_at__gte=start, starts_at__lt=end)
-        .order_by("starts_at")
-    )
-    segments: list[OrientationSlot] = []
-    if windows:
-        # The windows' seat holding segments in one query (``booked_segments`` per window would be one each).
-        segments = list(
-            OrientationSlot.objects.filter(
-                block__in=windows,
-                is_cancelled=False,
-                bookings__status__in=[
-                    OrientationBooking.Status.PENDING_PAYMENT,
-                    OrientationBooking.Status.REQUESTED,
-                    OrientationBooking.Status.CONFIRMED,
-                ],
-            )
-            .distinct()
-            .with_active_booking_count()
-            .order_by("starts_at")
-        )
-    return DayOffTimes(slots=slots, windows=windows, segments=segments)
-
-
-def cancel_day_off(member: Member, day: date, *, actor: User | None = None) -> tuple[int, int]:
-    """Cancel every upcoming time of ``member`` on local ``day`` (#767), in any guild or on any equipment.
-
-    Each fixed slot goes through :func:`cancel_slot` (booked members emailed, checkout holds
-    released); each open window through :meth:`OrientationAvailabilityBlock.cancel`, with its
-    booked segments through :func:`cancel_slot` as well. A generated slot or window nobody
-    was emailed about is then detached from its rule (``mark_retired``), so deleting the day
-    off lets the next generation run offer the time again; a time that emailed members stays
-    cancelled at its key, as a manager's cancel does. Times with no orientor are untouched.
-
-    No transaction wraps the loop: ``cancel_slot`` talks to Stripe for held checkouts and
-    must not run inside an outer atomic block.
-
-    Returns:
-        ``(cancelled, emailed)``: the number of times (slots and windows) cancelled, and the
-        number of booked members emailed, counted before the cancel.
-    """
-    from membership.models import OrientationSlot
-
-    times = times_on_day_off(member, day)
-    for slot in times.slots:
-        cancel_slot(slot, reason=_DAY_OFF_REASON, actor=actor)
-        if slot.source == OrientationSlot.Source.GENERATED and not slot.active_booking_count:
-            slot.mark_retired(reason=_DAY_OFF_REASON)
-    # A window whose only segment is an unpaid checkout hold emailed nobody, so it is retired
-    # like a hold only slot above: the hold is released below and the window regenerates once
-    # the day off is deleted.
-    booked_window_ids = {segment.block_id for segment in times.segments if segment.active_booking_count}
-    for window in times.windows:
-        if window.pk in booked_window_ids:
-            window.cancel()
-        else:
-            window.mark_retired()
-    for segment in times.segments:
-        cancel_slot(segment, reason=_DAY_OFF_REASON, actor=actor)
-    return times.count, times.emailed
 
 
 def complete_orientation(booking: OrientationBooking) -> None:
@@ -2367,13 +2298,22 @@ def _horizon_spans(
 
 
 def _days_off_by_orienter(*, today: date, window_weeks: int) -> dict[int, set[date]]:
-    """Every orientor's days off inside the horizon, loaded once per run so no rule costs a query (#767)."""
-    from membership.models import OrientationDayOff
+    """Every orientor's days off inside the horizon, loaded once per run so no rule costs a query (#767).
+
+    Read from the one Days Off every kind shares (#1300, ``hours.DayOff``), so a tour day off
+    is an orientation day off too.
+    """
+    from hours.models import DayOff
 
     by_orienter: dict[int, set[date]] = defaultdict(set)
-    horizon = OrientationDayOff.objects.within(today, today + timedelta(days=window_weeks * 7))
-    for orienter_id, day in horizon.values_list("orienter_id", "date"):
-        by_orienter[orienter_id].add(day)
+    last = today + timedelta(days=window_weeks * 7)
+    for member_id, starts_on, ends_on in DayOff.objects.filter(starts_on__lte=last, ends_on__gte=today).values_list(
+        "member_id", "starts_on", "ends_on"
+    ):
+        day = max(starts_on, today)
+        while day <= min(ends_on, last):
+            by_orienter[member_id].add(day)
+            day += timedelta(days=1)
     return by_orienter
 
 

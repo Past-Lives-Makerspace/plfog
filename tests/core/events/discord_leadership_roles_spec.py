@@ -196,7 +196,7 @@ def describe_leadership_role_settings():
 
     def it_names_each_managed_role():
         settings = _settings()
-        assert settings.role_name(LEADERSHIP) == "leadership"
+        assert settings.role_name(LEADERSHIP) == "Leadership"
         assert settings.role_name(OFFICERS) == "Guild Officers"
         assert settings.role_name(GUILD_LEADS) == "Guild Leads"
         assert settings.role_name(TOURS) == "Tour Guides"
@@ -706,7 +706,7 @@ def describe_role_id_conflicts():
     def it_refuses_an_id_another_managed_role_already_uses():
         errors = _check(discord_guild_officers_role_id="10", discord_instructors_role_id=" 30 ")
         assert errors == {
-            "discord_guild_officers_role_id": "This is already the leadership role id. Each role needs its own.",
+            "discord_guild_officers_role_id": "This is already the Leadership role id. Each role needs its own.",
             "discord_instructors_role_id": "This is already the Guild Leads role id. Each role needs its own.",
         }
 

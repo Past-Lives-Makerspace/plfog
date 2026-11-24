@@ -321,6 +321,8 @@ INSTALLED_APPS = [
     "polls",
     "hq",
     "tours",
+    # One set of hours per person for every kind they give (#1300).
+    "hours",
     # REST API
     "rest_framework",
     "rest_framework.authtoken",

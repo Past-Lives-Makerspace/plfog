@@ -1,0 +1,10 @@
+bump = "minor"
+date = "2026-11-23"
+audience = ["orientors", "instructors"]
+title = "Nobody is booked twice at once"
+changes = [
+  "An orientation time is no longer offered while its orientor already has a tour booked, another orientation booked, a class to teach or a day off then, or a busy time on the Google Calendar they connected for tours.",
+  "A tour time is no longer offered while its guide has an orientation booked or a class to teach then.",
+  "A day off now hides only the times nobody has booked. Anything already booked that day stays booked and nobody is emailed, so move or cancel it if you can't make it.",
+  "A day off set for tours closes your orientation times that day too, and the other way round.",
+]

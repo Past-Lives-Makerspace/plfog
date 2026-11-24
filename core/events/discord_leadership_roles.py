@@ -1,4 +1,4 @@
-"""Discord roles that follow the app (#1148, #1270): leadership, Guild Officers, Guild Leads, Tour Guides, Instructors.
+"""Discord roles that follow the app (#1148, #1270): Leadership, Guild Officers, Guild Leads, Tour Guides, Instructors.
 
 The app manages a fixed set of shared Discord roles, all ids kept in Site Settings and never in
 code (``SiteConfiguration.discord_<name>_role_id``; blank turns that role off). Who should hold them:
@@ -6,10 +6,10 @@ code (``SiteConfiguration.discord_<name>_role_id``; blank turns that role off). 
 ========================================================  ==========================================
 Who                                                       Roles
 ========================================================  ==========================================
-The lead (``Guild.guild_lead``) or a Co-Lead of a guild   Guild Leads, leadership, Guild Officers
+The lead (``Guild.guild_lead``) or a Co-Lead of a guild   Guild Leads, Leadership, Guild Officers
 Any other staff role (Secretary, Treasurer, Orientor,     Guild Officers
 custom title)
-Listed on a People tab of the Leadership Directory        leadership, Guild Officers
+Listed on a People tab of the Leadership Directory        Leadership, Guild Officers
 Granted the Tour Guide permission                         Tour Guides
 An instructor (``Member.objects.instructors()``)          Instructors
 ========================================================  ==========================================
@@ -55,7 +55,7 @@ from core.tasks import enqueue_on_commit
 if TYPE_CHECKING:
     from membership.models import Member
 
-LEADERSHIP_NAME = "leadership"
+LEADERSHIP_NAME = "Leadership"
 
 
 class LeadershipRoleSyncError(Exception):
@@ -160,8 +160,8 @@ class LeadershipRoleSettings:
 def desired_role_ids(facts: LeadershipFacts, settings: LeadershipRoleSettings) -> frozenset[str]:
     """The managed role ids a member with these ``facts`` should hold. The one home of the mapping.
 
-    A lead or Co-Lead gets Guild Leads, leadership and Guild Officers; any other staff role gets
-    Guild Officers; a People tab listing gets leadership and Guild Officers; the Tour Guide
+    A lead or Co-Lead gets Guild Leads, Leadership and Guild Officers; any other staff role gets
+    Guild Officers; a People tab listing gets Leadership and Guild Officers; the Tour Guide
     permission gets Tour Guides; an instructor gets Instructors. A blank setting contributes nothing.
     """
     leads = bool(facts.led_guild_ids)
