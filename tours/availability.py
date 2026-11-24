@@ -25,12 +25,15 @@ Entry points:
 Neither reads the "Accepting tour bookings" switch: the booking page decides what a closed site
 shows, and staff keep moving tours while it is closed.
 
-A guide who connected a Google Calendar (#951) is not offered to visitors at a time it shows them
-busy: both entry points drop a tour overlapping one of the guide's cached busy spans
-(:meth:`~tours.models.TourCalendarConnectionQuerySet.busy_by_guide`, read from the database only,
-never from Google). Staff (``staff=True``) see those tours anyway: a guide or an admin moving a tour
-may choose a time the calendar shows busy, and the guide hears of it by bell
-(:func:`tours.calendar_sync.alert_busy_conflicts`). Bookings already made are never affected.
+A guide is never double booked (#1300): a tour is not offered over anything else holding the
+guide's time (:func:`hours.busy.busy_spans`): an orientation of theirs holding seats, a session of
+a class they teach, a day off (one Days Off for every kind), and, for visitors, a time their
+Google Calendar shows them busy (#951, read from the database only, never from Google). Staff
+(``staff=True``) see the Google busy tours anyway: a guide or an admin moving a tour may choose
+such a time, and the guide hears of it by bell (:func:`tours.calendar_sync.alert_busy_conflicts`).
+Bookings already made are never affected. A booking or a move takes the guide's person lock
+(:func:`hours.follow.lock_person`) before it reads, the lock every orientation booking of theirs
+takes too, so a tour and an orientation racing for one person cannot both land.
 
 Every instant here is compared and keyed in UTC (#948). On the fall back night the carve yields
 1:00 AM in the repeated hour as a local datetime whose offset depends on ``fold``; PEP 495 makes
@@ -49,16 +52,11 @@ from django.db import transaction
 from django.db.models import Count
 from django.utils import timezone
 
+from hours.busy import busy_spans
+from hours.follow import lock_person
 from membership.models import Member
 from tours.calendar_sync import overlaps
-from tours.models import (
-    FacilityTourSettings,
-    TourBooking,
-    TourCalendarConnection,
-    TourDayOff,
-    TourGuideSettings,
-    TourHours,
-)
+from tours.models import FacilityTourSettings, TourBooking, TourGuideSettings, TourHours
 
 
 @dataclass(frozen=True)
@@ -255,7 +253,8 @@ def open_tours(
 ) -> list[OpenTour]:
     """The tours that can be booked from ``first_day`` to ``last_day`` (local days, both included).
 
-    Each offered guide's hours are carved into tours of the row's length; a guide's days off, any
+    Each offered guide's hours are carved into tours of the row's length; any tour over the guide's
+    busy time (:func:`hours.busy.busy_spans`: their orientations, classes and days off), any
     tour past the booking horizon or already started, and on the website any tour inside its guide's
     own minimum notice (#1312) drop out. Guides' hours may
     overlap (#1312), but only one tour runs at a time: once a tour has a booking, every other
@@ -264,8 +263,8 @@ def open_tours(
     guide with the fewest upcoming tours among those whose notice allows it. Staff see every
     guide's tour that no booking blocks. A
     tour with no seat left drops out too unless ``include_full``, and for visitors one the guide's
-    Google Calendar shows them busy (#951). Five queries however long the range (settings, hours,
-    days off, bookings, the guides' own notice; busy times once Google is set up; four for staff and
+    Google Calendar shows them busy (#951). Nine queries however long the range (settings, hours,
+    bookings, the four or five of busy time, the guides' own notice; one fewer for staff and
     the kiosk), one more when two guides could give one time nobody has booked, and none past the
     settings when no guide has hours.
 
@@ -298,17 +297,16 @@ def open_tours(
     if not rows:
         return []
     guide_ids = {row.guide_id for row in rows}
-    days_off = list(TourDayOff.objects.touching(first_day, last_day).filter(guide_id__in=guide_ids))
-    booked = _booked(_local_midnight(first_day), _local_midnight(last_day + timedelta(days=1)), moving)
-    busy = {} if staff else TourCalendarConnection.objects.busy_by_guide(guide_ids)
+    first, before = _local_midnight(first_day), _local_midnight(last_day + timedelta(days=1))
+    booked = _booked(first, before, moving)
+    busy = busy_spans(guide_ids, first, before, tours=False, google_busy=not staff)
     earliest = _guide_earliest(guide_ids, moment, tour_settings) if guide_notice and not staff else {}
     offered: list[tuple[TourHours, OpenTour]] = []
     seen: set[tuple[int, datetime]] = set()
     day = first_day
     while day <= last_day:
-        off = {day_off.guide_id for day_off in days_off if day_off.covers(day)}
         for row in rows:
-            if not row.applies_on(day) or row.guide_id in off:
+            if not row.applies_on(day):
                 continue
             for span_start, span_end in row.carve_spans(day):
                 starts_at, ends_at = span_start.astimezone(UTC), span_end.astimezone(UTC)
@@ -316,7 +314,7 @@ def open_tours(
                 # A guide's rows never overlap through the editor; one written another way must not
                 # offer the same tour twice.
                 too_soon = starts_at < earliest.get(row.guide_id, starts_at)
-                if key in seen or too_soon or not _offered(window, starts_at, ends_at, busy.get(row.guide_id, [])):
+                if key in seen or too_soon or not _offered(window, starts_at, ends_at, busy[row.guide_id]):
                     continue
                 seen.add(key)
                 tour = OpenTour(
@@ -385,7 +383,7 @@ def open_tour_at(
     Args:
         guide: the tour's guide.
         starts_at: the tour's aware start.
-        lock: take :func:`lock_bookings` first. Every booking and move passes True inside
+        lock: take :func:`lock_bookings`, then the guide's person lock, first. Every booking and move passes True inside
             ``transaction.atomic()`` and saves before the transaction ends, so what each one reads
             includes every booking committed before it.
         now: the moment to judge the horizon and notice from; defaults to now.
@@ -402,6 +400,7 @@ def open_tour_at(
     """
     if lock:
         lock_bookings()
+        lock_person(guide.pk)
     starts_at = starts_at.astimezone(UTC)
     day = timezone.localdate(starts_at)
     tours = open_tours(
@@ -425,7 +424,10 @@ def tour_at(
     booked, its guide's notice is the one later visitors meet. ``moving`` (a visitor's own booking
     being moved) never blocks or claims anything. Booking calls it with ``lock``
     (:func:`lock_bookings`), so
-    the first booking claims the time for one guide and every later one joins that tour.
+    the first booking claims the time for one guide and every later one joins that tour. With
+    ``lock`` the guide it picks is person locked (:func:`hours.follow.lock_person`) and the time
+    read again, until the guide it picks is one already locked: an orientation that landed on them
+    meanwhile is seen, and none can land until this transaction ends.
 
     Raises:
         RuntimeError: ``lock`` outside a transaction, where the lock would end at once.
@@ -434,5 +436,11 @@ def tour_at(
         lock_bookings()
     starts_at = starts_at.astimezone(UTC)
     day = timezone.localdate(starts_at)
-    tours = open_tours(day, day, include_full=True, now=now, guide_notice=guide_notice, moving=moving)
-    return next((tour for tour in tours if tour.starts_at == starts_at), None)
+    locked: set[int] = set()
+    while True:
+        tours = open_tours(day, day, include_full=True, now=now, guide_notice=guide_notice, moving=moving)
+        tour = next((tour for tour in tours if tour.starts_at == starts_at), None)
+        if not lock or tour is None or tour.guide.pk in locked:
+            return tour
+        lock_person(tour.guide.pk)
+        locked.add(tour.guide.pk)
