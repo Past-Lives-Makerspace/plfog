@@ -16253,7 +16253,7 @@ class OrientationAvailabilityBlock(models.Model):
     def free_intervals_by_block(
         cls, blocks: list[OrientationAvailabilityBlock]
     ) -> dict[int, list[tuple[datetime_type, datetime_type]]]:
-        """:meth:`free_intervals` for many windows in two queries, however many windows there are.
+        """:meth:`free_intervals` for many windows in five queries, however many windows there are.
 
         The same occupancy rule as :meth:`_busy_spans` (each window's own live carved slots,
         plus everything else holding its orientor's time over its span), read for every

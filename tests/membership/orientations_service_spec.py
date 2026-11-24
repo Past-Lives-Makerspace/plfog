@@ -699,7 +699,15 @@ def describe_equipment_owned_orientations_service():
         for index, equipment in enumerate((owned, standalone)):
             EquipmentStaffMembership.objects.create(equipment=equipment, member=dana)
             orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Basics")
-            slot = OrientationSlotFactory(equipment_owned=True, orientation_type=orientation_type, orienter=dana)
+            # A day apart: one person is never booked twice at once (#1300).
+            starts_at = timezone.now() + timedelta(days=2 + index)
+            slot = OrientationSlotFactory(
+                equipment_owned=True,
+                orientation_type=orientation_type,
+                orienter=dana,
+                starts_at=starts_at,
+                ends_at=starts_at + timedelta(hours=1),
+            )
             mail.outbox.clear()
             orientations.request_orientation(slot, _member_with_user(f"eq_d_member_{index}"))
             requests = [m.to for m in mail.outbox if "New orientation request" in m.subject]

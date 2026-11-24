@@ -134,9 +134,10 @@ def describe_OrientationAvailabilityBlock():  # noqa: N802
                 (busy.ends_at, elsewhere.ends_at),
             ]
 
-        def it_reads_every_window_in_two_queries(django_assert_num_queries):
+        def it_reads_every_window_in_five_queries(django_assert_num_queries):
             blocks = [OrientationAvailabilityBlockFactory() for _ in range(4)]
-            with django_assert_num_queries(2):
+            # Their own segments, then the orientors' busy time (#1300): tours, slots, classes, days off.
+            with django_assert_num_queries(5):
                 OrientationAvailabilityBlock.free_intervals_by_block(blocks)
 
         def it_lets_valid_starts_for_skip_its_own_read(django_assert_num_queries):
