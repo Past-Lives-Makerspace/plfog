@@ -1575,13 +1575,16 @@ _CURATED: dict[str, EventCopy] = {
     # one row per (event x COPY_CHANNELS) whatever the event declares, and this event authors
     # no email copy, so dropping it would leave ``copy_for(IN_APP)`` nothing to fall back to
     # and seed a blank in-app row into the admin catalogue. The Discord body greets the newcomer
-    # by first name and ends on a named markdown link to the guild, never a bare URL (#1326); the
+    # by first name and ends on a named markdown link to the guild, never a bare URL (#1326). A
+    # member with no name greets as "Someone new", and ``comma_first_name`` (", Robin", or blank
+    # then) keeps the title from reading "Guild, !". The
     # guild's color, logo and the newcomer's photo ride on the embed, not in this copy.
     "orientation.completed": EventCopy(
-        placeholders=("member_name", "first_name", "guild_name", "guild_url"),
+        placeholders=("member_name", "first_name", "comma_first_name", "guild_name", "guild_url"),
         sample_context={
             "member_name": "Robin Vale",
             "first_name": "Robin",
+            "comma_first_name": ", Robin",
             "guild_name": "Metal Guild",
             "guild_url": "https://pastlives.example/guilds/metal-guild/",
         },
@@ -1594,7 +1597,7 @@ _CURATED: dict[str, EventCopy] = {
                 ),
             ),
             Channel.DISCORD: ChannelCopy(
-                subject="Welcome to the {{ guild_name }}, {{ first_name }}!",
+                subject="Welcome to the {{ guild_name }}{{ comma_first_name }}!",
                 body_text=(
                     "{{ first_name }} finished their {{ guild_name }} orientation today. "
                     "Say hi next time you see them around the space! 👋\n\n"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 from urllib.parse import urlsplit
 
 import pytest
@@ -552,6 +552,24 @@ def describe_guild_welcome_discord_message():
 
         assert message.title == "Welcome to the Metalworkers Guild, Wren!"
         assert message.discord_author_name == booking.member.display_name
+
+    def describe_when_the_member_has_no_name():
+        def it_drops_the_comma_from_the_title_and_greets_someone_new():
+            booking = _metal_booking(full_legal_name="", preferred_name="")
+
+            message = _welcome(booking)
+
+            assert message.title == "Welcome to the Metalworkers Guild!"
+            assert message.body.startswith("Someone new finished their Metalworkers Guild orientation today.")
+
+        def it_greets_by_the_display_name_when_there_is_no_first_word():
+            booking = _metal_booking(full_legal_name="", preferred_name="")
+
+            with patch.object(type(booking.member), "display_name", new_callable=PropertyMock, return_value="J. G."):
+                message = _welcome(booking)
+
+            assert message.title == "Welcome to the Metalworkers Guild!"
+            assert message.body.startswith("J. G. finished their Metalworkers Guild orientation today.")
 
     def it_puts_the_profile_photo_beside_the_name_as_an_absolute_url():
         booking = _metal_booking()

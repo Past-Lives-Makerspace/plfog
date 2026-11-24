@@ -2248,7 +2248,7 @@ def complete_orientation(booking: OrientationBooking) -> None:
         # equivalent in v1).
         "guild": booking.guild,
         "member_name": booking.member.display_name,
-        "first_name": booking.member.greeting_name.split(" ")[0],
+        **_welcome_names(booking.member),
         "guild_name": booking.orientation_type.owner_name,
         "guild_url": booking.orientation_type.owner_page_url(),
     }
@@ -2260,6 +2260,27 @@ def complete_orientation(booking: OrientationBooking) -> None:
         messages={Channel.DISCORD: guild_welcome_discord_message(booking, context)},
         period=f"booking:{booking.pk}:completed",
     )
+
+
+def _welcome_names(member: Member) -> dict[str, str]:
+    """The names the guild welcome greets ``member`` by (#1326).
+
+    ``first_name`` is the first word of their greeting name, else their display name, else
+    "Someone new", so the description never opens on a blank. ``comma_first_name`` is that first
+    word after a comma (", Jay"), or blank when there is none, so the title reads
+    "Welcome to the Metalworkers Guild!" rather than "…Guild, !".
+
+    Args:
+        member: The newcomer.
+
+    Returns:
+        The ``first_name`` and ``comma_first_name`` copy context.
+    """
+    first_word = member.greeting_name.split(" ")[0]
+    return {
+        "first_name": first_word or member.display_name or "Someone new",
+        "comma_first_name": f", {first_word}" if first_word else "",
+    }
 
 
 def guild_welcome_discord_message(booking: OrientationBooking, context: dict[str, Any]) -> Message:
