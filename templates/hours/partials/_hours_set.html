@@ -1,0 +1,14 @@
+{% comment %}
+One set of hours on My Hours (#1300, part 3): when, then a chip per kind it is open to, in that kind's colour.
+Read only; part 4 adds Edit. Context: row (hours.page.HoursSet).
+{% endcomment %}
+<div class="hub-card pl-tours-row" data-hours-set="{{ row.hours.pk }}">
+  <div class="pl-hours-set__head">
+    <div>
+      <span class="pl-hours-set__when">{{ row.when }}</span>
+      <div class="pl-hours-set__kinds">
+        {% for offer in row.offers %}<span class="pl-hours-set__kind pl-kind {{ offer.kind.css }}">{{ offer.text }}</span>{% empty %}<span class="hub-text-muted">Not open to anything yet.</span>{% endfor %}
+      </div>
+    </div>
+  </div>
+</div>

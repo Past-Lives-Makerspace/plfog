@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>#1300 mockup · My Hours</title>
+<!--
+  #1300 My Hours mockup (static; not served by Django). One page for every kind a person offers.
+  Links the real stylesheets and uses the real class names so the build can lift the markup.
+  Views: ?view=page (default) · ?view=edit (one set of hours open) · ?view=dayoff (Add Day Off)
+  Theme: ?theme=light   Phone shell: ?phone=1   Screenshot chrome off: ?shot=1
+  CSS: the first <style> block is NEW product CSS (static/css/my-hours.css); the second is mockup-only.
+  People and guild names are invented.
+-->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../static/css/hub.css">
+<link rel="stylesheet" href="../static/css/components.css">
+<link rel="stylesheet" href="../static/css/tours.css">
+<link rel="stylesheet" href="../static/css/calendar.css">
+<style>
+/* ==========================================================================
+   NEW PRODUCT CSS: static/css/my-hours.css, loaded by hub/my_hours.html only.
+   Tokens only. Builds on tours.css (.pl-tours-panel, .pl-tours-row) and
+   calendar.css (.pl-calendar-grid--week), which My Hours also loads.
+   ========================================================================== */
+
+/* One colour per kind the person offers, set on any element as --kind. */
+.pl-kind { --kind: var(--hub-text-muted); }
+.pl-kind--tours { --kind: var(--color-tuscan-yellow); }
+.pl-kind--a { --kind: var(--hub-blue); }
+.pl-kind--b { --kind: #3fb98a; }
+
+/* What You Offer: the legend over the calendar, one dot per kind. */
+.pl-hours-offer { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 1rem; padding: 0; list-style: none; }
+.pl-hours-offer__item { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.3rem 0.7rem; border: 1px solid var(--hub-border); border-radius: 999px; background: var(--hub-surface); font-size: 0.8125rem; }
+.pl-hours-offer__dot { width: 9px; height: 9px; border-radius: 50%; background: var(--kind); flex-shrink: 0; }
+.pl-hours-offer__item--key { color: var(--hub-text-muted); }
+.pl-hours-offer__swatch { width: 16px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.pl-hours-offer__swatch--open { border: 1.5px dashed var(--hub-text-muted); }
+.pl-hours-offer__swatch--booked { background: var(--hub-text); }
+.pl-hours-offer__swatch--busy { background: repeating-linear-gradient(135deg, var(--hub-border-strong) 0 3px, transparent 3px 6px); border: 1px solid var(--hub-border-strong); }
+
+/* The week: calendar.css's grid, with three chip kinds of our own. */
+.pl-hours-week .pl-calendar-grid__day { height: auto; min-height: 196px; }
+.pl-hours-chip { display: block; margin: 0 0 4px; padding: 0.3rem 0.4rem; border-radius: 6px; font-size: 0.75rem; line-height: 1.25; text-align: left; overflow: hidden; }
+.pl-hours-chip__time { display: block; font-weight: 700; }
+.pl-hours-chip__what { display: block; color: var(--hub-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-hours-chip__dots { display: inline-flex; gap: 3px; margin-right: 4px; vertical-align: middle; }
+.pl-hours-chip__dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--kind); }
+.pl-hours-chip--open { border: 1.5px dashed var(--hub-border-strong); background: transparent; }
+.pl-hours-chip--booked { background: var(--hub-elevated); border-left: 4px solid var(--kind); }
+.pl-hours-chip--booked .pl-hours-chip__what { color: var(--hub-text); }
+.pl-hours-chip--busy { background: repeating-linear-gradient(135deg, var(--hub-surface) 0 6px, transparent 6px 12px); border: 1px solid var(--hub-border); }
+.pl-hours-day--off { background: repeating-linear-gradient(135deg, transparent 0 10px, var(--hub-surface) 10px 20px); }
+.pl-hours-day__off { display: block; margin-top: 0.5rem; text-align: center; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--hub-text-muted); }
+.pl-hours-rule { margin: 1rem 0 0; font-size: 0.8125rem; color: var(--hub-text-muted); }
+
+/* One set of hours: tours.css's collapsed row, plus the kinds it is open to. */
+.pl-hours-set__kinds { display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 0.5rem; }
+.pl-hours-set__kind { display: inline-flex; align-items: center; gap: 0.375rem; padding: 0.15rem 0.6rem; border-radius: 999px; background: var(--hub-surface); border: 1px solid var(--hub-border); font-size: 0.75rem; }
+.pl-hours-set__kind::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--kind); }
+.pl-hours-set__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
+.pl-hours-set__when { font-weight: 600; color: var(--hub-text); }
+
+/* Open To: one toggle per kind inside an open set of hours, each with its own settings under it. */
+.pl-hours-open-to { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--hub-border); }
+.pl-hours-open-to__title { margin: 0 0 0.25rem; font-size: 0.8125rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--hub-text-muted); }
+.pl-hours-open-to__hint { margin: 0 0 0.75rem; font-size: 0.8125rem; color: var(--hub-text-muted); }
+.pl-hours-kind { margin-top: 0.75rem; padding: 0.75rem 1rem; border: 1px solid var(--hub-border); border-left: 4px solid var(--kind); border-radius: 8px; background: var(--hub-surface); }
+.pl-hours-kind--off { border-left-color: var(--hub-border); }
+.pl-hours-kind .pl-toggle-row { margin: 0; }
+.pl-hours-kind__settings { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.75rem; }
+.pl-hours-kind__settings > .pl-form-group { flex: 0 1 auto; min-width: 7rem; margin: 0; }
+.pl-hours-kind__settings > .pl-form-group--wide { flex: 1 1 16rem; max-width: 520px; }
+.pl-hours-kind__style { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.pl-hours-kind__note { margin: 0.5rem 0 0; font-size: 0.8125rem; color: var(--hub-text-muted); }
+
+/* Days Off: one list for every kind; the modal's still-booked line. */
+.pl-hours-dayoff-impact { margin: 1rem 0 1.5rem; padding: 0.75rem 1rem; border-radius: 8px; background: var(--hub-surface); border: 1px solid var(--hub-border); font-size: 0.875rem; }
+.pl-hours-dayoff-impact ul { margin: 0.5rem 0 0; padding-left: 1.1rem; }
+
+@media (max-width: 640px) {
+    /* The week reads as a list of days on a phone: no seven columns at 390px. */
+    .pl-hours-week.pl-calendar-grid--week { grid-template-columns: 1fr; }
+    .pl-hours-week .pl-calendar-grid__day { min-height: 0; display: grid; grid-template-columns: 3.25rem 1fr; gap: 0.75rem; padding: 0.625rem 0.75rem; border-right: 0; }
+    .pl-hours-week .pl-calendar-grid__day-header { flex-direction: column; align-items: center; gap: 0; }
+    .pl-hours-week .pl-calendar-grid__day-name { font-size: 0.75rem; }
+    .pl-hours-chip { font-size: 0.8125rem; }
+    .pl-hours-day__off { text-align: left; margin-top: 0.25rem; }
+    .pl-hours-set__head { flex-direction: column; }
+    .pl-hours-set__head .pl-btn { width: 100%; min-height: 48px; }
+    .pl-hours-kind__settings > .pl-form-group { flex: 1 1 100%; }
+}
+</style>
+<style>
+/* ---------- mockup-only ---------- */
+.mock-view { display: contents; }
+html[data-mock-view="page"] .mock-view:not([data-mock-view="page"]),
+html[data-mock-view="edit"] .mock-view:not([data-mock-view="edit"]),
+html[data-mock-view="dayoff"] .mock-view:not([data-mock-view="dayoff"]) { display: none; }
+.mock-switcher { position: fixed; right: 1rem; bottom: 1rem; z-index: 900; display: flex; gap: 0.75rem; align-items: center; padding: 0.5rem 0.75rem; border-radius: 8px; background: var(--hub-elevated); border: 1px solid var(--hub-border); font-size: 0.8rem; }
+.mock-switcher a { color: var(--hub-link); text-decoration: none; }
+html.mock-shot .mock-switcher, html.mock-shot .hub-feedback-fab { display: none; }
+html.mock-shot .pl-topbar { position: static; }
+html.mock-phone .hub-sidebar { display: none; }
+html.mock-phone .hub-main-wrapper { margin-left: 0 !important; }
+.mock-modal { position: fixed; inset: 0; z-index: 800; display: flex; align-items: flex-start; justify-content: center; padding: 4rem 1rem; background: rgba(0,0,0,0.55); }
+.mock-modal .pl-modal { position: relative; width: 100%; max-width: 520px; max-height: none; }
+</style>
+<script>
+  (function () {
+    var p = new URLSearchParams(location.search);
+    document.documentElement.setAttribute('data-mock-view', p.get('view') || 'page');
+    if (p.get('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    if (p.get('shot') === '1') document.documentElement.classList.add('mock-shot');
+    if (p.get('phone') === '1') document.documentElement.classList.add('mock-phone');
+  })();
+  function mockToggleTheme() {
+    var p = new URLSearchParams(location.search);
+    if (p.get('theme') === 'light') p.delete('theme'); else p.set('theme', 'light');
+    location.search = p.toString();
+  }
+</script>
+</head>
+<body>
+  <nav class="mock-switcher" aria-label="Mockup views">
+    <strong>#1300</strong>
+    <a href="?view=page">My Hours</a>
+    <a href="?view=edit">Edit hours</a>
+    <a href="?view=dayoff">Add Day Off</a>
+    <a href="#" onclick="mockToggleTheme(); return false;">Theme</a>
+  </nav>
+
+  <aside class="hub-sidebar">
+    <nav class="hub-sidebar__nav" aria-label="Hub navigation">
+      <a href="#" class="hub-sidebar__link">Home</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link">Class Catalog</a>
+      <a href="#" class="hub-sidebar__link">Calendar</a>
+      <a href="#" class="hub-sidebar__link">Member Directory</a>
+      <a href="#" class="hub-sidebar__link">Reservations</a>
+      <a href="#" class="hub-sidebar__link">Tours</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link">Ceramics Guild</a>
+      <a href="#" class="hub-sidebar__link">Printmaking Guild</a>
+    </nav>
+  </aside>
+
+  <div class="hub-main-wrapper">
+    <header class="pl-topbar">
+      <button class="pl-topbar__toggle" aria-label="Toggle sidebar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg></button>
+      <span class="pl-topbar__divider"></span>
+      <div class="pl-topbar__spacer"></div>
+      <button class="pl-topbar__theme-toggle" aria-label="Toggle theme" onclick="mockToggleTheme()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/></svg></button>
+      <div class="pl-profile"><button class="pl-profile__avatar" aria-label="User menu">RV</button></div>
+    </header>
+
+    <main id="main-content" class="hub-content pl-my-hours" tabindex="-1">
+      <div class="hub-page-header">
+        <div>
+          <h1 class="hub-page-title">My Hours</h1>
+          <p class="hub-text-muted">When people can book you, for tours and every orientation you give. Set your time once here.</p>
+        </div>
+      </div>
+
+      <!-- The week -->
+      <section class="hub-card pl-tours-panel" data-hours-week>
+        <div class="pl-tours-panel__head">
+          <h2 class="hub-detail-label pl-tours-panel__title">This Week</h2>
+        </div>
+        <ul class="pl-hours-offer" aria-label="What you offer">
+          <li class="pl-hours-offer__item pl-kind pl-kind--tours"><span class="pl-hours-offer__dot"></span>Tours</li>
+          <li class="pl-hours-offer__item pl-kind pl-kind--a"><span class="pl-hours-offer__dot"></span>Printmaking Guild orientations</li>
+          <li class="pl-hours-offer__item pl-kind pl-kind--b"><span class="pl-hours-offer__dot"></span>Ceramics Guild orientations</li>
+          <li class="pl-hours-offer__item pl-hours-offer__item--key"><span class="pl-hours-offer__swatch pl-hours-offer__swatch--open"></span>Open</li>
+          <li class="pl-hours-offer__item pl-hours-offer__item--key"><span class="pl-hours-offer__swatch pl-hours-offer__swatch--booked"></span>Booked</li>
+          <li class="pl-hours-offer__item pl-hours-offer__item--key"><span class="pl-hours-offer__swatch pl-hours-offer__swatch--busy"></span>Busy</li>
+        </ul>
+        <div class="pl-calendar-nav">
+          <button type="button" class="pl-calendar-nav__btn" aria-label="Previous week"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <span class="pl-calendar-nav__label">Nov 24 to 30</span>
+          <button type="button" class="pl-calendar-nav__btn" aria-label="Next week"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
+        </div>
+        <div class="pl-calendar-grid pl-calendar-grid--week pl-hours-week">
+          <div class="pl-calendar-grid__day pl-calendar-grid__day--today">
+            <div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-name">Mon</span><span class="pl-calendar-grid__day-num pl-calendar-grid__day-num--today">24</span></div>
+            <div>
+              <div class="pl-hours-chip pl-hours-chip--open"><span class="pl-hours-chip__time">11a to 6p</span><span class="pl-hours-chip__what"><span class="pl-hours-chip__dots"><span class="pl-kind pl-kind--tours"></span><span class="pl-kind pl-kind--a"></span></span>Open</span></div>
+              <div class="pl-hours-chip pl-hours-chip--booked pl-kind pl-kind--tours"><span class="pl-hours-chip__time">1p to 2p</span><span class="pl-hours-chip__what">Tour · 3 visitors</span></div>
+              <div class="pl-hours-chip pl-hours-chip--booked pl-kind pl-kind--a"><span class="pl-hours-chip__time">3p to 4p</span><span class="pl-hours-chip__what">Printmaking · Sam K.</span></div>
+            </div>
+          </div>
+          <div class="pl-calendar-grid__day pl-hours-day--off">
+            <div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-name">Tue</span><span class="pl-calendar-grid__day-num">25</span></div>
+            <div><span class="pl-hours-day__off">Day Off</span></div>
+          </div>
+          <div class="pl-calendar-grid__day">
+            <div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-name">Wed</span><span class="pl-calendar-grid__day-num">26</span></div>
+            <div>
+              <div class="pl-hours-chip pl-hours-chip--open"><span class="pl-hours-chip__time">12p to 5p</span><span class="pl-hours-chip__what"><span class="pl-hours-chip__dots"><span class="pl-kind pl-kind--tours"></span><span class="pl-kind pl-kind--b"></span></span>Open</span></div>
+              <div class="pl-hours-chip pl-hours-chip--booked pl-kind pl-kind--b"><span class="pl-hours-chip__time">1p to 2:30p</span><span class="pl-hours-chip__what">Ceramics · requested</span></div>
+            </div>
+          </div>
+          <div class="pl-calendar-grid__day">
+            <div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-name">Thu</span><span class="pl-calendar-grid__day-num">27</span></div>
+            <div>
+              <div class="pl-hours-chip pl-hours-chip--busy"><span class="pl-hours-chip__time">6:30p to 9p</span><span class="pl-hours-chip__what">Class: Intro to Linocut</span></div>
+            </div>
+          </div>
+          <div class="pl-calendar-grid__day">
+            <div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-name">Fri</span><span class="pl-calendar-grid__day-num">28</span></div>
+            <div>
+              <div class="pl-hours-chip pl-hours-chip--busy"><span class="pl-hours-chip__time">10a to 1p</span><span class="pl-hours-chip__what">Busy in Google</span></div>
+              <div class="pl-hours-chip pl-hours-chip--open"><span class="pl-hours-chip__time">2p to 6p</span><span class="pl-hours-chip__what"><span class="pl-hours-chip__dots"><span class="pl-kind pl-kind--tours"></span></span>Open</span></div>
+            </div>
+          </div>
+          <div class="pl-calendar-grid__day">
+            <div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-name">Sat</span><span class="pl-calendar-grid__day-num">29</span></div>
+            <div>
+              <div class="pl-hours-chip pl-hours-chip--open"><span class="pl-hours-chip__time">11a to 3p</span><span class="pl-hours-chip__what"><span class="pl-hours-chip__dots"><span class="pl-kind pl-kind--tours"></span><span class="pl-kind pl-kind--a"></span></span>Open</span></div>
+            </div>
+          </div>
+          <div class="pl-calendar-grid__day">
+            <div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-name">Sun</span><span class="pl-calendar-grid__day-num">30</span></div>
+            <div>
+              <div class="pl-hours-chip pl-hours-chip--open"><span class="pl-hours-chip__time">11a to 6p</span><span class="pl-hours-chip__what"><span class="pl-hours-chip__dots"><span class="pl-kind pl-kind--a"></span><span class="pl-kind pl-kind--b"></span></span>Open</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="pl-hours-rule">A booking or request for one kind closes that time for the others. Classes you teach and busy times in your Google Calendar close it too. Bookings already made always stay.</p>
+      </section>
+
+      <!-- Every Week -->
+      <section class="hub-card pl-tours-panel" data-hours-weekly>
+        <div class="pl-tours-panel__head">
+          <h2 class="hub-detail-label pl-tours-panel__title">Every Week</h2>
+          <span class="pl-meeting-savestate pl-tours-savestate pl-meeting-savestate--saved">Saved</span>
+        </div>
+        <p class="hub-text-muted pl-tours-panel__intro">Hours that repeat. Tick what each set of hours is open to; every change saves as you make it.</p>
+        <div class="pl-tours-rows">
+
+          <div class="hub-card pl-tours-row">
+            <div class="pl-hours-set__head">
+              <div>
+                <span class="pl-hours-set__when">Mon · 11:00 AM to 6:00 PM · Every week</span>
+                <div class="pl-hours-set__kinds">
+                  <span class="pl-hours-set__kind pl-kind pl-kind--tours">Tours · 1 hour each · 6 seats</span>
+                  <span class="pl-hours-set__kind pl-kind pl-kind--a">Complete Beginner to Printmaking · fixed start times · 4 seats</span>
+                </div>
+              </div>
+              <span class="mock-view" data-mock-view="page"><button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" aria-expanded="false">Edit</button></span>
+              <span class="mock-view" data-mock-view="dayoff"><button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" aria-expanded="false">Edit</button></span>
+              <span class="mock-view" data-mock-view="edit"><button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" aria-expanded="true">Done</button></span>
+            </div>
+
+            <!-- The open body (view=edit) -->
+            <div class="mock-view" data-mock-view="edit">
+              <div class="pl-tours-row__body">
+                <div class="pl-tours-row__fields">
+                  <div class="pl-tours-row__field pl-tours-row__field--day"><div class="pl-form-group"><label class="pl-form-label">Day</label><select class="pl-tours-input--text"><option>Monday</option></select></div></div>
+                  <div class="pl-tours-row__field pl-tours-row__field--time"><div class="pl-form-group"><label class="pl-form-label">From</label><select class="pl-tours-input--text"><option>11:00 AM</option></select></div></div>
+                  <div class="pl-tours-row__field pl-tours-row__field--time"><div class="pl-form-group"><label class="pl-form-label">Until</label><select class="pl-tours-input--text"><option>6:00 PM</option></select></div></div>
+                  <div class="pl-tours-row__field pl-tours-row__field--length"><div class="pl-form-group"><label class="pl-form-label">Repeats</label><select class="pl-tours-input--text"><option>Every week</option></select></div></div>
+                </div>
+
+                <div class="pl-hours-open-to" role="group" aria-labelledby="open-to-1">
+                  <p class="pl-hours-open-to__title" id="open-to-1">Open To</p>
+                  <p class="pl-hours-open-to__hint">Everything you offer starts ticked. Each kind keeps its own settings.</p>
+
+                  <div class="pl-hours-kind pl-kind pl-kind--tours">
+                    <div class="pl-toggle-row">
+                      <div class="pl-toggle-info"><div class="pl-toggle-label">Tours</div><div class="pl-toggle-desc">Visitors book on tours.pastlives.space.</div></div>
+                      <label class="pl-toggle"><input type="checkbox" checked><span class="pl-toggle__slider"></span><span class="sr-only">Tours</span></label>
+                    </div>
+                    <div class="pl-hours-kind__settings">
+                      <div class="pl-form-group"><label class="pl-form-label">Tour length</label><select class="pl-tours-input--text"><option>1 hour</option></select></div>
+                      <div class="pl-form-group"><label class="pl-form-label">Seats</label><input class="pl-tours-input--narrow" type="number" value="6"></div>
+                    </div>
+                  </div>
+
+                  <div class="pl-hours-kind pl-kind pl-kind--a">
+                    <div class="pl-toggle-row">
+                      <div class="pl-toggle-info"><div class="pl-toggle-label">Printmaking Guild orientations</div><div class="pl-toggle-desc">Members book you by name on the guild page.</div></div>
+                      <label class="pl-toggle"><input type="checkbox" checked><span class="pl-toggle__slider"></span><span class="sr-only">Printmaking Guild orientations</span></label>
+                    </div>
+                    <div class="pl-hours-kind__settings">
+                      <div class="pl-hours-kind__style pl-booking-style" role="radiogroup" aria-label="How members book">
+                        <span class="pl-booking-style__label">How members book</span>
+                        <label class="pl-chip"><input type="radio" name="s1" checked> Fixed start times</label>
+                        <label class="pl-chip"><input type="radio" name="s1"> Any time in the window</label>
+                      </div>
+                      <div class="pl-form-group pl-form-group--wide"><label class="pl-form-label">Orientation</label><select class="pl-tours-input--text"><option>Complete Beginner to Printmaking</option></select></div>
+                      <div class="pl-form-group"><label class="pl-form-label">Seats</label><input class="pl-tours-input--narrow" type="number" value="4"></div>
+                      <div class="pl-form-group"><label class="pl-form-label">Slot length</label><select class="pl-tours-input--text"><option>1 hour</option></select></div>
+                      <div class="pl-form-group"><label class="pl-form-label">Break</label><select class="pl-tours-input--text"><option>None</option></select></div>
+                    </div>
+                  </div>
+
+                  <div class="pl-hours-kind pl-hours-kind--off pl-kind pl-kind--b">
+                    <div class="pl-toggle-row">
+                      <div class="pl-toggle-info"><div class="pl-toggle-label">Ceramics Guild orientations</div><div class="pl-toggle-desc">Not offered in these hours.</div></div>
+                      <label class="pl-toggle"><input type="checkbox"><span class="pl-toggle__slider"></span><span class="sr-only">Ceramics Guild orientations</span></label>
+                    </div>
+                  </div>
+                </div>
+                <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced">Delete</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="hub-card pl-tours-row">
+            <div class="pl-hours-set__head">
+              <div>
+                <span class="pl-hours-set__when">Wed · 12:00 PM to 5:00 PM · Every week</span>
+                <div class="pl-hours-set__kinds">
+                  <span class="pl-hours-set__kind pl-kind pl-kind--tours">Tours · 1 hour each · 6 seats</span>
+                  <span class="pl-hours-set__kind pl-kind pl-kind--b">Any ceramics orientation · any time in the window</span>
+                </div>
+              </div>
+              <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" aria-expanded="false">Edit</button>
+            </div>
+          </div>
+
+          <div class="hub-card pl-tours-row">
+            <div class="pl-hours-set__head">
+              <div>
+                <span class="pl-hours-set__when">Sun · 11:00 AM to 6:00 PM · Every other week</span>
+                <div class="pl-hours-set__kinds">
+                  <span class="pl-hours-set__kind pl-kind pl-kind--a">Complete Beginner to Printmaking · fixed start times · 4 seats</span>
+                  <span class="pl-hours-set__kind pl-kind pl-kind--b">Any ceramics orientation · any time in the window</span>
+                </div>
+              </div>
+              <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" aria-expanded="false">Edit</button>
+            </div>
+          </div>
+        </div>
+        <div class="pl-tours-panel__add"><button type="button" class="pl-btn pl-btn--secondary pl-btn--sm">+ Add Hours</button></div>
+      </section>
+
+      <!-- Available On -->
+      <section class="hub-card pl-tours-panel" data-hours-dated>
+        <h2 class="hub-detail-label pl-tours-panel__title">Available On</h2>
+        <p class="hub-text-muted pl-tours-panel__intro">Free on certain days only? Pick the dates on the calendar, set the hours once and tick what they are open to.</p>
+        <div class="pl-tours-rows">
+          <div class="hub-card pl-tours-row">
+            <div class="pl-hours-set__head">
+              <div>
+                <span class="pl-hours-set__when">Sat, Nov 29 · 11:00 AM to 3:00 PM</span>
+                <div class="pl-hours-set__kinds">
+                  <span class="pl-hours-set__kind pl-kind pl-kind--tours">Tours · 1 hour each · 6 seats</span>
+                  <span class="pl-hours-set__kind pl-kind pl-kind--a">Complete Beginner to Printmaking · fixed start times · 4 seats</span>
+                </div>
+              </div>
+              <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" aria-expanded="false">Edit</button>
+            </div>
+          </div>
+          <div class="hub-card pl-tours-row">
+            <div class="pl-hours-set__head">
+              <div>
+                <span class="pl-hours-set__when">Fri, Nov 28 · 2:00 PM to 6:00 PM</span>
+                <div class="pl-hours-set__kinds"><span class="pl-hours-set__kind pl-kind pl-kind--tours">Tours · 1 hour each · 6 seats</span></div>
+              </div>
+              <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" aria-expanded="false">Edit</button>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-panel__add">+ Add Dates</button>
+      </section>
+
+      <!-- Days Off -->
+      <section class="hub-card pl-tours-panel pl-tours-days-off" data-hours-days-off>
+        <h2 class="hub-detail-label pl-tours-panel__title">Days Off</h2>
+        <p class="hub-text-muted pl-tours-panel__intro">One list for everything you offer. Nothing new can be booked with you on a day off; bookings already made stay booked.</p>
+        <ul class="pl-tours-days-off__list">
+          <li class="pl-tours-days-off__row"><span class="pl-tours-days-off__when">Tue, Nov 25</span><span class="hub-text-muted pl-tours-days-off__note">Out of town</span><button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-tours-days-off__delete">Delete</button></li>
+          <li class="pl-tours-days-off__row"><span class="pl-tours-days-off__when">Mon, Dec 22 to Fri, Jan 2</span><button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-tours-days-off__delete">Delete</button></li>
+        </ul>
+        <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-panel__add">Add Day Off</button>
+      </section>
+
+      <!-- Google Calendar -->
+      <section class="hub-card pl-tours-panel pl-tours-gcal">
+        <div class="pl-tours-panel__head"><h2 class="hub-detail-label pl-tours-panel__title">Google Calendar</h2></div>
+        <div class="pl-tours-gcal__account">
+          <p class="pl-tours-gcal__status">Connected as <strong>robin.v@example.com</strong>. Tours are written to Past Lives.</p>
+          <button type="button" class="pl-btn pl-btn--danger pl-btn--sm">Disconnect</button>
+        </div>
+        <p class="hub-text-muted pl-tours-gcal__last">Busy times hide your tours and your orientations. Last read Nov 24, 9:12 AM.</p>
+      </section>
+
+      <!-- Tours only: Confirming Bookings stays a tour setting -->
+      <section class="hub-card pl-tours-panel">
+        <div class="pl-tours-panel__head"><h2 class="hub-detail-label pl-tours-panel__title">Confirming Tour Bookings</h2></div>
+        <p class="hub-text-muted pl-tours-panel__intro">New tour bookings are confirmed at once, and you are told.</p>
+      </section>
+
+      <!-- Add Day Off modal (view=dayoff) -->
+      <div class="mock-view" data-mock-view="dayoff">
+        <div class="mock-modal">
+          <div class="pl-modal" role="dialog" aria-labelledby="dayoff-title">
+            <div class="pl-modal__header"><h2 class="pl-modal__title" id="dayoff-title">Add Day Off</h2><button type="button" class="pl-modal__close" aria-label="Close">×</button></div>
+            <div class="pl-modal__body">
+              <div class="pl-tours-row__fields">
+                <div class="pl-tours-row__field pl-tours-row__field--date"><div class="pl-form-group"><label class="pl-form-label">First day</label><input class="pl-tours-input--text" type="text" value="Mon, Nov 24"></div></div>
+                <div class="pl-tours-row__field pl-tours-row__field--date"><div class="pl-form-group"><label class="pl-form-label">Last day</label><input class="pl-tours-input--text" type="text" value="Mon, Nov 24"></div></div>
+              </div>
+              <div class="pl-form-group hub-form-group"><label class="pl-form-label">Note (optional)</label><input class="pl-tours-input--text" type="text" placeholder="Only you and admins see it"></div>
+              <div class="pl-hours-dayoff-impact" role="status">
+                <strong>2 bookings that day stay booked:</strong>
+                <ul>
+                  <li>Tour at 1:00 PM, 3 visitors</li>
+                  <li>Complete Beginner to Printmaking at 3:00 PM with Sam K.</li>
+                </ul>
+                <p class="pl-hours-kind__note">Move or cancel them from Upcoming if you cannot make it. Everything else that day stops being offered, for every kind.</p>
+              </div>
+              <button type="button" class="pl-btn pl-btn--primary">Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

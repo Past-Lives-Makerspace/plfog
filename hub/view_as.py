@@ -505,6 +505,39 @@ def has_tour_guide_access(request: "HttpRequest") -> bool:
     return member is not None and member.has_admin_capability(AdminCapability.Capability.TOUR_GUIDE)
 
 
+def hours_access_required(view_func: _ViewFunc) -> _ViewFunc:
+    """Decorator gating My Hours (#1300): admins, Tour Guides and current orientors of a guild or tool.
+
+    By the actual role, like the Tours gate. Whose hours a request reads is the view's own check
+    (``hours.views``): their own, or anyone's for an admin. Anyone else gets a 403.
+    """
+    from functools import wraps
+    from typing import Any
+
+    from django.contrib.auth.decorators import login_required
+    from django.http import HttpResponseForbidden
+
+    @wraps(view_func)
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        if has_hours_access(request):
+            return view_func(request, *args, **kwargs)
+        return HttpResponseForbidden("My Hours is for Tour Guides, orientors and admins.")
+
+    return login_required(wrapper)  # type: ignore[return-value]
+
+
+def has_hours_access(request: "HttpRequest") -> bool:
+    """True when the user may open My Hours: fog-admin (actual), or someone ``hours.page.hours_people_q`` names."""
+    from hours.page import hours_people_q
+    from membership.models import Member
+
+    view_as = getattr(request, "view_as", None)
+    if view_as is not None and view_as.has_actual(ROLE_ADMIN):
+        return True
+    member = getattr(request.user, "member", None)
+    return member is not None and Member.objects.filter(pk=member.pk).filter(hours_people_q()).exists()
+
+
 class ViewAsMiddleware:
     """Attach ``request.view_as`` to every request.
 

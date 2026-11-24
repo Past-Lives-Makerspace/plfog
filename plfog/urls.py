@@ -97,6 +97,7 @@ urlpatterns = admin_custom_urls + [
     path("hq/", include("hq.urls")),
     path("polls/", include("polls.urls")),
     path("facility-tours/", include("tours.urls")),
+    path("hours/", include("hours.urls")),
     # The visitor's tour pages: only on tours.pastlives.space, whose root is the booking page (#948).
     path("tour/", include("tours.public_urls")),
     # The front desk kiosk on the same host, for a device holding the kiosk key (#950).
