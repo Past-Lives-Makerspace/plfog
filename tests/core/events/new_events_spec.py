@@ -310,6 +310,20 @@ def describe_orientation_completed():
         assert rendered  # the page is not empty, so the absence below means something
         assert "orientation.completed" not in rendered
 
+    def it_renders_the_discord_welcome_with_a_named_link_and_no_bare_url():
+        from core.events.copy import sample_context_for
+        from core.events.templates import rendered_copy
+
+        context = sample_context_for("orientation.completed")
+        rendered = rendered_copy("orientation.completed", Channel.DISCORD, context)
+
+        assert rendered.subject == "Welcome to the Metal Guild, Robin!"
+        assert rendered.body_text == (
+            "Robin finished their Metal Guild orientation today. "
+            "Say hi next time you see them around the space! 👋\n\n"
+            "[Visit the Metal Guild →](https://pastlives.example/guilds/metal-guild/)"
+        )
+
     def it_keeps_orientation_completed_placeholders_and_sample_context_in_lockstep():
         from core.events.copy import COPY_CHANNELS, default_copy_for, placeholders_for, sample_context_for
         from core.events.rendering import placeholders_in

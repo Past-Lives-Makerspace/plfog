@@ -1,0 +1,9 @@
+bump = "minor"
+date = "2026-11-23"
+audience = ["members"]
+title = "A warmer Discord welcome after a guild orientation"
+changes = [
+  "When someone finishes a guild orientation, the welcome post in Discord now shows the guild's color and logo.",
+  "It shows the new member's name, and their profile photo when they have one.",
+  "It greets them by first name and ends with a link to the guild's page.",
+]
