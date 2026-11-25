@@ -91,7 +91,7 @@ def describe_the_seam():
         for callback in callbacks:
             callback()
         assert route.call_count == 1
-        assert _posted(route)[0] == {"content": "Class published · System", "allowed_mentions": {"parse": []}}
+        assert _posted(route)[0] == {"content": "Class published", "allowed_mentions": {"parse": []}}
 
     @respx.mock
     def it_posts_nothing_for_a_kind_off_the_allowlist(django_capture_on_commit_callbacks):
@@ -275,7 +275,7 @@ def describe_activity_message():
         target = TransactionalEmailLog.objects.create(to_email="x@example.com", subject="s", trigger_kind="t")
         activity = SiteActivity.log(SiteActivity.Kind.CLASS_PUBLISHED, target=target)
         assert activity_link(activity) == ""
-        assert activity_message(activity) == "Class published · System"
+        assert activity_message(activity) == "Class published"
 
 
 def describe_activity_name():
@@ -299,10 +299,16 @@ def describe_activity_name():
         assert activity.who == "guest@example.com"
         assert activity_name(activity) == f"Registration #{registration.pk}"
 
-    def it_says_not_recorded_for_an_old_row_with_no_actor():
+    def it_names_nobody_for_an_old_row_with_no_actor_rather_than_saying_not_recorded():
         booking = OrientationBookingFactory()
         activity = SiteActivity.log(SiteActivity.Kind.ORIENTATION_DECLINED, target=booking)
-        assert activity_name(activity) == "Not recorded"
+        assert activity_name(activity) == ""
+        assert "Not recorded" not in activity_message(activity)
+
+    def it_names_nobody_for_a_jobs_doing_rather_than_saying_system():
+        activity = SiteActivity.log(SiteActivity.Kind.CLASS_PUBLISHED, target=ClassOfferingFactory(title="Raku"))
+        assert activity_name(activity) == ""
+        assert "System" not in activity_message(activity)
 
 
 def describe_post_text():
@@ -392,9 +398,21 @@ def describe_preferred_names_only():
         activity = SiteActivity.log(SiteActivity.Kind.CLASS_REGISTRATION_CANCELLED, target=registration)
         _assert_preferred_only(activity_message(activity))
 
-    def it_names_a_member_with_no_preferred_name_by_number_not_their_legal_name():
+    def it_names_a_member_with_no_preferred_name_by_the_first_word_of_their_legal_name():
         user = User.objects.create_user(username="legal", email="legal@example.com")
-        Member.objects.filter(user=user).update(preferred_name="", full_legal_name="Quinn Ashdown")
+        Member.objects.filter(user=user).update(preferred_name="", full_legal_name="  Quinn Ashdown ")
         member = Member.objects.get(user=user)
         activity = SiteActivity.log(SiteActivity.Kind.CLASS_PUBLISHED, actor=member.user)
-        assert activity_message(activity) == f"Class published · Member #{member.pk}"
+        assert activity_message(activity) == "Class published · Quinn"
+
+    def it_names_a_member_with_no_name_on_file_by_number():
+        user = User.objects.create_user(username="unnamed", email="unnamed@example.com")
+        Member.objects.filter(user=user).update(preferred_name="", full_legal_name="")
+        member = Member.objects.get(user=user)
+        assert member.activity_log_name == f"Member #{member.pk}"
+
+    def it_never_names_a_member_by_an_invites_email_standing_in_as_their_legal_name():
+        user = User.objects.create_user(username="invited", email="invited@example.com")
+        Member.objects.filter(user=user).update(preferred_name="", full_legal_name="invited@example.com")
+        member = Member.objects.get(user=user)
+        assert member.activity_log_name == f"Member #{member.pk}"

@@ -236,7 +236,8 @@ def describe_log_finished_reservations():
         contents = [json.loads(call.request.content)["content"] for call in route.calls]
         assert [content.split(":")[0] for content in contents] == ["Reservation happened"]
         content = contents[0]
-        assert content.endswith(f" · System · <https://members.example{reservation.activity_url}>")
+        assert "System" not in content
+        assert content.endswith(f" · <https://members.example{reservation.activity_url}>")
 
 
 def describe_posting():
