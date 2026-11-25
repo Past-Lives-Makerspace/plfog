@@ -1,0 +1,134 @@
+{% extends "hub/base.html" %}
+{% load static %}
+{% block title %}My Hours{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/calendar.css' %}">
+<link rel="stylesheet" href="{% static 'css/tours.css' %}">
+<link rel="stylesheet" href="{% static 'css/my-hours.css' %}">
+{% endblock %}
+{% block content %}
+{% comment %}
+My Hours (#1300, part 3; hours.views.my_hours, hours.page.MyHours), lifted from mockups/1300-my-hours.html:
+one person's week (open hours dashed, bookings solid in their kind's colour, classes and Google busy hatched,
+a day off striped), then Every Week, Available On, Days Off, Google Calendar and, for a guide, Booking Notice.
+Read only: editing is part 4, and the places hours are set today open this page in part 5; no sidebar link.
+An admin picks whose hours with the picker (?member=), as on the Tours My Hours tab.
+{% endcomment %}
+<div class="pl-my-hours">
+{% include "components/page_header.html" with title="My Hours" description="When people can book you, for tours and every orientation you give. Set your time once here." %}
+
+{% if is_admin %}
+<div class="hub-card pl-tours-panel" data-hours-picker>
+  <form method="get" action="{% url 'hours:my_hours' %}" class="pl-tours-picker">
+    <div class="pl-form-group pl-tours-picker__field">
+      <label for="hours-member-picker" class="pl-form-label">Whose hours</label>
+      <select id="hours-member-picker" name="member" class="pl-tours-input--text" onchange="this.form.requestSubmit()">
+        <option value=""{% if is_self %} selected{% endif %}>My hours</option>
+        {% for person in picker %}
+        <option value="{{ person.pk }}"{% if person.pk == target.pk %} selected{% endif %}>{{ person.staff_label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <noscript><button type="submit" class="pl-btn pl-btn--secondary pl-btn--sm">Show</button></noscript>
+  </form>
+</div>
+{% endif %}
+
+<section class="hub-card pl-tours-panel" data-hours-week>
+  <div class="pl-tours-panel__head">
+    <h2 class="hub-detail-label pl-tours-panel__title">{% if page.week_offset == 0 %}This Week{% else %}Week of {{ page.week_label }}{% endif %}</h2>
+  </div>
+  <ul class="pl-hours-offer" aria-label="What {% if is_self %}you offer{% else %}{{ target.staff_label }} offers{% endif %}">
+    {% for kind in page.kinds %}
+    <li class="pl-hours-offer__item pl-kind {{ kind.css }}" data-hours-kind="{{ kind.key }}"><span class="pl-hours-offer__dot"></span>{{ kind.label }}</li>
+    {% endfor %}
+    <li class="pl-hours-offer__item pl-hours-offer__item--key"><span class="pl-hours-offer__swatch pl-hours-offer__swatch--open"></span>Open</li>
+    <li class="pl-hours-offer__item pl-hours-offer__item--key"><span class="pl-hours-offer__swatch pl-hours-offer__swatch--booked"></span>Booked</li>
+    <li class="pl-hours-offer__item pl-hours-offer__item--key"><span class="pl-hours-offer__swatch pl-hours-offer__swatch--busy"></span>Busy</li>
+  </ul>
+  <div class="pl-calendar-nav">
+    <a href="{{ prev_week_url }}" class="pl-calendar-nav__btn" aria-label="Previous week" data-hours-week-prev><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></a>
+    <span class="pl-calendar-nav__label" data-hours-week-label>{{ page.week_label }}</span>
+    <a href="{{ next_week_url }}" class="pl-calendar-nav__btn" aria-label="Next week" data-hours-week-next><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></a>
+  </div>
+  <div class="pl-calendar-grid pl-calendar-grid--week pl-hours-week">
+    {% for day in page.week %}
+    <div class="pl-calendar-grid__day{% if day.is_today %} pl-calendar-grid__day--today{% endif %}{% if day.is_day_off %} pl-hours-day--off{% endif %}" data-hours-day="{{ day.date|date:'Y-m-d' }}">
+      <div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-name">{{ day.date|date:"D" }}</span><span class="pl-calendar-grid__day-num{% if day.is_today %} pl-calendar-grid__day-num--today{% endif %}">{{ day.date|date:"j" }}</span></div>
+      <div>
+        {% if day.is_day_off %}<span class="pl-hours-day__off" data-hours-day-off>Day Off</span>{% endif %}
+        {% for chip in day.chips %}
+        <div class="pl-hours-chip pl-hours-chip--{{ chip.style }}{% if chip.kind %} pl-kind {{ chip.kind.css }}{% endif %}" data-hours-chip="{{ chip.style }}"><span class="pl-hours-chip__time">{{ chip.time_label }}</span><span class="pl-hours-chip__what">{% if chip.kinds %}<span class="pl-hours-chip__dots">{% for kind in chip.kinds %}<span class="pl-kind {{ kind.css }}"></span>{% endfor %}</span>{% endif %}{{ chip.what }}</span></div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="pl-hours-rule">A booking or request for one kind closes that time for the others. Classes you teach and busy times in your Google Calendar close it too. Bookings already made always stay.</p>
+</section>
+
+<section class="hub-card pl-tours-panel" data-hours-weekly>
+  <h2 class="hub-detail-label pl-tours-panel__title">Every Week</h2>
+  <p class="hub-text-muted pl-tours-panel__intro">Hours that repeat, and what each set of hours is open to.</p>
+  {% if page.weekly %}
+  <div class="pl-tours-rows">
+    {% for row in page.weekly %}{% include "hours/partials/_hours_set.html" %}{% endfor %}
+  </div>
+  {% else %}
+  <p class="hub-text-muted pl-tours-panel__empty" data-hours-weekly-empty>No hours that repeat yet.</p>
+  {% endif %}
+</section>
+
+<section class="hub-card pl-tours-panel" data-hours-dated>
+  <h2 class="hub-detail-label pl-tours-panel__title">Available On</h2>
+  <p class="hub-text-muted pl-tours-panel__intro">Hours on certain days only, and what they are open to.</p>
+  {% if page.dated %}
+  <div class="pl-tours-rows">
+    {% for row in page.dated %}{% include "hours/partials/_hours_set.html" %}{% endfor %}
+  </div>
+  {% else %}
+  <p class="hub-text-muted pl-tours-panel__empty" data-hours-dated-empty>No dates coming up.</p>
+  {% endif %}
+</section>
+
+<section class="hub-card pl-tours-panel pl-tours-days-off" data-hours-days-off>
+  <h2 class="hub-detail-label pl-tours-panel__title">Days Off</h2>
+  <p class="hub-text-muted pl-tours-panel__intro">One list for everything {% if is_self %}you offer{% else %}{{ target.staff_label }} offers{% endif %}. Nothing new can be booked on a day off; bookings already made stay booked.</p>
+  {% if page.days_off %}
+  <ul class="pl-tours-days-off__list">
+    {% for day_off in page.days_off %}
+    <li class="pl-tours-days-off__row" data-hours-day-off-row="{{ day_off.pk }}"><span class="pl-tours-days-off__when">{{ day_off.label }}</span>{% if day_off.note %}<span class="hub-text-muted pl-tours-days-off__note">{{ day_off.note }}</span>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="hub-text-muted pl-tours-panel__empty" data-hours-days-off-empty>No days off coming up.</p>
+  {% endif %}
+</section>
+
+{% with gcal=page.gcal %}
+<section class="hub-card pl-tours-panel pl-tours-gcal" data-hours-gcal="{% if not page.gcal_configured %}dormant{% elif not gcal %}none{% elif gcal.is_broken %}broken{% else %}connected{% endif %}">
+  <div class="pl-tours-panel__head"><h2 class="hub-detail-label pl-tours-panel__title">Google Calendar</h2></div>
+  {% if not page.gcal_configured %}
+  <p class="hub-text-muted pl-tours-gcal__last">Connecting a Google Calendar is not set up yet.</p>
+  {% elif not gcal %}
+  <p class="hub-text-muted pl-tours-gcal__last">{% if is_self %}Not connected.{% else %}{{ target.staff_label }} has not connected a Google Calendar.{% endif %} A connected calendar's busy times hide tours and orientations.</p>
+  {% elif gcal.is_broken %}
+  <p class="pl-tours-gcal__status pl-tours-gcal__status--broken">Needs reconnecting since {{ gcal.broken_at|date:"M j, g:i A" }}.</p>
+  <p class="hub-text-muted pl-tours-gcal__last">Google stopped accepting {{ gcal.google_email|default:"the calendar" }}, so its busy times are not read until it is reconnected.</p>
+  {% else %}
+  <div class="pl-tours-gcal__account">
+    <p class="pl-tours-gcal__status">Connected as <strong>{{ gcal.google_email }}</strong>. Tours are written to {{ gcal.calendar_label }}.</p>
+  </div>
+  <p class="hub-text-muted pl-tours-gcal__last">Busy times hide {% if is_self %}your{% else %}their{% endif %} tours and orientations. {% if gcal.busy_checked_at %}Last read {{ gcal.busy_checked_at|date:"M j, g:i A" }}.{% else %}Not read yet.{% endif %}</p>
+  {% endif %}
+</section>
+{% endwith %}
+
+{% if page.gives_tours %}
+<section class="hub-card pl-tours-panel" data-hours-notice>
+  <div class="pl-tours-panel__head"><h2 class="hub-detail-label pl-tours-panel__title">Booking Notice</h2></div>
+  <p class="hub-text-muted pl-tours-panel__intro">{{ page.notice_line }}</p>
+</section>
+{% endif %}
+</div>
+{% endblock %}

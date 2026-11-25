@@ -404,8 +404,13 @@ class TourHours(FollowsHours, models.Model):
         """The Available On list's line (#1160), worded as the weekly rows are: ``Sat, Nov 15 · 11:00 AM to 3:00 PM · 1 hour each · 6 seats``."""
         if self.date is None:
             raise ValueError("Only dated tour hours have a dated summary.")
+        return f"{day_label(self.date)} · {self.times_label} · {self.offer_summary}"
+
+    @property
+    def offer_summary(self) -> str:
+        """The tours this window offers: ``1 hour each · 6 seats`` (My Hours' Tours chip, #1300)."""
         seats = f"{self.seats} seat{'' if self.seats == 1 else 's'}"
-        return f"{day_label(self.date)} · {self.times_label} · {_length_label(self.tour_minutes)} each · {seats}"
+        return f"{_length_label(self.tour_minutes)} each · {seats}"
 
     def carve_spans(self, day: Day) -> list[tuple[datetime, datetime]]:
         """The aware local ``(start, end)`` of every tour this window yields on ``day``.

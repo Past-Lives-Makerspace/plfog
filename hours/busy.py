@@ -11,7 +11,8 @@ One person, one calendar: a time is busy for someone while any of these holds it
   calendar is connected, its busy times were read, and Google sign in is set up).
 - A day off (``hours.DayOff``): every local day from its first to its last, whole.
 
-:func:`busy_spans` reads them for many people over a range in a fixed number of queries;
+:func:`busy_holds` reads them for many people over a range in a fixed number of queries, one
+:class:`Hold` per row (My Hours draws them, #1300 part 3); :func:`busy_spans` merges those;
 :func:`busy_q` is its SQL twin, for a queryset that must drop busy rows (bookable orientation
 slots). Both read the same rules; change one, change the other.
 """
@@ -20,7 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import date, datetime, time, timedelta
-from typing import cast
+from typing import NamedTuple, cast
 
 from django.db.models import DateTimeField, Exists, ExpressionWrapper, OuterRef, Q
 from django.db.models.functions import TruncDate
@@ -60,6 +61,85 @@ def _merge(spans: list[Span]) -> list[Span]:
     return merged
 
 
+class Hold(NamedTuple):
+    """One thing holding a person's time, before merging: who, when, what kind and which row.
+
+    ``source`` is one of :data:`SOURCES`; ``ref`` is that row's pk (a tour booking, an orientation
+    slot, a class session, a Google busy span or a day off), so a reader can name what it is.
+    """
+
+    member_id: int
+    starts_at: datetime
+    ends_at: datetime
+    source: str
+    ref: int
+
+
+TOUR, ORIENTATION, CLASS, GOOGLE, DAY_OFF = "tour", "orientation", "class", "google", "day_off"
+#: Every kind of hold, in the order :func:`busy_holds` reads them.
+SOURCES = (TOUR, ORIENTATION, CLASS, GOOGLE, DAY_OFF)
+
+
+def _as_holds(rows: Iterable[tuple[int, datetime, datetime, int]], source: str) -> list[Hold]:
+    """``(member, start, end, pk)`` rows as holds of one ``source``."""
+    return [Hold(member_id, starts_at, ends_at, source, pk) for member_id, starts_at, ends_at, pk in rows]
+
+
+def busy_holds(
+    member_ids: Iterable[int],
+    first: datetime,
+    before: datetime,
+    *,
+    tours: bool = True,
+    google_busy: bool = True,
+    except_slot: int | None = None,
+) -> list[Hold]:
+    """Everything holding the listed people's time from ``first`` to ``before``, unmerged (My Hours' week, #1300).
+
+    The rows :func:`busy_spans` merges, one per tour booking, seat holding slot (once however many
+    seats it holds), class session taught, Google busy span and day off (whole local days). The
+    keywords are :func:`busy_spans`'s. At most five queries.
+    """
+    ids = set(member_ids)
+    if not ids:
+        return []
+    overlap = {"starts_at__lt": before, "ends_at__gt": first}
+    holds: list[Hold] = []
+    if tours:
+        tour_rows = (
+            TourBooking.objects.holding_seats()
+            .filter(guide_id__in=ids, **overlap)
+            .values_list("guide_id", "starts_at", "ends_at", "pk")
+        )
+        holds += _as_holds(tour_rows, TOUR)
+    slots = OrientationSlot.objects.filter(
+        orienter_id__in=ids, is_cancelled=False, bookings__status__in=SEAT_HOLDING, **overlap
+    )
+    if except_slot is not None:
+        slots = slots.exclude(pk=except_slot)
+    holds += _as_holds(slots.values_list("orienter_id", "starts_at", "ends_at", "pk").distinct(), ORIENTATION)
+    class_rows = (
+        ClassSession.objects.filter(class_offering__instructor_rows__member_id__in=ids, **overlap)
+        .exclude(class_offering__status__in=IDLE_CLASSES)
+        .values_list("class_offering__instructor_rows__member_id", "starts_at", "ends_at", "pk")
+    )
+    holds += _as_holds(class_rows, CLASS)
+    if google_busy and google.is_configured():
+        google_rows = CalendarBusySpan.objects.filter(
+            connection__guide_id__in=ids,
+            connection__status=TourCalendarConnection.Status.CONNECTED,
+            connection__busy_checked_at__isnull=False,
+            **overlap,
+        ).values_list("connection__guide_id", "starts_at", "ends_at", "pk")
+        holds += _as_holds(google_rows, GOOGLE)
+    days_off = DayOff.objects.filter(
+        member_id__in=ids, starts_on__lte=timezone.localdate(before), ends_on__gte=timezone.localdate(first)
+    )
+    for member_id, starts_on, ends_on, pk in days_off.values_list("member_id", "starts_on", "ends_on", "pk"):
+        holds.append(Hold(member_id, _midnight(starts_on), _midnight(ends_on + timedelta(days=1)), DAY_OFF, pk))
+    return holds
+
+
 def busy_spans(
     member_ids: Iterable[int],
     first: datetime,
@@ -82,45 +162,14 @@ def busy_spans(
         except_slot: an orientation slot whose own seats never block it (the slot being booked).
 
     Returns:
-        A list for every listed person, empty when nothing holds their time. At most five queries.
+        A list for every listed person, empty when nothing holds their time. At most five queries
+        (:func:`busy_holds`, merged).
     """
     ids = set(member_ids)
     found: dict[int, list[Span]] = {member_id: [] for member_id in ids}
-    if not ids:
-        return found
-    overlap = {"starts_at__lt": before, "ends_at__gt": first}
-    rows: list[tuple[int, datetime, datetime]] = []
-    if tours:
-        rows += (
-            TourBooking.objects.holding_seats()
-            .filter(guide_id__in=ids, **overlap)
-            .values_list("guide_id", "starts_at", "ends_at")
-        )
-    slots = OrientationSlot.objects.filter(
-        orienter_id__in=ids, is_cancelled=False, bookings__status__in=SEAT_HOLDING, **overlap
-    )
-    if except_slot is not None:
-        slots = slots.exclude(pk=except_slot)
-    rows += slots.values_list("orienter_id", "starts_at", "ends_at").distinct()
-    rows += (
-        ClassSession.objects.filter(class_offering__instructor_rows__member_id__in=ids, **overlap)
-        .exclude(class_offering__status__in=IDLE_CLASSES)
-        .values_list("class_offering__instructor_rows__member_id", "starts_at", "ends_at")
-    )
-    if google_busy and google.is_configured():
-        rows += CalendarBusySpan.objects.filter(
-            connection__guide_id__in=ids,
-            connection__status=TourCalendarConnection.Status.CONNECTED,
-            connection__busy_checked_at__isnull=False,
-            **overlap,
-        ).values_list("connection__guide_id", "starts_at", "ends_at")
-    days_off = DayOff.objects.filter(
-        member_id__in=ids, starts_on__lte=timezone.localdate(before), ends_on__gte=timezone.localdate(first)
-    )
-    for member_id, starts_on, ends_on in days_off.values_list("member_id", "starts_on", "ends_on"):
-        rows.append((member_id, _midnight(starts_on), _midnight(ends_on + timedelta(days=1))))
-    for member_id, starts_at, ends_at in rows:
-        found[member_id].append((starts_at, ends_at))
+    holds = busy_holds(ids, first, before, tours=tours, google_busy=google_busy, except_slot=except_slot)
+    for hold in holds:
+        found[hold.member_id].append((hold.starts_at, hold.ends_at))
     return {member_id: _merge(spans) for member_id, spans in found.items()}
 
 

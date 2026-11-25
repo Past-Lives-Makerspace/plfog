@@ -20,6 +20,7 @@ from typing import Any, ClassVar, NamedTuple
 
 from django.db import models, transaction
 from django.db.models import Q
+from django.utils import timezone
 
 from hours.follow import lock_person
 from membership.models import Member, OrientationAvailability
@@ -178,6 +179,27 @@ class Hours(models.Model):
             self.date, self.weekday, self.cadence, self.anchor_date, self.last_of_month, self.start_time, self.end_time
         )
 
+    @property
+    def repeat_label(self) -> str:
+        """How often these hours come round, as My Hours writes it (#1300): ``Every week``,
+        ``Every other week``, ``Every month on the 2nd Tuesday``, with ``from Dec 4`` while a start
+        day is still ahead. Blank for dated hours, which are their one day.
+        """
+        if self.date is not None:
+            return ""
+        cadence = OrientationAvailability.Cadence
+        label = str(self.get_cadence_display())
+        if self.cadence in OrientationAvailability.MONTHS_BY_CADENCE and self.anchor_date is not None:
+            ordinal = (
+                "last" if self.last_of_month else ("1st", "2nd", "3rd", "4th", "5th")[(self.anchor_date.day - 1) // 7]
+            )
+            label = f"{label} on the {ordinal} {self.get_weekday_display()}"
+            if self.cadence == cadence.YEARLY:
+                label = f"{label} of {self.anchor_date:%B}"
+        if self.anchor_date is not None and self.anchor_date > timezone.localdate():
+            label = f"{label} from {self.anchor_date:%b} {self.anchor_date.day}"
+        return label
+
     def set_key(self, key: TimeKey) -> None:
         """Take ``key``'s time (unsaved)."""
         for field, value in key._asdict().items():
@@ -243,6 +265,14 @@ class DayOff(models.Model):
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.CheckConstraint(condition=Q(ends_on__gte=models.F("starts_on")), name="ck_dayoff_ends_after_start"),
         ]
+
+    @property
+    def label(self) -> str:
+        """``Tue, Dec 23`` for one day, ``Mon, Dec 22 to Fri, Jan 2`` for a run of days (as Tours' Days Off reads)."""
+        first = f"{self.starts_on:%a, %b} {self.starts_on.day}"
+        if self.ends_on == self.starts_on:
+            return first
+        return f"{first} to {self.ends_on:%a, %b} {self.ends_on.day}"
 
     def __str__(self) -> str:
         first = f"{self.starts_on:%Y-%m-%d}"
