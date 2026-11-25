@@ -1,9 +1,9 @@
 """The hour by hour week (#1332): hours down the left, seven day columns, blocks placed by their times.
 
 ``components/hour_grid_week.html`` draws a :class:`HourGridWeek`. This module is the layout only,
-with no database: a page builds its days (the Tours Calendar tab, ``tours.coverage``) and the
-template prints the numbers it finds here as CSS custom properties (``--start``, ``--len``,
-``--lane``, ``--lanes``, ``--rail``, ``--rails``).
+with no database: a page builds its days (the Tours Calendar tab, ``tours.coverage``, with rails
+and cards; My Hours, ``hours.page``, with blocks) and the template prints the numbers it finds here
+as CSS custom properties (``--start``, ``--len``, ``--lane``, ``--lanes``, ``--rail``, ``--rails``).
 
 Minutes on a block are counted from the top of the grid (``first_hour``), so a block at 1:00 PM on
 a grid that starts at 9 AM has ``start == 240``.
@@ -113,13 +113,47 @@ class Card:
 
 
 @dataclass(frozen=True)
+class Inner:
+    """A booking inside a :class:`Block` (My Hours): ``start`` counts from the block's top, not the grid's."""
+
+    start: int
+    length: int
+    lane: int
+    lanes: int
+    css: str
+    when: str
+    what: str
+    title: str
+
+
+@dataclass(frozen=True)
+class Block:
+    """One block on a day (My Hours): ``style`` is ``open`` (dashed, ``dots`` naming its kinds and the
+    bookings ``inner``), ``booked`` (solid in the colour class ``css``) or ``busy`` (hatched).
+    """
+
+    start: int
+    length: int
+    lane: int
+    lanes: int
+    style: str
+    when: str
+    what: str
+    title: str
+    css: str = ""
+    dots: tuple[str, ...] = ()
+    inner: list[Inner] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class GridDay:
-    """One day column. ``state`` names a whole day with nothing (``uncovered``), drawn striped with ``note``."""
+    """One day column. ``state`` names a striped day (``uncovered``: nobody covers it; ``off``: a day off), with ``note`` on it."""
 
     day: date
     is_today: bool
     rails: list[Rail] = field(default_factory=list)
     cards: list[Card] = field(default_factory=list)
+    blocks: list[Block] = field(default_factory=list)
     state: str = ""
     note: str = ""
     note_url: str = ""
@@ -140,7 +174,7 @@ class GridDay:
     @property
     def has_items(self) -> bool:
         """Whether anything sits on the day: the dot under its button in the phone strip."""
-        return bool(self.rails or self.cards)
+        return bool(self.rails or self.cards or self.blocks)
 
 
 @dataclass(frozen=True)

@@ -23,19 +23,6 @@
 .pl-hours-offer__swatch--booked { background: var(--hub-text); }
 .pl-hours-offer__swatch--busy { background: repeating-linear-gradient(135deg, var(--hub-border-strong) 0 3px, transparent 3px 6px); border: 1px solid var(--hub-border-strong); }
 
-/* The week: calendar.css's grid, with three chip kinds of our own. */
-.pl-hours-week .pl-calendar-grid__day { height: auto; min-height: 196px; }
-.pl-hours-chip { display: block; margin: 0 0 4px; padding: 0.3rem 0.4rem; border-radius: 6px; font-size: 0.75rem; line-height: 1.25; text-align: left; overflow: hidden; }
-.pl-hours-chip__time { display: block; font-weight: 700; }
-.pl-hours-chip__what { display: block; color: var(--hub-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pl-hours-chip__dots { display: inline-flex; gap: 3px; margin-right: 4px; vertical-align: middle; }
-.pl-hours-chip__dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--kind); }
-.pl-hours-chip--open { border: 1.5px dashed var(--hub-border-strong); background: transparent; }
-.pl-hours-chip--booked { background: var(--hub-elevated); border-left: 4px solid var(--kind); }
-.pl-hours-chip--booked .pl-hours-chip__what { color: var(--hub-text); }
-.pl-hours-chip--busy { background: repeating-linear-gradient(135deg, var(--hub-surface) 0 6px, transparent 6px 12px); border: 1px solid var(--hub-border); }
-.pl-hours-day--off { background: repeating-linear-gradient(135deg, transparent 0 10px, var(--hub-surface) 10px 20px); }
-.pl-hours-day__off { display: block; margin: 0.5rem 0; text-align: center; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--hub-text-muted); }
 .pl-hours-rule { margin: 1rem 0 0; font-size: 0.8125rem; color: var(--hub-text-muted); }
 
 /* One set of hours: tours.css's row, plus the kinds it is open to. */
@@ -46,12 +33,5 @@
 .pl-hours-set__when { font-weight: 600; color: var(--hub-text); }
 
 @media (max-width: 640px) {
-    /* The week reads as a list of days on a phone: no seven columns at 390px. */
-    .pl-hours-week.pl-calendar-grid--week { grid-template-columns: 1fr; }
-    .pl-hours-week .pl-calendar-grid__day { min-height: 0; display: grid; grid-template-columns: 3.25rem 1fr; gap: 0.75rem; padding: 0.625rem 0.75rem; border-right: 0; }
-    .pl-hours-week .pl-calendar-grid__day-header { flex-direction: column; align-items: center; gap: 0; }
-    .pl-hours-week .pl-calendar-grid__day-name { font-size: 0.75rem; }
-    .pl-hours-chip { font-size: 0.8125rem; }
-    .pl-hours-day__off { text-align: left; margin-top: 0.25rem; }
     .pl-hours-set__head { flex-direction: column; }
 }

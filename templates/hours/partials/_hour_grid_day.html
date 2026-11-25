@@ -1,0 +1,26 @@
+{% comment %}
+One day of My Hours' week on the hour grid (#1332), inside components/hour_grid_week.html: open hours
+dashed with a dot per kind and their bookings inside them, solid in the kind's colour; a booking no open
+hours hold stands alone the same way; classes and Google busy time hatched. Blocks come from
+hours.page.week_grid; overlapping ones sit side by side (--lane of --lanes).
+{% endcomment %}
+{% for block in day.blocks %}
+<div class="pl-hourgrid__block pl-hourgrid__block--{{ block.style }}{% if block.css %} pl-kind {{ block.css }}{% endif %}"
+     data-hours-block="{{ block.style }}"
+     style="--start: {{ block.start }}; --len: {{ block.length }}; --lane: {{ block.lane }}; --lanes: {{ block.lanes }};"
+     title="{{ block.title }}">
+    {% if block.style == "booked" %}
+    <span class="pl-hourgrid__when">{{ block.when }}</span><span class="pl-hourgrid__label">{{ block.what }}</span>
+    {% else %}
+    <span class="pl-hourgrid__label">{{ block.when }}</span><span class="pl-hourgrid__when">{% if block.dots %}<span class="pl-hourgrid__dots">{% for css in block.dots %}<span class="pl-kind {{ css }}"></span>{% endfor %}</span>{% endif %}{{ block.what }}</span>
+    {% endif %}
+    {% for inner in block.inner %}
+    <div class="pl-hourgrid__inner pl-kind {{ inner.css }}"
+         data-hours-block="booked"
+         style="--start: {{ inner.start }}; --len: {{ inner.length }}; --lane: {{ inner.lane }}; --lanes: {{ inner.lanes }};"
+         title="{{ inner.title }}">
+        <span class="pl-hourgrid__when">{{ inner.when }}</span><span class="pl-hourgrid__label">{{ inner.what }}</span>
+    </div>
+    {% endfor %}
+</div>
+{% endfor %}
