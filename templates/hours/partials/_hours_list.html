@@ -1,0 +1,46 @@
+{% load hub_tags %}
+{% comment %}
+Every Week or Available On on My Hours (#1300, part 4, mockups/1300-my-hours.html): the person's sets of hours as rows
+(hours/partials/_hours_set.html) in one form that saves itself as it is edited (#1279's formset idiom, the Tours page's
+Every Week): data-autosave keyed by the list, its pill beside the title, every saved row's Delete behind the page's one
+hours-set-delete confirm. Every Week adds a row with + Add Hours; Available On adds dates with + Add Dates
+(hours/partials/_add_dates.html), one post, all or nothing.
+
+Parameters: formset (hours.forms.HoursSetFormSet), list ("weekly" or "dated"), title, intro, empty.
+Context: target, summaries (hours.page.HoursSet by set id), kind_css, add_dates and its calendar for Available On.
+{% endcomment %}
+<section class="hub-card pl-tours-panel" data-hours-{{ list }}{% if list == "dated" %} x-data="plTourDates('hours-dates-config', {{ add_dates_open|yesno:'true,false' }})"{% endif %}>
+  <form id="hours-{{ list }}-form" method="post" action="{% url 'hours:save' %}" class="hub-form" data-autosave data-autosave-key="{{ list }}" data-formset="{{ formset.prefix }}" data-formset-required="{{ formset.empty_form|required_fields }}" data-autosave-confirm="hours-set-delete">
+    {% csrf_token %}
+    <input type="hidden" name="member" value="{{ target.pk }}">
+    <input type="hidden" name="list" value="{{ list }}">
+    <div class="pl-tours-panel__head" data-card-head>
+      <h2 class="hub-detail-label pl-tours-panel__title">{{ title }}</h2>
+      {% include "tours/partials/_save_status.html" with key=list %}
+    </div>
+    <p class="hub-text-muted pl-tours-panel__intro">{{ intro }}</p>
+    {{ formset.management_form }}
+    {% for error in formset.non_form_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+    <div class="pl-tours-rows" data-formset-rows>
+      {% for form in formset %}
+      {% if form.is_absent %}
+      {% elif not form.hours %}
+      {% include "hours/partials/_hours_set.html" with form=form summary=None open=True %}
+      {% else %}
+      {% include "hours/partials/_hours_set.html" with form=form summary=summaries|get_item:form.hours.pk open=form.errors %}
+      {% endif %}
+      {% endfor %}
+      <p class="hub-text-muted pl-tours-panel__empty" data-hours-{{ list }}-empty data-formset-empty{% if formset.forms %} hidden{% endif %}>{{ empty }}</p>
+    </div>
+    {% if list == "weekly" %}
+    {# The + Add Hours clone source: a new set starts open, every kind ticked, and saves once Day, From and Until are picked. #}
+    <template data-formset-template>
+      {% include "hours/partials/_hours_set.html" with form=formset.empty_form summary=None open=True %}
+    </template>
+    <div class="pl-tours-panel__add"><button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" data-hours-add data-formset-add>+ Add Hours</button></div>
+    {% endif %}
+    {# Without the script nothing saves itself: the one Save posts every row. #}
+    <noscript><button type="submit" class="pl-btn pl-btn--primary pl-btn--sm pl-btn--spaced">Save</button></noscript>
+  </form>
+  {% if list == "dated" %}{% include "hours/partials/_add_dates.html" %}{% endif %}
+</section>

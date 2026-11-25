@@ -1,0 +1,35 @@
+{% load hub_tags %}
+{% comment %}
+Open To (#1300, part 4, mockups/1300-my-hours.html ?view=edit): one block per kind inside a set of hours, each a toggle
+with that kind's own settings under it, shown while it is on. Tours: tour length and seats. An orientation: How members
+book (a guild's only), the orientation, and for fixed start times seats, slot length and break, as the Edit Hours
+editors have them. Context: form (an hours.forms.HoursSetForm or AddDatesForm), kind_css.
+{% endcomment %}
+<div class="pl-hours-open-to" role="group" aria-labelledby="{{ form.prefix }}-open-to" data-hours-open-to>
+  <p class="pl-hours-open-to__title" id="{{ form.prefix }}-open-to">Open To</p>
+  <p class="pl-hours-open-to__hint">Everything you offer starts ticked. Each kind keeps its own settings.</p>
+  {% for block, f in form.block_rows %}
+  <div class="pl-hours-kind pl-kind {% if block.is_tours %}pl-kind--tours{% else %}{{ kind_css|get_item:block.owner.key }}{% endif %}" :class="on ? '' : 'pl-hours-kind--off'" x-data="{ on: {{ f.on.value|yesno:'true,false' }}, style: '{{ f.booking_style.value|default:'fixed' }}' }" data-hours-kind="{{ block.key }}" data-kind-label="{{ block.label }}">
+    {% include "components/toggle.html" with field=f.on toggle_label=block.label toggle_description=block.hint %}
+    {% for error in f.on.errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+    <div class="pl-hours-kind__settings" x-show="on"{% if not f.on.value %} x-cloak{% endif %}>
+      {% if block.is_tours %}
+      {% include "components/form_field.html" with field=f.tour_minutes field_hint_off=True %}
+      {% include "components/form_field.html" with field=f.seats field_hint_off=True %}
+      {% else %}
+      {% if f.booking_style %}
+      <div class="pl-hours-kind__style pl-booking-style" role="radiogroup" aria-label="How members book">
+        <span class="pl-booking-style__label">How members book</span>
+        {% for radio in f.booking_style %}<label class="pl-chip" for="{{ radio.id_for_label }}">{{ radio.tag }} {{ radio.choice_label }}</label>{% endfor %}
+      </div>
+      {% for error in f.booking_style.errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+      {% endif %}
+      <div class="pl-form-group--wide pl-hours-kind__type">{% include "components/form_field.html" with field=f.orientation_type field_hint_off=True %}</div>
+      <div class="pl-hours-kind__fixed" x-show="style === 'fixed'">{% include "components/form_field.html" with field=f.seats field_hint_off=True %}</div>
+      <div class="pl-hours-kind__fixed" x-show="style === 'fixed'">{% include "components/form_field.html" with field=f.slot_minutes field_hint_off=True %}</div>
+      <div class="pl-hours-kind__fixed" x-show="style === 'fixed'">{% include "components/form_field.html" with field=f.buffer_minutes field_hint_off=True %}</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
