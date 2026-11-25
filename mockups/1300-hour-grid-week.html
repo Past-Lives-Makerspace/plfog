@@ -29,7 +29,7 @@
    ========================================================================== */
 
 .pl-hourgrid {
-    --hour: 52px;
+    --hour: 64px;
     --gutter: 4rem;
     background: var(--hub-card-bg);
     border: 1px solid var(--hub-border);
@@ -110,12 +110,10 @@
 /* Text wraps rather than trails off, so a narrow lane still shows a name and a time. */
 .pl-hourgrid__label,
 .pl-hourgrid__when { display: block; overflow: hidden; }
-/* A guide's hours sharing the width with another's: name only; the rows give the time. */
-.pl-hourgrid__block--shared > .pl-hourgrid__when { display: none; }
 .pl-hourgrid__label { font-weight: 700; }
 .pl-hourgrid__when { color: var(--hub-text-muted); }
 
-/* Something inside a block (a tour in a guide's hours, a booking in open hours): inset so its edges never touch. */
+/* A booking inside open hours: inset so its edges never touch. */
 .pl-hourgrid__inner {
     position: absolute;
     top: calc(var(--start) / 60 * var(--hour) + 1px);
@@ -133,22 +131,52 @@
     overflow: hidden;
     z-index: 1;
 }
-.pl-hourgrid__inner--request { border-style: dashed; border-left-style: solid; }
 .pl-hourgrid__inner .pl-hourgrid__when { color: var(--hub-text-muted); font-weight: 700; }
 .pl-hourgrid__inner .pl-hourgrid__label { font-weight: 500; }
 
-/* Tours: a guide's hours tinted in the guide's colour; a tour outside anyone's hours stands alone. */
-.pl-hourgrid__block--hours {
-    background: color-mix(in srgb, var(--tone) 15%, var(--hub-card-bg));
-    border: 1px solid color-mix(in srgb, var(--tone) 40%, transparent);
-    border-left: 3px solid var(--tone);
+/* Tours: a guide's hours are a thin rail in the guide's colour down the left of the day, one rail per
+   overlapping guide; the time anyone covers is a faint tint across the day; tours are cards in the rest. */
+.pl-hourgrid__cover {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(var(--start) / 60 * var(--hour));
+    height: calc(var(--len) / 60 * var(--hour));
+    background: color-mix(in srgb, var(--hub-text) 5%, transparent);
+    pointer-events: none;
 }
-.pl-hourgrid__block--tour {
+.pl-hourgrid__rail {
+    position: absolute;
+    top: calc(var(--start) / 60 * var(--hour) + 2px);
+    height: calc(var(--len) / 60 * var(--hour) - 4px);
+    left: calc(4px + var(--rail) * 9px);
+    width: 6px;
+    border-radius: 3px;
+    background: var(--tone);
+}
+.pl-hourgrid__card {
+    position: absolute;
+    top: calc(var(--start) / 60 * var(--hour) + 1px);
+    height: calc(var(--len) / 60 * var(--hour) - 3px);
+    left: calc(var(--rails) + 4px + (100% - var(--rails) - 8px) * var(--lane) / var(--lanes));
+    width: calc((100% - var(--rails) - 8px) / var(--lanes) - 2px);
+    padding: 0.25rem 0.4375rem;
+    border-radius: 6px;
     background: var(--hub-elevated);
     border: 1px solid var(--hub-border-strong);
-    border-left: 4px solid var(--tone);
+    border-left: 3px solid var(--tone);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+    font-size: 0.75rem;
+    line-height: 1.25;
+    color: var(--hub-text);
+    overflow: hidden;
+    z-index: 1;
 }
-.pl-hourgrid__block--tour .pl-hourgrid__when { font-weight: 700; }
+.pl-hourgrid__card--request { border-style: dashed; border-left-style: solid; }
+.pl-hourgrid__card .pl-hourgrid__when { font-weight: 700; color: var(--hub-text-muted); }
+.pl-hourgrid__card .pl-hourgrid__label { font-weight: 500; }
+.pl-hourgrid__guide { display: flex; align-items: center; gap: 0.3125rem; color: var(--hub-text-muted); white-space: nowrap; }
+.pl-hourgrid__guide::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--tone); flex-shrink: 0; }
 
 /* My Hours: #1329's language on the grid. Open dashed, busy hatched, a day off striped. */
 .pl-hourgrid__block--open { border: 1.5px dashed var(--hub-border-strong); background: transparent; }
@@ -189,7 +217,7 @@
     height: 2px;
     background: #e84a4a;
     box-shadow: 0 0 6px rgba(232, 74, 74, 0.55);
-    z-index: 3;
+    z-index: 0; /* under the cards, so it never strikes through their text */
     pointer-events: none;
 }
 .pl-hourgrid__now::before {
@@ -207,7 +235,7 @@
 .pl-hourgrid-key { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; margin: 1rem 0 0; padding: 0; list-style: none; font-size: 0.8125rem; color: var(--hub-text-muted); }
 .pl-hourgrid-key__item { display: inline-flex; align-items: center; gap: 0.5rem; }
 .pl-hourgrid-key__swatch { width: 18px; height: 12px; border-radius: 3px; flex-shrink: 0; }
-.pl-hourgrid-key__swatch--hours { background: color-mix(in srgb, var(--hub-blue) 18%, var(--hub-card-bg)); border: 1px solid color-mix(in srgb, var(--hub-blue) 40%, transparent); border-left: 3px solid var(--hub-blue); }
+.pl-hourgrid-key__swatch--hours { width: 6px; height: 16px; background: var(--hub-blue); }
 .pl-hourgrid-key__swatch--tour { background: var(--hub-elevated); border: 1px solid var(--hub-border-strong); border-left: 3px solid var(--hub-blue); }
 .pl-hourgrid-key__swatch--gap { background: repeating-linear-gradient(135deg, transparent 0 3px, var(--hub-border-strong) 3px 5px); border: 1px solid var(--hub-border); }
 
@@ -387,9 +415,9 @@ html.mock-phone .hub-main-wrapper { margin-left: 0 !important; }
               </div>
               <div id="tours-grid"></div>
               <ul class="pl-hourgrid-key" aria-label="What the shapes mean">
-                <li class="pl-hourgrid-key__item"><span class="pl-hourgrid-key__swatch pl-hourgrid-key__swatch--hours"></span>A guide's hours, in their colour</li>
-                <li class="pl-hourgrid-key__item"><span class="pl-hourgrid-key__swatch pl-hourgrid-key__swatch--tour"></span>A booked tour (dashed: a request)</li>
-                <li class="pl-hourgrid-key__item"><span class="pl-hourgrid-key__swatch pl-hourgrid-key__swatch--gap"></span>Empty or striped: nobody covers it</li>
+                <li class="pl-hourgrid-key__item"><span class="pl-hourgrid-key__swatch pl-hourgrid-key__swatch--hours"></span>A guide's hours, a rail in their colour; the tint is time someone covers</li>
+                <li class="pl-hourgrid-key__item"><span class="pl-hourgrid-key__swatch pl-hourgrid-key__swatch--tour"></span>A tour (dashed: a request)</li>
+                <li class="pl-hourgrid-key__item"><span class="pl-hourgrid-key__swatch pl-hourgrid-key__swatch--gap"></span>Untinted or striped: nobody covers it</li>
               </ul>
             </div>
             <div data-cal-pane="month" hidden>
@@ -443,7 +471,7 @@ var DAYS = [
   { key: 'fri', name: 'Fri', num: 27 }, { key: 'sat', name: 'Sat', num: 28 },
   { key: 'sun', name: 'Sun', num: 29 }
 ];
-var NOW = '13:40';
+var NOW = '14:20';
 
 var GUIDES = [
   { key: 'robin', label: 'Robin V.', color: '#e05d5d' },
@@ -471,7 +499,7 @@ var TOURS = {
   fri: [
     { type: 'hours', g: 'marcus', s: '08:00', e: '10:30', kids: [] },
     { type: 'tour', g: 'none', s: '12:00', e: '13:00', t: 'Kai (2)' },
-    { type: 'hours', g: 'robin', s: '14:00', e: '18:00', kids: [{ s: '15:00', e: '16:00', t: 'Mei (4), Waiting' }] }
+    { type: 'hours', g: 'robin', s: '14:00', e: '18:00', kids: [{ s: '15:00', e: '16:00', t: 'Mei (4)' }] }
   ],
   sat: [
     { type: 'hours', g: 'robin', s: '10:00', e: '14:00', kids: [{ s: '11:00', e: '12:00', t: 'Rae (6)' }] },
@@ -507,10 +535,8 @@ var KIND_COLOR = { tours: 'var(--color-tuscan-yellow)', a: 'var(--hub-blue)', b:
 function mins(t) { var p = t.split(':'); return +p[0] * 60 + +p[1]; }
 function clock(m) {
   var h = Math.floor(m / 60), mm = m % 60, ap = h >= 12 ? 'PM' : 'AM', h12 = h % 12 || 12;
-  return h12 + ':' + (mm < 10 ? '0' : '') + mm + ' ' + ap;
+  return h12 + ':' + (mm < 10 ? '0' : '') + mm + '\u00a0' + ap; /* a time never breaks across lines */
 }
-/* Blocks say times the short way ("1 PM", "10:30 AM") so a lane of 60px still reads. */
-function short(m) { var h = Math.floor(m / 60), mm = m % 60; return (h % 12 || 12) + (mm ? ':' + (mm < 10 ? '0' : '') + mm : '') + ' ' + (h >= 12 ? 'PM' : 'AM'); }
 function hourLabel(h) { var ap = h >= 12 ? 'PM' : 'AM'; return (h % 12 || 12) + ' ' + ap; }
 function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
 
@@ -540,31 +566,42 @@ function range(data) {
   return { lo: Math.floor(lo / 60) * 60, hi: Math.ceil(hi / 60) * 60 };
 }
 
-function blockHtml(b, lo, view) {
+/* My Hours: open hours with their bookings inside, busy beside them. */
+function blockHtml(b, lo) {
   var style = '--start:' + (mins(b.s) - lo) + ';--len:' + (mins(b.e) - mins(b.s)) + ';--lane:' + b.lane + ';--lanes:' + b.lanes + ';';
-  var when = short(mins(b.s)) + ' to ' + short(mins(b.e));
+  var when = clock(mins(b.s)) + ' to ' + clock(mins(b.e));
   var kids = (b.kids || []).map(function (k) {
-    var tone = view === 'tours' ? guide(b.g).color : KIND_COLOR[k.kind];
-    var kc = 'pl-hourgrid__inner' + (k.req ? ' pl-hourgrid__inner--request' : '');
-    var ks = '--start:' + (mins(k.s) - mins(b.s)) + ';--len:' + (mins(k.e) - mins(k.s)) + ';--tone:' + tone + ';';
-    return '<div class="' + kc + '" style="' + ks + '" title="' + esc((k.req ? 'Request: ' : 'Tour: ') + k.t + ', ' + clock(mins(k.s))) + '">' +
-      '<span class="pl-hourgrid__when">' + short(mins(k.s)) + '</span><span class="pl-hourgrid__label">' + esc(k.t) + '</span></div>';
+    var ks = '--start:' + (mins(k.s) - mins(b.s)) + ';--len:' + (mins(k.e) - mins(k.s)) + ';--tone:' + KIND_COLOR[k.kind] + ';';
+    return '<div class="pl-hourgrid__inner" style="' + ks + '" title="' + esc(k.t + ', ' + clock(mins(k.s))) + '">' +
+      '<span class="pl-hourgrid__when">' + clock(mins(k.s)) + '</span><span class="pl-hourgrid__label">' + esc(k.t) + '</span></div>';
   }).join('');
-  if (view === 'tours') {
-    var g = guide(b.g);
-    style += '--tone:' + g.color + ';';
-    if (b.type === 'tour') {
-      return '<div class="pl-hourgrid__block pl-hourgrid__block--tour" data-guide="' + b.g + '" style="' + style + '" title="' + esc('Tour: ' + b.t + ', ' + g.label) + '">' +
-        '<span class="pl-hourgrid__when">' + short(mins(b.s)) + '</span><span class="pl-hourgrid__label">' + esc(b.t) + '</span><span class="pl-hourgrid__when">' + g.label + '</span></div>';
-    }
-    return '<div class="pl-hourgrid__block pl-hourgrid__block--hours' + (b.lanes > 1 ? ' pl-hourgrid__block--shared' : '') + '" data-guide="' + b.g + '" style="' + style + '" title="' + esc(g.label + ' hours, ' + when) + '">' +
-      '<span class="pl-hourgrid__label">' + g.label.split(' ')[0] + '</span><span class="pl-hourgrid__when">' + when + '</span>' + kids + '</div>';
-  }
   if (b.type === 'busy') {
     return '<div class="pl-hourgrid__block pl-hourgrid__block--busy" style="' + style + '"><span class="pl-hourgrid__label">' + when + '</span><span class="pl-hourgrid__when">' + esc(b.t) + '</span></div>';
   }
   var dots = '<span class="pl-hourgrid__dots">' + b.kinds.map(function (k) { return '<span class="pl-kind pl-kind--' + k + '"></span>'; }).join('') + '</span>';
   return '<div class="pl-hourgrid__block pl-hourgrid__block--open" style="' + style + '"><span class="pl-hourgrid__label">' + when + '</span><span class="pl-hourgrid__when">' + dots + 'Open</span>' + kids + '</div>';
+}
+
+/* Tours: rails for the guides' hours (lanes = rails), tint for covered time, cards for tours. */
+function toursDay(v, lo) {
+  var hours = lay(v.filter(function (b) { return b.type === 'hours'; }));
+  var rails = hours.reduce(function (n, b) { return Math.max(n, b.lane + 1); }, 0);
+  var html = '', cards = [];
+  hours.forEach(function (b) {
+    var g = guide(b.g), st = '--start:' + (mins(b.s) - lo) + ';--len:' + (mins(b.e) - mins(b.s)) + ';';
+    var tip = esc(g.label + ' hours, ' + clock(mins(b.s)) + ' to ' + clock(mins(b.e)));
+    html += '<div class="pl-hourgrid__cover" data-guide="' + b.g + '" style="' + st + '"></div>';
+    html += '<div class="pl-hourgrid__rail" data-guide="' + b.g + '" style="' + st + '--rail:' + b.lane + ';--tone:' + g.color + ';" title="' + tip + '" role="img" aria-label="' + tip + '"></div>';
+    b.kids.forEach(function (k) { cards.push({ s: k.s, e: k.e, t: k.t, req: k.req, g: b.g }); });
+  });
+  v.filter(function (b) { return b.type === 'tour'; }).forEach(function (b) { cards.push(b); });
+  lay(cards).forEach(function (c) {
+    var g = guide(c.g);
+    var st = '--start:' + (mins(c.s) - lo) + ';--len:' + (mins(c.e) - mins(c.s)) + ';--lane:' + c.lane + ';--lanes:' + c.lanes + ';--tone:' + g.color + ';';
+    html += '<div class="pl-hourgrid__card' + (c.req ? ' pl-hourgrid__card--request' : '') + '" data-guide="' + c.g + '" style="' + st + '" title="' + esc((c.req ? 'Request: ' : 'Tour: ') + c.t + ', ' + clock(mins(c.s)) + ', ' + g.label) + '">' +
+      '<span class="pl-hourgrid__when">' + clock(mins(c.s)) + '</span><span class="pl-hourgrid__label">' + esc(c.t) + '</span><span class="pl-hourgrid__guide">' + g.label + '</span></div>';
+  });
+  return { html: html, rails: rails ? 4 + rails * 9 : 0 };
 }
 
 function renderGrid(el, data, view, activeKey) {
@@ -581,14 +618,15 @@ function renderGrid(el, data, view, activeKey) {
   for (var i = 0; i < rows; i++) times += '<span class="pl-hourgrid__time" style="--row:' + i + '">' + hourLabel(r.lo / 60 + i) + '</span>';
   times += '</div>';
   var cols = DAYS.map(function (d) {
-    var v = data[d.key], cls = 'pl-hourgrid__col', inner = '';
+    var v = data[d.key], cls = 'pl-hourgrid__col', inner = '', railsPx = 0;
     if (d.today) cls += ' pl-hourgrid__col--today';
     if (d.key === activeKey) cls += ' pl-hourgrid__col--active';
     if (v === 'off') { cls += ' pl-hourgrid__col--off'; inner = '<div class="pl-hourgrid__daynote">Day Off</div>'; }
     else if (v === 'uncovered') { cls += ' pl-hourgrid__col--uncovered'; inner = '<div class="pl-hourgrid__daynote">No Tour Hours<a href="#" class="pl-btn pl-btn--secondary pl-btn--sm">Add My Hours</a></div>'; }
-    else inner = lay(v).map(function (b) { return blockHtml(b, r.lo, view); }).join('');
+    else if (view === 'tours') { var td = toursDay(v, r.lo); inner = td.html; railsPx = td.rails; }
+    else inner = lay(v).map(function (b) { return blockHtml(b, r.lo); }).join('');
     if (d.today && now >= r.lo && now <= r.hi) inner += '<div class="pl-hourgrid__now" style="--start:' + (now - r.lo) + '" aria-hidden="true"></div>';
-    return '<div class="' + cls + '" data-day="' + d.key + '" aria-label="' + d.name + ' ' + d.num + '">' + inner + '</div>';
+    return '<div class="' + cls + '" data-day="' + d.key + '" style="--rails:' + railsPx + 'px" aria-label="' + d.name + ' ' + d.num + '">' + inner + '</div>';
   }).join('');
   el.innerHTML = strip + '<div class="pl-hourgrid" style="--rows:' + rows + '">' + head + '<div class="pl-hourgrid__body">' + times + cols + '</div></div>';
   el.querySelectorAll('.pl-hourgrid-days__day').forEach(function (btn) {
