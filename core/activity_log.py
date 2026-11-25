@@ -61,33 +61,38 @@ def activity_link(activity: SiteActivity) -> str:
 
 
 def activity_name(activity: SiteActivity) -> str:
-    """Who the line names: the feed's person, but never an email address.
+    """Who the line names: never a legal name and never an email address.
 
-    The actor's staff label, else their account name, else ``Member #<id>`` (``User #<id>`` with
-    no member row) where the feed would fall back to their email. With no actor, the target's
-    ``activity_log_name`` (a guest registrant's name), else what the feed says: "Not recorded"
-    or "System".
+    An actor with a member row by their preferred name only (:attr:`Member.activity_log_name`,
+    ``Member #<id>`` without one), an account with none as ``User #<id>``. With no actor, the
+    target's ``activity_log_name`` (a registrant), else what the feed says: "Not recorded" or
+    "System".
     """
     actor = activity.actor
     if actor is not None:
         member = getattr(actor, "member", None)
-        if member is not None and member.staff_label:
-            return str(member.staff_label)
-        if full_name := actor.get_full_name():
-            return str(full_name)
-        return f"Member #{member.pk}" if member is not None else f"User #{actor.pk}"
+        return member.activity_log_name if member is not None else f"User #{actor.pk}"
     if name := getattr(activity.target, "activity_log_name", ""):
         return str(name)
     return "Not recorded" if activity.line.actor_unrecorded else "System"
 
 
+def activity_headline(activity: SiteActivity) -> str:
+    """The row's headline for Discord: the target's ``describe_activity_log`` when it names a member, else the feed's."""
+    describe = getattr(activity.target, "describe_activity_log", None)
+    return describe(activity).headline if describe is not None else activity.line.headline
+
+
 def activity_message(activity: SiteActivity) -> str:
-    """The one Discord line for ``activity``: its feed headline, who acted, and its link in angle brackets.
+    """The one Discord line for ``activity``: its headline, who acted, and its link in angle brackets.
+
+    The feed's wording, with every member named by preferred name only (:func:`activity_headline`,
+    :func:`activity_name`).
 
     The headline and the name are escaped (:func:`escape_line_text`), so a member's words show as
     typed; the link sits in ``<>`` so Discord shows no preview card under a log line.
     """
-    parts = [escape_line_text(activity.line.headline), escape_line_text(activity_name(activity))]
+    parts = [escape_line_text(activity_headline(activity)), escape_line_text(activity_name(activity))]
     link = activity_link(activity)
     if link:
         parts.append(f"<{link}>")

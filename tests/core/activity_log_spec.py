@@ -22,6 +22,7 @@ from core.activity_log import (
     MAX_ATTEMPTS,
     POSTED_KEY,
     RETRY_DELAYS,
+    activity_headline,
     activity_link,
     activity_message,
     activity_name,
@@ -31,7 +32,7 @@ from core.activity_log import (
 from core.events.discord import PostOutcome, post_text
 from core.models import ACTIVITY_LOG_KINDS, SiteActivity, SiteConfiguration, TransactionalEmailLog
 from membership.models import Member
-from tests.membership.factories import OrientationBookingFactory
+from tests.membership.factories import EquipmentReservationFactory, OrientationBookingFactory
 
 pytestmark = pytest.mark.django_db
 
@@ -42,6 +43,13 @@ def _turn_on(url: str = _WEBHOOK) -> None:
     config = SiteConfiguration.load()
     config.discord_activity_webhook_url = url
     config.save()
+
+
+def _named(username: str, preferred: str) -> User:
+    """A user whose member goes by ``preferred``: the only name the Discord line uses."""
+    user = User.objects.create_user(username=username, email=f"{username}@example.com")
+    Member.objects.filter(user=user).update(preferred_name=preferred)
+    return User.objects.get(pk=user.pk)
 
 
 def _posted(route: respx.Route) -> list[dict[str, object]]:
@@ -240,21 +248,22 @@ def describe_retries():
 def describe_activity_message():
     def it_reads_the_feed_headline_who_and_the_link_in_angle_brackets(settings):
         settings.MEMBER_BASE_URL = "https://members.example"
-        booking = OrientationBookingFactory()
-        user = User.objects.create_user(username="lead_ash", first_name="Ash", last_name="Lead")
+        booking = OrientationBookingFactory(member=_named("newbie", "Robin").member)
+        user = _named("lead_ash", "Ash Lead")
         activity = SiteActivity.log(SiteActivity.Kind.ORIENTATION_CONFIRMED, actor=user, target=booking)
         link = "https://members.example" + reverse("hub_orientation_respond", args=[booking.pk])
-        assert activity_message(activity) == f"{escape_line_text(activity.line.headline)} · Ash Lead · <{link}>"
-        assert activity.line.headline.startswith("Orientation confirmed: ")
+        headline = escape_line_text(activity_headline(activity))
+        assert headline.startswith("Orientation confirmed: Robin for ")
+        assert activity_message(activity) == f"{headline} · Ash Lead · <{link}>"
 
     def it_escapes_discord_markdown_in_names():
-        user = User.objects.create_user(username="star", first_name="*Star*", last_name="_Bright_")
+        user = _named("star", "*Star* _Bright_")
         activity = SiteActivity.log(SiteActivity.Kind.CLASS_PUBLISHED, actor=user)
         assert activity_message(activity) == "Class published · \\*Star\\* \\_Bright\\_"
 
     def it_shows_a_masked_link_in_member_text_as_typed():
         offering = ClassOfferingFactory(title="[Pay here](https://evil.example)")
-        user = User.objects.create_user(username="sneak", first_name="[Click](https://evil.example)")
+        user = _named("sneak", "[Click](https://evil.example)")
         activity = SiteActivity.log(SiteActivity.Kind.CLASS_PUBLISHED, actor=user, target=offering)
         message = activity_message(activity)
         assert "\\[Pay here\\]\\(https://evil.example\\)" in message
@@ -283,13 +292,6 @@ def describe_activity_name():
         user = User.objects.get(pk=user.pk)
         activity = SiteActivity.log(SiteActivity.Kind.CLASS_PUBLISHED, actor=user)
         assert activity_name(activity) == f"User #{user.pk}"
-
-    def it_uses_the_account_name_when_the_member_has_none():
-        user = User.objects.create_user(username="named", email="n@example.com", first_name="Nell", last_name="Ames")
-        Member.objects.filter(user=user).update(preferred_name="", full_legal_name="")
-        user = User.objects.get(pk=user.pk)
-        activity = SiteActivity.log(SiteActivity.Kind.CLASS_PUBLISHED, actor=user)
-        assert activity_name(activity) == "Nell Ames"
 
     def it_names_a_guest_registrant_without_their_email():
         registration = RegistrationFactory(first_name="", last_name="", email="guest@example.com")
@@ -350,3 +352,49 @@ def describe_site_settings():
 
         assert "discord_activity_webhook_url" in SiteSettingsForm.base_fields
         assert SiteSettingsForm.base_fields["discord_activity_webhook_url"].label == "Activity log webhook"
+
+
+def describe_preferred_names_only():
+    def _sam() -> Member:
+        user = User.objects.create_user(
+            username="sam", email="sam@example.com", first_name="Samantha", last_name="Rivera"
+        )
+        Member.objects.filter(user=user).update(preferred_name="Sam Rivera", full_legal_name="Samantha Rivera")
+        return Member.objects.get(user=user)
+
+    def _assert_preferred_only(message: str) -> None:
+        assert "Sam Rivera" in message
+        assert "Samantha" not in message
+        assert "sam@example.com" not in message
+
+    def it_names_the_actor_by_preferred_name_only():
+        sam = _sam()
+        activity = SiteActivity.log(SiteActivity.Kind.CLASS_PUBLISHED, actor=sam.user)
+        assert activity_message(activity) == "Class published · Sam Rivera"
+
+    def it_names_an_orientations_member_by_preferred_name_only_while_the_feed_keeps_the_staff_label():
+        sam = _sam()
+        booking = OrientationBookingFactory(member=sam)
+        activity = SiteActivity.log(SiteActivity.Kind.ORIENTATION_REQUESTED, actor=sam.user, target=booking)
+        _assert_preferred_only(activity_message(activity))
+        assert "Samantha Rivera" in activity.line.headline
+
+    def it_names_a_reservations_member_by_preferred_name_only_while_the_feed_keeps_the_staff_label():
+        sam = _sam()
+        reservation = EquipmentReservationFactory(member=sam)
+        activity = SiteActivity.log(SiteActivity.Kind.RESERVATION_CONFIRMED, actor=sam.user, target=reservation)
+        _assert_preferred_only(activity_message(activity))
+        assert "Samantha Rivera" in activity.line.headline
+
+    def it_names_a_member_registrant_by_preferred_name_only():
+        sam = _sam()
+        registration = RegistrationFactory(member=sam, first_name="Samantha", last_name="Rivera")
+        activity = SiteActivity.log(SiteActivity.Kind.CLASS_REGISTRATION_CANCELLED, target=registration)
+        _assert_preferred_only(activity_message(activity))
+
+    def it_names_a_member_with_no_preferred_name_by_number_not_their_legal_name():
+        user = User.objects.create_user(username="legal", email="legal@example.com")
+        Member.objects.filter(user=user).update(preferred_name="", full_legal_name="Quinn Ashdown")
+        member = Member.objects.get(user=user)
+        activity = SiteActivity.log(SiteActivity.Kind.CLASS_PUBLISHED, actor=member.user)
+        assert activity_message(activity) == f"Class published · Member #{member.pk}"

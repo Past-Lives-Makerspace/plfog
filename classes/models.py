@@ -6858,7 +6858,13 @@ class Registration(models.Model):
 
     @property
     def activity_log_name(self) -> str:
-        """The registrant as the activity log names them (#1330): their name, never their email."""
+        """The registrant as the activity log names them (#1330), never by email.
+
+        A member by their preferred name only (:attr:`Member.activity_log_name`); a guest by the
+        name they typed, else ``Registration #<id>``.
+        """
+        if self.member is not None:
+            return self.member.activity_log_name
         return f"{self.first_name} {self.last_name}".strip() or f"Registration #{self.pk}"
 
     @property
