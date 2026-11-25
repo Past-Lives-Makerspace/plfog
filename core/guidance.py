@@ -508,6 +508,19 @@ _GUIDANCE_LIST = (
         ),
         target="admin.discord-role-ids",
     ),
+    # The activity log (#1330): the leadership channel's webhook, on Site Settings' Discord tab.
+    Guidance(
+        key="admin.activity-log",
+        title="Activity Log",
+        url_name="hub_admin_site_settings",
+        query={"tab": "discord"},
+        steps=(
+            "Open Site Settings from Admin Tools, under Webmaster, and press the Discord tab.",
+            "Under Shared Discord Channels, paste the #member-portal-activity webhook into Activity log webhook, then press Save settings.",
+            "Orientations, equipment reservations and classes then post one line there as they happen. Blank posts nothing.",
+        ),
+        target="admin.activity-log-webhook",
+    ),
     Guidance(
         key="admin.payment-report",
         title="Payment Report",

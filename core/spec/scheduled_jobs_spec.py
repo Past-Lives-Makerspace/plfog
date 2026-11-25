@@ -33,6 +33,7 @@ _DISPATCHER_ALWAYS = {
     "take_cycle_snapshot",
     "send_lease_expiry_reminders",
     "auto_complete_orientations",
+    "log_finished_reservations",
     "send_class_reminders",
     "enforce_class_minimums",
     "publish_due_events",

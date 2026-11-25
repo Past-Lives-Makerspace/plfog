@@ -664,6 +664,14 @@ class SiteConfiguration(models.Model):
         help_text="Discord webhook for #reservations. New equipment reservations post here "
         "automatically. Blank = reservations are not posted to Discord.",
     )
+    discord_activity_webhook_url = models.URLField(
+        max_length=500,
+        blank=True,
+        default="",
+        verbose_name="Activity log webhook",
+        help_text="Discord webhook for the leadership only #member-portal-activity channel. Orientations, "
+        "equipment reservations and classes post one line here as they happen. Blank = nothing is posted.",
+    )
     discord_server_id = models.CharField(
         max_length=32,
         blank=True,
@@ -2201,6 +2209,13 @@ class SiteActivity(models.Model):
         WIKI_PAGE_ARCHIVED = "wiki_page_archived", "Wiki page archived"
         WIKI_PAGE_DELETED = "wiki_page_deleted", "Wiki page deleted"
         WIKI_PAGE_REVERTED = "wiki_page_reverted", "Wiki page reverted"
+        # Equipment reservations (#1330): a request, a confirmation (instant, approved or paid), a
+        # decline, a cancel by the member or a manager, and the reservation's end passing.
+        RESERVATION_REQUESTED = "reservation_requested", "Reservation requested"
+        RESERVATION_CONFIRMED = "reservation_confirmed", "Reservation confirmed"
+        RESERVATION_DECLINED = "reservation_declined", "Reservation declined"
+        RESERVATION_CANCELLED = "reservation_cancelled", "Reservation cancelled"
+        RESERVATION_HAPPENED = "reservation_happened", "Reservation happened"
 
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -2306,6 +2321,11 @@ class SiteActivity(models.Model):
         if target is not None:
             activity.target = target
         activity.save()
+        if activity.kind in ACTIVITY_LOG_KINDS:
+            from core.activity_log import post_activity
+            from core.tasks import enqueue_on_commit
+
+            enqueue_on_commit(post_activity, activity.pk)
         return activity
 
     @classmethod
@@ -2432,6 +2452,16 @@ SITE_ACTIVITY_CATEGORIES: dict[str, tuple[str, tuple[SiteActivity.Kind, ...]]] =
         (_Kind.GUILD_JOINED, _Kind.GUILD_ANNOUNCEMENT, _Kind.SITE_ANNOUNCEMENT),
     ),
     "spaces": ("Spaces", (_Kind.LEASE_ACTIVATED, _Kind.SPACE_REQUEST)),
+    "equipment": (
+        "Equipment reservations",
+        (
+            _Kind.RESERVATION_REQUESTED,
+            _Kind.RESERVATION_CONFIRMED,
+            _Kind.RESERVATION_DECLINED,
+            _Kind.RESERVATION_CANCELLED,
+            _Kind.RESERVATION_HAPPENED,
+        ),
+    ),
     "meetings": ("Meetings", (_Kind.MEETING_APPROVED, _Kind.MEETING_UNLOCKED, _Kind.MEETING_UNPUBLISHED)),
     "wiki": (
         "Wiki",
@@ -2446,6 +2476,29 @@ SITE_ACTIVITY_CATEGORIES: dict[str, tuple[str, tuple[SiteActivity.Kind, ...]]] =
         ),
     ),
 }
+
+# The kinds that also post one line to Site Settings' Activity log webhook (#1330), the
+# leadership channel: SiteActivity.log() queues the post for each row of these.
+ACTIVITY_LOG_KINDS: frozenset[SiteActivity.Kind] = frozenset(
+    {
+        _Kind.ORIENTATION_REQUESTED,
+        _Kind.ORIENTATION_CONFIRMED,
+        _Kind.ORIENTATION_DECLINED,
+        _Kind.ORIENTATION_CANCELLED,
+        _Kind.ORIENTATION_COMPLETED,
+        _Kind.RESERVATION_REQUESTED,
+        _Kind.RESERVATION_CONFIRMED,
+        _Kind.RESERVATION_DECLINED,
+        _Kind.RESERVATION_CANCELLED,
+        _Kind.RESERVATION_HAPPENED,
+        _Kind.CLASS_SUBMITTED,
+        _Kind.CLASS_APPROVED,
+        _Kind.CLASS_PUBLISHED,
+        _Kind.CLASS_CANCELLED,
+        _Kind.CLASS_REGISTERED,
+        _Kind.CLASS_REGISTRATION_CANCELLED,
+    }
+)
 del _Kind
 
 

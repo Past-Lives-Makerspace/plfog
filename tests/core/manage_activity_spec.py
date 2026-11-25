@@ -317,7 +317,7 @@ def describe_activity_feed_filters():
 
     def it_groups_the_event_options_by_category(client):
         content = _feed(client).content.decode()
-        assert content.count("<optgroup ") == 9
+        assert content.count("<optgroup ") == 10
         assert re.search(r'<optgroup label="Voting">\s*<option value="vote_submitted"', content)
         assert re.search(r'<option value="voting"\s*>Voting</option>', content)
 

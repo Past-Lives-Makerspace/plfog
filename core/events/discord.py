@@ -310,6 +310,38 @@ def post_embed(webhook_url: str, message: Message) -> bool:
     return False
 
 
+def post_text(webhook_url: str, content: str) -> bool:
+    """POST one plain message (no embed) to a Discord webhook, pinging nobody. Best-effort: never raises.
+
+    The activity log's line (#1330). ``allowed_mentions`` with an empty ``parse`` keeps a name
+    that happens to read ``@everyone`` from pinging anyone. Refused on staging, like
+    :func:`post_embed`.
+
+    Args:
+        webhook_url: The target webhook. Blank is a no-op returning ``False``.
+        content: The message text.
+
+    Returns:
+        ``True`` on a 2xx response; ``False`` on a blank webhook, staging, a network error or
+        any other status. Failures are logged, never the webhook value.
+    """
+    if not webhook_url:
+        return False
+    if settings.IS_STAGING:
+        logger.warning("Discord webhook post refused: ENVIRONMENT=staging never reaches Discord (activity line).")
+        return False
+    payload = {"content": content, "allowed_mentions": {"parse": []}}
+    try:
+        response = httpx.post(webhook_url, json=payload, timeout=_DEFAULT_TIMEOUT_SECONDS)
+    except httpx.HTTPError as exc:
+        logger.warning("Discord webhook post failed (network error): %s", exc)
+        return False
+    if response.is_success:
+        return True
+    logger.warning("Discord webhook post failed: %s %s", response.status_code, response.text[:300])
+    return False
+
+
 # The characters that make Discord markdown: escaping each with a backslash shows it as typed.
 _MARKDOWN_SPECIALS_RE = re.compile(r"([\\*_`~|>])")
 

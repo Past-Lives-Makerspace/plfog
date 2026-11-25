@@ -1,0 +1,16 @@
+bump = "minor"
+date = "2026-11-24"
+audience = ["admins"]
+feature = "admin.activity-log"
+guidance = "shots"
+target = "admin.activity-log-webhook"
+title = "Portal activity posts to a leadership Discord channel"
+changes = [
+  "Site Settings, Discord tab, has an Activity log webhook. Paste the #member-portal-activity webhook there and each happening posts one line: what happened, who did it, and a link to it in the portal.",
+  "Orientations post when requested, confirmed, declined, cancelled and completed. Classes post when submitted, approved, published and cancelled, and when someone registers or cancels a registration.",
+  "Equipment reservations post when requested, confirmed, declined or cancelled, and once more after a confirmed reservation ends. They now show in the Activity feed too, under Equipment reservations.",
+  "Leave the field blank and nothing posts.",
+]
+
+[[shots]]
+caption = "On Site Settings, Discord tab, paste the channel's webhook into Activity log webhook under Shared Discord Channels, then press Save settings."

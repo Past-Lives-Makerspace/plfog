@@ -30,6 +30,7 @@ def describe_site_activity_categories():
             "Money",
             "Guilds and announcements",
             "Spaces",
+            "Equipment reservations",
             "Meetings",
             "Wiki",
         ]

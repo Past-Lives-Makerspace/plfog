@@ -262,6 +262,7 @@ def reserve(
             is_season=locked.has_season,
         )
         _spend_credit(reservation)
+    _log_made(reservation)
     if reservation.is_awaiting_approval:
         _notify_requested(reservation)
         _notify_needs_approval(reservation)
@@ -308,6 +309,63 @@ def block_time(
             purpose=cleaned_reason,
             status=EquipmentReservation.Status.CONFIRMED,
         )
+
+
+def _log_made(reservation: EquipmentReservation) -> None:
+    """The Activity Feed row for a reservation just made (#1330): requested when it awaits approval, else confirmed.
+
+    Called once the booking is real: at once for a free one, and for a paid one only when the
+    money lands (:func:`finalize_paid_reservation`), never while it awaits payment.
+    """
+    from core.models import SiteActivity
+
+    kind = (
+        SiteActivity.Kind.RESERVATION_REQUESTED
+        if reservation.is_awaiting_approval
+        else SiteActivity.Kind.RESERVATION_CONFIRMED
+    )
+    reservation.log_activity(kind, actor=reservation.member.user)
+
+
+#: How far back the "reservation happened" sweep looks (#1330). Eight ticks of slack for a missed
+#: run, and on its first run it logs at most this much of what ended before it shipped.
+HAPPENED_LOOKBACK = timedelta(hours=2)
+
+
+def log_finished_reservations(*, now: datetime | None = None) -> int:
+    """Log "Reservation happened" once for each confirmed reservation whose end just passed; return how many (#1330).
+
+    The orientation sweep's twin (:func:`membership.orientations.auto_complete`), but it only
+    logs: the row posts to the activity log. One row per reservation ever: a reservation that
+    already has its row is skipped, so a re-run of the tick logs nothing twice. A manager's
+    block, a cancelled, declined or unpaid one never happened. Ended within
+    :data:`HAPPENED_LOOKBACK` only, so no history is logged.
+    """
+    from django.contrib.contenttypes.models import ContentType
+
+    from core.models import SiteActivity
+    from membership.models import EquipmentReservation
+
+    cutoff = now or timezone.now()
+    already = SiteActivity.objects.filter(
+        kind=SiteActivity.Kind.RESERVATION_HAPPENED,
+        target_ct=ContentType.objects.get_for_model(EquipmentReservation),
+    ).values("target_id")
+    finished = (
+        EquipmentReservation.objects.filter(
+            kind=EquipmentReservation.Kind.RESERVATION,
+            status=EquipmentReservation.Status.CONFIRMED,
+            ends_at__lte=cutoff,
+            ends_at__gt=cutoff - HAPPENED_LOOKBACK,
+        )
+        .exclude(pk__in=already)
+        .select_related("member", "equipment")
+    )
+    count = 0
+    for reservation in finished:
+        reservation.log_activity(SiteActivity.Kind.RESERVATION_HAPPENED, actor=None)
+        count += 1
+    return count
 
 
 def _notify_confirmed(reservation: EquipmentReservation, *, approved_by: Member | None = None) -> None:
@@ -718,6 +776,7 @@ def finalize_paid_reservation(
         if amount_total is not None:
             locked.amount_paid_cents = amount_total
         locked.save(update_fields=["status", "stripe_payment_id", "stripe_session_id", "amount_paid_cents"])
+    _log_made(locked)
     if needs_approval:
         _notify_requested(locked)
         _notify_needs_approval(locked)

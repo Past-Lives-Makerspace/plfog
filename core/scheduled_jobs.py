@@ -186,6 +186,14 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="log_finished_reservations",
+        name="Log finished reservations",
+        description='Posts "Reservation happened" to the activity log once a confirmed equipment reservation ends.',
+        command="log_finished_reservations",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="send_class_reminders",
         name="Class reminder emails",
         description="Reminds registrants about a class the day before it meets.",
