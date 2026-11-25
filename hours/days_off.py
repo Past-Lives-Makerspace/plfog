@@ -15,6 +15,7 @@ from datetime import date, datetime, time, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
+from django.db.models import Prefetch
 from django.utils import timezone
 
 from hours.busy import ORIENTATION, TOUR, busy_holds
@@ -53,7 +54,17 @@ def still_booked(member: Member, first: date, last: date) -> list[str]:
         tours[starts_at] += party
     for starts_at, party in tours.items():
         lines.append((starts_at, f"Tour at {_clock(starts_at)}, {party} visitor{'' if party == 1 else 's'}"))
-    slots = OrientationSlot.objects.filter(pk__in=refs[ORIENTATION]).select_related("orientation_type")
+    status = OrientationBooking.Status
+    held = (
+        OrientationBooking.objects.filter(status__in=(status.REQUESTED, status.CONFIRMED))
+        .select_related("member")
+        .order_by("pk")
+    )
+    slots = (
+        OrientationSlot.objects.filter(pk__in=refs[ORIENTATION])
+        .select_related("orientation_type")
+        .prefetch_related(Prefetch("bookings", queryset=held, to_attr="held_bookings"))
+    )
     for slot in slots:
         lines.append((slot.starts_at, f"{slot.orientation_type.name} at {_clock(slot.starts_at)} {_who(slot)}"))
     lines.sort(key=lambda line: line[0])
@@ -63,12 +74,8 @@ def still_booked(member: Member, first: date, last: date) -> list[str]:
 
 
 def _who(slot: OrientationSlot) -> str:
-    status = OrientationBooking.Status
-    bookings = list(
-        OrientationBooking.objects.filter(slot=slot, status__in=(status.REQUESTED, status.CONFIRMED))
-        .select_related("member")
-        .order_by("pk")
-    )
+    """Who a slot is booked with, from its prefetched ``held_bookings`` (requested or confirmed)."""
+    bookings: list[OrientationBooking] = slot.held_bookings  # type: ignore[attr-defined]
     if not bookings:
         return "(a checkout in progress)"
     if len(bookings) > 1:
