@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>#1300 mockup · Hour by Hour Week</title>
+<!--
+  Hour by hour week mockup (static; not served by Django). The Tours Calendar tab's Week and the
+  week at the top of My Hours (#1300, PR #1329) become one time grid: hours down the left, seven
+  day columns, each block placed and sized by its start and end, overlaps side by side.
+  Views: ?view=tours (default) · ?view=myhours     Theme: ?theme=light
+  Phone shell: ?phone=1   Phone day: ?day=mon..sun (default today)   Screenshot chrome off: ?shot=1
+  CSS: the first <style> block is NEW product CSS (static/css/hour-grid.css, one partial for both
+  pages); the second is copied from #1329's my-hours.css (unchanged); the third is mockup-only.
+  The script lays out the blocks the way the build's Python would (start and end minutes, lane,
+  lane count); in the build that arrives as data and the template only prints it.
+  People, visitors and guilds are invented.
+-->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&family=Lato:wght@400;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../static/css/hub.css">
+<link rel="stylesheet" href="../static/css/components.css">
+<link rel="stylesheet" href="../static/css/tours.css">
+<link rel="stylesheet" href="../static/css/calendar.css">
+<style>
+/* ==========================================================================
+   NEW PRODUCT CSS: static/css/hour-grid.css, loaded by the Tours Calendar
+   tab and My Hours only. Tokens only. The shared calendar shell's week grid
+   (calendar.css .pl-calendar-grid--week) is untouched for every other page.
+   ========================================================================== */
+
+.pl-hourgrid {
+    --hour: 52px;
+    --gutter: 4rem;
+    background: var(--hub-card-bg);
+    border: 1px solid var(--hub-border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+/* Day names across the top, over the seven columns. */
+.pl-hourgrid__head,
+.pl-hourgrid__body {
+    display: grid;
+    grid-template-columns: var(--gutter) repeat(7, minmax(0, 1fr));
+}
+.pl-hourgrid__head { border-bottom: 1px solid var(--hub-border); }
+.pl-hourgrid__dayhead {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    padding: 0.625rem 0.25rem;
+    border-left: 1px solid var(--hub-border);
+}
+.pl-hourgrid__dayhead--today { background: color-mix(in srgb, var(--color-tuscan-yellow) 8%, transparent); }
+.pl-hourgrid__dayname { font-size: 0.8125rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--hub-text-muted); }
+.pl-hourgrid__daynum {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--hub-text-muted);
+}
+.pl-hourgrid__dayhead--today .pl-hourgrid__daynum { background: var(--color-tuscan-yellow); color: #1a1a2e; font-weight: 700; }
+
+/* Hour labels in the gutter, each sitting just under its line. */
+.pl-hourgrid__times { position: relative; height: calc(var(--rows) * var(--hour)); }
+.pl-hourgrid__time {
+    position: absolute;
+    top: calc(var(--row) * var(--hour) + 4px);
+    right: 0.625rem;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1;
+    color: var(--hub-text-muted);
+    white-space: nowrap;
+}
+
+/* One day: hour lines solid, half hours faint. */
+.pl-hourgrid__col {
+    position: relative;
+    height: calc(var(--rows) * var(--hour));
+    border-left: 1px solid var(--hub-border);
+    background-image:
+        repeating-linear-gradient(to bottom, var(--hub-border) 0 1px, transparent 1px var(--hour)),
+        repeating-linear-gradient(to bottom, transparent 0 calc(var(--hour) / 2), color-mix(in srgb, var(--hub-border) 45%, transparent) calc(var(--hour) / 2) calc(var(--hour) / 2 + 1px), transparent calc(var(--hour) / 2 + 1px) var(--hour));
+}
+.pl-hourgrid__col--today { background-color: color-mix(in srgb, var(--color-tuscan-yellow) 5%, transparent); }
+
+/* A block: placed by its start, sized by its length, its lane's share of the width. */
+.pl-hourgrid__block {
+    position: absolute;
+    top: calc(var(--start) / 60 * var(--hour) + 1px);
+    height: calc(var(--len) / 60 * var(--hour) - 3px);
+    left: calc(100% * var(--lane) / var(--lanes) + 3px);
+    width: calc(100% / var(--lanes) - 6px);
+    min-height: 20px;
+    padding: 0.25rem 0.375rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    line-height: 1.25;
+    overflow: hidden;
+    text-align: left;
+    color: var(--hub-text);
+}
+/* Text wraps rather than trails off, so a narrow lane still shows a name and a time. */
+.pl-hourgrid__label,
+.pl-hourgrid__when { display: block; overflow: hidden; }
+/* A guide's hours sharing the width with another's: name only; the rows give the time. */
+.pl-hourgrid__block--shared > .pl-hourgrid__when { display: none; }
+.pl-hourgrid__label { font-weight: 700; }
+.pl-hourgrid__when { color: var(--hub-text-muted); }
+
+/* Something inside a block (a tour in a guide's hours, a booking in open hours): inset so its edges never touch. */
+.pl-hourgrid__inner {
+    position: absolute;
+    top: calc(var(--start) / 60 * var(--hour) + 1px);
+    height: calc(var(--len) / 60 * var(--hour) - 5px);
+    left: 3px;
+    right: 3px;
+    padding: 0.1875rem 0.3125rem;
+    border-radius: 5px;
+    background: var(--hub-elevated);
+    border: 1px solid var(--hub-border);
+    border-left: 3px solid var(--tone);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+    font-size: 0.75rem;
+    line-height: 1.25;
+    overflow: hidden;
+    z-index: 1;
+}
+.pl-hourgrid__inner--request { border-style: dashed; border-left-style: solid; }
+.pl-hourgrid__inner .pl-hourgrid__when { color: var(--hub-text-muted); font-weight: 700; }
+.pl-hourgrid__inner .pl-hourgrid__label { font-weight: 500; }
+
+/* Tours: a guide's hours tinted in the guide's colour; a tour outside anyone's hours stands alone. */
+.pl-hourgrid__block--hours {
+    background: color-mix(in srgb, var(--tone) 15%, var(--hub-card-bg));
+    border: 1px solid color-mix(in srgb, var(--tone) 40%, transparent);
+    border-left: 3px solid var(--tone);
+}
+.pl-hourgrid__block--tour {
+    background: var(--hub-elevated);
+    border: 1px solid var(--hub-border-strong);
+    border-left: 4px solid var(--tone);
+}
+.pl-hourgrid__block--tour .pl-hourgrid__when { font-weight: 700; }
+
+/* My Hours: #1329's language on the grid. Open dashed, busy hatched, a day off striped. */
+.pl-hourgrid__block--open { border: 1.5px dashed var(--hub-border-strong); background: transparent; }
+.pl-hourgrid__block--busy {
+    background: repeating-linear-gradient(135deg, var(--hub-surface) 0 6px, transparent 6px 12px);
+    border: 1px solid var(--hub-border-strong);
+}
+.pl-hourgrid__dots { display: inline-flex; gap: 3px; margin-right: 4px; vertical-align: middle; }
+.pl-hourgrid__dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--kind); }
+
+/* A whole day with nothing (a day off, or a day no guide covers): striped, with its note at the top. */
+.pl-hourgrid__col--off,
+.pl-hourgrid__col--uncovered { background-image: repeating-linear-gradient(135deg, transparent 0 10px, var(--hub-surface) 10px 20px); }
+.pl-hourgrid__daynote {
+    position: absolute;
+    top: 0.75rem;
+    left: 0.5rem;
+    right: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    text-align: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+.pl-hourgrid__daynote .pl-btn { text-transform: none; letter-spacing: 0; }
+
+/* Now: a red line across today's column, as the month grid marks today. */
+.pl-hourgrid__now {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(var(--start) / 60 * var(--hour));
+    height: 2px;
+    background: #e84a4a;
+    box-shadow: 0 0 6px rgba(232, 74, 74, 0.55);
+    z-index: 3;
+    pointer-events: none;
+}
+.pl-hourgrid__now::before {
+    content: "";
+    position: absolute;
+    left: -5px;
+    top: -4px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #e84a4a;
+}
+
+/* What the shapes mean, under the Tours grid. */
+.pl-hourgrid-key { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; margin: 1rem 0 0; padding: 0; list-style: none; font-size: 0.8125rem; color: var(--hub-text-muted); }
+.pl-hourgrid-key__item { display: inline-flex; align-items: center; gap: 0.5rem; }
+.pl-hourgrid-key__swatch { width: 18px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+.pl-hourgrid-key__swatch--hours { background: color-mix(in srgb, var(--hub-blue) 18%, var(--hub-card-bg)); border: 1px solid color-mix(in srgb, var(--hub-blue) 40%, transparent); border-left: 3px solid var(--hub-blue); }
+.pl-hourgrid-key__swatch--tour { background: var(--hub-elevated); border: 1px solid var(--hub-border-strong); border-left: 3px solid var(--hub-blue); }
+.pl-hourgrid-key__swatch--gap { background: repeating-linear-gradient(135deg, transparent 0 3px, var(--hub-border-strong) 3px 5px); border: 1px solid var(--hub-border); }
+
+/* The phone's day strip: seven days that fit at 390px, never scrolling sideways. Hidden above 640px. */
+.pl-hourgrid-days { display: none; }
+
+@media (max-width: 640px) {
+    .pl-hourgrid { --gutter: 3.25rem; }
+    .pl-hourgrid__head { display: none; }
+    .pl-hourgrid__body { grid-template-columns: var(--gutter) minmax(0, 1fr); }
+    .pl-hourgrid__col { display: none; }
+    .pl-hourgrid__col--active { display: block; }
+    .pl-hourgrid__block,
+    .pl-hourgrid__inner { font-size: 0.8125rem; }
+
+    .pl-hourgrid-days {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 0.25rem;
+        margin: 0 0 0.75rem;
+    }
+    .pl-hourgrid-days__day {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.125rem;
+        min-height: 56px;
+        padding: 0.375rem 0 0.25rem;
+        border: 1px solid var(--hub-border);
+        border-radius: 10px;
+        background: var(--hub-surface);
+        color: var(--hub-text-muted);
+        font: inherit;
+        cursor: pointer;
+    }
+    .pl-hourgrid-days__name { font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .pl-hourgrid-days__num { font-size: 1rem; font-weight: 700; color: var(--hub-text); }
+    .pl-hourgrid-days__mark { width: 6px; height: 6px; border-radius: 50%; background: transparent; }
+    .pl-hourgrid-days__day--busy .pl-hourgrid-days__mark { background: var(--hub-text-muted); }
+    .pl-hourgrid-days__day--today .pl-hourgrid-days__num { color: var(--color-tuscan-yellow); }
+    .pl-hourgrid-days__day[aria-pressed="true"] { border-color: var(--color-tuscan-yellow); background: color-mix(in srgb, var(--color-tuscan-yellow) 14%, var(--hub-card-bg)); }
+    [data-theme="light"] .pl-hourgrid-days__day--today .pl-hourgrid-days__num { color: var(--hub-link); }
+}
+</style>
+<style>
+/* ==========================================================================
+   FROM #1329 (static/css/my-hours.css), unchanged: the legend over My Hours' week.
+   ========================================================================== */
+.pl-kind { --kind: var(--hub-text-muted); }
+.pl-kind--tours { --kind: var(--color-tuscan-yellow); }
+.pl-kind--a { --kind: var(--hub-blue); }
+.pl-kind--b { --kind: #3fb98a; }
+.pl-hours-offer { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 1rem; padding: 0; list-style: none; }
+.pl-hours-offer__item { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.3rem 0.7rem; border: 1px solid var(--hub-border); border-radius: 999px; background: var(--hub-surface); font-size: 0.8125rem; }
+.pl-hours-offer__dot { width: 9px; height: 9px; border-radius: 50%; background: var(--kind); flex-shrink: 0; }
+.pl-hours-offer__item--key { color: var(--hub-text-muted); }
+.pl-hours-offer__swatch { width: 16px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.pl-hours-offer__swatch--open { border: 1.5px dashed var(--hub-text-muted); }
+.pl-hours-offer__swatch--booked { background: var(--hub-text); }
+.pl-hours-offer__swatch--busy { background: repeating-linear-gradient(135deg, var(--hub-border-strong) 0 3px, transparent 3px 6px); border: 1px solid var(--hub-border-strong); }
+.pl-hours-rule { margin: 1rem 0 0; font-size: 0.8125rem; color: var(--hub-text-muted); }
+</style>
+<style>
+/* ---------- mockup-only ---------- */
+.mock-view { display: contents; }
+html[data-mock-view="tours"] .mock-view:not([data-mock-view="tours"]),
+html[data-mock-view="myhours"] .mock-view:not([data-mock-view="myhours"]) { display: none; }
+.mock-switcher { position: fixed; right: 1rem; bottom: 1rem; z-index: 900; display: flex; gap: 0.75rem; align-items: center; padding: 0.5rem 0.75rem; border-radius: 8px; background: var(--hub-elevated); border: 1px solid var(--hub-border); font-size: 0.8rem; }
+.mock-switcher a { color: var(--hub-link); text-decoration: none; }
+html.mock-shot .mock-switcher, html.mock-shot .hub-feedback-fab { display: none; }
+html.mock-shot .pl-topbar { position: static; }
+html.mock-phone .hub-sidebar { display: none; }
+html.mock-shot body { position: relative; }
+html.mock-shot .hub-sidebar { position: absolute; top: 0; bottom: 0; height: auto; }
+html.mock-phone .hub-main-wrapper { margin-left: 0 !important; }
+.mock-month { padding: 2rem 1rem; text-align: center; color: var(--hub-text-muted); border: 1px dashed var(--hub-border-strong); border-radius: 12px; }
+.mock-calendar-gap { margin-top: 1.5rem; }
+</style>
+<script>
+  (function () {
+    var p = new URLSearchParams(location.search);
+    document.documentElement.setAttribute('data-mock-view', p.get('view') || 'tours');
+    if (p.get('theme') === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    if (p.get('shot') === '1') document.documentElement.classList.add('mock-shot');
+    if (p.get('phone') === '1') document.documentElement.classList.add('mock-phone');
+  })();
+  function mockToggleTheme() {
+    var p = new URLSearchParams(location.search);
+    if (p.get('theme') === 'light') p.delete('theme'); else p.set('theme', 'light');
+    location.search = p.toString();
+  }
+</script>
+</head>
+<body>
+  <nav class="mock-switcher" aria-label="Mockup views">
+    <strong>Hour grid</strong>
+    <a href="?view=tours">Tours Calendar</a>
+    <a href="?view=myhours">My Hours</a>
+    <a href="#" onclick="mockToggleTheme(); return false;">Theme</a>
+  </nav>
+
+  <aside class="hub-sidebar">
+    <nav class="hub-sidebar__nav" aria-label="Hub navigation">
+      <a href="#" class="hub-sidebar__link">Home</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link">Calendar</a>
+      <a href="#" class="hub-sidebar__link">Class Catalog</a>
+      <a href="#" class="hub-sidebar__link">Member Directory</a>
+      <a href="#" class="hub-sidebar__link">My Hours</a>
+      <a href="#" class="hub-sidebar__link">Reservations</a>
+      <a href="#" class="hub-sidebar__link">Tours</a>
+      <hr class="hub-sidebar__divider" />
+      <a href="#" class="hub-sidebar__link">Ceramics Guild</a>
+      <a href="#" class="hub-sidebar__link">Printmaking Guild</a>
+    </nav>
+  </aside>
+
+  <div class="hub-main-wrapper">
+    <header class="pl-topbar">
+      <button class="pl-topbar__toggle" aria-label="Toggle sidebar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg></button>
+      <span class="pl-topbar__divider"></span>
+      <div class="pl-topbar__spacer"></div>
+      <button class="pl-topbar__theme-toggle" aria-label="Toggle theme" onclick="mockToggleTheme()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/></svg></button>
+      <div class="pl-profile"><button class="pl-profile__avatar" aria-label="User menu">RV</button></div>
+    </header>
+
+    <main id="main-content" class="hub-content" tabindex="-1">
+
+      <!-- ===================== Tours: Calendar tab ===================== -->
+      <div class="mock-view" data-mock-view="tours">
+        <div class="hub-page-header">
+          <div>
+            <h1 class="hub-page-title">Tours</h1>
+            <p class="hub-text-muted">Facility tours for people curious about Past Lives. See every guide's tours and hours, fill the days nobody covers, mark past tours, and set the hours you can give tours.</p>
+          </div>
+        </div>
+        <nav class="pl-tabs" aria-label="Tours">
+          <a href="#" class="vote-tab">Upcoming</a>
+          <a href="#" class="vote-tab vote-tab--active" aria-current="page">Calendar</a>
+          <a href="#" class="vote-tab">Past</a>
+          <a href="#" class="vote-tab">My Hours</a>
+          <a href="#" class="vote-tab">Guide</a>
+        </nav>
+        <details class="pl-tab-picker">
+          <summary class="pl-tab-picker__summary">
+            <span class="pl-tab-picker__text"><span class="pl-tab-picker__eyebrow">Tours</span><span class="pl-tab-picker__current">Calendar</span></span>
+            <span class="pl-tab-picker__count">2 of 5</span>
+            <span class="pl-tab-picker__chevron" aria-hidden="true"></span>
+          </summary>
+        </details>
+
+        <div class="hub-card pl-tours-panel pl-tours-gaps">
+          <h2 class="hub-detail-label pl-tours-panel__title">Days With No Tour Hours</h2>
+          <p class="hub-text-muted pl-tours-panel__intro">Nobody gives tours on these days in the next 30 days, so visitors cannot book them. Free on one? Add your hours.</p>
+          <ul class="pl-tours-gaps__list">
+            <li class="pl-tours-gaps__row"><span class="pl-tours-gaps__day">Wednesday, Nov 25</span><a href="#" class="pl-btn pl-btn--secondary pl-btn--sm">Add My Hours</a></li>
+            <li class="pl-tours-gaps__row"><span class="pl-tours-gaps__day">Thursday, Dec 3</span><a href="#" class="pl-btn pl-btn--secondary pl-btn--sm">Add My Hours</a></li>
+          </ul>
+        </div>
+
+        <div class="pl-tours-calendar mock-calendar-gap">
+          <div class="pl-calendar-page" id="tours-cal">
+            <div class="pl-calendar-topbar">
+              <div class="pl-calendar-topbar__left">
+                <div class="pl-calendar-view-toggle">
+                  <button class="pl-calendar-view-toggle__btn pl-calendar-view-toggle__btn--active" data-cal-view="week">Week</button>
+                  <button class="pl-calendar-view-toggle__btn" data-cal-view="month">Month</button>
+                </div>
+              </div>
+            </div>
+            <div class="pl-calendar-filters" id="tours-filters"></div>
+            <div data-cal-pane="week">
+              <div class="pl-calendar-nav">
+                <button type="button" class="pl-calendar-nav__btn" aria-label="Previous week"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg></button>
+                <span class="pl-calendar-nav__label">Nov 23 to 29</span>
+                <button type="button" class="pl-calendar-nav__btn" aria-label="Next week"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button>
+              </div>
+              <div id="tours-grid"></div>
+              <ul class="pl-hourgrid-key" aria-label="What the shapes mean">
+                <li class="pl-hourgrid-key__item"><span class="pl-hourgrid-key__swatch pl-hourgrid-key__swatch--hours"></span>A guide's hours, in their colour</li>
+                <li class="pl-hourgrid-key__item"><span class="pl-hourgrid-key__swatch pl-hourgrid-key__swatch--tour"></span>A booked tour (dashed: a request)</li>
+                <li class="pl-hourgrid-key__item"><span class="pl-hourgrid-key__swatch pl-hourgrid-key__swatch--gap"></span>Empty or striped: nobody covers it</li>
+              </ul>
+            </div>
+            <div data-cal-pane="month" hidden>
+              <p class="mock-month">Month stays exactly as it is today: one chip per guide's hours and per tour.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===================== My Hours: the week ===================== -->
+      <div class="mock-view" data-mock-view="myhours">
+        <div class="hub-page-header">
+          <div>
+            <h1 class="hub-page-title">My Hours</h1>
+            <p class="hub-text-muted">When people can book you, for tours and every orientation you give. Set your time once here.</p>
+          </div>
+        </div>
+        <section class="hub-card pl-tours-panel" data-hours-week>
+          <div class="pl-tours-panel__head">
+            <h2 class="hub-detail-label pl-tours-panel__title">This Week</h2>
+          </div>
+          <ul class="pl-hours-offer" aria-label="What you offer">
+            <li class="pl-hours-offer__item pl-kind pl-kind--tours"><span class="pl-hours-offer__dot"></span>Tours</li>
+            <li class="pl-hours-offer__item pl-kind pl-kind--a"><span class="pl-hours-offer__dot"></span>Printmaking Guild orientations</li>
+            <li class="pl-hours-offer__item pl-kind pl-kind--b"><span class="pl-hours-offer__dot"></span>Ceramics Guild orientations</li>
+            <li class="pl-hours-offer__item pl-hours-offer__item--key"><span class="pl-hours-offer__swatch pl-hours-offer__swatch--open"></span>Open</li>
+            <li class="pl-hours-offer__item pl-hours-offer__item--key"><span class="pl-hours-offer__swatch pl-hours-offer__swatch--booked"></span>Booked</li>
+            <li class="pl-hours-offer__item pl-hours-offer__item--key"><span class="pl-hours-offer__swatch pl-hours-offer__swatch--busy"></span>Busy</li>
+          </ul>
+          <div class="pl-calendar-nav">
+            <button type="button" class="pl-calendar-nav__btn" aria-label="Previous week"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg></button>
+            <span class="pl-calendar-nav__label">Nov 23 to 29</span>
+            <button type="button" class="pl-calendar-nav__btn" aria-label="Next week"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></button>
+          </div>
+          <div id="myhours-grid"></div>
+          <p class="pl-hours-rule">A booking or request for one kind closes that time for the others. Classes you teach and busy times in your Google Calendar close it too. Bookings already made always stay.</p>
+        </section>
+        <section class="hub-card pl-tours-panel">
+          <div class="pl-tours-panel__head"><h2 class="hub-detail-label pl-tours-panel__title">Every Week</h2></div>
+          <p class="hub-text-muted pl-tours-panel__intro">Unchanged from #1329: Every Week, Available On, Days Off and Google Calendar follow here as approved.</p>
+        </section>
+      </div>
+    </main>
+  </div>
+
+<script>
+/* ---------- mockup data and layout (the build computes this in Python) ---------- */
+var DAYS = [
+  { key: 'mon', name: 'Mon', num: 23 }, { key: 'tue', name: 'Tue', num: 24, today: true },
+  { key: 'wed', name: 'Wed', num: 25 }, { key: 'thu', name: 'Thu', num: 26 },
+  { key: 'fri', name: 'Fri', num: 27 }, { key: 'sat', name: 'Sat', num: 28 },
+  { key: 'sun', name: 'Sun', num: 29 }
+];
+var NOW = '13:40';
+
+var GUIDES = [
+  { key: 'robin', label: 'Robin V.', color: '#e05d5d' },
+  { key: 'dana', label: 'Dana O.', color: '#c9823a' },
+  { key: 'marcus', label: 'Marcus T.', color: '#6f93d8' },
+  { key: 'priya', label: 'Priya S.', color: '#3aa883' },
+  { key: 'none', label: 'No guide', color: 'var(--hub-text-muted)' }
+];
+function guide(k) { return GUIDES.filter(function (g) { return g.key === k; })[0]; }
+
+/* Tours: each guide's hours with the tours booked inside them; a tour outside anyone's hours stands alone. */
+var TOURS = {
+  mon: [
+    { type: 'hours', g: 'robin', s: '11:00', e: '18:00', kids: [{ s: '13:00', e: '14:00', t: 'Jordan (3)' }] },
+    { type: 'hours', g: 'dana', s: '16:00', e: '20:00', kids: [{ s: '17:00', e: '18:00', t: 'Ines (2)' }] }
+  ],
+  tue: [
+    { type: 'hours', g: 'marcus', s: '10:00', e: '14:00', kids: [{ s: '11:00', e: '12:00', t: 'Theo (4)' }, { s: '13:00', e: '14:00', t: 'Lee (2)', req: true }] },
+    { type: 'hours', g: 'priya', s: '12:00', e: '17:00', kids: [{ s: '15:00', e: '16:00', t: 'Ana (3)' }] }
+  ],
+  wed: 'uncovered',
+  thu: [
+    { type: 'hours', g: 'dana', s: '18:00', e: '21:00', kids: [{ s: '19:00', e: '20:00', t: 'Sol (5)' }] }
+  ],
+  fri: [
+    { type: 'hours', g: 'marcus', s: '08:00', e: '10:30', kids: [] },
+    { type: 'tour', g: 'none', s: '12:00', e: '13:00', t: 'Kai (2)' },
+    { type: 'hours', g: 'robin', s: '14:00', e: '18:00', kids: [{ s: '15:00', e: '16:00', t: 'Mei (4), Waiting' }] }
+  ],
+  sat: [
+    { type: 'hours', g: 'robin', s: '10:00', e: '14:00', kids: [{ s: '11:00', e: '12:00', t: 'Rae (6)' }] },
+    { type: 'hours', g: 'dana', s: '11:00', e: '15:00', kids: [{ s: '13:00', e: '14:00', t: 'Bo (2)' }] },
+    { type: 'hours', g: 'priya', s: '12:00', e: '16:00', kids: [{ s: '14:30', e: '15:30', t: 'Uma (3)' }] }
+  ],
+  sun: [
+    { type: 'hours', g: 'marcus', s: '12:00', e: '16:00', kids: [{ s: '13:00', e: '14:00', t: 'Noa (3)' }] }
+  ]
+};
+
+/* My Hours: the same week as the approved #1329 mockup. */
+var MYHOURS = {
+  mon: [
+    { type: 'open', kinds: ['tours', 'a'], s: '11:00', e: '18:00', kids: [
+      { s: '13:00', e: '14:00', kind: 'tours', t: 'Tour · 3 visitors' },
+      { s: '15:00', e: '16:00', kind: 'a', t: 'Printmaking · Sam K.' }] }
+  ],
+  tue: 'off',
+  wed: [
+    { type: 'open', kinds: ['tours', 'b'], s: '12:00', e: '17:00', kids: [{ s: '13:00', e: '14:30', kind: 'b', t: 'Ceramics · requested' }] }
+  ],
+  thu: [ { type: 'busy', s: '18:30', e: '21:00', t: 'Class: Intro to Linocut' } ],
+  fri: [
+    { type: 'busy', s: '10:00', e: '13:00', t: 'Busy in Google' },
+    { type: 'open', kinds: ['tours'], s: '14:00', e: '18:00', kids: [] }
+  ],
+  sat: [ { type: 'open', kinds: ['tours', 'a'], s: '11:00', e: '15:00', kids: [] } ],
+  sun: [ { type: 'open', kinds: ['a', 'b'], s: '11:00', e: '18:00', kids: [] } ]
+};
+var KIND_COLOR = { tours: 'var(--color-tuscan-yellow)', a: 'var(--hub-blue)', b: '#3fb98a' };
+
+function mins(t) { var p = t.split(':'); return +p[0] * 60 + +p[1]; }
+function clock(m) {
+  var h = Math.floor(m / 60), mm = m % 60, ap = h >= 12 ? 'PM' : 'AM', h12 = h % 12 || 12;
+  return h12 + ':' + (mm < 10 ? '0' : '') + mm + ' ' + ap;
+}
+/* Blocks say times the short way ("1 PM", "10:30 AM") so a lane of 60px still reads. */
+function short(m) { var h = Math.floor(m / 60), mm = m % 60; return (h % 12 || 12) + (mm ? ':' + (mm < 10 ? '0' : '') + mm : '') + ' ' + (h >= 12 ? 'PM' : 'AM'); }
+function hourLabel(h) { var ap = h >= 12 ? 'PM' : 'AM'; return (h % 12 || 12) + ' ' + ap; }
+function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+
+/* Lanes: overlapping blocks in one day sit side by side; each cluster of overlaps shares its lane count. */
+function lay(blocks) {
+  var items = blocks.slice().sort(function (a, b) { return mins(a.s) - mins(b.s) || mins(b.e) - mins(a.e); });
+  var cluster = [], laneEnds = [], clusterEnd = -1;
+  function close() { cluster.forEach(function (b) { b.lanes = laneEnds.length; }); cluster = []; laneEnds = []; }
+  items.forEach(function (b) {
+    if (mins(b.s) >= clusterEnd) { close(); clusterEnd = -1; }
+    var lane = laneEnds.findIndex(function (end) { return end <= mins(b.s); });
+    if (lane < 0) { lane = laneEnds.length; laneEnds.push(0); }
+    laneEnds[lane] = mins(b.e); b.lane = lane; cluster.push(b);
+    clusterEnd = Math.max(clusterEnd, mins(b.e));
+  });
+  close();
+  return items;
+}
+
+/* The visible range: 9 AM to 9 PM, stretched to the hour around anything earlier or later. */
+function range(data) {
+  var lo = 9 * 60, hi = 21 * 60;
+  Object.keys(data).forEach(function (k) {
+    if (!Array.isArray(data[k])) return;
+    data[k].forEach(function (b) { lo = Math.min(lo, mins(b.s)); hi = Math.max(hi, mins(b.e)); });
+  });
+  return { lo: Math.floor(lo / 60) * 60, hi: Math.ceil(hi / 60) * 60 };
+}
+
+function blockHtml(b, lo, view) {
+  var style = '--start:' + (mins(b.s) - lo) + ';--len:' + (mins(b.e) - mins(b.s)) + ';--lane:' + b.lane + ';--lanes:' + b.lanes + ';';
+  var when = short(mins(b.s)) + ' to ' + short(mins(b.e));
+  var kids = (b.kids || []).map(function (k) {
+    var tone = view === 'tours' ? guide(b.g).color : KIND_COLOR[k.kind];
+    var kc = 'pl-hourgrid__inner' + (k.req ? ' pl-hourgrid__inner--request' : '');
+    var ks = '--start:' + (mins(k.s) - mins(b.s)) + ';--len:' + (mins(k.e) - mins(k.s)) + ';--tone:' + tone + ';';
+    return '<div class="' + kc + '" style="' + ks + '" title="' + esc((k.req ? 'Request: ' : 'Tour: ') + k.t + ', ' + clock(mins(k.s))) + '">' +
+      '<span class="pl-hourgrid__when">' + short(mins(k.s)) + '</span><span class="pl-hourgrid__label">' + esc(k.t) + '</span></div>';
+  }).join('');
+  if (view === 'tours') {
+    var g = guide(b.g);
+    style += '--tone:' + g.color + ';';
+    if (b.type === 'tour') {
+      return '<div class="pl-hourgrid__block pl-hourgrid__block--tour" data-guide="' + b.g + '" style="' + style + '" title="' + esc('Tour: ' + b.t + ', ' + g.label) + '">' +
+        '<span class="pl-hourgrid__when">' + short(mins(b.s)) + '</span><span class="pl-hourgrid__label">' + esc(b.t) + '</span><span class="pl-hourgrid__when">' + g.label + '</span></div>';
+    }
+    return '<div class="pl-hourgrid__block pl-hourgrid__block--hours' + (b.lanes > 1 ? ' pl-hourgrid__block--shared' : '') + '" data-guide="' + b.g + '" style="' + style + '" title="' + esc(g.label + ' hours, ' + when) + '">' +
+      '<span class="pl-hourgrid__label">' + g.label.split(' ')[0] + '</span><span class="pl-hourgrid__when">' + when + '</span>' + kids + '</div>';
+  }
+  if (b.type === 'busy') {
+    return '<div class="pl-hourgrid__block pl-hourgrid__block--busy" style="' + style + '"><span class="pl-hourgrid__label">' + when + '</span><span class="pl-hourgrid__when">' + esc(b.t) + '</span></div>';
+  }
+  var dots = '<span class="pl-hourgrid__dots">' + b.kinds.map(function (k) { return '<span class="pl-kind pl-kind--' + k + '"></span>'; }).join('') + '</span>';
+  return '<div class="pl-hourgrid__block pl-hourgrid__block--open" style="' + style + '"><span class="pl-hourgrid__label">' + when + '</span><span class="pl-hourgrid__when">' + dots + 'Open</span>' + kids + '</div>';
+}
+
+function renderGrid(el, data, view, activeKey) {
+  var r = range(data), rows = (r.hi - r.lo) / 60, now = mins(NOW);
+  var strip = '<div class="pl-hourgrid-days" role="group" aria-label="Day">' + DAYS.map(function (d) {
+    var has = Array.isArray(data[d.key]) && data[d.key].length;
+    return '<button type="button" class="pl-hourgrid-days__day' + (d.today ? ' pl-hourgrid-days__day--today' : '') + (has ? ' pl-hourgrid-days__day--busy' : '') + '" data-day="' + d.key + '" aria-pressed="' + (d.key === activeKey) + '">' +
+      '<span class="pl-hourgrid-days__name">' + d.name + '</span><span class="pl-hourgrid-days__num">' + d.num + '</span><span class="pl-hourgrid-days__mark" aria-hidden="true"></span></button>';
+  }).join('') + '</div>';
+  var head = '<div class="pl-hourgrid__head"><div></div>' + DAYS.map(function (d) {
+    return '<div class="pl-hourgrid__dayhead' + (d.today ? ' pl-hourgrid__dayhead--today' : '') + '"><span class="pl-hourgrid__dayname">' + d.name + '</span><span class="pl-hourgrid__daynum">' + d.num + '</span></div>';
+  }).join('') + '</div>';
+  var times = '<div class="pl-hourgrid__times">';
+  for (var i = 0; i < rows; i++) times += '<span class="pl-hourgrid__time" style="--row:' + i + '">' + hourLabel(r.lo / 60 + i) + '</span>';
+  times += '</div>';
+  var cols = DAYS.map(function (d) {
+    var v = data[d.key], cls = 'pl-hourgrid__col', inner = '';
+    if (d.today) cls += ' pl-hourgrid__col--today';
+    if (d.key === activeKey) cls += ' pl-hourgrid__col--active';
+    if (v === 'off') { cls += ' pl-hourgrid__col--off'; inner = '<div class="pl-hourgrid__daynote">Day Off</div>'; }
+    else if (v === 'uncovered') { cls += ' pl-hourgrid__col--uncovered'; inner = '<div class="pl-hourgrid__daynote">No Tour Hours<a href="#" class="pl-btn pl-btn--secondary pl-btn--sm">Add My Hours</a></div>'; }
+    else inner = lay(v).map(function (b) { return blockHtml(b, r.lo, view); }).join('');
+    if (d.today && now >= r.lo && now <= r.hi) inner += '<div class="pl-hourgrid__now" style="--start:' + (now - r.lo) + '" aria-hidden="true"></div>';
+    return '<div class="' + cls + '" data-day="' + d.key + '" aria-label="' + d.name + ' ' + d.num + '">' + inner + '</div>';
+  }).join('');
+  el.innerHTML = strip + '<div class="pl-hourgrid" style="--rows:' + rows + '">' + head + '<div class="pl-hourgrid__body">' + times + cols + '</div></div>';
+  el.querySelectorAll('.pl-hourgrid-days__day').forEach(function (btn) {
+    btn.addEventListener('click', function () { renderGrid(el, data, view, btn.dataset.day); applyFilters(); });
+  });
+}
+
+/* Tours: the guide filter chips (the shell's own), hiding that guide's hours and tours. */
+var off = [];
+function applyFilters() {
+  document.querySelectorAll('#tours-grid [data-guide]').forEach(function (b) { b.hidden = off.indexOf(b.dataset.guide) >= 0; });
+}
+document.getElementById('tours-filters').innerHTML = GUIDES.map(function (g) {
+  return '<button class="pl-calendar-filter pl-calendar-filter--active" data-filter="' + g.key + '" style="--filter-color:' + g.color + ';"><span class="pl-calendar-filter__dot" style="background:' + g.color + ';"></span>' + g.label + '</button>';
+}).join('');
+document.querySelectorAll('[data-filter]').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var k = b.dataset.filter, i = off.indexOf(k);
+    if (i >= 0) off.splice(i, 1); else off.push(k);
+    b.classList.toggle('pl-calendar-filter--active', i >= 0);
+    applyFilters();
+  });
+});
+document.querySelectorAll('[data-cal-view]').forEach(function (b) {
+  b.addEventListener('click', function () {
+    document.querySelectorAll('[data-cal-view]').forEach(function (x) { x.classList.toggle('pl-calendar-view-toggle__btn--active', x === b); });
+    document.querySelectorAll('[data-cal-pane]').forEach(function (p) { p.hidden = p.dataset.calPane !== b.dataset.calView; });
+  });
+});
+
+var params = new URLSearchParams(location.search);
+var startDay = params.get('day') || DAYS.filter(function (d) { return d.today; })[0].key;
+renderGrid(document.getElementById('tours-grid'), TOURS, 'tours', startDay);
+renderGrid(document.getElementById('myhours-grid'), MYHOURS, 'myhours', startDay);
+</script>
+</body>
+</html>
