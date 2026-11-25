@@ -1152,12 +1152,16 @@ class Member(models.Model):
 
     @property
     def activity_log_name(self) -> str:
-        """How the Discord activity log names this member (#1330): their preferred name only, never the legal one.
+        """How the Discord activity log names this member (#1330): their preferred name, never the full legal one.
 
-        ``Member #<id>`` when they gave no preferred name, so neither the legal name nor the email
-        ever reaches the channel (Felix, 2026-11-25).
+        With no preferred name, the first word of the legal name, so leadership can tell who acted
+        (Felix, 2026-11-25: "Member #181" told them nothing). ``Member #<id>`` only when neither is
+        on file. Never the email, which an invite seeds as the legal name until they sign up.
         """
-        return self.preferred_name.strip() or f"Member #{self.pk}"
+        if preferred := self.preferred_name.strip():
+            return preferred
+        first, *_ = self.full_legal_name.split() or [""]
+        return first if first and "@" not in first else f"Member #{self.pk}"
 
     @property
     def staff_label(self) -> str:

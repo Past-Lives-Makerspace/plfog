@@ -34,6 +34,10 @@ SEPARATOR = " · "
 #: The row's payload key that records its line was handed to Discord, so a second run posts nothing.
 POSTED_KEY = "activity_log_posted"
 
+#: The row's payload key that keeps it off Discord (it stays in the feed): a class's publish that
+#: its approval already posted, or a run split from a published class.
+OFF_LOG_KEY = "activity_log_off"
+
 #: How long each retry waits, in order; one retry per entry, so a line is tried at most four times.
 RETRY_DELAYS = (timedelta(minutes=1), timedelta(minutes=5), timedelta(minutes=25))
 MAX_ATTEMPTS = len(RETRY_DELAYS) + 1
@@ -65,8 +69,8 @@ def activity_name(activity: SiteActivity) -> str:
 
     An actor with a member row by their preferred name only (:attr:`Member.activity_log_name`,
     ``Member #<id>`` without one), an account with none as ``User #<id>``. With no actor, the
-    target's ``activity_log_name`` (a registrant), else what the feed says: "Not recorded" or
-    "System".
+    target's ``activity_log_name`` (a registrant), else "": the line then names nobody, never
+    "System" or "Not recorded", which tell leadership nothing.
     """
     actor = activity.actor
     if actor is not None:
@@ -74,7 +78,7 @@ def activity_name(activity: SiteActivity) -> str:
         return member.activity_log_name if member is not None else f"User #{actor.pk}"
     if name := getattr(activity.target, "activity_log_name", ""):
         return str(name)
-    return "Not recorded" if activity.line.actor_unrecorded else "System"
+    return ""
 
 
 def activity_headline(activity: SiteActivity) -> str:
@@ -89,10 +93,14 @@ def activity_message(activity: SiteActivity) -> str:
     The feed's wording, with every member named by preferred name only (:func:`activity_headline`,
     :func:`activity_name`).
 
+    A line with nobody to name (a job's doing) is its headline and link alone.
+
     The headline and the name are escaped (:func:`escape_line_text`), so a member's words show as
     typed; the link sits in ``<>`` so Discord shows no preview card under a log line.
     """
-    parts = [escape_line_text(activity_headline(activity)), escape_line_text(activity_name(activity))]
+    parts = [escape_line_text(activity_headline(activity))]
+    if name := activity_name(activity):
+        parts.append(escape_line_text(name))
     link = activity_link(activity)
     if link:
         parts.append(f"<{link}>")
