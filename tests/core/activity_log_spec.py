@@ -179,8 +179,14 @@ def describe_retries():
     @respx.mock
     @pytest.mark.parametrize(
         "answer",
-        [httpx.Response(503, text="down"), httpx.Response(429, text="slow down"), httpx.ReadTimeout("slow")],
-        ids=["5xx", "429", "timeout"],
+        [
+            httpx.Response(503, text="down"),
+            httpx.Response(502, text="bad gateway"),
+            httpx.Response(429, text="slow down"),
+            httpx.ConnectError("no route"),
+            httpx.ConnectTimeout("no answer"),
+        ],
+        ids=["503", "502", "429", "connect-error", "connect-timeout"],
     )
     def it_releases_the_claim_and_queues_a_retry_with_backoff(answer, queued):
         _turn_on()
@@ -211,7 +217,7 @@ def describe_retries():
     @respx.mock
     def it_gives_up_loudly_after_the_last_attempt_and_keeps_the_claim(queued, caplog):
         _turn_on()
-        route = respx.post(_WEBHOOK).mock(return_value=httpx.Response(500))
+        route = respx.post(_WEBHOOK).mock(return_value=httpx.Response(503))
         activity = SiteActivity.objects.create(kind=SiteActivity.Kind.CLASS_APPROVED)
         with caplog.at_level(logging.ERROR, logger="core.activity_log"):
             post_activity.call(activity.pk, MAX_ATTEMPTS)
@@ -220,6 +226,28 @@ def describe_retries():
         activity.refresh_from_db()
         assert activity.payload[POSTED_KEY] is True
         assert [record.levelno for record in caplog.records if record.name == "core.activity_log"] == [logging.ERROR]
+
+    @respx.mock
+    @pytest.mark.parametrize(
+        "answer",
+        [httpx.Response(500), httpx.Response(504), httpx.ReadTimeout("slow")],
+        ids=["500", "504", "read-timeout"],
+    )
+    def it_counts_a_post_discord_may_have_stored_as_done(answer, queued, caplog):
+        _turn_on()
+        if isinstance(answer, Exception):
+            route = respx.post(_WEBHOOK).mock(side_effect=answer)
+        else:
+            route = respx.post(_WEBHOOK).mock(return_value=answer)
+        activity = SiteActivity.objects.create(kind=SiteActivity.Kind.CLASS_APPROVED)
+        with caplog.at_level(logging.WARNING):
+            post_activity.call(activity.pk)
+            post_activity.call(activity.pk)
+        assert route.call_count == 1
+        assert queued == []
+        activity.refresh_from_db()
+        assert activity.payload[POSTED_KEY] is True
+        assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
 
     @respx.mock
     def it_never_retries_a_refusal_and_logs_an_error(queued, caplog):
@@ -326,15 +354,34 @@ def describe_post_text():
         assert not route.called
 
     @respx.mock
-    def it_asks_for_a_retry_on_a_network_error():
-        respx.post(_WEBHOOK).mock(side_effect=httpx.ConnectError("no route"))
+    @pytest.mark.parametrize("error", [httpx.ConnectError("no route"), httpx.ConnectTimeout("no answer")])
+    def it_asks_for_a_retry_when_it_never_connected(error):
+        respx.post(_WEBHOOK).mock(side_effect=error)
         assert post_text(_WEBHOOK, "hello") is PostOutcome.RETRY
 
     @respx.mock
-    @pytest.mark.parametrize("status", [429, 500, 503])
-    def it_asks_for_a_retry_on_a_5xx_or_429(status):
+    @pytest.mark.parametrize("status", [429, 502, 503])
+    def it_asks_for_a_retry_on_a_status_that_says_discord_did_not_take_it(status):
         respx.post(_WEBHOOK).mock(return_value=httpx.Response(status))
         assert post_text(_WEBHOOK, "hello") is PostOutcome.RETRY
+
+    @respx.mock
+    @pytest.mark.parametrize("error", [httpx.ReadTimeout("slow"), httpx.RemoteProtocolError("hung up")])
+    def it_is_unsure_when_the_request_may_have_landed(error, caplog):
+        respx.post(_WEBHOOK).mock(side_effect=error)
+        with caplog.at_level(logging.WARNING, logger="core.events.discord"):
+            assert post_text(_WEBHOOK, "hello") is PostOutcome.UNSURE
+        assert [record.levelno for record in caplog.records if record.name == "core.events.discord"] == [
+            logging.WARNING
+        ]
+
+    @respx.mock
+    @pytest.mark.parametrize("status", [500, 504])
+    def it_is_unsure_on_any_other_5xx(status, caplog):
+        respx.post(_WEBHOOK).mock(return_value=httpx.Response(status))
+        with caplog.at_level(logging.WARNING, logger="core.events.discord"):
+            assert post_text(_WEBHOOK, "hello") is PostOutcome.UNSURE
+        assert "failed" in caplog.text
 
     @respx.mock
     @pytest.mark.parametrize("status", [400, 401, 404])

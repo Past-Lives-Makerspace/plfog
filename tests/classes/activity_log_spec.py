@@ -139,3 +139,38 @@ def describe_registration_lifecycle():
         with django_capture_on_commit_callbacks(execute=True):
             registration.cancel(reason="Can't make it")
         assert [content.split(" · ")[0] for content in _contents(route)] == ["Cancelled registration: Raku Firing"]
+
+
+def describe_waitlist_promotion():
+    @respx.mock
+    def it_posts_a_promoted_seat_as_registered_exactly_once_then_its_cancel(django_capture_on_commit_callbacks):
+        route = _turn_on()
+        registration = RegistrationFactory(
+            class_offering=ClassOfferingFactory(title="Raku Firing"), status=Registration.Status.WAITLISTED
+        )
+        with django_capture_on_commit_callbacks(execute=True):
+            registration.promote_from_waitlist(actor=None)
+        registration.refresh_from_db()
+        assert registration.status == Registration.Status.CONFIRMED
+        with django_capture_on_commit_callbacks(execute=True):
+            registration.save()  # a later save of the confirmed seat confirms nothing again
+        with django_capture_on_commit_callbacks(execute=True):
+            registration.cancel(reason="Can't make it")
+        assert [content.split(" · ")[0] for content in _contents(route)] == [
+            "Registered for class: Raku Firing",
+            "Cancelled registration: Raku Firing",
+        ]
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.CLASS_REGISTERED).count() == 1
+
+    @respx.mock
+    def it_posts_a_waitlister_who_claims_their_seat_once_through_the_ordinary_confirm(
+        django_capture_on_commit_callbacks,
+    ):
+        route = _turn_on()
+        registration = RegistrationFactory(
+            class_offering=ClassOfferingFactory(title="Raku Firing"), status=Registration.Status.WAITLISTED
+        )
+        registration.status = Registration.Status.CONFIRMED
+        with django_capture_on_commit_callbacks(execute=True):
+            registration.save()
+        assert [content.split(" · ")[0] for content in _contents(route)] == ["Registered for class: Raku Firing"]

@@ -5,8 +5,9 @@ The one seam is :meth:`core.models.SiteActivity.log`: a row whose kind is in
 commits. The task posts the row's Activity Feed wording (:attr:`SiteActivity.line`), who did
 it, and an absolute link to the thing in the portal, to Site Settings' Activity log webhook.
 Through the durable queue, never inline: a slow or failing Discord never reaches the page or
-job that wrote the row (#845). Blank webhook or staging posts nothing. A post Discord could not
-take for now (a timeout, a 5xx, a 429) is retried a few times with backoff.
+job that wrote the row (#845). Blank webhook or staging posts nothing. A post Discord certainly
+did not take (no connection, a 429, a 502 or a 503) is retried a few times with backoff; one it
+may have stored (a read timeout, any other 5xx) counts as done, so a line never posts twice.
 """
 
 from __future__ import annotations
@@ -107,7 +108,9 @@ def post_activity(activity_id: int, attempt: int = 1) -> None:
     (:data:`POSTED_KEY`), and only the run that claimed it posts. When Discord could not take it
     for now (:attr:`PostOutcome.RETRY`) the claim is released and the line queued again after
     :data:`RETRY_DELAYS`; past :data:`MAX_ATTEMPTS`, or on a refusal no retry would change, it
-    logs an error and stops. A row deleted before the worker reached it posts nothing. Never
+    logs an error and stops. When Discord may have stored it (:attr:`PostOutcome.UNSURE`) the
+    claim stays and nothing retries, since a second post could double the line; the poster
+    logs that at warning. A row deleted before the worker reached it posts nothing. Never
     raises: Discord's answers are outcomes, not errors.
 
     Args:
