@@ -1,8 +1,7 @@
 /* ==========================================================================
    My Hours (#1300, part 3): hours/my_hours.html only, lifted from mockups/1300-my-hours.html.
    Tokens only. Builds on tours.css (.pl-tours-panel, .pl-tours-row) and calendar.css
-   (.pl-calendar-grid--week), which the page also loads. The Open To and Add Day Off rules
-   come with editing (part 4).
+   (.pl-calendar-grid--week), which the page also loads. Open To is editing's (part 4).
    ========================================================================== */
 
 /* One colour per kind the person offers, set on any element as --kind. */
@@ -45,6 +44,21 @@
 .pl-hours-set__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; }
 .pl-hours-set__when { font-weight: 600; color: var(--hub-text); }
 
+/* Open To: one toggle per kind inside an open set of hours, each with its own settings under it. */
+.pl-hours-set__repeat { margin-top: 0.75rem; }
+.pl-hours-open-to { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--hub-border); }
+.pl-hours-open-to__title { margin: 0 0 0.25rem; font-size: 0.8125rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--hub-text-muted); }
+.pl-hours-open-to__hint { margin: 0 0 0.75rem; font-size: 0.8125rem; color: var(--hub-text-muted); }
+.pl-hours-kind { margin-top: 0.75rem; padding: 0.75rem 1rem; border: 1px solid var(--hub-border); border-left: 4px solid var(--kind); border-radius: 8px; background: var(--hub-surface); }
+.pl-hours-kind--off { border-left-color: var(--hub-border); }
+.pl-hours-kind .pl-toggle-row { margin: 0; }
+.pl-hours-kind__settings { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.75rem; }
+.pl-hours-kind__settings > .pl-form-group, .pl-hours-kind__fixed { flex: 0 1 auto; min-width: 7rem; margin: 0; }
+.pl-hours-kind__settings .pl-form-group { margin: 0; }
+.pl-hours-kind__type { flex: 1 1 16rem; max-width: 520px; }
+.pl-hours-kind__style { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.pl-hours-kind__note { margin: 0.5rem 0 0; font-size: 0.8125rem; color: var(--hub-text-muted); }
+
 @media (max-width: 640px) {
     /* The week reads as a list of days on a phone: no seven columns at 390px. */
     .pl-hours-week.pl-calendar-grid--week { grid-template-columns: 1fr; }
@@ -54,4 +68,6 @@
     .pl-hours-chip { font-size: 0.8125rem; }
     .pl-hours-day__off { text-align: left; margin-top: 0.25rem; }
     .pl-hours-set__head { flex-direction: column; }
+    .pl-hours-set__head .pl-btn { width: 100%; min-height: 48px; }
+    .pl-hours-kind__settings > .pl-form-group, .pl-hours-kind__fixed, .pl-hours-kind__type { flex: 1 1 100%; }
 }

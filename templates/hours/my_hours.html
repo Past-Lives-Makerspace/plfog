@@ -11,7 +11,8 @@
 My Hours (#1300, part 3; hours.views.my_hours, hours.page.MyHours), lifted from mockups/1300-my-hours.html:
 one person's week (open hours dashed, bookings solid in their kind's colour, classes and Google busy hatched,
 a day off striped), then Every Week, Available On, Days Off, Google Calendar and, for a guide, Booking Notice.
-Read only: editing is part 4, and the places hours are set today open this page in part 5; no sidebar link.
+Every Week and Available On edit and save themselves (part 4, plGuildAutosave, hours/partials/_hours_list.html);
+the places hours are set today open this page in part 5; no sidebar link.
 An admin picks whose hours with the picker (?member=), as on the Tours My Hours tab.
 {% endcomment %}
 <div class="pl-my-hours">
@@ -67,29 +68,18 @@ An admin picks whose hours with the picker (?member=), as on the Tours My Hours 
   <p class="pl-hours-rule">A booking or request for one kind closes that time for the others. Classes you teach and busy times in your Google Calendar close it too. Bookings already made always stay.</p>
 </section>
 
-<section class="hub-card pl-tours-panel" data-hours-weekly>
-  <h2 class="hub-detail-label pl-tours-panel__title">Every Week</h2>
-  <p class="hub-text-muted pl-tours-panel__intro">Hours that repeat, and what each set of hours is open to.</p>
-  {% if page.weekly %}
-  <div class="pl-tours-rows">
-    {% for row in page.weekly %}{% include "hours/partials/_hours_set.html" %}{% endfor %}
-  </div>
-  {% else %}
-  <p class="hub-text-muted pl-tours-panel__empty" data-hours-weekly-empty>No hours that repeat yet.</p>
-  {% endif %}
-</section>
-
-<section class="hub-card pl-tours-panel" data-hours-dated>
-  <h2 class="hub-detail-label pl-tours-panel__title">Available On</h2>
-  <p class="hub-text-muted pl-tours-panel__intro">Hours on certain days only, and what they are open to.</p>
-  {% if page.dated %}
-  <div class="pl-tours-rows">
-    {% for row in page.dated %}{% include "hours/partials/_hours_set.html" %}{% endfor %}
-  </div>
-  {% else %}
-  <p class="hub-text-muted pl-tours-panel__empty" data-hours-dated-empty>No dates coming up.</p>
-  {% endif %}
-</section>
+<div x-data="plGuildAutosave({ section: 'hours' })" data-guild-autosave @pl-guild-autosave-leave.window="leave()" @pl-guild-autosave-delete.window="confirmDelete()">
+{% include "hours/partials/_hours_set_script.html" %}
+{% if hours_refused %}
+{# Only without the script: the autosave shows a refusal on its row and never reloads the page. #}
+<div class="pl-tours-refused" role="alert" data-hours-refused>
+  <p class="pl-tours-refused__title">Your hours were not saved.</p>
+  <p class="pl-tours-refused__text">Fix the hours marked below and save again. Nothing changed until then.</p>
+</div>
+{% endif %}
+{% include "hours/partials/_hours_list.html" with formset=weekly_formset list="weekly" title="Every Week" intro="Hours that repeat. Tick what each set of hours is open to; every change saves as you make it." empty="No hours that repeat yet." %}
+{% include "hours/partials/_hours_list.html" with formset=dated_formset list="dated" title="Available On" intro="Free on certain days only? Pick the dates on the calendar, set the hours once and tick what they are open to." empty="No dates coming up." %}
+{% include "components/confirm_modal.html" with confirm_id="hours-set-delete" confirm_title="Delete these hours?" confirm_message="Nothing new can be booked in them, for any kind. Bookings already made stay booked." confirm_button_text="Delete" confirm_js="window.dispatchEvent(new CustomEvent('pl-guild-autosave-delete'))" %}
 
 <section class="hub-card pl-tours-panel pl-tours-days-off" data-hours-days-off>
   <h2 class="hub-detail-label pl-tours-panel__title">Days Off</h2>
@@ -130,5 +120,8 @@ An admin picks whose hours with the picker (?member=), as on the Tours My Hours 
   <p class="hub-text-muted pl-tours-panel__intro">{{ page.notice_line }}</p>
 </section>
 {% endif %}
+{# A boosted navigation held behind a save that failed: Leave resumes it, Stay drops it. #}
+{% include "components/confirm_modal.html" with confirm_id="leave-while-saving" confirm_title="A change did not save" confirm_message="A change could not be saved. Leave anyway, or stay and try again?" confirm_button_text="Leave" confirm_cancel_text="Stay" confirm_button_style="primary" confirm_js="window.dispatchEvent(new CustomEvent('pl-guild-autosave-leave'))" %}
+</div>{# /plGuildAutosave #}
 </div>
 {% endblock %}
