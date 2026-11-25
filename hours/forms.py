@@ -15,11 +15,12 @@ From and Until are picked. :class:`AddDatesForm` adds the same hours on every da
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, time, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
+from django.db.models import Prefetch
 from django.utils import timezone
 
 from hours.edit import TIME, TOURS, HoursEdit, OrientationOffer, Owner, TourOffer
@@ -33,7 +34,7 @@ from hub.forms import (
     half_hour_time_choices,
 )
 from membership.models import OrientationAvailability, OrientationType
-from tours.models import MAX_SEATS, FacilityTourSettings, day_label
+from tours.models import MAX_SEATS, FacilityTourSettings, TourHours, day_label
 
 if TYPE_CHECKING:
     from django.http import QueryDict
@@ -49,13 +50,6 @@ _FIXED = OrientationAvailability.BookingStyle.FIXED
 _OPEN = OrientationAvailability.BookingStyle.OPEN
 #: The set's own time fields: a problem with the time lands on one of them, or on the row.
 _TIME_FIELDS = ("weekday", "date", "cadence", "anchor_date", "last_of_month", "start_time", "end_time")
-
-
-class _TypeField(forms.ModelChoiceField):
-    """An orientation picker labeled by name alone; the block already names the guild or tool."""
-
-    def label_from_instance(self, obj: Any) -> str:
-        return str(obj.name)
 
 
 def _date_widget() -> forms.DateInput:
@@ -91,6 +85,14 @@ class Context:
     gives_tours: bool
     owners: list[Owner]
     defaults: FacilityTourSettings
+    #: Each owner's active orientations, read once for every row (``types_of``).
+    _types: dict[str, list[OrientationType]] = field(default_factory=dict, compare=False)
+
+    def types_of(self, owner: Owner) -> list[OrientationType]:
+        """The orientations ``owner`` offers now, in the editors' order, read once per editor."""
+        if owner.key not in self._types:
+            self._types[owner.key] = list(owner.types())
+        return self._types[owner.key]
 
 
 class HoursSetForm(forms.Form):
@@ -103,6 +105,7 @@ class HoursSetForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.context, self.hours, self.dated = context, hours, dated
         self.edit: HoursEdit | None = None
+        self.type_choices: dict[str, dict[int, OrientationType]] = {}
         self._time_fields()
         self.blocks = self._blocks()
         for block in self.blocks:
@@ -139,17 +142,11 @@ class HoursSetForm(forms.Form):
     def _blocks(self) -> list[Block]:
         context = self.context
         blocks: list[Block] = []
-        tour = self.hours.tour_hours.first() if self.hours is not None else None
+        tour = _tour_row(self.hours)
         if context.gives_tours or tour is not None:
             blocks.append(Block(TOURS, "Tours", "Visitors book on tours.pastlives.space."))
         rules = (
-            list(
-                self.hours.orientation_rules.filter(is_active=True)
-                .select_related("guild", "orientation_type__guild", "orientation_type__equipment")
-                .order_by("pk")
-            )
-            if self.hours is not None
-            else []
+            [rule for rule in self.hours.orientation_rules.all() if rule.is_active] if self.hours is not None else []
         )
         offered: set[str] = set()
         for rule in rules:
@@ -171,17 +168,19 @@ class HoursSetForm(forms.Form):
             return
         owner = cast(Owner, block.owner)
         rule = block.rule
-        types = owner.types()
-        if rule is not None and rule.orientation_type_id is not None:
-            types = (types | OrientationType.objects.filter(pk=rule.orientation_type_id)).distinct()
-        first = types.first()
-        type_field = _TypeField(
-            queryset=types,
+        types = list(self.context.types_of(owner))
+        if rule is not None and rule.orientation_type is not None and rule.orientation_type not in types:
+            types.append(rule.orientation_type)  # a retired orientation a saved row still names
+        first = types[0] if types else None
+        self.type_choices[block.key] = {kind.pk: kind for kind in types}
+        choices = [(str(kind.pk), kind.name) for kind in types]
+        self.fields[f"{name}orientation_type"] = forms.TypedChoiceField(
+            coerce=int,
+            empty_value=None,
             required=False,
             label="Orientation",
-            empty_label="Any orientation" if block.offers_open else None,
+            choices=[("", "Any orientation"), *choices] if block.offers_open else choices,
         )
-        self.fields[f"{name}orientation_type"] = type_field
         if block.offers_open:
             self.fields[f"{name}booking_style"] = forms.ChoiceField(
                 choices=OrientationAvailability.BookingStyle.choices,
@@ -226,7 +225,7 @@ class HoursSetForm(forms.Form):
 
     def _tour_fields(self, name: str) -> None:
         defaults = self.context.defaults
-        tour = self.hours.tour_hours.first() if self.hours is not None else None
+        tour = _tour_row(self.hours)
         self.fields[f"{name}tour_minutes"] = forms.TypedChoiceField(
             coerce=int, required=False, choices=list(_SLOT_DURATION_CHOICES), label="Tour length"
         )
@@ -324,7 +323,7 @@ class HoursSetForm(forms.Form):
                     owner=cast(Owner, block.owner),
                     on=on,
                     rule=block.rule,
-                    orientation_type=cleaned.get(f"{name}orientation_type"),
+                    orientation_type=self.type_choices[block.key].get(cleaned.get(f"{name}orientation_type") or 0),
                     booking_style=cleaned.get(f"{name}booking_style") or _FIXED,
                     seats=cleaned.get(f"{name}seats") or 4,
                     slot_minutes=cleaned.get(f"{name}slot_minutes"),
@@ -354,6 +353,24 @@ class HoursSetForm(forms.Form):
         return self.hours
 
 
+def _tour_row(hours: Hours | None) -> TourHours | None:
+    """The set's tour row, read from its prefetched rows (``with_kind_rows``)."""
+    return next(iter(hours.tour_hours.all()), None) if hours is not None else None
+
+
+def with_kind_rows(sets: Any) -> Any:
+    """``sets`` with each set's tour rows and orientation rows (owner and type) in two more queries."""
+    return sets.prefetch_related(
+        Prefetch("tour_hours", queryset=TourHours.objects.order_by("pk")),
+        Prefetch(
+            "orientation_rules",
+            queryset=OrientationAvailability.objects.select_related(
+                "guild", "orientation_type__guild", "orientation_type__equipment"
+            ).order_by("pk"),
+        ),
+    )
+
+
 def _orientation_hint(owner: Owner) -> str:
     """The block's one line under its name, as the mockup words it."""
     if owner.equipment is not None:
@@ -380,11 +397,13 @@ class HoursSetFormSet(forms.BaseFormSet):
     def __init__(self, data: Any = None, *, context: Context, dated: bool, prefix: str) -> None:
         self.context, self.dated = context, dated
         today = timezone.localdate()
-        sets = Hours.objects.filter(member=context.member, date__isnull=not dated)
+        found = list(with_kind_rows(Hours.objects.filter(member=context.member, date__isnull=not dated)))
+        self._by_pk = {hours.pk: hours for hours in found}
         if dated:
-            sets = sets.filter(date__gte=today).order_by("date", "start_time")
-        self.sets = list(sets)
-        self._by_pk = {hours.pk: hours for hours in Hours.objects.filter(member=context.member, date__isnull=not dated)}
+            found = sorted(
+                (hours for hours in found if cast(date, hours.date) >= today), key=lambda h: (h.date, h.start_time)
+            )
+        self.sets = found
         super().__init__(data, prefix=prefix, initial=[{"id": hours.pk} for hours in self.sets])
 
     def _posted_hours(self, index: int) -> tuple[Hours | None, bool]:
