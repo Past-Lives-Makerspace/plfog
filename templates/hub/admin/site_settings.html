@@ -74,7 +74,7 @@
     {# -------- General tab -------- #}
     <div x-show="tab === 'general'" x-cloak class="pl-settings-tab pl-settings-tab--tight">
       {% for field in form %}
-        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_reservations_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_member_role_id' and field.name != 'discord_leadership_role_id' and field.name != 'discord_guild_officers_role_id' and field.name != 'discord_guild_leads_role_id' and field.name != 'discord_tour_guides_role_id' and field.name != 'discord_instructors_role_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'discord_role_message_extra_ids' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'eventbrite_sync_enabled' and field.name != 'discord_calendar_channel_id' and field.name != 'discord_calendar_posts_enabled' and field.name != 'discord_classes_channel_id' and field.name != 'discord_classes_posts_enabled' and field.name != 'discord_info_channel_id' and field.name != 'discord_info_message_id' and field.name != 'discord_info_links_content' and field.name != 'discord_leadership_directory_channel_id' and field.name != 'org_name' and field.name != 'org_short_name' and field.name != 'org_legal_name' and field.name != 'org_logo' and field.name != 'org_primary_color' and field.name != 'org_support_email' and field.name != 'org_website_url' and field.name != 'google_play_url' and field.name != 'app_store_url' %}
+        {% if field.name != 'sync_classes_enabled' and field.name != 'classes_calendar_color' and field.name != 'discord_general_webhook_url' and field.name != 'discord_leadership_webhook_url' and field.name != 'discord_officers_webhook_url' and field.name != 'discord_reservations_webhook_url' and field.name != 'discord_activity_webhook_url' and field.name != 'discord_server_id' and field.name != 'discord_member_role_id' and field.name != 'discord_leadership_role_id' and field.name != 'discord_guild_officers_role_id' and field.name != 'discord_guild_leads_role_id' and field.name != 'discord_tour_guides_role_id' and field.name != 'discord_instructors_role_id' and field.name != 'discord_role_message_channel_id' and field.name != 'discord_role_message_id' and field.name != 'discord_role_message_extra_ids' and field.name != 'member_event_policy' and field.name != 'member_google_calendar_id' and field.name != 'public_google_calendar_id' and field.name != 'google_calendar_sync_enabled' and field.name != 'discord_events_sync_enabled' and field.name != 'eventbrite_sync_enabled' and field.name != 'discord_calendar_channel_id' and field.name != 'discord_calendar_posts_enabled' and field.name != 'discord_classes_channel_id' and field.name != 'discord_classes_posts_enabled' and field.name != 'discord_info_channel_id' and field.name != 'discord_info_message_id' and field.name != 'discord_info_links_content' and field.name != 'discord_leadership_directory_channel_id' and field.name != 'org_name' and field.name != 'org_short_name' and field.name != 'org_legal_name' and field.name != 'org_logo' and field.name != 'org_primary_color' and field.name != 'org_support_email' and field.name != 'org_website_url' and field.name != 'google_play_url' and field.name != 'app_store_url' %}
         <div class="field-row{% if field.field.widget.input_type == 'checkbox' %} field-checkbox{% endif %}">
           {% if field.field.widget.input_type == 'checkbox' %}
             {{ field }}
@@ -253,7 +253,7 @@
       {# ---- Shared channels (existing) ---- #}
       <div class="hub-card" style="padding:1.5rem;">
         <div style="margin-bottom:1.25rem;">
-          <h2 style="margin:0 0 0.25rem;font-size:1rem;color:var(--hub-text);">Shared Discord Channels</h2>
+          <div style="display:flex;align-items:center;gap:0.625rem;flex-wrap:wrap;margin:0 0 0.25rem;"><h2 style="margin:0;font-size:1rem;color:var(--hub-text);">Shared Discord Channels</h2>{% whats_new_button "admin.activity-log" %}</div>
           <p style="margin:0;color:var(--hub-text-muted);font-size:0.875rem;">
             Set these so guild leads can post to #general-chat, #leadership, and #guild-officers when they use Email Members. Leave a field blank to hide that option from leads.
             In Discord: Server Settings → Integrations → Webhooks → New Webhook → pick the channel → Copy Webhook URL.
@@ -263,6 +263,9 @@
         {% include "components/form_field.html" with field=form.discord_leadership_webhook_url %}
         {% include "components/form_field.html" with field=form.discord_officers_webhook_url %}
         {% include "components/form_field.html" with field=form.discord_reservations_webhook_url %}
+        <div data-guidance-target="admin.activity-log-webhook">
+          {% include "components/form_field.html" with field=form.discord_activity_webhook_url %}
+        </div>
       </div>
 
       {# ---- D1: Connection ids (guild-role sync) ---- #}

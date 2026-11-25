@@ -651,7 +651,8 @@ def describe_refunds_queued_with_the_cancel():
             with patch("core.tasks.enqueue_in_transaction", side_effect=record):
                 assert offering.cancel_for_minimum(timezone.now()) is True
         assert seen == [(True, ClassOffering.Status.CANCELLED)] * 2
-        assert callbacks == []
+        # The one callback is the activity log's post of the cancel (#1330), never a refund.
+        assert len(callbacks) == 1
 
     def it_leaves_the_class_live_when_a_refund_cannot_be_queued(mock_create):
         offering = _closed_class(minimum=4, confirmed=1)

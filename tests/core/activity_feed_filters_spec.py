@@ -66,7 +66,7 @@ def describe_ActivityFeedFilterForm():
     def describe_event_groups():
         def it_lists_every_category_without_a_choice():
             groups = ActivityFeedFilterForm({}).event_groups()
-            assert len(groups) == 9
+            assert len(groups) == 10
             assert sum(len(events) for _label, events in groups) == len(SiteActivity.Kind.choices)
 
         def it_lists_only_the_chosen_category():

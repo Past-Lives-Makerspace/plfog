@@ -1847,6 +1847,7 @@ class SiteSettingsForm(_OwnFieldErrorsOnly):
             "discord_leadership_webhook_url",
             "discord_officers_webhook_url",
             "discord_reservations_webhook_url",
+            "discord_activity_webhook_url",
             "discord_server_id",
             "discord_member_role_id",
             "discord_leadership_role_id",

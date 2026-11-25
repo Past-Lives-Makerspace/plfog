@@ -1223,28 +1223,32 @@ def _charge_hold(locked: OrientationBooking) -> None:
 def _confirm_charging_hold(booking: OrientationBooking, *, oriented_by: Member | None) -> None:
     """``booking.confirm()``, charging its card hold first when it holds one (#1128).
 
-    A booking that holds no card (free, paid before #1128) confirms exactly as before. A
-    held one decides on its row lock, so a decline or cancel that landed first is refused,
-    and is confirmed only once the charge succeeds, in the same transaction. A charge Stripe
-    refuses declines the request (:data:`DECLINE_CARD_FAILED`) and re-raises for the person
-    confirming; an unreachable Stripe changes nothing.
+    Every confirm decides on the booking's row lock, so a decline, a cancel or another confirm
+    that landed first (a second tab, a double POST) is refused, and a request is confirmed and
+    logged once (#1330). A held card is charged first, in the same transaction, and the request
+    is confirmed only once the charge succeeds. A charge Stripe refuses declines the request
+    (:data:`DECLINE_CARD_FAILED`) and re-raises for the person confirming; an unreachable Stripe
+    changes nothing. A checkout hold is refused by ``confirm()`` itself, as before.
 
     Raises:
-        OrientationError: The request was already answered.
+        OrientationError: The request was already answered, or it is a checkout hold.
         HoldCaptureFailed: The card would not charge; the request is now declined.
         HoldCaptureUnavailable: Stripe could not be reached; nothing changed.
     """
     from membership.models import HoldCaptureFailed, OrientationBooking, OrientationError
 
-    if not booking.hold_is_open:
-        booking.confirm(oriented_by=oriented_by)
-        return
+    answered = (
+        OrientationBooking.Status.CONFIRMED,
+        OrientationBooking.Status.DECLINED,
+        OrientationBooking.Status.CANCELLED,
+    )
     try:
         with transaction.atomic():
             locked = _locked_booking(booking)
-            if locked.status != OrientationBooking.Status.REQUESTED:
+            if locked.status in answered:
                 raise OrientationError("This request was already answered.")
-            _charge_hold(locked)
+            if locked.hold_is_open:
+                _charge_hold(locked)
             locked.confirm(oriented_by=oriented_by)
     except HoldCaptureFailed:
         _decline_unconfirmed(booking, reason=DECLINE_CARD_FAILED)

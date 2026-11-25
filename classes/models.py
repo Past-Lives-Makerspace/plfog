@@ -52,7 +52,7 @@ from core.integrations import eventbrite_choices
 from core.integrations.eventbrite_choices import EventbriteCategory, EventbriteSubcategory
 from core.html_sanitize import is_editor_html, rich_body_to_text, rich_html_to_text
 from core.images import cut_hero_crop, normalize_field_if_uploaded
-from core.models import HERO_CROP_FIELDS, HeroCropMixin
+from core.models import HERO_CROP_FIELDS, ActivityLine, HeroCropMixin
 from core.seo import DESCRIPTION_LIMIT, TITLE_LIMIT
 from core.threads import ThreadMessage, ThreadPhoto
 from core.validators import validate_image_content, validate_image_size
@@ -64,6 +64,7 @@ if TYPE_CHECKING:
 
     from billing.models import PaymentRefund
     from core.integrations.eventbrite import ListingCheck, ListingSchedule
+    from core.models import SiteActivity
     from membership.models import Guild, Member
 
 logger = logging.getLogger(__name__)
@@ -2067,6 +2068,17 @@ class ClassOffering(HeroCropMixin, models.Model):
 
     def __str__(self) -> str:
         return self.title
+
+    def describe_activity(self, activity: SiteActivity) -> ActivityLine:
+        """The Activity Feed's line for a row about this class (#1330): what happened, and to which class."""
+        return ActivityLine(headline=f"{activity.get_kind_display()}: {self.title}")
+
+    @property
+    def activity_url(self) -> str:
+        """The class's page in the teaching portal, for the activity log's link (#1330)."""
+        from django.urls import reverse
+
+        return reverse("classes:teach_class_detail", args=[self.pk])
 
     @property
     def public_path(self) -> str:
@@ -6837,6 +6849,31 @@ class Registration(models.Model):
     def __str__(self) -> str:
         return f"{self.email} → {self.class_offering.title}"
 
+    def describe_activity(self, activity: SiteActivity) -> ActivityLine:
+        """The Activity Feed's line for a row about this seat (#1330): what happened, and in which class.
+
+        The registrant is named beside it (:attr:`SiteActivity.who`), never by their email.
+        """
+        return ActivityLine(headline=f"{activity.get_kind_display()}: {self.class_offering.title}")
+
+    @property
+    def activity_log_name(self) -> str:
+        """The registrant as the activity log names them (#1330), never by email.
+
+        A member by their preferred name only (:attr:`Member.activity_log_name`); a guest by the
+        name they typed, else ``Registration #<id>``.
+        """
+        if self.member is not None:
+            return self.member.activity_log_name
+        return f"{self.first_name} {self.last_name}".strip() or f"Registration #{self.pk}"
+
+    @property
+    def activity_url(self) -> str:
+        """The class's registrations in the teaching portal, for the activity log's link (#1330)."""
+        from django.urls import reverse
+
+        return reverse("classes:teach_class_registrations", args=[self.class_offering_id])
+
     @property
     def is_eventbrite(self) -> bool:
         """Whether this seat was bought on Eventbrite, so its money and refunds live there."""
@@ -7271,6 +7308,7 @@ class Registration(models.Model):
         automated path).
         """
         previously_held_a_spot = self.status in (self.Status.CONFIRMED, self.Status.PENDING)
+        was_confirmed = self.status == self.Status.CONFIRMED
         was_waitlisted = self.status == self.Status.WAITLISTED
         self.status = self.Status.CANCELLED
         self.cancelled_at = timezone.now()
@@ -7284,6 +7322,9 @@ class Registration(models.Model):
             registration=self,
             actor=actor,
             payload={"reason": reason} if reason else {},
+            # Only a confirmed seat's cancel reaches the site feed and the activity log (#1330): an
+            # abandoned checkout, released here by the hold sweep, was never a registration.
+            mirror=was_confirmed,
         )
         if previously_held_a_spot:
             self.class_offering.promote_next_from_waitlist()

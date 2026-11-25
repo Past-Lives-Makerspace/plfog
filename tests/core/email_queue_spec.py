@@ -397,7 +397,8 @@ def describe_coming_up_in_the_next_24_hours():
         # 41: the New Members tab (#1115) builds its table on every Site Activity load, one query.
         # 43: the feed's GenericPrefetch (#1237) looks up the orientation booking and space request
         # content types, one query each on a cold cache; Django caches them for the process after.
-        with django_assert_max_num_queries(43):
+        # 45: the same for the equipment reservation and registration it also prefetches (#1330).
+        with django_assert_max_num_queries(45):
             _queue_html(staff_client)
 
 

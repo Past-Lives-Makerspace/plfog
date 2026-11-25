@@ -63,7 +63,12 @@ def describe_manage_activity():
         )
         client.login(username="a_names", password="pw12345!")
         SiteActivity.log(SiteActivity.Kind.LOGIN, actor=staff)
-        RegistrationFactory(first_name="Guest", last_name="Person", email="guest@example.com")
+        from classes.models import Registration
+
+        # A confirmed seat: one still awaiting payment is not in the feed (#1330).
+        RegistrationFactory(
+            first_name="Guest", last_name="Person", email="guest@example.com", status=Registration.Status.CONFIRMED
+        )
         content = client.get(reverse("manage_activity"), {"tab": "feed"}).content.decode()
         assert "Rae ·" in content
         assert "Guest Person ·" in content
@@ -317,7 +322,7 @@ def describe_activity_feed_filters():
 
     def it_groups_the_event_options_by_category(client):
         content = _feed(client).content.decode()
-        assert content.count("<optgroup ") == 9
+        assert content.count("<optgroup ") == 10
         assert re.search(r'<optgroup label="Voting">\s*<option value="vote_submitted"', content)
         assert re.search(r'<option value="voting"\s*>Voting</option>', content)
 

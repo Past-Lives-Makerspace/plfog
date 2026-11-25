@@ -1151,6 +1151,15 @@ class Member(models.Model):
         return self.display_name
 
     @property
+    def activity_log_name(self) -> str:
+        """How the Discord activity log names this member (#1330): their preferred name only, never the legal one.
+
+        ``Member #<id>`` when they gave no preferred name, so neither the legal name nor the email
+        ever reaches the channel (Felix, 2026-11-25).
+        """
+        return self.preferred_name.strip() or f"Member #{self.pk}"
+
+    @property
     def staff_label(self) -> str:
         """How staff screens name this member: "Wren (Quinn Ashdown)", or the one name there is."""
         return member_label(self.preferred_name, self.full_legal_name)
@@ -17808,6 +17817,11 @@ class OrientationBooking(models.Model):
             return None
         return OrientationBookingMessage.write(author=author, body=body, booking=self)
 
+    @property
+    def activity_url(self) -> str:
+        """Where a leader answers or reviews this booking, for the activity log's link (#1330)."""
+        return reverse("hub_orientation_respond", args=[self.pk])
+
     def describe_activity(self, activity: SiteActivity) -> ActivityLine:
         """The Activity Feed's line for a row about this booking: whose orientation it is, which one, and its note.
 
@@ -17817,9 +17831,17 @@ class OrientationBooking(models.Model):
         A request row carries the member's note: the thread's first message, when they wrote it
         with the request. Any other note rides in the row's payload (:attr:`SiteActivity.line`).
         """
+        return self._activity_line(activity, self.member.staff_label)
+
+    def describe_activity_log(self, activity: SiteActivity) -> ActivityLine:
+        """:meth:`describe_activity` for the Discord activity log: the member by preferred name only (#1330)."""
+        return self._activity_line(activity, self.member.activity_log_name)
+
+    def _activity_line(self, activity: SiteActivity, member_name: str) -> ActivityLine:
+        """The line for a row about this booking, naming the member as ``member_name``."""
         verb = activity.get_kind_display()
         orientation = self.orientation_type
-        subject = f"{self.member.staff_label} for {orientation.name} ({orientation.owner_name})"
+        subject = f"{member_name} for {orientation.name} ({orientation.owner_name})"
         note = self._request_note(activity) if activity.kind == SiteActivity.Kind.ORIENTATION_REQUESTED else ""
         if activity.actor_id is not None:
             return ActivityLine(headline=f"{verb}: {subject}", note=note)
@@ -21307,6 +21329,35 @@ class EquipmentReservation(models.Model):
 
         return issue_refund(self, amount_cents=amount_cents, reason=reason, actor=actor)
 
+    def describe_activity(self, activity: SiteActivity) -> ActivityLine:
+        """The Activity Feed's line for a row about this reservation (#1330): whose, which equipment, and when.
+
+        "Reservation confirmed: Robin Vale for Laser Cutter, Sat, Sep 12, 2:00 PM to 4:00 PM". A
+        decline's or a cancel's reason rides in the row's payload as its note.
+        """
+        return self._activity_line(activity, self.member.staff_label)
+
+    def describe_activity_log(self, activity: SiteActivity) -> ActivityLine:
+        """:meth:`describe_activity` for the Discord activity log: the member by preferred name only (#1330)."""
+        return self._activity_line(activity, self.member.activity_log_name)
+
+    def _activity_line(self, activity: SiteActivity, member_name: str) -> ActivityLine:
+        """The line for a row about this reservation, naming the member as ``member_name``."""
+        subject = f"{member_name} for {self.equipment.name}, {self.request_span}"
+        return ActivityLine(headline=f"{activity.get_kind_display()}: {subject}")
+
+    @property
+    def activity_url(self) -> str:
+        """The equipment's Manage > Reservations tab, where this reservation is decided, for the activity log (#1330)."""
+        return f"{reverse('hub_equipment_manage', args=[self.equipment.slug])}?tab=reservations"
+
+    def log_activity(self, kind: SiteActivity.Kind, *, actor: User | None, note: str = "") -> None:
+        """Write this reservation's Activity Feed row (#1330), which also posts it to the activity log.
+
+        ``note`` is a decline's or a cancel's reason; blank adds none.
+        """
+        SiteActivity.log(kind, actor=actor, target=self, payload={"note": note} if note else None)
+
     @property
     def is_declined(self) -> bool:
         """True once a manager declined this request (#748): the time is free, the reason kept."""
@@ -21330,6 +21381,7 @@ class EquipmentReservation(models.Model):
         if not flipped:
             raise EquipmentError(self.NOT_WAITING_MESSAGE)
         self.status = self.Status.CONFIRMED
+        self.log_activity(SiteActivity.Kind.RESERVATION_CONFIRMED, actor=actor.user)
         from membership import equipment as equipment_service
 
         equipment_service.notify_approved(self, actor)
@@ -21367,6 +21419,7 @@ class EquipmentReservation(models.Model):
         self.cancelled_by = actor
         self.cancelled_reason = cleaned_reason
         self.cancelled_at = now
+        self.log_activity(SiteActivity.Kind.RESERVATION_DECLINED, actor=actor.user, note=cleaned_reason)
         from membership import equipment as equipment_service
 
         # A paid request is refunded in full (#749); a refund Stripe refuses never undoes the decline.
@@ -21513,6 +21566,7 @@ class EquipmentReservation(models.Model):
             if acting_as_manager and not is_own_row:
                 # The reason is also the manager's message on the thread; the cancel notice carries it.
                 self.write_message(author=actor.user, body=cleaned_reason)
+            self.log_activity(SiteActivity.Kind.RESERVATION_CANCELLED, actor=actor.user, note=cleaned_reason)
         from membership import equipment as equipment_service
 
         self.refund_outcome = self._refund_on_cancel(actor, now)

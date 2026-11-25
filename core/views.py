@@ -670,7 +670,8 @@ def site_activity(request: HttpRequest) -> HttpResponse:
     from core.new_members import count_line as new_members_count_line
     from core.new_members import empty_message as new_members_empty_message
     from core.services.email_queue import DigestQueue, sent_digests
-    from membership.models import OrientationBooking, SpaceRequest
+    from classes.models import Registration
+    from membership.models import EquipmentReservation, OrientationBooking, SpaceRequest
 
     # The tab lands inside an Alpine expression, where the browser decodes Django's escaping
     # before Alpine evaluates it, so only a known tab name may reach the template.
@@ -683,7 +684,8 @@ def site_activity(request: HttpRequest) -> HttpResponse:
     # The feed names each row's person (SiteActivity.who): the actor's member, or a
     # registration target's registrant, so both are fetched with the page. An orientation
     # booking or space request words its own row (SiteActivity.line), so each comes with what
-    # that reads: its member and orientation, its thread for a request's note, its space.
+    # that reads: its member and orientation, its thread for a request's note, its space; a
+    # reservation its member and equipment, a seat its class (#1330).
     activities = feed_filters.filter(
         SiteActivity.objects.exclude(SiteActivity.stray_rows()).select_related(
             "actor__member", "target_ct", "email_log"
@@ -696,6 +698,8 @@ def site_activity(request: HttpRequest) -> HttpResponse:
                     "member", "orientation_type__guild", "orientation_type__equipment"
                 ).prefetch_related("messages"),
                 SpaceRequest.objects.select_related("requester", "space"),
+                EquipmentReservation.objects.select_related("member", "equipment"),
+                Registration.objects.select_related("class_offering"),
             ],
         )
     )

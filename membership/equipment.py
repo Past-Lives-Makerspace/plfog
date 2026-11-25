@@ -262,6 +262,7 @@ def reserve(
             is_season=locked.has_season,
         )
         _spend_credit(reservation)
+    _log_made(reservation)
     if reservation.is_awaiting_approval:
         _notify_requested(reservation)
         _notify_needs_approval(reservation)
@@ -308,6 +309,75 @@ def block_time(
             purpose=cleaned_reason,
             status=EquipmentReservation.Status.CONFIRMED,
         )
+
+
+def _log_made(reservation: EquipmentReservation) -> None:
+    """The Activity Feed row for a reservation just made (#1330): requested when it awaits approval, else confirmed.
+
+    Called once the booking is real: at once for a free one, and for a paid one only when the
+    money lands (:func:`finalize_paid_reservation`), never while it awaits payment.
+    """
+    from core.models import SiteActivity
+
+    kind = (
+        SiteActivity.Kind.RESERVATION_REQUESTED
+        if reservation.is_awaiting_approval
+        else SiteActivity.Kind.RESERVATION_CONFIRMED
+    )
+    reservation.log_activity(kind, actor=reservation.member.user)
+
+
+def log_finished_reservations(*, now: datetime | None = None) -> int:
+    """Log "Reservation happened" once for each confirmed reservation whose end has passed; return how many (#1330).
+
+    The orientation sweep's twin (:func:`membership.orientations.auto_complete`), but it only
+    logs: the row posts to the activity log. A manager's block, a cancelled, declined or unpaid
+    reservation never happened.
+
+    The floor is the reservation's own "Reservation confirmed" row: only a reservation the
+    activity log saw confirmed is swept, so nothing that was confirmed before the log shipped is
+    backfilled, and a sweep that missed hours (an outage) catches up on every one it missed.
+    Once per reservation ever, enforced by the database (:func:`_log_happened_once`).
+    """
+    from django.contrib.contenttypes.models import ContentType
+
+    from core.models import SiteActivity
+    from membership.models import EquipmentReservation
+
+    cutoff = now or timezone.now()
+    reservation_ct = ContentType.objects.get_for_model(EquipmentReservation)
+    rows = SiteActivity.objects.filter(target_ct=reservation_ct)
+    confirmed = rows.filter(kind=SiteActivity.Kind.RESERVATION_CONFIRMED).values("target_id")
+    happened = rows.filter(kind=SiteActivity.Kind.RESERVATION_HAPPENED).values("target_id")
+    finished = (
+        EquipmentReservation.objects.filter(
+            kind=EquipmentReservation.Kind.RESERVATION,
+            status=EquipmentReservation.Status.CONFIRMED,
+            ends_at__lte=cutoff,
+            pk__in=confirmed,
+        )
+        .exclude(pk__in=happened)
+        .select_related("member", "equipment")
+    )
+    return sum(_log_happened_once(reservation) for reservation in finished)
+
+
+def _log_happened_once(reservation: EquipmentReservation) -> bool:
+    """Write ``reservation``'s "Reservation happened" row; ``False`` when one already exists.
+
+    The row's unique constraint (``uq_siteact_res_happened``) decides, inside a savepoint, so a
+    second sweep running at the same moment (Run now beside the tick) writes, and posts, nothing.
+    """
+    from django.db import IntegrityError
+
+    from core.models import SiteActivity
+
+    try:
+        with transaction.atomic():
+            reservation.log_activity(SiteActivity.Kind.RESERVATION_HAPPENED, actor=None)
+    except IntegrityError:
+        return False
+    return True
 
 
 def _notify_confirmed(reservation: EquipmentReservation, *, approved_by: Member | None = None) -> None:
@@ -718,6 +788,7 @@ def finalize_paid_reservation(
         if amount_total is not None:
             locked.amount_paid_cents = amount_total
         locked.save(update_fields=["status", "stripe_payment_id", "stripe_session_id", "amount_paid_cents"])
+    _log_made(locked)
     if needs_approval:
         _notify_requested(locked)
         _notify_needs_approval(locked)
