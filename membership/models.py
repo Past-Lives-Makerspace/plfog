@@ -15724,6 +15724,14 @@ class OrientationAvailability(FollowsHours, models.Model):
     weekday = models.PositiveSmallIntegerField(
         choices=Weekday.choices, help_text="Day of week this rule recurs on (0=Mon … 6=Sun)."
     )
+    date = models.DateField(
+        null=True,
+        blank=True,
+        help_text=(
+            "The one local day this row is for (#1300, My Hours' Available On). Blank for a row that repeats. "
+            "A dated row keeps its date's weekday and is never on a cadence."
+        ),
+    )
     cadence = models.CharField(
         max_length=16,
         choices=Cadence.choices,
@@ -15787,6 +15795,15 @@ class OrientationAvailability(FollowsHours, models.Model):
                 | Q(booking_style="open", guild__isnull=False, orienter__isnull=False),
                 name="ck_orientavail_any_type_open",
             ),
+            # A dated row (#1300) is its one day: its weekday is the date's, and it repeats on nothing.
+            models.CheckConstraint(
+                condition=Q(date__isnull=True) | Q(weekday=models.F("date__iso_week_day") - 1),
+                name="ck_orientavail_date_weekday",
+            ),
+            models.CheckConstraint(
+                condition=Q(date__isnull=True) | Q(cadence="weekly", anchor_date__isnull=True, last_of_month=False),
+                name="ck_orientavail_dated_no_cadence",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -15828,6 +15845,8 @@ class OrientationAvailability(FollowsHours, models.Model):
         failing a page render. ``static/js/orientation_hours_recurrence.js`` says the same
         words in the Edit Hours modal before a save; change both together.
         """
+        if self.date is not None:
+            return f"{self.date:%a, %b} {self.date.day}"
         weekday = self.get_weekday_display()
         if self.cadence == self.Cadence.WEEKLY:
             return f"Every {weekday}"
@@ -15882,25 +15901,38 @@ class OrientationAvailability(FollowsHours, models.Model):
             ValueError: A rule on any cadence but weekly with no ``anchor_date``. The
                 hours form and ``clean`` refuse to save one, so this is a data error.
         """
-        if day.weekday() != self.weekday:
+        return self.falls_on(self, day)
+
+    @classmethod
+    def falls_on(cls, row: Any, day: date_type) -> bool:
+        """Whether ``row`` yields hours on ``day``, read from its ``weekday``, ``date``, ``cadence``,
+        ``anchor_date`` and ``last_of_month``: :meth:`occurs_on`'s rule for any row that repeats the
+        same way (``tours.TourHours`` since #1300). A dated row is its one day.
+
+        Raises:
+            ValueError: A row on any cadence but weekly with no ``anchor_date``.
+        """
+        if row.date is not None:
+            return bool(row.date == day)
+        if day.weekday() != row.weekday:
             return False
-        if self.anchor_date is not None and day < self.anchor_date:
+        if row.anchor_date is not None and day < row.anchor_date:
             return False
-        if self.cadence == self.Cadence.WEEKLY:
+        if row.cadence == cls.Cadence.WEEKLY:
             return True
-        if self.anchor_date is None:
-            raise ValueError(f"OrientationAvailability {self.pk} recurs {self.cadence} but has no anchor_date.")
-        if self.cadence in self.WEEKS_BY_CADENCE:
+        if row.anchor_date is None:
+            raise ValueError(f"{type(row).__name__} {row.pk} recurs {row.cadence} but has no anchor_date.")
+        if row.cadence in cls.WEEKS_BY_CADENCE:
             monday = day - timedelta(days=day.weekday())
-            anchor_monday = self.anchor_date - timedelta(days=self.anchor_date.weekday())
-            return ((monday - anchor_monday).days // 7) % self.WEEKS_BY_CADENCE[self.cadence] == 0
-        if self.last_of_month:
+            anchor_monday = row.anchor_date - timedelta(days=row.anchor_date.weekday())
+            return ((monday - anchor_monday).days // 7) % cls.WEEKS_BY_CADENCE[row.cadence] == 0
+        if row.last_of_month:
             if (day + timedelta(days=7)).month == day.month:
                 return False
-        elif (day.day - 1) // 7 != (self.anchor_date.day - 1) // 7:
+        elif (day.day - 1) // 7 != (row.anchor_date.day - 1) // 7:
             return False
-        months_apart = (day.year - self.anchor_date.year) * 12 + (day.month - self.anchor_date.month)
-        return months_apart % self.MONTHS_BY_CADENCE[self.cadence] == 0
+        months_apart = (day.year - row.anchor_date.year) * 12 + (day.month - row.anchor_date.month)
+        return months_apart % cls.MONTHS_BY_CADENCE[row.cadence] == 0
 
     def clean(self) -> None:
         """Half hour grid guard for a carved window (the auto-registered Django admin runs this too).
@@ -15913,21 +15945,7 @@ class OrientationAvailability(FollowsHours, models.Model):
         from django.core.exceptions import ValidationError
 
         super().clean()
-        errors: dict[str, str] = {}
-        # A rule on any cadence but weekly with no anchor cannot say which days are its
-        # own, and occurs_on raises on it, which would abort slot generation for every
-        # owner in the run. The hub form refuses it; this is the same refusal for the admin.
-        if self.cadence != self.Cadence.WEEKLY:
-            if self.anchor_date is None:
-                errors["anchor_date"] = "Pick the day these hours start."
-            elif self.anchor_date.weekday() != self.weekday:
-                # The start day is "the first day these hours run", and for a month based rule
-                # its place in the month is the rule. A start day on another weekday would
-                # silently mean a different Tuesday than the one the lead picked.
-                errors["anchor_date"] = (
-                    f"The start day must be a {self.get_weekday_display()}, the day these hours run."
-                )
-        errors.update(self._last_of_month_errors())
+        errors = self.repeat_errors(self)
         if self.slot_minutes is not None:
             for field in ("start_time", "end_time"):
                 value = getattr(self, field)
@@ -15944,7 +15962,35 @@ class OrientationAvailability(FollowsHours, models.Model):
         if errors:
             raise ValidationError(errors)
 
-    def _last_of_month_errors(self) -> dict[str, str]:
+    @classmethod
+    def repeat_errors(cls, row: Any) -> dict[str, str]:
+        """How ``row`` repeats, checked: what :meth:`falls_on` needs to read it (``tours.TourHours`` shares it, #1300).
+
+        A rule on any cadence but weekly with no anchor cannot say which days are its own, and
+        :meth:`falls_on` raises on it, which would abort slot generation for every owner in the
+        run. A dated row is its one day: on its date's weekday, and on no cadence.
+        """
+        errors: dict[str, str] = {}
+        weekday = cls.Weekday(row.weekday).label if row.weekday is not None else ""
+        if row.date is not None:
+            if row.cadence != cls.Cadence.WEEKLY or row.anchor_date is not None or row.last_of_month:
+                errors["cadence"] = "Hours on one date do not repeat."
+            elif row.weekday != row.date.weekday():
+                errors["weekday"] = f"{row.date:%b} {row.date.day} is not a {weekday}."
+            return errors
+        if row.cadence != cls.Cadence.WEEKLY:
+            if row.anchor_date is None:
+                errors["anchor_date"] = "Pick the day these hours start."
+            elif row.anchor_date.weekday() != row.weekday:
+                # The start day is "the first day these hours run", and for a month based rule
+                # its place in the month is the rule. A start day on another weekday would
+                # silently mean a different Tuesday than the one the lead picked.
+                errors["anchor_date"] = f"The start day must be a {weekday}, the day these hours run."
+        errors.update(cls._last_of_month_errors(row))
+        return errors
+
+    @classmethod
+    def _last_of_month_errors(cls, row: Any) -> dict[str, str]:
         """Last of the month is a month based cadence's position, and the start day is its first occurrence.
 
         A week based rule has no place in a month to be last in. On a month based rule the
@@ -15953,18 +15999,18 @@ class OrientationAvailability(FollowsHours, models.Model):
         would be some other day than the one the lead picked. The weekday mismatch is
         reported on its own above and is not repeated here.
         """
-        if not self.last_of_month:
+        if not row.last_of_month:
             return {}
-        if self.cadence not in self.MONTHS_BY_CADENCE:
+        if row.cadence not in cls.MONTHS_BY_CADENCE:
             return {"last_of_month": "Last of the month is for a rule that repeats by the month or the year."}
-        anchor = self.anchor_date
-        if anchor is None or anchor.weekday() != self.weekday:
+        anchor = row.anchor_date
+        if anchor is None or anchor.weekday() != row.weekday:
             return {}
         if (anchor + timedelta(days=7)).month == anchor.month:
             return {
                 "anchor_date": (
-                    f"The start day must be the last {self.get_weekday_display()} of its month "
-                    f"when these hours run on the last {self.get_weekday_display()}."
+                    f"The start day must be the last {cls.Weekday(row.weekday).label} of its month "
+                    f"when these hours run on the last {cls.Weekday(row.weekday).label}."
                 )
             }
         return {}
@@ -16006,6 +16052,9 @@ class OrientationAvailability(FollowsHours, models.Model):
             start_time__lt=self.end_time,
             end_time__gt=self.start_time,
         ).exclude(pk__in={self.pk, *self.overlap_skip_pks} - {None})
+        if self.date is not None:
+            # Hours on one date meet a repeating row of its weekday, and other hours on that date only.
+            others = others.filter(Q(date__isnull=True) | Q(date=self.date))
         if not self.is_open:
             others = others.filter(booking_style=self.BookingStyle.OPEN)
         return others.order_by("start_time").first()

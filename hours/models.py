@@ -160,7 +160,7 @@ class Hours(models.Model):
     def key_of(row: Any) -> TimeKey:
         """The time of a ``TourHours`` or ``OrientationAvailability`` row, as a set of hours would hold it.
 
-        A tour row has no cadence of its own: it repeats every week, or is its one date.
+        Both kinds repeat the same way (a tour row gained its cadence in #1300, part 4), or are their one date.
         """
         return TimeKey(
             date=getattr(row, "date", None),
@@ -204,6 +204,15 @@ class Hours(models.Model):
         """Take ``key``'s time (unsaved)."""
         for field, value in key._asdict().items():
             setattr(self, field, value)
+
+    def remove(self) -> tuple[int, int]:
+        """Delete these hours for every kind, the way each kind's own Delete does (``hours.edit.remove_hours``).
+
+        The caller holds the person's lock. Returns ``(open_times_removed, kept_with_bookings)``.
+        """
+        from hours.edit import remove_hours
+
+        return remove_hours(self)
 
 
 class DayOffManager(models.Manager["DayOff"]):
