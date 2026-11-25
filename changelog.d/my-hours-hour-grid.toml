@@ -1,6 +1,2 @@
 bump = "patch"
 audience = "internal"
-title = "My Hours shows the week hour by hour"
-changes = [
-  "This Week on My Hours moves onto the Tours Calendar's hour grid: open hours dashed and placed by their times with their bookings inside them, classes and Google busy time hatched beside them, a day off striped. On a phone one day shows at a time under the strip of seven.",
-]
