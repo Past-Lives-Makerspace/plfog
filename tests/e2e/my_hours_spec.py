@@ -167,7 +167,9 @@ def describe_my_hours():
         assert "Mon · 11:00 AM to 6:00 PM · Every week" in weekly.first.inner_text()
         assert "Every other week" in weekly.nth(2).inner_text()
         assert page.locator('[data-hours-gcal="connected"]').get_by_text(EMAIL).is_visible()
-        if monday + timedelta(days=1) >= today:  # Days Off lists only days off still to come
+        # Days Off lists only days off still to come; the December one is always ahead.
+        assert page.locator("[data-hours-days-off] [data-hours-day-off-row]").count() >= 1
+        if monday + timedelta(days=1) >= today:
             assert page.locator("[data-hours-days-off]").get_by_text("Out of town").is_visible()
         assert page.locator("[data-hours-notice]").is_visible()
         assert page.locator("main a[href*='/edit'], main button.pl-btn--danger").count() == 0
