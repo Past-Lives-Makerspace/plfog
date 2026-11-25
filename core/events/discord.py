@@ -28,6 +28,7 @@ HTTP layer, distinct from the legacy ``requests``-based integration clients.
 
 from __future__ import annotations
 
+import enum
 import logging
 import re
 from typing import TYPE_CHECKING
@@ -310,7 +311,19 @@ def post_embed(webhook_url: str, message: Message) -> bool:
     return False
 
 
-def post_text(webhook_url: str, content: str) -> bool:
+class PostOutcome(enum.StrEnum):
+    """What :func:`post_text` got from Discord, so a caller can tell a retry from a refusal."""
+
+    SENT = "sent"
+    #: Blank webhook or staging: nothing was sent, and nothing should be.
+    OFF = "off"
+    #: A network error, a timeout, a 5xx or a 429: worth trying again later.
+    RETRY = "retry"
+    #: Any other status, such as a deleted webhook's 404: trying again would get the same answer.
+    REFUSED = "refused"
+
+
+def post_text(webhook_url: str, content: str) -> PostOutcome:
     """POST one plain message (no embed) to a Discord webhook, pinging nobody. Best-effort: never raises.
 
     The activity log's line (#1330). ``allowed_mentions`` with an empty ``parse`` keeps a name
@@ -318,28 +331,29 @@ def post_text(webhook_url: str, content: str) -> bool:
     :func:`post_embed`.
 
     Args:
-        webhook_url: The target webhook. Blank is a no-op returning ``False``.
+        webhook_url: The target webhook. Blank sends nothing.
         content: The message text.
 
     Returns:
-        ``True`` on a 2xx response; ``False`` on a blank webhook, staging, a network error or
-        any other status. Failures are logged, never the webhook value.
+        The :class:`PostOutcome`. Failures are logged, never the webhook value.
     """
     if not webhook_url:
-        return False
+        return PostOutcome.OFF
     if settings.IS_STAGING:
         logger.warning("Discord webhook post refused: ENVIRONMENT=staging never reaches Discord (activity line).")
-        return False
+        return PostOutcome.OFF
     payload = {"content": content, "allowed_mentions": {"parse": []}}
     try:
         response = httpx.post(webhook_url, json=payload, timeout=_DEFAULT_TIMEOUT_SECONDS)
     except httpx.HTTPError as exc:
         logger.warning("Discord webhook post failed (network error): %s", exc)
-        return False
+        return PostOutcome.RETRY
     if response.is_success:
-        return True
+        return PostOutcome.SENT
     logger.warning("Discord webhook post failed: %s %s", response.status_code, response.text[:300])
-    return False
+    if response.status_code == 429 or response.status_code >= 500:
+        return PostOutcome.RETRY
+    return PostOutcome.REFUSED
 
 
 # The characters that make Discord markdown: escaping each with a backslash shows it as typed.

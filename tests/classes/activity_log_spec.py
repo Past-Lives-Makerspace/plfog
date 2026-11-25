@@ -16,8 +16,8 @@ from django.urls import reverse
 
 from classes import activity as cms_activity
 from classes.factories import ClassOfferingFactory, RegistrationFactory
-from classes.models import CmsActivity
-from core.models import SiteConfiguration
+from classes.models import CmsActivity, Registration
+from core.models import SiteActivity, SiteConfiguration
 
 pytestmark = pytest.mark.django_db
 
@@ -75,6 +75,7 @@ def describe_class_posts():
             first_name="Juno",
             last_name="Reyes",
             email="juno@example.com",
+            status=Registration.Status.CONFIRMED,
         )
         with django_capture_on_commit_callbacks(execute=True):
             cms_activity.log(cms_kind, class_offering=registration.class_offering, registration=registration)
@@ -92,3 +93,49 @@ def describe_class_posts():
         with django_capture_on_commit_callbacks(execute=True):
             cms_activity.log(CmsActivity.Kind.CLASS_ARCHIVED, class_offering=ClassOfferingFactory())
         assert not route.called
+
+
+def describe_registration_lifecycle():
+    @respx.mock
+    def it_posts_a_free_seat_as_registered_when_it_is_made(django_capture_on_commit_callbacks):
+        route = _turn_on()
+        with django_capture_on_commit_callbacks(execute=True):
+            RegistrationFactory(
+                class_offering=ClassOfferingFactory(title="Raku Firing"), status=Registration.Status.CONFIRMED
+            )
+        assert [content.split(" · ")[0] for content in _contents(route)] == ["Registered for class: Raku Firing"]
+
+    @respx.mock
+    def it_posts_a_paid_seat_only_once_the_payment_confirms_it(django_capture_on_commit_callbacks):
+        route = _turn_on()
+        with django_capture_on_commit_callbacks(execute=True):
+            registration = RegistrationFactory(
+                class_offering=ClassOfferingFactory(title="Raku Firing"), status=Registration.Status.PENDING
+            )
+        assert not route.called
+        assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.CLASS_REGISTERED).exists()
+        registration.status = Registration.Status.CONFIRMED
+        with django_capture_on_commit_callbacks(execute=True):
+            registration.save()
+        assert [content.split(" · ")[0] for content in _contents(route)] == ["Registered for class: Raku Firing"]
+        assert SiteActivity.objects.filter(kind=SiteActivity.Kind.CLASS_REGISTERED).count() == 1
+
+    @respx.mock
+    def it_posts_nothing_for_an_abandoned_checkout(django_capture_on_commit_callbacks):
+        route = _turn_on()
+        with django_capture_on_commit_callbacks(execute=True):
+            registration = RegistrationFactory(status=Registration.Status.PENDING)
+        with django_capture_on_commit_callbacks(execute=True):
+            assert registration.release_hold(reason="Checkout expired") is True
+        assert not route.called
+        assert not SiteActivity.objects.filter(target_id=registration.pk).exists()
+
+    @respx.mock
+    def it_posts_the_cancel_of_a_confirmed_seat(django_capture_on_commit_callbacks):
+        route = _turn_on()
+        registration = RegistrationFactory(
+            class_offering=ClassOfferingFactory(title="Raku Firing"), status=Registration.Status.CONFIRMED
+        )
+        with django_capture_on_commit_callbacks(execute=True):
+            registration.cancel(reason="Can't make it")
+        assert [content.split(" · ")[0] for content in _contents(route)] == ["Cancelled registration: Raku Firing"]

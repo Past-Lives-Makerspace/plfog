@@ -23,7 +23,10 @@ _SITE_KIND_MAP: dict[str, str] = {
     # A cancel is the member-facing event; an archive is quiet housekeeping and is
     # deliberately NOT mirrored into the site feed.
     "class_cancelled": "class_cancelled",
+    # A seat is "registered" once it is confirmed (#1330): a free one as it is made, a paid one
+    # when its payment lands. A checkout still waiting on payment is not mirrored (see log()).
     "registration_created": "class_registered",
+    "registration_confirmed": "class_registered",
     "registration_cancelled": "class_registration_cancelled",
     "registration_refunded": "refund_issued",
     "waitlist_joined": "class_waitlist_joined",
@@ -37,11 +40,23 @@ def _mirror_to_site_activity(
     actor: "User | None",
     payload: dict[str, Any] | None,
 ) -> None:
-    """Mirror a CmsActivity event into SiteActivity if it belongs in the site feed."""
+    """Mirror a CmsActivity event into SiteActivity if it belongs in the site feed.
+
+    A registration made awaiting payment is not a registration yet (#1330): it is mirrored when
+    the payment confirms it, and an abandoned checkout mirrors nothing.
+    """
     site_kind = _SITE_KIND_MAP.get(kind)
     if site_kind is None:
         return
+    from classes.models import RegistrationStatus
     from core.models import SiteActivity
+
+    if (
+        kind == "registration_created"
+        and registration is not None
+        and registration.status == RegistrationStatus.PENDING
+    ):
+        return
 
     target = registration or class_offering
     SiteActivity.log(site_kind, actor=actor, target=target, payload=payload or {})
@@ -54,11 +69,17 @@ def log(
     registration: "Registration | None" = None,
     actor: "User | None" = None,
     payload: dict[str, Any] | None = None,
+    mirror: bool = True,
 ) -> "CmsActivity":
-    """Create a single CmsActivity row. Safe to call from save()/signals."""
+    """Create a single CmsActivity row. Safe to call from save()/signals.
+
+    ``mirror=False`` keeps the row out of the site feed even when its kind is mirrored: a cancel
+    of a seat that was never confirmed (#1330).
+    """
     from classes.models import CmsActivity
 
-    _mirror_to_site_activity(kind, class_offering, registration, actor, payload)
+    if mirror:
+        _mirror_to_site_activity(kind, class_offering, registration, actor, payload)
     return CmsActivity.objects.create(
         kind=kind,
         class_offering=class_offering,

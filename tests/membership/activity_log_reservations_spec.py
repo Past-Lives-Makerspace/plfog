@@ -16,6 +16,7 @@ import pytest
 import respx
 from django.contrib.auth.models import User
 from django.core.management import call_command
+from django.db import IntegrityError, transaction
 from django.urls import reverse
 from django.utils import timezone
 
@@ -175,30 +176,52 @@ def describe_the_link():
 
 
 def describe_log_finished_reservations():
-    def _ended(minutes_ago: int, **kwargs) -> EquipmentReservation:
+    def _ended(minutes_ago: int, *, logged: bool = True, **kwargs) -> EquipmentReservation:
+        """A reservation that ended ``minutes_ago``; ``logged`` gives it the confirmed row the log writes."""
         ends = timezone.now() - timedelta(minutes=minutes_ago)
-        return EquipmentReservationFactory(starts_at=ends - timedelta(hours=1), ends_at=ends, **kwargs)
+        reservation = EquipmentReservationFactory(starts_at=ends - timedelta(hours=1), ends_at=ends, **kwargs)
+        if logged:
+            reservation.log_activity(Kind.RESERVATION_CONFIRMED, actor=reservation.member.user)
+        return reservation
 
     def it_logs_a_confirmed_reservation_once_its_end_passes_and_never_twice():
         reservation = _ended(10)
         assert equipment_service.log_finished_reservations() == 1
         assert equipment_service.log_finished_reservations() == 0
-        [row] = _rows(reservation)
+        row = _rows(reservation)[-1]
         assert row.kind == Kind.RESERVATION_HAPPENED
         assert row.actor is None
         assert row.by == "System"
 
-    def it_skips_what_has_not_ended_never_happened_or_ended_before_the_lookback():
+    def it_catches_up_on_a_reservation_that_ended_days_ago_during_an_outage():
+        reservation = _ended(60 * 24 * 3)
+        assert equipment_service.log_finished_reservations() == 1
+        assert _rows(reservation)[-1].kind == Kind.RESERVATION_HAPPENED
+
+    def it_never_backfills_a_reservation_confirmed_before_the_log_shipped():
+        before = _ended(10, logged=False)
+        assert equipment_service.log_finished_reservations() == 0
+        assert _rows(before) == []
+
+    def it_skips_what_has_not_ended_or_never_happened():
         upcoming = EquipmentReservationFactory(
             starts_at=timezone.now() + timedelta(hours=1), ends_at=timezone.now() + timedelta(hours=2)
         )
+        upcoming.log_activity(Kind.RESERVATION_CONFIRMED, actor=None)
         cancelled = _ended(10, status=Status.CANCELLED)
         declined = _ended(10, status=Status.DECLINED)
         block = _ended(10, kind=EquipmentReservation.Kind.BLOCK)
-        old = _ended(int(equipment_service.HAPPENED_LOOKBACK.total_seconds() // 60) + 5)
         assert equipment_service.log_finished_reservations() == 0
-        for reservation in (upcoming, cancelled, declined, block, old):
-            assert _rows(reservation) == []
+        for reservation in (upcoming, cancelled, declined, block):
+            assert Kind.RESERVATION_HAPPENED not in [row.kind for row in _rows(reservation)]
+
+    def it_lets_the_database_refuse_a_second_happened_row_from_an_overlapping_run():
+        reservation = _ended(10)
+        assert equipment_service._log_happened_once(reservation) is True
+        assert equipment_service._log_happened_once(reservation) is False
+        assert SiteActivity.objects.filter(kind=Kind.RESERVATION_HAPPENED).count() == 1
+        with pytest.raises(IntegrityError), transaction.atomic():
+            reservation.log_activity(Kind.RESERVATION_HAPPENED, actor=None)
 
     @respx.mock
     def it_runs_from_the_tick_and_posts_one_line(django_capture_on_commit_callbacks, settings):
@@ -210,9 +233,9 @@ def describe_log_finished_reservations():
             call_command("log_finished_reservations")
         with django_capture_on_commit_callbacks(execute=True):
             call_command("log_finished_reservations")
-        assert route.call_count == 1
-        content = json.loads(route.calls[0].request.content)["content"]
-        assert content.startswith("Reservation happened: ")
+        contents = [json.loads(call.request.content)["content"] for call in route.calls]
+        assert [content.split(":")[0] for content in contents] == ["Reservation happened"]
+        content = contents[0]
         assert content.endswith(f" · System · <https://members.example{reservation.activity_url}>")
 
 

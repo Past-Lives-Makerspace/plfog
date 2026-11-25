@@ -13,6 +13,10 @@ pytestmark = pytest.mark.django_db
 
 
 def describe_activity_mirror_to_site_activity():
+    def it_does_not_mirror_a_seat_still_awaiting_payment():
+        RegistrationFactory(status=Registration.Status.PENDING)
+        assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.CLASS_REGISTERED).exists()
+
     def it_mirrors_class_published_to_site_activity():
         offering = ClassOfferingFactory()
         cms_activity.log(CmsActivity.Kind.CLASS_PUBLISHED, class_offering=offering)
@@ -41,8 +45,10 @@ def describe_activity_mirror_to_site_activity():
 
     def it_mirrors_registration_created_with_registration_as_target():
         offering = ClassOfferingFactory()
-        reg = RegistrationFactory(class_offering=offering, email="reg@example.com")
-        # registration_created is logged automatically on RegistrationFactory save;
+        reg = RegistrationFactory(
+            class_offering=offering, email="reg@example.com", status=Registration.Status.CONFIRMED
+        )
+        # registration_created is logged automatically on RegistrationFactory save, for a confirmed seat (#1330);
         # grab the SiteActivity row created from that event
         assert SiteActivity.objects.filter(
             kind=SiteActivity.Kind.CLASS_REGISTERED,

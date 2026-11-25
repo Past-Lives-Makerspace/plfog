@@ -327,19 +327,17 @@ def _log_made(reservation: EquipmentReservation) -> None:
     reservation.log_activity(kind, actor=reservation.member.user)
 
 
-#: How far back the "reservation happened" sweep looks (#1330). Eight ticks of slack for a missed
-#: run, and on its first run it logs at most this much of what ended before it shipped.
-HAPPENED_LOOKBACK = timedelta(hours=2)
-
-
 def log_finished_reservations(*, now: datetime | None = None) -> int:
-    """Log "Reservation happened" once for each confirmed reservation whose end just passed; return how many (#1330).
+    """Log "Reservation happened" once for each confirmed reservation whose end has passed; return how many (#1330).
 
     The orientation sweep's twin (:func:`membership.orientations.auto_complete`), but it only
-    logs: the row posts to the activity log. One row per reservation ever: a reservation that
-    already has its row is skipped, so a re-run of the tick logs nothing twice. A manager's
-    block, a cancelled, declined or unpaid one never happened. Ended within
-    :data:`HAPPENED_LOOKBACK` only, so no history is logged.
+    logs: the row posts to the activity log. A manager's block, a cancelled, declined or unpaid
+    reservation never happened.
+
+    The floor is the reservation's own "Reservation confirmed" row: only a reservation the
+    activity log saw confirmed is swept, so nothing that was confirmed before the log shipped is
+    backfilled, and a sweep that missed hours (an outage) catches up on every one it missed.
+    Once per reservation ever, enforced by the database (:func:`_log_happened_once`).
     """
     from django.contrib.contenttypes.models import ContentType
 
@@ -347,25 +345,39 @@ def log_finished_reservations(*, now: datetime | None = None) -> int:
     from membership.models import EquipmentReservation
 
     cutoff = now or timezone.now()
-    already = SiteActivity.objects.filter(
-        kind=SiteActivity.Kind.RESERVATION_HAPPENED,
-        target_ct=ContentType.objects.get_for_model(EquipmentReservation),
-    ).values("target_id")
+    reservation_ct = ContentType.objects.get_for_model(EquipmentReservation)
+    rows = SiteActivity.objects.filter(target_ct=reservation_ct)
+    confirmed = rows.filter(kind=SiteActivity.Kind.RESERVATION_CONFIRMED).values("target_id")
+    happened = rows.filter(kind=SiteActivity.Kind.RESERVATION_HAPPENED).values("target_id")
     finished = (
         EquipmentReservation.objects.filter(
             kind=EquipmentReservation.Kind.RESERVATION,
             status=EquipmentReservation.Status.CONFIRMED,
             ends_at__lte=cutoff,
-            ends_at__gt=cutoff - HAPPENED_LOOKBACK,
+            pk__in=confirmed,
         )
-        .exclude(pk__in=already)
+        .exclude(pk__in=happened)
         .select_related("member", "equipment")
     )
-    count = 0
-    for reservation in finished:
-        reservation.log_activity(SiteActivity.Kind.RESERVATION_HAPPENED, actor=None)
-        count += 1
-    return count
+    return sum(_log_happened_once(reservation) for reservation in finished)
+
+
+def _log_happened_once(reservation: EquipmentReservation) -> bool:
+    """Write ``reservation``'s "Reservation happened" row; ``False`` when one already exists.
+
+    The row's unique constraint (``uq_siteact_res_happened``) decides, inside a savepoint, so a
+    second sweep running at the same moment (Run now beside the tick) writes, and posts, nothing.
+    """
+    from django.db import IntegrityError
+
+    from core.models import SiteActivity
+
+    try:
+        with transaction.atomic():
+            reservation.log_activity(SiteActivity.Kind.RESERVATION_HAPPENED, actor=None)
+    except IntegrityError:
+        return False
+    return True
 
 
 def _notify_confirmed(reservation: EquipmentReservation, *, approved_by: Member | None = None) -> None:

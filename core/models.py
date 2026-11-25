@@ -2253,6 +2253,15 @@ class SiteActivity(models.Model):
             models.Index(fields=["kind", "-created_at"]),
             models.Index(fields=["actor", "-created_at"]),
         ]
+        constraints = [
+            # "Reservation happened" is logged, and posted, once per reservation ever (#1330): the
+            # database refuses a second row, so two overlapping sweeps cannot both write one.
+            models.UniqueConstraint(
+                fields=["target_ct", "target_id"],
+                condition=models.Q(kind="reservation_happened"),
+                name="uq_siteact_res_happened",
+            ),
+        ]
         verbose_name_plural = "Site activity"
 
     def __str__(self) -> str:

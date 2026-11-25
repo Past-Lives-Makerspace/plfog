@@ -8,16 +8,29 @@ reaches the caller (AC 1 and 9).
 from __future__ import annotations
 
 import json
+import logging
 
 import httpx
 import pytest
 import respx
 from django.contrib.auth.models import User
 from django.urls import reverse
+from django.utils import timezone
 
-from core.activity_log import POSTED_KEY, activity_link, activity_message, post_activity
-from core.events.discord import post_text
+from classes.factories import ClassOfferingFactory, RegistrationFactory
+from core.activity_log import (
+    MAX_ATTEMPTS,
+    POSTED_KEY,
+    RETRY_DELAYS,
+    activity_link,
+    activity_message,
+    activity_name,
+    escape_line_text,
+    post_activity,
+)
+from core.events.discord import PostOutcome, post_text
 from core.models import ACTIVITY_LOG_KINDS, SiteActivity, SiteConfiguration, TransactionalEmailLog
+from membership.models import Member
 from tests.membership.factories import OrientationBookingFactory
 
 pytestmark = pytest.mark.django_db
@@ -144,6 +157,86 @@ def describe_post_activity():
         assert not route.called
 
 
+def describe_retries():
+    @pytest.fixture
+    def queued(monkeypatch):
+        calls: list[tuple[object, int, int]] = []
+
+        def record(task, run_after, activity_id, attempt):
+            calls.append((run_after, activity_id, attempt))
+
+        monkeypatch.setattr("core.activity_log.enqueue_at_on_commit", record)
+        return calls
+
+    @respx.mock
+    @pytest.mark.parametrize(
+        "answer",
+        [httpx.Response(503, text="down"), httpx.Response(429, text="slow down"), httpx.ReadTimeout("slow")],
+        ids=["5xx", "429", "timeout"],
+    )
+    def it_releases_the_claim_and_queues_a_retry_with_backoff(answer, queued):
+        _turn_on()
+        if isinstance(answer, Exception):
+            respx.post(_WEBHOOK).mock(side_effect=answer)
+        else:
+            respx.post(_WEBHOOK).mock(return_value=answer)
+        activity = SiteActivity.objects.create(kind=SiteActivity.Kind.CLASS_APPROVED, payload={"note": "Kept"})
+        before = timezone.now()
+        post_activity.call(activity.pk)
+        activity.refresh_from_db()
+        assert activity.payload == {"note": "Kept"}
+        [(run_after, activity_id, attempt)] = queued
+        assert (activity_id, attempt) == (activity.pk, 2)
+        assert run_after >= before + RETRY_DELAYS[0]
+
+    @respx.mock
+    def it_waits_longer_on_each_retry(queued):
+        _turn_on()
+        respx.post(_WEBHOOK).mock(return_value=httpx.Response(502))
+        activity = SiteActivity.objects.create(kind=SiteActivity.Kind.CLASS_APPROVED)
+        before = timezone.now()
+        post_activity.call(activity.pk, 3)
+        [(run_after, _activity_id, attempt)] = queued
+        assert attempt == 4
+        assert run_after >= before + RETRY_DELAYS[2]
+
+    @respx.mock
+    def it_gives_up_loudly_after_the_last_attempt_and_keeps_the_claim(queued, caplog):
+        _turn_on()
+        route = respx.post(_WEBHOOK).mock(return_value=httpx.Response(500))
+        activity = SiteActivity.objects.create(kind=SiteActivity.Kind.CLASS_APPROVED)
+        with caplog.at_level(logging.ERROR, logger="core.activity_log"):
+            post_activity.call(activity.pk, MAX_ATTEMPTS)
+        assert route.call_count == 1
+        assert queued == []
+        activity.refresh_from_db()
+        assert activity.payload[POSTED_KEY] is True
+        assert [record.levelno for record in caplog.records if record.name == "core.activity_log"] == [logging.ERROR]
+
+    @respx.mock
+    def it_never_retries_a_refusal_and_logs_an_error(queued, caplog):
+        _turn_on()
+        route = respx.post(_WEBHOOK).mock(return_value=httpx.Response(404, text="Unknown Webhook"))
+        activity = SiteActivity.objects.create(kind=SiteActivity.Kind.CLASS_APPROVED)
+        with caplog.at_level(logging.ERROR, logger="core.activity_log"):
+            post_activity.call(activity.pk)
+        assert route.call_count == 1
+        assert queued == []
+        assert "gave up" in caplog.text
+
+    @respx.mock
+    def it_posts_on_a_retry_once_discord_is_back(queued):
+        _turn_on()
+        route = respx.post(_WEBHOOK).mock(side_effect=[httpx.Response(503), httpx.Response(204)])
+        activity = SiteActivity.objects.create(kind=SiteActivity.Kind.CLASS_APPROVED)
+        post_activity.call(activity.pk)
+        [(_run_after, activity_id, attempt)] = queued
+        post_activity.call(activity_id, attempt)
+        assert route.call_count == 2
+        activity.refresh_from_db()
+        assert activity.payload[POSTED_KEY] is True
+
+
 def describe_activity_message():
     def it_reads_the_feed_headline_who_and_the_link_in_angle_brackets(settings):
         settings.MEMBER_BASE_URL = "https://members.example"
@@ -151,13 +244,23 @@ def describe_activity_message():
         user = User.objects.create_user(username="lead_ash", first_name="Ash", last_name="Lead")
         activity = SiteActivity.log(SiteActivity.Kind.ORIENTATION_CONFIRMED, actor=user, target=booking)
         link = "https://members.example" + reverse("hub_orientation_respond", args=[booking.pk])
-        assert activity_message(activity) == f"{activity.line.headline} · Ash Lead · <{link}>"
+        assert activity_message(activity) == f"{escape_line_text(activity.line.headline)} · Ash Lead · <{link}>"
         assert activity.line.headline.startswith("Orientation confirmed: ")
 
     def it_escapes_discord_markdown_in_names():
         user = User.objects.create_user(username="star", first_name="*Star*", last_name="_Bright_")
         activity = SiteActivity.log(SiteActivity.Kind.CLASS_PUBLISHED, actor=user)
         assert activity_message(activity) == "Class published · \\*Star\\* \\_Bright\\_"
+
+    def it_shows_a_masked_link_in_member_text_as_typed():
+        offering = ClassOfferingFactory(title="[Pay here](https://evil.example)")
+        user = User.objects.create_user(username="sneak", first_name="[Click](https://evil.example)")
+        activity = SiteActivity.log(SiteActivity.Kind.CLASS_PUBLISHED, actor=user, target=offering)
+        message = activity_message(activity)
+        assert "\\[Pay here\\]\\(https://evil.example\\)" in message
+        assert "\\[Click\\]\\(https://evil.example\\)" in message
+        assert "[Pay here](" not in message
+        assert "[Click](" not in message
 
     def it_has_no_link_when_the_target_has_none():
         target = TransactionalEmailLog.objects.create(to_email="x@example.com", subject="s", trigger_kind="t")
@@ -166,35 +269,76 @@ def describe_activity_message():
         assert activity_message(activity) == "Class published · System"
 
 
+def describe_activity_name():
+    def it_never_names_an_actor_by_email():
+        user = User.objects.create_user(username="nameless@example.com", email="nameless@example.com")
+        activity = SiteActivity.log(SiteActivity.Kind.CLASS_PUBLISHED, actor=user)
+        assert activity.who == "nameless@example.com"  # the admin feed is unchanged
+        assert activity_name(activity) == f"Member #{user.member.pk}"
+        assert "@" not in activity_message(activity)
+
+    def it_names_an_account_with_no_member_row_by_its_id():
+        user = User.objects.create_user(username="ghost@example.com", email="ghost@example.com")
+        Member.objects.filter(user=user).delete()
+        user = User.objects.get(pk=user.pk)
+        activity = SiteActivity.log(SiteActivity.Kind.CLASS_PUBLISHED, actor=user)
+        assert activity_name(activity) == f"User #{user.pk}"
+
+    def it_uses_the_account_name_when_the_member_has_none():
+        user = User.objects.create_user(username="named", email="n@example.com", first_name="Nell", last_name="Ames")
+        Member.objects.filter(user=user).update(preferred_name="", full_legal_name="")
+        user = User.objects.get(pk=user.pk)
+        activity = SiteActivity.log(SiteActivity.Kind.CLASS_PUBLISHED, actor=user)
+        assert activity_name(activity) == "Nell Ames"
+
+    def it_names_a_guest_registrant_without_their_email():
+        registration = RegistrationFactory(first_name="", last_name="", email="guest@example.com")
+        activity = SiteActivity.log(SiteActivity.Kind.CLASS_REGISTRATION_CANCELLED, target=registration)
+        assert activity.who == "guest@example.com"
+        assert activity_name(activity) == f"Registration #{registration.pk}"
+
+    def it_says_not_recorded_for_an_old_row_with_no_actor():
+        booking = OrientationBookingFactory()
+        activity = SiteActivity.log(SiteActivity.Kind.ORIENTATION_DECLINED, target=booking)
+        assert activity_name(activity) == "Not recorded"
+
+
 def describe_post_text():
     @respx.mock
     def it_posts_plain_content_that_pings_nobody():
         route = respx.post(_WEBHOOK).mock(return_value=httpx.Response(204))
-        assert post_text(_WEBHOOK, "@everyone hello") is True
+        assert post_text(_WEBHOOK, "@everyone hello") is PostOutcome.SENT
         assert _posted(route) == [{"content": "@everyone hello", "allowed_mentions": {"parse": []}}]
 
     @respx.mock
-    def it_is_a_no_op_for_a_blank_webhook():
+    def it_is_off_for_a_blank_webhook():
         route = respx.route().mock(return_value=httpx.Response(204))
-        assert post_text("", "hello") is False
+        assert post_text("", "hello") is PostOutcome.OFF
         assert not route.called
 
     @respx.mock
-    def it_refuses_on_staging(settings):
+    def it_is_off_on_staging(settings):
         settings.IS_STAGING = True
         route = respx.post(_WEBHOOK).mock(return_value=httpx.Response(204))
-        assert post_text(_WEBHOOK, "hello") is False
+        assert post_text(_WEBHOOK, "hello") is PostOutcome.OFF
         assert not route.called
 
     @respx.mock
-    def it_returns_false_on_a_network_error():
+    def it_asks_for_a_retry_on_a_network_error():
         respx.post(_WEBHOOK).mock(side_effect=httpx.ConnectError("no route"))
-        assert post_text(_WEBHOOK, "hello") is False
+        assert post_text(_WEBHOOK, "hello") is PostOutcome.RETRY
 
     @respx.mock
-    def it_returns_false_on_a_refusal():
-        respx.post(_WEBHOOK).mock(return_value=httpx.Response(400, text="bad"))
-        assert post_text(_WEBHOOK, "hello") is False
+    @pytest.mark.parametrize("status", [429, 500, 503])
+    def it_asks_for_a_retry_on_a_5xx_or_429(status):
+        respx.post(_WEBHOOK).mock(return_value=httpx.Response(status))
+        assert post_text(_WEBHOOK, "hello") is PostOutcome.RETRY
+
+    @respx.mock
+    @pytest.mark.parametrize("status", [400, 401, 404])
+    def it_reports_any_other_status_as_a_refusal(status):
+        respx.post(_WEBHOOK).mock(return_value=httpx.Response(status, text="bad"))
+        assert post_text(_WEBHOOK, "hello") is PostOutcome.REFUSED
 
 
 def describe_site_settings():

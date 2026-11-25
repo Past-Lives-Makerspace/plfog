@@ -516,8 +516,11 @@ def describe_SiteActivity():
 
         def it_names_the_registrant_of_an_actorless_registration():
             from classes.factories import RegistrationFactory
+            from classes.models import Registration
 
-            reg = RegistrationFactory(first_name="Guest", last_name="Person", email="guest@example.com")
+            reg = RegistrationFactory(
+                first_name="Guest", last_name="Person", email="guest@example.com", status=Registration.Status.CONFIRMED
+            )
             row = SiteActivity.objects.get(kind=SiteActivity.Kind.CLASS_REGISTERED)
             assert row.actor is None
             assert row.target == reg

@@ -6857,6 +6857,11 @@ class Registration(models.Model):
         return ActivityLine(headline=f"{activity.get_kind_display()}: {self.class_offering.title}")
 
     @property
+    def activity_log_name(self) -> str:
+        """The registrant as the activity log names them (#1330): their name, never their email."""
+        return f"{self.first_name} {self.last_name}".strip() or f"Registration #{self.pk}"
+
+    @property
     def activity_url(self) -> str:
         """The class's registrations in the teaching portal, for the activity log's link (#1330)."""
         from django.urls import reverse
@@ -7297,6 +7302,7 @@ class Registration(models.Model):
         automated path).
         """
         previously_held_a_spot = self.status in (self.Status.CONFIRMED, self.Status.PENDING)
+        was_confirmed = self.status == self.Status.CONFIRMED
         was_waitlisted = self.status == self.Status.WAITLISTED
         self.status = self.Status.CANCELLED
         self.cancelled_at = timezone.now()
@@ -7310,6 +7316,9 @@ class Registration(models.Model):
             registration=self,
             actor=actor,
             payload={"reason": reason} if reason else {},
+            # Only a confirmed seat's cancel reaches the site feed and the activity log (#1330): an
+            # abandoned checkout, released here by the hold sweep, was never a registration.
+            mirror=was_confirmed,
         )
         if previously_held_a_spot:
             self.class_offering.promote_next_from_waitlist()

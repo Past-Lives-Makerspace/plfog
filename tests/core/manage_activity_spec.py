@@ -63,7 +63,12 @@ def describe_manage_activity():
         )
         client.login(username="a_names", password="pw12345!")
         SiteActivity.log(SiteActivity.Kind.LOGIN, actor=staff)
-        RegistrationFactory(first_name="Guest", last_name="Person", email="guest@example.com")
+        from classes.models import Registration
+
+        # A confirmed seat: one still awaiting payment is not in the feed (#1330).
+        RegistrationFactory(
+            first_name="Guest", last_name="Person", email="guest@example.com", status=Registration.Status.CONFIRMED
+        )
         content = client.get(reverse("manage_activity"), {"tab": "feed"}).content.decode()
         assert "Rae ·" in content
         assert "Guest Person ·" in content

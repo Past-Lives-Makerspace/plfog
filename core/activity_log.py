@@ -5,23 +5,47 @@ The one seam is :meth:`core.models.SiteActivity.log`: a row whose kind is in
 commits. The task posts the row's Activity Feed wording (:attr:`SiteActivity.line`), who did
 it, and an absolute link to the thing in the portal, to Site Settings' Activity log webhook.
 Through the durable queue, never inline: a slow or failing Discord never reaches the page or
-job that wrote the row (#845). Blank webhook or staging posts nothing.
+job that wrote the row (#845). Blank webhook or staging posts nothing. A post Discord could not
+take for now (a timeout, a 5xx, a 429) is retried a few times with backoff.
 """
 
 from __future__ import annotations
 
+import logging
+import re
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from django.tasks import task
+from django.utils import timezone
 
-from core.events.discord import escape_discord_markdown, post_text
+from core.events.discord import PostOutcome, escape_discord_markdown, post_text
+from core.tasks import enqueue_at_on_commit
 from core.urls_util import member_absolute_url
 
 if TYPE_CHECKING:
     from core.models import SiteActivity
 
+logger = logging.getLogger(__name__)
+
 #: Between the parts of a line: what happened, who, and the link.
 SEPARATOR = " · "
+
+#: The row's payload key that records its line was handed to Discord, so a second run posts nothing.
+POSTED_KEY = "activity_log_posted"
+
+#: How long each retry waits, in order; one retry per entry, so a line is tried at most four times.
+RETRY_DELAYS = (timedelta(minutes=1), timedelta(minutes=5), timedelta(minutes=25))
+MAX_ATTEMPTS = len(RETRY_DELAYS) + 1
+
+# The brackets and parentheses of a masked link, ``[text](url)``: escaped in member text so a
+# class titled "[Pay here](https://...)" shows as typed, never as a link.
+_LINK_CHARS_RE = re.compile(r"([\[\]()])")
+
+
+def escape_line_text(text: str) -> str:
+    """``text`` as Discord should show it, as typed: no bold, code or masked link from a member's words."""
+    return _LINK_CHARS_RE.sub(r"\\\1", escape_discord_markdown(text))
 
 
 def activity_link(activity: SiteActivity) -> str:
@@ -36,31 +60,54 @@ def activity_link(activity: SiteActivity) -> str:
     return member_absolute_url(activity_url)
 
 
+def activity_name(activity: SiteActivity) -> str:
+    """Who the line names: the feed's person, but never an email address.
+
+    The actor's staff label, else their account name, else ``Member #<id>`` (``User #<id>`` with
+    no member row) where the feed would fall back to their email. With no actor, the target's
+    ``activity_log_name`` (a guest registrant's name), else what the feed says: "Not recorded"
+    or "System".
+    """
+    actor = activity.actor
+    if actor is not None:
+        member = getattr(actor, "member", None)
+        if member is not None and member.staff_label:
+            return str(member.staff_label)
+        if full_name := actor.get_full_name():
+            return str(full_name)
+        return f"Member #{member.pk}" if member is not None else f"User #{actor.pk}"
+    if name := getattr(activity.target, "activity_log_name", ""):
+        return str(name)
+    return "Not recorded" if activity.line.actor_unrecorded else "System"
+
+
 def activity_message(activity: SiteActivity) -> str:
     """The one Discord line for ``activity``: its feed headline, who acted, and its link in angle brackets.
 
-    The headline and the name are escaped so a name with an asterisk shows as typed; the link
-    sits in ``<>`` so Discord shows no preview card under a log line.
+    The headline and the name are escaped (:func:`escape_line_text`), so a member's words show as
+    typed; the link sits in ``<>`` so Discord shows no preview card under a log line.
     """
-    parts = [escape_discord_markdown(activity.line.headline), escape_discord_markdown(activity.by)]
+    parts = [escape_line_text(activity.line.headline), escape_line_text(activity_name(activity))]
     link = activity_link(activity)
     if link:
         parts.append(f"<{link}>")
     return SEPARATOR.join(parts)
 
 
-#: The row's payload key that records its line was handed to Discord, so a second run posts nothing.
-POSTED_KEY = "activity_log_posted"
-
-
 @task
-def post_activity(activity_id: int) -> None:
+def post_activity(activity_id: int, attempt: int = 1) -> None:
     """Post one activity row's line to the Activity log webhook; blank posts nothing.
 
     Safe to run twice: the row is claimed first by a conditional update that marks its payload
-    (:data:`POSTED_KEY`), and only the run that claimed it posts. A row deleted before the
-    worker reached it posts nothing. Best effort, like every Discord post: a failed post is
-    logged and not retried.
+    (:data:`POSTED_KEY`), and only the run that claimed it posts. When Discord could not take it
+    for now (:attr:`PostOutcome.RETRY`) the claim is released and the line queued again after
+    :data:`RETRY_DELAYS`; past :data:`MAX_ATTEMPTS`, or on a refusal no retry would change, it
+    logs an error and stops. A row deleted before the worker reached it posts nothing. Never
+    raises: Discord's answers are outcomes, not errors.
+
+    Args:
+        activity_id: The :class:`~core.models.SiteActivity` row.
+        attempt: Which try this is, from 1.
     """
     from core.models import SiteActivity, SiteConfiguration
 
@@ -70,11 +117,19 @@ def post_activity(activity_id: int) -> None:
     activity = SiteActivity.objects.select_related("actor__member", "target_ct").filter(pk=activity_id).first()
     if activity is None:
         return
-    claimed = (
-        SiteActivity.objects.filter(pk=activity.pk)
-        .exclude(payload__has_key=POSTED_KEY)
-        .update(payload={**activity.payload, POSTED_KEY: True})
-    )
-    if not claimed:
+    unclaimed = SiteActivity.objects.filter(pk=activity.pk).exclude(payload__has_key=POSTED_KEY)
+    if not unclaimed.update(payload={**activity.payload, POSTED_KEY: True}):
         return
-    post_text(webhook, activity_message(activity))
+    outcome = post_text(webhook, activity_message(activity))
+    if outcome is PostOutcome.RETRY and attempt < MAX_ATTEMPTS:
+        SiteActivity.objects.filter(pk=activity.pk).update(payload=activity.payload)
+        enqueue_at_on_commit(post_activity, timezone.now() + RETRY_DELAYS[attempt - 1], activity.pk, attempt + 1)
+        return
+    if outcome in (PostOutcome.RETRY, PostOutcome.REFUSED):
+        logger.error(
+            "Activity log gave up on activity %s (%s) after %s attempt(s): Discord answered %s.",
+            activity.pk,
+            activity.kind,
+            attempt,
+            outcome,
+        )
