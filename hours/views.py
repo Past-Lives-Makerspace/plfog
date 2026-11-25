@@ -27,6 +27,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from hours.days_off import DayOffForm, remove_day_off, still_booked
 from hours.edit import gives_tours, held_owners
 from hours.follow import lock_person
 from hours.forms import MAX_DATES_AHEAD, AddDatesForm, Context, HoursSetFormSet, hours_formset
@@ -37,7 +38,9 @@ from hub.calendar_pages import calendar_nav_params
 from hub.toast import trigger_toast
 from hub.view_as import ViewAs, hours_access_required
 from membership.models import Member
-from tours.models import FacilityTourSettings
+from tours import google
+from tours.forms import TourCalendarChoiceForm, TourNoticeForm
+from tours.models import FacilityTourSettings, TourCalendarConnection, TourGuideSettings
 
 
 def _people() -> Any:
@@ -125,6 +128,7 @@ def _render(
     dated: HoursSetFormSet | None = None,
     add_dates: AddDatesForm | None = None,
     refused: bool = False,
+    day_off_form: DayOffForm | None = None,
 ) -> HttpResponse:
     viewer = _viewer(request)
     is_admin = ViewAs.for_request(request).actual_is_admin
@@ -135,6 +139,8 @@ def _render(
     pickable = sorted(_people().exclude(pk=viewer.pk), key=lambda m: m.staff_label.casefold()) if is_admin else []
     context = _context(target)
     add_dates = add_dates or AddDatesForm(context=context)
+    is_self = target.pk == viewer.pk
+    connection = TourCalendarConnection.objects.filter(guide=target).first()
     return render(
         request,
         "hours/my_hours.html",
@@ -154,6 +160,13 @@ def _render(
             "add_dates_open": add_dates.is_bound,
             "add_dates_calendar": _calendar(target, add_dates),
             "hours_refused": refused,
+            "day_off_form": day_off_form or DayOffForm(member=target),
+            "open_day_off": day_off_form is not None,
+            "gcal_form": TourCalendarChoiceForm(connection=connection)
+            if is_self and context.gives_tours and connection is not None and not connection.is_broken
+            else None,
+            "notice_form": TourNoticeForm(instance=TourGuideSettings.objects.filter(guide=target).first()),
+            "gcal_configured": google.is_configured(),
         },
     )
 
@@ -212,4 +225,69 @@ def dates_add(request: HttpRequest) -> HttpResponse:
     if not saved:
         return _render(request, target, add_dates=form)
     messages.success(request, f"Added {added} date{'' if added == 1 else 's'}.")
+    return redirect(_page_url(request, target))
+
+
+def _day_off_modal(request: HttpRequest, target: Member, form: DayOffForm) -> HttpResponse:
+    return render(
+        request,
+        "hours/partials/_day_off_form.html",
+        {"target": target, "is_self": target.pk == _viewer(request).pk, "day_off_form": form, **_booked(form)},
+    )
+
+
+def _booked(form: DayOffForm) -> dict[str, object]:
+    """The still booked lines for the days the form names so far, and whether it is one day."""
+    chosen = form.chosen()
+    if chosen is None:
+        return {"booked": None, "one_day": True}
+    return {"booked": still_booked(form.member, *chosen), "one_day": chosen[0] == chosen[1]}
+
+
+@hours_access_required
+def day_off_preview(request: HttpRequest) -> HttpResponse:
+    """GET ``member``, ``day_off-starts_on``, ``day_off-ends_on``: the still booked line, swapped into the open modal."""
+    target = _target(request, request.GET.get("member", ""))
+    form = DayOffForm(request.GET, member=target)
+    return render(request, "hours/partials/_day_off_impact.html", _booked(form))
+
+
+@hours_access_required
+@require_POST
+def day_off_save(request: HttpRequest) -> HttpResponse:
+    """Add Day Off: one day or a run of days for every kind. Bookings already made stay booked; nothing is emailed.
+
+    Valid: a flash, then ``HX-Redirect`` back to the page over HTMX (a plain redirect otherwise).
+    Invalid: the modal body again with its errors over HTMX, or the page with the modal open.
+    """
+    target = _target(request, request.POST.get("member", ""))
+    is_htmx = request.headers.get("HX-Request") == "true"
+    with transaction.atomic():
+        lock_person(target.pk)
+        form = DayOffForm(request.POST, member=target)
+        saved = form.is_valid()
+        day_off = form.save() if saved else None
+    if day_off is None:
+        if is_htmx:
+            return _day_off_modal(request, target, form)
+        return _render(request, target, day_off_form=form)
+    messages.success(request, f"Day off saved: {day_off.label}. Anything already booked stays booked.")
+    url = _page_url(request, target)
+    if is_htmx:
+        response = HttpResponse(status=204)
+        response["HX-Redirect"] = url
+        return response
+    return redirect(url)
+
+
+@hours_access_required
+@require_POST
+def day_off_delete(request: HttpRequest, pk: int) -> HttpResponse:
+    """Delete a day off (after the confirm): the person's own, or anyone's for an admin (403 otherwise)."""
+    day_off = get_object_or_404(DayOff, pk=pk)
+    target = _target(request, str(day_off.member_id))
+    with transaction.atomic():
+        lock_person(target.pk)
+        remove_day_off(day_off)
+    messages.success(request, "Day off deleted. Those days are offered again.")
     return redirect(_page_url(request, target))

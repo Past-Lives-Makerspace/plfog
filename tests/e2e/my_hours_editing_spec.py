@@ -15,11 +15,12 @@ from datetime import time, timedelta
 from django.urls import reverse
 from django.utils import timezone
 
-from hours.models import Hours
+from hours.models import DayOff, Hours
 from membership.models import OrientationAvailability
-from tests.e2e.my_hours_spec import DESKTOP, EMAIL, PHONE, _capture, _robin, _seed
+from tests.e2e.my_hours_spec import DESKTOP, EMAIL, PHONE, _at, _capture, _robin, _seed
 from tests.membership.factories import GuildFactory, GuildOrientationSettingsFactory, OrientationTypeFactory
-from tours.models import FacilityTourSettings, TourHours
+from tests.tours.factories import TourBookingFactory
+from tours.models import FacilityTourSettings, TourBooking, TourHours
 
 
 def _saved_past(page, count: int) -> None:
@@ -121,3 +122,30 @@ def describe_my_hours_editing():
         ]
         assert not first.locator('[data-hours-kind^="guild-"] input[type="checkbox"]').last.is_checked()
         _capture(page, "my-hours-edit")
+
+
+def describe_days_off():
+    def it_adds_a_day_off_listing_what_stays_booked(live_server, page, login_via_code, settings):
+        settings.GOOGLE_OAUTH_CLIENT_ID = "client-id"
+        settings.GOOGLE_OAUTH_CLIENT_SECRET = "client-secret"
+        robin = _robin()
+        today = timezone.localdate()
+        monday = today - timedelta(days=today.weekday()) + timedelta(weeks=1)
+        _seed(robin, monday - timedelta(weeks=1))
+        TourBookingFactory(guide=robin, starts_at=_at(monday, 13), ends_at=_at(monday, 14), party_size=3)
+        login_via_code(EMAIL)
+        page.set_viewport_size(DESKTOP)
+        page.goto(f"{live_server.url}{reverse('hours:my_hours')}")
+        page.locator("[data-hours-day-off-add]").click()
+        modal = page.locator("[data-hours-day-off-form]")
+        modal.wait_for(state="visible")
+        modal.locator('input[name="day_off-starts_on"]').fill(monday.isoformat())
+        modal.locator('input[name="day_off-starts_on"]').dispatch_event("change")
+        impact = modal.locator("[data-hours-day-off-impact]")
+        impact.get_by_text("1 booking that day stays booked:").wait_for()
+        assert "Tour at 1:00 PM, 3 visitors" in impact.inner_text()
+        _capture(page, "my-hours-dayoff", full_page=False)
+        with page.expect_navigation():
+            modal.locator("[data-hours-day-off-save]").click()
+        page.locator(f'[data-hours-day-off-row="{DayOff.objects.get(starts_on=monday).pk}"]').wait_for()
+        assert TourBooking.objects.filter(starts_at=_at(monday, 13)).exists()

@@ -40,7 +40,7 @@ DESKTOP = {"width": 1280, "height": 1000}
 PHONE = {"width": 390, "height": 844}
 
 
-def _capture(page, name: str) -> None:
+def _capture(page, name: str, *, full_page: bool = True) -> None:
     """Save dark and light pictures at desktop and phone widths, when CAPTURE_1300_DIR is set."""
     if not CAPTURE_DIR:
         return
@@ -55,7 +55,7 @@ def _capture(page, name: str) -> None:
                 theme,
             )
             page.wait_for_timeout(600)
-            page.screenshot(path=str(Path(CAPTURE_DIR) / f"1300-{name}-{size_name}-{theme}.png"), full_page=True)
+            page.screenshot(path=str(Path(CAPTURE_DIR) / f"1300-{name}-{size_name}-{theme}.png"), full_page=full_page)
     page.evaluate("() => document.documentElement.removeAttribute('data-theme')")
     page.set_viewport_size(DESKTOP)
 
