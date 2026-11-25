@@ -24,7 +24,7 @@
     </button>
 </div>
 
-{# Week grid #}
+{# Week grid; a page may draw its own in its place (cal.week_template: the Tours hour grid, #1332) #}{% if week_template %}{% include week_template %}{% else %}
 <div class="pl-calendar-grid pl-calendar-grid--week" x-show="calView === 'week'">
     {% for day in week_days %}
     <div class="pl-calendar-grid__day{% if day.is_today %} pl-calendar-grid__day--today{% endif %}"
@@ -59,7 +59,7 @@
         </div>
     </div>
     {% endfor %}
-</div>
+</div>{% endif %}
 
 {# Month navigation #}
 <div class="pl-calendar-nav" x-show="calView === 'month'">

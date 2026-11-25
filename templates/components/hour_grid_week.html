@@ -1,0 +1,58 @@
+{% comment %}
+The hour by hour week (#1332): hours down the left, seven day columns, each block placed by its
+start and sized by its length. Context: `grid`, a hub.hour_grid.HourGridWeek; each day's contents
+come from `grid.cell_template`, included with `day` (a GridDay) and `grid`. Positions arrive as CSS
+custom properties (--rows, --row, --rails, --start), the only inline style here; static/css/hour-grid.css
+does the rest. Below 640px one day shows at a time, picked from the strip of seven day buttons
+(`activeDay`, today first); it never scrolls sideways, so it is not a tab_picker row.
+{% endcomment %}
+<div class="pl-hourgrid-week" x-data="{ activeDay: '{{ grid.active_day }}' }" data-hourgrid>
+    <div class="pl-hourgrid-days" role="group" aria-label="Day">
+        {% for day in grid.days %}
+        <button type="button"
+                class="pl-hourgrid-days__day{% if day.is_today %} pl-hourgrid-days__day--today{% endif %}{% if day.has_items %} pl-hourgrid-days__day--busy{% endif %}"
+                data-hourgrid-day-button="{{ day.key }}"
+                aria-pressed="{% if day.key == grid.active_day %}true{% else %}false{% endif %}"
+                :aria-pressed="activeDay === '{{ day.key }}' ? 'true' : 'false'"
+                @click="activeDay = '{{ day.key }}'">
+            <span class="pl-hourgrid-days__name">{{ day.day|date:"D" }}</span>
+            <span class="pl-hourgrid-days__num">{{ day.day|date:"j" }}</span>
+            <span class="pl-hourgrid-days__mark" aria-hidden="true"></span>
+        </button>
+        {% endfor %}
+    </div>
+    <div class="pl-hourgrid" style="--rows: {{ grid.rows }};">
+        <div class="pl-hourgrid__head">
+            <div></div>
+            {% for day in grid.days %}
+            <div class="pl-hourgrid__dayhead{% if day.is_today %} pl-hourgrid__dayhead--today{% endif %}">
+                <span class="pl-hourgrid__dayname">{{ day.day|date:"D" }}</span>
+                <span class="pl-hourgrid__daynum">{{ day.day|date:"j" }}</span>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="pl-hourgrid__body">
+            <div class="pl-hourgrid__times" aria-hidden="true">
+                {% for row, label in grid.hour_labels %}
+                <span class="pl-hourgrid__time" style="--row: {{ row }};">{{ label }}</span>
+                {% endfor %}
+            </div>
+            {% for day in grid.days %}
+            <div class="pl-hourgrid__col{% if day.is_today %} pl-hourgrid__col--today{% endif %}{% if day.state %} pl-hourgrid__col--{{ day.state }}{% endif %}{% if day.key == grid.active_day %} pl-hourgrid__col--active{% endif %}"
+                 :class="{ 'pl-hourgrid__col--active': activeDay === '{{ day.key }}' }"
+                 data-hourgrid-day="{{ day.key }}"
+                 style="--rails: {{ day.rails_px }}px;"
+                 aria-label="{{ day.day|date:'l, M j' }}">
+                {% if day.note %}
+                <div class="pl-hourgrid__daynote">
+                    {{ day.note }}
+                    {% if day.note_url %}<a href="{{ day.note_url }}" class="pl-btn pl-btn--secondary pl-btn--sm" data-hourgrid-add>Add My Hours</a>{% endif %}
+                </div>
+                {% endif %}
+                {% include grid.cell_template with day=day grid=grid %}
+                {% if day.now is not None %}<div class="pl-hourgrid__now" style="--start: {{ day.now }};" aria-hidden="true" data-hourgrid-now></div>{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>

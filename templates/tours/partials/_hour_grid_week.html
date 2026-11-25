@@ -1,0 +1,13 @@
+{% comment %}
+The Tours Calendar tab's Week (#1332), drawn by the shared shell in place of its week cells
+(cal.week_template, hub/partials/calendar_content.html): the hour grid, and the key to its shapes.
+Context: hour_grid (hub.hour_grid.HourGridWeek, tours.coverage.hour_grid), inside the shell's x-data.
+{% endcomment %}
+<div class="pl-tours-hourgrid" x-show="calView === 'week'" data-tours-hour-grid data-guidance-target="tours.hour-grid">
+    {% include "components/hour_grid_week.html" with grid=hour_grid %}
+    <ul class="pl-hourgrid-key" aria-label="What the shapes mean">
+        <li class="pl-hourgrid-key__item"><span class="pl-hourgrid-key__swatch pl-hourgrid-key__swatch--hours"></span>A guide's hours, a rail in their colour; the tint is time someone covers</li>
+        <li class="pl-hourgrid-key__item"><span class="pl-hourgrid-key__swatch pl-hourgrid-key__swatch--tour"></span>A tour (dashed: a request)</li>
+        <li class="pl-hourgrid-key__item"><span class="pl-hourgrid-key__swatch pl-hourgrid-key__swatch--gap"></span>Untinted or striped: nobody covers it</li>
+    </ul>
+</div>

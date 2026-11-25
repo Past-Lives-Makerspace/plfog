@@ -1,0 +1,220 @@
+/* ==========================================================================
+   The hour by hour week (#1332): components/hour_grid_week.html.
+   Hours down the left, seven day columns, blocks placed by their times.
+   Loaded by the Tours Calendar tab. Positions arrive as custom properties
+   (--rows, --row, --start, --len, --lane, --lanes, --rail, --rails, --tone)
+   from hub/hour_grid.py. The shared calendar shell's week cells
+   (calendar.css .pl-calendar-grid--week) are untouched.
+   ========================================================================== */
+
+.pl-hourgrid {
+    --hour: 64px;
+    --gutter: 4rem;
+    background: var(--hub-card-bg);
+    border: 1px solid var(--hub-border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+/* Day names across the top, over the seven columns. */
+.pl-hourgrid__head,
+.pl-hourgrid__body {
+    display: grid;
+    grid-template-columns: var(--gutter) repeat(7, minmax(0, 1fr));
+}
+.pl-hourgrid__head { border-bottom: 1px solid var(--hub-border); }
+.pl-hourgrid__dayhead {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    padding: 0.625rem 0.25rem;
+    border-left: 1px solid var(--hub-border);
+}
+.pl-hourgrid__dayhead--today { background: color-mix(in srgb, var(--color-tuscan-yellow) 8%, transparent); }
+.pl-hourgrid__dayname { font-size: 0.8125rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--hub-text-muted); }
+.pl-hourgrid__daynum {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--hub-text-muted);
+}
+/* The same yellow circle the month grid gives today (calendar.css). */
+.pl-hourgrid__dayhead--today .pl-hourgrid__daynum { background: var(--color-tuscan-yellow); color: #1a1a2e; font-weight: 700; }
+
+/* Hour labels in the gutter, each sitting just under its line. */
+.pl-hourgrid__times { position: relative; height: calc(var(--rows) * var(--hour)); }
+.pl-hourgrid__time {
+    position: absolute;
+    top: calc(var(--row) * var(--hour) + 4px);
+    right: 0.625rem;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    line-height: 1;
+    color: var(--hub-text-muted);
+    white-space: nowrap;
+}
+
+/* One day: hour lines solid, half hours faint. */
+.pl-hourgrid__col {
+    position: relative;
+    height: calc(var(--rows) * var(--hour));
+    border-left: 1px solid var(--hub-border);
+    background-image:
+        repeating-linear-gradient(to bottom, var(--hub-border) 0 1px, transparent 1px var(--hour)),
+        repeating-linear-gradient(to bottom, transparent 0 calc(var(--hour) / 2), color-mix(in srgb, var(--hub-border) 45%, transparent) calc(var(--hour) / 2) calc(var(--hour) / 2 + 1px), transparent calc(var(--hour) / 2 + 1px) var(--hour));
+}
+.pl-hourgrid__col--today { background-color: color-mix(in srgb, var(--color-tuscan-yellow) 5%, transparent); }
+
+/* Text wraps rather than trails off, so a narrow card still shows a name and a time. */
+.pl-hourgrid__label,
+.pl-hourgrid__when { display: block; overflow: hidden; }
+.pl-hourgrid__label { font-weight: 700; }
+.pl-hourgrid__when { color: var(--hub-text-muted); }
+
+/* A person's hours: a thin rail in their colour down the left of the day, one rail per
+   overlapping person; the time anyone covers is a faint tint across the day. */
+.pl-hourgrid__cover {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(var(--start) / 60 * var(--hour));
+    height: calc(var(--len) / 60 * var(--hour));
+    background: color-mix(in srgb, var(--hub-text) 5%, transparent);
+    pointer-events: none;
+}
+.pl-hourgrid__rail {
+    position: absolute;
+    top: calc(var(--start) / 60 * var(--hour) + 2px);
+    height: calc(var(--len) / 60 * var(--hour) - 4px);
+    left: calc(4px + var(--rail) * 9px);
+    width: 6px;
+    border-radius: 3px;
+    background: var(--tone);
+}
+
+/* A booking: a card across the rest of the column, clear of the rails, its lane's share of the width. */
+.pl-hourgrid__card {
+    position: absolute;
+    top: calc(var(--start) / 60 * var(--hour) + 1px);
+    height: calc(var(--len) / 60 * var(--hour) - 3px);
+    left: calc(var(--rails) + 4px + (100% - var(--rails) - 8px) * var(--lane) / var(--lanes));
+    width: calc((100% - var(--rails) - 8px) / var(--lanes) - 2px);
+    display: block;
+    margin: 0;
+    padding: 0.25rem 0.4375rem;
+    border-radius: 6px;
+    background: var(--hub-elevated);
+    border: 1px solid var(--hub-border-strong);
+    border-left: 3px solid var(--tone);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+    font: inherit;
+    font-size: 0.75rem;
+    line-height: 1.25;
+    text-align: left;
+    color: var(--hub-text);
+    overflow: hidden;
+    cursor: pointer;
+    z-index: 1;
+}
+.pl-hourgrid__card:focus-visible { outline: 2px solid var(--hub-blue); outline-offset: 1px; }
+.pl-hourgrid__card--request { border-style: dashed; border-left-style: solid; }
+.pl-hourgrid__card .pl-hourgrid__when { font-weight: 700; color: var(--hub-text-muted); }
+.pl-hourgrid__card .pl-hourgrid__label { font-weight: 500; }
+.pl-hourgrid__guide { display: flex; align-items: center; gap: 0.3125rem; color: var(--hub-text-muted); white-space: nowrap; }
+.pl-hourgrid__guide::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--tone); flex-shrink: 0; }
+
+/* A whole day with nothing (a day nobody covers): striped, with its note at the top. */
+.pl-hourgrid__col--uncovered { background-image: repeating-linear-gradient(135deg, transparent 0 10px, var(--hub-surface) 10px 20px); }
+.pl-hourgrid__daynote {
+    position: absolute;
+    top: 0.75rem;
+    left: 0.5rem;
+    right: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    text-align: center;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--hub-text-muted);
+}
+.pl-hourgrid__daynote .pl-btn { text-transform: none; letter-spacing: 0; }
+
+/* Now: a red line across today's column, as the month grid marks today. */
+.pl-hourgrid__now {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(var(--start) / 60 * var(--hour));
+    height: 2px;
+    background: #e84a4a;
+    box-shadow: 0 0 6px rgba(232, 74, 74, 0.55);
+    z-index: 0; /* under the cards, so it never strikes through their text */
+    pointer-events: none;
+}
+.pl-hourgrid__now::before {
+    content: "";
+    position: absolute;
+    left: -5px;
+    top: -4px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #e84a4a;
+}
+
+/* What the shapes mean, under the grid. */
+.pl-hourgrid-key { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; margin: 1rem 0 0; padding: 0; list-style: none; font-size: 0.8125rem; color: var(--hub-text-muted); }
+.pl-hourgrid-key__item { display: inline-flex; align-items: center; gap: 0.5rem; }
+.pl-hourgrid-key__swatch { width: 18px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+.pl-hourgrid-key__swatch--hours { width: 6px; height: 16px; background: var(--hub-blue); }
+.pl-hourgrid-key__swatch--tour { background: var(--hub-elevated); border: 1px solid var(--hub-border-strong); border-left: 3px solid var(--hub-blue); }
+.pl-hourgrid-key__swatch--gap { background: repeating-linear-gradient(135deg, transparent 0 3px, var(--hub-border-strong) 3px 5px); border: 1px solid var(--hub-border); }
+
+/* The phone's day strip: seven days that fit at 390px, never scrolling sideways. Hidden above 640px. */
+.pl-hourgrid-days { display: none; }
+
+@media (max-width: 640px) {
+    .pl-hourgrid { --gutter: 3.25rem; }
+    .pl-hourgrid__head { display: none; }
+    .pl-hourgrid__body { grid-template-columns: var(--gutter) minmax(0, 1fr); }
+    .pl-hourgrid__col { display: none; }
+    .pl-hourgrid__col--active { display: block; }
+
+    .pl-hourgrid-days {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 0.25rem;
+        margin: 0 0 0.75rem;
+    }
+    .pl-hourgrid-days__day {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.125rem;
+        min-height: 56px;
+        padding: 0.375rem 0 0.25rem;
+        border: 1px solid var(--hub-border);
+        border-radius: 10px;
+        background: var(--hub-surface);
+        color: var(--hub-text-muted);
+        font: inherit;
+        cursor: pointer;
+    }
+    .pl-hourgrid-days__name { font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+    .pl-hourgrid-days__num { font-size: 1rem; font-weight: 700; color: var(--hub-text); }
+    .pl-hourgrid-days__mark { width: 6px; height: 6px; border-radius: 50%; background: transparent; }
+    .pl-hourgrid-days__day--busy .pl-hourgrid-days__mark { background: var(--hub-text-muted); }
+    .pl-hourgrid-days__day--today .pl-hourgrid-days__num { color: var(--color-tuscan-yellow); }
+    .pl-hourgrid-days__day[aria-pressed="true"] { border-color: var(--color-tuscan-yellow); background: color-mix(in srgb, var(--color-tuscan-yellow) 14%, var(--hub-card-bg)); }
+    [data-theme="light"] .pl-hourgrid-days__day--today .pl-hourgrid-days__num { color: var(--hub-link); }
+}

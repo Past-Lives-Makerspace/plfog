@@ -1,0 +1,24 @@
+{% comment %}
+One day of the Tours Calendar's hour grid (#1332), inside components/hour_grid_week.html: each guide's
+hours as a faint tint (time someone covers) and a 6px rail in the guide's colour, one rail per
+overlapping guide, and each tour as a card across the rest of the column. A legend chip hides that
+guide's tint, rail and cards (the shell's isActive); a card flashes its line in the list below, as a chip does.
+{% endcomment %}
+{% for rail in day.rails %}
+<div class="pl-hourgrid__cover" x-show="isActive('{{ rail.key }}')" style="--start: {{ rail.start }}; --len: {{ rail.length }};"></div>
+<div class="pl-hourgrid__rail" x-show="isActive('{{ rail.key }}')" data-hourgrid-rail="{{ rail.key }}" style="--start: {{ rail.start }}; --len: {{ rail.length }}; --rail: {{ rail.lane }}; --tone: {{ rail.tone }};" title="{{ rail.title }}" role="img" aria-label="{{ rail.title }}"></div>
+{% endfor %}
+{% for card in day.cards %}
+<button type="button"
+        class="pl-hourgrid__card{% if card.is_request %} pl-hourgrid__card--request{% endif %}"
+        x-show="isActive('{{ card.key }}')"
+        data-hourgrid-card="{{ card.event_pk }}"
+        style="--start: {{ card.start }}; --len: {{ card.length }}; --lane: {{ card.lane }}; --lanes: {{ card.lanes }}; --tone: {{ card.tone }};"
+        title="{{ card.title }}"
+        @click="focusEvent({{ card.event_pk }})"
+        @mouseenter="hoverEvent({{ card.event_pk }})" @mouseleave="unhoverEvent({{ card.event_pk }})">
+    <span class="pl-hourgrid__when">{{ card.when }}</span>
+    <span class="pl-hourgrid__label">{{ card.label }}</span>
+    <span class="pl-hourgrid__guide">{{ card.guide }}</span>
+</button>
+{% endfor %}

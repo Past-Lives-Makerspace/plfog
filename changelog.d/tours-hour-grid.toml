@@ -1,0 +1,19 @@
+bump = "minor"
+date = "2026-11-25"
+audience = ["admins"]
+feature = "tours.calendar"
+guidance = "shots"
+target = "tours.hour-grid"
+title = "The Tours Calendar's Week shows the day hour by hour"
+changes = [
+  "Week on the Tours Calendar tab is now a time grid: each guide's hours are a bar in their colour from start to end, and every tour sits at its time with the visitor, party size and guide.",
+  "Time someone covers is shaded, so the gaps show at a glance. A day nobody covers is striped and has Add My Hours.",
+  "On a phone, tap a day in the strip of seven to see it. Month is unchanged.",
+]
+
+[[shots]]
+caption = "Open Tours, then Calendar. Week shows every guide's hours as a bar and each tour at its time."
+
+[[shots]]
+caption = "On a phone, tap a day in the strip to see that day."
+frame = "phone"

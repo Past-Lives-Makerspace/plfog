@@ -172,7 +172,7 @@ def describe_calendar_tab():
         client = signed_in(guide)
         fragment = client.get(events, {"week_offset": 1}, **HTMX).content.decode()
         assert "<html" not in fragment and "Gina G. hours" in fragment
-        assert 'pl-calendar-grid__chip-time">4:00 PM<' in fragment
+        assert "data-tours-hour-grid" in fragment and "4:00\u00a0PM" in fragment
         plain = client.get(events)
         assert (plain.status_code, plain["Location"]) == (302, CALENDAR)
 
