@@ -1,0 +1,7 @@
+bump = "patch"
+date = "2026-11-25"
+audience = "internal"
+title = "The My Hours browser test no longer fails after Tuesday"
+changes = [
+  "The test checks this week's Tuesday day off in the Days Off list only while that day is still to come, because the list shows upcoming days off only.",
+]
