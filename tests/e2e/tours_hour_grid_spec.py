@@ -3,7 +3,8 @@
 A guide opens the Calendar tab on this week: each guide's hours are a rail in their colour, tours
 are cards placed at their time, three guides overlapping on one day still leave every card the
 column's full width beside the rails, and a day nobody covers is striped with Add My Hours. A legend
-chip hides that guide's rails and cards. On a phone one day shows at a time under a seven-day strip,
+chip hides that guide's rails and cards. Week draws no list under the grid; each card is the link to its
+tour's row on Upcoming or Past, with a hover and keyboard focus state. On a phone one day shows at a time under a seven-day strip,
 with no sideways scroll. Month still shows the shell's month grid. ``CAPTURE_1332_DIR=<dir>`` also
 saves desktop (1280) and phone (390) pictures in both themes, and the two guidance shots under
 ``<dir>/guidance``. Run with ``pytest -m e2e`` on PostgreSQL.
@@ -153,6 +154,8 @@ def describe_tours_hour_grid():
         grid.wait_for(state="visible")
         assert page.locator(".pl-hourgrid__col").count() == 7
         assert page.locator(".pl-calendar-grid--week").count() == 0
+        # Week has no list under the grid: the cards are the links.
+        assert page.locator(".pl-calendar-list:visible").count() == 0
 
         # The grid starts at 8 AM (Marcus's Friday hours) and runs to 9 PM.
         assert page.locator(".pl-hourgrid__time").first.inner_text() == "8 AM"
@@ -160,7 +163,7 @@ def describe_tours_hour_grid():
 
         # Jordan's 1:00 PM tour sits five hours down Monday's column.
         monday_col = _box(page, f'[data-hourgrid-day="{monday.isoformat()}"]')
-        jordan = page.locator(f'[data-hourgrid-card="{7_000_000_000 + seeded["jordan"].pk}"]')
+        jordan = page.locator(f'[data-hourgrid-card="{seeded["jordan"].pk}"]')
         assert "1:00 PM" in jordan.inner_text() and "Jordan (3)" in jordan.inner_text()
         assert abs(jordan.bounding_box()["y"] - (monday_col["y"] + 5 * HOUR_PX + 1)) <= 2
 
@@ -183,7 +186,7 @@ def describe_tours_hour_grid():
             page.locator(f'[data-hourgrid-day="{wednesday}"] [data-hourgrid-add]').wait_for()
 
         # A legend chip hides that guide's rails and cards, and brings them back.
-        bo = page.locator(f'[data-hourgrid-card="{7_000_000_000 + seeded["bo"].pk}"]')
+        bo = page.locator(f'[data-hourgrid-card="{seeded["bo"].pk}"]')
         dana_chip = page.locator(".pl-calendar-filter", has_text="Dana Ortiz")
         dana_chip.click()
         bo.wait_for(state="hidden")
@@ -221,6 +224,7 @@ def describe_tours_hour_grid():
         page.get_by_role("button", name="Month", exact=True).click()
         page.locator(".pl-calendar-grid--month").wait_for(state="visible")
         grid.wait_for(state="hidden")
+        assert page.locator(".pl-calendar-list:visible").count() == 1
         label = page.locator(".pl-calendar-nav__label:visible").inner_text()
         page.get_by_role("button", name="Next month").click()
         page.wait_for_function(
@@ -230,3 +234,19 @@ def describe_tours_hour_grid():
         page.locator(".pl-calendar-grid--month").wait_for(state="visible")
         page.get_by_role("button", name="Week", exact=True).click()
         page.locator("[data-tours-hour-grid]").wait_for(state="visible")
+        assert page.locator(".pl-calendar-list:visible").count() == 0
+
+        # A card is the link to its tour: it changes on hover, and Enter on it from the keyboard opens the tour's row.
+        jordan_pk = seeded["jordan"].pk
+        card = page.locator(f'[data-hourgrid-card="{jordan_pk}"]')
+        resting = card.evaluate("(el) => getComputedStyle(el).backgroundColor")
+        card.hover()
+        page.wait_for_timeout(250)
+        assert card.evaluate("(el) => getComputedStyle(el).backgroundColor") != resting
+        page.mouse.move(0, 0)
+        page.locator(".pl-calendar-nav__btn[aria-label='Next week']").focus()
+        page.keyboard.press("Tab")  # the first card in the week, Monday's 1:00 PM
+        assert card.evaluate("(el) => el === document.activeElement && el.matches(':focus-visible')")
+        page.keyboard.press("Enter")
+        page.wait_for_url(f"**#tour-booking-{jordan_pk}")
+        page.locator(f'[data-tour-booking="{jordan_pk}"]').first.wait_for(state="visible")

@@ -19,6 +19,8 @@ pytestmark = pytest.mark.django_db
 CALENDAR = reverse("tours:calendar")
 EVENTS = reverse("tours:calendar_events")
 HOURS = reverse("tours:hours")
+UPCOMING = reverse("tours:upcoming")
+PAST = reverse("tours:past")
 HTMX = {"HTTP_HX_REQUEST": "true"}
 COLORS = {"no-guide": "var(--hub-text-muted)"}
 
@@ -79,7 +81,8 @@ def describe_hour_grid():
         first, unguided, request = cards
         assert (first.when, first.label, first.guide, first.tone) == ("11:00 AM", "Theo A. (4)", "Gina G.", "#000000")
         assert first.title == "Tour: Theo A. (4), 11:00 AM, Gina G."
-        assert first.event_pk == coverage.BOOKING_PK_OFFSET + theo.pk and not first.is_request
+        assert first.pk == theo.pk and not first.is_request
+        assert first.url == f"{UPCOMING}#tour-booking-{theo.pk}"
         assert (unguided.key, unguided.guide, unguided.tone) == ("no-guide", "No guide", "var(--hub-text-muted)")
         assert request.is_request and request.label == "Lee P. (2) · Waiting"
         assert request.title.startswith("Request: ")
@@ -115,6 +118,12 @@ def describe_hour_grid():
         assert grid.last_hour == 24
         assert grid.days[6].cards[0].length == 60
 
+    def it_links_a_past_tour_to_the_past_table(guide: Member):
+        last_monday = _next_monday() - timedelta(days=14)
+        past = TourBookingFactory(guide=guide, starts_at=local(last_monday, 11), status=TourBooking.Status.ATTENDED)
+        card = coverage.hour_grid(last_monday, _colors(guide)).days[0].cards[0]
+        assert card.url == f"{PAST}#tour-booking-{past.pk}"
+
     def it_draws_the_now_line_on_today_inside_the_range():
         monday = timezone.localdate() - timedelta(days=timezone.localdate().weekday())
         grid = coverage.hour_grid(monday, COLORS, now=local(monday + timedelta(days=1), 14, 20))
@@ -132,8 +141,13 @@ def describe_calendar_week():
     def it_draws_the_hour_grid_in_place_of_the_week_cells(guide: Member):
         today = timezone.localdate()
         TourHoursFactory(guide=guide, weekday=today.weekday(), start_time=time(10), end_time=time(12))
-        TourBookingFactory(guide=guide, starts_at=local(today, 11), visitor_name="Sam Rivera", party_size=3)
+        sam = TourBookingFactory(guide=guide, starts_at=local(today, 11), visitor_name="Sam Rivera", party_size=3)
         content = signed_in(guide).get(CALENDAR).content.decode()
+        tab = reverse(sam.table_url_name(timezone.now()))
+        assert f'<a href="{tab}#tour-booking-{sam.pk}"\n   class="pl-hourgrid__card"' in content
+        # Week draws no list under the grid; the one list left is Month's, under Month's own divider.
+        assert content.count('class="pl-calendar-list"') == 1
+        assert '<div class="pl-calendar-divider" x-show="calView === \'month\'"></div>' in content
         assert "css/hour-grid" in content and "data-tours-hour-grid" in content
         assert 'data-guidance-target="tours.hour-grid"' in content
         assert f'data-hourgrid-day="{today.isoformat()}"' in content
@@ -162,3 +176,4 @@ def describe_other_calendars():
         )
         html = render_to_string("hub/partials/guild_calendar_app.html", {"cal": cal, "cal_key": "spec"})
         assert "pl-calendar-grid--week" in html and "pl-hourgrid" not in html
+        assert html.count('class="pl-calendar-list"') == 2

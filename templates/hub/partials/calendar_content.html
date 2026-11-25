@@ -118,13 +118,14 @@
     {% endfor %}
 </div>
 
-{# Divider #}
-<div class="pl-calendar-divider"></div>
+{# Divider; a page with its own week draws no list under it, so the line belongs to Month alone #}{% if week_template %}
+<div class="pl-calendar-divider" x-show="calView === 'month'"></div>{% else %}
+<div class="pl-calendar-divider"></div>{% endif %}
 
 {# Legend note — colored events come from subscribed/guild calendars; the Orientations and Reservations calendars (entries_calendar) read only their own rows #}{% if not entries_calendar %}
 <p class="pl-calendar-list-note">Colored events are pulled from subscribed and guild calendars — some aren't Past Lives classes, so they won't all show up under Classes.</p>{% endif %}
 
-{# Week event list — all events within the navigated week #}
+{# Week event list — all events within the navigated week; a page with its own week (cal.week_template) draws none #}{% if not week_template %}
 <div x-show="calView === 'week'">
     <div class="pl-calendar-list">
         {% if week_events %}
@@ -138,7 +139,7 @@
         </div>
         {% endif %}
     </div>
-</div>
+</div>{% endif %}
 
 {# Month event list — events within the navigated month, paginated #}
 <div x-show="calView === 'month'">

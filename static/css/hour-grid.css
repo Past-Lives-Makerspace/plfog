@@ -113,16 +113,26 @@
     border: 1px solid var(--hub-border-strong);
     border-left: 3px solid var(--tone);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
-    font: inherit;
     font-size: 0.75rem;
     line-height: 1.25;
     text-align: left;
     color: var(--hub-text);
+    text-decoration: none;
     overflow: hidden;
     cursor: pointer;
     z-index: 1;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
 }
-.pl-hourgrid__card:focus-visible { outline: 2px solid var(--hub-blue); outline-offset: 1px; }
+/* A card is the link to its tour: it lifts on hover and rings on keyboard focus. */
+.pl-hourgrid__card:hover,
+.pl-hourgrid__card:focus-visible {
+    border-color: var(--tone);
+    background: color-mix(in srgb, var(--tone) 12%, var(--hub-elevated));
+    color: var(--hub-text);
+    text-decoration: none;
+    z-index: 2;
+}
+.pl-hourgrid__card:focus-visible { outline: 2px solid var(--hub-blue); outline-offset: 2px; }
 .pl-hourgrid__card--request { border-style: dashed; border-left-style: solid; }
 .pl-hourgrid__card .pl-hourgrid__when { font-weight: 700; color: var(--hub-text-muted); }
 .pl-hourgrid__card .pl-hourgrid__label { font-weight: 500; }

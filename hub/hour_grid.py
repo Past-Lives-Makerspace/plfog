@@ -95,7 +95,7 @@ class Rail:
 
 @dataclass(frozen=True)
 class Card:
-    """A booking on the grid (a tour): its time, who and the guide, across the column beside the rails."""
+    """A booking on the grid (a tour): its time, who and the guide, across the column beside the rails; a link to ``url``."""
 
     start: int
     length: int
@@ -107,7 +107,8 @@ class Card:
     label: str
     guide: str
     title: str
-    event_pk: int
+    pk: int
+    url: str
     is_request: bool = False
 
 

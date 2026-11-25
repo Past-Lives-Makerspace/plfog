@@ -273,7 +273,7 @@ def hour_grid(week_start: date, colors: dict[str, str], *, now: datetime | None 
             for row, (start, end), (lane, _) in zip(by_day[day], hours_spans[day], lay_lanes(hours_spans[day]))
         ]
         cards = [
-            _card(booking, span, lanes, top, colors)
+            _card(booking, span, lanes, top, colors, moment)
             for booking, span, lanes in zip(bookings[day], tour_spans[day], lay_lanes(tour_spans[day]))
         ]
         uncovered = not rails
@@ -293,8 +293,9 @@ def hour_grid(week_start: date, colors: dict[str, str], *, now: datetime | None 
 
 
 def _card(
-    booking: TourBooking, span: tuple[int, int], lanes: tuple[int, int], top: int, colors: dict[str, str]
+    booking: TourBooking, span: tuple[int, int], lanes: tuple[int, int], top: int, colors: dict[str, str], now: datetime
 ) -> Card:
+    """A tour's card, linking to its row on Upcoming or Past as the calendar's list lines do."""
     start, end = span
     key = str(booking.guide_id) if booking.guide is not None else NO_GUIDE_KEY
     guide = _short_name(booking.guide) if booking.guide is not None else "No guide"
@@ -311,6 +312,7 @@ def _card(
         label=label,
         guide=guide,
         title=f"{kind}: {label}, {clock(start)}, {guide}",
-        event_pk=BOOKING_PK_OFFSET + booking.pk,
+        pk=booking.pk,
+        url=f"{reverse(booking.table_url_name(now))}#tour-booking-{booking.pk}",
         is_request=booking.is_request,
     )

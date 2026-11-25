@@ -25,7 +25,8 @@ def _card() -> Card:
         label="Sam R. (2)",
         guide="Gina G.",
         title="Tour",
-        event_pk=7,
+        pk=7,
+        url="/tours/upcoming/#tour-booking-7",
     )
 
 
