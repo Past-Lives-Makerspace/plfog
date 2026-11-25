@@ -4,6 +4,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/calendar.css' %}">
 <link rel="stylesheet" href="{% static 'css/tours.css' %}">
+<link rel="stylesheet" href="{% static 'css/hour-grid.css' %}">
 <link rel="stylesheet" href="{% static 'css/my-hours.css' %}">
 {% endblock %}
 {% block content %}
@@ -52,19 +53,7 @@ An admin picks whose hours with the picker (?member=), as on the Tours My Hours 
     <span class="pl-calendar-nav__label" data-hours-week-label>{{ page.week_label }}</span>
     <a href="{{ next_week_url }}" class="pl-calendar-nav__btn" aria-label="Next week" data-hours-week-next><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></a>
   </div>
-  <div class="pl-calendar-grid pl-calendar-grid--week pl-hours-week">
-    {% for day in page.week %}
-    <div class="pl-calendar-grid__day{% if day.is_today %} pl-calendar-grid__day--today{% endif %}{% if day.is_day_off %} pl-hours-day--off{% endif %}" data-hours-day="{{ day.date|date:'Y-m-d' }}">
-      <div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-name">{{ day.date|date:"D" }}</span><span class="pl-calendar-grid__day-num{% if day.is_today %} pl-calendar-grid__day-num--today{% endif %}">{{ day.date|date:"j" }}</span></div>
-      <div>
-        {% if day.is_day_off %}<span class="pl-hours-day__off" data-hours-day-off>Day Off</span>{% endif %}
-        {% for chip in day.chips %}
-        <div class="pl-hours-chip pl-hours-chip--{{ chip.style }}{% if chip.kind %} pl-kind {{ chip.kind.css }}{% endif %}" data-hours-chip="{{ chip.style }}"><span class="pl-hours-chip__time">{{ chip.time_label }}</span><span class="pl-hours-chip__what">{% if chip.kinds %}<span class="pl-hours-chip__dots">{% for kind in chip.kinds %}<span class="pl-kind {{ kind.css }}"></span>{% endfor %}</span>{% endif %}{{ chip.what }}</span></div>
-        {% endfor %}
-      </div>
-    </div>
-    {% endfor %}
-  </div>
+  {% include "components/hour_grid_week.html" with grid=page.grid %}
   <p class="pl-hours-rule">A booking or request for one kind closes that time for the others. Classes you teach and busy times in your Google Calendar close it too. Bookings already made always stay.</p>
 </section>
 
