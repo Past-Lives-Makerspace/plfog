@@ -26,3 +26,11 @@ def plain(db: None) -> Member:
     from tests.membership.factories import MemberFactory
 
     return MemberFactory(full_legal_name="Pat Plain")
+
+
+@pytest.fixture
+def google_on(settings) -> None:  # type: ignore[no-untyped-def]
+    """Google sign in is set up; every call to Google is mocked in the spec."""
+    settings.GOOGLE_OAUTH_CLIENT_ID = "client-id"
+    settings.GOOGLE_OAUTH_CLIENT_SECRET = "client-secret"
+    settings.MEMBER_BASE_URL = "https://members.example.org"

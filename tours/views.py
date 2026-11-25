@@ -19,6 +19,7 @@ admin any guide's: a reassignment), so a forged POST gets the same 403 the page 
 from __future__ import annotations
 
 import secrets
+from functools import wraps
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import parse_qsl, urlencode, urlsplit
@@ -45,6 +46,7 @@ from hub.view_as import (
     ROLE_ADMIN,
     fog_admin_required,
     give_tours_access_required,
+    has_hours_access,
     has_tour_guide_access,
     tour_guide_access_required,
 )
@@ -107,6 +109,8 @@ UPCOMING = "upcoming"
 PAST = "past"
 #: The session key holding the Connect Google Calendar flow's ``state`` (#951), checked on the callback.
 GOOGLE_STATE_SESSION_KEY = "tours_google_oauth_state"
+#: Where the Connect flow lands afterwards (#1300): My Hours, or the Tours page's My Hours tab.
+GOOGLE_RETURN_SESSION_KEY = "tours_google_oauth_return"
 #: How the admin's guide picker names each guide's Google Calendar (#951).
 CALENDAR_STATE_LABELS: dict[str, str] = {
     TourCalendarConnection.Status.CONNECTED: "Calendar connected",
@@ -588,9 +592,31 @@ def tour_kiosk_key(request: HttpRequest) -> HttpResponse:
 
 
 # --- Google Calendar (#951) ---------------------------------------------------------------------
+# Open to everyone with a My Hours page since #1300 part 4: an orientor connects their calendar so
+# its busy times hide their orientations too. Started from My Hours (``from=hours``), each lands back there.
+
+MY_HOURS = "hours:my_hours"
 
 
-@tour_guide_access_required
+def _calendar_access_required(view_func: Any) -> Any:
+    """Anyone with a My Hours page (``has_hours_access``: guides, orientors, admins); anyone else as the Tours gate answers."""
+    guarded = tour_guide_access_required(view_func)
+
+    @wraps(view_func)
+    def wrapper(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
+        if request.user.is_authenticated and has_hours_access(request):
+            return cast(HttpResponse, view_func(request, *args, **kwargs))
+        return cast(HttpResponse, guarded(request, *args, **kwargs))
+
+    return wrapper
+
+
+def _gcal_back(source: str) -> str:
+    """Where a Google Calendar action lands: My Hours when it started there, else the Tours page's My Hours tab."""
+    return MY_HOURS if source in ("hours", MY_HOURS) else "tours:hours"
+
+
+@_calendar_access_required
 def tour_google_connect(request: HttpRequest) -> HttpResponse:
     """Start Connect (or Reconnect) Google Calendar for the signed in guide: a ``state`` in the session, then Google.
 
@@ -598,15 +624,17 @@ def tour_google_connect(request: HttpRequest) -> HttpResponse:
     connect one for someone else.
     """
     _viewer(request)
+    back = _gcal_back(request.GET.get("from", ""))
     if not google.is_configured():
         messages.error(request, "Connecting a Google Calendar is not set up yet.")
-        return redirect("tours:hours")
+        return redirect(back)
     state = secrets.token_urlsafe(32)
     request.session[GOOGLE_STATE_SESSION_KEY] = state
+    request.session[GOOGLE_RETURN_SESSION_KEY] = back
     return redirect(google.authorize_url(state, login_hint=cast("User", request.user).email))
 
 
-@tour_guide_access_required
+@_calendar_access_required
 def tour_google_callback(request: HttpRequest) -> HttpResponse:
     """Where Google sends the guide back: check ``state``, store the connection, land on My Hours.
 
@@ -616,16 +644,17 @@ def tour_google_callback(request: HttpRequest) -> HttpResponse:
     """
     guide = _viewer(request)
     expected = request.session.pop(GOOGLE_STATE_SESSION_KEY, "")
+    back = _gcal_back(request.session.pop(GOOGLE_RETURN_SESSION_KEY, ""))
     if request.GET.get("error"):
         messages.info(request, "Google Calendar was not connected.")
-        return redirect("tours:hours")
+        return redirect(back)
     state, code = request.GET.get("state", ""), request.GET.get("code", "")
     if not (code and state and expected and secrets.compare_digest(state, expected)):
         messages.error(request, "We could not check that Google sign in. Press Connect Google Calendar to try again.")
-        return redirect("tours:hours")
+        return redirect(back)
     if not google.is_configured():
         messages.error(request, "Connecting a Google Calendar is not set up yet.")
-        return redirect("tours:hours")
+        return redirect(back)
     try:
         calendar_sync.connect_from_code(guide, code)
     except google.GoogleMissingScopeError:
@@ -638,13 +667,15 @@ def tour_google_callback(request: HttpRequest) -> HttpResponse:
     else:
         messages.success(
             request,
-            "Google Calendar connected. Tours you give will be added to it, and times it shows you busy "
+            "Google Calendar connected. Times it shows you busy are not offered to anyone booking you."
+            if back == MY_HOURS
+            else "Google Calendar connected. Tours you give will be added to it, and times it shows you busy "
             "are not offered to visitors.",
         )
-    return redirect("tours:hours")
+    return redirect(back)
 
 
-@tour_guide_access_required
+@_calendar_access_required
 @require_POST
 def tour_google_calendar(request: HttpRequest) -> HttpResponse:
     """Pick which of the guide's own calendars tours are written to; their upcoming tours move there.
@@ -659,16 +690,16 @@ def tour_google_calendar(request: HttpRequest) -> HttpResponse:
         if wants_autosave(request):
             return autosave_refused(form)
         messages.error(request, "Pick one of your calendars from the list.")
-        return redirect("tours:hours")
+        return redirect(_gcal_back(request.POST.get("from", "")))
     if form.cleaned_data["calendar"] != connection.calendar_id:
         calendar_sync.choose_calendar(connection, form.cleaned_data["calendar"])
     if wants_autosave(request):
         return autosave_saved()
     messages.success(request, f"Tours will be written to {connection.calendar_label}.")
-    return redirect("tours:hours")
+    return redirect(_gcal_back(request.POST.get("from", "")))
 
 
-@tour_guide_access_required
+@_calendar_access_required
 @require_POST
 def tour_google_disconnect(request: HttpRequest) -> HttpResponse:
     """Disconnect the guide's Google Calendar (after the confirm): revoke the token at Google and delete it here."""
@@ -681,7 +712,7 @@ def tour_google_disconnect(request: HttpRequest) -> HttpResponse:
             "Google Calendar disconnected here, but Google did not confirm it. You can also remove Past Lives "
             "from the apps connected to your Google Account.",
         )
-    return redirect("tours:hours")
+    return redirect(_gcal_back(request.POST.get("from", "")))
 
 
 # --- Upcoming and Past (#949) ------------------------------------------------------------------

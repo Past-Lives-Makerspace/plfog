@@ -71,3 +71,8 @@
     .pl-hours-set__head .pl-btn { width: 100%; min-height: 48px; }
     .pl-hours-kind__settings > .pl-form-group, .pl-hours-kind__fixed, .pl-hours-kind__type { flex: 1 1 100%; }
 }
+
+/* Days Off: the Add Day Off modal's still booked line. */
+.pl-hours-dayoff-impact { margin: 1rem 0 1.5rem; padding: 0.75rem 1rem; border-radius: 8px; background: var(--hub-surface); border: 1px solid var(--hub-border); font-size: 0.875rem; }
+.pl-hours-dayoff-impact ul { margin: 0.5rem 0 0; padding-left: 1.1rem; }
+.pl-hours-dayoff-note { margin-top: 0.75rem; }
