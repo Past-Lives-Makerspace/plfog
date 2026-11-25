@@ -23,6 +23,8 @@ from django.utils import timezone
 
 from hub.calendar_entries import CalendarEntry
 from hub.calendar_pages import ITEM_LEGEND_COLORS, LegendChip, entries_calendar_context
+from hub.calendar_window import calendar_window
+from hub.hour_grid import MINUTES_PER_DAY, Card, GridDay, HourGridWeek, Rail, clock, hour_range, lay_lanes
 from hours.models import DayOff
 from tours.models import FacilityTourSettings, TourBooking, TourHours
 from tours.notify import short_when
@@ -38,8 +40,10 @@ BOOKING_PK_OFFSET = 7_000_000_000
 #: The legend key of a tour whose guide's member record was deleted.
 NO_GUIDE_KEY = "no-guide"
 NO_GUIDE_COLOR = "var(--hub-text-muted)"
-#: How a grid chip shows its start: "4:00 PM", the house style.
-CHIP_TIME_FORMAT = "g:i A"
+#: The Week view's hour grid (#1332): the shell draws this in place of its week cells.
+WEEK_TEMPLATE = "tours/partials/_hour_grid_week.html"
+#: What one day of that grid holds: the guides' rails and the tours' cards.
+GRID_DAY_TEMPLATE = "tours/partials/_hour_grid_day.html"
 
 
 @dataclass(frozen=True)
@@ -206,14 +210,109 @@ def calendar_context(
         return _hours_entries(_hours_by_day(fetch_from, fetch_to), hours_url) + _booking_entries(list(bookings))
 
     guides, unguided = _legend_guides()
+    legend = _legend(guides, has_unguided=unguided)
     cal = entries_calendar_context(
         entries_for,
         week_offset=week_offset,
         month_offset=month_offset,
         event_page=event_page,
-        legend=_legend(guides, has_unguided=unguided),
+        legend=legend,
         events_url=reverse("tours:calendar_events"),
     )
-    # The house time style on the grid's chips ("4:00 PM"); the other calendars keep theirs.
-    cal["chip_time_format"] = CHIP_TIME_FORMAT
+    cal["week_template"] = WEEK_TEMPLATE
+    cal["hour_grid"] = hour_grid(
+        calendar_window(week_offset, month_offset).week_start, {chip["key"]: chip["color"] for chip in legend}
+    )
     return cal
+
+
+def _minutes(moment: time) -> int:
+    return moment.hour * 60 + moment.minute
+
+
+def _booking_span(booking: TourBooking, day: date) -> tuple[int, int]:
+    """A tour's local start and end in minutes of ``day``; one running past midnight ends at midnight."""
+    starts, ends = timezone.localtime(booking.starts_at), timezone.localtime(booking.ends_at)
+    return _minutes(starts.time()), _minutes(ends.time()) if ends.date() == day else MINUTES_PER_DAY
+
+
+def hour_grid(week_start: date, colors: dict[str, str], *, now: datetime | None = None) -> HourGridWeek:
+    """The Week view's hour grid (#1332): each guide's hours as a rail, each tour holding seats as a card.
+
+    Hours are the same windows the calendar and the gaps card read (:func:`_hours_by_day`); a day
+    none of them touch is ``uncovered`` and, from today on, carries Add My Hours (:class:`GapDay`).
+    ``colors`` maps a legend key to its chip colour, so a guide's rail, card edge and chip agree.
+    """
+    moment = timezone.localtime(now)
+    days = _days(week_start, week_start + timedelta(days=6))
+    by_day = _hours_by_day(days[0], days[-1])
+    bookings: dict[date, list[TourBooking]] = {day: [] for day in days}
+    for booking in (
+        TourBooking.objects.holding_seats()
+        .filter(starts_at__gte=_aware(days[0], time.min), starts_at__lt=_aware(days[-1] + timedelta(days=1), time.min))
+        .select_related("guide")
+        .order_by("starts_at", "pk")
+    ):
+        bookings[timezone.localdate(booking.starts_at)].append(booking)
+    hours_spans = {day: [(_minutes(row.start_time), _minutes(row.end_time)) for row in by_day[day]] for day in days}
+    tour_spans = {day: [_booking_span(booking, day) for booking in bookings[day]] for day in days}
+    first_hour, last_hour = hour_range([span for day in days for span in hours_spans[day] + tour_spans[day]])
+    top = first_hour * 60
+    now_minute = _minutes(moment.time()) - top
+    grid_days = []
+    for day in days:
+        rails = [
+            Rail(
+                start=start - top,
+                length=end - start,
+                lane=lane,
+                tone=colors[str(row.guide_id)],
+                key=str(row.guide_id),
+                title=f"{_short_name(row.guide)} hours, {clock(start)} to {clock(end)}",
+            )
+            for row, (start, end), (lane, _) in zip(by_day[day], hours_spans[day], lay_lanes(hours_spans[day]))
+        ]
+        cards = [
+            _card(booking, span, lanes, top, colors, moment)
+            for booking, span, lanes in zip(bookings[day], tour_spans[day], lay_lanes(tour_spans[day]))
+        ]
+        uncovered = not rails
+        grid_days.append(
+            GridDay(
+                day=day,
+                is_today=day == moment.date(),
+                rails=rails,
+                cards=cards,
+                state="uncovered" if uncovered else "",
+                note="No Tour Hours" if uncovered else "",
+                note_url=GapDay(day).add_url if uncovered and day >= moment.date() else "",
+                now=now_minute if day == moment.date() and 0 <= now_minute <= (last_hour - first_hour) * 60 else None,
+            )
+        )
+    return HourGridWeek(first_hour=first_hour, last_hour=last_hour, days=grid_days, cell_template=GRID_DAY_TEMPLATE)
+
+
+def _card(
+    booking: TourBooking, span: tuple[int, int], lanes: tuple[int, int], top: int, colors: dict[str, str], now: datetime
+) -> Card:
+    """A tour's card, linking to its row on Upcoming or Past as the calendar's list lines do."""
+    start, end = span
+    key = str(booking.guide_id) if booking.guide is not None else NO_GUIDE_KEY
+    guide = _short_name(booking.guide) if booking.guide is not None else "No guide"
+    label = f"{booking.kiosk_name} ({booking.party_size}){' · Waiting' if booking.proposed_starts_at else ''}"
+    kind = "Request" if booking.is_request else "Tour"
+    return Card(
+        start=start - top,
+        length=end - start,
+        lane=lanes[0],
+        lanes=lanes[1],
+        tone=colors[key],
+        key=key,
+        when=clock(start),
+        label=label,
+        guide=guide,
+        title=f"{kind}: {label}, {clock(start)}, {guide}",
+        pk=booking.pk,
+        url=f"{reverse(booking.table_url_name(now))}#tour-booking-{booking.pk}",
+        is_request=booking.is_request,
+    )

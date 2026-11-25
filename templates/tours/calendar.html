@@ -4,6 +4,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/tours.css' %}">
 <link rel="stylesheet" href="{% static 'css/calendar.css' %}">
+<link rel="stylesheet" href="{% static 'css/hour-grid.css' %}">
 <link rel="stylesheet" href="{% static 'css/permission-setup.css' %}">
 {% endblock %}
 {% block content %}
@@ -13,6 +14,7 @@ hours and tours, so anyone can fill the days nobody covers. First the Days With 
 (tours.coverage.uncovered_days, today to the booking horizon), each day with Add My Hours into My
 Hours' Add Dates with that day picked; then the shared calendar shell (Week and Month, one chip per
 guide; tours.coverage.calendar_context), whose Week and Month steps load tours:calendar_events.
+Week is the hour grid (#1332, tours/partials/_hour_grid_week.html via cal.week_template); Month is the shell's.
 
 Context: tab, is_admin, cal, gaps (GapDay list), horizon_days.
 {% endcomment %}
