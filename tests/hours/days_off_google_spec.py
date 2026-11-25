@@ -244,3 +244,20 @@ def describe_booking_notice():
         guide = make_guide()
         page = signed_in(guide).get(PAGE).content.decode()
         assert "data-hours-notice" in page and 'name="min_notice_minutes"' in page
+
+
+def describe_still_booked_queries():
+    def it_reads_the_same_number_of_queries_for_one_booked_slot_or_three(django_assert_num_queries):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        person = make_guide()
+        day = _day(3)
+        _booked_day(person, day)
+        with CaptureQueriesContext(connection) as one:
+            still_booked(person, day, day)
+        for hour in (9, 10):
+            slot = OrientationSlotFactory(orienter=person, starts_at=_at(day, hour), ends_at=_at(day, hour + 1))
+            OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.CONFIRMED)
+        with django_assert_num_queries(len(one.captured_queries)):
+            assert len(still_booked(person, day, day)) == 5
