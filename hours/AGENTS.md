@@ -1,6 +1,6 @@
 # hours app
 
-One set of hours per person for every kind of thing they give (#1300): the time is kept once, and each kind (tours, orientations) ticks it with its own settings. The member-facing name stays **My Hours**. #1300 ships in five parts; parts 1 to 3 are built: the tables underneath, filled and kept in step (part 1), one rule for what blocks a person's time, read by tours and orientations alike (part 2), and the My Hours page, read only (part 3, below).
+One set of hours per person for every kind of thing they give (#1300): the time is kept once, and each kind (tours, orientations) ticks it with its own settings. The member-facing name stays **My Hours**. #1300 ships in five parts; parts 1 to 3 are built, and part 4 is building: the tables underneath, filled and kept in step (part 1), one rule for what blocks a person's time, read by tours and orientations alike (part 2), and the My Hours page, read only (part 3, below).
 
 ## Models (`hours/models.py`)
 
@@ -45,3 +45,10 @@ Migrations: `0001` the tables, `tours.0013` and `membership.0292` the keys, `000
 - **Days Off** (`DayOff`, not ended yet, `DayOff.label`), **Google Calendar** (the `TourCalendarConnection`, state only) and, for a guide, **Booking Notice** (`TourGuideSettings.notice_minutes_by_guide`). The mockup's Confirming Tour Bookings card went with #1309; Booking Notice (#1312) is the tours only setting in its place.
 
 Editing (Open To, Add Day Off, Connect) is part 4. Specs: `tests/hours/my_hours_spec.py`, `tests/e2e/my_hours_spec.py` (`CAPTURE_1300_DIR` for pictures).
+
+## Editing underneath (part 4a)
+
+- **Every kind repeats one way.** `tours.TourHours` gained `cadence`, `anchor_date` and `last_of_month` (Felix, 2026-11-23: tours may repeat every other week or monthly); `membership.OrientationAvailability` gained `date` (an orientation on one date, My Hours' Available On). Both read `OrientationAvailability.falls_on(row, day)` (`TourHours.applies_on`, `occurs_on`) and are checked by `OrientationAvailability.repeat_errors(row)`; a dated row keeps its date's weekday and is on no cadence (`ck_tourhours_dated_no_cadence`, `ck_orientavail_date_weekday`, `ck_orientavail_dated_no_cadence`). An open orientation row on one date clashes with repeating hours of its weekday and other hours on that date only.
+- **`hours/edit.py`.** `HoursEdit(member, hours, key, tours, orientations)` is one edit of one set (a new set when `hours` is None): the time once, a `TourOffer` (tour length, seats) or None, and an `OrientationOffer` per orientation row (a saved `rule`, or a new one for an `Owner`, a guild or tool), `on` False to drop it. `problems()` checks it as the old editors check their rows (each row's own `clean`, a guide's tour rows never overlapping, an open window alone in its hours, never the exact time of another set, at least one tick) and answers `{time | tours | offer key: {field: [messages]}}`; `save()` writes what stays on first, then deletes a tour row ticked off (booked tours stay) and retires an orientation row ticked off (`retire_rule`), retires a restyled row's old shape (`retire_open_slots`), moves the set's paused rows with it, generates each owner touched, and returns the set. `Hours.remove()` (`remove_hours`) deletes the tour rows and retires every orientation row. Callers hold `lock_person` across `problems()` and the write. `held_owners(member)` is what Open To offers (Felix 7): each guild or tool they currently orient for with an active orientation; `gives_tours(member)` is `guide_filter`.
+
+Specs: `tests/hours/edit_spec.py`.

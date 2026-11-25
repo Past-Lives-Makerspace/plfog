@@ -26,7 +26,7 @@ from django.utils import timezone
 from billing.fields import EncryptedCharField
 from core.threads import ThreadMessage, ThreadPhoto
 from hours.follow import FollowsDaysOff, FollowsHours, lock_person
-from membership.models import AdminCapability, Member
+from membership.models import AdminCapability, Member, OrientationAvailability
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -269,9 +269,10 @@ class TourHours(FollowsHours, models.Model):
     overlap (``TourHoursFormSet`` and ``TourDatesForm`` refuse it), so a guide and a start time name
     at most one row.
 
-    A row with no ``date`` repeats every week on ``weekday``. A row with a ``date`` (#1160) is that
-    one day only; its ``weekday`` is still stored, equal to the date's (a check constraint holds
-    the two together).
+    A row with no ``date`` repeats on ``weekday`` by ``cadence``, counted from ``anchor_date`` the
+    way orientation hours count it (#1300: every other week, monthly; weekly by default). A row with
+    a ``date`` (#1160) is that one day only; its ``weekday`` is still stored, equal to the date's (a
+    check constraint holds the two together), and it is on no cadence.
     """
 
     class Weekday(models.IntegerChoices):
@@ -307,7 +308,24 @@ class TourHours(FollowsHours, models.Model):
     date = models.DateField(
         null=True,
         blank=True,
-        help_text="The one local day these hours are for (#1160). Blank for hours that repeat every week.",
+        help_text="The one local day these hours are for (#1160). Blank for hours that repeat.",
+    )
+    cadence = models.CharField(
+        max_length=16,
+        choices=OrientationAvailability.Cadence.choices,
+        default=OrientationAvailability.Cadence.WEEKLY,
+        db_default=OrientationAvailability.Cadence.WEEKLY,
+        help_text="How often repeating hours come round (#1300). Every cadence but weekly counts from anchor_date.",
+    )
+    anchor_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="The first day repeating hours run, and where every cadence but weekly counts from (#1300).",
+    )
+    last_of_month = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Month based cadences only: the last of this weekday in the month rather than the start day's place.",
     )
     start_time = models.TimeField(help_text="When the first tour can start, on a half hour mark.")
     end_time = models.TimeField(help_text="When the last tour must be over, on a half hour mark.")
@@ -344,6 +362,10 @@ class TourHours(FollowsHours, models.Model):
                 condition=Q(date__isnull=True) | Q(weekday=models.F("date__iso_week_day") - 1),
                 name="ck_tourhours_date_weekday",
             ),
+            models.CheckConstraint(
+                condition=Q(date__isnull=True) | Q(cadence="weekly", anchor_date__isnull=True, last_of_month=False),
+                name="ck_tourhours_dated_no_cadence",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -353,7 +375,7 @@ class TourHours(FollowsHours, models.Model):
     def clean(self) -> None:
         """Half hour marks and room for at least one tour (the Django admin runs this too)."""
         super().clean()
-        errors: dict[str, str] = {}
+        errors = OrientationAvailability.repeat_errors(self)
         for field in ("start_time", "end_time"):
             value: time | None = getattr(self, field)
             if value is not None and (value.minute % 30 or value.second or value.microsecond):
@@ -374,8 +396,9 @@ class TourHours(FollowsHours, models.Model):
     def overlaps(self, other: TourHours) -> bool:
         """Whether ``other`` can fall on the same day and shares any minute with this window.
 
-        Two weekly rows clash on the same weekday; a dated row clashes with a weekly row of its
-        weekday and with another dated row of the same date; two different dates never do.
+        Two repeating rows clash on the same weekday, whatever their cadence (the conservative
+        reading orientation hours take); a dated row clashes with a repeating row of its weekday
+        and with another dated row of the same date; two different dates never do.
         """
         if self.weekday != other.weekday:
             return False
@@ -389,10 +412,12 @@ class TourHours(FollowsHours, models.Model):
         return (self.created_at, self.pk)
 
     def applies_on(self, day: Day) -> bool:
-        """Whether this row yields tours on ``day``: its weekday for weekly hours, its date for dated ones."""
-        if self.date is not None:
-            return self.date == day
-        return self.weekday == day.weekday()
+        """Whether this row yields tours on ``day``: its date for dated hours, else its weekday on its cadence.
+
+        The orientation hours' own rule (``OrientationAvailability.falls_on``), so a set of hours
+        offering both repeats the same way for each (#1300).
+        """
+        return OrientationAvailability.falls_on(self, day)
 
     @property
     def times_label(self) -> str:
