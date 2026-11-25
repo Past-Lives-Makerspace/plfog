@@ -151,7 +151,7 @@ def describe_open_to():
         form = hours_formset(_context(person), dated=False).forms[0]
         assert [block.key for block in form.blocks] == ["tours", f"rule-{rule.pk}"]
         assert form[f"rule-{rule.pk}-on"].value() is True
-        assert retired in form.fields[f"rule-{rule.pk}-orientation_type"].queryset
+        assert (str(retired.pk), retired.name) in form.fields[f"rule-{rule.pk}-orientation_type"].choices
         assert ("75", "75 minutes") in form.fields[f"rule-{rule.pk}-slot_minutes"].choices
         assert form["tours-on"].value() is False
 
@@ -332,3 +332,32 @@ def describe_add_dates():
         config = json.loads(page.split('id="hours-dates-config" type="application/json">')[1].split("</script>")[0])
         assert config["dated"] == [day.isoformat()]
         assert config["off"] == [timezone.localdate().isoformat()]
+
+
+def describe_queries():
+    def _render_rows(person: Member) -> None:
+        context = _context(person)
+        for dated in (False, True):
+            formset = hours_formset(context, dated=dated)
+            for form in formset:
+                str(form)
+                list(form.block_rows)
+
+    def it_reads_the_same_number_of_queries_for_one_set_or_three(django_assert_num_queries):
+        person, guild = _orientor()
+        OrientationAvailabilityFactory(guild=guild, orienter=person, start_time=time(10), end_time=time(12))
+        TourHoursFactory(guide=person, start_time=time(10), end_time=time(12))
+        _render_rows(person)  # warm the per process caches
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        with CaptureQueriesContext(connection) as one:
+            _render_rows(person)
+        for weekday in (2, 3):
+            OrientationAvailabilityFactory(
+                guild=guild, orienter=person, weekday=weekday, start_time=time(10), end_time=time(12)
+            )
+            TourHoursFactory(guide=person, weekday=weekday, start_time=time(10), end_time=time(12))
+        assert Hours.objects.filter(member=person).count() == 3
+        with django_assert_num_queries(len(one.captured_queries)):
+            _render_rows(person)
