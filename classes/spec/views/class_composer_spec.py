@@ -5,9 +5,10 @@ from __future__ import annotations
 import io
 import json
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from html import unescape
 from html.parser import HTMLParser
+from unittest import mock
 
 import pytest
 from django.contrib.contenttypes.models import ContentType
@@ -1176,20 +1177,22 @@ def describe_admin_composer():
     def it_refuses_to_publish_an_unready_draft_and_says_why(admin_user, client, db):
         # The POST saves a ready description and a flexible note first, so after the save the only
         # gap is the gallery photo on step 2: the refusal lands there, not on the Review step the
-        # POST came from.
+        # POST came from. The payload's window is Nov 2 to Dec 1, 2026; the clock sits inside it, or a
+        # passed last day would be a second gap.
         offering = ClassOfferingFactory(status=Status.DRAFT, gallery=0)
         client.force_login(admin_user)
-        resp = client.post(
-            reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
-            _admin_payload(offering.category, offering.instructor, action="publish", step="5"),
-        )
+        with mock.patch("django.utils.timezone.now", return_value=timezone.make_aware(datetime(2026, 11, 16, 12))):
+            resp = client.post(
+                reverse("classes:teach_class_edit", kwargs={"pk": offering.pk}),
+                _admin_payload(offering.category, offering.instructor, action="publish", step="5"),
+            )
+            html = client.get(resp["Location"]).content.decode()
         edit = reverse("classes:teach_class_edit", kwargs={"pk": offering.pk})
         assert resp["Location"] == f"{edit}?step=2&missing=1"
         offering.refresh_from_db()
         assert offering.status == Status.DRAFT
         assert offering.description == READY_DESCRIPTION
         assert "Not ready to publish: Add one gallery photo." in _messages(resp)
-        html = client.get(resp["Location"]).content.decode()
         assert "phase: 2," in html
         notice = _still_missing(html)
         assert "Not ready to publish yet." in notice

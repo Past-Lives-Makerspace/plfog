@@ -328,24 +328,27 @@ def describe_a_flexible_class_in_preview():
     def it_shows_the_flexible_block_and_never_the_schedule_of_a_class_still_carrying_a_session(
         admin_user, instructor_fixture, client
     ):
-        from datetime import date, timedelta
+        from datetime import date, datetime, timedelta
+        from unittest import mock
 
         from django.utils import timezone
 
         from classes.factories import ClassSessionFactory
 
-        offering = ClassOfferingFactory(
-            instructor=instructor_fixture,
-            slug="pick-your-november-time",
-            status=ClassOffering.Status.DRAFT,
-            scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
-            flexible_starts_on=date(2026, 11, 2),
-            flexible_ends_on=date(2026, 12, 1),
-        )
-        start = timezone.now() + timedelta(days=2)
-        ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=703))
-        client.force_login(admin_user)
-        body = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk})).content.decode()
+        # Inside the window, so Register now shows whatever day the suite runs.
+        with mock.patch("django.utils.timezone.now", return_value=timezone.make_aware(datetime(2026, 11, 16, 12))):
+            offering = ClassOfferingFactory(
+                instructor=instructor_fixture,
+                slug="pick-your-november-time",
+                status=ClassOffering.Status.DRAFT,
+                scheduling_model=ClassOffering.SchedulingModel.FLEXIBLE,
+                flexible_starts_on=date(2026, 11, 2),
+                flexible_ends_on=date(2026, 12, 1),
+            )
+            start = timezone.now() + timedelta(days=2)
+            ClassSessionFactory(class_offering=offering, starts_at=start, ends_at=start + timedelta(hours=703))
+            client.force_login(admin_user)
+            body = client.get(reverse("classes:class_preview", kwargs={"pk": offering.pk})).content.decode()
         assert "data-flexible-section" in body
         assert "<strong>Nov 2 to Dec 1, 2026</strong>" in body
         assert "cp-detail__sessions" not in body
