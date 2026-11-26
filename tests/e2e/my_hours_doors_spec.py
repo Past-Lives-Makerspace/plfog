@@ -45,6 +45,26 @@ PHONE = {"width": 390, "height": 844}
 MY_HOURS = reverse("hours:my_hours")
 
 
+#: Scroll the page so ``sel``'s card (or the element) sits just under the top bar. Only the window
+#: scrolls: ``scrollIntoView`` also scrolls clipped ancestors, which leaves a dark band above the bar.
+_FRAME_JS = """([sel, wholeCard]) => {
+    const root = document.scrollingElement;
+    document.querySelectorAll('*').forEach((node) => { if (node !== root && node.scrollTop) { node.scrollTop = 0; } });
+    const el = Array.from(document.querySelectorAll(sel)).find((node) => node.getClientRects().length > 0);
+    const card = (wholeCard && el.closest('.hub-card')) || el;
+    const bar = document.querySelector('.pl-topbar');
+    const offset = (bar ? bar.getBoundingClientRect().height : 64) + 16;
+    window.scrollTo({ top: Math.max(0, card.getBoundingClientRect().top + window.scrollY - offset), behavior: 'instant' });
+}"""
+#: The Tours tab row scrolls sideways (``overflow-x: auto``), which clips a ring on one tab into two bars.
+_UNCLIP_TABS_CSS = "nav.pl-tabs { overflow: visible !important; padding-top: 10px; padding-bottom: 10px; }"
+
+
+def _frame(page, sel: str) -> None:
+    """A door (a link or button) is framed with its whole card; anything else on its own."""
+    page.evaluate(_FRAME_JS, [sel, sel.endswith("-link]") or sel.endswith("[data-your-hours]")])
+
+
 def _capture(page, name: str, anchor: str | None = None) -> None:
     """Save the viewport, dark and light, at desktop and phone widths, ``anchor`` scrolled into view."""
     if not CAPTURE_DIR:
@@ -61,20 +81,18 @@ def _capture(page, name: str, anchor: str | None = None) -> None:
             )
             page.wait_for_timeout(500)
             if anchor:
-                page.locator(anchor).first.evaluate("(el) => el.scrollIntoView({ block: 'center' })")
-                page.wait_for_timeout(250)
+                _frame(page, anchor)
             page.screenshot(path=str(Path(CAPTURE_DIR) / f"1300p5-{name}-{size_name}-{theme}.png"))
     page.evaluate("() => document.documentElement.removeAttribute('data-theme')")
     page.set_viewport_size(DESKTOP)
 
 
 def _guidance(page, step: int, target: str, anchor: str | None = None) -> None:
-    """A What's New step to the standard frame, ``anchor`` (else the first visible target) scrolled into view."""
+    """A What's New step to the standard frame, ``anchor`` (else the target) framed under the top bar."""
     if GUIDANCE_DIR:
         page.set_viewport_size(DESKTOP)
-        page.locator(anchor or f'[data-guidance-target="{target}"]:visible').first.evaluate(
-            "(el) => el.scrollIntoView({ block: 'center' })"
-        )
+        page.add_style_tag(content=_UNCLIP_TABS_CSS)
+        _frame(page, anchor or f'[data-guidance-target="{target}"]')
         shoot(page, Path(GUIDANCE_DIR) / f"step-{step}.png", target=target)
         page.evaluate("() => document.querySelectorAll('style[data-guidance-ring]').forEach((s) => s.remove())")
 
@@ -126,7 +144,11 @@ def _lands_on_my_hours(page, live_server, query: str = "") -> None:
 
 
 def describe_every_door():
-    def it_opens_my_hours_from_each_place_hours_were_set(live_server, page, login_via_code):
+    def it_opens_my_hours_from_each_place_hours_were_set(live_server, page, login_via_code, settings):
+        # Google sign in set up (a fake client; nothing calls Google here), as in production, so
+        # Get Set Up's calendar step reads as one to connect.
+        settings.GOOGLE_OAUTH_CLIENT_ID = "shots-client"
+        settings.GOOGLE_OAUTH_CLIENT_SECRET = "shots-secret"
         robin, guild, press = _robin()
         login_via_code(EMAIL)
         page.set_viewport_size(DESKTOP)
@@ -194,7 +216,7 @@ def describe_every_door():
         monday = rows.nth(0)
         monday.locator("[data-hours-set-edit]").click()
         monday.locator("[data-hours-open-to]").wait_for()
-        _guidance(page, 2, "hours.open-to", anchor="[data-hours-weekly] [data-hours-set] [data-hours-open-to]:visible")
+        _guidance(page, 2, "hours.open-to", anchor="[data-hours-weekly] [data-hours-set] [data-hours-open-to]")
         monday.locator("[data-hours-set-edit]").click()
 
         # The paused print orientation shows unticked, and ticks back on with its seats.
@@ -216,8 +238,7 @@ def describe_every_door():
         assert rule.is_active and rule.seats == 3
 
         # Days Off: one list for everything.
-        page.locator("[data-hours-days-off]").evaluate("(el) => el.scrollIntoView({ block: 'center' })")
-        _guidance(page, 3, "hours.add-day-off")
+        _guidance(page, 3, "hours.add-day-off", anchor="[data-hours-days-off]")
 
     def it_opens_a_staffers_my_hours_for_an_admin(live_server, page, login_via_code):
         robin, guild, _press = _robin()
