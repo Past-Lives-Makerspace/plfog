@@ -118,9 +118,11 @@ def describe_guild_orientation_edit():
         # The settings form saves itself (#575): no submit inside any autosave form.
         assert_autosave_forms_have_no_submit(response.content.decode())
         assert b"data-save-pill" in response.content
-        # Recurring hours are edited through the Edit Hours modal, loaded from its own endpoint
-        # (the trigger on the viewer's Orientation Schedule row).
-        assert reverse("hub_guild_orientation_hours_form", args=[guild.pk]).encode() in response.content
+        # Recurring hours are set on My Hours (#1300): the viewer's row links there.
+        assert (
+            f'href="{reverse("hours:my_hours")}" class="hub-btn hub-btn--sm" data-edit-hours-link'.encode()
+            in response.content
+        )
         assert b"Who runs orientations" in response.content
         # The Upcoming Slots card (first UI for the slot endpoints) rides on the same tab.
         assert b"Upcoming Times" in response.content

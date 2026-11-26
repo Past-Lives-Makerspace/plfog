@@ -19,7 +19,7 @@ Orientation Schedule, Manage Bookings' Your Hours); no sidebar link. An admin pi
 picker (?member=), which names each person's Google Calendar state; ?add=YYYY-MM-DD opens + Add Dates on that day.
 {% endcomment %}
 <div class="pl-my-hours">
-{% include "components/page_header.html" with title="My Hours" description="When people can book you, for tours and every orientation you give. Set your time once here." %}
+{% include "components/page_header.html" with title="My Hours" description="When people can book you, for tours and every orientation you give. Set your time once here." new_key="hours.my-hours" %}
 {# A Tour Guide's own Get Set Up card (#1167), here as it was on the Tours page's My Hours tab. #}
 {% if setup and not setup.hidden %}{% include "hub/partials/_permission_setup.html" with tab="hours" %}{% endif %}
 

@@ -300,13 +300,14 @@ _GUIDANCE_LIST = (
     Guidance(
         key="orientations.hours",
         title="Orientation Hours",
-        url_name="hours:my_hours",
+        url_name="hub_manage_bookings",
         steps=(
             "Open Manage Bookings and press Edit Hours beside a guild or a piece of equipment under Your Hours. It opens My Hours.",
             "Under Every Week, pick how often the hours repeat under Repeats: every week, every 2, 3 or 4 weeks, or by the month.",
             "Pick the first day under Starting on. A monthly set keeps that day's place in the month, or turn on Last of the month.",
             "Tick your orientations under Open To. Every change saves as you make it.",
         ),
+        target="orientations.edit-hours",
     ),
     _guild_tab(
         "guild.reservations",
@@ -669,7 +670,8 @@ _GUIDANCE_LIST = (
     Guidance(
         key="tours.hours",
         title="Tour Hours",
-        url_name="hours:my_hours",
+        url_name="tours:upcoming",
+        target="tours.my-hours",
         steps=(
             "Press Tours in the sidebar, then My Hours.",
             "Every Week is for hours that repeat. If your schedule changes from week to week, use Available On.",
