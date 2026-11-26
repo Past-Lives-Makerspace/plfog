@@ -127,7 +127,8 @@ def _seed(robin: Member, monday: date) -> None:
         busy_spans=[[_at(day["fri"], 10).isoformat(), _at(day["fri"], 13).isoformat()]],
     )
     TourDayOffFactory(guide=robin, starts_on=day["tue"], ends_on=day["tue"], note="Out of town")
-    TourDayOffFactory(guide=robin, starts_on=date(monday.year, 12, 22), ends_on=date(monday.year + 1, 1, 2))
+    # A longer break three weeks on, clear of the week on show and the one after it.
+    TourDayOffFactory(guide=robin, starts_on=monday + timedelta(weeks=3), ends_on=monday + timedelta(weeks=3, days=11))
 
 
 def describe_my_hours():
@@ -135,12 +136,13 @@ def describe_my_hours():
         settings.GOOGLE_OAUTH_CLIENT_ID = "client-id"
         settings.GOOGLE_OAUTH_CLIENT_SECRET = "client-secret"
         robin = _robin()
+        # Next week, so every seeded day is still ahead whatever day the suite runs.
         today = timezone.localdate()
-        monday = today - timedelta(days=today.weekday())
+        monday = today - timedelta(days=today.weekday()) + timedelta(weeks=1)
         _seed(robin, monday)
         login_via_code(EMAIL)
         page.set_viewport_size(DESKTOP)
-        page.goto(f"{live_server.url}{reverse('hours:my_hours')}")
+        page.goto(f"{live_server.url}{reverse('hours:my_hours')}?week_offset=1")
 
         week = page.locator("[data-hours-week]")
         week.wait_for()
@@ -163,8 +165,7 @@ def describe_my_hours():
         assert "Mon · 11:00 AM to 6:00 PM · Every week" in weekly.first.inner_text()
         assert "Every other week" in weekly.nth(2).inner_text()
         assert page.locator('[data-hours-gcal="connected"]').get_by_text(EMAIL).is_visible()
-        # This Tuesday's day off has passed from Wednesday on; the December one is always ahead.
-        assert page.locator("[data-hours-days-off] [data-hours-day-off-row]").count() >= 1
+        assert page.locator("[data-hours-days-off] [data-hours-day-off-row]").count() == 2
         assert page.locator("[data-hours-notice]").is_visible()
         assert page.locator("main a[href*='/edit'], main button.pl-btn--danger").count() == 0
         _capture(page, "my-hours-page")
