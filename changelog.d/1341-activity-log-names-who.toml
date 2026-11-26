@@ -1,0 +1,10 @@
+bump = "patch"
+date = "2026-11-25"
+audience = ["admins"]
+feature = "admin.activity-log"
+title = "The activity log on Discord names who acted, once per approval"
+changes = [
+  "A class approved from the review email names the guild lead who approved it, and a submitted class names the instructor who submitted it. Neither says System any more.",
+  "An approval posts one line, Class approved and published, instead of an approved line and a published line. A class with several dates still posts once.",
+  "Someone with no preferred name is named by their first name. A line nobody acted on, like a reservation ending, names nobody.",
+]

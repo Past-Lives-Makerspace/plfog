@@ -1,0 +1,56 @@
+{% comment %}
++ Add Dates on My Hours' Available On (#1300, part 4): the Tours page's date picker (plTourDates, static/js/tour_dates.js,
+the section's x-data) whose picks post as hidden `dates` inputs, then From and Until once, and Open To (every kind ticked)
+for all of them. One post, all or nothing (hours.views.dates_add); a refused save reopens the panel with its picks,
+fields and each problem named with its date. Context: add_dates (hours.forms.AddDatesForm), add_dates_calendar, target.
+{% endcomment %}
+{{ add_dates_calendar|json_script:"hours-dates-config" }}
+<button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-panel__add" x-show="!open"{% if add_dates_open %} x-cloak{% endif %} @click="open = true" data-hours-dates-add>+ Add Dates</button>
+<form method="post" action="{% url 'hours:dates_add' %}" class="hub-form pl-tours-dates" x-show="open"{% if not add_dates_open %} x-cloak{% endif %} data-hours-dates-panel>
+  {% csrf_token %}
+  <input type="hidden" name="member" value="{{ target.pk }}">
+  {% if add_dates.errors %}
+  <div class="pl-tours-refused" role="alert" data-hours-dates-refused>
+    <p class="pl-tours-refused__title">These dates were not added.</p>
+    {% for error in add_dates.non_field_errors %}<p class="pl-tours-refused__text" data-hours-dates-error>{{ error }}</p>{% endfor %}
+  </div>
+  {% endif %}
+  <p class="pl-form-note pl-tours-dates__hint">Tap each day you are free. Tap it again to unpick.</p>
+  <div class="pl-tours-cal" data-hours-dates-calendar>
+    <div class="pl-tours-cal__head">
+      <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-cal__step" @click="step(-1)" :disabled="!canGoBack" aria-label="Previous month">&larr;</button>
+      <span class="pl-tours-cal__month" x-text="monthLabel" aria-live="polite"></span>
+      <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-cal__step" @click="step(1)" :disabled="!canGoOn" aria-label="Next month">&rarr;</button>
+    </div>
+    <div class="pl-tours-cal__grid" role="group" :aria-label="'Pick dates in ' + monthLabel">
+      <span class="pl-tours-cal__weekday" aria-hidden="true">Mon</span>
+      <span class="pl-tours-cal__weekday" aria-hidden="true">Tue</span>
+      <span class="pl-tours-cal__weekday" aria-hidden="true">Wed</span>
+      <span class="pl-tours-cal__weekday" aria-hidden="true">Thu</span>
+      <span class="pl-tours-cal__weekday" aria-hidden="true">Fri</span>
+      <span class="pl-tours-cal__weekday" aria-hidden="true">Sat</span>
+      <span class="pl-tours-cal__weekday" aria-hidden="true">Sun</span>
+      <template x-for="cell in cells" :key="cell.key">
+        <button type="button" class="pl-tours-cal__day"
+                :class="{ 'pl-tours-cal__day--blank': cell.blank, 'pl-tours-cal__day--picked': !cell.blank && isPicked(cell.iso), 'pl-tours-cal__day--dated': cell.dated, 'pl-tours-cal__day--off': cell.off }"
+                :disabled="cell.blank || cell.disabled"
+                :aria-hidden="cell.blank ? 'true' : null"
+                :aria-pressed="cell.blank ? null : (isPicked(cell.iso) ? 'true' : 'false')"
+                :aria-label="cell.blank ? null : cell.label"
+                :data-hours-date="cell.blank ? null : cell.iso"
+                @click="toggle(cell)"><span x-text="cell.blank ? '' : cell.day"></span></button>
+      </template>
+    </div>
+  </div>
+  <p class="pl-form-note pl-tours-cal__count" x-text="countLabel" aria-live="polite"></p>
+  <template x-for="value in picked" :key="value"><input type="hidden" name="dates" :value="value"></template>
+  <div class="pl-tours-row__fields">
+    <div class="pl-tours-row__field pl-tours-row__field--time">{% include "components/form_field.html" with field=add_dates.start_time field_hint_off=True %}</div>
+    <div class="pl-tours-row__field pl-tours-row__field--time">{% include "components/form_field.html" with field=add_dates.end_time field_hint_off=True %}</div>
+  </div>
+  {% include "hours/partials/_open_to.html" with form=add_dates %}
+  <div class="pl-tours-modal-actions pl-tours-dates__actions">
+    <button type="button" class="pl-btn pl-btn--secondary" @click="cancel(); $el.closest('form').reset()" data-hours-dates-cancel>Cancel</button>
+    <button type="submit" class="pl-btn pl-btn--primary" :disabled="count === 0" x-text="addLabel" data-hours-dates-save>Add Dates</button>
+  </div>
+</form>

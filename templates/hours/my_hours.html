@@ -4,6 +4,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'css/calendar.css' %}">
 <link rel="stylesheet" href="{% static 'css/tours.css' %}">
+<link rel="stylesheet" href="{% static 'css/hour-grid.css' %}">
 <link rel="stylesheet" href="{% static 'css/my-hours.css' %}">
 {% endblock %}
 {% block content %}
@@ -11,7 +12,8 @@
 My Hours (#1300, part 3; hours.views.my_hours, hours.page.MyHours), lifted from mockups/1300-my-hours.html:
 one person's week (open hours dashed, bookings solid in their kind's colour, classes and Google busy hatched,
 a day off striped), then Every Week, Available On, Days Off, Google Calendar and, for a guide, Booking Notice.
-Read only: editing is part 4, and the places hours are set today open this page in part 5; no sidebar link.
+Every Week and Available On edit and save themselves (part 4, plGuildAutosave, hours/partials/_hours_list.html);
+the places hours are set today open this page in part 5; no sidebar link.
 An admin picks whose hours with the picker (?member=), as on the Tours My Hours tab.
 {% endcomment %}
 <div class="pl-my-hours">
@@ -51,84 +53,58 @@ An admin picks whose hours with the picker (?member=), as on the Tours My Hours 
     <span class="pl-calendar-nav__label" data-hours-week-label>{{ page.week_label }}</span>
     <a href="{{ next_week_url }}" class="pl-calendar-nav__btn" aria-label="Next week" data-hours-week-next><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></a>
   </div>
-  <div class="pl-calendar-grid pl-calendar-grid--week pl-hours-week">
-    {% for day in page.week %}
-    <div class="pl-calendar-grid__day{% if day.is_today %} pl-calendar-grid__day--today{% endif %}{% if day.is_day_off %} pl-hours-day--off{% endif %}" data-hours-day="{{ day.date|date:'Y-m-d' }}">
-      <div class="pl-calendar-grid__day-header"><span class="pl-calendar-grid__day-name">{{ day.date|date:"D" }}</span><span class="pl-calendar-grid__day-num{% if day.is_today %} pl-calendar-grid__day-num--today{% endif %}">{{ day.date|date:"j" }}</span></div>
-      <div>
-        {% if day.is_day_off %}<span class="pl-hours-day__off" data-hours-day-off>Day Off</span>{% endif %}
-        {% for chip in day.chips %}
-        <div class="pl-hours-chip pl-hours-chip--{{ chip.style }}{% if chip.kind %} pl-kind {{ chip.kind.css }}{% endif %}" data-hours-chip="{{ chip.style }}"><span class="pl-hours-chip__time">{{ chip.time_label }}</span><span class="pl-hours-chip__what">{% if chip.kinds %}<span class="pl-hours-chip__dots">{% for kind in chip.kinds %}<span class="pl-kind {{ kind.css }}"></span>{% endfor %}</span>{% endif %}{{ chip.what }}</span></div>
-        {% endfor %}
-      </div>
-    </div>
-    {% endfor %}
-  </div>
+  {% include "components/hour_grid_week.html" with grid=page.grid %}
   <p class="pl-hours-rule">A booking or request for one kind closes that time for the others. Classes you teach and busy times in your Google Calendar close it too. Bookings already made always stay.</p>
 </section>
 
-<section class="hub-card pl-tours-panel" data-hours-weekly>
-  <h2 class="hub-detail-label pl-tours-panel__title">Every Week</h2>
-  <p class="hub-text-muted pl-tours-panel__intro">Hours that repeat, and what each set of hours is open to.</p>
-  {% if page.weekly %}
-  <div class="pl-tours-rows">
-    {% for row in page.weekly %}{% include "hours/partials/_hours_set.html" %}{% endfor %}
-  </div>
-  {% else %}
-  <p class="hub-text-muted pl-tours-panel__empty" data-hours-weekly-empty>No hours that repeat yet.</p>
-  {% endif %}
-</section>
-
-<section class="hub-card pl-tours-panel" data-hours-dated>
-  <h2 class="hub-detail-label pl-tours-panel__title">Available On</h2>
-  <p class="hub-text-muted pl-tours-panel__intro">Hours on certain days only, and what they are open to.</p>
-  {% if page.dated %}
-  <div class="pl-tours-rows">
-    {% for row in page.dated %}{% include "hours/partials/_hours_set.html" %}{% endfor %}
-  </div>
-  {% else %}
-  <p class="hub-text-muted pl-tours-panel__empty" data-hours-dated-empty>No dates coming up.</p>
-  {% endif %}
-</section>
+<div x-data="plGuildAutosave({ section: 'hours' })" data-guild-autosave @pl-guild-autosave-leave.window="leave()" @pl-guild-autosave-delete.window="confirmDelete()">
+{% include "hours/partials/_hours_set_script.html" %}
+{% if hours_refused %}
+{# Only without the script: the autosave shows a refusal on its row and never reloads the page. #}
+<div class="pl-tours-refused" role="alert" data-hours-refused>
+  <p class="pl-tours-refused__title">Your hours were not saved.</p>
+  <p class="pl-tours-refused__text">Fix the hours marked below and save again. Nothing changed until then.</p>
+</div>
+{% endif %}
+{% include "hours/partials/_hours_list.html" with formset=weekly_formset list="weekly" title="Every Week" intro="Hours that repeat. Tick what each set of hours is open to; every change saves as you make it." empty="No hours that repeat yet." %}
+{% include "hours/partials/_hours_list.html" with formset=dated_formset list="dated" title="Available On" intro="Free on certain days only? Pick the dates on the calendar, set the hours once and tick what they are open to." empty="No dates coming up." %}
+{% include "components/confirm_modal.html" with confirm_id="hours-set-delete" confirm_title="Delete these hours?" confirm_message="Nothing new can be booked in them, for any kind. Bookings already made stay booked." confirm_button_text="Delete" confirm_js="window.dispatchEvent(new CustomEvent('pl-guild-autosave-delete'))" %}
 
 <section class="hub-card pl-tours-panel pl-tours-days-off" data-hours-days-off>
   <h2 class="hub-detail-label pl-tours-panel__title">Days Off</h2>
-  <p class="hub-text-muted pl-tours-panel__intro">One list for everything {% if is_self %}you offer{% else %}{{ target.staff_label }} offers{% endif %}. Nothing new can be booked on a day off; bookings already made stay booked.</p>
+  <p class="hub-text-muted pl-tours-panel__intro">One list for everything {% if is_self %}you offer{% else %}{{ target.staff_label }} offers{% endif %}. Nothing new can be booked {% if is_self %}with you {% endif %}on a day off; bookings already made stay booked.</p>
   {% if page.days_off %}
   <ul class="pl-tours-days-off__list">
     {% for day_off in page.days_off %}
-    <li class="pl-tours-days-off__row" data-hours-day-off-row="{{ day_off.pk }}"><span class="pl-tours-days-off__when">{{ day_off.label }}</span>{% if day_off.note %}<span class="hub-text-muted pl-tours-days-off__note">{{ day_off.note }}</span>{% endif %}</li>
+    {% with pks=day_off.pk|stringformat:"s" %}
+    <li class="pl-tours-days-off__row" data-hours-day-off-row="{{ day_off.pk }}">
+      <span class="pl-tours-days-off__when">{{ day_off.label }}</span>
+      {% if day_off.note %}<span class="hub-text-muted pl-tours-days-off__note">{{ day_off.note }}</span>{% endif %}
+      <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-tours-days-off__delete" @click="$dispatch('open-confirm', 'hours-day-off-del-{{ pks }}')" data-hours-day-off-delete>Delete</button>
+      {% url 'hours:day_off_delete' day_off.pk as delete_url %}
+      {% include "components/confirm_modal.html" with confirm_id="hours-day-off-del-"|add:pks confirm_title="Delete this day off?" confirm_message="Those days are offered again, for every kind." confirm_action_url=delete_url confirm_button_text="Delete" %}
+    </li>
+    {% endwith %}
     {% endfor %}
   </ul>
   {% else %}
   <p class="hub-text-muted pl-tours-panel__empty" data-hours-days-off-empty>No days off coming up.</p>
   {% endif %}
+  <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-panel__add" @click="$dispatch('open-modal', 'hours-day-off-modal')" data-hours-day-off-add>Add Day Off</button>
 </section>
+{% include "components/modal.html" with modal_id="hours-day-off-modal" modal_title="Add Day Off" modal_size="md" modal_body_include="hours/partials/_day_off_form.html" %}
+{% if open_day_off %}
+{# A refused day off posted without HTMX: reopen the modal on its errors. #}
+<div x-data x-init="$nextTick(() => $dispatch('open-modal', 'hours-day-off-modal'))"></div>
+{% endif %}
 
-{% with gcal=page.gcal %}
-<section class="hub-card pl-tours-panel pl-tours-gcal" data-hours-gcal="{% if not page.gcal_configured %}dormant{% elif not gcal %}none{% elif gcal.is_broken %}broken{% else %}connected{% endif %}">
-  <div class="pl-tours-panel__head"><h2 class="hub-detail-label pl-tours-panel__title">Google Calendar</h2></div>
-  {% if not page.gcal_configured %}
-  <p class="hub-text-muted pl-tours-gcal__last">Connecting a Google Calendar is not set up yet.</p>
-  {% elif not gcal %}
-  <p class="hub-text-muted pl-tours-gcal__last">{% if is_self %}Not connected.{% else %}{{ target.staff_label }} has not connected a Google Calendar.{% endif %} A connected calendar's busy times hide tours and orientations.</p>
-  {% elif gcal.is_broken %}
-  <p class="pl-tours-gcal__status pl-tours-gcal__status--broken">Needs reconnecting since {{ gcal.broken_at|date:"M j, g:i A" }}.</p>
-  <p class="hub-text-muted pl-tours-gcal__last">Google stopped accepting {{ gcal.google_email|default:"the calendar" }}, so its busy times are not read until it is reconnected.</p>
-  {% else %}
-  <div class="pl-tours-gcal__account">
-    <p class="pl-tours-gcal__status">Connected as <strong>{{ gcal.google_email }}</strong>. Tours are written to {{ gcal.calendar_label }}.</p>
-  </div>
-  <p class="hub-text-muted pl-tours-gcal__last">Busy times hide {% if is_self %}your{% else %}their{% endif %} tours and orientations. {% if gcal.busy_checked_at %}Last read {{ gcal.busy_checked_at|date:"M j, g:i A" }}.{% else %}Not read yet.{% endif %}</p>
-  {% endif %}
-</section>
-{% endwith %}
+{% include "hours/partials/_google_calendar.html" %}
 
 {% if page.gives_tours %}
-<section class="hub-card pl-tours-panel" data-hours-notice>
-  <div class="pl-tours-panel__head"><h2 class="hub-detail-label pl-tours-panel__title">Booking Notice</h2></div>
-  <p class="hub-text-muted pl-tours-panel__intro">{{ page.notice_line }}</p>
-</section>
+<div data-hours-notice>{% include "tours/partials/_notice.html" %}</div>
 {% endif %}
+{# A boosted navigation held behind a save that failed: Leave resumes it, Stay drops it. #}
+{% include "components/confirm_modal.html" with confirm_id="leave-while-saving" confirm_title="A change did not save" confirm_message="A change could not be saved. Leave anyway, or stay and try again?" confirm_button_text="Leave" confirm_cancel_text="Stay" confirm_button_style="primary" confirm_js="window.dispatchEvent(new CustomEvent('pl-guild-autosave-leave'))" %}
+</div>{# /plGuildAutosave #}
 </div>
 {% endblock %}

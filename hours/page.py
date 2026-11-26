@@ -25,6 +25,7 @@ from django.utils import timezone
 from classes.models import ClassSession
 from hours.busy import CLASS, DAY_OFF, GOOGLE, ORIENTATION, SEAT_HOLDING, TOUR, Hold, busy_holds
 from hours.models import DayOff, Hours
+from hub.hour_grid import MINUTES_PER_DAY, Block, GridDay, HourGridWeek, Inner, clock, hour_range, lay_lanes
 from membership.models import Member, OrientationAvailability, OrientationBooking, OrientationSlot
 from tours import google
 from tours.models import (
@@ -46,6 +47,8 @@ KIND_CLASSES = ("pl-kind--a", "pl-kind--b", "pl-kind--c", "pl-kind--d")
 OPEN, BOOKED, BUSY = "open", "booked", "busy"
 #: Chips that start together read open, then booked, then busy.
 _STYLE_ORDER = {OPEN: 0, BOOKED: 1, BUSY: 2}
+#: What one day of the week's hour grid holds (#1332): the blocks, with bookings inside open hours.
+GRID_DAY_TEMPLATE = "hours/partials/_hour_grid_day.html"
 
 
 def hours_people_q() -> Q:
@@ -142,6 +145,7 @@ class MyHours:
     week_offset: int
     week_label: str
     week: list[WeekDay]
+    grid: HourGridWeek
     weekly: list[HoursSet]
     dated: list[HoursSet]
     days_off: list[DayOff]
@@ -182,6 +186,7 @@ class MyHours:
             week_offset=week_offset,
             week_label=_week_label(days[0], days[-1]),
             week=week,
+            grid=week_grid(week),
             weekly=[_hours_set(hours, kinds) for hours in sets if hours.date is None],
             dated=sorted(
                 (_hours_set(hours, kinds) for hours in sets if hours.date is not None and hours.date >= today),
@@ -283,6 +288,98 @@ def _week(
         week_day.chips.sort(key=lambda chip: (chip.starts_at, _STYLE_ORDER[chip.style]))
         week.append(week_day)
     return week
+
+
+def _span(chip: Chip, day: date) -> tuple[int, int]:
+    """A chip's local start and end in minutes of ``day``; one running to midnight ends at midnight."""
+    start, end = timezone.localtime(chip.starts_at), timezone.localtime(chip.ends_at)
+    end_minute = end.hour * 60 + end.minute if end.date() == day else MINUTES_PER_DAY
+    return start.hour * 60 + start.minute, end_minute
+
+
+def week_grid(week: list[WeekDay], *, now: datetime | None = None) -> HourGridWeek:
+    """The week as an hour grid (#1332): each day's chips as blocks, a booking inside the open hours holding it.
+
+    Open hours, busy time and any booking no open hours hold sit side by side where they overlap
+    (:func:`hub.hour_grid.lay_lanes`); bookings inside one set of open hours share its width the
+    same way. A day off is striped with Day Off, and anything still on it (bookings already made)
+    draws over the stripes.
+    """
+    moment = timezone.localtime(now)
+    spans = {week_day.date: [_span(chip, week_day.date) for chip in week_day.chips] for week_day in week}
+    first_hour, last_hour = hour_range([span for day_spans in spans.values() for span in day_spans])
+    top = first_hour * 60
+    now_minute = moment.hour * 60 + moment.minute - top
+    days = [
+        GridDay(
+            day=week_day.date,
+            is_today=week_day.date == moment.date(),
+            blocks=_blocks(week_day.chips, spans[week_day.date], top),
+            state="off" if week_day.is_day_off else "",
+            note="Day Off" if week_day.is_day_off else "",
+            now=now_minute
+            if week_day.date == moment.date() and 0 <= now_minute <= (last_hour - first_hour) * 60
+            else None,
+        )
+        for week_day in week
+    ]
+    return HourGridWeek(first_hour=first_hour, last_hour=last_hour, days=days, cell_template=GRID_DAY_TEMPLATE)
+
+
+def _blocks(chips: list[Chip], spans: list[tuple[int, int]], top: int) -> list[Block]:
+    """One day's blocks: open hours (each holding the bookings inside it), busy time, and bookings no open hours hold."""
+    opens = [index for index, chip in enumerate(chips) if chip.style == OPEN]
+    inside: dict[int, list[int]] = {index: [] for index in opens}
+    tops: list[int] = []
+    for index, chip in enumerate(chips):
+        start, end = spans[index]
+        holder = next((o for o in opens if chip.style == BOOKED and spans[o][0] <= start and end <= spans[o][1]), None)
+        if holder is None:
+            tops.append(index)
+        else:
+            inside[holder].append(index)
+    blocks: list[Block] = []
+    for index, (lane, lanes) in zip(tops, lay_lanes([spans[index] for index in tops])):
+        chip, (start, end) = chips[index], spans[index]
+        span_label = f"{clock(start)} to {clock(end)}"
+        named = f"Open for {' and '.join(kind.label for kind in chip.kinds)}" if chip.style == OPEN else chip.what
+        children = [chips[child] for child in inside.get(index, [])]
+        child_spans = [spans[child] for child in inside.get(index, [])]
+        blocks.append(
+            Block(
+                start=start - top,
+                length=end - start,
+                lane=lane,
+                lanes=lanes,
+                style=chip.style,
+                when=clock(start) if chip.style == BOOKED else span_label,
+                what=chip.what,
+                title=f"{named}, {span_label}",
+                css=_kind_css(chip),
+                dots=tuple(kind.css for kind in chip.kinds),
+                inner=[
+                    Inner(
+                        start=child_start - start,
+                        length=child_end - child_start,
+                        lane=child_lane,
+                        lanes=child_lanes,
+                        css=_kind_css(child),
+                        when=clock(child_start),
+                        what=child.what,
+                        title=f"{child.what}, {clock(child_start)} to {clock(child_end)}",
+                    )
+                    for child, (child_start, child_end), (child_lane, child_lanes) in zip(
+                        children, child_spans, lay_lanes(child_spans)
+                    )
+                ],
+            )
+        )
+    return blocks
+
+
+def _kind_css(chip: Chip) -> str:
+    """The colour class of a booking's kind; open hours and busy time have none."""
+    return chip.kind.css if chip.kind else ""
 
 
 def _open_chips(day: date, sets: list[Hours], kinds: dict[str, Kind]) -> list[Chip]:
