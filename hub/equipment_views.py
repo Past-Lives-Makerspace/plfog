@@ -45,6 +45,7 @@ from hub.forms import (
 )
 from hub.permission_setup_views import page_setups
 from hub.toast import trigger_toast
+from hub.view_as import ViewAs
 from hub.reservation_bookings import reservation_bookings_context
 from hub.views import (
     _apply_hours_formset,
@@ -1318,7 +1319,7 @@ def _orientation_tab_context(request: HttpRequest, equipment: Equipment) -> dict
     list with attendee sub-rows. ``can_edit_others_hours`` gates the whole-schedule
     view and the Runs with picker; a plain manager sees only their own group.
     """
-    from hub.day_off_views import days_off_by_orienter
+    from hours.days_off import days_off_by_member
     from membership.models import OrientationAvailability, OrientationBooking, OrientationSlot
     from membership.permissions import can_edit_equipment_orienter_hours
 
@@ -1383,10 +1384,12 @@ def _orientation_tab_context(request: HttpRequest, equipment: Equipment) -> dict
         "orientation_upcoming_slots": upcoming_slots,
         "orienter_overview": orienter_overview,
         # Each person's upcoming days off (#767), the "Off Nov 26, Dec 25." line under their rules.
-        "days_off_by_orienter": days_off_by_orienter(managers),
+        "days_off_by_member": days_off_by_member(managers),
         "former_managers_overview": former_managers_overview,
         "shared_rules": shared_rules,
         "can_edit_others_hours": can_edit_others_hours,
+        # Edit Hours on another manager's row opens their My Hours: admins only (#1300, Felix 3).
+        "hours_for_others": ViewAs.for_request(request).actual_is_admin,
         "show_my_hours_card": viewer is not None and viewer.pk in manager_ids,
         "viewer_member_pk": viewer.pk if viewer is not None else None,
         "slot_form_locked": not can_edit_others_hours,

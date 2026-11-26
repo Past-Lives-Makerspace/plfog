@@ -1,0 +1,24 @@
+bump = "minor"
+date = "2026-11-25"
+audience = ["members", "orientors"]
+feature = "hours.my-hours"
+guidance = "shots"
+requests = [26]
+title = "My Hours: one place to say when you can give tours and orientations"
+changes = [
+  "My Hours is where you set when people can book you, for tours and every orientation you give. Set a time once and tick what it is open to.",
+  "Every place you set hours before now opens My Hours: My Hours on the Tours page, Edit Hours and Days Off on a guild's or a tool's Orientations page, and Edit Hours under Your Hours on Manage Bookings.",
+  "A tour or orientation booked with you closes that time for the others, so nobody can book you twice.",
+  "Add a day off once for everything. Bookings already made stay booked.",
+  "Turn an orientation off in a set of hours to pause it. Turn it back on and its settings come back.",
+  "You edit your own hours, and admins can edit anyone's. Guild leads see their staff's hours on the Orientation Schedule but no longer change them.",
+]
+
+[[shots]]
+caption = "On the Tours page, press My Hours. Edit Hours on a guild's Orientations page or on Manage Bookings opens it too."
+
+[[shots]]
+caption = "Set your hours once, then under Open To tick what they are for: Tours and each orientation you give."
+
+[[shots]]
+caption = "Press Add Day Off once for everything. Bookings already made stay booked."

@@ -287,7 +287,11 @@ def describe_non_leadership_admin_self_scope():
         response = client.get(_tab_url(guild))
         assert b"My Orientation Hours" not in response.content
         assert b"Orientation Schedule" in response.content
-        assert f"orienter={user.member.pk}".encode() in response.content
+        # Their own Edit Hours opens My Hours (#1300).
+        assert (
+            f'href="{reverse("hours:my_hours")}" class="hub-btn hub-btn--sm" data-edit-hours-link'.encode()
+            in response.content
+        )
 
 
 def describe_upcoming_slots_query_count():
@@ -515,19 +519,21 @@ def describe_orientation_schedule_overview():
         assert b"Orientation Schedule" in response.content
         assert b"Bob Placeholder" in response.content
         assert b"No hours published" in response.content  # the lead has none
-        assert f"orienter={bob.pk}".encode() in response.content  # Edit Hours modal trigger (hx-get)
+        # A lead reads Bob's hours but edits only their own (#1300, Felix 3).
+        assert f"?member={bob.pk}".encode() not in response.content
 
-    def it_shows_the_edit_hours_button_on_the_viewers_own_row(client: Client):
-        # The viewer now edits their own hours through the same Edit Hours modal as everyone
-        # else, so their own row carries the modal trigger. Every other staff row does too.
+    def it_shows_the_edit_hours_link_on_the_viewers_own_row(client: Client):
+        # The viewer's own row opens their My Hours (#1300); an admin's rows open anyone's.
         user = _member_user("ov_ownrow", name="Lead Person")
         guild = GuildFactory(guild_lead=user.member)
         bob = MemberFactory(full_legal_name="Bob Placeholder")
         GuildStaffMembershipFactory(guild=guild, member=bob, role=GuildStaffMembership.Role.ORIENTER)
         client.login(username="ov_ownrow", password="pass")
         content = client.get(_tab_url(guild)).content
-        assert f"orienter={user.member.pk}".encode() in content
-        assert f"orienter={bob.pk}".encode() in content
+        hours = reverse("hours:my_hours")
+        assert f'href="{hours}" class="hub-btn hub-btn--sm" data-edit-hours-link'.encode() in content
+        assert f'href="{hours}#days-off"'.encode() in content
+        assert f"?member={bob.pk}".encode() not in content
 
     def it_shows_a_plain_staffer_only_their_own_row(client: Client):
         # A plain orientor (no authority over others) now sees the Orientation Schedule scoped
@@ -541,10 +547,12 @@ def describe_orientation_schedule_overview():
         response = client.get(_tab_url(guild))
         assert response.status_code == 200
         assert b"Orientation Schedule" in response.content
-        assert f"orienter={user.member.pk}".encode() in response.content
-        # The other staffer's Orientation Schedule row + Edit Hours trigger are not rendered
-        # (their name still appears on the Staff tab, so assert on the schedule trigger, not it).
-        assert f"orienter={other.pk}".encode() not in response.content
+        assert (
+            f'href="{reverse("hours:my_hours")}" class="hub-btn hub-btn--sm" data-edit-hours-link'.encode()
+            in response.content
+        )
+        # The other staffer's row and its Edit Hours are not rendered.
+        assert f"?member={other.pk}".encode() not in response.content
         # Changelog guard (§10): the retired heading must never resurface on a hub page —
         # the changelog text renders into every page's context, so keep asserting its absence.
         assert b"All Orientation Hours" not in response.content

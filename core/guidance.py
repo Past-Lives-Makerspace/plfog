@@ -296,18 +296,17 @@ _GUIDANCE_LIST = (
         ),
         target="orientations.record",
     ),
-    # Orientation hours (#430): every week, every few weeks, or by the month, edited in the Edit Hours modal.
+    # Orientation hours (#430): every week, every few weeks, or by the month. Set on My Hours since #1300.
     Guidance(
         key="orientations.hours",
         title="Orientation Hours",
-        url_name="hub_manage_bookings",
+        url_name="hours:my_hours",
         steps=(
-            "Open Manage Bookings and press Edit Hours beside a guild or a piece of equipment under Your Hours.",
-            "Pick how often the hours repeat under Repeats: every week, every 2, 3 or 4 weeks, or by the month.",
-            "Pick the first day under Starting on. A monthly rule keeps that day's place in the month, or turn on Last of the month.",
-            "The line under the row says what members will see before you press Save.",
+            "Open Manage Bookings and press Edit Hours beside a guild or a piece of equipment under Your Hours. It opens My Hours.",
+            "Under Every Week, pick how often the hours repeat under Repeats: every week, every 2, 3 or 4 weeks, or by the month.",
+            "Pick the first day under Starting on. A monthly set keeps that day's place in the month, or turn on Last of the month.",
+            "Tick your orientations under Open To. Every change saves as you make it.",
         ),
-        target="orientations.edit-hours",
     ),
     _guild_tab(
         "guild.reservations",
@@ -670,13 +669,25 @@ _GUIDANCE_LIST = (
     Guidance(
         key="tours.hours",
         title="Tour Hours",
-        url_name="tours:hours",
+        url_name="hours:my_hours",
         steps=(
             "Press Tours in the sidebar, then My Hours.",
             "Every Week is for hours that repeat. If your schedule changes from week to week, use Available On.",
-            "Press + Add Dates, tap the days you are free, set From, To, Tour length and Seats, then press Add.",
+            "Press + Add Dates, tap the days you are free, set From and Until, tick Tours under Open To, then press Add.",
             "Visitors can book tours on those dates. Delete a date from the list if your plans change.",
             "Under Booking Notice, pick how far ahead visitors must book you, from No notice to 2 weeks.",
+        ),
+    ),
+    # My Hours (#1300): one person's time for every kind they give, tours and orientations together.
+    Guidance(
+        key="hours.my-hours",
+        title="My Hours",
+        url_name="hours:my_hours",
+        steps=(
+            "Open My Hours from the Tours page, Edit Hours on a guild's or tool's Orientations, or Your Hours on Manage Bookings.",
+            "Set your hours once under Every Week or Available On, and tick what they are open to: Tours and each orientation you give.",
+            "A booking for one closes that time for the others. Classes you teach and busy times in your Google Calendar close it too.",
+            "Add Day Off once for everything. Bookings already made stay booked.",
         ),
     ),
     Guidance(

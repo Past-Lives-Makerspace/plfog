@@ -5,7 +5,7 @@ with that kind's own settings under it, shown while it is on. Tours: tour length
 book (a guild's only), the orientation, and for fixed start times seats, slot length and break, as the Edit Hours
 editors have them. Context: form (an hours.forms.HoursSetForm or AddDatesForm), kind_css.
 {% endcomment %}
-<div class="pl-hours-open-to" role="group" aria-labelledby="{{ form.prefix }}-open-to" data-hours-open-to>
+<div class="pl-hours-open-to" role="group" aria-labelledby="{{ form.prefix }}-open-to" data-hours-open-to data-guidance-target="hours.open-to">
   <p class="pl-hours-open-to__title" id="{{ form.prefix }}-open-to">Open To</p>
   <p class="pl-hours-open-to__hint">Everything you offer starts ticked. Each kind keeps its own settings.</p>
   {% for block, f in form.block_rows %}

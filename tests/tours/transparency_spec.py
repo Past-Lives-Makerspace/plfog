@@ -26,6 +26,8 @@ UPCOMING = reverse("tours:upcoming")
 PAST = reverse("tours:past")
 CALENDAR = reverse("tours:calendar")
 HOURS = reverse("tours:hours")
+#: Where the Calendar tab's hours and gaps link since #1300 part 5.
+MY_HOURS = reverse("hours:my_hours")
 HTMX = {"HTTP_HX_REQUEST": "true"}
 
 
@@ -84,7 +86,9 @@ def describe_coverage():
         assert dated not in gaps
         assert weekly_day in gaps
         assert len(gaps) == 6
-        assert coverage.uncovered_days(today=_today())[0].add_url == f"{HOURS}?add={_today().isoformat()}#available-on"
+        assert (
+            coverage.uncovered_days(today=_today())[0].add_url == f"{MY_HOURS}?add={_today().isoformat()}#available-on"
+        )
 
     def it_leaves_out_the_hours_of_someone_who_no_longer_gives_tours(guide: Member):
         _short_horizon(0)
@@ -118,14 +122,14 @@ def describe_coverage():
         assert not any("Gwen" in title for title in titles)
         assert [chip["label"] for chip in cal["legend"]] == ["Gina Guide", "Olive Other", "No guide"]
         urls = {event.chip_title: event.url for event in cal["week_events"]}
-        assert urls["Gina G. hours"] == HOURS
+        assert urls["Gina G. hours"] == MY_HOURS
         assert urls["Olive O. hours"] == ""
         assert urls["Tour: Sam R. (3)"] == f"{UPCOMING}#tour-booking-{booked.pk}"
         admin_urls = {
             event.chip_title: event.url
             for event in coverage.calendar_context(viewer=admin, is_admin=True, week_offset=1)["week_events"]
         }
-        assert admin_urls["Olive O. hours"] == f"{HOURS}?guide={other.pk}"
+        assert admin_urls["Olive O. hours"] == f"{MY_HOURS}?member={other.pk}"
 
     def it_links_a_past_tour_to_the_past_table(guide: Member):
         attended = TourBookingFactory(
@@ -152,7 +156,7 @@ def describe_calendar_tab():
         assert "Olive Other" in content and "data-tours-calendar" in content
         assert f'data-tours-gap="{(_today() + timedelta(days=1)).isoformat()}"' in content
         assert f'data-tours-gap="{_today().isoformat()}"' not in content
-        assert f'href="{HOURS}?add={(_today() + timedelta(days=1)).isoformat()}#available-on"' in content
+        assert f'href="{MY_HOURS}?add={(_today() + timedelta(days=1)).isoformat()}#available-on"' in content
 
     def it_says_so_when_every_day_is_covered(guide: Member):
         _short_horizon(0)

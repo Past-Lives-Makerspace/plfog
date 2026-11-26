@@ -12,7 +12,7 @@
 The Manage Bookings home (#768), built by hub.manage_bookings.manage_bookings_context. Three cards:
 Needs Attention (the two Bookings tabs' own rows, menus and modals, capped per kind with a View all
 into the tab), What You Run (one .hub-card per guild and per piece of equipment in scope) and Your
-Hours (the viewer's own rules by owner, opening the existing Edit Hours modal). Every action posts
+Hours (the viewer's own rules by owner; Edit Hours opens My Hours, #1300). Every action posts
 bookings_next, which is this page, so the viewer lands back here.
 {% endcomment %}
 {% if show_add_orientation %}
@@ -142,14 +142,7 @@ bookings_next, which is this page, so the viewer lands back here.
     <div class="pl-orient-overview__group" data-hours-owner="{{ group.key }}">
       <div class="pl-orient-overview__person">
         <strong>{{ group.owner_name }}</strong>
-        <button type="button" class="hub-btn hub-btn--sm" data-edit-hours{% if forloop.first %} data-guidance-target="orientations.edit-hours"{% endif %}
-                @click="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Loading…</p>'; $dispatch('open-modal', 'edit-hours-modal')"
-                hx-get="{{ group.edit_url }}"
-                hx-target="#edit-hours-modal-body" hx-swap="innerHTML"
-                hx-on::response-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'"
-                hx-on::send-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'">
-          Edit Hours
-        </button>
+        <a href="{% url 'hours:my_hours' %}" class="hub-btn hub-btn--sm" data-edit-hours{% if forloop.first %} data-guidance-target="orientations.edit-hours"{% endif %}>Edit Hours</a>
       </div>
       <ul class="pl-orient-overview__rules">
         {% for r in group.rules %}
@@ -158,10 +151,8 @@ bookings_next, which is this page, so the viewer lands back here.
       </ul>
     </div>
     {% empty %}
-    <p class="hub-text-muted pl-manage__hours-empty" data-hours-empty>No hours published yet. Open a guild's Orientations page to publish them.</p>
+    <p class="hub-text-muted pl-manage__hours-empty" data-hours-empty>No hours published yet. <a href="{% url 'hours:my_hours' %}" data-hours-empty-link>Set them on My Hours</a>.</p>
     {% endfor %}
-    {# One shared Edit Hours modal for every owner above; its body is HTMX loaded per owner. modal_static: the teleported delete confirm would otherwise read as a click outside. #}
-    {% include "components/modal.html" with modal_id="edit-hours-modal" modal_title="Edit Hours" modal_size="lg" modal_static=True %}
   </section>
   {% endif %}
 

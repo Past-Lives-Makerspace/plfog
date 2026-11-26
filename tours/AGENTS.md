@@ -86,7 +86,7 @@ The Tours page's **Upcoming** and **Past** tabs (`tours/bookings.html`; a table 
 
 ## Calendar tab (#1274)
 
-`tours:calendar` (`tours/calendar.html`, `tours/coverage.py`): every Tour Guide sees every guide's hours and tours. **Days With No Tour Hours** (`coverage.uncovered_days`): the days from today to the booking horizon that no offered guide's hours touch (weekly and Available On, minus their days off; hours as entered, never carved), each with **Add My Hours**, `tours:hours?add=YYYY-MM-DD`, which opens Add Dates with that day picked (`views._day_to_add`). Then the shared calendar shell (`hub/partials/guild_calendar_app.html` through `hub.calendar_pages.entries_calendar_context`, Week and Month stepping over `tours:calendar_events`): one legend chip per guide with offered hours or a seat holding tour (colours by name, stable across weeks), each hours window ("Gina G. hours") and each booked, requested or attended tour ("Tour: Sam R. (3)", "Request: ..."), a tour linking to its row on Upcoming or Past; a guide's own hours link to My Hours, and an admin's to `?guide=`.
+`tours:calendar` (`tours/calendar.html`, `tours/coverage.py`): every Tour Guide sees every guide's hours and tours. **Days With No Tour Hours** (`coverage.uncovered_days`): the days from today to the booking horizon that no offered guide's hours touch (weekly and Available On, minus their days off; hours as entered, never carved), each with **Add My Hours**, `hours:my_hours?add=YYYY-MM-DD`, which opens My Hours' + Add Dates with that day picked (#1300). Then the shared calendar shell (`hub/partials/guild_calendar_app.html` through `hub.calendar_pages.entries_calendar_context`, Week and Month stepping over `tours:calendar_events`): one legend chip per guide with offered hours or a seat holding tour (colours by name, stable across weeks), each hours window ("Gina G. hours") and each booked, requested or attended tour ("Tour: Sam R. (3)", "Request: ..."), a tour linking to its row on Upcoming or Past; a guide's own hours link to My Hours (`hours:my_hours`), and an admin's to `?member=`.
 
 ## Front desk kiosk (#950)
 
@@ -148,7 +148,7 @@ Mounted at `/facility-tours/` (members only, in `MEMBER_ONLY_PATH_PREFIXES`); no
 | `tour_booking_mark` | `tours:booking_mark` | `/facility-tours/bookings/<pk>/mark/` (POST `outcome` attended or no_show; htmx gets the row and a toast) |
 | `tour_booking_confirm` | `tours:booking_confirm` | `/facility-tours/bookings/<pk>/confirm/` (#1166: POST, a request becomes booked) |
 | `tour_booking_decline` | `tours:booking_decline` | `/facility-tours/bookings/<pk>/decline/` (#1166: POST, optional `message`) |
-| `tour_hours` | `tours:hours` | `/facility-tours/hours/` (the My Hours tab; `?guide=<pk>` for an admin; `?add=YYYY-MM-DD` opens Add Dates on that day, #1274) |
+| `tour_hours` | `tours:hours` | `/facility-tours/hours/` (the old My Hours tab, linked from nowhere since #1300 part 5: the tab opens `hours:my_hours`; retired in part 5b) |
 | `tour_hours_save` | `tours:hours_save` | `/facility-tours/hours/save/` (POST `guide` and the `hours` formset; JSON to the autosave, #1279) |
 | `tour_dates_save` | `tours:dates_save` | `/facility-tours/hours/dates/save/` (#1160: POST `guide`, one `dates` per picked day, `start_time`, `end_time`, `tour_minutes`, `seats`; all or nothing) |
 | `tour_notice_save` | `tours:notice_save` | `/facility-tours/hours/notice/save/` (#1312: POST `guide` and `min_notice_minutes`, the Booking Notice card; JSON to the autosave) |

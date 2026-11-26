@@ -18,7 +18,7 @@ pytestmark = pytest.mark.django_db
 
 CALENDAR = reverse("tours:calendar")
 EVENTS = reverse("tours:calendar_events")
-HOURS = reverse("tours:hours")
+HOURS = reverse("hours:my_hours")
 UPCOMING = reverse("tours:upcoming")
 PAST = reverse("tours:past")
 HTMX = {"HTTP_HX_REQUEST": "true"}

@@ -355,18 +355,20 @@ def describe_the_card():
         _login(client, lead)
         content = client.get(_page_url(guild)).content.decode()
         assert content.count("data-days-off-line") == 1  # Bob's line only; Alice and the lead have none
-        assert f"Off {first:%b} {first.day}, {second:%b} {second.day}." in content
-        assert f'hx-get="{_modal_url(guild, bob.member)}"' in content  # the Days Off button on Bob's row
-        assert content.count("data-days-off-button") == 3  # the lead, Bob and Alice each have one
-        assert 'id="days-off-modal-body"' in content
+        # One Days Off for every kind (#1300): each day off by its My Hours label.
+        assert f"Off {first:%a, %b} {first.day}; {second:%a, %b} {second.day}." in content
+        # A lead's Days Off opens their own My Hours only (Felix 3); nobody else's row has one.
+        assert content.count("data-days-off-button") == 1
+        assert f'href="{reverse("hours:my_hours")}#days-off"' in content
 
     def it_shows_a_plain_orienter_only_their_own_button(client: Client):
         guild, lead, bob, alice = _guild_setup()
         _login(client, bob)
         content = client.get(_page_url(guild)).content.decode()
-        assert f'hx-get="{_modal_url(guild, bob.member)}"' in content
-        assert f'hx-get="{_modal_url(guild, alice.member)}"' not in content
-        assert f'hx-get="{_modal_url(guild, lead.member)}"' not in content
+        assert content.count("data-days-off-button") == 1
+        assert f'href="{reverse("hours:my_hours")}#days-off"' in content
+        assert f"?member={alice.member.pk}" not in content
+        assert f"?member={lead.member.pk}" not in content
 
 
 def describe_on_equipment():
@@ -464,10 +466,10 @@ def describe_on_equipment():
         OrientationDayOff.objects.create(orienter=dana.member, date=second)
         _login(client, _member_user("do_tool_admin", name="Site Admin", fog_role=Member.FogRole.ADMIN))
         content = client.get(_tab_url(equipment)).content.decode()
-        assert f"Off {first:%b} {first.day}, {second:%b} {second.day}." in content
+        assert f"Off {first:%a, %b} {first.day}; {second:%a, %b} {second.day}." in content
         assert content.count("data-days-off-line") == 1
-        assert f'hx-get="{_tool_modal_url(equipment, dana.member)}"' in content
-        assert 'id="days-off-modal-body"' in content
+        # An admin's Days Off on Dana's row opens Dana's My Hours (#1300).
+        assert f'href="{reverse("hours:my_hours")}?member={dana.member.pk}#days-off"' in content
 
     def it_removes_a_day_off_back_to_the_tab(client: Client):
         equipment, dana, quinn = _equipment_setup()

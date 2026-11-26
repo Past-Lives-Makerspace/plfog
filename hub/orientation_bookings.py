@@ -392,8 +392,8 @@ def _staff_extras(request: HttpRequest, member: Member | None) -> dict[str, Any]
         if member is not None
         else []
     )
-    # "Post your hours": a lead or staffer with no personal hours anywhere gets a link to each
-    # guild's Orientations tab; it goes away with their first rule.
+    # "Post your hours": a lead or staffer with no personal hours anywhere gets a link to My Hours
+    # (#1300); it goes away with their first rule.
     hours_nudge_guilds = (
         leadership_guilds
         if leadership_guilds and not OrientationAvailability.objects.filter(orienter=member).exists()

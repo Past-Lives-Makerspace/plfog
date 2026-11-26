@@ -6,18 +6,22 @@
 <link rel="stylesheet" href="{% static 'css/tours.css' %}">
 <link rel="stylesheet" href="{% static 'css/hour-grid.css' %}">
 <link rel="stylesheet" href="{% static 'css/my-hours.css' %}">
+<link rel="stylesheet" href="{% static 'css/permission-setup.css' %}">
 {% endblock %}
 {% block content %}
 {% comment %}
 My Hours (#1300, part 3; hours.views.my_hours, hours.page.MyHours), lifted from mockups/1300-my-hours.html:
 one person's week (open hours dashed, bookings solid in their kind's colour, classes and Google busy hatched,
 a day off striped), then Every Week, Available On, Days Off, Google Calendar and, for a guide, Booking Notice.
-Every Week and Available On edit and save themselves (part 4, plGuildAutosave, hours/partials/_hours_list.html);
-the places hours are set today open this page in part 5; no sidebar link.
-An admin picks whose hours with the picker (?member=), as on the Tours My Hours tab.
+Every Week and Available On edit and save themselves (part 4, plGuildAutosave, hours/partials/_hours_list.html).
+Part 5 sends every place hours were set before here (the Tours page's My Hours tab, a guild's or tool's
+Orientation Schedule, Manage Bookings' Your Hours); no sidebar link. An admin picks whose hours with the
+picker (?member=), which names each person's Google Calendar state; ?add=YYYY-MM-DD opens + Add Dates on that day.
 {% endcomment %}
 <div class="pl-my-hours">
 {% include "components/page_header.html" with title="My Hours" description="When people can book you, for tours and every orientation you give. Set your time once here." %}
+{# A Tour Guide's own Get Set Up card (#1167), here as it was on the Tours page's My Hours tab. #}
+{% if setup and not setup.hidden %}{% include "hub/partials/_permission_setup.html" with tab="hours" %}{% endif %}
 
 {% if is_admin %}
 <div class="hub-card pl-tours-panel" data-hours-picker>
@@ -27,7 +31,7 @@ An admin picks whose hours with the picker (?member=), as on the Tours My Hours 
       <select id="hours-member-picker" name="member" class="pl-tours-input--text" onchange="this.form.requestSubmit()">
         <option value=""{% if is_self %} selected{% endif %}>My hours</option>
         {% for person in picker %}
-        <option value="{{ person.pk }}"{% if person.pk == target.pk %} selected{% endif %}>{{ person.staff_label }}</option>
+        <option value="{{ person.pk }}"{% if person.pk == target.pk %} selected{% endif %}{% if person.calendar %} data-hours-calendar="{{ person.calendar }}"{% endif %}>{{ person.name }}{% if person.calendar %} · {{ person.calendar }}{% endif %}</option>
         {% endfor %}
       </select>
     </div>
@@ -70,7 +74,7 @@ An admin picks whose hours with the picker (?member=), as on the Tours My Hours 
 {% include "hours/partials/_hours_list.html" with formset=dated_formset list="dated" title="Available On" intro="Free on certain days only? Pick the dates on the calendar, set the hours once and tick what they are open to." empty="No dates coming up." %}
 {% include "components/confirm_modal.html" with confirm_id="hours-set-delete" confirm_title="Delete these hours?" confirm_message="Nothing new can be booked in them, for any kind. Bookings already made stay booked." confirm_button_text="Delete" confirm_js="window.dispatchEvent(new CustomEvent('pl-guild-autosave-delete'))" %}
 
-<section class="hub-card pl-tours-panel pl-tours-days-off" data-hours-days-off>
+<section id="days-off" class="hub-card pl-tours-panel pl-tours-days-off" data-hours-days-off>
   <h2 class="hub-detail-label pl-tours-panel__title">Days Off</h2>
   <p class="hub-text-muted pl-tours-panel__intro">One list for everything {% if is_self %}you offer{% else %}{{ target.staff_label }} offers{% endif %}. Nothing new can be booked {% if is_self %}with you {% endif %}on a day off; bookings already made stay booked.</p>
   {% if page.days_off %}
@@ -90,7 +94,7 @@ An admin picks whose hours with the picker (?member=), as on the Tours My Hours 
   {% else %}
   <p class="hub-text-muted pl-tours-panel__empty" data-hours-days-off-empty>No days off coming up.</p>
   {% endif %}
-  <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-panel__add" @click="$dispatch('open-modal', 'hours-day-off-modal')" data-hours-day-off-add>Add Day Off</button>
+  <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-panel__add" @click="$dispatch('open-modal', 'hours-day-off-modal')" data-hours-day-off-add data-guidance-target="hours.add-day-off">Add Day Off</button>
 </section>
 {% include "components/modal.html" with modal_id="hours-day-off-modal" modal_title="Add Day Off" modal_size="md" modal_body_include="hours/partials/_day_off_form.html" %}
 {% if open_day_off %}

@@ -277,7 +277,7 @@ def describe_mark_broken():
         assert len(emails) == 1
         assert emails[0].to == [connection.guide.user.email]
         assert "gina@example.com" in emails[0].body
-        assert "https://members.example.org/facility-tours/hours/" in emails[0].body
+        assert "https://members.example.org/hours/" in emails[0].body
         bells = Notification.objects.filter(user=connection.guide.user, trigger="tour.calendar_broken")
         assert bells.count() == 1
 

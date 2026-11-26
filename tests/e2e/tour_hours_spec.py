@@ -93,12 +93,8 @@ def describe_tour_hours_editor():
         login_via_code(GUIDE_EMAIL)
         page.set_viewport_size(DESKTOP)
         page.goto(f"{live_server.url}{reverse('hub_home')}")
-        # Tours in the sidebar opens the Upcoming tab (#949, #1278); My Hours is a tab further along.
-        with page.expect_navigation():
-            page.locator('.hub-sidebar__nav a[data-nav="tours"]').first.click()
-        page.wait_for_url(f"**{reverse('tours:upcoming')}")
-        page.locator('nav.pl-tabs [data-tours-tab="hours"]').click()
-        page.wait_for_url(f"**{reverse('tours:hours')}")
+        # The old tab's page, kept by URL until #1300 part 5b retires it (its tab opens My Hours now).
+        page.goto(f"{live_server.url}{reverse('tours:hours')}")
         page.locator("[data-tour-hours-empty]").wait_for()
         _capture(page, "empty")
 
@@ -332,9 +328,7 @@ def describe_available_on():
         login_via_code(GUIDE_EMAIL)
         page.set_viewport_size(DESKTOP)
         # A boosted arrival: the calendar's component must already be registered from the head.
-        page.goto(f"{live_server.url}{reverse('tours:upcoming')}")
-        page.locator('nav.pl-tabs [data-tours-tab="hours"]').click()
-        page.wait_for_url(f"**{reverse('tours:hours')}")
+        page.goto(f"{live_server.url}{reverse('tours:hours')}")
         page.locator("[data-tour-dates-empty]").wait_for()
         assert not page.locator("[data-tour-dates-panel]").is_visible()
         _shoot_1160(page, "step-1.png", "[data-tour-dates-add]", "tours.add-dates")

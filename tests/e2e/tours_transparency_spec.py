@@ -144,13 +144,13 @@ def describe_tours_for_every_guide():
         _guidance(page, 1, target="tours.gaps")
         _no_sideways_scroll(page)
 
-        # Add My Hours on a gap: Add Dates opens with that day picked.
+        # Add My Hours on a gap: My Hours opens + Add Dates with that day picked (#1300).
         gap = page.locator("[data-tours-gap]").first
         day = gap.get_attribute("data-tours-gap")
         with page.expect_navigation():
             gap.locator("[data-tours-gap-add]").click()
-        page.locator("[data-tour-dates-panel]").wait_for(state="visible")
-        page.locator(f'[data-tour-date="{day}"][aria-pressed="true"]').wait_for()
+        page.locator("[data-hours-dates-panel]").wait_for(state="visible")
+        page.locator(f'[data-hours-date="{day}"][aria-pressed="true"]').wait_for()
         _capture(page, "add-from-gap", full_page=False)
 
         # Upcoming: every guide's tours; the guide acts on their own, reads the others.

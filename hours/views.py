@@ -1,7 +1,7 @@
 """My Hours (#1300, parts 3 and 4): one person's week and hours, and editing them.
 
-Reached by URL alone until part 5 wires the places hours are set today; there is no sidebar link
-(Felix, 2026-11-23). Gated by :func:`hub.view_as.hours_access_required`. Whose hours a request
+Reached from the places hours were set before it (part 5): the Tours page's My Hours tab, a guild's
+or tool's Orientation Schedule, Manage Bookings' Your Hours; there is no sidebar link (Felix, 2026-11-23). Gated by :func:`hub.view_as.hours_access_required`. Whose hours a request
 reads or writes is decided once, in :func:`_target`: a person their own, an admin anyone who has a
 My Hours page or has hours (``member``, from the query or the POST). Nobody else edits anyone's
 hours, leads included (Felix, 2026-11-23).
@@ -37,10 +37,12 @@ from hub.autosave import autosave_refused, autosave_saved, wants_autosave
 from hub.calendar_pages import calendar_nav_params
 from hub.toast import trigger_toast
 from hub.view_as import ViewAs, hours_access_required
-from membership.models import Member
+from membership.models import AdminCapability, Member
+from membership.permission_setup import SetupState
 from tours import google
 from tours.forms import TourCalendarChoiceForm, TourNoticeForm
 from tours.models import FacilityTourSettings, TourCalendarConnection, TourGuideSettings
+from tours.views import CALENDAR_STATE_LABELS, NO_CALENDAR_LABEL
 
 
 def _people() -> Any:
@@ -110,14 +112,54 @@ def _calendar(target: Member, form: AddDatesForm) -> dict[str, object]:
     }
 
 
+def _tour_guide_setup(request: HttpRequest, viewer: Member) -> dict[str, Any]:
+    """The viewer's own Tour Guide Get Set Up card (#1167), as the Tours page's My Hours tab had it above its hours.
+
+    None unless they hold the grant. The load that finishes setup, or first sees it finished, toasts the badge.
+    """
+    state = SetupState.load(viewer, AdminCapability.Capability.TOUR_GUIDE)
+    if state is not None and state.just_finished:
+        messages.success(request, state.spec.celebration)
+    return {"setup": state, "setup_next": request.get_full_path()}
+
+
+def _day_to_add(raw: str) -> date | None:
+    """The ``?add=YYYY-MM-DD`` day a Tours Calendar gap links with (#1274), when Add Dates may pick it; else None."""
+    try:
+        day = date.fromisoformat(raw)
+    except ValueError:
+        return None
+    today = timezone.localdate()
+    return day if today <= day <= today + timedelta(days=MAX_DATES_AHEAD) else None
+
+
+def _picker(viewer: Member) -> list[dict[str, Any]]:
+    """The admin's Whose hours picker: everyone else, each with their Google Calendar's state when it is set up."""
+    people = sorted(_people().exclude(pk=viewer.pk), key=lambda m: m.staff_label.casefold())
+    states: dict[int, str] = {}
+    if google.is_configured():
+        states = dict(TourCalendarConnection.objects.filter(guide__in=people).values_list("guide_id", "status"))
+    return [
+        {
+            "pk": person.pk,
+            "name": person.staff_label,
+            "calendar": CALENDAR_STATE_LABELS.get(states.get(person.pk, ""), NO_CALENDAR_LABEL)
+            if google.is_configured()
+            else "",
+        }
+        for person in people
+    ]
+
+
 @hours_access_required
 def my_hours(request: HttpRequest) -> HttpResponse:
     """My Hours: the week, Every Week, Available On, Days Off, Google Calendar and, for a guide, Booking Notice.
 
-    ``?member=<pk>`` is an admin's pick of whose hours; ``?week_offset=<n>`` moves the week.
+    ``?member=<pk>`` is an admin's pick of whose hours; ``?week_offset=<n>`` moves the week;
+    ``?add=YYYY-MM-DD`` (a gap on the Tours Calendar) opens + Add Dates with that day picked.
     """
     target = _target(request, request.GET.get("member", ""))
-    return _render(request, target)
+    return _render(request, target, add=_day_to_add(request.GET.get("add", "")))
 
 
 def _render(
@@ -129,6 +171,7 @@ def _render(
     add_dates: AddDatesForm | None = None,
     refused: bool = False,
     day_off_form: DayOffForm | None = None,
+    add: date | None = None,
 ) -> HttpResponse:
     viewer = _viewer(request)
     is_admin = ViewAs.for_request(request).actual_is_admin
@@ -136,9 +179,10 @@ def _render(
     page = MyHours.for_member(target, week_offset=week_offset)
     base = reverse("hours:my_hours")
     who = "" if target.pk == viewer.pk else f"member={target.pk}&"
-    pickable = sorted(_people().exclude(pk=viewer.pk), key=lambda m: m.staff_label.casefold()) if is_admin else []
     context = _context(target)
     add_dates = add_dates or AddDatesForm(context=context)
+    if add is not None and not add_dates.is_bound:
+        add_dates.picked = [add]
     is_self = target.pk == viewer.pk
     connection = TourCalendarConnection.objects.filter(guide=target).first()
     return render(
@@ -149,7 +193,7 @@ def _render(
             "target": target,
             "is_self": target.pk == viewer.pk,
             "is_admin": is_admin,
-            "picker": pickable,
+            "picker": _picker(viewer) if is_admin else [],
             "prev_week_url": f"{base}?{who}week_offset={week_offset - 1}",
             "next_week_url": f"{base}?{who}week_offset={week_offset + 1}",
             "weekly_formset": weekly or hours_formset(context, dated=False),
@@ -157,7 +201,7 @@ def _render(
             "summaries": {str(row.hours.pk): row for row in [*page.weekly, *page.dated]},
             "kind_css": _kind_css(page, context),
             "add_dates": add_dates,
-            "add_dates_open": add_dates.is_bound,
+            "add_dates_open": add_dates.is_bound or add is not None,
             "add_dates_calendar": _calendar(target, add_dates),
             "hours_refused": refused,
             "day_off_form": day_off_form or DayOffForm(member=target),
@@ -167,6 +211,7 @@ def _render(
             else None,
             "notice_form": TourNoticeForm(instance=TourGuideSettings.objects.filter(guide=target).first()),
             "gcal_configured": google.is_configured(),
+            **(_tour_guide_setup(request, viewer) if is_self else {"setup": None}),
         },
     )
 

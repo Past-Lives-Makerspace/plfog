@@ -109,7 +109,11 @@ def describe_where_it_lives():
         assert f'<a href="{SETTINGS}" class="vote-tab" data-tours-tab="settings">Settings</a>' in content
         settings_page = signed_in(admin).get(SETTINGS).content.decode()
         assert 'aria-current="page" data-tours-tab="settings">Settings</a>' in settings_page
-        assert f'<a href="{HOURS}" class="vote-tab" data-tours-tab="hours">My Hours</a>' in settings_page
+        # The My Hours tab opens My Hours, every kind's hours in one place (#1300).
+        assert (
+            f'<a href="{reverse("hours:my_hours")}" class="vote-tab" data-tours-tab="hours" data-guidance-target="tours.my-hours">My Hours</a>'
+            in settings_page
+        )
 
     def it_opens_the_page_once_the_permission_is_granted(plain: Member):
         client = signed_in(plain)

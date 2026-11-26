@@ -2,8 +2,8 @@
 
 :class:`HoursSetForm` is one set of hours as it is edited: Day, From, Until and Repeats (or its one
 date), then Open To, a block per kind (:class:`Block`) with that kind's own settings. A block is
-Tours, each saved orientation row of the set, and each guild or tool the person orients for that
-the set does not offer yet (``hours.edit.held_owners``, Felix 7), all ticked on a new set. The form
+Tours, each saved orientation row of the set (a paused one unticked, while the person still gives
+that kind), and each guild or tool the person orients for that the set does not offer yet (``hours.edit.held_owners``, Felix 7), all ticked on a new set. The form
 turns what was posted into an :class:`hours.edit.HoursEdit` and lays its problems back on the
 fields, so a refusal lands where the autosave shows it (``<prefix>-<i>-<field>``).
 
@@ -145,14 +145,19 @@ class HoursSetForm(forms.Form):
         tour = _tour_row(self.hours)
         if context.gives_tours or tour is not None:
             blocks.append(Block(TOURS, "Tours", "Visitors book on tours.pastlives.space."))
-        rules = (
-            [rule for rule in self.hours.orientation_rules.all() if rule.is_active] if self.hours is not None else []
-        )
+        held = {owner.key for owner in context.owners}
+        rules = [
+            rule
+            for rule in (self.hours.orientation_rules.all() if self.hours is not None else [])
+            # A paused row shows, unticked, while the person still gives that kind (the old Active switch).
+            if rule.is_active or Owner.of(rule).key in held
+        ]
         offered: set[str] = set()
         for rule in rules:
             owner = Owner.of(rule)
             offered.add(owner.key)
-            blocks.append(Block(f"rule-{rule.pk}", owner.label, _orientation_hint(owner), owner, rule))
+            hint = _orientation_hint(owner) if rule.is_active else PAUSED_HINT
+            blocks.append(Block(f"rule-{rule.pk}", owner.label, hint, owner, rule))
         for owner in context.owners:
             if owner.key not in offered:
                 blocks.append(Block(owner.key, owner.label, _orientation_hint(owner), owner))
@@ -205,7 +210,7 @@ class HoursSetForm(forms.Form):
             if rule.slot_minutes is not None:
                 _append_duration_choice(self.fields[f"{name}slot_minutes"], rule.slot_minutes)
             values: dict[str, Any] = {
-                "on": True,
+                "on": rule.is_active,
                 "orientation_type": rule.orientation_type_id,
                 "booking_style": rule.booking_style,
                 "seats": rule.seats,
@@ -369,6 +374,10 @@ def with_kind_rows(sets: Any) -> Any:
             ).order_by("pk"),
         ),
     )
+
+
+#: The hint on a paused orientation row's block: ticking it offers the row again with its settings.
+PAUSED_HINT = "Paused. Tick it to offer it again with these settings."
 
 
 def _orientation_hint(owner: Owner) -> str:

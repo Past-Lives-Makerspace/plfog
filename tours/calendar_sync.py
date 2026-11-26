@@ -384,8 +384,8 @@ def mark_broken(connection: TourCalendarConnection, reason: str) -> bool:
 
 
 def hours_page_url() -> str:
-    """The My Hours tab, absolute, for the email."""
-    return f"{settings.MEMBER_BASE_URL.rstrip('/')}{reverse('tours:hours')}"
+    """My Hours, absolute, for the email."""
+    return f"{settings.MEMBER_BASE_URL.rstrip('/')}{reverse('hours:my_hours')}"
 
 
 def tell_guide_broken(connection: TourCalendarConnection) -> None:
@@ -407,7 +407,7 @@ def tell_guide_broken(connection: TourCalendarConnection) -> None:
             f"Google stopped letting us use {account}. Your tour hours are offered as if no calendar "
             "were connected until you reconnect it on My Hours."
         ),
-        url=reverse("tours:hours"),
+        url=reverse("hours:my_hours"),
         period=f"tour_calendar:{connection.pk}:broken:{broken_at:%Y%m%dT%H%M%S}",
     )
 
@@ -501,7 +501,7 @@ def chosen_calendar_gone(connection: TourCalendarConnection, lost: str = "") -> 
             f"Google no longer lets us write to {lost}, so your tours go to your main calendar now. "
             "Pick another calendar on My Hours if you like."
         ),
-        url=reverse("tours:hours"),
+        url=reverse("hours:my_hours"),
         period=f"tour_calendar:{connection.pk}:gone:{lost_id}",
     )
 
@@ -1140,7 +1140,7 @@ def tell_guides_unread(now: datetime) -> int:
                 "We could not read your Google Calendar, so busy times may be out of date and visitors may "
                 "be offered times you are busy. We keep trying; reconnect on My Hours if it goes on."
             ),
-            url=reverse("tours:hours"),
+            url=reverse("hours:my_hours"),
             period=f"tour_calendar:{connection.pk}:unread:{since:%Y%m%dT%H%M%S}",
         )
     return len(stale)

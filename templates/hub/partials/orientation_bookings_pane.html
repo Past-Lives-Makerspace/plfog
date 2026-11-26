@@ -15,11 +15,7 @@ and closes the modal.
   <div class="hub-card pl-hours-nudge pl-bookings__nudge">
     <p class="pl-bookings__nudge-text">
       You have not posted any orientation hours yet.
-      {% if hours_nudge_guilds|length == 1 %}
-      {% for g in hours_nudge_guilds %}<a href="{% url 'hub_guild_orientations' g.pk %}"><strong>Post your orientation hours</strong></a>{% endfor %}
-      {% else %}
-      <strong>Post your orientation hours</strong>: {% for g in hours_nudge_guilds %}<a href="{% url 'hub_guild_orientations' g.pk %}">{{ g.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}
-      {% endif %}
+      <a href="{% url 'hours:my_hours' %}" data-hours-nudge-link><strong>Post your orientation hours</strong></a>
     </p>
   </div>
   {% endif %}

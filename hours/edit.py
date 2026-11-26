@@ -7,8 +7,9 @@ orientation it is open to with that row's own settings. :meth:`HoursEdit.problem
 way the old editors check their rows (each row's own ``clean``, a guide's tour rows never
 overlapping, an open window sharing its hours with nothing); :meth:`HoursEdit.save` writes it
 through the services those editors use, so slots and windows regenerate as they always have: a
-restyled orientation retires its old shape first, an orientation ticked off is retired
-(``retire_rule``, booked slots stay), and every owner touched generates again. A tour ticked off
+restyled orientation retires its old shape first, an orientation ticked off is paused (its open
+times retired, booked slots stay, its settings kept for when it is ticked on again: the old editors'
+Active switch), and every owner touched generates again. A tour ticked off
 deletes its row; tours already booked stay booked, as on the Tours page.
 
 Whoever calls :meth:`HoursEdit.save` or :func:`remove_hours` holds the person's lock
@@ -133,7 +134,7 @@ class TourOffer:
 class OrientationOffer:
     """One orientation row in this set of hours: a saved one (``rule``) or a new one for ``owner``.
 
-    ``on`` False on a saved row retires it; a new row that is off is nothing.
+    ``on`` False on a saved active row pauses it, and leaves a paused one paused; a new row that is off is nothing.
     """
 
     owner: Owner
@@ -279,8 +280,13 @@ class HoursEdit:
         if tour is None and self._tour_row is not None:
             self._tour_row.delete()
         for offer in self.orientations:
-            if not offer.on and offer.rule is not None:
-                orientations.retire_rule(offer.rule)
+            if not offer.on and offer.rule is not None and offer.rule.is_active:
+                # Paused, as the old Active switch did: its open times go, its settings stay for a tick back on.
+                rule = OrientationAvailability.objects.get(pk=offer.rule.pk)
+                orientations.retire_open_slots(rule)
+                self._time_of(rule)
+                rule.is_active = False
+                rule.save()
                 touched[offer.owner.key] = offer.owner
         for owner in touched.values():
             orientations.generate_slots(guild=owner.guild, equipment=owner.equipment)

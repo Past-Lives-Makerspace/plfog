@@ -24,6 +24,8 @@ from membership.models import OrientationBooking, OrientationDayOff, Orientation
 from tours.models import TourBooking, TourDayOff
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from membership.models import Member
 
 #: The longest run of days one day off may cover, as on the Tours page.
@@ -33,6 +35,19 @@ MAX_DAY_OFF_DAYS = 366
 def _clock(moment: datetime) -> str:
     local = timezone.localtime(moment)
     return f"{local:%-I:%M %p}"
+
+
+def days_off_by_member(members: Iterable[Member]) -> dict[str, list[DayOff]]:
+    """Each listed person's days off not over yet, soonest first, for an Orientation Schedule's "Off ..." line.
+
+    Keyed by the pk as a string, which is how the template's ``get_item`` filter looks a dict up.
+    One list for every kind (#1300), so a day off added on My Hours shows on every card.
+    """
+    grouped: dict[str, list[DayOff]] = {}
+    found = DayOff.objects.filter(member__in=list(members), ends_on__gte=timezone.localdate())
+    for day_off in found.order_by("starts_on", "pk"):
+        grouped.setdefault(str(day_off.member_id), []).append(day_off)
+    return grouped
 
 
 def still_booked(member: Member, first: date, last: date) -> list[str]:
