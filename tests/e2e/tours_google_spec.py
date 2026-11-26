@@ -13,6 +13,7 @@ and 390 pixels wide. Run with ``pytest -m e2e`` on PostgreSQL.
 
 from __future__ import annotations
 
+import re
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -105,7 +106,8 @@ def google_stub(settings, live_server, page) -> Iterator[respx.MockRouter]:
         back = f"{query['redirect_uri'][0]}?{urlencode({'code': 'e2e-code', 'state': query['state'][0]})}"
         route.fulfill(status=302, headers={"Location": back})
 
-    page.route(f"**{reverse('tours:google_connect')}", consent)
+    # My Hours' Connect carries ?from=hours, so match the path with any query after it.
+    page.route(re.compile(re.escape(reverse("tours:google_connect")) + r"(\?.*)?$"), consent)
     # A safety net: nothing in the browser ever reaches the real Google.
     page.route("https://accounts.google.com/**", lambda route, request: route.abort())
     with respx.mock(assert_all_called=False, assert_all_mocked=False) as router:
@@ -138,22 +140,21 @@ def describe_google_calendar_on_my_hours():
         TourHoursFactory(guide=guide)
         login_via_code(GUIDE_EMAIL)
         page.set_viewport_size(DESKTOP)
-        page.goto(f"{live_server.url}{reverse('tours:hours')}")
-        card = page.locator("[data-tour-gcal]")
-        assert card.get_attribute("data-tour-gcal") == "none"
+        page.goto(f"{live_server.url}{reverse('hours:my_hours')}")
+        card = page.locator("[data-hours-gcal]")
+        assert card.get_attribute("data-hours-gcal") == "none"
         _capture(page, "not-connected")
 
         # Connect: off to Google (mocked) and straight back to My Hours, connected.
-        with page.expect_navigation(url=f"**{reverse('tours:hours')}"):
-            page.locator("[data-tour-gcal-connect]").click()
-        page.locator('[data-tour-gcal="connected"]').wait_for()
-        page.locator("[data-tour-gcal-account]").get_by_text(GUIDE_EMAIL).wait_for()
+        with page.expect_navigation(url=f"**{reverse('hours:my_hours')}"):
+            page.locator("[data-hours-gcal-connect]").click()
+        page.locator('[data-hours-gcal="connected"]').wait_for()
+        page.locator('[data-hours-gcal="connected"]').get_by_text(GUIDE_EMAIL).wait_for()
         connection = TourCalendarConnection.objects.get(guide=guide)
         assert (connection.refresh_token, connection.calendar_id) == ("e2e-refresh", "primary")
         _capture(page, "connected")
 
         # Pick the Tours calendar: it saves on the change (#1279), no Save button.
-        assert page.locator("[data-tour-gcal-save]").count() == 0
         page.locator('select[name="calendar"]').select_option(TOURS_CAL)
         page.locator('[data-tour-save-status="gcal"]').get_by_text("Saved", exact=True).wait_for()
         assert TourCalendarConnection.objects.get(guide=guide).calendar_id == TOURS_CAL
@@ -168,14 +169,14 @@ def describe_google_calendar_on_my_hours():
         _set_drawer(page, is_open=True)
 
         # Disconnect asks first, then revokes and deletes.
-        page.locator('[data-tour-gcal="connected"] [data-tour-gcal-disconnect]').click()
+        page.locator('[data-hours-gcal="connected"] [data-hours-gcal-disconnect]').click()
         dialog = page.get_by_role("dialog").filter(has_text="Disconnect Google Calendar?")
         dialog.wait_for(state="visible")
         assert TourCalendarConnection.objects.exists()
         _capture(page, "disconnect-confirm")
         with page.expect_navigation():
             dialog.get_by_role("button", name="Disconnect", exact=True).click()
-        page.locator('[data-tour-gcal="none"]').wait_for()
+        page.locator('[data-hours-gcal="none"]').wait_for()
         assert not TourCalendarConnection.objects.exists()
         assert any(str(call.request.url) == google.REVOKE_URL for call in google_stub.calls)
 
@@ -191,14 +192,14 @@ def describe_google_calendar_on_my_hours():
         )
         login_via_code(GUIDE_EMAIL)
         page.set_viewport_size(DESKTOP)
-        page.goto(f"{live_server.url}{reverse('tours:hours')}")
-        page.locator("[data-tour-gcal-broken]").wait_for()
-        assert page.locator("[data-tour-gcal-reconnect]").is_visible()
+        page.goto(f"{live_server.url}{reverse('hours:my_hours')}")
+        page.locator('[data-hours-gcal="broken"]').wait_for()
+        assert page.locator("[data-hours-gcal-reconnect]").is_visible()
         _capture(page, "broken")
 
-        with page.expect_navigation(url=f"**{reverse('tours:hours')}"):
-            page.locator("[data-tour-gcal-reconnect]").click()
-        page.locator('[data-tour-gcal="connected"]').wait_for()
+        with page.expect_navigation(url=f"**{reverse('hours:my_hours')}"):
+            page.locator("[data-hours-gcal-reconnect]").click()
+        page.locator('[data-hours-gcal="connected"]').wait_for()
         assert TourCalendarConnection.objects.get(guide=guide).status == TourCalendarConnection.Status.CONNECTED
 
     def it_names_each_guides_calendar_on_the_admins_guide_picker(live_server, page, login_via_code, google_stub):
@@ -212,12 +213,12 @@ def describe_google_calendar_on_my_hours():
         _guide("nell@example.com", "Nell None")
         login_via_code(ADMIN_EMAIL)
         page.set_viewport_size(DESKTOP)
-        page.goto(f"{live_server.url}{reverse('tours:hours')}?guide={connected.pk}")
-        options = page.locator("#tour-guide-picker option").all_inner_texts()
+        page.goto(f"{live_server.url}{reverse('hours:my_hours')}?member={connected.pk}")
+        options = page.locator("#hours-member-picker option").all_inner_texts()
         assert "Cora Connected · Calendar connected" in options
         assert "Bo Broken · Calendar needs reconnecting" in options
         assert "Nell None · No calendar" in options
-        card = page.locator('[data-tour-gcal="connected"]')
+        card = page.locator('[data-hours-gcal="connected"]')
         card.get_by_text("cora@gmail.com").wait_for()
-        assert card.locator("[data-tour-gcal-disconnect]").count() == 0
+        assert card.locator("[data-hours-gcal-disconnect]").count() == 0
         _capture(page, "admin-picker")

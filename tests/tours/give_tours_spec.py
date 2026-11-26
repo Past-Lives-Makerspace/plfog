@@ -26,6 +26,7 @@ from tests.membership.factories import MemberFactory
 from tests.tours.conftest import signed_in
 from tours import setup as tour_setup
 from tours.views import ALREADY_GUIDE_MESSAGE, BECAME_GUIDE_MESSAGE
+from tours.models import TourHours
 
 pytestmark = pytest.mark.django_db
 
@@ -59,8 +60,11 @@ def describe_the_tours_entry():
         assert response.status_code == 204
         assert response["HX-Redirect"] == GIVE
 
-    def it_still_refuses_a_post_from_a_member_who_gives_no_tours(plain: Member):
-        assert signed_in(plain).post(reverse("tours:hours_save"), {"guide": str(plain.pk)}).status_code == 403
+    def it_writes_nothing_for_a_post_to_the_old_hours_tab(plain: Member):
+        # The old tab's save writes nothing and lands on My Hours since #1300.
+        response = signed_in(plain).post(reverse("tours:hours_save"), {"guide": str(plain.pk)})
+        assert response["Location"] == reverse("hours:my_hours")
+        assert not TourHours.objects.exists()
 
     def it_opens_upcoming_for_a_tour_guide_and_an_admin(guide: Member, admin: Member):
         for member in (guide, admin):

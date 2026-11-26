@@ -109,16 +109,17 @@ def describe_one_tour_at_a_time():
         dayzie = _guide(DAYZIE, "Dayzie Dee")
         login_via_code(DAYZIE)
         page.set_viewport_size(DESKTOP)
-        page.goto(f"{live_server.url}{reverse('tours:hours')}")
-        page.locator("[data-tour-hours-empty]").wait_for()
+        # Hours are set on My Hours since #1300.
+        page.goto(f"{live_server.url}{reverse('hours:my_hours')}")
+        page.locator("[data-hours-weekly-empty]").wait_for()
         assert page.locator("[data-tour-confirm-mode]").count() == 0
 
-        page.locator("[data-tour-hours-add]").click()
-        row = page.locator("[data-tour-hours-row]").first
-        row.locator('select[name="hours-0-weekday"]').select_option("1")
-        row.locator('select[name="hours-0-start_time"]').select_option("16:30")
-        row.locator('select[name="hours-0-end_time"]').select_option("18:30")
-        page.locator('[data-tour-save-status="hours"]').get_by_text("Saved", exact=True).wait_for()
+        page.locator("[data-hours-add]").click()
+        row = page.locator("[data-hours-weekly] [data-hours-set]").first
+        row.locator('select[name="weekly-0-weekday"]').select_option("1")
+        row.locator('select[name="weekly-0-start_time"]').select_option("16:30")
+        row.locator('select[name="weekly-0-end_time"]').select_option("18:30")
+        page.locator('[data-tour-save-status="weekly"]').get_by_text("Saved", exact=True).wait_for()
         page.wait_for_function("() => document.querySelector('[data-guild-autosave]').plGuildAutosave.pending === 0")
         assert list(TourHours.objects.filter(guide=dayzie).values_list("start_time", "end_time")) == [
             (time(16, 30), time(18, 30))

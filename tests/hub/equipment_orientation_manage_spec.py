@@ -730,72 +730,9 @@ def describe_orientation_schedule_card():
 
 
 def describe_orientation_hours_form_view():
-    def it_serves_a_manager_their_own_modal_with_the_two_new_fields(client: Client):
-        equipment = EquipmentFactory()
-        _owned_type(equipment)
-        me = _named_manager(client, "hf_me", equipment, "Dana Reyes")
-        response = client.get(_hours_form_url(equipment, me.member))
-        assert response.status_code == 200
-        content = response.content.decode()
-        assert "Editing Dana Reyes's Hours" in content
-        assert "Slot length" in content
-        assert "Break between slots" in content
-        assert "Whole window" in content
-        assert "+ Add hours" in content
-        assert _hours_save_url(equipment) in content
-
-    def it_renders_the_every_other_week_fields_in_the_modal(client: Client):
-        equipment = EquipmentFactory()
-        _owned_type(equipment)
-        me = _named_manager(client, "hf_fortnight", equipment, "Dana Reyes")
-        content = client.get(_hours_form_url(equipment, me.member)).content.decode()
-        assert 'name="modal_rules-__prefix__-cadence"' in content
-        assert "Every other week" in content
-        assert "Every month" in content
-        assert "Starting on" in content
-        assert 'name="modal_rules-__prefix__-anchor_date"' in content
-        assert "pl-slot-date" in content
-
-    def it_saves_an_every_other_week_rule_for_a_manager(client: Client):
-        equipment = EquipmentFactory()
-        orientation_type = _owned_type(equipment)
-        me = _named_manager(client, "hf_fortnight_save", equipment, "Dana Reyes")
-        row = _rule_row(orientation_type, weekday=1, cadence="fortnightly", anchor_date="2026-09-22")
-        response = client.post(
-            _hours_save_url(equipment), _modal_rules([row], scope=str(me.member.pk)), HTTP_HX_REQUEST="true"
-        )
-        assert response.status_code == 204
-        rule = OrientationAvailability.objects.get(orienter=me.member)
-        assert rule.cadence == OrientationAvailability.Cadence.FORTNIGHTLY
-        assert rule.anchor_date == date(2026, 9, 22)
-
-    def it_saves_a_weekly_rule_with_a_start_date_and_generates_nothing_before_it(client: Client):
-        # Issue 492, the equipment side of the same floor.
-        equipment = EquipmentFactory()
-        orientation_type = _owned_type(equipment)
-        me = _named_manager(client, "hf_weekly_start", equipment, "Dana Reyes")
-        today = timezone.localdate()
-        starts = today + timedelta(days=(1 - today.weekday()) % 7 + 14)  # a Tuesday two weeks out
-        row = _rule_row(orientation_type, weekday=1, cadence="weekly", anchor_date=starts.isoformat())
-        response = client.post(
-            _hours_save_url(equipment), _modal_rules([row], scope=str(me.member.pk)), HTTP_HX_REQUEST="true"
-        )
-        assert response.status_code == 204
-        rule = OrientationAvailability.objects.get(orienter=me.member)
-        assert rule.cadence == OrientationAvailability.Cadence.WEEKLY
-        assert rule.anchor_date == starts
-        slot_days = [timezone.localtime(slot.starts_at).date() for slot in rule.slots.order_by("starts_at")]
-        assert slot_days  # the rule does generate, just not yet
-        assert slot_days[0] == starts
-        content = _tab(client, equipment).content.decode()
-        assert f"· Every Tuesday from {starts:%b} {starts.day} ·" in content
-
-    def it_403s_a_plain_manager_opening_someone_elses_or_the_shared_scope(client: Client):
+    def it_403s_a_plain_manager_opening_the_shared_scope(client: Client):
         equipment = EquipmentFactory()
         _manager_login(client, "hf_plain", equipment)
-        other = _member_user("hf_other")
-        EquipmentStaffMembershipFactory(equipment=equipment, member=other.member)
-        assert client.get(_hours_form_url(equipment, other.member)).status_code == 403
         assert client.get(_hours_form_url(equipment)).status_code == 403
 
     def it_serves_the_shared_scope_to_the_lead_tier_without_an_add_button(client: Client):
@@ -817,18 +754,11 @@ def describe_orientation_hours_form_view():
 
     def it_names_the_one_way_door_on_a_shared_rows_delete_confirm(client: Client):
         equipment = EquipmentFactory()
-        orientation_type = _owned_type(equipment)
-        _tool_rule(orientation_type)
-        dana = _member_user("hf_door_dana")
-        EquipmentStaffMembershipFactory(equipment=equipment, member=dana.member)
-        _personal_rule(orientation_type, dana.member)
+        _tool_rule(_owned_type(equipment))
         _login(client, "hf_door_admin", fog_role=Member.FogRole.ADMIN)
         shared = client.get(_hours_form_url(equipment)).content.decode()
         assert "Delete these shared hours?" in shared
         assert "Shared recurring hours cannot be recreated." in shared
-        personal = client.get(_hours_form_url(equipment, dana.member)).content.decode()
-        assert "Delete these hours?" in personal
-        assert "Delete these shared hours?" not in personal
 
     def it_round_trips_an_off_list_slot_length_and_names_the_equipment_on_a_foreign_type(client: Client):
         equipment = EquipmentFactory()
@@ -858,137 +788,49 @@ def describe_orientation_hours_form_view():
         shared.refresh_from_db()
         assert shared.orientation_type == orientation_type
 
-    def it_404s_garbage_scopes(client: Client):
-        equipment = EquipmentFactory()
-        _login(client, "hf_garbage", fog_role=Member.FogRole.ADMIN)
-        assert client.get(f"{_hours_form_url(equipment)}?orienter=abc").status_code == 404
-        assert client.get(f"{_hours_form_url(equipment)}?orienter=999999").status_code == 404
-
 
 def describe_orientation_hours_save_view():
-    def it_lets_a_manager_post_their_own_two_windows(client: Client):
+    def it_403s_a_plain_manager_posting_the_shared_scope(client: Client):
         equipment = EquipmentFactory()
         orientation_type = _owned_type(equipment)
-        dana = _named_manager(client, "hs_dana", equipment, "Dana Reyes")
-        friday, saturday = _tool_day(2).weekday(), _tool_day(3).weekday()
-        response = client.post(
-            _hours_save_url(equipment),
-            _modal_rules(
-                [
-                    _rule_row(orientation_type, weekday=friday, start="18:00", end="20:00"),
-                    _rule_row(orientation_type, weekday=saturday, start="12:00", end="16:00"),
-                ],
-                scope=str(dana.member.pk),
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 204
-        assert response["HX-Redirect"].endswith("?tab=orientation")
-        rules = list(OrientationAvailability.objects.for_equipment(equipment).order_by("start_time"))
-        assert [(rule.weekday, rule.orienter, rule.guild, rule.slot_minutes) for rule in rules] == [
-            (saturday, dana.member, None, None),
-            (friday, dana.member, None, None),
-        ]
-        # Blank slot length: one slot per window, run "with Dana".
-        slots = OrientationSlot.objects.filter(orientation_type=orientation_type)
-        assert slots.count() == 16
-        first = slots.order_by("starts_at").first()
-        assert first is not None
-        assert first.orienter == dana.member
-        assert first.with_label == "with Dana"
-        assert first.ends_at - first.starts_at in (timedelta(hours=2), timedelta(hours=4))
-        followup = _tab(client, equipment)
-        assert "Hours saved." in " ".join(str(m) for m in followup.context["messages"])
-
-    def it_carves_a_window_when_a_slot_length_is_set(client: Client):
-        equipment = EquipmentFactory()
-        orientation_type = _owned_type(equipment)
-        dana = _manager_login(client, "hs_carve", equipment)
-        response = client.post(
-            _hours_save_url(equipment),
-            _modal_rules(
-                [_rule_row(orientation_type, weekday=_tool_day().weekday(), start="18:00", end="20:00", slot="60")],
-                scope=str(dana.member.pk),
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 204
-        rule = OrientationAvailability.objects.for_equipment(equipment).get()
-        assert rule.slot_minutes == 60
-        assert rule.slots.count() == 16  # two hourly slots per occurrence
-
-    def it_403s_a_plain_manager_posting_anothers_or_the_shared_scope(client: Client):
-        equipment = EquipmentFactory()
-        orientation_type = _owned_type(equipment)
+        shared = _tool_rule(orientation_type)
         _manager_login(client, "hs_plain", equipment)
-        other = _member_user("hs_other")
-        EquipmentStaffMembershipFactory(equipment=equipment, member=other.member)
-        for scope in (str(other.member.pk), ""):
-            response = client.post(
-                _hours_save_url(equipment),
-                _modal_rules([_rule_row(orientation_type, weekday=5)], scope=scope),
-                HTTP_HX_REQUEST="true",
-            )
-            assert response.status_code == 403
-        assert not OrientationAvailability.objects.for_equipment(equipment).exists()
-
-    def it_lets_the_lead_tier_save_on_behalf_and_respects_view_as(client: Client):
-        from hub.view_as import ROLE_MEMBER, SESSION_ROLE_KEY
-
-        equipment_guild = GuildFactory()
-        equipment = EquipmentFactory(guild=equipment_guild)
-        orientation_type = _owned_type(equipment)
-        dana = _member_user("hs_target")
-        EquipmentStaffMembershipFactory(equipment=equipment, member=dana.member)
-        payload = _modal_rules([_rule_row(orientation_type, weekday=5)], scope=str(dana.member.pk))
-
-        _login(client, "hs_admin", fog_role=Member.FogRole.ADMIN)
-        session = client.session
-        session[SESSION_ROLE_KEY] = ROLE_MEMBER
-        session.save()
-        assert client.post(_hours_save_url(equipment), payload, HTTP_HX_REQUEST="true").status_code == 403
-        session = client.session
-        del session[SESSION_ROLE_KEY]
-        session.save()
-        assert client.post(_hours_save_url(equipment), payload, HTTP_HX_REQUEST="true").status_code == 204
-        OrientationAvailability.objects.for_equipment(equipment).delete()
-
-        holder = _login(client, "hs_holder")
-        holder.member.admin_capabilities.create(capability=AdminCapability.Capability.EQUIPMENT)
-        assert client.post(_hours_save_url(equipment), payload, HTTP_HX_REQUEST="true").status_code == 204
-        OrientationAvailability.objects.for_equipment(equipment).delete()
-
-        lead = _member_user("hs_glead")
-        equipment_guild.guild_lead = lead.member
-        equipment_guild.save(update_fields=["guild_lead"])
-        client.login(username="hs_glead", password="pass")
-        assert client.post(_hours_save_url(equipment), payload, HTTP_HX_REQUEST="true").status_code == 204
-        assert OrientationAvailability.objects.for_equipment(equipment).get().orienter == dana.member
+        row = {"id": str(shared.pk), **_rule_row(orientation_type, weekday=shared.weekday, seats="7")}
+        response = client.post(
+            _hours_save_url(equipment), _modal_rules([row], scope="", initial=1), HTTP_HX_REQUEST="true"
+        )
+        assert response.status_code == 403
+        shared.refresh_from_db()
+        assert shared.seats == 1
 
     def it_re_renders_the_modal_with_errors_on_an_invalid_post(client: Client):
         equipment = EquipmentFactory()
         orientation_type = _owned_type(equipment)
-        dana = _manager_login(client, "hs_invalid", equipment)
+        shared = _tool_rule(orientation_type)
+        _login(client, "hs_invalid", fog_role=Member.FogRole.ADMIN)
+        row = {
+            "id": str(shared.pk),
+            **_rule_row(orientation_type, weekday=shared.weekday, start="18:00", end="18:30", slot="60"),
+        }
         response = client.post(
-            _hours_save_url(equipment),
-            _modal_rules(
-                [_rule_row(orientation_type, weekday=5, start="18:00", end="18:30", slot="60")],
-                scope=str(dana.member.pk),
-            ),
-            HTTP_HX_REQUEST="true",
+            _hours_save_url(equipment), _modal_rules([row], scope="", initial=1), HTTP_HX_REQUEST="true"
         )
         assert response.status_code == 200
         content = response.content.decode()
         assert "This window is shorter than one slot." in content
         assert 'id="edit-hours-modal-form"' in content
         assert f'hx-post="{_hours_save_url(equipment)}"' in content  # the re-render still posts to the right place
-        assert not OrientationAvailability.objects.for_equipment(equipment).exists()
+        shared.refresh_from_db()
+        assert shared.start_time != time(18, 0) or shared.end_time != time(18, 30)
 
     def it_404s_a_non_htmx_post_and_an_unlisted_prefix(client: Client):
         equipment = EquipmentFactory()
         orientation_type = _owned_type(equipment)
-        dana = _manager_login(client, "hs_prefix", equipment)
-        payload = _modal_rules([_rule_row(orientation_type, weekday=5)], scope=str(dana.member.pk))
+        shared = _tool_rule(orientation_type)
+        _login(client, "hs_prefix", fog_role=Member.FogRole.ADMIN)
+        payload = _modal_rules(
+            [{"id": str(shared.pk), **_rule_row(orientation_type, weekday=shared.weekday)}], scope="", initial=1
+        )
         assert client.post(_hours_save_url(equipment), payload).status_code == 404
         assert (
             client.post(
@@ -1023,24 +865,6 @@ def describe_orientation_hours_save_view():
         joined = " ".join(str(m) for m in _tab(client, equipment).context["messages"])
         assert "Shared hours deleted. From now on recurring hours are personal." in joined
         assert "Use an Any manager one time slot for shared coverage." in joined
-
-    def it_lets_the_lead_tier_retire_a_former_managers_rule(client: Client):
-        equipment = EquipmentFactory()
-        orientation_type = _owned_type(equipment)
-        stranger = MemberFactory(full_legal_name="Gone Person")
-        rule = _personal_rule(orientation_type, stranger)
-        _login(client, "hs_former", fog_role=Member.FogRole.ADMIN)
-        response = client.post(
-            _hours_save_url(equipment),
-            _modal_rules(
-                [{"id": str(rule.pk), **_rule_row(orientation_type, weekday=rule.weekday, DELETE="on")}],
-                scope=str(stranger.pk),
-                initial=1,
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 204
-        assert not OrientationAvailability.objects.filter(pk=rule.pk).exists()
 
 
 def describe_upcoming_slots_flat_list():

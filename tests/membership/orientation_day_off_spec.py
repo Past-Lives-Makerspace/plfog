@@ -1,8 +1,7 @@
 """BDD specs for days off (#767, #1300): the ``OrientationDayOff`` model, generation skipping a day
 the rule's orientor has off (``_horizon_spans``, in any guild or on any equipment, with a shared
 rule unaffected, however far ahead, a tour day off too), a day off hiding only the unbooked times
-and cancelling nothing (#1300), ``booked_on_day_off`` (the local day boundary), and what the next
-generation run recreates once a day off is deleted."""
+and cancelling nothing (#1300), and what the next generation run recreates once a day off is deleted."""
 
 from __future__ import annotations
 
@@ -253,27 +252,3 @@ def describe_a_day_off_cancels_nothing():
         orientations.generate_slots(guild=guild)
         assert day not in _local_days(OrientationSlot.objects.filter(orienter=bob))
         assert day + timedelta(days=7) in _local_days(OrientationSlot.objects.filter(orienter=bob))
-
-
-def describe_booked_on_day_off():
-    def it_counts_live_bookings_of_theirs_on_that_local_day_only():
-        guild, (bob, alice) = _staffed_guild("Bob Placeholder", "Alice Ash")
-        day = _day(3)
-        late = _slot(guild, bob, day, 23, ends_at=_at(day, 23) + timedelta(minutes=45), seats=4)
-        for status in (
-            OrientationBooking.Status.CONFIRMED,
-            OrientationBooking.Status.REQUESTED,
-            OrientationBooking.Status.CANCELLED,
-        ):
-            OrientationBookingFactory(slot=late, status=status)
-        OrientationBookingFactory(
-            slot=_slot(guild, bob, day, 10), status=OrientationBooking.Status.PENDING_PAYMENT, stripe_session_id=""
-        )
-        for other in (
-            _slot(guild, bob, day + timedelta(days=1), 0, starts_at=_at(day + timedelta(days=1), 0, 30)),
-            _slot(guild, bob, day - timedelta(days=1), 23),
-            _slot(guild, alice, day, 10),
-        ):
-            OrientationBookingFactory(slot=other, status=OrientationBooking.Status.CONFIRMED)
-        assert orientations.booked_on_day_off(bob, day) == 2
-        assert orientations.booked_on_day_off(bob, day + timedelta(days=5)) == 0

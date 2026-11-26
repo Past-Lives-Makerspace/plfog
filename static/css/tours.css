@@ -55,10 +55,6 @@
 .pl-tours-picker__field {
     margin-bottom: 0;
 }
-.pl-tours-picker__empty {
-    margin: 0.75rem 0 0;
-    font-size: 0.875rem;
-}
 
 /* Inputs sized to what they hold (FRONTEND rule 28): a number is a few characters wide, a line of
    text stops at a readable width. On a phone both are simply full width. */
@@ -83,19 +79,6 @@
 .pl-tours-row {
     padding: 1rem;
     background: var(--hub-surface);
-}
-.pl-tours-row__summary {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-}
-.pl-tours-row__text {
-    color: var(--hub-text);
-    font-weight: 500;
-    min-width: 0;
-    overflow-wrap: anywhere;
 }
 .pl-tours-row__body {
     margin-top: 1rem;
@@ -472,10 +455,6 @@
 }
 .pl-tours-gcal__status + .pl-tours-gcal__last {
     margin-top: 0.5rem;
-}
-.pl-tours-gcal__checked {
-    margin: 0.75rem 0 0;
-    font-size: 0.8125rem;
 }
 .pl-tours-gcal__form {
     margin-top: 1.25rem;

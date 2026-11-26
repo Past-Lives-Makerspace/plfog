@@ -27,7 +27,9 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
-from membership.models import Member
+from hours.edit import TOURS, HoursEdit, TourOffer
+from hours.models import TimeKey
+from membership.models import Member, OrientationAvailability
 from tests.tours.conftest import make_guide, signed_in
 from tests.tours.factories import TourBookingFactory, TourDayOffFactory, TourHoursFactory, local
 from tours import booking as booking_service
@@ -53,8 +55,6 @@ NOW = local(date(2030, 1, 7), 9)
 TUESDAY = date(2030, 1, 8)
 FOUR = local(TUESDAY, 16)
 FIVE = local(TUESDAY, 17)
-SAVE = reverse("tours:hours_save")
-DATES = reverse("tours:dates_save")
 AUTOSAVE = {"HTTP_X_AUTOSAVE": "1"}
 HOST = "tours.pastlives.space"
 
@@ -84,21 +84,6 @@ def both(amber: Member, dayzie: Member) -> tuple[Member, Member]:
     return amber, dayzie
 
 
-def _hours_post(guide: Member, *rows: dict[str, str], initial: int = 0) -> dict[str, str]:
-    data = {
-        "guide": str(guide.pk),
-        "hours-TOTAL_FORMS": str(len(rows)),
-        "hours-INITIAL_FORMS": str(initial),
-        "hours-MIN_NUM_FORMS": "0",
-        "hours-MAX_NUM_FORMS": "1000",
-    }
-    for index, row in enumerate(rows):
-        values = {"weekday": "1", "start_time": "16:00", "end_time": "18:00", "tour_minutes": "60", "seats": "4"}
-        values.update(row)
-        data.update({f"hours-{index}-{name}": value for name, value in values.items()})
-    return data
-
-
 def _next(weekday: int) -> date:
     """The next local day with ``weekday`` after today."""
     today = timezone.localdate()
@@ -114,34 +99,38 @@ def _starts(tours: list[Any]) -> list[tuple[str, str]]:
 
 
 def describe_posting_hours_another_guide_has():
+    """Set on My Hours since #1300: one edit of a set of hours (``hours.edit.HoursEdit``)."""
+
+    def _edit(guide: Member, day: date | None = None, start: int = 16, end: int = 18) -> HoursEdit:
+        key = TimeKey(
+            date=day,
+            weekday=day.weekday() if day is not None else 1,
+            cadence=OrientationAvailability.Cadence.WEEKLY,
+            anchor_date=None,
+            last_of_month=False,
+            start_time=time(start),
+            end_time=time(end),
+        )
+        return HoursEdit(guide, None, key, TourOffer(60, 4))
+
     def it_saves_weekly_hours_over_another_guides(amber: Member, dayzie: Member):
-        data = _hours_post(dayzie, {"start_time": "16:30", "end_time": "18:30"})
-        assert signed_in(dayzie).post(SAVE, data, **AUTOSAVE).status_code == 200
+        edit = _edit(dayzie, start=17, end=19)
+        assert edit.problems() == {}
+        with transaction.atomic():
+            edit.save()
         assert TourHours.objects.filter(guide=dayzie).count() == 1
 
     def it_saves_a_picked_date_inside_another_guides_weekly_hours(amber: Member, dayzie: Member):
         tuesday = _next(1)
-        data = {
-            "guide": str(dayzie.pk),
-            "dates": [tuesday.isoformat()],
-            "start_time": "16:00",
-            "end_time": "18:00",
-            "tour_minutes": "60",
-            "seats": "4",
-        }
-        signed_in(dayzie).post(DATES, data)
+        edit = _edit(dayzie, day=tuesday)
+        assert edit.problems() == {}
+        with transaction.atomic():
+            edit.save()
         assert TourHours.objects.filter(guide=dayzie, date=tuesday).exists()
 
     def it_still_refuses_a_guides_own_rows_overlapping(dayzie: Member):
-        data = _hours_post(dayzie, {}, {"start_time": "17:00", "end_time": "19:00"})
-        assert signed_in(dayzie).post(SAVE, data, **AUTOSAVE).status_code == 422
-
-    @pytest.mark.postgres_only
-    def it_locks_only_the_guides_own_row_so_bookings_never_wait_on_a_save(dayzie: Member):
-        with CaptureQueriesContext(connection) as queries:
-            signed_in(dayzie).post(SAVE, _hours_post(dayzie, {}), **AUTOSAVE)
-        locks = [query["sql"] for query in queries.captured_queries if " FOR " in query["sql"]]
-        assert len(locks) == 1 and '"membership_member"' in locks[0]
+        TourHoursFactory(guide=dayzie)
+        assert TOURS in _edit(dayzie, start=17, end=19).problems()
 
 
 def describe_one_tour_at_a_time():
@@ -556,7 +545,7 @@ def describe_each_guides_own_notice():
 
 def describe_the_booking_notice_card():
     def it_shows_the_steps_with_the_house_default_first_and_picked(amber: Member):
-        page = signed_in(amber).get(reverse("tours:hours")).content.decode()
+        page = signed_in(amber).get(reverse("hours:my_hours")).content.decode()
         assert 'data-tour-notice-card data-autosave data-autosave-key="notice"' in page
         options = re.findall(
             r'<option value="([^"]*)"( selected)?>([^<]+)</option>', page.split("data-tour-notice-card")[1]

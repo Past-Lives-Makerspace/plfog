@@ -32,7 +32,7 @@ TOUR_GUIDE = AdminCapability.Capability.TOUR_GUIDE
 UPCOMING = reverse("tours:upcoming")
 GUIDE = reverse("tours:guide")
 HTMX = {"HTTP_HX_REQUEST": "true"}
-TAB_URLS = [UPCOMING, reverse("tours:past"), reverse("tours:hours"), GUIDE]
+TAB_URLS = [UPCOMING, reverse("tours:past"), reverse("hours:my_hours"), GUIDE]
 
 
 def _url(action: str) -> str:

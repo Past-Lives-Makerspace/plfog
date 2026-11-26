@@ -220,9 +220,8 @@ def describe_guild_orientation_edit():
 def describe_guild_orientation_hours_save():
     """Recurring hours save through their own form/view, separate from the settings form."""
 
-    def it_saves_a_recurring_rule_and_redirects_to_the_orientations_page(client: Client):
-        # Self-scope saves go through the Edit Hours modal (modal_rules, HTMX) and require being
-        # on the guild's leadership — hence the lead here. A valid save answers 204 + HX-Redirect.
+    def it_sends_a_persons_own_hours_to_my_hours_and_saves_nothing(client: Client):
+        # A person's own hours are set on My Hours since #1300: the old Edit Hours post lands there.
         user = _user_with_role("hrs_add", fog_role=Member.FogRole.MEMBER)
         guild = GuildFactory(guild_lead=user.member)
         orientation_type = OrientationTypeFactory(guild=guild)
@@ -244,13 +243,8 @@ def describe_guild_orientation_hours_save():
             HTTP_HX_REQUEST="true",
         )
         assert response.status_code == 204
-        assert response["HX-Redirect"] == reverse("hub_guild_orientations", args=[guild.pk])
-        rule = OrientationAvailability.objects.get(guild=guild)
-        assert rule.weekday == 1
-        assert rule.seats == 5
-        assert rule.orientation_type == orientation_type
-        # The posted scope stamps the new rule as the saver's personal hours.
-        assert rule.orienter == user.member
+        assert response["HX-Redirect"] == reverse("hours:my_hours")
+        assert not OrientationAvailability.objects.filter(guild=guild).exists()
 
     def it_edits_an_existing_guild_rule_through_the_guild_scope(client: Client):
         # Legacy guild-level rows bind through the guild_rules prefix (empty scope).
@@ -310,36 +304,33 @@ def describe_guild_orientation_hours_save():
         assert "recurring hours are personal" in joined
 
     def it_generates_bookable_slots_when_a_rule_is_saved(client: Client):
-        # Saving recurring hours materializes slots immediately — no waiting for the cron.
-        # (Slots only generate for a guild that is accepting orientations, and personal
-        # rules only for someone in the guild's leadership — hence the lead here.)
-        user = _user_with_role("hrs_gen", fog_role=Member.FogRole.MEMBER)
-        guild = GuildFactory(guild_lead=user.member)
+        # Saving the shared hours materializes slots immediately: no waiting for the cron.
+        _user_with_role("hrs_gen", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
         GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
-        orientation_type = OrientationTypeFactory(guild=guild)
+        rule = OrientationAvailabilityFactory(guild=guild, weekday=0, seats=2)
         client.login(username="hrs_gen", password="pass")
         response = client.post(
             reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
-            _modal_hours_payload(
-                scope=str(user.member.pk),
+            _guild_hours_payload(
                 **{
-                    "modal_rules-TOTAL_FORMS": "1",
-                    "modal_rules-0-orientation_type": str(orientation_type.pk),
-                    "modal_rules-0-weekday": "1",
-                    "modal_rules-0-start_time": "18:00",
-                    "modal_rules-0-end_time": "19:00",
-                    "modal_rules-0-seats": "5",
-                    "modal_rules-0-is_active": "on",
-                },
+                    "guild_rules-TOTAL_FORMS": "1",
+                    "guild_rules-INITIAL_FORMS": "1",
+                    "guild_rules-0-id": str(rule.pk),
+                    "guild_rules-0-orientation_type": str(rule.orientation_type.pk),
+                    "guild_rules-0-weekday": "1",
+                    "guild_rules-0-start_time": "18:00",
+                    "guild_rules-0-end_time": "19:00",
+                    "guild_rules-0-seats": "5",
+                    "guild_rules-0-is_active": "on",
+                }
             ),
-            HTTP_HX_REQUEST="true",
         )
-        assert response.status_code == 204
+        assert response.status_code == 302
         slot = OrientationSlot.objects.filter(guild=guild, source=OrientationSlot.Source.GENERATED).first()
         assert slot is not None
-        # Generated slots carry their rule's orientor AND orientation type through.
-        assert slot.orienter == user.member
-        assert slot.orientation_type == orientation_type
+        # Generated slots carry their rule's orientation type through.
+        assert slot.orientation_type == rule.orientation_type
 
     def it_keeps_existing_settings_when_only_hours_are_saved(client: Client):
         # Saving hours through its own form must not disturb the guild's orientation settings.
@@ -370,52 +361,31 @@ def describe_guild_orientation_hours_save():
         assert settings_obj.info == "Front desk"
 
     def it_rejects_a_rule_whose_end_is_before_its_start(client: Client):
-        # The bad time range re-renders the modal partial with the field error and saves nothing.
-        user = _user_with_role("hrs_bad", fog_role=Member.FogRole.MEMBER)
-        guild = GuildFactory(guild_lead=user.member)
+        # The bad time range re-renders the page with the field error and saves nothing.
+        _user_with_role("hrs_bad", fog_role=Member.FogRole.ADMIN)
+        guild = GuildFactory()
+        rule = OrientationAvailabilityFactory(guild=guild, weekday=0, seats=2)
         client.login(username="hrs_bad", password="pass")
         response = client.post(
             reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
-            _modal_hours_payload(
-                scope=str(user.member.pk),
+            _guild_hours_payload(
                 **{
-                    "modal_rules-TOTAL_FORMS": "1",
-                    "modal_rules-0-weekday": "1",
-                    "modal_rules-0-start_time": "19:00",
-                    "modal_rules-0-end_time": "18:00",
-                    "modal_rules-0-seats": "4",
-                    "modal_rules-0-is_active": "on",
-                },
+                    "guild_rules-TOTAL_FORMS": "1",
+                    "guild_rules-INITIAL_FORMS": "1",
+                    "guild_rules-0-id": str(rule.pk),
+                    "guild_rules-0-orientation_type": str(rule.orientation_type.pk),
+                    "guild_rules-0-weekday": "1",
+                    "guild_rules-0-start_time": "19:00",
+                    "guild_rules-0-end_time": "18:00",
+                    "guild_rules-0-seats": "4",
+                    "guild_rules-0-is_active": "on",
+                }
             ),
-            HTTP_HX_REQUEST="true",
         )
         assert response.status_code == 200
-        assert OrientationAvailability.objects.filter(guild=guild).count() == 0
-        assert b"Editing" in response.content  # the bound modal partial re-renders with errors
-
-    def it_lets_the_guild_lead_save_hours(client: Client):
-        user = _user_with_role("hrs_lead", fog_role=Member.FogRole.MEMBER)
-        guild = GuildFactory(guild_lead=user.member)
-        orientation_type = OrientationTypeFactory(guild=guild)
-        client.login(username="hrs_lead", password="pass")
-        response = client.post(
-            reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
-            _modal_hours_payload(
-                scope=str(user.member.pk),
-                **{
-                    "modal_rules-TOTAL_FORMS": "1",
-                    "modal_rules-0-orientation_type": str(orientation_type.pk),
-                    "modal_rules-0-weekday": "1",
-                    "modal_rules-0-start_time": "18:00",
-                    "modal_rules-0-end_time": "19:00",
-                    "modal_rules-0-seats": "5",
-                    "modal_rules-0-is_active": "on",
-                },
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 204
-        assert OrientationAvailability.objects.filter(guild=guild).count() == 1
+        rule.refresh_from_db()
+        assert (rule.weekday, rule.seats) == (0, 2)
+        assert b"Guild Hours (Any Orientor)" in response.content
 
     def it_forbids_a_regular_member(client: Client):
         _user_with_role("hrs_reg", fog_role=Member.FogRole.MEMBER)

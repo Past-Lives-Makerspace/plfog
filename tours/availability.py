@@ -350,7 +350,7 @@ def lock_bookings() -> None:
     booked depends on every guide's upcoming tours on other days, so no set of hours rows covers
     what a booking reads. Tour bookings come a handful a day, so queueing them all on one row costs
     nothing anyone notices. Only an admin saving Tour Settings takes the row besides; an hours save
-    does not (:func:`tours.models.lock_guide_hours`).
+    does not (it takes :func:`hours.follow.lock_person`, the person's own row).
 
     Raises:
         RuntimeError: outside a transaction, where the lock would end at once.

@@ -25,7 +25,7 @@ from django.utils import timezone
 
 from billing.fields import EncryptedCharField
 from core.threads import ThreadMessage, ThreadPhoto
-from hours.follow import FollowsDaysOff, FollowsHours, lock_person
+from hours.follow import FollowsDaysOff, FollowsHours
 from membership.models import AdminCapability, Member, OrientationAvailability
 
 if TYPE_CHECKING:
@@ -239,34 +239,13 @@ class TourHoursQuerySet(models.QuerySet["TourHours"]):
         return self.filter(Q(date__isnull=True) | Q(date__range=(first, last)))
 
 
-def lock_guide_hours(guide: Member) -> None:
-    """Hold one guide's hours still until the transaction ends (#1160): ``SELECT ... FOR NO KEY UPDATE`` on their member row.
-
-    Every save of a guide's hours (the Every Week formset, Add Dates) takes this before it checks
-    for overlaps and keeps the check and the write in the same transaction, so two saves at once
-    (a guide and an admin, two tabs) queue here and the second sees the first's rows. The member
-    row, not the hours rows: a save onto a weekday or date with no hours yet would find no hours
-    row to lock, and both saves would land. NO KEY, because a booking's insert takes FOR KEY SHARE
-    on its guide's row while holding its own lock (``tours.availability.lock_bookings``), and a plain FOR UPDATE here would wait on every booking.
-
-    Raises:
-        RuntimeError: outside a transaction, where the lock would end at once.
-    """
-    from django.db import transaction
-
-    if not transaction.get_connection().in_atomic_block:
-        raise RuntimeError("lock_guide_hours must run inside transaction.atomic().")
-    # The lock the guide's sets of hours take too (#1300), taken once per transaction.
-    lock_person(guide.pk)
-
-
 class TourHours(FollowsHours, models.Model):
     """One window in which a guide gives tours, carved into tours of ``tour_minutes`` each.
 
     Tuesday 4:00 to 6:00 PM with 60 minute tours is two tours, at 4:00 and 5:00, each with
     ``seats`` places. Two guides' hours may overlap, but one tour runs at a time: the first booking
     claims the time for one guide (#1312, :mod:`tours.availability`). One guide's rows may not
-    overlap (``TourHoursFormSet`` and ``TourDatesForm`` refuse it), so a guide and a start time name
+    overlap (My Hours' ``hours.edit.HoursEdit`` refuses it), so a guide and a start time name
     at most one row.
 
     A row with no ``date`` repeats on ``weekday`` by ``cadence``, counted from ``anchor_date`` the

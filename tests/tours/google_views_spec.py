@@ -22,7 +22,8 @@ from tours.views import GOOGLE_STATE_SESSION_KEY
 
 pytestmark = pytest.mark.django_db
 
-HOURS = reverse("tours:hours")
+#: Where every Google Calendar action lands, and where the card lives, since #1300.
+HOURS = reverse("hours:my_hours")
 CONNECT = reverse("tours:google_connect")
 CALLBACK = reverse("tours:google_callback")
 CHOOSE = reverse("tours:google_calendar")
@@ -43,9 +44,9 @@ def _with_state(client: Client, state: str = "the-state") -> Client:
 
 
 def _card(response) -> str:
-    """The Google Calendar card's state marker on the My Hours tab."""
+    """The Google Calendar card's state marker on My Hours."""
     html = response.content.decode()
-    start = html.index('data-tour-gcal="') + len('data-tour-gcal="')
+    start = html.index('data-hours-gcal="') + len('data-hours-gcal="')
     return html[start : html.index('"', start)]
 
 
@@ -201,12 +202,12 @@ def describe_the_card():
     def it_says_the_feature_is_not_set_up(guide: Member):
         response = signed_in(guide).get(HOURS)
         assert _card(response) == "dormant"
-        assert b"data-tour-gcal-connect" not in response.content
+        assert b"data-hours-gcal-connect" not in response.content
 
     @pytest.mark.usefixtures("google_on")
     def it_offers_connect_with_boost_off(guide: Member):
         html = signed_in(guide).get(HOURS).content.decode()
-        assert f'href="{CONNECT}"' in html and 'hx-boost="false"' in html
+        assert f'href="{CONNECT}?from=hours"' in html and 'hx-boost="false"' in html
 
     @pytest.mark.usefixtures("google_on")
     def it_shows_the_account_the_picker_and_disconnect(guide: Member):
@@ -217,21 +218,21 @@ def describe_the_card():
         assert "gina@example.com" in html
         assert f'<option value="{TOURS_CAL}" selected>Tours</option>' in html
         assert '<option value="primary">Gina Guide (main calendar)</option>' in html
-        assert "data-tour-gcal-disconnect" in html and "Disconnect Google Calendar?" in html
-        assert "Busy times last read" in html
+        assert "data-hours-gcal-disconnect" in html and "Disconnect Google Calendar?" in html
+        assert "Last read" in html
 
     @pytest.mark.usefixtures("google_on")
     def it_says_when_busy_times_have_not_been_read(guide: Member):
         TourCalendarConnectionFactory(guide=guide)
-        assert b"Busy times are read within 15 minutes." in signed_in(guide).get(HOURS).content
+        assert b"Not read yet." in signed_in(guide).get(HOURS).content
 
     @pytest.mark.usefixtures("google_on")
     def it_shows_reconnect_when_broken(guide: Member):
         TourCalendarConnectionFactory(guide=guide, status=TourCalendarConnection.Status.BROKEN)
         response = signed_in(guide).get(HOURS)
         assert _card(response) == "broken"
-        assert b"data-tour-gcal-reconnect" in response.content
-        assert b"data-tour-gcal-form" not in response.content
+        assert b"data-hours-gcal-reconnect" in response.content
+        assert b'data-autosave-key="gcal"' not in response.content
 
 
 @pytest.mark.usefixtures("google_on")
@@ -256,16 +257,16 @@ def describe_the_admins_view():
     def it_reads_another_guides_state_without_any_controls(admin: Member):
         other = make_guide(full_legal_name="Cora Connected")
         TourCalendarConnectionFactory(guide=other, busy_checked_at=timezone.now() - timedelta(minutes=3))
-        response = signed_in(admin).get(HOURS, {"guide": other.pk})
+        response = signed_in(admin).get(HOURS, {"member": other.pk})
         html = response.content.decode()
         assert _card(response) == "connected"
         assert "Connected as <strong>gina@example.com</strong>. Tours are written to Gina Guide." in html
-        assert "data-tour-gcal-disconnect" not in html and "data-tour-gcal-connect" not in html
+        assert "data-hours-gcal-disconnect" not in html and "data-hours-gcal-connect" not in html
 
     def it_says_when_another_guides_busy_times_were_never_read(admin: Member):
         other = make_guide(full_legal_name="Cora Connected")
         TourCalendarConnectionFactory(guide=other)
-        assert b"Busy times not read yet." in signed_in(admin).get(HOURS, {"guide": other.pk}).content
+        assert b"Not read yet." in signed_in(admin).get(HOURS, {"member": other.pk}).content
 
     def it_reads_another_guides_broken_or_missing_calendar(admin: Member):
         broken = make_guide(full_legal_name="Bo Broken")
@@ -274,5 +275,5 @@ def describe_the_admins_view():
         )
         none = make_guide(full_legal_name="Nell None")
         client = signed_in(admin)
-        assert b"Needs reconnecting since" in client.get(HOURS, {"guide": broken.pk}).content
-        assert b"Nell None has not connected a Google Calendar" in client.get(HOURS, {"guide": none.pk}).content
+        assert b"Needs reconnecting since" in client.get(HOURS, {"member": broken.pk}).content
+        assert b"Nell None has not connected a Google Calendar" in client.get(HOURS, {"member": none.pk}).content

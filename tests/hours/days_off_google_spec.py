@@ -24,7 +24,7 @@ from tests.tours.conftest import make_guide, signed_in
 from tests.tours.factories import TourBookingFactory, TourCalendarConnectionFactory, TourDayOffFactory
 from tours import google
 from tours.models import TourCalendarConnection, TourDayOff
-from tours.views import GOOGLE_RETURN_SESSION_KEY, GOOGLE_STATE_SESSION_KEY
+from tours.views import GOOGLE_STATE_SESSION_KEY
 
 pytestmark = pytest.mark.django_db
 
@@ -186,7 +186,7 @@ def describe_google_calendar_for_orientors():
         client = signed_in(person)
         assert "data-hours-gcal-connect" in client.get(PAGE).content.decode()
         response = client.get(reverse("tours:google_connect"), {"from": "hours"})
-        assert response.status_code == 302 and client.session[GOOGLE_RETURN_SESSION_KEY] == "hours:my_hours"
+        assert response.status_code == 302 and client.session[GOOGLE_STATE_SESSION_KEY]
 
     @respx.mock
     def it_connects_an_orientor_and_says_it_hides_their_bookings():
@@ -208,7 +208,6 @@ def describe_google_calendar_for_orientors():
         client = signed_in(person)
         session = client.session
         session[GOOGLE_STATE_SESSION_KEY] = "s"
-        session[GOOGLE_RETURN_SESSION_KEY] = "hours:my_hours"
         session.save()
         response = client.get(reverse("tours:google_callback"), {"state": "s", "code": "c"}, follow=True)
         assert response.redirect_chain[-1][0] == PAGE
@@ -261,3 +260,35 @@ def describe_still_booked_queries():
             OrientationBookingFactory(slot=slot, status=OrientationBooking.Status.CONFIRMED)
         with django_assert_num_queries(len(one.captured_queries)):
             assert len(still_booked(person, day, day)) == 5
+
+
+@pytest.mark.usefixtures("google_on")
+def describe_google_calendar_for_a_guide():
+    @respx.mock
+    def it_connects_a_guide_and_says_their_tours_go_on_it():
+        respx.post(google.TOKEN_URL).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "access_token": "at",
+                    "refresh_token": "rt",
+                    "expires_in": 3600,
+                    "scope": " ".join(google.SCOPES),
+                },
+            )
+        )
+        respx.get(f"{google.API_URL}/users/me/calendarList").mock(
+            return_value=httpx.Response(200, json={"items": [{"id": "g@example.com", "summary": "G", "primary": True}]})
+        )
+        guide = make_guide()
+        client = signed_in(guide)
+        session = client.session
+        session[GOOGLE_STATE_SESSION_KEY] = "s"
+        session.save()
+        response = client.get(reverse("tours:google_callback"), {"state": "s", "code": "c"}, follow=True)
+        assert response.redirect_chain[-1][0] == PAGE
+        messages = [str(message) for message in response.context["messages"]]
+        assert messages == [
+            "Google Calendar connected. Tours you give will be added to it, and times it shows you busy "
+            "are not offered to anyone booking you."
+        ]

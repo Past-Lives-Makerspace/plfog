@@ -148,25 +148,25 @@ urlpatterns = [
         views.guild_orientation_hours_form,
         name="hub_guild_orientation_hours_form",
     ),
-    # Days off (#767): the modal body, its impact preview, save and delete, under the hours gate.
+    # The old Days Off modal (#767): each route redirects to My Hours' Days Off since #1300.
     path(
         "guilds/<int:pk>/orientation/days-off/",
-        day_off_views.guild_orientation_days_off,
+        day_off_views.old_days_off,
         name="hub_guild_orientation_days_off",
     ),
     path(
         "guilds/<int:pk>/orientation/days-off/preview/",
-        day_off_views.guild_orientation_day_off_preview,
+        day_off_views.old_days_off,
         name="hub_guild_orientation_day_off_preview",
     ),
     path(
         "guilds/<int:pk>/orientation/days-off/save/",
-        day_off_views.guild_orientation_day_off_save,
+        day_off_views.old_days_off,
         name="hub_guild_orientation_day_off_save",
     ),
     path(
         "guilds/<int:pk>/orientation/days-off/<int:day_off_pk>/delete/",
-        day_off_views.guild_orientation_day_off_delete,
+        day_off_views.old_days_off,
         name="hub_guild_orientation_day_off_delete",
     ),
     path(
@@ -519,25 +519,25 @@ urlpatterns = [
         equipment_views.hub_equipment_orientation_hours_save,
         name="hub_equipment_orientation_hours_save",
     ),
-    # Days off (#767), the equipment twin of the guild routes above.
+    # The old Days Off modal's equipment twin (#767): redirects to My Hours since #1300.
     path(
         "equipment/<slug:slug>/manage/orientation/days-off/",
-        day_off_views.hub_equipment_orientation_days_off,
+        day_off_views.old_days_off,
         name="hub_equipment_orientation_days_off",
     ),
     path(
         "equipment/<slug:slug>/manage/orientation/days-off/preview/",
-        day_off_views.hub_equipment_orientation_day_off_preview,
+        day_off_views.old_days_off,
         name="hub_equipment_orientation_day_off_preview",
     ),
     path(
         "equipment/<slug:slug>/manage/orientation/days-off/save/",
-        day_off_views.hub_equipment_orientation_day_off_save,
+        day_off_views.old_days_off,
         name="hub_equipment_orientation_day_off_save",
     ),
     path(
         "equipment/<slug:slug>/manage/orientation/days-off/<int:day_off_pk>/delete/",
-        day_off_views.hub_equipment_orientation_day_off_delete,
+        day_off_views.old_days_off,
         name="hub_equipment_orientation_day_off_delete",
     ),
     path(
