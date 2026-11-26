@@ -22,7 +22,7 @@ from hours.days_off import days_off_by_member
 from hours.edit import gives_tours, held_owners
 from hours.forms import PAUSED_HINT, Context, hours_formset
 from hours.models import DayOff
-from membership.models import AdminCapability, Member, OrientationAvailability
+from membership.models import AdminCapability, Member, OrientationAvailability, PermissionSetup
 from membership.staff_onboarding import tool_links
 from tests.membership.factories import (
     GuildFactory,
@@ -31,8 +31,9 @@ from tests.membership.factories import (
     OrientationTypeFactory,
 )
 from tests.tours.conftest import make_guide, signed_in
-from tests.tours.factories import TourCalendarConnectionFactory, TourDayOffFactory
-from tours.models import FacilityTourSettings, TourCalendarConnection
+from tests.tours.factories import TourBookingFactory, TourCalendarConnectionFactory, TourDayOffFactory, TourHoursFactory
+from tours.models import FacilityTourSettings, TourBooking, TourCalendarConnection
+from tours import setup as tour_setup
 from tours.setup import TOUR_GUIDE_SETUP
 
 pytestmark = pytest.mark.django_db
@@ -210,19 +211,20 @@ def describe_the_get_set_up_card():
         response = signed_in(admin).get(URL, {"member": guide.pk})
         assert response.context["setup"] is None
 
-    def it_toasts_the_badge_on_the_load_that_finishes_setup(monkeypatch: pytest.MonkeyPatch):
+    def it_toasts_the_badge_once_on_the_load_that_finishes_setup():
+        # Every required step done for real: hours, the guide read, a first tour marked Attended.
         guide = make_guide()
-
-        class Finished:
-            just_finished = True
-            hidden = True
-
-            class spec:  # noqa: N801 - the state's spec, as SetupState names it
-                celebration = "Your Tour Guide badge is on your Member Directory card."
-
-        monkeypatch.setattr("hours.views.SetupState.load", lambda member, capability: Finished())
-        response = signed_in(guide).get(URL)
-        assert [str(m) for m in response.context["messages"]] == [Finished.spec.celebration]
+        TourHoursFactory(guide=guide)
+        PermissionSetup.for_member(guide, AdminCapability.Capability.TOUR_GUIDE).mark_read(tour_setup.LEARN)
+        starts = timezone.now() - timedelta(days=1)
+        TourBookingFactory(
+            guide=guide, starts_at=starts, ends_at=starts + timedelta(hours=1), status=TourBooking.Status.ATTENDED
+        )
+        client = signed_in(guide)
+        first = client.get(URL)
+        assert [str(m) for m in first.context["messages"]] == [tour_setup.TOUR_GUIDE_SETUP.celebration]
+        assert b"data-setup-done" in first.content
+        assert tour_setup.TOUR_GUIDE_SETUP.celebration not in [str(m) for m in client.get(URL).context["messages"]]
 
     def it_shows_no_card_to_an_orientor_without_the_grant():
         person = MemberFactory()
