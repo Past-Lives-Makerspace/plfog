@@ -754,6 +754,8 @@ class TourBookingQuerySet(models.QuerySet["TourBooking"]):
     def follow_ups_due(self, now: datetime, after: timedelta, since: datetime) -> TourBookingQuerySet:
         """The tours whose Tour Follow Up email sends itself now (#1345): every one owed, caught up.
 
+        A tour whose automatic send failed (``follow_up_failed_at``) is never tried again; a guide sends it by hand.
+
         Attended or not marked tours, never sent one, whose end plus ``after`` has passed, so a late
         or missed tick sends them on the next, and none goes before its time. Only tours that ended
         at or after ``since`` (when automatic sending was turned on), so turning it on never
@@ -762,6 +764,7 @@ class TourBookingQuerySet(models.QuerySet["TourBooking"]):
         return self.filter(
             status__in=TourBooking.FOLLOW_UP_STATUSES,
             follow_up_sent_at__isnull=True,
+            follow_up_failed_at__isnull=True,
             ends_at__lte=now - after,
             ends_at__gte=since,
         )
@@ -1003,6 +1006,14 @@ class TourBooking(models.Model):
         default=False,
         help_text="Whether the last Tour Follow Up email sent itself, the hours after the tour Tour Settings set (#1345).",
     )
+    follow_up_failed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the automatic Tour Follow Up send failed (#1345). The job tries once and never again; the Past "
+            "row asks a guide to send it by hand, and a send that lands clears this."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True, help_text="When it was booked.")
 
     objects = TourBookingQuerySet.as_manager()
@@ -1082,12 +1093,40 @@ class TourBooking(models.Model):
             return f"Follow up sent {day}"
         return f"Follow up sent {day} by {self.follow_up_sent_by.staff_label}"
 
+    @property
+    def follow_up_failed_label(self) -> str:
+        """The Past row's line after the automatic send failed (#1345): "Follow up failed Nov 24, send it by hand"."""
+        if self.follow_up_failed_at is None:
+            return ""
+        return f"Follow up failed {date_format(timezone.localtime(self.follow_up_failed_at), 'M j')}, send it by hand"
+
     def record_follow_up(self, sender: Member, at: datetime) -> None:
-        """Stamp the follow up ``sender`` just sent from the Past tab (#1345)."""
+        """Stamp the follow up ``sender`` just sent from the Past tab (#1345); a send that landed clears a failure."""
         self.follow_up_sent_at = at
         self.follow_up_sent_by = sender
         self.follow_up_automatic = False
-        self.save(update_fields=["follow_up_sent_at", "follow_up_sent_by", "follow_up_automatic"])
+        self.follow_up_failed_at = None
+        self.save(
+            update_fields=["follow_up_sent_at", "follow_up_sent_by", "follow_up_automatic", "follow_up_failed_at"]
+        )
+
+    def clear_follow_up_failure(self) -> None:
+        """Forget a failed automatic send once a send by hand lands (#1345)."""
+        if self.follow_up_failed_at is None:
+            return
+        self.follow_up_failed_at = None
+        self.save(update_fields=["follow_up_failed_at"])
+
+    def fail_follow_up(self, at: datetime) -> None:
+        """Hand back the automatic claim made ``at`` and mark it failed (#1345), so the job never retries it.
+
+        Conditional on the claim's own moment, like :meth:`release_follow_up`.
+        """
+        TourBooking.objects.filter(pk=self.pk, follow_up_sent_at=at).update(
+            follow_up_sent_at=None, follow_up_sent_by=None, follow_up_automatic=False, follow_up_failed_at=at
+        )
+        self.follow_up_sent_at, self.follow_up_sent_by, self.follow_up_automatic = None, None, False
+        self.follow_up_failed_at = at
 
     def claim_follow_up(self, at: datetime, sender: Member | None) -> bool:
         """Take this tour's first follow up (#1345), once: False when one was already sent or claimed.

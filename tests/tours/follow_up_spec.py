@@ -389,13 +389,54 @@ def describe_automatic_send():
         send_due_follow_ups(timezone.now())
         assert "\nPast Lives\n" in mail.outbox[0].body
 
-    def it_leaves_the_row_unsent_when_a_send_fails(dayzie: Member, two_hours: None):
+    def it_tries_once_marks_the_failure_and_never_retries(dayzie: Member, two_hours: None):
         booking = _past(dayzie, hours_ago=2.5)
+        tick = timezone.now()
         with patch("core.email._deliver", side_effect=OSError("smtp down")):
-            assert send_due_follow_ups(timezone.now()) == 0
+            assert send_due_follow_ups(tick) == 0
         booking.refresh_from_db()
-        assert (booking.follow_up_sent_at, booking.follow_up_automatic) == (None, False)
-        assert send_due_follow_ups(timezone.now()) == 1
+        assert (booking.follow_up_sent_at, booking.follow_up_automatic, booking.follow_up_failed_at) == (
+            None,
+            False,
+            tick,
+        )
+        assert send_due_follow_ups(timezone.now() + timedelta(minutes=15)) == 0
+        assert mail.outbox == []
+        assert TransactionalEmailLog.objects.filter(status=TransactionalEmailLog.Status.FAILED).count() == 1
+
+    def it_shows_the_failure_on_the_row_and_still_offers_send_follow_up(dayzie: Member):
+        failed_at = timezone.now() - timedelta(hours=1)
+        booking = _past(dayzie, follow_up_failed_at=failed_at)
+        content = signed_in(dayzie).get(PAST).content.decode()
+        day = f"{timezone.localtime(failed_at):%b} {timezone.localtime(failed_at).day}"
+        assert f"Follow up failed {day}, send it by hand" in content
+        assert "data-tour-follow-up-failed" in content
+        assert f'data-tour-follow-up="{booking.pk}"' in content
+
+    def it_clears_the_failure_when_a_send_by_hand_lands(dayzie: Member):
+        booking = _past(dayzie, follow_up_failed_at=timezone.now() - timedelta(hours=1))
+        response = signed_in(dayzie).post(_url(booking), **HTMX)
+        assert len(mail.outbox) == 1
+        booking.refresh_from_db()
+        assert (booking.follow_up_failed_at, booking.follow_up_sent_by) == (None, dayzie)
+        assert "data-tour-follow-up-failed" not in response.content.decode()
+
+    def it_keeps_the_failure_when_a_send_by_hand_also_fails(dayzie: Member):
+        failed_at = timezone.now() - timedelta(hours=1)
+        booking = _past(dayzie, follow_up_failed_at=failed_at)
+        with patch("core.email._deliver", side_effect=OSError("smtp down")):
+            signed_in(dayzie).post(_url(booking), **HTMX)
+        booking.refresh_from_db()
+        assert (booking.follow_up_sent_at, booking.follow_up_failed_at) == (None, failed_at)
+
+    def it_clears_the_failure_on_send_again(dayzie: Member):
+        booking = _past(dayzie, follow_up_sent_at=timezone.now(), follow_up_failed_at=timezone.now())
+        send_follow_up(booking, sender=dayzie, again=True)
+        booking.refresh_from_db()
+        assert booking.follow_up_failed_at is None
+
+    def it_has_no_failed_line_until_one_fails(dayzie: Member):
+        assert _past(dayzie).follow_up_failed_label == ""
 
     def it_leaves_the_row_unsent_and_raises_on_an_unexpected_error(dayzie: Member, two_hours: None):
         booking = _past(dayzie, hours_ago=2.5)
