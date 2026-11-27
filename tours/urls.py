@@ -24,6 +24,7 @@ urlpatterns = [
     path("bookings/<int:pk>/reschedule/", views.tour_booking_reschedule, name="booking_reschedule"),
     path("bookings/<int:pk>/cancel/", views.tour_booking_cancel, name="booking_cancel"),
     path("bookings/<int:pk>/mark/", views.tour_booking_mark, name="booking_mark"),
+    path("bookings/<int:pk>/follow-up/", views.tour_booking_follow_up, name="booking_follow_up"),
     path("bookings/<int:pk>/confirm/", views.tour_booking_confirm, name="booking_confirm"),
     path("bookings/<int:pk>/decline/", views.tour_booking_decline, name="booking_decline"),
     # The old My Hours tab and what it posted to: My Hours sets hours since #1300, so each redirects there.

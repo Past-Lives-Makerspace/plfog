@@ -705,6 +705,17 @@ _GUIDANCE_LIST = (
         ),
     ),
     Guidance(
+        key="tours.follow-up",
+        title="Tour Follow Up Email",
+        url_name="tours:past",
+        steps=(
+            "Press Tours in the sidebar, then Past.",
+            "On a tour you gave, press the ... and then Send Follow Up. The guest gets the Tour Follow Up email, signed with your name and email.",
+            "The row then says when it went and who sent it. Send Follow Up Again asks first, so a guest never gets it twice by accident.",
+            "Admins can have it go out on its own: on Settings, under Follow Up Email, set how many hours after the tour.",
+        ),
+    ),
+    Guidance(
         key="tours.give",
         title="Give Tours",
         url_name="tours:give",

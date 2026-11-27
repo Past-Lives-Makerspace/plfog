@@ -1127,6 +1127,14 @@ def tour_visitor_reminder_context(data: SampleData) -> dict[str, Any]:
     return _tour_visitor(data, "Reminder: your Past Lives tour is {when}")
 
 
+def tour_visitor_follow_up_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``tours.notify.send_follow_up`` (#1345): signed by the tour's guide."""
+    from tours.notify import follow_up_context, follow_up_subject
+
+    booking = _tour_booking(data)
+    return {"subject": follow_up_subject(booking), "template_context": follow_up_context(booking, None)}
+
+
 def tour_guide_booked_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``tours.notify.tell_guide_booked``."""
     from tours.notify import guide_context, short_when
