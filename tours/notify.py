@@ -788,15 +788,15 @@ def _send_claimed(booking: TourBooking, sender: Member | None, at: datetime) -> 
 def send_due_follow_ups(now: datetime) -> int:
     """Send every automatic Tour Follow Up email owed by now (#1345); idle while Tour Settings leaves it off.
 
-        Catch-up, not a window: a tour is owed once its end plus the hours has passed, and only tours
-        that ended after automatic sending was turned on (``follow_up_auto_since``) are, so a missed
-        tick sends them on the next and turning it on never reaches tours that finished before. Each
-        is claimed first, so a re-run or a racing tick sends nothing new, and a send that fails hands
-        its claim back and marks the tour failed (``follow_up_failed_at``): it is never tried again, and the
+    Catch-up, not a window: a tour is owed once its end plus the hours has passed, and only tours
+    that ended after automatic sending was turned on (``follow_up_auto_since``) are, so a missed
+    tick sends them on the next and turning it on never reaches tours that finished before. Each
+    is claimed first, so a re-run or a racing tick sends nothing new, and a send that fails hands
+    its claim back and marks the tour failed (``follow_up_failed_at``): it is never tried again, and the
     Past row asks a guide to send it by hand.
 
-        Returns:
-            How many went out.
+    Returns:
+        How many went out.
     """
     tour_settings = FacilityTourSettings.load()
     after, since = tour_settings.follow_up_delay, tour_settings.follow_up_auto_since
