@@ -41,7 +41,7 @@ Notes modal; a row the viewer may not act on offers Notes alone.
 {% else %}
 <form method="post" action="{% url 'tours:booking_follow_up' booking.pk %}" hx-post="{% url 'tours:booking_follow_up' booking.pk %}" hx-target="#tour-booking-{{ booking.pk }}" hx-swap="outerHTML" hx-disabled-elt="find button">
   {% csrf_token %}
-  <button type="submit" class="pl-row-menu__item" role="menuitem" data-tour-follow-up="{{ booking.pk }}">Send Follow Up</button>
+  <button type="submit" class="pl-row-menu__item" role="menuitem" data-tour-follow-up="{{ booking.pk }}" data-guidance-target="tours.send-follow-up">Send Follow Up</button>
 </form>
 {% endif %}
 {% endif %}

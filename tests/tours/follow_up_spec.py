@@ -20,6 +20,7 @@ from core.scheduled_jobs import SCHEDULED_JOBS
 from membership.models import Member
 from tests.tours.conftest import make_guide, signed_in
 from tests.tours.factories import TourBookingFactory
+from tours import notify
 from tours.forms import FacilityTourSettingsForm
 from tours.models import DEFAULT_FOLLOW_UP_ALSO_TO, FacilityTourSettings, TourBooking
 from tours.notify import (
@@ -446,13 +447,31 @@ def describe_automatic_send():
         booking.refresh_from_db()
         assert booking.follow_up_sent_at is None
 
-    def it_skips_a_tour_claimed_first(dayzie: Member, two_hours: None):
-        booking = _past(dayzie, hours_ago=2.5)
-        with patch.object(TourBooking, "claim_follow_up", return_value=False):
-            assert send_due_follow_ups(timezone.now()) == 0
-        assert mail.outbox == []
+    def it_skips_a_tour_another_tick_claimed_while_it_ran(dayzie: Member, two_hours: None):
+        first = _past(dayzie, hours_ago=3, visitor_email="first@example.com")
+        second = _past(dayzie, hours_ago=2.5, visitor_email="second@example.com")
+        stamped = timezone.now() - timedelta(minutes=1)
+        real_deliver = notify._deliver_follow_up
+
+        def deliver_then_race(booking: TourBooking, sender: Member | None) -> None:
+            real_deliver(booking, sender)
+            if booking.pk == first.pk:
+                # Another tick claims the second tour after this run read it as due, before its own claim.
+                TourBooking.objects.filter(pk=second.pk).update(follow_up_sent_at=stamped, follow_up_automatic=True)
+
+        with patch("tours.notify._deliver_follow_up", side_effect=deliver_then_race):
+            assert send_due_follow_ups(timezone.now()) == 1
+        assert [message.to[0] for message in mail.outbox] == ["first@example.com"]
+        second.refresh_from_db()
+        assert second.follow_up_sent_at == stamped
+
+    def it_refuses_a_claim_on_a_stale_copy(dayzie: Member):
+        booking = _past(dayzie)
         assert booking.claim_follow_up(timezone.now(), None) is True
-        assert booking.claim_follow_up(timezone.now(), dayzie) is False
+        stale = TourBooking.objects.get(pk=_past(dayzie).pk)
+        TourBooking.objects.filter(pk=stale.pk).update(follow_up_sent_at=timezone.now(), follow_up_automatic=True)
+        assert stale.follow_up_sent_at is None
+        assert stale.claim_follow_up(timezone.now(), dayzie) is False
 
     def it_never_hands_back_a_later_send(dayzie: Member):
         booking = _past(dayzie, follow_up_sent_at=timezone.now(), follow_up_sent_by=dayzie)

@@ -1,8 +1,10 @@
-"""Send the Tour Follow Up emails due this tick (#1345): N hours after each tour ends, per Tour Settings.
+"""Send every Tour Follow Up email owed by now (#1345): N hours after each tour ends, per Tour Settings.
 
-Idle while Tour Settings leaves the hours blank. Each tour is claimed before it sends, so a re-run
-never sends twice, and only tours whose end plus N hours falls in this 15 minute window are
-candidates, so turning the setting on never reaches tours that finished before.
+Idle while Tour Settings leaves the hours blank. It catches up rather than windowing: every
+attended or not marked tour whose end plus N hours has passed and that ended after automatic
+sending was turned on, so a missed tick is made up on the next and turning it on never reaches
+tours that finished before. Each tour is claimed before it sends, so a re-run never sends twice,
+and one that fails is never tried again (a guide sends it by hand).
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from tours.notify import send_due_follow_ups
 
 
 class Command(BaseCommand):
-    help = "Send the Tour Follow Up emails due this tick (N hours after each tour ends, per Tour Settings)."
+    help = "Send every Tour Follow Up email owed by now (N hours after each tour ends, per Tour Settings)."
 
     def handle(self, *args: Any, **options: Any) -> None:
         sent = send_due_follow_ups(timezone.now())

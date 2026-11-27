@@ -51,7 +51,7 @@ You’ll receive the Discord invite link in your welcome documentation after you
 
 If you’d like to move forward, just Reply All with the membership option that feels right (and let us know if you’re interested in a studio). Sushuma will follow up with everything you need to get set up. And if you ever want to talk directly, my contact info is below.
 
-Subscribe to our newsletter: {{ newsletter_url }}
+Subscribe to Our Newsletter: {{ newsletter_url }}
 
 It would be an honor to have you join our community.
 
