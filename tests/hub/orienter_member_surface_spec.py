@@ -191,17 +191,18 @@ def describe_post_your_hours_nudge():
         response = client.get(reverse("hub_orientations"), {"view": "bookings"})
         assert b"You have not posted any orientation hours yet." in response.content
         assert b"Post your orientation hours" in response.content
-        assert f'href="/guilds/{guild.pk}/orientations/"'.encode() in response.content
+        # Hours are set on My Hours for every guild at once (#1300).
+        assert f'<a href="{reverse("hours:my_hours")}" data-hours-nudge-link>'.encode() in response.content
+        assert f'href="/guilds/{guild.pk}/orientations/"><strong>'.encode() not in response.content
 
-    def it_lists_each_guild_when_they_staff_several(client: Client):
+    def it_links_once_to_my_hours_when_they_staff_several(client: Client):
         user = _member_user("ms_nudge_multi", name="Lead Person")
         GuildFactory(guild_lead=user.member, name="Alpha Guild")
         guild_b = GuildFactory(name="Beta Guild")
         GuildStaffMembershipFactory(guild=guild_b, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
         client.login(username="ms_nudge_multi", password="pass")
         response = client.get(reverse("hub_orientations"), {"view": "bookings"})
-        assert b"Alpha Guild" in response.content
-        assert b"Beta Guild" in response.content
+        assert response.content.count(b"data-hours-nudge-link") == 1
 
     def it_disappears_once_they_have_a_personal_rule(client: Client):
         user = _member_user("ms_nudge_done", name="Lead Person")

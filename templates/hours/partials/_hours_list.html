@@ -9,7 +9,7 @@ hours-set-delete confirm. Every Week adds a row with + Add Hours; Available On a
 Parameters: formset (hours.forms.HoursSetFormSet), list ("weekly" or "dated"), title, intro, empty.
 Context: target, summaries (hours.page.HoursSet by set id), kind_css, add_dates and its calendar for Available On.
 {% endcomment %}
-<section class="hub-card pl-tours-panel" data-hours-{{ list }}{% if list == "dated" %} x-data="plTourDates('hours-dates-config', {{ add_dates_open|yesno:'true,false' }})"{% endif %}>
+<section{% if list == "dated" %} id="available-on" data-guidance-target="tours.available-on"{% endif %} class="hub-card pl-tours-panel" data-hours-{{ list }}{% if list == "dated" %} x-data="plTourDates('hours-dates-config', {{ add_dates_open|yesno:'true,false' }})"{% endif %}>
   <form id="hours-{{ list }}-form" method="post" action="{% url 'hours:save' %}" class="hub-form" data-autosave data-autosave-key="{{ list }}" data-formset="{{ formset.prefix }}" data-formset-required="{{ formset.empty_form|required_fields }}" data-autosave-confirm="hours-set-delete">
     {% csrf_token %}
     <input type="hidden" name="member" value="{{ target.pk }}">

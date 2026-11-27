@@ -5,7 +5,7 @@ for all of them. One post, all or nothing (hours.views.dates_add); a refused sav
 fields and each problem named with its date. Context: add_dates (hours.forms.AddDatesForm), add_dates_calendar, target.
 {% endcomment %}
 {{ add_dates_calendar|json_script:"hours-dates-config" }}
-<button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-panel__add" x-show="!open"{% if add_dates_open %} x-cloak{% endif %} @click="open = true" data-hours-dates-add>+ Add Dates</button>
+<button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-panel__add" x-show="!open"{% if add_dates_open %} x-cloak{% endif %} @click="open = true" data-guidance-target="tours.add-dates" data-hours-dates-add>+ Add Dates</button>
 <form method="post" action="{% url 'hours:dates_add' %}" class="hub-form pl-tours-dates" x-show="open"{% if not add_dates_open %} x-cloak{% endif %} data-hours-dates-panel>
   {% csrf_token %}
   <input type="hidden" name="member" value="{{ target.pk }}">
@@ -16,7 +16,7 @@ fields and each problem named with its date. Context: add_dates (hours.forms.Add
   </div>
   {% endif %}
   <p class="pl-form-note pl-tours-dates__hint">Tap each day you are free. Tap it again to unpick.</p>
-  <div class="pl-tours-cal" data-hours-dates-calendar>
+  <div class="pl-tours-cal" data-guidance-target="tours.dates-calendar" data-hours-dates-calendar>
     <div class="pl-tours-cal__head">
       <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm pl-tours-cal__step" @click="step(-1)" :disabled="!canGoBack" aria-label="Previous month">&larr;</button>
       <span class="pl-tours-cal__month" x-text="monthLabel" aria-live="polite"></span>

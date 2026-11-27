@@ -481,21 +481,18 @@ def describe_your_hours():
         assert content.index('data-hours-owner="guild-') < content.index('data-hours-owner="equipment-')
         assert "Laser Basics · Every Tuesday · 6:00 p.m. to 7:00 p.m. · 4 seats" in content
         assert "Lathe Checkout · Every Thursday · 10:00 a.m. to 12:00 p.m. · 4 seats" in content
-        guild_form = f"{reverse('hub_guild_orientation_hours_form', args=[guild.pk])}?orienter={member.pk}"
-        tool_form = f"{reverse('hub_equipment_orientation_hours_form', args=[tool.slug])}?orienter={member.pk}"
-        assert f'hx-get="{guild_form}"' in content
-        assert f'hx-get="{tool_form}"' in content
+        # Every Edit Hours opens My Hours (#1300), where all of them are edited together.
+        hours = reverse("hours:my_hours")
+        assert content.count(f'<a href="{hours}" class="hub-btn hub-btn--sm" data-edit-hours') == 2
         assert content.count("data-edit-hours") == 2
-        assert 'id="edit-hours-modal-body"' in content
-        # Edit Hours opens the owner's existing modal form for the viewer's own rows.
-        assert client.get(guild_form).status_code == 200
-        assert client.get(tool_form).status_code == 200
+        assert 'id="edit-hours-modal-body"' not in content
+        assert client.get(hours).status_code == 200
 
     def it_says_when_none_are_published(client: Client):
         _led_guild(_login(client, "mb_hours_none"))
         content = _page(client)
         assert "data-hours-empty" in content
-        assert "No hours published yet. Open a guild's Orientations page to publish them." in content
+        assert f'<a href="{reverse("hours:my_hours")}" data-hours-empty-link>Set them on My Hours</a>' in content
 
     def it_is_absent_for_an_admin_on_no_leadership(client: Client):
         _login(client, "mb_hours_admin", fog_role=Member.FogRole.ADMIN)
