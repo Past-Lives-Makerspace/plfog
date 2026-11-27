@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from unittest import mock
 
 import pytest
@@ -21,6 +21,9 @@ from classes.factories import (
 from classes.models import Category, ClassInstructor, ClassOffering
 from membership.models import Member
 from tests.membership.factories import MemberContactFactory
+
+# A day inside the Nov 2 to Dec 1, 2026 windows below, so the specs that name them read the same any day.
+IN_THE_WINDOW = timezone.make_aware(datetime(2026, 11, 16, 12))
 
 
 @pytest.fixture
@@ -1466,8 +1469,9 @@ def describe_a_flexible_class_page():
         assert 'cp-detail__spots--full">Registration closed' not in html
 
     def it_closes_registration_the_day_after_the_last_day_naming_the_date(db, client):
-        offering = _flexible(flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1))
-        with mock.patch("classes.models.timezone.localdate", return_value=date(2026, 12, 2)):
+        with mock.patch("django.utils.timezone.now", return_value=IN_THE_WINDOW):
+            offering = _flexible(flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1))
+        with mock.patch("django.utils.timezone.now", return_value=IN_THE_WINDOW + timedelta(days=16)):  # Dec 2
             html = _page(client, offering)
         assert 'cp-detail__spots--full">Registration closed' in html
         assert "data-flexible-closed>This class's booking window ended Dec 1, 2026.</div>" in html
@@ -1475,14 +1479,15 @@ def describe_a_flexible_class_page():
         assert "has already started" not in html.split("data-flexible-closed")[1].split("</div>")[0]
 
     def it_shows_the_window_under_the_flex_line_on_the_catalog_card(db, client):
-        _flexible(
-            title="Open Forge",
-            slug="open-forge",
-            flexible_starts_on=date(2026, 11, 2),
-            flexible_ends_on=date(2026, 12, 1),
-        )
-        _flexible(title="Any Time Forge", slug="any-time-forge")
-        html = client.get(reverse("classes:public_list")).content.decode()
+        with mock.patch("django.utils.timezone.now", return_value=IN_THE_WINDOW):
+            _flexible(
+                title="Open Forge",
+                slug="open-forge",
+                flexible_starts_on=date(2026, 11, 2),
+                flexible_ends_on=date(2026, 12, 1),
+            )
+            _flexible(title="Any Time Forge", slug="any-time-forge")
+            html = client.get(reverse("classes:public_list")).content.decode()
         assert html.count('<div class="cls-schedule__flex">Flexible: schedule with the instructor</div>') == 2
         assert html.count('<div class="cls-schedule__window">') == 1
         assert '<div class="cls-schedule__window">Nov 2 to Dec 1, 2026</div>' in html
@@ -1589,8 +1594,9 @@ def describe_the_rail_and_the_card_of_a_flexible_class():
             instructor=instructor,
             category=category,
             capacity=1,
-            flexible_starts_on=date(2026, 11, 2),
-            flexible_ends_on=date(2026, 12, 1),
+            # Open around today: the fixed sibling's 48 hour cutoff reads the database's clock, which no patch moves.
+            flexible_starts_on=timezone.localdate() - timedelta(days=7),
+            flexible_ends_on=timezone.localdate() + timedelta(days=7),
         )
         html = client.get(fixed.public_path).content.decode()
         # Both dates are listed now, this one included (#1260); the flexible row is the second.
@@ -1598,7 +1604,7 @@ def describe_the_rail_and_the_card_of_a_flexible_class():
         assert len(rows) == 2
         row = rows[1]
         assert flexible.register_path in row
-        assert "Flexible: schedule with the instructor · Nov 2 to Dec 1, 2026" in row
+        assert f"Flexible: schedule with the instructor · {flexible.flexible_window_label}" in row
         assert "cls-spots" not in row
         assert "None" not in row
 
