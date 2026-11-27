@@ -328,14 +328,16 @@ def describe_a_flexible_class_with_a_date_window():
 
     @respx.mock
     def it_announces_the_window_on_the_when_line(settings):
-        from datetime import date
+        from datetime import date, datetime
+        from unittest import mock
 
         settings.DISCORD_BOT_TOKEN = "tok"
         route = respx.post(_MESSAGES_URL).mock(return_value=httpx.Response(200, json={}))
         _enable_posts()
-        _flexible_class("Open Forge", flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1))
-
-        assert dcp.announce_new_classes() == 1
+        # Inside the window, so the class is still bookable whatever day the suite runs.
+        with mock.patch("django.utils.timezone.now", return_value=timezone.make_aware(datetime(2026, 11, 16, 12))):
+            _flexible_class("Open Forge", flexible_starts_on=date(2026, 11, 2), flexible_ends_on=date(2026, 12, 1))
+            assert dcp.announce_new_classes() == 1
         assert (
             _field(_sent_embeds(route)[0], "When")
             == "Flexible scheduling — arrange with the instructor · Nov 2 to Dec 1, 2026"

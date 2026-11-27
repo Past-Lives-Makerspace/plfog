@@ -103,7 +103,10 @@ def describe_tours_for_every_guide():
         olive = make_guide(full_legal_name="Olive Other")
         amber = make_guide(full_legal_name="Amber Capwell")
         today = timezone.localdate()
-        saturday = today + timedelta(days=(5 - today.weekday()) % 7 or 7)
+        # Olive's tour is the Thursday before; a Saturday at least three days out keeps it ahead too.
+        saturday = today + timedelta(days=(5 - today.weekday()) % 7)
+        if saturday - today < timedelta(days=3):
+            saturday += timedelta(weeks=1)
         TourHoursFactory(guide=gina, weekday=saturday.weekday(), start_time=time(11), end_time=time(15), seats=6)
         TourHoursFactory(guide=olive, weekday=(saturday - timedelta(days=2)).weekday(), start_time=time(16))
         dated = saturday + timedelta(days=1)
