@@ -1,0 +1,75 @@
+{% comment %}
+plHoursSet: one set of hours on My Hours (#1300, part 4), collapsed to a summary rebuilt from its own controls on every
+change: "Mon · 11:00 AM to 6:00 PM · Every week" and a chip per kind ticked, in the words hours.page writes them, and
+whether Starting on (any repeat but every week) and Last of the month (a month based repeat) show. Registered on
+whichever side of alpine:init this runs (FRONTEND.md, Scripts under hx-boost), as the Tours page's plTourHoursRow is.
+{% endcomment %}
+<script>
+(function () {
+  var MONTHLY = ['monthly', 'every_2_months', 'every_3_months', 'every_6_months', 'yearly'];
+  function text(select) { return select && select.selectedIndex >= 0 && select.value ? select.options[select.selectedIndex].text : ''; }
+  function shortDate(value) {
+    var bits = value.split('-');
+    return new Date(+bits[0], +bits[1] - 1, +bits[2]).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  }
+  function seatsText(input) {
+    var count = input ? parseInt(input.value, 10) : NaN;
+    return isNaN(count) ? '' : ' · ' + count + (count === 1 ? ' seat' : ' seats');
+  }
+  function chip(block) {
+    var on = block.querySelector('input[type="checkbox"][name$="-on"]');
+    if (!on || !on.checked) return null;
+    var css = Array.prototype.filter.call(block.classList, function (name) { return name.indexOf('pl-kind--') === 0; }).join(' ');
+    if (block.dataset.hoursKind === 'tours') {
+      return { css: css, text: 'Tours · ' + text(block.querySelector('select[name$="-tour_minutes"]')) + ' each' + seatsText(block.querySelector('input[name$="-seats"]')) };
+    }
+    var open = block.querySelector('input[type="radio"][name$="-booking_style"][value="open"]:checked');
+    var kind = text(block.querySelector('select[name$="-orientation_type"]')) || 'Any orientation';
+    if (open) return { css: css, text: kind + ' · any time in the window' };
+    return { css: css, text: kind + ' · fixed start times' + seatsText(block.querySelector('input[name$="-seats"]')) };
+  }
+  function definePlHoursSet() {
+    Alpine.data('plHoursSet', function (open) {
+      return {
+        editing: open,
+        when: '',
+        chips: [],
+        repeats: false,
+        monthly: false,
+        // A saved set keeps the server's words ("Every month on the 2nd Tuesday") until something changes.
+        init: function () {
+          var server = this.$root.querySelector('[data-hours-set-when]').textContent.trim();
+          this.refresh();
+          if (server) this.when = server;
+        },
+        refresh: function () {
+          var row = this.$root;
+          var field = function (name) { return row.querySelector('[name$="-' + name + '"]'); };
+          var parts = [];
+          var date = field('date');
+          if (date) {
+            parts.push(date.value ? shortDate(date.value) : 'Pick a date');
+          } else {
+            var day = text(field('weekday'));
+            parts.push(day ? day.slice(0, 3) : 'Pick a day');
+          }
+          parts.push(text(field('start_time')) + ' to ' + text(field('end_time')));
+          var cadence = field('cadence');
+          if (cadence) {
+            parts.push(text(cadence));
+            this.repeats = cadence.value !== 'weekly';
+            this.monthly = MONTHLY.indexOf(cadence.value) !== -1;
+          }
+          this.when = parts.join(' · ');
+          this.chips = Array.prototype.map.call(row.querySelectorAll('[data-hours-kind]'), chip).filter(Boolean);
+        },
+      };
+    });
+  }
+  if (window.Alpine && window.Alpine.data) {
+    definePlHoursSet();
+  } else {
+    document.addEventListener('alpine:init', definePlHoursSet);
+  }
+})();
+</script>

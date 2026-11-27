@@ -6,7 +6,7 @@ Attention (orientation requests waiting on the viewer and reservations awaiting 
 each the Bookings tab's own row, menu and modal, so there is no second Confirm or Approve path),
 What You Run (a card per guild and per piece of equipment in scope, with its state, its
 orientations and links into the pages that manage it) and Your Hours (the viewer's own recurring
-hours across every owner, with the existing Edit Hours modal). ``/orientations/manage/``, the
+hours across every owner, each Edit Hours opening My Hours, #1300). ``/orientations/manage/``, the
 old staff dashboard, 302s here.
 
 The sidebar entry and the page share one gate, :func:`membership.permissions.runs_bookings`. The
@@ -111,11 +111,10 @@ class EquipmentCard:
 
 @dataclass
 class HoursGroup:
-    """The viewer's recurring hours on one owner (a guild or a piece of equipment) and its Edit Hours URL."""
+    """The viewer's recurring hours on one owner (a guild or a piece of equipment); Edit Hours opens My Hours."""
 
     key: str
     owner_name: str
-    edit_url: str
     rules: list[OrientationAvailability] = field(default_factory=list)
 
     @property
@@ -235,9 +234,8 @@ def _hours_groups(member: Member) -> list[HoursGroup]:
     Only rules whose owner the member still leads or staffs (a guild) or still runs (equipment:
     a staff row, or the owning guild's leadership) are listed, which is exactly what
     ``can_edit_orienter_hours`` and its equipment twin let them open. A rule left behind on a
-    guild they have since left is that guild's Former Staff business, and its Edit Hours would
-    only be refused. Each group's Edit Hours URL is the owner's existing modal form scoped to
-    the member (``?orienter=<self>``); the modal's save lands on the owner's page as it always has.
+    guild they have since left is that guild's Former Staff business. Every group's Edit Hours
+    opens My Hours (#1300), where all of them are edited together.
     """
     led_or_staffed = member.staffed_guilds.values("pk")
     run = Equipment.objects.filter(
@@ -252,14 +250,9 @@ def _hours_groups(member: Member) -> list[HoursGroup]:
     groups: dict[str, HoursGroup] = {}
     for rule in rules:
         owner = rule.orientation_type.owner if rule.orientation_type is not None else cast(Guild, rule.guild)
-        if isinstance(owner, Guild):
-            key = f"guild-{owner.pk}"
-            edit_url = f"{reverse('hub_guild_orientation_hours_form', args=[owner.pk])}?orienter={member.pk}"
-        else:
-            key = f"equipment-{owner.pk}"
-            edit_url = f"{reverse('hub_equipment_orientation_hours_form', args=[owner.slug])}?orienter={member.pk}"
+        key = f"guild-{owner.pk}" if isinstance(owner, Guild) else f"equipment-{owner.pk}"
         if key not in groups:
-            groups[key] = HoursGroup(key=key, owner_name=owner.name, edit_url=edit_url)
+            groups[key] = HoursGroup(key=key, owner_name=owner.name)
         groups[key].rules.append(rule)
     return sorted(groups.values(), key=lambda group: group.owner_name.lower())
 

@@ -1,9 +1,10 @@
 """End-to-end: the Edit Hours row says its recurrence in plain words before a save (#430).
 
-A guild lead opens Manage Bookings, presses Edit Hours under Your Hours, and changes how a row
-repeats. The line under the row follows every change in the browser (plHoursRow,
+An admin opens a tool's Orientation tab, presses Edit Shared Hours, and changes how a shared row
+repeats (a person's own hours are set on My Hours since #1300; the shared rows keep this modal).
+The line under the row follows every change in the browser (plHoursRow,
 ``static/js/orientation_hours_recurrence.js``): every 3 weeks, then by the month with Last of
-the month, which shows only under a month based cadence. Saved, the guild's Orientations page
+the month, which shows only under a month based cadence. Saved, the tool's Shared Hours card
 reads the same words (``OrientationAvailability.cadence_display``). Run with ``pytest -m e2e`` on
 PostgreSQL.
 """
@@ -19,23 +20,35 @@ from playwright.sync_api import expect
 
 from membership.models import Member, OrientationAvailability
 from tests.membership.factories import (
-    GuildFactory,
-    GuildOrientationSettingsFactory,
+    EquipmentFactory,
     MembershipPlanFactory,
     OrientationAvailabilityFactory,
     OrientationTypeFactory,
 )
 
-LEAD_EMAIL = "hours-recurrence-lead@example.com"
+ADMIN_EMAIL = "hours-recurrence-admin@example.com"
 
 
-def _lead(login_via_code) -> Member:
+def _admin(login_via_code) -> Member:
     MembershipPlanFactory()
-    login_via_code(LEAD_EMAIL)
-    member = get_user_model().objects.get(username=LEAD_EMAIL).member
-    member.full_legal_name = "Lena Lead"
-    member.save(update_fields=["full_legal_name"])
+    login_via_code(ADMIN_EMAIL)
+    member = get_user_model().objects.get(username=ADMIN_EMAIL).member
+    member.full_legal_name = "Ada Admin"
+    member.fog_role = Member.FogRole.ADMIN
+    member.save(update_fields=["full_legal_name", "fog_role"])
     return member
+
+
+def _shared_row(page, live_server) -> tuple[object, OrientationAvailability]:
+    """A laser cutter with one shared Thursday row, its Edit Shared Hours modal open."""
+    laser = EquipmentFactory(name="Laser Cutter")
+    basics = OrientationTypeFactory(equipment_owned=True, equipment=laser, name="Laser Basics")
+    rule = OrientationAvailabilityFactory(
+        equipment_owned=True, orientation_type=basics, weekday=OrientationAvailability.Weekday.THURSDAY
+    )
+    page.goto(f"{live_server.url}{reverse('hub_equipment_manage', args=[laser.slug])}?tab=orientation")
+    page.get_by_role("button", name="Edit Shared Hours").click()
+    return laser, rule
 
 
 def _last_thursday_next_month() -> date:
@@ -53,15 +66,8 @@ def _short(day: date) -> str:
 def describe_the_edit_hours_row():
     def it_says_the_recurrence_in_plain_words_before_and_after_a_save(live_server, page, login_via_code):
         page.set_viewport_size({"width": 1280, "height": 900})
-        lead = _lead(login_via_code)
-        guild = GuildFactory(name="Tech Guild", guild_lead=lead)
-        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
-        laser = OrientationTypeFactory(guild=guild, name="Laser Basics")
-        rule = OrientationAvailabilityFactory(
-            guild=guild, orientation_type=laser, orienter=lead, weekday=OrientationAvailability.Weekday.THURSDAY
-        )
-        page.goto(f"{live_server.url}{reverse('hub_manage_bookings')}")
-        page.locator("[data-edit-hours]").first.click()
+        _admin(login_via_code)
+        laser, rule = _shared_row(page, live_server)
         row = page.locator("#modal-rule-rows .pl-hours-row").first
         summary = row.locator("[data-hours-summary]")
         expect(summary).to_have_text("Every Thursday · 6:00 p.m. to 7:00 p.m.")
@@ -89,9 +95,11 @@ def describe_the_edit_hours_row():
         row.locator('input[name$="-anchor_date"]').fill(anchor.isoformat())
         expect(summary).to_have_text(f"Every month on the last Thursday from {_short(anchor)} · 6:00 p.m. to 7:00 p.m.")
 
-        # The save redirects to the guild's Orientations page, whose schedule reads the saved rule.
-        page.get_by_role("button", name="Save", exact=True).click()
-        expect(page).to_have_url(f"{live_server.url}{reverse('hub_guild_orientations', args=[guild.pk])}")
+        # The save lands back on the tool's Orientation tab, whose Shared Hours card reads the saved rule.
+        page.locator("#edit-hours-modal-form").get_by_role("button", name="Save", exact=True).click()
+        expect(page).to_have_url(
+            f"{live_server.url}{reverse('hub_equipment_manage', args=[laser.slug])}?tab=orientation"
+        )
         expect(page.locator(".pl-orient-overview__rules li").first).to_contain_text(
             f"Every month on the last Thursday from {_short(anchor)}"
         )
@@ -101,15 +109,8 @@ def describe_the_edit_hours_row():
     def it_uses_the_words_the_saved_rule_line_uses(live_server, page, login_via_code):
         # Pins the preview to OrientationAvailability.cadence_display's words. Thursday
         # 2025-11-27 (the 4th of November) is past, so no "from" date joins the line.
-        lead = _lead(login_via_code)
-        guild = GuildFactory(name="Tech Guild", guild_lead=lead)
-        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
-        laser = OrientationTypeFactory(guild=guild, name="Laser Basics")
-        OrientationAvailabilityFactory(
-            guild=guild, orientation_type=laser, orienter=lead, weekday=OrientationAvailability.Weekday.THURSDAY
-        )
-        page.goto(f"{live_server.url}{reverse('hub_manage_bookings')}")
-        page.locator("[data-edit-hours]").first.click()
+        _admin(login_via_code)
+        _shared_row(page, live_server)
         row = page.locator("#modal-rule-rows .pl-hours-row").first
         summary = row.locator("[data-hours-summary]")
         cases = [

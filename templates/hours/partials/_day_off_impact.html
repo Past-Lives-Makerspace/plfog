@@ -1,0 +1,13 @@
+{% comment %}
+What a day off leaves standing (#1300): every tour and orientation already booked those days, which stays booked for
+the person to move or cancel; everything else stops being offered. Context: booked (lines, or None before a date), one_day.
+{% endcomment %}
+{% if booked %}
+<div class="pl-hours-dayoff-impact" role="status" data-hours-day-off-impact>
+  <strong>{{ booked|length }} booking{{ booked|length|pluralize }} {% if one_day %}that day{% else %}on those days{% endif %} stay{{ booked|length|pluralize:"s," }} booked:</strong>
+  <ul>{% for line in booked %}<li>{{ line }}</li>{% endfor %}</ul>
+  <p class="pl-hours-kind__note">Move or cancel them from Upcoming if you cannot make it. Everything else {% if one_day %}that day{% else %}on those days{% endif %} stops being offered, for every kind.</p>
+</div>
+{% elif booked is not None %}
+<div class="pl-hours-dayoff-impact" role="status" data-hours-day-off-impact>Nothing is booked {% if one_day %}that day{% else %}on those days{% endif %}. Nothing new can be booked then, for any kind.</div>
+{% endif %}

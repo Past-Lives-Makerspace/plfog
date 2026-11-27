@@ -676,8 +676,9 @@ def describe_the_staff_extras():
         lead, guild = _menu_world(client)
         content = _tab(client)
         assert "You have not posted any orientation hours yet." in content
-        assert f'href="/guilds/{guild.pk}/orientations/"' in content
-        assert lead is not None
+        # Hours are set on My Hours for every guild at once (#1300).
+        assert f'href="{reverse("hours:my_hours")}" data-hours-nudge-link' in content
+        assert lead is not None and guild is not None
 
     def it_opens_add_member_in_a_modal_with_the_paid_note(client: Client):
         _lead, guild = _menu_world(client)

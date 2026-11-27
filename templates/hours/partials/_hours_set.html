@@ -1,14 +1,56 @@
+{% load hub_tags %}
 {% comment %}
-One set of hours on My Hours (#1300, part 3): when, then a chip per kind it is open to, in that kind's colour.
-Read only; part 4 adds Edit. Context: row (hours.page.HoursSet).
+One set of hours on My Hours (#1300, parts 3 and 4, lifted from mockups/1300-my-hours.html ?view=edit): when, then a
+chip per kind it is open to, and Edit. Edit opens the body (FRONTEND rule 25): Day, From, Until and Repeats (or its date),
+then Open To, a block per kind (hours/partials/_open_to.html), then Delete (a saved set, behind the list's confirm) or
+Remove (a new one). The row saves itself (the formset contract in FRONTEND.md): a data-formset-row whose Delete and
+Remove are data-formset-remove, and plHoursSet (my_hours.html) rebuilds the summary from its own controls.
+
+Parameters:
+  form    — required, an hours.forms.HoursSetForm (or the formset's empty_form for the + Add Hours template)
+  summary — the set's hours.page.HoursSet, for a saved row's first paint
+  open    — True starts the row open (a new row, or one with errors)
+  kind_css — each kind's colour class, by key
 {% endcomment %}
-<div class="hub-card pl-tours-row" data-hours-set="{{ row.hours.pk }}">
+<div class="hub-card pl-tours-row" x-data="plHoursSet({{ open|yesno:'true,false' }})" @change="refresh()" @input="refresh()" @pl-autosave-error="editing = true" data-hours-set="{{ form.hours.pk|default:'' }}" data-formset-row>
   <div class="pl-hours-set__head">
     <div>
-      <span class="pl-hours-set__when">{{ row.when }}</span>
-      <div class="pl-hours-set__kinds">
-        {% for offer in row.offers %}<span class="pl-hours-set__kind pl-kind {{ offer.kind.css }}">{{ offer.text }}</span>{% empty %}<span class="hub-text-muted">Not open to anything yet.</span>{% endfor %}
+      <span class="pl-hours-set__when" x-text="when" data-hours-set-when>{{ summary.when }}</span>
+      <div class="pl-hours-set__kinds" data-hours-set-kinds>
+        <span class="hub-text-muted" x-show="!chips.length" data-hours-set-nothing>Not open to anything yet.</span>
+        <template x-for="chip in chips" :key="chip.text"><span class="pl-hours-set__kind pl-kind" :class="chip.css" x-text="chip.text"></span></template>
+        <noscript>{% for offer in summary.offers %}<span class="pl-hours-set__kind pl-kind {{ offer.kind.css }}">{{ offer.text }}</span>{% endfor %}</noscript>
       </div>
     </div>
+    <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" @click="editing = !editing" :aria-expanded="editing ? 'true' : 'false'" :aria-label="(editing ? 'Done editing ' : 'Edit ') + when" x-text="editing ? 'Done' : 'Edit'" data-hours-set-edit>Edit</button>
+  </div>
+  <div class="pl-tours-row__body" x-show="editing"{% if not open %} x-cloak{% endif %} data-hours-set-body>
+    {{ form.id }}
+    {% for error in form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+    <div class="pl-tours-row__fields">
+      {% if form.dated %}
+      <div class="pl-tours-row__field pl-tours-row__field--date">{% include "components/form_field.html" with field=form.date field_hint_off=True %}</div>
+      {% else %}
+      <div class="pl-tours-row__field pl-tours-row__field--day">{% include "components/form_field.html" with field=form.weekday field_hint_off=True %}</div>
+      {% endif %}
+      <div class="pl-tours-row__field pl-tours-row__field--time">{% include "components/form_field.html" with field=form.start_time field_hint_off=True %}</div>
+      <div class="pl-tours-row__field pl-tours-row__field--time">{% include "components/form_field.html" with field=form.end_time field_hint_off=True %}</div>
+      {% if not form.dated %}
+      <div class="pl-tours-row__field pl-tours-row__field--length">{% include "components/form_field.html" with field=form.cadence field_hint_off=True %}</div>
+      {% endif %}
+    </div>
+    {% if not form.dated %}
+    <div class="pl-tours-row__fields pl-hours-set__repeat" x-show="repeats" x-cloak data-hours-set-repeat>
+      <div class="pl-tours-row__field pl-tours-row__field--date">{% include "components/form_field.html" with field=form.anchor_date field_hint_off=True %}</div>
+      <div class="pl-tours-row__field pl-hours-set__last" x-show="monthly">{% include "components/form_field.html" with field=form.last_of_month field_hint_off=True %}</div>
+    </div>
+    {% endif %}
+    {% include "hours/partials/_open_to.html" %}
+    <div hidden>{{ form.DELETE }}</div>
+    {% if form.hours %}
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-hours-set-delete data-formset-remove>Delete</button>
+    {% else %}
+    <button type="button" class="pl-btn pl-btn--danger pl-btn--sm pl-btn--spaced" data-hours-set-remove data-formset-remove>Remove</button>
+    {% endif %}
   </div>
 </div>

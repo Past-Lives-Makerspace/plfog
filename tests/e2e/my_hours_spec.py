@@ -40,7 +40,7 @@ DESKTOP = {"width": 1280, "height": 1000}
 PHONE = {"width": 390, "height": 844}
 
 
-def _capture(page, name: str) -> None:
+def _capture(page, name: str, *, full_page: bool = True) -> None:
     """Save dark and light pictures at desktop and phone widths, when CAPTURE_1300_DIR is set."""
     if not CAPTURE_DIR:
         return
@@ -55,7 +55,7 @@ def _capture(page, name: str) -> None:
                 theme,
             )
             page.wait_for_timeout(600)
-            page.screenshot(path=str(Path(CAPTURE_DIR) / f"1300-{name}-{size_name}-{theme}.png"), full_page=True)
+            page.screenshot(path=str(Path(CAPTURE_DIR) / f"1300-{name}-{size_name}-{theme}.png"), full_page=full_page)
     page.evaluate("() => document.documentElement.removeAttribute('data-theme')")
     page.set_viewport_size(DESKTOP)
 
@@ -127,7 +127,8 @@ def _seed(robin: Member, monday: date) -> None:
         busy_spans=[[_at(day["fri"], 10).isoformat(), _at(day["fri"], 13).isoformat()]],
     )
     TourDayOffFactory(guide=robin, starts_on=day["tue"], ends_on=day["tue"], note="Out of town")
-    TourDayOffFactory(guide=robin, starts_on=date(monday.year, 12, 22), ends_on=date(monday.year + 1, 1, 2))
+    # A longer break three weeks on, clear of the week on show and the one after it.
+    TourDayOffFactory(guide=robin, starts_on=monday + timedelta(weeks=3), ends_on=monday + timedelta(weeks=3, days=11))
 
 
 def describe_my_hours():
@@ -135,43 +136,49 @@ def describe_my_hours():
         settings.GOOGLE_OAUTH_CLIENT_ID = "client-id"
         settings.GOOGLE_OAUTH_CLIENT_SECRET = "client-secret"
         robin = _robin()
+        # Next week, so every seeded day is still ahead whatever day the suite runs.
         today = timezone.localdate()
-        monday = today - timedelta(days=today.weekday())
+        monday = today - timedelta(days=today.weekday()) + timedelta(weeks=1)
         _seed(robin, monday)
         login_via_code(EMAIL)
         page.set_viewport_size(DESKTOP)
-        page.goto(f"{live_server.url}{reverse('hours:my_hours')}")
+        page.goto(f"{live_server.url}{reverse('hours:my_hours')}?week_offset=1")
 
         week = page.locator("[data-hours-week]")
         week.wait_for()
         legend = [text.strip() for text in week.locator("[data-hours-kind]").all_inner_texts()]
         assert legend == ["Tours", "Printmaking Guild orientations", "Ceramics Guild orientations"]
-        mon = week.locator(f'[data-hours-day="{monday.isoformat()}"]')
-        assert mon.locator('[data-hours-chip="open"]').inner_text().split() == ["11a", "to", "6p", "Open"]
-        booked = [text.replace("\n", " ") for text in mon.locator('[data-hours-chip="booked"]').all_inner_texts()]
-        assert booked == ["1p to 2p Tour · 3 visitors", "3p to 4p Printmaking Guild · Sam K."]
-        tue = week.locator(f'[data-hours-day="{(monday + timedelta(days=1)).isoformat()}"]')
-        assert tue.locator("[data-hours-day-off]").is_visible()
-        assert tue.locator("[data-hours-chip]").count() == 0
-        thu = week.locator(f'[data-hours-day="{(monday + timedelta(days=3)).isoformat()}"]')
-        assert "Class: Intro to Linocut" in thu.locator('[data-hours-chip="busy"]').inner_text()
-        fri = week.locator(f'[data-hours-day="{(monday + timedelta(days=4)).isoformat()}"]')
-        assert "Busy in Google" in fri.locator('[data-hours-chip="busy"]').inner_text()
+        mon = week.locator(f'[data-hourgrid-day="{monday.isoformat()}"]')
+        open_hours = mon.locator('[data-hours-block="open"] > .pl-hourgrid__label').inner_text()
+        assert open_hours.split() == ["11:00", "AM", "to", "6:00", "PM"]
+        booked = [text.split("\n") for text in mon.locator('[data-hours-block="booked"]').all_inner_texts()]
+        assert [[part.split() for part in parts] for parts in booked] == [
+            [["1:00", "PM"], ["Tour", "·", "3", "visitors"]],
+            [["3:00", "PM"], ["Printmaking", "Guild", "·", "Sam", "K."]],
+        ]
+        tue = week.locator(f'[data-hourgrid-day="{(monday + timedelta(days=1)).isoformat()}"]')
+        assert tue.locator(".pl-hourgrid__daynote").inner_text().strip().lower() == "day off"
+        assert tue.locator("[data-hours-block]").count() == 0
+        thu = week.locator(f'[data-hourgrid-day="{(monday + timedelta(days=3)).isoformat()}"]')
+        assert "Class: Intro to Linocut" in thu.locator('[data-hours-block="busy"]').inner_text()
+        fri = week.locator(f'[data-hourgrid-day="{(monday + timedelta(days=4)).isoformat()}"]')
+        assert "Busy in Google" in fri.locator('[data-hours-block="busy"]').inner_text()
 
         weekly = page.locator("[data-hours-weekly] [data-hours-set]")
         assert weekly.count() == 3
         assert "Mon · 11:00 AM to 6:00 PM · Every week" in weekly.first.inner_text()
         assert "Every other week" in weekly.nth(2).inner_text()
         assert page.locator('[data-hours-gcal="connected"]').get_by_text(EMAIL).is_visible()
-        assert page.locator("[data-hours-days-off]").get_by_text("Out of town").is_visible()
+        days_off = page.locator("[data-hours-days-off]")
+        assert days_off.locator("[data-hours-day-off-row]").count() == 2
+        assert days_off.get_by_text("Out of town").is_visible()
         assert page.locator("[data-hours-notice]").is_visible()
-        assert page.locator("main a[href*='/edit'], main button.pl-btn--danger").count() == 0
         _capture(page, "my-hours-page")
 
         with page.expect_navigation():
             page.locator("[data-hours-week-next]").click()
         next_monday = monday + timedelta(weeks=1)
-        page.locator(f'[data-hours-day="{next_monday.isoformat()}"]').wait_for()
+        page.locator(f'[data-hourgrid-day="{next_monday.isoformat()}"]').wait_for()
         assert page.locator("[data-hours-week] h2").inner_text().strip().lower().startswith("week of")
 
         page.set_viewport_size(PHONE)

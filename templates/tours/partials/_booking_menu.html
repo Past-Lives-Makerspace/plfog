@@ -4,7 +4,8 @@ booking, tab and the row's rights (booking.can_act: its guide or an admin; booki
 own guide, #1166) from the table loop. Upcoming: a request offers Confirm (posts at once) and Decline (its
 confirm in partials/_booking_modals.html) to its own guide; a booked tour offers Edit (the guide and the
 time, the Edit Tour modal) and Cancel Tour to whoever may act. Past: Mark Attended and Mark No Show, posted
-over htmx so the row comes back. Every row offers Notes, which loads the booking's thread into the page's
+over htmx so the row comes back, then on an attended or not marked tour Send Follow Up (#1345), which
+reads Send Follow Up Again behind its confirm once one went. Every row offers Notes, which loads the booking's thread into the page's
 Notes modal; a row the viewer may not act on offers Notes alone.
 {% endcomment %}
 {% with pks=booking.pk|stringformat:"s" %}
@@ -33,5 +34,16 @@ Notes modal; a row the viewer may not act on offers Notes alone.
   <button type="submit" name="outcome" value="attended" class="pl-row-menu__item" role="menuitem" aria-pressed="{% if booking.status == 'attended' %}true{% else %}false{% endif %}" data-tour-mark="attended">Mark Attended</button>
   <button type="submit" name="outcome" value="no_show" class="pl-row-menu__item" role="menuitem" aria-pressed="{% if booking.status == 'no_show' %}true{% else %}false{% endif %}" data-tour-mark="no_show">Mark No Show</button>
 </form>
+{% if booking.offers_follow_up %}
+<div class="pl-row-menu__divider" role="separator"></div>
+{% if booking.follow_up_sent_at %}
+<button type="button" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus(); $dispatch('open-confirm', 'tour-follow-up-{{ pks }}')" data-tour-follow-up-again="{{ booking.pk }}">Send Follow Up Again</button>
+{% else %}
+<form method="post" action="{% url 'tours:booking_follow_up' booking.pk %}" hx-post="{% url 'tours:booking_follow_up' booking.pk %}" hx-target="#tour-booking-{{ booking.pk }}" hx-swap="outerHTML" hx-disabled-elt="find button">
+  {% csrf_token %}
+  <button type="submit" class="pl-row-menu__item" role="menuitem" data-tour-follow-up="{{ booking.pk }}" data-guidance-target="tours.send-follow-up">Send Follow Up</button>
+</form>
+{% endif %}
+{% endif %}
 {% endif %}
 {% endwith %}

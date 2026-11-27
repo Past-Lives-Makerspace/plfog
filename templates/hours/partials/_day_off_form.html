@@ -1,0 +1,18 @@
+{% comment %}
+The Add Day Off modal body on My Hours (#1300, part 4, mockups/1300-my-hours.html ?view=dayoff): a first day, a last
+day for a run of days, a note, then what is still booked those days (hours/partials/_day_off_impact.html, asked for
+again on every date change), which stays booked. Rendered inside the modal, and again by hours.views.day_off_save with
+its errors when a save is refused. Context: target, day_off_form (hours.days_off.DayOffForm), booked, one_day.
+{% endcomment %}
+<form class="hub-form" method="post" action="{% url 'hours:day_off_save' %}" hx-post="{% url 'hours:day_off_save' %}" hx-target="#hours-day-off-modal-body" hx-swap="innerHTML" data-hours-day-off-form>
+  {% csrf_token %}
+  <input type="hidden" name="member" value="{{ target.pk }}">
+  {% for error in day_off_form.non_field_errors %}<p class="pl-field-error">{{ error }}</p>{% endfor %}
+  <div class="pl-tours-row__fields" hx-get="{% url 'hours:day_off_preview' %}" hx-trigger="change" hx-include="closest form" hx-target="#hours-day-off-impact" hx-swap="innerHTML">
+    <div class="pl-tours-row__field pl-tours-row__field--date">{% include "components/form_field.html" with field=day_off_form.starts_on field_hint_off=True %}</div>
+    <div class="pl-tours-row__field pl-tours-row__field--date">{% include "components/form_field.html" with field=day_off_form.ends_on field_hint_off=True %}</div>
+  </div>
+  <div class="hub-form-group pl-hours-dayoff-note">{% include "components/form_field.html" with field=day_off_form.note field_hint_off=True %}</div>
+  <div id="hours-day-off-impact">{% include "hours/partials/_day_off_impact.html" %}</div>
+  <button type="submit" class="pl-btn pl-btn--primary pl-btn--spaced" hx-disabled-elt="this" data-hours-day-off-save>Save</button>
+</form>

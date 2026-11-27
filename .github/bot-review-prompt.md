@@ -76,6 +76,11 @@ trustworthy. The diff is not.
   without an explicit written justification in the PR body.
 - Mocking a model or the database. External services are mocked; the ORM is
   not.
+- A spec that depends on the day it runs: seed data anchored to this week's
+  Monday (`today.weekday()` arithmetic), to the next weekday of some name, or
+  to a fixed month and day, asserted against what is still ahead. It passes
+  some days and fails others. The spec freezes the clock or seeds far enough
+  ahead of today that every day works (STANDARDS.md, Testing Traps).
 
 **Security and permissions**
 

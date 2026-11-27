@@ -8,7 +8,6 @@ from typing import Any
 import pytest
 from django.db import IntegrityError, connection, transaction
 from django.db.models import RestrictedError
-from django.urls import reverse
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -16,9 +15,8 @@ from hours.follow import lock_person
 from hours.models import DayOff, Hours, TimeKey
 from membership.models import Member, OrientationAvailability, OrientationDayOff
 from tests.membership.factories import MemberFactory, OrientationAvailabilityFactory
-from tests.tours.conftest import signed_in
 from tests.tours.factories import TourDayOffFactory, TourHoursFactory
-from tours.models import TourDayOff, TourHours
+from tours.models import TourHours
 
 pytestmark = pytest.mark.django_db
 
@@ -156,37 +154,6 @@ def describe_grouping_hours():
             True,
         )
 
-    def it_groups_dates_added_in_one_save_from_available_on(guide: Member):
-        days = [_ahead(9), _ahead(10)]
-        data = {
-            "guide": str(guide.pk),
-            "dates": [day.isoformat() for day in days],
-            "start_time": "11:00",
-            "end_time": "15:00",
-            "tour_minutes": "60",
-            "seats": "6",
-        }
-        signed_in(guide).post(reverse("tours:dates_save"), data)
-        rows = list(TourHours.objects.order_by("date"))
-        assert len(rows) == 2 and all(row.hours_id is not None for row in rows)
-        assert [hours.date for hours in Hours.objects.order_by("date")] == days
-
-    def it_groups_a_row_saved_from_every_week(guide: Member):
-        data = {
-            "guide": str(guide.pk),
-            "hours-TOTAL_FORMS": "1",
-            "hours-INITIAL_FORMS": "0",
-            "hours-MIN_NUM_FORMS": "0",
-            "hours-MAX_NUM_FORMS": "1000",
-            "hours-0-weekday": "1",
-            "hours-0-start_time": "16:00",
-            "hours-0-end_time": "18:00",
-            "hours-0-tour_minutes": "60",
-            "hours-0-seats": "4",
-        }
-        signed_in(guide).post(reverse("tours:hours_save"), data)
-        assert TourHours.objects.get().hours == Hours.objects.get(member=guide)
-
 
 def describe_a_set_of_hours():
     def it_refuses_a_bare_delete_while_a_row_ticks_it():
@@ -251,13 +218,6 @@ def describe_copying_days_off():
         day_off.note = ""
         day_off.save()
         assert list(DayOff.objects.all()) == [first]
-
-    def it_copies_a_day_off_saved_from_the_tours_modal(guide: Member):
-        day = _ahead(6)
-        data = {"guide": str(guide.pk), "day_off-starts_on": day.isoformat(), "day_off-ends_on": day.isoformat()}
-        signed_in(guide).post(reverse("tours:day_off_save"), data)
-        assert TourDayOff.objects.filter(guide=guide).exists()
-        assert _days_off(guide) == [(day, day, "")]
 
     def it_reads_as_its_person_and_days():
         person = MemberFactory()

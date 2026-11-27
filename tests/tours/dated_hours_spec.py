@@ -1,9 +1,7 @@
-"""Tour hours on picked dates (#1160): the Available On calendar on My Hours, and what visitors are offered."""
+"""Tour hours on picked dates (#1160): the model, what visitors are offered and booking them. Adding them is My Hours' + Add Dates since #1300 (``tests/hours/editing_spec.py``)."""
 
 from __future__ import annotations
 
-import json
-import re
 import threading
 import time as clock
 from datetime import UTC, date, time, timedelta
@@ -17,6 +15,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
+from hours.follow import lock_person
 from membership.models import Member
 from tests.tours.conftest import make_guide, signed_in
 from tests.tours.factories import (
@@ -29,14 +28,9 @@ from tests.tours.factories import (
 from tours import booking as booking_service
 from tours.availability import open_tour_at, open_tours
 from tours.booking import TourFullError, Visitor, book_tour
-from tours.forms import TourDatesForm
-from tours.models import FacilityTourSettings, TourBooking, TourDayOff, TourHours, day_label, lock_guide_hours
+from tours.models import FacilityTourSettings, TourBooking, TourDayOff, TourHours, day_label
 
 pytestmark = pytest.mark.django_db
-
-HOURS = reverse("tours:hours")
-SAVE = reverse("tours:hours_save")
-DATES_SAVE = reverse("tours:dates_save")
 
 # 2030-01-07 is a Monday. Saturday the 12th has dated hours in the availability specs; Saturday the
 # 19th, the same weekday a week on, has none.
@@ -57,42 +51,6 @@ def _dated(guide: Member, day: date, **kwargs: Any) -> TourHours:
     values: dict[str, Any] = {"start_time": time(11), "end_time": time(15), "seats": 6}
     values.update(kwargs)
     return TourHoursFactory(guide=guide, date=day, weekday=day.weekday(), **values)
-
-
-def _post(guide: Member, *days: date, **values: str) -> dict[str, Any]:
-    data: dict[str, Any] = {
-        "guide": str(guide.pk),
-        "dates": [day.isoformat() for day in days],
-        "start_time": "11:00",
-        "end_time": "15:00",
-        "tour_minutes": "60",
-        "seats": "6",
-    }
-    data.update(values)
-    return data
-
-
-def _weekly_post(guide: Member, **values: str) -> dict[str, str]:
-    """One new Every Week row: Tuesday 4:00 to 6:00 PM, 60 minute tours, 4 seats unless given."""
-    row = {"weekday": "1", "start_time": "16:00", "end_time": "18:00", "tour_minutes": "60", "seats": "4", **values}
-    return {
-        "guide": str(guide.pk),
-        "hours-TOTAL_FORMS": "1",
-        "hours-INITIAL_FORMS": "0",
-        "hours-MIN_NUM_FORMS": "0",
-        "hours-MAX_NUM_FORMS": "1000",
-        **{f"hours-0-{name}": value for name, value in row.items()},
-    }
-
-
-def _errors(content: str) -> list[str]:
-    return re.findall(r"data-tour-dates-error>([^<]*)</p>", content)
-
-
-def _calendar(content: str) -> dict[str, Any]:
-    match = re.search(r'<script id="tour-dates-config" type="application/json">(.*?)</script>', content)
-    assert match is not None
-    return json.loads(match.group(1))
 
 
 def _visitor(party: int = 2, email: str = "sam@example.com") -> Visitor:
@@ -328,278 +286,7 @@ def describe_the_surfaces_that_offer_tours():
         assert f"{guide.pk}-{local(day, 13).astimezone(UTC):%Y%m%dT%H%MZ}" in response.content.decode()
 
 
-def describe_adding_dates():
-    def it_adds_hours_on_every_picked_date_in_one_save(guide: Member):
-        days = [_ahead(5), _ahead(6), _ahead(5, weeks=2)]
-        response = signed_in(guide).post(DATES_SAVE, _post(guide, *days), follow=True)
-        rows = list(TourHours.objects.dated().order_by("date"))
-        assert [(row.date, row.weekday, row.start_time, row.end_time, row.tour_minutes, row.seats) for row in rows] == [
-            (day, day.weekday(), time(11), time(15), 60, 6) for day in sorted(days)
-        ]
-        assert response.redirect_chain == [(HOURS, 302)]
-        assert "Added 3 dates." in response.content.decode()
-
-    def it_says_one_date_for_one(guide: Member):
-        response = signed_in(guide).post(DATES_SAVE, _post(guide, _ahead(2)), follow=True)
-        assert "Added 1 date." in response.content.decode()
-
-    def it_counts_a_date_picked_twice_once(guide: Member):
-        day = _ahead(2)
-        data = _post(guide, day)
-        data["dates"] = [day.isoformat(), day.isoformat(), "not-a-date"]
-        signed_in(guide).post(DATES_SAVE, data)
-        assert TourHours.objects.dated().count() == 1
-
-    def it_asks_for_a_date(guide: Member):
-        response = signed_in(guide).post(DATES_SAVE, _post(guide))
-        assert response.status_code == 200
-        assert _errors(response.content.decode()) == ["Pick at least one date."]
-
-    def it_refuses_every_date_that_clashes_and_keeps_nothing(guide: Member):
-        # One Saturday and the two days after it, so the dates run in this order on any weekday (#1202).
-        saturday = _ahead(5)
-        sunday, monday = saturday + timedelta(days=1), saturday + timedelta(days=2)
-        TourHoursFactory(guide=guide, weekday=5, start_time=time(11), end_time=time(16))
-        _dated(guide, sunday, start_time=time(13), end_time=time(15))
-        TourDayOffFactory(guide=guide, starts_on=monday, ends_on=monday)
-        fine = _ahead(2)
-        response = signed_in(guide).post(DATES_SAVE, _post(guide, saturday, sunday, monday, fine))
-        assert response.status_code == 200
-        assert _errors(response.content.decode()) == [
-            f"{day_label(saturday)}: overlaps your weekly Saturday hours, 11:00 AM to 4:00 PM.",
-            f"{day_label(sunday)}: overlaps hours already on that date, 1:00 PM to 3:00 PM.",
-            f"{day_label(monday)} is a day off. Delete the day off first.",
-        ]
-        assert TourHours.objects.dated().count() == 1
-
-    def it_lets_back_to_back_hours_on_one_date_through(guide: Member):
-        day = _ahead(3)
-        _dated(guide, day, start_time=time(9), end_time=time(11))
-        signed_in(guide).post(DATES_SAVE, _post(guide, day))
-        assert TourHours.objects.filter(date=day).count() == 2
-
-    def it_refuses_a_past_date_and_one_more_than_a_year_ahead(guide: Member):
-        today = timezone.localdate()
-        past, far = today - timedelta(days=1), today + timedelta(days=366)
-        response = signed_in(guide).post(DATES_SAVE, _post(guide, past, far))
-        assert _errors(response.content.decode()) == [
-            f"{day_label(past)} has passed. Pick today or a day ahead.",
-            f"{day_label(far)} is more than a year ahead.",
-        ]
-        assert not TourHours.objects.exists()
-
-    def it_wants_to_after_from_and_room_for_a_tour(guide: Member):
-        client = signed_in(guide)
-        backwards = client.post(DATES_SAVE, _post(guide, _ahead(2), start_time="15:00", end_time="11:00"))
-        assert "End time must be after the start time." in backwards.content.decode()
-        short = client.post(DATES_SAVE, _post(guide, _ahead(2), start_time="11:00", end_time="11:30"))
-        assert "These hours are shorter than one tour." in short.content.decode()
-        assert not TourHours.objects.exists()
-
-    def it_reopens_the_panel_with_the_picks_and_fields_kept(guide: Member):
-        saturday = _ahead(5)
-        TourDayOffFactory(guide=guide, starts_on=saturday, ends_on=saturday)
-        days = [saturday, saturday + timedelta(days=1)]
-        content = signed_in(guide).post(DATES_SAVE, _post(guide, *days, seats="9")).content.decode()
-        assert "plTourDates('tour-dates-config', true)" in content
-        assert _calendar(content)["picked"] == [day.isoformat() for day in days]
-        assert 'name="seats" value="9"' in content
-        assert "data-tour-dates-refused" in content
-
-    def it_starts_the_panel_closed_with_tour_settings_defaults(guide: Member):
-        FacilityTourSettings.load()
-        FacilityTourSettings.objects.update(default_tour_minutes=75, default_seats=8)
-        content = signed_in(guide).get(HOURS).content.decode()
-        assert "plTourDates('tour-dates-config', false)" in content
-        assert "data-tour-dates-hint>Tap each day you are free. Tap it again to unpick.</p>" in content
-        assert 'x-show="!open" @click="open = true"' in content
-        assert 'name="seats" value="8"' in content
-        assert '<option value="75" selected>75</option>' in content
-        assert 'data-guidance-target="tours.add-dates"' in content
-
-    def it_marks_the_days_with_hours_and_the_days_off(guide: Member):
-        today = timezone.localdate()
-        _dated(guide, today + timedelta(days=3))
-        _dated(guide, today - timedelta(days=3))
-        TourDayOffFactory(guide=guide, starts_on=today + timedelta(days=4), ends_on=today + timedelta(days=5))
-        calendar = _calendar(signed_in(guide).get(HOURS).content.decode())
-        assert calendar == {
-            "today": today.isoformat(),
-            "last": (today + timedelta(days=365)).isoformat(),
-            "dated": [(today + timedelta(days=3)).isoformat()],
-            "off": [(today + timedelta(days=4)).isoformat(), (today + timedelta(days=5)).isoformat()],
-            "picked": [],
-        }
-
-    def it_adds_a_tour_length_tour_settings_names_off_the_list(guide: Member):
-        FacilityTourSettings.load()
-        FacilityTourSettings.objects.update(default_tour_minutes=75)
-        form = TourDatesForm(guide=guide, defaults=FacilityTourSettings.load())
-        assert ("75", "75") in form.fields["tour_minutes"].choices  # type: ignore[attr-defined]
-        assert form.picked == [] and form.picked_iso == []
-
-
-def describe_the_available_on_list():
-    def it_shows_the_empty_state(guide: Member):
-        content = signed_in(guide).get(HOURS).content.decode()
-        assert (
-            "data-tour-dates-empty>No dates added yet. Add the days you are free, a month at a time if you like.</p>"
-            in content
-        )
-
-    def it_lists_upcoming_dated_hours_soonest_first(guide: Member):
-        today = timezone.localdate()
-        later = _dated(guide, today + timedelta(days=9), seats=1)
-        soon = _dated(guide, today + timedelta(days=2))
-        _dated(guide, today - timedelta(days=1))
-        content = signed_in(guide).get(HOURS).content.decode()
-        assert re.findall(r'data-tour-dated="(\d+)"', content) == [str(soon.pk), str(later.pk)]
-        assert soon.dated_summary in content
-        assert "Delete these hours?" in content
-        assert "Visitors can no longer book these times. Tours already booked stay booked." in content
-
-    def it_deletes_one_window_and_says_so(guide: Member):
-        row = _dated(guide, _ahead(2))
-        other = _dated(guide, _ahead(3))
-        response = signed_in(guide).post(reverse("tours:dates_delete", args=[row.pk]), follow=True)
-        assert response.redirect_chain == [(HOURS, 302)]
-        assert "Hours deleted." in response.content.decode()
-        assert list(TourHours.objects.all()) == [other]
-
-    def it_never_deletes_weekly_hours_through_it(guide: Member):
-        weekly = TourHoursFactory(guide=guide)
-        assert signed_in(guide).post(reverse("tours:dates_delete", args=[weekly.pk])).status_code == 404
-        assert TourHours.objects.filter(pk=weekly.pk).exists()
-
-    def it_refuses_a_guide_deleting_another_guides_dates(guide: Member):
-        row = _dated(make_guide(), _ahead(2))
-        assert signed_in(guide).post(reverse("tours:dates_delete", args=[row.pk])).status_code == 403
-        assert TourHours.objects.filter(pk=row.pk).exists()
-
-    def it_refuses_a_get(guide: Member):
-        row = _dated(guide, _ahead(2))
-        assert signed_in(guide).get(reverse("tours:dates_delete", args=[row.pk])).status_code == 405
-
-
-def describe_the_every_week_section():
-    def it_says_it_repeats_and_points_irregular_schedules_at_available_on(guide: Member):
-        content = signed_in(guide).get(HOURS).content.decode()
-        assert (
-            "Hours that repeat every week. If your schedule changes from week to week, leave this empty and use "
-            "Available On." in content
-        )
-        assert content.index(">Every Week</h2>") < content.index(">Available On</h2>") < content.index(">Days Off</h2>")
-        assert content.index(">Days Off</h2>") < content.index("data-tour-gcal")
-
-    def it_never_shows_dated_rows(guide: Member):
-        weekly = TourHoursFactory(guide=guide)
-        dated = _dated(guide, _ahead(2))
-        content = signed_in(guide).get(HOURS).content.decode()
-        assert 'name="hours-INITIAL_FORMS" value="1"' in content
-        assert f'name="hours-0-id" value="{weekly.pk}"' in content
-        assert f'value="{dated.pk}" id="id_hours' not in content
-
-    def it_saves_the_weekly_rows_and_leaves_dated_rows_alone(guide: Member):
-        dated = _dated(guide, _ahead(5))
-        data = {
-            "guide": str(guide.pk),
-            "hours-TOTAL_FORMS": "1",
-            "hours-INITIAL_FORMS": "0",
-            "hours-MIN_NUM_FORMS": "0",
-            "hours-MAX_NUM_FORMS": "1000",
-            "hours-0-weekday": "1",
-            "hours-0-start_time": "16:00",
-            "hours-0-end_time": "18:00",
-            "hours-0-tour_minutes": "60",
-            "hours-0-seats": "4",
-        }
-        assert signed_in(guide).post(SAVE, data).status_code == 302
-        assert TourHours.objects.weekly().count() == 1
-        assert TourHours.objects.filter(pk=dated.pk).exists()
-
-    def it_refuses_weekly_hours_over_upcoming_dated_hours_naming_the_soonest_date(guide: Member):
-        later, soon = _ahead(5, weeks=2), _ahead(5)
-        _dated(guide, later)
-        _dated(guide, soon, start_time=time(12), end_time=time(14))
-        _dated(guide, soon - timedelta(weeks=2), start_time=time(9), end_time=time(17))  # passed: never named
-        data = _weekly_post(guide, weekday="5", start_time="11:00", end_time="16:00")
-        response = signed_in(guide).post(SAVE, data)
-        assert response.status_code == 200
-        assert (
-            f"Every Saturday 11:00 AM to 4:00 PM overlaps your hours on {day_label(soon)}, 12:00 PM to 2:00 PM."
-            in response.content.decode()
-        )
-        assert not TourHours.objects.weekly().exists()
-
-    def it_lets_weekly_hours_beside_dated_hours_that_day_through(guide: Member):
-        _dated(guide, _ahead(5))
-        assert (
-            signed_in(guide)
-            .post(SAVE, _weekly_post(guide, weekday="5", start_time="15:00", end_time="17:00"))
-            .status_code
-            == 302
-        )
-        assert TourHours.objects.weekly().count() == 1
-
-    def it_ignores_past_dated_hours(guide: Member):
-        past = timezone.localdate() - timedelta(days=3)
-        _dated(guide, past)
-        data = _weekly_post(guide, weekday=str(past.weekday()), start_time="11:00", end_time="15:00")
-        assert signed_in(guide).post(SAVE, data).status_code == 302
-
-
-def describe_an_admin_for_another_guide():
-    def it_adds_and_deletes_dates_for_them(admin: Member, guide: Member):
-        client = signed_in(admin)
-        content = client.get(HOURS, {"guide": guide.pk}).content.decode()
-        assert "data-tour-dates-panel" in content
-        response = client.post(DATES_SAVE, _post(guide, _ahead(2)))
-        assert response["Location"] == f"{HOURS}?guide={guide.pk}"
-        row = TourHours.objects.get()
-        assert row.guide == guide
-        response = client.post(reverse("tours:dates_delete", args=[row.pk]))
-        assert response["Location"] == f"{HOURS}?guide={guide.pk}"
-        assert not TourHours.objects.exists()
-
-    def it_refuses_a_guide_adding_dates_for_another(guide: Member):
-        other = make_guide()
-        assert signed_in(guide).post(DATES_SAVE, _post(other, _ahead(2))).status_code == 403
-        assert not TourHours.objects.exists()
-
-
 def describe_saving_under_the_guide_lock():
-    @pytest.mark.django_db(transaction=True)
-    def it_refuses_to_lock_outside_a_transaction():
-        with pytest.raises(RuntimeError, match="transaction.atomic"):
-            lock_guide_hours(make_guide())
-
-    @pytest.mark.postgres_only
-    def it_locks_the_guide_before_checking_and_adding_dates(guide: Member):
-        client = signed_in(guide)
-        with CaptureQueriesContext(connection) as queries:
-            assert client.post(DATES_SAVE, _post(guide, _ahead(2))).status_code == 302
-        sql = [query["sql"] for query in queries.captured_queries]
-        lock = next(
-            index for index, text in enumerate(sql) if "FOR NO KEY UPDATE" in text and "membership_member" in text
-        )
-        assert '"membership_member"' in sql[lock] and str(guide.pk) in sql[lock]
-        insert = next(index for index, text in enumerate(sql) if text.startswith('INSERT INTO "tours_tourhours"'))
-        check = next(index for index, text in enumerate(sql) if '"tours_tourdayoff"' in text)
-        assert lock < check < insert
-
-    @pytest.mark.postgres_only
-    def it_locks_the_guide_before_checking_and_saving_weekly_hours(guide: Member):
-        client = signed_in(guide)
-        with CaptureQueriesContext(connection) as queries:
-            assert client.post(SAVE, _weekly_post(guide)).status_code == 302
-        sql = [query["sql"] for query in queries.captured_queries]
-        lock = next(
-            index for index, text in enumerate(sql) if "FOR NO KEY UPDATE" in text and "membership_member" in text
-        )
-        assert '"membership_member"' in sql[lock]
-        insert = next(index for index, text in enumerate(sql) if text.startswith('INSERT INTO "tours_tourhours"'))
-        assert lock < insert
-
     @pytest.mark.postgres_only
     @pytest.mark.django_db(transaction=True)
     def it_lets_a_booking_through_while_a_save_holds_the_guide():
@@ -612,7 +299,7 @@ def describe_saving_under_the_guide_lock():
         def hold() -> None:
             try:
                 with transaction.atomic():
-                    lock_guide_hours(guide)
+                    lock_person(guide.pk)
                     held.set()
                     release.wait(5)
             finally:
@@ -630,40 +317,3 @@ def describe_saving_under_the_guide_lock():
             release.set()
             holder.join()
         assert TourBooking.objects.filter(guide=guide).count() == 1
-
-    @pytest.mark.postgres_only
-    @pytest.mark.django_db(transaction=True)
-    def it_keeps_one_of_two_clashing_saves_onto_an_empty_date(admin: Member):
-        guide = make_guide(full_legal_name="Gina Guide")
-        FacilityTourSettings.load()
-        day = _ahead(5)
-        clients = [signed_in(guide), signed_in(admin)]
-        posts = [
-            _post(guide, day, start_time="11:00", end_time="15:00", seats="6"),
-            _post(guide, day, start_time="13:00", end_time="17:00", seats="10"),
-        ]
-        real_save = TourDatesForm.save
-        start = threading.Barrier(2)
-        codes: list[int] = []
-
-        def slow_save(form: TourDatesForm) -> list[TourHours]:
-            # Widen the gap between the overlap check and the write: without the lock both saves
-            # would pass the check here and both windows would land.
-            clock.sleep(0.3)
-            return real_save(form)
-
-        def save(number: int) -> None:
-            try:
-                start.wait()
-                codes.append(clients[number].post(DATES_SAVE, posts[number]).status_code)
-            finally:
-                connection.close()
-
-        with patch.object(TourDatesForm, "save", slow_save):
-            threads = [threading.Thread(target=save, args=(number,)) for number in range(2)]
-            for thread in threads:
-                thread.start()
-            for thread in threads:
-                thread.join()
-        assert sorted(codes) == [200, 302]
-        assert TourHours.objects.filter(guide=guide, date=day).count() == 1

@@ -2536,7 +2536,7 @@ def teach_class_create(request: HttpRequest) -> HttpResponse:
             submit_now = request.POST.get("action") == "submit"
             if submit_now:
                 try:
-                    offering.submit_for_review()
+                    offering.submit_for_review(cast("User", request.user))
                 except ClassNotReadyError as exc:
                     # The draft is saved; the refusal lands where the gap is, not on step 1.
                     messages.error(request, exc.messages[0])
@@ -2776,7 +2776,7 @@ def _instructor_composer(request: HttpRequest, pk: int) -> HttpResponse:
         submit_now = request.POST.get("action") == "submit"
         if submit_now and offering.status == ClassOffering.Status.DRAFT:
             try:
-                offering.submit_for_review()
+                offering.submit_for_review(cast("User", request.user))
             except ClassNotReadyError as exc:
                 # Everything typed is saved; the refusal lands where the gap is, not on the POST's step.
                 messages.error(request, exc.messages[0])
@@ -3011,7 +3011,7 @@ def teach_class_submit(request: HttpRequest, pk: int) -> HttpResponse:
         messages.info(request, _already_submitted_message(offering))
         return redirect("classes:teach_class_detail", pk=offering.pk)
     try:
-        offering.submit_for_review()
+        offering.submit_for_review(cast("User", request.user))
     except ClassNotReadyError as exc:
         messages.error(request, exc.messages[0])
         return _unready_redirect("classes:teach_class_edit", offering, exc.items)

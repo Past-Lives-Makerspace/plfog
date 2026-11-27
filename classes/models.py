@@ -2073,6 +2073,16 @@ class ClassOffering(HeroCropMixin, models.Model):
         """The Activity Feed's line for a row about this class (#1330): what happened, and to which class."""
         return ActivityLine(headline=f"{activity.get_kind_display()}: {self.title}")
 
+    def describe_activity_log(self, activity: SiteActivity) -> ActivityLine:
+        """:meth:`describe_activity` for the Discord activity log.
+
+        An approval publishes the class (#1183) and its publish row stays off Discord, so the
+        approval's line says both.
+        """
+        if activity.kind == activity.Kind.CLASS_APPROVED:
+            return ActivityLine(headline=f"Class approved and published: {self.title}")
+        return self.describe_activity(activity)
+
     @property
     def activity_url(self) -> str:
         """The class's page in the teaching portal, for the activity log's link (#1330)."""
@@ -2521,7 +2531,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             digest.update(f"{starts_at}|{ends_at}\n".encode())
         return digest.hexdigest()
 
-    def submit_for_review(self) -> list["ClassApproval"]:
+    def submit_for_review(self, actor: "User | None" = None) -> list["ClassApproval"]:
         """Move from DRAFT to PENDING and open the class's one review gate (#1183).
 
         The gate is the Guild Lead when the class's category links a guild with a lead,
@@ -2533,6 +2543,9 @@ class ClassOffering(HeroCropMixin, models.Model):
         Notifies the reviewer (in-app + email) directly from the model so every submit
         path — quick-submit, create, and edit — fans out the same way. Returns the freshly
         created approval row(s) so callers can introspect the result.
+
+        Args:
+            actor: Who submitted, recorded on the activity row so the activity log names them.
         """
         if self.status != self.Status.DRAFT:
             raise ValueError(f"Only draft classes can be submitted; got {self.status}.")
@@ -2554,6 +2567,7 @@ class ClassOffering(HeroCropMixin, models.Model):
         activity.log(
             CmsActivity.Kind.CLASS_SUBMITTED,
             class_offering=self,
+            actor=actor,
             payload={"required_roles": list(self.required_review_roles), "first_stage": row.role},
         )
         self._notify_reviewer(row)
@@ -2690,7 +2704,7 @@ class ClassOffering(HeroCropMixin, models.Model):
                 return None
         return approval
 
-    def publish(self, actor: "User | None") -> None:
+    def publish(self, actor: "User | None", *, by_approval: bool = False) -> None:
         """The single place a class goes live: stamps the row and logs it.
 
         Called by the reviewer's approval (``on_review_decision_recorded``: the guild lead's,
@@ -2714,6 +2728,11 @@ class ClassOffering(HeroCropMixin, models.Model):
         it news again, by carrying the publish moment in its ledger key; that is gone
         deliberately, not by oversight.
 
+        Args:
+            actor: Who published: the approver, or the admin publishing directly.
+            by_approval: The approval's own row already tells the activity log on Discord, so
+                this publish row stays off it: one line per approval, not two.
+
         Raises:
             ClassNotReadyError: When :attr:`is_ready` is False, naming every failing item.
         """
@@ -2722,11 +2741,13 @@ class ClassOffering(HeroCropMixin, models.Model):
             raise ClassNotReadyError(items, "publish")
         # One transaction: a split that fails leaves the class unsplit and unpublished (#823).
         with transaction.atomic():
-            self._stamp_published(actor)
+            self._stamp_published(actor, off_activity_log=by_approval)
             self.split_dates_into_runs(actor)
         self.sync_eventbrite_listing()
 
-    def _stamp_published(self, actor: "User | None", *, also_save: Sequence[str] = ()) -> None:
+    def _stamp_published(
+        self, actor: "User | None", *, also_save: Sequence[str] = (), off_activity_log: bool = False
+    ) -> None:
         """Mark this row live: the status, ``published_at`` and ``approved_by`` columns, the log, the instructor page.
 
         Everything :meth:`publish` writes once readiness has passed, shared with the runs
@@ -2735,14 +2756,23 @@ class ClassOffering(HeroCropMixin, models.Model):
         Args:
             actor: Who published, stamped as ``approved_by`` and on the activity row.
             also_save: Further columns the caller set in memory, written in the same save.
+            off_activity_log: Keep the publish row off the activity log on Discord (it stays in
+                the feed): an approval already posted it, or this is a run split from a class
+                whose own publish posts.
         """
         from classes import activity
+        from core.activity_log import OFF_LOG_KEY
 
         self.status = self.Status.PUBLISHED
         self.approved_by = actor
         self.published_at = timezone.now()
         self.save(update_fields=["status", "approved_by", "published_at", "updated_at", *also_save])
-        activity.log(CmsActivity.Kind.CLASS_PUBLISHED, class_offering=self, actor=actor)
+        activity.log(
+            CmsActivity.Kind.CLASS_PUBLISHED,
+            class_offering=self,
+            actor=actor,
+            payload={OFF_LOG_KEY: True} if off_activity_log else None,
+        )
         # The public instructor page goes live with the first published class, for every
         # listed instructor (#686), but only while the member still holds teaching access: a
         # revoked instructor whose class an admin publishes never gets a page re-minted behind
@@ -3664,10 +3694,11 @@ class ClassOffering(HeroCropMixin, models.Model):
         from classes import activity
 
         if row.decision == ClassApproval.Decision.APPROVED:
+            approver = row.decider
             activity.log(
                 CmsActivity.Kind.CLASS_APPROVED,
                 class_offering=self,
-                actor=row.decided_by,
+                actor=approver,
                 payload={"role": row.role},
             )
             # Any approval is final: close any still-open gates (an undecided guild-lead
@@ -3692,7 +3723,7 @@ class ClassOffering(HeroCropMixin, models.Model):
             # ``ClassApproval.decide`` already refused an unready class before saving
             # the row, so this publish cannot raise on readiness in practice; the guard
             # inside ``publish`` is defense in depth for any other caller.
-            self.publish(row.decided_by)
+            self.publish(approver, by_approval=True)
         elif row.decision == ClassApproval.Decision.CHANGES_REQUESTED:
             self.status = self.Status.DRAFT
             self.save(update_fields=["status", "updated_at"])
@@ -4890,7 +4921,7 @@ class ClassOffering(HeroCropMixin, models.Model):
                 run = type(self)._default_manager.get(pk=self.pk).duplicate_as_new_run()
                 ClassSession.objects.filter(pk=session.pk).update(class_offering=run)
                 run.channel_announced_at = self.channel_announced_at if session is herald else announced_at
-                run._stamp_published(actor, also_save=["channel_announced_at"])
+                run._stamp_published(actor, also_save=["channel_announced_at"], off_activity_log=True)
                 runs.append(run)
         # A composer that prefetched the sessions would otherwise still hold the moved rows.
         getattr(self, "_prefetched_objects_cache", {}).pop("sessions", None)
@@ -5310,6 +5341,20 @@ class ClassApproval(models.Model):
             # Decided, so the bell entries asking for this decision stop asking (#894).
             ClassApproval.mark_review_bells_read([self.token])
         return True
+
+    @property
+    def decider(self) -> "User | None":
+        """Who made this decision: the signed-in reviewer, or the guild lead the emailed link was sent to.
+
+        A decision from the link signed out records no ``decided_by``, but the link decides only
+        while ``opened_for_lead`` still leads the guild (:meth:`_lead_authority_refusal`), so that
+        lead is who used it.
+        """
+        if self.decided_by is not None:
+            return self.decided_by
+        if self.role == self.Role.GUILD_LEAD and self.opened_for_lead is not None:
+            return self.opened_for_lead.user
+        return None
 
     def _lead_authority_refusal(self, user: "User | None") -> str:
         """Why this guild lead gate may not be decided by ``user`` now, or "" when it may (#1183)."""

@@ -251,6 +251,17 @@ SCHEDULED_JOBS: list[ScheduledJob] = [
         cadence=Cadence.ALWAYS,
     ),
     ScheduledJob(
+        key="send_tour_follow_ups",
+        name="Tour follow up emails",
+        description=(
+            "Sends each guest the Tour Follow Up email the set number of hours after their tour ends. "
+            "Idle while Tour Settings leaves the hours blank."
+        ),
+        command="send_tour_follow_ups",
+        schedule_label="Every 15 min",
+        cadence=Cadence.ALWAYS,
+    ),
+    ScheduledJob(
         key="sync_tour_calendars",
         name="Tour guide Google Calendars",
         description=(

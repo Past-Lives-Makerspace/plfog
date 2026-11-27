@@ -1,7 +1,7 @@
 /* ==========================================================================
    The hour by hour week (#1332): components/hour_grid_week.html.
    Hours down the left, seven day columns, blocks placed by their times.
-   Loaded by the Tours Calendar tab. Positions arrive as custom properties
+   Loaded by the Tours Calendar tab and My Hours. Positions arrive as custom properties
    (--rows, --row, --start, --len, --lane, --lanes, --rail, --rails, --tone)
    from hub/hour_grid.py. The shared calendar shell's week cells
    (calendar.css .pl-calendar-grid--week) are untouched.
@@ -77,6 +77,57 @@
 .pl-hourgrid__label { font-weight: 700; }
 .pl-hourgrid__when { color: var(--hub-text-muted); }
 
+/* My Hours: a block of time, its lane's share of the column. Open dashed with a dot per kind,
+   busy hatched, a booking solid in its kind's colour (--kind, my-hours.css). */
+.pl-hourgrid__block {
+    position: absolute;
+    top: calc(var(--start) / 60 * var(--hour) + 1px);
+    height: calc(var(--len) / 60 * var(--hour) - 3px);
+    left: calc(100% * var(--lane) / var(--lanes) + 3px);
+    width: calc(100% / var(--lanes) - 6px);
+    min-height: 20px;
+    padding: 0.25rem 0.375rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    line-height: 1.25;
+    overflow: hidden;
+    text-align: left;
+    color: var(--hub-text);
+}
+.pl-hourgrid__block--open { border: 1.5px dashed var(--hub-border-strong); background: transparent; }
+.pl-hourgrid__block--busy {
+    background: repeating-linear-gradient(135deg, var(--hub-surface) 0 6px, transparent 6px 12px);
+    border: 1px solid var(--hub-border-strong);
+}
+.pl-hourgrid__dots { display: inline-flex; gap: 3px; margin-right: 4px; vertical-align: middle; }
+.pl-hourgrid__dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--kind); }
+
+/* A booking: inside the open hours holding it (inset so its edges never touch), or alone. */
+.pl-hourgrid__inner {
+    position: absolute;
+    top: calc(var(--start) / 60 * var(--hour) + 1px);
+    height: calc(var(--len) / 60 * var(--hour) - 5px);
+    left: calc(3px + (100% - 4px) * var(--lane) / var(--lanes));
+    width: calc((100% - 4px) / var(--lanes) - 2px);
+    padding: 0.1875rem 0.3125rem;
+    font-size: 0.75rem;
+    line-height: 1.25;
+    overflow: hidden;
+}
+.pl-hourgrid__inner,
+.pl-hourgrid__block--booked {
+    border-radius: 5px;
+    background: var(--hub-elevated);
+    border: 1px solid var(--hub-border);
+    border-left: 3px solid var(--kind);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+    z-index: 1;
+}
+.pl-hourgrid__inner .pl-hourgrid__when,
+.pl-hourgrid__block--booked .pl-hourgrid__when { color: var(--hub-text-muted); font-weight: 700; }
+.pl-hourgrid__inner .pl-hourgrid__label,
+.pl-hourgrid__block--booked .pl-hourgrid__label { font-weight: 500; }
+
 /* A person's hours: a thin rail in their colour down the left of the day, one rail per
    overlapping person; the time anyone covers is a faint tint across the day. */
 .pl-hourgrid__cover {
@@ -139,7 +190,8 @@
 .pl-hourgrid__guide { display: flex; align-items: center; gap: 0.3125rem; color: var(--hub-text-muted); white-space: nowrap; }
 .pl-hourgrid__guide::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--tone); flex-shrink: 0; }
 
-/* A whole day with nothing (a day nobody covers): striped, with its note at the top. */
+/* A whole day with nothing (a day off, or a day nobody covers): striped, with its note at the top. */
+.pl-hourgrid__col--off,
 .pl-hourgrid__col--uncovered { background-image: repeating-linear-gradient(135deg, transparent 0 10px, var(--hub-surface) 10px 20px); }
 .pl-hourgrid__daynote {
     position: absolute;
@@ -199,6 +251,8 @@
     .pl-hourgrid__body { grid-template-columns: var(--gutter) minmax(0, 1fr); }
     .pl-hourgrid__col { display: none; }
     .pl-hourgrid__col--active { display: block; }
+    .pl-hourgrid__block,
+    .pl-hourgrid__inner { font-size: 0.8125rem; }
 
     .pl-hourgrid-days {
         display: grid;

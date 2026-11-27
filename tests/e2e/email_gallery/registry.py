@@ -952,6 +952,21 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="tour_visitor_reminder_context",
     ),
     GalleryEmail(
+        key="tour_visitor_follow_up",
+        name="Tour Follow Up (visitor)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent after a tour from the Past tab's Send Follow Up (#1345), or by the send_tour_follow_ups job the hours after the tour Tour Settings set. Morlock's words, signed by the tour's guide; the guest and the Also send to address are both on the To line."
+        ),
+        edit_pointer=_tpl("tours/emails", "visitor_follow_up"),
+        audience="The visitor who took the tour, and Tour Settings' Also send to address (by address).",
+        event_keys=frozenset({"tour.follow_up"}),
+        text_template="tours/emails/visitor_follow_up.txt",
+        html_template="tours/emails/visitor_follow_up.html",
+        context_builder="tour_visitor_follow_up_context",
+    ),
+    GalleryEmail(
         key="tour_guide_booked",
         name="New tour booked (guide)",
         section="Guilds & Orientations",

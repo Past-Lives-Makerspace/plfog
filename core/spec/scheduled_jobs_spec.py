@@ -40,6 +40,7 @@ _DISPATCHER_ALWAYS = {
     "finish_event_announcements",
     "send_event_reminders",
     "send_tour_reminders",
+    "send_tour_follow_ups",
     "sync_tour_calendars",
     "bill_tabs",
     "retry_calendar_pushes",

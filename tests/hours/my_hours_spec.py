@@ -267,8 +267,9 @@ def describe_the_week():
         assert any(day.is_today for day in page.week)
         monday = page.week[0].date
         assert page.week_label.startswith(f"{monday:%b} {monday.day} to ")
+        # Feb 1 and Mar 1, 2027 are both Mondays, so from late December the next such week is 13 weeks out.
         offset = next(
-            n for n in range(1, 6) if (monday + timedelta(weeks=n)).month != (monday + timedelta(weeks=n, days=6)).month
+            n for n in range(20) if (monday + timedelta(weeks=n)).month != (monday + timedelta(weeks=n, days=6)).month
         )
         crossing = MyHours.for_member(guide, week_offset=offset)
         first, last = crossing.week[0].date, crossing.week[-1].date

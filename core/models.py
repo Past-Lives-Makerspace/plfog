@@ -2331,10 +2331,11 @@ class SiteActivity(models.Model):
             activity.target = target
         activity.save()
         if activity.kind in ACTIVITY_LOG_KINDS:
-            from core.activity_log import post_activity
+            from core.activity_log import OFF_LOG_KEY, post_activity
             from core.tasks import enqueue_on_commit
 
-            enqueue_on_commit(post_activity, activity.pk)
+            if not activity.payload.get(OFF_LOG_KEY):
+                enqueue_on_commit(post_activity, activity.pk)
         return activity
 
     @classmethod

@@ -45,6 +45,7 @@ from hub.forms import (
 )
 from hub.permission_setup_views import page_setups
 from hub.toast import trigger_toast
+from hub.view_as import ViewAs
 from hub.reservation_bookings import reservation_bookings_context
 from hub.views import (
     _apply_hours_formset,
@@ -1318,7 +1319,7 @@ def _orientation_tab_context(request: HttpRequest, equipment: Equipment) -> dict
     list with attendee sub-rows. ``can_edit_others_hours`` gates the whole-schedule
     view and the Runs with picker; a plain manager sees only their own group.
     """
-    from hub.day_off_views import days_off_by_orienter
+    from hours.days_off import days_off_by_member
     from membership.models import OrientationAvailability, OrientationBooking, OrientationSlot
     from membership.permissions import can_edit_equipment_orienter_hours
 
@@ -1383,10 +1384,12 @@ def _orientation_tab_context(request: HttpRequest, equipment: Equipment) -> dict
         "orientation_upcoming_slots": upcoming_slots,
         "orienter_overview": orienter_overview,
         # Each person's upcoming days off (#767), the "Off Nov 26, Dec 25." line under their rules.
-        "days_off_by_orienter": days_off_by_orienter(managers),
+        "days_off_by_member": days_off_by_member(managers),
         "former_managers_overview": former_managers_overview,
         "shared_rules": shared_rules,
         "can_edit_others_hours": can_edit_others_hours,
+        # Edit Hours on another manager's row opens their My Hours: admins only (#1300, Felix 3).
+        "hours_for_others": ViewAs.for_request(request).actual_is_admin,
         "show_my_hours_card": viewer is not None and viewer.pk in manager_ids,
         "viewer_member_pk": viewer.pk if viewer is not None else None,
         "slot_form_locked": not can_edit_others_hours,
@@ -2043,47 +2046,37 @@ def hub_equipment_orientation_types_save(request: HttpRequest, slug: str) -> Htt
     )
 
 
-def _hours_scope_target(request: HttpRequest, raw: str) -> Member | None:
-    """Resolve an ``orienter`` value to its Member, or None for the shared scope (garbage is a 404)."""
-    if not raw:
-        return None
-    if not raw.isdigit():
-        raise Http404("Unknown orientor scope.")
-    return get_object_or_404(Member, pk=int(raw))
-
-
-def _hours_scope_queryset(equipment: Equipment, target: Member | None) -> Any:
-    """The rules one Edit Hours modal edits: a manager's personal rows, or the shared rows."""
+def _shared_rules(equipment: Equipment) -> Any:
+    """The rows the Edit Shared Hours modal edits: the tool's shared (orientor-less) rows."""
     from membership.models import OrientationAvailability
 
-    rules = OrientationAvailability.objects.for_equipment(equipment)
-    return rules.for_orienter(target) if target is not None else rules.guild_level()
+    return OrientationAvailability.objects.for_equipment(equipment).guild_level()
 
 
 @login_required
 def hub_equipment_orientation_hours_form(request: HttpRequest, slug: str) -> HttpResponse:
-    """Return the Edit Hours modal's formset partial for one manager, or the shared rows (HTMX GET).
+    """Return the Edit Shared Hours modal's formset partial: the tool's shared (orientor-less) rows (HTMX GET).
 
-    ``?orienter=<pk>`` scopes to that manager; empty scopes to the shared (orientor-less)
-    rows. Gated by ``can_edit_equipment_orienter_hours`` (403 otherwise), the same gate the
-    save uses, so a former manager's leftover rows are editable by the "others" tier.
+    A person's own hours are set on My Hours since #1300: ``?orienter=<pk>``, the old Edit Hours,
+    redirects there. Gated by ``can_edit_equipment_orienter_hours`` (403 otherwise), as the save is.
     """
-    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    from hours.links import to_my_hours
     from membership.permissions import can_edit_equipment_orienter_hours
 
-    target = _hours_scope_target(request, request.GET.get("orienter", ""))
-    if not can_edit_equipment_orienter_hours(request, equipment, target):
+    equipment = get_object_or_404(_equipment_queryset(), slug=slug)
+    if request.GET.get("orienter"):
+        return to_my_hours(request, request.GET["orienter"])
+    if not can_edit_equipment_orienter_hours(request, equipment, None):
         return HttpResponse("Forbidden", status=403)
     formset = EquipmentOrientationAvailabilityFormSet(
         prefix="modal_rules",
-        queryset=_hours_scope_queryset(equipment, target),
+        queryset=_shared_rules(equipment),
         form_kwargs={"equipment": equipment},
     )
     return render(
         request,
         "hub/partials/_orienter_hours_modal_form.html",
         {
-            "target": target,
             "formset": formset,
             "hours_save_url": reverse("hub_equipment_orientation_hours_save", args=[equipment.slug]),
         },
@@ -2099,35 +2092,35 @@ _EQUIPMENT_SHARED_FAREWELL = (
 @login_required
 @require_POST
 def hub_equipment_orientation_hours_save(request: HttpRequest, slug: str) -> HttpResponse:
-    """Save one scope of recurring orientation hours from the Edit Hours modal (HTMX POST).
+    """Save the tool's shared recurring orientation hours from the Edit Shared Hours modal (HTMX POST).
 
-    The posted ``orienter_scope`` selects the target (a manager's rows, or empty for the
-    shared rows); ``formset_prefix`` must be ``modal_rules`` on an HTMX request (404
-    otherwise, like the guild modal). Gate is ``can_edit_equipment_orienter_hours``.
-    Deleted rows retire via ``retire_rule``, new rows are stamped with the scope's
-    manager, and saved hours materialize slots immediately. A valid save answers 204 +
-    ``HX-Redirect`` to the Orientation tab; an invalid one re-renders the bound partial
-    inside the modal.
+    A posted ``orienter_scope`` (a person's rows, the old Edit Hours) goes to My Hours since #1300,
+    saving nothing. ``formset_prefix`` must be ``modal_rules`` on an HTMX request (404 otherwise,
+    like the guild modal). Gate is ``can_edit_equipment_orienter_hours``. Deleted rows retire via
+    ``retire_rule`` and saved hours materialize slots immediately. A valid save answers 204 +
+    ``HX-Redirect`` to the Orientation tab; an invalid one re-renders the bound partial inside the modal.
     """
+    from hours.links import to_my_hours
     from membership import orientations
     from membership.permissions import can_edit_equipment_orienter_hours
 
     equipment = get_object_or_404(_equipment_queryset(), slug=slug)
-    target = _hours_scope_target(request, request.POST.get("orienter_scope", ""))
-    if not can_edit_equipment_orienter_hours(request, equipment, target):
+    if request.POST.get("orienter_scope"):
+        return to_my_hours(request, request.POST["orienter_scope"])
+    if not can_edit_equipment_orienter_hours(request, equipment, None):
         return HttpResponse("Forbidden", status=403)
     is_htmx = bool(request.headers.get("HX-Request"))
     prefix = _personal_hours_prefix(request, is_htmx=is_htmx)
     formset = EquipmentOrientationAvailabilityFormSet(
         request.POST,
         prefix=prefix,
-        queryset=_hours_scope_queryset(equipment, target),
+        queryset=_shared_rules(equipment),
         form_kwargs={"equipment": equipment},
     )
     if formset.is_valid():
-        deleted_rules, removed, kept = _apply_hours_formset(formset, target=target)
+        deleted_rules, removed, kept = _apply_hours_formset(formset)
         orientations.generate_slots(equipment=equipment)
-        shared_emptied = target is None and not _hours_scope_queryset(equipment, None).exists()
+        shared_emptied = not _shared_rules(equipment).exists()
         messages.success(
             request,
             _hours_save_message(
@@ -2145,7 +2138,6 @@ def hub_equipment_orientation_hours_save(request: HttpRequest, slug: str) -> Htt
         request,
         "hub/partials/_orienter_hours_modal_form.html",
         {
-            "target": target,
             "formset": formset,
             "hours_save_url": reverse("hub_equipment_orientation_hours_save", args=[equipment.slug]),
         },

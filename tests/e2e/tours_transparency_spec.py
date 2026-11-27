@@ -103,7 +103,10 @@ def describe_tours_for_every_guide():
         olive = make_guide(full_legal_name="Olive Other")
         amber = make_guide(full_legal_name="Amber Capwell")
         today = timezone.localdate()
-        saturday = today + timedelta(days=(5 - today.weekday()) % 7 or 7)
+        # Olive's tour is the Thursday before; a Saturday at least three days out keeps it ahead too.
+        saturday = today + timedelta(days=(5 - today.weekday()) % 7)
+        if saturday - today < timedelta(days=3):
+            saturday += timedelta(weeks=1)
         TourHoursFactory(guide=gina, weekday=saturday.weekday(), start_time=time(11), end_time=time(15), seats=6)
         TourHoursFactory(guide=olive, weekday=(saturday - timedelta(days=2)).weekday(), start_time=time(16))
         dated = saturday + timedelta(days=1)
@@ -144,13 +147,13 @@ def describe_tours_for_every_guide():
         _guidance(page, 1, target="tours.gaps")
         _no_sideways_scroll(page)
 
-        # Add My Hours on a gap: Add Dates opens with that day picked.
+        # Add My Hours on a gap: My Hours opens + Add Dates with that day picked (#1300).
         gap = page.locator("[data-tours-gap]").first
         day = gap.get_attribute("data-tours-gap")
         with page.expect_navigation():
             gap.locator("[data-tours-gap-add]").click()
-        page.locator("[data-tour-dates-panel]").wait_for(state="visible")
-        page.locator(f'[data-tour-date="{day}"][aria-pressed="true"]').wait_for()
+        page.locator("[data-hours-dates-panel]").wait_for(state="visible")
+        page.locator(f'[data-hours-date="{day}"][aria-pressed="true"]').wait_for()
         _capture(page, "add-from-gap", full_page=False)
 
         # Upcoming: every guide's tours; the guide acts on their own, reads the others.
