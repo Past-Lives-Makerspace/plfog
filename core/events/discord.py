@@ -311,14 +311,21 @@ def post_embed(webhook_url: str, message: Message) -> bool:
     return False
 
 
+#: Statuses that say Discord did not store the message, so sending it again cannot post it twice:
+#: rate limited, and the two a proxy answers without reaching Discord.
+_NOT_RECEIVED_STATUSES = frozenset({429, 502, 503})
+
+
 class PostOutcome(enum.StrEnum):
     """What :func:`post_text` got from Discord, so a caller can tell a retry from a refusal."""
 
     SENT = "sent"
     #: Blank webhook or staging: nothing was sent, and nothing should be.
     OFF = "off"
-    #: A network error, a timeout, a 5xx or a 429: worth trying again later.
+    #: Discord certainly did not take it (no connection, a 429, a 502 or a 503): worth trying again later.
     RETRY = "retry"
+    #: Discord may have stored it anyway (a read timeout, any other 5xx): a retry could post it twice.
+    UNSURE = "unsure"
     #: Any other status, such as a deleted webhook's 404: trying again would get the same answer.
     REFUSED = "refused"
 
@@ -335,7 +342,9 @@ def post_text(webhook_url: str, content: str) -> PostOutcome:
         content: The message text.
 
     Returns:
-        The :class:`PostOutcome`. Failures are logged, never the webhook value.
+        The :class:`PostOutcome`: :attr:`~PostOutcome.RETRY` only when Discord certainly did not
+        take the message, :attr:`~PostOutcome.UNSURE` when it may have. Failures are logged at
+        warning, never the webhook value.
     """
     if not webhook_url:
         return PostOutcome.OFF
@@ -345,14 +354,20 @@ def post_text(webhook_url: str, content: str) -> PostOutcome:
     payload = {"content": content, "allowed_mentions": {"parse": []}}
     try:
         response = httpx.post(webhook_url, json=payload, timeout=_DEFAULT_TIMEOUT_SECONDS)
-    except httpx.HTTPError as exc:
-        logger.warning("Discord webhook post failed (network error): %s", exc)
+    except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+        logger.warning("Discord webhook post failed (no connection): %s", exc)
         return PostOutcome.RETRY
+    except httpx.HTTPError as exc:
+        # The request may have reached Discord: a read timeout can follow a stored message.
+        logger.warning("Discord webhook post may not have landed (network error after sending): %s", exc)
+        return PostOutcome.UNSURE
     if response.is_success:
         return PostOutcome.SENT
     logger.warning("Discord webhook post failed: %s %s", response.status_code, response.text[:300])
-    if response.status_code == 429 or response.status_code >= 500:
+    if response.status_code in _NOT_RECEIVED_STATUSES:
         return PostOutcome.RETRY
+    if response.status_code >= 500:
+        return PostOutcome.UNSURE
     return PostOutcome.REFUSED
 
 

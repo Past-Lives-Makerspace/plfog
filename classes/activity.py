@@ -27,6 +27,9 @@ _SITE_KIND_MAP: dict[str, str] = {
     # when its payment lands. A checkout still waiting on payment is not mirrored (see log()).
     "registration_created": "class_registered",
     "registration_confirmed": "class_registered",
+    # A staff promote from the waitlist confirms the seat at once, logged in place of
+    # registration_confirmed, so it is the seat's one "registered" (#1330 follow-up).
+    "waitlist_promoted": "class_registered",
     "registration_cancelled": "class_registration_cancelled",
     "registration_refunded": "refund_issued",
     "waitlist_joined": "class_waitlist_joined",
