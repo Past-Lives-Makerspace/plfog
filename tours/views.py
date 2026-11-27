@@ -92,7 +92,7 @@ from tours.models import (
     guide_filter,
     lock_guide_hours,
 )
-from tours.notify import short_when, when_label
+from tours.notify import FollowUpNotSentError, send_follow_up, short_when, when_label
 from tours.picker import build_picker, find_tour, guide_and_start
 from tours.setup import become_tour_guide
 
@@ -771,7 +771,9 @@ def _render_bookings(request: HttpRequest, tab: str) -> HttpResponse:
     show = request.GET.get("show", "all") if tab == UPCOMING else "all"
     if show not in SHOW_CHIPS:
         show = "all"
-    bookings = TourBooking.objects.select_related("guide", "proposed_guide").annotate(note_count=Count("notes"))
+    bookings = TourBooking.objects.select_related("guide", "proposed_guide", "follow_up_sent_by").annotate(
+        note_count=Count("notes")
+    )
     listed = bookings.upcoming(now) if tab == UPCOMING else bookings.past(now)
     if guide is not None:
         listed = listed.filter(guide=guide)
@@ -860,7 +862,7 @@ def tour_past(request: HttpRequest) -> HttpResponse:
 
 def _staff_booking(request: HttpRequest, pk: int) -> TourBooking:
     """The booking a row action names: the guide's own, or any for an admin (403 otherwise)."""
-    booking = get_object_or_404(TourBooking.objects.select_related("guide"), pk=pk)
+    booking = get_object_or_404(TourBooking.objects.select_related("guide", "follow_up_sent_by"), pk=pk)
     if not _is_admin(request) and booking.guide_id != _viewer(request).pk:
         raise PermissionDenied("Only an admin can change another guide's tour.")
     return booking
@@ -1284,6 +1286,30 @@ def tour_booking_mark(request: HttpRequest, pk: int) -> HttpResponse:
         label = "attended" if outcome == TourBooking.Status.ATTENDED else "a no show"
         text, tone = f"{booking.visitor_name} marked {label}.", "success"
         text = _with_setup_finished(request, booking, outcome, text)
+    return _past_row_response(request, booking, text, tone)
+
+
+@tour_guide_access_required
+@require_POST
+def tour_booking_follow_up(request: HttpRequest, pk: int) -> HttpResponse:
+    """Send the Tour Follow Up email from the Past tab (#1345); over htmx the row comes back with a toast.
+
+    A No Show tour is refused (400); a send that fails records nothing and says so.
+    """
+    booking = _staff_booking(request, pk)
+    if not booking.offers_follow_up:
+        return HttpResponseBadRequest("A follow up goes only to a tour that ran.")
+    try:
+        send_follow_up(booking, sender=_viewer(request))
+    except FollowUpNotSentError:
+        text, tone = "The follow up did not send. Try again in a moment.", "error"
+    else:
+        text, tone = f"Follow up sent to {booking.visitor_name}.", "success"
+    return _past_row_response(request, booking, text, tone)
+
+
+def _past_row_response(request: HttpRequest, booking: TourBooking, text: str, tone: str) -> HttpResponse:
+    """A Past tab action's answer: the row and a toast over htmx, else a flash and the Past tab."""
     if request.headers.get("HX-Request") != "true":
         messages.add_message(request, messages.SUCCESS if tone == "success" else messages.ERROR, text)
         return redirect(_back_url(request, "tours:past"))

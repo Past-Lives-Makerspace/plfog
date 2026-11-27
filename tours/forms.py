@@ -444,6 +444,8 @@ class FacilityTourSettingsForm(forms.ModelForm):
             "cancel_cutoff_hours",
             "default_tour_minutes",
             "default_seats",
+            "follow_up_after_hours",
+            "follow_up_also_to",
         ]
         labels = {
             "accepting_bookings": "Accepting tour bookings",
@@ -452,6 +454,8 @@ class FacilityTourSettingsForm(forms.ModelForm):
             "min_notice_hours": "Default minimum notice (hours)",
             "cancel_cutoff_hours": "Cancel and reschedule cutoff (hours)",
             "default_seats": "Default seats per tour",
+            "follow_up_after_hours": "Send automatically N hours after the tour ends",
+            "follow_up_also_to": "Also send to",
         }
         widgets = {
             "closed_message": forms.TextInput(attrs={"class": _TEXT}),
@@ -459,6 +463,8 @@ class FacilityTourSettingsForm(forms.ModelForm):
             "min_notice_hours": forms.NumberInput(attrs={"min": "0", "max": "336", "class": _NARROW}),
             "cancel_cutoff_hours": forms.NumberInput(attrs={"min": "0", "max": "336", "class": _NARROW}),
             "default_seats": forms.NumberInput(attrs={"min": "1", "max": str(MAX_SEATS), "class": _NARROW}),
+            "follow_up_after_hours": forms.NumberInput(attrs={"min": "0", "max": "336", "class": _NARROW}),
+            "follow_up_also_to": forms.EmailInput(attrs={"class": _TEXT}),
         }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -477,6 +483,10 @@ class FacilityTourSettingsForm(forms.ModelForm):
         ].help_text = "How close to a tour visitors can still cancel or move it from their email."
         self.fields["default_tour_minutes"].help_text = "What a new row of tour hours starts with."
         self.fields["default_seats"].help_text = "What a new row of tour hours starts with. Use 1 to 50."
+        self.fields[
+            "follow_up_after_hours"
+        ].help_text = "Blank is off: guides send it from the Past tab. Attended and not marked tours only, once each."
+        self.fields["follow_up_also_to"].help_text = "On the To line beside the guest, so their Reply All reaches them."
         if self.instance.pk:
             _append_duration_choice(self.fields["default_tour_minutes"], self.instance.default_tour_minutes)
 

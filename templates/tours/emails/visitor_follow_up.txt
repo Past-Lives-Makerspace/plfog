@@ -1,0 +1,62 @@
+{% autoescape off %}Hi {{ greeting_name }},
+
+It was a sincere pleasure having you by the shop.
+
+I hope you left with a sense of what we’re really building here. Past Lives isn’t just a place to rent tools—it’s a community built from scratch to support shared work, collective resilience, and real empowerment in uncertain times.
+
+In just five years, we went from a prisoner’s dream to 26,000 square feet of shared workshops, tools, and possibility. We got funded. We built it. And we filled it—with capable, inspired people who show up for each other and build what they believe in.
+
+If you’d like to join, here’s a simple overview of how it works:
+
+MEMBERSHIP OPTIONS
+
+Standard Quarterly Membership — $200/month
+A 3-month commitment. No deposit required. This is our standard rate.
+
+Annual Rate — $180/month + $180 deposit
+$20/month off the standard rate for a 12-month commitment. The deposit applies to your final month if you complete the year.
+
+Month-to-Month Rate — $250/month
+Total flexibility. No contract, no deposit.
+
+Discounted Rate — $130/month
+$70/month off the standard rate, for anyone near the poverty line, between jobs, or in a period of financial transition. You ask, you tell us why in a sentence, and we say yes — there’s no financial audit and no documentation required. About a third of our members are on it. If you think it might apply to you, it does.
+
+When a term ends, your membership continues month-to-month at the rate you were already paying — Standard Quarterly stays $200, the Annual Rate stays $180. 30 days’ notice is required to cancel any plan.
+
+GETTING STARTED
+
+When you’re ready, let us know three things so we can set you up:
+
+• Which membership plan you’d like
+• The date you’d like your membership to begin
+• Which day you’d like to be billed each month — the 1st or the 15th
+• If you’d like the Discounted Rate, one line in your reply is all it takes — something like “I’d like the Discounted Rate; the standard rate would be a hardship for me right now.” You don’t need to explain your circumstances and we won’t ask. No form, no documentation, no questions.
+
+STUDIOS
+
+Private studios are available at $3.75 per square foot. There’s a 10% discount with an annual lease, or 15% off if paid in full up front. A deposit is required.
+
+ORIENTATIONS
+
+Orientations are required safety trainings for accessing a new guild and/or specific tools. They’re priced at $50/hour, and the total cost depends on which area is being covered. They’re typically a one-time fee, unless retraining is needed.
+
+They’re scheduled directly with a Guild Lead or other authorized orienteer. The usual way to schedule:
+
+1. Join the Past Lives Discord server
+2. Enter the channel for the guild you want to access
+3. Ask for a Guild Lead or approved orienteer to schedule your orientation
+
+You’ll receive the Discord invite link in your welcome documentation after you’ve signed and paid for membership.
+
+If you’d like to move forward, just Reply All with the membership option that feels right (and let us know if you’re interested in a studio). Sushuma will follow up with everything you need to get set up. And if you ever want to talk directly, my contact info is below.
+
+Subscribe to our newsletter: {{ newsletter_url }}
+
+It would be an honor to have you join our community.
+
+{{ signer_name }}
+{% if signer_email %}{{ signer_email }}
+{% endif %}
+Past Lives LLC • 2808 SE 9th Ave, Portland, OR 97202 • https://www.pastlives.space
+{% endautoescape %}

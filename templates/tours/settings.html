@@ -78,6 +78,15 @@ The one Save shows only without the script (<noscript>).
     {% include "components/form_field.html" with field=form.default_tour_minutes %}
     {% include "components/form_field.html" with field=form.default_seats %}
   </div>
+
+  <div class="hub-card pl-tours-panel" data-tour-settings-follow-up data-autosave-key="follow_up">
+    <div class="pl-tours-panel__head" data-card-head>
+      <h2 class="hub-detail-label pl-tours-panel__title">Follow Up Email</h2>
+      {% include "tours/partials/_save_status.html" with key="follow_up" %}
+    </div>
+    {% include "components/form_field.html" with field=form.follow_up_after_hours %}
+    {% include "components/form_field.html" with field=form.follow_up_also_to %}
+  </div>
   {# Without the script nothing saves itself: the one Save posts every card. #}
   <noscript><button type="submit" class="pl-btn pl-btn--primary pl-btn--sm pl-btn--spaced" data-tour-noscript-save>Save</button></noscript>
 </form>

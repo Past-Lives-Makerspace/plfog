@@ -25,10 +25,18 @@ naming who acted. Every guide link opens the Tours page's Upcoming tab.
 
 The reminder goes 24 hours before through the scheduled occurrences walker
 (:func:`tour_reminder_occurrences`, the ``send_tour_reminders`` job), once per start.
+
+The Tour Follow Up email (#1345, Morlock's words) is one message with the guest and Tour Settings'
+Also send to address both on the To line, so the guest's Reply All reaches Sushuma. ``emit``'s
+``email_to`` sends each address its own copy, so it goes through :func:`core.email.send` directly
+(Felix approved, 2026-11-26): from the Past tab (:func:`send_follow_up`) or by itself after the
+tour (:func:`send_due_follow_ups`, the ``send_tour_follow_ups`` job). The booking's follow up
+columns are its record and its dedupe.
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -39,6 +47,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.email import add_invite_parties, invite_mimetype
+from core.email import send as send_email
 from core.events.channels import Message
 from core.events.emit import emit
 from core.events.registry import Channel
@@ -60,6 +69,8 @@ if TYPE_CHECKING:
 
     from membership.models import Member
 
+logger = logging.getLogger(__name__)
+
 VISITOR_EVENT = "tour.visitor_update"
 GUIDE_BOOKED_EVENT = "tour.booked"
 GUIDE_CHANGED_EVENT = "tour.visitor_changed"
@@ -67,6 +78,14 @@ GUIDE_CHECKED_IN_EVENT = "tour.checked_in"
 NOTE_ADDED_EVENT = "tour.note_added"
 #: How long before a tour its reminder goes out.
 REMINDER_BEFORE = timedelta(hours=24)
+#: The Tour Follow Up email's audit label in the Email Log (#1345).
+FOLLOW_UP_TRIGGER = "tour.follow_up"
+#: Where the follow up's newsletter button goes (Morlock: the site's footer signup, not /news).
+NEWSLETTER_URL = "https://www.pastlives.space/#footer-sections"
+
+
+class FollowUpNotSentError(Exception):
+    """The Tour Follow Up email did not go out (#1345); nothing is recorded on the booking."""
 
 
 def tours_url(path: str) -> str:
@@ -665,3 +684,106 @@ def tour_reminder_occurrences(now: datetime) -> Iterator[ScheduledOccurrence]:
     ).select_related("guide")
     for booking in bookings:
         yield build_reminder_occurrence(booking)
+
+
+def follow_up_signer(booking: TourBooking, sender: Member | None) -> tuple[str, str]:
+    """Who signs the Tour Follow Up email (#1345): the tour's guide, else whoever sends it, else Past Lives.
+
+    Returns:
+        The name and the portal email under it; the email is blank for Past Lives or a member with none.
+    """
+    person = booking.guide if booking.guide is not None else sender
+    if person is None:
+        return "Past Lives", ""
+    return person.display_name, person.primary_email
+
+
+def follow_up_subject(booking: TourBooking) -> str:
+    """``Tour Follow Up - <visitor full name>`` (Morlock)."""
+    return f"Tour Follow Up - {booking.visitor_name.strip()}"
+
+
+def follow_up_recipients(booking: TourBooking) -> list[str]:
+    """The guest, then Tour Settings' Also send to address, both for the one To line (#1345)."""
+    also = FacilityTourSettings.load().follow_up_also_to.strip()
+    recipients = [booking.visitor_email]
+    if also and also.lower() != booking.visitor_email.lower():
+        recipients.append(also)
+    return recipients
+
+
+def follow_up_context(booking: TourBooking, sender: Member | None) -> dict[str, Any]:
+    """What the Tour Follow Up email renders against: only the greeting and the sign-off change."""
+    signer_name, signer_email = follow_up_signer(booking, sender)
+    return {
+        "greeting_name": booking.visitor_first_name,
+        "signer_name": signer_name,
+        "signer_email": signer_email,
+        "newsletter_url": NEWSLETTER_URL,
+    }
+
+
+def _deliver_follow_up(booking: TourBooking, sender: Member | None) -> None:
+    """Send the Tour Follow Up email once, every recipient on the To line.
+
+    Raises:
+        FollowUpNotSentError: The send failed (logged in the Email Log as failed), or the staging
+            policy held every recipient back.
+    """
+    message = email_shell_message(
+        event_key=FOLLOW_UP_TRIGGER,
+        subject=follow_up_subject(booking),
+        text_template="tours/emails/visitor_follow_up.txt",
+        html_template="tours/emails/visitor_follow_up.html",
+        template_context=follow_up_context(booking, sender),
+    )
+    log = send_email(
+        to=follow_up_recipients(booking),
+        subject=message.title,
+        trigger_kind=FOLLOW_UP_TRIGGER,
+        text_body=message.body,
+        html_body=message.html_body,
+        best_effort=True,
+    )
+    if log.status != log.Status.SENT:
+        raise FollowUpNotSentError(log.error_message or log.status)
+
+
+def send_follow_up(booking: TourBooking, *, sender: Member) -> None:
+    """Send the Tour Follow Up email from the Past tab (#1345) and record who sent it and when.
+
+    Raises:
+        FollowUpNotSentError: It did not go out; the booking records nothing.
+    """
+    _deliver_follow_up(booking, sender)
+    booking.record_follow_up(sender, timezone.now())
+
+
+def send_due_follow_ups(now: datetime) -> int:
+    """Send this tick's automatic Tour Follow Up emails (#1345); idle while Tour Settings leaves it off.
+
+    Each due tour is claimed first, so a re-run or a racing tick sends nothing new, and a send that
+    fails hands its claim back, so the row records nothing.
+
+    Returns:
+        How many went out.
+    """
+    after = FacilityTourSettings.load().follow_up_delay
+    if after is None:
+        return 0
+    sent = 0
+    due = TourBooking.objects.follow_ups_due(now, after, DEFAULT_WINDOW).select_related("guide__user")
+    for booking in due:
+        if not booking.claim_follow_up(now):
+            continue
+        try:
+            _deliver_follow_up(booking, None)
+        except FollowUpNotSentError:
+            booking.release_follow_up()
+            logger.warning("Tour follow up for booking %s did not send.", booking.pk)
+            continue
+        except BaseException:
+            booking.release_follow_up()
+            raise
+        sent += 1
+    return sent
