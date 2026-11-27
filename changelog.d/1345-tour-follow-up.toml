@@ -1,0 +1,12 @@
+bump = "minor"
+date = "2026-11-27"
+audience = ["members", "admins"]
+feature = "tours.follow-up"
+guidance = "link"
+title = "Tour Guides send the Tour Follow Up email from the Tours page"
+changes = [
+  "On the Tours page under Past, the ... on a tour you gave has Send Follow Up. The guest gets the Tour Follow Up email, signed with your name and email.",
+  "Sushuma is on the To line with the guest, so their Reply All reaches her.",
+  "The row shows when the follow up went and who sent it. Sending it again asks first.",
+  "Admins can have it send itself a set number of hours after each tour, on the Settings tab under Follow Up Email. It is off until someone sets it.",
+]

@@ -454,7 +454,7 @@ class FacilityTourSettingsForm(forms.ModelForm):
             "min_notice_hours": "Default minimum notice (hours)",
             "cancel_cutoff_hours": "Cancel and reschedule cutoff (hours)",
             "default_seats": "Default seats per tour",
-            "follow_up_after_hours": "Send automatically N hours after the tour ends",
+            "follow_up_after_hours": "Send automatically after the tour ends (hours)",
             "follow_up_also_to": "Also send to",
         }
         widgets = {
