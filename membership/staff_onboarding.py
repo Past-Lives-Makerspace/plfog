@@ -51,9 +51,10 @@ def tool_links(guild: Guild) -> list[tuple[str, str, str]]:
         ("Guild Settings", "Your guild page: about, studio hours, images, FAQ and links.", edit),
         (
             "Orientations",
-            "Orientation types, your hours and every booking.",
+            "Orientation types and every booking.",
             reverse("hub_guild_orientations", args=[guild.pk]),
         ),
+        ("My Hours", "When members can book you for orientations, and your days off.", reverse("hours:my_hours")),
         ("Reservations", "The rooms, spaces and tools members reserve from your guild.", f"{edit}?tab=reservations"),
         ("Equipment", "Your guild's equipment, its agreements and who is signed off.", reverse("hub_equipment_index")),
         (

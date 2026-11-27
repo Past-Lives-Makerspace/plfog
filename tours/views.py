@@ -117,6 +117,8 @@ CALENDAR_STATE_LABELS: dict[str, str] = {
     TourCalendarConnection.Status.BROKEN: "Calendar needs reconnecting",
 }
 NO_CALENDAR_LABEL = "No calendar"
+#: Where every hours door leads since #1300 part 5.
+MY_HOURS = "hours:my_hours"
 
 
 def _is_admin(request: HttpRequest) -> bool:
@@ -564,10 +566,10 @@ def tour_become_guide(request: HttpRequest) -> HttpResponse:
     A Tour Guide or admin pressing it again changes nothing and goes to My Hours.
     """
     if has_tour_guide_access(request):
-        return redirect("tours:hours")
+        return redirect(MY_HOURS)
     # Two presses racing both pass the check above; the one that loses the lock is told so.
     messages.success(request, BECAME_GUIDE_MESSAGE if become_tour_guide(_viewer(request)) else ALREADY_GUIDE_MESSAGE)
-    return redirect("tours:hours")
+    return redirect(MY_HOURS)
 
 
 def _kiosk_url(house_rules: FacilityTourSettings) -> str:
@@ -594,8 +596,6 @@ def tour_kiosk_key(request: HttpRequest) -> HttpResponse:
 # --- Google Calendar (#951) ---------------------------------------------------------------------
 # Open to everyone with a My Hours page since #1300 part 4: an orientor connects their calendar so
 # its busy times hide their orientations too. Started from My Hours (``from=hours``), each lands back there.
-
-MY_HOURS = "hours:my_hours"
 
 
 def _calendar_access_required(view_func: Any) -> Any:

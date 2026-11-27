@@ -48,9 +48,11 @@ def _page(guild: Guild) -> str:
 
 
 def _edit_hours_targets(content: str, guild: Guild) -> list[str]:
-    """The orientor pks whose Edit Hours button the page renders."""
-    form_url = re.escape(reverse("hub_guild_orientation_hours_form", args=[guild.pk]))
-    return re.findall(rf'hx-get="{form_url}\?orienter=(\d+)"', content)
+    """Whose My Hours each Edit Hours link opens: ``""`` for the viewer's own, else the ``?member=`` pk (#1300)."""
+    hours_url = re.escape(reverse("hours:my_hours"))
+    return re.findall(
+        rf'href="{hours_url}(?:\?member=(\d+))?" class="hub-btn hub-btn--sm" data-edit-hours-link', content
+    )
 
 
 def describe_the_page():
@@ -100,17 +102,18 @@ def describe_the_page():
 
 
 def describe_permission_tiers():
-    def it_shows_a_lead_every_orienters_edit_hours_row(client: Client):
+    def it_shows_a_lead_every_orienters_row_and_edit_hours_on_their_own_only(client: Client):
         user = _user(client, "gop_lead")
         guild = GuildFactory(guild_lead=user.member)
-        orienter = MemberFactory()
+        orienter = MemberFactory(preferred_name="Samwise", full_legal_name="Samwise Gardener")
         GuildStaffMembershipFactory(guild=guild, member=orienter, role=GuildStaffMembership.Role.ORIENTER)
         response = client.get(_page(guild))
         assert response.status_code == 200
         assert response.context["can_edit_others_hours"] is True
-        assert sorted(_edit_hours_targets(response.content.decode(), guild)) == sorted(
-            [str(user.member.pk), str(orienter.pk)]
-        )
+        content = response.content.decode()
+        assert orienter.staff_label in content
+        # Leads do not edit anyone's hours (Felix, 2026-11-23): their own Edit Hours opens My Hours.
+        assert _edit_hours_targets(content, guild) == [""]
 
     def it_shows_an_admin_every_orienters_edit_hours_row(client: Client):
         _user(client, "gop_admin_rows", fog_role=Member.FogRole.ADMIN)
@@ -121,6 +124,7 @@ def describe_permission_tiers():
         response = client.get(_page(guild))
         assert response.status_code == 200
         assert sorted(_edit_hours_targets(response.content.decode(), guild)) == sorted([str(lead.pk), str(orienter.pk)])
+        assert response.context["hours_for_others"] is True
 
     def it_shows_an_orienter_on_staff_only_their_own_row(client: Client):
         user = _user(client, "gop_orienter")
@@ -132,7 +136,7 @@ def describe_permission_tiers():
         assert response.context["show_my_hours_card"] is True
         assert response.context["can_edit_others_hours"] is False
         assert response.context["slot_form_locked"] is True
-        assert _edit_hours_targets(response.content.decode(), guild) == [str(user.member.pk)]
+        assert _edit_hours_targets(response.content.decode(), guild) == [""]
 
     def it_refuses_a_member_who_cannot_edit_the_guild_as_guild_settings_does(client: Client):
         _user(client, "gop_member")

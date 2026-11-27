@@ -178,10 +178,11 @@ def describe_give_tours():
         _no_sideways_scroll(page)
 
         page.get_by_role("button", name="Become a Tour Guide").click()
-        page.wait_for_url(f"**{reverse('tours:hours')}")
+        # They land on My Hours (#1300), their Get Set Up card at the top.
+        page.wait_for_url(f"**{reverse('hours:my_hours')}")
         page.locator(".plt-msg", has_text=BECAME_GUIDE_MESSAGE).wait_for()
         page.locator('[data-permission-setup="tour_guide"]').first.wait_for()
-        assert page.locator('nav.pl-tabs [data-tours-tab="hours"][aria-current="page"]').count() == 1
+        page.locator("[data-hours-week]").wait_for()
         _capture_toast(page)
 
         grant = AdminCapability.objects.get(member=member, capability=AdminCapability.Capability.TOUR_GUIDE)

@@ -534,6 +534,13 @@ def _hours_form_url(equipment: Equipment, orienter=None) -> str:
     return f"{url}?orienter={orienter.pk}" if orienter is not None else url
 
 
+def _my_hours_link(member=None) -> str:
+    """An Orientation Schedule row's Edit Hours: the viewer's own My Hours, or ``?member=`` for an admin (#1300)."""
+    url = reverse("hours:my_hours")
+    href = f"{url}?member={member.pk}" if member is not None else url
+    return f'href="{href}" class="hub-btn hub-btn--sm" data-edit-hours-link'
+
+
 def _hours_save_url(equipment: Equipment) -> str:
     return reverse("hub_equipment_orientation_hours_save", args=[equipment.slug])
 
@@ -584,8 +591,9 @@ def describe_orientation_schedule_card():
         assert "Dana Reyes" in content
         assert "Operator Basics · Every Saturday · 10:00 a.m. to 6:00 p.m. · 1 seat · 60 min slots" in content
         assert "No hours published" in content  # the quiet manager's group
-        assert 'id="edit-hours-modal-body"' in content  # the shared Edit Hours modal shell, loaded per scope
-        assert content.count(_hours_form_url(equipment, dana.member)) == 1
+        assert 'id="edit-hours-modal-body"' in content  # the Edit Shared Hours modal shell stays
+        assert content.count(_my_hours_link(dana.member)) == 1
+        assert response.context["hours_for_others"] is True
         assert response.context["can_edit_others_hours"] is True
         assert "pl-orient-days" not in content
 
@@ -621,7 +629,7 @@ def describe_orientation_schedule_card():
 
     def it_shows_a_plain_manager_only_their_own_group(client: Client):
         equipment = EquipmentFactory()
-        me = _named_manager(client, "sc_me", equipment, "Dana Reyes")
+        _named_manager(client, "sc_me", equipment, "Dana Reyes")
         other = _member_user("sc_other")
         other.member.full_legal_name = "Quinn Other"
         other.member.save(update_fields=["full_legal_name"])
@@ -629,8 +637,8 @@ def describe_orientation_schedule_card():
         response = _tab(client, equipment)
         content = response.content.decode()
         assert "Your weekly orientation hours. Members book you by name." in content
-        assert _hours_form_url(equipment, me.member) in content
-        assert _hours_form_url(equipment, other.member) not in content
+        assert _my_hours_link() in content
+        assert f"?member={other.member.pk}" not in content
         assert response.context["can_edit_others_hours"] is False
         assert response.context["slot_form_locked"] is True
 
@@ -643,7 +651,7 @@ def describe_orientation_schedule_card():
         content = _tab(client, equipment).content.decode()
         assert "Former Managers" in content
         assert "Gone Person" in content
-        assert _hours_form_url(equipment, stranger) in content
+        assert _my_hours_link(stranger) in content
         _manager_login(client, "sc_former_plain", equipment)
         content = _tab(client, equipment).content.decode()
         assert "Former Managers" not in content

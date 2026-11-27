@@ -34,6 +34,8 @@ GIVE = reverse("tours:give")
 BECOME = reverse("tours:become_guide")
 UPCOMING = reverse("tours:upcoming")
 HOURS = reverse("tours:hours")
+#: Where Become a Tour Guide and Open My Hours land since #1300 part 5.
+MY_HOURS = reverse("hours:my_hours")
 
 
 def _granted_emails() -> list:
@@ -128,7 +130,7 @@ def describe_give_tours():
         for member in (guide, admin):
             content = signed_in(member).get(GIVE).content.decode()
             assert f'action="{BECOME}"' not in content
-            assert f'href="{HOURS}" x-show="step === 5" data-tutorial-holder>Open My Hours</a>' in content
+            assert f'href="{MY_HOURS}" x-show="step === 5" data-tutorial-holder>Open My Hours</a>' in content
             assert "data-give-go-tours>Go to Tours</a>" in content
 
     def it_refuses_a_guest_a_lapsed_member_and_an_account_with_no_member():
@@ -152,10 +154,10 @@ def describe_become_a_tour_guide():
         client = signed_in(plain)
         with django_capture_on_commit_callbacks(execute=True):
             response = client.post(BECOME)
-        assert response["Location"] == HOURS
+        assert response["Location"] == MY_HOURS
         grant = AdminCapability.objects.get(member=plain, capability=TOUR_GUIDE)
         assert grant.granted_by == plain.user
-        page = client.get(HOURS)
+        page = client.get(MY_HOURS)
         assert page.status_code == 200
         assert BECAME_GUIDE_MESSAGE in [str(message) for message in page.context["messages"]]
 
@@ -184,7 +186,7 @@ def describe_become_a_tour_guide():
             client.post(BECOME)
         with django_capture_on_commit_callbacks(execute=True):
             response = client.post(BECOME)
-        assert response["Location"] == HOURS
+        assert response["Location"] == MY_HOURS
         assert AdminCapability.objects.filter(member=plain, capability=TOUR_GUIDE).count() == 1
         assert len(_granted_emails()) == 1
 
@@ -232,7 +234,7 @@ def describe_become_a_tour_guide():
         with patch("tours.views.has_tour_guide_access", return_value=False):
             client = signed_in(guide)
             client.post(BECOME)
-        messages = [str(message) for message in client.get(HOURS).context["messages"]]
+        messages = [str(message) for message in client.get(MY_HOURS).context["messages"]]
         assert messages == [ALREADY_GUIDE_MESSAGE]
         assert not SiteActivity.objects.filter(kind=SiteActivity.Kind.TOUR_GUIDE_SELF_SERVE).exists()
 
@@ -244,5 +246,5 @@ def describe_become_a_tour_guide():
         client.post(BECOME)
         plain.set_admin_capability(TOUR_GUIDE, False)
         assert client.get(UPCOMING)["Location"] == GIVE
-        assert client.post(BECOME)["Location"] == HOURS
+        assert client.post(BECOME)["Location"] == MY_HOURS
         assert plain.has_admin_capability(TOUR_GUIDE)

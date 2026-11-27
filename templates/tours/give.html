@@ -179,7 +179,7 @@ Context: is_guide, tutorial_steps.
             {% endif %}
         </div>
 
-        {% url 'tours:become_guide' as become_url %}{% url 'tours:hours' as hours_url %}
+        {% url 'tours:become_guide' as become_url %}{% url 'hours:my_hours' as hours_url %}
         {% include "hub/partials/_tutorial.html" with steps=tutorial_steps confirm_url=become_url confirm_label="Become a Tour Guide" confirm_guidance="tours.become-guide" confirm_note="You're a Tour Guide as soon as you press it, and an email follows with your next steps." holder=is_guide holder_url=hours_url holder_label="Open My Hours" %}
     </section>
 

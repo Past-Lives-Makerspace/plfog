@@ -66,7 +66,7 @@ def describe_my_hours_editing():
         assert row.locator('input[name="weekly-0-id"]').input_value() == str(hours.pk)
         row.locator("[data-hours-set-when]").get_by_text("Mon · 11:00 AM to 6:00 PM · Every week").wait_for()
 
-        # Until moves, and the orientation ticked off leaves the summary.
+        # Until moves, and the orientation ticked off (paused, #1300 part 5) leaves the summary.
         before = _saves(page)
         row.locator('select[name="weekly-0-end_time"]').select_option("17:00")
         _saved_past(page, before + 1)
@@ -74,7 +74,7 @@ def describe_my_hours_editing():
         before = _saves(page)
         row.locator(f'[data-hours-kind="guild-{guild.pk}"] .pl-toggle').click()
         _saved_past(page, before + 1)
-        assert not OrientationAvailability.objects.exists()
+        assert not OrientationAvailability.objects.filter(is_active=True).exists()
         seats = FacilityTourSettings.load().default_seats
         assert row.locator("[data-hours-set-kinds] .pl-hours-set__kind").all_inner_texts() == [
             f"Tours · 1 hour each · {seats} seats"

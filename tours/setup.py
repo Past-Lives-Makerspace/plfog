@@ -118,7 +118,7 @@ TOUR_GUIDE_SETUP = PermissionSetupSpec(
             "You never double book yourself.",
             email_line="Connect your Google Calendar (optional)",
             action_label="Connect on My Hours",
-            action_url_name="tours:hours",
+            action_url_name="hours:my_hours",
             how=(
                 "Each booked tour becomes an event titled with the visitor's name and party size.",
                 "Busy times are read about every 15 minutes. A tour already booked is never taken away; "
@@ -137,7 +137,7 @@ TOUR_GUIDE_SETUP = PermissionSetupSpec(
             "Available On.",
             email_line="Set your tour hours",
             action_label="Set Your Hours",
-            action_url_name="tours:hours",
+            action_url_name="hours:my_hours",
             how=(
                 "Each window is carved into back to back tours of the length you choose, each with 1 to 50 seats.",
                 "Away for a while? Add Days Off on My Hours. Your hours offer nothing on those days.",

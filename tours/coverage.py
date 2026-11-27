@@ -54,8 +54,8 @@ class GapDay:
 
     @property
     def add_url(self) -> str:
-        """My Hours with Add Dates open on this day (``tours.views.tour_hours``'s ``?add=``)."""
-        return f"{reverse('tours:hours')}?add={self.day.isoformat()}#available-on"
+        """My Hours with + Add Dates open on this day (``hours.views.my_hours``'s ``?add=``)."""
+        return f"{reverse('hours:my_hours')}?add={self.day.isoformat()}#available-on"
 
 
 def _days(first: date, last: date) -> list[date]:
@@ -189,14 +189,14 @@ def calendar_context(
 ) -> dict[str, Any]:
     """The Calendar tab's ``cal``: every guide's hours and every tour holding seats, across the window shown.
 
-    A guide's own hours link to My Hours, and an admin's to that guide's My Hours (``?guide=``);
+    A guide's own hours link to My Hours, and an admin's to that guide's My Hours (``?member=``);
     another guide's hours link nowhere for a guide. Each tour links to its row on Upcoming or Past.
     """
 
     def hours_url(guide: Member) -> str:
         if guide.pk == viewer.pk:
-            return reverse("tours:hours")
-        return f"{reverse('tours:hours')}?guide={guide.pk}" if is_admin else ""
+            return reverse("hours:my_hours")
+        return f"{reverse('hours:my_hours')}?member={guide.pk}" if is_admin else ""
 
     def entries_for(fetch_from: date, fetch_to: date) -> list[CalendarEntry]:
         starts = _aware(fetch_from, time.min)

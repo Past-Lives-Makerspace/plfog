@@ -300,7 +300,7 @@ TOURS: dict[str, Tour] = {
                 target='[data-help-key="guild.run-orientations"]',
                 title="Orientations",
                 body=(
-                    "This tab opens your guild's Orientations page: add orientations, set hours and "
+                    "This tab opens your guild's Orientations page: add orientations, see everyone's hours, "
                     "open slots, and write the thank-you email. Bookings show up on the Orientations "
                     "page's Bookings tab, where you confirm them."
                 ),
@@ -465,7 +465,7 @@ TOURS: dict[str, Tour] = {
             TourStep(
                 target='[data-help-key="orientation.schedule"]',
                 title="Who Gives Them and When",
-                body="Set each orientor's weekly hours. Members book from these, and you confirm each booking.",
+                body="Everyone who gives orientations and when. Each person sets their own hours on My Hours, and members book from them.",
             ),
             TourStep(
                 target='[data-help-key="guild.thankyou-email"]',

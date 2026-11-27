@@ -96,9 +96,9 @@
   </div>
 </form>
 
-{# Orientation Schedule — everyone who can give orientations, grouped by person; Edit Hours opens a modal. #}
-{# A lead/admin (can_edit_others_hours) sees + edits every row including their own; a plain orientor #}
-{# (show_my_hours_card only) sees just their own row, still with an Edit Hours button. #}
+{# Orientation Schedule — everyone who can give orientations, grouped by person; Edit Hours and Days Off open My Hours (#1300). #}
+{# A lead/admin (can_edit_others_hours) sees every row; a plain orientor (show_my_hours_card only) sees just their own. #}
+{# Each person edits their own; an admin (hours_for_others) anyone's. #}
 {% if show_my_hours_card or can_edit_others_hours %}
 <div class="hub-card" data-help-key="orientation.schedule" style="padding:1.5rem; margin-bottom:1.5rem;">
   <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Orientation Schedule</h2>
@@ -109,23 +109,11 @@
     <div class="pl-orient-overview__person">
       {% if staffer.profile_photo and staffer|is_public:"profile_photo" %}<img src="{{ staffer.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ staffer.greeting_name|slice:":1" }}</span>{% endif %}
       <strong>{{ staffer.staff_label }}</strong>
-      <button type="button" class="hub-btn hub-btn--sm"
-              @click="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Loading…</p>'; $dispatch('open-modal', 'edit-hours-modal')"
-              hx-get="{% url 'hub_guild_orientation_hours_form' guild.pk %}?orienter={{ staffer.pk }}"
-              hx-target="#edit-hours-modal-body" hx-swap="innerHTML"
-              hx-on::response-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'"
-              hx-on::send-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'">
-        Edit Hours
-      </button>
-      {# Days Off (#767): the same gate as Edit Hours; the body is HTMX-loaded per person into one shared modal. #}
-      <button type="button" class="hub-btn hub-btn--sm hub-btn--ghost" data-days-off-button
-              @click="document.getElementById('days-off-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Loading…</p>'; $dispatch('open-modal', 'days-off-modal')"
-              hx-get="{% url 'hub_guild_orientation_days_off' guild.pk %}?orienter={{ staffer.pk }}"
-              hx-target="#days-off-modal-body" hx-swap="innerHTML"
-              hx-on::response-error="document.getElementById('days-off-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'"
-              hx-on::send-error="document.getElementById('days-off-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'">
-        Days Off
-      </button>
+      {# Edit Hours and Days Off open My Hours (#1300): their own, or any staffer's for an admin. A lead edits only their own (Felix, 2026-11-23). #}
+      {% if staffer.pk == viewer_member_pk or hours_for_others %}
+      <a href="{% url 'hours:my_hours' %}{% if staffer.pk != viewer_member_pk %}?member={{ staffer.pk }}{% endif %}" class="hub-btn hub-btn--sm" data-edit-hours-link>Edit Hours</a>
+      <a href="{% url 'hours:my_hours' %}{% if staffer.pk != viewer_member_pk %}?member={{ staffer.pk }}{% endif %}#days-off" class="hub-btn hub-btn--sm hub-btn--ghost" data-days-off-button>Days Off</a>
+      {% endif %}
     </div>
     {% if staffer_rules %}
     <ul class="pl-orient-overview__rules">
@@ -136,30 +124,22 @@
     {% else %}
     <p class="hub-text-muted" style="font-size:0.85rem; margin:0.4rem 0 0;">No hours published</p>
     {% endif %}
-    {% with person_days_off=days_off_by_orienter|get_item:staffer.pk %}
-    {% if person_days_off %}<p class="pl-orient-overview__off" data-days-off-line>Off {% for day_off in person_days_off %}{{ day_off.date|date:"M j" }}{% if not forloop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
+    {% with person_days_off=days_off_by_member|get_item:staffer.pk %}
+    {% if person_days_off %}<p class="pl-orient-overview__off" data-days-off-line>Off {% for day_off in person_days_off %}{{ day_off.label }}{% if not forloop.last %}; {% endif %}{% endfor %}.</p>{% endif %}
     {% endwith %}
   </div>
   {% endif %}
   {% endfor %}
   {% if can_edit_others_hours and former_staff_overview %}
   <h3 class="hub-detail-label" style="margin:1.25rem 0 0.25rem;">Former Staff</h3>
-  <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">These hours belong to people no longer on staff. They no longer generate slots. Delete them when you are ready.</p>
+  <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:0.5rem;">These hours belong to people no longer on staff. They no longer generate slots.{% if hours_for_others %} Delete them on that person's My Hours when you are ready.{% else %} An admin can delete them.{% endif %}</p>
   {% for staffer, staffer_rules, has_open in former_staff_overview %}
   <div class="pl-orient-overview__group">
     <div class="pl-orient-overview__person">
       {% if staffer.profile_photo and staffer|is_public:"profile_photo" %}<img src="{{ staffer.profile_photo.url }}" alt="" class="pl-orient-avatar">{% else %}<span class="pl-orient-avatar pl-orient-avatar--initials">{{ staffer.greeting_name|slice:":1" }}</span>{% endif %}
       <strong>{{ staffer.staff_label }}</strong>
-      {# Deliberately ungated within this lead/admin card: the Edit Hours modal is the only route #}
-      {# to clean up a former staffer's leftover rows (they no longer appear in the active list). #}
-      <button type="button" class="hub-btn hub-btn--sm"
-              @click="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Loading…</p>'; $dispatch('open-modal', 'edit-hours-modal')"
-              hx-get="{% url 'hub_guild_orientation_hours_form' guild.pk %}?orienter={{ staffer.pk }}"
-              hx-target="#edit-hours-modal-body" hx-swap="innerHTML"
-              hx-on::response-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'"
-              hx-on::send-error="document.getElementById('edit-hours-modal-body').innerHTML = '<p class=\'hub-text-muted\'>Could not load this editor. Close this window and try again.</p>'">
-        Edit Hours
-      </button>
+      {# An admin clears a former staffer's leftover rows on their My Hours (#1300). #}
+      {% if hours_for_others %}<a href="{% url 'hours:my_hours' %}?member={{ staffer.pk }}" class="hub-btn hub-btn--sm" data-edit-hours-link>Edit Hours</a>{% endif %}
     </div>
     <ul class="pl-orient-overview__rules">
       {% for r in staffer_rules %}
@@ -170,12 +150,6 @@
   {% endfor %}
   {% endif %}
 </div>
-{# One shared Edit Hours modal for every staffer row above; its body is HTMX-loaded per person. #}
-{# modal_static: the teleported delete-confirm lives outside this modal's DOM, so click-outside #}
-{# would otherwise close the editor when confirming/cancelling a delete. #}
-{% include "components/modal.html" with modal_id="edit-hours-modal" modal_title="Edit Hours" modal_size="lg" modal_static=True %}
-{# The Days Off modal (#767), shared by every row the same way; static for the same teleported-confirm reason. #}
-{% include "components/modal.html" with modal_id="days-off-modal" modal_title="Days Off" modal_size="md" modal_static=True %}
 {% endif %}
 
 {# Guild Hours (Any Orientor) — legacy shared rules; renders only while such rows exist. #}

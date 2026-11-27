@@ -279,15 +279,49 @@ def describe_HoursEdit():
             assert not TourHours.objects.exists()
             assert TourBooking.objects.filter(pk=booking.pk).exists()
 
-        def it_retires_an_orientation_ticked_off_and_keeps_its_booked_slot():
+        def it_pauses_an_orientation_ticked_off_and_keeps_its_booked_slot():
             person, owner = _orientor()
             hours = _save(HoursEdit(person, None, _key(), TourOffer(60, 4), [_offer(owner)]))
             rule = OrientationAvailability.objects.get()
             booked = rule.slots.order_by("starts_at").first()
             OrientationBookingFactory(slot=booked, status="confirmed")
             _save(HoursEdit(person, hours, _key(), TourOffer(60, 4), [_offer(owner, rule=rule, on=False)]))
-            assert not OrientationAvailability.objects.exists()
+            rule.refresh_from_db()
+            # Paused, as the old Active switch did: settings kept, open times gone, the booked one stays.
+            assert rule.is_active is False
+            assert rule.hours_id == hours.pk
             assert list(OrientationSlot.objects.all()) == [booked]
+
+        def it_moves_a_row_paused_in_the_same_edit_to_the_new_time():
+            person, owner = _orientor()
+            hours = _save(HoursEdit(person, None, _key(), TourOffer(60, 4), [_offer(owner)]))
+            rule = OrientationAvailability.objects.get()
+            moved = _key(start=time(17, 0), end=19)
+            saved = _save(HoursEdit(person, hours, moved, TourOffer(60, 4), [_offer(owner, rule=rule, on=False)]))
+            rule.refresh_from_db()
+            assert (rule.start_time, rule.end_time, rule.hours_id) == (time(17, 0), time(19, 0), saved.pk)
+
+        def it_resumes_a_paused_orientation_ticked_on_with_its_settings():
+            person, owner = _orientor()
+            hours = _save(HoursEdit(person, None, _key(), TourOffer(60, 4), [_offer(owner)]))
+            rule = OrientationAvailability.objects.get()
+            _save(HoursEdit(person, hours, _key(), TourOffer(60, 4), [_offer(owner, rule=rule, on=False)]))
+            rule.refresh_from_db()
+            _save(HoursEdit(person, hours, _key(), TourOffer(60, 4), [_offer(owner, rule=rule)]))
+            rule.refresh_from_db()
+            assert rule.is_active is True
+            assert rule.slots.exists()
+
+        def it_leaves_a_paused_orientation_paused_while_it_stays_off():
+            person, owner = _orientor()
+            hours = _save(HoursEdit(person, None, _key(), TourOffer(60, 4), [_offer(owner)]))
+            rule = OrientationAvailability.objects.get()
+            _save(HoursEdit(person, hours, _key(), TourOffer(60, 4), [_offer(owner, rule=rule, on=False)]))
+            rule.refresh_from_db()
+            _save(HoursEdit(person, hours, _key(), TourOffer(90, 4), [_offer(owner, rule=rule, on=False)]))
+            rule.refresh_from_db()
+            assert rule.is_active is False
+            assert not rule.slots.exists()
 
         def it_retires_the_old_shape_when_the_booking_style_changes():
             person, owner = _orientor()

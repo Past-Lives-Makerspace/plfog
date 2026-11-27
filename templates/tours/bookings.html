@@ -74,7 +74,7 @@ is_filtered, base_params, notes_open (a booking pk to open Notes on), notes_next
     <p class="hub-text-muted pl-tours-bookings__empty-text">A tour shows up here once it starts, ready to mark attended or no show.</p>
     {% else %}
     <p class="pl-tours-bookings__empty-title">No {% if show == "requested" %}requests{% elif show == "confirmed" %}confirmed tours{% else %}tours{% endif %} coming up{% if filter_guide %} for {{ filter_guide.staff_label }}{% endif %}.</p>
-    <p class="hub-text-muted pl-tours-bookings__empty-text">Visitors book the times in each guide's tour hours on the tours site. <a href="{% url 'tours:hours' %}" data-tours-empty-hours>Set tour hours on My Hours</a>, or see the days nobody covers on the <a href="{% url 'tours:calendar' %}">Calendar</a>.</p>
+    <p class="hub-text-muted pl-tours-bookings__empty-text">Visitors book the times in each guide's tour hours on the tours site. <a href="{% url 'hours:my_hours' %}" data-tours-empty-hours>Set tour hours on My Hours</a>, or see the days nobody covers on the <a href="{% url 'tours:calendar' %}">Calendar</a>.</p>
     {% endif %}
     {% if is_filtered %}<p class="pl-tours-bookings__empty-text"><a href="{% if tab == 'past' %}{{ past_url }}{% else %}{{ upcoming_url }}{% endif %}" data-tours-clear>Show All Tours →</a></p>{% endif %}
   </div>

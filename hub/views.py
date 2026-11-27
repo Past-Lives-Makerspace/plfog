@@ -46,7 +46,7 @@ from core.htmx import wants_fragment
 from core.features import is_on
 from core.models import BiometricCredential, FeedbackRequest, HeroCropMixin, QueuedDiscordMessage, SiteConfiguration
 from hub.permission_setup_views import page_setups
-from hub.view_as import ALL_ROLES, ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, SESSION_ROLE_KEY, fog_admin_required
+from hub.view_as import ALL_ROLES, ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, SESSION_ROLE_KEY, ViewAs, fog_admin_required
 from hub.forms import (
     AutomationsForm,
     BetaFeedbackForm,
@@ -1342,7 +1342,7 @@ def _guild_orientations_context(
         OrientationSlotForm,
         OrientationTypeFormSet,
     )
-    from hub.day_off_views import days_off_by_orienter
+    from hours.days_off import days_off_by_member
     from membership.models import GuildOrientationSettings
     from membership.permissions import can_edit_orienter_hours, guilds_for_new_orientation
 
@@ -1403,9 +1403,11 @@ def _guild_orientations_context(
         "viewer_member_pk": viewer.pk if viewer is not None else None,
         "show_my_hours_card": show_my_hours_card,
         "can_edit_others_hours": can_edit_others_hours,
+        # Edit Hours on another staffer's row opens their My Hours: admins only (#1300, Felix 3).
+        "hours_for_others": ViewAs.for_request(request).actual_is_admin,
         "orienter_overview": orienter_overview,
         # Each person's upcoming days off (#767), the "Off Nov 26, Dec 25." line under their rules.
-        "days_off_by_orienter": days_off_by_orienter(leadership),
+        "days_off_by_member": days_off_by_member(leadership),
         "former_staff_overview": former_staff_overview,
         "guild_rule_formset": (
             guild_rule_formset
