@@ -185,17 +185,11 @@ def describe_calendar_tab():
 
 
 def describe_add_from_a_gap():
-    def it_opens_add_dates_with_the_day_picked(guide: Member):
+    def it_lands_on_my_hours_with_the_day_kept(guide: Member):
+        # The old tab's ?add= link (#1274) lands on My Hours since #1300, which opens + Add Dates on it.
         day = _today() + timedelta(days=4)
-        content = signed_in(guide).get(HOURS, {"add": day.isoformat()}).content.decode()
-        assert f'"picked": ["{day.isoformat()}"]' in content
-        assert "plTourDates('tour-dates-config', true)" in content
-
-    @pytest.mark.parametrize("raw", ["nope", "2001-01-01", (date.today() + timedelta(days=900)).isoformat()])
-    def it_ignores_a_day_add_dates_could_not_pick(guide: Member, raw: str):
-        content = signed_in(guide).get(HOURS, {"add": raw}).content.decode()
-        assert '"picked": []' in content
-        assert "plTourDates('tour-dates-config', false)" in content
+        response = signed_in(guide).get(HOURS, {"add": day.isoformat()})
+        assert response["Location"] == f"{MY_HOURS}?add={day.isoformat()}"
 
 
 def describe_table():

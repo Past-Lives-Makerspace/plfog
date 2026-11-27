@@ -1,64 +1,34 @@
 {% comment %}
-Edit Hours modal body — the orientation availability formset for one orientor (a guild
-staffer or an equipment manager), or an equipment's shared rows, loaded via HTMX into
-#edit-hours-modal-body (see the Orientation Schedule card on the guild edit page and the
-equipment manage panel's Orientation tab).
+Edit Shared Hours modal body: a tool's shared (orientor-less) orientation rows, loaded via HTMX into
+#edit-hours-modal-body from the equipment manage panel's Orientation tab. A person's own hours are set
+on My Hours since #1300; this modal keeps the shared rows only (keep, edit, retire: no new ones).
 
-Prefix is ALWAYS "modal_rules": it is the sole whitelisted modal prefix, and the save views
-accept it only on an HTMX request (the posted formset_prefix field carries it). Every
-orientor edits their own hours through this modal, so no page renders an inline personal
-formset its DOM ids could collide with.
+Prefix is ALWAYS "modal_rules": it is the sole whitelisted modal prefix, and the save view accepts it
+only on an HTMX request (the posted formset_prefix field carries it).
 
-Context: target (the Member being edited, or None for an equipment's shared rows), formset
-(unbound on GET; bound on an invalid POST re-render so errors show inside the open modal),
-hours_save_url (the owner's save endpoint), offer_open (truthy for a guild staffer's own
-rows: each row shows How members book, fixed start times or any time in the window; #532).
-Each row is hub/partials/_orienter_hours_row.html, bound rows and the cloned empty form alike.
+Context: formset (unbound on GET; bound on an invalid POST re-render so errors show inside the open
+modal), hours_save_url (the owner's save endpoint). Each row is hub/partials/_orienter_hours_row.html.
 {% endcomment %}
-{% if target %}
-<h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Editing {{ target.staff_label }}'s Hours</h2>
-<p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Recurring hours when {{ target.staff_label }} can give orientations: every week, every few weeks, or by the month.{% if not offer_open %} We turn them into bookable slots automatically.{% endif %} Members book them by name.</p>
-{% else %}
 <h2 class="hub-detail-label" style="margin-top:0; margin-bottom:0.25rem;">Editing Shared Hours</h2>
 <p class="hub-text-muted" style="font-size:0.8125rem; margin-bottom:1rem;">Shared weekly windows any manager can run. Keep, edit, or retire them; new recurring hours belong to a person.</p>
-{% endif %}
 <form id="edit-hours-modal-form" class="hub-form"
       hx-post="{{ hours_save_url }}"
       hx-target="#edit-hours-modal-body" hx-swap="innerHTML">
   {% csrf_token %}
-  <input type="hidden" name="orienter_scope" value="{% if target %}{{ target.pk }}{% endif %}">
+  <input type="hidden" name="orienter_scope" value="">
   <input type="hidden" name="formset_prefix" value="modal_rules">
   {{ formset.management_form }}
   {% if formset.non_form_errors %}<div class="hub-form-errors">{{ formset.non_form_errors }}</div>{% endif %}
   <div id="modal-rule-rows" class="pl-hours-rows">
     {% for rule in formset %}
-    {% include "hub/partials/_orienter_hours_row.html" with rule=rule offer_open=offer_open target=target %}
+    {% include "hub/partials/_orienter_hours_row.html" with rule=rule %}
     {% empty %}
-    <p class="hub-text-muted">{% if target %}No hours yet. Add a window and members can start booking {{ target.staff_label }}.{% else %}No shared hours.{% endif %}</p>
+    <p class="hub-text-muted">No shared hours.</p>
     {% endfor %}
   </div>
 
-  {# Hidden empty-form template, cloned by the +Add button below. #}
-  <template id="modal-rule-empty-template">
-    {% include "hub/partials/_orienter_hours_row.html" with rule=formset.empty_form offer_open=offer_open target=target %}
-  </template>
-
   <div class="pl-oneoff__actions">
     {# Shared rows are keep/edit/retire only: no new shared recurring hours (the one-way door). #}
-    {% if target %}
-    <button type="button" class="hub-btn hub-btn--sm"
-            onclick="
-              const tpl = document.getElementById('modal-rule-empty-template');
-              const total = document.getElementById('id_modal_rules-TOTAL_FORMS');
-              const idx = parseInt(total.value, 10);
-              const wrap = document.createElement('div');
-              wrap.innerHTML = tpl.innerHTML.replaceAll('__prefix__', idx);
-              document.getElementById('modal-rule-rows').appendChild(wrap.firstElementChild);
-              total.value = idx + 1;
-            ">
-      + Add hours
-    </button>
-    {% endif %}
     <button type="button" class="hub-btn hub-btn--sm" @click="$dispatch('close-modal', 'edit-hours-modal')">Cancel</button>
     <button type="submit" class="pl-btn pl-btn--primary" hx-disabled-elt="this">Save</button>
   </div>

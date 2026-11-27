@@ -1,10 +1,10 @@
-"""BDD specs for the per-orientor Orientations tab — My Hours scope binding, the lead
-overview + edit-on-behalf, the legacy Guild Hours card, the Upcoming Times + Add a one off
-Slot card, rule-delete retirement, and the staff-remove hook."""
+"""BDD specs for the per-orientor Orientations tab: the Orientation Schedule overview (each person's
+Edit Hours opens My Hours since #1300, where hours are set), the legacy Guild Hours card, the
+Upcoming Times + Add a one off Slot card, rule-delete retirement, and the staff-remove hook."""
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 from django.contrib.auth.models import User
@@ -44,206 +44,12 @@ def _member_user(username: str, *, name: str, fog_role: str = Member.FogRole.MEM
     return user
 
 
-def _rule_payload(scope: str, **overrides: str) -> dict[str, str]:
-    data = {
-        "orienter_scope": scope,
-        "rules-TOTAL_FORMS": "1",
-        "rules-INITIAL_FORMS": "0",
-        "rules-MIN_NUM_FORMS": "0",
-        "rules-MAX_NUM_FORMS": "1000",
-        "rules-0-weekday": "1",
-        "rules-0-start_time": "18:00",
-        "rules-0-end_time": "19:00",
-        "rules-0-seats": "4",
-        "rules-0-is_active": "on",
-    }
-    data.update(overrides)
-    return data
-
-
-def _modal_rule_payload(scope: str, guild: object = None, **overrides: str) -> dict[str, str]:
-    """A modal (prefix ``modal_rules``) hours payload, posted with the HX-Request header.
-
-    Pass ``guild`` on success-path posts: it fills the row's required
-    ``orientation_type`` with the guild's shared "Orientation" type.
-    """
-    data = {
-        "orienter_scope": scope,
-        "formset_prefix": "modal_rules",
-        "modal_rules-TOTAL_FORMS": "1",
-        "modal_rules-INITIAL_FORMS": "0",
-        "modal_rules-MIN_NUM_FORMS": "0",
-        "modal_rules-MAX_NUM_FORMS": "1000",
-        "modal_rules-0-weekday": "1",
-        "modal_rules-0-start_time": "18:00",
-        "modal_rules-0-end_time": "19:00",
-        "modal_rules-0-seats": "4",
-        "modal_rules-0-is_active": "on",
-    }
-    if guild is not None:
-        data["modal_rules-0-orientation_type"] = str(OrientationTypeFactory(guild=guild).pk)
-    data.update(overrides)
-    return data
-
-
 def _tab_url(guild: object) -> str:
     return reverse("hub_guild_orientations", args=[guild.pk])
 
 
 def _hours_url(guild: object) -> str:
     return reverse("hub_guild_orientation_hours_save", args=[guild.pk])
-
-
-def _form_url(guild: object, orienter_pk: object) -> str:
-    return f"{reverse('hub_guild_orientation_hours_form', args=[guild.pk])}?orienter={orienter_pk}"
-
-
-def describe_my_hours_scope_binding():
-    def it_lets_a_staffer_save_their_own_hours(client: Client):
-        # Own hours now save through the Edit Hours modal (prefix modal_rules, HTMX): a valid
-        # save answers 204 + HX-Redirect back to the tab, not a plain 302.
-        guild = GuildFactory()
-        user = _member_user("sc_own", name="Bob Placeholder")
-        GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
-        client.login(username="sc_own", password="pass")
-        response = client.post(
-            _hours_url(guild), _modal_rule_payload(str(user.member.pk), guild=guild), HTTP_HX_REQUEST="true"
-        )
-        assert response.status_code == 204
-        assert response["HX-Redirect"] == _tab_url(guild)
-        rule = OrientationAvailability.objects.get(guild=guild)
-        assert rule.orienter == user.member
-
-    def it_keeps_the_orienter_on_an_edited_existing_rule(client: Client):
-        guild = GuildFactory()
-        user = _member_user("sc_edit", name="Bob Placeholder")
-        GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
-        rule = OrientationAvailabilityFactory(guild=guild, orienter=user.member, seats=2)
-        client.login(username="sc_edit", password="pass")
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(
-                str(user.member.pk),
-                guild=guild,
-                **{
-                    "modal_rules-INITIAL_FORMS": "1",
-                    "modal_rules-0-id": str(rule.pk),
-                    "modal_rules-0-seats": "6",
-                },
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 204
-        rule.refresh_from_db()
-        assert rule.seats == 6
-        assert rule.orienter == user.member
-
-    def it_forbids_a_staffer_posting_someone_elses_scope(client: Client):
-        guild = GuildFactory()
-        user = _member_user("sc_other", name="Bob Placeholder")
-        GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
-        alice = MemberFactory(full_legal_name="Alice Ash")
-        GuildStaffMembershipFactory(guild=guild, member=alice, role=GuildStaffMembership.Role.ORIENTER)
-        client.login(username="sc_other", password="pass")
-        response = client.post(_hours_url(guild), _modal_rule_payload(str(alice.pk)), HTTP_HX_REQUEST="true")
-        assert response.status_code == 403
-        assert not OrientationAvailability.objects.filter(guild=guild).exists()
-
-    def it_lets_the_lead_save_on_someones_behalf(client: Client):
-        user = _member_user("sc_lead", name="Lead Person")
-        guild = GuildFactory(guild_lead=user.member)
-        bob = MemberFactory(full_legal_name="Bob Placeholder")
-        GuildStaffMembershipFactory(guild=guild, member=bob, role=GuildStaffMembership.Role.ORIENTER)
-        client.login(username="sc_lead", password="pass")
-        response = client.post(_hours_url(guild), _modal_rule_payload(str(bob.pk), guild=guild), HTTP_HX_REQUEST="true")
-        assert response.status_code == 204
-        assert OrientationAvailability.objects.get(guild=guild).orienter == bob
-
-    def it_forbids_non_lead_staff_posting_the_guild_scope(client: Client):
-        guild = GuildFactory()
-        user = _member_user("sc_gscope", name="Bob Placeholder")
-        GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
-        OrientationAvailabilityFactory(guild=guild)
-        client.login(username="sc_gscope", password="pass")
-        response = client.post(
-            _hours_url(guild),
-            {
-                "orienter_scope": "",
-                "guild_rules-TOTAL_FORMS": "0",
-                "guild_rules-INITIAL_FORMS": "0",
-                "guild_rules-MIN_NUM_FORMS": "0",
-                "guild_rules-MAX_NUM_FORMS": "1000",
-            },
-        )
-        assert response.status_code == 403
-
-    def it_binds_only_the_posted_scopes_prefix(client: Client):
-        # A guild-scope POST carries no rules- management form at all — the view must
-        # never construct the personal formset for it (that would crash, not validate).
-        user = _member_user("sc_prefix", name="Lead Person")
-        guild = GuildFactory(guild_lead=user.member)
-        OrientationAvailabilityFactory(guild=guild)
-        client.login(username="sc_prefix", password="pass")
-        response = client.post(
-            _hours_url(guild),
-            {
-                "orienter_scope": "",
-                "guild_rules-TOTAL_FORMS": "0",
-                "guild_rules-INITIAL_FORMS": "0",
-                "guild_rules-MIN_NUM_FORMS": "0",
-                "guild_rules-MAX_NUM_FORMS": "1000",
-            },
-        )
-        assert response.status_code == 302
-
-    def it_rejects_a_malformed_scope(client: Client):
-        user = _member_user("sc_bad", name="Lead Person")
-        guild = GuildFactory(guild_lead=user.member)
-        client.login(username="sc_bad", password="pass")
-        response = client.post(_hours_url(guild), _modal_rule_payload("bogus"), HTTP_HX_REQUEST="true")
-        assert response.status_code == 404
-
-    def it_re_renders_an_invalid_own_hours_modal_post(client: Client):
-        # An own-hours modal POST that fails validation re-renders the bound modal partial with
-        # the errors surfaced inside the open editor; nothing is saved.
-        user = _member_user("sc_invalid", name="Lead Person")
-        guild = GuildFactory(guild_lead=user.member)
-        client.login(username="sc_invalid", password="pass")
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(
-                str(user.member.pk), **{"modal_rules-0-start_time": "19:00", "modal_rules-0-end_time": "18:00"}
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 200
-        assert b"Editing Lead Person" in response.content  # the bound modal partial
-        assert not OrientationAvailability.objects.filter(guild=guild).exists()
-
-
-def describe_my_hours_rendering():
-    # The inline My Hours card is gone; a staffer edits their own hours through the same Edit
-    # Hours modal partial as everyone else, opened from their row in the Orientation Schedule.
-    def it_renders_a_saved_rule_with_its_delete_confirm_modal(client: Client):
-        guild = GuildFactory()
-        user = _member_user("rw_row", name="Bob Placeholder")
-        GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
-        rule = OrientationAvailabilityFactory(guild=guild, orienter=user.member)
-        client.login(username="rw_row", password="pass")
-        response = client.get(_form_url(guild, user.member.pk))
-        assert response.status_code == 200
-        assert b"Editing Bob Placeholder" in response.content
-        assert b"Delete these hours?" in response.content
-        assert f"modal-rule-del-{rule.pk}".encode() in response.content
-        assert b"+ Add hours" in response.content
-
-    def it_shows_the_empty_state_for_a_staffer_with_no_hours(client: Client):
-        guild = GuildFactory()
-        user = _member_user("rw_empty", name="Empty Staffer")
-        GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
-        client.login(username="rw_empty", password="pass")
-        response = client.get(_form_url(guild, user.member.pk))
-        assert b"No hours yet. Add a window and members can start booking Empty Staffer." in response.content
 
 
 def describe_non_leadership_admin_self_scope():
@@ -258,24 +64,6 @@ def describe_non_leadership_admin_self_scope():
         assert b"My Orientation Hours" not in response.content
         assert b"Orientation Schedule" in response.content
         assert b"+ Add a one off" in response.content  # the rest of the tab is intact
-
-    def it_403s_a_self_scope_save(client: Client):
-        user = _member_user("nl_save", name="Site Admin", fog_role=Member.FogRole.ADMIN)
-        guild = GuildFactory()
-        client.login(username="nl_save", password="pass")
-        response = client.post(_hours_url(guild), _rule_payload(str(user.member.pk)))
-        assert response.status_code == 403
-        assert not OrientationAvailability.objects.filter(guild=guild).exists()
-
-    def it_still_lets_them_edit_on_behalf(client: Client):
-        _member_user("nl_behalf", name="Site Admin", fog_role=Member.FogRole.ADMIN)
-        guild = GuildFactory()
-        bob = MemberFactory(full_legal_name="Bob Placeholder")
-        GuildStaffMembershipFactory(guild=guild, member=bob, role=GuildStaffMembership.Role.ORIENTER)
-        client.login(username="nl_behalf", password="pass")
-        response = client.post(_hours_url(guild), _modal_rule_payload(str(bob.pk), guild=guild), HTTP_HX_REQUEST="true")
-        assert response.status_code == 204
-        assert OrientationAvailability.objects.get(guild=guild).orienter == bob
 
     def it_shows_their_own_editable_row_when_the_admin_is_also_on_staff(client: Client):
         # A staffed admin gets no inline card either — their own row shows in the Orientation
@@ -316,157 +104,7 @@ def describe_upcoming_slots_query_count():
         assert len(large) == len(small)
 
 
-def describe_orientation_hours_form_endpoint():
-    def it_returns_the_targets_modal_formset_for_a_lead(client: Client):
-        user = _member_user("hf_lead", name="Lead Person")
-        guild = GuildFactory(guild_lead=user.member)
-        bob = MemberFactory(full_legal_name="Bob Placeholder")
-        GuildStaffMembershipFactory(guild=guild, member=bob, role=GuildStaffMembership.Role.ORIENTER)
-        client.login(username="hf_lead", password="pass")
-        response = client.get(_form_url(guild, bob.pk))
-        assert response.status_code == 200
-        assert b"Editing Bob Placeholder" in response.content
-        # Prefix is modal_rules (never rules) so it can't collide with the page's own formset.
-        assert b'name="formset_prefix" value="modal_rules"' in response.content
-        assert f'name="orienter_scope" value="{bob.pk}"'.encode() in response.content
-        assert b"id_modal_rules-TOTAL_FORMS" in response.content
-
-    def it_403s_a_non_privileged_staffer_editing_someone_else(client: Client):
-        guild = GuildFactory()
-        user = _member_user("hf_staff", name="Bob Placeholder")
-        GuildStaffMembershipFactory(guild=guild, member=user.member, role=GuildStaffMembership.Role.ORIENTER)
-        alice = MemberFactory(full_legal_name="Alice Ash")
-        GuildStaffMembershipFactory(guild=guild, member=alice, role=GuildStaffMembership.Role.ORIENTER)
-        client.login(username="hf_staff", password="pass")
-        assert client.get(_form_url(guild, alice.pk)).status_code == 403
-
-    def it_404s_a_bogus_orienter(client: Client):
-        user = _member_user("hf_bogus", name="Lead Person")
-        guild = GuildFactory(guild_lead=user.member)
-        client.login(username="hf_bogus", password="pass")
-        assert client.get(_form_url(guild, 999999)).status_code == 404
-
-    def it_404s_a_non_numeric_orienter(client: Client):
-        user = _member_user("hf_nondigit", name="Lead Person")
-        guild = GuildFactory(guild_lead=user.member)
-        client.login(username="hf_nondigit", password="pass")
-        assert client.get(_form_url(guild, "abc")).status_code == 404
-
-    def it_404s_a_missing_orienter(client: Client):
-        user = _member_user("hf_missing", name="Lead Person")
-        guild = GuildFactory(guild_lead=user.member)
-        client.login(username="hf_missing", password="pass")
-        assert client.get(reverse("hub_guild_orientation_hours_form", args=[guild.pk])).status_code == 404
-
-    def it_renders_the_form_for_a_former_staff_target(client: Client):
-        # The Former Staff row's Edit Hours button opens the same modal (the gate is
-        # can_edit_orienter_hours, which a lead/admin passes for a former staffer).
-        user = _member_user("hf_former", name="Lead Person")
-        guild = GuildFactory(guild_lead=user.member)
-        gone = MemberFactory(full_legal_name="Gone Person")
-        OrientationAvailabilityFactory(guild=guild, orienter=gone)
-        client.login(username="hf_former", password="pass")
-        response = client.get(_form_url(guild, gone.pk))
-        assert response.status_code == 200
-        assert b"Editing Gone Person" in response.content
-
-
-def describe_modal_hours_save():
-    def it_answers_204_and_hx_redirect_on_a_valid_modal_save(client: Client):
-        user = _member_user("ms_lead", name="Lead Person")
-        guild = GuildFactory(guild_lead=user.member)
-        bob = MemberFactory(full_legal_name="Bob Placeholder")
-        GuildStaffMembershipFactory(guild=guild, member=bob, role=GuildStaffMembership.Role.ORIENTER)
-        client.login(username="ms_lead", password="pass")
-        response = client.post(_hours_url(guild), _modal_rule_payload(str(bob.pk), guild=guild), HTTP_HX_REQUEST="true")
-        assert response.status_code == 204
-        assert response["HX-Redirect"] == reverse("hub_guild_orientations", args=[guild.pk])
-        assert OrientationAvailability.objects.get(guild=guild).orienter == bob
-
-    def it_re_renders_the_modal_partial_with_errors_on_an_invalid_modal_save(client: Client):
-        user = _member_user("ms_invalid", name="Lead Person")
-        guild = GuildFactory(guild_lead=user.member)
-        bob = MemberFactory(full_legal_name="Bob Placeholder")
-        GuildStaffMembershipFactory(guild=guild, member=bob, role=GuildStaffMembership.Role.ORIENTER)
-        client.login(username="ms_invalid", password="pass")
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(
-                str(bob.pk), **{"modal_rules-0-start_time": "19:00", "modal_rules-0-end_time": "18:00"}
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 200
-        assert b"Editing Bob Placeholder" in response.content  # the bound partial, inside the modal
-        assert not OrientationAvailability.objects.filter(guild=guild).exists()
-
-    def it_404s_an_unlisted_formset_prefix(client: Client):
-        user = _member_user("ms_badprefix", name="Lead Person")
-        guild = GuildFactory(guild_lead=user.member)
-        client.login(username="ms_badprefix", password="pass")
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(str(user.member.pk), formset_prefix="sneaky"),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 404
-
-    def it_404s_modal_rules_without_the_htmx_header(client: Client):
-        # A crafted plain POST with modal_rules must not fall through to the full-page
-        # re-render (its management form would mismatch the page's rules formset).
-        user = _member_user("ms_nohtmx", name="Lead Person")
-        guild = GuildFactory(guild_lead=user.member)
-        client.login(username="ms_nohtmx", password="pass")
-        response = client.post(_hours_url(guild), _modal_rule_payload(str(user.member.pk)))
-        assert response.status_code == 404
-
-
 def describe_rule_delete_retirement():
-    def it_reports_the_removed_and_kept_slot_counts(client: Client):
-        user = _member_user("del_lead", name="Lead Person")
-        guild = GuildFactory(guild_lead=user.member)
-        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
-        bob = MemberFactory(full_legal_name="Bob Placeholder")
-        GuildStaffMembershipFactory(guild=guild, member=bob, role=GuildStaffMembership.Role.ORIENTER)
-        rule = OrientationAvailabilityFactory(guild=guild, orienter=bob)
-        open_slot = OrientationSlotFactory(
-            guild=guild, orienter=bob, availability=rule, source=OrientationSlot.Source.GENERATED
-        )
-        booked = OrientationSlotFactory(
-            guild=guild, orienter=bob, availability=rule, source=OrientationSlot.Source.GENERATED
-        )
-        OrientationBookingFactory(slot=booked)
-        client.login(username="del_lead", password="pass")
-        # The lead deletes Bob's rule through the Edit Hours modal (modal_rules, HTMX). A valid
-        # save answers 204 + HX-Redirect; the retirement flash renders on the reloaded tab.
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(
-                str(bob.pk),
-                **{
-                    "modal_rules-INITIAL_FORMS": "1",
-                    "modal_rules-0-id": str(rule.pk),
-                    "modal_rules-0-weekday": str(rule.weekday),
-                    "modal_rules-0-start_time": "18:00",
-                    "modal_rules-0-end_time": "19:00",
-                    "modal_rules-0-seats": str(rule.seats),
-                    "modal_rules-0-DELETE": "on",
-                },
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 204
-        assert response["HX-Redirect"] == _tab_url(guild)
-        # Follow the HX-Redirect to consume the queued flash on the reloaded tab.
-        followup = client.get(_tab_url(guild))
-        joined = " ".join(str(m) for m in followup.context["messages"])
-        assert "Hours deleted." in joined
-        assert "Removed 1 upcoming open slot." in joined
-        assert "1 booked slot kept." in joined
-        assert not OrientationSlot.objects.filter(pk=open_slot.pk).exists()
-        assert OrientationSlot.objects.filter(pk=booked.pk).exists()
-        assert not OrientationAvailability.objects.filter(pk=rule.pk).exists()
-
     def it_uses_the_plain_delete_message_when_shared_rules_remain(client: Client):
         user = _member_user("del_shared", name="Lead Person")
         guild = GuildFactory(guild_lead=user.member)
@@ -633,305 +271,6 @@ def describe_guild_hours_legacy_card():
         assert response.context["guild_rule_formset"].errors
         rule.refresh_from_db()
         assert rule.start_time.hour == 18  # nothing saved
-
-
-def describe_hours_cadence():
-    """Issue 373: personal hours recur on a cadence (weekly to yearly) from the day they start."""
-
-    def _lead(client: Client, username: str):
-        user = _member_user(username, name="Lead Person")
-        guild = GuildFactory(guild_lead=user.member)
-        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
-        client.login(username=username, password="pass")
-        return user, guild
-
-    def _tuesday_ahead() -> date:
-        """A Tuesday two to three weeks out, safely inside the 8 week generation window."""
-        today = timezone.localdate()
-        return today + timedelta(days=(1 - today.weekday()) % 7 + 14)
-
-    def it_renders_both_fields_in_the_modal(client: Client):
-        user, guild = _lead(client, "fn_show")
-        content = client.get(_form_url(guild, user.member.pk)).content.decode()
-        assert 'name="modal_rules-__prefix__-cadence"' in content
-        assert "Every other week" in content
-        assert "Starting on" in content
-        assert 'name="modal_rules-__prefix__-anchor_date"' in content
-        assert 'type="date"' in content
-        assert "pl-slot-date" in content  # the hub's dark-theme date picker treatment
-
-    def it_offers_every_cadence(client: Client):
-        user, guild = _lead(client, "fn_seven")
-        content = client.get(_form_url(guild, user.member.pk)).content.decode()
-        for value, label in OrientationAvailability.Cadence.choices:
-            assert f'value="{value}"' in content
-            assert f">{label}</option>" in content
-        assert '<option value="weekly" selected>Every week</option>' in content
-
-    def it_saves_a_monthly_rule_and_names_it_in_the_overview(client: Client):
-        user, guild = _lead(client, "fn_monthly")
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(
-                str(user.member.pk),
-                guild=guild,
-                **{"modal_rules-0-cadence": "monthly", "modal_rules-0-anchor_date": "2026-09-08"},
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 204
-        rule = OrientationAvailability.objects.get(orienter=user.member)
-        assert rule.cadence == OrientationAvailability.Cadence.MONTHLY
-        assert rule.anchor_date == date(2026, 9, 8)
-        content = client.get(_tab_url(guild)).content.decode()
-        assert "· Every month on the 2nd Tuesday ·" in content
-
-    def it_saves_an_every_other_week_rule_with_its_anchor(client: Client):
-        user, guild = _lead(client, "fn_save")
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(
-                str(user.member.pk),
-                guild=guild,
-                **{"modal_rules-0-cadence": "fortnightly", "modal_rules-0-anchor_date": "2026-09-22"},
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 204
-        rule = OrientationAvailability.objects.get(orienter=user.member)
-        assert rule.cadence == OrientationAvailability.Cadence.FORTNIGHTLY
-        assert rule.anchor_date == date(2026, 9, 22)
-
-    def it_saves_a_weekly_rule_with_a_start_date_and_generates_nothing_before_it(client: Client):
-        # Issue 492: a weekly rule's start date is a floor, not decoration.
-        user, guild = _lead(client, "fn_weekly_start")
-        starts = _tuesday_ahead()
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(
-                str(user.member.pk),
-                guild=guild,
-                **{"modal_rules-0-cadence": "weekly", "modal_rules-0-anchor_date": starts.isoformat()},
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 204
-        rule = OrientationAvailability.objects.get(orienter=user.member)
-        assert rule.cadence == OrientationAvailability.Cadence.WEEKLY
-        assert rule.anchor_date == starts
-        slot_days = [timezone.localtime(slot.starts_at).date() for slot in rule.slots.order_by("starts_at")]
-        assert slot_days  # the rule does generate, just not yet
-        assert slot_days[0] == starts
-        content = client.get(_tab_url(guild)).content.decode()
-        assert f"· Every Tuesday from {starts:%b} {starts.day} ·" in content
-
-    def it_errors_on_the_anchor_when_every_other_week_has_no_date(client: Client):
-        user, guild = _lead(client, "fn_noanchor")
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(str(user.member.pk), guild=guild, **{"modal_rules-0-cadence": "fortnightly"}),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 200
-        assert "Pick the day these hours start." in response.content.decode()
-        assert not OrientationAvailability.objects.filter(orienter=user.member).exists()
-
-    def it_errors_when_the_start_day_is_not_the_rules_weekday(client: Client):
-        # A Tuesday rule started on Wednesday 2026-09-09 would silently mean a different Tuesday.
-        user, guild = _lead(client, "fn_wrongday")
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(
-                str(user.member.pk),
-                guild=guild,
-                **{"modal_rules-0-cadence": "monthly", "modal_rules-0-anchor_date": "2026-09-09"},
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 200
-        assert "The start day must be a Tuesday, the day these hours run." in response.content.decode()
-        assert not OrientationAvailability.objects.filter(orienter=user.member).exists()
-
-    def it_keeps_a_modal_post_without_the_field_weekly(client: Client):
-        user, guild = _lead(client, "fn_absent")
-        response = client.post(
-            _hours_url(guild), _modal_rule_payload(str(user.member.pk), guild=guild), HTTP_HX_REQUEST="true"
-        )
-        assert response.status_code == 204
-        rule = OrientationAvailability.objects.get(orienter=user.member)
-        assert rule.cadence == OrientationAvailability.Cadence.WEEKLY
-        assert rule.anchor_date is None
-
-    def it_keeps_a_legacy_shared_row_weekly_when_its_form_never_posts_the_field(client: Client):
-        # The Guild Hours (Any Orientor) card does not render the cadence fields (D4).
-        user, guild = _lead(client, "fn_legacy")
-        rule = OrientationAvailabilityFactory(guild=guild)
-        content = client.get(_tab_url(guild)).content.decode()
-        assert "guild_rules-0-cadence" not in content
-        response = client.post(
-            _hours_url(guild),
-            {
-                "orienter_scope": "",
-                "guild_rules-TOTAL_FORMS": "1",
-                "guild_rules-INITIAL_FORMS": "1",
-                "guild_rules-MIN_NUM_FORMS": "0",
-                "guild_rules-MAX_NUM_FORMS": "1000",
-                "guild_rules-0-id": str(rule.pk),
-                "guild_rules-0-orientation_type": str(rule.orientation_type_id),
-                "guild_rules-0-weekday": str(rule.weekday),
-                "guild_rules-0-start_time": "18:00",
-                "guild_rules-0-end_time": "19:00",
-                "guild_rules-0-seats": "6",
-                "guild_rules-0-is_active": "on",
-            },
-        )
-        assert response.status_code == 302
-        rule.refresh_from_db()
-        assert rule.seats == 6
-        assert rule.cadence == OrientationAvailability.Cadence.WEEKLY
-        assert rule.anchor_date is None
-
-    def it_round_trips_an_existing_weekly_row(client: Client):
-        user, guild = _lead(client, "fn_rt_weekly")
-        rule = OrientationAvailabilityFactory(guild=guild, orienter=user.member)
-        content = client.get(_form_url(guild, user.member.pk)).content.decode()
-        assert '<option value="weekly" selected>Every week</option>' in content
-        assert 'name="modal_rules-0-anchor_date"' in content
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(
-                str(user.member.pk),
-                **{
-                    "modal_rules-INITIAL_FORMS": "1",
-                    "modal_rules-0-id": str(rule.pk),
-                    "modal_rules-0-orientation_type": str(rule.orientation_type_id),
-                    "modal_rules-0-cadence": "weekly",
-                    "modal_rules-0-anchor_date": "",
-                    "modal_rules-0-seats": "6",
-                },
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 204
-        rule.refresh_from_db()
-        assert rule.seats == 6
-        assert rule.cadence == OrientationAvailability.Cadence.WEEKLY
-        assert rule.anchor_date is None
-
-    def it_round_trips_an_existing_every_other_week_row(client: Client):
-        user, guild = _lead(client, "fn_rt_fort")
-        OrientationAvailabilityFactory(
-            guild=guild,
-            orienter=user.member,
-            cadence=OrientationAvailability.Cadence.FORTNIGHTLY,
-            anchor_date=date(2026, 9, 22),
-        )
-        content = client.get(_form_url(guild, user.member.pk)).content.decode()
-        assert '<option value="fortnightly" selected>Every other week</option>' in content
-        assert 'value="2026-09-22"' in content
-
-    def it_renders_the_plain_words_line_and_the_last_of_the_month_switch(client: Client):
-        # #430: the row's recurrence in plain words (written by plHoursRow before a save), and
-        # the Last of the month switch the row shows under a month based cadence only.
-        user, guild = _lead(client, "fn_430_render")
-        content = client.get(_form_url(guild, user.member.pk)).content.decode()
-        assert "x-data=\"plHoursRow('fixed')\"" in content
-        assert "data-hours-summary" in content
-        assert 'x-show="monthly" data-hours-last' in content
-        assert 'name="modal_rules-__prefix__-last_of_month"' in content
-        assert '<option value="every_3_weeks">Every 3 weeks</option>' in content
-
-    def it_saves_a_last_thursday_rule_and_names_it_in_the_overview(client: Client):
-        user, guild = _lead(client, "fn_430_last")
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(
-                str(user.member.pk),
-                guild=guild,
-                **{
-                    "modal_rules-0-weekday": "3",
-                    "modal_rules-0-cadence": "monthly",
-                    "modal_rules-0-anchor_date": "2026-10-29",
-                    "modal_rules-0-last_of_month": "on",
-                },
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 204
-        rule = OrientationAvailability.objects.get(orienter=user.member)
-        assert rule.last_of_month is True
-        content = client.get(_tab_url(guild)).content.decode()
-        assert "· Every month on the last Thursday ·" in content
-
-    def it_saves_an_every_3_weeks_rule_and_names_it_in_the_overview(client: Client):
-        user, guild = _lead(client, "fn_430_three")
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(
-                str(user.member.pk),
-                guild=guild,
-                **{"modal_rules-0-cadence": "every_3_weeks", "modal_rules-0-anchor_date": "2026-09-22"},
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 204
-        rule = OrientationAvailability.objects.get(orienter=user.member)
-        assert rule.cadence == OrientationAvailability.Cadence.EVERY_3_WEEKS
-        content = client.get(_tab_url(guild)).content.decode()
-        assert "· Every 3 weeks on Tuesday ·" in content
-
-    def it_drops_a_last_of_the_month_tick_left_hidden_under_a_week_based_cadence(client: Client):
-        user, guild = _lead(client, "fn_430_hidden")
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(
-                str(user.member.pk),
-                guild=guild,
-                **{
-                    "modal_rules-0-cadence": "fortnightly",
-                    "modal_rules-0-anchor_date": "2026-09-22",
-                    "modal_rules-0-last_of_month": "on",
-                },
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 204
-        assert OrientationAvailability.objects.get(orienter=user.member).last_of_month is False
-
-    def it_errors_when_a_last_of_the_month_start_day_is_not_the_last_one(client: Client):
-        user, guild = _lead(client, "fn_430_notlast")
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(
-                str(user.member.pk),
-                guild=guild,
-                **{
-                    "modal_rules-0-weekday": "3",
-                    "modal_rules-0-cadence": "monthly",
-                    "modal_rules-0-anchor_date": "2026-11-19",
-                    "modal_rules-0-last_of_month": "on",
-                },
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 200
-        assert (
-            "The start day must be the last Thursday of its month when these hours run on the last Thursday."
-            in response.content.decode()
-        )
-        assert not OrientationAvailability.objects.filter(orienter=user.member).exists()
-
-    def it_reads_every_other_tuesday_in_the_overview(client: Client):
-        user, guild = _lead(client, "fn_overview")
-        OrientationAvailabilityFactory(
-            guild=guild,
-            orienter=user.member,
-            cadence=OrientationAvailability.Cadence.FORTNIGHTLY,
-            anchor_date=date(2026, 9, 22),
-        )
-        content = client.get(_tab_url(guild)).content.decode()
-        assert "· Every other Tuesday ·" in content
-        assert "· Tuesday ·" not in content
 
 
 def describe_upcoming_slots_card():
@@ -1184,93 +523,6 @@ def describe_rule_pause_retirement():
         assert guild.orientation_rules.count() == 1
 
 
-def describe_slot_length_and_break_in_the_guild_modal():
-    """The shared rule form's optional fields on the guild side: blank keeps one slot per window."""
-
-    def _lead_with_rule(client: Client, username: str):
-        user = _member_user(username, name="Lead Person")
-        guild = GuildFactory(guild_lead=user.member)
-        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
-        rule = OrientationAvailabilityFactory(guild=guild, orienter=user.member)
-        client.login(username=username, password="pass")
-        return user, guild, rule
-
-    def _existing_row(rule, **overrides) -> dict[str, str]:
-        data = {
-            "modal_rules-INITIAL_FORMS": "1",
-            "modal_rules-0-id": str(rule.pk),
-            "modal_rules-0-orientation_type": str(rule.orientation_type_id),
-            "modal_rules-0-weekday": str(rule.weekday),
-            "modal_rules-0-start_time": "18:00",
-            "modal_rules-0-end_time": "20:00",
-            "modal_rules-0-seats": str(rule.seats),
-            "modal_rules-0-is_active": "on",
-        }
-        data.update(overrides)
-        return data
-
-    def it_shows_the_two_fields_in_the_modal(client: Client):
-        user, guild, _rule = _lead_with_rule(client, "sl_show")
-        response = client.get(_form_url(guild, user.member.pk))
-        content = response.content.decode()
-        assert "Slot length" in content
-        assert "Break between slots" in content
-        assert "Whole window" in content
-        assert "Leave slot length blank to offer the whole window as one slot." in content
-
-    def it_keeps_one_slot_per_window_when_slot_length_is_blank(client: Client):
-        user, guild, rule = _lead_with_rule(client, "sl_blank")
-        rule.end_time = __import__("datetime").time(20, 0)
-        rule.save(update_fields=["end_time"])
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(str(user.member.pk), **_existing_row(rule)),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 204
-        rule.refresh_from_db()
-        assert rule.slot_minutes is None
-        assert rule.buffer_minutes == 0
-        first = rule.slots.order_by("starts_at").first()
-        assert first is not None
-        assert first.ends_at - first.starts_at == timedelta(hours=2)
-
-    def it_carves_the_window_when_a_slot_length_is_set(client: Client):
-        user, guild, rule = _lead_with_rule(client, "sl_carve")
-        rule.end_time = __import__("datetime").time(20, 0)
-        rule.save(update_fields=["end_time"])
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(
-                str(user.member.pk),
-                **_existing_row(rule, **{"modal_rules-0-slot_minutes": "60", "modal_rules-0-buffer_minutes": "0"}),
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 204
-        rule.refresh_from_db()
-        assert rule.slot_minutes == 60
-        starts = sorted(
-            {timezone.localtime(s).strftime("%H:%M") for s in rule.slots.values_list("starts_at", flat=True)}
-        )
-        assert starts == ["18:00", "19:00"]
-
-    def it_rejects_a_slot_length_longer_than_the_window(client: Client):
-        user, guild, rule = _lead_with_rule(client, "sl_short")
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(
-                str(user.member.pk),
-                **_existing_row(rule, **{"modal_rules-0-end_time": "18:30", "modal_rules-0-slot_minutes": "60"}),
-            ),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 200
-        assert b"This window is shorter than one slot." in response.content
-        rule.refresh_from_db()
-        assert rule.slot_minutes is None
-
-
 def describe_shared_rule_form_owner_resolution():
     """The one rule form serves both owners; with no owner passed it falls back to the row's guild."""
 
@@ -1293,47 +545,33 @@ def describe_shared_rule_form_owner_resolution():
 
 
 def describe_invalid_modal_re_render_keeps_the_save_url():
-    """The shared partial posts to hours_save_url; an error re-render must still carry it (both owners)."""
-
-    def it_keeps_the_guild_save_url(client: Client):
-        user = _member_user("url_guild", name="Lead Person")
-        guild = GuildFactory(guild_lead=user.member)
-        GuildOrientationSettingsFactory(guild=guild, is_enabled=True)
-        client.login(username="url_guild", password="pass")
-        response = client.post(
-            _hours_url(guild),
-            _modal_rule_payload(str(user.member.pk), guild=guild, **{"modal_rules-0-end_time": "17:00"}),
-            HTTP_HX_REQUEST="true",
-        )
-        assert response.status_code == 200
-        content = response.content.decode()
-        assert b"End time must be after the start time." in response.content
-        assert f'hx-post="{_hours_url(guild)}"' in content
-        assert 'hx-post=""' not in content
+    """Edit Shared Hours posts to hours_save_url; an error re-render must still carry it."""
 
     def it_keeps_the_equipment_save_url(client: Client):
-        from tests.membership.factories import EquipmentFactory, EquipmentStaffMembershipFactory
+        from tests.membership.factories import EquipmentFactory
 
-        user = _member_user("url_equip", name="Dana Reyes")
+        _member_user("url_equip", name="Ada Admin", fog_role=Member.FogRole.ADMIN)
         equipment = EquipmentFactory()
-        EquipmentStaffMembershipFactory(equipment=equipment, member=user.member)
         orientation_type = OrientationTypeFactory(equipment_owned=True, equipment=equipment, name="Basics")
+        rule = OrientationAvailabilityFactory(equipment_owned=True, orientation_type=orientation_type)
         client.login(username="url_equip", password="pass")
         save_url = reverse("hub_equipment_orientation_hours_save", args=[equipment.slug])
         response = client.post(
             save_url,
             {
-                "orienter_scope": str(user.member.pk),
+                "orienter_scope": "",
                 "formset_prefix": "modal_rules",
                 "modal_rules-TOTAL_FORMS": "1",
-                "modal_rules-INITIAL_FORMS": "0",
+                "modal_rules-INITIAL_FORMS": "1",
                 "modal_rules-MIN_NUM_FORMS": "0",
                 "modal_rules-MAX_NUM_FORMS": "1000",
+                "modal_rules-0-id": str(rule.pk),
                 "modal_rules-0-orientation_type": str(orientation_type.pk),
                 "modal_rules-0-weekday": "1",
                 "modal_rules-0-start_time": "18:00",
                 "modal_rules-0-end_time": "17:00",
                 "modal_rules-0-seats": "1",
+                "modal_rules-0-cadence": "weekly",
                 "modal_rules-0-is_active": "on",
             },
             HTTP_HX_REQUEST="true",

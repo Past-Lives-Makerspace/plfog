@@ -46,6 +46,7 @@ from core.htmx import wants_fragment
 from core.features import is_on
 from core.models import BiometricCredential, FeedbackRequest, HeroCropMixin, QueuedDiscordMessage, SiteConfiguration
 from hub.permission_setup_views import page_setups
+from hours.links import to_my_hours
 from hub.view_as import ALL_ROLES, ROLE_ADMIN, ROLE_GUEST, ROLE_MEMBER, SESSION_ROLE_KEY, ViewAs, fog_admin_required
 from hub.forms import (
     AutomationsForm,
@@ -1808,12 +1809,11 @@ _GUILD_SHARED_FAREWELL = (
 
 
 def _personal_hours_prefix(request: HttpRequest, *, is_htmx: bool) -> str:
-    """Pick the whitelisted formset prefix for a personal-scope hours save.
+    """Pick the whitelisted formset prefix for the Edit Shared Hours modal (the equipment save's only scope now).
 
-    Personal hours are edited ONLY through the Edit Hours modal, which posts ``modal_rules``
-    over HTMX. It is accepted only WITH the ``HX-Request`` header, so its DOM ids never
-    collide with anything else on the page. Any other prefix, or ``modal_rules`` on a
-    non-HTMX request, is a 404 (fail loudly).
+    The modal posts ``modal_rules`` over HTMX. It is accepted only WITH the ``HX-Request``
+    header, so its DOM ids never collide with anything else on the page. Any other prefix, or
+    ``modal_rules`` on a non-HTMX request, is a 404 (fail loudly).
     """
     prefix = request.POST.get("formset_prefix", "")
     if prefix != "modal_rules":
@@ -1826,58 +1826,37 @@ def _personal_hours_prefix(request: HttpRequest, *, is_htmx: bool) -> str:
 @login_required
 @require_POST
 def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
-    """Save one scope of recurring orientation hours from the Orientations tab.
+    """Save the guild's shared recurring orientation hours (Guild Hours, Any Orientor) from the Orientations page.
 
-    The posted hidden ``orienter_scope`` field is read FIRST and selects the target — a
-    member pk scopes to that person's rows; an empty scope binds the legacy
-    ``guild_rules`` prefix to the guild-level rows. A personal scope is edited ONLY through the
-    Edit Hours modal, which posts ``modal_rules`` over HTMX (the sole whitelisted personal
-    prefix, and only accepted WITH the ``HX-Request`` header). An unlisted prefix, or
-    ``modal_rules`` on a non-HTMX request, is a 404 (fail loudly). Gate is
-    ``can_edit_orienter_hours``. Deleted rows retire via
-    ``retire_rule``, new rows are stamped with the scope's orientor, and saved hours
-    materialize slots immediately. A valid HTMX (modal) save answers 204 + ``HX-Redirect``
-    to reload the tab; an invalid modal save re-renders the bound formset inside the modal.
-    Non-HTMX (page) saves keep the plain redirect / full-page re-render on the tab.
+    The legacy ``guild_rules`` rows only: a person's own hours are set on My Hours since #1300, so a
+    posted ``orienter_scope`` (the old Edit Hours modal) goes there, saving nothing. Gate is
+    ``can_edit_orienter_hours``. Deleted rows retire via ``retire_rule`` and saved hours materialize
+    slots immediately. The card saves itself (``hub.autosave``): JSON either way; without the script,
+    a flash and a redirect to the page, or the page again with the bound formset.
     """
     from hub.forms import OrientationAvailabilityFormSet
     from membership import orientations
-    from membership.models import Member
     from membership.permissions import can_edit_orienter_hours
 
     guild = get_object_or_404(Guild, pk=pk)
-    is_htmx = bool(request.headers.get("HX-Request"))
-    scope_raw = request.POST.get("orienter_scope", "")
-    target = None
-    if scope_raw:
-        if not scope_raw.isdigit():
-            raise Http404("Unknown orientor scope.")
-        target = get_object_or_404(Member, pk=int(scope_raw))
-    if not can_edit_orienter_hours(request, guild, target):
+    if request.POST.get("orienter_scope"):
+        return to_my_hours(request, request.POST["orienter_scope"])
+    if not can_edit_orienter_hours(request, guild, None):
         return HttpResponse("Forbidden", status=403)
-    if target is not None:
-        prefix = _personal_hours_prefix(request, is_htmx=is_htmx)
-        queryset = guild.orientation_rules.for_orienter(target)
-    else:
-        prefix = "guild_rules"
-        queryset = guild.orientation_rules.guild_level()
-    # A person's own rows may open a window (#532); the shared guild scope stays fixed. The
-    # scope's person is handed to each form so the model's clean can read it before save.
+    prefix = "guild_rules"
     formset = OrientationAvailabilityFormSet(
         request.POST,
         instance=guild,
         prefix=prefix,
-        queryset=queryset,
-        form_kwargs={"guild": guild, "orienter": target, "allow_open": target is not None},
+        queryset=guild.orientation_rules.guild_level(),
+        form_kwargs={"guild": guild, "orienter": None, "allow_open": False},
     )
     if formset.is_valid():
-        deleted_rules, removed, kept = _apply_hours_formset(formset, target=target)
-        # Same side effect the combined save had — saved hours materialize slots immediately.
+        deleted_rules, removed, kept = _apply_hours_formset(formset)
         orientations.generate_slots(guild=guild)
         if wants_autosave(request):
-            # The page's Guild Hours form (the modal keeps its HX-Redirect round trip).
             return autosave_saved({prefix: formset_rows(formset)})
-        shared_emptied = target is None and not guild.orientation_rules.guild_level().exists()
+        shared_emptied = not guild.orientation_rules.guild_level().exists()
         messages.success(
             request,
             _hours_save_message(
@@ -1887,73 +1866,17 @@ def guild_orientation_hours_save(request: HttpRequest, pk: int) -> HttpResponse:
                 shared_farewell=_GUILD_SHARED_FAREWELL if shared_emptied else None,
             ),
         )
-        orientations_page = _guild_orientations_url(guild)
-        if is_htmx:
-            # The modal save round-trips through HX-Redirect: htmx does a full navigation,
-            # the modal disappears with the old page, and the queued flash renders on the
-            # reloaded Orientations page (delete/add/slot counts surface exactly as today).
-            response = HttpResponse(status=204)
-            response["HX-Redirect"] = orientations_page
-            return response
-        return redirect(orientations_page)
-
-    if prefix == "modal_rules":
-        # Invalid modal POST (the only personal-scope path now): re-render the bound partial so
-        # field / non-form errors appear inside the open modal with everything typed preserved.
-        return render(
-            request,
-            "hub/partials/_orienter_hours_modal_form.html",
-            {
-                "guild": guild,
-                "target": target,
-                "formset": formset,
-                "hours_save_url": reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
-                "offer_open": target is not None,
-            },
-        )
+        return redirect(_guild_orientations_url(guild))
     if wants_autosave(request):
         return autosave_refused(formset)
-    # Guild scope is the only other path here — re-render the full page with the bound formset.
     return _render_guild_orientations(request, guild, guild_rule_formset=formset)
 
 
 @login_required
 def guild_orientation_hours_form(request: HttpRequest, pk: int) -> HttpResponse:
-    """Return the Edit Hours modal's formset partial for one orientor (HTMX GET).
-
-    Reads ``?orienter=<pk>`` (non-digit or missing → 404), resolves the target Member, and
-    gates with ``can_edit_orienter_hours`` (403 otherwise) — the same gate the save uses, so
-    former-staff targets work for leads/admins exactly as the old querystring flow did.
-    Renders an UNBOUND ``modal_rules`` formset scoped to the target's rows.
-    """
-    from hub.forms import OrientationAvailabilityFormSet
-    from membership.models import Member
-    from membership.permissions import can_edit_orienter_hours
-
-    guild = get_object_or_404(Guild, pk=pk)
-    orienter_raw = request.GET.get("orienter", "")
-    if not orienter_raw.isdigit():
-        raise Http404("Unknown orientor.")
-    target = get_object_or_404(Member, pk=int(orienter_raw))
-    if not can_edit_orienter_hours(request, guild, target):
-        return HttpResponse("Forbidden", status=403)
-    formset = OrientationAvailabilityFormSet(
-        instance=guild,
-        prefix="modal_rules",
-        queryset=guild.orientation_rules.for_orienter(target),
-        form_kwargs={"guild": guild, "orienter": target, "allow_open": True},
-    )
-    return render(
-        request,
-        "hub/partials/_orienter_hours_modal_form.html",
-        {
-            "guild": guild,
-            "target": target,
-            "formset": formset,
-            "hours_save_url": reverse("hub_guild_orientation_hours_save", args=[guild.pk]),
-            "offer_open": True,
-        },
-    )
+    """The old Edit Hours modal for one orientor (``?orienter=<pk>``): My Hours, where hours are set since #1300."""
+    get_object_or_404(Guild, pk=pk)
+    return to_my_hours(request, request.GET.get("orienter", ""))
 
 
 def _flipped_off(rule_form: Any) -> bool:
@@ -1963,27 +1886,14 @@ def _flipped_off(rule_form: Any) -> bool:
     return "is_active" in rule_form.changed_data and not rule_form.cleaned_data["is_active"]
 
 
-def _restyled(rule_form: Any) -> bool:
-    """True for a saved rule whose How members book choice just changed (never a delete or a new row)."""
-    if not rule_form.instance.pk or not rule_form.cleaned_data or rule_form.cleaned_data.get("DELETE"):
-        return False
-    # Compared on the cleaned value, not changed_data: the shared rows never post the field,
-    # and a blank that cleans to fixed would otherwise read as a change and retire twice.
-    return rule_form.cleaned_data.get("booking_style") != rule_form.initial.get("booking_style")
-
-
-def _apply_hours_formset(formset: Any, *, target: Any) -> tuple[int, int, int]:
-    """Apply a valid hours formset: retire deleted rules, stamp + save the kept rows.
+def _apply_hours_formset(formset: Any) -> tuple[int, int, int]:
+    """Apply a valid shared hours formset (a guild's Guild Hours, a tool's Edit Shared Hours): retire deleted rules, save the rest.
 
     A saved rule whose Active toggle flipped from on to off also retires its future
     open generated slots (booked ones stay, capped), so a pause is as honest as a
-    delete; the ``bookable()`` rule gate stops new bookings on the kept slots.
-
-    A rule whose booking style changed retires the old shape first (#532): generation
-    only ever tidies the current style, so a fixed row turned open would otherwise keep
-    its fixed slots bookable under the new windows, and the reverse would keep the
-    windows. The stored row is read back because validation already restyled the
-    instance, and :func:`retire_open_slots` dispatches on the style it is handed.
+    delete; the ``bookable()`` rule gate stops new bookings on the kept slots. Shared rows
+    are always fixed start times and gain no new rows, so nothing is restyled or stamped
+    (a person's own hours are set on My Hours since #1300).
 
     Returns ``(deleted_rules, open_slots_removed, kept_with_bookings)`` for the flash.
     """
@@ -1996,16 +1906,8 @@ def _apply_hours_formset(formset: Any, *, target: Any) -> tuple[int, int, int]:
             removed += rule_removed
             kept += rule_kept
             deleted_rules += 1
-    for rule_form in formset.forms:
-        if _restyled(rule_form):
-            stored = type(rule_form.instance).objects.get(pk=rule_form.instance.pk)
-            rule_removed, rule_kept = orientations.retire_open_slots(stored)
-            removed += rule_removed
-            kept += rule_kept
     paused = [rule_form.instance for rule_form in formset.forms if _flipped_off(rule_form)]
     for rule in formset.save(commit=False):
-        if rule.orienter_id is None and target is not None:
-            rule.orienter = target  # scope stamps new rows — orientor is write-once from the UI
         rule.save()
     for rule in paused:
         rule_removed, rule_kept = orientations.retire_open_slots(rule)

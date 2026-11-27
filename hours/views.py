@@ -42,7 +42,13 @@ from membership.permission_setup import SetupState
 from tours import google
 from tours.forms import TourCalendarChoiceForm, TourNoticeForm
 from tours.models import FacilityTourSettings, TourCalendarConnection, TourGuideSettings
-from tours.views import CALENDAR_STATE_LABELS, NO_CALENDAR_LABEL
+
+#: How the admin's Whose hours picker names each person's Google Calendar (#951, from the Tours page's guide picker).
+CALENDAR_STATE_LABELS: dict[str, str] = {
+    TourCalendarConnection.Status.CONNECTED: "Calendar connected",
+    TourCalendarConnection.Status.BROKEN: "Calendar needs reconnecting",
+}
+NO_CALENDAR_LABEL = "No calendar"
 
 
 def _people() -> Any:

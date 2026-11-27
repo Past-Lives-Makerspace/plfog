@@ -12,7 +12,7 @@ import dataclasses
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, timedelta
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -2110,30 +2110,6 @@ def cancel_times(
     for window in windows:
         window.cancel()
     return len(slots) + len(windows), emailed
-
-
-def _local_day_span(day: date) -> tuple[datetime, datetime]:
-    """The aware ``[start, end)`` of one local calendar day, each bound made aware on its own (DST safe)."""
-    start = timezone.make_aware(datetime.combine(day, time.min))
-    end = timezone.make_aware(datetime.combine(day + timedelta(days=1), time.min))
-    return start, end
-
-
-def booked_on_day_off(member: Member, day: date) -> int:
-    """How many members are booked with ``member`` on local ``day``: what a day off there leaves standing (#1300).
-
-    A day off hides only the times nobody booked (:func:`hours.busy.busy_spans`); every live
-    booking that day, on a fixed slot, a one off or a window's segment, in any guild or on any
-    equipment, stays booked for the person to move or cancel. Checkout holds are not counted.
-    """
-    from membership.models import OrientationBooking
-
-    start, end = _local_day_span(day)
-    return (
-        OrientationBooking.objects.active()
-        .filter(slot__orienter=member, slot__is_cancelled=False, slot__starts_at__gte=start, slot__starts_at__lt=end)
-        .count()
-    )
 
 
 def complete_orientation(booking: OrientationBooking) -> None:

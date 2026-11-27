@@ -20,12 +20,13 @@ from __future__ import annotations
 
 import secrets
 from functools import wraps
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db import transaction
@@ -38,7 +39,8 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from core.htmx import wants_fragment
-from hub.autosave import autosave_refused, autosave_saved, formset_rows, wants_autosave
+from hours.links import my_hours_url
+from hub.autosave import autosave_refused, autosave_saved, wants_autosave
 from hub.calendar_pages import calendar_nav_params
 from hub.toast import trigger_toast
 from hub.tutorial import TutorialStep
@@ -72,13 +74,9 @@ from tours.forms import (
     FacilityTourSettingsForm,
     StaffRescheduleForm,
     StaffTourMessageForm,
-    MAX_DATED_DAYS_AHEAD,
     TourCalendarChoiceForm,
-    TourDatesForm,
-    TourDayOffForm,
-    TourHoursFormSet,
-    TourNoticeForm,
     TourNoteForm,
+    TourNoticeForm,
 )
 from tours.models import (
     MAX_HORIZON_DAYS,
@@ -86,11 +84,8 @@ from tours.models import (
     TourBooking,
     TourBookingNote,
     TourCalendarConnection,
-    TourDayOff,
     TourGuideSettings,
-    TourHours,
     guide_filter,
-    lock_guide_hours,
 )
 from tours.notify import short_when, when_label
 from tours.picker import build_picker, find_tour, guide_and_start
@@ -99,8 +94,6 @@ from tours.setup import become_tour_guide
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
-HOURS_PREFIX = "hours"
-DAY_OFF_PREFIX = "day_off"
 #: Members who already have tour hours, whatever their permission says now: an admin can still open them.
 _HAS_HOURS = Q(tour_hours__isnull=False)
 #: Bookings per page on the Upcoming and Past tabs.
@@ -109,14 +102,6 @@ UPCOMING = "upcoming"
 PAST = "past"
 #: The session key holding the Connect Google Calendar flow's ``state`` (#951), checked on the callback.
 GOOGLE_STATE_SESSION_KEY = "tours_google_oauth_state"
-#: Where the Connect flow lands afterwards (#1300): My Hours, or the Tours page's My Hours tab.
-GOOGLE_RETURN_SESSION_KEY = "tours_google_oauth_return"
-#: How the admin's guide picker names each guide's Google Calendar (#951).
-CALENDAR_STATE_LABELS: dict[str, str] = {
-    TourCalendarConnection.Status.CONNECTED: "Calendar connected",
-    TourCalendarConnection.Status.BROKEN: "Calendar needs reconnecting",
-}
-NO_CALENDAR_LABEL = "No calendar"
 #: Where every hours door leads since #1300 part 5.
 MY_HOURS = "hours:my_hours"
 
@@ -165,175 +150,25 @@ def _target_guide(request: HttpRequest, raw: str) -> Member:
     return get_object_or_404(candidates, pk=int(raw))
 
 
-def _picker_guides(viewer: Member) -> list[Member]:
-    """The admin's guide picker: everyone who gives tours (Tour Guides and admins, ``guide_filter``)
-    and anyone with tour hours, the viewer left out (they are "My hours"). An admin always counts
-    as a guide, so one with no hours yet can be picked and given some."""
-    people = Member.objects.filter(guide_filter() | _HAS_HOURS).exclude(pk=viewer.pk).distinct()
-    return sorted(people, key=lambda member: member.staff_label.casefold())
-
-
-def _picker_options(viewer: Member) -> list[dict[str, Any]]:
-    """The picker's guides, each with their Google Calendar's state when the feature is set up (#951)."""
-    guides = _picker_guides(viewer)
-    states: dict[int, str] = {}
-    if google.is_configured():
-        states = dict(TourCalendarConnection.objects.filter(guide__in=guides).values_list("guide_id", "status"))
-    return [
-        {
-            "pk": guide.pk,
-            "name": guide.staff_label,
-            "calendar": CALENDAR_STATE_LABELS.get(states.get(guide.pk, ""), NO_CALENDAR_LABEL)
-            if google.is_configured()
-            else "",
-        }
-        for guide in guides
-    ]
-
-
 def _hours_url(viewer: Member, target: Member) -> str:
-    """The My Hours tab for ``target``: the bare URL for the viewer's own, ``?guide=`` for anyone else's."""
-    url = reverse("tours:hours")
-    return url if target.pk == viewer.pk else f"{url}?guide={target.pk}"
+    """My Hours for ``target``: the bare URL for the viewer's own, ``?member=`` for anyone else's (#1300)."""
+    url = reverse(MY_HOURS)
+    return url if target.pk == viewer.pk else f"{url}?member={target.pk}"
 
 
-def _hours_formset(target: Member, data: Any = None) -> Any:
-    """The guide's weekly hours formset (dated rows never show in it), new rows starting from Tour Settings' defaults."""
-    return TourHoursFormSet(
-        data,
-        instance=target,
-        queryset=TourHours.objects.weekly(),
-        prefix=HOURS_PREFIX,
-        form_kwargs={"defaults": FacilityTourSettings.load()},
-    )
-
-
-def _day_off_form(target: Member, data: Any = None) -> TourDayOffForm:
-    return TourDayOffForm(data, prefix=DAY_OFF_PREFIX, guide=target)
-
-
-def _dates_form(target: Member, data: Any = None) -> TourDatesForm:
-    return TourDatesForm(data, guide=target, defaults=FacilityTourSettings.load())
-
-
-def _calendar_config(
-    target: Member, dated: list[TourHours], dates_form: TourDatesForm, *, add: date | None = None
-) -> dict[str, Any]:
-    """What the Available On calendar (``plTourDates``) draws: the pickable range, the days that
-    already have dated hours (a dot), the days off (struck through) and any picks to restore, or
-    the day a Calendar tab gap asked to add (``add``, #1274)."""
-    today = timezone.localdate()
-    last = today + timedelta(days=MAX_DATED_DAYS_AHEAD)
-    return {
-        "today": today.isoformat(),
-        "last": last.isoformat(),
-        "dated": sorted({row.date.isoformat() for row in dated if row.date is not None}),
-        "off": [day.isoformat() for day in TourDayOff.objects.filter(guide=target).covered_days(today, last)],
-        "picked": dates_form.picked_iso if dates_form.is_bound or add is None else [add.isoformat()],
-    }
-
-
-def _day_to_add(raw: str) -> date | None:
-    """The ``?add=YYYY-MM-DD`` day a Calendar tab gap links with (#1274), when Add Dates may pick it; else None."""
-    try:
-        day = date.fromisoformat(raw)
-    except ValueError:
-        return None
-    today = timezone.localdate()
-    return day if today <= day <= today + timedelta(days=MAX_DATED_DAYS_AHEAD) else None
-
-
-def _render_hours(
-    request: HttpRequest,
-    target: Member,
-    *,
-    formset: Any = None,
-    day_off_form: TourDayOffForm | None = None,
-    open_day_off: bool = False,
-    hours_refused: bool = False,
-    dates_form: TourDatesForm | None = None,
-    add: date | None = None,
-) -> HttpResponse:
-    viewer = _viewer(request)
-    is_admin = _is_admin(request)
-    is_self = target.pk == viewer.pk
-    connection = TourCalendarConnection.objects.filter(guide=target).first()
-    dates_form = dates_form if dates_form is not None else _dates_form(target)
-    dated = list(TourHours.objects.upcoming_dated().filter(guide=target))
-    return render(
-        request,
-        "tours/hours.html",
-        {
-            "target": target,
-            "is_self": is_self,
-            "is_admin": is_admin,
-            "picker_guides": _picker_options(viewer) if is_admin else [],
-            "gcal_configured": google.is_configured(),
-            "gcal": connection,
-            "gcal_form": TourCalendarChoiceForm(connection=connection)
-            if is_self and connection is not None and not connection.is_broken
-            else None,
-            "formset": formset if formset is not None else _hours_formset(target),
-            "day_off_form": day_off_form if day_off_form is not None else _day_off_form(target),
-            "open_day_off": open_day_off,
-            "hours_refused": hours_refused,
-            "days_off": list(TourDayOff.objects.upcoming().filter(guide=target)),
-            "dates_form": dates_form,
-            "open_dates": dates_form.is_bound or add is not None,
-            "dated_hours": dated,
-            "dates_calendar": _calendar_config(target, dated, dates_form, add=add),
-            "notice_form": TourNoticeForm(instance=TourGuideSettings.objects.filter(guide=target).first()),
-            **_setup(request),
-        },
-    )
-
-
-@tour_guide_access_required
+@login_required
 def tour_hours(request: HttpRequest) -> HttpResponse:
-    """The Tours page's My Hours tab: the weekly hours editor and the days off (``?guide=`` for an admin).
+    """The Tours page's old My Hours tab: it lives on My Hours since #1300, so bookmarks and old emails land there.
 
-    ``?add=YYYY-MM-DD`` (a gap on the Calendar tab, #1274) opens Add Dates with that day picked.
+    ``?guide=<pk>`` (an admin's pick) carries across as ``?member=``, ``?add=`` (a Calendar gap) as it is;
+    My Hours decides who may see what. Someone with no My Hours page lands on Give Tours, as the tab sent them.
     """
-    target = _target_guide(request, request.GET.get("guide", ""))
-    return _render_hours(request, target, add=_day_to_add(request.GET.get("add", "")))
-
-
-@tour_guide_access_required
-@require_POST
-def tour_hours_save(request: HttpRequest) -> HttpResponse:
-    """Save one guide's whole set of hours rows (adds, edits and deletes in one POST).
-
-    The posted ``guide`` is checked before the formset is read. The Every Week card saves itself
-    as it is edited (#1279, ``hub.autosave``): its posts answer JSON, each row's pk in posted
-    order or a 422 with every error keyed by field name (an overlap on its row); a row deleted
-    elsewhere since the page loaded is skipped, named under ``gone`` and toasted. Without the
-    script, valid is a flash and a redirect back to the tab, invalid the tab again with each
-    row's errors, its rows open.
-    """
-    target = _target_guide(request, request.POST.get("guide", ""))
-    formset = _hours_formset(target, request.POST)
-    # The overlap check and the save share one lock on the guide (#1160), so a save at the same
-    # moment cannot land a clashing row between them.
-    with transaction.atomic():
-        lock_guide_hours(target)
-        saved = formset.is_valid()
-        if saved:
-            formset.save()
-    if wants_autosave(request):
-        if not saved:
-            return autosave_refused(formset)
-        gone = formset.gone_rows
-        response = autosave_saved({HOURS_PREFIX: formset_rows(formset)}, gone={HOURS_PREFIX: gone} if gone else None)
-        if gone:
-            # Deleted elsewhere (another tab, an admin on ?guide=): the rest saved, the page drops it.
-            trigger_toast(
-                response, "Some of these hours were deleted elsewhere, so they are gone from this page.", "info"
-            )
-        return response
-    if not saved:
-        return _render_hours(request, target, formset=formset, hours_refused=True)
-    messages.success(request, "Tour hours saved.")
-    return redirect(_hours_url(_viewer(request), target))
+    if not has_hours_access(request):
+        return redirect("tours:give")
+    params = {"member": request.GET.get("guide", ""), "add": request.GET.get("add", "")}
+    query = urlencode({name: value for name, value in params.items() if value})
+    url = reverse(MY_HOURS)
+    return redirect(f"{url}?{query}" if query else url)
 
 
 @tour_guide_access_required
@@ -342,7 +177,7 @@ def tour_notice_save(request: HttpRequest) -> HttpResponse:
     """Save how far ahead website visitors must book the guide (#1312): the Booking Notice card.
 
     The card saves itself on change (#1279): an autosave post answers JSON, a refusal a 422 under
-    the field. Without the script, a flash and a redirect back to the tab. An admin sets anyone's
+    the field. Without the script, a flash and a redirect back to My Hours. An admin sets anyone's
     through the posted ``guide``.
     """
     target = _target_guide(request, request.POST.get("guide", ""))
@@ -360,80 +195,13 @@ def tour_notice_save(request: HttpRequest) -> HttpResponse:
     return redirect(_hours_url(_viewer(request), target))
 
 
-@tour_guide_access_required
-@require_POST
-def tour_day_off_save(request: HttpRequest) -> HttpResponse:
-    """Save a day off, or a run of days off, for one guide, from the Add Day Off modal.
+@login_required
+def tour_old_hours_editor(request: HttpRequest, pk: int | None = None) -> HttpResponse:
+    """Where the old tab's saves and deletes posted (hours, dates, days off): My Hours, which sets them since #1300.
 
-    Valid: a flash, then ``HX-Redirect`` back to the tab over HTMX (a plain redirect otherwise).
-    Invalid: the modal body again with its errors over HTMX, or the whole tab with the modal open.
+    Nothing is written. ``guide`` posted by an admin's old form carries across as ``?member=``.
     """
-    target = _target_guide(request, request.POST.get("guide", ""))
-    form = _day_off_form(target, request.POST)
-    is_htmx = request.headers.get("HX-Request") == "true"
-    if not form.is_valid():
-        if is_htmx:
-            return render(
-                request,
-                "tours/partials/_day_off_form.html",
-                {"target": target, "is_self": target.pk == _viewer(request).pk, "day_off_form": form},
-            )
-        return _render_hours(request, target, day_off_form=form, open_day_off=True)
-    day_off = form.save()
-    messages.success(request, f"Day off saved: {day_off.label}.")
-    url = _hours_url(_viewer(request), target)
-    if is_htmx:
-        response = HttpResponse(status=204)
-        response["HX-Redirect"] = url
-        return response
-    return redirect(url)
-
-
-@tour_guide_access_required
-@require_POST
-def tour_day_off_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    """Remove a day off: the guide's own, or anyone's for an admin (403 otherwise)."""
-    day_off = get_object_or_404(TourDayOff.objects.select_related("guide"), pk=pk)
-    target = _target_guide(request, str(day_off.guide_id))
-    day_off.delete()
-    messages.success(request, "Day off removed. Those days offer tours again.")
-    return redirect(_hours_url(_viewer(request), target))
-
-
-@tour_guide_access_required
-@require_POST
-def tour_dates_save(request: HttpRequest) -> HttpResponse:
-    """Add hours on every date picked in the Available On calendar (#1160), all or nothing.
-
-    Valid: "Added 3 dates." and a redirect back to the tab. Invalid: the tab again with the panel
-    open, the picks and fields kept, and one message per problem.
-    """
-    target = _target_guide(request, request.POST.get("guide", ""))
-    form = _dates_form(target, request.POST)
-    added = 0
-    with transaction.atomic():
-        lock_guide_hours(target)
-        saved = form.is_valid()
-        if saved:
-            added = len(form.save())
-    if not saved:
-        return _render_hours(request, target, dates_form=form)
-    messages.success(request, f"Added {added} date{'' if added == 1 else 's'}.")
-    return redirect(_hours_url(_viewer(request), target))
-
-
-@tour_guide_access_required
-@require_POST
-def tour_dates_delete(request: HttpRequest, pk: int) -> HttpResponse:
-    """Delete one dated window (#1160): the guide's own, or anyone's for an admin (403 otherwise).
-
-    Weekly rows are not found here (404); the Every Week editor deletes those.
-    """
-    row = get_object_or_404(TourHours.objects.dated(), pk=pk)
-    target = _target_guide(request, str(row.guide_id))
-    row.delete()
-    messages.success(request, "Hours deleted.")
-    return redirect(_hours_url(_viewer(request), target))
+    return redirect(my_hours_url(request, request.POST.get("guide", "") or request.GET.get("guide", "")))
 
 
 @tour_guide_access_required  # a member who gives no tours lands on Give Tours, like every other tab
@@ -595,7 +363,7 @@ def tour_kiosk_key(request: HttpRequest) -> HttpResponse:
 
 # --- Google Calendar (#951) ---------------------------------------------------------------------
 # Open to everyone with a My Hours page since #1300 part 4: an orientor connects their calendar so
-# its busy times hide their orientations too. Started from My Hours (``from=hours``), each lands back there.
+# its busy times hide their orientations too. Each lands back on My Hours.
 
 
 def _calendar_access_required(view_func: Any) -> Any:
@@ -611,11 +379,6 @@ def _calendar_access_required(view_func: Any) -> Any:
     return wrapper
 
 
-def _gcal_back(source: str) -> str:
-    """Where a Google Calendar action lands: My Hours when it started there, else the Tours page's My Hours tab."""
-    return MY_HOURS if source in ("hours", MY_HOURS) else "tours:hours"
-
-
 @_calendar_access_required
 def tour_google_connect(request: HttpRequest) -> HttpResponse:
     """Start Connect (or Reconnect) Google Calendar for the signed in guide: a ``state`` in the session, then Google.
@@ -624,13 +387,12 @@ def tour_google_connect(request: HttpRequest) -> HttpResponse:
     connect one for someone else.
     """
     _viewer(request)
-    back = _gcal_back(request.GET.get("from", ""))
+    back = MY_HOURS
     if not google.is_configured():
         messages.error(request, "Connecting a Google Calendar is not set up yet.")
         return redirect(back)
     state = secrets.token_urlsafe(32)
     request.session[GOOGLE_STATE_SESSION_KEY] = state
-    request.session[GOOGLE_RETURN_SESSION_KEY] = back
     return redirect(google.authorize_url(state, login_hint=cast("User", request.user).email))
 
 
@@ -644,7 +406,7 @@ def tour_google_callback(request: HttpRequest) -> HttpResponse:
     """
     guide = _viewer(request)
     expected = request.session.pop(GOOGLE_STATE_SESSION_KEY, "")
-    back = _gcal_back(request.session.pop(GOOGLE_RETURN_SESSION_KEY, ""))
+    back = MY_HOURS
     if request.GET.get("error"):
         messages.info(request, "Google Calendar was not connected.")
         return redirect(back)
@@ -667,10 +429,10 @@ def tour_google_callback(request: HttpRequest) -> HttpResponse:
     else:
         messages.success(
             request,
-            "Google Calendar connected. Times it shows you busy are not offered to anyone booking you."
-            if back == MY_HOURS
-            else "Google Calendar connected. Tours you give will be added to it, and times it shows you busy "
-            "are not offered to visitors.",
+            "Google Calendar connected. Tours you give will be added to it, and times it shows you busy "
+            "are not offered to anyone booking you."
+            if has_tour_guide_access(request)
+            else "Google Calendar connected. Times it shows you busy are not offered to anyone booking you.",
         )
     return redirect(back)
 
@@ -690,13 +452,13 @@ def tour_google_calendar(request: HttpRequest) -> HttpResponse:
         if wants_autosave(request):
             return autosave_refused(form)
         messages.error(request, "Pick one of your calendars from the list.")
-        return redirect(_gcal_back(request.POST.get("from", "")))
+        return redirect(MY_HOURS)
     if form.cleaned_data["calendar"] != connection.calendar_id:
         calendar_sync.choose_calendar(connection, form.cleaned_data["calendar"])
     if wants_autosave(request):
         return autosave_saved()
     messages.success(request, f"Tours will be written to {connection.calendar_label}.")
-    return redirect(_gcal_back(request.POST.get("from", "")))
+    return redirect(MY_HOURS)
 
 
 @_calendar_access_required
@@ -712,7 +474,7 @@ def tour_google_disconnect(request: HttpRequest) -> HttpResponse:
             "Google Calendar disconnected here, but Google did not confirm it. You can also remove Past Lives "
             "from the apps connected to your Google Account.",
         )
-    return redirect(_gcal_back(request.POST.get("from", "")))
+    return redirect(MY_HOURS)
 
 
 # --- Upcoming and Past (#949) ------------------------------------------------------------------
