@@ -186,6 +186,15 @@ class FacilityTourSettings(models.Model):
             "reaches them (#1345). Blank sends it to the guest alone."
         ),
     )
+    follow_up_auto_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the Tour Follow Up email last started sending itself (#1345): set when the hours go from blank "
+            "to a number, cleared when they are blanked. Only tours that end after it are sent, so turning it on "
+            "never reaches tours that finished before."
+        ),
+    )
     updated_at = models.DateTimeField(auto_now=True, help_text="When the settings were last saved.")
 
     class Meta:
@@ -197,6 +206,7 @@ class FacilityTourSettings(models.Model):
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         self.pk = 1
+        self._mark_follow_up_auto_since()
         if FacilityTourSettings.objects.filter(pk=1).exists():
             kwargs.pop("force_insert", None)
             kwargs["force_update"] = True
@@ -207,6 +217,13 @@ class FacilityTourSettings(models.Model):
         """The one settings row, made with its defaults on first use."""
         obj, _created = cls.objects.get_or_create(pk=1)
         return obj
+
+    def _mark_follow_up_auto_since(self) -> None:
+        """Start the automatic follow up's clock when the hours are first set; stop it when they are blanked."""
+        if self.follow_up_after_hours is None:
+            self.follow_up_auto_since = None
+        elif self.follow_up_auto_since is None:
+            self.follow_up_auto_since = timezone.now()
 
     @property
     def follow_up_delay(self) -> timedelta | None:
@@ -734,19 +751,19 @@ class TourBookingQuerySet(models.QuerySet["TourBooking"]):
             .order_by("-starts_at", "-pk")
         )
 
-    def follow_ups_due(self, now: datetime, after: timedelta, window: timedelta) -> TourBookingQuerySet:
-        """The tours whose Tour Follow Up email sends itself this tick (#1345).
+    def follow_ups_due(self, now: datetime, after: timedelta, since: datetime) -> TourBookingQuerySet:
+        """The tours whose Tour Follow Up email sends itself now (#1345): every one owed, caught up.
 
-        Attended or not marked tours, never sent one, whose end plus ``after`` falls in
-        ``[now, now + window)``: the reminder's shape, so turning the setting on never sweeps
-        the tours that finished before.
+        Attended or not marked tours, never sent one, whose end plus ``after`` has passed, so a late
+        or missed tick sends them on the next, and none goes before its time. Only tours that ended
+        at or after ``since`` (when automatic sending was turned on), so turning it on never
+        reaches tours that finished before.
         """
-        first = now - after
         return self.filter(
             status__in=TourBooking.FOLLOW_UP_STATUSES,
             follow_up_sent_at__isnull=True,
-            ends_at__gte=first,
-            ends_at__lt=first + window,
+            ends_at__lte=now - after,
+            ends_at__gte=since,
         )
 
 
@@ -1047,11 +1064,18 @@ class TourBooking(models.Model):
         return self.status in self.FOLLOW_UP_STATUSES and self.starts_at <= timezone.now()
 
     @property
+    def follow_up_day(self) -> str:
+        """The day the follow up last went (#1345), "Nov 24"; blank until it is sent."""
+        if self.follow_up_sent_at is None:
+            return ""
+        return date_format(timezone.localtime(self.follow_up_sent_at), "M j")
+
+    @property
     def follow_up_label(self) -> str:
         """The Past row's line once a follow up went (#1345): "Follow up sent Nov 24 by Dayzie", or "automatically"."""
         if self.follow_up_sent_at is None:
             return ""
-        day = date_format(timezone.localtime(self.follow_up_sent_at), "M j")
+        day = self.follow_up_day
         if self.follow_up_automatic:
             return f"Follow up sent automatically {day}"
         if self.follow_up_sent_by is None:
@@ -1065,24 +1089,28 @@ class TourBooking(models.Model):
         self.follow_up_automatic = False
         self.save(update_fields=["follow_up_sent_at", "follow_up_sent_by", "follow_up_automatic"])
 
-    def claim_follow_up(self, at: datetime) -> bool:
-        """Take this tour's automatic follow up (#1345), once: False when one was already sent or claimed.
+    def claim_follow_up(self, at: datetime, sender: Member | None) -> bool:
+        """Take this tour's first follow up (#1345), once: False when one was already sent or claimed.
 
-        One conditional UPDATE, so two ticks racing on the same tour send it once.
+        One conditional UPDATE on ``follow_up_sent_at IS NULL``, so a double click, a stale page or a
+        click racing the tick sends it once. ``sender`` None is the automatic send.
         """
         claimed = TourBooking.objects.filter(pk=self.pk, follow_up_sent_at__isnull=True).update(
-            follow_up_sent_at=at, follow_up_sent_by=None, follow_up_automatic=True
+            follow_up_sent_at=at, follow_up_sent_by=sender, follow_up_automatic=sender is None
         )
         if claimed:
-            self.follow_up_sent_at, self.follow_up_sent_by, self.follow_up_automatic = at, None, True
+            self.follow_up_sent_at, self.follow_up_sent_by, self.follow_up_automatic = at, sender, sender is None
         return bool(claimed)
 
-    def release_follow_up(self) -> None:
-        """Hand back a claim whose send did not land (#1345), so the row records nothing."""
-        TourBooking.objects.filter(pk=self.pk, follow_up_automatic=True).update(
-            follow_up_sent_at=None, follow_up_automatic=False
+    def release_follow_up(self, at: datetime) -> None:
+        """Hand back the claim made ``at`` when its send did not land (#1345), so the row stays unsent.
+
+        Conditional on the claim's own moment, so it never undoes a later send.
+        """
+        TourBooking.objects.filter(pk=self.pk, follow_up_sent_at=at).update(
+            follow_up_sent_at=None, follow_up_sent_by=None, follow_up_automatic=False
         )
-        self.follow_up_sent_at, self.follow_up_automatic = None, False
+        self.follow_up_sent_at, self.follow_up_sent_by, self.follow_up_automatic = None, None, False
 
     @property
     def kiosk_name(self) -> str:

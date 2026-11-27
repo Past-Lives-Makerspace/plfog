@@ -92,7 +92,7 @@ from tours.models import (
     guide_filter,
     lock_guide_hours,
 )
-from tours.notify import FollowUpNotSentError, send_follow_up, short_when, when_label
+from tours.notify import FollowUpAlreadySentError, FollowUpNotSentError, send_follow_up, short_when, when_label
 from tours.picker import build_picker, find_tour, guide_and_start
 from tours.setup import become_tour_guide
 
@@ -1294,13 +1294,17 @@ def tour_booking_mark(request: HttpRequest, pk: int) -> HttpResponse:
 def tour_booking_follow_up(request: HttpRequest, pk: int) -> HttpResponse:
     """Send the Tour Follow Up email from the Past tab (#1345); over htmx the row comes back with a toast.
 
-    A No Show tour is refused (400); a send that fails records nothing and says so.
+    A No Show tour is refused (400). A plain post sends only a tour never sent one (a stale page or a
+    double click sends nothing and the row comes back as it is); ``again=1``, posted only by Send
+    Follow Up Again's confirm, sends once more. A send that fails records nothing and says so.
     """
     booking = _staff_booking(request, pk)
     if not booking.offers_follow_up:
         return HttpResponseBadRequest("A follow up goes only to a tour that ran.")
     try:
-        send_follow_up(booking, sender=_viewer(request))
+        send_follow_up(booking, sender=_viewer(request), again=request.POST.get("again") == "1")
+    except FollowUpAlreadySentError:
+        text, tone = f"The follow up already went on {booking.follow_up_day}.", "info"
     except FollowUpNotSentError:
         text, tone = "The follow up did not send. Try again in a moment.", "error"
     else:
@@ -1308,10 +1312,14 @@ def tour_booking_follow_up(request: HttpRequest, pk: int) -> HttpResponse:
     return _past_row_response(request, booking, text, tone)
 
 
+#: The flash level a Past tab action's toast tone becomes on a plain post.
+_FLASH_LEVELS: dict[str, int] = {"success": messages.SUCCESS, "info": messages.INFO, "error": messages.ERROR}
+
+
 def _past_row_response(request: HttpRequest, booking: TourBooking, text: str, tone: str) -> HttpResponse:
     """A Past tab action's answer: the row and a toast over htmx, else a flash and the Past tab."""
     if request.headers.get("HX-Request") != "true":
-        messages.add_message(request, messages.SUCCESS if tone == "success" else messages.ERROR, text)
+        messages.add_message(request, _FLASH_LEVELS[tone], text)
         return redirect(_back_url(request, "tours:past"))
     booking.note_count = booking.note_thread().count()  # type: ignore[attr-defined]
     response = render(

@@ -88,6 +88,10 @@ class FollowUpNotSentError(Exception):
     """The Tour Follow Up email did not go out (#1345); nothing is recorded on the booking."""
 
 
+class FollowUpAlreadySentError(Exception):
+    """A first Send Follow Up found the follow up already sent or claimed (#1345); nothing was sent again."""
+
+
 def tours_url(path: str) -> str:
     """An absolute link on the tours site (``TOURS_BASE_URL``), for emails."""
     return f"{settings.TOURS_BASE_URL.rstrip('/')}{path}"
@@ -749,41 +753,62 @@ def _deliver_follow_up(booking: TourBooking, sender: Member | None) -> None:
         raise FollowUpNotSentError(log.error_message or log.status)
 
 
-def send_follow_up(booking: TourBooking, *, sender: Member) -> None:
+def send_follow_up(booking: TourBooking, *, sender: Member, again: bool = False) -> None:
     """Send the Tour Follow Up email from the Past tab (#1345) and record who sent it and when.
 
+    A first send claims the tour first (:meth:`TourBooking.claim_follow_up`), so a double click, a
+    stale page or a click racing the automatic send sends once. Only Send Follow Up Again, behind its
+    confirm, passes ``again``: it sends, then records, leaving the earlier record if the send fails.
+
     Raises:
-        FollowUpNotSentError: It did not go out; the booking records nothing.
+        FollowUpAlreadySentError: A first send found it already sent; nothing went.
+        FollowUpNotSentError: It did not go out; the claim is handed back and the row stays as it was.
     """
-    _deliver_follow_up(booking, sender)
-    booking.record_follow_up(sender, timezone.now())
+    at = timezone.now()
+    if again:
+        _deliver_follow_up(booking, sender)
+        booking.record_follow_up(sender, at)
+        return
+    if not booking.claim_follow_up(at, sender):
+        booking.refresh_from_db()
+        raise FollowUpAlreadySentError(booking.follow_up_day)
+    _send_claimed(booking, sender, at)
+
+
+def _send_claimed(booking: TourBooking, sender: Member | None, at: datetime) -> None:
+    """Send a claimed follow up; on any failure hand the claim back, so the row stays unsent, and re-raise."""
+    try:
+        _deliver_follow_up(booking, sender)
+    except BaseException:
+        booking.release_follow_up(at)
+        raise
 
 
 def send_due_follow_ups(now: datetime) -> int:
-    """Send this tick's automatic Tour Follow Up emails (#1345); idle while Tour Settings leaves it off.
+    """Send every automatic Tour Follow Up email owed by now (#1345); idle while Tour Settings leaves it off.
 
-    Each due tour is claimed first, so a re-run or a racing tick sends nothing new, and a send that
-    fails hands its claim back, so the row records nothing.
+    Catch-up, not a window: a tour is owed once its end plus the hours has passed, and only tours
+    that ended after automatic sending was turned on (``follow_up_auto_since``) are, so a missed
+    tick sends them on the next and turning it on never reaches tours that finished before. Each
+    is claimed first, so a re-run or a racing tick sends nothing new, and a send that fails hands
+    its claim back, so the row stays unsent and the next tick tries again.
 
     Returns:
         How many went out.
     """
-    after = FacilityTourSettings.load().follow_up_delay
-    if after is None:
+    tour_settings = FacilityTourSettings.load()
+    after, since = tour_settings.follow_up_delay, tour_settings.follow_up_auto_since
+    if after is None or since is None:
         return 0
     sent = 0
-    due = TourBooking.objects.follow_ups_due(now, after, DEFAULT_WINDOW).select_related("guide__user")
+    due = TourBooking.objects.follow_ups_due(now, after, since).select_related("guide__user")
     for booking in due:
-        if not booking.claim_follow_up(now):
+        if not booking.claim_follow_up(now, None):
             continue
         try:
-            _deliver_follow_up(booking, None)
+            _send_claimed(booking, None, now)
         except FollowUpNotSentError:
-            booking.release_follow_up()
             logger.warning("Tour follow up for booking %s did not send.", booking.pk)
             continue
-        except BaseException:
-            booking.release_follow_up()
-            raise
         sent += 1
     return sent
