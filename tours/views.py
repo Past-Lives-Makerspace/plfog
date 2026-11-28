@@ -12,8 +12,8 @@ tours, so a guide who names another guide in a POST gets a 403 before any form i
 The Upcoming and Past tabs list :class:`~tours.models.TourBooking` rows themselves, never the
 carved tours, since a booking is matched to its tour by guide and start alone (#948's known limit).
 Which booking a request may act on is decided once, in :func:`_staff_booking` (a guide their own,
-an admin any), and whose tour it may move to in :func:`_destination_guide` (a guide their own, an
-admin any guide's: a reassignment), so a forged POST gets the same 403 the page would.
+an admin any), so a forged POST gets the same 403 the page would. Edit Time stays on the tour's own
+guide (:func:`_destination_guide`); a tour goes to another guide only by a trade they accept (#1308).
 """
 
 from __future__ import annotations
@@ -61,14 +61,21 @@ from tours.booking import (
     GONE_MESSAGE,
     OUTCOMES,
     STAFF_LOCKED_MESSAGES,
+    TRADE_REFUSALS,
+    NotYourTradeError,
     TourBookingError,
     TourLockedError,
+    TradeRefusedError,
+    answer_trade,
     cancel_tour_by_staff,
     confirm_tour_request,
     decline_tour_request,
     lock_for_note,
     mark_tour_outcome,
+    offer_take,
+    offer_trade,
     propose_tour_time,
+    withdraw_trade,
 )
 from tours.forms import (
     FacilityTourSettingsForm,
@@ -77,6 +84,8 @@ from tours.forms import (
     TourCalendarChoiceForm,
     TourNoteForm,
     TourNoticeForm,
+    TourTradeForm,
+    TradeNoteForm,
 )
 from tours.models import (
     MAX_HORIZON_DAYS,
@@ -87,7 +96,14 @@ from tours.models import (
     TourGuideSettings,
     guide_filter,
 )
-from tours.notify import FollowUpAlreadySentError, FollowUpNotSentError, send_follow_up, short_when, when_label
+from tours.notify import (
+    FollowUpAlreadySentError,
+    FollowUpNotSentError,
+    guide_first_name,
+    send_follow_up,
+    short_when,
+    when_label,
+)
 from tours.picker import build_picker, find_tour, guide_and_start
 from tours.setup import become_tour_guide
 
@@ -281,8 +297,10 @@ GIVE_TOURS_TUTORIAL = (
             "cancels.",
             "There is nothing to confirm: a tour booked in your hours is booked, and it goes on your Google Calendar "
             "when you connect one.",
-            "Reschedule or cancel from the Upcoming tab: press the ... on the tour for Edit Guide or Time, or Cancel "
+            "Reschedule or cancel from the Upcoming tab: press the ... on the tour for Edit Time, or Cancel "
             "Tour. The visitor is emailed, with your note if you add one.",
+            "Can't make one? Trade this tour, on the same menu, offers it to another guide. It stays yours until "
+            "they accept.",
         ),
     ),
     TutorialStep(
@@ -520,6 +538,14 @@ def _with_row_rights(request: HttpRequest, bookings: list[TourBooking]) -> list[
     for booking in bookings:
         booking.can_act = is_admin or booking.guide_id == viewer_pk  # type: ignore[attr-defined]
         booking.can_answer = booking.is_request and booking.guide_id == viewer_pk  # type: ignore[attr-defined]
+        # Trades between guides (#1308): who the open one waits on answers it, whoever made it may withdraw
+        # it, and anyone but the tour's guide may ask to take a booked tour with none open.
+        booked = booking.status == TourBooking.Status.BOOKED
+        booking.answers_trade = booking.has_open_trade and booking.trade_answerer_id == viewer_pk  # type: ignore[attr-defined]
+        booking.withdraws_trade = booking.has_open_trade and booking.trade_asker_id == viewer_pk  # type: ignore[attr-defined]
+        booking.can_take = (  # type: ignore[attr-defined]
+            booked and booking.guide_id is not None and booking.guide_id != viewer_pk and not booking.has_open_trade
+        )
         # Felix (#1274): any active member may become a Tour Guide (#1278), so a visitor's email and
         # phone reach only their own guide and the admins; never rendered for anyone else.
         booking.can_see_contact = booking.can_act  # type: ignore[attr-defined]
@@ -533,7 +559,7 @@ def _render_bookings(request: HttpRequest, tab: str) -> HttpResponse:
     show = request.GET.get("show", "all") if tab == UPCOMING else "all"
     if show not in SHOW_CHIPS:
         show = "all"
-    bookings = TourBooking.objects.select_related("guide", "proposed_guide", "follow_up_sent_by").annotate(
+    bookings = TourBooking.objects.select_related("guide", "proposed_guide", "follow_up_sent_by", "trade_to").annotate(
         note_count=Count("notes")
     )
     listed = bookings.upcoming(now) if tab == UPCOMING else bookings.past(now)
@@ -631,18 +657,15 @@ def _staff_booking(request: HttpRequest, pk: int) -> TourBooking:
 
 
 def _destination_guide(request: HttpRequest, booking: TourBooking, raw: str) -> Member:
-    """Whose open tours an Edit picks from: the booking's guide by default.
+    """Whose open tours Edit Time picks from: the booking's own guide, or the viewer's for a tour with none.
 
-    Anyone else is a reassignment, open to whoever may act on the booking (#1274: its guide hands
-    it on, or an admin; :func:`_staff_booking` has already checked), and must give tours (404
-    otherwise). A booking with no guide starts from the viewer's own tours.
+    Since #1308 a tour goes to another guide only by a trade they accept, so a posted tour key on
+    anyone else's tours is refused (403), whoever posts it.
     """
     own = booking.guide if booking.guide is not None else _viewer(request)
-    if not raw or raw == str(own.pk):
-        return own
-    if not raw.isdigit():
-        raise Http404("Unknown guide.")
-    return get_object_or_404(Member.objects.filter(guide_filter()).distinct(), pk=int(raw))
+    if raw and raw != str(own.pk):
+        raise PermissionDenied("Trade the tour to hand it to another guide.")
+    return own
 
 
 def _staff_tours(booking: TourBooking, guide: Member) -> list[OpenTour]:
@@ -658,14 +681,6 @@ def _staff_tours(booking: TourBooking, guide: Member) -> list[OpenTour]:
         if tour.seats_left >= booking.party_size
         and not (tour.guide.pk == booking.guide_id and tour.starts_at == booking.starts_at)
     ]
-
-
-def _move_guides(destination: Member) -> list[Member]:
-    """The Edit modal's guide picker: everyone who gives tours and has tour hours, plus the one shown."""
-    people = Member.objects.filter(guide_filter(), tour_hours__isnull=False).distinct()
-    found = {member.pk: member for member in people}
-    found.setdefault(destination.pk, destination)
-    return sorted(found.values(), key=lambda member: member.staff_label.casefold())
 
 
 def _render_reschedule(
@@ -698,7 +713,6 @@ def _render_reschedule(
             "when": when_label(booking.starts_at),
             "destination": guide,
             "is_admin": is_admin,
-            "move_guides": _move_guides(guide),
             "picker": build_picker(tours, day),
             "chosen": chosen,
             "chosen_when": when_label(chosen.starts_at) if chosen else "",
@@ -749,12 +763,12 @@ def _done(request: HttpRequest) -> HttpResponse:
 def tour_booking_reschedule(request: HttpRequest, pk: int) -> HttpResponse:
     """The Reschedule modal (GET, a fragment) and the move itself (POST), for a guide or an admin.
 
-    GET ``?guide=`` (admins) picks whose tours, ``?date=`` a day and ``?tour=<key>`` a time, which
-    shows the confirm with the optional message to the visitor. The POST asks the visitor first
-    (#1283, :func:`tours.booking.propose_tour_time`): the booking keeps its time until they accept,
-    and the row shows it waiting. A refusal shows the modal again with why. The
-    posted tour's guide goes through :func:`_destination_guide`, so a guide cannot reassign by a
-    forged key. A plain GET (not htmx) lands on the Upcoming tab.
+    The tour's own guide's times only (Edit Time since #1308: another guide gets a tour by a trade).
+    GET ``?date=`` picks a day and ``?tour=<key>`` a time, which shows the confirm with the optional
+    message to the visitor. The POST asks the visitor first (#1283,
+    :func:`tours.booking.propose_tour_time`): the booking keeps its time until they accept, and the
+    row shows it waiting. A refusal shows the modal again with why. A posted tour key on another
+    guide's tours is a 403 (:func:`_destination_guide`). A plain GET (not htmx) lands on the Upcoming tab.
     """
     booking = _staff_booking(request, pk)
     if request.method != "POST":
@@ -859,6 +873,138 @@ def tour_booking_decline(request: HttpRequest, pk: int) -> HttpResponse:
         return _done(request)
     messages.success(
         request, f"{declined.visitor_name}'s request for {short_when(declined.starts_at)} is declined. We emailed them."
+    )
+    return _done(request)
+
+
+# --- Trades between guides (#1308) -----------------------------------------------------------------
+
+
+def _render_trade(request: HttpRequest, booking: TourBooking, form: TourTradeForm) -> HttpResponse:
+    """Trade this tour's modal body: the guide picker and the note, or why it cannot be traded now."""
+    reason = booking.staff_refusal(timezone.now())
+    if reason:
+        return render(
+            request,
+            "tours/partials/_reschedule_locked.html",
+            {"booking": booking, "message": TRADE_REFUSALS[reason]},
+        )
+    return render(
+        request,
+        "tours/partials/_trade.html",
+        {
+            "booking": booking,
+            "when": when_label(booking.starts_at),
+            "form": form,
+            "trade_url": reverse("tours:booking_trade", args=[booking.pk]),
+        },
+    )
+
+
+@tour_guide_access_required
+def tour_booking_trade(request: HttpRequest, pk: int) -> HttpResponse:
+    """Trade this tour (#1308): the modal (GET, a fragment) and the offer (POST), for its guide or an admin.
+
+    The offer changes neither the guide nor the time; the guide picked accepts it on their Upcoming
+    tab. A new offer replaces an open one. A plain GET (not htmx) lands on the Upcoming tab.
+    """
+    booking = _staff_booking(request, pk)
+    if request.method != "POST":
+        if not wants_fragment(request):
+            return redirect("tours:upcoming")
+        return _render_trade(request, booking, TourTradeForm(booking=booking))
+    form = TourTradeForm(request.POST, booking=booking)
+    if not form.is_valid():
+        return _render_trade(request, booking, form)
+    to = form.cleaned_data["to"]
+    try:
+        offer_trade(booking, to=to, actor=cast("User", request.user), note=form.cleaned_data["note"])
+    except TradeRefusedError as exc:
+        messages.error(request, str(exc))
+        return _done(request)
+    messages.success(
+        request,
+        f"We offered {booking.visitor_name}'s tour to {guide_first_name(to)}. It stays yours until they accept.",
+    )
+    return _done(request)
+
+
+@tour_guide_access_required
+@require_POST
+def tour_booking_take(request: HttpRequest, pk: int) -> HttpResponse:
+    """Take this tour (#1308): ask another guide to give you their booked tour; it moves when they approve."""
+    booking = get_object_or_404(TourBooking.objects.select_related("guide"), pk=pk)
+    form = TradeNoteForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, str(form.errors["note"][0]))
+        return _done(request)
+    try:
+        offer_take(booking, taker=_viewer(request), actor=cast("User", request.user), note=form.cleaned_data["note"])
+    except TradeRefusedError as exc:
+        messages.error(request, str(exc))
+        return _done(request)
+    messages.success(
+        request,
+        f"We asked {guide_first_name(booking.guide)} for {booking.visitor_name}'s tour. "
+        "It moves to you once they approve.",
+    )
+    return _done(request)
+
+
+#: The toast after each answer to a trade (#1308), by (accepted, a take).
+_ANSWERED: dict[tuple[bool, bool], str] = {
+    (True, False): "{visitor}'s tour on {when} is yours now. We told {visitor_first} who their guide is.",
+    (True, True): "{visitor}'s tour on {when} is {taker}'s now. We told {visitor_first} who their guide is.",
+    (False, False): "You declined {visitor}'s tour on {when}. It stays with {guide}.",
+    (False, True): "{visitor}'s tour on {when} stays yours.",
+}
+
+
+@tour_guide_access_required
+@require_POST
+def tour_booking_trade_answer(request: HttpRequest, pk: int) -> HttpResponse:
+    """Accept Trade or Approve, or Decline (#1308), by the guide the trade waits on only (403 for anyone else, admins included)."""
+    booking = get_object_or_404(TourBooking.objects.select_related("guide", "trade_to"), pk=pk)
+    answer = request.POST.get("answer", "")
+    if answer not in ("accept", "decline"):
+        return HttpResponseBadRequest("Unknown answer.")
+    was_take, taker, guide = booking.is_take, booking.trade_to, booking.guide
+    try:
+        answered = answer_trade(
+            booking, accept=answer == "accept", key=request.POST.get("trade", ""), answerer=_viewer(request)
+        )
+    except NotYourTradeError as exc:
+        raise PermissionDenied("Only the guide this trade waits on can answer it.") from exc
+    except TradeRefusedError as exc:
+        messages.error(request, str(exc))
+        return _done(request)
+    messages.success(
+        request,
+        _ANSWERED[(answer == "accept", was_take)].format(
+            visitor=answered.visitor_name,
+            visitor_first=answered.visitor_first_name,
+            when=short_when(answered.starts_at),
+            taker=guide_first_name(taker),
+            guide=guide_first_name(guide),
+        ),
+    )
+    return _done(request)
+
+
+@tour_guide_access_required
+@require_POST
+def tour_booking_trade_withdraw(request: HttpRequest, pk: int) -> HttpResponse:
+    """Withdraw (#1308): whoever made the open trade takes it back (403 for anyone else)."""
+    booking = get_object_or_404(TourBooking.objects.select_related("guide"), pk=pk)
+    try:
+        withdrawn = withdraw_trade(booking, key=request.POST.get("trade", ""), asker=_viewer(request))
+    except NotYourTradeError as exc:
+        raise PermissionDenied("Only whoever made this trade can withdraw it.") from exc
+    except TradeRefusedError as exc:
+        messages.error(request, str(exc))
+        return _done(request)
+    messages.success(
+        request, f"You withdrew the trade of {withdrawn.visitor_name}'s tour on {short_when(withdrawn.starts_at)}."
     )
     return _done(request)
 

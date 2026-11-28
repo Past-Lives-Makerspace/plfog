@@ -382,6 +382,10 @@ def _move(
         # A move answers any open proposal (#1283): its links then say it is no longer open.
         locked.drop_proposal()
         changed += list(TourBooking.PROPOSAL_FIELDS)
+    if locked.has_open_trade:
+        # A trade is of one time (#1308): a move to another one withdraws it.
+        locked.drop_trade()
+        changed += list(TourBooking.TRADE_FIELDS)
     locked.save(update_fields=changed)
     _after_commit(locked, signals.MOVED, previous_guide=previous_guide, previous_starts_at=previous_starts_at, **extra)
     return locked
@@ -715,6 +719,204 @@ def answer_tour_proposal(booking: TourBooking, *, accept: bool, proposal: str, n
 
         transaction.on_commit(tell, robust=True)
     return answer
+
+
+# --- Trades between guides (#1308) -----------------------------------------------------------------
+
+#: What a guide reads when a trade can no longer be answered or withdrawn, by :meth:`TourBooking.trade_refusal`.
+TRADE_REFUSALS: dict[str, str] = {
+    "cancelled": "This tour was cancelled.",
+    "past": "This tour has already started.",
+    "withdrawn": "This trade was withdrawn.",
+}
+SAME_GUIDE_MESSAGE = "This tour is already theirs. Pick another guide."
+TRADE_OPEN_MESSAGE = "This tour already has a trade waiting. Try again once it is answered."
+
+
+class TradeRefusedError(TourBookingError):
+    """A trade that cannot be made, answered or withdrawn; ``str()`` is what the guide reads."""
+
+
+class NotYourTradeError(Exception):
+    """The member answering or withdrawing a trade is not the one it waits on (the view's 403)."""
+
+
+def _locked_for_trade(booking: TourBooking, now: datetime) -> TourBooking:
+    """The booking's row, locked, after checking it is a booked tour that has not started (#1308)."""
+    locked = TourBooking.objects.select_for_update().get(pk=booking.pk)
+    reason = locked.staff_refusal(now)
+    if reason:
+        raise TradeRefusedError(TRADE_REFUSALS[reason])
+    return locked
+
+
+def offer_trade(
+    booking: TourBooking, *, to: Member, actor: User, note: str = "", now: datetime | None = None
+) -> TourBooking:
+    """The tour's guide (or an admin) offers the tour to ``to`` (#1308); it moves only when they accept.
+
+    The time is fixed, so ``to``'s hours, days off and Google busy times do not gate it, and no seats
+    change. A new offer replaces an open trade or take, whose asker or answerer is told it was withdrawn.
+    Who may offer is the view's check.
+
+    Raises:
+        TradeRefusedError: the tour was cancelled or has started, or ``to`` is already its guide.
+    """
+    moment = now or timezone.now()
+    with transaction.atomic():
+        locked = _locked_for_trade(booking, moment)
+        if locked.guide_id == to.pk:
+            raise TradeRefusedError(SAME_GUIDE_MESSAGE)
+        replaced = _waiting_on(locked) if locked.has_open_trade else None
+        locked.open_trade(to, TourBooking.TradeKind.TRADE, by=actor, note=note.strip(), now=moment)
+        name = _first_name(actor)
+        _tell_after_commit(locked, "offered", to, name, note=locked.trade_note)
+        if replaced is not None and replaced.pk != to.pk:
+            _tell_after_commit(locked, "withdrawn", replaced, name)
+    return locked
+
+
+def offer_take(
+    booking: TourBooking, *, taker: Member, actor: User, note: str = "", now: datetime | None = None
+) -> TourBooking:
+    """Another guide asks to take the tour (#1308); its guide approves or declines.
+
+    Raises:
+        TradeRefusedError: the tour was cancelled or has started, has no guide, is already the
+            taker's, or already has a trade waiting.
+    """
+    moment = now or timezone.now()
+    with transaction.atomic():
+        locked = _locked_for_trade(booking, moment)
+        guide = locked.guide
+        if guide is None or guide.pk == taker.pk:
+            raise TradeRefusedError(SAME_GUIDE_MESSAGE)
+        if locked.has_open_trade:
+            raise TradeRefusedError(TRADE_OPEN_MESSAGE)
+        locked.open_trade(taker, TourBooking.TradeKind.TAKE, by=actor, note=note.strip(), now=moment)
+        _tell_after_commit(locked, "take_asked", guide, _first_name(actor), note=locked.trade_note)
+    return locked
+
+
+def _waiting_on(locked: TourBooking) -> Member | None:
+    """Who the open trade waits on: the guide offered it, or for a take the tour's guide."""
+    return locked.guide if locked.is_take else locked.trade_to
+
+
+def _asker(locked: TourBooking) -> Member | None:
+    """Who made the open trade: the tour's guide (or the admin's member) for an offer, the taker for a take."""
+    if locked.is_take:
+        return locked.trade_to
+    by_member: Member | None = getattr(locked.trade_by, "member", None)
+    return locked.guide or by_member
+
+
+def guide_name_of(member: Member) -> str:
+    from tours.notify import guide_first_name
+
+    return guide_first_name(member)
+
+
+def _first_name(user: User) -> str:
+    from tours.notify import first_name
+
+    return first_name(user)
+
+
+def _tell_after_commit(
+    booking: TourBooking, change: str, to: Member | None, actor_name: str, *, note: str = ""
+) -> None:
+    """Tell ``to`` about the trade once it has committed (:func:`tours.notify.tell_trade`); nobody when empty."""
+    if to is None:
+        return
+    from tours import notify
+
+    notice = notify.TradeNotice(booking=booking, change=change, actor_name=actor_name, note=note, at=timezone.now())
+    transaction.on_commit(lambda: notify.tell_trade(notice, to), robust=True)
+
+
+def answer_trade(
+    booking: TourBooking, *, accept: bool, key: str, answerer: Member, now: datetime | None = None
+) -> TourBooking:
+    """The guide a trade waits on accepts (or approves a take) or declines it (#1308).
+
+    Decided on the row-locked booking, so of two answers racing on one trade only the first acts.
+    Accept makes ``trade_to`` the tour's guide and sends the ``moved`` seam with ``previous_guide``
+    (the Google sync moves the event), tells the asker, and emails the visitor their new guide. The
+    time, seats and the visitor's calendar invite do not change. Decline tells the asker only.
+
+    Raises:
+        TradeRefusedError: the trade was withdrawn or replaced, or the tour was cancelled or started.
+        NotYourTradeError: ``answerer`` is not who the trade waits on (an admin never answers for them).
+    """
+    moment = now or timezone.now()
+    with transaction.atomic():
+        locked = (
+            TourBooking.objects.select_for_update(of=("self",))
+            .select_related("guide", "trade_to", "trade_by")
+            .get(pk=booking.pk)
+        )
+        refusal = locked.trade_refusal(key, moment)
+        if refusal:
+            raise TradeRefusedError(TRADE_REFUSALS[refusal])
+        if locked.trade_answerer_id != answerer.pk:
+            raise NotYourTradeError
+        asker = _asker(locked)
+        name = guide_name_of(answerer)
+        taker = cast("Member", locked.trade_to)
+        kind = locked.trade_kind
+        previous_guide = locked.guide
+        if accept:
+            locked.guide = taker
+        locked.drop_trade()
+        locked.save(update_fields=["guide", *TourBooking.TRADE_FIELDS])
+        if accept:
+            change = "approved" if kind == TourBooking.TradeKind.TAKE else "accepted"
+            _tell_after_commit(locked, change, asker, name)
+            transaction.on_commit(lambda: _after_trade(locked, previous_guide, key), robust=True)
+        else:
+            declined = "take_declined" if kind == TourBooking.TradeKind.TAKE else "declined"
+            _tell_after_commit(locked, declined, asker, name)
+    return locked
+
+
+def _after_trade(booking: TourBooking, previous_guide: Member | None, key: str) -> None:
+    """After an accepted trade: the visitor's new guide email, and the seam the Google sync hangs off."""
+    from tours import notify
+
+    notify.send_new_guide_email(booking, trade_key=key)
+    signals.tour_booking_changed.send(
+        sender=TourBooking,
+        booking=booking,
+        change=signals.MOVED,
+        previous_guide=previous_guide,
+        previous_starts_at=booking.starts_at,
+        traded=True,
+    )
+
+
+def withdraw_trade(booking: TourBooking, *, key: str, asker: Member, now: datetime | None = None) -> TourBooking:
+    """Whoever made a trade takes it back before it is answered (#1308); the guide it waited on is told.
+
+    Raises:
+        TradeRefusedError: the trade was already answered, withdrawn or replaced, or the tour was cancelled or started.
+        NotYourTradeError: ``asker`` did not make it (the tour's guide for an offer, the taker for a take).
+    """
+    moment = now or timezone.now()
+    with transaction.atomic():
+        locked = (
+            TourBooking.objects.select_for_update(of=("self",)).select_related("guide", "trade_to").get(pk=booking.pk)
+        )
+        refusal = locked.trade_refusal(key, moment)
+        if refusal:
+            raise TradeRefusedError(TRADE_REFUSALS[refusal])
+        if locked.trade_asker_id != asker.pk:
+            raise NotYourTradeError
+        waiting_on = _waiting_on(locked)
+        locked.drop_trade()
+        locked.save(update_fields=list(TourBooking.TRADE_FIELDS))
+        _tell_after_commit(locked, "withdrawn", waiting_on, guide_name_of(asker))
+    return locked
 
 
 def cancel_tour_by_staff(

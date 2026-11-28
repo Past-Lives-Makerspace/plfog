@@ -216,7 +216,7 @@ def describe_reschedule_modal():
         content = signed_in(guide).get(_reschedule_url(booked), **HTMX).content.decode()
         assert f'data-tour-move-time="{_tour_key(guide, FIVE)}"' in content
         assert f'data-tour-move-time="{_tour_key(guide, FOUR)}"' not in content
-        assert f'<option value="{guide.pk}" selected>Gina Guide</option>' in content
+        assert "data-tour-move-guide" not in content  # Edit Time (#1308): no guide picker
         assert "Sam Rivera, 2 people." in content
 
     def it_leaves_out_a_time_without_room_for_the_party(guide: Member, booked: TourBooking):
@@ -240,32 +240,15 @@ def describe_reschedule_modal():
         unknown = client.get(_reschedule_url(booked), {"tour": "nope"}, **HTMX).content.decode()
         assert "data-tour-move-chosen" not in unknown and "data-tour-move-time" in unknown
 
-    def it_lets_an_admin_pick_another_guides_times(admin: Member, guide: Member, other: Member, booked: TourBooking):
+    def it_refuses_another_guides_times_to_everyone(admin: Member, guide: Member, other: Member, booked: TourBooking):
+        """Edit Time (#1308): a tour goes to another guide only by a trade, so ``?guide=`` someone else is a 403."""
         _hours(other)
-        content = signed_in(admin).get(_reschedule_url(booked), {"guide": other.pk}, **HTMX).content.decode()
-        assert f'data-tour-move-time="{_tour_key(other, FOUR)}"' in content
-        assert f'<option value="{other.pk}" selected>Olive Other</option>' in content
-        assert f'<option value="{guide.pk}">Gina Guide</option>' in content
-        chosen = signed_in(admin).get(
-            _reschedule_url(booked), {"guide": other.pk, "tour": _tour_key(other, FOUR)}, **HTMX
-        )
-        assert "with Olive Other" in chosen.content.decode()
-
-    def it_says_when_the_picked_guide_has_no_room(admin: Member, other: Member, booked: TourBooking):
-        content = signed_in(admin).get(_reschedule_url(booked), {"guide": other.pk}, **HTMX).content.decode()
-        assert "Olive Other has no open times with room for this party." in content
-        assert "or pick another guide" in content
-
-    def it_lets_a_guide_hand_their_tour_to_another_guide_and_404s_a_non_guide(
-        guide: Member, other: Member, admin: Member, plain: Member, booked: TourBooking
-    ):
-        _hours(other)
-        content = signed_in(guide).get(_reschedule_url(booked), {"guide": other.pk}, **HTMX).content.decode()
-        assert f'data-tour-move-time="{_tour_key(other, FOUR)}"' in content
-        assert signed_in(guide).get(_reschedule_url(booked), {"guide": plain.pk}, **HTMX).status_code == 404
-        client = signed_in(admin)
-        assert client.get(_reschedule_url(booked), {"guide": plain.pk}, **HTMX).status_code == 404
-        assert client.get(_reschedule_url(booked), {"guide": "abc"}, **HTMX).status_code == 404
+        for viewer in (guide, admin):
+            client = signed_in(viewer)
+            assert client.get(_reschedule_url(booked), {"guide": other.pk}, **HTMX).status_code == 403
+            assert client.get(_reschedule_url(booked), {"guide": "abc"}, **HTMX).status_code == 403
+        own = signed_in(guide).get(_reschedule_url(booked), {"guide": guide.pk}, **HTMX)
+        assert f'data-tour-move-time="{_tour_key(guide, FIVE)}"' in own.content.decode()
 
     def it_starts_an_unassigned_tour_from_the_admins_own_times(admin: Member, booked: TourBooking):
         _hours(admin)
@@ -302,12 +285,14 @@ def describe_reschedule_post():
         response = signed_in(guide).post(_reschedule_url(booked), {"tour": _tour_key(guide, FIVE)})
         assert (response.status_code, response["Location"]) == (302, UPCOMING)
 
-    def it_lets_an_admin_propose_another_guides_tour(admin: Member, guide: Member, other: Member, booked: TourBooking):
+    def it_refuses_a_posted_tour_on_another_guide(admin: Member, guide: Member, other: Member, booked: TourBooking):
+        """Edit Time (#1308): a crafted key on another guide's tour is a 403, the admin's too, and nothing is proposed."""
         _hours(other)
-        response = signed_in(admin).post(_reschedule_url(booked), {"tour": _tour_key(other, FOUR)}, **HTMX)
-        assert response.status_code == 204
+        for viewer in (guide, admin):
+            response = signed_in(viewer).post(_reschedule_url(booked), {"tour": _tour_key(other, FOUR)}, **HTMX)
+            assert response.status_code == 403
         booked.refresh_from_db()
-        assert (booked.guide, booked.proposed_guide) == (guide, other)
+        assert (booked.guide, booked.proposed_guide) == (guide, None)
 
     def it_proposes_inside_the_cancel_cutoff(guide: Member, booked: TourBooking):
         client = signed_in(guide)
@@ -499,29 +484,3 @@ def describe_review_fixes():
         with patch("tours.views.cancel_tour_by_staff", return_value=moved):
             response = signed_in(guide).post(_cancel_url(booked), **HTMX)
         assert _flashes(response) == [f"Sam Rivera's tour on {short_when(FIVE)} is cancelled. We emailed them."]
-
-
-def describe_the_admins_guide_picker_scenario():
-    """The e2e's admin reassignment (#949): the server offers Olive's 4:00 once Olive is picked.
-
-    The flaky e2e showed Gina's own picker (her 4:00 left out as Sam's own tour, her 5:00 with 4
-    seats) under a select reading Olive: the change was fired before htmx had wired up the swapped
-    in select, so no request went out. These pin both renders, so that screenshot can only mean
-    the request never left the browser, never a wrong answer from here.
-    """
-
-    def it_offers_olives_four_with_room_and_gina_only_her_five(admin: Member, guide: Member, other: Member):
-        _hours(guide, seats=4)
-        _hours(other, seats=4)
-        sam = TourBookingFactory(guide=guide, starts_at=FOUR, party_size=2, visitor_name="Sam Rivera")
-        TourBookingFactory(guide=other, starts_at=FOUR, party_size=1, visitor_name="Oli Visitor")
-        client = signed_in(admin)
-        olive = client.get(_reschedule_url(sam), {"guide": other.pk}, **HTMX).content.decode()
-        assert f'data-tour-move-time="{_tour_key(other, FOUR)}"' in olive
-        assert f'data-tour-move-time="{_tour_key(other, FIVE)}"' in olive
-        assert "3 seats left" in olive
-        assert f'<option value="{other.pk}" selected>Olive Other</option>' in olive
-        gina = client.get(_reschedule_url(sam), **HTMX).content.decode()
-        assert f'data-tour-move-time="{_tour_key(guide, FOUR)}"' not in gina
-        assert f'data-tour-move-time="{_tour_key(guide, FIVE)}"' in gina
-        assert f'<option value="{guide.pk}" selected>Gina Guide</option>' in gina

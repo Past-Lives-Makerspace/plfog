@@ -716,6 +716,18 @@ _GUIDANCE_LIST = (
         ),
     ),
     Guidance(
+        key="tours.trade",
+        title="Trade a Tour",
+        url_name="tours:upcoming",
+        target="tours.trade",
+        steps=(
+            "Press Tours in the sidebar. On Upcoming, press the ... on your tour, then Trade this tour.",
+            "Pick the guide to trade it to, add a note if you like, and press Send Trade. It stays yours until they accept.",
+            "They press Accept Trade or Decline on the tour's row. Once they accept it is theirs, and the visitor gets an email naming their new guide.",
+            "On another guide's tour, Take this tour asks them for it. It moves to you when they press Approve.",
+        ),
+    ),
+    Guidance(
         key="tours.give",
         title="Give Tours",
         url_name="tours:give",

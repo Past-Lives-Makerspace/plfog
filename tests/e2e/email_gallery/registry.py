@@ -1102,6 +1102,36 @@ STRUCTURAL_EMAILS: list[GalleryEmail] = [
         context_builder="tour_guide_answer_context",
     ),
     GalleryEmail(
+        key="tour_guide_trade",
+        name="Tour trade offered (guide)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent (with a bell and push) to a guide when another guide offers them a tour (#1308), to a tour's guide when another guide asks to take it, and back to whoever asked when it is declined. Open the Tour only opens the row; Accept and Decline are there."
+        ),
+        edit_pointer=_tpl("tours/emails", "guide_trade"),
+        audience="The guide a trade waits on, or the guide whose trade was declined.",
+        event_keys=frozenset({"tour.trade"}),
+        text_template="tours/emails/guide_trade.txt",
+        html_template="tours/emails/guide_trade.html",
+        context_builder="tour_guide_trade_context",
+    ),
+    GalleryEmail(
+        key="tour_visitor_new_guide",
+        name="Tour has a new guide (visitor)",
+        section="Guilds & Orientations",
+        renderer=Renderer.SHELL_TEMPLATE,
+        trigger_note=(
+            "Sent to the visitor when guides traded their tour and the new guide accepted (#1308). An FYI with the same time and their Reschedule and Cancel links; no calendar invite."
+        ),
+        edit_pointer=_tpl("tours/emails", "visitor_new_guide"),
+        audience="The visitor who booked the tour (by address).",
+        event_keys=frozenset({"tour.visitor_update"}),
+        text_template="tours/emails/visitor_new_guide.txt",
+        html_template="tours/emails/visitor_new_guide.html",
+        context_builder="tour_visitor_new_guide_context",
+    ),
+    GalleryEmail(
         key="tour_guide_changed",
         name="Tour moved or cancelled (guide)",
         section="Guilds & Orientations",

@@ -1,0 +1,15 @@
+{% autoescape off %}{{ title }}
+
+{{ summary }}
+
+{% if change == "offered" %}The tour stays theirs until you accept. The time does not change, and the visitor is only told who their guide is once it is yours.{% elif change == "take_asked" %}The tour stays yours until you approve. The time does not change, and the visitor is only told who their guide is once it moves.{% else %}Nothing moved. You can offer the tour to another guide from its menu on your Upcoming tab.{% endif %}
+
+{% if note %}Their note: {{ note }}
+
+{% endif %}  When: {{ when }}
+  Visitor: {{ booking.visitor_name }}, {{ people }}
+
+Open the tour: {{ request_url }}{% if change == "offered" %}
+Accept Trade and Decline are on the tour's row on your Upcoming tab.{% elif change == "take_asked" %}
+Approve and Decline are on the tour's row on your Upcoming tab.{% endif %}
+{% include "membership/emails/_footer.txt" %}{% endautoescape %}

@@ -801,6 +801,14 @@ class TourBooking(models.Model):
         WEBSITE = "website", "Website"
         KIOSK = "kiosk", "Kiosk"
 
+    class TradeKind(models.TextChoices):
+        """Which way an open trade between guides runs (#1308)."""
+
+        #: The tour's guide (or an admin) offered it to ``trade_to``, who accepts or declines.
+        TRADE = "trade", "Trade"
+        #: ``trade_to`` asked to take it; the tour's guide approves or declines.
+        TAKE = "take", "Take"
+
     #: The statuses that take seats on the tour.
     HOLDS_SEATS: ClassVar[tuple[str, ...]] = (Status.BOOKED, Status.ATTENDED, Status.PENDING)
     #: The statuses the Upcoming tab lists and a visitor may still cancel (#1166).
@@ -953,6 +961,44 @@ class TourBooking(models.Model):
         related_name="tour_times_proposed",
         help_text="The guide or admin who proposed the open new time; they hear the visitor's answer.",
     )
+    # --- A trade between guides (#1308) --------------------------------------------------------
+    trade_to = models.ForeignKey(
+        Member,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="tour_trades_offered",
+        help_text=(
+            "The guide this tour would go to under the open trade (#1308): the one offered it, or the one who "
+            "asked to take it. Empty when no trade is open."
+        ),
+    )
+    trade_kind = models.CharField(
+        max_length=8,
+        choices=TradeKind.choices,
+        blank=True,
+        help_text="Whether the open trade was offered by the tour's guide or asked for by another guide (#1308).",
+    )
+    trade_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="tour_trades_made",
+        help_text="Who made the open trade offer or ask (#1308); they hear the answer.",
+    )
+    trade_note = models.TextField(
+        blank=True,
+        help_text="The optional note sent with the open trade (#1308), shown to the guide who answers it.",
+    )
+    trade_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When the open trade was made (#1308). Its Accept, Decline and Withdraw buttons carry it, so a "
+            "replaced or withdrawn trade cannot be answered."
+        ),
+    )
     notes_moved_to = models.ForeignKey(
         "self",
         null=True,
@@ -999,6 +1045,8 @@ class TourBooking(models.Model):
 
     #: The columns one proposal lives in (#1283), saved together.
     PROPOSAL_FIELDS: ClassVar[tuple[str, ...]] = ("proposed_guide", "proposed_starts_at", "proposed_at", "proposed_by")
+    #: The columns one trade between guides lives in (#1308), saved together.
+    TRADE_FIELDS: ClassVar[tuple[str, ...]] = ("trade_to", "trade_kind", "trade_by", "trade_note", "trade_at")
 
     #: The first names of the other guides a shared request (#1255) also went to, for the Upcoming row;
     #: filled by :meth:`attach_shared_with`, never stored.
@@ -1286,6 +1334,65 @@ class TourBooking(models.Model):
             return "stale"
         if self.proposed_starts_at is None or self.proposed_starts_at <= now:
             return "passed"
+        return ""
+
+    @property
+    def has_open_trade(self) -> bool:
+        """Whether a trade between guides (#1308) waits on an answer."""
+        return self.trade_at is not None
+
+    @property
+    def is_take(self) -> bool:
+        """Whether the open trade is another guide asking to take this tour (#1308), not an offer."""
+        return self.trade_kind == self.TradeKind.TAKE
+
+    @property
+    def trade_key(self) -> str:
+        """The open trade's identity on its buttons (#1308), or "" when none is open; like :attr:`proposal_key`."""
+        if self.trade_at is None:
+            return ""
+        epoch = datetime(1970, 1, 1, tzinfo=UTC)
+        return str((self.trade_at - epoch) // timedelta(microseconds=1))
+
+    @property
+    def trade_answerer_id(self) -> int | None:
+        """The member who accepts or declines the open trade (#1308): the guide offered it, or for a take the tour's guide."""
+        return self.guide_id if self.is_take else self.trade_to_id
+
+    @property
+    def trade_asker_id(self) -> int | None:
+        """The member who may withdraw the open trade (#1308): the tour's guide, or for a take the guide who asked."""
+        return self.trade_to_id if self.is_take else self.guide_id
+
+    def open_trade(self, to: Member, kind: str, *, by: User, note: str, now: datetime) -> None:
+        """Record a trade of this tour to ``to`` (#1308), replacing any open one; the guide does not change yet."""
+        self.trade_to = to
+        self.trade_kind = kind
+        self.trade_by = by
+        self.trade_note = note
+        self.trade_at = now
+        self.save(update_fields=list(self.TRADE_FIELDS))
+
+    def drop_trade(self) -> None:
+        """Forget the open trade in memory; the caller saves :attr:`TRADE_FIELDS`."""
+        self.trade_to = None
+        self.trade_kind = ""
+        self.trade_by = None
+        self.trade_note = ""
+        self.trade_at = None
+
+    def trade_refusal(self, key: str, now: datetime) -> str:
+        """Why an answer or a withdraw drawn for the trade ``key`` may not act (#1308), or "" when it may.
+
+        ``"cancelled"`` or ``"past"`` (:meth:`staff_refusal`: the tour was cancelled, or started, which
+        lapses any open trade), else ``"withdrawn"`` when that trade is no longer the open one: answered,
+        withdrawn, replaced, or dropped when the tour moved to another time.
+        """
+        reason = self.staff_refusal(now)
+        if reason:
+            return reason
+        if not key or key != self.trade_key or self.trade_to_id is None:
+            return "withdrawn"
         return ""
 
     def table_url_name(self, now: datetime) -> str:

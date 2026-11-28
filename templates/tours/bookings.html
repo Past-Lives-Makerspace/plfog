@@ -83,7 +83,8 @@ is_filtered, base_params, notes_open (a booking pk to open Notes on), notes_next
 
 {% for booking in bookings %}{% include "tours/partials/_booking_modals.html" %}{% endfor %}
 {% if tab == "upcoming" %}
-{% include "components/modal.html" with modal_id="tour-reschedule" modal_title="Edit Tour" modal_size="lg" modal_body="Loading open times..." %}
+{% include "components/modal.html" with modal_id="tour-reschedule" modal_title="Edit Time" modal_size="lg" modal_body="Loading open times..." %}
+{% include "components/modal.html" with modal_id="tour-trade" modal_title="Trade This Tour" modal_size="md" modal_body="Loading…" %}
 {% endif %}
 {% include "components/modal.html" with modal_id="tour-notes" modal_title="Notes" modal_size="md" %}
 {% if notes_open %}

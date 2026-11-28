@@ -258,6 +258,17 @@
     display: block;
     overflow-wrap: anywhere;
 }
+/* An open trade's Accept and Decline, or Withdraw (#1308), under its status line. */
+.pl-tours-row__trade {
+    display: block;
+    margin-top: 0.5rem;
+}
+.pl-tours-row__trade form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0;
+}
 /* The time under the date on a wide screen; beside it in a stacked phone card. */
 @media (min-width: 769px) {
     .pl-tours-row__time {

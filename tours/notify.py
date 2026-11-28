@@ -14,6 +14,9 @@ in ``templates/tours/emails/`` (:func:`core.events.senders.emit_with_email_shell
   the proposal with Accept New Time and Keep My Time (:func:`send_proposal_email`), and the answer
   reaches the guide, the proposed guide and the proposer by ``tour.visitor_changed``
   (:func:`tell_guides_of_answer`).
+- ``tour.trade``: a trade between guides (#1308): offered to you, a guide asked to take your tour, or
+  your offer or ask was answered or withdrawn (:func:`tell_trade`). Once one is accepted the visitor
+  gets ``tour.visitor_update``'s new guide email (:func:`send_new_guide_email`), an FYI only.
 - ``tour.checked_in``: the visitor checked in at the front desk kiosk (#950), bell and push only
   ("Your 4:00 tour is here").
 - ``tour.note_added``: a note on a booking (#1274), a bell to the tour's guide and the note's
@@ -38,6 +41,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -76,6 +80,7 @@ GUIDE_BOOKED_EVENT = "tour.booked"
 GUIDE_CHANGED_EVENT = "tour.visitor_changed"
 GUIDE_CHECKED_IN_EVENT = "tour.checked_in"
 NOTE_ADDED_EVENT = "tour.note_added"
+GUIDE_TRADE_EVENT = "tour.trade"
 #: How long before a tour its reminder goes out.
 REMINDER_BEFORE = timedelta(hours=24)
 #: The Tour Follow Up email's audit label in the Email Log (#1345).
@@ -138,6 +143,13 @@ def person_name(user: User) -> str:
     if member is not None and member.staff_label.strip():
         return member.staff_label.strip()
     return user.get_full_name().strip() or user.email.strip() or UNNAMED_STAFF
+
+
+def first_name(user: User) -> str:
+    """The first word of the member's (else the account's) name, or "Past Lives staff" when it has none."""
+    member: Member | None = getattr(user, "member", None)
+    name = member.greeting_name if member is not None else user.get_full_name()
+    return (name.split() or [UNNAMED_STAFF])[0] if name.strip() else UNNAMED_STAFF
 
 
 def note_label(actor: User | None) -> str:
@@ -577,6 +589,103 @@ def _tell_guide_staff_cancelled(booking: TourBooking, actor: User, staff_message
         tell_guide_changed(
             booking, guide, signals.CANCELLED, actor_name=person_name(actor), staff_message=staff_message
         )
+
+
+@dataclass(frozen=True)
+class TradeNotice:
+    """One notice about a trade between guides (#1308), drawn when it happened and sent after commit."""
+
+    booking: TourBooking
+    #: ``offered``, ``take_asked``, ``accepted``, ``approved``, ``declined``, ``take_declined`` or ``withdrawn``.
+    change: str
+    #: The first name of the guide (or admin) who acted.
+    actor_name: str
+    note: str
+    at: datetime
+
+
+#: Each trade notice's bell title and body (``{actor}``, ``{visitor}``, ``{when}``), and whether it also emails.
+_TRADE_COPY: dict[str, tuple[str, str, bool]] = {
+    "offered": ("Tour trade offered", "{actor} wants to trade you {visitor}'s tour on {when}.", True),
+    "take_asked": ("Tour take asked", "{actor} asked to take {visitor}'s tour on {when} from you.", True),
+    "accepted": ("Tour trade accepted", "{actor} accepted {visitor}'s tour on {when}. It is theirs now.", False),
+    "approved": ("Tour is yours", "{actor} approved: {visitor}'s tour on {when} is yours now.", False),
+    "declined": ("Tour trade declined", "{actor} declined {visitor}'s tour on {when}, so it is still yours.", True),
+    "take_declined": ("Tour take declined", "{actor} is keeping {visitor}'s tour on {when}.", True),
+    "withdrawn": ("Tour trade withdrawn", "{actor} withdrew the trade of {visitor}'s tour on {when}.", False),
+}
+
+
+def tell_trade(notice: TradeNotice, to: Member) -> None:
+    """Tell ``to`` about a trade between guides (#1308): a bell and push, and an email for an offer, an ask or a decline.
+
+    Every link opens the tour's row on the Upcoming tab, where the buttons are: a link in an email
+    never acts on its own, since mail scanners open links.
+    """
+    booking = notice.booking
+    title, template, emails = _TRADE_COPY[notice.change]
+    when = short_when(booking.starts_at)
+    summary = template.format(actor=notice.actor_name, visitor=booking.visitor_name, when=when)
+    body = f'{summary} "{notice.note}"' if notice.note else summary
+    url = f"{reverse('tours:upcoming')}#{request_anchor(booking)}"
+    stamp = (notice.at - datetime(1970, 1, 1, tzinfo=UTC)) // timedelta(microseconds=1)
+    period = f"tour:{booking.pk}:trade:{notice.change}:{stamp}:{to.pk}"
+    if not emails:
+        emit(
+            GUIDE_TRADE_EVENT,
+            target=booking,
+            context={"guide": to},
+            title=title,
+            body=body,
+            url=url,
+            period=period,
+            suppress_email=True,
+        )
+        return
+    emit_with_email_shell(
+        GUIDE_TRADE_EVENT,
+        target=booking,
+        context={"guide": to},
+        subject=f"{title}: {when}",
+        text_template="tours/emails/guide_trade.txt",
+        html_template="tours/emails/guide_trade.html",
+        template_context=guide_context(
+            booking,
+            change=notice.change,
+            title=title,
+            summary=summary,
+            note=notice.note,
+            actor_name=notice.actor_name,
+            request_url=request_url(booking),
+        ),
+        in_app_title=title,
+        in_app_body=body,
+        url=url,
+        period=period,
+    )
+
+
+def send_new_guide_email(booking: TourBooking, *, trade_key: str) -> None:
+    """Tell the visitor who their guide is now, after a trade was accepted (#1308): an FYI, never a question.
+
+    Same time and the Reschedule and Cancel links; no calendar invite, since the invite names no
+    guide. The guide's first name only, as in every visitor email. The period is the trade, so a
+    tour traded back and on tells the visitor each time, and a retry never twice.
+    """
+    name = guide_first_name(booking.guide)
+    emit_with_email_shell(
+        VISITOR_EVENT,
+        target=booking,
+        context={"user": None},
+        subject=f"Your Past Lives tour guide is now {name}" if name else "Your Past Lives tour has a new guide",
+        text_template="tours/emails/visitor_new_guide.txt",
+        html_template="tours/emails/visitor_new_guide.html",
+        template_context=visitor_context(booking),
+        attachments=[],
+        email_to=booking.visitor_email,
+        period=f"tour:{booking.pk}:new_guide:{trade_key}",
+        recipient_user_ids=set(),
+    )
 
 
 def tell_guide_checked_in(booking: TourBooking) -> None:

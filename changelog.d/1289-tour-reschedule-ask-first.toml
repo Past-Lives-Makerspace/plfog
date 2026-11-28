@@ -13,7 +13,7 @@ changes = [
 ]
 
 [[shots]]
-caption = "On Upcoming, press ... on a tour, then Edit Guide or Time. Pick the new time, add a note if you like, and press Ask the Visitor."
+caption = "On Upcoming, press ... on a tour, then Edit Time. Pick the new time, add a note if you like, and press Ask the Visitor."
 
 [[shots]]
 caption = "The tour keeps its time and shows Waiting for the Visitor with the time you asked for until they answer."
