@@ -21,6 +21,7 @@ from django.conf import settings
 from django.core import signing
 from django.db import transaction
 from django.db.models import Q
+from django.tasks import task
 from django.templatetags.static import static
 from django.urls import reverse
 from django.utils import dateformat, timezone
@@ -1474,18 +1475,22 @@ def _emit_lead_request(booking: OrientationBooking) -> None:
     person, so a re-run still sends nobody anything twice. No send logs the event's own
     activity row: the caller logs the request's row, with its member and booking. Equipment
     keeps one send to every manager whose links name the slot's manager, or nobody, unaddressed.
+
+    The guild lead and Co-Leads get a line in the next morning's staff digest too
+    (:func:`_queue_lead_digest_line`, #1299).
     """
     from core.events.resolvers import guild_orienters_or_equipment_managers
     from membership.models import Member
 
+    user_ids = [user.pk for user, _reason in guild_orienters_or_equipment_managers(request_resolver_context(booking))]
+    members = {member.user_id: member for member in Member.objects.filter(user_id__in=user_ids)}
+    _queue_lead_digest_line(booking, [members[user_id] for user_id in user_ids if user_id in members])
     if booking.orientation_type.is_equipment_owned:
         # Managers confirm explicitly, so a shared slot's email-link decline is unattributed;
         # make_action_token accepts recipient=None.
         responder = booking.slot.orienter if booking.slot.orienter_id is not None else None
         _send_request(booking, responder=responder, recipient_user_ids=None, addressed=False)
         return
-    user_ids = [user.pk for user, _reason in guild_orienters_or_equipment_managers(request_resolver_context(booking))]
-    members = {member.user_id: member for member in Member.objects.filter(user_id__in=user_ids)}
     for user_id in user_ids:
         _send_request(booking, responder=members[user_id], recipient_user_ids={user_id}, addressed=True)
 
@@ -1524,6 +1529,180 @@ def _send_request(
         recipient_user_ids=recipient_user_ids,
         log_activity=False,
     )
+
+
+def _owning_guild(booking: OrientationBooking) -> Guild | None:
+    """The guild whose lead hears about ``booking``: its own guild, or the guild that owns its equipment."""
+    orientation_type = booking.orientation_type
+    if orientation_type.is_equipment_owned:
+        return cast("Equipment", orientation_type.equipment).guild
+    return booking.guild
+
+
+def _queue_lead_digest_line(booking: OrientationBooking, asked: Sequence[Member]) -> None:
+    """Queue the guild lead's and Co-Leads' morning digest line for a new request (#1299).
+
+    ``orientation.waiting_to_lead`` is a digest event, so nothing is sent now: each person
+    gets one line in the next 8 AM Pacific staff digest, and the digest drops it when the
+    request was answered or its time passed first. Equipment with no owning guild has no lead
+    to tell. ``asked`` are the people the request went to, named in the line.
+    """
+    from core.events.registry import ORIENTATION_WAITING_TO_LEAD
+    from membership.models import join_names
+
+    guild = _owning_guild(booking)
+    if guild is None:
+        return
+    names = [person.staff_label for person in asked]
+    if names:
+        verb = "was" if len(names) == 1 else "were"
+        asked_line = f"{join_names(names)} {verb} asked to respond."
+    else:
+        asked_line = "Nobody could be asked to respond."
+    emit(
+        ORIENTATION_WAITING_TO_LEAD,
+        target=booking,
+        context={"guild": guild},
+        title=f"Orientation request waiting: {booking.member.staff_label}, {booking.orientation_type.name}",
+        body=f"For {_when(booking.slot.starts_at)}. Nobody has answered it yet. {asked_line}",
+        url=_absolute_url(reverse("hub_orientation_respond", args=[booking.pk])),
+        period=f"booking:{booking.pk}:waiting",
+        log_activity=False,
+    )
+
+
+@task
+def send_waiting_requests(member_id: int, guild_id: int | None = None, equipment_id: int | None = None) -> None:
+    """Send a new Orientor or item manager the requests already waiting for them (#1299).
+
+    Enqueued on commit when someone becomes an Orientor of ``guild_id`` (added, or retitled)
+    or a manager of ``equipment_id``. Each waiting request of that guild or item whose request
+    audience now takes in the member (a shared slot or a proposed time; never a personal slot
+    booked with another Orientor) goes to them alone, by the normal request email and bell with
+    Confirm and Decline links minted as the first send minted them. Safe to run twice: the
+    request's shared period (``booking:<pk>:request``) is keyed per person on the delivery
+    ledger, so nobody is sent one request twice, however often they are retitled.
+    """
+    from membership.models import Member, OrientationBooking
+
+    member = Member.objects.select_related("user").get(pk=member_id)
+    if member.user_id is None:
+        return
+    owner = Q(guild_id=guild_id) if guild_id is not None else Q(orientation_type__equipment_id=equipment_id)
+    waiting = (
+        OrientationBooking.objects.pending()
+        .filter(owner)
+        .exclude(member=member)
+        .select_related("member", "guild", "slot__orienter", "orientation_type__guild", "orientation_type__equipment")
+    )
+    cache: AudienceCache = {}
+    for booking in waiting:
+        if member.user_id not in orientor_audience(booking, cache):
+            continue
+        if booking.orientation_type.is_equipment_owned:
+            responder = booking.slot.orienter if booking.slot.orienter_id is not None else None
+            _send_request(booking, responder=responder, recipient_user_ids={member.user_id}, addressed=False)
+        else:
+            _send_request(booking, responder=member, recipient_user_ids={member.user_id}, addressed=True)
+
+
+@dataclass(frozen=True)
+class WaitingRequest:
+    """One waiting orientation request as Home lists it (#1299), with the people it was sent to."""
+
+    booking: OrientationBooking
+    notified: tuple[str, ...]
+    now: datetime
+
+    @property
+    def requested_ago(self) -> str:
+        """When it was asked for, by local day: "today", "yesterday" or "3 days ago"."""
+        days = (timezone.localdate(self.now) - timezone.localtime(self.booking.requested_at).date()).days
+        if days <= 0:
+            return "today"
+        if days == 1:
+            return "yesterday"
+        return f"{days} days ago"
+
+    @property
+    def notified_sentence(self) -> str:
+        """The Guild Activity tip: who was asked, and that the reader need not act."""
+        from membership.models import join_names
+
+        if not self.notified:
+            asked = "Nobody could be notified yet."
+        else:
+            verb = "was" if len(self.notified) == 1 else "were"
+            asked = f"{join_names(self.notified)} {verb} notified and should respond."
+        return f"{asked} This is here so you can see it; you don't need to act."
+
+
+@dataclass(frozen=True)
+class HomeOrientationRequests:
+    """Home's waiting orientation requests (#1299), split by whether they wait on the viewer."""
+
+    on_you: list[WaitingRequest]
+    in_your_guilds: list[WaitingRequest]
+
+
+def home_orientation_requests(member: Member, now: datetime) -> HomeOrientationRequests:
+    """The waiting requests ``member`` sees on Home (#1299), in three queries whatever their number.
+
+    A request waits while it is requested and its time has not passed
+    (:meth:`OrientationBookingQuerySet.pending`). One sent to ``member`` (a row of theirs on
+    the delivery ledger under its request period) is ``on_you``, for Needs Attention. One
+    in a guild they lead or staff, on an item they manage or on an item their guild owns, and
+    not sent to them, is ``in_your_guilds``, for the Guild Activity card. Never both. Each
+    carries the names of the people it was sent to, soonest first.
+    """
+    from django.db.models import CharField, Exists, OuterRef, Value
+    from django.db.models.functions import Cast, Concat
+
+    from core.models import EventDelivery
+    from membership.models import EquipmentStaffMembership, Guild, Member, OrientationBooking
+
+    staff_guilds = Guild.objects.filter(Q(guild_lead=member) | Q(staff_memberships__member=member)).values("pk")
+    managed = EquipmentStaffMembership.objects.filter(member=member).values("equipment_id")
+    in_scope = (
+        Q(guild__in=staff_guilds)
+        | Q(orientation_type__equipment__in=managed)
+        | Q(orientation_type__equipment__guild__in=staff_guilds)
+    )
+    viewer_rows = EventDelivery.objects.filter(
+        event_key="orientation_requested", target_ref=f"user:{member.user_id}", period=OuterRef("request_period")
+    )
+    bookings = list(
+        OrientationBooking.objects.pending(now)
+        .exclude(member=member)
+        .annotate(
+            request_period=Concat(
+                Value("booking:"), Cast("pk", CharField()), Value(":request"), output_field=CharField()
+            ),
+            sent_to_viewer=Exists(viewer_rows),
+        )
+        .filter(in_scope | Q(sent_to_viewer=True))
+        .select_related("member", "slot", "orientation_type")
+        .order_by("slot__starts_at", "pk")
+    )
+    if not bookings:
+        return HomeOrientationRequests(on_you=[], in_your_guilds=[])
+    sent: dict[str, set[int]] = defaultdict(set)
+    for period, target_ref in EventDelivery.objects.filter(
+        event_key="orientation_requested",
+        period__in=[f"booking:{booking.pk}:request" for booking in bookings],
+        target_ref__startswith="user:",
+    ).values_list("period", "target_ref"):
+        sent[period].add(int(target_ref.removeprefix("user:")))
+    user_ids = set().union(*sent.values())
+    names = {person.user_id: person.staff_label for person in Member.objects.filter(user_id__in=user_ids)}
+    on_you: list[WaitingRequest] = []
+    in_your_guilds: list[WaitingRequest] = []
+    for booking in bookings:
+        asked = sent[f"booking:{booking.pk}:request"]
+        notified = tuple(sorted(names[user_id] for user_id in asked if user_id in names))
+        row = WaitingRequest(booking=booking, notified=notified, now=now)
+        (on_you if member.user_id in asked else in_your_guilds).append(row)
+    return HomeOrientationRequests(on_you=on_you, in_your_guilds=in_your_guilds)
 
 
 def confirm_orientation(

@@ -949,6 +949,12 @@ def _wiki_proposals() -> dict[str, QuerySet[Any]]:
     return {"wiki_proposed": WikiPage.objects.awaiting_publication()}
 
 
+def _waiting_orientation_requests() -> dict[str, QuerySet[Any]]:
+    from membership.models import OrientationBooking
+
+    return {"booking": OrientationBooking.objects.pending()}
+
+
 def _past_due_cubby_rentals() -> dict[str, QuerySet[Any]]:
     from membership.models import CubbyRental
 
@@ -964,6 +970,8 @@ _OPEN_CHECKS: dict[str, OpenCheckFn] = {
     "wiki.page_reported": _open_by_request(_wiki_reports),
     "wiki.page_proposed": _open_by_request(_wiki_proposals),
     "cubbies.rental_past_due": _open_by_request(_past_due_cubby_rentals),
+    # #1299: dropped once the request is confirmed, declined, cancelled or its time has passed.
+    "orientation.waiting_to_lead": _open_by_request(_waiting_orientation_requests),
     # #894 part 4: FYI notices (a signup, a booking); nothing decides them.
     "new_member_joined": always_open,
     "equipment.reservation_made": always_open,

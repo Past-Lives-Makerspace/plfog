@@ -194,6 +194,17 @@ _GUIDANCE_LIST = (
         ),
     ),
     Guidance(
+        key="home.orientation-requests",
+        title="Orientation Requests on Home",
+        url_name="hub_home",
+        steps=(
+            "An orientation request sent to you shows on Home under Needs Attention. Tap Respond to confirm or decline it.",
+            "Guild and equipment staff see the other requests in their guilds under Guild Activity. The ? names who was asked; you don't need to act.",
+            "A request nobody has answered by 8 AM is a line in the guild lead's and Co-Leads' morning staff email.",
+            "A new Orientor or equipment manager is sent the requests already waiting.",
+        ),
+    ),
+    Guidance(
         key="home.your-guilds",
         title="Your Guilds",
         url_name="hub_home",

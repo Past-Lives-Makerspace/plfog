@@ -3810,6 +3810,7 @@ class Guild(HeroCropMixin, models.Model):
 
             reconcile_on_commit(member.pk)
             staff.sync_directory_if_co_lead()
+            staff.inherit_waiting_requests()
             if first_role_here:
                 # Their first role on this guild welcomes them (#1076); a second title does not.
                 record_grant(member, self)
@@ -4168,8 +4169,10 @@ class GuildStaffMembership(models.Model):
     """A member's leadership role on a guild, beyond the single ``Guild.guild_lead`` FK.
 
     Every staff role grants the same authority as the guild lead, with one exception:
-    staff may edit the guild page, manage its classes, run its orientations, and receive
-    the lead's orientation requests. Class review is the exception (#816): a class review
+    staff may edit the guild page, manage its classes and run its orientations. Orientation
+    requests go only to the staff holding the Orientor role (#1127), to the lead when there
+    are none; a new Orientor is sent the requests already waiting (#1299), and the rest of
+    the staff see waiting requests on Home. Class review is the exception (#816): a class review
     request, Remind lead, the review queues and the guild-lead decision belong to the lead
     and to the staff marked ``can_review_classes`` (Class Reviewers), see
     :meth:`Guild.class_reviewers`. The role is a label for display and organization, not a
@@ -4296,6 +4299,7 @@ class GuildStaffMembership(models.Model):
         if problem:
             raise ValueError(problem)
         was_co_lead = self.role == self.Role.CO_LEAD
+        was_orientor = self.role == self.Role.ORIENTER
         self.role = role
         self.custom_title = custom_title
         self.save(update_fields=["role", "custom_title"])
@@ -4303,6 +4307,22 @@ class GuildStaffMembership(models.Model):
 
         reconcile_on_commit(self.member_id)
         self.sync_directory_if_co_lead(was_co_lead=was_co_lead)
+        if not was_orientor:
+            self.inherit_waiting_requests()
+
+    def inherit_waiting_requests(self) -> None:
+        """Send a new Orientor the guild's requests already waiting on its Orientors (#1299).
+
+        Only an Orientor row does anything. The send runs on the task queue once the save
+        commits (:func:`membership.orientations.send_waiting_requests`), and the delivery
+        ledger keeps a re-run or a retitle back and forth from sending anyone a request twice.
+        """
+        if self.role != self.Role.ORIENTER:
+            return
+        from core.tasks import enqueue_on_commit
+        from membership.orientations import send_waiting_requests
+
+        enqueue_on_commit(send_waiting_requests, self.member_id, guild_id=self.guild_id)
 
     def sync_directory_if_co_lead(self, *, was_co_lead: bool = False) -> None:
         """Sync the Discord leadership directory when this row is, or was, a Co-Lead: the post lists them (#1149)."""
@@ -20613,6 +20633,17 @@ class EquipmentStaffMembership(models.Model):
 
     def __str__(self) -> str:
         return f"{self.member.display_name}: {self.equipment.name} manager"
+
+    def inherit_waiting_requests(self) -> None:
+        """Send a new manager the item's orientation requests already waiting on its managers (#1299).
+
+        Runs on the task queue once the save commits (:func:`membership.orientations.send_waiting_requests`);
+        a request booked with another manager's personal slot is not sent.
+        """
+        from core.tasks import enqueue_on_commit
+        from membership.orientations import send_waiting_requests
+
+        enqueue_on_commit(send_waiting_requests, self.member_id, equipment_id=self.equipment_id)
 
     def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
         """Remove the role, and the item's Who gets paid pick when it was this manager (#749).

@@ -1973,7 +1973,7 @@ def hub_equipment_staff_add(request: HttpRequest, slug: str) -> HttpResponse:
             equipment=equipment,
             member=form.cleaned_data["member"],
             granted_by=_get_member(request),
-        )
+        ).inherit_waiting_requests()
         messages.success(request, "Manager added.")
         return redirect(f"{reverse('hub_equipment_manage', args=[equipment.slug])}?tab=staff")
     return _render_manage(request, equipment, staff_add_form=form, active_tab="staff")

@@ -23,6 +23,7 @@ from django.utils import timezone
 
 from hub.guild_membership import build_my_guilds_rows
 from membership.models import CalendarEvent, CommunityEvent, DiscordReconnectNudge, GuildAnnouncement
+from membership.orientations import home_orientation_requests
 from polls.models import EmailPoll, PollCard
 from tours.models import TourBooking
 
@@ -157,6 +158,8 @@ def build_home_context(member: Member) -> dict[str, Any]:
     the open polls from Email Members sent to the member that they have not answered, in one query, and
     ``tour_requests`` (#1213) the member's own tour requests still waiting on them as guide, in one more;
     ``discord_reconnect`` (#1239) is whether they have an open Reconnect Discord nudge, in one more.
+    ``orientation_requests`` (#1299) are the waiting orientation requests sent to them (Needs
+    Attention) and those in the guilds and equipment they staff (Guild Activity), in three more.
     All business logic lives on
     ``membership`` and ``polls`` managers/props; this only fetches, normalizes, sorts, and caps.
     """
@@ -174,6 +177,7 @@ def build_home_context(member: Member) -> dict[str, Any]:
         "needs_attention_polls": list(EmailPoll.objects.awaiting_answer(member, timezone.now())),
         "tour_requests": list(TourBooking.objects.awaiting_guide(member, timezone.now())),
         "discord_reconnect": DiscordReconnectNudge.objects.open_for(member).exists(),
+        "orientation_requests": home_orientation_requests(member, timezone.now()),
     }
 
 

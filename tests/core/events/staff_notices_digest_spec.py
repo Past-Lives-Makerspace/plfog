@@ -98,10 +98,12 @@ def describe_the_registry():
     def it_gives_every_digest_event_a_line_to_show() -> None:
         """A digest line falls back to the bell's line, so every digest event declares a bell.
 
-        An email-only event (emit_flat_email) has no line to show and must stay instant.
+        An email-only event (emit_flat_email) has no line to show and must stay instant. The one
+        exception writes its line itself: the lead's waiting orientation request (#1299) passes
+        its own title and body, and must not ring a bell (tests/membership/orientation_waiting_requests_spec.py).
         """
         no_bell = {key for key in _DIGEST_EMAIL_EVENTS if not get_event(key).has_channel(Channel.IN_APP)}
-        assert no_bell == set()
+        assert no_bell == {"orientation.waiting_to_lead"}
 
     def it_gives_every_digest_event_its_own_heading() -> None:
         """digest_context keys sections by label, so a shared label would drop one event's lines."""

@@ -99,8 +99,8 @@
 {% include "hub/partials/_onboarding_checklist.html" %}
 {% endif %}
 
-{# --- Needs Attention (#1142, #1213, #1239): unanswered Email Members polls, the guide's own tour requests and a Reconnect Discord nudge, each its own group; omitted when all are empty --- #}
-{% if needs_attention_polls or tour_requests or discord_reconnect %}
+{# --- Needs Attention (#1142, #1213, #1239, #1299): unanswered Email Members polls, the guide's own tour requests, orientation requests sent to them and a Reconnect Discord nudge, each its own group; omitted when all are empty --- #}
+{% if needs_attention_polls or tour_requests or orientation_requests.on_you or discord_reconnect %}
 <section class="hub-card pl-home-block" data-block="needs-attention" data-guidance-target="home.email-polls">
     <h2 class="pl-home-heading">Needs Attention</h2>
     {% if needs_attention_polls %}
@@ -145,6 +145,24 @@
         </ul>
     </div>
     {% endif %}
+    {% if orientation_requests.on_you %}
+    {# Orientation requests (#1299): the ones sent to this person; Respond opens the request's page. #}
+    <div class="pl-home-group" data-needs-attention-orientations data-guidance-target="home.orientation-requests">
+        <h3 class="pl-home-subheading">Orientation Requests Waiting on You</h3>
+        <ul class="pl-teaching">
+            {% for row in orientation_requests.on_you %}
+            <li class="pl-teaching__row" data-orientation-request="{{ row.booking.pk }}">
+                <span class="pl-teaching__body">
+                    <span class="pl-teaching__title">{{ row.booking.member.staff_label }} · {{ row.booking.orientation_type.name }}</span>
+                    <span class="pl-teaching__note hub-text-muted">{{ row.booking.slot.starts_at|date:"D, M j" }} · {{ row.booking.slot.starts_at|time:"g:i A" }}</span>
+                    <span class="pl-teaching__note hub-text-muted">Requested {{ row.requested_ago }}</span>
+                </span>
+                <a href="{% url 'hub_orientation_respond' row.booking.pk %}" class="pl-btn pl-btn--primary pl-btn--sm" data-orientation-respond="{{ row.booking.pk }}">Respond</a>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
     {% if discord_reconnect %}
     {# Reconnect Discord (#1239): linked before #1138 but not on the server. Dismiss removes this group, or the whole card when it is the only one. #}
     <div class="pl-home-group" data-needs-attention-discord data-guidance-target="home.discord-reconnect">
@@ -159,7 +177,7 @@
                     <a href="{% url 'hub_discord_connect' %}" class="pl-btn pl-btn--primary pl-btn--sm" hx-boost="false" data-discord-reconnect-home>Reconnect Discord</a>
                     <button type="button" class="pl-btn pl-btn--secondary pl-btn--sm" data-discord-reconnect-dismiss
                             hx-post="{% url 'hub_discord_reconnect_dismiss' %}"
-                            hx-target="{% if needs_attention_polls or tour_requests %}closest .pl-home-group{% else %}closest section{% endif %}"
+                            hx-target="{% if needs_attention_polls or tour_requests or orientation_requests.on_you %}closest .pl-home-group{% else %}closest section{% endif %}"
                             hx-swap="outerHTML"
                             hx-disabled-elt="this"
                             hx-on::response-error="window.dispatchEvent(new CustomEvent('show-toast', {detail: {message: 'Could not dismiss. Please try again.', type: 'error'}}))">Dismiss</button>
@@ -168,6 +186,30 @@
         </ul>
     </div>
     {% endif %}
+</section>
+{% endif %}
+
+{# --- Guild Activity (#1299): staff only, while a request in their guilds or equipment waits on someone else; it sends nothing --- #}
+{% if orientation_requests.in_your_guilds %}
+<section class="hub-card pl-home-block pl-guild-activity" data-block="guild-activity" data-guidance-target="home.guild-activity">
+    <h2 class="pl-home-heading">Guild Activity</h2>
+    <p class="pl-home-lede hub-text-muted">Orientation requests in your guilds, waiting on someone else.</p>
+    <ul class="pl-teaching">
+        {% for row in orientation_requests.in_your_guilds %}
+        <li class="pl-teaching__row" data-guild-activity="{{ row.booking.pk }}">
+            <span class="pl-teaching__body">
+                <span class="pl-teaching__title">{{ row.booking.member.staff_label }} · {{ row.booking.orientation_type.name }}
+                    <span class="pl-help">
+                        <span class="pl-help__icon" tabindex="0" role="img" aria-label="Who this waits on: {{ row.notified_sentence }}">?</span>
+                        <span class="pl-help__bubble" data-guild-activity-tip>{{ row.notified_sentence }}</span>
+                    </span>
+                </span>
+                <span class="pl-teaching__note hub-text-muted">{{ row.booking.slot.starts_at|date:"D, M j" }} · {{ row.booking.slot.starts_at|time:"g:i A" }} · requested {{ row.requested_ago }}</span>
+            </span>
+            <a href="{% url 'hub_orientation_respond' row.booking.pk %}" class="pl-btn pl-btn--secondary pl-btn--sm" data-guild-activity-view="{{ row.booking.pk }}">View</a>
+        </li>
+        {% endfor %}
+    </ul>
 </section>
 {% endif %}
 
