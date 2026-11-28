@@ -26,6 +26,7 @@ from tests.membership.factories import GuildFactory, MemberFactory, MembershipPl
 
 LEAD_EMAIL = "soft-break-lead@example.com"
 EDITOR = '.pl-rte[data-rte-for="id_body"] .ql-editor'
+COMPOSER_EDITOR = '.pl-rte-wrap:has(.pl-rte[data-rte-for="id_body"])'
 SOFT = '<br class="pl-softbreak">'
 TWO_LINES_THEN_A_PARAGRAPH = f"<p>Past Lives Makerspace{SOFT}2808 SE 9th Ave</p><p>See you there.</p>"
 
@@ -49,14 +50,19 @@ def _type_two_lines_then_a_paragraph(page, editor: str = EDITOR) -> None:
     page.keyboard.type("See you there.")
 
 
-def _screenshot(page, name: str, selector: str) -> None:
+def _screenshot(page, name: str, selector: str, frame: str = "desktop") -> None:
     """``selector`` in both themes, saved only when ``PL_SCREENSHOT_DIR`` names a folder."""
     folder = os.environ.get("PL_SCREENSHOT_DIR")
     if not folder:
         return
     for theme in ("dark", "light"):
         page.evaluate("(t) => document.documentElement.setAttribute('data-theme', t)", theme)
-        page.locator(selector).screenshot(path=str(Path(folder) / f"1348-{name}-{theme}.png"))
+        page.locator(selector).screenshot(path=str(Path(folder) / f"1348-{name}-{frame}-{theme}.png"))
+
+
+def _gap_above(page, selector: str) -> float:
+    """The computed top margin of the element ``selector`` names, in pixels."""
+    return float(page.eval_on_selector(selector, "(el) => parseFloat(getComputedStyle(el).marginTop)"))
 
 
 def describe_the_announcement_composer():
@@ -66,7 +72,7 @@ def describe_the_announcement_composer():
 
         expect(page.locator("#id_body")).to_have_value(TWO_LINES_THEN_A_PARAGRAPH)
         expect(page.locator(f"{EDITOR} > p")).to_have_count(2)
-        _screenshot(page, "composer", '.pl-rte[data-rte-for="id_body"]')
+        _screenshot(page, "composer", COMPOSER_EDITOR)
 
         page.get_by_role("button", name="Preview & send").click()
         description = page.locator("[data-discord-preview-description]")
@@ -122,6 +128,48 @@ def describe_the_announcement_composer():
         _open_composer(page, live_server, login_via_code)
         _type_two_lines_then_a_paragraph(page)
         expect(page.locator("#id_push_message")).to_have_value("Past Lives Makerspace 2808 SE 9th Ave See you there.")
+
+
+def describe_paragraph_gaps_while_typing():
+    def it_shows_a_gap_before_a_new_paragraph_and_none_inside_one(page, live_server, login_via_code):
+        _open_composer(page, live_server, login_via_code)
+        _type_two_lines_then_a_paragraph(page)
+
+        assert _gap_above(page, f"{EDITOR} > p:nth-child(1)") == 0
+        assert _gap_above(page, f"{EDITOR} > p:nth-child(2)") >= 10
+        # The soft break draws its second line one line height under the first, with no gap.
+        lines = page.eval_on_selector(
+            f"{EDITOR} > p:nth-child(1)",
+            """(p) => {
+                const range = document.createRange();
+                range.selectNodeContents(p);
+                return [...range.getClientRects()].map((r) => r.top);
+            }""",
+        )
+        line_height = float(page.eval_on_selector(f"{EDITOR} > p", "(p) => parseFloat(getComputedStyle(p).lineHeight)"))
+        tops = sorted(set(round(top) for top in lines))
+        assert len(tops) == 2
+        assert tops[1] - tops[0] <= line_height + 1
+
+    def it_shows_the_same_on_a_phone(page, live_server, login_via_code):
+        page.set_viewport_size({"width": 390, "height": 844})
+        _open_composer(page, live_server, login_via_code)
+        _type_two_lines_then_a_paragraph(page)
+        assert _gap_above(page, f"{EDITOR} > p:nth-child(2)") >= 10
+        _screenshot(page, "composer", COMPOSER_EDITOR, frame="phone")
+
+    def it_keeps_a_run_of_wiki_panel_lines_one_box(page, live_server, login_via_code):
+        _open_composer(page, live_server, login_via_code)
+        page.evaluate(
+            """() => {
+                const wrap = document.createElement('div');
+                wrap.className = 'pl-rte-wrap';
+                wrap.innerHTML = '<div class="ql-editor" id="panel-probe">'
+                    + '<p class="pl-panel-info">One</p><p class="pl-panel-info">Two</p></div>';
+                document.body.appendChild(wrap);
+            }"""
+        )
+        assert _gap_above(page, "#panel-probe > p:nth-child(2)") == 0
 
 
 def describe_the_other_editors():

@@ -40,6 +40,14 @@
     line-height: 1.6;
 }
 
+/* A gap between paragraphs while typing (#1348), as the email and Discord show one, so a
+   Shift+Enter line visibly sits tighter than a new paragraph. Element selectors only: a class
+   here would outrank the wiki panels' margin: 0 (hub.css), which keeps a run of panel lines
+   one box. */
+.pl-rte-wrap .ql-editor > :is(p, h2, h3, ol, ul, blockquote) + :is(p, h2, h3, ol, ul, blockquote) {
+    margin-top: 1em;
+}
+
 .pl-rte-wrap .ql-editor.ql-blank::before {
     color: var(--pl-rte-muted);
     font-style: normal;
