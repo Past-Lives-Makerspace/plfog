@@ -178,3 +178,59 @@ def describe_the_notifications_page():
         css = (Path(__file__).resolve().parents[2] / "static/css/hub.css").read_text()
         rule = next(line for line in css.splitlines() if line.startswith(".pl-note__body {"))
         assert "white-space: pre-line" in rule
+
+
+# What the composer's Shift+Enter saves (#1348): a soft break inside the first paragraph, as Quill
+# writes it, then a second paragraph from a plain Enter.
+_SOFT_BREAK_FROM_EDITOR = '<p>Past Lives Makerspace<br class="pl-softbreak">2808 SE 9th Ave</p><p>See you there.</p>'
+_SOFT_BREAK = "<p>Past Lives Makerspace<br>2808 SE 9th Ave</p><p>See you there.</p>"
+_SOFT_BREAK_AS_LINES = "Past Lives Makerspace\n2808 SE 9th Ave\n\nSee you there."
+
+
+def describe_an_announcement_with_a_soft_line_break():
+    def it_saves_the_break_as_a_plain_br_inside_the_paragraph():
+        from core.html_sanitize import clean_rich_html
+
+        assert clean_rich_html(_SOFT_BREAK_FROM_EDITOR) == _SOFT_BREAK
+
+    def it_posts_to_discord_with_the_two_lines_tight_and_a_blank_line_before_the_next_paragraph(post_embed: MagicMock):
+        assert _posted_description(_site_draft(_SOFT_BREAK), post_embed) == _SOFT_BREAK_AS_LINES
+
+    def it_shows_the_same_lines_in_the_composers_discord_preview():
+        from hub.views import _announcement_previews
+
+        previews = _announcement_previews(_site_draft(_SOFT_BREAK))
+        assert str(previews["discord_description_html"]) == _SOFT_BREAK_AS_LINES
+
+    def it_writes_the_bell_notification_with_the_two_lines_tight():
+        recipient = _member_user("recip")
+        _site_draft(_SOFT_BREAK).send()
+        assert Notification.objects.get(user=recipient, trigger="site_announcement").body == _SOFT_BREAK_AS_LINES
+
+    def it_keeps_the_br_inside_the_paragraph_in_the_email(mailoutbox):
+        _member_user("recip")
+        _site_draft(_SOFT_BREAK).send()
+        email = mailoutbox[0]
+        assert _SOFT_BREAK_AS_LINES in email.body
+        assert ">Past Lives Makerspace<br>2808 SE 9th Ave</p>" in email.alternatives[0][0]
+
+    def it_shows_the_guild_page_post_with_the_two_lines_in_one_paragraph():
+        guild = GuildFactory()
+        viewer = _member_user("viewer", guild=guild)
+        AnnouncementDraft.objects.create(
+            author=_author(),
+            audience=AnnouncementDraft.Audience.GUILD,
+            guild=guild,
+            title="Forge night",
+            body=_SOFT_BREAK,
+            discord_channel=GuildAnnouncement.DiscordChannel.NONE,
+        ).send()
+        assert guild.announcements.published().get().body == _SOFT_BREAK_AS_LINES
+        client = Client()
+        client.force_login(viewer)
+        content = client.get(reverse("hub_guild_detail", args=[guild.slug])).content.decode()
+        assert "<p>Past Lives Makerspace<br>2808 SE 9th Ave</p><p>See you there.</p>" in content
+
+    def it_joins_the_two_lines_with_a_space_in_the_phone_push():
+        draft = _site_draft(_SOFT_BREAK)
+        assert draft.build_push_message("https://x/").body == "Past Lives Makerspace 2808 SE 9th Ave See you there."

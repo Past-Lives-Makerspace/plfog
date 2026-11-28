@@ -467,3 +467,25 @@ def describe_the_sanitizer_dependency():
             )
         ]
         assert importers == []
+
+
+def describe_a_soft_line_break_from_the_editor():
+    """Shift+Enter saves ``<br class="pl-softbreak">`` inside the paragraph (#1348); every save path keeps the ``<br>``."""
+
+    editor_html = '<p>Open late<br class="pl-softbreak">Friday only</p>'
+
+    def it_survives_the_rich_body_save_as_a_plain_br():
+        from core.html_sanitize import clean_rich_body
+
+        assert clean_rich_body(editor_html) == "<p>Open late<br>Friday only</p>"
+
+    def it_survives_the_home_announcement_save_as_a_plain_br():
+        from core.html_sanitize import sanitize_announcement_html
+
+        assert sanitize_announcement_html(editor_html) == "<p>Open late<br>Friday only</p>"
+
+    def it_survives_the_page_and_wiki_saves():
+        from membership.markdown import sanitize_page_submission, sanitize_wiki_submission
+
+        assert "Open late<br>Friday only" in sanitize_page_submission(editor_html)
+        assert "Open late<br>Friday only" in sanitize_wiki_submission(editor_html)
