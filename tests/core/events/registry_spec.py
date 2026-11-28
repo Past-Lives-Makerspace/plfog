@@ -82,6 +82,7 @@ _BRAND_NEW_KEYS = {
     "orientation.message_to_member",
     "orientation.message_to_orientors",
     "orientation.confirmed_to_lead",
+    "orientation.waiting_to_lead",
     "equipment.reservation_message_to_member",
     "equipment.reservation_message_to_managers",
     "class.message_to_instructors",
@@ -200,6 +201,8 @@ def describe_event_registry():
                 "polls.email_poll_reminder",
                 # The five #524 staff emails never had a bell; they stay email only.
                 *_STAFF_EMAIL_EVENTS,
+                # A waiting orientation request is a line in the lead's morning digest; the digest is the nudge (#1299).
+                "orientation.waiting_to_lead",
             }
             for event in registry.EVENTS:
                 if event.key in no_bell:

@@ -4488,6 +4488,13 @@ mark { background: color-mix(in srgb, var(--color-tuscan-yellow) 30%, transparen
     margin: 0 0 0.5rem;
 }
 
+/* Guild Activity (#1299): a line under the heading, and quieter rows than Needs Attention with a ? tip after the title. */
+.pl-home-lede { margin: -0.6rem 0 0.75rem; font-size: 0.875rem; }
+.pl-guild-activity .pl-teaching__row { padding: 0.3rem 0; }
+.pl-guild-activity .pl-teaching__title { font-weight: 500; }
+.pl-guild-activity .pl-teaching__title .pl-help { margin-left: 0.3rem; vertical-align: -0.1em; }
+.pl-guild-activity .pl-teaching__note { font-size: 0.8rem; }
+
 /* Empty-state line inside a home block. */
 .pl-home-empty {
     color: var(--hub-text-muted);

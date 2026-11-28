@@ -51,6 +51,8 @@ DIGEST_EVENTS = {
     # class_registration_admin_notice left again on 2026-11-17: Felix wants it instant.
     "new_member_joined",
     "equipment.reservation_made",
+    # #1299: an orientation request nobody answered (tests/membership/orientation_waiting_requests_spec.py).
+    "orientation.waiting_to_lead",
 }
 
 

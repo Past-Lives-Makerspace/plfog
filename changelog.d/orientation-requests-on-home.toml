@@ -1,0 +1,19 @@
+bump = "minor"
+date = "2026-11-27"
+audience = ["guild-staff", "guild-leads", "orientors", "equipment-managers"]
+feature = "home.orientation-requests"
+guidance = "shots"
+title = "Orientation requests nobody has answered show on Home"
+changes = [
+  "An orientation request sent to you now shows on Home under Needs Attention. Tap Respond to confirm or decline it.",
+  "Guild and equipment staff see the other waiting requests in their guilds in a new Guild Activity card. The ? names who was asked; you don't need to act.",
+  "A request nobody has answered by 8 AM is a line in the guild lead's and Co-Leads' morning staff email.",
+  "A new Orientor or equipment manager is sent the requests already waiting.",
+]
+requests = [27]
+
+[[shots]]
+caption = "A request sent to you shows under Needs Attention. Tap Respond."
+
+[[shots]]
+caption = "Requests waiting on someone else show under Guild Activity. The ? says who was asked."

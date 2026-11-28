@@ -550,6 +550,7 @@ FEEDBACK_MEMBER_REPLIED = "feedback.member_replied"  # a sender wrote back on th
 ORIENTATION_MESSAGE_TO_MEMBER = "orientation.message_to_member"  # an orientor wrote on your orientation booking
 ORIENTATION_MESSAGE_TO_ORIENTORS = "orientation.message_to_orientors"  # a member wrote on their orientation booking
 ORIENTATION_CONFIRMED_TO_LEAD = "orientation.confirmed_to_lead"  # someone else confirmed one in your guild (#1127)
+ORIENTATION_WAITING_TO_LEAD = "orientation.waiting_to_lead"  # a request in your guild waits on an Orientor (#1299)
 CLASS_MESSAGE_TO_INSTRUCTORS = "class.message_to_instructors"  # a reviewer wrote on your class (#975)
 CLASS_UNDER_MINIMUM = "class.under_minimum"  # a day before registration closes, still short (#1182)
 CLASS_MESSAGE_TO_REVIEWERS = "class.message_to_reviewers"  # an instructor wrote on a class you review (#975)
@@ -1535,6 +1536,21 @@ _NEW_EVENTS: list[EventType] = [
         channels=(_IN_APP_ON, _EMAIL_ON),
         activity_kind=None,
     ),
+    # orientation.waiting_to_lead — a member asked for an orientation in your guild, or on
+    # equipment your guild owns (#1299). The request itself goes to the Orientors; the lead and
+    # every Co-Lead get one line in the next 8 AM staff digest, dropped when the request was
+    # answered or its time passed first. Email only: the digest is the nudge, so no bell; the
+    # sender writes the line itself. Once per booking per person. No activity row: the request
+    # already logs ORIENTATION_REQUESTED.
+    EventType(
+        key=ORIENTATION_WAITING_TO_LEAD,
+        label="Orientation request still waiting",
+        description="A line in your morning staff digest for an orientation request in your guild nobody has answered yet.",
+        category="Orientations",
+        recipient=Recipients.GUILD_LEAD_AND_CO_LEADS,
+        channels=(_EMAIL_ON,),
+        activity_kind=None,
+    ),
     # class.message_to_instructors — someone on the reviewer side (a guild lead or Class
     # Reviewer, a CMS Administrator, an admin, a review link used signed out) posted a message
     # on a class's thread (the shared thread, core.threads, #975). Reaches every instructor of
@@ -1945,6 +1961,8 @@ _DIGEST_EMAIL_EVENTS: frozenset[str] = frozenset(
         # registration notice was here too until Felix made it instant again (2026-11-17).
         "new_member_joined",
         "equipment.reservation_made",
+        # #1299: an orientation request nobody answered, for the guild lead and Co-Leads.
+        "orientation.waiting_to_lead",
     }
 )
 
