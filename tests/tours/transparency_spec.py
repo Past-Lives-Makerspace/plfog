@@ -216,13 +216,16 @@ def describe_table():
         confirmed = signed_in(guide).get(UPCOMING, {"show": "confirmed", "guide": make_guide().pk}).content.decode()
         assert "No confirmed tours coming up for" in confirmed
 
-    def it_offers_only_notes_on_another_guides_tour(guide: Member, other: Member, booked: TourBooking):
+    def it_offers_notes_and_take_on_another_guides_tour(guide: Member, other: Member, booked: TourBooking):
         content = signed_in(other).get(UPCOMING).content.decode()
         assert f'data-tour-notes="{booked.pk}"' in content
+        assert f'data-tour-take="{booked.pk}"' in content  # #1308: ask to take it
         assert f'data-tour-reschedule="{booked.pk}"' not in content
+        assert f'data-tour-trade-open="{booked.pk}"' not in content
         assert f'id="tour-cancel-{booked.pk}"' not in content
         own = signed_in(guide).get(UPCOMING).content.decode()
-        assert f'data-tour-reschedule="{booked.pk}"' in own and "Edit Guide or Time" in own
+        assert f'data-tour-reschedule="{booked.pk}">Edit Time<' in own
+        assert f'data-tour-trade-open="{booked.pk}"' in own and f'data-tour-take="{booked.pk}"' not in own
         assert "data-tour-booking-guide>You<" in own
 
     def it_offers_marks_only_to_whoever_may_act(guide: Member, other: Member):

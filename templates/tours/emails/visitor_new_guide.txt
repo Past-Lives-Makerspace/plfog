@@ -1,0 +1,8 @@
+{% autoescape off %}Hi {{ greeting_name }},
+
+{% if guide_name %}Your guide is now {{ guide_name }}.{% else %}Your tour has a new guide.{% endif %} A different guide will show you around. Your tour keeps its time, and there is nothing you need to do.
+
+{% include "tours/emails/_tour.txt" %}
+
+Your tour: {{ manage_url }}
+{% include "tours/emails/_actions.txt" %}{% include "tours/emails/_footer.txt" %}{% endautoescape %}

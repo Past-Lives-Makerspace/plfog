@@ -229,7 +229,7 @@ def _other_guide(name: str) -> Member:
 
 
 def describe_admin_view():
-    def it_filters_by_guide_and_reassigns_through_the_guide_picker(live_server, page, login_via_code):
+    def it_filters_by_guide_and_trades_a_tour_to_another_guide(live_server, page, login_via_code):
         _make_admin()
         gina, olive = _other_guide("Gina Guide"), _other_guide("Olive Other")
         day = timezone.localdate() + timedelta(days=3)
@@ -257,18 +257,20 @@ def describe_admin_view():
         _capture(page, "admin-filtered")
         _no_sideways_scroll(page)
 
-        # The modal's guide picker shows Olive's times; picking one reassigns Sam to her.
+        # Edit Time has no guide picker (#1308); Trade this tour offers Sam's tour to Olive, who must accept.
         _open_row_menu(page, sam.pk)
         page.locator(f'[data-tour-reschedule="{sam.pk}"]').click()
-        modal = page.locator("#tour-reschedule-body")
-        _settled(page, "#tour-reschedule-body [data-tour-move-guide]")
-        modal.locator("[data-tour-move-guide]").select_option(str(olive.pk))
-        _settled(page, f'#tour-reschedule-body [data-tour-move-time="{_key(olive, four)}"]')
-        _capture(page, "admin-reschedule-guide-picker")
-        modal.locator(f'[data-tour-move-time="{_key(olive, four)}"]').click()
-        _settled(page, "#tour-reschedule-body [data-tour-move-save]")
+        _settled(page, "#tour-reschedule-body [data-tour-move]")
+        assert page.locator("#tour-reschedule-body [data-tour-move-guide]").count() == 0
+        page.keyboard.press("Escape")
+        _open_row_menu(page, sam.pk)
+        page.locator(f'[data-tour-trade-open="{sam.pk}"]').click()
+        modal = page.locator("#tour-trade-body")
+        _settled(page, "#tour-trade-body [data-tour-trade-to]")
+        modal.locator("[data-tour-trade-to]").select_option(str(olive.pk))
+        _capture(page, "admin-trade-modal")
         with page.expect_navigation():
-            modal.locator("[data-tour-move-save]").click()
-        page.locator(".plt-msg", has_text="We asked Sam Rivera to move to").first.wait_for()
+            modal.locator("[data-tour-trade-send]").click()
+        page.locator(".plt-msg", has_text="We offered Sam Rivera's tour to Olive").first.wait_for()
         sam.refresh_from_db()
-        assert (sam.guide, sam.proposed_guide) == (gina, olive)
+        assert (sam.guide, sam.trade_to) == (gina, olive)

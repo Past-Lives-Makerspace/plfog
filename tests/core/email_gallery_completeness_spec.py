@@ -88,6 +88,8 @@ EXPECTED_PAIRS = {
     "visitor_note",
     # Ask the visitor first (#1283)
     "visitor_new_time",
+    "visitor_new_guide",
+    "guide_trade",
     # Tour Follow Up (#1345)
     "visitor_follow_up",
 }
@@ -106,7 +108,7 @@ def describe_email_gallery_completeness():
     def it_discovers_the_expected_pairs():
         """Pins the discovery rule so it never silently sweeps in (or drops) templates."""
         assert discover_template_pairs() == EXPECTED_PAIRS
-        assert len(EXPECTED_PAIRS) == 57
+        assert len(EXPECTED_PAIRS) == 59
 
     def it_excludes_shells_and_partials():
         discovered = discover_template_pairs()

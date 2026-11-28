@@ -269,6 +269,8 @@ _PUSH_ON_BY_DEFAULT: frozenset[str] = frozenset(
         "tour.booked",
         # ...and your visitor is at the front desk now (#950)
         "tour.checked_in",
+        # ...or another guide offered you a tour, or asked to take yours (#1308)
+        "tour.trade",
     }
 )
 
@@ -562,6 +564,7 @@ TOUR_BOOKED = "tour.booked"  # a visitor booked one of your facility tours (#948
 TOUR_VISITOR_CHANGED = "tour.visitor_changed"  # a visitor moved or cancelled your tour from their email (#948)
 TOUR_VISITOR_UPDATE = "tour.visitor_update"  # the visitor's own tour emails, by address only (#948)
 TOUR_CHECKED_IN = "tour.checked_in"  # your visitor checked in at the front desk kiosk (#950)
+TOUR_TRADE = "tour.trade"  # a guide offered you a tour, asked to take yours, or answered your trade (#1308)
 TOUR_NOTE_ADDED = "tour.note_added"  # someone wrote a note on one of your tours, or one you wrote on (#1274)
 CUBBIES_RENTED = "cubbies.rented"  # your cubby rental is active (#978)
 CUBBIES_PAYMENT_FAILED = "cubbies.payment_failed"  # a monthly cubby charge failed, once per invoice (#978)
@@ -1663,6 +1666,19 @@ _NEW_EVENTS: list[EventType] = [
         key=TOUR_VISITOR_CHANGED,
         label="Tour moved or cancelled",
         description="A visitor moved or cancelled one of your facility tours.",
+        category="Tours",
+        recipient=Recipients.TOUR_GUIDES,
+        channels=(_IN_APP_ON, _EMAIL_ON),
+        activity_kind=None,
+    ),
+    # tour.trade: a trade between guides (#1308). Goes to the guide a trade waits on (offered a tour,
+    # or asked to give one up by a guide who wants to take it) and back to whoever made it (accepted,
+    # approved, declined, withdrawn). Bell and push always; an offer, an ask and a decline also email
+    # (templates/tours/emails/guide_trade.*). Every link opens the tour's row on Upcoming.
+    EventType(
+        key=TOUR_TRADE,
+        label="Tour trades",
+        description="Another guide offered you a tour, asked to take one of yours, or answered your trade.",
         category="Tours",
         recipient=Recipients.TOUR_GUIDES,
         channels=(_IN_APP_ON, _EMAIL_ON),

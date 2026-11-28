@@ -1,0 +1,24 @@
+bump = "minor"
+date = "2026-11-27"
+audience = ["members", "admins"]
+feature = "tours.trade"
+guidance = "shots"
+target = "tours.trade"
+requests = [34]
+title = "Tour Guides trade tours with each other"
+changes = [
+  "Can't make a tour? On Upcoming, press the ... on it, then Trade this tour. Pick a guide and add a note if you like.",
+  "The tour stays yours until they press Accept Trade. They can also Decline, and you can Withdraw it while it waits.",
+  "Once they accept, the tour and its Google Calendar event move to them, and the visitor gets a short email naming their new guide.",
+  "On another guide's tour, Take this tour asks them for it. It moves to you when they press Approve.",
+  "Edit Guide or Time is now Edit Time. It only changes the time, and handing a tour to another guide is a trade.",
+]
+
+[[shots]]
+caption = "On Upcoming, press the ... on your tour, then Trade this tour. Pick a guide and press Send Trade."
+
+[[shots]]
+caption = "The tour stays yours and reads Trade offered, waiting. Withdraw takes it back."
+
+[[shots]]
+caption = "The other guide presses Accept Trade or Decline on the same row."

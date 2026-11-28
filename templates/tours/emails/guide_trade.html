@@ -1,0 +1,29 @@
+{% extends "membership/emails/_base.html" %}
+{% comment %}
+A trade between guides (#1308, tours.notify.tell_trade): offered to this guide, another guide asked to take their tour,
+or their offer or ask was declined. Context: guide_context plus change, title, summary, note, actor_name, request_url.
+The button only opens the tour's row on Upcoming, where Accept and Decline are: mail scanners open links.
+{% endcomment %}
+{% block content %}
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">{{ title }}</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">{{ summary }}</p>
+{% if change == "offered" %}<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">The tour stays theirs until you accept. The time does not change, and the visitor is only told who their guide is once it is yours.</p>
+{% elif change == "take_asked" %}<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">The tour stays yours until you approve. The time does not change, and the visitor is only told who their guide is once it moves.</p>
+{% else %}<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">Nothing moved. You can offer the tour to another guide from its menu on your Upcoming tab.</p>
+{% endif %}
+{% include "tours/emails/_staff_message.html" with staff_message=note note_label="Their note" %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 8px 0 16px;">
+<tr>
+<td style="padding: 12px 0; border-top: 1px solid rgba(13, 72, 118, 0.12);">
+    <span style="font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">When</span><br>
+    <span style="font-size: 14px; color: #33424f;">{{ when }}</span><br><br>
+    <span style="font-size: 12px; color: #55697a; text-transform: uppercase; letter-spacing: 0.08em;">Visitor</span><br>
+    <span style="font-size: 14px; color: #33424f;">{{ booking.visitor_name }}, {{ people }}</span>
+</td>
+</tr>
+</table>
+<div style="text-align: center; margin: 24px 0 0;">
+    <a href="{{ request_url }}" style="display: inline-block; padding: 12px 32px; background-color: #0d4876; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">Open the Tour</a>
+</div>
+{% if change == "offered" or change == "take_asked" %}<p style="margin: 16px 0 0; text-align: center; font-size: 12px; color: #55697a;">{% if change == "offered" %}Accept Trade{% else %}Approve{% endif %} and Decline are on the tour's row on your Upcoming tab.</p>{% endif %}
+{% endblock %}

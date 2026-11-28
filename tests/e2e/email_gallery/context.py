@@ -1223,6 +1223,37 @@ def tour_guide_calendar_broken_context(data: SampleData) -> dict[str, Any]:
     return {"subject": "Reconnect your Google Calendar for tours", "template_context": broken_context(connection)}
 
 
+def tour_guide_trade_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``tours.notify.tell_trade`` for a trade offered to a guide (#1308)."""
+    from tours.notify import guide_context, request_url, short_when
+
+    booking = _tour_booking(data)
+    when = short_when(booking.starts_at)
+    return {
+        "subject": f"Tour trade offered: {when}",
+        "template_context": guide_context(
+            booking,
+            change="offered",
+            title="Tour trade offered",
+            summary=f"Gina wants to trade you Sam Rivera's tour on {when}.",
+            note="I have a class that afternoon. Thank you!",
+            actor_name="Gina",
+            request_url=request_url(booking),
+        ),
+    }
+
+
+def tour_visitor_new_guide_context(data: SampleData) -> dict[str, Any]:
+    """Mirrors ``tours.notify.send_new_guide_email`` (#1308)."""
+    from tours.notify import guide_first_name, visitor_context
+
+    booking = _tour_booking(data)
+    return {
+        "subject": f"Your Past Lives tour guide is now {guide_first_name(booking.guide)}",
+        "template_context": visitor_context(booking),
+    }
+
+
 def tour_guide_changed_context(data: SampleData) -> dict[str, Any]:
     """Mirrors ``tours.notify.tell_guide_changed`` for a move within one guide's tours."""
     from tours.notify import guide_context, short_when, when_label

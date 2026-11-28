@@ -1,0 +1,12 @@
+{% extends "tours/emails/_base.html" %}
+{% comment %}
+The visitor's FYI after guides traded their tour (#1308, tours.notify.send_new_guide_email): who their guide is now.
+Nothing else changed and nothing is asked of them; no calendar invite, since the invite names no guide. Context: visitor_context.
+{% endcomment %}
+{% block content %}
+<p style="margin: 0 0 8px; font-size: 14px; color: #55697a;">Hi {{ greeting_name }},</p>
+<p style="margin: 0 0 16px; font-size: 18px; font-weight: 700; color: #33424f;">{% if guide_name %}Your guide is now {{ guide_name }}{% else %}Your tour has a new guide{% endif %}</p>
+<p style="margin: 0 0 8px; font-size: 14px; color: #33424f; line-height: 1.6;">A different guide will show you around. Your <a href="{{ manage_url }}" style="color: #0d4876; text-decoration: none; font-weight: 700;">tour</a> keeps its time, and there is nothing you need to do.</p>
+{% include "tours/emails/_tour.html" %}
+{% include "tours/emails/_actions.html" %}
+{% endblock %}

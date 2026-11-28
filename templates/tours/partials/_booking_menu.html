@@ -1,9 +1,10 @@
 {% comment %}
 The "..." menu of one Tours table row (#1274), rendered inside components/row_actions.html, so it reads
 booking, tab and the row's rights (booking.can_act: its guide or an admin; booking.can_answer: a request's
-own guide, #1166) from the table loop. Upcoming: a request offers Confirm (posts at once) and Decline (its
-confirm in partials/_booking_modals.html) to its own guide; a booked tour offers Edit (the guide and the
-time, the Edit Tour modal) and Cancel Tour to whoever may act. Past: Mark Attended and Mark No Show, posted
+own guide, #1166; booking.can_take, #1308) from the table loop. Upcoming: a request offers Confirm (posts at
+once) and Decline (its confirm in partials/_booking_modals.html) to its own guide; a booked tour offers Edit
+Time (the Edit Time modal), Trade this tour (the tour-trade modal, #1308) and Cancel Tour to whoever may act,
+and Take this tour (its confirm, #1308) to anyone but its guide while no trade is open. Past: Mark Attended and Mark No Show, posted
 over htmx so the row comes back, then on an attended or not marked tour Send Follow Up (#1345), which
 reads Send Follow Up Again behind its confirm once one went. Every row offers Notes, which loads the booking's thread into the page's
 Notes modal; a row the viewer may not act on offers Notes alone.
@@ -24,9 +25,15 @@ Notes modal; a row the viewer may not act on offers Notes alone.
 {% elif tab == "upcoming" and booking.can_act %}
 <button type="button" class="pl-row-menu__item" role="menuitem"
         hx-get="{% url 'tours:booking_reschedule' booking.pk %}" hx-target="#tour-reschedule-body" hx-swap="innerHTML"
-        @click="closeAndRefocus(); $dispatch('open-modal', 'tour-reschedule')" data-tour-reschedule="{{ booking.pk }}">Edit Guide or Time</button>
+        @click="closeAndRefocus(); $dispatch('open-modal', 'tour-reschedule')" data-tour-reschedule="{{ booking.pk }}">Edit Time</button>
+<button type="button" class="pl-row-menu__item" role="menuitem"
+        hx-get="{% url 'tours:booking_trade' booking.pk %}" hx-target="#tour-trade-body" hx-swap="innerHTML"
+        @click="closeAndRefocus(); document.getElementById('tour-trade-body').innerHTML = 'Loading…'; $dispatch('open-modal', 'tour-trade')" data-tour-trade-open="{{ booking.pk }}" data-guidance-target="tours.trade">Trade this tour</button>
+{% if booking.can_take %}<button type="button" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus(); $dispatch('open-confirm', 'tour-take-{{ pks }}')" data-tour-take="{{ booking.pk }}">Take this tour</button>{% endif %}
 <div class="pl-row-menu__divider" role="separator"></div>
 <button type="button" class="pl-row-menu__item pl-row-menu__item--danger" role="menuitem" @click="closeAndRefocus(); $dispatch('open-confirm', 'tour-cancel-{{ pks }}')" data-tour-cancel="{{ booking.pk }}">Cancel Tour</button>
+{% elif tab == "upcoming" and booking.can_take %}
+<button type="button" class="pl-row-menu__item" role="menuitem" @click="closeAndRefocus(); $dispatch('open-confirm', 'tour-take-{{ pks }}')" data-tour-take="{{ booking.pk }}">Take this tour</button>
 {% elif tab == "past" and booking.can_act %}
 <div class="pl-row-menu__divider" role="separator"></div>
 <form method="post" action="{% url 'tours:booking_mark' booking.pk %}" hx-post="{% url 'tours:booking_mark' booking.pk %}" hx-target="#tour-booking-{{ booking.pk }}" hx-swap="outerHTML" data-tour-mark-form>

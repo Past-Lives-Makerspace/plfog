@@ -1,0 +1,21 @@
+{% comment %}
+Trade this tour's modal body on the Upcoming tab (#1308, tours.views.tour_booking_trade): the guide to offer
+the tour to (everyone who gives tours but its guide) and an optional note, then Send Trade. Nothing moves until
+that guide accepts; the time never changes. An open trade is named, and sending another replaces it.
+Context: booking, when, form (a TourTradeForm), trade_url.
+{% endcomment %}
+<div class="pl-tours-move" data-tour-trade="{{ booking.pk }}">
+  <p class="pl-form-note pl-tours-modal-lead">{{ booking.visitor_name }}, {{ booking.party_label }}. {{ when }}{% if booking.guide %} with {{ booking.guide.staff_label }}{% endif %}.</p>
+  {% if booking.has_open_trade %}<p class="pl-form-note pl-tours-move__pending" data-tour-trade-pending>{% if booking.is_take %}{{ booking.trade_to.staff_label }} asked to take it.{% else %}Already offered to {{ booking.trade_to.staff_label }}.{% endif %} Sending a new trade replaces that one.</p>{% endif %}
+  <form class="hub-form pl-tours-move__form" method="post" action="{{ trade_url }}"
+        hx-post="{{ trade_url }}" hx-target="#tour-trade-body" hx-swap="innerHTML" data-tour-trade-form>
+    {% csrf_token %}
+    {% include "components/form_field.html" with field=form.to %}
+    {% include "components/form_field.html" with field=form.note %}
+    <p class="pl-form-note" data-tour-trade-ask>The tour stays {% if booking.guide %}with {{ booking.guide.staff_label }}{% else %}as it is{% endif %} until they accept. Then the visitor gets a short email saying who their guide is.</p>
+    <div class="pl-tours-modal-actions">
+      <button type="button" class="pl-btn pl-btn--secondary" @click="$dispatch('close-modal', 'tour-trade')">Cancel</button>
+      <button type="submit" class="pl-btn pl-btn--primary" hx-disabled-elt="this" data-tour-trade-send>Send Trade</button>
+    </div>
+  </form>
+</div>

@@ -8,9 +8,11 @@ which is the guided tours' toggle.
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django import forms
+
+from membership.models import Member
 
 from hub.forms import (
     _SLOT_DURATION_CHOICES,
@@ -23,8 +25,12 @@ from tours.models import (
     FoundUs,
     TourCalendarConnection,
     TourGuideSettings,
+    guide_filter,
     notice_label,
 )
+
+if TYPE_CHECKING:
+    from tours.models import TourBooking
 
 _NARROW = "pl-tours-input--narrow"
 _TEXT = "pl-tours-input--text"
@@ -243,6 +249,46 @@ class StaffTourMessageForm(forms.Form):
         widget=forms.Textarea(attrs={"rows": 3}),
         help_text="Added to the email we send them.",
     )
+
+
+#: The longest note a guide can send with a trade (#1308).
+MAX_TRADE_NOTE = 500
+
+
+class TradeNoteForm(forms.Form):
+    """The optional note on a trade between guides (#1308): Take this tour's confirm posts it alone."""
+
+    note = forms.CharField(
+        required=False,
+        max_length=MAX_TRADE_NOTE,
+        label="Note (optional)",
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="Only the other guide sees it.",
+    )
+
+
+class TourTradeForm(TradeNoteForm):
+    """Trade this tour's modal (#1308): the guide to offer it to, everyone who gives tours but its guide, and the note."""
+
+    to = forms.ChoiceField(
+        label="Trade to",
+        widget=forms.Select(attrs={"class": _TEXT, "data-tour-trade-to": ""}),
+        help_text="They get a notice and accept it before it is theirs. The time stays the same.",
+        error_messages={"required": "Pick the guide to trade it to.", "invalid_choice": "Pick a guide from the list."},
+    )
+    field_order = ["to", "note"]
+
+    def __init__(self, *args: Any, booking: TourBooking, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        people = Member.objects.filter(guide_filter()).exclude(pk=booking.guide_id or 0).distinct()
+        self.guides = {member.pk: member for member in people}
+        named = sorted(self.guides.values(), key=lambda member: member.staff_label.casefold())
+        field = cast("forms.ChoiceField", self.fields["to"])
+        field.choices = [("", "Pick a guide"), *((str(member.pk), member.staff_label) for member in named)]
+
+    def clean_to(self) -> Member:
+        """The picked guide, one of the choices (the field has refused anything else)."""
+        return self.guides[int(self.cleaned_data["to"])]
 
 
 #: The steps a guide picks their own minimum notice from (#1312, Felix), in minutes.

@@ -2,7 +2,7 @@
 
 A guide opens the Calendar tab and sees every guide's hours and tours with the days nobody covers,
 and Add My Hours on a gap opens Add Dates with that day picked. On Upcoming, every guide's tours sit
-in one table: the guide's own row's "..." offers Notes, Edit Guide or Time and Cancel Tour, another
+in one table: the guide's own row's "..." offers Notes, Edit Time, Trade this tour and Cancel Tour, another
 guide's offers Notes alone. The guide adds a note and emails it to the visitor; the Notes modal opens
 again with the note marked Emailed to the visitor. The Edit modal offers the other guides. Nothing
 scrolls sideways on a phone. ``CAPTURE_1274_DIR=<dir>`` also saves dark and light pictures at desktop
@@ -179,10 +179,10 @@ def describe_tours_for_every_guide():
 
         _capture(page, "row-menu", full_page=False, after_resize=reopen)
 
-        # The Edit modal offers every guide's times.
+        # The Edit Time modal offers the tour's own guide's times (#1308: another guide gets it by a trade).
         reopen()
         page.locator(f'[data-tour-reschedule="{sam.pk}"]').click()
-        page.locator("#tour-reschedule-body [data-tour-move-guide]").wait_for()
+        page.locator("#tour-reschedule-body [data-tour-move]").wait_for()
         page.wait_for_function("() => !document.querySelector('.htmx-settling, .htmx-swapping, .htmx-request')")
         _capture(page, "edit-modal", full_page=False)
         page.keyboard.press("Escape")

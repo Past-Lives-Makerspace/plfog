@@ -1,7 +1,8 @@
 {% comment %}
 The confirms one Tours table row's menu opens (#1274), rendered after the table so no modal sits inside
 a <tr>: a request's Decline for its own guide (#1166; a No preference request's says it stays with the
-other guides, #1255) and a booked tour's Cancel Tour for whoever may act. On Past, Send Follow Up Again's confirm (#1345), on every
+other guides, #1255), a booked tour's Cancel Tour for whoever may act, and Take this tour's ask (#1308) for
+anyone else. On Past, Send Follow Up Again's confirm (#1345), on every
 row that offers it, so it is there once the first send swaps the row in. Context: booking (with its
 row rights), tab.
 {% endcomment %}
@@ -13,7 +14,14 @@ row rights), tab.
 {% elif tab == "upcoming" and not booking.is_request and booking.can_act %}
 {% url 'tours:booking_cancel' booking.pk as cancel_url %}
 {% include "components/confirm_modal.html" with confirm_id="tour-cancel-"|add:pks confirm_title="Cancel This Tour?" confirm_body_include="tours/partials/_cancel_confirm_body.html" confirm_hx_post=cancel_url confirm_note_name="message" confirm_note_label="Message to the visitor (optional)" confirm_note_hint="Added to the cancellation email we send them." confirm_button_text="Cancel Tour" confirm_cancel_text="Keep It" %}
-{% elif tab == "past" and booking.can_act and booking.offers_follow_up %}
+{% endif %}
+{% if tab == "upcoming" and booking.can_take %}
+{% url 'tours:booking_take' booking.pk as take_url %}
+{% with guide_name=booking.guide.staff_label %}
+{% include "components/confirm_modal.html" with confirm_id="tour-take-"|add:pks confirm_title="Take This Tour?" confirm_message="We ask "|add:guide_name|add:" to give it to you. It stays theirs until they approve, and the time does not change." confirm_hx_post=take_url confirm_note_name="note" confirm_note_label="Note (optional)" confirm_note_hint="Only "|add:guide_name|add:" sees it." confirm_button_text="Ask to Take It" confirm_button_style="primary" confirm_cancel_text="Cancel" %}
+{% endwith %}
+{% endif %}
+{% if tab == "past" and booking.can_act and booking.offers_follow_up %}
 {% url 'tours:booking_follow_up' booking.pk as follow_up_url %}
 {% include "components/confirm_modal.html" with confirm_id="tour-follow-up-"|add:pks confirm_title="Send the Follow Up Again?" confirm_message="The guest already got the Tour Follow Up email. They get it a second time." confirm_hx_post=follow_up_url confirm_hx_target="#tour-booking-"|add:pks confirm_hx_vals='{"again": "1"}' confirm_button_text="Send Again" confirm_button_style="primary" confirm_cancel_text="Keep It" %}
 {% endif %}
