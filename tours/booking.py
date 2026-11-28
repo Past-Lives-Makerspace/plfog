@@ -767,7 +767,8 @@ def offer_trade(
         locked = _locked_for_trade(booking, moment)
         if locked.guide_id == to.pk:
             raise TradeRefusedError(SAME_GUIDE_MESSAGE)
-        replaced = _waiting_on(locked) if locked.has_open_trade else None
+        # The other side of an open trade, an offer's guide or a take's taker, hears it went.
+        replaced = locked.trade_to if locked.has_open_trade else None
         locked.open_trade(to, TourBooking.TradeKind.TRADE, by=actor, note=note.strip(), now=moment)
         name = _first_name(actor)
         _tell_after_commit(locked, "offered", to, name, note=locked.trade_note)
@@ -866,10 +867,15 @@ def answer_trade(
         taker = cast("Member", locked.trade_to)
         kind = locked.trade_kind
         previous_guide = locked.guide
+        changed = ["guide", *TourBooking.TRADE_FIELDS]
         if accept:
             locked.guide = taker
+            if locked.has_open_proposal:
+                # A new time asked of the visitor (#1283) was on the old guide's tours: it goes with them.
+                locked.drop_proposal()
+                changed += list(TourBooking.PROPOSAL_FIELDS)
         locked.drop_trade()
-        locked.save(update_fields=["guide", *TourBooking.TRADE_FIELDS])
+        locked.save(update_fields=changed)
         if accept:
             change = "approved" if kind == TourBooking.TradeKind.TAKE else "accepted"
             _tell_after_commit(locked, change, asker, name)

@@ -541,6 +541,7 @@ def _with_row_rights(request: HttpRequest, bookings: list[TourBooking]) -> list[
         # Trades between guides (#1308): who the open one waits on answers it, whoever made it may withdraw
         # it, and anyone but the tour's guide may ask to take a booked tour with none open.
         booked = booking.status == TourBooking.Status.BOOKED
+        booking.trade_to_name = guide_first_name(booking.trade_to) if booking.has_open_trade else ""  # type: ignore[attr-defined]
         booking.answers_trade = booking.has_open_trade and booking.trade_answerer_id == viewer_pk  # type: ignore[attr-defined]
         booking.withdraws_trade = booking.has_open_trade and booking.trade_asker_id == viewer_pk  # type: ignore[attr-defined]
         booking.can_take = (  # type: ignore[attr-defined]

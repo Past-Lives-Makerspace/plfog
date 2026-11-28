@@ -1,7 +1,7 @@
 """End-to-end: guides trade a tour, and it moves only when the other guide accepts (#1308).
 
 Gina opens Trade this tour on Sam's 4:00 tour, picks Dayzie, adds a note and sends it. Her row reads
-"Trade offered to Dayzie Dove, waiting" with Withdraw, and the tour is still hers. Dayzie signs in,
+"Trade offered to Dayzie, waiting" with Withdraw, and the tour is still hers. Dayzie signs in,
 sees the same row with the note, Accept Trade and Decline, and accepts: the tour is hers, and Sam
 gets one email saying his guide is now Dayzie. ``CAPTURE_1308_DIR=<dir>`` saves the modal, both
 waiting rows and the guest's email, dark, at desktop (1280x800) and phone (390) widths;
@@ -114,7 +114,7 @@ def describe_trade_a_tour():
         # It is still Gina's, waiting on Dayzie.
         waiting = page.locator(f"{row} [data-tour-trade-waiting]")
         waiting.wait_for()
-        assert waiting.inner_text() == "Trade offered to Dayzie Dove, waiting"
+        assert waiting.inner_text() == "Trade offered to Dayzie, waiting"
         assert page.locator(f"{row} [data-tour-booking-guide]").inner_text() == "You"
         page.locator(f'[data-tour-trade-withdraw="{sam.pk}"]').wait_for()
         _capture(page, "waiting-gina", f"{row} [data-tour-trade-withdraw]")

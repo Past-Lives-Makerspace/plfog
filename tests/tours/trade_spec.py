@@ -244,6 +244,31 @@ def describe_accept():
         assert not [message for message in _to("sam@example.com") if "guide is now" in message.subject]
 
 
+def describe_review_fixes():
+    def it_drops_the_old_guides_open_new_time_on_accept(guide: Member, dayzie: Member, booked: TourBooking, committed):
+        """A new time asked of the visitor was on the old guide's tours; accepting it later must not hand the tour back."""
+        with committed():
+            proposal = propose_tour_time(booked, guide=guide, starts_at=FIVE, actor=_user(guide)).proposal_key
+        key = _offer(booked, dayzie, guide, committed)
+        with committed():
+            answer_trade(booked, accept=True, key=key, answerer=dayzie)
+        booked.refresh_from_db()
+        assert (booked.guide, booked.has_open_proposal) == (dayzie, False)
+        assert answer_tour_proposal(booked, accept=True, proposal=proposal) == "stale"
+        booked.refresh_from_db()
+        assert (booked.guide, booked.starts_at) == (dayzie, FOUR)
+
+    def it_tells_the_taker_when_a_new_offer_replaces_their_take(
+        guide: Member, dayzie: Member, third: Member, booked: TourBooking, committed
+    ):
+        with committed():
+            offer_take(booked, taker=dayzie, actor=_user(dayzie))
+        with patch("django.utils.timezone.now", return_value=timezone.now() + timedelta(seconds=1)):
+            _offer(booked, third, guide, committed)
+        assert _bells(dayzie) == ["Tour trade withdrawn"]
+        assert _bells(guide) == ["Tour take asked"]
+
+
 def describe_decline_and_withdraw():
     def it_declines_leaving_the_tour_and_telling_the_original_guide_by_bell_and_email(
         guide: Member, dayzie: Member, booked: TourBooking, committed
@@ -373,7 +398,7 @@ def describe_the_upcoming_tab():
     ):
         offer_trade(booked, to=dayzie, actor=_user(guide), note="Class that day")
         own = signed_in(guide).get(UPCOMING).content.decode()
-        assert "Trade offered to Dayzie Dove, waiting" in own
+        assert "Trade offered to Dayzie, waiting" in own
         assert f'data-tour-trade-withdraw="{booked.pk}"' in own and "data-tour-trade-accept" not in own
         theirs = signed_in(dayzie).get(UPCOMING).content.decode()
         assert "Trade offered to you, waiting" in theirs and "Class that day" in theirs
@@ -384,7 +409,7 @@ def describe_the_upcoming_tab():
     def it_shows_a_take_as_approve_to_the_tours_guide(guide: Member, dayzie: Member, booked: TourBooking):
         offer_take(booked, taker=dayzie, actor=_user(dayzie))
         own = signed_in(guide).get(UPCOMING).content.decode()
-        assert "Dayzie Dove asked to take it, waiting" in own
+        assert "Dayzie asked to take it, waiting" in own
         assert f'data-tour-trade-accept="{booked.pk}">Approve<' in own
         assert "You asked to take it, waiting" in signed_in(dayzie).get(UPCOMING).content.decode()
 

@@ -40,7 +40,7 @@ tab ("upcoming" or "past"), is_admin, viewer_pk (the viewer's member pk).
     {% endif %}
     {% if tab == "upcoming" and booking.has_open_trade %}
     <span class="hub-pill hub-pill--warn" data-tour-trade-status="{{ booking.trade_kind }}">{% if booking.is_take %}Take Asked{% else %}Trade Offered{% endif %}</span>
-    <span class="pl-bookings-table__paid" data-tour-trade-waiting>{% if booking.is_take %}{% if booking.trade_to_id == viewer_pk %}You asked{% else %}{{ booking.trade_to.staff_label }} asked{% endif %} to take it, waiting{% else %}Trade offered to {% if booking.trade_to_id == viewer_pk %}you{% else %}{{ booking.trade_to.staff_label }}{% endif %}, waiting{% endif %}</span>
+    <span class="pl-bookings-table__paid" data-tour-trade-waiting>{% if booking.is_take %}{% if booking.trade_to_id == viewer_pk %}You asked{% else %}{{ booking.trade_to_name }} asked{% endif %} to take it, waiting{% else %}Trade offered to {% if booking.trade_to_id == viewer_pk %}you{% else %}{{ booking.trade_to_name }}{% endif %}, waiting{% endif %}</span>
     {% if booking.answers_trade and booking.trade_note %}<span class="pl-bookings-table__paid hub-text-muted" data-tour-trade-note>“{{ booking.trade_note }}”</span>{% endif %}
     {% if booking.answers_trade or booking.withdraws_trade %}
     <span class="pl-tours-row__trade" data-tour-trade-actions>
