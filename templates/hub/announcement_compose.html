@@ -399,7 +399,8 @@
     var ta = document.getElementById("id_body");
     if (!ta) { return ""; }
     var tmp = document.createElement("div");
-    tmp.innerHTML = ta.value;
+    // A line break or a paragraph's end is a space in the one-line push, as the server's own flattening has it.
+    tmp.innerHTML = ta.value.replace(/<br[^>]*>|<\/(?:p|li|h2|h3|blockquote)>/gi, " ");
     return (tmp.textContent || "").replace(/\s+/g, " ").trim();
   }
   function truncate(s) { return s.length > 180 ? s.slice(0, 179).replace(/\s+$/, "") + "…" : s; }

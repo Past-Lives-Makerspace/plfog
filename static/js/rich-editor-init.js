@@ -63,7 +63,7 @@
        defaults: a paste is cut down to these, so the editor never shows a heading or list the
        save would drop. A toolbar not listed here accepts every format, as before. */
     var FORMATS = {
-        inline: ["bold", "italic", "link"]
+        inline: ["bold", "italic", "link", "softbreak"]
     };
 
     /* The wiki's block formats, registered before any editor is built.
@@ -199,7 +199,94 @@
         return true;
     }
 
+
+    /* Shift+Enter: a new line inside the same paragraph (#1348), as in Google Docs and Word.
+
+       Quill 2.0.3 has no soft break. Its own Break blot is only the placeholder of an empty line
+       and removes itself the moment the line gains text, and its clipboard turns every <br> into
+       a paragraph. So the soft break is its own inline embed, a <br class="pl-softbreak">. The
+       class is what keeps it apart from Quill's Break: a blot registered with a className is
+       looked up by that class, so a bare <br> the browser creates still becomes Quill's Break.
+       Every sanitizer drops the class and keeps the <br>, which is what each channel already
+       reads as one line break (core/html_sanitize.py rich_html_to_lines).
+
+       A <br> that ends a block draws no line, so Shift+Enter at the end of a line puts in two,
+       the cursor between them: the second only holds the empty line open until something is
+       typed. sync() leaves that helper out of what is saved. */
+    function registerSoftBreak() {
+        if (!window.Quill) return;
+        var Parchment = window.Quill.import("parchment");
+        class SoftBreak extends Parchment.EmbedBlot {
+            static value() {
+                return true;
+            }
+            length() {
+                return 1;
+            }
+        }
+        SoftBreak.blotName = "softbreak";
+        SoftBreak.tagName = "BR";
+        SoftBreak.className = "pl-softbreak";
+        window.Quill.register({ "formats/softbreak": SoftBreak }, true);
+    }
+
+    function softBreakBinding() {
+        return {
+            key: "Enter",
+            shiftKey: true,
+            handler: function (range, context) {
+                // A settings (code) block keeps Quill's own Enter, a new line of code.
+                if (context.format["code-block"]) return true;
+                var quill = this.quill;
+                if (range.length) quill.deleteText(range.index, range.length, "user");
+                var line = quill.getLine(range.index);
+                var atLineEnd = range.index === quill.getIndex(line[0]) + line[0].length() - 1;
+                quill.insertEmbed(range.index, "softbreak", true, "user");
+                if (atLineEnd) quill.insertEmbed(range.index + 1, "softbreak", true, "user");
+                quill.setSelection(range.index + 1, 0, "silent");
+                return false;
+            }
+        };
+    }
+
+    var INLINE_TAGS = /^(?:A|B|BR|CODE|EM|I|S|SPAN|STRIKE|STRONG|SUB|SUP|U)$/;
+
+    function isInlineContent(node) {
+        if (!node) return false;
+        if (node.nodeType === Node.TEXT_NODE) return /\S/.test(node.textContent);
+        return node.nodeType === Node.ELEMENT_NODE && INLINE_TAGS.test(node.tagName);
+    }
+
+    function besideContent(node, step) {
+        var sibling = node[step];
+        // Whitespace between tags is formatting, not content.
+        while (sibling && sibling.nodeType === Node.TEXT_NODE && !/\S/.test(sibling.textContent)) sibling = sibling[step];
+        return isInlineContent(sibling);
+    }
+
+    /* Loading HTML back in (the seed on every open, a draft Restore, a paste): a <br> with text
+       or inline markup beside it is a soft break. A <br> alone in its block is Quill's empty line,
+       and one between blocks (Google Docs puts those in a paste) is neither, so both keep Quill's
+       own handling. */
+    function softBreakMatcher(node, delta) {
+        if (!besideContent(node, "previousSibling") && !besideContent(node, "nextSibling")) return delta;
+        var Delta = window.Quill.import("delta");
+        return new Delta().insert({ softbreak: true });
+    }
+
+    /* The HTML to save: the editor's, less the end of line helper. A block whose last child is a
+       soft break, with something before it, ends in a <br> that draws nothing. */
+    function savedHtml(root) {
+        if (!root.querySelector("br.pl-softbreak")) return root.innerHTML;
+        var copy = root.cloneNode(true);
+        copy.querySelectorAll("br.pl-softbreak").forEach(function (br) {
+            if (!br.nextSibling && br.previousSibling && /^(?:P|LI|H2|H3|BLOCKQUOTE)$/.test(br.parentNode.tagName)) br.remove();
+        });
+        return copy.innerHTML;
+    }
+
     registerWikiFormats();
+    registerSoftBreak();
 
     window.plRteInitAll = function () {
         if (!window.Quill) return;
@@ -213,7 +300,9 @@
             var options = {
                 theme: "snow",
                 modules: {
-                    toolbar: { container: TOOLBARS[mount.dataset.rteToolbar] || TOOLBARS.default }
+                    toolbar: { container: TOOLBARS[mount.dataset.rteToolbar] || TOOLBARS.default },
+                    keyboard: { bindings: { "soft break": softBreakBinding() } },
+                    clipboard: { matchers: [["BR", softBreakMatcher]] }
                 }
             };
             if (FORMATS[mount.dataset.rteToolbar]) options.formats = FORMATS[mount.dataset.rteToolbar];
@@ -237,7 +326,7 @@
        the form, and the description count wants the editor's TEXT, not its HTML, so the event
        carries it (static/js/composer_description_count.js). */
     function sync(ta, quill, userEdit) {
-        ta.value = quill.root.innerHTML;
+        ta.value = savedHtml(quill.root);
         ta.dispatchEvent(new CustomEvent("pl-rte-change", { bubbles: true, detail: { text: quill.getText() } }));
         /* A member's edit also fires a plain bubbling input on the textarea, so a page that saves
            as it is edited (the guild settings autosave) hears the editor like any other field. Not
@@ -260,7 +349,7 @@
             if (!ta || !ta.classList || !ta.classList.contains("pl-rte-source") || !ta.id) return;
             var mount = document.querySelector('.pl-rte[data-rte-for="' + ta.id + '"]');
             var quill = mount && mount.plQuill;
-            if (!quill || quill.root.innerHTML === ta.value) return;
+            if (!quill || savedHtml(quill.root) === ta.value) return;
             quill.setContents(quill.clipboard.convert({ html: ta.value }), "silent");
             sync(ta, quill);
         });

@@ -1,0 +1,12 @@
+bump = "minor"
+date = "2026-11-27"
+audience = ["guild-staff", "instructors", "admins"]
+feature = "admin.email-members"
+guidance = "none"
+requests = [41]
+title = "Shift+Enter starts a new line in the same paragraph"
+changes = [
+  "When you write an announcement, Shift+Enter puts the next words on a new line with no gap above it, the way Google Docs and Word do. Enter still starts a new paragraph.",
+  "The tight line stays tight in the email, on Discord, in the notification and on the guild page.",
+  "It works the same in every text box with a formatting toolbar, like class descriptions.",
+]
